@@ -20,17 +20,21 @@ test('the host sends data and the phone writes the words', () => {
       { id: 't3', kind: 'tool', name: 'read', result: 'short' },
     ],
   };
-  const phone = remoteTranscriptSnapshot(host, '/work');
+  const phone = remoteTranscriptSnapshot(host);
   assert.doesNotMatch(JSON.stringify(phone), /omitted …|Output withheld/u);
   // Tool rows keep the text their header is parsed from; the note is its own line.
-  const [cut, withheld, aggregate, plain] = phone.items;
+  const [cut, env, aggregate, plain] = phone.items;
   assert.match(remoteOutputNotice(cut), /^… \d+ characters omitted …$/u);
-  assert.match(remoteOutputNotice(withheld), /^Output withheld: this tool call touches a secret file/u);
-  assert.doesNotMatch(JSON.stringify(phone), /sk-live/u);
+  // A secret-bearing read reaches the phone as the desktop shows it.
+  assert.equal(env, host.items[1]);
+  assert.equal(remoteOutputNotice(env), '');
   assert.match(remoteOutputNotice(aggregate.toolMembers[0]), /characters omitted/u);
   assert.equal(remoteOutputNotice(plain), '');
   const { remoteOutputTruncated: _cut, ...merged } = { ...cut, result: LONG };
   assert.equal(remoteOutputNotice(merged), '', 'a row holding its whole output (a full read) has no note');
+  // A host from before parity withheld such a row; its note is still worded.
+  const older = { ...host.items[1], result: '', remoteOutputNotes: { result: { kind: 'withheld' } } };
+  assert.match(remoteOutputNotice(older), /^Output withheld: this tool call touches a secret file/u);
 });
 
 test('a message row over the per-row ceiling is sent whole', () => {

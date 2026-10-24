@@ -111,7 +111,6 @@ import { requiredVisualizeTabCommand } from './ipc-validation';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { localPageOrigin, localPageUrl } from './local-page-server';
-import { requiredSensitivePolicy } from './remote-sensitive-paths';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
 import type { SessionTerminalTab } from './terminal-manager';
@@ -1082,15 +1081,12 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             // The daemon already confined the path; this only renders it.
             result = await fileSnapshots.capture(String(args[0] || ''), String(args[1] || ''), args[2] === true);
           } else if (hostMethod === 'localPageUrl') {
-            // The daemon already confined the path; this only mints the lease,
-            // owned by the window so it dies with it. A paired device's lease
-            // carries the daemon's deny policy: every asset the page pulls in
-            // is judged by it, through the opened file.
+            // The daemon already confined the path; this only mints the lease
+            // the desktop handler mints, owned by the window so it dies with it.
             result = await localPageUrl(String(args[0] || ''), String(args[1] || ''), {
               scope: args[2] === 'file' ? 'file' : 'project',
               owner: mainWindow?.webContents,
               authorize: async () => {},
-              remote: requiredSensitivePolicy(args[3]),
             });
           } else {
             result = desktopUpdater.getState();

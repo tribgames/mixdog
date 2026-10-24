@@ -264,12 +264,7 @@ export async function synchronizeRelayViews(
             historyPatch: state.promptHistoryPatch === true,
           });
         state.sessionStateEncoders.set(update.sessionId, encoder);
-        const wire = encodePhoneSessionState(
-          encoder,
-          update.snapshot,
-          snapshot.sessions.find((row) => row.id === update.sessionId)?.cwd ?? '',
-          state.transcriptPaging === true
-        );
+        const wire = encodePhoneSessionState(encoder, update.snapshot, state.transcriptPaging === true);
         if (!resumed) {
           writes.push(sendBaseline({ event: 'sessionState', payload: { ...update, wire, snapshot: undefined } }));
           continue;

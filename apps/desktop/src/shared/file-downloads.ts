@@ -3,11 +3,13 @@
 // (renderer/remote-shim-api.ts), the encrypted media lane and the native save
 // sinks (shared/native-file-save.ts) all build against.
 //
-// Policy, enforced on the HOST from its own records, never from the request:
-// a device may download (a) a file inside the session's registered project,
-// (b) a file an assistant reply in that session links (outside the project
-// too), or (c) a generated media asset of this host's media store. Nothing
-// else on the host. At most FILE_DOWNLOAD_MAX_BYTES per file.
+// Policy, enforced on the HOST: a paired device is the user's own and may
+// download what the desktop can open — a file of the session's registered
+// project (which may not leave it through a link), a file or folder a link or
+// the session names (absolute, or relative to the session's folder), an
+// attachment the session's messages carry, a media asset of this host's
+// media store, or an export rendered for it. At most FILE_DOWNLOAD_MAX_BYTES
+// per file.
 //
 // Flow: `authorize` mints a one-time grant (short redemption TTL) bound to the
 // calling paired device, the session, the canonical file and its version, and
@@ -37,24 +39,22 @@ export const FILE_DOWNLOAD_PURPOSES: readonly FileDownloadPurpose[] = ['save', '
 export type FileDownloadSource =
   /** A file of the session's registered project, project-relative. */
   | { kind: 'project'; sessionId: string; relPath: string }
-  /** A local link a settled assistant reply of the session writes: `href` is
-   *  the link target exactly as the reply's markdown wrote it (an absolute
-   *  path, a `file:` URL, or a path relative to the session's folder; a
-   *  `:line`/`#L` suffix is ignored). `itemId` names the row the device
-   *  showed it in; the host does not match it, since each surface numbers
-   *  restored rows itself, and accepts any settled reply of the session. */
+  /** A local link the session shows: `href` is the link target exactly as
+   *  the markdown wrote it (an absolute path, a `file:` URL, or a path
+   *  relative to the session's folder; a `:line`/`#L` suffix is ignored).
+   *  `itemId` names the row the device showed it in; the host does not need
+   *  it, since each surface numbers restored rows itself. */
   | { kind: 'link'; sessionId: string; itemId: string; href: string }
-  /** A file the session's transcript references or its tools produced (a
-   *  link, a tool result's path, a shell/agent output, a screenshot), outside
-   *  any project too: `path` is absolute or relative to the session's folder,
-   *  and the host serves it only when it matches that session's referenced
-   *  set (transcript-file-links.ts sessionReferencedPaths). */
+  /** A file the session shows (a link, a tool result's path, a shell/agent
+   *  output, a screenshot), outside any project too: `path` is absolute or
+   *  relative to the session's folder. */
   | { kind: 'session'; sessionId: string; path: string }
   /** An attachment the session's messages carry, by content hash (the
    *  message metadata's attachment id): served only for an id THIS session's
    *  transcript names. */
   | { kind: 'attachment'; sessionId: string; attachmentId: string }
-  /** A referenced FOLDER, zipped by the host on demand (size-capped). */
+  /** A FOLDER the session shows (absolute, or relative to its folder),
+   *  zipped by the host on demand (size-capped). */
   | { kind: 'folder'; sessionId: string; path: string }
   /** A generated media asset (its original rendition) by gallery asset id. */
   | { kind: 'media'; sessionId: string; assetId: string }
@@ -87,10 +87,12 @@ export interface FileDownloadGrant {
 }
 
 /** What a download leaves out. A folder zip leaves out git-ignored (or
- *  generated-folder) content and secret files; a visualize PNG of a long
- *  document includes only its first `pages.included` of `pages.total` pages. */
+ *  generated-folder) content; a visualize PNG of a long document includes
+ *  only its first `pages.included` of `pages.total` pages. */
 export interface FolderLeftOut {
   ignored: number;
+  /** Secret-bearing files a host before PC parity left out of a zip; this
+   *  host leaves none out (always 0). */
   secret: number;
   pages?: { included: number; total: number };
 }
@@ -160,7 +162,8 @@ export const FILE_DOWNLOAD_REMOTE_METHODS = {
 } as const;
 
 /** Why a download was refused. The first six are the reasons a UI shows;
- *  the rest are transport/lookup outcomes. */
+ *  the rest are transport/lookup outcomes. `sensitive` comes only from a host
+ *  before PC parity; `not-linked` names an attachment the session lacks. */
 export type FileDownloadErrorReason =
   | 'not-linked'
   | 'outside-project'

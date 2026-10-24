@@ -14,7 +14,6 @@ import {
   zipFolderTestHooks,
   zipListedFiles,
 } from './zip-folder.ts';
-import { sensitivePathMatcher } from './remote-sensitive-paths.ts';
 
 const limits = { maxBytes: 1024, maxFiles: 10 };
 
@@ -41,8 +40,8 @@ const entryCount = (zip) => zip.readUInt16LE(zip.length - 22 + 10);
 
 test('a folder zips every regular file', async (t) => {
   const root = await folder(t);
-  const { archive: zip, ignored, secret } = await zipFolder(root, limits);
-  assert.deepEqual({ ignored, secret }, { ignored: 0, secret: 0 });
+  const { archive: zip, ignored } = await zipFolder(root, limits);
+  assert.equal(ignored, 0);
   assert.equal(zip.readUInt32LE(0), 0x04034b50);
   assert.equal(entryCount(zip), 2);
   assert.equal(zip.includes(Buffer.from('sub/b.txt')), true);
@@ -103,53 +102,53 @@ async function fileLink(target, path) {
   }
 }
 
-test('links are judged by their real location: inside, allowed targets are packed under the link name', async (t) => {
+test('links are judged by their real location: targets inside are packed under the link name', async (t) => {
   const root = await folder(t);
   const elsewhere = await folder(t);
   await mkdir(join(root, '.ssh'));
   await writeFile(join(root, '.ssh', 'id_rsa'), 'key');
-  // A folder link inside the zipped folder, one out of it, one to a secret
-  // folder and one back to the root.
+  // A folder link inside the zipped folder, one out of it, one to a
+  // secret-bearing folder and one back to the root.
   if (!(await link(join(root, 'sub'), join(root, 'sub-link')))) return t.skip('links are unavailable');
   await link(join(elsewhere, 'sub'), join(root, 'escape'));
   await link(join(root, '.ssh'), join(root, 'keys'));
   await link(root, join(root, 'sub', 'loop'));
-  const denied = await sensitivePathMatcher();
-  const files = await listFolderFiles(root, limits, denied);
+  const files = await listFolderFiles(root, limits);
   const names = files.map((file) => file.rel);
-  // Before the fix every link was dropped: sub-link/b.txt was missing.
-  assert.deepEqual(names, ['a.txt', 'sub/b.txt', 'sub-link/b.txt']);
+  // Before the fix every link was dropped: sub-link/b.txt was missing. Before
+  // PC parity `.ssh` and the link to it were left out as secrets.
+  assert.deepEqual(names, ['.ssh/id_rsa', 'a.txt', 'keys/id_rsa', 'sub/b.txt', 'sub-link/b.txt']);
   assert.equal(files.find((file) => file.rel === 'sub-link/b.txt').absolute, join(root, 'sub', 'b.txt'));
   const zip = await zipListedFiles(files, limits.maxBytes);
-  assert.equal(entryCount(zip), 3);
+  assert.equal(entryCount(zip), 5);
   assert.equal(zip.includes(Buffer.from('sub-link/b.txt')), true);
 });
 
-test('a file link is packed only when its target is inside the folder and not a secret', async (t) => {
+test('a file link is packed only when its target is inside the folder', async (t) => {
   const root = await folder(t);
   const elsewhere = await folder(t);
   await writeFile(join(root, '.env'), 'TOKEN=1');
   if (!(await fileLink(join(root, 'a.txt'), join(root, 'alias.txt')))) return t.skip('file links are unavailable');
   await fileLink(join(elsewhere, 'a.txt'), join(root, 'outside.txt'));
   await fileLink(join(root, '.env'), join(root, 'public.txt'));
-  const files = await listFolderFiles(root, limits, await sensitivePathMatcher());
+  const files = await listFolderFiles(root, limits);
+  // Before PC parity `.env` and the link to it were left out as secrets.
   assert.deepEqual(
     files.map((file) => file.rel),
-    ['a.txt', 'alias.txt', 'sub/b.txt']
+    ['.env', 'a.txt', 'alias.txt', 'public.txt', 'sub/b.txt']
   );
   const zip = await zipListedFiles(files, limits.maxBytes);
-  assert.equal(entryCount(zip), 3);
+  assert.equal(entryCount(zip), 5);
 });
 
-test('.git is left out through the shared deny list, not a special case', async (t) => {
+test('outside a git work tree a .git folder is packed like any other', async (t) => {
   const root = await folder(t);
   await mkdir(join(root, '.git'));
   await writeFile(join(root, '.git', 'config'), '[remote "origin"]');
-  const denied = await sensitivePathMatcher();
-  assert.equal(denied(join(root, '.git')), true);
+  // Before PC parity it was left out through the secret deny list.
   assert.deepEqual(
-    (await listFolderFiles(root, limits, denied)).map((file) => file.rel),
-    ['a.txt', 'sub/b.txt']
+    (await listFolderFiles(root, limits)).map((file) => file.rel),
+    ['.git/config', 'a.txt', 'sub/b.txt']
   );
 });
 
@@ -177,23 +176,24 @@ async function repository(t) {
 
 test('in a git work tree ignored paths are left out, untracked files stay, and the counts are reported', async (t) => {
   const root = await repository(t);
-  const scan = await scanFolder(root, big, await sensitivePathMatcher());
-  assert.deepEqual(names(scan.files), ['.gitignore', 'src/tracked.ts', 'src/untracked.ts']);
+  const scan = await scanFolder(root, big);
+  // The untracked secret stays like any untracked file; git's own store is
+  // left out by git's verdict.
+  assert.deepEqual(names(scan.files), ['.env', '.gitignore', 'src/tracked.ts', 'src/untracked.ts']);
   // node_modules/pkg/index.js, dist/bundle.js, dist/inner/map.js, src/debug.log
   assert.equal(scan.ignored, 4);
-  assert.equal(scan.secret, 1);
 });
 
 test('a subfolder of a git work tree is judged by the same rules', async (t) => {
   const root = await repository(t);
-  const scan = await scanFolder(join(root, 'src'), big, await sensitivePathMatcher());
+  const scan = await scanFolder(join(root, 'src'), big);
   assert.deepEqual(names(scan.files), ['tracked.ts', 'untracked.ts']);
   assert.equal(scan.ignored, 1);
 });
 
 test('a selected folder that is itself ignored is filtered, not zipped whole', async (t) => {
   const root = await repository(t);
-  const scan = await scanFolder(join(root, 'dist'), big, await sensitivePathMatcher());
+  const scan = await scanFolder(join(root, 'dist'), big);
   assert.deepEqual(names(scan.files), []);
   assert.equal(scan.ignored, 2);
 });
@@ -206,8 +206,9 @@ test('a nested repository is filtered by its own .gitignore', async (t) => {
   await writeFile(join(nested, '.gitignore'), 'cache/\n');
   await writeFile(join(nested, 'keep.txt'), 'keep');
   await writeFile(join(nested, 'cache', 'junk.txt'), 'junk');
-  const scan = await scanFolder(root, big, await sensitivePathMatcher());
+  const scan = await scanFolder(root, big);
   assert.deepEqual(names(scan.files), [
+    '.env',
     '.gitignore',
     'nested/.gitignore',
     'nested/keep.txt',
@@ -220,8 +221,8 @@ test('a nested repository is filtered by its own .gitignore', async (t) => {
 test('a linked folder pointing into an ignored area contributes none of its ignored files', async (t) => {
   const root = await repository(t);
   if (!(await link(join(root, 'dist'), join(root, 'dist-link')))) return t.skip('links are unavailable');
-  const scan = await scanFolder(root, big, await sensitivePathMatcher());
-  assert.deepEqual(names(scan.files), ['.gitignore', 'src/tracked.ts', 'src/untracked.ts']);
+  const scan = await scanFolder(root, big);
+  assert.deepEqual(names(scan.files), ['.env', '.gitignore', 'src/tracked.ts', 'src/untracked.ts']);
 });
 
 test('outside git the well-known generated folders are left out by name', async (t) => {
@@ -238,7 +239,6 @@ test('outside git the well-known generated folders are left out by name', async 
   const scan = await scanFolder(root, big);
   assert.deepEqual(names(scan.files), ['a.txt', 'sub/b.txt', 'sub/build']);
   assert.equal(scan.ignored, 5);
-  assert.equal(scan.secret, 0);
 });
 
 test('outside git a selected generated folder is zipped whole', async (t) => {
@@ -254,13 +254,12 @@ test('outside git a selected generated folder is zipped whole', async (t) => {
 
 test('the caps count what is left after the exclusions, and the refusal carries the counts', async (t) => {
   const root = await repository(t);
-  // Ignored files do not count toward the caps: 3 files remain.
-  const denied = await sensitivePathMatcher();
-  assert.equal((await scanFolder(root, { maxBytes: 1024, maxFiles: 3 }, denied)).files.length, 3);
-  const refused = await scanFolder(root, { maxBytes: 1024, maxFiles: 2 }, denied).catch((error) => error);
+  // Ignored files do not count toward the caps: 4 files remain.
+  assert.equal((await scanFolder(root, { maxBytes: 1024, maxFiles: 4 })).files.length, 4);
+  const refused = await scanFolder(root, { maxBytes: 1024, maxFiles: 3 }).catch((error) => error);
   assert.ok(refused instanceof FolderTooLargeError);
-  // .gitignore (26 bytes), tracked.ts (7) and untracked.ts (9).
-  assert.deepEqual({ files: refused.files, bytes: refused.bytes }, { files: 3, bytes: 42 });
+  // .env (7 bytes), .gitignore (26), tracked.ts (7) and untracked.ts (9).
+  assert.deepEqual({ files: refused.files, bytes: refused.bytes }, { files: 4, bytes: 49 });
 });
 
 test('a file replaced after the walk is left out', async (t) => {

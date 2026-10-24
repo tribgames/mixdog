@@ -278,9 +278,6 @@ const STATIC_OPERATIONS = {
   readProjectTextFileIn: projectFiles.readProjectTextFileIn,
   readProjectTextFileAuthorized: remoteProjectFiles.readProjectTextFileAuthorized,
   writeProjectTextFileAuthorized: remoteProjectFiles.writeProjectTextFileAuthorized,
-  readLocalFileAuthorized: remoteProjectFiles.readLocalFileAuthorized,
-  readScopedEditorSettingsAuthorized: remoteProjectFiles.readScopedEditorSettingsAuthorized,
-  writeWorkspaceFileAuthorized: remoteProjectFiles.writeWorkspaceFileAuthorized,
   readMarkdownDefaultView: workspaceConfig.readMarkdownDefaultView,
   readScopedEditorSettings: workspaceConfig.readScopedEditorSettings,
   writeMarkdownDefaultView: workspaceConfig.writeMarkdownDefaultView,
@@ -376,7 +373,6 @@ export function createDesktopOperations({
         remoteProjectFiles.writeProjectTextFilesAuthorized(
           args[0] as string,
           args[1] as Parameters<typeof remoteProjectFiles.writeProjectTextFilesAuthorized>[1],
-          args[2],
           userDataPath
         )
       );

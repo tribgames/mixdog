@@ -1,27 +1,27 @@
-// Host authorization for paired-device file downloads (GitHub #40 item 1; the
-// wire contract is shared/file-downloads.ts). The HOST decides what a device
-// may download, from its own records: the session's registered project, the
-// session's settled assistant rows (transcript-file-links.ts) and its media
-// store. A request names records — session, row id, link, project-relative
-// path, asset id — never a host path it chose.
+// Host file downloads for a paired device (GitHub #40 item 1; the wire
+// contract is shared/file-downloads.ts). A paired device is the user's own,
+// so it may download whatever the desktop can open: a file of the session's
+// project, a path a link or the session names (relative ones under the
+// session's folder), a folder as a zip, a media asset, an attachment, an
+// export. Only the desktop's own project boundary applies: a project path may
+// not leave its project through a symlink or junction.
 //
 // Files are canonicalized by real filesystem identity: realpath, regular files
-// only (no directories, devices, FIFOs, network/UNC paths), no symlink or
-// junction escape out of the project, and a linked file outside the project
-// that is itself a symlink is refused. Those checks name a resolved path, so
-// once the file is open the open file itself must be shown to live at that
-// path (opened-file-path.ts): an ancestor swapped for a junction between
-// resolving and opening is refused. The file is opened ONCE at authorize time
-// and that same handle serves every byte of the transfer, so what was
-// authorized is what is read. Its identity, size and modification time form
-// the version every read is checked against, together with its location.
+// only (no directories, devices, FIFOs, network/UNC paths). Those checks name
+// a resolved path, so once the file is open the open file itself must be
+// shown to live at that path (opened-file-path.ts): an ancestor swapped for a
+// junction between resolving and opening is refused. The file is opened ONCE
+// at authorize time and that same handle serves every byte of the transfer,
+// so what was authorized is what is read. Its identity, size and modification
+// time form the version every read is checked against, together with its
+// location.
 //
 // Unpair, session deletion and close bump revocation generations; an
 // authorize or begin re-checks them after its filesystem work, so a
 // revocation that ran meanwhile leaves no grant or lease behind.
 import { createHash, randomUUID } from 'node:crypto';
 import { type BigIntStats, constants } from 'node:fs';
-import { type FileHandle, lstat, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { type FileHandle, mkdtemp, open, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
@@ -55,14 +55,7 @@ import { requiredSessionId } from './desktop-state';
 import { requiredString, sanitizedFileName } from './ipc-validation';
 import { openedFilePath } from './opened-file-path';
 import { projectEntryPathIn } from './project-files';
-import { sensitivePathMatcher } from './remote-sensitive-paths';
-import {
-  assistantLinkedPath,
-  referencedPathFor,
-  requestedLinkPath,
-  resolveLinkedPath,
-  sessionGeneratedAssetIds,
-} from './transcript-file-links';
+import { requestedLinkPath, resolveLinkedPath } from './transcript-file-links';
 import { FolderMovedError, FolderTooLargeError, zipFolder } from './zip-folder';
 import { attachmentViewName, readSessionAttachment, requiredAttachmentId } from './session-attachments';
 
@@ -226,18 +219,10 @@ function inside(root: string, path: string): boolean {
 
 const changed = (): FileDownloadError => new FileDownloadError('changed', 'The file changed on the host.');
 const expired = (): FileDownloadError => new FileDownloadError('expired', 'This download is no longer available.');
-const sensitive = (): FileDownloadError =>
-  new FileDownloadError('sensitive', 'This file can hold credentials or secrets and cannot be downloaded.');
 const tooLarge = (): FileDownloadError =>
   new FileDownloadError('too-large', 'Files larger than 256 MB cannot be downloaded.');
-
-/** Refuses a download whose requested name or canonical location is
- *  secret-bearing: whatever vouched for the path, secrets never leave the host. */
-async function refuseSensitive(requested: string, canonical: string): Promise<(path: string) => boolean> {
-  const denied = await sensitivePathMatcher();
-  if (denied(requested) || denied(canonical)) throw sensitive();
-  return denied;
-}
+const notLocal = (): FileDownloadError =>
+  new FileDownloadError('not-a-file', 'Only files on this PC can be downloaded.');
 
 function missing(error: unknown): never {
   const code = (error as { code?: unknown } | null)?.code;
@@ -266,19 +251,16 @@ async function verifyLocation(file: OpenedFile): Promise<void> {
  *  that it is the file at that path: every check the caller makes on
  *  `canonical` then holds for the bytes the handle reads. */
 async function openRegularFile(path: string): Promise<{ canonical: string; file: OpenedFile }> {
-  const notAFile = (): FileDownloadError =>
-    new FileDownloadError('not-a-file', 'Only files on this PC can be downloaded.');
-  if (NETWORK_PATH.test(path)) throw notAFile();
+  if (NETWORK_PATH.test(path)) throw notLocal();
   const canonical = await realpath(path).catch(missing);
-  if (NETWORK_PATH.test(canonical)) throw notAFile();
-  await refuseSensitive(path, canonical);
-  if (!(await stat(canonical).catch(missing)).isFile()) throw notAFile();
+  if (NETWORK_PATH.test(canonical)) throw notLocal();
+  if (!(await stat(canonical).catch(missing)).isFile()) throw notLocal();
   await fileDownloadTestHooks.afterResolve?.(canonical);
   const handle = await open(canonical, OPEN_FLAGS).catch(missing);
   fileDownloadTestHooks.opened?.(handle);
   try {
     const info = await handle.stat({ bigint: true });
-    if (!info.isFile()) throw notAFile();
+    if (!info.isFile()) throw notLocal();
     const file = {
       handle,
       location: canonical,
@@ -356,128 +338,64 @@ async function authorizeProjectFile(
   const { canonical, file } = await openRegularFile(lexical);
   return guarded(file, async () => {
     if (!inside(root, canonical)) throw outside();
-    await refuseGitInternals(canonical, [root, row.cwd]);
     const name = basename(lexical);
     return { file, name, mime: localFileMimeTypeForPath(name) };
   });
 }
 
-/** Refuses a request whose own name is secret-bearing before any provenance
- *  lookup: a secret is refused as one, whether or not (or however) the
- *  conversation linked it. */
-async function refuseSensitiveName(requested: string | null): Promise<void> {
-  if (requested) await refuseSensitive(requested, requested);
+/** The host path a request names (absolute, or relative to the session's
+ *  folder); a path that names nothing on this PC (a web link, a network
+ *  share, a relative path with no session folder) is refused. */
+function requestedPath(path: string | null): string {
+  if (!path) throw notLocal();
+  return path;
 }
 
-/** A file a settled reply of the session links. The row the device names
- *  (`itemId`) is not checked: row ids are per surface (see
- *  assistantLinkedPath), and any settled reply of THIS session vouches. */
-async function authorizeLinkedFile(
+/** A file a link in the session names, decoded the way the device decodes
+ *  it (`:line`/`#L` dropped). */
+function authorizeLinkedFile(
   host: FileDownloadHost,
   row: DesktopSessionSummary,
   href: string
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
-  await refuseSensitiveName(requestedLinkPath(href, row.cwd));
-  const snapshot = host.readSessionTranscript ? await host.readSessionTranscript(row.id) : null;
-  const linked = snapshot ? assistantLinkedPath(snapshot, href, row.cwd) : null;
-  if (!linked) throw new FileDownloadError('not-linked', 'No reply in this conversation links that file.');
-  return openLinkedPath(host, row, linked);
+  return openSessionPath(host, row, requestedPath(requestedLinkPath(href, row.cwd)));
 }
 
-/** A file the session's transcript references or its tools produced, named
- *  by the path the device saw; refused unless it is in THIS session's set. */
-async function authorizeSessionFile(
+/** A file the session shows, named by the path the device saw. */
+function authorizeSessionFile(
   host: FileDownloadHost,
   row: DesktopSessionSummary,
   path: string
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
-  await refuseSensitiveName(resolveLinkedPath(path, row.cwd));
-  const referenced = await referencedFor(host, row, path);
-  return openLinkedPath(host, row, referenced);
+  return openSessionPath(host, row, requestedPath(resolveLinkedPath(path, row.cwd)));
 }
 
-async function referencedFor(host: FileDownloadHost, row: DesktopSessionSummary, path: string): Promise<string> {
-  const snapshot = host.readSessionTranscript ? await host.readSessionTranscript(row.id) : null;
-  const referenced = snapshot ? referencedPathFor(snapshot, row.cwd, path) : null;
-  if (!referenced) throw new FileDownloadError('not-linked', 'This conversation does not reference that file.');
-  return referenced;
-}
-
-/** Opens `linked` (a path the session's records vouch for) as a download:
- *  inside a project it may not leave it through a link, outside every project
- *  the vouched name itself must be the file. */
-async function openLinkedPath(
+/** Opens `requested` (a host path the session names) as a download: inside
+ *  the session's project it may not leave it through a link. */
+async function openSessionPath(
   host: FileDownloadHost,
   row: DesktopSessionSummary,
-  linked: string
+  requested: string
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
   const root = await projectRoot(host, row);
-  const lexicalInProject = root !== null && (inside(root, linked) || inside(resolve(String(row.projectPath)), linked));
-  const { canonical, file } = await openRegularFile(linked);
+  const lexicalInProject =
+    root !== null && (inside(root, requested) || inside(resolve(String(row.projectPath)), requested));
+  const { canonical, file } = await openRegularFile(requested);
   return guarded(file, async () => {
-    const canonicalInProject = root !== null && inside(root, canonical);
     // A project path may not leave the project through a symlink/junction.
-    if (lexicalInProject && !canonicalInProject) {
+    if (lexicalInProject && !(root !== null && inside(root, canonical))) {
       throw new FileDownloadError('outside-project', "The link resolves outside the conversation's project.");
     }
-    await refuseGitInternals(canonical, root ? [root, row.cwd] : [row.cwd]);
-    if (!canonicalInProject) {
-      // Outside the project the linked name itself must be the file: a
-      // symlink there would hand out a target nothing linked.
-      const leaf = await lstat(linked, { bigint: true }).catch(missing);
-      if (leaf.isSymbolicLink()) {
-        throw new FileDownloadError('not-linked', 'The linked file is a symbolic link to a file nothing linked.');
-      }
-      if (!sameFile(identityOf(leaf), file.identity)) throw changed();
-    }
-    const name = basename(linked);
+    const name = basename(requested);
     return { file, name, mime: localFileMimeTypeForPath(name) };
   });
 }
 
-/** Git's own store is never a download. A `.git` directory (or pointer file)
- *  on the path is a secret folder of the shared deny list; this refuses a git
- *  dir that has another name: one a `.git` file in one of the session's
- *  folders — or any folder above the file or above those folders — points to:
- *  a separate git dir, a (nested) worktree's gitdir and the common dir it
- *  shares. */
-async function refuseGitInternals(canonical: string, folders: readonly string[]): Promise<void> {
-  const refused = (): FileDownloadError =>
-    new FileDownloadError('outside-project', "Git's internal files cannot be downloaded.");
-  const candidates = new Set([dirname(canonical), ...folders].flatMap(selfAndAncestors));
-  const gitDirs = (await Promise.all([...candidates].map(pointedGitDirs))).flat();
-  if (gitDirs.some((gitDir) => inside(gitDir, canonical))) throw refused();
-}
-
-function selfAndAncestors(folder: string): string[] {
-  const chain = [folder];
-  for (let parent = dirname(folder); parent !== chain[chain.length - 1]; parent = dirname(parent)) chain.push(parent);
-  return chain;
-}
-
-/** The git dirs a `.git` FILE in `folder` points to; none for a `.git`
- *  directory (the path rule covers it) or no `.git` at all. */
-async function pointedGitDirs(folder: string): Promise<string[]> {
-  const pointer = await readFile(join(folder, '.git'), 'utf8').catch(() => '');
-  const target = /^gitdir:\s*(.+?)\s*$/m.exec(pointer)?.[1];
-  const gitDir = target ? await realpath(resolve(folder, target)).catch(() => null) : null;
-  if (!gitDir) return [];
-  const common = (await readFile(join(gitDir, 'commondir'), 'utf8').catch(() => '')).trim();
-  const commonDir = common ? await realpath(resolve(gitDir, common)).catch(() => null) : null;
-  return commonDir ? [gitDir, commonDir] : [gitDir];
-}
-
-/** Only an asset this session's own media tool calls generated — never one
- *  named by another session, a prompt or prose. */
+/** A media asset by its id. */
 async function authorizeMediaAsset(
   host: FileDownloadHost,
-  row: DesktopSessionSummary,
   assetId: string
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
-  const snapshot = host.readSessionTranscript ? await host.readSessionTranscript(row.id) : null;
-  if (!sessionGeneratedAssetIds(snapshot).has(assetId)) {
-    throw new FileDownloadError('not-linked', 'This conversation did not generate that media.');
-  }
   const result = await host.invokeCapability('resolveMediaFile', [assetId, { variant: 'original', generate: false }]);
   const media = (result as { value?: unknown } | null)?.value as {
     path?: unknown;
@@ -633,55 +551,33 @@ export function createFileDownloadService({
     }
   };
 
-  /** A referenced folder, zipped into the service's own temp record (removed
-   *  like an export once nothing holds it) and opened as the download. */
+  /** A folder the session names (absolute, or relative to its folder),
+   *  zipped into the service's own temp record (removed like an export once
+   *  nothing holds it) and opened as the download. */
   const authorizeFolderZip = async (
     requester: FileDownloadRequester,
     row: DesktopSessionSummary,
     path: string
   ): Promise<{ file: OpenedFile; name: string; mime: string; leftOut: FolderLeftOut }> => {
-    // A folder of the conversation's own project (Explorer) needs no reply
-    // that mentions it; every other folder must be one the records reference.
-    const projectFolder = async (): Promise<string | null> => {
-      const projectRootPath = await projectRoot(host, row);
-      const candidate = resolve(row.cwd, path);
-      return projectRootPath !== null && inside(projectRootPath, candidate) ? candidate : null;
-    };
-    const referenced = await referencedFor(host, row, path).catch(async (error: unknown) => {
-      const own = error instanceof FileDownloadError && error.reason === 'not-linked' ? await projectFolder() : null;
-      if (own === null) throw error;
-      return own;
-    });
-    const leaf = await lstat(referenced).catch(missing);
-    if (leaf.isSymbolicLink() || !leaf.isDirectory()) {
+    const requested = requestedPath(resolveLinkedPath(path, row.cwd));
+    if (!(await stat(requested).catch(missing)).isDirectory()) {
       throw new FileDownloadError('not-a-file', 'Only a folder can be downloaded as a zip.');
     }
-    const canonical = await realpath(referenced).catch(missing);
+    const canonical = await realpath(requested).catch(missing);
     if (NETWORK_PATH.test(canonical)) {
       throw new FileDownloadError('not-a-file', 'Only folders on this PC can be downloaded.');
     }
-    // Same rule as openLinkedPath: inside the project the canonical path may
-    // not leave it; outside, the referenced name itself must be the folder.
+    // Same rule as openSessionPath: inside the project the canonical path may
+    // not leave it.
     const root = await projectRoot(host, row);
     const lexicalInProject =
-      root !== null && (inside(root, referenced) || inside(resolve(String(row.projectPath)), referenced));
-    if (lexicalInProject) {
-      if (!root || !inside(root, canonical)) {
-        throw new FileDownloadError('outside-project', "The link resolves outside the conversation's project.");
-      }
-    } else if (comparable(canonical) !== comparable(resolve(referenced))) {
-      throw new FileDownloadError(
-        'not-linked',
-        'The linked folder is reached through a link to a folder nothing linked.'
-      );
+      root !== null && (inside(root, requested) || inside(resolve(String(row.projectPath)), requested));
+    if (lexicalInProject && !(root !== null && inside(root, canonical))) {
+      throw new FileDownloadError('outside-project', "The link resolves outside the conversation's project.");
     }
-    await refuseGitInternals(canonical, root ? [root, row.cwd] : [row.cwd]);
-    // A denied folder is refused; denied entries inside an ordinary folder
-    // are left out of the zip.
-    const denied = await refuseSensitive(referenced, canonical);
     let zipped: Awaited<ReturnType<typeof zipFolder>>;
     try {
-      zipped = await zipFolder(canonical, { maxBytes: FOLDER_ZIP_MAX_BYTES, maxFiles: FOLDER_ZIP_MAX_FILES }, denied);
+      zipped = await zipFolder(canonical, { maxBytes: FOLDER_ZIP_MAX_BYTES, maxFiles: FOLDER_ZIP_MAX_FILES });
     } catch (error) {
       if (error instanceof FolderMovedError) throw changed();
       if (error instanceof FolderTooLargeError) {
@@ -696,7 +592,7 @@ export function createFileDownloadService({
       'application/zip',
       zipped.archive
     );
-    return { ...staged, leftOut: { ignored: zipped.ignored, secret: zipped.secret } };
+    return { ...staged, leftOut: { ignored: zipped.ignored, secret: 0 } };
   };
 
   /** Bytes the host built (a folder's zip, an attachment from the store) as a
@@ -785,7 +681,7 @@ export function createFileDownloadService({
       case 'session':
         return authorizeSessionFile(host, row, source.path);
       case 'media':
-        return authorizeMediaAsset(host, row, source.assetId);
+        return authorizeMediaAsset(host, source.assetId);
       case 'folder':
         return authorizeFolderZip(requester, row, source.path);
       case 'attachment':

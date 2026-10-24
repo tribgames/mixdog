@@ -1,6 +1,7 @@
-// Host download authorization (file-downloads.ts): what a paired device may
-// download is decided from the host's own records, bound to the device, the
-// session, the opened file and its version, and consumed exactly once.
+// Host downloads (file-downloads.ts): a paired device downloads what the
+// desktop can open, under the desktop's project boundary; every grant is
+// bound to the device, the session, the opened file and its version, and
+// consumed exactly once.
 import assert from 'node:assert/strict';
 import {
   appendFileSync,
@@ -243,31 +244,38 @@ test('a reply link downloads whatever row id the device numbered the reply with'
   assert.equal((await f.service.authorize(PHONE, f.link('', 'sub/deep.txt:3'))).name, 'deep.txt');
 });
 
-test('a secret linked from a reply is refused as a secret, linked or not', async (t) => {
+test('a secret-bearing file downloads like any other, linked or not', async (t) => {
   const f = fixture(t);
   writeFileSync(join(f.projectA, '.env'), 'API_KEY=1');
+  writeFileSync(join(f.projectA, 'sub', '.env.local'), 'LOCAL_KEY=1');
   f.transcripts.get('s1').items.push({ id: 'a9', kind: 'assistant', text: 'Keys live in `.env`.' });
-  await refusedAs(f.service.authorize(PHONE, f.link('a9', './.env')), 'sensitive');
-  await refusedAs(f.service.authorize(PHONE, f.link('a9', '.env')), 'sensitive');
-  // A secret nothing links, or one that is not there, is still refused by name.
-  await refusedAs(f.service.authorize(PHONE, f.link('a1', 'sub/.env.local')), 'sensitive');
   const session = (path) => ({ source: { kind: 'session', sessionId: 's1', path }, purpose: 'save' });
-  await refusedAs(f.service.authorize(PHONE, session('.env')), 'sensitive');
+  // Before parity each was refused as `sensitive`.
+  for (const [request, bytes] of [
+    [f.link('a9', './.env'), 'API_KEY=1'],
+    [f.link('a9', '.env'), 'API_KEY=1'],
+    [f.link('a1', 'sub/.env.local'), 'LOCAL_KEY=1'],
+    [session('.env'), 'API_KEY=1'],
+    [f.project('.env'), 'API_KEY=1'],
+  ]) {
+    const transfer = await f.service.begin(PHONE, (await f.service.authorize(PHONE, request)).grantId);
+    assert.equal(await readAll(f.service, PHONE, transfer), bytes, JSON.stringify(request.source));
+    await f.service.finish(PHONE, transfer.transferId);
+  }
 });
 
-test('forged provenance is refused: unlinked paths, prompts, tool output, code blocks, streaming rows, other sessions', async (t) => {
+test('a link downloads whatever row, session row kind or reply names it, as the desktop opens it', async (t) => {
   const f = fixture(t);
   const secret = slash(join(f.outside, 'secret.txt'));
-  await refusedAs(f.service.authorize(PHONE, f.link('a1', secret)), 'not-linked');
-  await refusedAs(f.service.authorize(PHONE, f.link('u1', secret)), 'not-linked');
-  await refusedAs(f.service.authorize(PHONE, f.link('tool1', secret)), 'not-linked');
-  await refusedAs(f.service.authorize(PHONE, f.link('a2', secret)), 'not-linked');
-  // A row of another session, asked for under this one.
-  await refusedAs(f.service.authorize(PHONE, f.link('b1', slash(join(f.outside, 'other.bin')))), 'not-linked');
-  await refusedAs(f.service.authorize(PHONE, f.link('missing', secret)), 'not-linked');
+  // Before parity each was refused as `not-linked`: a prompt, a tool row, a
+  // code block, a streaming row, another session's row and no row at all.
+  for (const itemId of ['a1', 'u1', 'tool1', 'a2', 'b1', 'missing']) {
+    assert.equal((await f.service.authorize(PHONE, f.link(itemId, secret))).name, 'secret.txt', itemId);
+  }
+  assert.equal((await f.service.authorize(PHONE, f.link('b1', slash(join(f.outside, 'other.bin'))))).name, 'other.bin');
+  // The conversation the request names must exist; a web link is no file here.
   await refusedAs(f.service.authorize(PHONE, f.link('a1', secret, 'gone-session')), 'unavailable');
-  // The right session does link it.
-  assert.ok(await f.service.authorize(PHONE, f.link('b1', slash(join(f.outside, 'other.bin')), 's2')));
+  await refusedAs(f.service.authorize(PHONE, f.link('a1', 'https://example.com/a.bin')), 'not-a-file');
 });
 
 test('project downloads stay inside the session project', async (t) => {
@@ -294,7 +302,7 @@ test('a junction out of the project is refused for project and linked downloads'
   );
 });
 
-test("git's internal files are refused for project and linked downloads", async (t) => {
+test("git's internal files download like any other file, as the desktop opens them", async (t) => {
   const f = fixture(t);
   mkdirSync(join(f.projectA, '.git'));
   writeFileSync(join(f.projectA, '.git', 'config'), '[remote "origin"]\n\turl = https://token@example.com/r.git\n');
@@ -309,30 +317,23 @@ test("git's internal files are refused for project and linked downloads", async 
   writeFileSync(join(gitDir, 'index'), 'index');
   writeFileSync(join(commonDir, 'config'), 'config');
 
-  // A `.git` folder or pointer file is a secret folder of the shared deny list.
-  await refusedAs(f.service.authorize(PHONE, f.project('.git/config')), 'sensitive');
-  await refusedAs(f.service.authorize(PHONE, f.project('nested/.GIT/HEAD')), 'sensitive');
-  await refusedAs(f.service.authorize(PHONE, f.project('.git', 's2')), 'sensitive');
-  f.transcripts.get('s1').items.push({
-    id: 'g1',
-    kind: 'assistant',
-    text: `See ${slash(join(f.projectA, '.git', 'config'))}.`,
-  });
-  await refusedAs(f.service.authorize(PHONE, f.link('g1', slash(join(f.projectA, '.git', 'config')))), 'sensitive');
-  f.transcripts.get('s2').items.push({
-    id: 'g2',
-    kind: 'assistant',
-    text: `See ${slash(join(gitDir, 'index'))} and ${slash(join(commonDir, 'config'))}.`,
-  });
+  // Before parity: refused as `sensitive` (a `.git` folder or pointer file)
+  // or `outside-project` (a git dir with another name).
+  assert.equal((await f.service.authorize(PHONE, f.project('.git/config'))).name, 'config');
+  assert.equal((await f.service.authorize(PHONE, f.project('nested/.GIT/HEAD'))).name, 'HEAD');
+  const pointer = await f.service.begin(PHONE, (await f.service.authorize(PHONE, f.project('.git', 's2'))).grantId);
+  assert.equal(await readAll(f.service, PHONE, pointer), `gitdir: ${slash(gitDir)}\n`);
+  await f.service.finish(PHONE, pointer.transferId);
+  assert.ok(await f.service.authorize(PHONE, f.link('g1', slash(join(f.projectA, '.git', 'config')))));
   for (const target of [join(gitDir, 'index'), join(commonDir, 'config')]) {
-    await refusedAs(f.service.authorize(PHONE, f.link('g2', slash(target), 's2')), 'outside-project');
+    assert.ok(await f.service.authorize(PHONE, f.link('g2', slash(target), 's2')), target);
   }
-  // Ordinary files of the same projects still download.
+  // Ordinary files of the same projects download as before.
   assert.ok(await f.service.authorize(PHONE, f.project('out.bin')));
   assert.ok(await f.service.authorize(PHONE, f.project('b.txt', 's2')));
 });
 
-test('a git dir pointed to from a nested worktree, or from above a session folder, is refused', async (t) => {
+test('a git dir pointed to from a nested worktree, or from above a session folder, downloads', async (t) => {
   const f = fixture(t);
   // A worktree nested in the project keeps its git dir (no `.git` name) inside it.
   const worktree = join(f.projectA, 'sub', 'wt');
@@ -340,7 +341,8 @@ test('a git dir pointed to from a nested worktree, or from above a session folde
   writeFileSync(join(worktree, '.git'), 'gitdir: store\n');
   writeFileSync(join(worktree, 'store', 'refs', 'HEAD'), 'ref');
   writeFileSync(join(worktree, 'readme.md'), 'readme');
-  await refusedAs(f.service.authorize(PHONE, f.project('sub/wt/store/refs/HEAD')), 'outside-project');
+  // Before parity: refused as `outside-project`.
+  assert.equal((await f.service.authorize(PHONE, f.project('sub/wt/store/refs/HEAD'))).name, 'HEAD');
   assert.ok(await f.service.authorize(PHONE, f.project('sub/wt/readme.md')), "the worktree's own files download");
 
   // A session folder below a worktree root whose git dir lives elsewhere.
@@ -353,14 +355,14 @@ test('a git dir pointed to from a nested worktree, or from above a session folde
   const listed = await f.host.listSessions();
   f.host.listSessions = async () => [...listed, { id: 's3', cwd, projectPath: null, classification: 'task' }];
   f.transcripts.set('s3', { items: [{ id: 'c1', kind: 'assistant', text: `See ${slash(join(gitDir, 'config'))}.` }] });
-  await refusedAs(f.service.authorize(PHONE, f.link('c1', slash(join(gitDir, 'config')), 's3')), 'outside-project');
+  assert.equal((await f.service.authorize(PHONE, f.link('c1', slash(join(gitDir, 'config')), 's3'))).name, 'config');
   f.transcripts
     .get('s3')
     .items.push({ id: 'c2', kind: 'assistant', text: `See ${slash(join(f.outside, 'linked.bin'))}.` });
   assert.ok(await f.service.authorize(PHONE, f.link('c2', slash(join(f.outside, 'linked.bin')), 's3')));
 });
 
-test('a linked file that is a symlink to an unlinked file is refused', async (t) => {
+test('a linked file that is a symlink downloads what it leads to', async (t) => {
   const f = fixture(t);
   const leaf = join(f.outside, 'leaf.txt');
   try {
@@ -373,7 +375,9 @@ test('a linked file that is a symlink to an unlinked file is refused', async (t)
     throw error;
   }
   f.transcripts.get('s1').items.push({ id: 'a4', kind: 'assistant', text: `Wrote ${slash(leaf)}` });
-  await refusedAs(f.service.authorize(PHONE, f.link('a4', slash(leaf))), 'not-linked');
+  // Before parity: refused as `not-linked`.
+  const transfer = await f.service.begin(PHONE, (await f.service.authorize(PHONE, f.link('a4', slash(leaf)))).grantId);
+  assert.equal(await readAll(f.service, PHONE, transfer), 'host secret');
 });
 
 // Every check passes on the resolved path; the directory above the file is
@@ -554,10 +558,11 @@ test('unpair and session deletion end what a device holds', async (t) => {
 test('generated media downloads by asset id, and the media-lane hook serves only its own lease', async (t) => {
   const f = fixture(t, { mediaLane: true });
   const media = (assetId, sessionId = 's1') => ({ source: { kind: 'media', sessionId, assetId }, purpose: 'save' });
-  // Only an asset the session's own transcript generated.
-  await refusedAs(f.service.authorize(PHONE, media('nope')), 'not-linked');
-  await refusedAs(f.service.authorize(PHONE, media('asset-2')), 'not-linked');
-  await refusedAs(f.service.authorize(PHONE, media('asset-1', 's2')), 'not-linked');
+  // Any stored asset, whichever conversation generated it (before parity:
+  // `not-linked` outside the generating one); an unknown id is not found.
+  await refusedAs(f.service.authorize(PHONE, media('nope')), 'not-found');
+  assert.equal((await f.service.authorize(PHONE, media('asset-2'))).name, 'other.png');
+  assert.equal((await f.service.authorize(PHONE, media('asset-1', 's2'))).name, 'asset.png');
   assert.equal((await f.service.authorize(PHONE, media('asset-2', 's2'))).name, 'other.png');
   const grant = await f.service.authorize(PHONE, {
     source: { kind: 'media', sessionId: 's1', assetId: 'asset-1' },
@@ -639,11 +644,11 @@ test('the remote table binds downloads to the connection device and lifts refusa
     JSON.stringify({
       id: 7,
       method: 'fileDownloadAuthorize',
-      params: [f.link('a1', slash(join(f.outside, 'secret.txt')))],
+      params: [f.project('../project-b/b.txt')],
     })
   );
   assert.equal(reply.ok, false);
-  assert.equal(reply.errorCode, 'file-download:not-linked');
+  assert.equal(reply.errorCode, 'file-download:outside-project');
   assert.equal(createRemoteMethods({ host: f.host }, {}).fileDownloadAuthorize, undefined);
 });
 

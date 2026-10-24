@@ -49,7 +49,7 @@ const items = [
   row('c2', 'src/b.ts', batch),
   row('c3', 'src/a.ts', diff('src/a.ts', 200)),
 ];
-const phone = remoteTranscriptSnapshot({ items }, process.cwd()).items;
+const phone = remoteTranscriptSnapshot({ items }).items;
 const desktopReview = summarizeSessionTranscriptReview(items);
 const phoneReview = summarizeSessionTranscriptReview(phone);
 
@@ -99,7 +99,7 @@ test('opening a digest-derived review file loads its diff through readTranscript
 test('file names match exactly: opening src/A.ts never draws src/a.ts', async () => {
   resetTurnReviewDigestDiffs();
   const mixed = [row('u1', 'src/A.ts', diff('src/A.ts', 200, 'u') + diff('src/a.ts', 200, 'l'))];
-  const mixedPhone = remoteTranscriptSnapshot({ items: mixed }, process.cwd()).items;
+  const mixedPhone = remoteTranscriptSnapshot({ items: mixed }).items;
   const review = summarizeSessionTranscriptReview(mixedPhone);
   const desktop = summarizeSessionTranscriptReview(mixed);
   assert.deepEqual([...review.files.keys()], ['src/A.ts', 'src/a.ts']);
@@ -112,7 +112,7 @@ test('file names match exactly: opening src/A.ts never draws src/a.ts', async ()
   }
   // Under a session folder, the folder compares case-insensitively and the name does not.
   const rooted = [row('r1', '/Repo/src/A.ts', diff('/Repo/src/A.ts', 200) + diff('/repo/SRC/a.ts', 200))];
-  const rootedPhone = remoteTranscriptSnapshot({ items: rooted }, process.cwd()).items;
+  const rootedPhone = remoteTranscriptSnapshot({ items: rooted }).items;
   const rootedReview = summarizeSessionTranscriptReview(rootedPhone, '/repo');
   const rootedDesktop = summarizeSessionTranscriptReview(rooted, '/repo');
   window.mixdogDesktop = { readTranscriptItem: hostOf(rooted) };
@@ -140,9 +140,7 @@ test('held and loaded parts keep the order the diffs happened in', () => {
     { id: 't2', kind: 'tool', name: 'edit', args: {}, result: 'ok', uiDiff: diff('src/a.ts', 4) },
     row('d2', 'src/a.ts', diff('src/a.ts', 210)),
   ];
-  const entry = summarizeSessionTranscriptReview(
-    remoteTranscriptSnapshot({ items: text }, process.cwd()).items
-  ).files.get('src/a.ts');
+  const entry = summarizeSessionTranscriptReview(remoteTranscriptSnapshot({ items: text }).items).files.get('src/a.ts');
   assert.equal(entry.parts.length, 2);
   assert.deepEqual(
     entry.slots.map((slot) => (typeof slot === 'number' ? slot : slot.id)),
@@ -170,9 +168,7 @@ test('a row that changed is read again, and a late answer for the old revision i
   const v1 = [row('s1r', 'src/a.ts', diff('src/a.ts', 200, 'o'))];
   const v2 = [row('s1r', 'src/a.ts', diff('src/a.ts', 200, 'n') + diff('src/a.ts', 200, 'n'))];
   const entryOf = (list) =>
-    summarizeSessionTranscriptReview(remoteTranscriptSnapshot({ items: list }, process.cwd()).items).files.get(
-      'src/a.ts'
-    );
+    summarizeSessionTranscriptReview(remoteTranscriptSnapshot({ items: list }).items).files.get('src/a.ts');
   const [old, next] = [entryOf(v1), entryOf(v2)];
   assert.notEqual(old.slots[0].revision, next.slots[0].revision);
   let release;

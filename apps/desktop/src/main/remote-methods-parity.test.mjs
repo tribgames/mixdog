@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -9,10 +9,10 @@ import { registerSessionIpc } from './ipc-sessions.ts';
 import { registerNotificationIpc } from './ipc-notifications.ts';
 import { createRemoteMethods, createSelectedFileGrants } from './remote-methods.ts';
 import { remoteFilePreviewTestHooks } from './remote-file-preview.ts';
-import { sensitivePolicy } from './remote-sensitive-paths.ts';
 import * as remoteProjectFiles from './remote-project-files.ts';
 import { replaceWorkspaceTextIn, searchWorkspaceTextIn } from './workspace-search.ts';
 import { SelectedFileAccess } from './selected-file-access.ts';
+import { requiredWorkspaceSearchOptions } from './ipc-validation.ts';
 
 const CWD = process.cwd();
 const SESSION = `sess_desktop_${'a'.repeat(64)}`;
@@ -98,7 +98,7 @@ test('localPageUrl confines the page to its project and mints the lease in the w
     },
   });
   assert.equal(await methods.localPageUrl(['p', 'docs/a.html', null]), 'http://127.0.0.1:9/token/docs/a.html');
-  assert.deepEqual(requests, [['localPageUrl', [root, join('docs', 'a.html'), 'project', sensitivePolicy()]]]);
+  assert.deepEqual(requests, [['localPageUrl', [root, 'docs/a.html', 'project']]]);
   await assert.rejects(async () => methods.localPageUrl(['p', '../outside.html', null]), /outside the project/);
   assert.equal(requests.length, 1);
   await assert.rejects(
@@ -310,15 +310,16 @@ test('a file outside every project gets the same grant answers on the desktop an
 });
 
 /** Remote methods that read, write, describe or relocate a file a request
- *  names, with arguments naming the project's `.env`: each must refuse it
- *  before any host operation runs. */
-const REFUSING = (project) => ({
+ *  names, with arguments naming a secret-bearing file of the project (`.env`,
+ *  `.ssh/…`, `.git/…`): each must serve it as the desktop handler does —
+ *  before parity every one was refused before any host operation ran. */
+const SECRET_REQUESTS = (project) => ({
   readProjectFile: [project, '.env'],
   statProjectFile: [project, '.env'],
   writeProjectFile: [project, '.env', 'X=1', 'TOKEN=abc'],
   previewDocumentPages: [project, '.env', null, {}],
-  previewProjectFile: [project, '.env', null],
-  previewProjectFileRange: [project, '.env', null, 0, 16],
+  previewProjectFile: [project, '.ssh/key.png', null],
+  previewProjectFileRange: [project, '.ssh/key.png', null, 0, 16],
   captureFileSnapshot: [project, '.env', null],
   localPageUrl: [project, '.env', null],
   readLocalFile: [join(project, '.env')],
@@ -347,17 +348,17 @@ const REFUSING = (project) => ({
   copyProjectEntry: [project, '.env', 'docs'],
 });
 
-/** Folder-capable Git calls given a folder or `.`: refused when Git's own
- *  expansion of the pathspec covers a secret-bearing file. */
+/** Folder-capable Git calls given a folder or `.`: handed to Git as the
+ *  desktop hands them, whatever secret-bearing file the pathspec covers. */
 const FOLDER_PATHSPECS = (project) => ({
-  gitStage: [project, ['.']],
-  gitCommitPaths: [project, 'message', ['src']],
-  gitRevert: [project, '.', false, 'all'],
+  gitStage: [[project, ['.']], 'gitStage'],
+  gitCommitPaths: [[project, 'message', ['src']], 'gitCommitPaths'],
+  gitRevert: [[project, '.', false, 'all'], 'gitRevertFile'],
 });
 
-/** Methods whose answer covers many files: the secret-bearing ones are left
- *  out (asserted below) instead of the call being refused. */
-const FILTERING = [
+/** Methods whose answer covers many files: answered whole, secret-bearing
+ *  files included, as on the desktop (asserted below). */
+const WHOLE_ANSWERS = [
   'searchWorkspaceText',
   'gitReviewDiffs',
   'gitRequestContext',
@@ -366,8 +367,8 @@ const FILTERING = [
   'readCapabilities',
 ];
 
-/** The review reads invokeCapability/readCapabilities filter, and one answer
- *  carrying a secret file at every level a review nests files. */
+/** The review reads, and one answer carrying a secret file at every level a
+ *  review nests files: before parity the device got it without them. */
 const TURN_REVIEW_CAPABILITIES = {
   getTurnReviewDiff: [{}],
   getSessionReviewDiff: [],
@@ -385,13 +386,6 @@ const REVIEW = {
   patch: 'diff --git a/.env b/.env\n+TOKEN=abc\ndiff --git a/notes.txt b/notes.txt\n+ok\n',
   agents: [{ files: [{ path: 'deep/.npmrc' }], patch: 'diff --git a/deep/.npmrc b/deep/.npmrc\n+_authToken=x\n' }],
   file: { path: '.env', patch: 'diff --git a/.env b/.env\n+TOKEN=abc\n' },
-};
-const REVIEW_WITHOUT_SECRETS = {
-  supported: true,
-  files: [{ path: 'notes.txt', additions: 1 }],
-  patch: 'diff --git a/notes.txt b/notes.txt\n+ok\n',
-  agents: [{ files: [], patch: '' }],
-  file: { path: '.env', patch: '' },
 };
 
 /** Methods on the file surface that never produce a named file's content nor
@@ -415,10 +409,6 @@ const EXEMPT = {
   gitCommit: 'commits what is already staged',
   gitAmend: 'commits what is already staged',
   gitUndoLastCommit: 'refs',
-  // `stash push -u` does take a secret's changes, but only into a stash
-  // entry in this repository: no byte crosses to the device, and every
-  // remote route that could later show it (gitShowDiff, the diff reads,
-  // gitShowFile) refuses or filters secret files.
   gitStash: 'moves changes into a local stash; no content leaves the host',
   gitStashPop: 'refs',
   gitStashApply: 'refs',
@@ -441,7 +431,7 @@ const EXEMPT = {
   setGitGlobalConfig: 'git identity',
   gitCliStatus: 'tool status',
   projectRecovery: "the app's own record of its edits",
-  // Guarded in their own modules (file-downloads, remote-visualize, session-attachments).
+  // Covered in their own modules (file-downloads, remote-visualize, session-attachments).
   fileDownloadAuthorize: 'file-downloads.ts',
   fileDownloadBegin: 'file-downloads.ts',
   fileDownloadRange: 'file-downloads.ts',
@@ -477,27 +467,28 @@ const EXEMPT = {
 const FILE_SURFACE =
   /File|Entry|Entries|Diff|Patch|Backup|Workspace|Local|Preview|Lsp|lsp|FileSnapshot|Page[A-Z]|Folder|folder|Download|Attachment|^visualizePane|^visualizeExport|codeGraph|Recovery|^git|Project/;
 
-test('every remote file entry point applies the sensitive-path guard', async (t) => {
+test('no remote file entry point refuses a secret-bearing file the desktop serves', async (t) => {
   const project = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-guard-parity-')));
   t.after(() => rmSync(project, { recursive: true, force: true }));
   writeFileSync(join(project, '.env'), 'TOKEN=abc');
   writeFileSync(join(project, 'notes.txt'), 'TOKEN mentioned');
   mkdirSync(join(project, '.ssh'));
+  writeFileSync(join(project, '.ssh', 'key.png'), 'png bytes');
   const touched = [];
+  const PR_DIFF = 'diff --git a/.env b/.env\n+TOKEN=abc\ndiff --git a/notes.txt b/notes.txt\n+ok\n';
   const record = (name, args) => {
     touched.push([name, args]);
+    if (name === 'statLocalEntryAbs') return { absolutePath: args[0], name: '.env', dir: false, size: 9 };
     if (name === 'searchWorkspaceTextIn') return { files: [], matchCount: 0, limitHit: false };
     if (name === 'gitReviewDiffs') return { patches: [], omitted: [] };
     if (name === 'gitRequestContext') return { files: [] };
-    if (name === 'ghPrDiff') return 'diff --git a/.env b/.env\n+TOKEN=abc\ndiff --git a/notes.txt b/notes.txt\n+ok\n';
-    // `.` as Git expands it.
-    if (name === 'gitPathspecChanges') return [join(project, '.env'), join(project, 'notes.txt')];
+    if (name === 'ghPrDiff') return PR_DIFF;
     if (name === 'invokeCapability') return { value: REVIEW };
     if (name === 'readCapabilities') return [{ ok: true, value: REVIEW }];
     return null;
   };
-  // Path resolution is all a guard may ask the host; anything else it is
-  // asked counts as touching the file.
+  // Path resolution is not a host operation; anything else the host is asked
+  // counts as serving the request.
   const resolvers = {
     listProjects: async () => [{ path: project }],
     projectDirectory: async () => project,
@@ -515,87 +506,109 @@ test('every remote file entry point applies the sensitive-path guard', async (t)
     hostRequest: async (name, args) => record(name, args),
   });
 
-  const refusing = REFUSING(project);
-  const classified = new Set([...Object.keys(refusing), ...FILTERING, ...Object.keys(EXEMPT)]);
+  const requests = SECRET_REQUESTS(project);
+  const classified = new Set([...Object.keys(requests), ...WHOLE_ANSWERS, ...Object.keys(EXEMPT)]);
   const unclassified = Object.keys(methods).filter((name) => FILE_SURFACE.test(name) && !classified.has(name));
-  assert.deepEqual(unclassified, [], 'a remote file method must be guarded, filtering or exempt with a reason');
+  assert.deepEqual(unclassified, [], 'a remote file method must be covered here or exempt with a reason');
 
-  for (const [name, params] of Object.entries(refusing)) {
-    await assert.rejects(async () => methods[name](params), /credentials or secrets/, name);
-    assert.deepEqual(touched, [], `${name} touched the host before refusing`);
+  // The previews read the file themselves (through the opened handle).
+  const servedWithoutHost = new Set(['previewProjectFile', 'previewProjectFileRange']);
+  for (const [name, params] of Object.entries(requests)) {
+    touched.length = 0;
+    await methods[name](params);
+    assert.ok(touched.length > 0 || servedWithoutHost.has(name), `${name} reached the host`);
   }
+  const range = await methods.previewProjectFileRange(requests.previewProjectFileRange);
+  assert.equal(Buffer.from(range.data, 'base64').toString(), 'png bytes');
 
-  // A folder or `.` is expanded by Git, and refused when it covers a secret.
-  for (const [name, params] of Object.entries(FOLDER_PATHSPECS(project))) {
-    const before = touched.length;
-    await assert.rejects(async () => methods[name](params), /credentials or secrets/, name);
+  // A folder or `.` goes to Git as given, whatever secret file it covers.
+  for (const [name, [params, operation]] of Object.entries(FOLDER_PATHSPECS(project))) {
+    touched.length = 0;
+    await methods[name](params);
     assert.deepEqual(
-      touched.slice(before).map(([operation]) => operation),
-      ['gitPathspecChanges'],
-      `${name} ran before its pathspec was checked`
+      touched.map(([called]) => called),
+      [operation],
+      name
     );
   }
 
-  await methods.searchWorkspaceText([project, { query: 'TOKEN' }]);
-  assert.deepEqual(
-    touched.at(-1)[1][1].sensitivePolicy,
-    sensitivePolicy(),
-    'search carries the deny policy to the process that reads the candidates'
-  );
-  // Before the fix these answers crossed with `.env`, `id_rsa` and `.npmrc`.
+  const options = { query: 'TOKEN' };
+  await methods.searchWorkspaceText([project, options]);
+  assert.equal('sensitivePolicy' in touched.at(-1)[1][1], false, 'the search runs with the desktop options');
+  // Before parity these answers reached the device without `.env`, `id_rsa` and `.npmrc`.
   for (const [capability, args] of Object.entries(TURN_REVIEW_CAPABILITIES)) {
     const invokable = DESKTOP_CAPABILITIES.includes(capability);
     const readable = DESKTOP_READ_CAPABILITIES.includes(capability);
     assert.ok(invokable || readable, `${capability} is a remote capability`);
     if (invokable) {
       const { value } = await methods.invokeCapability([{ capability, args, sessionId: SESSION }]);
-      assert.deepEqual(value, REVIEW_WITHOUT_SECRETS, capability);
+      assert.deepEqual(value, REVIEW, capability);
     }
     if (readable) {
       const [read] = await methods.readCapabilities([[{ capability, args, sessionId: SESSION }]]);
-      assert.deepEqual(read.value, REVIEW_WITHOUT_SECRETS, capability);
+      assert.deepEqual(read.value, REVIEW, capability);
     }
   }
-  await methods.gitReviewDiffs([
-    project,
-    [
-      { path: '.env', untracked: false },
-      { path: 'notes.txt', untracked: false },
-    ],
-  ]);
-  assert.deepEqual(touched.at(-1)[1][1], [{ path: 'notes.txt', untracked: false }]);
+  const files = [
+    { path: '.env', untracked: false },
+    { path: 'notes.txt', untracked: false },
+  ];
+  await methods.gitReviewDiffs([project, files]);
+  assert.deepEqual(touched.at(-1)[1][1], files);
   await methods.gitRequestContext([project, { paths: ['.env', 'notes.txt'], base: '' }]);
-  assert.deepEqual(touched.at(-1)[1][1].paths, ['notes.txt']);
-  const prDiff = await methods.ghPrDiff([project, 7]);
-  assert.doesNotMatch(prDiff, /\.env|TOKEN/);
-  assert.match(prDiff, /notes\.txt/);
+  assert.deepEqual(touched.at(-1)[1][1].paths, ['.env', 'notes.txt']);
+  assert.equal(await methods.ghPrDiff([project, 7]), PR_DIFF);
 });
 
-/** Remote methods that read a file's bytes, or hand the file to other work
- *  (a snapshot, a conversion, the page server, a media lease): each opens it
- *  through openAuthorizedFile, so it is judged by where the open file is. */
+/** Remote methods that read or write a file's bytes themselves: each opens
+ *  it through openAuthorizedFile, so the desktop's project (or grant)
+ *  boundary is judged by where the open file is. */
 const HANDLE_AUTHORIZED = {
   previewProjectFile: ['clip.mp4', (project) => [project, 'clip.mp4', null]],
   previewProjectFileRange: ['clip.mp4', (project) => [project, 'clip.mp4', null, 0, 4]],
-  captureFileSnapshot: ['clip.mp4', (project) => [project, 'clip.mp4', null]],
-  previewDocumentPages: ['doc.pdf', (project) => [project, 'doc.pdf', null, {}]],
-  localPageUrl: ['page.html', (project) => [project, 'page.html', null]],
   readProjectFile: ['read.txt', (project) => [project, 'read.txt']],
   writeProjectFile: ['write.txt', (project) => [project, 'write.txt', 'written', 'write.txt']],
-  readLocalFile: ['local.txt', (project) => [join(project, 'local.txt')]],
-  readEditorSettings: ['team.code-workspace', (project) => [project, 'read.txt', join(project, 'team.code-workspace')]],
-  saveWorkspace: ['team.code-workspace', (project) => [join(project, 'team.code-workspace'), [{ path: project }]]],
-  searchWorkspaceText: ['search.txt', (project) => [project, { query: 'NEEDLE' }]],
-  replaceWorkspaceText: ['replace.txt', (project) => [project, { query: 'REPLACEME' }, 'replaced', ['replace.txt']]],
   lspApplyWorkspaceEdit: [
     'lsp.txt',
     (project) => [project, [{ relPath: 'lsp.txt', content: 'edited', expectedContent: 'lsp.txt' }]],
   ],
 };
 
+/** Remote methods that hand the file to the desktop's own operation, with
+ *  the arguments the desktop handler passes it. */
+const DESKTOP_ROUTED = {
+  captureFileSnapshot: [(p) => [p, 'clip.mp4', null], (p) => ['captureFileSnapshot', [p, 'clip.mp4', false]]],
+  previewDocumentPages: [
+    (p) => [p, 'doc.pdf', null, { pages: [1] }],
+    (p) => ['documentPreviewPagesIn', [p, 'doc.pdf', { pages: [1], maxWidth: undefined }]],
+  ],
+  localPageUrl: [(p) => [p, 'page.html', null], (p) => ['localPageUrl', [p, 'page.html', 'project']]],
+  readLocalFile: [(p) => [join(p, 'local.txt')], (p) => ['readLocalFileAbs', [join(p, 'local.txt')]]],
+  readEditorSettings: [
+    (p) => [p, 'read.txt', join(p, 'team.code-workspace')],
+    (p) => ['readScopedEditorSettings', ['', p, 'read.txt', join(p, 'team.code-workspace')]],
+  ],
+  saveWorkspace: [
+    (p) => [join(p, 'team.code-workspace'), [{ path: p }]],
+    (p) => ['writeWorkspaceFile', [join(p, 'team.code-workspace'), [{ path: p }]]],
+  ],
+  searchWorkspaceText: [
+    (p) => [p, { query: 'NEEDLE' }],
+    (p) => ['searchWorkspaceTextIn', [p, requiredWorkspaceSearchOptions({ query: 'NEEDLE' })]],
+  ],
+  replaceWorkspaceText: [
+    (p) => [p, { query: 'REPLACEME' }, 'replaced', ['replace.txt']],
+    (p) => [
+      'replaceWorkspaceTextIn',
+      [p, requiredWorkspaceSearchOptions({ query: 'REPLACEME' }), 'replaced', ['replace.txt']],
+    ],
+  ],
+};
+
 /** Remote methods on the file surface that read or write no file's bytes on
  *  this machine (or do so in their own, separately tested module), and why.
- *  With HANDLE_AUTHORIZED they classify every guarded method above. */
+ *  With HANDLE_AUTHORIZED and DESKTOP_ROUTED they classify every method of
+ *  SECRET_REQUESTS. */
 const NO_FILE_BYTES = {
   statProjectFile: 'size and mtime only',
   resolveLocalPaths: 'stat only',
@@ -604,14 +617,14 @@ const NO_FILE_BYTES = {
   deleteEditorBackup: "the app's own backup store, keyed by the file's path",
   lspDocument: 'the device sends the content',
   lspRequest: 'language-server answers',
-  gitDiff: 'git output, filtered by file section',
-  gitReviewDiff: 'git output, filtered by file section',
-  gitShowDiff: 'git output, filtered by file section',
+  gitDiff: 'git output',
+  gitReviewDiff: 'git output',
+  gitShowDiff: 'git output',
   gitShowFile: 'a git object, not the worktree file',
-  gitApplyPatch: 'git applies the patch; every file it names is checked',
-  gitStage: 'the index; Git-expanded pathspecs are checked',
-  gitCommitPaths: 'the index; Git-expanded pathspecs are checked',
-  gitRevert: 'git restores; Git-expanded pathspecs are checked',
+  gitApplyPatch: 'git applies the patch',
+  gitStage: 'the index',
+  gitCommitPaths: 'the index',
+  gitRevert: 'git restores',
   trashProjectEntry: 'moves an entry, reads nothing',
   createProjectEntry: 'creates an empty entry',
   renameProjectEntry: 'moves an entry, reads nothing',
@@ -619,73 +632,49 @@ const NO_FILE_BYTES = {
   copyProjectEntry: 'copies an entry on the host, nothing crosses',
 };
 
-test('every remote method that reads or writes file bytes authorizes the opened file', async (t) => {
+test('every remote method on file bytes authorizes the opened file or runs the desktop operation', async (t) => {
   const project = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-handle-parity-')));
   t.after(() => {
     remoteFilePreviewTestHooks.beforeOpen = undefined;
     rmSync(project, { recursive: true, force: true });
   });
   for (const [file] of Object.values(HANDLE_AUTHORIZED)) writeFileSync(join(project, file), file);
-  writeFileSync(join(project, 'search.txt'), 'NEEDLE');
-  writeFileSync(join(project, 'replace.txt'), 'REPLACEME');
-  writeFileSync(join(project, 'team.code-workspace'), '{}');
   // The operations the remote lanes hand file work to, as the desktop runs them.
-  const operations = {
-    ...remoteProjectFiles,
-    searchWorkspaceTextIn,
-    replaceWorkspaceTextIn: (root, options, replacement, relPaths) =>
-      replaceWorkspaceTextIn(root, options, replacement, relPaths),
-  };
+  const operations = { ...remoteProjectFiles, searchWorkspaceTextIn, replaceWorkspaceTextIn };
+  const routed = [];
   const opened = [];
   remoteFilePreviewTestHooks.beforeOpen = (absolute) => opened.push(absolute);
   const methods = createRemoteMethods({
     host: {
       listProjects: async () => [{ path: project }],
       projectDirectory: async () => project,
-      invokeDesktopOperation: async (name, args) => (operations[name] ? operations[name](...args) : {}),
+      invokeDesktopOperation: async (name, args) => {
+        routed.push([name, args]);
+        return operations[name] ? operations[name](...args) : {};
+      },
     },
-    hostRequest: async () => ({}),
+    hostRequest: async (name, args) => routed.push([name, args]),
   });
-  // Every guarded method is classified: its bytes go through an authorized
-  // handle, or it reads and writes none.
-  const refusing = Object.keys(REFUSING('/p'));
+  // Every method of SECRET_REQUESTS is classified.
   assert.deepEqual(
-    refusing.filter((name) => !(name in HANDLE_AUTHORIZED) && !(name in NO_FILE_BYTES)),
+    Object.keys(SECRET_REQUESTS('/p')).filter(
+      (name) => !(name in HANDLE_AUTHORIZED) && !(name in DESKTOP_ROUTED) && !(name in NO_FILE_BYTES)
+    ),
     [],
-    'a guarded method must be handle-authorized or read no file bytes'
+    'a file method must be handle-authorized, desktop-routed or read no file bytes'
   );
   for (const [name, [file, params]] of Object.entries(HANDLE_AUTHORIZED)) {
     opened.length = 0;
     await methods[name](params(project));
     assert.ok(opened.includes(join(project, file)), `${name} opened ${file} through openAuthorizedFile`);
   }
-});
-
-test('a conversion reads a private copy of the authorized bytes, never the original path', async (t) => {
-  const project = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-copy-parity-')));
-  t.after(() => rmSync(project, { recursive: true, force: true }));
-  const original = join(project, 'doc.pdf');
-  writeFileSync(original, 'authorized bytes');
-  const seen = [];
-  const convert = async (root, rel) => {
-    // Another process swaps the original and restores it around the read.
-    writeFileSync(original, 'swapped secret');
-    seen.push({ root, bytes: readFileSync(join(root, rel), 'utf8') });
-    writeFileSync(original, 'authorized bytes');
-    return { pages: [] };
-  };
-  const methods = createRemoteMethods({
-    host: {
-      listProjects: async () => [{ path: project }],
-      projectDirectory: async () => project,
-      invokeDesktopOperation: async (name, args) => (name === 'documentPreviewPagesIn' ? convert(...args) : null),
-    },
-  });
-  await methods.previewDocumentPages([project, 'doc.pdf', null, {}]);
-  // Before the fix the converter read the original path: 'swapped secret'.
-  assert.equal(seen[0].bytes, 'authorized bytes');
-  assert.notEqual(seen[0].root, project);
-  assert.equal(existsSync(seen[0].root), false, 'the private copy is removed afterwards');
+  for (const [name, [params, expected]] of Object.entries(DESKTOP_ROUTED)) {
+    routed.length = 0;
+    opened.length = 0;
+    await methods[name](params(project));
+    assert.deepEqual(routed, [expected(project)], name);
+    assert.deepEqual(opened, [], `${name} reads nothing itself`);
+  }
 });
 
 test('editor backups refuse a path that escapes the project like the desktop handler', async () => {

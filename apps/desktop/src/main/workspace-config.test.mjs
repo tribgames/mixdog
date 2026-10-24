@@ -7,7 +7,6 @@ import test from 'node:test';
 import {
   readMarkdownDefaultView,
   readScopedEditorSettings,
-  scopedEditorSettingsFromText,
   writeMarkdownDefaultView,
   writeWorkspaceFile,
 } from './workspace-config.ts';
@@ -107,10 +106,6 @@ test('an empty or NUL-filled settings.json means defaults and never rejects the 
     assert.equal(settings.markdownDefaultView, 'preview');
     assert.equal(await readMarkdownDefaultView(dir), 'preview');
   }
-  assert.deepEqual(
-    await scopedEditorSettingsFromText(dir, 'a.md', '\0\0', '').then((settings) => settings.markdownDefaultView),
-    'preview'
-  );
 });
 
 test('a NUL-filled settings.json takes a write as an empty one', async (t) => {

@@ -1,11 +1,10 @@
-// Regression for the remote file-access bypass (GitHub #40): a paired remote
-// client could read ANY host file through the file-tab lanes — `readLocalFile`
-// read an arbitrary absolute path, and `resolveLocalPaths` minted a grant for
-// any file outside the projects that `readProjectFile`, the preview range lane
-// and `writeProjectFile` then honored. Only registered-project files and files
-// a conversation the device views references (an assistant reply's links, the
-// paths of its tool rows) stay reachable — and never a secret-bearing file
-// (remote-sensitive-paths.ts), whatever vouches for it.
+// PC-level parity of the remote file lanes: a paired device is the user's own,
+// so it opens, reads, saves, searches, diffs and downloads exactly what the
+// desktop does, under the desktop's own rules — a registered project's paths
+// stay inside it (projectEntryPathIn), and a file outside every project is
+// reached through a one-file grant the device gets by describing it, as the
+// desktop's SelectedFileAccess does. No remote-only deny list (secret-bearing
+// names), no link provenance.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,16 +13,16 @@ import test from 'node:test';
 
 import { createRemoteMethods, createSelectedFileGrants } from './remote-methods.ts';
 import { MAX_SELECTED_FILE_GRANTS } from './selected-file-grants.ts';
+import { SelectedFileAccess } from './selected-file-access.ts';
 import { withFileGrantRefresh } from '../renderer/remote-file-grant-refresh.ts';
 import { createFileDownloadService } from './file-downloads.ts';
 import { readLocalFileAbs, statLocalEntryAbs } from './local-files.ts';
 import { readProjectTextFileIn, statProjectFileIn, writeProjectTextFileIn } from './project-files.ts';
 import { searchWorkspaceTextIn } from './workspace-search.ts';
+import { readScopedEditorSettings } from './workspace-config.ts';
 import * as remoteProjectFiles from './remote-project-files.ts';
 import { openedFileAuthorizationTestHooks } from './opened-file-authorization.ts';
-import { gitPathspecChanges } from './git-pathspec-changes.ts';
 import { gitStage } from './git-mutations.ts';
-import { sensitivePolicy } from './remote-sensitive-paths.ts';
 import { execFileSync } from 'node:child_process';
 
 const slash = (path) => path.replace(/\\/g, '/');
@@ -96,6 +95,7 @@ function fixture(t, { downloads = false } = {}) {
     statProjectFileIn,
     writeProjectTextFileIn,
     searchWorkspaceTextIn,
+    readScopedEditorSettings,
     ...remoteProjectFiles,
   };
   const host = {
@@ -129,15 +129,24 @@ function fixture(t, { downloads = false } = {}) {
   };
 }
 
-test('a paired client cannot read a host file outside every project', async (t) => {
+test('a host file outside every project opens and attaches like on the desktop, linked or not', async (t) => {
   const f = fixture(t);
-  // Before the fix this returned the file's bytes (base64).
-  await assert.rejects(f.methods.readLocalFile([f.secret]), /not linked/);
-  // Before the fix this minted a grant that readProjectFile, the preview
-  // range lane and writeProjectFile all honored.
-  await assert.rejects(f.methods.resolveLocalPaths([[f.secret]]), /not linked/);
-  await assert.rejects(f.methods.resolveLocalPaths([[f.secret], 's1']), /not linked/);
+  // No reply links secret.txt (only a prompt names it). Before parity both
+  // lanes refused it as "not linked"; the desktop serves it.
+  const desktop = new SelectedFileAccess({ storePath: '', listProjects: f.host.listProjects });
+  assert.equal(Buffer.from((await readLocalFileAbs(f.secret)).data, 'base64').toString(), 'host secret');
+  assert.equal(Buffer.from((await f.methods.readLocalFile([f.secret])).data, 'base64').toString(), 'host secret');
+  const [mine] = await desktop.describe([f.secret]);
+  const [entry] = await f.methods.resolveLocalPaths([[f.secret]]);
+  assert.deepEqual([entry.projectPath, entry.relPath, entry.dir], [mine.projectPath, mine.relPath, mine.dir]);
+  assert.ok(entry.accessToken);
+  const read = await f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]);
+  assert.equal(read.content, 'host secret');
+  const range = await f.methods.previewProjectFileRange([entry.projectPath, entry.relPath, entry.accessToken, 0, 64]);
+  assert.equal(Buffer.from(range.data, 'base64').toString(), 'host secret');
+  // A token the device was never given is refused, as the desktop refuses one.
   assert.throws(() => f.methods.readProjectFile([f.outside, 'secret.txt', 'forged-token']), /unavailable/);
+  await assert.rejects(desktop.requireGrant('forged-token', f.outside, 'secret.txt'), /unavailable/);
 });
 
 test('a file an assistant reply links in a viewed conversation opens through a one-file grant', async (t) => {
@@ -157,13 +166,19 @@ test('a file an assistant reply links in a viewed conversation opens through a o
   assert.equal(Buffer.from(range.data, 'base64').toString(), 'png-bytes');
 });
 
-test('provenance is limited to the named or viewed conversations', async (t) => {
+test('a file is described the same whatever conversation the device names or views', async (t) => {
   const f = fixture(t);
-  await assert.rejects(f.methods.resolveLocalPaths([[f.report], 's2']), /not linked/);
+  const [linked] = await f.methods.resolveLocalPaths([[f.report], 's1']);
+  // Before parity these were refused: s2 links nothing, and nothing is viewed.
+  const [other] = await f.methods.resolveLocalPaths([[f.report], 's2']);
   f.setViewed([]);
-  await assert.rejects(f.methods.resolveLocalPaths([[f.report]]), /not linked/);
-  const [entry] = await f.methods.resolveLocalPaths([[f.report], 's1']);
-  assert.ok(entry.accessToken);
+  const [none] = await f.methods.resolveLocalPaths([[f.report]]);
+  const [retry] = await f.methods.resolveLocalPaths([[f.report], null, { anyConversation: true }]);
+  assert.ok(linked.accessToken);
+  assert.deepEqual(
+    [other.accessToken, none.accessToken, retry.accessToken],
+    [linked.accessToken, linked.accessToken, linked.accessToken]
+  );
 });
 
 test('registered project files keep their project addressing', async (t) => {
@@ -176,18 +191,24 @@ test('registered project files keep their project addressing', async (t) => {
   assert.equal(Buffer.from(attached.data, 'base64').toString(), 'project notes');
 });
 
-test('a junction inside a project does not reach the files it points at', async (t) => {
+test('a junction inside a project is held to the project boundary on both surfaces', async (t) => {
   const f = fixture(t);
   symlinkSync(f.outside, join(f.project, 'escape'), 'junction');
-  // Before the fix the lexical project path read the secret through the link.
-  await assert.rejects(
-    f.methods.readLocalFile([join(f.project, 'escape', 'secret.txt')]),
-    /outside the project|not linked/
-  );
-  await assert.rejects(f.methods.resolveLocalPaths([[join(f.project, 'escape', 'secret.txt')]]), /not linked/);
+  const through = join(f.project, 'escape', 'secret.txt');
+  const desktop = new SelectedFileAccess({ storePath: '', listProjects: f.host.listProjects });
+  // Described as the project's file, as the desktop describes it…
+  const [mine] = await desktop.describe([through]);
+  const [entry] = await f.methods.resolveLocalPaths([[through]]);
+  assert.deepEqual([entry.projectPath, entry.relPath, entry.accessToken], [f.project, 'escape/secret.txt', undefined]);
+  assert.deepEqual([mine.projectPath, mine.relPath], [entry.projectPath, entry.relPath]);
+  // …so the project route refuses what leaves the project, on the desktop too.
+  await assert.rejects(readProjectTextFileIn(f.project, entry.relPath), /outside the project/);
+  await assert.rejects(f.methods.readProjectFile([entry.projectPath, entry.relPath]), /outside the project/);
+  // The attachment lane reads the path like the desktop's readLocalFileAbs.
+  assert.equal(Buffer.from((await f.methods.readLocalFile([through])).data, 'base64').toString(), 'host secret');
 });
 
-test('a linked file that is a symlink to an unlinked file is refused', async (t) => {
+test('a file reached through a symlink opens like on the desktop', async (t) => {
   const f = fixture(t);
   try {
     symlinkSync(f.secret, join(f.outside, 'link.txt'), 'file');
@@ -198,55 +219,60 @@ test('a linked file that is a symlink to an unlinked file is refused', async (t)
     }
     throw error;
   }
-  await assert.rejects(f.methods.resolveLocalPaths([[join(f.outside, 'link.txt')]]), /symbolic link/);
+  // Before parity: refused as a symbolic link to an unlinked file.
+  const [entry] = await f.methods.resolveLocalPaths([[join(f.outside, 'link.txt')]]);
+  const read = await f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]);
+  assert.equal(read.content, 'host secret');
 });
 
-test('a linked folder that is a junction to an unlinked folder is refused', async (t) => {
+test('a folder reached through a junction is described like on the desktop', async (t) => {
   const f = fixture(t);
   const hidden = join(f.outside, '..', 'hidden');
   mkdirSync(hidden);
   symlinkSync(hidden, join(f.outside, 'dirlink'), 'junction');
-  await assert.rejects(f.methods.resolveLocalPaths([[join(f.outside, 'dirlink')]]), /symbolic link/);
+  // Before parity: refused as a symbolic link to an unlinked folder.
+  const [entry] = await f.methods.resolveLocalPaths([[join(f.outside, 'dirlink')]]);
+  assert.deepEqual([entry.dir, entry.accessToken], [true, undefined]);
 });
 
-test('a file a tool row names is readable, but secret-bearing files are refused', async (t) => {
+test('secret-bearing files outside every project open and attach like any other file', async (t) => {
   const f = fixture(t);
-  const toolOut = join(f.outside, 'tool-out.txt');
-  const [entry] = await f.methods.resolveLocalPaths([[toolOut]]);
-  const read = await f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]);
-  assert.equal(read.content, 'tool output');
-  assert.equal(Buffer.from((await f.methods.readLocalFile([toolOut])).data, 'base64').toString(), 'tool output');
-  // A template carries no secret.
-  const [template] = await f.methods.resolveLocalPaths([[join(f.outside, '.env.example')]]);
-  assert.ok(template.accessToken);
-  // The same tool row names these too: a private key, .env, a .pem, and a
-  // file reached through a junction whose target is ~/.ssh-like.
-  for (const secret of [join('.ssh', 'id_rsa'), '.env', 'server.pem', join('innocent', 'config')]) {
+  for (const [secret, bytes] of [
+    [join('.ssh', 'id_rsa'), 'private key'],
+    ['.env', 'TOKEN=abc'],
+    ['server.pem', 'pem'],
+    [join('innocent', 'config'), 'Host box'],
+  ]) {
     const path = join(f.outside, secret);
-    await assert.rejects(f.methods.resolveLocalPaths([[path]]), /credentials or secrets/, secret);
-    await assert.rejects(f.methods.readLocalFile([path]), /credentials or secrets|not linked/, secret);
+    // Before parity each was refused as "credentials or secrets".
+    const [entry] = await f.methods.resolveLocalPaths([[path]]);
+    const read = await f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]);
+    assert.equal(read.content, bytes, secret);
+    assert.equal(Buffer.from((await f.methods.readLocalFile([path])).data, 'base64').toString(), bytes, secret);
   }
 });
 
-test('secret-bearing files inside a registered project are refused on every lane', async (t) => {
+test('secret-bearing files inside a registered project are served on every lane, as on the desktop', async (t) => {
   const f = fixture(t);
   const env = join(f.project, '.env');
-  await assert.rejects(f.methods.resolveLocalPaths([[env]]), /credentials or secrets/);
-  await assert.rejects(f.methods.readLocalFile([env]), /credentials or secrets/);
-  await assert.rejects(f.methods.readProjectFile([f.project, '.env']), /credentials or secrets/);
-  await assert.rejects(
-    f.methods.writeProjectFile([f.project, '.env', 'X=1', 'PROJECT_TOKEN=abc']),
-    /credentials or secrets/
-  );
-  await assert.rejects(
-    f.methods.previewProjectFileRange([f.project, '.env', undefined, 0, 16]),
-    /credentials or secrets/
-  );
-  // The rest of the project is untouched.
-  assert.equal((await f.methods.readProjectFile([f.project, 'notes.txt'])).content, 'project notes');
+  // Before parity every one of these was refused as "credentials or secrets".
+  const [entry] = await f.methods.resolveLocalPaths([[env]]);
+  assert.deepEqual([entry.projectPath, entry.relPath], [f.project, '.env']);
+  assert.equal(Buffer.from((await f.methods.readLocalFile([env])).data, 'base64').toString(), 'PROJECT_TOKEN=abc');
+  assert.equal((await f.methods.readProjectFile([f.project, '.env'])).content, 'PROJECT_TOKEN=abc');
+  // A previewable file in a secret folder streams its range.
+  mkdirSync(join(f.project, '.ssh'), { recursive: true });
+  writeFileSync(join(f.project, '.ssh', 'key.png'), 'png key');
+  const range = await f.methods.previewProjectFileRange([f.project, '.ssh/key.png', undefined, 0, 64]);
+  assert.equal(Buffer.from(range.data, 'base64').toString(), 'png key');
+  await f.methods.writeProjectFile([f.project, '.env', 'PROJECT_TOKEN=def', 'PROJECT_TOKEN=abc']);
+  assert.equal(readFileSync(env, 'utf8'), 'PROJECT_TOKEN=def');
+  // What the desktop refuses stays refused: a path out of the project.
+  await assert.rejects(readProjectTextFileIn(f.project, '../outside/secret.txt'), /outside the project/);
+  await assert.rejects(f.methods.readProjectFile([f.project, '../outside/secret.txt']), /outside the project/);
 });
 
-test('workspace search, git diffs and entry moves never expose or relocate a secret-bearing file', async (t) => {
+test('workspace search, git diffs and entry moves treat a secret-bearing file like any other', async (t) => {
   const f = fixture(t);
   const calls = [];
   const diff = [
@@ -278,18 +304,13 @@ test('workspace search, git diffs and entry moves never expose or relocate a sec
   f.host.moveProjectEntry = async (...args) => calls.push(['move', ...args]);
   f.host.copyProjectEntry = async (...args) => calls.push(['copy', ...args]);
 
-  // Before the fix the search read `.env` and returned its secret line.
+  // Before parity the search left `.env` out.
   const found = await f.methods.searchWorkspaceText([f.project, { query: 'TOKEN|notes', regex: true }]);
-  assert.deepEqual(
-    found.files.map((file) => file.relPath),
-    ['notes.txt']
-  );
+  assert.deepEqual(found.files.map((file) => file.relPath).sort(), ['.env', 'notes.txt']);
 
-  // Before the fix `.env`'s diff came back verbatim.
-  await assert.rejects(f.methods.gitDiff([f.project, '.env', false]), /credentials or secrets/);
-  const whole = await f.methods.gitDiff([f.project, '.', false]);
-  assert.doesNotMatch(whole, /\.env|PROJECT_TOKEN/);
-  assert.match(whole, /project notes!/);
+  // Before parity `.env`'s diff was refused or cut out of a folder's.
+  assert.equal(await f.methods.gitDiff([f.project, '.env', false]), diff);
+  assert.equal(await f.methods.gitDiff([f.project, '.', false]), diff);
   const batch = await f.methods.gitReviewDiffs([
     f.project,
     [
@@ -300,23 +321,24 @@ test('workspace search, git diffs and entry moves never expose or relocate a sec
   ]);
   assert.deepEqual(
     batch.patches.map((entry) => entry.path),
-    ['notes.txt']
+    ['.env', 'notes.txt']
   );
-  assert.deepEqual(batch.omitted, ['.env']);
+  assert.deepEqual(batch.omitted, []);
 
-  // Before the fix the rename succeeded and readProjectFile then served
-  // `public.txt` — the secret under an innocent name.
-  const before = calls.length;
-  await assert.rejects(f.methods.renameProjectEntry([f.project, '.env', 'public.txt']), /credentials or secrets/);
-  await assert.rejects(f.methods.moveProjectEntry([f.project, '.env', 'docs']), /credentials or secrets/);
-  await assert.rejects(f.methods.copyProjectEntry([f.project, '.env', 'docs']), /credentials or secrets/);
-  await assert.rejects(f.methods.renameProjectEntry([f.project, 'notes.txt', '.env']), /credentials or secrets/);
-  assert.equal(calls.length, before);
-  await f.methods.renameProjectEntry([f.project, 'notes.txt', 'renamed.txt']);
-  assert.deepEqual(calls.at(-1), ['rename', f.project, 'notes.txt', 'renamed.txt']);
+  // Before parity these renames, moves and copies were refused.
+  await f.methods.renameProjectEntry([f.project, '.env', 'public.txt']);
+  await f.methods.moveProjectEntry([f.project, '.env', 'docs']);
+  await f.methods.copyProjectEntry([f.project, '.env', 'docs']);
+  await f.methods.renameProjectEntry([f.project, 'notes.txt', '.env']);
+  assert.deepEqual(calls.slice(-4), [
+    ['rename', f.project, '.env', 'public.txt'],
+    ['move', f.project, '.env', 'docs'],
+    ['copy', f.project, '.env', 'docs'],
+    ['rename', f.project, 'notes.txt', '.env'],
+  ]);
 });
 
-test('renaming, moving or copying a folder refuses when it holds a secret file, and allows a normal folder', async (t) => {
+test('a folder holding a secret file is renamed, moved and copied like any other', async (t) => {
   const f = fixture(t);
   const calls = [];
   f.host.renameProjectEntry = async (...args) => calls.push(['rename', ...args]);
@@ -326,21 +348,21 @@ test('renaming, moving or copying a folder refuses when it holds a secret file, 
   writeFileSync(join(f.project, '.codex', 'auth.json'), '{"token":"x"}');
   mkdirSync(join(f.project, 'cfg', 'deep'), { recursive: true });
   writeFileSync(join(f.project, 'cfg', 'deep', '.env'), 'TOKEN=abc');
-  mkdirSync(join(f.project, 'docs'));
-  writeFileSync(join(f.project, 'docs', 'a.md'), 'fine');
 
-  const denied = /credentials or secrets/;
-  await assert.rejects(f.methods.renameProjectEntry([f.project, '.codex', 'archive']), denied);
-  await assert.rejects(f.methods.renameProjectEntry([f.project, 'cfg', 'plain']), denied);
-  await assert.rejects(f.methods.moveProjectEntry([f.project, 'cfg', 'docs']), denied);
-  await assert.rejects(f.methods.copyProjectEntry([f.project, 'cfg', 'docs']), denied);
-  assert.equal(calls.length, 0);
-
-  await f.methods.renameProjectEntry([f.project, 'docs', 'guides']);
-  assert.deepEqual(calls.at(-1), ['rename', f.project, 'docs', 'guides']);
+  // Before parity each was refused as "credentials or secrets".
+  await f.methods.renameProjectEntry([f.project, '.codex', 'archive']);
+  await f.methods.renameProjectEntry([f.project, 'cfg', 'plain']);
+  await f.methods.moveProjectEntry([f.project, 'cfg', 'docs']);
+  await f.methods.copyProjectEntry([f.project, 'cfg', 'docs']);
+  assert.deepEqual(calls, [
+    ['rename', f.project, '.codex', 'archive'],
+    ['rename', f.project, 'cfg', 'plain'],
+    ['move', f.project, 'cfg', 'docs'],
+    ['copy', f.project, 'cfg', 'docs'],
+  ]);
 });
 
-test('staging, committing or discarding a folder refuses when Git would include a secret file in it', async (t) => {
+test('staging, committing or discarding a folder lets Git include a secret file, as on the desktop', async (t) => {
   const f = fixture(t);
   const git = (...args) => execFileSync('git', args, { cwd: f.project, encoding: 'utf8' });
   git('init', '-q');
@@ -349,54 +371,13 @@ test('staging, committing or discarding a folder refuses when Git would include 
   mkdirSync(join(f.project, 'src'));
   writeFileSync(join(f.project, 'src', 'app.ts'), 'app');
   writeFileSync(join(f.project, 'src', '.npmrc'), '//registry:_authToken=x');
-  const calls = [];
   const passthrough = f.host.invokeDesktopOperation;
-  f.host.invokeDesktopOperation = async (name, args) => {
-    calls.push(name);
-    if (name === 'gitPathspecChanges') return gitPathspecChanges(...args);
-    if (name === 'gitStage') return gitStage(...args);
-    return passthrough(name, args);
-  };
+  f.host.invokeDesktopOperation = async (name, args) =>
+    name === 'gitStage' ? gitStage(...args) : passthrough(name, args);
   const staged = () => git('diff', '--cached', '--name-only').split('\n').filter(Boolean);
-  // Before the fix `.` and `src` staged `.env` and `src/.npmrc`.
-  await assert.rejects(f.methods.gitStage([f.project, ['.']]), /credentials or secrets/);
-  await assert.rejects(f.methods.gitStage([f.project, ['src']]), /credentials or secrets/);
-  await assert.rejects(f.methods.gitStage([f.project, ['*.txt', 'src/*']]), /credentials or secrets/);
-  await assert.rejects(f.methods.gitCommitPaths([f.project, 'message', ['src']]), /credentials or secrets/);
-  await assert.rejects(f.methods.gitRevert([f.project, 'src', true, 'all']), /credentials or secrets/);
-  assert.deepEqual(staged(), []);
-  assert.equal(
-    calls.includes('gitStage') || calls.includes('gitCommitPaths') || calls.includes('gitRevertFile'),
-    false
-  );
-  // Once the secrets are ignored, Git leaves them out and the folder stages.
-  writeFileSync(join(f.project, '.gitignore'), '.env\n.npmrc\n');
+  // Before parity `.` was refused because Git would stage `.env` and `src/.npmrc`.
   await f.methods.gitStage([f.project, ['.']]);
-  assert.deepEqual(staged().sort(), ['.gitignore', 'notes.txt', 'src/app.ts']);
-});
-
-test("the remote search applies the authorizing process's policy, not the searching process's", async (t) => {
-  const f = fixture(t);
-  mkdirSync(join(f.project, 'private'));
-  writeFileSync(join(f.project, 'private', 'pairing.txt'), 'TOKEN in a private root');
-  writeFileSync(join(f.project, 'plain.txt'), 'TOKEN in the open');
-  // A root registered where the request was authorized, never in the
-  // process that runs the search (here: never registered at all).
-  const policy = { ...sensitivePolicy(), registered: [[join(f.project, 'private'), []]] };
-  const options = { query: 'TOKEN', matchCase: false, wholeWord: false, regex: false, maxResults: 100 };
-  const found = await searchWorkspaceTextIn(f.project, { ...options, sensitivePolicy: policy });
-  // Before the fix the search consulted only its own process's registrations.
-  assert.deepEqual(
-    found.files.map((file) => file.relPath),
-    ['plain.txt']
-  );
-  // A malformed policy fails the search instead of searching without one.
-  for (const broken of [null, {}, { ...policy, registered: 'x' }]) {
-    await assert.rejects(
-      searchWorkspaceTextIn(f.project, { ...options, sensitivePolicy: broken }),
-      /policy is invalid/
-    );
-  }
+  assert.deepEqual(staged().sort(), ['.env', 'notes.txt', 'src/.npmrc', 'src/app.ts']);
 });
 
 /** Arms a one-shot swap: once `name` (a file under `folder`) passed its
@@ -410,7 +391,7 @@ function swapBeforeOpen(folder, name, target) {
   };
 }
 
-test('a file swapped for a link to an in-project secret between the checks and the I/O is never read or written', async (t) => {
+test('a file swapped for a link out of the project between the checks and the I/O is never read or written', async (t) => {
   const f = fixture(t);
   t.after(() => {
     openedFileAuthorizationTestHooks.beforeOpen = undefined;
@@ -422,34 +403,29 @@ test('a file swapped for a link to an in-project secret between the checks and t
     writeFileSync(join(docs, 'notes.md'), 'plain TOKEN');
   };
   restore();
-  mkdirSync(join(f.project, '.aws'));
-  writeFileSync(join(f.project, '.aws', 'notes.md'), 'aws_secret TOKEN');
+  const elsewhere = join(f.outside, 'elsewhere');
+  mkdirSync(elsewhere);
+  writeFileSync(join(elsewhere, 'notes.md'), 'outside TOKEN');
   assert.equal((await f.methods.readProjectFile([f.project, 'docs/notes.md'])).content, 'plain TOKEN');
-  // Before the fix these read and overwrote `.aws/notes.md` through the link.
-  swapBeforeOpen(docs, 'notes.md', join(f.project, '.aws'));
-  await assert.rejects(f.methods.readProjectFile([f.project, 'docs/notes.md']), /credentials or secrets/);
+  // The desktop's project boundary, held at the open: the swapped-in link
+  // leads out of the project.
+  swapBeforeOpen(docs, 'notes.md', elsewhere);
+  await assert.rejects(f.methods.readProjectFile([f.project, 'docs/notes.md']), /outside the project/);
   restore();
-  swapBeforeOpen(docs, 'notes.md', join(f.project, '.aws'));
+  swapBeforeOpen(docs, 'notes.md', elsewhere);
   await assert.rejects(
-    f.methods.writeProjectFile([f.project, 'docs/notes.md', 'overwritten', 'aws_secret TOKEN']),
-    /credentials or secrets/
+    f.methods.writeProjectFile([f.project, 'docs/notes.md', 'overwritten', 'outside TOKEN']),
+    /outside the project/
   );
-  assert.equal(readFileSync(join(f.project, '.aws', 'notes.md'), 'utf8'), 'aws_secret TOKEN');
-  restore();
-  swapBeforeOpen(docs, 'notes.md', join(f.project, '.aws'));
-  const found = await f.methods.searchWorkspaceText([f.project, { query: 'TOKEN' }]);
-  assert.doesNotMatch(JSON.stringify(found), /aws_secret/);
+  assert.equal(readFileSync(join(elsewhere, 'notes.md'), 'utf8'), 'outside TOKEN');
   restore();
   // Unswapped, the save goes through the authorized handle.
   await f.methods.writeProjectFile([f.project, 'docs/notes.md', 'plain TOKEN, saved', 'plain TOKEN']);
   assert.equal(readFileSync(join(docs, 'notes.md'), 'utf8'), 'plain TOKEN, saved');
 });
 
-test('editor settings read a workspace file only with provenance, by name and through its handle', async (t) => {
+test('editor settings read any workspace file, as the desktop handler does', async (t) => {
   const f = fixture(t);
-  t.after(() => {
-    openedFileAuthorizationTestHooks.beforeOpen = undefined;
-  });
   writeFileSync(join(f.project, 'team.code-workspace'), JSON.stringify({ settings: { 'editor.tabSize': 7 } }));
   writeFileSync(join(f.outside, 'stray.code-workspace'), JSON.stringify({ settings: { 'editor.tabSize': 3 } }));
   const vscode = join(f.project, '.vscode');
@@ -458,59 +434,42 @@ test('editor settings read a workspace file only with provenance, by name and th
   const settings = await f.methods.readEditorSettings([f.project, 'a.ts', join(f.project, 'team.code-workspace')]);
   assert.equal(settings.tabSize, 7);
   assert.equal(settings.insertSpaces, false);
-  // Before the fix any path was read, whatever vouched for it.
-  await assert.rejects(
-    f.methods.readEditorSettings([f.project, 'a.ts', join(f.outside, 'stray.code-workspace')]),
-    /not linked/
-  );
-  await assert.rejects(
-    f.methods.readEditorSettings([f.project, 'a.ts', join(f.project, '.git', 'team.code-workspace')]),
-    /credentials or secrets/
-  );
-  // The project's own settings folder swapped for a link onto a secret one.
-  mkdirSync(join(f.project, '.aws'));
-  writeFileSync(join(f.project, '.aws', 'settings.json'), JSON.stringify({ 'editor.tabSize': 11 }));
-  swapBeforeOpen(vscode, 'settings.json', join(f.project, '.aws'));
-  await assert.rejects(f.methods.readEditorSettings([f.project, 'a.ts']), /credentials or secrets/);
+  // Before parity: refused as "not linked".
+  const stray = join(f.outside, 'stray.code-workspace');
+  const remote = await f.methods.readEditorSettings([f.project, 'a.ts', stray]);
+  assert.equal(remote.tabSize, 3);
+  assert.deepEqual(remote, await readScopedEditorSettings('', f.project, 'a.ts', stray));
 });
 
-test('a referenced file and folder download unless they carry secrets', async (t) => {
+test('a referenced file and folder download whatever they hold, as the desktop opens them', async (t) => {
   const f = fixture(t, { downloads: true });
   const phone = { deviceId: 'phone' };
   const ask = (kind, path) =>
     f.fileDownloads.authorize(phone, { source: { kind, sessionId: 's1', path }, purpose: 'save' });
-  const refusedSensitive = (promise) => assert.rejects(promise, (error) => error?.code === 'file-download:sensitive');
-  const grant = await ask('session', join(f.outside, 'tool-out.txt'));
-  assert.equal(grant.size, 'tool output'.length);
-  await f.fileDownloads.abort(phone, grant.grantId);
-  for (const secret of [join('.ssh', 'id_rsa'), '.env', 'server.pem', join('innocent', 'config')]) {
-    await refusedSensitive(ask('session', join(f.outside, secret)));
+  const read = async (grant) => {
+    const transfer = await f.fileDownloads.begin(phone, grant.grantId);
+    const chunk = await f.fileDownloads.readRange(phone, transfer.transferId, 0, transfer.size, transfer.version);
+    await f.fileDownloads.finish(phone, transfer.transferId);
+    return Buffer.from(chunk.data, 'base64');
+  };
+  assert.equal((await read(await ask('session', join(f.outside, 'tool-out.txt')))).toString(), 'tool output');
+  // Before parity each of these was refused as `sensitive`.
+  for (const [secret, bytes] of [
+    [join('.ssh', 'id_rsa'), 'private key'],
+    ['.env', 'TOKEN=abc'],
+    ['server.pem', 'pem'],
+    [join('innocent', 'config'), 'Host box'],
+  ]) {
+    assert.equal((await read(await ask('session', join(f.outside, secret)))).toString(), bytes, secret);
   }
-  await refusedSensitive(ask('session', join(f.project, '.env')));
-  // A denied folder is refused outright.
-  await refusedSensitive(ask('folder', join(f.outside, '.ssh')));
-  // Inside an ordinary folder only the denied entries are left out.
+  assert.equal((await read(await ask('session', join(f.project, '.env')))).toString(), 'PROJECT_TOKEN=abc');
+  // A folder zips whole: before parity `.ssh` was refused and `.env` and
+  // `deploy.key` were left out of `bundle`.
+  assert.match((await read(await ask('folder', join(f.outside, '.ssh')))).toString('latin1'), /id_rsa/);
   const zipGrant = await ask('folder', join(f.outside, 'bundle'));
-  const transfer = await f.fileDownloads.begin(phone, zipGrant.grantId);
-  const chunk = await f.fileDownloads.readRange(phone, transfer.transferId, 0, transfer.size, transfer.version);
-  const zip = Buffer.from(chunk.data, 'base64').toString('latin1');
-  assert.match(zip, /ok\.txt/);
-  assert.match(zip, /nested\/also-ok\.txt/);
-  assert.doesNotMatch(zip, /\.env|deploy\.key/);
-  await f.fileDownloads.finish(phone, transfer.transferId);
-});
-
-test('an unlinked secret outside every project is refused by name, every time', async (t) => {
-  const f = fixture(t);
-  // s2 links nothing: before the fix these got the generic "not linked".
-  for (const secret of [join(f.outside, '.ssh', 'id_rsa'), join(f.outside, '.aws', 'credentials')]) {
-    for (let cycle = 0; cycle < 2; cycle += 1) {
-      await assert.rejects(f.methods.resolveLocalPaths([[secret], 's2']), /credentials or secrets/, secret);
-      await assert.rejects(f.methods.readLocalFile([secret]), /credentials or secrets/, secret);
-    }
-  }
-  // An ordinary unlinked file keeps its own reason.
-  await assert.rejects(f.methods.resolveLocalPaths([[f.secret], 's2']), /not linked/);
+  assert.deepEqual(zipGrant.leftOut, { ignored: 0, secret: 0 });
+  const zip = (await read(zipGrant)).toString('latin1');
+  for (const entry of [/ok\.txt/, /nested\/also-ok\.txt/, /\.env/, /deploy\.key/]) assert.match(zip, entry);
 });
 
 test('a linked file keeps one grant across repeat opens and the device reconnecting', async (t) => {
@@ -531,28 +490,6 @@ test('a linked file keeps one grant across repeat opens and the device reconnect
     const read = await nextLeg.readProjectFile([first.projectPath, first.relPath, first.accessToken]);
     assert.equal(read.content, 'linked report');
   }
-});
-
-test('a held link asked for again is vouched for by any conversation, never wider', async (t) => {
-  const f = fixture(t);
-  // The device now views s2, which links nothing; s1 links the report.
-  f.setViewed(['s2']);
-  await assert.rejects(f.methods.resolveLocalPaths([[f.report]]), /not linked/);
-  await assert.rejects(f.methods.resolveLocalPaths([[f.report], 's2']), /not linked/);
-  // Before the fix the refresh got the same "not linked".
-  const any = { anyConversation: true };
-  for (const session of [null, 's2']) {
-    const [entry] = await f.methods.resolveLocalPaths([[f.report], session, any]);
-    assert.ok(entry.accessToken);
-    const read = await f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]);
-    assert.equal(read.content, 'linked report');
-  }
-  // The policy is unchanged: a path no reply links, or a secret one, is refused.
-  await assert.rejects(f.methods.resolveLocalPaths([[f.secret], null, any]), /not linked/);
-  await assert.rejects(
-    f.methods.resolveLocalPaths([[join(f.outside, '.ssh', 'id_rsa')], null, any]),
-    /credentials or secrets/
-  );
 });
 
 test('after a PC restart a held link from an unviewed conversation reopens through the client refresh', async (t) => {
@@ -602,13 +539,20 @@ test('a bridge grant expires', async (t) => {
   const [entry] = await f.methods.resolveLocalPaths([[f.report]]);
   t.mock.timers.tick(60 * 60 * 1000 + 1);
   assert.throws(() => f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]), /unavailable/);
-  await assert.rejects(f.methods.readLocalFile([f.report]), /not linked/);
+  // Describing the file again (the client's refresh) hands out a live grant.
+  const [again] = await f.methods.resolveLocalPaths([[f.report]]);
+  assert.equal(
+    (await f.methods.readProjectFile([again.projectPath, again.relPath, again.accessToken])).content,
+    'linked report'
+  );
 });
 
-test('a bridge grant ends when its conversation is deleted', async (t) => {
+test("a described file's grant outlives the conversation it was opened from, like the desktop's", async (t) => {
   const f = fixture(t, { downloads: true });
   f.fileDownloads.retainSessions(['s1', 's2']);
-  const [entry] = await f.methods.resolveLocalPaths([[f.report]]);
+  const [entry] = await f.methods.resolveLocalPaths([[f.report], 's1']);
   f.fileDownloads.retainSessions(['s2']);
-  assert.throws(() => f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]), /unavailable/);
+  // Before parity the grant ended with s1.
+  const read = await f.methods.readProjectFile([entry.projectPath, entry.relPath, entry.accessToken]);
+  assert.equal(read.content, 'linked report');
 });

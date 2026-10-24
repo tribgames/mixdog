@@ -96,11 +96,6 @@ export function workspaceFileText(
   };
 }
 
-/** A workspace file's existing configuration (`{}` for none) from its text. */
-export function workspaceConfiguration(text: string | null): Record<string, unknown> {
-  return text === null || holdsNoData(text) ? {} : (objectRecord(parseJsonc(text)) ?? {});
-}
-
 export async function writeWorkspaceFile(
   workspaceFile: string,
   folders: readonly DesktopWorkspaceFolder[]
@@ -327,21 +322,4 @@ export async function readScopedEditorSettings(
   const workspace = workspaceFile ? (objectRecord((await optionalJsonc(resolve(workspaceFile))).settings) ?? {}) : {};
   const folder = await optionalJsonc(join(resolve(folderPath), '.vscode', 'settings.json'));
   return editorSettingsFromScopes([user, workspace, folder], editorLanguageIdForPath(relPath));
-}
-
-/** readScopedEditorSettings for a caller that read the workspace and folder
- *  settings files itself (a paired device's request, through authorized
- *  handles): their text, or null when there is none. */
-export async function scopedEditorSettingsFromText(
-  userDataPath: string,
-  relPath: string,
-  workspaceText: string | null,
-  folderText: string | null
-): Promise<DesktopEditorSettings> {
-  const user = userDataPath ? await optionalJsonc(join(userDataPath, 'User', 'settings.json')) : {};
-  const workspace = objectRecord(workspaceConfiguration(workspaceText).settings) ?? {};
-  return editorSettingsFromScopes(
-    [user, workspace, workspaceConfiguration(folderText)],
-    editorLanguageIdForPath(relPath)
-  );
 }

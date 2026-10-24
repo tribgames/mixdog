@@ -1,9 +1,8 @@
 // A folder as an in-memory zip, for a paired device's "download this folder".
 // Only regular files are packed. A symbolic link or junction is judged by
 // where it leads: it is packed under its own name when its real location is
-// inside the folder, not left out by `skip` (the caller's deny list, which
-// names `.git` among its secret folders) and not a folder the walk is already
-// inside; anything else is left out. The walk stops with FolderTooLargeError
+// inside the folder and not a folder the walk is already inside; anything
+// else is left out. The walk stops with FolderTooLargeError
 // once the walk ends past a cap — the caller says so, with the counted files
 // and size, instead of building a huge archive. ZIP32, deflate, UTF-8 names
 // (the caps keep every size far below the 4 GiB format limit).
@@ -193,17 +192,12 @@ function within(root: string, path: string): boolean {
 }
 
 /** Where a folder entry really is: itself, or — for a link — its canonical
- *  target when that lies inside `root` and `skip` keeps it. Null when the
- *  entry is left out. */
-async function entryLocation(
-  root: string,
-  child: string,
-  skip: ((absolute: string) => boolean) | undefined
-): Promise<{ at: string; info: BigIntStats } | null> {
+ *  target when that lies inside `root`. Null when the entry is left out. */
+async function entryLocation(root: string, child: string): Promise<{ at: string; info: BigIntStats } | null> {
   const info = await lstat(child, { bigint: true });
   if (!info.isSymbolicLink()) return { at: child, info };
   const target = await realpath(child).catch(() => null);
-  if (target === null || !within(root, target) || skip?.(target)) return null;
+  if (target === null || !within(root, target)) return null;
   const targetInfo = await lstat(target, { bigint: true }).catch(() => null);
   return targetInfo && !targetInfo.isSymbolicLink() ? { at: target, info: targetInfo } : null;
 }
@@ -212,30 +206,23 @@ export interface FolderScan {
   files: FolderFile[];
   /** Files left out as git-ignored (or generated-folder) content. */
   ignored: number;
-  /** Files left out by `skip`; a skipped folder (`.git`) is not counted. */
-  secret: number;
 }
 
 /** The regular files under `root` (a canonical path) that make up the folder,
  *  as relative `/`-separated paths in a stable order; a linked entry keeps its
  *  own name and is read from its canonical target. Ignored content is left
- *  out (see the header), then what `skip` names. Every directory walked must
+ *  out (see the header). Every directory walked must
  *  resolve to the very path it was reached by — one swapped for a link is left
  *  out — and a link back to a folder the walk is inside is not followed.
  *  Throws FolderTooLargeError when what is left passes either cap,
  *  FolderMovedError when `root` is not canonical. */
-export async function scanFolder(
-  root: string,
-  limits: { maxBytes: number; maxFiles: number },
-  skip?: (absolute: string) => boolean
-): Promise<FolderScan> {
+export async function scanFolder(root: string, limits: { maxBytes: number; maxFiles: number }): Promise<FolderScan> {
   if (!(await isCanonical(root))) throw new FolderMovedError();
   const rule = await exclusionFor(root);
   const files: FolderFile[] = [];
   let count = 0;
   let bytes = 0;
   let ignored = rule?.ignored ?? 0;
-  let secret = 0;
   const walk = async (
     absolute: string,
     rel: string,
@@ -250,8 +237,6 @@ export async function scanFolder(
     for (const entry of entries) {
       const child = join(absolute, entry.name);
       const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-      // Ignored content goes before the secret check, so no file is counted
-      // as both.
       const childExclRel = exclRel ? `${exclRel}/${entry.name}` : entry.name;
       let inside = exclusion;
       // A nested repository or a linked folder is judged by its own rules.
@@ -269,12 +254,7 @@ export async function scanFolder(
           fresh = true;
         }
       }
-      // Left out entirely: a skipped folder is not entered.
-      if (skip?.(child)) {
-        if (!entry.isDirectory()) secret += 1;
-        continue;
-      }
-      const location = await entryLocation(root, child, skip);
+      const location = await entryLocation(root, child);
       if (!location) continue;
       const { at, info } = location;
       if (info.isDirectory()) {
@@ -300,16 +280,15 @@ export async function scanFolder(
   };
   await walk(root, '', new Set([comparable(root)]), rule, '');
   if (count > limits.maxFiles || bytes > limits.maxBytes) throw new FolderTooLargeError(count, bytes);
-  return { files, ignored, secret };
+  return { files, ignored };
 }
 
 /** The files of `scanFolder`, without the counts. */
 export async function listFolderFiles(
   root: string,
-  limits: { maxBytes: number; maxFiles: number },
-  skip?: (absolute: string) => boolean
+  limits: { maxBytes: number; maxFiles: number }
 ): Promise<FolderFile[]> {
-  return (await scanFolder(root, limits, skip)).files;
+  return (await scanFolder(root, limits)).files;
 }
 
 /** The bytes of a listed file, read through the handle that proves it is still
@@ -346,15 +325,14 @@ async function readListedFile(file: FolderFile, budget: number): Promise<Buffer 
   }
 }
 
-/** The zip of the folder (see scanFolder), with how many ignored and secret
- *  files it leaves out. */
+/** The zip of the folder (see scanFolder), with how many ignored files it
+ *  leaves out. */
 export async function zipFolder(
   root: string,
-  limits: { maxBytes: number; maxFiles: number },
-  skip?: (absolute: string) => boolean
-): Promise<{ archive: Buffer; ignored: number; secret: number }> {
-  const { files, ignored, secret } = await scanFolder(root, limits, skip);
-  return { archive: await zipListedFiles(files, limits.maxBytes), ignored, secret };
+  limits: { maxBytes: number; maxFiles: number }
+): Promise<{ archive: Buffer; ignored: number }> {
+  const { files, ignored } = await scanFolder(root, limits);
+  return { archive: await zipListedFiles(files, limits.maxBytes), ignored };
 }
 
 /** The zip of files from listFolderFiles. The caps hold for what is actually

@@ -1,8 +1,8 @@
-// Session-scoped grants: a paired device may open/download files OUTSIDE every
-// project when THIS session's transcript references them or its tools produced
-// them (sessionReferencedPaths), and folders as an on-demand zip — never a
-// path of another session, an unreferenced path, a traversal or a symlink to
-// an unreferenced target.
+// Downloads by the path a session shows: a paired device downloads any file
+// (or a folder as an on-demand zip) the desktop could open — absolute, or
+// relative to the session's folder — whether or not the session references it.
+// Only the desktop's project boundary holds: a project path may not leave the
+// project through a link.
 import assert from 'node:assert/strict';
 import {
   mkdirSync,
@@ -22,8 +22,6 @@ import JSZip from 'jszip';
 import { FILE_DOWNLOAD_RANGE_MAX_BYTES, fileDownloadErrorReason } from '../shared/file-downloads.ts';
 import { createFileDownloadService } from './file-downloads.ts';
 import { createRemoteMethods } from './remote-methods.ts';
-import { sensitivePolicy } from './remote-sensitive-paths.ts';
-import { createLinkProvenance, referencedPathFor, sessionReferencedPaths } from './transcript-file-links.ts';
 
 const PHONE = { deviceId: 'phone' };
 const slash = (path) => path.replace(/\\/g, '/');
@@ -131,54 +129,52 @@ test('files a session references or its tools produced download from outside eve
   }
 });
 
-test('an unreferenced path, a user-typed path, a traversal and a sibling are refused', async (t) => {
+test('a path no reply or tool references downloads, as the desktop opens it', async (t) => {
   const { host, outside, project } = fixture(t);
   const service = createFileDownloadService({ host });
+  const read = async (path) => (await download(service, { kind: 'session', sessionId: 's1', path })).bytes.toString();
+  // Before parity each was refused as `not-linked`.
+  assert.equal(await read(join(outside, 'secret.txt')), 'never referenced');
+  assert.equal(await read(join(outside, 'prompted.txt')), 'only the user typed it');
+  assert.equal(await read(`${join(outside, 'report')}/../secret.txt`), 'never referenced');
+  // Relative to the session's folder.
+  assert.equal(await read('../outside/secret.txt'), 'never referenced');
+  assert.equal(await read(join(project, '..', 'outside', 'shell-out.txt', '..', 'secret.txt')), 'never referenced');
+  assert.equal(await read(join(outside, 'report', 'a.txt')), 'A');
+  // What is not a file on this PC still is not.
   const ask = (path) =>
     service.authorize(PHONE, { source: { kind: 'session', sessionId: 's1', path }, purpose: 'save' });
-  await refusedAs(ask(join(outside, 'secret.txt')), 'not-linked');
-  await refusedAs(ask(join(outside, 'prompted.txt')), 'not-linked');
-  // Traversal out of a referenced name, and a relative guess from the session folder.
-  await refusedAs(ask(`${join(outside, 'report')}/../secret.txt`), 'not-linked');
-  await refusedAs(ask('../outside/secret.txt'), 'not-linked');
-  await refusedAs(ask(join(project, '..', 'outside', 'shell-out.txt', '..', 'secret.txt')), 'not-linked');
-  // A file inside a referenced folder is not itself referenced.
-  await refusedAs(ask(join(outside, 'report', 'a.txt')), 'not-linked');
-  await refusedAs(ask('/etc/passwd'), 'not-linked');
+  await refusedAs(ask(join(outside, 'missing.txt')), 'not-found');
+  await refusedAs(ask(join(outside, 'report')), 'not-a-file');
+  await refusedAs(ask('//server/share/file.txt'), 'not-a-file');
 });
 
-test('a referenced name that is a symlink to an unreferenced file is refused', async (t) => {
+test('a name that is a symlink downloads what it leads to', async (t) => {
   const { host, outside, links } = fixture(t);
   if (!links) return t.skip('symlinks are unavailable');
   const service = createFileDownloadService({ host });
-  await refusedAs(
-    service.authorize(PHONE, {
-      source: { kind: 'session', sessionId: 's1', path: join(outside, 'alias.txt') },
-      purpose: 'save',
-    }),
-    'not-linked'
-  );
+  // Before parity: refused as `not-linked`.
+  const { bytes } = await download(service, { kind: 'session', sessionId: 's1', path: join(outside, 'alias.txt') });
+  assert.equal(bytes.toString(), 'never referenced');
 });
 
-test("one session's grant never reaches another session's files", async (t) => {
+test("a session's download is not limited to the files that session references", async (t) => {
   const { host, outside } = fixture(t);
   const service = createFileDownloadService({ host });
   const other = join(outside, 'other-session.txt');
-  assert.equal(
-    (await download(service, { kind: 'session', sessionId: 's2', path: other })).bytes.toString(),
-    'belongs to s2'
-  );
-  await refusedAs(
-    service.authorize(PHONE, { source: { kind: 'session', sessionId: 's1', path: other }, purpose: 'save' }),
-    'not-linked'
-  );
+  for (const sessionId of ['s1', 's2']) {
+    // Before parity s1 was refused as `not-linked`.
+    const { bytes } = await download(service, { kind: 'session', sessionId, path: other });
+    assert.equal(bytes.toString(), 'belongs to s2', sessionId);
+  }
+  // The conversation the request names must exist.
   await refusedAs(
     service.authorize(PHONE, { source: { kind: 'session', sessionId: 'nope', path: other }, purpose: 'save' }),
     'unavailable'
   );
 });
 
-test('a referenced folder zips on demand without links or git internals', async (t) => {
+test('a folder zips on demand whole, git internals included', async (t) => {
   const { host, outside } = fixture(t);
   const service = createFileDownloadService({ host });
   const grant = await service.authorize(PHONE, {
@@ -187,17 +183,20 @@ test('a referenced folder zips on demand without links or git internals', async 
   });
   assert.equal(grant.name, 'report.zip');
   assert.equal(grant.mime, 'application/zip');
+  assert.deepEqual(grant.leftOut, { ignored: 0, secret: 0 });
   const transfer = await service.begin(PHONE, grant.grantId);
   const chunk = await service.readRange(PHONE, transfer.transferId, 0, transfer.size, transfer.version);
   const zip = await JSZip.loadAsync(Buffer.from(chunk.data, 'base64'));
-  assert.deepEqual(Object.keys(zip.files).sort(), ['a.txt', 'sub/b.txt']);
-  assert.equal(await zip.file('sub/b.txt').async('string'), 'B');
+  // Before parity `.git/config` was left out. A link out of the folder is not
+  // part of it (zip-folder.ts).
+  assert.deepEqual(Object.keys(zip.files).sort(), ['.git/config', 'a.txt', 'sub/b.txt']);
+  assert.equal(await zip.file('.git/config').async('string'), 'git internals');
   await service.finish(PHONE, transfer.transferId);
-  // Not referenced, a file, or another session's: refused.
+  // Any folder of any session; a file is no folder.
   const folder = (sessionId, path) =>
     service.authorize(PHONE, { source: { kind: 'folder', sessionId, path }, purpose: 'save' });
-  await refusedAs(folder('s1', join(outside, 'report', 'sub')), 'not-linked');
-  await refusedAs(folder('s2', join(outside, 'report')), 'not-linked');
+  assert.equal((await folder('s1', join(outside, 'report', 'sub'))).name, 'sub.zip');
+  assert.equal((await folder('s2', join(outside, 'report'))).name, 'report.zip');
   await refusedAs(folder('s1', join(outside, 'shell-out.txt')), 'not-a-file');
 });
 
@@ -213,14 +212,13 @@ function junction(target, path) {
 const askFolder = (service, path) =>
   service.authorize(PHONE, { source: { kind: 'folder', sessionId: 's1', path }, purpose: 'save' });
 
-test('a referenced folder reached through an ancestor junction outside the project is refused', async (t) => {
-  const { host, base, outside, transcripts } = fixture(t);
+test('a folder reached through an ancestor junction outside the project zips', async (t) => {
+  const { host, base, outside } = fixture(t);
   const hop = join(base, 'hop');
   if (!junction(outside, hop)) return t.skip('links are unavailable');
-  const via = join(hop, 'report');
-  transcripts.get('s1').items.push({ id: 't9', kind: 'tool', name: 'shell', result: `${slash(via)}/` });
   const service = createFileDownloadService({ host });
-  await refusedAs(askFolder(service, via), 'not-linked');
+  // Before parity: refused as `not-linked` (reached through a link).
+  assert.equal((await askFolder(service, join(hop, 'report'))).name, 'report.zip');
 });
 
 test('a referenced folder inside the project may not leave it through an ancestor junction', async (t) => {
@@ -247,7 +245,7 @@ test('a referenced folder inside the project zips', async (t) => {
   assert.equal(grant.name, 'docs.zip');
 });
 
-test('an Explorer folder of the conversation project zips without a reply naming it, minus secrets', async (t) => {
+test('an Explorer folder of the conversation project zips whole, a secret-bearing file included', async (t) => {
   const { host, base } = fixture(t);
   const project = join(base, 'project');
   mkdirSync(join(project, 'src'));
@@ -259,15 +257,16 @@ test('an Explorer folder of the conversation project zips without a reply naming
     purpose: 'save',
   });
   assert.equal(grant.name, 'src.zip');
-  assert.deepEqual(grant.leftOut, { ignored: 0, secret: 1 });
+  // Before parity `.env` was left out (`secret: 1`).
+  assert.deepEqual(grant.leftOut, { ignored: 0, secret: 0 });
   const transfer = await service.begin(PHONE, grant.grantId);
   const chunk = await service.readRange(PHONE, transfer.transferId, 0, transfer.size, transfer.version);
   const zip = await JSZip.loadAsync(Buffer.from(chunk.data, 'base64'));
   assert.equal(await zip.file('app.ts').async('string'), 'code');
-  assert.equal(zip.file('.env'), null);
+  assert.equal(await zip.file('.env').async('string'), 'TOKEN=1');
   await service.finish(PHONE, transfer.transferId);
-  // A folder outside the project that nothing references is still refused.
-  await refusedAs(askFolder(service, join(base, 'task')), 'not-linked');
+  // A folder outside the project that nothing references zips too.
+  assert.equal((await askFolder(service, join(base, 'task'))).name, 'task.zip');
 });
 
 test('temporary folder zips are bounded per device without breaking a transfer in flight', async (t) => {
@@ -310,8 +309,9 @@ test('a folder over the size cap says so instead of zipping', async (t) => {
     'folder-too-large'
   );
   assert.ok(transcripts.size);
-  // The counted files and size against the caps, and the way out; no partial zip.
-  assert.match(error.message, /has 3 files \(65\.0 MB\)/);
+  // The counted files (`.git/config` among them since parity) and size
+  // against the caps, and the way out; no partial zip.
+  assert.match(error.message, /has 4 files \(65\.0 MB\)/);
   assert.match(error.message, /limit of 2,000 files and 64\.0 MB/);
   assert.match(error.message, /Pick a subfolder/);
 });
@@ -328,25 +328,14 @@ test('a folder over the file cap counts only what remains after the exclusions',
       purpose: 'save',
     });
   const error = await refusedAs(ask(), 'folder-too-large');
-  assert.match(error.message, /has 2,003 files/);
+  assert.match(error.message, /has 2,004 files/);
   // The same files under a generated folder are left out, and the zip says so.
   renameSync(many, join(outside, 'report', 'node_modules'));
   const grant = await ask();
   assert.deepEqual(grant.leftOut, { ignored: 2_001, secret: 0 });
 });
 
-test('the referenced set covers tool rows, ignores prompts, and matches exactly', (t) => {
-  const { host, outside, project, transcripts } = fixture(t);
-  const snapshot = transcripts.get('s1');
-  const paths = sessionReferencedPaths(snapshot, project);
-  assert.ok(paths.some((path) => path.endsWith('shell-out.txt')));
-  assert.ok(!paths.some((path) => path.endsWith('prompted.txt')));
-  assert.equal(referencedPathFor(snapshot, project, join(outside, 'secret.txt')), null);
-  assert.equal(referencedPathFor(snapshot, project, `${join(outside, 'shell-out.txt')}\0`), null);
-  assert.ok(host);
-});
-
-test('an outside-project HTML page opens through a session-scoped preview grant, never across sessions', async (t) => {
+test('an outside-project HTML page opens through a one-file grant from any session, as on the desktop', async (t) => {
   const { host, outside, base } = fixture(t);
   const html = join(outside, 'page.html');
   const requests = [];
@@ -364,19 +353,20 @@ test('an outside-project HTML page opens through a session-scoped preview grant,
     viewedSessionIds: () => ['s1', 's2'],
   });
   const [row] = await methods.resolveLocalPaths([[html], 's1']);
-  assert.ok(row.accessToken, 'the referenced page gets a session grant');
+  assert.ok(row.accessToken, 'the page gets a one-file grant');
   assert.equal(
     await methods.localPageUrl([row.projectPath, row.relPath, row.accessToken]),
     'http://127.0.0.1:9/token/page.html'
   );
-  // The page server also gets the deny policy it applies to every asset.
-  assert.deepEqual(requests, [['localPageUrl', [outside, 'page.html', 'file', sensitivePolicy()]]]);
-  // The same file asked in the name of a session that does not reference it.
-  await assert.rejects(methods.resolveLocalPaths([[html], 's2']), /not linked|NOT_LINKED|link/i);
-  await assert.rejects(methods.resolveLocalPaths([[join(outside, 'secret.txt')], 's1']));
+  // The page server gets exactly the desktop's file-scoped page.
+  assert.deepEqual(requests, [['localPageUrl', [outside, 'page.html', 'file']]]);
+  // Before parity both were refused: s2 does not reference the page, and
+  // nothing references secret.txt.
+  const [again] = await methods.resolveLocalPaths([[html], 's2']);
+  assert.equal(again.accessToken, row.accessToken);
+  assert.ok((await methods.resolveLocalPaths([[join(outside, 'secret.txt')], 's1']))[0].accessToken);
   // A guessed token grants nothing.
   await assert.rejects(methods.localPageUrl([outside, 'secret.txt', 'forged']));
-  assert.ok(createLinkProvenance);
 });
 
 test('a path that never answers fails alone after its deadline, leaving no hung call', async (t) => {

@@ -1,8 +1,7 @@
-// The credential / secret file deny list, shared by every lane that hands a
-// local file to someone else: the desktop's remote (paired-device) file lanes
-// (apps/desktop/src/main/remote-sensitive-paths.ts adds its registered private
-// roots and async canonicalization) and the runtime's attachment hand-offs
-// between bots and agents (session-runtime/handoff-attachments.mjs).
+// The credential / secret file deny list of the runtime's attachment
+// hand-offs between bots and agents (session-runtime/handoff-attachments.mjs):
+// an automatic transfer never carries a secret-bearing file. A paired device
+// is the user's own and gets no such list (it opens what the desktop opens).
 //
 // Matching is on SEGMENTS of a path, lower-cased on every platform, so a
 // denied name cannot hide behind letter case, trailing dots/spaces or an NTFS
@@ -113,10 +112,6 @@ const CREDENTIAL_FILES = new Set([
  *  checked in often enough with real values that no name is exempt) and
  *  `<stage>.env`. */
 const ENV_FILE = /^(?:\.env.*|[^.]{1,64}(?:\.[^.]{1,64}){0,3}\.env)$/;
-/** The dotenv templates a person may still open on purpose from a paired
- *  device (the desktop's remote file lanes, `envTemplates: true`); automatic
- *  transfers between bots and agents never get this allowance. */
-const ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template', '.env.dist']);
 /** Credential JSON a cloud or OAuth client writes or downloads:
  *  `credentials.json`, `*credentials*.json`, `service-account*.json`,
  *  `client_secret*.json`. */
@@ -143,10 +138,9 @@ function backupOriginal(name) {
 
 /** A file whose own name says it holds a secret, wherever it lives: a
  *  credential file, a dotenv file, a key or keystore, or a backup of one. */
-function secretFileName(name, { envTemplates = false } = {}) {
+function secretFileName(name) {
   const original = backupOriginal(name);
-  if (CREDENTIAL_FILES.has(original) || CREDENTIAL_JSON.test(original)) return true;
-  if (ENV_FILE.test(original)) return !(envTemplates && ENV_TEMPLATES.has(original));
+  if (CREDENTIAL_FILES.has(original) || CREDENTIAL_JSON.test(original) || ENV_FILE.test(original)) return true;
   const dot = original.lastIndexOf('.');
   if (dot >= 0 && KEY_EXTENSIONS.has(original.slice(dot))) return true;
   return SSH_PRIVATE_KEY.test(original);
@@ -177,7 +171,7 @@ function mixdogSecret(rest) {
 
 /** The segments of a path as the rules compare them: no extended-path prefix,
  *  no NTFS stream suffix, no trailing dots or spaces, lower case. */
-export function sensitivePathSegments(path) {
+function sensitivePathSegments(path) {
   return String(path)
     .replace(/^[\\/]{2}[?.][\\/]/, '')
     .split(/[\\/]+/)
@@ -198,30 +192,21 @@ function hasRun(segments, run) {
 }
 
 /**
- * Whether `path` is denied under `within`: scopes `{ root: segments, except:
- * subfolder names, whole }` — Mixdog's home and data folders (`whole: false`,
- * only their secret subset is denied) and registered private roots (`whole:
- * true`, everything but `except`). Pass both the lexical and canonical form.
- * `envTemplates`: a user-initiated remote open may read the dotenv
- * templates; nothing else gets that allowance.
+ * Whether `path` is denied under `within`: scopes `{ root: segments }` —
+ * Mixdog's home and data folders, where only their secret subset is denied.
+ * Pass both the lexical and canonical form.
  */
-export function matchesSensitivePath(path, within = [], { envTemplates = false } = {}) {
+export function matchesSensitivePath(path, within = []) {
   const segments = sensitivePathSegments(resolve(path));
   const name = segments[segments.length - 1] ?? '';
   if (segments.some((segment) => SECRET_DIRECTORIES.has(segment))) return true;
-  if (secretFileName(name, { envTemplates }) || SECRET_SEQUENCES.some((run) => hasRun(segments, run))) return true;
-  const containing = within.filter(
-    ({ root }) => root.length > 0 && root.every((segment, index) => segments[index] === segment)
+  if (secretFileName(name) || SECRET_SEQUENCES.some((run) => hasRun(segments, run))) return true;
+  return within.some(
+    ({ root }) =>
+      root.length > 0 &&
+      root.every((segment, index) => segments[index] === segment) &&
+      mixdogSecret(segments.slice(root.length))
   );
-  // Mixdog's home and data folders follow Mixdog's own rule even inside a
-  // registered private root: a dev or isolated profile keeps them in the app
-  // profile, and the tool output and media there stay reachable.
-  const own = containing.filter(({ whole }) => !whole);
-  if (own.length) return own.some(({ root }) => mixdogSecret(segments.slice(root.length)));
-  return containing.some(({ root, except }) => {
-    const rest = segments.slice(root.length);
-    return rest.length > 0 && !except.includes(rest[0]);
-  });
 }
 
 function realOrSelf(path) {
@@ -241,7 +226,7 @@ export function mixdogSensitiveScopes(extraData = []) {
   const scopes = [];
   for (const root of roots) {
     for (const form of new Set([resolve(root), realOrSelf(resolve(root))])) {
-      scopes.push({ root: sensitivePathSegments(form), except: [], whole: false });
+      scopes.push({ root: sensitivePathSegments(form) });
     }
   }
   return scopes;

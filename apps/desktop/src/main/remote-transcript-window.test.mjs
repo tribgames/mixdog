@@ -15,7 +15,7 @@ function phone() {
   return {
     encoder,
     deliver(snapshot) {
-      const wire = encodePhoneSessionState(encoder, snapshot, process.cwd(), true);
+      const wire = encodePhoneSessionState(encoder, snapshot, true);
       const text = JSON.stringify(wire);
       const decoded = decoder.decode(JSON.parse(text));
       assert.equal(decoded.ok, true);

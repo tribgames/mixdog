@@ -9,21 +9,8 @@ import type {
   DesktopWorkspaceTextSearchOptions,
   DesktopWorkspaceTextSearchResult,
 } from '../shared/contract';
-import { openAuthorizedFile } from './opened-file-authorization';
-import {
-  decodeProjectText,
-  projectEntryPathIn,
-  writeProjectTextFilesIn,
-  writeProjectTextFilesThrough,
-} from './project-files';
+import { decodeProjectText, projectEntryPathIn, writeProjectTextFilesIn } from './project-files';
 import { globExpression, ignoreRules, ignoredPath, type IgnoreRule } from './project-file-search';
-import { requiredSensitivePolicy, type SensitivePolicy, sensitivePathMatcher } from './remote-sensitive-paths';
-
-/** `sensitivePolicy`: a remote device's search, with the deny policy of the
- *  process that authorized it — secret-bearing files (remote-sensitive-paths.ts)
- *  are no candidates, so none is ever read. The policy is used as given, never
- *  this process's own registrations; a malformed one fails the search. */
-type WorkspaceSearchOptions = DesktopWorkspaceTextSearchOptions & { sensitivePolicy?: SensitivePolicy };
 
 const SKIPPED_DIRECTORIES = new Set([
   '.git',
@@ -74,14 +61,9 @@ function acceptsPath(path: string, include: RegExp[], exclude: RegExp[]): boolea
   return include.length === 0 || include.some((pattern) => pattern.test(path));
 }
 
-async function workspaceFiles(
-  root: string,
-  options: DesktopWorkspaceTextSearchOptions,
-  policy: SensitivePolicy | undefined
-): Promise<string[]> {
+async function workspaceFiles(root: string, options: DesktopWorkspaceTextSearchOptions): Promise<string[]> {
   const include = globList(options.include);
   const exclude = globList(options.exclude);
-  const denied = policy ? await sensitivePathMatcher(policy) : null;
   const files: string[] = [];
   // Breadth-first walk with nested .gitignore and ripgrep-style pruning.
   // Rules accumulate down the tree so a child
@@ -109,9 +91,6 @@ async function workspaceFiles(
     for (const entry of entries) {
       if (files.length >= MAX_FILES) break;
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
-      // Links are no candidates (neither isDirectory nor isFile), so the
-      // walked name is where each candidate really is.
-      if (denied?.(join(root, relPath))) continue;
       if (entry.isDirectory()) {
         if (depth < 24 && !SKIPPED_DIRECTORIES.has(entry.name) && !ignoredPath(relPath, true, rules)) {
           queue.push({ relative: relPath, depth: depth + 1, rules });
@@ -169,42 +148,21 @@ function lineMatches(
   return matches;
 }
 
-/** A candidate's text; null when it is no searchable text file. Under a
- *  remote `policy` the file is read only through a handle whose real location
- *  was authorized (openAuthorizedFile), and one that is refused is skipped. */
-async function readSearchableFile(root: string, relPath: string, policy?: SensitivePolicy): Promise<string | null> {
+/** A candidate's text; null when it is no searchable text file. */
+async function readSearchableFile(root: string, relPath: string): Promise<string | null> {
   const absolute = projectEntryPathIn(root, relPath);
-  let bytes: Buffer;
-  if (policy) {
-    const file = await openAuthorizedFile(absolute, root, policy).catch(() => null);
-    if (!file) return null;
-    try {
-      if (file.size > MAX_FILE_BYTES) return null;
-      bytes = await file.handle.readFile();
-    } finally {
-      await file.handle.close();
-    }
-  } else {
-    const info = await stat(absolute).catch(() => null);
-    if (!info?.isFile() || info.size > MAX_FILE_BYTES) return null;
-    bytes = await readFile(absolute);
-  }
-  const decoded = decodeProjectText(bytes);
+  const info = await stat(absolute).catch(() => null);
+  if (!info?.isFile() || info.size > MAX_FILE_BYTES) return null;
+  const decoded = decodeProjectText(await readFile(absolute));
   return decoded.binary ? null : decoded.content;
-}
-
-/** The remote policy a search was given, validated; undefined for the desktop. */
-function searchPolicy(options: WorkspaceSearchOptions): SensitivePolicy | undefined {
-  return options.sensitivePolicy === undefined ? undefined : requiredSensitivePolicy(options.sensitivePolicy);
 }
 
 export async function searchWorkspaceTextIn(
   root: string,
-  options: WorkspaceSearchOptions
+  options: DesktopWorkspaceTextSearchOptions
 ): Promise<DesktopWorkspaceTextSearchResult> {
   const maximum = Math.min(5_000, Math.max(1, options.maxResults ?? 2_000));
-  const policy = searchPolicy(options);
-  const files = await workspaceFiles(root, options, policy);
+  const files = await workspaceFiles(root, options);
   const results: DesktopWorkspaceTextFileResult[] = [];
   let matchCount = 0;
   // Batched read concurrency: sequential await-per-file left the search
@@ -214,7 +172,7 @@ export async function searchWorkspaceTextIn(
   const READ_BATCH = 8;
   for (let start = 0; start < files.length && matchCount < maximum; start += READ_BATCH) {
     const batch = files.slice(start, start + READ_BATCH);
-    const contents = await Promise.all(batch.map((relPath) => readSearchableFile(root, relPath, policy)));
+    const contents = await Promise.all(batch.map((relPath) => readSearchableFile(root, relPath)));
     for (let offset = 0; offset < batch.length && matchCount < maximum; offset += 1) {
       const content = contents[offset];
       if (content === null) continue;
@@ -269,7 +227,7 @@ function replaceContent(
 
 export async function replaceWorkspaceTextIn(
   root: string,
-  options: WorkspaceSearchOptions,
+  options: DesktopWorkspaceTextSearchOptions,
   replacement: string,
   relPaths: readonly string[] | undefined,
   beforeWrite?: (write: WorkspaceWrite) => Promise<void>,
@@ -281,9 +239,8 @@ export async function replaceWorkspaceTextIn(
   const matchedPaths = search.files.map((entry) => entry.relPath).filter((path) => !requested || requested.has(path));
   const writes: WorkspaceWrite[] = [];
   let replacements = 0;
-  const policy = searchPolicy(options);
   for (const relPath of matchedPaths) {
-    const expectedContent = await readSearchableFile(root, relPath, policy);
+    const expectedContent = await readSearchableFile(root, relPath);
     if (expectedContent === null) continue;
     const next = replaceContent(expectedContent, options, replacement);
     if (!next.replacements || next.content === expectedContent) continue;
@@ -297,16 +254,6 @@ export async function replaceWorkspaceTextIn(
   }
   if (!writes.length) return { filesChanged: 0, replacements: 0, paths: [] };
   if (beforeWrite) await Promise.all(writes.map(beforeWrite));
-  // A remote replace writes each file through the handle it authorized.
-  if (policy) {
-    await writeProjectTextFilesThrough(
-      root,
-      writes,
-      async (absolute) => (await openAuthorizedFile(absolute, root, policy, 'write')).handle,
-      recoveryDataPath
-    );
-  } else {
-    await writeProjectTextFilesIn(root, writes, recoveryDataPath);
-  }
+  await writeProjectTextFilesIn(root, writes, recoveryDataPath);
   return { filesChanged: writes.length, replacements, paths: writes.map((write) => write.relPath) };
 }

@@ -106,8 +106,8 @@ export interface RelayMediaLane {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A leased project file, opened again the way it was authorized: its real
- *  location inside the lease's folder and not secret-bearing
- *  (openAuthorizedFile), and the very file the lease was minted for. */
+ *  location inside the lease's folder (openAuthorizedFile), and the very file
+ *  the lease was minted for. */
 async function openLeasedFile(lease: NonNullable<ReturnType<typeof leasedMediaFile>>): Promise<FileHandle> {
   const file = await openAuthorizedFile(lease.path, lease.within);
   if (file.identity.dev !== lease.identity.dev || file.identity.ino !== lease.identity.ino) {
@@ -127,8 +127,7 @@ export function createRelayMediaLane(deps: RelayMediaLaneDeps): RelayMediaLane {
     if (!target) return null;
     let handle: FileHandle;
     try {
-      // A gallery file gets the same name and opened-file check, within its
-      // own folder: the media store never serves a secret through a link.
+      // A gallery file gets the same opened-file check, within its own folder.
       handle = leased
         ? await openLeasedFile(leased)
         : (await openAuthorizedFile(target.path, dirname(target.path))).handle;

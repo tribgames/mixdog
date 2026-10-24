@@ -1,11 +1,8 @@
-import { isAbsolute, resolve } from 'node:path';
-
 import { patchSectionDigests } from '../renderer/renderer-logic.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { normalizeToolName } from '../../../../src/runtime/shared/tool-primitives.mjs';
 import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-output-facts.mjs';
 import { REMOTE_TRANSCRIPT_TAIL_BYTES } from './desktop-support';
-import { DIFF_SECTION, diffSectionPaths, isSensitivePathSync } from './remote-sensitive-paths';
 
 // Provider replay material, not display data: `thinkingBlocks` are Anthropic's
 // thinking/redacted_thinking blocks, kept so a later request can hand the model
@@ -21,10 +18,7 @@ export interface RemoteTranscriptRow {
 // One copy per row and role: a phone's window gives each row one role for as
 // long as it holds it (remote-transcript-window.ts), so no row it holds is
 // ever re-sent slimmer or fuller.
-const projectedTranscriptItems = new WeakMap<
-  object,
-  { folder: string; tail?: RemoteTranscriptRow; history?: RemoteTranscriptRow }
->();
+const projectedTranscriptItems = new WeakMap<object, { tail?: RemoteTranscriptRow; history?: RemoteTranscriptRow }>();
 
 // Tool output is what a phone pays for. Measured on 39 real desktop sessions
 // (3,465 tool rows, 51 MB restored): tool rows were 95% of the transcript
@@ -60,11 +54,10 @@ export const REMOTE_DIFF_DIGEST_FIELD = 'uiDiffSummary';
 
 /** Set on a row whose phone copy changed a text field, naming each field and
  *  how: `{ kind: 'omitted', at, omitted }` — the field holds its first `at`
- *  characters and its end, `omitted` characters were left out between them —
- *  or `{ kind: 'withheld' }` — the field was emptied. The words for either are
- *  the phone's to write, in its own language. */
+ *  characters and its end, `omitted` characters were left out between them.
+ *  The words are the phone's to write, in its own language. */
 export const REMOTE_OUTPUT_NOTES_FIELD = 'remoteOutputNotes';
-export type RemoteOutputNote = { kind: 'withheld' } | { kind: 'omitted'; at: number; omitted: number };
+export type RemoteOutputNote = { kind: 'omitted'; at: number; omitted: number };
 
 /** The first and last characters of an output over the cap joined, and where
  *  and how much was cut between them. The cut is by length alone and never
@@ -262,11 +255,11 @@ function oversizedRow(row: Record<string, unknown>): Record<string, unknown> {
 
 /** A row's phone copy as tail (`history` false: the rows a phone opened on and
  *  every later one) or as revealed history, and its serialized size. */
-export function remoteTranscriptRow(item: unknown, folder: string, history: boolean): RemoteTranscriptRow {
+export function remoteTranscriptRow(item: unknown, history: boolean): RemoteTranscriptRow {
   if (!item || typeof item !== 'object') return { row: item, bytes: serializedBytes(item) };
   let cached = projectedTranscriptItems.get(item);
-  if (cached?.folder !== folder) {
-    cached = { folder };
+  if (!cached) {
+    cached = {};
     projectedTranscriptItems.set(item, cached);
   }
   const role = history ? 'history' : 'tail';
@@ -279,7 +272,7 @@ export function remoteTranscriptRow(item: unknown, folder: string, history: bool
     delete projected[field];
   }
   const base = projected ?? (item as Record<string, unknown>);
-  let row = base.kind === 'tool' ? remoteToolItem(base, folder, history) : base;
+  let row = base.kind === 'tool' ? cappedToolItem(base, history) : base;
   let bytes = serializedBytes(row);
   if (base.kind === 'tool' && bytes > REMOTE_TRANSCRIPT_ROW_MAX_BYTES) {
     row = oversizedRow(row);
@@ -290,32 +283,22 @@ export function remoteTranscriptRow(item: unknown, folder: string, history: bool
   return result;
 }
 
-interface ToolRecordMatch {
-  record: Record<string, unknown>;
-  /** Rows that share this one's content: an aggregate's members, or a member's aggregate. */
-  related: Record<string, unknown>[];
-}
-
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
 /** One tool row of a transcript by id: a top-level row, an aggregate's member
  *  by its own id, or by the `<aggregate id>:member:<index>` name the renderer
  *  gives an id-less member. */
-export function findToolRecord(snapshot: unknown, itemId: string): ToolRecordMatch | null {
+export function findToolRecord(snapshot: unknown, itemId: string): Record<string, unknown> | null {
   const items = (snapshot as { items?: unknown } | null | undefined)?.items;
   if (!Array.isArray(items)) return null;
   for (const item of items) {
     const row = asRecord(item);
     if (row?.kind !== 'tool') continue;
+    if (row.id != null && String(row.id) === itemId) return row;
     const members = Array.isArray(row.toolMembers) ? row.toolMembers.map(asRecord) : [];
-    if (row.id != null && String(row.id) === itemId) {
-      return { record: row, related: members.filter((member): member is Record<string, unknown> => member !== null) };
-    }
     for (const [index, record] of members.entries()) {
-      if (record && String(record.id ?? `${String(row.id ?? 'aggregate')}:member:${index}`) === itemId) {
-        return { record, related: [row] };
-      }
+      if (record && String(record.id ?? `${String(row.id ?? 'aggregate')}:member:${index}`) === itemId) return record;
     }
   }
   return null;
@@ -327,192 +310,13 @@ export function remoteToolOutput(
   snapshot: unknown,
   itemId: string
 ): { id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown } | null {
-  const found = findToolRecord(snapshot, itemId);
-  if (!found) return null;
-  const { record } = found;
+  const record = findToolRecord(snapshot, itemId);
+  if (!record) return null;
   return {
     id: itemId,
     ...(Object.hasOwn(record, 'result') ? { result: record.result } : {}),
     ...(Object.hasOwn(record, 'rawResult') ? { rawResult: record.rawResult } : {}),
     ...(Object.hasOwn(record, 'uiDiff') ? { uiDiff: record.uiDiff } : {}),
-  };
-}
-
-const PATH_ARGUMENT_KEYS = new Set([
-  'file_path',
-  'filePath',
-  'path',
-  'file',
-  'target',
-  'cwd',
-  'root',
-  'paths',
-  'files',
-  'file_paths',
-]);
-const MAX_ARGUMENT_DEPTH = 8;
-
-/** The paths tool rows name, and whether a diff header among them could not be
- *  read (which counts as naming a secret: it cannot be shown to be innocent). */
-interface NamedPaths {
-  paths: string[];
-  /** The subset the tool call itself targets (its path arguments): the ones a
-   *  tool opens, and so follows links through. Diff header names are not. */
-  argumentPaths: string[];
-  unreadable: boolean;
-}
-
-/** Every path the rows name: path arguments at any depth — a string, an array
- *  of them, or entries such as `reads: [{ path }]` under a path-list key — and
- *  the file names of their diff headers, quoted ones decoded by the same
- *  decoder the review lanes use. Plain data, no content is guessed at. */
-export function toolRecordsNamedPaths(records: readonly Record<string, unknown>[]): NamedPaths {
-  const paths = new Set<string>();
-  const argumentPaths = new Set<string>();
-  let unreadable = false;
-  const add = (value: unknown): void => {
-    if (typeof value === 'string' && value.trim() && value !== '/dev/null') paths.add(value.trim());
-  };
-  const collect = (value: unknown, key: string, depth: number): void => {
-    if (depth > MAX_ARGUMENT_DEPTH) return;
-    if (typeof value === 'string') {
-      if (PATH_ARGUMENT_KEYS.has(key)) {
-        add(value);
-        if (value.trim() && value !== '/dev/null') argumentPaths.add(value.trim());
-      }
-    } else if (Array.isArray(value)) {
-      for (const entry of value) collect(entry, key, depth + 1);
-    } else if (value && typeof value === 'object') {
-      for (const [name, entry] of Object.entries(value)) collect(entry, name, depth + 1);
-    }
-  };
-  for (const record of records) {
-    let args: unknown = record.args;
-    if (typeof args === 'string') {
-      try {
-        args = JSON.parse(args);
-      } catch {
-        args = null;
-      }
-    }
-    if (args && typeof args === 'object') collect(args, '', 0);
-    if (typeof record.uiDiff === 'string') {
-      const sections: string[][] = [[]];
-      for (const line of record.uiDiff.split('\n')) {
-        // A plain patch's `---`/`+++` names may carry a tab-separated timestamp.
-        const text = line.replace(/^((?:---|\+\+\+) .*?)\t.*$/, '$1');
-        if (DIFF_SECTION.test(text)) sections.push([text]);
-        else sections[sections.length - 1].push(text);
-      }
-      for (const name of diffSectionPaths(['', ...sections[0]]) ?? []) add(name);
-      for (const section of sections.slice(1)) {
-        const names = diffSectionPaths(section);
-        if (names) for (const name of names) add(name);
-        else unreadable = true;
-      }
-    }
-    const digest = asRecord(record.uiDiffSummary);
-    if (Array.isArray(digest?.sections)) {
-      for (const section of digest.sections) {
-        const names = asRecord(section)?.names;
-        if (Array.isArray(names)) for (const name of names) add(name);
-      }
-    }
-  }
-  return { paths: [...paths], argumentPaths: [...argumentPaths], unreadable };
-}
-
-/** The file paths a tool row names. */
-export function toolRecordPaths(record: Record<string, unknown>): string[] {
-  return toolRecordsNamedPaths([record]).paths;
-}
-
-/** Set on a row whose outputs the phone's copy emptied because the call
- *  touches a secret file (each emptied field is a `withheld` note). */
-export const REMOTE_OUTPUT_WITHHELD_FIELD = 'remoteOutputWithheld';
-const REMOTE_WITHHELD_TEXT_FIELDS = ['result', 'rawResult', 'liveOutput'] as const;
-
-/** Whether any of `records` names a secret file, by its own name or through a
- *  link or junction (the same check the direct remote file reads apply). The
- *  snapshot is built synchronously, so the links are resolved with the cached,
- *  bounded lookup of isSensitivePathSync. */
-function touchesSecretFile(records: readonly Record<string, unknown>[], folder: string): boolean {
-  const { paths, argumentPaths, unreadable } = toolRecordsNamedPaths(records);
-  if (unreadable) return true;
-  // Relative paths are the session folder's, as the direct reads judge them.
-  // With no folder known they cannot be told apart from a link, so the row is
-  // withheld until the folder is known (the next update re-projects it).
-  if (folder === '' && argumentPaths.some((path) => !isAbsolute(path))) return true;
-  return (
-    (folder !== '' && isSensitivePathSync(folder)) || paths.some((path) => isSensitivePathSync(resolve(folder, path)))
-  );
-}
-
-/** `value` reduced to the path arguments it holds (same keys, at any depth);
- *  content-bearing arguments (`content`, `old_string`, patch bodies…) go. */
-function pathOnlyArguments(value: unknown, key: string, depth: number): unknown {
-  if (depth > MAX_ARGUMENT_DEPTH) return undefined;
-  if (typeof value === 'string') return PATH_ARGUMENT_KEYS.has(key) ? value : undefined;
-  if (Array.isArray(value)) {
-    const kept = value.map((entry) => pathOnlyArguments(entry, key, depth + 1)).filter((entry) => entry !== undefined);
-    return kept.length ? kept : undefined;
-  }
-  if (!value || typeof value !== 'object') return undefined;
-  const kept: Record<string, unknown> = {};
-  for (const [name, entry] of Object.entries(value)) {
-    const reduced = pathOnlyArguments(entry, name, depth + 1);
-    if (reduced !== undefined) kept[name] = reduced;
-  }
-  return Object.keys(kept).length ? kept : undefined;
-}
-
-/** `record` with every output it carries emptied (and noted as withheld) and
- *  its arguments reduced to the paths it names. */
-function withheldToolRecord(record: Record<string, unknown>): Record<string, unknown> {
-  const withheld = { ...record };
-  if (Object.hasOwn(withheld, 'args')) {
-    let args: unknown = withheld.args;
-    if (typeof args === 'string') {
-      try {
-        args = JSON.parse(args);
-      } catch {
-        args = null;
-      }
-    }
-    withheld.args = pathOnlyArguments(args, '', 0) ?? {};
-  }
-  const notes: Record<string, RemoteOutputNote> = {};
-  for (const field of REMOTE_WITHHELD_TEXT_FIELDS) {
-    if (typeof withheld[field] !== 'string' || withheld[field] === '') continue;
-    withheld[field] = '';
-    notes[field] = { kind: 'withheld' };
-  }
-  withheld[REMOTE_OUTPUT_NOTES_FIELD] = notes;
-  delete withheld.uiDiff;
-  delete withheld.uiDiffSummary;
-  delete withheld[REMOTE_OUTPUT_TRUNCATED_FIELD];
-  withheld[REMOTE_OUTPUT_WITHHELD_FIELD] = true;
-  return withheld;
-}
-
-/** A tool row (or an aggregate's members) as the phone may see it: outputs of
- *  anything that touches a secret file replaced, the rest capped. An aggregate
- *  row is withheld when any member is; a member when it or its aggregate is. */
-function remoteToolItem(item: Record<string, unknown>, folder: string, history: boolean): Record<string, unknown> {
-  const members = Array.isArray(item.toolMembers) ? item.toolMembers : [];
-  const records = members.map(asRecord);
-  const own = touchesSecretFile([item], folder);
-  const denied = records.map((record) => own || (record !== null && touchesSecretFile([record], folder)));
-  if (!own && !denied.some(Boolean)) return cappedToolItem(item, history);
-  const row = withheldToolRecord(item);
-  if (!Array.isArray(item.toolMembers)) return row;
-  return {
-    ...row,
-    toolMembers: members.map((member, index) => {
-      const record = records[index];
-      if (!record) return member;
-      return denied[index] ? withheldToolRecord(record) : cappedToolRecord(record, history);
-    }),
   };
 }
 
@@ -550,12 +354,11 @@ export function remotePromptHistory(list: readonly unknown[]): readonly unknown[
 
 /** Keep item identity and the host's full history page across both ordinary
  * deltas and recovery baselines; omit only provider-private replay material
- * and bound the prompt history (remotePromptHistory).
- * `sessionFolder` is where the session's relative paths lead from; absent, the
- * snapshot's own workspace is used, else the process folder. The first
+ * and bound the prompt history (remotePromptHistory). Tool rows reach the
+ * phone as the desktop shows them, their outputs capped only. The first
  * `historyEnd` rows are history a page revealed (remote-transcript-window.ts);
  * without one every row is sent as tail. */
-export function remoteTranscriptSnapshot(snapshot: unknown, sessionFolder = '', historyEnd = 0): unknown {
+export function remoteTranscriptSnapshot(snapshot: unknown, historyEnd = 0): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot;
   const record = snapshot as Record<string, unknown>;
   const history = Array.isArray(record.promptHistoryList)
@@ -564,11 +367,9 @@ export function remoteTranscriptSnapshot(snapshot: unknown, sessionFolder = '', 
   const historyCut = history !== record.promptHistoryList;
   let items = record.items;
   if (Array.isArray(record.items)) {
-    const workspaceCwd = asRecord(record.workspace)?.cwd;
-    const folder = sessionFolder || (typeof workspaceCwd === 'string' ? workspaceCwd : '');
     let dropped = false;
     const projected = record.items.map((item, index) => {
-      const next = remoteTranscriptRow(item, folder, index < historyEnd).row;
+      const next = remoteTranscriptRow(item, index < historyEnd).row;
       if (next !== item) dropped = true;
       return next;
     });

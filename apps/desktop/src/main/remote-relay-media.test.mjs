@@ -178,7 +178,7 @@ test('a leased project file is re-authorized by where the opened file really is'
   assert.equal(await serve(assetId), 404);
 });
 
-test('a gallery asset resolving to a secret file, by name or through a link, is never served', async (t) => {
+test('a gallery asset is served wherever it resolves, a secret-bearing name or a link included', async (t) => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'relay-media-gallery-')));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   mkdirSync(join(base, 'gallery'));
@@ -197,9 +197,13 @@ test('a gallery asset resolving to a secret file, by name or through a link, is 
     return sent[0].status;
   };
   assert.equal(await serve('a0000000-0000-0000-0000-000000000001', join(base, 'gallery', 'shot.png')), 200);
-  assert.equal(await serve('a0000000-0000-0000-0000-000000000002', join(base, '.env')), 404);
-  assert.equal(await serve('a0000000-0000-0000-0000-000000000003', join(base, '.ssh', 'id_rsa')), 404);
-  assert.equal(await serve('a0000000-0000-0000-0000-000000000004', join(base, 'linked', 'id_rsa')), 404);
+  // Before parity each was refused (404) as secret-bearing; the desktop's
+  // gallery shows whatever file the media store resolves.
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000002', join(base, '.env')), 200);
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000003', join(base, '.ssh', 'id_rsa')), 200);
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000004', join(base, 'linked', 'id_rsa')), 200);
+  // A path that resolves to nothing is still not found.
+  assert.equal(await serve('a0000000-0000-0000-0000-000000000005', join(base, 'gone.png')), 404);
 });
 
 test('requests without a known session, or for unknown or unsupported things, are refused', async () => {

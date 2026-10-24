@@ -245,7 +245,6 @@ async function harness() {
         true,
         true,
         true,
-        '',
         state.transcriptPaging === true
       );
       if (isNoDelta(wire)) return;

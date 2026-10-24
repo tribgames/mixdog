@@ -34,7 +34,6 @@ import {
   type SelectedFileGrants,
 } from './remote-methods';
 import { createFileDownloadService } from './file-downloads';
-import { registerSensitiveRoot } from './remote-sensitive-paths';
 export { remoteTranscriptSnapshot } from './remote-transcript';
 import { createNativePushStore, type NativePushSubscription } from './native-push-store';
 import type { NativePushMessage } from './push-notifier';
@@ -229,9 +228,6 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // that was one heavy answer or eighty cheap ones. Name those calls without
   // sending routine performance telemetry through the error channel.
   const remoteCallStats = createRemoteCallStats();
-  // The app profile holds the device, pairing and encryption keys: no remote
-  // file lane serves it, except the task workspaces that live inside it.
-  registerSensitiveRoot(options.userDataPath, ['workspace']);
   const relayUrl = validatedRelayUrl(options.relayUrl);
   const token = await loadOrCreatePairingToken(options.userDataPath);
   const { deviceId, deviceSecret } = await loadOrCreateDevice(options.userDataPath);
@@ -490,12 +486,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       return options.browserRemote('tabsWatch', [on]);
     },
   });
-  const sessionFolders = new Map<string, string>();
-  const sessionStates = createRelaySessionStateFanout({
-    clients: clients.clients,
-    sendEncryptedFrame,
-    sessionFolder: (sessionId) => sessionFolders.get(sessionId) ?? '',
-  });
+  const sessionStates = createRelaySessionStateFanout({ clients: clients.clients, sendEncryptedFrame });
   const resetTransportDeltas = (): void => {
     sessionStates.clear();
     clients.resetDeltas();
@@ -516,11 +507,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sendEncryptedFrame,
     broadcastEncrypted,
     subscribeTerminalData: options.subscribeTerminalData,
-    onSessions: (sessions) => {
-      sessionFolders.clear();
-      for (const session of sessions) if (session.cwd) sessionFolders.set(session.id, session.cwd);
-      fileDownloads.retainSessions(sessions.map((session) => session.id));
-    },
+    onSessions: (sessions) => fileDownloads.retainSessions(sessions.map((session) => session.id)),
   });
   const drainQueuedRevocations = createRevocationDrain({
     relayUrl,

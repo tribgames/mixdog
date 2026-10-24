@@ -20,7 +20,6 @@ import {
   withAuthorizedFile,
 } from './remote-file-preview.ts';
 import { createRemoteLocalPageMethods } from './remote-local-page.ts';
-import { sensitivePolicy } from './remote-sensitive-paths.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'remote-preview-'));
 mkdirSync(join(root, '.hidden'));
@@ -109,36 +108,35 @@ test('a folder swapped for a link between the checks and the open is judged by w
   };
   const ok = await raced.previewProjectFileRange([project, 'media/clip.mp4', null, 0, 64]);
   assert.equal(Buffer.from(ok.data, 'base64').toString(), 'project clip');
-  // Before the fix these read the bytes the swapped-in link led to.
+  // The desktop's project boundary, held at the open: before the fix these
+  // read the bytes the swapped-in link led to.
   swapTo(elsewhere);
   await assert.rejects(raced.previewProjectFileRange([project, 'media/clip.mp4', null, 0, 64]), /outside the project/);
   restore();
-  swapTo(join(project, '.ssh'));
-  await assert.rejects(
-    raced.previewProjectFileRange([project, 'media/clip.mp4', null, 0, 64]),
-    /credentials or secrets/
-  );
-  restore();
   swapTo(elsewhere);
   await assert.rejects(raced.previewProjectFile([project, 'media/clip.mp4', null]), /outside the project/);
-  // A delegated read is never asked for a swapped file.
   restore();
+  // A link to another folder of the same project stays inside it: served, as
+  // the desktop serves it (before parity: refused as a secret-bearing `.ssh`).
   swapTo(join(project, '.ssh'));
-  await assert.rejects(raced.captureFileSnapshot([project, 'media/clip.mp4', null]), /credentials or secrets/);
-  assert.deepEqual(snapshots, []);
+  const inProject = await raced.previewProjectFileRange([project, 'media/clip.mp4', null, 0, 64]);
+  assert.equal(Buffer.from(inProject.data, 'base64').toString(), 'private key');
+  restore();
+  // A snapshot is captured the way the desktop handler captures it: the
+  // project file, with its project (before parity: a private copy, alone).
+  await raced.captureFileSnapshot([project, 'media/clip.mp4', null]);
+  await raced.captureFileSnapshot([outside, 'pic.png', 'ok']);
+  assert.deepEqual(snapshots, [
+    ['captureFileSnapshot', [project, 'media/clip.mp4', false]],
+    ['captureFileSnapshot', [outside, 'pic.png', true]],
+  ]);
 });
 
-test('a local page is handed to the page server only at the real location of the opened file', async (t) => {
-  const project = realpathSync(mkdtempSync(join(tmpdir(), 'remote-page-race-')));
-  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'remote-page-race-out-')));
-  t.after(() => {
-    remoteFilePreviewTestHooks.beforeOpen = undefined;
-    rmSync(project, { recursive: true, force: true });
-    rmSync(elsewhere, { recursive: true, force: true });
-  });
+test('a local page is handed to the page server as the desktop handler hands it', async (t) => {
+  const project = realpathSync(mkdtempSync(join(tmpdir(), 'remote-page-')));
+  t.after(() => rmSync(project, { recursive: true, force: true }));
   mkdirSync(join(project, 'site'));
   writeFileSync(join(project, 'site', 'index.html'), '<p>site</p>');
-  writeFileSync(join(elsewhere, 'index.html'), '<p>outside</p>');
   const requests = [];
   const pages = createRemoteLocalPageMethods({
     host: { projectDirectory: async () => project },
@@ -149,16 +147,14 @@ test('a local page is handed to the page server only at the real location of the
     },
   });
   assert.equal(await pages.localPageUrl([project, 'site/index.html', null]), 'http://127.0.0.1:9/page');
-  assert.deepEqual(requests, [['localPageUrl', [project, join('site', 'index.html'), 'project', sensitivePolicy()]]]);
-  // Before the fix the page server got the swapped path and served whatever
-  // the link led to.
-  remoteFilePreviewTestHooks.beforeOpen = () => {
-    remoteFilePreviewTestHooks.beforeOpen = undefined;
-    rmSync(join(project, 'site'), { recursive: true, force: true });
-    symlinkSync(elsewhere, join(project, 'site'), 'junction');
-  };
-  await assert.rejects(pages.localPageUrl([project, 'site/index.html', null]), /outside the project/);
-  assert.equal(requests.length, 1);
+  assert.equal(await pages.localPageUrl([outside, 'pic.png', 'ok']), 'http://127.0.0.1:9/page');
+  // Before parity a project page also carried the remote deny policy.
+  assert.deepEqual(requests, [
+    ['localPageUrl', [project, 'site/index.html', 'project']],
+    ['localPageUrl', [outside, 'pic.png', 'file']],
+  ]);
+  await assert.rejects(pages.localPageUrl([project, '../index.html', null]), /outside the project/);
+  assert.equal(requests.length, 2);
 });
 
 test('a selected-file grant reads exactly its file and nothing else', async () => {

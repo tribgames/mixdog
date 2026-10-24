@@ -31,8 +31,7 @@ interface PhoneWindow {
 }
 const phoneWindows = new WeakMap<SnapshotDeltaEncoder, PhoneWindow>();
 
-const idOf = (item: unknown): unknown =>
-  item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined;
+const idOf = (item: unknown): unknown => (item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined);
 
 function indexOfId(items: readonly unknown[], id: unknown): number {
   if (id === undefined || id === null) return -1;
@@ -46,13 +45,12 @@ function budgetedStart(
   end: number,
   maxItems: number,
   byteBudget: number,
-  folder: string,
   history: boolean
 ): number {
   let start = end;
   let bytes = 0;
   while (start > 0 && end - start < maxItems) {
-    const next = remoteTranscriptRow(items[start - 1], folder, history).bytes;
+    const next = remoteTranscriptRow(items[start - 1], history).bytes;
     if (start < end && bytes + next > byteBudget) break;
     bytes += next;
     start -= 1;
@@ -69,35 +67,30 @@ export function requestPhoneTranscriptPage(encoder: SnapshotDeltaEncoder | undef
 /** `snapshot` as this phone's encoder should send it: its window of rows,
  *  each as its phone copy (remoteTranscriptSnapshot), and `transcriptHasOlder`
  *  set when rows above the window are left out. */
-export function phoneTranscriptSnapshot(encoder: SnapshotDeltaEncoder, snapshot: unknown, folder = ''): unknown {
+export function phoneTranscriptSnapshot(encoder: SnapshotDeltaEncoder, snapshot: unknown): unknown {
   const record = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : null;
-  if (!record || !Array.isArray(record.items)) return remoteTranscriptSnapshot(snapshot, folder);
+  if (!record || !Array.isArray(record.items)) return remoteTranscriptSnapshot(snapshot);
   const items = record.items as unknown[];
   const held = (encoder.resumePoint()?.held as { items?: unknown } | undefined)?.items;
   let window = phoneWindows.get(encoder);
   let start = window && Array.isArray(held) && held.length ? indexOfId(items, idOf(held[0])) : -1;
   let tailStart = window && start >= 0 ? indexOfId(items, window.tailFirstId) : -1;
   if (!window || start < 0 || tailStart < start) {
-    start = budgetedStart(items, items.length, REMOTE_TRANSCRIPT_TAIL_ITEMS, REMOTE_TRANSCRIPT_TAIL_BYTES, folder, false);
+    start = budgetedStart(items, items.length, REMOTE_TRANSCRIPT_TAIL_ITEMS, REMOTE_TRANSCRIPT_TAIL_BYTES, false);
     tailStart = start;
     window = { tailFirstId: idOf(items[start]), limit: items.length - start };
     phoneWindows.set(encoder, window);
   } else {
     const wanted = window.limit - (items.length - start);
-    if (wanted > 0) start = budgetedStart(items, start, wanted, DESKTOP_TRANSCRIPT_PAGE_BYTES, folder, true);
+    if (wanted > 0) start = budgetedStart(items, start, wanted, DESKTOP_TRANSCRIPT_PAGE_BYTES, true);
   }
   const windowed = start === 0 ? record : { ...record, items: items.slice(start), transcriptHasOlder: true };
-  return remoteTranscriptSnapshot(windowed, folder, tailStart - start);
+  return remoteTranscriptSnapshot(windowed, tailStart - start);
 }
 
 /** The wire a phone's encoder sends for `snapshot`: its own window for a phone
  *  that pages (`transcriptPaging`), the whole window for an older build that
  *  cannot page from `transcriptHasOlder`. */
-export function encodePhoneSessionState(
-  encoder: SnapshotDeltaEncoder,
-  snapshot: unknown,
-  folder: string,
-  paging: boolean
-): unknown {
-  return encoder.encode(paging ? phoneTranscriptSnapshot(encoder, snapshot, folder) : remoteTranscriptSnapshot(snapshot, folder));
+export function encodePhoneSessionState(encoder: SnapshotDeltaEncoder, snapshot: unknown, paging: boolean): unknown {
+  return encoder.encode(paging ? phoneTranscriptSnapshot(encoder, snapshot) : remoteTranscriptSnapshot(snapshot));
 }

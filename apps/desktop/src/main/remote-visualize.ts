@@ -25,7 +25,6 @@ import { requiredString, requiredVisualizeTabCommand } from './ipc-validation';
 import { pageAssetType } from './local-page-server';
 import { projectEntryPathIn } from './project-files';
 import { authorizedFileDigest, authorizedMediaFile, readPreviewRange, withAuthorizedFile } from './remote-file-preview';
-import { assertNotSensitive } from './remote-sensitive-paths';
 
 type RemoteMethod = (params: unknown[]) => unknown;
 type HostRequest = (
@@ -147,7 +146,6 @@ async function servedFile(
   const root = await realpath(rootDir);
   const rel = requiredString(rawRel, 'relPath', 4_096).replace(/\\/g, '/');
   const absolute = projectEntryPathIn(root, rel);
-  await assertNotSensitive(absolute);
   // Inline panes have no file (their content rides the state): never a page
   // whose folder could serve project assets.
   const roots = new Set([comparable(rootDir), comparable(root)]);

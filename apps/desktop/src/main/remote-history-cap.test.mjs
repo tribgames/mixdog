@@ -103,7 +103,7 @@ const ROWS = [
 // Newer rows a phone opened on: its tail. Which rows are history is the
 // phone window's to say (remote-transcript-window.ts), not a row count.
 const TAIL = Array.from({ length: 20 }, (_, n) => ({ id: `u${n}`, kind: 'user', text: `prompt ${n}` }));
-const asHistory = (rows) => remoteTranscriptSnapshot({ items: [...rows, ...TAIL] }, process.cwd(), rows.length).items;
+const asHistory = (rows) => remoteTranscriptSnapshot({ items: [...rows, ...TAIL] }, rows.length).items;
 
 test('an older row is cut to its first lines and keeps the header the whole output gives it', () => {
   const items = asHistory(ROWS);
@@ -294,7 +294,7 @@ test('projection, wire and presentation:a cut row reads as the whole one in Engl
   const encoder = createSnapshotDeltaEncoder({ prepend: true });
   const decoder = createSnapshotDeltaDecoder();
   const deliver = (snapshot) => {
-    const decoded = decoder.decode(JSON.parse(JSON.stringify(encodePhoneSessionState(encoder, snapshot, process.cwd(), true))));
+    const decoded = decoder.decode(JSON.parse(JSON.stringify(encodePhoneSessionState(encoder, snapshot, true))));
     assert.equal(decoded.ok, true);
     return decoded.snapshot;
   };
@@ -338,7 +338,7 @@ test('tail rows and the desktop copy are untouched', () => {
   const tailRows = ROWS.map((row) => ({ ...row, id: `${row.id}-tail` }));
   const snapshot = { items: [...TAIL.slice(0, 11), ...tailRows] };
   const before = JSON.stringify(snapshot);
-  const items = remoteTranscriptSnapshot(snapshot, process.cwd()).items;
+  const items = remoteTranscriptSnapshot(snapshot).items;
   for (const [n, row] of tailRows.entries()) {
     const sent = items[11 + n];
     assert.equal(sent.result, row.result, `${row.id}: a tail row keeps its whole output`);

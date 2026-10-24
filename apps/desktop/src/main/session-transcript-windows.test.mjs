@@ -51,7 +51,7 @@ test('a session the desktop window also shows keeps the desktop tail, and a join
     kind: 'assistant',
     text: 'w'.repeat(20_000),
   }));
-  const wire = encodePhoneSessionState(createSnapshotDeltaEncoder(), { items: shared }, '', true);
+  const wire = encodePhoneSessionState(createSnapshotDeltaEncoder(), { items: shared }, true);
   const decoded = createSnapshotDeltaDecoder().decode(JSON.parse(JSON.stringify(wire)));
   const bytes = Buffer.byteLength(JSON.stringify(decoded.snapshot.items));
   assert.ok(bytes <= REMOTE_TRANSCRIPT_TAIL_BYTES, `phone first page ${bytes} bytes`);

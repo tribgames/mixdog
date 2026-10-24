@@ -555,6 +555,29 @@ test('pane reads stay inside cwd and inside the read caps', async () => {
   }
 });
 
+test('a pane of a secret-bearing file inside its root is served as on the desktop; outside the root it is not', async () => {
+  const { cwd, outside, cleanup } = workspace();
+  mkdirSync(join(cwd, '.ssh'));
+  writeFileSync(join(cwd, '.ssh', 'key.png'), 'key-png');
+  const [state] = hostSnapshot(cwd);
+  const tab = { ...state.tabs[1], id: 'v5', panes: [pane('image', join(cwd, '.ssh', 'key.png'))] };
+  const methods = createRemoteVisualizeMethods({
+    mirror: createRemoteVisualizeMirror(),
+    hostRequest: async (method) => (method === 'visualizeState' ? [{ ...state, tabs: [tab] }] : null),
+    invokeDesktopOperation: async () => null,
+  });
+  try {
+    await methods.visualizeState([]);
+    // Before parity: refused as "credentials or secrets" for a remote device.
+    const range = await methods.visualizePaneRange(['s1', 'v5', '.ssh/key.png', 0, 16]);
+    assert.equal(Buffer.from(range.data, 'base64').toString(), 'key-png');
+    await assert.rejects(methods.visualizePaneRange(['s1', 'v5', '../outside/a.png', 0, 4]), /outside the project/);
+    await assert.rejects(methods.visualizePaneRange(['s1', 'v5', join(outside, 'a.png'), 0, 4]), /outside the project/);
+  } finally {
+    cleanup();
+  }
+});
+
 test('a live pane outside cwd is served from its own folder, never above it', async () => {
   const { base, cwd, outside, cleanup } = workspace();
   const design = join(outside, 'design');

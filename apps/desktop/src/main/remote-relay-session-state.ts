@@ -21,7 +21,6 @@ export function encodeRelayClientSessionState(
   compact = false,
   prepend = false,
   historyPatch = false,
-  sessionFolder = '',
   paging = false
 ): unknown {
   let encoder = encoders.get(sessionId);
@@ -29,7 +28,7 @@ export function encodeRelayClientSessionState(
     encoder = createSnapshotDeltaEncoder({ compact, prepend, historyPatch });
     encoders.set(sessionId, encoder);
   }
-  return encodePhoneSessionState(encoder, snapshot, sessionFolder, paging);
+  return encodePhoneSessionState(encoder, snapshot, paging);
 }
 
 /** A client receives a session's frames while it shows the session, and the
@@ -47,8 +46,6 @@ export function relayClientAwaitsSession(
 export interface RelaySessionStateFanoutDeps {
   clients: ReadonlyMap<string, RelayClientState>;
   sendEncryptedFrame(clientId: string, payload: unknown, droppable: boolean): Promise<void>;
-  /** The folder a session's relative paths are under; '' when unknown. */
-  sessionFolder?(sessionId: string): string;
 }
 
 export interface RelaySessionStateFanout {
@@ -97,7 +94,6 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
             state.compactWire,
             state.transcriptPrepend,
             state.promptHistoryPatch,
-            deps.sessionFolder?.(sessionId) ?? '',
             state.transcriptPaging === true
           );
           // This client's baseline already matches the snapshot: the frame would

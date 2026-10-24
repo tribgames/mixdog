@@ -5,12 +5,9 @@
 // the in-process IPC surface would reject.
 import { randomUUID } from 'node:crypto';
 import { requiredProjectRecoveryRequest } from '../shared/project-recovery';
-import type { Dirent } from 'node:fs';
-import { lstat, readdir, realpath } from 'node:fs/promises';
 import {
   basename as pathBasename,
   dirname as pathDirname,
-  extname as pathExtname,
   relative as pathRelative,
   resolve as resolvePath,
 } from 'node:path';
@@ -31,7 +28,7 @@ import { remoteCapabilityArgs } from './remote-authority';
 import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { pushRemoteMethods } from './remote-push-methods';
 import { validatedHostDirectoryPath } from './host-directories';
-import { sessionFolder, sessionRemoteMethods } from './remote-session-methods';
+import { sessionRemoteMethods } from './remote-session-methods';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { submitFeedback } from './feedback-client';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
@@ -76,27 +73,12 @@ import { codedErrorParams } from '../shared/coded-error';
 import { redactSecrets } from '../shared/redact-secret';
 import { remoteDesktopOnlyError } from '../shared/remote-error-codes';
 import { SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
-import { LocalAccessDeniedError } from './local-access-denied';
 import { FileDownloadError } from '../shared/file-downloads';
 import { fileDownloadRemoteMethods, type FileDownloadRequester, type FileDownloadService } from './file-downloads';
-import { createLinkProvenance } from './transcript-file-links';
-import {
-  assertNoneSensitive,
-  assertNotSensitive,
-  isSensitivePath,
-  isSensitivePathSync,
-  SENSITIVE_PATH_MESSAGE,
-  sensitivePathMatcher,
-  sensitivePolicy,
-  withoutSensitiveDiffSections,
-  withoutSensitiveReviewFiles,
-} from './remote-sensitive-paths';
-import { createRemoteFilePreviewMethods, remoteFileTarget, withAuthorizedFile } from './remote-file-preview';
+import { createRemoteFilePreviewMethods, remoteFileTarget } from './remote-file-preview';
 import { createRemoteLocalPageMethods } from './remote-local-page';
 import { createRemoteAttachmentMethods } from './remote-attachments';
 import { createRemoteVisualizeMethods, type RemoteVisualizeMirror } from './remote-visualize';
-import { projectEntryPathIn } from './project-files';
-import { workspaceFilePath } from './workspace-config';
 import { clientSizeOwner, type TerminalSizeOwner } from '../shared/terminal-size-owner';
 import { MAX_SELECTED_FILE_GRANTS, owningProject, sameGrantedPath, selectedFileGrantKey } from './selected-file-grants';
 import {
@@ -127,16 +109,6 @@ const VALUE_ONLY_SESSION_CAPABILITIES: ReadonlySet<string> = new Set([
   'getSessionReviewFilePatch',
   'getTurnChanges',
   'skillsStatus',
-]);
-
-/** Turn and session review reads: their answers show file patches, so a
- *  remote device gets them without secret-bearing files. */
-const TURN_REVIEW_CAPABILITIES: ReadonlySet<string> = new Set([
-  'getTurnReviewDiff',
-  'getSessionReviewDiff',
-  'getTurnChanges',
-  'getTurnReviewFilePatch',
-  'getSessionReviewFilePatch',
 ]);
 
 export function assertRemoteCapability(capability: string): void {
@@ -180,7 +152,7 @@ export interface RemoteMethodClient {
    *  in the session. A stale view is re-sent as a side effect. */
   staleView?(sessionId: string, device: string): boolean;
   /** Sessions this connection currently views (the host's own record of its
-   *  visible set): where a file link it opens can have come from. */
+   *  visible set): the ones its transcript row reads may address. */
   viewedSessionIds?(): readonly string[];
   /** The transcript the host last sent this connection for a session (the
    *  copy its delta baseline holds), or null when it sent none. */
@@ -287,24 +259,23 @@ export interface SelectedFileGrants {
     relPath: unknown
   ): { root: string; rel: string; absolute: string };
   grantedIf(accessToken: unknown): boolean;
-  /** Whether a live grant names exactly this file. */
-  holdsGrantFor(absolutePath: string): boolean;
 }
 
 /** A bridge grant's lifetime; unpair, close or its conversation ending drops
  *  it sooner. */
 const BRIDGE_GRANT_TTL_MS = 60 * 60 * 1000;
-const NOT_LINKED = 'This file is outside every project and is not linked in this conversation.';
 
-/** One-file permissions for paths OUTSIDE any registered project, minted only
- *  for a file an assistant reply in a conversation links (see
- *  resolveLocalPathEntries). Bound to one paired device: the relay keeps them
- *  across that device's reconnects, as it keeps its download grants, so a
- *  link the client already resolved still opens after the relay leg changes.
- *  Each records the conversation it came from and ends with it, or after
- *  BRIDGE_GRANT_TTL_MS. A token names one exact path and nothing else; the
- *  same file linked from the same conversation keeps its one token, so
- *  opening a link again never evicts the grant another surface holds. */
+/** One-file permissions for paths OUTSIDE any registered project: the
+ *  device's counterpart of the desktop's selected-file grants, minted for any
+ *  file the device describes (resolveLocalPathEntries, as the desktop's
+ *  SelectedFileAccess.describe) or opens as an attachment. Bound to one
+ *  paired device: the relay keeps them across that device's reconnects, as it
+ *  keeps its download grants, so a file the client already resolved still
+ *  opens after the relay leg changes. A grant minted for a conversation
+ *  (`sessionId`, an attachment) ends with it; every grant ends after
+ *  BRIDGE_GRANT_TTL_MS, and the client then describes the file again. A token
+ *  names one exact path and nothing else; the same file keeps its one token,
+ *  so describing it again never evicts the grant another surface holds. */
 export function createSelectedFileGrants(sessionRemoved: (sessionId: string) => boolean): SelectedFileGrants {
   const fileGrants = new Map<string, { path: string; sessionId: string; expiresAt: number; token: string }>();
   const live = (grant: { sessionId: string; expiresAt: number }): boolean =>
@@ -315,7 +286,7 @@ export function createSelectedFileGrants(sessionRemoved: (sessionId: string) => 
         if (grant.sessionId !== sessionId || !sameGrantedPath(grant.path, absolutePath)) continue;
         fileGrants.delete(key);
         if (!live(grant)) continue;
-        // Most recently used last; the provenance was just checked again.
+        // Most recently used last; the file was just described again.
         fileGrants.set(key, { ...grant, expiresAt: Date.now() + BRIDGE_GRANT_TTL_MS });
         return grant.token;
       }
@@ -349,106 +320,7 @@ export function createSelectedFileGrants(sessionRemoved: (sessionId: string) => 
       return { root: pathDirname(granted.path), rel: pathBasename(granted.path), absolute: granted.path };
     },
     grantedIf: (accessToken: unknown): boolean => typeof accessToken === 'string' && accessToken.length > 0,
-    holdsGrantFor: (absolutePath: string): boolean =>
-      [...fileGrants.values()].some((grant) => live(grant) && sameGrantedPath(grant.path, absolutePath)),
   };
-}
-
-/** Whether a lexically in-project path also stays inside the project once
- *  symlinks and junctions are resolved. */
-function staysInProject(root: string, absolutePath: string): boolean {
-  try {
-    projectEntryPathIn(root, pathRelative(root, absolutePath));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** A host file a paired device may read as an attachment: inside a registered
- *  project (symlink-guarded), or one this connection already holds a linked
- *  grant for. Anything else is refused before the filesystem is touched. */
-async function readableLocalFile(
-  raw: unknown,
-  host: DesktopService,
-  grants: SelectedFileGrants
-): Promise<{ absolute: string; within: string }> {
-  const absolute = absoluteLocalPath(raw);
-  // Like the editor lanes: a granted name later swapped for a symlink out of
-  // its folder is refused.
-  if (grants.holdsGrantFor(absolute)) {
-    const granted = projectEntryPathIn(pathDirname(absolute), pathBasename(absolute));
-    await assertNotSensitive(granted);
-    return { absolute: granted, within: pathDirname(granted) };
-  }
-  const owner = owningProject(await host.listProjects().catch(() => []), absolute);
-  if (!owner) throw await notLinkedDenial(absolute);
-  if (!staysInProject(owner.root, absolute)) {
-    throw new LocalAccessDeniedError('The file resolves outside the project.');
-  }
-  await assertNotSensitive(absolute);
-  // The read itself re-authorizes the opened file within this folder.
-  return { absolute, within: owner.root };
-}
-
-/** The denial for a path no project owns and no reply links: a secret-bearing
- *  name (`~/.ssh/id_rsa`, `.env`, …) is refused as such, judged on the path as
- *  written, so the file is still never statted. */
-async function notLinkedDenial(absolute: string): Promise<LocalAccessDeniedError> {
-  const sensitive = (await sensitivePathMatcher())(absolute);
-  return new LocalAccessDeniedError(sensitive ? SENSITIVE_PATH_MESSAGE : NOT_LINKED);
-}
-
-/** Refuses when any of `relPaths` (relative to `root`, a project or
- *  repository folder) names a secret-bearing file, by its name or by where it
- *  really is. */
-async function refuseSensitiveIn(root: string, relPaths: readonly string[]): Promise<void> {
-  for (const relPath of relPaths) await assertNotSensitive(resolvePath(root, relPath));
-}
-
-/** The paths of `relPaths` (relative to `root`) that are secret-bearing. */
-async function sensitiveIn(root: string, relPaths: readonly string[]): Promise<Set<string>> {
-  const denied = await Promise.all(relPaths.map((relPath) => isSensitivePath(resolvePath(root, relPath))));
-  return new Set(relPaths.filter((_, index) => denied[index]));
-}
-
-/** Refuses a folder-capable Git call (stage, path commit, discard) when a
- *  pathspec names a secret-bearing file, or covers one Git would touch: the
- *  pathspecs are expanded by Git itself (gitPathspecChanges), so `.`, a
- *  folder or a glob is judged file by file. An answer that is not a list
- *  refuses too. */
-async function refuseSensitiveChanges(
-  invokeDesktopOperation: InvokeDesktopOperation,
-  repository: string,
-  relPaths: readonly string[]
-): Promise<void> {
-  await refuseSensitiveIn(repository, relPaths);
-  const changed = await invokeDesktopOperation('gitPathspecChanges', [repository, relPaths]);
-  if (!Array.isArray(changed) || changed.some((path) => typeof path !== 'string')) {
-    throw new Error('The files these paths cover could not be listed.');
-  }
-  await assertNoneSensitive(changed);
-}
-
-/** Per-file patches (a review batch, a request context) without the sections
- *  of secret-bearing files. */
-function withoutSensitivePatches<T extends { patch: string }>(entries: readonly T[], repository: string): Promise<T[]> {
-  return Promise.all(
-    entries.map(async (entry) => ({ ...entry, patch: await withoutSensitiveDiffSections(entry.patch, repository) }))
-  );
-}
-
-/** A diff read for a remote device: refused when a path it names is
- *  secret-bearing, and without the file sections of any secret-bearing file it
- *  covers (a folder or `.` names many). Other answers pass unchanged. */
-async function remoteDiff(
-  repository: string,
-  relPaths: readonly string[],
-  read: () => Promise<unknown>
-): Promise<unknown> {
-  await refuseSensitiveIn(repository, relPaths);
-  const patch = await read();
-  return typeof patch === 'string' ? withoutSensitiveDiffSections(patch, repository) : patch;
 }
 
 // Remote access is a transport client, not another service. Keep its
@@ -516,89 +388,56 @@ function gitWorkingTreeRemoteMethods(
         skipLineStats: record.skipLineStats === true,
       });
     },
-    gitDiff: ([cwd, path, staged, worktreeOnly, untracked]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const file = requiredGitPath(path);
-      return remoteDiff(repository, [file], () =>
-        git.gitDiff(repository, file, staged === true, worktreeOnly === true, untracked === true)
-      );
-    },
+    gitDiff: ([cwd, path, staged, worktreeOnly, untracked]) =>
+      git.gitDiff(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        staged === true,
+        worktreeOnly === true,
+        untracked === true
+      ),
     gitApplyPatch: ([cwd, path, patch, reverse]) => {
       if (reverse !== undefined && typeof reverse !== 'boolean') {
         throw new TypeError('git patch direction is invalid.');
       }
-      const repository = requiredRepositoryCwd(cwd);
-      const file = requiredGitPath(path);
-      const text = requiredGitPatch(patch);
-      return (async () => {
-        await refuseSensitiveIn(repository, [file]);
-        // The patch itself may name other files.
-        if ((await withoutSensitiveDiffSections(text, repository)) !== text) {
-          throw new LocalAccessDeniedError(SENSITIVE_PATH_MESSAGE);
-        }
-        return git.gitApplyPatch(repository, file, text, reverse === true);
-      })();
-    },
-    // Staging and committing a secret would carry it off to the remote; a
-    // folder or `.` is refused when it covers a changed secret file.
-    gitStage: ([cwd, paths]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const files = requiredGitPaths(paths);
-      return refuseSensitiveChanges(invokeDesktopOperation, repository, files).then(() =>
-        git.gitStage(repository, files)
+      return git.gitApplyPatch(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        requiredGitPatch(patch),
+        reverse === true
       );
     },
+    gitStage: ([cwd, paths]) => git.gitStage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
     gitUnstage: ([cwd, paths]) => git.gitUnstage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
     gitIgnore: ([cwd, path, scope]) =>
       git.gitIgnore(requiredRepositoryCwd(cwd), requiredGitPath(path), requiredGitIgnoreScope(scope)),
     gitCommit: ([cwd, message]) =>
       git.gitCommit(requiredRepositoryCwd(cwd), requiredString(message, 'commit message', 20_000)),
-    gitCommitPaths: ([cwd, message, paths]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const text = requiredString(message, 'commit message', 20_000);
-      const files = requiredGitPaths(paths);
-      return refuseSensitiveChanges(invokeDesktopOperation, repository, files).then(() =>
-        git.gitCommitPaths(repository, text, files)
-      );
-    },
+    gitCommitPaths: ([cwd, message, paths]) =>
+      git.gitCommitPaths(
+        requiredRepositoryCwd(cwd),
+        requiredString(message, 'commit message', 20_000),
+        requiredGitPaths(paths)
+      ),
     gitAmend: ([cwd, message]) => git.gitAmend(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
     gitUndoLastCommit: ([cwd]) => git.gitUndoLastCommit(requiredRepositoryCwd(cwd)),
-    gitRevert: ([cwd, path, untracked, mode]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const file = requiredGitPath(path);
-      const discard = requiredGitDiscardMode(mode);
-      return refuseSensitiveChanges(invokeDesktopOperation, repository, [file]).then(() =>
-        git.gitRevertFile(repository, file, untracked === true, discard)
-      );
-    },
+    gitRevert: ([cwd, path, untracked, mode]) =>
+      git.gitRevertFile(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        untracked === true,
+        requiredGitDiscardMode(mode)
+      ),
     gitReview: ([cwd, source]) => git.gitReview(requiredRepositoryCwd(cwd), requiredReviewSource(source)),
-    gitReviewDiff: ([cwd, path, untracked, source]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const file = requiredGitPath(path);
-      const review = requiredReviewSource(source);
-      return remoteDiff(repository, [file], () => git.gitReviewDiff(repository, file, untracked === true, review));
-    },
-    // A secret-bearing file is left out of the batch as `omitted`; the single
-    // read the client then makes for it is refused.
-    gitReviewDiffs: ([cwd, files, source]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const requested = requiredReviewDiffFiles(files);
-      const review = requiredReviewSource(source);
-      return (async () => {
-        const denied = await sensitiveIn(
-          repository,
-          requested.map((file) => file.path)
-        );
-        const allowed = requested.filter((file) => !denied.has(file.path));
-        const result = (await git.gitReviewDiffs(repository, allowed, review)) as {
-          patches?: { path: string; patch: string }[];
-          omitted?: string[];
-        } | null;
-        if (!result || !Array.isArray(result.patches)) return result;
-        const patches = await withoutSensitivePatches(result.patches, repository);
-        return { ...result, patches, omitted: [...(result.omitted ?? []), ...denied] };
-      })();
-    },
+    gitReviewDiff: ([cwd, path, untracked, source]) =>
+      git.gitReviewDiff(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        untracked === true,
+        requiredReviewSource(source)
+      ),
+    gitReviewDiffs: ([cwd, files, source]) =>
+      git.gitReviewDiffs(requiredRepositoryCwd(cwd), requiredReviewDiffFiles(files), requiredReviewSource(source)),
     gitStash: ([cwd, message]) => git.gitStash(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
     gitStashPop: ([cwd]) => git.gitStashPop(requiredRepositoryCwd(cwd)),
     gitStashList: ([cwd]) => invokeDesktopOperation('gitStashList', [requiredRepositoryCwd(cwd)]),
@@ -644,34 +483,16 @@ function gitHistoryRemoteMethods(
         requiredGitLogLimit(limit)
       ),
     gitShow: ([cwd, hash]) => git.gitShow(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitShowDiff: ([cwd, hash, path]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const commit = requiredCommitHash(hash);
-      const file = requiredGitPath(path);
-      return remoteDiff(repository, [file], () => git.gitShowDiff(repository, commit, file));
-    },
-    // Secret-bearing files are left out of the snapshot's patches.
-    gitRequestContext: ([cwd, input]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const request = requiredGitRequestContextInput(input);
-      return (async () => {
-        const denied = await sensitiveIn(repository, request.paths);
-        const result = (await git.gitRequestContext(repository, {
-          ...request,
-          paths: request.paths.filter((path) => !denied.has(path)),
-        })) as { files?: { patch: string }[] } | null;
-        if (!result || !Array.isArray(result.files)) return result;
-        return { ...result, files: await withoutSensitivePatches(result.files, repository) };
-      })();
-    },
-    gitShowFile: ([cwd, rev, path]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const revision = requiredGitRevision(rev);
-      const file = requiredGitPath(path);
-      return refuseSensitiveIn(repository, [file]).then(() =>
-        invokeDesktopOperation('gitShowFile', [repository, revision, file])
-      );
-    },
+    gitShowDiff: ([cwd, hash, path]) =>
+      git.gitShowDiff(requiredRepositoryCwd(cwd), requiredCommitHash(hash), requiredGitPath(path)),
+    gitRequestContext: ([cwd, input]) =>
+      git.gitRequestContext(requiredRepositoryCwd(cwd), requiredGitRequestContextInput(input)),
+    gitShowFile: ([cwd, rev, path]) =>
+      invokeDesktopOperation('gitShowFile', [
+        requiredRepositoryCwd(cwd),
+        requiredGitRevision(rev),
+        requiredGitPath(path),
+      ]),
     gitResetToCommit: ([cwd, hash, mode, confirmedDirty]) =>
       git.gitResetToCommit(
         requiredRepositoryCwd(cwd),
@@ -741,101 +562,29 @@ function developerToolingRemoteMethods(invokeDesktopOperation: InvokeDesktopOper
     ghPrCheckout: ([cwd, number]) => invokeDesktopOperation('ghPrCheckout', [requiredRepositoryCwd(cwd), number]),
     ghPrMerge: ([cwd, number, method]) =>
       invokeDesktopOperation('ghPrMerge', [requiredRepositoryCwd(cwd), number, method]),
-    ghPrDiff: ([cwd, number]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      return remoteDiff(repository, [], () => invokeDesktopOperation('ghPrDiff', [repository, number]));
-    },
+    ghPrDiff: ([cwd, number]) => invokeDesktopOperation('ghPrDiff', [requiredRepositoryCwd(cwd), number]),
   };
 }
 
-/** How many transcripts one step of the any-conversation search reads. */
-const PROVENANCE_BATCH = 16;
-
-/** Which conversation in the whole catalog (minus `skip`, already searched)
- *  links a path: newest activity first, a batch of transcripts at a time,
- *  stopping at the first that links it. */
-function anyConversationProvenance(
-  host: DesktopService,
-  skip: readonly string[]
-): { sessionFor(absolutePath: string): Promise<string | null> } {
-  let batches: Promise<Array<{ sessionFor(path: string): Promise<string | null> }>> | null = null;
-  const load = async () => {
-    const catalog = await host.listSessions().catch(() => []);
-    const ids = [...catalog]
-      .filter((row) => !skip.includes(row.id))
-      .sort((a, b) => (b.activityAt ?? b.updatedAt ?? 0) - (a.activityAt ?? a.updatedAt ?? 0))
-      .map((row) => row.id);
-    // One catalog read serves every batch.
-    const scopedHost = {
-      listSessions: async () => catalog,
-      readSessionTranscript: host.readSessionTranscript?.bind(host),
-    };
-    const steps = [];
-    for (let start = 0; start < ids.length; start += PROVENANCE_BATCH) {
-      steps.push(createLinkProvenance(scopedHost, ids.slice(start, start + PROVENANCE_BATCH)));
-    }
-    return steps;
-  };
-  return {
-    async sessionFor(absolutePath: string): Promise<string | null> {
-      batches ??= load();
-      for (const step of await batches) {
-        const session = await step.sessionFor(absolutePath);
-        if (session) return session;
-      }
-      return null;
-    },
-  };
-}
-
-/** Absolute paths as the file surface describes them: owned by the deepest
- *  registered project that contains them (symlinks resolved), otherwise only
- *  when an assistant reply links them — in `sessionId`'s transcript when the
- *  caller names it, else in a conversation this connection views; with
- *  `anyConversation === true` (a held link asked for again), also in any
- *  conversation the device can open, newest first — and then named by a
- *  one-file grant the calls that follow can redeem. Any other path is refused
- *  before it is even statted. */
+/** Absolute paths as the file surface describes them, exactly as the
+ *  desktop's SelectedFileAccess.describe does: owned by the deepest registered
+ *  project that contains them, otherwise named by a one-file grant the calls
+ *  that follow can redeem. Older clients still send a conversation and an
+ *  `anyConversation` option; neither narrows what may be described. */
 async function resolveLocalPathEntries(
   paths: unknown,
-  sessionId: unknown,
-  anyConversation: unknown,
   deps: {
     host: DesktopService;
     invokeDesktopOperation: InvokeDesktopOperation;
     grants: SelectedFileGrants;
-    viewedSessionIds: () => readonly string[];
   }
 ): Promise<DesktopLocalPathEntry[]> {
   if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
     throw new TypeError('paths are invalid.');
   }
-  const named = optionalSessionId(sessionId);
-  const scoped = named ? [named] : [...deps.viewedSessionIds()];
-  const provenance = createLinkProvenance(deps.host, scoped);
-  // A grant asked for again (a held link whose grant ended) may come from a
-  // conversation this device no longer views: it may then be vouched for by
-  // any conversation the device can open, read newest first.
-  const everywhere = anyConversation === true ? anyConversationProvenance(deps.host, scoped) : null;
-  const linkingSession = async (path: string): Promise<string> =>
-    (await provenance.sessionFor(path)) ?? (await everywhere?.sessionFor(path)) ?? '';
   const projects = await deps.host.listProjects().catch(() => []);
   const describe = async (raw: unknown): Promise<DesktopLocalPathEntry> => {
-    const absolute = absoluteLocalPath(raw);
-    const owner = owningProject(projects, absolute);
-    const inProject = owner !== null && staysInProject(owner.root, absolute);
-    const linkedSession = inProject ? '' : await linkingSession(absolute);
-    if (!inProject && !linkedSession) throw await notLinkedDenial(absolute);
-    if (linkedSession && (await lstat(absolute)).isSymbolicLink()) {
-      // The link names the symlink, not whatever it points at.
-      const target = await realpath(absolute);
-      const targetOwner = owningProject(projects, target);
-      if (!(targetOwner && staysInProject(targetOwner.root, target)) && !(await linkingSession(target))) {
-        throw new LocalAccessDeniedError('The linked file is a symbolic link to a file that is not linked.');
-      }
-    }
-    await assertNotSensitive(absolute);
-    const entry = (await deps.invokeDesktopOperation('statLocalEntryAbs', [absolute])) as {
+    const entry = (await deps.invokeDesktopOperation('statLocalEntryAbs', [absoluteLocalPath(raw)])) as {
       absolutePath: string;
       name: string;
       dir: boolean;
@@ -848,13 +597,14 @@ async function resolveLocalPathEntries(
       size: entry.size,
     };
     if (!row.dir) {
-      if (owner && inProject) {
+      const owner = owningProject(projects, entry.absolutePath);
+      if (owner) {
         row.projectPath = owner.project.path;
         row.relPath = pathRelative(owner.root, entry.absolutePath).replace(/\\/g, '/');
       } else {
         row.projectPath = pathDirname(entry.absolutePath);
         row.relPath = pathBasename(entry.absolutePath);
-        row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath, linkedSession);
+        row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath, '');
       }
     }
     return row;
@@ -887,92 +637,45 @@ function withPathDeadline<T>(operation: Promise<T>, path: string): Promise<T> {
   return Promise.race([operation, deadline]).finally(() => clearTimeout(timer));
 }
 
-const ENTRY_SCAN_LIMIT = 20000;
-const ENTRY_SCAN_MS = 3000;
-const ENTRY_SCAN_MESSAGE =
-  'This folder is too large to verify that it holds no credentials or secrets, so it cannot be changed remotely.';
-
-/** Entries inside a project, addressed the way the explorer addresses them. */
+/** Entries inside a project, addressed the way the explorer addresses them:
+ *  the desktop handlers' own calls, with the OS trash in the window process. */
 function projectEntryRemoteMethods(
   host: DesktopService,
   hostRequest: NonNullable<RemoteMethodDependencies['hostRequest']>
 ): Record<string, RemoteMethod> {
-  // A secret-bearing entry is never moved, renamed, copied or trashed from a
-  // remote device, and nothing is put into one: a rename to an innocent name
-  // would make it readable, and a copy or move carries it elsewhere.
-  // Each entry is given as the path segments it is under the project.
-  const refuseEntries = async (projectPath: string, entries: readonly (readonly string[])[]): Promise<void> => {
-    const root = await host.projectDirectory(projectPath);
-    for (const segments of entries) await assertNotSensitive(resolvePath(root, ...segments));
-  };
-  // A folder carries what is inside it: renaming `.codex` to `archive` would
-  // make `.codex/auth.json` readable as `archive/auth.json`. The walk is
-  // bounded; one that cannot finish is refused rather than allowed.
-  const refuseDescendants = async (directory: string): Promise<void> => {
-    const deadline = Date.now() + ENTRY_SCAN_MS;
-    const pending = [directory];
-    let seen = 0;
-    for (let dir = pending.pop(); dir !== undefined; dir = pending.pop()) {
-      let children: Dirent[];
-      try {
-        children = await readdir(dir, { withFileTypes: true });
-      } catch (error) {
-        // A file (or an entry that is gone) has no descendants to carry.
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === 'ENOTDIR' || code === 'ENOENT') return;
-        throw new LocalAccessDeniedError(ENTRY_SCAN_MESSAGE);
-      }
-      for (const child of children) {
-        const path = resolvePath(dir, child.name);
-        if (++seen > ENTRY_SCAN_LIMIT || Date.now() > deadline) throw new LocalAccessDeniedError(ENTRY_SCAN_MESSAGE);
-        if (isSensitivePathSync(path)) throw new LocalAccessDeniedError(SENSITIVE_PATH_MESSAGE);
-        if (child.isDirectory()) pending.push(path);
-      }
-    }
-  };
-  const refuseSource = async (projectPath: string, rel: string): Promise<void> => {
-    await refuseDescendants(resolvePath(await host.projectDirectory(projectPath), rel));
-  };
   return {
     trashProjectEntry: async ([projectPath, relPath]) => {
-      const project = requiredString(projectPath, 'projectPath');
-      const rel = requiredString(relPath, 'relPath');
-      const target = await host.projectEntryPath(project, rel);
-      await assertNotSensitive(target);
-      await refuseDescendants(target);
+      const target = await host.projectEntryPath(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath')
+      );
       await hostRequest('trashItem', [target]);
     },
-    createProjectEntry: async ([projectPath, relDir, name, dir]) => {
-      const project = requiredString(projectPath, 'projectPath');
-      const folder = typeof relDir === 'string' ? relDir : '';
-      const entry = requiredString(name, 'name');
-      await refuseEntries(project, [[folder, entry]]);
-      return host.createProjectEntry(project, folder, entry, dir === true);
-    },
-    renameProjectEntry: async ([projectPath, relPath, newName]) => {
-      const project = requiredString(projectPath, 'projectPath');
-      const rel = requiredString(relPath, 'relPath');
-      const name = requiredString(newName, 'newName');
-      await refuseEntries(project, [[rel], [pathDirname(rel), name]]);
-      await refuseSource(project, rel);
-      return host.renameProjectEntry(project, rel, name);
-    },
-    moveProjectEntry: async ([projectPath, relPath, targetDirRel]) => {
-      const project = requiredString(projectPath, 'projectPath');
-      const rel = requiredString(relPath, 'relPath');
-      const target = typeof targetDirRel === 'string' ? targetDirRel : '';
-      await refuseEntries(project, [[rel], [target, pathBasename(rel)]]);
-      await refuseSource(project, rel);
-      return host.moveProjectEntry(project, rel, target);
-    },
-    copyProjectEntry: async ([projectPath, relPath, targetDirRel]) => {
-      const project = requiredString(projectPath, 'projectPath');
-      const rel = requiredString(relPath, 'relPath');
-      const target = typeof targetDirRel === 'string' ? targetDirRel : '';
-      await refuseEntries(project, [[rel], [target, pathBasename(rel)]]);
-      await refuseSource(project, rel);
-      return host.copyProjectEntry(project, rel, target);
-    },
+    createProjectEntry: ([projectPath, relDir, name, dir]) =>
+      host.createProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        typeof relDir === 'string' ? relDir : '',
+        requiredString(name, 'name'),
+        dir === true
+      ),
+    renameProjectEntry: ([projectPath, relPath, newName]) =>
+      host.renameProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        requiredString(newName, 'newName')
+      ),
+    moveProjectEntry: ([projectPath, relPath, targetDirRel]) =>
+      host.moveProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        typeof targetDirRel === 'string' ? targetDirRel : ''
+      ),
+    copyProjectEntry: ([projectPath, relPath, targetDirRel]) =>
+      host.copyProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        typeof targetDirRel === 'string' ? targetDirRel : ''
+      ),
   };
 }
 
@@ -988,8 +691,6 @@ function editorRemoteMethods(deps: {
 }): Record<string, RemoteMethod> {
   const { host, userDataPath, invokeDesktopOperation, grants } = deps;
   /** Absolute file for the editor-backup lane (granted path or project file). */
-  // A backup copies the file's content into the app's own store, so a
-  // secret-bearing file has none.
   const editorFilePath = async (projectPath: unknown, relPath: unknown, accessToken: unknown): Promise<string> =>
     (await remoteFileTarget(host, grants, projectPath, relPath, accessToken)).absolute;
   const requiredEditorBackupRoot = (): string => {
@@ -1002,7 +703,7 @@ function editorRemoteMethods(deps: {
       const expected = requiredTextFileContent(expectedContent, 'expected file content');
       const fileEncoding = requiredTextFileEncoding(encoding);
       // Checked and written through the handle whose real location was
-      // authorized (remote-project-files.ts); refused by name first.
+      // authorized inside the project or granted folder (remote-project-files.ts).
       return remoteFileTarget(host, grants, projectPath, relPath, accessToken).then((target) =>
         invokeDesktopOperation('writeProjectTextFileAuthorized', [
           target.root,
@@ -1010,31 +711,16 @@ function editorRemoteMethods(deps: {
           text,
           expected,
           fileEncoding,
-          sensitivePolicy(),
         ])
       );
     },
-    // A workspace file needs the provenance any remote read needs (a project
-    // file or a linked one) and is read, like the project's own
-    // `.vscode/settings.json`, through an authorized handle.
+    // The desktop handler's read: user, workspace and folder settings.
     readEditorSettings: async ([projectPath, relPath, workspaceFile]) => {
       const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      const workspace =
+        typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : undefined;
       const rel = requiredString(relPath, 'relPath', 4_096);
-      let workspace: { path: string; within: string } | null = null;
-      if (typeof workspaceFile === 'string' && workspaceFile.trim()) {
-        const file = await readableLocalFile(workspaceFile.trim(), host, grants);
-        if (pathExtname(file.absolute).toLowerCase() !== '.code-workspace') {
-          throw new TypeError('Workspace file must use the .code-workspace extension.');
-        }
-        workspace = { path: file.absolute, within: file.within };
-      }
-      return invokeDesktopOperation('readScopedEditorSettingsAuthorized', [
-        userDataPath || '',
-        root,
-        rel,
-        workspace,
-        sensitivePolicy(),
-      ]);
+      return invokeDesktopOperation('readScopedEditorSettings', [userDataPath || '', root, rel, workspace]);
     },
     readEditorBackup: async ([projectPath, relPath, accessToken]) => {
       if (!userDataPath) return null;
@@ -1062,11 +748,7 @@ function editorRemoteMethods(deps: {
       // The Save-As dialog is desktop-only; a remote surface must name the file.
       const file = typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : '';
       if (!file) throw new Error('Choosing a workspace file is available in the desktop app only.');
-      // Only a file in a registered project, or one a reply links, and it is
-      // written through the handle it was authorized by.
-      return readableLocalFile(workspaceFilePath(file), host, grants).then(({ absolute, within }) =>
-        invokeDesktopOperation('writeWorkspaceFileAuthorized', [absolute, folders, within, sensitivePolicy()])
-      );
+      return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
     },
     codeGraphQuery: ([projectPath, mode, symbol]) => {
       if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') {
@@ -1074,15 +756,9 @@ function editorRemoteMethods(deps: {
       }
       return host.codeGraphQuery(requiredString(projectPath, 'projectPath'), mode, requiredString(symbol, 'symbol'));
     },
-    // Secret-bearing files are left out of the candidates before any is read.
     searchWorkspaceText: async ([projectPath, rawOptions]) => {
       const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-      // The policy travels with the request: the operation service that runs
-      // the search may be a process where no private root was registered.
-      return invokeDesktopOperation('searchWorkspaceTextIn', [
-        root,
-        { ...requiredWorkspaceSearchOptions(rawOptions), sensitivePolicy: sensitivePolicy() },
-      ]);
+      return invokeDesktopOperation('searchWorkspaceTextIn', [root, requiredWorkspaceSearchOptions(rawOptions)]);
     },
     replaceWorkspaceText: async ([projectPath, rawOptions, replacement, relPaths]) => {
       const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
@@ -1090,10 +766,9 @@ function editorRemoteMethods(deps: {
         throw new TypeError('Replacement text is invalid.');
       }
       const files = relPaths === undefined ? undefined : requiredGitPaths(relPaths);
-      await refuseSensitiveIn(root, files ?? []);
       return invokeDesktopOperation('replaceWorkspaceTextIn', [
         root,
-        { ...requiredWorkspaceSearchOptions(rawOptions), sensitivePolicy: sensitivePolicy() },
+        requiredWorkspaceSearchOptions(rawOptions),
         replacement,
         files,
       ]);
@@ -1101,13 +776,11 @@ function editorRemoteMethods(deps: {
     lspDocument: async ([rawInput]) => {
       const input = requiredLspDocumentInput(rawInput);
       const root = await host.projectDirectory(input.projectPath);
-      await refuseSensitiveIn(root, [input.relPath]);
       return invokeDesktopOperation('lspDocument', [input.projectPath, root, input]);
     },
     lspRequest: async ([rawInput]) => {
       const input = requiredLspRequestInput(rawInput);
       const root = await host.projectDirectory(input.projectPath);
-      await refuseSensitiveIn(root, [input.relPath]);
       return invokeDesktopOperation('lspRequest', [
         input.projectPath,
         root,
@@ -1119,12 +792,7 @@ function editorRemoteMethods(deps: {
     },
     lspApplyWorkspaceEdit: async ([projectPath, rawWrites]) => {
       const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-      const writes = requiredWorkspaceTextWrites(rawWrites);
-      await refuseSensitiveIn(
-        root,
-        writes.map((write) => write.relPath)
-      );
-      return invokeDesktopOperation('writeProjectTextFilesAuthorized', [root, writes, sensitivePolicy()]);
+      return invokeDesktopOperation('writeProjectTextFilesAuthorized', [root, requiredWorkspaceTextWrites(rawWrites)]);
     },
     projectRecovery: async ([projectPath, input]) => {
       const request = requiredProjectRecoveryRequest(input);
@@ -1161,7 +829,6 @@ export function createRemoteMethods(
   };
   const grants =
     selectedFileGrants ?? createSelectedFileGrants((sessionId) => fileDownloads?.sessionRemoved(sessionId) === true);
-  const viewedSessionIds = (): readonly string[] => client?.viewedSessionIds?.() ?? [];
   // The paired device behind this connection, as the relay authenticated it.
   const downloadRequester = (): FileDownloadRequester => {
     const connection = client?.connectionId?.() ?? '';
@@ -1180,7 +847,7 @@ export function createRemoteMethods(
     ...browserParityRemoteMethods(browserRemote),
     ...gitRemoteMethods(invokeDesktopOperation),
     ...developerToolingRemoteMethods(invokeDesktopOperation),
-    ...localFileRemoteMethods({ host, invokeDesktopOperation, grants, viewedSessionIds }),
+    ...localFileRemoteMethods({ host, invokeDesktopOperation, grants }),
     ...(fileDownloads ? fileDownloadRemoteMethods(fileDownloads, downloadRequester) : {}),
     // ── Project entries and the editor ─────────────────────────────────────
     ...projectEntryRemoteMethods(host, (method, args) => requiredHostRequest()(method, args)),
@@ -1232,11 +899,11 @@ function workspaceRemoteMethods({
     listHostDirectories: ([path]) => invokeDesktopOperation('listHostDirectories', [validatedHostDirectoryPath(path)]),
     listProjectDir: ([projectPath, relDir]) =>
       host.listProjectDir(requiredString(projectPath, 'projectPath'), typeof relDir === 'string' ? relDir : ''),
-    // Read through the handle whose real location was authorized
-    // (remote-project-files.ts); refused by name first.
+    // Read through the handle whose real location was authorized inside the
+    // project or granted folder (remote-project-files.ts).
     readProjectFile: ([projectPath, relPath, accessToken]) =>
       remoteFileTarget(host, grants, projectPath, relPath, accessToken).then((target) =>
-        invokeDesktopOperation('readProjectTextFileAuthorized', [target.root, target.rel, sensitivePolicy()])
+        invokeDesktopOperation('readProjectTextFileAuthorized', [target.root, target.rel])
       ),
     statProjectFile: ([projectPath, relPath, accessToken]) =>
       remoteFileTarget(host, grants, projectPath, relPath, accessToken).then((target) =>
@@ -1255,16 +922,14 @@ function workspaceRemoteMethods({
         options && typeof options === 'object'
           ? (options as { pages?: unknown; maxWidth?: unknown; password?: unknown })
           : {};
-      // The conversion reads the opened, authorized file's real location.
-      return withAuthorizedFile(target.absolute, target.root, (file) =>
-        invokeDesktopOperation('documentPreviewPagesIn', [
-          file.root,
-          file.rel,
-          request.password === undefined
-            ? { pages: request.pages, maxWidth: request.maxWidth }
-            : { pages: request.pages, maxWidth: request.maxWidth, password: request.password },
-        ])
-      );
+      // The conversion the desktop handler runs, on the same project or granted file.
+      return invokeDesktopOperation('documentPreviewPagesIn', [
+        target.root,
+        target.rel,
+        request.password === undefined
+          ? { pages: request.pages, maxWidth: request.maxWidth }
+          : { pages: request.pages, maxWidth: request.maxWidth, password: request.password },
+      ]);
     },
   };
 }
@@ -1323,27 +988,12 @@ function hostCapabilityRemoteMethods(
       if (request.capability === 'setLeadAppearance' || request.capability === 'setBotOrder') {
         void shaped.then(() => invokeDesktopOperation('notifySettingsChanged', ['desktop'])).catch(() => {});
       }
-      if (!TURN_REVIEW_CAPABILITIES.has(request.capability)) return shaped;
-      return shaped.then(async (reply) => ({
-        ...reply,
-        value: await withoutSensitiveReviewFiles(reply.value, await sessionFolder(host, request.sessionId)),
-      }));
+      return shaped;
     },
     readCapabilities: async ([input]) => {
       const requests = requiredDesktopCapabilityReadRequests(input);
       for (const request of requests) assertRemoteCapability(request.capability);
-      const results = await host.readCapabilities(requests);
-      if (!Array.isArray(results)) return results;
-      return Promise.all(
-        results.map(async (result, index) => {
-          const request = requests[index];
-          if (!request || !TURN_REVIEW_CAPABILITIES.has(request.capability) || !result?.ok) return result;
-          return {
-            ...result,
-            value: await withoutSensitiveReviewFiles(result.value, await sessionFolder(host, request.sessionId)),
-          };
-        })
-      );
+      return host.readCapabilities(requests);
     },
     browserRemoteControl: ([sessionId, input]) =>
       requiredBrowserRemote()('control', [requiredSessionId(sessionId), normalizeRemoteBrowserControl(input)]),
@@ -1354,33 +1004,21 @@ function localFileRemoteMethods({
   host,
   invokeDesktopOperation,
   grants,
-  viewedSessionIds,
 }: {
   host: DesktopService;
   invokeDesktopOperation: InvokeDesktopOperation;
   grants: SelectedFileGrants;
-  viewedSessionIds: () => readonly string[];
 }): Record<string, RemoteMethod> {
   return {
     folderWatch: ([dir, recursive]) =>
       invokeDesktopOperation('folderWatch', [absoluteLocalPath(dir), recursive === true]),
     folderUnwatch: ([dir, recursive]) =>
       invokeDesktopOperation('folderUnwatch', [absoluteLocalPath(dir), recursive === true]),
-    // File tabs and attachments: project files, or files an assistant reply
-    // links (one-file grants). Nothing else on this machine.
-    // `options.anyConversation`: a held link asked for again (see
-    // resolveLocalPathEntries); older clients send no third parameter.
-    resolveLocalPaths: ([paths, sessionId, options]) =>
-      resolveLocalPathEntries(paths, sessionId, (options as { anyConversation?: unknown } | null)?.anyConversation, {
-        host,
-        invokeDesktopOperation,
-        grants,
-        viewedSessionIds,
-      }),
-    readLocalFile: async ([path]) => {
-      const { absolute, within } = await readableLocalFile(path, host, grants);
-      return invokeDesktopOperation('readLocalFileAuthorized', [absolute, within, sensitivePolicy()]);
-    },
+    // File tabs and attachments: project files, and any other file through a
+    // one-file grant, as on the desktop.
+    resolveLocalPaths: ([paths]) => resolveLocalPathEntries(paths, { host, invokeDesktopOperation, grants }),
+    // The desktop's attachment read of any local file.
+    readLocalFile: ([path]) => invokeDesktopOperation('readLocalFileAbs', [absoluteLocalPath(path)]),
   };
 }
 

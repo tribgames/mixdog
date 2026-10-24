@@ -96,7 +96,7 @@ const items = [
   },
 ];
 
-const phoneItems = remoteTranscriptSnapshot({ items }, process.cwd()).items;
+const phoneItems = remoteTranscriptSnapshot({ items }).items;
 const rows = (list) => flattenedToolActivityItems(list.filter((item) => item.kind === 'tool'));
 
 /** The parts of a row presentation the diff decides. */

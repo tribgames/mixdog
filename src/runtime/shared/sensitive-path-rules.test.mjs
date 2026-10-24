@@ -28,7 +28,7 @@ test('credential JSON: credentials.json, *credentials*.json, service accounts, O
   allowed([project('credentials.md'), project('package.json'), project('accounts.json')]);
 });
 
-test('every .env* file is denied, templates included; templates only for a user-initiated remote open', () => {
+test('every .env* file is denied, templates included', () => {
   denied([
     project('.env'),
     project('.env.local'),
@@ -42,9 +42,6 @@ test('every .env* file is denied, templates included; templates only for a user-
     project('.env.template'),
     project('.env.dist'),
   ]);
-  assert.equal(matchesSensitivePath(project('.env.example'), [], { envTemplates: true }), false);
-  assert.equal(matchesSensitivePath(project('.env.example.local'), [], { envTemplates: true }), true);
-  assert.equal(matchesSensitivePath(project('.env'), [], { envTemplates: true }), true);
   allowed([project('environment.md'), project('env.ts')]);
 });
 

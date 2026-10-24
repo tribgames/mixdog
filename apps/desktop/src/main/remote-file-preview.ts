@@ -5,16 +5,15 @@
 // editor's: a registered project directory or a one-file selected-file grant.
 //
 // A check on a pathname covers nothing once the path can change before the
-// read, so every read opens the file first and authorizes the OPEN file: its
-// real location (opened-file-path.ts) must lie inside the authorized folder
-// and must not be a secret-bearing file, and the bytes come through that very
-// handle. A read another process does by path (snapshots, document
-// conversion) is handed a private copy of the bytes read through that handle,
-// never the original path.
+// read, so every byte read opens the file first and authorizes the OPEN file:
+// its real location (opened-file-path.ts) must lie inside the authorized
+// folder, and the bytes come through that very handle. Work the desktop hands
+// a path to (a snapshot, a document conversion) gets the same project or
+// granted path here.
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import { pageAssetType } from './local-page-server';
@@ -22,7 +21,6 @@ import { requiredString } from './ipc-validation';
 import { type AuthorizedFile, openAuthorizedFile, openedFileAuthorizationTestHooks } from './opened-file-authorization';
 import { projectEntryPathIn } from './project-files';
 import { leaseMediaFile } from './media-leases';
-import { assertNotSensitive } from './remote-sensitive-paths';
 import type { DesktopService } from './desktop-service-contract';
 
 /** Raw bytes per read. Base64 makes it ~5.6 MB per frame, far below the
@@ -151,15 +149,6 @@ export async function withAuthorizedFile<T>(
   }
 }
 
-/** The authorized real location of `absolute` within `within`, relative to
- *  its canonical root: for a lease (the page server) that re-authorizes every
- *  later read through its own opened handles. */
-export async function authorizedLocation(absolute: string, within: string): Promise<{ root: string; rel: string }> {
-  const file = await openAuthorizedFile(absolute, within);
-  await file.handle.close();
-  return { root: file.root, rel: relative(file.root, file.location) };
-}
-
 /** One bounded base64 window of `absolute`, read through the handle whose
  *  real location was authorized inside `within` (openAuthorizedFile);
  *  `length` is capped at REMOTE_PREVIEW_MAX_READ_BYTES. Shared with the
@@ -232,13 +221,14 @@ export async function authorizedMediaFile(
   return { ...info, mediaAssetId: leaseMediaFile(file.location, mime, { within: file.root, identity: file.identity }) };
 }
 
-/** The file a paired device's (projectPath, relPath, accessToken) names: the
- *  one-file grant's file when a token is given, else a file of the registered
- *  project. Either way it is resolved by projectEntryPathIn — re-resolved per
- *  call, so a name later swapped for a link out of its folder is refused —
- *  and refused by name when secret-bearing; the lane that reads it authorizes
- *  the opened file again. `rel` is relative to `root`. An invalid argument or
- *  grant throws synchronously, before anything is resolved. */
+/** The file a paired device's (projectPath, relPath, accessToken) names, as
+ *  the desktop's editor handlers resolve it: the one-file grant's file when a
+ *  token is given, else a file of the registered project. Either way it is
+ *  resolved by projectEntryPathIn — re-resolved per call, so a name later
+ *  swapped for a link out of its folder is refused — and the lane that reads
+ *  it authorizes the opened file again. `rel` is relative to `root`. An
+ *  invalid argument or grant throws synchronously, before anything is
+ *  resolved. */
 export function remoteFileTarget(
   host: Pick<DesktopService, 'projectDirectory'>,
   grants: PreviewGrants,
@@ -246,11 +236,12 @@ export function remoteFileTarget(
   relPath: unknown,
   accessToken: unknown
 ): Promise<{ root: string; rel: string; absolute: string; granted: boolean }> {
-  const located = async (root: string, rel: string, granted: boolean) => {
-    const absolute = projectEntryPathIn(root, rel);
-    await assertNotSensitive(absolute);
-    return { root, rel, absolute, granted };
-  };
+  const located = async (root: string, rel: string, granted: boolean) => ({
+    root,
+    rel,
+    absolute: projectEntryPathIn(root, rel),
+    granted,
+  });
   if (grants.grantedIf(accessToken)) {
     const { root, rel } = grants.grantedFile(accessToken, projectPath, relPath);
     return located(root, rel, true);
@@ -280,17 +271,14 @@ export function createRemoteFilePreviewMethods(deps: {
       const info = await authorizedMediaFile(absolute, root, type.kind === 'pdf' ? null : type.mime);
       return { kind: type.kind, mime: type.mime, ...info };
     },
-    // Confined here by the same grants/projects as the desktop's; the capture
-    // itself runs in the window process (the daemon bundle has no Electron).
+    // Resolved by the same grants/projects as the desktop's and captured
+    // exactly as the desktop handler captures it (a granted file alone, a
+    // project page with its project); the capture itself runs in the window
+    // process (the daemon bundle has no Electron).
     captureFileSnapshot: async ([projectPath, relPath, accessToken]) => {
       if (!hostRequest) throw new TypeError('The desktop app is unavailable on this connection.');
-      const { root, absolute } = await target(projectPath, relPath, accessToken);
-      // The capture renders a private copy of the authorized bytes, alone:
-      // a remote snapshot loads no other file of the project (an HTML page's
-      // own references could otherwise reach a secret).
-      return withAuthorizedFile(absolute, root, (file) =>
-        hostRequest('captureFileSnapshot', [file.root, file.rel, true])
-      );
+      const { root, rel, granted } = await target(projectPath, relPath, accessToken);
+      return hostRequest('captureFileSnapshot', [root, rel, granted]);
     },
     previewProjectFileRange: async ([projectPath, relPath, accessToken, rawOffset, rawLength]) => {
       // Arguments are checked before any path work, as before.

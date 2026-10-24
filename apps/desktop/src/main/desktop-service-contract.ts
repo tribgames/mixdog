@@ -64,7 +64,7 @@ export interface DesktopService {
   readAttachmentImage(attachmentRef: string): Promise<string | null>;
   /** The session's transcript as this host holds it (the window its views
    *  were sent), read without publishing when nothing is held. Host-only:
-   *  the provenance behind remote file grants (transcript-file-links.ts). */
+   *  a paired device's full-output reads and its attachment lookups. */
   readSessionTranscript?(sessionId: string): Promise<SessionSnapshot>;
   markSessionRead(sessionId: string, messageCount: number, consumedUnread?: boolean): Promise<boolean>;
   listAgentPool(): Promise<DesktopAgentPoolRow[]>;
