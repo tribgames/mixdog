@@ -291,6 +291,7 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'sharedCachePrefixCount',
   'stateKey',
   'statelessConversation',
+  'stopSequences',
   'temperature',
   'thinking',
   'thinkingBudget',
