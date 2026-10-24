@@ -57,6 +57,36 @@ test("this PC's answer is traced in its own chat only: switching chats inside th
   }
 });
 
+// A task session's request shown in the delegating bot chat's dock ("docked copy"):
+// it names the task as its own session and the bot chat as the surface.
+const dockedCopy = { ...shell, sessionId: 'task', surfaceSessionId: 'bot' };
+const next = { id: 'ap-2', kind: 'approval', name: 'shell', args: { command: 'pwd' } };
+const nextCopy = { ...next, sessionId: 'task', surfaceSessionId: 'bot' };
+
+for (const [label, pane, first, second] of [
+  ['own approval', 's1', shell, next],
+  ['docked copy', 'bot', dockedCopy, nextCopy],
+]) {
+  test(`${label}: this PC's answer is traced the same whether or not another approval is queued`, async () => {
+    answer = async () => true;
+    const ui = await mountHook(pane);
+    try {
+      await ui.show({ sessionId: pane, items: [], toolApproval: first, toolApprovalsWaiting: 1 });
+      await act(async () => ui.state.approvals.approvalDock.props.resolve({ approved: false }));
+      // The next request takes the dock at once; the trace is still recorded for the island.
+      await ui.show({ sessionId: pane, items: [], toolApproval: second });
+      assert.equal(ui.state.approvals.approvalDock.props.approval.id, 'ap-2');
+      assert.equal(ui.flash()?.text, 'Run a command · Denied');
+      assert.equal(ui.flash()?.key, 'retired:ap-1');
+      // Nothing queued any more: the trace is what the island shows.
+      await ui.show({ sessionId: pane, items: [], toolApproval: null });
+      assert.equal(ui.flash()?.text, 'Run a command · Denied');
+    } finally {
+      await ui.done();
+    }
+  });
+}
+
 test('an answer that is accepted after the pane switched chats leaves no trace anywhere', async () => {
   let accept;
   answer = () => new Promise((resolve) => (accept = resolve));
