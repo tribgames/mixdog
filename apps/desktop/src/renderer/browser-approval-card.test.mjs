@@ -305,6 +305,43 @@ test('a read-only (deleted bot) or parked chat docks no browser approval and not
   }
 });
 
+test('on a paired device the PC list marks its sessions, with no card and no answer; a chat claim or unmount does not wipe it', async () => {
+  let listener = null;
+  let stopped = 0;
+  // The remote API: marks only, never onBrowserApproval or browserApprovalDecide.
+  dom.window.mixdogDesktop = {
+    onBrowserApprovalSessions: (next) => {
+      listener = next;
+      next(['sess_home_marketer']);
+      return () => {
+        stopped += 1;
+      };
+    },
+  };
+  const host = createRoot(doc.getElementById('host'));
+  const chat = createRoot(doc.getElementById('chat'));
+  await act(async () => host.render(React.createElement(BrowserApprovalHost)));
+  try {
+    assert.ok(browserApprovalSessionIds().has('sess_home_marketer'), 'the baseline marks it');
+    const index = sessionAttentionIndex([], new Set(), browserApprovalSessionIds());
+    assert.equal(sessionAttentionOf(index, 'sess_home_marketer'), 'needs-you');
+    // Opening that chat claims no card (none exists here) and keeps the mark.
+    await act(async () => chat.render(React.createElement(Dock, { sessionId: 'sess_home_marketer' })));
+    assert.equal(doc.querySelector('.approval-prompt'), null, 'no card on the phone');
+    await act(async () => chat.unmount());
+    assert.ok(browserApprovalSessionIds().has('sess_home_marketer'));
+    await act(async () => listener(['sess_other']));
+    assert.deepEqual([...browserApprovalSessionIds()], ['sess_other']);
+    await act(async () => listener([]));
+    assert.equal(browserApprovalSessionIds().size, 0, 'cleared when the PC has none');
+    await act(async () => listener(['sess_other']));
+  } finally {
+    await act(async () => host.unmount());
+  }
+  assert.equal(stopped, 1);
+  assert.equal(browserApprovalSessionIds().size, 0, 'the host leaving drops the PC marks');
+});
+
 test('an approval answered on another device flashes "<action> · Allowed from <device>" above the composer, both ways', async () => {
   const { conversationIslandFlash } = await import('./use-conversation-approvals.tsx');
   const email = { id: 'm1', kind: 'outbound', outbound: { category: 'email' } };

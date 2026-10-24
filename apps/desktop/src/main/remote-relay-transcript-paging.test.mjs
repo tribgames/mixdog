@@ -29,6 +29,8 @@ test('a paging phone opens tail windows and receives older pages and submits as 
       return () => {};
     },
     subscribeDesktopEvents: () => () => {},
+    // The first call this test makes builds the method table, which reads it.
+    invokeDesktopOperation: async () => [],
     setVisibleSessionsForSource: async (source, ids, legacyTranscript) => {
       registrations.push({ source, ids, legacyTranscript });
       return true;

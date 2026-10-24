@@ -7,6 +7,7 @@ import { TerminalDataBufferer } from './terminal-data-buffer';
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
+import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
 import { TERMINAL_ACTIVITY_EVENT } from '../shared/terminal-activity';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
@@ -22,6 +23,15 @@ export interface RelayPushLaneDeps {
   broadcastEncrypted(payload: unknown, droppable: boolean, include?: (state: RelayClientState) => boolean): void;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
   subscribeDesktopEvents?: DesktopService['subscribeDesktopEvents'];
+  /** The browser-approval session list published before these lanes started. */
+  readBrowserApprovalSessions?: () => Promise<unknown>;
+}
+
+export interface RelayPushLanes {
+  /** Frames a newly authenticated connection gets at once: the waiting
+   *  browser-approval sessions, so a reconnect drops marks that ended meanwhile. */
+  joinFrames(): unknown[];
+  dispose(): void;
 }
 
 const readsLane =
@@ -41,7 +51,23 @@ const GLOBAL_DESKTOP_EVENTS = new Set<string>([
   UPDATER_STATE_EVENT,
 ]);
 
-export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void } {
+export function createRelayPushLanes(deps: RelayPushLaneDeps): RelayPushLanes {
+  // Kept from every publication; seeded by a read only until the first one.
+  // A device that joined before the read answered was given `[]`: the seed
+  // reaches it too.
+  let browserApprovalSessions: string[] | null = null;
+  void deps
+    .readBrowserApprovalSessions?.()
+    .then((value) => {
+      if (browserApprovalSessions !== null) return;
+      const ids = readBrowserApprovalSessions(value);
+      if (!ids) return;
+      browserApprovalSessions = ids;
+      if (deps.clients.size > 0) {
+        deps.broadcastEncrypted({ event: BROWSER_APPROVAL_SESSIONS_EVENT, payload: ids }, false);
+      }
+    })
+    .catch(() => undefined);
   let terminalBuffer!: TerminalDataBufferer;
   terminalBuffer = new TerminalDataBufferer(
     (event) => {
@@ -66,6 +92,15 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
     }) ?? (() => {});
   const unsubscribeDesktopEvents =
     deps.subscribeDesktopEvents?.(({ name, value }) => {
+      if (name === BROWSER_APPROVAL_SESSIONS_EVENT) {
+        const ids = readBrowserApprovalSessions(value);
+        if (!ids) return;
+        browserApprovalSessions = ids;
+        // Every paired device marks these sessions; a lost frame would leave
+        // a stale mark, so it is never droppable.
+        if (deps.clients.size > 0) deps.broadcastEncrypted({ event: name, payload: ids }, false);
+        return;
+      }
       if (deps.clients.size === 0) return;
       // Explorer live refresh and language-server pushes are the same lanes the
       // Electron window receives; a paired browser stays as fresh as the desktop.
@@ -125,6 +160,7 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
       }
     }) ?? (() => {});
   return {
+    joinFrames: () => [{ event: BROWSER_APPROVAL_SESSIONS_EVENT, payload: browserApprovalSessions ?? [] }],
     dispose: () => {
       unsubscribeTerminals();
       terminalBuffer.dispose();

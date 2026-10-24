@@ -33,6 +33,7 @@ import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwner } from '../shared/terminal-size-owner';
 import { TERMINAL_ACTIVITY_EVENT } from '../shared/terminal-activity';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
+import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 
 interface DesktopOperationEvent {
   name:
@@ -45,7 +46,8 @@ interface DesktopOperationEvent {
     | typeof ACTIVITY_RAIL_PINS_EVENT
     | typeof PROVIDER_MODELS_EVENT
     | typeof SETTINGS_CHANGED_EVENT
-    | typeof UPDATER_STATE_EVENT;
+    | typeof UPDATER_STATE_EVENT
+    | typeof BROWSER_APPROVAL_SESSIONS_EVENT;
   value: unknown;
 }
 
@@ -347,6 +349,8 @@ export function createDesktopOperations({
   const unsubscribeActivity = terminals.subscribeActivity((value) => {
     emit({ name: TERMINAL_ACTIVITY_EVENT, value });
   });
+  // The last list the window published (publishBrowserApprovalSessions).
+  let browserApprovalSessions: string[] = [];
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
     // Recovery storage belongs to the file host, never to an RPC argument.
@@ -430,6 +434,16 @@ export function createDesktopOperations({
       emit({ name: UPDATER_STATE_EVENT, value: args[0] });
       return undefined;
     }
+    // The window process holds the Browser Use approval cards; paired devices
+    // learn which sessions have one waiting (ids only) here.
+    if (name === 'publishBrowserApprovalSessions') {
+      const ids = readBrowserApprovalSessions(args[0]);
+      if (!ids) throw new TypeError('browser approval sessions are invalid.');
+      browserApprovalSessions = ids;
+      emit({ name: BROWSER_APPROVAL_SESSIONS_EVENT, value: ids });
+      return undefined;
+    }
+    if (name === 'readBrowserApprovalSessions') return browserApprovalSessions;
     if (name === 'updateSetting') {
       return settingsStore.update(args[0] as Parameters<DesktopSettingsStore['update']>[0], args[1] === true);
     }

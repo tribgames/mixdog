@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { actionLabel, actionQuestion, alwaysAllowScope } from './ApprovalCard';
 import { type ApprovalButton, ApprovalPrompt } from './approval-prompt';
-import { setBrowserApprovalSessionIds } from './browser-approval-marks';
+import { setBrowserApprovalSessionIds, setHostBrowserApprovalSessionIds } from './browser-approval-marks';
 import { showDesktopToast } from './desktop-toasts';
 import { t } from './i18n';
 import { PixelIcon } from './pixel-icon';
@@ -104,13 +104,7 @@ function answer(prompt: BrowserApprovalPrompt, decision: 'once' | 'always' | 'de
  *  or deny (one click, no reason). Operator-confirmed actions
  *  only ever ask once. The page and target stay on the card: a standing allow
  *  is per kind, not per site. */
-export function BrowserApprovalCard({
-  prompt,
-  queueLabel,
-}: {
-  prompt: BrowserApprovalPrompt;
-  queueLabel?: string;
-}) {
+export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApprovalPrompt; queueLabel?: string }) {
   const requester = prompt.requester || prompt.sessionId;
   const files = prompt.files ?? [];
   const page = prompt.origin || prompt.url;
@@ -241,5 +235,13 @@ export function BrowserApprovalHost() {
       }),
     []
   );
+  // A paired device: the PC's waiting cards mark their sessions here (no card).
+  useEffect(() => {
+    const stop = window.mixdogDesktop?.onBrowserApprovalSessions?.(setHostBrowserApprovalSessionIds);
+    return () => {
+      stop?.();
+      setHostBrowserApprovalSessionIds([]);
+    };
+  }, []);
   return null;
 }

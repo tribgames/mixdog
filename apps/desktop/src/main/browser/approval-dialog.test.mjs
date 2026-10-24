@@ -592,6 +592,32 @@ test('Allow all actions: an operator confirm is not asked (nor remembered), the 
   setBrowserApprovalHooks({});
 });
 
+test('each waiting card names its sessions to onPendingSessions, and its answer clears them', async () => {
+  const published = [];
+  const seat = roomMemberSessionId('abc123', 'marketer');
+  setBrowserApprovalHooks({
+    resolveRequester: async () => ({ name: 'bot' }),
+    surfaceSessionId: (sessionId) => (sessionId === seat ? 'sess_room_chat' : sessionId),
+    onPendingSessions: (ids) => published.push(ids),
+  });
+  const window = fakeWindow(true);
+  const first = requestBrowserApproval(window, asRequest('sess_home_marketer', ['submit']));
+  await settle();
+  assert.deepEqual(published.at(-1), ['sess_home_marketer']);
+  decideBrowserApproval(window.contents, window.sent[0].payload.id, 'deny');
+  assert.equal(await first, false);
+  assert.deepEqual(published.at(-1), []);
+  // A card that docks elsewhere marks that chat and the asking session; the window going away clears both.
+  const other = fakeWindow(true);
+  const second = requestBrowserApproval(other, asRequest(seat, ['submit']));
+  await settle();
+  assert.deepEqual(published.at(-1), ['sess_room_chat', seat]);
+  other.emit('closed');
+  assert.equal(await second, false);
+  assert.deepEqual(published.at(-1), []);
+  setBrowserApprovalHooks({});
+});
+
 test('an allow that cannot be saved still runs this once, tells the person, and asks again next time', async () => {
   const grants = {
     ...memoryGrants(),

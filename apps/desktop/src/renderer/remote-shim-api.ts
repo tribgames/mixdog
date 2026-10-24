@@ -362,6 +362,12 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // host has remoteParity, and reconnects never re-subscribe. An older host
     // simply never emits the event.
     subscribeUpdaterState: (listener) => listenOn(ctx.updaterListeners, listener),
+    // Marks only: the PC's last list at once, then each change. Nothing here
+    // can see or answer the approval itself.
+    onBrowserApprovalSessions: (listener) => {
+      listener(ctx.browserApprovalSessionIds);
+      return listenOn(ctx.browserApprovalSessionListeners, listener);
+    },
     trashProjectEntry: (projectPath, relPath) =>
       parity() ? call('trashProjectEntry', [projectPath, relPath]) : LEGACY_HOST_FALLBACKS.trashProjectEntry(),
     browserReleasePage: (pageId) =>

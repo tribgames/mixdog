@@ -41,6 +41,8 @@ export interface RelaySessionWiringDeps {
 
 export interface RelaySessionSubscriptions {
   forgetClient(clientId: string): void;
+  /** Sent to each connection right after its handshake (remote-relay-push-lanes.ts). */
+  joinFrames(): unknown[];
   dispose(): void;
 }
 
@@ -165,11 +167,13 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         broadcastEncrypted: deps.broadcastEncrypted,
         subscribeTerminalData: deps.subscribeTerminalData,
         subscribeDesktopEvents: deps.host.subscribeDesktopEvents?.bind(deps.host),
+        readBrowserApprovalSessions: () => deps.host.invokeDesktopOperation('readBrowserApprovalSessions', []),
       });
       return {
         forgetClient: (clientId: string): void => {
           pushNotifier.forgetClient(clientId);
         },
+        joinFrames: () => pushLanes.joinFrames(),
         dispose: (): void => {
           unsubscribeState();
           unsubscribeSessions();

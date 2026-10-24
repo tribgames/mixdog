@@ -16,7 +16,10 @@ import { redactBrowserUrl } from './redaction';
 /** Approvals wait here for the in-app card's answer (never an OS dialog),
  *  keyed to the one renderer the card was sent to. */
 type Decision = 'once' | 'always' | 'deny';
-const pending = new Map<string, { owner: WebContents; finish: (decision: Decision, reason?: string) => void }>();
+const pending = new Map<
+  string,
+  { owner: WebContents; sessionIds: string[]; finish: (decision: Decision, reason?: string) => void }
+>();
 
 /** The store action (human-gate ACTION_KINDS) a standing allow is kept under,
  *  per kind of gated step. `confirm` has none: it always asks. */
@@ -56,6 +59,19 @@ function grantActions(kinds: readonly BrowserApprovalKind[]): string[] | null {
   return actions.length > 0 && actions.every((action): action is string => Boolean(action)) ? actions : null;
 }
 
+/** The sessions with a card waiting (the asking session and the chat it docks
+ *  in), told to `hooks.onPendingSessions` on every change. */
+function pendingSessionIds(): string[] {
+  return [...new Set([...pending.values()].flatMap((entry) => entry.sessionIds))];
+}
+const publishPendingSessions = (): void => {
+  try {
+    hooks.onPendingSessions?.(pendingSessionIds());
+  } catch {
+    /* a lost mark never decides an approval */
+  }
+};
+
 export interface BrowserApprovalHooks {
   /** The asking session's display name and working directory; empty when
    *  unknown. Never decides whether the session asks (that is its id). */
@@ -81,6 +97,9 @@ export interface BrowserApprovalHooks {
   notify?(window: BrowserWindow, requester: { sessionId: string; name: string }): void;
   /** The top-level chat a session's card docks in (a sub-agent's root chat). */
   surfaceSessionId?(sessionId: string): string;
+  /** Every session with a card waiting, after each change (empty once none
+   *  waits): paired devices mark them. Ids only; the card stays on this PC. */
+  onPendingSessions?(sessionIds: string[]): void;
 }
 let hooks: BrowserApprovalHooks = {};
 
@@ -248,6 +267,7 @@ export async function requestBrowserApproval(
         contents.removeListener('destroyed', onDocumentGone);
         window.removeListener('closed', onDocumentGone);
         pending.delete(id);
+        publishPendingSessions();
         send({ id, closed: true });
         // The person's note reaches the agent as the command's error.
         if (decision === 'deny' && reason) reject(new Error(browserNotApproved(reason)));
@@ -262,7 +282,9 @@ export async function requestBrowserApproval(
           );
         }
       };
-      pending.set(id, { owner: contents, finish });
+      const surfaceSessionId = hooks.surfaceSessionId?.(request.sessionId) || request.sessionId;
+      pending.set(id, { owner: contents, sessionIds: [surfaceSessionId, request.sessionId], finish });
+      publishPendingSessions();
       signal?.addEventListener('abort', onDocumentGone, { once: true });
       contents.on('did-start-navigation', onNavigation as never);
       contents.on('render-process-gone', onDocumentGone);
@@ -273,7 +295,7 @@ export async function requestBrowserApproval(
         action: request.action,
         url: redactBrowserUrl(request.url),
         sessionId: request.sessionId,
-        surfaceSessionId: hooks.surfaceSessionId?.(request.sessionId) || request.sessionId,
+        surfaceSessionId,
         agentId: ownBot,
         requester: requester.name || ownBot,
         target: request.target,

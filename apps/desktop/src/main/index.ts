@@ -843,6 +843,10 @@ setBrowserApprovalHooks({
   audit: browserApprovalGrants.audit,
   downloadsDir: () => app.getPath('downloads'),
   surfaceSessionId: (sessionId) => approvalSurfaceSessionId(sessionId, approvalSources),
+  // Paired devices mark these sessions too (ids only; the card stays here).
+  onPendingSessions: (sessionIds) => {
+    void localService.invokeDesktopOperation('publishBrowserApprovalSessions', [sessionIds]).catch(() => {});
+  },
   notify: (window, { sessionId, name }) => {
     if (!turnNotificationsEnabled || !Notification.isSupported()) return;
     const notification = new Notification({

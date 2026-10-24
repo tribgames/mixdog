@@ -1024,6 +1024,9 @@ export interface DesktopApi {
           }
     ) => void
   ): () => void;
+  /** A paired device only: the sessions with a Browser Use approval waiting on
+   *  the PC, now and after each change. Marks only; it is answered on the PC. */
+  onBrowserApprovalSessions?(listener: (sessionIds: string[]) => void): () => void;
   /** `reason`: a denial's note for the asking agent (what to do instead). */
   browserApprovalDecide?(id: string, decision: 'once' | 'always' | 'deny', reason?: string): Promise<void>;
   browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;

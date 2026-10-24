@@ -568,6 +568,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sendEncryptedFrame,
     dispatchClientCall,
     resyncClient: sessionWiring.resyncClient,
+    // A handshake needs a phone's hello, so the subscriptions below exist by then.
+    joinFrames: () => sessionSubscriptions.joinFrames(),
     onClientClaim: options.onClientClaim,
     onClaimConflict: options.onClaimConflict,
     hostName: pcName,

@@ -36,6 +36,8 @@ export interface RelayClientLifecycleDeps {
     frameBytes: number
   ): Promise<RelayClientCallOutcome>;
   resyncClient(clientId: string, state: RelayClientState): void;
+  /** Frames each connection gets right after `e2ee-ready` (current global marks). */
+  joinFrames?(): unknown[];
   onClientClaim?: (claim: RemoteClientClaim) => Promise<RemoteClaimDecision>;
   /** A redelivery of a pending claim carried another key: the original is
    *  settled as denied, because the transcript conflicts. */
@@ -246,6 +248,7 @@ async function completeHandshake(
       hostName: (deps.hostName?.() ?? hostname()).slice(0, 80),
       ...uplink,
     });
+    for (const frame of deps.joinFrames?.() ?? []) await deps.sendEncryptedFrame(clientId, frame, false);
     if (!client.viewSync) deps.resyncClient(clientId, client);
   } catch {
     deps.clients.close(clientId, 'relay encryption authentication failed');

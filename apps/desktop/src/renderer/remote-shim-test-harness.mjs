@@ -137,6 +137,8 @@ export const withShim = async ({ secure = true } = {}, run) => {
       remoteBrowserTabListeners: new Set(),
       browserImportProgressListeners: new Set(),
       visualizeListeners: new Set(),
+      browserApprovalSessionListeners: new Set(),
+      browserApprovalSessionIds: [],
       activeLanes: new Set(),
       compactFrames: { reset() {} },
       viewBaselines: { restore: (value) => value, clear() {} },

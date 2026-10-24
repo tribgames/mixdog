@@ -207,6 +207,9 @@ export interface RemoteShimCollaborators {
   lspDiagnosticsListeners: Set<(event: DesktopLspDiagnosticEvent) => void>;
   lspStatusListeners: Set<(event: DesktopLspStatusEvent) => void>;
   visualizeListeners: Set<(event: DesktopVisualizeEvent) => void>;
+  browserApprovalSessionListeners: Set<(sessionIds: string[]) => void>;
+  /** The last browser-approval session list the PC sent (each handshake sends one). */
+  browserApprovalSessionIds: string[];
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
   // used to reach every paired phone regardless of what it had open, so a
@@ -465,6 +468,8 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     lspDiagnosticsListeners: new Set(),
     lspStatusListeners: new Set(),
     visualizeListeners: new Set(),
+    browserApprovalSessionListeners: new Set(),
+    browserApprovalSessionIds: [],
     activeLanes: new Set(),
     viewBaselines: createRemoteViewBaselineCache(),
     sessionsDecoder,

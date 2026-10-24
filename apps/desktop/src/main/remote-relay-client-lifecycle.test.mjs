@@ -15,7 +15,7 @@ import { createRelayClientRegistry } from './remote-relay-clients.ts';
 
 const CREDENTIAL = '0123456789abcdef0123456789abcdef';
 
-async function harness({ decision, hostName, hold = false } = {}) {
+async function harness({ decision, hostName, hold = false, joinFrames } = {}) {
   const identity = await generateRelayE2EEServerIdentity();
   const pairing = relayE2EEPairingMaterial(identity);
   const envelopes = [];
@@ -44,6 +44,7 @@ async function harness({ decision, hostName, hold = false } = {}) {
     },
     dispatchClientCall: async () => ({}),
     resyncClient: () => {},
+    joinFrames,
     hostName,
     onClientClaim: (claim) => {
       claims.push(claim);
@@ -191,6 +192,28 @@ test('a hello for a previous PC leg challenge is ignored, never treated as a fai
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(h.frames[0]?.payload.type, 'e2ee-ready');
+});
+
+test('each handshake is followed by the current join frames (the browser-approval marks baseline)', async () => {
+  let current = ['sess_a'];
+  const h = await harness({ joinFrames: () => [{ event: 'browserApprovalSessions', payload: current }] });
+  await handshake(h, CREDENTIAL);
+  assert.deepEqual(
+    h.frames.map((frame) => frame.payload.type ?? frame.payload.event),
+    ['e2ee-ready', 'browserApprovalSessions']
+  );
+  assert.deepEqual(h.frames[1].payload.payload, ['sess_a']);
+  // A later connection gets the list as it is then.
+  current = [];
+  h.frames.length = 0;
+  h.envelopes.length = 0;
+  h.lifecycle.open('route-2', CREDENTIAL);
+  const challenge = JSON.parse(h.envelopes.find((entry) => entry.type === 'frame').data);
+  const { hello } = await createRelayE2EEClientHandshake(h.pairing, challenge);
+  const second = h.clients.get('route-2');
+  h.lifecycle.receive('route-2', second, JSON.stringify(hello));
+  await second.frameQueue;
+  assert.deepEqual(h.frames.at(-1).payload, { event: 'browserApprovalSessions', payload: [] });
 });
 
 test('the handshake carries the saved PC name', async () => {

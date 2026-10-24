@@ -15,6 +15,7 @@ import type {
 } from '../shared/contract';
 import { type CodedErrorParams, codedErrorParams } from '../shared/coded-error';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
+import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 import { isRemotePaintProbe } from '../shared/remote-performance';
 import { RELAY_ROUTING_CAPS_EVENT, readRelayPayloadRejection } from '../shared/remote-payload-limit';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
@@ -282,6 +283,12 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (state && typeof state === 'object' && typeof state.status === 'string') {
         fanOut(ctx.updaterListeners, state);
       }
+    } else if (message.event === BROWSER_APPROVAL_SESSIONS_EVENT) {
+      if (!authenticated) return;
+      const ids = readBrowserApprovalSessions(message.payload);
+      if (!ids) return;
+      ctx.browserApprovalSessionIds = ids;
+      fanOut(ctx.browserApprovalSessionListeners, ids);
     } else if (message.event === REMOTE_BROWSER_FRAME_EVENT) {
       if (!authenticated) return;
       const frame = readRemoteBrowserStreamFrame(message.payload);
