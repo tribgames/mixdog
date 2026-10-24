@@ -337,7 +337,7 @@ export async function saveSchedule(
   const existing = await dbGetSchedule(id);
   if (renaming && !existing) throw new Error(`schedule "${id}" does not exist`);
   if (overwrite !== true && existing) {
-    throw new Error(`schedule "${id}" already exists`);
+    throw scheduleNameTakenError(id);
   }
   const ownerAgentId = scheduleOwner(owner, existing);
   await assertRoutineOwner(ownerAgentId);

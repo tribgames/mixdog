@@ -96,6 +96,20 @@ test('a rename onto an existing name is refused and changes nothing', async () =
   await assert.rejects(saveSchedule({ ...base, name: 'ghost', newName: 'c' }), /does not exist/);
 });
 
+test('creating a schedule under a taken name is refused with the coded error', async () => {
+  rows.clear();
+  rows.set('dupname', { name: 'dupname', prompt: 'a', whenCron: '0 8 * * *', ownerAgentId: 'lead' });
+  const before = JSON.stringify([...rows]);
+  await assert.rejects(
+    saveSchedule({ ...base, name: 'dupname', overwrite: false }),
+    (error) =>
+      /A schedule named "dupname" already exists\./.test(error.message) &&
+      error.code === 'SCHEDULE_NAME_TAKEN' &&
+      error.details?.name === 'dupname'
+  );
+  assert.equal(JSON.stringify([...rows]), before);
+});
+
 test('a running schedule is not renamed', async () => {
   rows.clear();
   rows.set('a', { name: 'a', prompt: 'a', whenCron: '0 8 * * *', ownerAgentId: 'lead' });
