@@ -36,11 +36,11 @@ const PAGE = `
   const files = (n) => Array.from({ length: n }, (_, i) =>
     h(ApprovalPreviewRow, { key: i, icon: h(PixelIcon, { name: 'file' }), main: 'file-' + i + '.pdf · 2.4 MB', sub: LONG_PATH }));
   const SCENARIOS = {
-    standard: { buttons: ['Deny', 'Always allow', 'Allow once'], preview: [h(ApprovalPreviewRow, { key: 'u', icon: h(PixelIcon, { name: 'globe' }), main: LONG_URL, sub: LONG_PATH })] },
+    standard: { buttons: ['Deny', 'Always allow', 'Allow just once'], preview: [h(ApprovalPreviewRow, { key: 'u', icon: h(PixelIcon, { name: 'globe' }), main: LONG_URL, sub: LONG_PATH })] },
     german: { buttons: ['Ablehnen', 'Immer erlauben für diesen Assistenten', 'Nur dieses eine Mal erlauben'], preview: [h(ApprovalPreviewRow, { key: 'm', icon: h(PixelIcon, { name: 'mail' }), main: 'assetstore@unity3d.com' })] },
-    files: { buttons: ['Deny', 'Always allow', 'Allow once'], preview: files(24) },
+    files: { buttons: ['Deny', 'Always allow', 'Allow just once'], preview: files(24) },
     danger: { buttons: ['Deny', 'Allow payment'], danger: true, preview: [h('div', { key: 'a', className: 'approval-amount' }, h('b', null, '₩ 23,100'))] },
-    risky: { buttons: ['Deny', 'Always allow', 'Allow once'], risky: true, preview: files(1) },
+    risky: { buttons: ['Deny', 'Always allow', 'Allow just once'], risky: true, preview: files(1) },
   };
   const card = (name) => {
     const s = SCENARIOS[name];
@@ -48,7 +48,7 @@ const PAGE = `
       key: name,
       title: 'Upload these files to the receiving site of this extremely long page title?',
       faceAgentId: 'marketer-with-a-very-long-identifier',
-      tone: s.danger ? 'danger' : 'need',
+      tone: 'need',
       requester: '사무관의 아주 긴 이름을 가진 봇 › Worker › Reviewer › Another very long sub-agent name',
       service: 'Gmail · ' + 'connector-tool-with-a-long-name'.repeat(2),
       sessionLink: { sessionId: 's', label: 'Open session' },
@@ -56,7 +56,7 @@ const PAGE = `
       corner: '0:28 left',
       preview: s.preview,
       buttons: s.buttons.map((label, i) => ({
-        label, deny: i === 0, tone: i === s.buttons.length - 1 ? (s.danger ? 'danger' : 'primary') : undefined,
+        label, deny: i === 0, tone: i === s.buttons.length - 1 ? 'primary' : undefined,
         hint: label === 'Always allow'
           ? "With Always allow, Marketer's Upload files in the browser won't ask again"
           : i > 0 && (s.danger || s.risky) ? 'Allowing takes a click; Enter does not allow.' : undefined,
@@ -100,14 +100,14 @@ const PAGE = `
   const paymentCard = () => h(ApprovalPrompt, {
     title: 'Make this payment?',
     faceAgentId: 'clerk',
-    tone: 'danger',
+    tone: 'need',
     requester: '사무관',
     service: 'shop',
     corner: '2:00 left',
     preview: h('div', { className: 'approval-amount' }, h('b', null, '₩129,000'), h('small', null, 'Shop · KRW')),
     buttons: [
       { label: 'Deny', deny: true },
-      { label: 'Allow payment', tone: 'danger', hint: 'Allowing takes a click; Enter does not allow.', onClick: () => (window.__pressed ??= []).push('pay') },
+      { label: 'Allow payment', tone: 'primary', hint: 'Allowing takes a click; Enter does not allow.', onClick: () => (window.__pressed ??= []).push('pay') },
     ],
     focus: 'deny',
     enterAllows: false,
@@ -138,7 +138,7 @@ const PAGE = `
         buttons: [
           { label: 'Deny', deny: true },
           { label: 'Always allow' },
-          { label: 'Allow once', tone: 'primary' },
+          { label: 'Allow just once', tone: 'primary' },
         ],
         focus: 'primary',
         enterAllows: true,
@@ -398,7 +398,7 @@ test('a click-only allow (payment, delete, unconfirmed receiver, outside file) i
   await tab.setViewport({ width: 1400, height: 900 });
   for (const [scenario, allows] of [
     ['danger', ['Allow payment']],
-    ['risky', ['Always allow', 'Allow once']],
+    ['risky', ['Always allow', 'Allow just once']],
   ]) {
     await tab.evaluate((name) => {
       window.__pressed = [];

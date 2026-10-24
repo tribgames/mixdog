@@ -1,4 +1,9 @@
-import type { DesktopQuotaResume, DesktopSessionSummary, DesktopSessionWorkspace } from '../shared/contract';
+import type {
+  DesktopQuotaResume,
+  DesktopSessionSummary,
+  DesktopSessionWorkspace,
+  ToolApprovalResult,
+} from '../shared/contract';
 
 export type RecordValue = Record<string, unknown>;
 export type Project = string;
@@ -137,7 +142,10 @@ export type Snapshot = RecordValue & {
   commandBusy?: boolean;
   queued?: unknown[];
   toolApproval?: Approval | null;
-  toolApprovalResult?: { id: string; approved: boolean; device: string; at: number } | null;
+  toolApprovalResult?: ToolApprovalResult | null;
+  /** Approvals waiting behind `toolApproval`: its own, and copies of sessions
+   *  this chat delegated or handed work to (the dock's "1/N"). */
+  toolApprovalsWaiting?: number;
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   cwd?: string;
   /** The Lead's live workspace (execution root, worktree binding, revision). */

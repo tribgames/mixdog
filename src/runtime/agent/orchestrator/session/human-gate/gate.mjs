@@ -98,7 +98,8 @@ const LEAD_NAME = 'Lead';
  *  bot-created task session, a bot's home chat or room member session) and
  *  the names from there down to the asker ("Lead › Reviewer", "사무관 ›
  *  Worker"). Only where the card shows: no bot identity, grant or remember
- *  scope follows from it. Null for a top-level session. */
+ *  scope follows from it. Null for a top-level session (whose requests show
+ *  in the chats handing it work instead: tui/session/tool-approval.mjs). */
 export function approvalSurface(sessionId) {
   const delegation = delegationOf(sessionId);
   if (delegation.state !== 'resolved') return null;

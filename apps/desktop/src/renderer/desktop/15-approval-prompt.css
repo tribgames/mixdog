@@ -180,10 +180,6 @@
   box-shadow: inset 0 0 0 2.5px var(--mx-warning);
   background: radial-gradient(circle, var(--mx-warning) 0 2px, transparent 2.5px);
 }
-.approval-prompt[data-tone="danger"] .approval-need-dot {
-  box-shadow: inset 0 0 0 2.5px var(--mx-danger);
-  background: radial-gradient(circle, var(--mx-danger) 0 2px, transparent 2.5px);
-}
 .approval-prompt[data-tone="done"] .approval-need-dot {
   display: none;
 }
@@ -228,6 +224,15 @@
 }
 .approval-chip-face .approval-lead-mark {
   display: none;
+}
+/* The session this chat handed work to: amber, beside who asks. */
+.approval-target-chip {
+  box-shadow: inset 0 0 0 1px var(--mx-warning);
+}
+.approval-target-mark {
+  flex: none;
+  color: var(--mx-warning);
+  line-height: 1;
 }
 .approval-chip-name,
 .approval-service {
@@ -478,11 +483,6 @@
 .approval-button[data-tone="primary"]:hover:not(:disabled) {
   border-color: var(--mx-accent-bg);
   background: color-mix(in srgb, var(--mx-accent-bg) 88%, var(--mx-grey-50));
-}
-.approval-button[data-tone="danger"] {
-  border-color: transparent;
-  background: var(--mx-danger-bg);
-  color: var(--mx-danger);
 }
 /* A quiet keyboard ring: one soft halo, never a bright outline around the
    blue primary. */

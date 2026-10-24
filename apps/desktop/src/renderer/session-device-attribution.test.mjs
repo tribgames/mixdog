@@ -69,6 +69,36 @@ test('an approval answered elsewhere leaves a settled card unless this device an
   assert.equal(retiredApprovalFor({ id: 'a2' }, snapshot, new Set()), null, "another approval's result");
 });
 
+test('only a real timeout leaves an expired card; withdrawn and interrupted ends show nothing; a named device wins', () => {
+  const previous = { id: 'a1' };
+  const base = { toolApproval: null, items: [] };
+  const result = (extra) => ({
+    ...base,
+    toolApprovalResult: { id: 'a1', approved: false, device: '', at: 1, ...extra },
+  });
+  assert.deepEqual(retiredApprovalFor(previous, result({ expired: true }), new Set())?.outcome, {
+    approved: false,
+    device: '',
+    expired: true,
+  });
+  assert.equal(retiredApprovalFor(previous, result({ withdrawn: true }), new Set()), null);
+  assert.equal(retiredApprovalFor(previous, result({ interrupted: true }), new Set()), null);
+  // A hand-off copy withdrawn because another place answered keeps the device line.
+  assert.deepEqual(retiredApprovalFor(previous, result({ approved: true, device: 'Pixel' }), new Set())?.outcome, {
+    approved: true,
+    device: 'Pixel',
+  });
+  assert.equal(
+    retiredApprovalFor({ id: 'a2' }, result({ expired: true }), new Set()),
+    null,
+    "another approval's expiry"
+  );
+  // A question's end (timeout, or answered on another device) never retires a card.
+  const question = { id: 'a1', kind: 'question' };
+  assert.equal(retiredApprovalFor(question, result({ expired: true }), new Set()), null);
+  assert.equal(retiredApprovalFor(question, result({ approved: true, device: 'Pixel' }), new Set()), null);
+});
+
 test('a handed-back prompt lands only in the composer of the device that sent it, beside any draft', () => {
   const mine = nextComposerSubmissionId();
   const restore = { id: 'r1', ids: [mine], text: 'my prompt', device: 'Pixel', at: 1 };

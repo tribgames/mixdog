@@ -1,6 +1,19 @@
 // Session state, transcript, agent pool, goal, model and prompt types.
 import type { DesktopNewTaskWorktree, DesktopSessionWorkspace } from './contract-worktree';
 
+/** How the last tool approval ended: answered from `device`, or with no device
+ *  — `expired` (a real timeout), `withdrawn` (its copy was taken away unanswered)
+ *  or `interrupted` (Stop / turn abort). */
+export interface ToolApprovalResult {
+  id: string;
+  approved: boolean;
+  device: string;
+  at: number;
+  expired?: boolean;
+  withdrawn?: boolean;
+  interrupted?: boolean;
+}
+
 export type DesktopUpdaterState =
   | { status: 'disabled' | 'idle' | 'checking' | 'up-to-date' }
   | { status: 'downloading' | 'ready' | 'installing'; version: string; percent?: number }
@@ -264,7 +277,9 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   pendingOrchestrationModeSwitch?: boolean;
   remoteEnabled?: boolean;
   /** How the last tool approval ended and from which device. */
-  toolApprovalResult?: { id: string; approved: boolean; device: string; at: number } | null;
+  toolApprovalResult?: ToolApprovalResult | null;
+  /** Approvals waiting behind the shown `toolApproval` (the dock's "1/N"). */
+  toolApprovalsWaiting?: number;
   /** A prompt cancelled from another device, to be handed back to the device
    *  that sent it (`ids` are that device's submission ids). */
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;

@@ -7,7 +7,7 @@ const RETIRED_APPROVAL_MS = 6_000;
 
 export interface RetiredApproval {
   approval: Approval;
-  outcome: { approved: boolean; device: string };
+  outcome: { approved: boolean; device: string; expired?: boolean };
 }
 
 /** The settled card to show for `previous` once it left the snapshot, or null
@@ -19,9 +19,16 @@ export function retiredApprovalFor(
   snapshot: Pick<Snapshot, 'toolApproval' | 'toolApprovalResult' | 'items'>,
   decidedLocally: ReadonlySet<string>
 ): RetiredApproval | null {
+  // A question's end (answered elsewhere, timed out) leaves no card or line.
+  if (previous.kind === 'question') return null;
   const result = snapshot.toolApprovalResult;
   const id = String(previous.id ?? '');
-  if (snapshot.toolApproval || !result || !result.device || String(result.id) !== id) return null;
+  if (snapshot.toolApproval || !result || String(result.id) !== id) return null;
+  // A real timeout names nobody; withdrawn / interrupted ends show nothing.
+  if (!result.device)
+    return result.expired === true
+      ? { approval: previous, outcome: { approved: false, device: '', expired: true } }
+      : null;
   if (decidedLocally.has(id)) return null;
   return { approval: previous, outcome: { approved: result.approved === true, device: result.device } };
 }

@@ -345,6 +345,102 @@ test('a read-only (deleted bot) or parked chat docks no browser approval and not
   }
 });
 
+/** A chat's dock over the snapshot its runtime publishes. */
+function SnapshotDock({ snapshot }) {
+  const route = React.useRef(snapshot.sessionId);
+  return useConversationApprovals(snapshot, route).approvalDock;
+}
+
+test('the sessions a chat handed work to dock there one at a time; 1/N counts every request waiting for the dock', async () => {
+  const api = desktop();
+  const resolved = [];
+  dom.window.mixdogDesktop.resolveToolApprovalForSession = async (...args) => {
+    resolved.push(args);
+    return true;
+  };
+  const { useApprovalDockedFor } = await import('./approval-prompt.tsx');
+  const HOME = 'sess_home_marketer';
+  const handed = (id, sessionId, title) => ({
+    id,
+    name: 'shell',
+    kind: 'approval',
+    agentId: 'lead',
+    args: { command: 'npm test' },
+    remember: ['once'],
+    chain: [],
+    sessionId,
+    surfaceSessionId: HOME,
+    handoff: { title },
+  });
+  let dockedForTask = null;
+  function DockedMark() {
+    dockedForTask = useApprovalDockedFor('sess_task_a');
+    return null;
+  }
+  const host = createRoot(doc.getElementById('host'));
+  const chat = createRoot(doc.getElementById('chat'));
+  const render = (snapshot) =>
+    act(async () =>
+      chat.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(SnapshotDock, { snapshot }),
+          React.createElement(DockedMark)
+        )
+      )
+    );
+  await act(async () => host.render(React.createElement(BrowserApprovalHost)));
+  const docked = doc.getElementById('chat');
+  const queue = () => docked.querySelector('.approval-queue').textContent;
+  const target = () => docked.querySelector('.approval-target-chip .approval-chip-name')?.textContent;
+  try {
+    // Two task sessions wait: the first shows, the second waits behind it.
+    await render({
+      sessionId: HOME,
+      items: [],
+      toolApproval: handed('a1', 'sess_task_a', 'Fix login'),
+      toolApprovalsWaiting: 1,
+    });
+    assert.equal(queue(), '1/2');
+    assert.equal(target(), 'Fix login');
+    assert.ok(docked.querySelector('.approval-link'), 'its session is one click away');
+    assert.equal(dockedForTask, true, "the task's waiting line in this chat gives way to the card");
+    // A browser prompt for this chat counts too.
+    await api.send(prompt({ id: 'bh1', surfaceSessionId: HOME }));
+    assert.equal(queue(), '1/3');
+    await api.send({ id: 'bh1', closed: true });
+    // Allowed here: the answer goes to this chat's queue, which settles the task's own.
+    await click(docked.querySelector('.approval-button[data-tone="primary"]'));
+    assert.deepEqual(
+      resolved.map(([sessionId, approvalId, decision]) => [sessionId, approvalId, decision.approved]),
+      [[HOME, 'a1', true]]
+    );
+    // The next one in the same place.
+    await render({
+      sessionId: HOME,
+      items: [],
+      toolApproval: handed('a2', 'sess_task_b', 'Bump deps'),
+      toolApprovalsWaiting: 0,
+    });
+    assert.equal(queue(), '1/1');
+    assert.equal(target(), 'Bump deps');
+    assert.equal(dockedForTask, false);
+    // The chat's own lone request keeps its plain card.
+    await render({
+      sessionId: HOME,
+      items: [],
+      toolApproval: { ...handed('a3', HOME, ''), handoff: undefined, surfaceSessionId: undefined },
+      toolApprovalsWaiting: 0,
+    });
+    assert.equal(queue(), '');
+    assert.equal(target(), undefined);
+  } finally {
+    await act(async () => chat.unmount());
+    await act(async () => host.unmount());
+  }
+});
+
 test('on a paired device the PC list marks its sessions, with no card and no answer; a chat claim or unmount does not wipe it', async () => {
   let listener = null;
   let stopped = 0;
@@ -398,6 +494,31 @@ test('an approval answered on another device flashes "<action> · Allowed from <
     'DESKTOP-7'
   );
   assert.equal(fromPhone.text, 'Send an email · Denied from Pixel 9');
+  // Answered on this PC (device ''): the same one line, briefly, without a device.
+  const shell = { id: 's1', kind: 'approval', name: 'shell', args: { command: 'ls' } };
+  assert.equal(
+    conversationIslandFlash({ approval: shell, outcome: { approved: true, device: '' } }, null, 'DESKTOP-7').text,
+    'Run a command · Allowed'
+  );
+  assert.equal(
+    conversationIslandFlash({ approval: shell, outcome: { approved: false, device: '' } }, null, null).text,
+    'Run a command · Denied'
+  );
+  // A request that timed out unanswered says so, on any device.
+  assert.equal(
+    conversationIslandFlash({ approval: shell, outcome: { approved: false, device: '', expired: true } }, null, 'DESKTOP-7')
+      .text,
+    'Run a command · Expired'
+  );
+  // A question leaves no trace line, however it ended.
+  const question = { id: 'q1', kind: 'question' };
+  for (const outcome of [
+    { approved: true, device: 'Pixel 9' },
+    { approved: false, device: '', expired: true },
+    { approved: true, device: '' },
+  ]) {
+    assert.equal(conversationIslandFlash({ approval: question, outcome }, null, 'DESKTOP-7'), null);
+  }
   // This device's own answer is never announced back to it.
   assert.equal(
     conversationIslandFlash({ approval: email, outcome: { approved: true, device: 'Pixel 9' } }, null, 'Pixel 9'),

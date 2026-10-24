@@ -17,8 +17,11 @@ import {
   humanRequestFields,
   normalizeHumanResponse,
 } from '../../runtime/agent/orchestrator/session/human-gate/requests.mjs';
+import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomMemberOfSession } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
 import {
   delegateApproval,
+  delegateToHandoffs,
   delegatedApprovalsFor,
   registerApprovalQueue,
   withdrawDelegatedApproval,
@@ -108,7 +111,9 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     }
     if (extra?.timedOut === true) result.timedOut = true;
     // Settled here: its copy in the top-level chat goes away.
-    if (entry?.delegated) withdrawDelegatedApproval(entry.id, { approved, device });
+    if (entry?.delegated) {
+      withdrawDelegatedApproval(entry.id, { approved, device, ...(extra?.timedOut === true ? { expired: true } : {}) });
+    }
     try {
       entry.resolve(result);
     } catch {}
@@ -128,19 +133,27 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     toolApprovalQueue.push({ id: delegated.id, request: delegated.request, mirror: delegated, timer: null });
     presentNextToolApproval();
   }
+  /** How a copy ended, from the owner's settle: answered from a known device
+   *  (who), a real timeout (`expired`), or taken away with no answer
+   *  (`withdrawn`: the owner's turn ended, the hand-off copy was removed). */
+  function copyOutcome(id, result) {
+    const device = String(result?.device || '');
+    const at = Date.now();
+    if (device) return { id, approved: result.approved === true, device, at };
+    if (result?.expired === true) return { id, approved: false, device: '', expired: true, at };
+    return { id, approved: false, device: '', withdrawn: true, at };
+  }
   function withdrawDelegatedCopy(id, result) {
     if (activeToolApproval?.mirror && activeToolApproval.id === id) {
       activeToolApproval = null;
-      const device = String(result?.device || '');
-      set({
-        toolApproval: null,
-        toolApprovalResult: device ? { id, approved: result.approved === true, device, at: Date.now() } : null,
-      });
+      set({ toolApproval: null, toolApprovalResult: copyOutcome(id, result) });
       presentNextToolApproval();
       return;
     }
     const index = toolApprovalQueue.findIndex((entry) => entry.mirror && entry.id === id);
-    if (index >= 0) toolApprovalQueue.splice(index, 1);
+    if (index < 0) return;
+    toolApprovalQueue.splice(index, 1);
+    presentNextToolApproval();
   }
   /** Show the delegated approvals waiting for this session (it loaded, or its
    *  session id became the top-level one after the request was made). */
@@ -149,16 +162,23 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (!sessionId || typeof surfaceOf !== 'function') return;
     for (const delegated of delegatedApprovalsFor(sessionId)) offerDelegatedApproval(delegated);
   }
+  /** Show the next request when none is shown, and publish how many wait
+   *  behind the shown one (`toolApprovalsWaiting`: the dock's "1/N"). */
   function presentNextToolApproval() {
-    if (activeToolApproval || getDisposed()) return;
-    const entry = toolApprovalQueue.shift();
-    if (!entry) {
-      if (getState().toolApproval) set({ toolApproval: null });
-      return;
+    if (getDisposed()) return;
+    const patch = {};
+    if (!activeToolApproval) {
+      const entry = toolApprovalQueue.shift();
+      if (entry) {
+        activeToolApproval = entry;
+        armToolApprovalTimeout(entry);
+        patch.toolApproval = entry.request;
+      } else if (getState().toolApproval) patch.toolApproval = null;
     }
-    activeToolApproval = entry;
-    armToolApprovalTimeout(entry);
-    set({ toolApproval: entry.request });
+    if ((getState().toolApprovalsWaiting ?? 0) !== toolApprovalQueue.length) {
+      patch.toolApprovalsWaiting = toolApprovalQueue.length;
+    }
+    if (Object.keys(patch).length > 0) set(patch);
   }
   function finishToolApproval(
     id,
@@ -173,11 +193,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (activeToolApproval && activeToolApproval.id === targetId) {
       const entry = activeToolApproval;
       activeToolApproval = null;
-      // Only an answer from a known device is attributed; a timeout or an
-      // interrupt names nobody.
-      const toolApprovalResult = device
-        ? { id: targetId, approved: approved === true, device: String(device), at: Date.now() }
-        : null;
+      // Only an answer from a known device is attributed; a real timeout says
+      // `expired`; any other unattributed end names nobody.
+      let toolApprovalResult = null;
+      if (device) {
+        toolApprovalResult = { id: targetId, approved: approved === true, device: String(device), at: Date.now() };
+      } else if (extra?.timedOut === true) {
+        toolApprovalResult = { id: targetId, approved: false, device: '', expired: true, at: Date.now() };
+      }
       set({ toolApproval: null, toolApprovalResult });
       let accepted = true;
       if (entry.mirror) {
@@ -191,6 +214,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     const index = toolApprovalQueue.findIndex((entry) => entry.id === targetId);
     if (index >= 0) {
       const [entry] = toolApprovalQueue.splice(index, 1);
+      presentNextToolApproval();
       if (entry.mirror) return forwardToOwner(entry, approved, reason, device, answers, reply, extra);
       settleToolApproval(entry, approved === true, String(reason || ''), answers, reply, extra, String(device || ''));
       return true;
@@ -206,7 +230,11 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (activeToolApproval && !(activeToolApproval.mirror && !closing)) {
       const entry = activeToolApproval;
       activeToolApproval = null;
-      if (!entry.mirror) settleToolApproval(entry, false, reason);
+      if (!entry.mirror) {
+        settleToolApproval(entry, false, reason);
+        // Stop/turn abort ended it: not a timeout, nobody answered.
+        set({ toolApprovalResult: { id: entry.id, approved: false, device: '', interrupted: true, at: Date.now() } });
+      }
     }
     const kept = [];
     while (toolApprovalQueue.length > 0) {
@@ -215,7 +243,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       else if (!closing) kept.push(entry);
     }
     toolApprovalQueue.push(...kept);
-    if (activeToolApproval) return;
+    if (activeToolApproval) return presentNextToolApproval();
     if (getState().toolApproval) set({ toolApproval: null });
     presentNextToolApproval();
   }
@@ -230,17 +258,30 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
         full.chain = surface.chain;
         full.surfaceSessionId = surface.sessionId;
       }
-      const entry = { id, request: full, resolve, timer: null, delegated: Boolean(surface) };
+      const handoffs = !surface && handsOff(full);
+      const entry = { id, request: full, resolve, timer: null, delegated: Boolean(surface || handoffs) };
       toolApprovalQueue.push(entry);
       armToolApprovalTimeout(entry);
       presentNextToolApproval();
-      if (surface) {
-        delegateApproval({
+      const answer = (approved, reason, device, answers, reply, extra) =>
+        finishToolApproval(id, approved, reason, device, answers, reply, extra);
+      if (surface) delegateApproval({ id, sessionId: surface.sessionId, request: full, answer });
+      if (handoffs) {
+        const own = ownSessionId();
+        const agentId = agentIdOfHomeSession(own) || roomMemberOfSession(own)?.agentId || '';
+        // Each chat handing this session work names it its own way.
+        delegateToHandoffs({
           id,
-          sessionId: surface.sessionId,
+          sessionId: own,
           request: full,
-          answer: (approved, reason, device, answers, reply, extra) =>
-            finishToolApproval(id, approved, reason, device, answers, reply, extra),
+          answer,
+          copyFor: (chat, { title }) => ({
+            ...full,
+            sessionId: full.sessionId || own,
+            chain: [],
+            surfaceSessionId: chat,
+            handoff: { title, ...(agentId ? { agentId } : {}) },
+          }),
         });
       }
     });
@@ -259,6 +300,13 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     const sessionId = String(surface?.sessionId || '');
     if (!sessionId || sessionId === own || sessionId === ownSessionId()) return null;
     return { sessionId, chain: Array.isArray(surface.chain) ? surface.chain.map(String) : [] };
+  }
+  /** Whether a request this (top-level) session itself makes also shows in
+   *  the chats handing it work (delegated-approval-host.mjs), while it waits. */
+  function handsOff(request) {
+    if (typeof surfaceOf !== 'function' || !DELEGATED_KINDS.has(request.kind)) return false;
+    const own = ownSessionId();
+    return Boolean(own) && String(request.sessionId || own) === own;
   }
 
   return {

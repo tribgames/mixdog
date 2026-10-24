@@ -20,6 +20,7 @@ function harness({ timeoutMs = 60_000 } = {}) {
   return {
     api,
     current: () => state.toolApproval,
+    waiting: () => state.toolApprovalsWaiting,
     dispose: () => {
       disposed = true;
     },
@@ -73,6 +74,22 @@ test('a still-queued request can be settled without ever being presented', async
   assert.equal(h.current(), null);
 });
 
+test('the state counts the requests waiting behind the shown one, whichever way one leaves', async () => {
+  const h = harness();
+  const answers = ['a', 'b', 'c', 'd'].map((name) => h.api.requestToolApproval({ name }));
+  assert.equal(h.current().id, 'req-1');
+  assert.equal(h.waiting(), 3);
+  h.api.finishToolApproval('req-3', true, 'early');
+  assert.equal(h.waiting(), 2, 'a queued one settled');
+  h.api.finishToolApproval('req-1', true);
+  assert.equal(h.current().id, 'req-2');
+  assert.equal(h.waiting(), 1, 'the next one shown');
+  h.api.denyAllToolApprovals('cancelled by user');
+  assert.equal(h.current(), null);
+  assert.equal(h.waiting(), 0);
+  await Promise.all(answers);
+});
+
 test('denying all settles the active request and everything still queued', async () => {
   const h = harness();
   const first = h.api.requestToolApproval({ name: 'a' });
@@ -116,6 +133,37 @@ test('an answer from a known device is recorded on the state; a timeout names no
   assert.equal(api.finishToolApproval('req-2', false, 'approval timed out'), true);
   await second;
   assert.equal(state.toolApprovalResult, null);
+});
+
+test('a real timeout is published as expired; an abort as interrupted; a bare unanswered denial names nothing', async () => {
+  let state = { toolApproval: null, toolApprovalResult: null };
+  const api = createToolApproval({
+    getState: () => state,
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
+    nextId: (() => {
+      let seq = 0;
+      return () => `req-${++seq}`;
+    })(),
+    getDisposed: () => false,
+    timeoutMs: 20,
+  });
+  const keepAlive = setTimeout(() => {}, 1000);
+  const timed = await api.requestToolApproval({ name: 'shell' });
+  clearTimeout(keepAlive);
+  assert.equal(timed.timedOut, true);
+  assert.equal(state.toolApproval, null);
+  assert.equal(state.toolApprovalResult.id, 'req-1');
+  assert.equal(state.toolApprovalResult.expired, true);
+  assert.equal(state.toolApprovalResult.device, '');
+
+  const aborted = api.requestToolApproval({ name: 'shell', timeoutMs: null });
+  api.denyAllToolApprovals('turn aborted');
+  await aborted;
+  assert.equal(state.toolApprovalResult.id, 'req-2');
+  assert.equal(state.toolApprovalResult.interrupted, true);
+  assert.equal(state.toolApprovalResult.expired, undefined);
 });
 
 test('answers pass through to the waiter and kind/timeoutMs are honored per request', async () => {

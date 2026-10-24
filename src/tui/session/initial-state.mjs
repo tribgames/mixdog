@@ -26,6 +26,9 @@ export function createInitialSessionState({ runtime, runtimeCwd, baseRouteState 
     queued: [],
     thinking: null,
     toolApproval: null,
+    // Approvals waiting behind the shown one (its own, and copies of sessions
+    // it delegated or handed work to): the dock's "1/N".
+    toolApprovalsWaiting: 0,
     // How the last approval ended and from which device, so every device can
     // say who answered ({ id, approved, device, at }).
     toolApprovalResult: null,

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
 import type { ToolApprovalDecision } from '../shared/contract';
@@ -16,6 +16,8 @@ import { type RetiredApproval, useRetiredApproval } from './use-retired-approval
 import { useViewerDevice } from './use-viewer-device';
 
 type AnsweredElsewhere = { id: string; device: string };
+
+const LOCAL_DECIDED_MS = 6_000;
 
 /** Tool approvals for the session this pane renders: the pending card, the
  *  approvals this device answered itself, and whether the conversation was
@@ -37,7 +39,24 @@ export function useConversationApprovals(
     const relevant = new Set([String(snapshot.toolApproval?.id ?? ''), String(snapshot.toolApprovalResult?.id ?? '')]);
     for (const id of decidedLocally.current.ids) if (!relevant.has(id)) decidedLocally.current.ids.delete(id);
   }
-  const retiredApproval = useRetiredApproval(snapshot, decidedLocally.current.ids);
+  const otherDeviceApproval = useRetiredApproval(snapshot, decidedLocally.current.ids);
+  // The approval this device answered, kept briefly once it left the dock
+  // (device '' names this PC) so the island can say what was decided.
+  // It belongs to the session it was answered in: another chat never shows it.
+  const [localDecided, setLocalDecided] = useState<(RetiredApproval & { sessionId: string }) | null>(null);
+  useEffect(() => {
+    if (!localDecided) return;
+    if (localDecided.sessionId !== decidedSessionId) return setLocalDecided(null);
+    const timer = window.setTimeout(() => setLocalDecided(null), LOCAL_DECIDED_MS);
+    return () => window.clearTimeout(timer);
+  }, [localDecided, decidedSessionId]);
+  const retiredApproval =
+    otherDeviceApproval ??
+    (localDecided &&
+    localDecided.sessionId === decidedSessionId &&
+    String(snapshot.toolApproval?.id ?? '') !== String(localDecided.approval.id ?? '')
+      ? localDecided
+      : null);
   // The approval this device tried to answer after another device already had.
   const [answeredElsewhere, setAnsweredElsewhere] = useState<AnsweredElsewhere | null>(null);
   const multiDevice = useMemo(() => sessionUsesMultipleDevices(snapshot.items), [snapshot.items]);
@@ -81,10 +100,19 @@ export function useConversationApprovals(
       const approvalId = String(pendingApproval.id ?? '');
       if (!sessionId) return false;
       const accepted = await host.resolveToolApprovalForSession(sessionId, approvalId, decision);
-      if (accepted === true && decidedLocally.current.sessionId === decidedSessionId) {
-        decidedLocally.current.ids.add(approvalId);
+      // Only while this pane still shows the session it was answered in.
+      const sameSession = decidedLocally.current.sessionId === decidedSessionId;
+      if (accepted === true && sameSession) decidedLocally.current.ids.add(approvalId);
+      if (accepted === true) {
+        answeredHere.current = approvalId;
+        if (sameSession && pendingApproval.kind !== 'question') {
+          setLocalDecided({
+            sessionId: decidedSessionId,
+            approval: pendingApproval,
+            outcome: { approved: decision.approved === true, device: '' },
+          });
+        }
       }
-      if (accepted === true) answeredHere.current = approvalId;
       if (accepted === false) {
         const result = snapshot.toolApprovalResult;
         setAnsweredElsewhere({
@@ -120,14 +148,20 @@ export function useConversationApprovals(
           reply,
         });
     } else {
-      const waiting = 1 + browserPrompts.length;
+      // Every request waiting for this dock: the shown one, those queued
+      // behind it (this chat's own, and copies of the sessions it delegated or
+      // handed work to), and the browser's.
+      const waiting = 1 + (Number(snapshot.toolApprovalsWaiting) || 0) + browserPrompts.length;
+      // Another session's request counts even alone, so the next one reads "1/1".
+      const forOther =
+        Boolean(pendingApproval.surfaceSessionId) && String(pendingApproval.sessionId || '') !== decidedSessionId;
       approvalDock = (
         <ApprovalCard
           key={approvalInstanceKey(pendingApproval.id)}
           approval={pendingApproval}
           resolve={resolveDecision}
           agentMode={agentMode}
-          queue={waiting > 1 ? `1/${waiting}` : undefined}
+          queue={waiting > 1 || forOther ? `1/${waiting}` : undefined}
           hostSessionId={decidedSessionId}
         />
       );
@@ -172,14 +206,28 @@ export function conversationIslandFlash(
 ): ComposerIslandFlash | null {
   // Answered on another device: the docked card leaves and this one line
   // says what was decided and where ("Send an email · Allowed from DESKTOP-7").
-  if (retiredApproval && isOtherDevice(retiredApproval.outcome.device, viewerDevice)) {
+  // Answered on this PC: the same line without a device ("Run a command · Allowed").
+  // A question's answer or timeout leaves no trace here (its card is in the transcript).
+  if (
+    retiredApproval &&
+    retiredApproval.approval.kind !== 'question' &&
+    (!retiredApproval.outcome.device || isOtherDevice(retiredApproval.outcome.device, viewerDevice))
+  ) {
     const { approval, outcome } = retiredApproval;
-    const result = outcome.approved
-      ? t('Allowed from {{device}}', { device: outcome.device })
-      : t('Denied from {{device}}', { device: outcome.device });
+    const named = Boolean(outcome.device);
+    let result: string;
+    if (outcome.expired) {
+      result = t('Expired');
+    } else if (named) {
+      result = outcome.approved
+        ? t('Allowed from {{device}}', { device: outcome.device })
+        : t('Denied from {{device}}', { device: outcome.device });
+    } else {
+      result = outcome.approved ? t('Allowed') : t('Denied');
+    }
     return {
       key: `retired:${approvalInstanceKey(approval.id)}`,
-      text: approval.kind === 'question' ? result : `${approvalRecordLabel(approval)} · ${result}`,
+      text: `${approvalRecordLabel(approval)} · ${result}`,
     };
   }
   if (answeredElsewhere) {

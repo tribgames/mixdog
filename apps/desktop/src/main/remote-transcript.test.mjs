@@ -43,6 +43,17 @@ function toolSnapshot() {
   };
 }
 
+test('the phone receives the approval outcome fields (expired, withdrawn, interrupted) untouched', () => {
+  for (const toolApprovalResult of [
+    { id: 'a1', approved: false, device: '', expired: true, at: 1 },
+    { id: 'a2', approved: false, device: '', withdrawn: true, at: 2 },
+    { id: 'a3', approved: false, device: '', interrupted: true, at: 3 },
+  ]) {
+    const sent = remoteTranscriptSnapshot({ ...toolSnapshot(), toolApproval: null, toolApprovalResult }, SESSION);
+    assert.deepEqual(sent.toolApprovalResult, toolApprovalResult);
+  }
+});
+
 test('a tool output over the cap keeps its head and tail and says how long it was', () => {
   const projected = remoteTranscriptSnapshot(toolSnapshot());
   const shell = projected.items[1];

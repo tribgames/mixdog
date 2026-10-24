@@ -278,11 +278,12 @@ test('email shows account, to, cc, subject and the body; payment and delete are 
   ui = await mount(pay.element);
   try {
     const prompt = ui.doc.querySelector('.approval-prompt');
-    assert.equal(prompt.dataset.tone, 'danger');
+    assert.equal(prompt.dataset.tone, 'need', 'no red: the normal amber need-dot');
     assert.match(ui.doc.querySelector('.approval-amount b').textContent, /12,900/);
     assert.match(ui.doc.querySelector('.approval-amount').textContent, /KRW · monthly/);
     assert.deepEqual(ui.rows(), ['Deny', 'Allow payment']);
-    assert.equal(ui.row(1).dataset.tone, 'danger');
+    assert.equal(ui.row(1).dataset.tone, 'primary', 'the normal primary look, not danger');
+    assert.equal(ui.row(1).dataset.pointerOnly, 'true');
     assert.equal(ui.doc.activeElement, ui.row(0), 'focus starts on 거절');
     assert.equal(ui.row(1).querySelector('.approval-kbd'), null, 'no Enter chip on a danger allow');
     assert.equal(ui.button('Always allow'), undefined, 'no 항상 허용 button');
@@ -436,23 +437,120 @@ const permissionRequest = (scopes) => ({
   permission: { scopes },
 });
 
-test('a permission request has three short buttons mapped by option KIND, not label: Always allow · Allow once · Cancel', async () => {
-  const ui = await mount(
-    card(
-      permissionRequest([
-        { id: 'o1', kind: 'allow_once', label: 'Allow Always' },
-        { id: 'o2', kind: 'allow_always', label: 'Only once please' },
-        { id: 'o3', kind: 'reject', label: 'Whatever' },
-      ])
-    ).element
+test('a permission request reads like every card (Deny · Always allow · Allow just once), mapped by option KIND; Enter grants once, never always', async () => {
+  const c = card(
+    permissionRequest([
+      { id: 'o1', kind: 'allow_once', label: 'Allow Always' },
+      { id: 'o2', kind: 'allow_always', label: 'Only once please' },
+      { id: 'o3', kind: 'reject', label: 'Whatever' },
+    ])
   );
+  const ui = await mount(c.element);
   try {
-    assert.deepEqual(ui.rows(), ['Always allow', 'Allow once', 'Cancel']);
-    assert.equal(ui.row(0).dataset.tone, 'primary');
+    assert.deepEqual(ui.rows(), ['Deny', 'Always allow', 'Allow just once']);
+    assert.equal(ui.row(2).dataset.tone, 'primary');
     assert.match(ui.doc.querySelector('.approval-preview').textContent, /Always allow · Only once please/);
+    assert.match(ui.doc.querySelector('.approval-preview').textContent, /Allow just once · Allow Always/);
+    await settle();
+    ui.doc.activeElement.blur();
+    await ui.key('Enter', {}, ui.doc.body);
+    assert.deepEqual(c.decisions, [{ approved: true, scope: 'o1' }], 'Enter grants once');
   } finally {
     await ui.done();
   }
+});
+
+test('a permission request with only an always option never lets Enter grant it', async () => {
+  const c = card(permissionRequest([{ id: 'o2', kind: 'allow_always', label: 'Always' }]));
+  const ui = await mount(c.element);
+  try {
+    assert.deepEqual(ui.rows(), ['Deny', 'Always allow']);
+    assert.equal(ui.row(1).querySelector('.approval-kbd'), null);
+    assert.equal(ui.doc.activeElement, ui.row(0), 'initial focus is Deny, never Always allow');
+    await settle();
+    ui.doc.activeElement.blur();
+    await ui.key('Enter', {}, ui.doc.body);
+    assert.deepEqual(c.decisions, [], "the card's own Enter never grants it");
+    // A deliberate Tab to it keeps the native Enter / Space activation.
+    const always = ui.button('Always allow');
+    always.focus();
+    let kept = false;
+    act(() => {
+      kept = always.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+      );
+    });
+    assert.equal(kept, true, 'Enter on the focused button is left to the browser');
+    assert.deepEqual(c.decisions, [], 'and the card did not send it itself');
+    await act(async () => always.click());
+    assert.deepEqual(c.decisions, [{ approved: true, scope: 'o2' }]);
+  } finally {
+    await ui.done();
+  }
+});
+
+test('Always allow is never the initial focus nor the default Enter; a focused one keeps its native keys', async () => {
+  const permission = card(
+    permissionRequest([
+      { id: 'o1', kind: 'allow_once', label: 'Once' },
+      { id: 'o2', kind: 'allow_always', label: 'Always' },
+    ])
+  );
+  const remembered = card({ ...comment, id: 'r1', remember: ['once', 'agent'] });
+  for (const c of [permission, remembered]) {
+    const ui = await mount(c.element);
+    try {
+      assert.deepEqual(ui.rows(), ['Deny', 'Always allow', 'Allow just once']);
+      assert.equal(ui.doc.activeElement, ui.row(2), 'initial focus is Allow just once');
+      assert.notEqual(ui.doc.activeElement, ui.button('Always allow'));
+      await settle();
+      assert.notEqual(
+        ui.doc.activeElement,
+        ui.button('Always allow'),
+        'nothing moves focus there after the settle window'
+      );
+      ui.doc.activeElement.blur();
+      await ui.key('Enter', {}, ui.doc.body);
+      assert.deepEqual(
+        c.decisions,
+        [c === permission ? { approved: true, scope: 'o1' } : { approved: true }],
+        'Enter grants once, never always'
+      );
+    } finally {
+      await ui.done();
+    }
+  }
+  // A focused Always allow keeps the native Enter / Space activation.
+  const c = card({ ...comment, id: 'r2', remember: ['once', 'agent'] });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    const always = ui.button('Always allow');
+    always.focus();
+    for (const [type, key] of [
+      ['keydown', 'Enter'],
+      ['keydown', ' '],
+      ['keyup', ' '],
+    ]) {
+      let kept = false;
+      act(() => {
+        kept = always.dispatchEvent(new dom.window.KeyboardEvent(type, { key, bubbles: true, cancelable: true }));
+      });
+      assert.equal(kept, true, `${type} ${JSON.stringify(key)} is not cancelled`);
+    }
+    assert.deepEqual(c.decisions, []);
+  } finally {
+    await ui.done();
+  }
+});
+
+test('tool approval titles say what is approved; other tools keep the generic title', async () => {
+  const { approvalCardModel } = await import('./ApprovalCard.tsx');
+  const title = (name) => approvalCardModel({ id: 't', kind: 'approval', name, args: {} }).title;
+  assert.equal(title('shell'), 'Approval: Run a command');
+  assert.equal(title('apply_patch'), 'Approval: Edit files');
+  assert.equal(title('web_fetch'), 'Approval: Network request');
+  assert.equal(title('mcp__gmail__send'), 'Tool approval required');
 });
 
 test('a permission request: the narrowest once option wins, ties go to the first listed, and a missing always option leaves two buttons', async () => {
@@ -465,8 +563,8 @@ test('a permission request: the narrowest once option wins, ties go to the first
   );
   const ui = await mount(c.element);
   try {
-    assert.deepEqual(ui.rows(), ['Allow once', 'Cancel']);
-    await ui.click(ui.button('Allow once'));
+    assert.deepEqual(ui.rows(), ['Deny', 'Allow just once']);
+    await ui.click(ui.button('Allow just once'));
     assert.deepEqual(c.decisions, [{ approved: true, scope: 'n1' }]);
   } finally {
     await ui.done();
@@ -1588,6 +1686,120 @@ test("a sub-agent's request shown in the top-level chat names its chain, links i
   try {
     assert.match(ui.requester(), /^Lead › Reviewer/);
     assert.equal(ui.doc.querySelector('.approval-who .approval-link'), null, 'no copy, no link');
+  } finally {
+    await ui.done();
+  }
+});
+
+test('a request of a session this chat handed work to: the amber target chip beside who asks, its session one click away', async () => {
+  // As the runtime copies a task session's request into the bot chat that created it.
+  const handed = {
+    id: 'h1',
+    name: 'shell',
+    kind: 'approval',
+    agentId: 'lead',
+    args: { command: 'npm test' },
+    remember: ['once'],
+    chain: [],
+    sessionId: 'sess_task',
+    surfaceSessionId: 'sess_home_github-watcher',
+    handoff: { title: 'Fix login' },
+  };
+  const { ApprovalOpenSessionContext } = await import('./approval-prompt.tsx');
+  const docked = [];
+  const opened = [];
+  const onOpen = (event) => opened.push(event.detail.sessionId);
+  dom.window.addEventListener('mixdog:open-task-session', onOpen);
+  // The app's opener dispatches this window's event.
+  const nodeCustomEvent = globalThis.CustomEvent;
+  globalThis.CustomEvent = dom.window.CustomEvent;
+  let ui = await mount(
+    React.createElement(
+      ApprovalOpenSessionContext.Provider,
+      { value: (id) => docked.push(id) },
+      card(handed, { agentMode: true, hostSessionId: 'sess_home_github-watcher' }).element
+    )
+  );
+  try {
+    // The task session asks as in its own pane: the Lead, not the bot of this chat.
+    assert.ok(ui.doc.querySelector('.approval-face .approval-lead-mark'));
+    assert.deepEqual(
+      [...ui.doc.querySelectorAll('.approval-who .approval-chip-name')].map((node) => node.textContent),
+      ['Lead', 'Fix login']
+    );
+    const chip = ui.doc.querySelector('.approval-target-chip');
+    assert.equal(chip.querySelector('.approval-target-mark').textContent, '▣');
+    assert.equal(chip.title, 'Fix login');
+    await ui.click(ui.doc.querySelector('.approval-who .approval-link'));
+    assert.deepEqual(opened, ['sess_task'], 'opened as any session');
+    assert.deepEqual(docked, [], 'never as a sub-agent of this chat');
+  } finally {
+    await ui.done();
+  }
+  // In the task session's own pane: no target chip and no link to itself.
+  ui = await mount(card({ ...handed, id: 'h2' }, { hostSessionId: 'sess_task' }).element);
+  try {
+    assert.equal(ui.doc.querySelector('.approval-target-chip'), null);
+    assert.equal(ui.doc.querySelector('.approval-who .approval-link'), null);
+  } finally {
+    await ui.done();
+  }
+  // Another bot's chat is named by that bot's face and name, once.
+  const botChat = {
+    ...comment,
+    id: 'h3',
+    agentId: 'github-watcher',
+    chain: [],
+    sessionId: 'sess_home_github-watcher',
+    surfaceSessionId: 'sess_home_mailer',
+    handoff: { title: 'GitHub', agentId: 'github-watcher' },
+  };
+  ui = await mount(card(botChat, { agentMode: true, hostSessionId: 'sess_home_mailer' }).element);
+  try {
+    assert.deepEqual(
+      [...ui.doc.querySelectorAll('.approval-who .approval-chip-name')].map((node) => node.textContent),
+      ['github-watcher']
+    );
+    assert.ok(ui.doc.querySelector('.approval-target-chip .approval-chip-face'));
+    assert.equal(ui.doc.querySelector('.approval-target-mark'), null);
+  } finally {
+    await ui.done();
+    dom.window.removeEventListener('mixdog:open-task-session', onOpen);
+    globalThis.CustomEvent = nodeCustomEvent;
+  }
+});
+
+test("a docked hand-off copy keeps the card's risk gates: a payment is pointer-only, keys wait out the settle window", async () => {
+  const pay = card(
+    {
+      ...comment,
+      id: 'hp1',
+      agentId: 'github-watcher',
+      remember: ['once'],
+      outbound: { category: 'payment', target: 'Notion Labs', payload: '', editable: [], details: {} },
+      chain: [],
+      sessionId: 'sess_home_github-watcher',
+      surfaceSessionId: 'sess_home_mailer',
+      handoff: { title: 'GitHub', agentId: 'github-watcher' },
+    },
+    { agentMode: true, hostSessionId: 'sess_home_mailer' }
+  );
+  const ui = await mount(pay.element);
+  try {
+    assert.ok(ui.doc.querySelector('.approval-target-chip'), 'docked as a hand-off');
+    assert.equal(ui.doc.querySelector('.approval-prompt').dataset.tone, 'need');
+    const allow = ui.button('Allow payment');
+    assert.equal(allow.dataset.tone, 'primary');
+    assert.equal(allow.dataset.pointerOnly, 'true');
+    assert.equal(ui.doc.activeElement, ui.row(0), 'focus starts on Deny');
+    ui.doc.activeElement.blur();
+    await ui.key('Escape', {}, ui.doc.body);
+    assert.deepEqual(pay.decisions, [], 'a key right after the card appears does nothing');
+    await settle();
+    await ui.key('Enter', {}, ui.doc.body);
+    assert.deepEqual(pay.decisions, [], 'Enter never allows a payment');
+    await ui.key('Escape', {}, ui.doc.body);
+    assert.deepEqual(pay.decisions, [{ approved: false }], 'Esc denies once settled');
   } finally {
     await ui.done();
   }

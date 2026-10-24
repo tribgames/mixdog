@@ -30,6 +30,12 @@ import { markUnattendedRun } from '../../../../../session-runtime/held-requests.
 import { sessionOptions } from '../../../../../session-runtime/session-create/session-options.mjs';
 import { createAgentTaskSessions } from '../../../../../session-runtime/agent-task-sessions.mjs';
 import { sessionOriginFields } from '../manager/session-record.mjs';
+import { endHandoff, handoffChatsOf, noteHandoff } from '../../../../shared/delegated-approval-host.mjs';
+import {
+  createAgentHomeDelivery,
+  createRoutineResultQueue,
+  QUEUE_CAPS,
+} from '../../../../../session-runtime/agent-home-delivery.mjs';
 
 // A bot (`사무관`, id mailer) delegates to sub-agents; a coding Lead does too.
 // Session records are the runtime's own (live store records), so the gate
@@ -829,7 +835,7 @@ test('a remember answer the card offered counts wherever it is answered; one it 
   }
 });
 
-test("a bot-created task session's own approval stays in the task session; its Worker's shows there too", async () => {
+test("with no hand-off owing its report, a bot-created task session's own approval stays in the task session; its Worker's shows there too", async () => {
   const home = sessionQueue(HOME);
   const task = sessionQueue('sess_dlg_task1');
   const worker = sessionQueue('sess_dlg_tsub1');
@@ -850,6 +856,451 @@ test("a bot-created task session's own approval stays in the task session; its W
     home.dispose();
     task.dispose();
     worker.dispose();
+  }
+});
+
+const handoffDirs = [];
+test.after(() => {
+  for (const dir of handoffDirs) rmSync(dir, { recursive: true, force: true });
+});
+/** The real report watch store (agent-home-delivery.mjs) in a temp file, as
+ *  agent-task-sessions.mjs drives it: store a watch, list them, report a
+ *  turn's end (dropping the watches it names), drop one never taken. */
+function handoffPorts(options = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'handoff-watches-'));
+  handoffDirs.push(dir);
+  const path = join(dir, 'routine-results.json');
+  const queue = createRoutineResultQueue(path, options);
+  return {
+    path,
+    queue,
+    deliver: (_agentId, report) => {
+      const unwatch = [report.watchId, ...(report.watchIds ?? [])].filter(Boolean);
+      return queue.add(HOME, { runId: report.runId }, { unwatch });
+    },
+    watches: {
+      add: (watch) => queue.watch(watch),
+      list: () => queue.watches(),
+      remove: (runId) => queue.unwatch(runId),
+    },
+  };
+}
+const handoffWatch = (runId, taskSessionId, title, homeSessionId = HOME) => ({
+  runId,
+  agentId: 'mailer',
+  homeSessionId,
+  taskSessionId,
+  title,
+  at: Date.now(),
+});
+taskSession('sess_dlg_task2', HOME, 'atask_2');
+taskSession('sess_dlg_task3', HOME, 'atask_3');
+
+test("a task session the bot's chat handed work to asks in that chat too, named; answering there settles its own card", async () => {
+  const ports = handoffPorts();
+  const home = sessionQueue(HOME);
+  const task = sessionQueue('sess_dlg_task1');
+  try {
+    await ports.watches.add(handoffWatch('atask_h1', 'sess_dlg_task1', 'Fix login'));
+    assert.deepEqual([...handoffChatsOf('sess_dlg_task1')], [[HOME, { title: 'Fix login' }]]);
+    assert.equal(approvalSurface('sess_dlg_task1'), null, 'still a top-level session');
+    const answer = task.api.requestToolApproval({
+      name: 'shell',
+      args: { command: 'npm test' },
+      sessionId: 'sess_dlg_task1',
+    });
+    const own = task.state().toolApproval;
+    const shown = home.state().toolApproval;
+    assert.ok(own, 'its own pane still shows it');
+    assert.equal(shown?.id, own.id, 'one request, one id in both places');
+    assert.equal(shown.sessionId, 'sess_dlg_task1');
+    assert.equal(shown.surfaceSessionId, HOME);
+    assert.deepEqual(shown.handoff, { title: 'Fix login' });
+    assert.equal(home.api.finishToolApproval(shown.id, true, 'approved by user', 'DESKTOP-7'), true);
+    assert.equal((await answer).approved, true);
+    assert.equal(task.state().toolApproval, null, "the task session's own card is settled");
+    assert.deepEqual(
+      { id: task.state().toolApprovalResult?.id, device: task.state().toolApprovalResult?.device },
+      { id: own.id, device: 'DESKTOP-7' },
+      'and says where it was answered'
+    );
+    assert.equal(home.state().toolApproval, null);
+    assert.equal(task.api.finishToolApproval(own.id, false), false, 'never answered twice');
+    // Its report ends the hand-off: a later approval stays in the task session.
+    await ports.deliver('mailer', {
+      runId: 'atask_h1_end',
+      taskSessionId: 'sess_dlg_task1',
+      status: 'completed',
+      watchId: 'atask_h1',
+    });
+    assert.equal(handoffChatsOf('sess_dlg_task1').size, 0);
+    const later = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    assert.equal(home.state().toolApproval, null);
+    task.api.finishToolApproval(task.state().toolApproval.id, false, 'no');
+    assert.equal((await later).approved, false);
+  } finally {
+    endHandoff('atask_h1');
+    home.dispose();
+    task.dispose();
+  }
+});
+
+test('the chat shows its waiting approvals one at a time and counts every one behind the shown one', async () => {
+  const ports = handoffPorts();
+  const home = sessionQueue(HOME);
+  const first = sessionQueue('sess_dlg_task1');
+  const second = sessionQueue('sess_dlg_task2');
+  try {
+    await ports.watches.add(handoffWatch('atask_q1', 'sess_dlg_task1', 'Fix login'));
+    await ports.watches.add(handoffWatch('atask_q2', 'sess_dlg_task2', 'Bump deps'));
+    const a = first.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const b = second.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task2' });
+    assert.equal(home.state().toolApproval.handoff.title, 'Fix login');
+    assert.equal(home.state().toolApprovalsWaiting, 1, '"1/2"');
+    // The chat's own request queues behind them and counts too.
+    const mine = home.api.requestToolApproval({ name: 'shell', args: {}, sessionId: HOME });
+    assert.equal(home.state().toolApprovalsWaiting, 2, '"1/3"');
+    home.api.finishToolApproval(home.state().toolApproval.id, true, 'ok');
+    assert.equal((await a).approved, true);
+    assert.equal(home.state().toolApproval.handoff.title, 'Bump deps', 'the next one in the same place');
+    assert.equal(home.state().toolApprovalsWaiting, 1);
+    // Answered in its own pane: the copy leaves the chat, and the count with it.
+    second.api.finishToolApproval(second.state().toolApproval.id, true, 'ok');
+    assert.equal((await b).approved, true);
+    assert.equal(home.state().toolApproval.sessionId, HOME);
+    assert.equal(home.state().toolApprovalsWaiting, 0, '"1/1" is left');
+    home.api.finishToolApproval(home.state().toolApproval.id, true, 'ok');
+    assert.equal((await mine).approved, true);
+    assert.equal(home.state().toolApproval, null);
+  } finally {
+    endHandoff('atask_q1');
+    endHandoff('atask_q2');
+    home.dispose();
+    first.dispose();
+    second.dispose();
+  }
+});
+
+test('a session this chat handed no work to never asks there; work another chat handed asks in that chat', async () => {
+  const ports = handoffPorts();
+  const home = sessionQueue(HOME);
+  const other = sessionQueue('sess_dlg_lead1');
+  const task = sessionQueue('sess_dlg_task3');
+  try {
+    // Created by this bot, but no hand-off owes a report (notify: false, or reported).
+    const quiet = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task3' });
+    assert.equal(home.state().toolApproval, null);
+    task.api.finishToolApproval(task.state().toolApproval.id, true, 'ok');
+    await quiet;
+    // Handed work by another chat: it asks there, never here.
+    await ports.watches.add(handoffWatch('atask_o1', 'sess_dlg_task3', 'Other work', 'sess_dlg_lead1'));
+    const asked = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task3' });
+    assert.equal(home.state().toolApproval, null);
+    assert.equal(other.state().toolApproval?.handoff.title, 'Other work');
+    other.api.finishToolApproval(other.state().toolApproval.id, true, 'ok');
+    assert.equal((await asked).approved, true);
+  } finally {
+    endHandoff('atask_o1');
+    home.dispose();
+    other.dispose();
+    task.dispose();
+  }
+});
+
+test('hand-offs follow the report watches: ended by a report naming them or a turn never taken, never listed back', async () => {
+  const ports = handoffPorts();
+  const title = () => handoffChatsOf('sess_dlg_task1').get(HOME)?.title;
+  await ports.watches.add(handoffWatch('atask_w1', 'sess_dlg_task1', 'One'));
+  await ports.watches.add(handoffWatch('atask_w2', 'sess_dlg_task1', 'Two'));
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 1, 'one chat, once');
+  assert.equal(title(), 'Two', "the chat's latest hand-off names it");
+  // One turn answered both sends: its report names every watch it closes.
+  await ports.deliver('mailer', {
+    runId: 'atask_w1_end',
+    status: 'completed',
+    watchId: 'atask_w1',
+    watchIds: ['atask_w1', 'atask_w2'],
+  });
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 0);
+  // Read again, the store has neither; an ended run id never comes back.
+  await ports.watches.list();
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 0);
+  noteHandoff(handoffWatch('atask_w1', 'sess_dlg_task1', 'One'));
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 0, 'a stale read of an ended watch notes nothing');
+  // A progress or wait report closes nothing; a turn never taken does.
+  await ports.watches.add(handoffWatch('atask_w3', 'sess_dlg_task1', 'Three'));
+  await ports.deliver('mailer', { runId: 'sess_dlg_task1_x_blocked', status: 'blocked' });
+  assert.equal(title(), 'Three');
+  await ports.watches.remove('atask_w3');
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 0);
+});
+
+// Two chats hand the same task session work: the bot home (A) and a coding Lead (B).
+const CHAT_B = 'sess_dlg_lead1';
+
+test('every chat with a live hand-off docks the request once; an answer anywhere settles it once and clears the rest', async () => {
+  const ports = handoffPorts();
+  const a = sessionQueue(HOME);
+  const b = sessionQueue(CHAT_B);
+  const bystander = sessionQueue('sess_dlg_task2');
+  const task = sessionQueue('sess_dlg_task1');
+  try {
+    await ports.watches.add(handoffWatch('atask_m1', 'sess_dlg_task1', 'Fix login'));
+    await ports.watches.add(handoffWatch('atask_m2', 'sess_dlg_task1', 'Fix login again'));
+    await ports.watches.add(handoffWatch('atask_m3', 'sess_dlg_task1', 'Login fix', CHAT_B));
+    const first = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const id = task.state().toolApproval.id;
+    assert.equal(a.state().toolApproval?.id, id, 'A docks it');
+    assert.equal(b.state().toolApproval?.id, id, 'B docks it');
+    assert.equal(a.state().toolApprovalsWaiting ?? 0, 0, 'one copy per chat, however many hand-offs');
+    assert.deepEqual(
+      [a.state().toolApproval.surfaceSessionId, a.state().toolApproval.handoff.title],
+      [HOME, 'Fix login again']
+    );
+    assert.deepEqual(
+      [b.state().toolApproval.surfaceSessionId, b.state().toolApproval.handoff.title],
+      [CHAT_B, 'Login fix']
+    );
+    assert.equal(bystander.state().toolApproval, null, 'a chat with no hand-off never gets a copy');
+    // Answered in A: settled once, B and the target cleared, the device recorded.
+    assert.equal(a.api.finishToolApproval(id, true, 'ok', 'Pixel'), true);
+    const settled = await first;
+    assert.deepEqual([settled.approved, task.state().toolApproval], [true, null]);
+    assert.equal(b.state().toolApproval, null);
+    assert.equal(b.state().toolApprovalResult?.device, 'Pixel', 'B says where it was answered');
+    assert.equal(task.state().toolApprovalResult?.device, 'Pixel');
+    assert.equal(b.api.finishToolApproval(id, false), false, 'never answered twice');
+    // Answered in the target itself: both copies leave.
+    const second = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const next = task.state().toolApproval.id;
+    assert.deepEqual([a.state().toolApproval?.id, b.state().toolApproval?.id], [next, next]);
+    assert.equal(task.api.finishToolApproval(next, false, 'no', 'DESKTOP-7'), true);
+    assert.equal((await second).approved, false);
+    assert.deepEqual([a.state().toolApproval, b.state().toolApproval], [null, null]);
+  } finally {
+    for (const runId of ['atask_m1', 'atask_m2', 'atask_m3']) endHandoff(runId);
+    for (const queue of [a, b, bystander, task]) queue.dispose();
+  }
+});
+
+const pick = (record, keys) => Object.fromEntries(keys.map((key) => [key, record[key]]));
+
+test('an unanswered end is published by kind: a timeout is expired, an abort interrupted, a removed copy withdrawn; an answer keeps its device', async () => {
+  const ports = handoffPorts();
+  const a = sessionQueue(HOME);
+  const b = sessionQueue(CHAT_B);
+  const task = sessionQueue('sess_dlg_task1', { timeoutMs: 40 });
+  try {
+    await ports.watches.add(handoffWatch('atask_x1', 'sess_dlg_task1', 'Fix login'));
+    await ports.watches.add(handoffWatch('atask_x2', 'sess_dlg_task1', 'Login fix', CHAT_B));
+    // The target's request times out: its own card and both copies say expired.
+    const timed = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const timedId = task.state().toolApproval.id;
+    const keepAlive = setTimeout(() => {}, 1000);
+    const timedOut = (await timed).timedOut;
+    clearTimeout(keepAlive);
+    assert.equal(timedOut, true);
+    for (const queue of [task, a, b]) {
+      assert.equal(queue.state().toolApproval, null);
+      assert.deepEqual(pick(queue.state().toolApprovalResult, ['id', 'expired', 'device']), {
+        id: timedId,
+        expired: true,
+        device: '',
+      });
+    }
+    // Stop / turn abort: the target says interrupted, the copies are withdrawn (not expired).
+    task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const abortedId = task.state().toolApproval.id;
+    task.api.denyAllToolApprovals('turn aborted');
+    assert.equal(task.state().toolApprovalResult.interrupted, true);
+    assert.equal(task.state().toolApprovalResult.expired, undefined);
+    for (const queue of [a, b]) {
+      assert.deepEqual(pick(queue.state().toolApprovalResult, ['id', 'withdrawn', 'expired']), {
+        id: abortedId,
+        withdrawn: true,
+        expired: undefined,
+      });
+    }
+    // A hand-off ending removes only its copy: withdrawn, nobody named.
+    const long = sessionQueue('sess_dlg_task2');
+    try {
+      await ports.watches.add(handoffWatch('atask_x3', 'sess_dlg_task2', 'Other', CHAT_B));
+      long.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task2' });
+      const longId = long.state().toolApproval.id;
+      assert.equal(b.state().toolApproval?.id, longId);
+      await ports.watches.remove('atask_x3');
+      assert.equal(b.state().toolApproval, null);
+      assert.deepEqual(pick(b.state().toolApprovalResult, ['id', 'withdrawn']), { id: longId, withdrawn: true });
+      assert.equal(long.state().toolApproval?.id, longId, 'the target still waits');
+      // Answered in the target: the copy keeps saying who answered, never expired.
+      await ports.watches.add(handoffWatch('atask_x4', 'sess_dlg_task2', 'Other', CHAT_B));
+      assert.equal(b.state().toolApproval?.id, longId);
+      assert.equal(long.api.finishToolApproval(longId, true, 'ok', 'Pixel'), true);
+      assert.deepEqual(pick(b.state().toolApprovalResult, ['device', 'approved', 'expired']), {
+        device: 'Pixel',
+        approved: true,
+        expired: undefined,
+      });
+    } finally {
+      long.dispose();
+    }
+  } finally {
+    for (const runId of ['atask_x1', 'atask_x2', 'atask_x3', 'atask_x4']) endHandoff(runId);
+    for (const queue of [a, b, task]) queue.dispose();
+  }
+});
+
+test("one chat's hand-off ending withdraws only its copy; a chat handing work while it waits gets one", async () => {
+  const ports = handoffPorts();
+  const a = sessionQueue(HOME);
+  const b = sessionQueue(CHAT_B);
+  const task = sessionQueue('sess_dlg_task1');
+  try {
+    await ports.watches.add(handoffWatch('atask_e1', 'sess_dlg_task1', 'Fix login'));
+    await ports.watches.add(handoffWatch('atask_e2', 'sess_dlg_task1', 'Fix login'));
+    const asked = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const id = task.state().toolApproval.id;
+    assert.equal(b.state().toolApproval, null);
+    await ports.watches.add(handoffWatch('atask_e3', 'sess_dlg_task1', 'Login fix', CHAT_B));
+    assert.equal(b.state().toolApproval?.id, id, 'B handed it work while it waited');
+    // One of A's two hand-offs reports: A still waits on the other.
+    await ports.deliver('mailer', { runId: 'atask_e1_end', status: 'completed', watchId: 'atask_e1' });
+    assert.equal(a.state().toolApproval?.id, id);
+    // A's last one ends: only A's copy leaves.
+    await ports.watches.remove('atask_e2');
+    assert.equal(a.state().toolApproval, null);
+    assert.equal(b.state().toolApproval?.id, id);
+    assert.equal(task.state().toolApproval?.id, id, 'still waiting in the target');
+    assert.equal(b.api.finishToolApproval(id, true, 'ok'), true);
+    assert.equal((await asked).approved, true);
+    assert.deepEqual([b.state().toolApproval, task.state().toolApproval], [null, null]);
+  } finally {
+    for (const runId of ['atask_e1', 'atask_e2', 'atask_e3']) endHandoff(runId);
+    for (const queue of [a, b, task]) queue.dispose();
+  }
+});
+
+test('the target stopping or closing while docked withdraws every copy', async () => {
+  const ports = handoffPorts();
+  const a = sessionQueue(HOME);
+  const b = sessionQueue(CHAT_B);
+  const task = sessionQueue('sess_dlg_task1');
+  try {
+    await ports.watches.add(handoffWatch('atask_s1', 'sess_dlg_task1', 'Fix login'));
+    await ports.watches.add(handoffWatch('atask_s2', 'sess_dlg_task1', 'Login fix', CHAT_B));
+    const aborted = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    assert.ok(a.state().toolApproval && b.state().toolApproval);
+    task.api.denyAllToolApprovals('turn aborted');
+    assert.deepEqual(await aborted, { approved: false, reason: 'turn aborted' });
+    assert.deepEqual([a.state().toolApproval, b.state().toolApproval], [null, null]);
+    const closed = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    assert.ok(a.state().toolApproval && b.state().toolApproval);
+    task.dispose();
+    assert.equal((await closed).approved, false);
+    assert.deepEqual([a.state().toolApproval, b.state().toolApproval], [null, null]);
+  } finally {
+    for (const runId of ['atask_s1', 'atask_s2']) endHandoff(runId);
+    for (const queue of [a, b, task]) queue.dispose();
+  }
+});
+
+test('after a restart the stored watches bring back every chat, and a bot chat is named by its bot', async () => {
+  const ports = handoffPorts();
+  const a = sessionQueue(HOME);
+  const b = sessionQueue(CHAT_B);
+  const target = sessionQueue('sess_home_reviewer');
+  try {
+    // An earlier process left both watches in the store; this one never noted them.
+    const left = [
+      handoffWatch('atask_r1', 'sess_home_reviewer', 'Reviewer'),
+      handoffWatch('atask_r2', 'sess_home_reviewer', 'Reviewer', CHAT_B),
+    ];
+    writeFileSync(ports.path, JSON.stringify({ watches: Object.fromEntries(left.map((w) => [w.runId, w])) }));
+    const asked = target.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_home_reviewer' });
+    assert.deepEqual([a.state().toolApproval, b.state().toolApproval], [null, null]);
+    await ports.watches.list();
+    for (const chat of [a, b]) {
+      assert.deepEqual(chat.state().toolApproval?.handoff, { title: 'Reviewer', agentId: 'reviewer' });
+    }
+    a.api.finishToolApproval(a.state().toolApproval.id, true, 'ok');
+    assert.equal((await asked).approved, true);
+    assert.equal(b.state().toolApproval, null);
+  } finally {
+    for (const runId of ['atask_r1', 'atask_r2']) endHandoff(runId);
+    for (const queue of [a, b, target]) queue.dispose();
+  }
+});
+
+/** The delivery around a watch store, as the daemon runs it; `presence` and
+ *  `deleted` say which bots and target sessions are proven gone. */
+const watchDelivery = (queue, { presence = () => 'present', deleted = () => false } = {}) =>
+  createAgentHomeDelivery({
+    loadSession: () => null,
+    saveSession: async () => {},
+    turnInFlight: () => false,
+    queue,
+    live: () => null,
+    agentPresence: presence,
+    sessionDeleted: deleted,
+    log: () => {},
+  });
+
+test("a watch evicted because its target was deleted ends that hand-off and withdraws that chat's copy; an outstanding one stays", async () => {
+  const ports = handoffPorts({ caps: { ...QUEUE_CAPS, watches: 1 } });
+  const delivery = watchDelivery(ports.queue, { deleted: (id) => id === 'sess_dlg_task1' });
+  const a = sessionQueue(HOME);
+  const b = sessionQueue(CHAT_B);
+  const task = sessionQueue('sess_dlg_task1');
+  try {
+    await delivery.watchTask(handoffWatch('atask_v1', 'sess_dlg_task1', 'Fix login'));
+    await delivery.watchTask(handoffWatch('atask_v2', 'sess_dlg_task1', 'Login fix', CHAT_B));
+    const asked = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const id = task.state().toolApproval.id;
+    assert.deepEqual([a.state().toolApproval?.id, b.state().toolApproval?.id], [id, id]);
+    // A, at its cap of one, hands other work on: its watch of the deleted target is evicted.
+    await delivery.watchTask(handoffWatch('atask_v3', 'sess_dlg_task2', 'Bump deps'));
+    assert.deepEqual(
+      (await ports.queue.watches()).map((w) => w.runId),
+      ['atask_v2', 'atask_v3']
+    );
+    assert.equal(a.state().toolApproval, null, "A's copy is withdrawn");
+    assert.deepEqual([...handoffChatsOf('sess_dlg_task1').keys()], [CHAT_B]);
+    assert.equal(b.state().toolApproval?.id, id, "B's outstanding hand-off keeps its copy");
+    assert.equal(task.state().toolApproval?.id, id);
+    b.api.finishToolApproval(id, true, 'ok');
+    assert.equal((await asked).approved, true);
+  } finally {
+    for (const runId of ['atask_v1', 'atask_v2', 'atask_v3']) endHandoff(runId);
+    for (const queue of [a, b, task]) queue.dispose();
+  }
+});
+
+test("a pruned home's watches end their hand-offs and withdraw its copy; another home's stay", async () => {
+  const ports = handoffPorts();
+  const delivery = watchDelivery(ports.queue, { presence: (id) => (id === 'reviewer' ? 'deleted' : 'present') });
+  const gone = sessionQueue('sess_home_reviewer');
+  const a = sessionQueue(HOME);
+  const task = sessionQueue('sess_dlg_task1');
+  try {
+    await delivery.watchTask(handoffWatch('atask_p1', 'sess_dlg_task1', 'Fix login', 'sess_home_reviewer'));
+    await delivery.watchTask(handoffWatch('atask_p2', 'sess_dlg_task1', 'Fix login'));
+    const asked = task.api.requestToolApproval({ name: 'shell', args: {}, sessionId: 'sess_dlg_task1' });
+    const id = task.state().toolApproval.id;
+    assert.deepEqual([gone.state().toolApproval?.id, a.state().toolApproval?.id], [id, id]);
+    // Its bot was deleted: the daemon's start retires that home's bookkeeping.
+    await delivery.recover();
+    assert.deepEqual(
+      (await ports.queue.watches()).map((w) => w.runId),
+      ['atask_p2']
+    );
+    assert.equal(gone.state().toolApproval, null);
+    assert.deepEqual([...handoffChatsOf('sess_dlg_task1').keys()], [HOME]);
+    assert.equal(a.state().toolApproval?.id, id);
+    a.api.finishToolApproval(id, true, 'ok');
+    assert.equal((await asked).approved, true);
+  } finally {
+    for (const runId of ['atask_p1', 'atask_p2']) endHandoff(runId);
+    for (const queue of [gone, a, task]) queue.dispose();
   }
 });
 

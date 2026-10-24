@@ -16,17 +16,17 @@ import { SKIN_MANIFEST } from './skin-manifest';
 
 /* An approval card (approval-prompt.tsx markup): docked in the composer
    island (desktop, and the phone sheet under data-mixdog-mobile-tabs) as a
-   payment, whose allow button is always the danger tone, or floating /
+   payment, whose allow button is the normal primary (never danger), or floating /
    held in the pane, narrow enough that its buttons stack. */
 const approval = (id) => `
-  <section class="approval-prompt" data-tone="danger" data-approval="payment">
+  <section class="approval-prompt" data-tone="need" data-approval="payment">
     <div class="approval-prompt-top"><span class="approval-queue" id="${id}-queue">1 of 2</span><span class="approval-corner" id="${id}-corner">4:59 left</span></div>
     <h3 class="approval-title" id="${id}-title">Proceed with this payment?</h3>
     <div class="approval-who"><span class="approval-chip"><span class="approval-chip-name" id="${id}-who">Mixy</span></span><span class="approval-service" id="${id}-service">shop</span></div>
     <div class="approval-preview"><div class="approval-amount"><b id="${id}-amount">₩23,100</b><small id="${id}-merchant">ACME Store · KRW</small></div></div>
     <div class="approval-buttons" data-count="2" style="--approval-columns: 2">
       <button type="button" class="approval-button" id="${id}-deny"><span class="approval-button-label">Deny</span></button>
-      <button type="button" class="approval-button" data-tone="danger" id="${id}-allow"><span class="approval-button-label">Allow payment</span></button>
+      <button type="button" class="approval-button" data-tone="primary" id="${id}-allow"><span class="approval-button-label">Allow payment</span></button>
     </div>
   </section>`;
 const APPROVAL_SURFACES = ['queue', 'corner', 'title', 'who', 'service', 'amount', 'merchant', 'deny', 'allow'];
@@ -95,12 +95,14 @@ test('skin surfaces: inverted ink, bubble size, pane-width queries', async (t) =
   const measure = (underlay) => measureIds(page, SURFACES, underlay);
 
   /** What must not depend on skin or theme: a payment's allow keeps the
-      danger fill (stacked or docked), and the bot chat's bubbles hug their
-      one word on one line. */
+      normal primary fill, never the danger one (stacked or docked), and the
+      bot chat's bubbles hug their one word on one line. */
   const shape = () =>
     page.evaluate(() => {
       const probe = document.createElement('i');
       document.querySelector('.approval-buttons').append(probe);
+      probe.style.backgroundColor = 'var(--mx-accent-bg)';
+      const primary = getComputedStyle(probe).backgroundColor;
       probe.style.backgroundColor = 'var(--mx-danger-bg)';
       const danger = getComputedStyle(probe).backgroundColor;
       probe.remove();
@@ -110,6 +112,7 @@ test('skin surfaces: inverted ink, bubble size, pane-width queries', async (t) =
       };
       return {
         danger,
+        primary,
         allow: ['docked-allow', 'floating-allow'].map(
           (id) => getComputedStyle(document.getElementById(id)).backgroundColor
         ),
@@ -167,10 +170,11 @@ test('skin surfaces: inverted ink, bubble size, pane-width queries', async (t) =
     }
   );
 
-  await t.test("a payment's allow button is the danger fill everywhere, docked and stacked", () => {
-    for (const { label, danger, allow, stacked } of shapes) {
+  await t.test("a payment's allow button is the primary fill (not danger) everywhere, docked and stacked", () => {
+    for (const { label, danger, primary, allow, stacked } of shapes) {
       assert.ok(stacked, `${label}: the narrow card stacks its buttons`);
-      assert.deepEqual(allow, [danger, danger], label);
+      assert.deepEqual(allow, [primary, primary], label);
+      assert.notEqual(primary, danger, `${label}: primary and danger fills differ`);
     }
   });
 

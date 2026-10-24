@@ -21,6 +21,7 @@ import { asRecord, textOf } from './text-format';
 import { useRemoteHostImageUrl } from './local-image-preview';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSidebarReferences } from './sidebar-reference-cache';
+import { useSessionTitle } from './session-glance-store';
 
 function approvalText(value: unknown, preferredKey: string): string {
   const preferred = asRecord(value)?.[preferredKey];
@@ -101,6 +102,30 @@ function useRequester(
   return chain ? { ...requester, headAgent: chain } : requester;
 }
 
+/** The session a chat handed work to, when this card shows its request in
+ *  that chat (the runtime's `handoff`, tool-approval.mjs): its id, the name
+ *  the chat gave it and the bot whose own chat it is ('' for a session). Null
+ *  for any other request, and in that session's own pane. */
+export function approvalHandoffTarget(
+  approval: Approval,
+  hostSessionId: string
+): { sessionId: string; title: string; agentId: string } | null {
+  const handoff = asRecord(approval.handoff);
+  const sessionId = String(approval.sessionId || '');
+  if (!handoff || !sessionId || sessionId === hostSessionId) return null;
+  return { sessionId, title: String(handoff.title || ''), agentId: String(handoff.agentId || '') };
+}
+
+/** The amber chip of a hand-off target: a bot's chat by that bot, any other
+ *  session by its current title (the name the chat gave it until the catalog
+ *  has it), as the chat's hand-off line names it. */
+function useHandoffChip(target: ReturnType<typeof approvalHandoffTarget>): { name: string; agentId?: string } | null {
+  const title = useSessionTitle(target?.sessionId ?? '', target?.title || t('Session'));
+  const bot = useAgentName(target?.agentId ?? '');
+  if (!target) return null;
+  return target.agentId ? { name: bot, agentId: target.agentId } : { name: title };
+}
+
 /** "사무관 › Worker": the runtime's chain of a delegated request (its tokens
  *  'Lead' in this UI's language), or '' when it has none. */
 export function approvalChainLabel(chain: unknown): string {
@@ -128,6 +153,15 @@ export function actionLabel(action: string): string {
     browser_upload: t('Upload files in the browser'),
   };
   return labels[action] || t('Tool approval required');
+}
+
+/** What a built-in tool does, in a few words ("Run a command"); '' for any other tool. */
+export function toolActionNoun(name: string): string {
+  const tool = name.toLowerCase();
+  if (['shell', 'bash', 'powershell', 'exec', 'run_command'].includes(tool)) return t('Run a command');
+  if (['edit', 'write', 'multi_edit', 'apply_patch', 'patch', 'notebook_edit'].includes(tool)) return t('Edit files');
+  if (['web_fetch', 'web_search', 'fetch', 'http'].includes(tool)) return t('Network request');
+  return '';
 }
 
 /** A connector tool as the card names it: `send (gmail)` for `mcp__gmail__send`. */
@@ -254,6 +288,9 @@ export function approvalCardModel(approval: Approval) {
     });
   } else if (kind === 'permission') {
     title = t('Permission request');
+  } else if (kind === 'approval') {
+    const noun = toolActionNoun(String(approval.name || ''));
+    if (noun) title = t('Approval: {{action}}', { action: noun });
   }
   return {
     kind,
@@ -302,9 +339,9 @@ type PermissionScope = { id: string; kind: string; label: string };
 // A permission request's options are mapped to buttons by their KIND (never by
 // label text); a scope without a `kind` is read by its id. Rule:
 //  - 항상 허용 ← the first allow_always / always option;
-//  - 이번만 허용 ← the narrowest once-type option: allow_once / once first,
+//  - 한 번만 허용 ← the narrowest once-type option: allow_once / once first,
 //    else the first session-scoped one (allow_session / session / allow_scoped);
-//  - reject / cancel kinds and unknown kinds get no button (취소 is the card's own).
+//  - reject / cancel kinds and unknown kinds get no button (거절 is the card's own).
 // Ties go to the option listed first. With no always option there is no always button.
 const ALWAYS_KINDS = ['allow_always', 'always'];
 const ONCE_KINDS = ['allow_once', 'once', 'allow_session', 'session', 'allow_scoped'];
@@ -362,9 +399,9 @@ export function approvalCardRows(
   if (model.kind === 'permission') {
     const { always, once } = permissionChoices(model.scopes);
     return [
+      ...(once ? [{ label: t('Allow just once'), decision: { approved: true, scope: once.id } }] : []),
       ...(always ? [{ label: t('Always allow'), decision: { approved: true, scope: always.id } }] : []),
-      ...(once ? [{ label: t('Allow once'), decision: { approved: true, scope: once.id } }] : []),
-      cancel,
+      { ...cancel, label: t('Deny') },
     ];
   }
   if (model.office) {
@@ -869,7 +906,11 @@ function ToolApprovalCard({
   const model = approvalCardModel(approval);
   // The transcript's session: its pane takes the Chrome import ('' off-transcript).
   const browserSessionId = useContext(MarkdownSessionContext);
-  const { agentName, headAgent, faceAgentId } = useRequester(approval, agentMode);
+  // A session this chat handed work to asks as it does in its own pane (a
+  // bot's chat names its bot, a task session is the Lead's), not as this chat.
+  const handoff = approvalHandoffTarget(approval, hostSessionId);
+  const { agentName, headAgent, faceAgentId } = useRequester(approval, handoff ? Boolean(handoff.agentId) : agentMode);
+  const handoffChip = useHandoffChip(handoff);
   const args = asRecord(approval.args);
   const action = String(args?.action || '').toLowerCase();
   let officeLabel = t('Discard recovery');
@@ -944,28 +985,34 @@ function ToolApprovalCard({
   const denyRow = rows.find(
     (row) => typeof row.decision === 'object' && row.decision.approved === false && !row.decision.response
   );
-  const danger = model.action === 'payment' || model.action === 'delete';
+  // Payment and permanent delete are allowed by a click only.
+  const clickOnly = model.action === 'payment' || model.action === 'delete';
+  const permission = permissionChoices(model.kind === 'permission' ? model.scopes : []);
   const [primary, ...others] = rows;
+  // "Always allow" is only ever pressed on purpose (a click, or Enter / Space
+  // on the button once focus was moved to it): the prompt keeps it out of
+  // initial focus and of the card's own Enter.
+  const isAlways = (row: CardRow) => {
+    const decision = typeof row.decision === 'object' ? row.decision : null;
+    return decision?.remember === 'agent' || (Boolean(decision?.scope) && decision?.scope === permission.always?.id);
+  };
   // A row's own description (what "Always allow" changes) is its tooltip; a
-  // danger allow's says it takes a click.
+  // click-only allow's says it takes a click.
   const toButton = (row: CardRow, tone?: ApprovalButton['tone']): ApprovalButton => ({
     label: row.label,
     tone,
     disabled: row.decision === 'wait',
     hint: row.desc,
+    always: isAlways(row) || undefined,
     onClick: () => activate(row),
   });
   const denyButton = denyRow && denyRow !== primary ? [{ ...toButton(denyRow), deny: true }] : [];
-  const primaryButton: ApprovalButton = danger
-    ? { ...toButton(primary, 'danger'), hint: t('Allowing takes a click; Enter does not allow.') }
+  const primaryButton: ApprovalButton = clickOnly
+    ? { ...toButton(primary, 'primary'), hint: t('Allowing takes a click; Enter does not allow.') }
     : toButton(primary, 'primary');
   const choices = others.filter((row) => row !== denyRow).map((row) => toButton(row));
-  // A permission request reads primary, the narrower choice, then Cancel last;
-  // every other card keeps deny, the choices, then the primary.
-  const buttons: ApprovalButton[] =
-    model.kind === 'permission'
-      ? [primaryButton, ...choices, ...denyButton]
-      : [...denyButton, ...choices, primaryButton];
+  // Every card reads deny, the choices, then the primary.
+  const buttons: ApprovalButton[] = [...denyButton, ...choices, primaryButton];
   const denyDecision = denyRow?.decision;
   let onDeny: ((reason: string) => void) | undefined;
   if (denyDecision && typeof denyDecision === 'object') {
@@ -975,13 +1022,17 @@ function ToolApprovalCard({
   // The friendly service name; the raw tool id stays as its tooltip.
   const rawTool = model.tool || (model.kind === 'outbound' ? String(approval.name || '') : '');
   const service = connectorServiceLabel(rawTool) || rawTool;
-  // A sub-agent's request shown in the top-level chat links to its own session.
+  // A sub-agent's request shown in the top-level chat links to its own
+  // session, as does one of a session this chat handed work to.
   const ownSession = String(approval.sessionId || '');
   const surface = String(approval.surfaceSessionId || '');
   const sessionLink =
     ownSession && surface && ownSession !== surface && ownSession !== hostSessionId
-      ? { sessionId: ownSession, label: t('Open session') }
+      ? { sessionId: ownSession, label: t('Open session'), handoff: Boolean(handoff) }
       : null;
+  // Who asks next to the amber target chip; a bot's chat is named once, by its chip.
+  let requester = headAgent;
+  if (handoff) requester = handoff.agentId ? '' : headAgent || agentName;
   const icon = <PixelIcon name={actionIcon(model.action, model.kind === 'outbound')} />;
 
   const body = approvalActionBody(model, icon);
@@ -991,7 +1042,6 @@ function ToolApprovalCard({
   const office = model.office && <OfficeApprovalDetails args={args} />;
   // What the agent asked in its own words, where the request is not outbound.
   const ownText = model.kind !== 'outbound' && model.text;
-  const permission = permissionChoices(model.kind === 'permission' ? model.scopes : []);
   const previewNode =
     body || editor || office || ownText || model.detail || model.kind === 'secret' ? (
       <>
@@ -1003,7 +1053,7 @@ function ToolApprovalCard({
         {model.kind === 'permission' &&
           [
             [t('Always allow'), permission.always],
-            [t('Allow once'), permission.once],
+            [t('Allow just once'), permission.once],
           ].map(([label, scope]) => {
             const shown = scope as PermissionScope | undefined;
             if (!shown || shown.label === shown.id) return null;
@@ -1042,8 +1092,9 @@ function ToolApprovalCard({
     <ApprovalPrompt
       title={model.kind === 'outbound' ? actionQuestion(model.action) : model.title}
       faceAgentId={faceAgentId}
-      tone={danger ? 'danger' : 'need'}
-      requester={headAgent}
+      tone="need"
+      requester={requester}
+      target={handoffChip}
       service={service}
       serviceTitle={rawTool !== service ? rawTool : undefined}
       sessionLink={sessionLink}
@@ -1051,8 +1102,8 @@ function ToolApprovalCard({
       corner={meta}
       preview={previewNode}
       buttons={buttons}
-      focus={danger ? 'deny' : 'primary'}
-      enterAllows={!danger}
+      focus={clickOnly ? 'deny' : 'primary'}
+      enterAllows={!clickOnly}
       onDeny={onDeny}
       status={status}
       error={error}
@@ -1067,7 +1118,8 @@ function ToolApprovalCard({
  *  another device answered ("Send an email"). */
 export function approvalRecordLabel(approval: Approval): string {
   const model = approvalCardModel(approval);
-  return model.kind === 'outbound' ? actionLabel(model.action) : model.title;
+  if (model.kind === 'outbound') return actionLabel(model.action);
+  return (model.kind === 'approval' && toolActionNoun(String(approval.name || ''))) || model.title;
 }
 
 // Held requests: which pending home-thread rows already settled. The row that

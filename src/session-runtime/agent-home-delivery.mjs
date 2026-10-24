@@ -58,6 +58,7 @@ import {
   routineSummary,
 } from '../runtime/agent/orchestrator/session/routine-result.mjs';
 import { readJsonState, updateJsonAtomic } from '../runtime/shared/atomic-file.mjs';
+import { endHandoff, noteHandoff } from '../runtime/shared/delegated-approval-host.mjs';
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
 import { submissionIdsOf, submissionOutcome } from './agent-task-sessions.mjs';
 import {
@@ -299,16 +300,23 @@ export function createRoutineResultQueue(
   }
   /** Read-modify-write under the file lock (`mutator(doc)` returns the next
    *  doc, or nothing to keep the file); every write also retires stale and
-   *  surplus round counts. */
-  function update(mutator) {
-    return updateJsonAtomic(
+   *  surplus round counts. The watches a write added or removed, by any path
+   *  (a report, a turn never taken, a cap eviction, a pruned home), start or
+   *  end their hand-offs (delegated-approval-host.mjs). */
+  async function update(mutator) {
+    let watches = null;
+    const result = await updateJsonAtomic(
       filePath,
       (raw) => {
-        const next = mutator(parts(raw));
+        const doc = parts(raw);
+        const next = mutator(doc);
+        watches = { before: doc.watches, after: next ? section(next, 'watches') : doc.watches };
         return next ? { ...next, rounds: tidyRounds(next.rounds) } : undefined;
       },
       { backup: true }
     );
+    if (watches) syncHandoffs(watches.before, watches.after);
+    return result;
   }
   const appended = (doc, homeId, items, omittedCount = 0) => appendedItems(doc, homeId, items, limit, omittedCount);
   return {
@@ -469,9 +477,12 @@ export function createRoutineResultQueue(
       });
     },
     watchCap: caps.watches,
-    /** Every stored watch, oldest first. */
+    /** Every stored watch, oldest first; each is a live hand-off (after a
+     *  restart, this read brings them back). */
     async watches() {
-      return Object.values((await read()).watches);
+      const watches = Object.values((await read()).watches);
+      for (const watch of watches) noteHandoff(watch ?? {});
+      return watches;
     },
     /** The watch of `runId` follows the turn submitted as `submissionId`: a
      *  room member's one turn answering several sends, or a fresh turn
@@ -569,6 +580,13 @@ function routineResultItem(row, result) {
     ...(result.paused === true ? { paused: true } : {}),
     at: Date.now(),
   };
+}
+
+/** End the hand-off of each watch in `before` and not `after`, and start
+ *  each one `after` added (both keyed by run id). */
+function syncHandoffs(before, after) {
+  for (const runId of Object.keys(before)) if (!after[runId]) endHandoff(runId);
+  for (const [runId, watch] of Object.entries(after)) if (!before[runId]) noteHandoff(watch ?? {});
 }
 
 /** The run ids of `watches` a home at its watch `cap` gives up before

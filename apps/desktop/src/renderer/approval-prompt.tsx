@@ -107,11 +107,14 @@ export function ApprovalFace({ agentId }: { agentId: string }) {
 
 export interface ApprovalButton {
   label: string;
-  /** primary: the blue allow; danger: a payment or permanent delete's allow. */
-  tone?: 'primary' | 'danger';
+  /** primary: the blue allow. */
+  tone?: 'primary';
   /** deny: Esc's button; with `onDeny` a press denies at once, with no reason. */
   deny?: boolean;
   disabled?: boolean;
+  /** "Always allow": never the initial focus and never the card's own Enter;
+   *  pressed only by a click, or Enter / Space on it once focused on purpose. */
+  always?: boolean;
   /** Its tooltip and accessible description (what "Always allow" changes,
    *  why a click is required); the label otherwise. */
   hint?: string;
@@ -123,16 +126,20 @@ export interface ApprovalPromptProps {
   title: string;
   /** The requesting bot ('' = the coding session's Lead). */
   faceAgentId: string;
-  tone?: 'need' | 'danger' | 'done';
+  tone?: 'need' | 'done';
   /** "사무관 › Worker", the bot's name, or Lead. */
   requester: string;
   /** The tool or service ("Gmail", "Browser"). */
   service?: string;
   /** The raw tool id behind a friendly service name (its tooltip). */
   serviceTitle?: string;
-  /** A sub-agent's own session: the "세션 열기" link. */
-  sessionLink?: { sessionId: string; label: string } | null;
-  /** "1/2" when more requests wait. */
+  /** A session this chat handed work to whose request this is: the amber
+   *  chip beside the requester ("▣ {title}", or a bot's face and name). */
+  target?: { name: string; agentId?: string } | null;
+  /** A sub-agent's own session: the "세션 열기" link. `handoff`: a session
+   *  this chat handed work to, opened as any session is (not as a sub-agent). */
+  sessionLink?: { sessionId: string; label: string; handoff?: boolean } | null;
+  /** "1/2" when more requests wait (the dock: "1/N" for another session's too). */
   queue?: string;
   /** The timer's end ("0:28 남음"), or a fixed corner text. */
   expiresAt?: number;
@@ -142,7 +149,7 @@ export interface ApprovalPromptProps {
   buttons: ApprovalButton[];
   /** Which button takes focus: the allow, or deny for anything risky. */
   focus: 'deny' | 'primary';
-  /** Enter allows (the primary); false for danger and unconfirmed targets. */
+  /** Enter allows (the primary); false for payment, delete and unconfirmed targets. */
   enterAllows: boolean;
   /** Deny the request; the card always passes '' (no reason). */
   onDeny?: (reason: string) => void;
@@ -306,6 +313,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
     faceAgentId,
     tone = 'need',
     requester,
+    target,
     service,
     serviceTitle,
     sessionLink,
@@ -334,7 +342,8 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   const decided = Boolean(status);
   const primaryIndex = buttons.findIndex((button) => button.tone);
   const denyIndex = buttons.findIndex((button) => button.deny);
-  const initialIndex = focus === 'deny' && denyIndex >= 0 ? denyIndex : primaryIndex;
+  const primaryIsAlways = Boolean(buttons[primaryIndex]?.always);
+  const initialIndex = (focus === 'deny' || primaryIsAlways) && denyIndex >= 0 ? denyIndex : primaryIndex;
 
   // The one dispatch path of an accepted decision (click, pane Enter, Esc):
   // it restarts every other card's settle window before the answer goes out.
@@ -344,8 +353,9 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
     if (button.deny && onDeny) return onDeny('');
     button.onClick?.();
   };
-  const live = useRef({ press, buttons, primaryIndex, denyIndex, enterAllows, onClose });
-  live.current = { press, buttons, primaryIndex, denyIndex, enterAllows, onClose };
+  const enterPresses = enterAllows && !primaryIsAlways;
+  const live = useRef({ press, buttons, primaryIndex, denyIndex, enterAllows: enterPresses, onClose });
+  live.current = { press, buttons, primaryIndex, denyIndex, enterAllows: enterPresses, onClose };
 
   // The designated button takes focus when nothing else holds it (a person
   // typing in the composer keeps the caret; an empty composer lets go). Once
@@ -499,13 +509,31 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
             <span className="approval-chip-name">{requester}</span>
           </span>
         )}
+        {target && (
+          <span className="approval-chip approval-target-chip" title={target.name}>
+            {target.agentId ? (
+              <span className="approval-chip-face" aria-hidden="true">
+                <ApprovalFace agentId={target.agentId} />
+              </span>
+            ) : (
+              <span className="approval-target-mark" aria-hidden="true">
+                ▣
+              </span>
+            )}
+            <span className="approval-chip-name">{target.name}</span>
+          </span>
+        )}
         {service && (
           <span className="approval-service" title={serviceTitle}>
             {service}
           </span>
         )}
-        {sessionLink && openSession && (
-          <button type="button" className="approval-link" onClick={() => openSession(sessionLink.sessionId)}>
+        {sessionLink && (
+          <button
+            type="button"
+            className="approval-link"
+            onClick={() => (sessionLink.handoff ? openAnySession : openSession)(sessionLink.sessionId)}
+          >
             {sessionLink.label}
           </button>
         )}
@@ -526,7 +554,8 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
               style={{ '--approval-columns': columns } as CSSProperties}
             >
               {buttons.map((button, index) => {
-                const shortcut = button.deny && !onClose ? 'Esc' : index === primaryIndex && enterAllows ? 'Enter' : '';
+                const shortcut =
+                  button.deny && !onClose ? 'Esc' : index === primaryIndex && enterPresses ? 'Enter' : '';
                 // Where Enter does not allow (payment, permanent delete, an
                 // unconfirmed receiver, a file from outside the project), an
                 // allow is never activated by Enter or Space on the focused
@@ -577,13 +606,14 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   );
 }
 
+/** The app's task-session opener: opens any session by id. */
+const openAnySession = (sessionId: string) =>
+  window.dispatchEvent(new CustomEvent(OPEN_TASK_SESSION_EVENT, { detail: { sessionId } }));
+
 /** The dock's opener; off the dock (a floating or held card) the app's
  *  task-session opener. */
 function useOpenSession(): (sessionId: string) => void {
-  return (
-    useContext(ApprovalOpenSessionContext) ??
-    ((sessionId: string) => window.dispatchEvent(new CustomEvent(OPEN_TASK_SESSION_EVENT, { detail: { sessionId } })))
-  );
+  return useContext(ApprovalOpenSessionContext) ?? openAnySession;
 }
 
 /** One preview row: a pixel icon, the main line and an optional sub line. */
