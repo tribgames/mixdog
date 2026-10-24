@@ -7,10 +7,16 @@ export const ENTRY_REVEAL_MAX_MS = 2_000;
 // Total wait for entry-pending chrome (the review bar's first read, a lazy
 // dock fallback); past it the reveal proceeds and the chrome may land late.
 export const ENTRY_CHROME_MAX_MS = 1_500;
-// Undecided dock chrome, and a dock still easing to a new height: the
-// viewport the rows are pinned to reaches its observer a frame after each
-// step, so a reveal mid-motion painted the tail moving with the dock.
-const ENTRY_CHROME_PENDING = '[data-entry-pending], .composer-island-slot[data-motion]';
+// A dock still easing to a new height: the viewport the rows are pinned to
+// reaches its observer a frame after each step, so a reveal mid-motion
+// painted the tail moving with the dock.
+const DOCK_MOTION = '.composer-island-slot[data-motion]';
+// Undecided dock chrome too, on an entry whose island height is not known yet.
+const ENTRY_CHROME_PENDING = `[data-entry-pending], ${DOCK_MOTION}`;
+const ROW_PENDING = '[data-transcript-pending]';
+// Revealed timelines one pane remembers, matching the geometry cache
+// (transcript-virtual-cache) a warm revisit depends on.
+const REVEALED_HISTORY_LIMIT = 16;
 
 /**
  * Data readiness is not layout readiness: a virtual range can still contain
@@ -27,8 +33,12 @@ export function useTranscriptReveal({
   scope,
   hasScrollGesture,
   eager = false,
+  geometryRetained = false,
 }: {
   identity: string;
+  /** The timeline still holds the row measurements it left with. A revisit
+   *  whose geometry was evicted remounts from estimates, so it enters cold. */
+  geometryRetained?: boolean;
   enabled: boolean;
   draft: boolean;
   /** The phone: reveal as soon as a visible row holds its real content (no
@@ -55,6 +65,11 @@ export function useTranscriptReveal({
     setVisitIdentity(identity);
     setRevealedIdentity('');
   }
+  // Timelines this pane has revealed. Going back to one is a warm revisit:
+  // its rows remount at their remembered measurements (transcript-virtual-
+  // cache) and its island at its remembered resting height (ComposerIsland),
+  // so only what can still move on screen holds it.
+  const [revealedBefore] = useState(() => new Set<string>());
   useLayoutEffect(() => {
     if (revealedIdentity === identity) return undefined;
     if (draft) {
@@ -62,12 +77,27 @@ export function useTranscriptReveal({
       return undefined;
     }
     if (!enabled) return undefined;
+    const warm = geometryRetained && revealedBefore.has(identity);
+    // A revisit's undecided segments paint into the room the island reserves
+    // for them; holding the rows for their reads replayed the pane's cover.
+    const chrome = warm ? DOCK_MOTION : ENTRY_CHROME_PENDING;
     let frame = 0;
     let cancelled = false;
     let previous = '';
     let started = performance.now();
     const chromeStarted = started;
     let chromeGaveUp = false;
+    const reveal = () => {
+      revealedBefore.delete(identity);
+      revealedBefore.add(identity);
+      for (const oldest of revealedBefore) {
+        if (revealedBefore.size <= REVEALED_HISTORY_LIMIT) break;
+        revealedBefore.delete(oldest);
+      }
+      // Committed before this frame paints: a scheduled update landed after
+      // it, so every visit painted at least one more blank (hidden) frame.
+      flushSync(() => setRevealedIdentity(identity));
+    };
     // Geometry only, never layout: this samples right after commits, where
     // rect reads forced a layout of the whole list. The timeline supplies
     // offset and extent; each row's virtual position is its inline top, and it
@@ -81,23 +111,28 @@ export function useTranscriptReveal({
       const rows = space.querySelectorAll<HTMLElement>('.transcript-virtual-row');
       const signature: number[] = [position.viewportHeight, position.maxScrollTop, total];
       let visible = 0;
+      let visiblePending = false;
       rows.forEach((row, index) => {
         const start = Number.parseFloat(row.style.top) || 0;
         const next = rows[index + 1];
         const end = next ? Number.parseFloat(next.style.top) || 0 : total;
         if (end <= top || start >= bottom) return;
         visible++;
+        if (warm && !visiblePending) visiblePending = Boolean(row.querySelector(ROW_PENDING));
         signature.push(Number(row.dataset.index), start, end);
       });
-      return { position, visible, current: JSON.stringify(signature) };
+      // An entry waits on every mounted row. A revisit's offscreen rows hold
+      // their remembered boxes, so only a row on screen can still paint empty.
+      const rowsPending = warm ? visiblePending : Boolean(space.querySelector(ROW_PENDING));
+      return { position, visible, rowsPending, current: JSON.stringify(signature) };
     };
     const sample = () => {
       const root = viewport.current;
       const space = content.current;
       if (!root || !space) return;
-      const { position, visible, current } = measure(root, space);
+      const { position, visible, rowsPending, current } = measure(root, space);
       const top = position.top;
-      const chromeMarked = Boolean(scope?.current?.querySelector(ENTRY_CHROME_PENDING));
+      const chromeMarked = Boolean(scope?.current?.querySelector(chrome));
       const chromeExpired = performance.now() - chromeStarted >= ENTRY_CHROME_MAX_MS;
       const chromePending = chromeMarked && !chromeExpired;
       // Giving up on chrome starts the row-settle bound from here.
@@ -105,20 +140,22 @@ export function useTranscriptReveal({
         chromeGaveUp = true;
         started = performance.now();
       }
-      const pending =
-        space.querySelector('[data-transcript-pending]') || chromePending || document.fonts?.status === 'loading';
+      const pending = rowsPending || chromePending || document.fonts?.status === 'loading';
       const atEnd = position.maxScrollTop - top <= 1;
       const readerOwnsPosition = hasScrollGesture();
-      const settled = visible > 0 && !pending && (atEnd || readerOwnsPosition) && current === previous;
+      // An entry settles at the end it is anchored to. A revisit's offset is
+      // resolved from remembered measurements, so a stable one is final
+      // wherever it rests: waiting for the end there only ran out the bound
+      // and then revealed the same rows.
+      const placed = warm || atEnd || readerOwnsPosition;
+      const settled = visible > 0 && !pending && placed && current === previous;
       if (eager && eagerReady(space, visible)) {
-        flushSync(() => setRevealedIdentity(identity));
+        reveal();
         return;
       }
       if (chromePending) started = performance.now();
       if (!chromePending && (settled || readerOwnsPosition || performance.now() - started >= ENTRY_REVEAL_MAX_MS)) {
-        // Committed before this frame paints: a scheduled update landed after
-        // it, so every visit painted at least one more blank (hidden) frame.
-        flushSync(() => setRevealedIdentity(identity));
+        reveal();
         return;
       }
       previous = pending ? '' : current;
@@ -133,29 +170,39 @@ export function useTranscriptReveal({
       const root = viewport.current;
       const space = content.current;
       if (cancelled || !root || !space) return;
-      if (eager && eagerReady(space, measure(root, space).visible)) {
+      const { visible, rowsPending, current } = measure(root, space);
+      if (eager && eagerReady(space, visible)) {
         cancelled = true;
         cancelAnimationFrame(frame);
-        flushSync(() => setRevealedIdentity(identity));
+        reveal();
         return;
       }
-      const pending =
-        space.querySelector('[data-transcript-pending]') ||
-        scope?.current?.querySelector(ENTRY_CHROME_PENDING) ||
-        document.fonts?.status === 'loading';
-      if (!pending) previous = measure(root, space).current;
+      const pending = rowsPending || scope?.current?.querySelector(chrome) || document.fonts?.status === 'loading';
+      if (!pending) previous = current;
     });
     frame = requestAnimationFrame(sample);
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [content, draft, eager, enabled, hasScrollGesture, identity, revealedIdentity, scope, viewport]);
+  }, [
+    content,
+    draft,
+    eager,
+    enabled,
+    geometryRetained,
+    hasScrollGesture,
+    identity,
+    revealedBefore,
+    revealedIdentity,
+    scope,
+    viewport,
+  ]);
   return draft || !enabled || revealedIdentity === identity;
 }
 
 /** An eager reveal needs real rows only: a visible row and no suspended
  *  Markdown body, which would paint an empty row that grows a frame later. */
 function eagerReady(space: HTMLDivElement, visible: number): boolean {
-  return visible > 0 && !space.querySelector('[data-transcript-pending]');
+  return visible > 0 && !space.querySelector(ROW_PENDING);
 }

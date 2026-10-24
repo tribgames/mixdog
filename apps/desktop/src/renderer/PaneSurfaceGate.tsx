@@ -169,6 +169,38 @@ function useStableSurfaceReveal(ready: boolean, transitionKey: string | number =
  *  outlasts this grace puts the cover back. */
 export const SURFACE_HOLD_GRACE_MS = 300;
 
+/** A hold the covered content reports itself, read by the cover alone. As
+ *  owner state it re-rendered the owner's whole tree (PaneConversation's
+ *  Conversation) twice per visit — once in the switch commit when the
+ *  transcript hid, once in the reveal frame — for a value only the cover
+ *  reads. */
+export type SurfaceHoldSignal = {
+  get(): boolean;
+  set(hold: boolean): void;
+  subscribe(listener: () => void): () => void;
+};
+
+export function createSurfaceHoldSignal(): SurfaceHoldSignal {
+  let hold = false;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => hold,
+    set: (next) => {
+      if (next === hold) return;
+      hold = next;
+      for (const listener of [...listeners]) listener();
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+const NO_HOLD = createSurfaceHoldSignal();
+
 function useSurfaceHold(hold: boolean): boolean {
   const [holding, setHolding] = useState(false);
   useLayoutEffect(() => {
@@ -374,6 +406,7 @@ export function PaneSurfaceCover({
   label,
   transitionKey,
   hold = false,
+  holdSignal = NO_HOLD,
   skeleton = false,
   revealOnReady = false,
 }: {
@@ -385,6 +418,9 @@ export function PaneSurfaceCover({
    *  once the hold outlasts a warm settle, so a reveal within a few frames
    *  never flashes it. */
   hold?: boolean;
+  /** The same hold, reported by the covered content without rendering the
+   *  cover's owner. */
+  holdSignal?: SurfaceHoldSignal;
   /** Paint a transcript skeleton at once instead of the delayed brand mark
    *  (the phone, where the first rows cross the relay). */
   skeleton?: boolean;
@@ -395,7 +431,8 @@ export function PaneSurfaceCover({
   revealOnReady?: boolean;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
-  const holding = useSurfaceHold(hold);
+  const signalled = useSyncExternalStore(holdSignal.subscribe, holdSignal.get, holdSignal.get);
+  const holding = useSurfaceHold(hold || signalled);
   if ((revealed || (revealOnReady && ready)) && !holding) return null;
   if (skeleton) return <TranscriptSkeletonCover label={label} />;
   return (

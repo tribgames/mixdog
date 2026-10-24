@@ -26,7 +26,7 @@ import {
 import { EMPTY_SNAPSHOT, type Snapshot, type TranscriptItem } from './desktop-types';
 import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { focusedDraftModelSelection } from './use-focused-draft-route';
-import { PaneSurfaceCover } from './PaneSurfaceGate';
+import { createSurfaceHoldSignal, PaneSurfaceCover } from './PaneSurfaceGate';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { useSessionLaneRead } from './use-session-lane-read';
@@ -273,8 +273,9 @@ export const PaneConversation = memo(function PaneConversation({
     if (laneEmpty) onEntryRevealed(sessionId);
   }, [laneEmpty, onEntryRevealed, sessionId]);
   // The transcript is hidden while its reveal settles. A revisit latches the
-  // cover as already revealed, so the hidden transcript must hold it up.
-  const [transcriptHidden, setTranscriptHidden] = useState(false);
+  // cover as already revealed, so the hidden transcript must hold it up. Only
+  // the cover reads it: this pane does not re-render for each hide/reveal.
+  const [transcriptHidden] = useState(createSurfaceHoldSignal);
   // Only the conversation can declare its dock and row geometry ready.
   // A parallel timer would uncover a slow diff/Goal before its height lands.
   // Sidebar session registration remounts the virtualizer. Keep the sheet
@@ -340,7 +341,7 @@ export const PaneConversation = memo(function PaneConversation({
   // The cover, the Goal island and the assistant row renderer keep their
   // identities between the conversation's own commits (a session switch is
   // several), so the transcript and the memoised island skip those renders.
-  const coverHold = transcriptHidden && !hidden;
+  const coverHold = hidden ? undefined : transcriptHidden;
   const coverSkeleton = mobileSurface && Boolean(sessionId);
   const surfaceCover = useMemo(
     () => (
@@ -348,7 +349,7 @@ export const PaneConversation = memo(function PaneConversation({
         ready={surfaceReady}
         label={t('Loading conversation…')}
         transitionKey={coverKey}
-        hold={coverHold}
+        holdSignal={coverHold}
         skeleton={coverSkeleton}
         revealOnReady
       />
@@ -375,7 +376,7 @@ export const PaneConversation = memo(function PaneConversation({
         reviewActive={focused && !hidden}
         warmPaintHandoff={warmDraftHandoff}
         onEntryRevealed={onEntryRevealed}
-        onTranscriptHiddenChange={setTranscriptHidden}
+        onTranscriptHiddenChange={transcriptHidden.set}
         renderAssistantRow={renderAssistantRow}
         {...props}
         onInheritSession={onInheritSession}

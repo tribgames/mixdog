@@ -158,8 +158,13 @@ const replyCache = new RendererLruCache<string, CachedReply>({
   maxChars: 2 * 1024 * 1024,
   measure: (value, key) => key.length + JSON.stringify(value).length,
 });
+// An idle drop keeps the most recently read replies. Clearing them all made
+// the first revisit of every session after an idle window wait on one
+// capability read per card on screen: an unread card marks its row pending
+// (TurnChangesCard), which holds the transcript's reveal.
+const TURN_CHANGES_IDLE_RETAINED_CHARS = 64 * 1024;
 registerIdleReclaim(() => {
-  replyCache.clear();
+  replyCache.trim(TURN_CHANGES_IDLE_RETAINED_CHARS);
 });
 
 export function turnChangesKey(sessionId: string, checkpointId: string): string {

@@ -5,6 +5,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { ENTRY_CHROME_MAX_MS } from './use-transcript-reveal';
 import { useConversationTimeline } from './use-conversation-timeline';
 import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
+import { rememberTranscriptVirtualMeasurements } from './transcript-virtual-cache';
 
 const ITEMS = [
   { id: 'u1', kind: 'user', text: 'hello' },
@@ -131,6 +132,27 @@ test('a revisit hides the transcript again and reports it until it reveals', (t)
   entry.tick(48);
   entry.tick(64);
   assert.equal(entry.hidden(), false);
+});
+
+test('a warm revisit reports hidden only until its first frame, with its dock segments still undecided', async (t) => {
+  const entry = mount(t);
+  entry.ready();
+  entry.tick(16);
+  entry.tick(32);
+  entry.visit('other');
+  entry.tick(48);
+  entry.tick(64);
+  assert.equal(entry.hidden(), false);
+  // The session left with its measured rows (TranscriptList's hand-over).
+  rememberTranscriptVirtualMeasurements('session-a', [{ index: 0, key: 'u1', start: 0, size: 60, end: 60, lane: 0 }]);
+  const segment = entry.window.document.createElement('span');
+  segment.setAttribute('data-entry-pending', '');
+  entry.window.document.getElementById('scope').append(segment);
+  entry.visit('entry');
+  assert.equal(entry.hidden(), true, 'hidden in the switch commit');
+  await Promise.resolve();
+  entry.tick(80);
+  assert.equal(entry.hidden(), false, 'released in the first frame, inside the cover grace');
 });
 
 test('a tapped notification for this session returns the pane to its latest row; others do not', (t) => {

@@ -10,11 +10,15 @@ interface SessionLaneEntry {
 }
 
 /** Mounted panes pin their live frame; only inactive snapshots are evictable.
- * A live frame's size may be sampled cheaply, but release must remeasure it
- * before admitting it to the background budget. */
+ * The byte budget therefore bounds the INACTIVE lanes only: a pinned frame is
+ * held by its pane whatever this cache does, so charging it here let a few
+ * large mounted transcripts push the background set past the budget, and
+ * prune() then evicted every lane the user had just left (each return re-read
+ * the transcript behind the loading cover). A live frame's size may be
+ * sampled cheaply, but release must remeasure it before admitting it to the
+ * background budget. */
 export class SessionLaneCache {
   private readonly entries = new Map<string, SessionLaneEntry>();
-  private retained = 0;
 
   constructor(
     private readonly options: {
@@ -27,8 +31,13 @@ export class SessionLaneCache {
   get size(): number {
     return this.entries.size;
   }
+  /** Estimated bytes of the inactive (evictable) lanes. */
   get bytes(): number {
-    return this.retained;
+    let total = 0;
+    for (const [sessionId, entry] of this.entries) {
+      if (!this.options.subscribed(sessionId)) total += entry.bytes;
+    }
+    return total;
   }
   get(sessionId: string): SessionLaneEntry | undefined {
     return this.entries.get(sessionId);
@@ -42,14 +51,11 @@ export class SessionLaneCache {
   }
 
   set(sessionId: string, entry: SessionLaneEntry): void {
-    this.delete(sessionId);
+    this.entries.delete(sessionId);
     this.entries.set(sessionId, entry);
-    this.retained += entry.bytes;
   }
 
   delete(sessionId: string): void {
-    const entry = this.entries.get(sessionId);
-    if (entry) this.retained -= entry.bytes;
     this.entries.delete(sessionId);
   }
 
@@ -65,21 +71,24 @@ export class SessionLaneCache {
         this.prune();
         return;
       }
-      this.retained += bytes - entry.bytes;
       entry.bytes = bytes;
       entry.estimatedAt = Date.now();
+      // The lane the user just left is the most recently viewed one; lanes
+      // that merely received background frames meanwhile are older views.
+      this.touch(sessionId);
     }
     this.prune();
   }
 
   prune(): void {
-    for (const sessionId of this.entries.keys()) {
-      if (
-        this.entries.size <= Math.max(0, this.options.maxEntries) &&
-        this.retained <= Math.max(0, this.options.maxBytes)
-      )
-        break;
-      if (!this.options.subscribed(sessionId)) this.delete(sessionId);
+    const maxEntries = Math.max(0, this.options.maxEntries);
+    const maxBytes = Math.max(0, this.options.maxBytes);
+    let inactive = this.bytes;
+    for (const [sessionId, entry] of this.entries) {
+      if (this.entries.size <= maxEntries && inactive <= maxBytes) break;
+      if (this.options.subscribed(sessionId)) continue;
+      this.entries.delete(sessionId);
+      inactive -= entry.bytes;
     }
   }
 
@@ -91,6 +100,5 @@ export class SessionLaneCache {
 
   clear(): void {
     this.entries.clear();
-    this.retained = 0;
   }
 }

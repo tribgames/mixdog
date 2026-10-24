@@ -10,6 +10,7 @@ import type { ConversationViewport } from './use-conversation-viewport';
 import { useTranscriptHistoryFill } from './use-transcript-history';
 import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
 import { useTranscriptReveal } from './use-transcript-reveal';
+import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
 
 /** The virtual timeline for one pane: its rows, the entry reveal, the
  *  history fill of a short first window, and follow re-arming. */
@@ -81,6 +82,7 @@ export function useConversationTimeline({
     scope: conversation,
     hasScrollGesture,
     eager: phone,
+    geometryRetained: Boolean(readTranscriptVirtualSnapshot(sessionKey)?.measurements?.length),
   });
   // A disabled reveal reads as revealed; only populated rows count as an entry.
   useLayoutEffect(() => {

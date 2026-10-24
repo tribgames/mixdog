@@ -5,6 +5,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard.tsx';
 import { allChangesVisualized, resetTurnChangesCache, unvisualizedChanges } from './turn-changes-model.ts';
 import { useSessionDiffFileRequest } from './session-diff-focus.ts';
+import { _runIdleReclaimForTest } from './idle-reclaim.ts';
 
 const h = React.createElement;
 const ROOT = 'C:/Project/app';
@@ -156,6 +157,16 @@ test('an unread card marks its row pending until the first read answers', async 
     await first.render();
     assert.equal(first.q(pending), null, 'a remount on a cached reply is never pending');
     assert.ok(first.q('.turn-changes-card'));
+  });
+  await t.test('an idle reclaim keeps the replies a revisit paints from', async (t) => {
+    const first = await mountCard(t, { reply: () => ready([file('a.ts')]) });
+    const reads = first.calls.length;
+    _runIdleReclaimForTest();
+    await first.render(first.value, { ...first.ref, checkpointId: 'other' });
+    await first.render();
+    assert.equal(first.q(pending), null, 'the revisited row is not held for a read');
+    assert.ok(first.q('.turn-changes-card'));
+    assert.equal(first.calls.filter((call) => call.args[0].checkpointId === 'cp').length, reads);
   });
   for (const [name, reply] of [
     ['no change', () => ready([])],

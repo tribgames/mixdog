@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { ENTRY_CHROME_MAX_MS, ENTRY_REVEAL_MAX_MS, useTranscriptReveal } from './use-transcript-reveal';
 
-function mount(t, { eager = false } = {}) {
+function mount(t, { eager = false, scrollHeight = 100 } = {}) {
   let now = 0;
   let frameId = 0;
   const frames = new Map();
@@ -25,13 +25,15 @@ function mount(t, { eager = false } = {}) {
   const viewport = { current: document.getElementById('viewport') };
   const content = { current: document.getElementById('content') };
   const scope = { current: document.getElementById('scope') };
+  // The viewport rests at scrollTop 0: a taller content is read off its end.
   Object.defineProperties(viewport.current, {
     clientHeight: { value: 100 },
-    scrollHeight: { value: 100 },
+    scrollHeight: { get: () => scrollHeight },
   });
   const hasScrollGesture = () => false;
   let revealed = false;
   let identity = 'entry';
+  let geometryRetained = true;
   function Harness() {
     revealed = useTranscriptReveal({
       identity,
@@ -42,6 +44,7 @@ function mount(t, { eager = false } = {}) {
       scope,
       hasScrollGesture,
       eager,
+      geometryRetained,
     });
     return null;
   }
@@ -69,8 +72,35 @@ function mount(t, { eager = false } = {}) {
       identity = next;
       act(() => root.render(React.createElement(Harness)));
     },
+    scrollOffEnd: () => {
+      scrollHeight = 300;
+    },
+    dropGeometry: () => {
+      geometryRetained = false;
+    },
   };
 }
+
+/** Reveals `entry`, then switches to `other` and reveals it: `entry` is now
+ *  a timeline this pane has shown. Returns the next free frame time. */
+function revealEntryThenOther(entry) {
+  entry.ready();
+  entry.tick(16);
+  entry.tick(32);
+  assert.equal(entry.revealed(), true);
+  entry.visit('other');
+  entry.tick(48);
+  entry.tick(64);
+  assert.equal(entry.revealed(), true);
+  return 80;
+}
+
+const pendingMarker = () => {
+  const marker = document.createElement('span');
+  marker.hidden = true;
+  marker.setAttribute('data-transcript-pending', '');
+  return marker;
+};
 
 test('returning to a session after an interrupted entry waits for its own reveal again', (t) => {
   const entry = mount(t);
@@ -192,4 +222,78 @@ test('row settling still has a bounded wait after dock readiness', (t) => {
   assert.equal(entry.revealed(), false);
   entry.tick(3_000 + ENTRY_REVEAL_MAX_MS);
   assert.equal(entry.revealed(), true);
+});
+
+test('a cold entry resting off its end still waits out the settle bound', (t) => {
+  const entry = mount(t, { scrollHeight: 300 });
+  entry.ready();
+  entry.tick(16);
+  entry.tick(32);
+  entry.tick(ENTRY_REVEAL_MAX_MS - 16);
+  assert.equal(entry.revealed(), false, 'the end anchor may still be landing');
+  entry.tick(ENTRY_REVEAL_MAX_MS);
+  assert.equal(entry.revealed(), true);
+});
+
+test('a warm revisit reveals in its first frame, off its end and with dock segments undecided', async (t) => {
+  const entry = mount(t);
+  const time = revealEntryThenOther(entry);
+  entry.scrollOffEnd();
+  entry.pending();
+  entry.visit('entry');
+  assert.equal(entry.revealed(), false, 'never painted in the switch commit');
+  await Promise.resolve();
+  entry.tick(time);
+  assert.equal(entry.revealed(), true, 'neither the end nor the reads of reserved segments hold a revisit');
+  assert.ok(document.querySelector('[data-entry-pending]'), 'the segment is still undecided');
+});
+
+test('a revisit whose remembered geometry was evicted enters cold', async (t) => {
+  const entry = mount(t);
+  const time = revealEntryThenOther(entry);
+  entry.dropGeometry();
+  entry.scrollOffEnd();
+  entry.pending();
+  entry.visit('entry');
+  await Promise.resolve();
+  entry.tick(time);
+  entry.tick(time + 16);
+  assert.equal(entry.revealed(), false, 'undecided chrome holds a timeline remounting from estimates');
+  document.querySelectorAll('[data-entry-pending]').forEach((marker) => marker.remove());
+  entry.tick(time + 32);
+  entry.tick(time + 48);
+  assert.equal(entry.revealed(), false, 'off its end it waits for the end anchor, like an entry');
+  entry.tick(time + 48 + ENTRY_REVEAL_MAX_MS);
+  assert.equal(entry.revealed(), true);
+});
+
+test('a warm revisit still waits on a visible row body and a moving dock, never on offscreen rows', async (t) => {
+  const entry = mount(t);
+  let time = revealEntryThenOther(entry);
+  const content = document.getElementById('content');
+  const offscreen = document.createElement('div');
+  offscreen.className = 'transcript-virtual-row';
+  offscreen.dataset.index = '1';
+  offscreen.style.top = '100px';
+  offscreen.append(pendingMarker());
+  content.append(offscreen);
+  const body = pendingMarker();
+  content.querySelector('[data-index="0"]').append(body);
+  entry.visit('entry');
+  await Promise.resolve();
+  entry.tick(time);
+  assert.equal(entry.revealed(), false, 'a row on screen would paint empty');
+  body.remove();
+  const slot = document.createElement('div');
+  slot.className = 'composer-island-slot';
+  slot.setAttribute('data-motion', '');
+  document.getElementById('scope').append(slot);
+  entry.tick((time += 16));
+  assert.equal(entry.revealed(), false, 'the viewport the tail is pinned to is still moving');
+  slot.removeAttribute('data-motion');
+  entry.tick((time += 16));
+  assert.equal(entry.revealed(), false, 'the settled dock needs a stable frame');
+  entry.tick((time += 16));
+  assert.equal(entry.revealed(), true, 'a pending row below the viewport holds its remembered box');
+  assert.ok(offscreen.querySelector('[data-transcript-pending]'));
 });

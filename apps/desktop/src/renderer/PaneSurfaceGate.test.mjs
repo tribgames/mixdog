@@ -42,6 +42,32 @@ test('a conversation cover leaves in the commit its settled rows become ready', 
   assert.ok(view.document.querySelector('.pane-surface-cover'), 'a wide pane still settles behind its cover');
 });
 
+test('a hold reported through its signal covers without rendering the cover owner', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root', globals: {} });
+  const { PaneSurfaceCover, SURFACE_HOLD_GRACE_MS, createSurfaceHoldSignal } = await import('./PaneSurfaceGate.tsx');
+  const signal = createSurfaceHoldSignal();
+  let ownerRenders = 0;
+  function Owner() {
+    ownerRenders += 1;
+    return React.createElement(PaneSurfaceCover, {
+      ready: true,
+      label: 'Loading',
+      transitionKey: 'a',
+      holdSignal: signal,
+    });
+  }
+  const wait = (ms) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+  await act(async () => root.render(React.createElement(Owner)));
+  const rendered = ownerRenders;
+  await act(async () => signal.set(true));
+  assert.equal(document.querySelector('.pane-surface-cover'), null, 'a hold inside the grace shows nothing');
+  await wait(SURFACE_HOLD_GRACE_MS + 40);
+  assert.ok(document.querySelector('.pane-surface-cover'), 'a hold past the grace covers');
+  await act(async () => signal.set(false));
+  assert.equal(document.querySelector('.pane-surface-cover'), null);
+  assert.equal(ownerRenders, rendered, 'the owner never re-renders for the hold');
+});
+
 test('a warm revisit that reveals inside the grace never flashes the cover', async (t) => {
   const view = await mount(t);
   await view.render({ ready: true });
