@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-test('quota tracks align across providers, start after the longest label and reset text ends at the row edge', async (t) => {
+test('quota windows are two lines: label, reset and percent over a full-width 6px track', async (t) => {
   const bundle = await build({
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
@@ -97,20 +97,31 @@ test('quota tracks align across providers, start after the longest label and res
       return {
         overflow: popup.scrollWidth - popup.clientWidth,
         rows: [...document.querySelectorAll('.sidebar-usage-meter')].map((row) => {
-          const [label, track, percent, reset] = row.children;
-          const provider = row.closest('.sidebar-usage-row').getBoundingClientRect();
+          const [label, reset, percent, track] = row.children;
+          const meter = row.getBoundingClientRect();
           const bar = track.getBoundingClientRect();
           const fill = track.firstElementChild.getBoundingClientRect();
+          const next = row.nextElementSibling?.getBoundingClientRect();
+          const meters = row.parentElement.getBoundingClientRect();
+          const header = row.closest('.sidebar-usage-row').querySelector('.sidebar-usage-line').getBoundingClientRect();
           return {
             label: label.textContent,
-            labelText: textRect(label).width,
-            rowLeft: provider.left,
-            rowRight: provider.right,
-            left: bar.left,
-            width: bar.width,
+            first: row === row.parentElement.firstElementChild,
+            meterLeft: meter.left,
+            meterRight: meter.right,
+            trackLeft: bar.left,
+            trackWidth: bar.width,
+            trackHeight: bar.height,
+            trackGap: bar.top - label.getBoundingClientRect().bottom,
             fill: fill.width,
             percent: Number.parseFloat(percent.textContent),
-            resetRight: textRect(reset).right,
+            percentRight: textRect(percent).right,
+            labelRight: label.getBoundingClientRect().right,
+            resetLeft: reset.getBoundingClientRect().left,
+            resetRight: reset.getBoundingClientRect().right,
+            percentLeft: percent.getBoundingClientRect().left,
+            windowGap: next ? next.top - meter.bottom : null,
+            headerGap: meters.top - header.bottom,
             labelClipped: label.scrollWidth > label.clientWidth,
             resetClipped: reset.scrollWidth > reset.clientWidth,
           };
@@ -122,20 +133,23 @@ test('quota tracks align across providers, start after the longest label and res
       layout.rows.map((row) => row.label),
       ['7D', '5H', '7D', '7D FABLE', '7D SONNET', 'BASIC', 'API', 'FLASH', 'PRO']
     );
-    // The label column is only as wide as the longest label on screen, so the
-    // track claims everything else (user: 앞쪽 글자 영역까지 최대한 확장).
-    const widestLabel = Math.max(...layout.rows.map((row) => row.labelText));
-    assert.ok(
-      Math.abs(layout.rows[0].left - layout.rows[0].rowLeft - (widestLabel + 6)) <= 2,
-      `track starts right after the longest label at viewport ${width}`
-    );
     for (const row of layout.rows) {
       const context = `${row.label} at viewport ${width}`;
-      assert.equal(row.left, layout.rows[0].left, `aligned track start: ${context}`);
-      assert.equal(row.width, layout.rows[0].width, `equal track length: ${context}`);
-      assert.ok(row.width >= 64, `usable track: ${context}`);
-      assert.ok(Math.abs(row.fill - (row.width * row.percent) / 100) < 1, `usage percentage preserved: ${context}`);
-      assert.ok(Math.abs(row.resetRight - row.rowRight) < 1, `reset time flush with the row edge: ${context}`);
+      assert.equal(row.trackLeft, row.meterLeft, `full-width track start: ${context}`);
+      assert.equal(row.trackWidth, row.meterRight - row.meterLeft, `full-width track: ${context}`);
+      assert.ok(Math.abs(row.trackHeight - 6) < 0.5, `6px track: ${context}`);
+      assert.ok(Math.abs(row.trackGap - 5) <= 1, `5px between the two lines: ${context}`);
+      assert.ok(
+        Math.abs(row.fill - (row.trackWidth * row.percent) / 100) < 1,
+        `usage percentage preserved: ${context}`
+      );
+      assert.ok(Math.abs(row.percentRight - row.meterRight) < 1, `percent ends the first line: ${context}`);
+      assert.ok(
+        row.resetLeft >= row.labelRight && row.resetRight <= row.percentLeft,
+        `reset sits between label and percent: ${context}`
+      );
+      if (row.windowGap !== null) assert.ok(Math.abs(row.windowGap - 10) <= 1, `10px between windows: ${context}`);
+      if (row.first) assert.ok(Math.abs(row.headerGap - 8) <= 1, `8px below the header: ${context}`);
       assert.equal(row.labelClipped, false, `full label: ${context}`);
       assert.equal(row.resetClipped, false, `full reset time: ${context}`);
     }

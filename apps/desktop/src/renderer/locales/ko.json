@@ -5423,5 +5423,7 @@
   "{{count}} server logins · {{names}}": "서버 로그인 {{count}}개 · {{names}}",
   "{{count}} server logins · {{names}}_other": "서버 로그인 {{count}}개 · {{names}}",
   "The server’s Mixdog restarts, and {{count}} running sessions stop.": "서버의 Mixdog이 다시 시작되고, 지금 돌고 있는 세션 {{count}}개가 중단됩니다.",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "서버의 Mixdog이 다시 시작되고, 지금 돌고 있는 세션 {{count}}개가 중단됩니다."
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "서버의 Mixdog이 다시 시작되고, 지금 돌고 있는 세션 {{count}}개가 중단됩니다.",
+  "No usage limits to show": "표시할 사용량 한도가 없습니다",
+  "{{name}} · {{n}} accounts": "{{name}} · 계정 {{n}}개"
 }

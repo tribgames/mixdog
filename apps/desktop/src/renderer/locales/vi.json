@@ -5423,5 +5423,7 @@
   "{{count}} server logins · {{names}}": "{{count}} đăng nhập trên máy chủ · {{names}}",
   "{{count}} server logins · {{names}}_other": "{{count}} đăng nhập trên máy chủ · {{names}}",
   "The server’s Mixdog restarts, and {{count}} running sessions stop.": "Mixdog trên máy chủ sẽ khởi động lại và {{count}} phiên đang chạy sẽ dừng.",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog trên máy chủ sẽ khởi động lại và {{count}} phiên đang chạy sẽ dừng."
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog trên máy chủ sẽ khởi động lại và {{count}} phiên đang chạy sẽ dừng.",
+  "No usage limits to show": "Không có giới hạn sử dụng để hiển thị",
+  "{{name}} · {{n}} accounts": "{{name}} · {{n}} tài khoản"
 }

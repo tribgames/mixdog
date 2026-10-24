@@ -1,4 +1,4 @@
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight, ChevronDown } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ProviderAccountsList } from './ProviderAccountsList';
@@ -7,7 +7,16 @@ import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import type { UsageApi } from './usage-dashboard-store';
 
-export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provider: string }) {
+export function ProviderAccountPicker({
+  api,
+  provider,
+  label,
+}: {
+  api?: UsageApi;
+  provider: string;
+  /** Text trigger ("Account 1 · 3 accounts ▾") in place of the swap icon. */
+  label?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const trigger = useRef<HTMLButtonElement>(null);
@@ -56,6 +65,7 @@ export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provi
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: wrapper only catches Escape bubbling from the trigger/menu inside; it is not itself interactive.
     <span
+      className="provider-account-picker-wrap"
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.stopPropagation();
@@ -67,12 +77,19 @@ export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provi
       <button
         ref={trigger}
         type="button"
-        className="provider-account-picker-trigger"
+        className={label ? 'provider-account-picker-trigger has-label' : 'provider-account-picker-trigger'}
         aria-label={t('Select account for {{provider}}', { provider })}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <ArrowLeftRight size={14} aria-hidden="true" />
+        {label ? (
+          <>
+            <span>{label}</span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </>
+        ) : (
+          <ArrowLeftRight size={14} aria-hidden="true" />
+        )}
       </button>
       {open &&
         createPortal(

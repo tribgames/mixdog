@@ -5423,5 +5423,7 @@
   "{{count}} server logins · {{names}}": "サーバーのログイン {{count}} 件 · {{names}}",
   "{{count}} server logins · {{names}}_other": "サーバーのログイン {{count}} 件 · {{names}}",
   "The server’s Mixdog restarts, and {{count}} running sessions stop.": "サーバーの Mixdog が再起動し、実行中のセッション {{count}} 件が中断されます。",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "サーバーの Mixdog が再起動し、実行中のセッション {{count}} 件が中断されます。"
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "サーバーの Mixdog が再起動し、実行中のセッション {{count}} 件が中断されます。",
+  "No usage limits to show": "表示できる使用量の上限はありません",
+  "{{name}} · {{n}} accounts": "{{name}} · アカウント{{n}}件"
 }

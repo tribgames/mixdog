@@ -44,6 +44,7 @@ function pools() {
         {
           id: 'p',
           label: 'Personal',
+          email: 'me@example.test',
           usage: {
             windows: [
               { label: '5H', usedPct: 31 },
@@ -104,23 +105,29 @@ async function mountPanel(t, props = {}) {
   return root;
 }
 
-test('collapsed: a multi-account provider says "N accounts" and single-account providers stay unchanged', async (t) => {
+test('collapsed: the picker trigger reads "name · N accounts" and single-account providers stay unchanged', async (t) => {
   await mountPanel(t);
-  await waitFor(() => claudeRow().querySelector('.sidebar-usage-account-count'));
-  assert.equal(text(claudeRow().querySelector('.sidebar-usage-account-count')), '3 accounts');
+  await waitFor(() => claudeRow().querySelector('.provider-account-picker-trigger.has-label'));
+  assert.equal(text(claudeRow().querySelector('.provider-account-picker-trigger.has-label')), 'Personal · 3 accounts');
+  assert.equal(claudeRow().querySelector('.sidebar-usage-account-count'), null);
   assert.equal(document.querySelectorAll('.sidebar-usage-account').length, 0);
   assert.equal(claudeRow().querySelectorAll('.sidebar-usage-meter').length, 2);
   const codex = document.querySelector('[data-usage-provider="codex"]');
   assert.equal(codex.querySelector('.sidebar-usage-account-count'), null);
+  assert.equal(codex.querySelector('.provider-account-picker-trigger.has-label'), null);
 });
 
-test('expanded: one block per account with index, name fallbacks, in-use dot and red reset', async (t) => {
+test('expanded: one block per account with no index badge, name, email, in-use dot and red reset', async (t) => {
   await mountPanel(t, { accountsExpanded: true });
   await waitFor(() => claudeRow().querySelectorAll('.sidebar-usage-account').length === 3);
   const accounts = [...claudeRow().querySelectorAll('.sidebar-usage-account')];
+  assert.equal(document.querySelector('.sidebar-usage-account-index'), null);
+  assert.equal(text(claudeRow().querySelector('.sidebar-usage-account-count')), '3 accounts');
+  assert.equal(claudeRow().querySelector('.provider-account-picker-trigger.has-label'), null);
+  // The email follows the name only when a label exists.
   assert.deepEqual(
-    accounts.map((account) => text(account.querySelector('.sidebar-usage-account-index'))),
-    ['1', '2', '3']
+    accounts.map((account) => text(account.querySelector('.sidebar-usage-account-email'))),
+    ['me@example.test', null, null]
   );
   // Registered label, then email, then id.
   assert.deepEqual(
@@ -144,7 +151,6 @@ test('expanded: one block per account with index, name fallbacks, in-use dot and
   );
   // The provider's own meter list is replaced, and single-account providers are unchanged.
   assert.equal(claudeRow().querySelector(':scope > .sidebar-usage-meters'), null);
-  assert.equal(claudeRow().querySelector('.sidebar-usage-account-count'), null);
   const codex = document.querySelector('[data-usage-provider="codex"]');
   assert.equal(codex.querySelectorAll('.sidebar-usage-account').length, 0);
   assert.equal(codex.querySelectorAll('.sidebar-usage-meter').length, 1);
@@ -262,7 +268,7 @@ test('account reads: users share one request per provider and only account provi
   assert.deepEqual([...document.querySelectorAll('[data-probe]')].map(text), ['mimo-oauth#2|', 'mimo-oauth#2|']);
 });
 
-test("account reads: each new quota result of the provider rereads once, even two within the same millisecond", async (t) => {
+test('account reads: each new quota result of the provider rereads once, even two within the same millisecond', async (t) => {
   const { root } = installTestDom(t, { expose: ['HTMLElement', 'Node', 'Element'], rootId: 'root' });
   const asked = [];
   const api = {
@@ -301,10 +307,7 @@ test("account reads: a dashboard publication that leaves the provider's own row 
     },
   };
   const both = (otherPct) => ({
-    rows: [
-      ...oauthDashboard('antigravity-oauth', 10).rows,
-      ...oauthDashboard('other-oauth', otherPct).rows,
-    ],
+    rows: [...oauthDashboard('antigravity-oauth', 10).rows, ...oauthDashboard('other-oauth', otherPct).rows],
   });
   await act(async () => {
     publishUsageDashboard(both(1));
@@ -337,7 +340,9 @@ test("account reads: a dashboard publication that leaves the provider's own row 
   assert.equal(asked.length, 2, 'once per window');
   // Its own row changing still rereads.
   await act(async () => {
-    publishUsageDashboard({ rows: [...oauthDashboard('antigravity-oauth', 11).rows, ...oauthDashboard('other-oauth', 5).rows] });
+    publishUsageDashboard({
+      rows: [...oauthDashboard('antigravity-oauth', 11).rows, ...oauthDashboard('other-oauth', 5).rows],
+    });
   });
   await waitFor(() => asked.length === 3);
 });

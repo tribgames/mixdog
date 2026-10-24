@@ -5555,5 +5555,7 @@
   "The server’s Mixdog restarts, and {{count}} running sessions stop.": "O Mixdog do servidor reinicia e {{count}} sessões em andamento param.",
   "The server’s Mixdog restarts, and {{count}} running sessions stop._one": "O Mixdog do servidor reinicia e {{count}} sessão em andamento para.",
   "The server’s Mixdog restarts, and {{count}} running sessions stop._many": "O Mixdog do servidor reinicia e {{count}} sessões em andamento param.",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "O Mixdog do servidor reinicia e {{count}} sessões em andamento param."
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "O Mixdog do servidor reinicia e {{count}} sessões em andamento param.",
+  "No usage limits to show": "Nenhum limite de uso para mostrar",
+  "{{name}} · {{n}} accounts": "{{name}} · {{n}} contas"
 }

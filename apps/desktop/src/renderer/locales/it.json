@@ -5553,5 +5553,7 @@
   "The server’s Mixdog restarts, and {{count}} running sessions stop.": "Mixdog si riavvia sul server e si interrompono {{count}} sessioni in corso.",
   "The server’s Mixdog restarts, and {{count}} running sessions stop._one": "Mixdog si riavvia sul server e si interrompe {{count}} sessione in corso.",
   "The server’s Mixdog restarts, and {{count}} running sessions stop._many": "Mixdog si riavvia sul server e si interrompono {{count}} sessioni in corso.",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog si riavvia sul server e si interrompono {{count}} sessioni in corso."
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog si riavvia sul server e si interrompono {{count}} sessioni in corso.",
+  "No usage limits to show": "Nessun limite di utilizzo da mostrare",
+  "{{name}} · {{n}} accounts": "{{name}} · {{n}} account"
 }

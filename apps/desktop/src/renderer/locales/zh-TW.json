@@ -5423,5 +5423,7 @@
   "{{count}} server logins · {{names}}": "伺服器登入 {{count}} 個 · {{names}}",
   "{{count}} server logins · {{names}}_other": "伺服器登入 {{count}} 個 · {{names}}",
   "The server’s Mixdog restarts, and {{count}} running sessions stop.": "伺服器上的 Mixdog 會重新啟動，正在執行的 {{count}} 個工作階段將停止。",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "伺服器上的 Mixdog 會重新啟動，正在執行的 {{count}} 個工作階段將停止。"
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "伺服器上的 Mixdog 會重新啟動，正在執行的 {{count}} 個工作階段將停止。",
+  "No usage limits to show": "沒有可顯示的用量限額",
+  "{{name}} · {{n}} accounts": "{{name}} · {{n}} 個帳戶"
 }

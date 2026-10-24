@@ -23,7 +23,6 @@ import { displayUsagePercent, usageToneClass } from './usage-percent';
 import { usageResetPresentation } from './usage-reset-time';
 import {
   usageResetSchedule as resetSchedule,
-  usageResetShortText as resetShortText,
   usageResetText as resetText,
   usageTimestamp as timestamp,
   usageWindowLabel as windowLabel,
@@ -333,13 +332,11 @@ export function SidebarUsage({
           {...quotaTrigger(provider, String(window.label || ''), account)}
         >
           <small title={windowLabel(window)}>{windowLabel(window)}</small>
+          <em title={resetSentence || undefined}>{resetPresentation.resetTextOverride ?? resetText(window.resetAt)}</em>
+          <b>{displayedPercent === null ? '—' : `${displayedPercent}%`}</b>
           <i>
             <i style={{ width: `${effectivePercent ?? 0}%` }} />
           </i>
-          <b>{displayedPercent === null ? '—' : `${displayedPercent}%`}</b>
-          <em title={resetSentence || undefined}>
-            {resetPresentation.resetTextOverride ?? resetShortText(window.resetAt)}
-          </em>
         </span>
       );
     });
@@ -499,11 +496,11 @@ export function SidebarUsage({
   };
 
   return (
-    <section className="sidebar-usage" aria-label={t('Providers')}>
+    <section className="sidebar-usage" aria-label={t('Usage')}>
       {/* Same title-row grammar as the rail panels (Sessions/Projects…):
           36px header, 28px action boxes, 16px glyphs. */}
       <header className="sidebar-usage-heading session-panel-header">
-        <span className="session-panel-title">{t('Providers')}</span>
+        <span className="session-panel-title">{t('Usage')}</span>
         <div className="session-panel-header-actions">
           {onOpenStats && (
             <button
@@ -568,28 +565,35 @@ export function SidebarUsage({
                       <ProviderIcon provider={subscription.provider} />
                     </span>
                     <b {...quotaTrigger(subscription.provider)}>{subscription.label}</b>
-                    {listedAccounts.length > 0 && !accountsExpanded && (
+                    {listedAccounts.length > 0 && accountsExpanded && (
                       <small className="sidebar-usage-account-count">
                         {t('{{n}} accounts', { n: listedAccounts.length })}
                       </small>
                     )}
                     {subscription.provider.endsWith('-oauth') && (
-                      <ProviderAccountPicker api={api} provider={subscription.provider} />
+                      <ProviderAccountPicker
+                        api={api}
+                        provider={subscription.provider}
+                        label={
+                          listedAccounts.length > 0 && !accountsExpanded
+                            ? t('{{name}} · {{n}} accounts', {
+                                name: usageAccountName(
+                                  listedAccounts.find((account) => account.id === pool?.selectedId) ?? listedAccounts[0]
+                                ),
+                                n: listedAccounts.length,
+                              })
+                            : undefined
+                        }
+                      />
                     )}
                     {windows.length === 0 && !checking && <small>{t('Connected')}</small>}
                   </span>
                   {listedAccounts.length > 0 && accountsExpanded ? (
-                    listedAccounts.map((account, accountIndex) => {
+                    listedAccounts.map((account) => {
                       const limitText = accountLimitText(account);
                       return (
-                        <div
-                          className="sidebar-usage-account"
-                          key={account.id}
-                          data-usage-account={account.id}
-                          data-account-index={accountIndex + 1}
-                        >
+                        <div className="sidebar-usage-account" key={account.id} data-usage-account={account.id}>
                           <span className="sidebar-usage-account-line">
-                            <span className="sidebar-usage-account-index">{accountIndex + 1}</span>
                             <button
                               type="button"
                               className="sidebar-usage-account-name"
@@ -599,6 +603,11 @@ export function SidebarUsage({
                             >
                               {usageAccountName(account)}
                             </button>
+                            {account.label.trim() && account.email.trim() && (
+                              <small className="sidebar-usage-account-email" title={account.email.trim()}>
+                                {account.email.trim()}
+                              </small>
+                            )}
                             {account.id === pool?.selectedId && (
                               <span className="sidebar-usage-account-inuse">{t('In use')}</span>
                             )}
@@ -608,7 +617,7 @@ export function SidebarUsage({
                             {renderMeters(account.windows, subscription.provider, account.id)}
                             {account.windows.length === 0 && (
                               <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                                <small>{t('No current quota window')}</small>
+                                <small>{t('No usage limits to show')}</small>
                               </span>
                             )}
                           </span>
@@ -620,7 +629,7 @@ export function SidebarUsage({
                       {renderMeters(windows, subscription.provider)}
                       {windows.length === 0 && (
                         <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                          <small>{checking ? t('Loading usage…') : t('No current quota window')}</small>
+                          <small>{checking ? t('Loading usage…') : t('No usage limits to show')}</small>
                         </span>
                       )}
                     </span>

@@ -5489,5 +5489,7 @@
   "{{count}} server logins · {{names}}_other": "{{count}} Anmeldungen auf dem Server · {{names}}",
   "The server’s Mixdog restarts, and {{count}} running sessions stop.": "Mixdog auf dem Server startet neu, und {{count}} laufende Sitzungen werden beendet.",
   "The server’s Mixdog restarts, and {{count}} running sessions stop._one": "Mixdog auf dem Server startet neu, und {{count}} laufende Sitzung wird beendet.",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog auf dem Server startet neu, und {{count}} laufende Sitzungen werden beendet."
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog auf dem Server startet neu, und {{count}} laufende Sitzungen werden beendet.",
+  "No usage limits to show": "Keine Nutzungslimits anzuzeigen",
+  "{{name}} · {{n}} accounts": "{{name}} · {{n}} Konten"
 }

@@ -95,14 +95,10 @@
   font-size: var(--mx-font-supporting);
   font-weight: var(--mx-weight-semibold);
 }
-/* The roster is ONE grid: label | track | percentage | reset. Every provider
-   row and quota line subgrids these columns, so the label column is exactly
-   as wide as the longest label on screen (capped at 84px) and every track
-   starts right after it (user: 앞쪽 글자 영역까지 최대한 확장). The 10px side
-   inset lives here, not on the rows: a subgrid's own padding would eat into
-   its edge columns. The reset column sizes to its longest value (floor
-   52px): a fixed 52px clipped "13h 41m" to "13h 4…" (user: 시간 잘리는 거
-   안 잘리게); the track gives up the difference.
+/* The roster is ONE grid whose columns the credit and reset-credit lines
+   subgrid (label | value | value | control). Quota windows do not use it:
+   they are self-contained two-line blocks. The side inset lives here, not on
+   the rows: a subgrid's own padding would eat into its edge columns.
    Groups sit on borderless plates (user: 상세 창처럼 프레임 구분 → 테두리
    없는 옅은 바탕 판): each provider row paints its plate 8px past the
    columns, so the 14px inset leaves the plate 6px off the popup edge and
@@ -130,15 +126,15 @@
   display: grid;
   gap: 0;
 }
-/* One calm provider section: identity and reset on top, then strict
-   period | meter | percentage columns underneath. */
+/* One calm provider section: identity on top, then its quota windows. The
+   header → windows distance is the meters' own 8px margin, so no row gap. */
 .sidebar-usage-row {
   position: relative;
   grid-column: 1 / -1;
   min-width: 0;
   display: grid;
   grid-template-columns: subgrid;
-  row-gap: 6px;
+  row-gap: 0;
   padding: 8px 0;
   border: 0;
   border-radius: 0;
@@ -217,56 +213,53 @@
    12px stays reserved for the count chip. The 13px / 600 window labels had
    out-weighed the values beside them, and ticket names sat on the group
    tier. */
-/* Detail-style quota block: each window is one row — label, progress
-   track, percentage, its OWN reset schedule (user: 리셋날짜랑 % 좌우로 자리바꿔).
-   Both levels subgrid the roster columns, so quota rows start at the
-   provider icon's left edge and every track shares one start and length. */
+/* Quota block: windows stack 10px apart, 8px under the header. */
 .sidebar-usage-meters {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: subgrid;
-  row-gap: 6px;
-}
-.sidebar-usage-meter {
   grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  grid-template-columns: subgrid;
-  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+/* Two lines per window: label · full reset · percent (baseline), then the
+   full-width track. */
+.sidebar-usage-meter {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 5px;
+  align-items: baseline;
 }
 /* Reset text ends flush with the row edge, so every row's time lines up
    under the header's "…" action (user: 시간정렬이 라인하고 안 맞고). */
 .sidebar-usage-meter > em {
   min-width: 0;
   overflow: hidden;
-  color: var(--mx-row-meta-ink);
-  font-size: var(--mx-font-supporting);
+  color: var(--mx-text-muted);
+  font-size: 12px;
   font-style: normal;
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-micro);
-  text-align: right;
+  line-height: var(--mx-line-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .sidebar-usage-meter > small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--mx-row-meta-ink);
-  font-size: var(--mx-font-supporting);
-  font-weight: var(--mx-weight-regular);
+  color: var(--mx-text);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-meta);
-  letter-spacing: var(--mx-tracking-wide);
 }
 .sidebar-usage-meter > i {
   position: relative;
   display: block;
   overflow: hidden;
+  grid-column: 1 / -1;
   width: 100%;
   min-width: 0;
-  height: 5px;
+  height: 6px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-meter-track);
 }
@@ -289,7 +282,7 @@
   /* One weight under the provider names, so each row reads name first and
      the figure second (user: % 가 좀 굵다). */
   font-weight: var(--mx-weight-medium);
-  line-height: var(--mx-line-micro);
+  line-height: var(--mx-line-meta);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -304,45 +297,90 @@
 }
 .sidebar-usage-meter-empty > small {
   color: var(--mx-text-faint);
+  font-weight: var(--mx-weight-regular);
+  white-space: normal;
 }
-/* "N accounts" beside a collapsed multi-account provider's name. */
-.sidebar-usage-line > small.sidebar-usage-account-count {
+/* Header right side: the brand name never truncates; these shrink instead. */
+.sidebar-usage-line > b {
   flex: none;
 }
-/* Expanded accounts: one block per account in roster order, a hairline
-   between blocks, the account's meters on the provider's subgrid columns. */
+.sidebar-usage-line > small.sidebar-usage-account-count,
+.sidebar-usage-line > .provider-account-picker-wrap {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+.sidebar-usage-line > .provider-account-picker-wrap {
+  display: flex;
+}
+.sidebar-usage-line > small.sidebar-usage-account-count + .provider-account-picker-wrap,
+.sidebar-usage-line > .provider-account-picker-wrap + small {
+  margin-left: 0;
+}
+.sidebar-usage-line > .provider-account-picker-wrap > .provider-account-picker-trigger.has-label {
+  width: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+}
+.provider-account-picker-trigger.has-label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-account-picker-trigger.has-label > svg {
+  flex: none;
+}
+/* Expanded accounts: one block per account in roster order, 14px apart; the
+   account's windows sit 22px in. */
 .sidebar-usage-account {
   grid-column: 1 / -1;
   min-width: 0;
-  display: grid;
-  grid-template-columns: subgrid;
-  row-gap: 6px;
+  display: block;
+}
+.sidebar-usage-line + .sidebar-usage-account {
+  margin-top: 8px;
 }
 .sidebar-usage-account + .sidebar-usage-account {
-  padding-top: 8px;
-  border-top: 0.5px solid var(--mx-border-muted);
+  margin-top: 14px;
+}
+/* Credit lines follow the windows (the row no longer gaps its children). */
+.sidebar-usage-meters ~ .sidebar-usage-credit,
+.sidebar-usage-account ~ .sidebar-usage-credit,
+.sidebar-usage-credit ~ .sidebar-usage-reset-credit,
+.sidebar-usage-meters ~ .sidebar-usage-reset-credit,
+.sidebar-usage-account ~ .sidebar-usage-reset-credit {
+  margin-top: 6px;
+}
+.sidebar-usage-account > .sidebar-usage-meters {
+  margin-top: 8px;
+  padding-left: 22px;
 }
 .sidebar-usage-account-line {
-  grid-column: 1 / -1;
   min-width: 0;
   min-height: 20px;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 8px;
 }
-.sidebar-usage-account-index {
-  flex: none;
-  display: grid;
-  place-items: center;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  background: var(--mx-hover, rgb(255 255 255 / 8%));
+.sidebar-usage-account-email {
+  min-width: 0;
+  /* Shrinks first: the name only gives way once the email is gone. */
+  flex: 0 100 auto;
+  overflow: hidden;
   color: var(--mx-text-muted);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar-usage-account-name {
+  flex: 0 0.01 auto;
   min-width: 24px;
   min-height: 24px;
   margin: -2px 0;
@@ -350,10 +388,10 @@
   overflow: hidden;
   border: 0;
   background: none;
-  color: var(--mx-text-soft);
+  color: var(--mx-text);
   font: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -725,10 +763,7 @@
   )
   .session-row-main:has(.session-row-fork-toggle),
 .session-sidebar
-  .session-row.confirming-delete:has(.session-row-action):has(
-    .session-row-unread-dot,
-    .session-row-status:not(:empty)
-  )
+  .session-row.confirming-delete:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
   .session-row-main:has(.session-row-fork-toggle) {
   padding-right: 72px;
 }
@@ -760,15 +795,9 @@
 }
 .session-row:hover:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
   .session-row-copy,
-.session-row:has(:focus-visible):has(.session-row-action):has(
-    .session-row-unread-dot,
-    .session-row-status:not(:empty)
-  )
+.session-row:has(:focus-visible):has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
   .session-row-copy,
-.session-row.confirming-delete:has(.session-row-action):has(
-    .session-row-unread-dot,
-    .session-row-status:not(:empty)
-  )
+.session-row.confirming-delete:has(.session-row-action):has(.session-row-unread-dot, .session-row-status:not(:empty))
   .session-row-copy {
   padding-right: 72px;
 }

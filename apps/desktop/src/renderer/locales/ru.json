@@ -5621,5 +5621,7 @@
   "The server’s Mixdog restarts, and {{count}} running sessions stop._one": "Mixdog на сервере перезапустится, и {{count}} выполняющийся сеанс остановится.",
   "The server’s Mixdog restarts, and {{count}} running sessions stop._few": "Mixdog на сервере перезапустится, и {{count}} выполняющихся сеанса остановятся.",
   "The server’s Mixdog restarts, and {{count}} running sessions stop._many": "Mixdog на сервере перезапустится, и {{count}} выполняющихся сеансов остановятся.",
-  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog на сервере перезапустится, и {{count}} выполняющегося сеанса остановятся."
+  "The server’s Mixdog restarts, and {{count}} running sessions stop._other": "Mixdog на сервере перезапустится, и {{count}} выполняющегося сеанса остановятся.",
+  "No usage limits to show": "Нет лимитов использования для показа",
+  "{{name}} · {{n}} accounts": "{{name}} · аккаунтов: {{n}}"
 }

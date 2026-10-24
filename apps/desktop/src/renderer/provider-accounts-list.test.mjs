@@ -308,7 +308,7 @@ test('provider popup preserves meters and opens only an account list beside the 
     },
   };
   await render(React.createElement(SidebarUsage, { api, onTogglePin: () => pinned++, onAddProviders: () => added++ }));
-  assert.equal(document.querySelector('.sidebar-usage-heading .session-panel-title').textContent, 'Providers');
+  assert.equal(document.querySelector('.sidebar-usage-heading .session-panel-title').textContent, 'Usage');
   const buttons = document.querySelectorAll('.sidebar-usage-heading .session-panel-action');
   assert.equal(buttons.length, 2);
   assert.ok(
