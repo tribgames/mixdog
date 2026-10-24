@@ -196,7 +196,7 @@ test('desktop stream recovery restores every visible lane and the session catalo
     f.put('agent', 'agent initial');
     service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
       emit: (message) => messages.push(message),
     });
     await service.invoke('setVisibleSessions', [['lead', 'agent']]);
@@ -232,7 +232,7 @@ test('desktop view sync does not wait for a slow Agents pool read', async () => 
       options: f.options,
       runtime: {
         ...f.runtime,
-        loadConfig: async () => ({}),
+        loadConfig: async () => ({ readConfig: () => ({}) }),
         async loadSessionStore() {
           const store = await f.runtime.loadSessionStore();
           return {
@@ -276,7 +276,7 @@ test('out-of-order desktop registrations cannot replace the current delivery fil
     f.put('current', 'current answer');
     service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
       emit: (message) => messages.push(message),
     });
     await service.invoke('setVisibleSessions', [['current'], 2]);
@@ -304,7 +304,7 @@ test('an equal or older visibility version leaves the delivery filter unchanged'
     f.put('b', 'b answer');
     service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
       emit: (message) => messages.push(message),
     });
     await service.invoke('setVisibleSessions', [['a'], 5]);
@@ -346,7 +346,7 @@ test('disposal during an in-progress view replay delivers nothing further and se
   const readStarted = Promise.withResolvers();
   const runtime = {
     ...f.runtime,
-    loadConfig: async () => ({}),
+    loadConfig: async () => ({ readConfig: () => ({}) }),
     async attachSessionClient(options) {
       const client = await f.runtime.attachSessionClient(options);
       return {
@@ -401,7 +401,7 @@ test('service visible-session updates still reject a malformed id after updating
     f.put('lead', 'completed answer');
     service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
       emit: () => {},
     });
     await assert.rejects(service.invoke('setVisibleSessions', [['lead', 'bad id'], 1]), /session id is invalid/);

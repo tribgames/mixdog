@@ -132,7 +132,7 @@ test('off closes the relay and issues no codes but keeps pairings; outgoing host
   try {
     service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
       emit: (message) => message.kind === 'desktop-event' && events.push(message),
     });
     const invoke = (operation, ...args) => service.invoke('invokeDesktopOperation', [operation, args]);
@@ -220,7 +220,7 @@ test('the paired-device list survives a restart while off, and a revoke made whi
   const start = async () => {
     const service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
       emit: () => {},
     });
     services.push(service);

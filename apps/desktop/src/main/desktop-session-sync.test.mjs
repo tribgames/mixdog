@@ -42,7 +42,7 @@ for (const boundary of ['service', 'ipc']) {
       if (boundary === 'service') {
         service = await createDesktopService({
           options: f.options,
-          runtime: { ...f.runtime, loadConfig: async () => ({}) },
+          runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
           emit: receive,
         });
         invoke = (method, args) => service.invoke(method, args);

@@ -19,7 +19,7 @@ test('one read id crosses the service, main decoder and renderer IPC; requested 
   try {
     service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
       emit: (message) => transport?.emit('message', structuredClone(message)),
     });
     transport = new (class extends EventEmitter {

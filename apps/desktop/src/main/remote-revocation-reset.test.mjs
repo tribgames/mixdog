@@ -67,7 +67,7 @@ async function paired(run) {
     const start = async () => {
       service = await createDesktopService({
         options: f.options,
-        runtime: { ...f.runtime, loadConfig: async () => ({}) },
+        runtime: { ...f.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
         emit: (message) => message.kind === 'desktop-event' && events.push(message),
       });
       return (operation, ...args) => service.invoke('invokeDesktopOperation', [operation, args]);
