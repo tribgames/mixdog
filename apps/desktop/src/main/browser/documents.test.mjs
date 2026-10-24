@@ -25,6 +25,11 @@ function checkpointFixture(frames, checkpointDeadlineMs = 120, { sessions = new 
     if (timers === 'blocked') {
       window.setTimeout = () => 0;
       window.requestAnimationFrame = () => 0;
+    } else if (timers === 'held') {
+      // Timers run only when the test releases them, never by the wall clock.
+      window.__held = [];
+      window.setTimeout = (callback) => window.__held.push(callback);
+      window.requestAnimationFrame = (callback) => window.__held.push(callback);
     } else if (typeof timers === 'number') {
       window.setTimeout = (callback) => globalThis.setTimeout(callback, timers);
       window.requestAnimationFrame = (callback) => globalThis.setTimeout(callback, timers);
@@ -152,7 +157,16 @@ test('markers are cleared when a checkpoint ends at its deadline or is cancelled
 });
 
 test('polling reads only the frames still pending', async () => {
-  const { documents, evaluations } = checkpointFixture({ fast: 'normal', slow: 200 }, 1_000);
+  // The slow frame's timers are held until it has been read ten times, so the
+  // count depends on the polling logic, not on how fast the machine is.
+  let slowReads = 0;
+  const fixture = checkpointFixture({ fast: 'normal', slow: 'held' }, 1_000, {
+    beforeEvaluate: ({ contextId }) => {
+      if (contextId.split('#')[0] !== 'slow' || ++slowReads !== 10) return;
+      for (const callback of fixture.windows.get('slow').__held.splice(0)) callback();
+    },
+  });
+  const { documents, evaluations } = fixture;
   assert.equal(await documents.renderCheckpoint(guestFor(), false), true);
   const reads = (id) => evaluations.filter(({ frame }) => frame === id).length;
   assert.ok(reads('fast') <= 3, `a completed frame is not read again (${reads('fast')} reads)`);

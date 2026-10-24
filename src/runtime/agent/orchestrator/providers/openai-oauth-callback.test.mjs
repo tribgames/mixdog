@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Server } from 'node:http';
 import test from 'node:test';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
 
@@ -12,17 +13,39 @@ const createLogin = (saveTokens = () => {}) =>
     saveTokens,
   });
 
+// beginOAuthLogin returns before the callback server has bound its fixed
+// port, so a request sent straight away can be refused. Wait for the server's
+// own 'listening' event (or its bind error) before returning the login.
+async function beginListening(t, login) {
+  const listening = Promise.withResolvers();
+  const listen = Server.prototype.listen;
+  const mocked = t.mock.method(Server.prototype, 'listen', function (...args) {
+    this.once('listening', listening.resolve);
+    this.once('error', listening.reject);
+    return listen.apply(this, args);
+  });
+  try {
+    const pending = await login.beginOAuthLogin({ openBrowser: false });
+    await listening.promise;
+    return pending;
+  } finally {
+    mocked.mock.restore();
+  }
+}
+
 // A login whose token endpoint answers only when the test releases the gate.
 async function gatedLogin(t) {
   const saved = [];
-  const pending = await createLogin((tokens) => saved.push(tokens)).beginOAuthLogin({ openBrowser: false });
+  const pending = await beginListening(t, createLogin((tokens) => saved.push(tokens)));
   const state = new URL(pending.url).searchParams.get('state');
   const gate = Promise.withResolvers();
+  const exchangeStarted = Promise.withResolvers();
   const tokenRequests = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     if (!String(input).includes('/oauth/token')) return realFetch(input, init);
     tokenRequests.push(init.body.get('code'));
+    exchangeStarted.resolve();
     return tokenRequests.length === 1 ? gate.promise : new Response('invalid_grant', { status: 400 });
   };
   t.after(() => {
@@ -31,13 +54,13 @@ async function gatedLogin(t) {
   });
   const grant = () =>
     gate.resolve(new Response(JSON.stringify({ access_token: 'at', refresh_token: 'rt', expires_in: 3600 })));
-  return { pending, state, saved, tokenRequests, grant, realFetch };
+  return { pending, state, saved, tokenRequests, grant, realFetch, exchangeStarted: exchangeStarted.promise };
 }
 
 test('cancelling an OpenAI login during the token exchange saves nothing', async (t) => {
-  const { pending, state, saved, grant, realFetch } = await gatedLogin(t);
+  const { pending, state, saved, grant, realFetch, exchangeStarted } = await gatedLogin(t);
   const res = realFetch(`http://localhost:1455/auth/callback?code=abc&state=${state}`);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await exchangeStarted;
   pending.cancel();
   assert.equal(await pending.waitForCallback, null);
   grant();
@@ -46,9 +69,9 @@ test('cancelling an OpenAI login during the token exchange saves nothing', async
 });
 
 test('an OpenAI callback plus manual code run one exchange', async (t) => {
-  const { pending, state, saved, tokenRequests, grant, realFetch } = await gatedLogin(t);
+  const { pending, state, saved, tokenRequests, grant, realFetch, exchangeStarted } = await gatedLogin(t);
   const res = realFetch(`http://localhost:1455/auth/callback?code=abc&state=${state}`);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await exchangeStarted;
   const manual = pending.completeCode(`other#${state}`);
   grant();
   assert.equal((await manual).access_token, 'at');
@@ -59,16 +82,16 @@ test('an OpenAI callback plus manual code run one exchange', async (t) => {
 });
 
 test('a duplicate OpenAI code cannot settle the login before the exchange finishes', async (t) => {
-  const { pending, state, saved, grant, realFetch } = await gatedLogin(t);
+  const { pending, state, saved, grant, realFetch, exchangeStarted } = await gatedLogin(t);
   let settled = false;
   pending.waitForCallback.then(
     () => (settled = true),
     () => (settled = true)
   );
   const res = realFetch(`http://localhost:1455/auth/callback?code=abc&state=${state}`);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await exchangeStarted;
   const manual = pending.completeCode(`other#${state}`);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(settled, false);
   grant();
   assert.equal((await manual).access_token, 'at');
@@ -77,9 +100,8 @@ test('a duplicate OpenAI code cannot settle the login before the exchange finish
   assert.equal(saved.length, 1);
 });
 
-async function callback(tokenReply, queryFor) {
-  const login = createLogin();
-  const pending = await login.beginOAuthLogin({ openBrowser: false });
+async function callback(t, tokenReply, queryFor) {
+  const pending = await beginListening(t, createLogin());
   const state = new URL(pending.url).searchParams.get('state');
   const settled = pending.waitForCallback.then(
     (tokens) => ({ tokens }),
@@ -99,8 +121,9 @@ async function callback(tokenReply, queryFor) {
   }
 }
 
-test('a completed OpenAI callback answers with the branded success page', async () => {
+test('a completed OpenAI callback answers with the branded success page', async (t) => {
   const { res, body, outcome } = await callback(
+    t,
     () => new Response(JSON.stringify({ access_token: 'at', refresh_token: 'rt', expires_in: 3600 })),
     (state) => `code=abc&state=${state}`
   );
@@ -111,8 +134,9 @@ test('a completed OpenAI callback answers with the branded success page', async 
   assert.ok(outcome.tokens);
 });
 
-test('a failed OpenAI token exchange answers with the branded failure page', async () => {
+test('a failed OpenAI token exchange answers with the branded failure page', async (t) => {
   const { res, body, outcome } = await callback(
+    t,
     () => new Response('nope', { status: 400 }),
     (state) => `code=abc&state=${state}`
   );
@@ -121,8 +145,8 @@ test('a failed OpenAI token exchange answers with the branded failure page', asy
   assert.ok(outcome.error);
 });
 
-test('a mismatched OpenAI state answers with the failure page and leaves the pending login to complete', async () => {
-  const pending = await createLogin().beginOAuthLogin({ openBrowser: false });
+test('a mismatched OpenAI state answers with the failure page and leaves the pending login to complete', async (t) => {
+  const pending = await beginListening(t, createLogin());
   const state = new URL(pending.url).searchParams.get('state');
   let settled = false;
   pending.waitForCallback.then(
@@ -138,7 +162,7 @@ test('a mismatched OpenAI state answers with the failure page and leaves the pen
     const wrong = await fetch('http://localhost:1455/auth/callback?code=abc&state=wrong');
     assert.equal(wrong.status, 400);
     assert.match(await wrong.text(), /로그인 실패/);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(settled, false);
     const valid = await fetch(`http://localhost:1455/auth/callback?code=abc&state=${state}`);
     assert.equal(valid.status, 200);

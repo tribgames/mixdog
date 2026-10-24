@@ -1483,8 +1483,34 @@ function dockPage(t) {
   );
 }
 
+// One Chrome and one bundle per distinct page script for the whole file: every
+// browser test gets its own fresh page, but not its own esbuild run and browser
+// launch (which, repeated, outlast the file's time budget on a busy machine).
+const bundles = new Map();
+let sharedBrowser;
+after(async () => (await sharedBrowser)?.close());
+const bundled = (contents) => {
+  if (!bundles.has(contents)) bundles.set(contents, bundleRealPage(contents));
+  return bundles.get(contents);
+};
+
 async function realPage(t, contents, baseCss = '') {
-  const bundle = await build({
+  const bundle = await bundled(contents);
+  const script = bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
+  const css = registeredProperties() + readFileSync(new URL('./desktop/15-composer.css', import.meta.url), 'utf8');
+  sharedBrowser ??= puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  });
+  const browser = await sharedBrowser;
+  const page = await browser.newPage();
+  t.after(() => page.close());
+  await page.setViewport({ width: 900, height: 700 });
+  return await finishRealPage(page, script, css, baseCss);
+}
+
+function bundleRealPage(contents) {
+  return build({
     plugins: [
       {
         name: 'worker-stub',
@@ -1509,15 +1535,9 @@ async function realPage(t, contents, baseCss = '') {
     jsx: 'automatic',
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
-  const script = bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
-  const css = registeredProperties() + readFileSync(new URL('./desktop/15-composer.css', import.meta.url), 'utf8');
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  await page.setViewport({ width: 900, height: 700 });
+}
+
+async function finishRealPage(page, script, css, baseCss) {
   await page.setContent(`<!doctype html><html><head><style>
     body { margin: 0; font-family: sans-serif; }
     ${baseCss}

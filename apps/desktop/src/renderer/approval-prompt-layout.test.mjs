@@ -225,8 +225,19 @@ const PAGE = `
       sticky: getComputedStyle(document.querySelector('.approval-buttons')).position,
     };
   };
+  // Resolves once every finite animation/transition has finished and a frame
+  // has since delivered the resize observers (the dock's fit steps).
+  window.__idle = async () => {
+    const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    for (;;) {
+      await frames();
+      const running = document.getAnimations().filter((a) => a.effect && a.effect.getComputedTiming().endTime !== Infinity && a.playState !== 'finished' && a.playState !== 'idle');
+      if (running.length === 0) return;
+      await Promise.all(running.map((a) => a.finished.catch(() => {})));
+    }
+  };
   window.__measure = () => {
-    const box = (node) => node.getBoundingClientRect();
+    const box =(node) => node.getBoundingClientRect();
     const prompt = document.querySelector('.approval-prompt');
     const buttons = [...prompt.querySelectorAll('.approval-buttons > .approval-button')];
     const preview = prompt.querySelector('.approval-preview');
@@ -302,6 +313,9 @@ async function page(t, { phone = false } = {}) {
 }
 
 const near = (a, b) => Math.abs(a - b) <= 0.75;
+const idle = (tab) => tab.evaluate(() => window.__idle());
+// The card answers keys (and shows its chips) once its settle window is over.
+const keysOpen = (tab) => tab.waitForFunction(() => document.querySelector('.approval-prompt')?.hasAttribute('data-keys'));
 
 test('the docked card never breaks: equal buttons as wide as the preview, never wider than the composer', async (t) => {
   const tab = await page(t);
@@ -309,6 +323,7 @@ test('the docked card never breaks: equal buttons as wide as the preview, never 
     for (const scenario of ['standard', 'german', 'files', 'danger']) {
       await tab.setViewport({ width, height: 900 });
       await tab.evaluate((name) => window.__render(name), scenario);
+      await idle(tab);
       const m = await tab.evaluate(() => window.__measure());
       const label = `${scenario} @${width}px`;
       assert.ok(m.card <= m.composer + 0.5, `${label}: card ${m.card} ≤ composer ${m.composer}`);
@@ -366,6 +381,7 @@ test('a narrow pane (split view, side panel open) stacks the row at desktop medi
     document.querySelector('#root').style.right = `${1400 - 360}px`;
   });
   await tab.evaluate(() => window.__render('german'));
+  await idle(tab);
   const m = await tab.evaluate(() => window.__measure());
   assert.ok(m.card <= 360);
   assert.equal(new Set(m.buttons.map((b) => Math.round(b.top))).size, 3, 'stacked');
@@ -388,7 +404,8 @@ test('a click-only allow (payment, delete, unconfirmed receiver, outside file) i
       window.__pressed = [];
       window.__render(name);
     }, scenario);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await idle(tab);
+    await keysOpen(tab);
     const focused = () =>
       tab.evaluate(() => document.activeElement?.querySelector('.approval-button-label')?.textContent);
     assert.equal(await focused(), 'Deny', `${scenario}: focus starts on Deny`);
@@ -447,7 +464,7 @@ test('a click-only allow (payment, delete, unconfirmed receiver, outside file) i
         );
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await idle(tab);
     assert.deepEqual(await tab.evaluate(() => window.__pressed), [], `${scenario}: nor a late click`);
     for (const label of allows) {
       const box = await tab.evaluate((text) => {
@@ -470,11 +487,11 @@ test('a click-only allow (payment, delete, unconfirmed receiver, outside file) i
     );
     // 거절 keeps its keyboard access: Enter on it denies at once, no reason
     // screen (once the card has settled after the decisions above).
-    await new Promise((resolve) => setTimeout(resolve, 450));
     await tab.evaluate(() => {
       window.__pressed = [];
       document.querySelector('.approval-button[data-deny]').focus();
     });
+    await keysOpen(tab);
     await tab.keyboard.press('Enter');
     assert.deepEqual(await tab.evaluate(() => window.__pressed), ['deny:'], `${scenario}: Deny by key`);
     assert.equal(
@@ -501,7 +518,8 @@ test('the trimmed card: the neutral island edge, no text lines under it, the sco
     }, theme);
     for (const scenario of ['standard', 'danger', 'risky']) {
       await tab.evaluate((name) => window.__render(name), scenario);
-      await new Promise((resolve) => setTimeout(resolve, 450));
+      await idle(tab);
+      await keysOpen(tab);
       const m = await tab.evaluate(async () => {
         const island = document.querySelector('.composer-island');
         const prompt = document.querySelector('.approval-prompt');
@@ -517,7 +535,7 @@ test('the trimmed card: the neutral island edge, no text lines under it, the sco
         const outside = document.createElement('button');
         document.body.append(outside);
         outside.focus();
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        while (prompt.hasAttribute('data-keys')) await new Promise((resolve) => requestAnimationFrame(resolve));
         const blurred = chips();
         outside.remove();
         return {
@@ -571,6 +589,7 @@ test('the trimmed card: the neutral island edge, no text lines under it, the sco
   }
   // Off the dock (a floating or held card) the frame is the neutral border.
   await tab.evaluate(() => document.documentElement.removeAttribute('data-mixdog-theme'));
+  await idle(tab);
   const floating = await tab.evaluate(() => {
     const prompt = document.querySelector('.approval-prompt').cloneNode(true);
     document.body.append(prompt);
@@ -593,7 +612,7 @@ test('the trimmed card: the neutral island edge, no text lines under it, the sco
 
 test('phone: on a very short viewport (keyboard up) nothing overlaps: title, the recipient row and the buttons stay apart, the island scrolls if it must', async (t) => {
   const tab = await page(t, { phone: true });
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+  const settle = () => idle(tab);
   for (const [width, height] of [
     [375, 376],
     [390, 400],
@@ -621,7 +640,7 @@ test('phone: on a very short viewport (keyboard up) nothing overlaps: title, the
 
 test('phone: the docked card keeps its buttons on screen (411×806, and 470px / 400px with the keyboard)', async (t) => {
   const tab = await page(t, { phone: true });
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+  const settle = () => idle(tab);
   const check = (m, label) => {
     const at = `${label} ${JSON.stringify(m)}`;
     assert.ok(
@@ -670,7 +689,7 @@ test('phone: the docked card keeps its buttons on screen (411×806, and 470px / 
 
 test('desktop: in a short pane (1200×340, 1200×300) the approval card never sits under the model line: a fit step engages and the buttons are hit-testable', async (t) => {
   const tab = await page(t);
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+  const settle = () => idle(tab);
   for (const height of [340, 300, 280]) {
     await tab.setViewport({ width: 1200, height });
     await tab.evaluate(() => window.__renderDesktopShell());
@@ -690,7 +709,7 @@ test('desktop: in a short pane (1200×340, 1200×300) the approval card never si
 });
 test('desktop: the composer collapses to one line while a short pane holds an approval and is back to normal after it resolves', async (t) => {
   const tab = await page(t);
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+  const settle = () => idle(tab);
   await tab.setViewport({ width: 1200, height: 300 });
   await tab.evaluate(() => window.__renderDesktopShell());
   await settle();

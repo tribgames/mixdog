@@ -164,10 +164,9 @@ async function handshake(h, credentialId) {
   h.lifecycle.open('route-1', credentialId);
   const challenge = JSON.parse(h.envelopes.find((entry) => entry.type === 'frame').data);
   const { hello } = await createRelayE2EEClientHandshake(h.pairing, challenge);
-  h.lifecycle.receive('route-1', h.clients.get('route-1'), JSON.stringify(hello));
-  for (let attempt = 0; attempt < 200 && !h.frames.length; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+  const client = h.clients.get('route-1');
+  h.lifecycle.receive('route-1', client, JSON.stringify(hello));
+  await client.frameQueue;
   return h.frames[0].payload;
 }
 
