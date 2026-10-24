@@ -344,13 +344,6 @@ export class CaptureService implements DesktopService {
   resolveToolApprovalForSession(_sessionId: string, _id: string, _decision: ToolApprovalDecision): boolean {
     return true;
   }
-  async getAgentNotificationMute(_agentId: string): Promise<boolean> {
-    return false;
-  }
-  async setAgentNotificationMute(_agentId: string, muted: boolean): Promise<boolean> {
-    return muted;
-  }
-
   async submitNewTask(
     _prompt: DesktopPromptContent,
     _options: DesktopSubmitOptions = {},

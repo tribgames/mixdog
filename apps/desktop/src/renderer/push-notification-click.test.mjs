@@ -171,6 +171,18 @@ test('a phone that never launched the app falls back to its own language', async
   assert.equal(worker.shown[0].options.body, '作業が完了しました。');
 });
 
+test('a failed turn says so in the device’s language, with no approval actions', async () => {
+  const caches = memoryCacheStorage();
+  await publishUiLanguage('ko', { caches });
+  const worker = loadWorker({ caches, systemLanguage: 'en-US' });
+  await push(worker, { title: 'Deploy', body: '', data: { sessionId: 's', reason: 'turn-failed' } });
+  assert.equal(worker.shown[0].options.body, '오류로 멈췄습니다.');
+  assert.equal(worker.shown[0].options.actions, undefined);
+  const english = loadWorker({ caches: memoryCacheStorage(), systemLanguage: 'en-US' });
+  await push(english, { title: 'Deploy', body: '', data: { sessionId: 's', reason: 'turn-failed' } });
+  assert.equal(english.shown[0].options.body, 'Stopped with an error.');
+});
+
 test('what the session actually said is never translated', async () => {
   const caches = memoryCacheStorage();
   await publishUiLanguage('ko', { caches });

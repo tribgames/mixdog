@@ -4,6 +4,7 @@ import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator
 import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
+import { notificationMenuItems } from './notification-controls';
 import { MxIcon } from './MxIcon';
 import type { ScmContextMenuItem, ScmContextMenuState } from './ScmContextMenu';
 import { sessionLabel } from './session-sidebar-rows';
@@ -95,7 +96,8 @@ export function sessionMenuItems(
         separatorBefore: true,
         onSelect: () => void onFavoriteSession(session.id, !session.favorite).catch(() => {}),
       },
-      { id: 'archive', label: t('Archive'), onSelect: () => void onArchiveSession(session.id, true).catch(() => {}) }
+      { id: 'archive', label: t('Archive'), onSelect: () => void onArchiveSession(session.id, true).catch(() => {}) },
+      ...notificationMenuItems({ kind: 'session', id: session.id })
     );
   }
   // Keyboard path of the drag-to-folder move: changes the session's working folder.

@@ -75,6 +75,8 @@ export type CapabilityApi = Partial<
     | 'subscribeRemoteAccessSettings'
     | 'readSettings'
     | 'updateSetting'
+    | 'getNotificationPreferences'
+    | 'setNotificationPreferences'
     | 'gitCliStatus'
     | 'installGitCli'
     | 'libreOfficeStatus'

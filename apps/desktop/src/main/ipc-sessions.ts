@@ -224,13 +224,6 @@ function registerSessionRoutingIpc({
   handle(DESKTOP_IPC.takeoverReady, (_event, sessionId, id) =>
     takeoverGate.ready(requiredSessionId(sessionId), requiredString(id, 'takeover id', 200))
   );
-  handle(DESKTOP_IPC.getAgentNotificationMute, (_event, agentId) =>
-    host.getAgentNotificationMute(requiredString(agentId, 'agent id', 200))
-  );
-  handle(DESKTOP_IPC.setAgentNotificationMute, (_event, agentId, muted) => {
-    if (typeof muted !== 'boolean') throw new TypeError('muted must be a boolean.');
-    return host.setAgentNotificationMute(requiredString(agentId, 'agent id', 200), muted);
-  });
   handle(DESKTOP_IPC.resolveToolApprovalForSession, async (_event, sessionId, id, input) => {
     const decision = requiredToolApprovalDecision(input);
     return resolveToolApprovalAnnouncingGrant(

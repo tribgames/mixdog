@@ -178,12 +178,6 @@ export function sessionRemoteMethods(
         requiredString(id, 'approval id', 1_024),
         { ...requiredToolApprovalDecision(decision), device: await connectionDevice() }
       ),
-    // Per-agent push mute (profile panel, contact menu on a paired phone).
-    getAgentNotificationMute: ([agentId]) => host.getAgentNotificationMute(requiredString(agentId, 'agent id', 200)),
-    setAgentNotificationMute: ([agentId, muted]) => {
-      if (typeof muted !== 'boolean') throw new TypeError('muted must be a boolean.');
-      return host.setAgentNotificationMute(requiredString(agentId, 'agent id', 200), muted);
-    },
     inheritSession: ([sourceSessionId, selection, options]) =>
       host.inheritSession(
         requiredSessionId(sourceSessionId),

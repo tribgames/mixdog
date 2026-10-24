@@ -263,6 +263,12 @@ export function createRelayClientCallDispatch(
       if (typeof call.params[1] === 'string') client.browserId = call.params[1].slice(0, 64);
       return {};
     }
+    // Transport-scoped as well: the sessions THIS browser paints, which
+    // decide whether a notification for one of them is held back.
+    if (call?.method === 'setScreenSessions' && Array.isArray(call.params)) {
+      client.screenSessionIds = new Set(filterSessionIds(call.params[0]));
+      return {};
+    }
     if (call?.method === 'setVisibleSessions' && Array.isArray(call.params)) {
       await client.viewRecovery;
       const requested = filterSessionIds(call.params[0]);

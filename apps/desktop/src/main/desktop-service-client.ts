@@ -949,12 +949,6 @@ export class DesktopServiceClient implements DesktopService {
     // for that restart instead of surfacing as a failed, then cancelled, ask.
     return this.invokeRead('resolveToolApprovalForSession', [sessionId, id, decision]);
   }
-  getAgentNotificationMute(agentId: string): Promise<boolean> {
-    return this.invoke('getAgentNotificationMute', [agentId]);
-  }
-  setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean> {
-    return this.invoke('setAgentNotificationMute', [agentId, muted]);
-  }
   listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return this.invokeRead('listProviderModels', [options]);
   }

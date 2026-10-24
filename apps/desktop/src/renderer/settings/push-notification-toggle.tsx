@@ -1,7 +1,8 @@
-// Settings → Connection, web app only: the switch that lets THIS device hear
-// about a finished turn while the app is closed. The Electron window has the
+// Settings → Notifications → On this device: the registration that lets THIS
+// device hear about a notification while the app is closed (the web app's push
+// switch, the phone app's OS permission status). The Electron window has the
 // taskbar flash instead and never renders this — the shim is what supplies the
-// push API, so its absence hides the group with no surface check. The
+// push API, so its absence hides the switch with no surface check. The
 // "Connect to another PC" window is Electron too, running the shim: it has no
 // push service at all, so it never offers the switch either.
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
@@ -25,7 +26,7 @@ import {
   syncNativePush,
 } from '../native-push-bridge';
 import { readSavedPcs } from '../remote-saved-pcs';
-import { ActionButton, Group, ToggleRow } from './capability-controls';
+import { ActionButton, ToggleRow } from './capability-controls';
 
 type PushApi = Partial<DesktopApi>;
 
@@ -149,10 +150,7 @@ function NativePushStatus() {
   }, []);
   if (permission !== 'granted' && permission !== 'denied') return null;
   return (
-    <Group
-      title={t('Notifications')}
-      description={t('Get a notification on this device when a task finishes, even while the app is closed.')}
-    >
+    <>
       <p className="settings-connection-note">
         {permission === 'granted'
           ? t('Notifications are on for this app.')
@@ -161,11 +159,12 @@ function NativePushStatus() {
       {permission === 'denied' && (
         <ActionButton onClick={() => void openNativeNotificationSettings()}>{t('Open settings')}</ActionButton>
       )}
-    </Group>
+    </>
   );
 }
 
-export function PushNotificationToggle({ api }: { api: PushApi }) {
+/** The rows that let THIS device receive notifications (Settings › Notifications › On this device). */
+export function DevicePushRegistration({ api }: { api: PushApi }) {
   return nativeAppInfo()?.call ? <NativePushStatus /> : <WebPushToggle api={api} />;
 }
 
@@ -290,24 +289,12 @@ function WebPushToggle({ api }: { api: PushApi }) {
     [api, busy]
   );
 
-  if (unavailable) {
-    return (
-      <Group
-        title={t('Notifications')}
-        description={t('Get a notification on this device when a task finishes, even while the app is closed.')}
-      >
-        <p className="settings-connection-note">{unavailableNote(unavailable)}</p>
-      </Group>
-    );
-  }
+  if (unavailable) return <p className="settings-connection-note">{unavailableNote(unavailable)}</p>;
   if (!supported) return null;
   return (
-    <Group
-      title={t('Notifications')}
-      description={t('Get a notification on this device when a task finishes, even while the app is closed.')}
-    >
+    <>
       <ToggleRow
-        title={t('Notify me when a task finishes')}
+        title={t('Allow notifications on this device')}
         checked={enabled}
         disabled={busy}
         optimistic={false}
@@ -315,6 +302,6 @@ function WebPushToggle({ api }: { api: PushApi }) {
       />
       {enabled && <RegisteredPcs pcs={pcs} />}
       {note && <p className="settings-connection-note">{note}</p>}
-    </Group>
+    </>
   );
 }

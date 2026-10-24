@@ -25,7 +25,14 @@ import {
 
 import { isSessionId } from './desktop-state';
 import { takeoverGate } from './takeover-gate';
-import { agentNotificationMutePath, isSessionMutedOnDisk } from './agent-notification-mute';
+import {
+  allowsTaskbarFlash,
+  decideNotification,
+  type NotificationConversation,
+  notificationConversationOf,
+} from './notification-decision';
+import { notificationPreferencesPath, readPcNotificationView } from './notification-preferences';
+import type { NotificationTestResult } from './notification-center';
 import { secretInputs } from './secret-input';
 import { remoteSessionConfigFromEnv } from './ssh/remote-session';
 import { allowedProvidersForHost, loadSshHostStore } from './ssh/ssh-host-store';
@@ -774,10 +781,11 @@ let unsubscribeAwake: (() => void) | null = null;
 let unsubscribeServiceSettings: (() => void) | null = null;
 let unsubscribeTakeovers: (() => void) | null = null;
 let unsubscribeUpdaterRelay: (() => void) | null = null;
-// OS notification on final answers: schedules notify even in the foreground,
-// ordinary conversations only while unfocused. Both respect the setting.
-// App-lifetime like keep-awake: a window hidden to the tray still wants it.
-let turnNotificationsEnabled = true;
+// OS notification on final answers and failed turns: whether one shows is this
+// PC's notification preferences (notification-decision.ts), read fresh from
+// the file the desktop service writes. App-lifetime like keep-awake: a window
+// hidden to the tray still wants it.
+const pcNotificationView = () => readPcNotificationView(notificationPreferencesPath(app.getPath('userData')));
 let notificationVolume = NOTIFICATION_VOLUME_DEFAULT;
 const playNotificationSound = async (): Promise<string> => {
   if (notificationVolume === 0) return 'suppressed:volume-muted';
@@ -798,7 +806,7 @@ const playNotificationSound = async (): Promise<string> => {
 /** An attachment-only session title (`[Image]` …) in this PC's UI language. */
 const nativeSessionTitleLabels = () => ({ image: nativeT('Image'), video: nativeT('Video'), file: nativeT('File') });
 const turnNotifier = createDesktopTurnNotifier({
-  isEnabled: () => turnNotificationsEnabled,
+  preferences: pcNotificationView,
   isSupported: () => Notification.isSupported(),
   // The representative bot overlay showing that session's reply counts too.
   isSessionOnScreen: (sessionId) =>
@@ -820,8 +828,7 @@ const turnNotifier = createDesktopTurnNotifier({
   openSession: (sessionId) => {
     pendingPrimaryActivation = !openDesktopNotificationSession(mainWindow, sessionId);
   },
-  // The host's per-agent mute (written by the desktop service, same profile).
-  isSessionMuted: (sessionId) => isSessionMutedOnDisk(agentNotificationMutePath(app.getPath('userData')), sessionId),
+  turnFailedText: () => nativeT('The turn stopped with an error.'),
   titleLabels: nativeSessionTitleLabels,
   agentName: (agentId) => browserApprovalGrants.agentName(agentId),
 });
@@ -832,6 +839,26 @@ let latestSessions: readonly DesktopSessionSummary[] = [];
 // A sub-agent asks as its root bot and its notification opens the top-level chat.
 let latestAgentPool: readonly DesktopAgentPoolRow[] = [];
 const approvalSources = { sessions: () => latestSessions, agentPool: () => latestAgentPool };
+/** A session's conversation for the notification decision, from the roster. */
+const notificationConversation = (sessionId: string): NotificationConversation =>
+  notificationConversationOf(latestSessions.find((session) => session.id === sessionId) ?? { id: sessionId });
+/** One notification on this PC now, past every preference (Settings › Notifications). */
+const showTestNotification = (): NotificationTestResult => {
+  if (!Notification.isSupported()) {
+    return { ok: false, message: nativeT('This computer does not support notifications.') };
+  }
+  const notification = new Notification({
+    ...boundedNotification({ title: 'Mixdog', body: nativeT('Notifications from Mixdog appear like this.') }),
+    ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
+    silent: process.platform === 'win32',
+  });
+  notification.on('click', () => {
+    if (mainWindow) activateDesktopWindow(mainWindow);
+  });
+  notification.show();
+  if (process.platform === 'win32') void playNotificationSound().catch(() => undefined);
+  return { ok: true };
+};
 const browserApprovalGrants = createBrowserApprovalGrants(localService);
 setBrowserApprovalHooks({
   resolveRequester: createApprovalRequesterResolver({
@@ -855,7 +882,20 @@ setBrowserApprovalHooks({
     void localService.invokeDesktopOperation('publishBrowserApprovalSessions', [sessionIds]).catch(() => {});
   },
   notify: (window, { sessionId, name }) => {
-    if (!turnNotificationsEnabled || !Notification.isSupported()) return;
+    if (!Notification.isSupported()) return;
+    const target = sessionId ? approvalSurfaceSessionId(sessionId, approvalSources) : '';
+    // Raised only while Mixdog is in the background: nothing is on screen.
+    const decision = decideNotification({
+      ...pcNotificationView(),
+      event: 'approval',
+      conversation: notificationConversation(target),
+      now: Date.now(),
+      foreground: false,
+    });
+    if (!decision.notify) {
+      diagnostics?.write('browser-approval-notification-suppressed', { sessionId: target, reason: decision.reason });
+      return;
+    }
     const notification = new Notification({
       ...boundedNotification({
         title: name ? `${name} · ${nativeT('Browser Use approval')}` : nativeT('Browser Use approval'),
@@ -864,7 +904,6 @@ setBrowserApprovalHooks({
       ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
       silent: process.platform === 'win32',
     });
-    const target = sessionId ? approvalSurfaceSessionId(sessionId, approvalSources) : '';
     notification.on('click', () => {
       if (!target || !openDesktopNotificationSession(window, target)) activateDesktopWindow(window);
     });
@@ -874,8 +913,8 @@ setBrowserApprovalHooks({
 });
 let unsubscribeTurnNotifier: (() => void) | null = null;
 /** A server window's notifications fire on this PC, labeled with the server
- *  and following this PC's notification setting; a click brings that window
- *  (and the session) to the front. */
+ *  and following this PC's notification preferences; a click brings that
+ *  window (and the session) to the front. */
 function createServerWindowNotifier(window: BrowserWindow, connection: DesktopConnection): ServerNotifier {
   const client = connection.client;
   const link = connection.link;
@@ -888,7 +927,7 @@ function createServerWindowNotifier(window: BrowserWindow, connection: DesktopCo
       subscribeLink: (listener) => link?.subscribe(listener) ?? (() => {}),
       readFinalAnswer: (sessionId, startedAt, signal) => client.readSessionFinalAnswer(sessionId, startedAt, signal),
     },
-    isEnabled: () => turnNotificationsEnabled,
+    preferences: pcNotificationView,
     isSupported: () => Notification.isSupported(),
     isForeground: () => !window.isDestroyed() && window.isVisible() && window.isFocused(),
     isSessionOnScreen: (sessionId) => isSessionOnScreen(window, sessionId),
@@ -917,7 +956,6 @@ function createServerWindowNotifier(window: BrowserWindow, connection: DesktopCo
 }
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
-  turnNotificationsEnabled = settings.turnNotifications !== false;
   notificationVolume = settings.notificationVolume;
   runInBackground = settings.runInBackground !== false;
   syncDesktopTray();
@@ -1008,7 +1046,9 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
         request.method === 'visualizeCommand' ||
         request.method === 'visualizeExport' ||
         request.method === 'captureFileSnapshot' ||
-        request.method === 'localPageUrl')
+        request.method === 'localPageUrl' ||
+        request.method === 'notificationStatus' ||
+        request.method === 'notificationTest')
     ) {
       const hostMethod = request.method;
       void (async () => {
@@ -1023,6 +1063,12 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             result = await desktopUpdater.check();
           } else if (hostMethod === 'displayPreferences') {
             result = await readHostWindowDisplayPreferences(mainWindow, app.getLocale());
+          } else if (hostMethod === 'notificationStatus') {
+            // Paired devices that hold pushes while this PC is in use read
+            // the OS's own idle time: input anywhere on the PC counts.
+            result = { supported: Notification.isSupported(), idleSeconds: powerMonitor.getSystemIdleTime() };
+          } else if (hostMethod === 'notificationTest') {
+            result = showTestNotification();
           } else if (hostMethod === 'visualizeState') {
             result = visualize.hostSnapshot();
           } else if (hostMethod === 'visualizeCommand') {
@@ -2040,6 +2086,7 @@ function installLocalWindowFeatures(window: BrowserWindow, onGuest: (guest: Elec
   // window is unfocused; focusing it clears the signal.
   turnAttention = createTurnAttention({
     isFocused: () => !window.isDestroyed() && window.isFocused(),
+    allows: (sessionId) => allowsTaskbarFlash(pcNotificationView(), notificationConversation(sessionId), Date.now()),
     flashFrame: (flag) => {
       if (!window.isDestroyed()) window.flashFrame(flag);
     },
@@ -2279,6 +2326,9 @@ function installWindowIpc(
     // gets neither (its channels are refused by the feature gates).
     ...(local && process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
     ...(local ? { updater: desktopUpdater } : {}),
+    ...(local
+      ? { notifications: { isSupported: () => Notification.isSupported(), sendTest: showTestNotification } }
+      : {}),
     // This PC's settings, Browser Use, Computer Use and phone access exist only
     // in this PC's window; a server window refuses them (feature gates).
     ...(windowBrowserHost

@@ -625,8 +625,12 @@ const api: DesktopApi = {
     invokeIpc(DESKTOP_IPC.resolveToolApprovalForSession, sessionId, id, decision),
   provideSecretInput: (requestId, value) => invokeIpc(DESKTOP_IPC.provideSecretInput, requestId, value),
   takeoverReady: (sessionId, id) => invokeIpc(DESKTOP_IPC.takeoverReady, sessionId, id),
-  getAgentNotificationMute: (agentId) => invokeIpc(DESKTOP_IPC.getAgentNotificationMute, agentId),
-  setAgentNotificationMute: (agentId, muted) => invokeIpc(DESKTOP_IPC.setAgentNotificationMute, agentId, muted),
+  getNotificationPreferences: () => invokeIpc(DESKTOP_IPC.getNotificationPreferences),
+  setNotificationPreferences: (deviceId, patch) => invokeIpc(DESKTOP_IPC.setNotificationPreferences, deviceId, patch),
+  sendTestNotification: (deviceId) => invokeIpc(DESKTOP_IPC.sendTestNotification, deviceId),
+  listConversationNotifications: () => invokeIpc(DESKTOP_IPC.listConversationNotifications),
+  setConversationNotification: (target, setting) =>
+    invokeIpc(DESKTOP_IPC.setConversationNotification, target, setting),
   resyncSessionState: (sessionId) => ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId),
   subscribeSessionState: (listener) => {
     const decoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();

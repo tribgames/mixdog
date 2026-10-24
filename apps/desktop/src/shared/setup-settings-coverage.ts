@@ -8,7 +8,6 @@ export const DESKTOP_SETUP_SETTING_ACTIONS: Record<DesktopSettingKey | 'notifica
   autoCompact: 'set_compaction',
   keepAwake: 'set_desktop_settings',
   runInBackground: 'set_desktop_settings',
-  turnNotifications: 'set_desktop_settings',
   usagePinned: 'set_desktop_settings',
   usageRailShortLong: 'set_desktop_settings',
   usageAccountsExpanded: 'set_desktop_settings',

@@ -54,6 +54,7 @@ test('the rail runs in Basics, AI behavior, Integrations and Support sections, B
     [
       'general',
       'bots',
+      'notifications',
       'skin',
       'display',
       'output-style',

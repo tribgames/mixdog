@@ -55,6 +55,18 @@ const FEATURE_CHANNELS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ],
   ['Desktop updates', [DESKTOP_IPC.getUpdaterState, DESKTOP_IPC.checkForDesktopUpdate, DESKTOP_IPC.showDesktopUpdate]],
   ['The notification sound preview', [DESKTOP_IPC.previewNotificationSound]],
+  // Notification preferences are this PC's: a server's sessions notify here
+  // and follow them, so they are set in this PC's window.
+  [
+    "This PC's notification settings",
+    [
+      DESKTOP_IPC.getNotificationPreferences,
+      DESKTOP_IPC.setNotificationPreferences,
+      DESKTOP_IPC.sendTestNotification,
+      DESKTOP_IPC.listConversationNotifications,
+      DESKTOP_IPC.setConversationNotification,
+    ],
+  ],
   // Opening this PC's files as the server's project files; attachments from
   // this PC upload into the server instead (serverUpload*).
   [

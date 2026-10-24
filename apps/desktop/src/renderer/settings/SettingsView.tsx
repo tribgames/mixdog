@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Bell,
   Blocks,
   Bot,
   Brain,
@@ -80,6 +81,7 @@ const CATEGORY_ICONS = {
   general: SlidersHorizontal,
   skin: Paintbrush,
   bots: Bot,
+  notifications: Bell,
   context: Brain,
   'output-style': PenLine,
   providers: Cable,

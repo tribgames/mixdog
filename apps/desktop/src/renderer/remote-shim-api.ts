@@ -236,6 +236,12 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // arrives on the broadcast sessionState event like any live push.
     prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
       call<boolean>('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]),
+    // What this page paints, apart from the delivery subscription below: the
+    // desktop holds a notification back only for a session named here.
+    reportScreenSessions: (sessionIds) => {
+      ctx.lastScreenSessionIds = [...sessionIds];
+      if (ctx.socket?.readyState === WebSocket.OPEN) fire('setScreenSessions', [ctx.lastScreenSessionIds]);
+    },
     setVisibleSessions: (sessionIds) => {
       const requested = [...sessionIds];
       ctx.lastVisibleSessionIds = requested;
@@ -415,8 +421,13 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
-    getAgentNotificationMute: (agentId) => call('getAgentNotificationMute', [agentId]),
-    setAgentNotificationMute: (agentId, muted) => call('setAgentNotificationMute', [agentId, muted]),
+    // Settings › Notifications: the PC keeps every device's preferences; this
+    // device is the connection's paired client there.
+    getNotificationPreferences: () => call('getNotificationPreferences'),
+    setNotificationPreferences: (deviceId, patch) => call('setNotificationPreferences', [deviceId, patch]),
+    sendTestNotification: (deviceId) => call('sendTestNotification', [deviceId]),
+    listConversationNotifications: () => call('listConversationNotifications'),
+    setConversationNotification: (target, setting) => call('setConversationNotification', [target, setting]),
     subscribeSessionState: (listener) => sessionInbox.subscribe(listener),
     inheritSession: (sourceSessionId, selection, options) =>
       call('inheritSession', [sourceSessionId, hostSelection(selection ?? null), options ?? null]),

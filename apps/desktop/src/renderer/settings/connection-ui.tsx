@@ -18,6 +18,7 @@ export function ConnRow({
   status,
   statusTone = 'off',
   meta,
+  extra,
   actions,
 }: {
   icon: ReactNode;
@@ -25,6 +26,8 @@ export function ConnRow({
   status?: string;
   statusTone?: 'on' | 'off';
   meta: string;
+  /** A line below the meta (the device's notification summary). */
+  extra?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
@@ -36,6 +39,7 @@ export function ConnRow({
           {status && <span className={`conn-status conn-status--${statusTone}`}>{status}</span>}
         </div>
         <div className="conn-row-meta">{meta}</div>
+        {extra}
       </div>
       {actions && <div className="conn-row-actions">{actions}</div>}
     </div>

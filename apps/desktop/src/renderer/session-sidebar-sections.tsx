@@ -6,6 +6,7 @@ import { useSessionDragSource } from './agent-row-parts';
 import { useBotReorder } from './bot-reorder';
 import type { SidebarRoomRow } from './session-sidebar-agents';
 import { MxIcon } from './MxIcon';
+import { NotificationMuteMark } from './notification-controls';
 import { contextMenuRowProps, elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 import type { usePersistedListOrder } from './use-persisted-list-order';
 import React, { useContext } from 'react';
@@ -356,6 +357,7 @@ function AgentBotRow({
         <span className="session-row-copy">
           <b>{contact.name}</b>
         </span>
+        <NotificationMuteMark target={{ kind: 'agent', id: contact.agentId }} />
       </button>
       {status && status !== 'unread' && (
         <span className="session-row-status" data-working={status === 'running' || undefined}>
@@ -440,6 +442,7 @@ function AgentsSection({
                   <span className="session-row-copy">
                     <b>{row.name}</b>
                   </span>
+                  <NotificationMuteMark target={{ kind: 'room', id: row.room.id }} />
                 </button>
                 {indicator?.kind === 'running' && <SessionRowStatusIcon status="running" name={row.name} />}
                 {indicator?.kind === 'unread' && <SessionRowUnreadDot name={row.name} />}

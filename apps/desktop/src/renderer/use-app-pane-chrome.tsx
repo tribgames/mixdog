@@ -6,6 +6,8 @@ import { WorkspaceTabStrip, type NavigationSelection, type WorkspaceSelection, t
 import type { PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { t } from './i18n';
+import { ConversationBell } from './notification-controls';
+import { conversationNotificationsAvailable } from './notification-overrides';
 import { browserTabTitle, displayProject, navigationKey } from './text-format';
 import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { agentHomeTitle } from './agent-contacts-model';
@@ -14,6 +16,18 @@ import { isDeletedBotSession } from './agent-chat-mode';
 import { useSidebarReferences } from './sidebar-reference-cache';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
+
+/** The notification bell of the pane's active conversation, left of the dock toggles. */
+function trailingWithBell(leaf: PaneLeaf, dock: ReactNode): ReactNode {
+  const active = leaf.tabs.find((tab) => navigationKey(tab) === leaf.activeKey);
+  if (active?.kind !== 'session' || !conversationNotificationsAvailable()) return dock;
+  return (
+    <>
+      <ConversationBell sessionId={active.id} />
+      {dock}
+    </>
+  );
+}
 
 const HOME_TITLE_REFERENCE_KEYS = ['agents'] as const;
 
@@ -159,7 +173,7 @@ export function useAppPaneChrome({
         unreadSessionIds={unreadSessionIds}
         focused={leaf.id === paneWorkspace.focusedLeafId}
         paneId={leaf.id}
-        trailing={stripTrailing?.(leaf)}
+        trailing={trailingWithBell(leaf, stripTrailing?.(leaf))}
         onSelectTab={(tab) => {
           // The agent's name on its open home tab (the phone's thread header
           // too) opens its profile.

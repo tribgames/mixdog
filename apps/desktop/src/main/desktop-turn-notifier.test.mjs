@@ -8,11 +8,21 @@ import { restoreTranscriptItems } from '../../../../src/runtime/agent/orchestrat
 import { notificationPreview } from './notification-preview.ts';
 import { openDesktopNotificationSession } from './notification-window.ts';
 import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '../shared/contract-notifications.ts';
 
 function harness(t, extraOptions = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000 });
-  // `onScreen`: the sessions the focused window actually shows.
-  const state = { onScreen: new Set(), enabled: true, supported: true, failure: '', pending: false };
+  // `onScreen`: the sessions the focused window actually shows. `preferences`
+  // and `overrides`: this PC's, as the window reads them per notification.
+  const state = {
+    onScreen: new Set(),
+    preferences: DEFAULT_NOTIFICATION_PREFERENCES,
+    overrides: [],
+    supported: true,
+    failure: '',
+    pending: false,
+    failed: false,
+  };
   const notifications = [];
   const events = [];
   const opened = [];
@@ -24,10 +34,14 @@ function harness(t, extraOptions = {}) {
     },
   ]);
   const notifier = createDesktopTurnNotifier({
-    isEnabled: () => state.enabled,
+    preferences: () => ({ preferences: state.preferences, overrides: state.overrides }),
     isSupported: () => state.supported,
     isSessionOnScreen: (sessionId) => state.onScreen.has(sessionId),
-    readFinalAnswer: async (_id, since) => (state.pending ? null : sessionFinalAnswer({ items, busy: false }, since)),
+    readFinalAnswer: async (_id, since) => {
+      if (state.pending) return null;
+      if (state.failed) return { id: 'turn', at: Date.now(), status: 'failed', text: '' };
+      return sessionFinalAnswer({ items, busy: false }, since);
+    },
     createNotification: (content) => {
       if (state.failure === 'construct') throw new Error('constructor failed');
       const notification = new EventEmitter();
@@ -134,11 +148,11 @@ test('a restored background completion produces one native notification with pla
   );
 });
 
-for (const mode of ['foreground-visible', 'disabled', 'unsupported']) {
+for (const mode of ['foreground-visible', 'scope', 'unsupported']) {
   test(`${mode} produces an explicit suppression, not a claimed native delivery`, async (t) => {
     const h = harness(t);
     if (mode === 'foreground-visible') h.state.onScreen.add('a');
-    if (mode === 'disabled') h.state.enabled = false;
+    if (mode === 'scope') h.state.preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, scope: 'off' };
     if (mode === 'unsupported') h.state.supported = false;
     h.finish();
     await h.tick();
@@ -146,6 +160,53 @@ for (const mode of ['foreground-visible', 'disabled', 'unsupported']) {
     assert.ok(h.events.some((event) => event.event === 'suppressed' && event.reason === mode));
   });
 }
+
+test('this PC’s preferences decide at delivery: bot chats only, a muted bot, quiet hours', async (t) => {
+  const h = harness(t);
+  h.state.preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, scope: 'bots' };
+  const roster = [
+    { id: 'code', title: 'Task' },
+    { id: 'home', title: 'Home', agentHome: 'gh' },
+    { id: 'muted-home', title: 'Rel', agentHome: 'rel' },
+  ];
+  h.notifier.onSessions(roster.map((row) => ({ ...row, working: true })));
+  h.notifier.onSessions(roster);
+  h.state.overrides = [{ target: { kind: 'agent', id: 'rel' }, setting: { mode: 'muted', until: null } }];
+  await h.tick();
+  assert.deepEqual(
+    h.notifications.map((n) => n.content.title),
+    ['Home']
+  );
+  assert.deepEqual(
+    h.events.filter((row) => row.event === 'suppressed').map((row) => [row.sessionId, row.reason]),
+    [
+      ['code', 'scope'],
+      ['muted-home', 'muted'],
+    ]
+  );
+});
+
+test('an "always" conversation notifies even with this PC’s notifications off', async (t) => {
+  const h = harness(t);
+  h.state.preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, scope: 'off' };
+  h.state.overrides = [{ target: { kind: 'session', id: 'a' }, setting: { mode: 'always' } }];
+  h.finish();
+  await h.tick();
+  assert.equal(h.notifications.length, 1);
+});
+
+test('a failed turn notifies only with errors on, in this PC’s words', async (t) => {
+  const h = harness(t, { turnFailedText: () => '오류로 멈췄습니다.' });
+  h.state.failed = true;
+  h.finish();
+  await h.tick();
+  assert.equal(h.notifications.length, 0, 'errors are off by default');
+  assert.ok(h.events.some((row) => row.reason === 'event'));
+  h.state.preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, error: true } };
+  h.finish();
+  await h.tick();
+  assert.deepEqual(h.notifications[0].content, { title: 'Task', body: '오류로 멈췄습니다.' });
+});
 
 test('a focused window showing session A does not suppress session B’s completion', async (t) => {
   const h = harness(t);
@@ -179,13 +240,15 @@ test('a window that is focused but minimized or hidden shows nothing, so the com
   assert.equal(h.notifications.length, 1);
 });
 
-test('a schedule still notifies on screen', async (t) => {
-  const h = harness(t);
-  h.state.onScreen.add('a');
-  h.finish({ sourceType: 'schedule' });
-  await h.tick();
-  assert.equal(h.notifications.length, 1);
-});
+for (const sourceType of ['schedule', 'webhook']) {
+  test(`a ${sourceType} run still notifies on screen`, async (t) => {
+    const h = harness(t);
+    h.state.onScreen.add('a');
+    h.finish({ sourceType });
+    await h.tick();
+    assert.equal(h.notifications.length, 1);
+  });
+}
 
 test('on-screen state is rechecked at native delivery, including return during the quiet period', async (t) => {
   const h = harness(t);
@@ -318,7 +381,7 @@ for (const mode of ['foreground', 'disabled', 'show']) {
       },
     });
     if (mode === 'foreground') h.state.onScreen.add('a');
-    if (mode === 'disabled') h.state.enabled = false;
+    if (mode === 'disabled') h.state.preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, scope: 'off' };
     if (mode === 'show') h.state.failure = 'show';
     h.finish();
     await h.tick();

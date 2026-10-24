@@ -27,8 +27,6 @@ import { followHostDisplay } from '../host-display-sync';
 import { ActionButton, AutoSaveRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import { label, rows, type PanelContext } from './capability-data';
 import { ImportConversationsDialog } from './import-conversations-dialog';
-import { DesktopNotificationToggle } from './desktop-notification-toggle';
-import { PushNotificationToggle } from './push-notification-toggle';
 import { WorktreeSettings } from './worktree-settings';
 import { NARROW_SHELL_QUERY } from '../use-responsive-shell-bands';
 
@@ -238,7 +236,7 @@ function ImportConversationsRow({ pending }: Pick<PanelContext, 'pending'>) {
   );
 }
 
-export function GeneralPanel({ data, pending, run, api }: PanelContext) {
+export function GeneralPanel({ data, pending, run }: PanelContext) {
   const remoteSurface = isRemoteHostRenderer();
   const profile = record(data.profile);
   const languageOptions = rows(profile.languages).map((entry) => ({
@@ -276,8 +274,6 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           onChange={(experienceLevel) => void run('setProfile', [{ experienceLevel }])}
         />
       </Group>
-      <PushNotificationToggle api={api} />
-      <DesktopNotificationToggle />
       {!remoteSurface && (
         <Group>
           <ImportConversationsRow pending={pending} />

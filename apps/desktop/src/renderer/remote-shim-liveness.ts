@@ -135,6 +135,8 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
   window.addEventListener(REMOTE_CONNECTION_READY_EVENT, () => {
     reportedBackground = document.visibilityState === 'hidden';
     ctx.fire('setForeground', [!reportedBackground, ctx.browserId]);
+    // A new leg shows nothing until told (an older desktop ignores the call).
+    if (ctx.lastScreenSessionIds.length > 0) ctx.fire('setScreenSessions', [ctx.lastScreenSessionIds]);
   });
   const clearBackgroundGrace = (): void => {
     if (ctx.backgroundGraceTimer === null) return;

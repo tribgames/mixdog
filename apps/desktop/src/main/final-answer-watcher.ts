@@ -174,11 +174,13 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
       return;
     }
     cancel(completion.sessionId);
-    if (answer.status !== 'done') {
+    // A turn the user cancelled is no news; one that failed is an error
+    // notification, its body worded by each channel.
+    if (answer.status === 'cancelled') {
       options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: answer.status });
       return;
     }
-    if (isRoutineQuietReply(answer.text)) {
+    if (answer.status === 'done' && isRoutineQuietReply(answer.text)) {
       options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: 'routine-quiet' });
       return;
     }
@@ -186,7 +188,8 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     options.onFinalAnswer({
       ...completion,
       ...(botName ? { title: botName } : {}),
-      preview: notificationPreview(answer.text),
+      event: answer.status === 'failed' ? 'error' : 'finished',
+      preview: answer.status === 'failed' ? '' : notificationPreview(answer.text),
     });
   };
 

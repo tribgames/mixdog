@@ -18,7 +18,9 @@ export const NATIVE_PUSH_VERSION = 1;
 const TAG_BYTES = 16;
 const IV_BYTES = 12;
 
-export type NativePushReason = 'turn-finished' | 'approval-pending' | 'input-needed';
+/** `turn-failed`: a turn ended with an error. The phone shows it like
+ *  `turn-finished` (no Allow/Deny); the relay is told `turn-finished`. */
+export type NativePushReason = 'turn-finished' | 'turn-failed' | 'approval-pending' | 'input-needed';
 
 export interface NativePushContent {
   title: string;

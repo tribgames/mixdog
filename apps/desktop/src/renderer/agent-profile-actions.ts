@@ -9,6 +9,7 @@ import type { AgentContact } from './agent-contacts-model';
 import { forgetArchivedBotIdentity } from './archived-bot-identity';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
+import { notificationMenuItems } from './notification-controls';
 import { showDesktopToast } from './notifications';
 import type { ScmContextMenuItem } from './ScmContextMenu';
 import { setBotHiddenInSidebar, sidebarHiddenBots } from './sidebar-hidden-bots-store';
@@ -226,15 +227,18 @@ export function agentRoomMenuItems(
       () => closeRoomTabs(room.id),
       (reason) => showDesktopToast(errorMessageText(reason), 'error', { scope: `room:${action}:${room.id}` })
     );
+  const notify = notificationMenuItems({ kind: 'room', id: room.id }, { separated: true });
   return [
     {
       id: 'room-rename',
       label: t('Rename'),
       onSelect: afterMenuClose(() => void renameRoom(room.id, room.name ?? '')),
     },
+    ...notify,
     {
       id: 'room-reset',
       label: t('Reset conversation'),
+      separatorBefore: notify.length > 0 || undefined,
       onSelect: () =>
         void resetConversation(deps, {
           scope: `room:reset:${room.id}`,
@@ -277,13 +281,16 @@ export function agentContactMenuItems(
     label: t('Rename'),
     onSelect: afterMenuClose(() => void renameAgent(deps, contact.agentId, contact.name)),
   };
+  const notify = notificationMenuItems({ kind: 'agent', id: contact.agentId }, { separated: true });
   if (surface === 'sidebar') {
     return [
       profile,
       rename,
+      ...notify,
       {
         id: 'agent-hide-from-list',
         label: t('Hide from list'),
+        separatorBefore: notify.length > 0 || undefined,
         onSelect: () => setBotHiddenInSidebar(contact.agentId, true),
       },
     ];
@@ -291,6 +298,7 @@ export function agentContactMenuItems(
   return [
     profile,
     rename,
+    ...notify,
     ...(sidebarHiddenBots().has(contact.agentId)
       ? [
           {

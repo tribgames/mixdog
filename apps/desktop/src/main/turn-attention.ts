@@ -7,6 +7,9 @@ interface TurnAttentionHooks {
   isFocused(): boolean;
   flashFrame(flag: boolean): void;
   bounceDock?(): void;
+  /** This PC's taskbar-flash switch, quiet hours and the session's
+   *  conversation mute (notification-decision.ts allowsTaskbarFlash). */
+  allows(sessionId: string): boolean;
 }
 
 export interface TurnAttention {
@@ -35,7 +38,7 @@ export function createTurnAttention(hooks: TurnAttentionHooks): TurnAttention {
       } catch {
         return;
       }
-      if (focused) return;
+      if (focused || !hooks.allows(String(snapshot?.sessionId ?? ''))) return;
       signaled = true;
       try {
         hooks.flashFrame(true);

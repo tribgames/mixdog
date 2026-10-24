@@ -16,9 +16,9 @@ function skinDom(t) {
   return { ...dom, root: dom.document.documentElement };
 }
 
-test('Skin is the category right after Bots, a device page on a remote surface', () => {
+test('Skin is the category right after Notifications, a device page on a remote surface', () => {
   const values = SETTINGS_CATEGORIES.map((category) => category.value);
-  assert.equal(values[values.indexOf('bots') + 1], 'skin');
+  assert.equal(values[values.indexOf('notifications') + 1], 'skin');
   assert.equal(settingsCategoryForSurface('skin', false), 'skin');
   assert.equal(settingsCategoryForSurface('skin', true), 'skin');
   assert.ok(settingsCategoriesForSurface(false).some((category) => category.value === 'skin'));

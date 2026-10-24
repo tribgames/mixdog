@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { decryptNativePush } from '../shared/native-push-crypto.ts';
 import { sessionAttention } from '../shared/session-attention.ts';
-import { createAgentNotificationMuteStore, readMutedAgents } from './agent-notification-mute.ts';
+import { createNotificationPreferencesStore, notificationPreferencesPath } from './notification-preferences.ts';
 import { fillSecretInput } from './browser/host-agent.ts';
 import { beginComputerOperation } from './human-only-approval.ts';
 import { requiredToolApprovalDecision } from './ipc-validation.ts';
@@ -111,7 +111,18 @@ const device = () => {
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
-function notifier(t, mutes) {
+function preferencesIn(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'mute-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = notificationPreferencesPath(dir);
+  const store = createNotificationPreferencesStore({
+    filePath: file,
+    readLegacy: async () => ({ turnNotifications: true, mutedAgents: [] }),
+  });
+  return { store, file };
+}
+
+function notifier(t, preferences) {
   const phone = device();
   const sent = [];
   const instance = createPushNotifier({
@@ -119,7 +130,11 @@ function notifier(t, mutes) {
     isEnabled: () => true,
     readFinalAnswer: async () => null,
     isClientForeground: () => false,
-    isSessionMuted: (sessionId) => mutes.isSessionMuted(sessionId),
+    preferences: {
+      device: (id) => preferences.device(id),
+      overrides: () => preferences.overrides(),
+      desktopActive: async () => false,
+    },
     native: {
       list: async () => [{ clientId: 'c1', platform: 'fcm', token: 'tok', publicKey: phone.publicKey, sandbox: false }],
       isClientForeground: () => false,
@@ -135,10 +150,7 @@ function notifier(t, mutes) {
 }
 
 test('a held request push says only that the agent waits — no tool, arguments or text', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mute-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const mutes = createAgentNotificationMuteStore(join(dir, 'agent-notifications.json'));
-  const f = notifier(t, mutes);
+  const f = notifier(t, preferencesIn(t).store);
   f.instance.onHeldRequest({ sessionId: 'sess_home_reviewer', agentName: '리뷰어', requestId: 'held_1' });
   await settle();
   assert.equal(f.sent.length, 1);
@@ -148,12 +160,10 @@ test('a held request push says only that the agent waits — no tool, arguments 
   assert.deepEqual(Object.keys(f.sent[0]).sort(), ['approvalId', 'body', 'reason', 'sessionId', 'title']);
 });
 
-test('a muted agent pushes nothing — approvals, failures, held requests — while in-app state stays', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mute-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const file = join(dir, 'agent-notifications.json');
-  const mutes = createAgentNotificationMuteStore(file);
-  const f = notifier(t, mutes);
+test('a muted bot pushes nothing — approvals, waits, held requests — while in-app state stays', async (t) => {
+  const { store: preferences, file } = preferencesIn(t);
+  const f = notifier(t, preferences);
+  const mute = (setting) => preferences.setConversation({ kind: 'agent', id: 'reviewer' }, setting);
   const home = 'sess_home_reviewer';
   const summary = {
     id: home,
@@ -165,9 +175,13 @@ test('a muted agent pushes nothing — approvals, failures, held requests — wh
   };
   const before = structuredClone(summary);
   f.instance.onSessions([summary]);
-  await mutes.setMuted('reviewer', true);
-  assert.deepEqual([...readMutedAgents(file)], ['reviewer'], 'stored on the host');
-  // An approval, a failure (blocked goal) and a held request, all muted.
+  await mute({ mode: 'muted', until: null });
+  assert.deepEqual(
+    JSON.parse(readFileSync(file, 'utf8')).overrides.map((entry) => entry.target),
+    [{ kind: 'agent', id: 'reviewer' }],
+    'stored on the host'
+  );
+  // An approval, a blocked goal and a held request, all muted.
   f.instance.onSessionState({ sessionId: home, frameSource: 'live', snapshot: { toolApproval: { id: 'a1' } } });
   f.instance.onSessionState({
     sessionId: home,
@@ -193,8 +207,8 @@ test('a muted agent pushes nothing — approvals, failures, held requests — wh
   });
   await settle();
   assert.equal(f.sent.length, 1);
-  await mutes.setMuted('reviewer', false);
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).muted, []);
+  await mute({ mode: 'inherit' });
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).overrides, []);
   f.instance.onSessionState({ sessionId: home, frameSource: 'live', snapshot: { toolApproval: { id: 'a2' } } });
   f.instance.onHeldRequest({ sessionId: home, agentName: 'reviewer', requestId: 'held_3' });
   await settle();

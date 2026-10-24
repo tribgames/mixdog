@@ -62,7 +62,6 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     autoCompact: compaction.auto !== false && compaction.enabled !== false,
     keepAwake: desktop.keepAwake !== false,
     runInBackground: desktop.runInBackground !== false,
-    turnNotifications: desktop.turnNotifications !== false,
     notificationVolume: isNotificationVolume(desktop.notificationVolume)
       ? desktop.notificationVolume
       : NOTIFICATION_VOLUME_DEFAULT,
@@ -87,7 +86,6 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
 const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
   'keepAwake',
   'runInBackground',
-  'turnNotifications',
   'usagePinned',
   'usageRailShortLong',
   'usageAccountsExpanded',
@@ -104,7 +102,6 @@ const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
 export const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, boolean>>> = {
   keepAwake: true,
   runInBackground: true,
-  turnNotifications: true,
   usagePinned: true,
   usageRailShortLong: true,
   usageAccountsExpanded: false,

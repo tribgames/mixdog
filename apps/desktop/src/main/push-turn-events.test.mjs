@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  createTurnCompletionTracker,
-  sessionsWithPendingWork,
-  shouldShowTurnNotification,
-} from './push-turn-events.ts';
+import { createTurnCompletionTracker, sessionsWithPendingWork } from './push-turn-events.ts';
 
 const session = (id, overrides = {}) => ({
   id,
@@ -44,14 +40,19 @@ test('a session that never started working is not announced', () => {
   assert.deepEqual(tracker.observe([session('a', { preview: 'edited' })], 2_000), []);
 });
 
-test('only schedule completions bypass foreground suppression', () => {
-  for (const sourceType of [undefined, 'webhook', 'schedule']) {
+test('a completion carries what the notification decision reads: kind, origin, bot and room', () => {
+  for (const [extra, conversation] of [
+    [{}, { kind: 'coding', origin: 'user', agentId: '', roomId: '' }],
+    [{ sourceType: 'webhook' }, { kind: 'coding', origin: 'webhook', agentId: '', roomId: '' }],
+    [{ sourceType: 'schedule', sessionMode: 'agent' }, { kind: 'task', origin: 'schedule', agentId: '', roomId: '' }],
+    [{ agentHome: 'gh' }, { kind: 'bot', origin: 'user', agentId: 'gh', roomId: '' }],
+    [{ agentRoom: { id: 'r1', name: 'Plan' } }, { kind: 'room', origin: 'user', agentId: '', roomId: 'r1' }],
+    [{ taskAgent: 'gh', taskFrom: 'home' }, { kind: 'task', origin: 'user', agentId: '', roomId: '' }],
+  ]) {
     const tracker = createTurnCompletionTracker();
-    tracker.observe([session('a', { sourceType, working: true })], 1_000);
-    const [completion] = tracker.observe([session('a', { sourceType })], 2_000);
-    assert.equal(completion.sourceType, sourceType);
-    assert.equal(shouldShowTurnNotification(completion, true), sourceType === 'schedule');
-    assert.equal(shouldShowTurnNotification(completion, false), true);
+    tracker.observe([session('a', { ...extra, working: true })], 1_000);
+    const [completion] = tracker.observe([session('a', extra)], 2_000);
+    assert.deepEqual(completion.conversation, { sessionId: 'a', ...conversation });
   }
 });
 

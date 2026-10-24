@@ -1,7 +1,9 @@
 // Wires desktop session state and roster subscriptions to the relay. Recovery
 // stays beside those subscriptions so a replacement client cannot receive a
 // late read from the previous relay leg.
-import { createPushNotifier, type NativePushMessage } from './push-notifier';
+import { createPushNotifier, type NativePushMessage, type PushPreferences } from './push-notifier';
+import type { NotificationTestResult } from './notification-center';
+import type { NotificationDeviceInfo, NotificationPreferencesStore } from './notification-preferences';
 import { createBrowserApprovalGrants } from './browser/approval-grants';
 import type { NativePushStore } from './native-push-store';
 import type { PushSubscriptionStore } from './push-subscription-store';
@@ -29,6 +31,8 @@ export interface RelaySessionWiringDeps {
   };
   /** Relay-owned Web Push (remote-relay-web-push.ts). */
   relayWebPush?: RelayWebPush;
+  /** Each paired device's notification preferences (issue #221). */
+  notifications?: RelayNotificationDeps;
   live(clientId: string, state: RelayClientState): boolean;
   closed(): boolean;
   sendEncryptedFrame: SendEncryptedFrame;
@@ -39,8 +43,19 @@ export interface RelaySessionWiringDeps {
   onSessions?: (sessions: DesktopSessionSummary[]) => void;
 }
 
+export interface RelayNotificationDeps {
+  preferences: Pick<NotificationPreferencesStore, 'resolveDevice' | 'overrides' | 'removeDevice'>;
+  /** This PC had OS user input within the last 3 minutes (asked of the window). */
+  desktopActive(): Promise<boolean>;
+  /** The paired client's record (Settings › Connection): its kind and
+   *  creation time decide its default preferences; null when unknown. */
+  pairedClient(clientId: string): Promise<NotificationDeviceInfo | null>;
+}
+
 export interface RelaySessionSubscriptions {
+  /** A revoked client: its push registrations and notification preferences go. */
   forgetClient(clientId: string): void;
+  sendTestNotification(clientId: string): Promise<NotificationTestResult>;
   /** Sent to each connection right after its handshake (remote-relay-push-lanes.ts). */
   joinFrames(): unknown[];
   dispose(): void;
@@ -87,12 +102,25 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
     resyncClient,
     broadcastState,
     start: () => {
-      const { nativePush, relayWebPush } = deps;
-      // A paired credential is watching while any live leg of it has not gone
-      // to the background.
-      const credentialForeground = (clientId: string): boolean => {
+      const { nativePush, relayWebPush, notifications } = deps;
+      const preferences: PushPreferences | undefined = notifications
+        ? {
+            device: (clientId) =>
+              notifications.preferences.resolveDevice(clientId, () => notifications.pairedClient(clientId)),
+            overrides: () => notifications.preferences.overrides(),
+            desktopActive: () => notifications.desktopActive(),
+          }
+        : undefined;
+      // A leg shows a conversation while it is not in the background and
+      // reports that session on screen. The delivery subscription is not on
+      // screen (a wide client observes background agents through it), and a
+      // leg that never reported its screen shows no conversation.
+      const legShows = (client: RelayClientState, sessionId: string): boolean =>
+        !client.background && client.screenSessionIds?.has(sessionId) === true;
+      // A paired credential shows a conversation while any live leg of it does.
+      const credentialForeground = (clientId: string, sessionId: string): boolean => {
         for (const client of deps.clients.clients.values()) {
-          if (client.credentialId === clientId && !client.background) return true;
+          if (client.credentialId === clientId && legShows(client, sessionId)) return true;
         }
         return false;
       };
@@ -107,9 +135,9 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         // socket through a background grace and reports itself hidden.
         // The subscription names the BROWSER; relay legs carry a per-connection
         // id, so the leg is found by the browser id it reported.
-        isClientForeground: (browserId) => {
+        isClientForeground: (browserId, sessionId) => {
           for (const client of deps.clients.clients.values()) {
-            if (client.browserId === browserId && !client.background) return true;
+            if (client.browserId === browserId && legShows(client, sessionId)) return true;
           }
           return false;
         },
@@ -135,7 +163,7 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
               },
             }
           : {}),
-        isSessionMuted: (sessionId) => deps.host.isSessionNotificationMuted?.(sessionId) === true,
+        ...(preferences ? { preferences } : {}),
         onError: (detail) => console.error(`[mixdog-remote-push] ${detail}`),
         onDiagnostic: (event, details) =>
           console.info(
@@ -172,7 +200,9 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
       return {
         forgetClient: (clientId: string): void => {
           pushNotifier.forgetClient(clientId);
+          void notifications?.preferences.removeDevice(clientId).catch(() => undefined);
         },
+        sendTestNotification: (clientId: string) => pushNotifier.sendTest(clientId),
         joinFrames: () => pushLanes.joinFrames(),
         dispose: (): void => {
           unsubscribeState();

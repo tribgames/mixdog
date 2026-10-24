@@ -28,6 +28,7 @@ import { registerProjectIpc } from './ipc-projects';
 import { requestLinuxInputAccess } from './linux-input-access';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
+import { type NotificationIpcHost, registerNotificationIpc } from './ipc-notifications';
 import type { RemoteHostWindows } from './remote-host-windows';
 import { registerSourceControlIpc } from './ipc-source-control';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
@@ -142,6 +143,8 @@ interface DesktopIpcDependencies {
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   /** Settings → Notifications: play the notification sound at the saved volume. */
   previewNotificationSound?: () => Promise<string>;
+  /** Settings → Notifications: this PC's OS notifications (this PC's window only). */
+  notifications?: NotificationIpcHost;
   /** Browser Use pane: local profile import without renderer-visible secrets. */
   browserHost?: Pick<
     BrowserHost,
@@ -205,6 +208,7 @@ export function registerDesktopIpc(
     settingsStore,
     onDesktopSettingsChanged,
     previewNotificationSound,
+    notifications,
     browserHost,
     browserLogin,
     updater,
@@ -333,6 +337,7 @@ export function registerDesktopIpc(
     revokeRemoteAccessClient,
     remoteHosts,
   });
+  if (notifications) registerNotificationIpc({ handle, invokeDesktopOperation, notifications });
   registerBrowserIpc({ handle, browserHost, browserLogin });
   registerComputerIpc({ handle, shell, computer });
   handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);

@@ -48,7 +48,13 @@ export interface RelayClientState {
   /** The paired browser behind this leg, as it reports itself. The relay names
    *  each leg with a fresh id, while a push subscription names the browser. */
   browserId: string;
+  /** Delivery subscription: what this leg receives state for, including the
+   *  background sessions a wide client observes. Not "on screen". */
   visibleSessionIds: Set<string>;
+  /** The sessions this leg reports actually painting (`setScreenSessions`).
+   *  Notification presence reads only this; a leg that never reported it (an
+   *  older build) shows no conversation. */
+  screenSessionIds?: Set<string>;
   /** Sessions this client asked to read and has not yet been sent a frame
    *  for: an open reads before its visible set names the session, and the
    *  answer must still reach it (remote-relay-session-state.ts). */

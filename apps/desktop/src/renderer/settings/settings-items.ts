@@ -74,6 +74,12 @@ export const SETTINGS_ITEMS = [
   },
   // Desktop-only: the overlay's own menu deep-links to its options.
   { value: 'bots', label: 'Bots', description: 'Representative bot overlay', kind: 'open' },
+  {
+    value: 'notifications',
+    label: 'Notifications',
+    description: 'What each device is notified about.',
+    kind: 'open',
+  },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
 type SettingsItemValue = (typeof SETTINGS_ITEMS)[number]['value'];
@@ -82,6 +88,7 @@ export type SettingsCategory =
   | 'general'
   | 'skin'
   | 'bots'
+  | 'notifications'
   | 'context'
   | 'output-style'
   | 'providers'
@@ -120,6 +127,13 @@ export const SETTINGS_CATEGORIES = [
     label: 'Bots',
     group: 'Basics',
     items: ['bots'],
+  },
+  // Per-device notification preferences (this PC and every paired device).
+  {
+    value: 'notifications',
+    label: 'Notifications',
+    group: 'Basics',
+    items: ['notifications'],
   },
   // Theme: light/dark/system or a skin picture, color theme files and fonts, all
   // device-local, so a remote surface lists it under "This device". The id stays

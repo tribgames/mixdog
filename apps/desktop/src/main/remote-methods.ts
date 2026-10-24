@@ -66,6 +66,10 @@ import {
   requiredWorkspaceFolders,
   requiredWorkspaceSearchOptions,
   requiredWorkspaceTextWrites,
+  requiredConversationNotificationSetting,
+  requiredNotificationDeviceId,
+  requiredNotificationPreferencesPatch,
+  requiredNotificationTarget,
 } from './ipc-validation';
 import { absoluteLocalPath } from './local-files';
 import { codedErrorParams } from '../shared/coded-error';
@@ -265,7 +269,11 @@ export type RemoteHostRequestMethod =
   | 'visualizeCommand'
   | 'visualizeExport'
   | 'captureFileSnapshot'
-  | 'localPageUrl';
+  | 'localPageUrl'
+  /** This PC's OS notifications: { supported, idleSeconds } (notification-center.ts). */
+  | 'notificationStatus'
+  /** One test notification on this PC: { ok, message? }. */
+  | 'notificationTest';
 
 export type RemoteMethod = (params: unknown[]) => unknown;
 type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown>;
@@ -1189,6 +1197,7 @@ export function createRemoteMethods(
       ...(fileDownloads ? { exportDownload: (file) => fileDownloads.registerExport(downloadRequester(), file) } : {}),
     }),
   };
+  Object.assign(methods, notificationRemoteMethods(invokeDesktopOperation, client));
   if (settingsStore)
     Object.assign(methods, settingsRemoteMethods(settingsStore, onDesktopSettingsChanged, invokeDesktopOperation));
   if (terminals) Object.assign(methods, terminalRemoteMethods(terminals, invokeDesktopOperation, client));
@@ -1414,6 +1423,35 @@ function settingsRemoteMethods(
         return saved;
       });
     },
+  };
+}
+
+/** Settings › Notifications on a paired device: the same service operations
+ *  this PC's window calls, with this connection's paired client as the
+ *  current device. A paired device reads every device and writes any, the
+ *  trust it has for the other settings. */
+function notificationRemoteMethods(
+  invokeDesktopOperation: InvokeDesktopOperation,
+  client: RemoteMethodClient | undefined
+): Record<string, RemoteMethod> {
+  const currentDeviceId = (): string => client?.credentialId?.() ?? '';
+  return {
+    getNotificationPreferences: () => invokeDesktopOperation('notificationPreferencesState', [currentDeviceId(), null]),
+    setNotificationPreferences: ([deviceId, patch]) =>
+      invokeDesktopOperation('setNotificationPreferences', [
+        currentDeviceId(),
+        null,
+        requiredNotificationDeviceId(deviceId),
+        requiredNotificationPreferencesPatch(patch),
+      ]),
+    sendTestNotification: ([deviceId]) =>
+      invokeDesktopOperation('sendTestNotification', [requiredNotificationDeviceId(deviceId)]),
+    listConversationNotifications: () => invokeDesktopOperation('listConversationNotifications', []),
+    setConversationNotification: ([target, setting]) =>
+      invokeDesktopOperation('setConversationNotification', [
+        requiredNotificationTarget(target),
+        requiredConversationNotificationSetting(setting),
+      ]),
   };
 }
 

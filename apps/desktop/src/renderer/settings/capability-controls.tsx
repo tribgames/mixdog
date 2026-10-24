@@ -48,7 +48,8 @@ export function Group({
 
 export function ToggleRow({
   title,
-  description: _description,
+  description,
+  showDescription = false,
   checked,
   disabled,
   optimistic,
@@ -56,6 +57,8 @@ export function ToggleRow({
 }: {
   title: string;
   description?: string;
+  /** Render `description` under the title. Off by default: existing pages pass one that stays hidden. */
+  showDescription?: boolean;
   checked: boolean;
   disabled?: boolean;
   optimistic?: boolean;
@@ -65,6 +68,7 @@ export function ToggleRow({
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
         <span className="mixdog-settings__row-title">{title}</span>
+        {showDescription && description && <span className="mixdog-settings__row-desc">{description}</span>}
       </div>
       <div className="settings-row-control">
         <CompactSwitch
@@ -128,7 +132,8 @@ export function CompactSwitch({
 
 export function SelectRow({
   title,
-  description: _description,
+  description,
+  showDescription = false,
   value,
   disabled,
   options,
@@ -136,6 +141,8 @@ export function SelectRow({
 }: {
   title: string;
   description?: string;
+  /** Render `description` under the title. Off by default: existing pages pass one that stays hidden. */
+  showDescription?: boolean;
   value: string;
   disabled?: boolean;
   options: ReadonlyArray<{ value: string; label: string }>;
@@ -148,6 +155,7 @@ export function SelectRow({
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
         <span className="mixdog-settings__row-title">{title}</span>
+        {showDescription && description && <span className="mixdog-settings__row-desc">{description}</span>}
       </div>
       <div className="settings-row-control">
         <OpenSelect

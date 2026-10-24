@@ -63,7 +63,8 @@ import { createRelayMediaLane } from './remote-relay-media';
 import { createRelaySessionStateFanout } from './remote-relay-session-state';
 import { requestPhoneTranscriptPage } from './remote-transcript-window';
 import { viewIsStale } from './remote-view-staleness';
-import { createRelaySessionWiring } from './remote-relay-session-wiring';
+import { createRelaySessionWiring, type RelayNotificationDeps } from './remote-relay-session-wiring';
+import type { NotificationTestResult } from './notification-center';
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
 import { decodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
 import { DESKTOP_HANDSHAKE_STALLED_CLOSE } from '../../../relay/lib/relay-close-codes.mjs';
@@ -110,9 +111,15 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   hostName?: () => string;
   /** Local nickname for a paired device (credential id); wins over the relay's name. */
   deviceAlias?: (credentialId: string) => string;
+  /** Each paired device's notification preferences (issue #221). */
+  notifications?: RelayNotificationDeps;
 }
 
 export interface RemoteRelayHandle {
+  /** One notification to a paired device through its real channel. */
+  sendTestNotification(clientId: string): Promise<NotificationTestResult>;
+  /** Paired client ids holding a native or web push registration. */
+  pushRegistrations(): Promise<Set<string>>;
   /** Reports the current PC name to the relay again after a rename. */
   pushName(): void;
   /** URL a phone opens: the relay origin plus this desktop's device route. */
@@ -503,6 +510,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     hostId: deviceId,
     nativePush: { store: nativeStore, send: sendNativePush },
     relayWebPush,
+    ...(options.notifications ? { notifications: options.notifications } : {}),
     live,
     closed: () => closed,
     sendEncryptedFrame,
@@ -808,6 +816,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       return token;
     },
     pairing,
+    sendTestNotification: (clientId) => sessionSubscriptions.sendTestNotification(clientId),
+    pushRegistrations: async () => {
+      const [native, web, relayWeb] = await Promise.all([
+        nativeStore.list(),
+        pushStore.list(),
+        relayWebPush.available() ? relayWebPush.list() : [],
+      ]);
+      return new Set([...native, ...web, ...relayWeb].map((row) => row.clientId).filter(Boolean));
+    },
     pushName: (): void => {
       sendEnvelope({ type: 'desktop-name', name: pcName() });
     },

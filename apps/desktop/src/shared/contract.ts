@@ -41,6 +41,13 @@ import type {
   DesktopPetTheme,
 } from './desktop-pet';
 import type { ConversationImportJob } from './contract-import';
+import type {
+  ConversationNotificationOverride,
+  ConversationNotificationSetting,
+  NotificationPreferencesPatch,
+  NotificationPreferencesState,
+  NotificationTarget,
+} from './contract-notifications';
 import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
@@ -173,6 +180,7 @@ export * from './contract-worktree';
 export * from './contract-import';
 export * from './contract-ssh';
 export * from './contract-connection-link';
+export * from './contract-notifications';
 
 export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 
@@ -871,9 +879,19 @@ export interface DesktopApi {
   /** Resolves true once the agent is stopped for takeover `id` (its commands
    *  refused, in-flight work drained), false when it ends first. Desktop only. */
   takeoverReady?(sessionId: string, id: string): Promise<boolean>;
-  /** Per-agent push mute (profile panel, contact menu): pushes only. */
-  getAgentNotificationMute(agentId: string): Promise<boolean>;
-  setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean>;
+  /** Settings › Notifications (contract-notifications.ts): every device's
+   *  preferences, read and written on the PC; a paired device reaches them
+   *  through the remote shim. A write broadcasts a settings change. */
+  getNotificationPreferences?(): Promise<NotificationPreferencesState>;
+  setNotificationPreferences?(deviceId: string, patch: NotificationPreferencesPatch): Promise<NotificationPreferencesState>;
+  /** One notification to that device now, through the same channel and gates a real one uses (except quiet hours). */
+  sendTestNotification?(deviceId: string): Promise<{ ok: boolean; message?: string }>;
+  /** Conversation overrides (list right-click, conversation header bell). Expired mutes are not listed. */
+  listConversationNotifications?(): Promise<ConversationNotificationOverride[]>;
+  setConversationNotification?(
+    target: NotificationTarget,
+    setting: ConversationNotificationSetting
+  ): Promise<ConversationNotificationOverride[]>;
   /** Per-session live snapshot lane covering every pooled session runtime. */
   subscribeSessionState(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;

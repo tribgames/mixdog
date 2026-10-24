@@ -224,7 +224,6 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
   desktop: object({
     keepAwake: boolean,
     runInBackground: boolean,
-    turnNotifications: boolean,
     usagePinned: boolean,
     usageRailShortLong: boolean,
     usageAccountsExpanded: boolean,

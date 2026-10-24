@@ -36,6 +36,7 @@ import { type AgentChatIndicator, agentChatTimeLabel, agentRowName } from './age
 import { ProgressSpinner } from './ProgressSpinner';
 import { AgentRoomsSection, useAgentRoomRows } from './AgentRoomsSection';
 import { AgentPaneHeaderActions } from './agent-pane-header-actions';
+import { useNotificationSnapshot } from './notification-overrides';
 import { TextShimmer } from './transcript-primitives';
 import { type AgentContact, agentContacts } from './agent-contacts-model';
 import { AgentAvatar } from './agent-avatar';
@@ -657,7 +658,10 @@ function AgentContactRow({
   const hasSubAgents = subCount > 0;
   // An empty second line still says there are sub-agents.
   const preview = contact.preview || (hasSubAgents ? t('Sub-agents {{count}}', { count: subCount }) : '');
-  const items = [
+  // Subscribing loads the notification overrides with the row; the items are
+  // built when the menu opens, from the store as it is then.
+  useNotificationSnapshot();
+  const buildItems = () => [
     ...(hasSubAgents && onToggleSub ? [subtreeMenuItem(subOpen, onToggleSub)] : []),
     ...agentContactMenuItems(contact, { onOpen, onProfile }),
     ...(hasSubAgents && subNodes
@@ -686,7 +690,7 @@ function AgentContactRow({
       {...reorderProps}
       data-name-only={contact.preview || contact.indicator || contact.at > 0 ? undefined : 'true'}
       {...contextMenuRowProps((point) =>
-        onOpenMenu({ label: t('Actions for {{title}}', { title: contact.name }), ...point, items })
+        onOpenMenu({ label: t('Actions for {{title}}', { title: contact.name }), ...point, items: buildItems() })
       )}
     >
       {hasSubAgents && onToggleSub && (

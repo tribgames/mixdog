@@ -3,10 +3,16 @@
 // testable on their own; push-notifier.ts owns delivery.
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import { isActiveDesktopAgentEntry, isCancelUnconfirmedDesktopAgentEntry } from '../shared/agent-activity';
+import { type NotificationConversation, notificationConversationOf } from './notification-decision';
 
 export interface TurnCompletion {
   sessionId: string;
-  sourceType?: DesktopSessionSummary['sourceType'];
+  /** Kind (bot, room, task, coding), origin (user, schedule, webhook), bot and
+   *  room: what the notification decision reads (notification-decision.ts). */
+  conversation: NotificationConversation;
+  /** The watcher's verdict: a final answer, or a turn that failed (not one
+   *  the user cancelled). Absent until the answer is read. */
+  event?: 'finished' | 'error';
   /** Notification title — the session's own name. */
   title: string;
   /** Set when the session is a bot's home chat: the watcher titles it with the
@@ -37,12 +43,6 @@ interface TurnCompletionTracker {
 }
 
 const MAX_TITLE_CHARS = 80;
-
-/** Delivery settings are checked by the watcher. Only schedules bypass the
- *  foreground suppression used for ordinary conversations. */
-export function shouldShowTurnNotification(completion: TurnCompletion, foreground: boolean): boolean {
-  return completion.sourceType === 'schedule' || !foreground;
-}
 
 function clip(value: unknown, limit: number): string {
   const text = String(value ?? '')
@@ -104,7 +104,7 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
         if (session.agentSession) continue;
         completions.push({
           sessionId: id,
-          sourceType: session.sourceType,
+          conversation: notificationConversationOf(session),
           title:
             clip(session.agentRoom?.name || session.title || session.preview || 'Mixdog', MAX_TITLE_CHARS) || 'Mixdog',
           ...(session.agentHome ? { agentHome: session.agentHome } : {}),

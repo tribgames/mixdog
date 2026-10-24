@@ -80,6 +80,22 @@ const TURN_FINISHED_TEXT = {
   'zh-TW': '工作已完成。',
 };
 
+// Spoken when a turn stopped with an error (reason 'turn-failed').
+const TURN_FAILED_TEXT = {
+  de: 'Mit einem Fehler beendet.',
+  en: 'Stopped with an error.',
+  es: 'Se detuvo por un error.',
+  fr: 'Arrêté sur une erreur.',
+  it: 'Interrotto per un errore.',
+  ja: 'エラーで停止しました。',
+  ko: '오류로 멈췄습니다.',
+  'pt-BR': 'Parou com um erro.',
+  ru: 'Остановлено из-за ошибки.',
+  vi: 'Đã dừng do lỗi.',
+  'zh-CN': '因错误而停止。',
+  'zh-TW': '因錯誤而停止。',
+};
+
 // Spoken when a session starts waiting on a tool approval.
 const APPROVAL_PENDING_TEXT = {
   de: 'Wartet auf deine Freigabe.',
@@ -446,6 +462,7 @@ self.addEventListener('push', (event) => {
       let standIn = TURN_FINISHED_TEXT;
       if (reason === 'approval-pending') standIn = APPROVAL_PENDING_TEXT;
       else if (reason === 'input-needed') standIn = INPUT_NEEDED_TEXT;
+      else if (reason === 'turn-failed') standIn = TURN_FAILED_TEXT;
       const body = supplied || standIn[await notificationLanguage()] || standIn.en;
       await self.registration.showNotification(title, {
         body,

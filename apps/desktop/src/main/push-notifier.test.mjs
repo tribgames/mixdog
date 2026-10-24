@@ -3,6 +3,7 @@ import { createECDH, generateKeyPairSync, randomBytes } from 'node:crypto';
 import test from 'node:test';
 import { createPushNotifier } from './push-notifier.ts';
 import { decryptNativePush } from '../shared/native-push-crypto.ts';
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '../shared/contract-notifications.ts';
 import { generateWebPushKeys } from './web-push.ts';
 
 function subscription() {
@@ -152,6 +153,188 @@ test('input-needed push obeys the same gates as approvals', async (t) => {
     await settle();
     assert.equal(f.sent.length, 0);
   }
+});
+
+/** Two phone apps and a browser, each with its own preferences. */
+function devices(t, { preferences = {}, desktopActive = false, foreground = [], answer = null, holdMs = 60_000 } = {}) {
+  const keys = new Map();
+  const phones = ['phone-a', 'phone-b'].map((clientId, index) => {
+    const ecdh = createECDH('prime256v1');
+    ecdh.generateKeys();
+    keys.set(clientId, ecdh);
+    return {
+      clientId,
+      platform: 'fcm',
+      token: `token-${index}`,
+      publicKey: ecdh.getPublicKey().toString('base64url'),
+      sandbox: false,
+      createdAt: 10 + index,
+    };
+  });
+  const web = { ...subscription(), clientId: 'tab-1', label: '', createdAt: 0 };
+  const native = [];
+  const posted = [];
+  const asked = [];
+  let activeChecks = 0;
+  const notifier = createPushNotifier({
+    store: {
+      keys: async () => generateWebPushKeys(),
+      list: async () => [web],
+      remove: async () => true,
+      removeByClient: async () => true,
+    },
+    isEnabled: () => true,
+    readFinalAnswer: async () => answer,
+    holdMs,
+    isClientForeground: (id, sessionId) => foreground.includes(`${id}:${sessionId}`),
+    fetchImpl: async () => {
+      posted.push('tab-1');
+      return new Response(null, { status: 201 });
+    },
+    preferences: {
+      device: async (id) => {
+        asked.push(id);
+        return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...preferences[id] };
+      },
+      overrides: async () => [],
+      desktopActive: async () => {
+        activeChecks += 1;
+        return desktopActive;
+      },
+    },
+    native: {
+      list: async () => phones,
+      isClientForeground: (id, sessionId) => foreground.includes(`${id}:${sessionId}`),
+      send: (message) => {
+        const recipient = phones.find((phone) => phone.token === message.token).clientId;
+        native.push({ recipient, outer: message.reason, ...decryptNativePush(keys.get(recipient).getPrivateKey(), message.mx) });
+        return true;
+      },
+      removeByClient: async () => true,
+    },
+  });
+  t.after(() => notifier.dispose());
+  return { notifier, native, posted, asked, checks: () => activeChecks };
+}
+
+test('each paired device gets its own decision: scope and event switch', async (t) => {
+  const f = devices(t, {
+    preferences: { 'phone-b': { scope: 'bots' }, 'tab-1': { events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, approval: false } } },
+  });
+  f.notifier.onSessions([{ id: 's1', title: 'Fix' }]);
+  f.notifier.onSessionState(update({ id: 'a1' }));
+  await settle();
+  assert.deepEqual(
+    f.native.map((push) => push.recipient),
+    ['phone-a']
+  );
+  assert.deepEqual(f.posted, [], 'the browser turned approvals off');
+  assert.deepEqual([...f.asked].sort(), ['phone-a', 'phone-b', 'tab-1']);
+});
+
+test('a device holding pushes while this PC is in use waits, and this PC is asked only for it', async (t) => {
+  const quiet = devices(t, { desktopActive: true });
+  quiet.notifier.onSessionState(update({ id: 'a1' }));
+  await settle();
+  assert.equal(quiet.native.length, 2);
+  assert.equal(quiet.checks(), 0, 'nobody holds: the PC is not asked');
+  const held = devices(t, {
+    desktopActive: true,
+    holdMs: 150,
+    preferences: { 'phone-a': { holdWhileDesktopActive: true } },
+  });
+  held.notifier.onSessionState(update({ id: 'a1' }));
+  await settle();
+  assert.deepEqual(
+    held.native.map((push) => push.recipient),
+    ['phone-b'],
+    'the device that does not hold hears it at once'
+  );
+  assert.equal(held.checks(), 1, 'asked once per notification');
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert.deepEqual(
+    held.native.map((push) => push.recipient),
+    ['phone-b', 'phone-a'],
+    'the approval is still open after the hold: the held device hears it, the other not twice'
+  );
+  assert.deepEqual(held.posted, ['tab-1'], 'the browser was not held and hears it once');
+  assert.equal(held.checks(), 1, 'the PC is not asked again after the hold');
+});
+
+test('a held approval answered on this PC during the hold is never pushed', async (t) => {
+  const f = devices(t, { desktopActive: true, holdMs: 150, preferences: { 'phone-a': { holdWhileDesktopActive: true } } });
+  f.notifier.onSessionState(update({ id: 'a1' }));
+  await settle();
+  f.notifier.onSessionState(update(null));
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert.deepEqual(
+    f.native.map((push) => push.recipient),
+    ['phone-b']
+  );
+});
+
+test('a held finished turn goes out after the hold only while it is still unread', async (t) => {
+  const answer = { id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'done', text: 'Done.' };
+  const hold = { holdWhileDesktopActive: true };
+  const preferences = { 'phone-a': hold, 'phone-b': hold, 'tab-1': hold };
+  const run = async (readDuringHold) => {
+    const f = devices(t, { desktopActive: true, holdMs: 400, answer, preferences });
+    f.notifier.onSessions([{ id: 's1', title: 'Fix', working: true, messageCount: 2, readMessageCount: 2 }]);
+    f.notifier.onSessions([{ id: 's1', title: 'Fix', messageCount: 4, readMessageCount: 2 }]);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(f.native.length, 0, 'held while this PC is in use');
+    if (readDuringHold) f.notifier.onSessions([{ id: 's1', title: 'Fix', messageCount: 4, readMessageCount: 4 }]);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return f;
+  };
+  const unread = await run(false);
+  assert.deepEqual(unread.native.map((push) => push.recipient).sort(), ['phone-a', 'phone-b']);
+  assert.deepEqual(unread.posted, ['tab-1']);
+  const read = await run(true);
+  assert.equal(read.native.length, 0, 'read on this PC meanwhile');
+  assert.deepEqual(read.posted, []);
+});
+
+test('a failed turn pushes reason turn-failed, travelling to the relay as turn-finished', async (t) => {
+  const errors = { ...DEFAULT_NOTIFICATION_PREFERENCES.events, error: true };
+  const f = devices(t, {
+    preferences: { 'phone-a': { events: errors } },
+    answer: { id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'failed', text: '' },
+  });
+  f.notifier.onSessions([{ id: 's1', title: 'Deploy', working: true }]);
+  f.notifier.onSessions([{ id: 's1', title: 'Deploy' }]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.deepEqual(
+    f.native.map((push) => [push.recipient, push.outer, push.reason, push.body]),
+    [['phone-a', 'turn-finished', 'turn-failed', 'The turn stopped with an error.']]
+  );
+  assert.deepEqual(f.posted, [], 'errors are off for the others');
+});
+
+test('a webhook result reaches a device that is watching, like a schedule’s', async (t) => {
+  const f = devices(t, {
+    foreground: ['phone-a:hook', 'phone-b:hook', 'tab-1:hook'],
+    answer: { id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'done', text: 'Deployed.' },
+  });
+  f.notifier.onSessions([{ id: 'hook', title: 'Hook', sourceType: 'webhook', working: true }]);
+  f.notifier.onSessions([{ id: 'hook', title: 'Hook', sourceType: 'webhook' }]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(f.native.length, 2);
+  assert.deepEqual(f.posted, ['tab-1']);
+});
+
+test('a test push goes to that device alone, past its preferences', async (t) => {
+  const f = devices(t, { preferences: { 'phone-a': { scope: 'off' } } });
+  assert.deepEqual(await f.notifier.sendTest('phone-a'), { ok: true });
+  assert.deepEqual(
+    f.native.map((push) => [push.recipient, push.reason, push.body]),
+    [['phone-a', 'turn-finished', 'Notifications from this PC reach this device.']]
+  );
+  assert.deepEqual(await f.notifier.sendTest('tab-1'), { ok: true });
+  assert.deepEqual(f.posted, ['tab-1']);
+  const none = await f.notifier.sendTest('stranger');
+  assert.equal(none.ok, false);
+  assert.match(none.message, /not allowed notifications/);
 });
 
 test('an approval and an input wait on the same session are separate pushes', async (t) => {

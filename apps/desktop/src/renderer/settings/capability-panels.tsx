@@ -22,6 +22,7 @@ import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from '.
 import { DisplayPanel, GeneralPanel, WorkPanel } from './general-panel';
 import { SkinPanel } from './skin-panel';
 import { BotsPanel } from './desktop-pet-toggle';
+import { NotificationsPanel } from './notification-panel';
 
 import { ActionButton, AutoSaveRow, Group, ListEmpty, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import {
@@ -57,7 +58,8 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'context') return <ContextPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;
-  if (category === 'connection') return <ConnectionPanel api={context.api} />;
+  if (category === 'connection') return <ConnectionPanel api={context.api} openCategory={context.openCategory} />;
+  if (category === 'notifications') return <NotificationsPanel api={context.api} openCategory={context.openCategory} />;
   if (category === 'developer') return <DeveloperPanel {...context} />;
   if (category === 'about') return <AboutPanel />;
   if (category === 'display') return <DisplayPanel {...context} />;

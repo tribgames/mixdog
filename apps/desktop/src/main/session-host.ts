@@ -1,9 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import {
-  agentNotificationMutePath,
-  createAgentNotificationMuteStore,
-  type AgentNotificationMuteStore,
-} from './agent-notification-mute';
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalPath } from '../../../../src/runtime/shared/worktrees/paths.mjs';
@@ -849,28 +844,6 @@ export class SessionHost implements DesktopService {
 
   async openAgentHome(agentId: string): Promise<{ sessionId: string }> {
     return this.lifecycle.openAgentHome(agentId);
-  }
-
-  private notificationMuteStore: AgentNotificationMuteStore | null = null;
-  private get notificationMutes(): AgentNotificationMuteStore {
-    this.notificationMuteStore ??= createAgentNotificationMuteStore(
-      agentNotificationMutePath(this.options.userDataPath)
-    );
-    return this.notificationMuteStore;
-  }
-
-  /** Per-agent push mute (agent-notification-mute.ts): pushes only, in-app state untouched. */
-  async getAgentNotificationMute(agentId: string): Promise<boolean> {
-    return this.notificationMutes.isMuted(agentId);
-  }
-
-  async setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean> {
-    return this.notificationMutes.setMuted(agentId, muted);
-  }
-
-  /** Local (push notifier): whether the agent `sessionId` belongs to is muted. */
-  isSessionNotificationMuted(sessionId: string): boolean {
-    return this.notificationMutes.isSessionMuted(sessionId);
   }
 
   async resetAgentHome(agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }> {

@@ -88,6 +88,11 @@ export interface RemoteShimState {
   // socket is even open — and that registration used to replace this set: the
   // first sync named nothing and the transcript waited for a second one.
   restoredVisibleSessionIds: string[];
+  // The sessions this page actually paints (use-visible-sessions'
+  // useScreenSessions), apart from the delivery set above that also carries
+  // background observations. The desktop decides notification presence from
+  // it alone; every new leg is told again once it is ready.
+  lastScreenSessionIds: string[];
   // The set the latest synchronizeViews request named, in flight or complete.
   // Every connection opens with a new request, so a registration of this same
   // set is already being served and never needs another full sync.
@@ -400,6 +405,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     retireConnection: null,
     lastVisibleSessionIds,
     restoredVisibleSessionIds: [...lastVisibleSessionIds],
+    lastScreenSessionIds: [],
     requestedViewSyncKey: null,
     everConnected: false,
     everPaired,

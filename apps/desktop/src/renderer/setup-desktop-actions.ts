@@ -204,7 +204,6 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
       ![
         'keepAwake',
         'runInBackground',
-        'turnNotifications',
         'usagePinned',
         'usageRailShortLong',
         'usageAccountsExpanded',

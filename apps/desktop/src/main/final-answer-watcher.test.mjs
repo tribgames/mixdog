@@ -111,7 +111,8 @@ test('a schedule final answer keeps its origin and is delivered once', async (t)
   watcher.onSessions([session('scheduled', { sourceType: 'schedule' })]);
   await tick(2_500);
   assert.equal(delivered.length, 1);
-  assert.equal(delivered[0].sourceType, 'schedule');
+  assert.equal(delivered[0].conversation.origin, 'schedule');
+  assert.equal(delivered[0].event, 'finished');
   assert.equal(delivered[0].preview, 'Final answer scheduled');
   watcher.onSessions([session('scheduled', { sourceType: 'schedule' })]);
   await tick(5_000);
@@ -193,14 +194,23 @@ test('a late read from a previous turn cannot notify after another turn starts a
   );
 });
 
-test('failed, cancelled and deleted sessions never substitute an older assistant answer', async (t) => {
-  const { watcher, delivered, answers, tick } = harness(t);
+test('a failed turn is an error notification with no answer text; a cancelled one is silent', async (t) => {
+  const { watcher, delivered, answers, diagnostics, tick } = harness(t);
   for (const status of ['failed', 'cancelled']) {
     answers.read = async () => ({ id: status, at: Date.now(), status, text: '' });
     watcher.onSessions([session('a', { working: true })]);
     watcher.onSessions([session('a')]);
     await tick(2_500);
   }
+  assert.deepEqual(
+    delivered.map((row) => [row.sessionId, row.event, row.preview]),
+    [['a', 'error', '']]
+  );
+  assert.ok(diagnostics.some(([event, id, reason]) => event === 'suppressed' && id === 'a' && reason === 'cancelled'));
+});
+
+test('a deleted session never substitutes an older assistant answer', async (t) => {
+  const { watcher, delivered, answers, tick } = harness(t);
   answers.read = async () => null;
   watcher.onSessions([session('a', { working: true })]);
   watcher.onSessions([session('a')]);

@@ -27,6 +27,29 @@ test('capability calls are named by their allow-listed capabilities, never by ar
   assert.equal(remoteCallStatName('listProjects', []), 'listProjects');
 });
 
+test('setScreenSessions records the sessions a leg paints, apart from its delivery set', async () => {
+  const sent = [];
+  const client = {
+    pendingFrames: 0,
+    visibleSessionIds: new Set(['s1', 's2']),
+    callQueue: { run: (_method, task) => task() },
+  };
+  const dispatch = createRelayClientCallDispatch({
+    host: {},
+    methods: {},
+    attached: () => true,
+    live: () => true,
+    sendEncryptedFrame: async (_clientId, frame) => sent.push(frame),
+    acknowledgePaintProbe: () => null,
+    resyncClient() {},
+    recordCall() {},
+  });
+  await dispatch('client-1', client, { method: 'setScreenSessions', params: [['s1', 'not a session id!', 's1']] }, 10);
+  assert.deepEqual([...client.screenSessionIds], ['s1']);
+  assert.deepEqual([...client.visibleSessionIds], ['s1', 's2'], 'the delivery set is untouched');
+  assert.deepEqual(sent, [], 'a fire-and-forget report is not answered');
+});
+
 test('the per-minute call record carries the capability name', async () => {
   const recorded = [];
   const client = { pendingFrames: 0, callQueue: { run: (_method, task) => task() } };

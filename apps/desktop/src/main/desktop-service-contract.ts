@@ -129,12 +129,6 @@ export interface DesktopService {
     id: string,
     decision: ToolApprovalDecision
   ): boolean | Promise<boolean>;
-  /** Per-agent push mute: every phone/desktop push of that agent is silenced;
-   *  unread counts, attention marks and held-request cards are untouched. */
-  getAgentNotificationMute(agentId: string): Promise<boolean>;
-  setAgentNotificationMute(agentId: string, muted: boolean): Promise<boolean>;
-  /** In-process only (the relay's push notifier); not an RPC method. */
-  isSessionNotificationMuted?(sessionId: string): boolean;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
   /** Optional sessionId targets a pane; omitted routes through the control
    *  session for settings that are not owned by a conversation. */
@@ -207,8 +201,6 @@ export const DESKTOP_SERVICE_METHODS = [
   'submitToSession',
   'abortSession',
   'resolveToolApprovalForSession',
-  'getAgentNotificationMute',
-  'setAgentNotificationMute',
   'listProviderModels',
   'setModelRoute',
   'setFast',

@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { DESKTOP_CAPABILITIES, DESKTOP_IPC, DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
 import { registerSessionIpc } from './ipc-sessions.ts';
+import { registerNotificationIpc } from './ipc-notifications.ts';
 import { createRemoteMethods, createSelectedFileGrants } from './remote-methods.ts';
 import { remoteFilePreviewTestHooks } from './remote-file-preview.ts';
 import { sensitivePolicy } from './remote-sensitive-paths.ts';
@@ -179,6 +180,67 @@ test('openAgentHome resolves the same home thread on the desktop and a paired de
     await assert.rejects(async () => remote([bad]));
   }
   assert.equal(calls.length, 2);
+});
+
+test('notification settings reach the same service operations from this PC and a paired device', async () => {
+  const { host, operations } = operationHost();
+  const handlers = new Map();
+  const pcTests = [];
+  registerNotificationIpc({
+    handle: (channel, listener) => handlers.set(channel, listener),
+    invokeDesktopOperation: host.invokeDesktopOperation,
+    notifications: {
+      isSupported: () => true,
+      sendTest: () => {
+        pcTests.push('pc');
+        return { ok: true };
+      },
+    },
+  });
+  const desktop = (channel, ...args) => handlers.get(DESKTOP_IPC[channel])({}, ...args);
+  const remote = createRemoteMethods({ host }, { credentialId: () => 'phone-1' });
+  const patch = { scope: 'bots', quietHours: { enabled: true, start: '22:00' } };
+  const target = { kind: 'agent', id: 'gh' };
+  const setting = { mode: 'muted', until: null };
+
+  await desktop('getNotificationPreferences');
+  await remote.getNotificationPreferences([]);
+  await desktop('setNotificationPreferences', 'phone-1', patch);
+  await remote.setNotificationPreferences(['pc', patch]);
+  await desktop('listConversationNotifications');
+  await remote.listConversationNotifications([]);
+  await desktop('setConversationNotification', target, setting);
+  await remote.setConversationNotification([target, setting]);
+  await desktop('sendTestNotification', 'phone-1');
+  await remote.sendTestNotification(['pc']);
+  assert.deepEqual(desktop('sendTestNotification', 'pc'), { ok: true }, 'this PC’s own test stays in its window');
+  assert.deepEqual(pcTests, ['pc']);
+  assert.deepEqual(operations, [
+    // The caller is the current device: this PC in its window, the paired client remotely.
+    ['notificationPreferencesState', ['pc', true]],
+    ['notificationPreferencesState', ['phone-1', null]],
+    ['setNotificationPreferences', ['pc', true, 'phone-1', patch]],
+    ['setNotificationPreferences', ['phone-1', null, 'pc', patch]],
+    ['listConversationNotifications', []],
+    ['listConversationNotifications', []],
+    ['setConversationNotification', [target, setting]],
+    ['setConversationNotification', [target, setting]],
+    ['sendTestNotification', ['phone-1']],
+    ['sendTestNotification', ['pc']],
+  ]);
+  // Both refuse a malformed write before it reaches the service.
+  for (const [channel, args] of [
+    ['setNotificationPreferences', ['pc', { scope: 'some' }]],
+    ['setNotificationPreferences', ['pc', { extra: true }]],
+    ['setNotificationPreferences', ['../x', {}]],
+    ['setConversationNotification', [{ kind: 'bot', id: 'gh' }, setting]],
+    ['setConversationNotification', [target, { mode: 'muted', until: 'later' }]],
+    ['sendTestNotification', [7]],
+  ]) {
+    assert.throws(() => desktop(channel, ...args));
+    assert.throws(() => remote[channel](args));
+  }
+  assert.equal(operations.length, 10);
 });
 
 test('resetAgentHome starts the same home thread over on the desktop and a paired device', async () => {

@@ -19,6 +19,12 @@ export function publishAgentRooms(sessions: readonly DesktopSessionSummary[]): v
   for (const listener of [...listeners]) listener();
 }
 
+/** A room's name by room id (not its log session), read now. */
+export function agentRoomName(roomId: string): string | undefined {
+  for (const room of rooms.values()) if (room.id === roomId) return room.name;
+  return undefined;
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

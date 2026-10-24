@@ -10,6 +10,13 @@ import type {
 } from '../../shared/contract';
 import type { Notification } from 'electron';
 import { createDesktopTurnNotifier } from '../desktop-turn-notifier';
+import {
+  allowsDeviceNotice,
+  decideNotification,
+  type NotificationConversation,
+  notificationConversationOf,
+  type NotificationPreferencesView,
+} from '../notification-decision';
 import type { SessionFinalAnswer } from '../session-final-answer';
 import { type SessionTitleLabels, sessionTitleLabel } from '../../shared/session-title.mjs';
 
@@ -29,8 +36,9 @@ export interface ServerNotifierSources {
 export interface ServerNotifierOptions {
   serverName: string;
   sources: ServerNotifierSources;
-  /** The user's notification setting (this PC's). */
-  isEnabled(): boolean;
+  /** This PC's notification preferences and the conversation overrides; a
+   *  server's sessions follow them like this PC's own. */
+  preferences(): NotificationPreferencesView;
   isSupported(): boolean;
   /** The server's window is visible and focused. */
   isForeground(): boolean;
@@ -111,7 +119,7 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
 
   // Final answers: the same completion rule as this PC's sessions.
   const turns = createDesktopTurnNotifier({
-    isEnabled: options.isEnabled,
+    preferences: options.preferences,
     isSupported: options.isSupported,
     isSessionOnScreen: options.isSessionOnScreen,
     createNotification: (content) => create({ ...content, title: label(content.title) }),
@@ -124,16 +132,28 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
 
   // Approvals: a session that STARTS waiting on a tool approval needs the user.
   const titles = new Map<string, string>();
+  const conversations = new Map<string, NotificationConversation>();
   const approvals = new Map<string, string>();
   const onSessionState = (update: DesktopSessionStateUpdate): void => {
     const sessionId = update.sessionId;
-    const approval = (update.snapshot as { toolApproval?: { id?: unknown } | null } | null)?.toolApproval;
+    const approval = (update.snapshot as { toolApproval?: { id?: unknown; kind?: unknown } | null } | null)
+      ?.toolApproval;
     const key = approval ? String(approval.id ?? 'pending') : null;
     const previous = approvals.get(sessionId) ?? null;
     if (key) approvals.set(sessionId, key);
     else approvals.delete(sessionId);
     if (!key || key === previous || update.frameSource === 'replay') return;
-    if (!options.isEnabled() || options.isForeground()) return;
+    const decision = decideNotification({
+      ...options.preferences(),
+      event: approval?.kind === 'question' ? 'question' : 'approval',
+      conversation: conversations.get(sessionId) ?? notificationConversationOf({ id: sessionId }),
+      now: Date.now(),
+      foreground: options.isSessionOnScreen(sessionId),
+    });
+    if (!decision.notify) {
+      options.diagnostic('server-approval-notification-suppressed', { sessionId, reason: decision.reason });
+      return;
+    }
     show(
       {
         title: label(sessionTitleLabel(titles.get(sessionId) || options.serverName, options.titleLabels?.())),
@@ -147,14 +167,16 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
   let lostTimer: unknown = null;
   let lostShown = false;
   let previous: DesktopConnectionLinkView['state']['status'] = 'connected';
-  const onLink = (view: DesktopConnectionLinkView): void => {
+  const noticeAllowed = (): boolean =>
+    !options.isForeground() && allowsDeviceNotice(options.preferences().preferences, Date.now());
+  const onLink =(view: DesktopConnectionLinkView): void => {
     const status = view.state.status;
     const was = previous;
     previous = status;
     if (status === 'connected') {
       if (lostTimer) cancel(lostTimer);
       lostTimer = null;
-      if (lostShown && options.isEnabled() && !options.isForeground()) {
+      if (lostShown && noticeAllowed()) {
         show({
           title: named(options.text.restoredTitle(), serverLabel),
           body: options.text.restoredBody(),
@@ -168,7 +190,7 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
     const terminal = view.state.status === 'lost' && view.state.terminal;
     const raise = (): void => {
       lostTimer = null;
-      if (!options.isEnabled() || options.isForeground()) return;
+      if (!noticeAllowed()) return;
       lostShown = true;
       show({
         title: named(options.text.lostTitle(), serverLabel),
@@ -181,7 +203,10 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
 
   const unsubscribers = [
     options.sources.subscribeSessions((sessions) => {
-      for (const session of sessions) titles.set(session.id, session.title || session.preview || options.serverName);
+      for (const session of sessions) {
+        titles.set(session.id, session.title || session.preview || options.serverName);
+        conversations.set(session.id, notificationConversationOf(session));
+      }
       turns.onSessions(sessions);
     }),
     options.sources.subscribeAgentPool(turns.onAgentPool),

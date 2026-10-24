@@ -64,6 +64,18 @@ import { modelProxyClientMode } from '../../../../src/runtime/shared/model-proxy
 import { registerAgentRoomHost } from '../../../../src/runtime/shared/agent-room-host.mjs';
 import { registerSessionSidebarHost } from '../../../../src/runtime/shared/session-sidebar-host.mjs';
 import { sessionSidebarChangeHandler } from './session-sidebar-actions';
+import { createNotificationCenter, type NotificationCenter, pairedDeviceInfo } from './notification-center';
+import { DESKTOP_ACTIVE_WINDOW_SECONDS } from './notification-decision';
+import {
+  createNotificationPreferencesStore,
+  legacyAgentMutePath,
+  notificationPreferencesPath,
+  readLegacyMutedAgents,
+} from './notification-preferences';
+import type { RelayNotificationDeps } from './remote-relay-session-wiring';
+
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 // Slightly under the relay's own claim TTL: a dialog left open must never
 // outlive the request it answers.
@@ -465,6 +477,8 @@ function createRelayLeg({
 }
 
 interface RemoteAccessInput {
+  /** Each paired device's notification preferences, for its pushes. */
+  notifications: RelayNotificationDeps;
   userDataPath: string;
   appVersion: SerializableDesktopServiceOptions['appVersion'];
   host: DesktopService;
@@ -513,6 +527,7 @@ async function createRemoteAccess(input: RemoteAccessInput) {
   };
   const remoteOptions = {
     host: input.host,
+    notifications: input.notifications,
     hostName: () => pcName,
     deviceAlias: devices.alias,
     appVersion: input.appVersion,
@@ -572,6 +587,15 @@ async function createRemoteAccess(input: RemoteAccessInput) {
     relay: leg.relay,
     start: leg.start,
     descriptor: remoteDescriptor,
+    /** This PC's name as paired devices see it. */
+    pcName: (): string => pcName,
+    /** The paired devices as Settings › Connection lists them: the relay's
+     *  list, or the last one seen while it cannot be asked. */
+    async clients(): Promise<DesktopRemoteClientInfo[]> {
+      const relay = leg.relay();
+      const listed = relay ? await relay.listClients().catch(() => null) : null;
+      return withAliases(listed ? await remembered(listed) : clientCache.list());
+    },
     async rotate() {
       await leg.rotate();
       return remoteDescriptor();
@@ -669,6 +693,24 @@ export async function createDesktopService({
   // member's relay of its reported work reach them through this host.
   const unregisterAgentRoomHost = registerAgentRoomHost(host.agentRoomHost());
   const settingsStore = operations.settingsStore;
+  // Notification preferences (issue #221). The first load migrates the removed
+  // `desktop.turnNotifications` setting and the old per-agent mute list.
+  const notificationPreferences = createNotificationPreferencesStore({
+    filePath: notificationPreferencesPath(options.userDataPath),
+    readLegacy: async () => ({
+      turnNotifications: record(record((await runtime.loadConfig()).readConfig()).desktop).turnNotifications !== false,
+      mutedAgents: readLegacyMutedAgents(legacyAgentMutePath(options.userDataPath)),
+    }),
+    // Open settings pages and lists here and on paired devices re-read.
+    onChange: () => publishDesktopEvent(SETTINGS_CHANGED_EVENT, { scope: 'notifications' }),
+  });
+  void notificationPreferences
+    .ready()
+    .catch((error: unknown) =>
+      console.error(`[mixdog-notifications] load failed: ${error instanceof Error ? error.message : String(error)}`)
+    );
+  // Remote methods reach it through the proxy below, which exists first.
+  let notificationCenter: NotificationCenter | null = null;
   // The configured orchestration default (a New Task's mode) is cached by every
   // client; its own narrow event, published only when the value changes, keeps
   // those caches current without waking any other settings reader.
@@ -684,7 +726,8 @@ export async function createDesktopService({
     get(target, property) {
       if (property === 'deleteSession') return deleteSessionWithUploads;
       if (property === 'invokeDesktopOperation') {
-        return (name: string, args: unknown[] = []) => operations.invoke(name, args);
+        return (name: string, args: unknown[] = []) =>
+          notificationCenter?.handles(name) ? notificationCenter.invoke(name, args) : operations.invoke(name, args);
       }
       if (property === 'subscribeDesktopEvents') {
         return (listener: (event: { name: string; value: unknown }) => void) => {
@@ -706,7 +749,26 @@ export async function createDesktopService({
   const modelProxy = modelProxyClientMode() ? getModelProxyChannel() : null;
   const detachModelProxy =
     modelProxy?.attachPublisher((snapshot) => publishDesktopEvent(MODEL_PROXY_REQUEST_EVENT, snapshot)) ?? null;
+  // This PC's OS notifications live in the window process: asked there, and
+  // answered as unsupported / not in use when no window answers in time.
+  const notificationStatus = async (): Promise<{ supported: boolean; idleSeconds: number | null }> => {
+    const status = record(await browserRemoteRequests.request('notificationStatus', [], 3_000).catch(() => null));
+    const idle = Number(status.idleSeconds);
+    return { supported: status.supported === true, idleSeconds: Number.isFinite(idle) ? idle : null };
+  };
   const remote = await createRemoteAccess({
+    notifications: {
+      preferences: notificationPreferences,
+      desktopActive: async () => {
+        const { idleSeconds } = await notificationStatus();
+        return idleSeconds !== null && idleSeconds < DESKTOP_ACTIVE_WINDOW_SECONDS;
+      },
+      // `remote` exists by the time a push is decided.
+      pairedClient: async (clientId) => {
+        const client = (await remote.clients()).find((entry) => entry.id === clientId);
+        return client ? pairedDeviceInfo(client) : null;
+      },
+    },
     userDataPath: options.userDataPath,
     appVersion: options.appVersion,
     host: remoteHost,
@@ -719,10 +781,34 @@ export async function createDesktopService({
     emit,
     publishDesktopEvent,
   });
+  const notifications = createNotificationCenter({
+    store: notificationPreferences,
+    pcName: remote.pcName,
+    listClients: () => remote.clients(),
+    pushRegistrations: async () => (await remote.relay()?.pushRegistrations()) ?? new Set<string>(),
+    pcSupported: async () => (await notificationStatus()).supported,
+    sendPcTest: async () => {
+      const result = record(
+        await browserRemoteRequests.request('notificationTest', [], 5_000).catch(() => ({
+          ok: false,
+          message: 'The Mixdog window on this PC did not answer.',
+        }))
+      );
+      return { ok: result.ok === true, ...(typeof result.message === 'string' ? { message: result.message } : {}) };
+    },
+    sendDeviceTest: async (clientId) => {
+      const relay = remote.relay();
+      return relay
+        ? relay.sendTestNotification(clientId)
+        : { ok: false, message: 'This PC is not connected to the relay, so paired devices cannot be reached.' };
+    },
+  });
+  notificationCenter = notifications;
   const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
   const stateSync = createDesktopServiceStateSync({ host, emit });
   const invokeServiceOperation = async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
     if (modelProxy?.handlesOperation(operation)) return modelProxy.handleOperation(operation, operationArgs);
+    if (notifications.handles(operation)) return notifications.invoke(operation, operationArgs);
     switch (operation) {
       case 'remoteAccessStart':
         await remote.start();

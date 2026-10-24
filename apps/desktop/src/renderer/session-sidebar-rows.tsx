@@ -18,6 +18,7 @@ import { RoomMemberFace } from './agent-room-parts';
 import { useArchivedBotIdentities } from './archived-bot-identity';
 import { SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';
 import { t } from './i18n';
+import { NotificationMuteMark } from './notification-controls';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 import type { usePersistedListOrder } from './use-persisted-list-order';
@@ -438,6 +439,7 @@ const SessionRow = React.memo(function SessionRow({
             {forkExpanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
           </span>
         )}
+        <NotificationMuteMark target={{ kind: 'session', id: session.id }} />
         <span className="session-row-status" data-working={working || undefined}>
           <SessionRowStatusIcon status={attention} name={label} />
         </span>

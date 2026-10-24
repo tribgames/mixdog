@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { DESKTOP_IPC } from '../../shared/contract.ts';
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '../../shared/contract-notifications.ts';
 import {
   ConnectionLink,
   LINK_FAILURE_LIMIT,
@@ -509,7 +510,7 @@ test('a server window notifies on this PC: labeled final answers, approvals, lin
       subscribeLink: (listener) => subscribeTo(listeners.link, listener),
       readFinalAnswer: async () => null,
     },
-    isEnabled: () => true,
+    preferences: () => ({ preferences: DEFAULT_NOTIFICATION_PREFERENCES, overrides: [] }),
     isSupported: () => true,
     isForeground: () => foreground,
     isSessionOnScreen: () => foreground,
@@ -577,6 +578,50 @@ test('a server window notifies on this PC: labeled final answers, approvals, lin
   notifier.dispose();
 });
 
+test('a focused server window showing session A still notifies an approval in session B', () => {
+  const listeners = { sessions: new Set(), agents: new Set(), states: new Set(), link: new Set() };
+  const shown = [];
+  const notifier = createServerNotifier({
+    serverName: 'Box',
+    sources: {
+      subscribeSessions: (listener) => subscribeTo(listeners.sessions, listener),
+      subscribeAgentPool: (listener) => subscribeTo(listeners.agents, listener),
+      subscribeSessionStates: (listener) => subscribeTo(listeners.states, listener),
+      subscribeLink: (listener) => subscribeTo(listeners.link, listener),
+      readFinalAnswer: async () => null,
+    },
+    preferences: () => ({ preferences: DEFAULT_NOTIFICATION_PREFERENCES, overrides: [] }),
+    isSupported: () => true,
+    isForeground: () => true,
+    isSessionOnScreen: (sessionId) => sessionId === 'a',
+    createNotification: (content) => {
+      const notification = { content, on: () => notification, show: () => shown.push(content), close: () => {} };
+      return notification;
+    },
+    focus: () => {},
+    text: {
+      approvalWaiting: () => 'waiting',
+      lostTitle: () => '',
+      lostReconnecting: () => '',
+      lostStopped: () => '',
+      restoredTitle: () => '',
+      restoredBody: () => '',
+    },
+    diagnostic: () => {},
+  });
+  publishTo(listeners.sessions, [
+    { id: 'a', title: 'Shown' },
+    { id: 'b', title: 'Elsewhere' },
+  ]);
+  publishTo(listeners.states, { sessionId: 'a', snapshot: { toolApproval: { id: 'ap1' } }, frameSource: 'live' });
+  publishTo(listeners.states, { sessionId: 'b', snapshot: { toolApproval: { id: 'ap2' } }, frameSource: 'live' });
+  assert.deepEqual(
+    shown.map((content) => content.title),
+    ['Box · Elsewhere']
+  );
+  notifier.dispose();
+});
+
 test('a server approval for a session titled by attachments alone names its kind, not [Image]', () => {
   const listeners = { sessions: new Set(), agents: new Set(), states: new Set(), link: new Set() };
   const shown = [];
@@ -589,7 +634,7 @@ test('a server approval for a session titled by attachments alone names its kind
       subscribeLink: (listener) => subscribeTo(listeners.link, listener),
       readFinalAnswer: async () => null,
     },
-    isEnabled: () => true,
+    preferences: () => ({ preferences: DEFAULT_NOTIFICATION_PREFERENCES, overrides: [] }),
     isSupported: () => true,
     isForeground: () => false,
     isSessionOnScreen: () => false,
@@ -612,6 +657,70 @@ test('a server approval for a session titled by attachments alone names its kind
   publishTo(listeners.sessions, [{ id: 's1', title: '[Image]' }]);
   publishTo(listeners.states, { sessionId: 's1', snapshot: { toolApproval: { id: 'ap1' } }, frameSource: 'live' });
   assert.deepEqual(shown, [{ title: 'Box · 이미지', body: '도구가 승인을 기다리고 있습니다.' }]);
+  notifier.dispose();
+});
+
+test('a server window follows this PC’s preferences: a muted bot, approvals off, notifications off', () => {
+  const listeners = { sessions: new Set(), agents: new Set(), states: new Set(), link: new Set() };
+  const shown = [];
+  const diagnostics = [];
+  const view = { preferences: DEFAULT_NOTIFICATION_PREFERENCES, overrides: [] };
+  const notifier = createServerNotifier({
+    serverName: 'Box',
+    sources: {
+      subscribeSessions: (listener) => subscribeTo(listeners.sessions, listener),
+      subscribeAgentPool: (listener) => subscribeTo(listeners.agents, listener),
+      subscribeSessionStates: (listener) => subscribeTo(listeners.states, listener),
+      subscribeLink: (listener) => subscribeTo(listeners.link, listener),
+      readFinalAnswer: async () => null,
+    },
+    preferences: () => view,
+    isSupported: () => true,
+    isForeground: () => false,
+    isSessionOnScreen: () => false,
+    createNotification: (content) => {
+      const notification = { content, on: () => notification, show: () => shown.push(content), close: () => {} };
+      return notification;
+    },
+    focus: () => {},
+    text: {
+      approvalWaiting: () => 'waiting',
+      lostTitle: () => 'lost',
+      lostReconnecting: () => '',
+      lostStopped: () => '',
+      restoredTitle: () => '',
+      restoredBody: () => '',
+    },
+    diagnostic: (event, details) => diagnostics.push([event, details.sessionId, details.reason]),
+  });
+  publishTo(listeners.sessions, [
+    { id: 'home', title: 'Reviewer', agentHome: 'reviewer' },
+    { id: 'code', title: 'Fix' },
+  ]);
+  const ask = (sessionId, id) =>
+    publishTo(listeners.states, { sessionId, snapshot: { toolApproval: { id } }, frameSource: 'live' });
+  view.overrides = [{ target: { kind: 'agent', id: 'reviewer' }, setting: { mode: 'muted', until: null } }];
+  ask('home', 'a1');
+  ask('code', 'a2');
+  assert.deepEqual(
+    shown.map((content) => content.title),
+    ['Box · Fix']
+  );
+  view.preferences = {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, approval: false },
+  };
+  ask('code', 'a3');
+  view.preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, scope: 'off' };
+  publishTo(listeners.link, { connectionId: 'srv', state: { status: 'lost', terminal: true }, rttMs: null });
+  assert.equal(shown.length, 1);
+  assert.deepEqual(
+    diagnostics.filter(([event]) => event === 'server-approval-notification-suppressed'),
+    [
+      ['server-approval-notification-suppressed', 'home', 'muted'],
+      ['server-approval-notification-suppressed', 'code', 'event'],
+    ]
+  );
   notifier.dispose();
 });
 

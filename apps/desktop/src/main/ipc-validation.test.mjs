@@ -10,7 +10,72 @@ import {
   requiredSubmitOptions,
   requiredTextFileEncoding,
   requiredVisualizeTabCommand,
+  requiredConversationNotificationSetting,
+  requiredDesktopSettingKey,
+  requiredNotificationDeviceId,
+  requiredNotificationPreferencesPatch,
+  requiredNotificationTarget,
 } from './ipc-validation.ts';
+
+test('a notification preferences patch keeps only known fields with valid values', () => {
+  const patch = {
+    scope: 'bots',
+    events: { error: true },
+    automaticRuns: false,
+    quietHours: { enabled: true, start: '23:30', end: '07:00', days: 'weekdays', allowWaiting: true },
+    holdWhileDesktopActive: true,
+    taskbarFlash: false,
+  };
+  assert.deepEqual(requiredNotificationPreferencesPatch(patch), patch);
+  assert.deepEqual(requiredNotificationPreferencesPatch({}), {});
+  for (const bad of [
+    null,
+    [],
+    { scope: 'some' },
+    { events: { mentions: true } },
+    { events: { error: 'yes' } },
+    { quietHours: { start: '24:00' } },
+    { quietHours: { end: '7:00' } },
+    { quietHours: { days: 'sundays' } },
+    { quietHours: { snooze: true } },
+    { automaticRuns: 1 },
+    { volume: 3 },
+  ]) {
+    assert.throws(() => requiredNotificationPreferencesPatch(bad), TypeError, JSON.stringify(bad));
+  }
+});
+
+test('a conversation override names a session, bot or room and a mute end in epoch ms or none', () => {
+  assert.deepEqual(requiredNotificationTarget({ kind: 'room', id: 'r1' }), { kind: 'room', id: 'r1' });
+  for (const bad of [{ kind: 'bot', id: 'x' }, { kind: 'agent', id: '' }, { kind: 'agent', id: 'a/b' }, null]) {
+    assert.throws(() => requiredNotificationTarget(bad), TypeError);
+  }
+  assert.deepEqual(requiredConversationNotificationSetting({ mode: 'always' }), { mode: 'always' });
+  assert.deepEqual(requiredConversationNotificationSetting({ mode: 'inherit' }), { mode: 'inherit' });
+  assert.deepEqual(requiredConversationNotificationSetting({ mode: 'muted', until: null }), {
+    mode: 'muted',
+    until: null,
+  });
+  assert.deepEqual(requiredConversationNotificationSetting({ mode: 'muted', until: 1_800_000_000_000 }), {
+    mode: 'muted',
+    until: 1_800_000_000_000,
+  });
+  for (const bad of [
+    { mode: 'muted' },
+    { mode: 'muted', until: -1 },
+    { mode: 'muted', until: 1.5 },
+    { mode: 'always', until: null },
+    { mode: 'loud' },
+  ]) {
+    assert.throws(() => requiredConversationNotificationSetting(bad), TypeError, JSON.stringify(bad));
+  }
+  assert.equal(requiredNotificationDeviceId('pc'), 'pc');
+  assert.throws(() => requiredNotificationDeviceId(''), TypeError);
+});
+
+test('the removed turnNotifications desktop setting is refused', () => {
+  assert.throws(() => requiredDesktopSettingKey('turnNotifications'), /setting key/);
+});
 
 test('immediate resume validates its addressed session and turn at the desktop boundary', () => {
   const request = { capability: 'retryFailedTurn', sessionId: 'sess_retry', args: ['sess_retry', 'turn:u1'] };

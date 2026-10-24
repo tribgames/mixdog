@@ -1,13 +1,19 @@
 import type { Notification } from 'electron';
 import { createFinalAnswerWatcher } from './final-answer-watcher';
-import { shouldShowTurnNotification, type TurnCompletion } from './push-turn-events';
+import { decideNotification, type NotificationPreferencesView } from './notification-decision';
+import type { TurnCompletion } from './push-turn-events';
 import type { SessionFinalAnswer } from './session-final-answer';
 import { type SessionTitleLabels, sessionTitleLabel } from '../shared/session-title.mjs';
 
 type NativeNotification = Pick<Notification, 'on' | 'show' | 'close'>;
 
+/** The body of an error notification when the PC gives no words of its own. */
+export const TURN_FAILED_TEXT = 'The turn stopped with an error.';
+
 interface DesktopTurnNotifierOptions {
-  isEnabled(): boolean;
+  /** This PC's notification preferences and the conversation overrides,
+   *  read at each delivery (notification-preferences.ts). */
+  preferences(): NotificationPreferencesView;
   isSupported(): boolean;
   /** The focused, visible window is showing this very session. */
   isSessionOnScreen(sessionId: string): boolean;
@@ -16,8 +22,8 @@ interface DesktopTurnNotifierOptions {
   playSound?(): Promise<string>;
   openSession(sessionId: string): void;
   diagnostic(event: string, details: Record<string, unknown>): void;
-  /** A muted agent's sessions raise no notification (agent-notification-mute.ts). */
-  isSessionMuted?(sessionId: string): boolean;
+  /** The body of an error notification in this PC's language; English when absent. */
+  turnFailedText?(): string;
   /** This PC's words for an attachment-only session title (`[Image]` …);
    *  English when absent. */
   titleLabels?(): SessionTitleLabels;
@@ -38,19 +44,25 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
       report('suppressed', completion, { reason: 'unsupported' });
       return;
     }
-    if (!shouldShowTurnNotification(completion, options.isSessionOnScreen(completion.sessionId))) {
-      report('suppressed', completion, { reason: 'foreground-visible' });
-      return;
-    }
-    if (options.isSessionMuted?.(completion.sessionId)) {
-      report('suppressed', completion, { reason: 'agent-muted' });
+    const failed = completion.event === 'error';
+    const decision = decideNotification({
+      ...options.preferences(),
+      event: failed ? 'error' : 'finished',
+      conversation: completion.conversation,
+      now: Date.now(),
+      foreground: options.isSessionOnScreen(completion.sessionId),
+    });
+    if (!decision.notify) {
+      report('suppressed', completion, {
+        reason: decision.reason === 'foreground' ? 'foreground-visible' : decision.reason,
+      });
       return;
     }
     let notification: NativeNotification | undefined;
     try {
       notification = options.createNotification({
         title: sessionTitleLabel(completion.title, options.titleLabels?.()),
-        body: completion.preview,
+        body: failed ? options.turnFailedText?.() || TURN_FAILED_TEXT : completion.preview,
       });
       const current = notification;
       const release = () => {
@@ -60,7 +72,7 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
       let soundStarted = false;
       current.on('show', () => {
         report('os-show', completion);
-        if (soundStarted || !options.playSound || !options.isEnabled()) return;
+        if (soundStarted || !options.playSound) return;
         soundStarted = true;
         void options
           .playSound()
@@ -93,7 +105,8 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
   };
 
   const watcher = createFinalAnswerWatcher({
-    isEnabled: options.isEnabled,
+    // Whether to notify is decided at delivery, with the preferences of that moment.
+    isEnabled: () => true,
     readFinalAnswer: options.readFinalAnswer,
     onFinalAnswer: deliver,
     ...(options.agentName ? { agentName: options.agentName } : {}),
