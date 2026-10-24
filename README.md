@@ -26,6 +26,7 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
   <a href="https://github.com/tribgames/mixdog/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/tribgames/mixdog?style=flat-square"></a>
   <a href="https://www.npmjs.com/package/mixdog"><img alt="npm" src="https://img.shields.io/npm/v/mixdog?style=flat-square"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
+  <a href="https://github.com/sponsors/JYP8877"><img alt="GitHub Sponsors" src="https://img.shields.io/github/sponsors/JYP8877?style=flat-square&logo=githubsponsors&label=Sponsors"></a>
 </p>
 
 <p align="center">
@@ -173,6 +174,16 @@ the reference.
 Found a bug or missing a feature?
 [Open an issue](https://github.com/tribgames/mixdog/issues). If Mixdog saves
 you tokens, a star helps others find it.
+
+## Sponsor
+
+Mixdog is free and developed by one person. Sponsorship pays for development
+time and the model tokens used for testing:
+[github.com/sponsors/JYP8877](https://github.com/sponsors/JYP8877).
+
+### Supporters
+
+Your name here — [become a sponsor](https://github.com/sponsors/JYP8877).
 
 ## License
 

@@ -7,6 +7,7 @@ import { readGithubStarred, rememberGithubStarred } from './github-star-storage'
 
 const MIXDOG_REPO_URL = 'https://github.com/tribgames/mixdog';
 const MIXDOG_ISSUES_URL = 'https://github.com/tribgames/mixdog/issues';
+const MIXDOG_SPONSOR_URL = 'https://github.com/sponsors/JYP8877';
 type ChangelogDialogComponent = ComponentType<{ onClose(): void }>;
 
 export function AboutPanel() {
@@ -78,6 +79,12 @@ export function AboutPanel() {
             </ActionButton>
           </>
         }
+      />
+      <ResourceRow
+        title={t('Sponsor')}
+        className="settings-about-row"
+        description={t('Help make Mixdog better.')}
+        actions={<ActionButton onClick={() => open(MIXDOG_SPONSOR_URL)}>{`${t('Sponsor')} ↗`}</ActionButton>}
       />
       <ResourceRow
         title={t('Report an issue')}
