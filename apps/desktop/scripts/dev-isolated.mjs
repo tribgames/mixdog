@@ -484,12 +484,12 @@ export async function copyDevAuth(
   return copied;
 }
 
-/** A ready profile's config: onboarding and the getting-started guide done,
- *  on top of the kept dev profile's config (its model routes) when signed in.
- *  The source is only read. */
+/** A ready profile's config: onboarding and the getting-started guide done
+ *  (or, with skipOnboarding false, left to run), on top of the kept dev
+ *  profile's config (its model routes) when signed in. The source is only read. */
 export async function seedReadyConfig(
   dataDir,
-  { withRoutes = false, devDataDir = join(persistentDevProfileDir('default'), 'data') } = {}
+  { withRoutes = false, skipOnboarding = true, devDataDir = join(persistentDevProfileDir('default'), 'data') } = {}
 ) {
   if (withRoutes) {
     await assertDevFile(devTrustedRoot(resolve(devDataDir, '..')), join(devDataDir, 'mixdog-config.json'), {
@@ -499,6 +499,12 @@ export async function seedReadyConfig(
   const source = withRoutes ? await readJson(join(devDataDir, 'mixdog-config.json')) : null;
   const config = source && typeof source === 'object' ? source : {};
   const agent = config.agent && typeof config.agent === 'object' ? config.agent : {};
+  if (!skipOnboarding) {
+    const { onboarding: _done, ...rest } = agent;
+    config.agent = rest;
+    await writeFile(join(dataDir, 'mixdog-config.json'), JSON.stringify(config, null, 2));
+    return;
+  }
   config.agent = {
     ...agent,
     onboarding: {
@@ -613,7 +619,11 @@ export async function startInstance({
     const env = await instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, relay });
     const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir }) : [];
     if (copyAuth || skipOnboarding) {
-      await seedReadyConfig(env.MIXDOG_DATA_DIR, { withRoutes: copyAuth, devDataDir: join(devProfileDir, 'data') });
+      await seedReadyConfig(env.MIXDOG_DATA_DIR, {
+        withRoutes: copyAuth,
+        skipOnboarding,
+        devDataDir: join(devProfileDir, 'data'),
+      });
     }
     // Source checkouts prefer native/*/target/release over the pinned download;
     // never launch against a binary older than its sources.

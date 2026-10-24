@@ -189,6 +189,15 @@ test('a ready profile skips onboarding and the guide, and keeps the dev profile 
   assert.deepEqual(Object.keys(skipped), ['agent'], 'no routes without sign-ins');
   assert.deepEqual(Object.keys(skipped.agent), ['onboarding']);
   assert.equal(skipped.agent.onboarding.completed, true);
+
+  await writeFile(
+    join(devDataDir, 'mixdog-config.json'),
+    JSON.stringify({ agent: { ...devConfig.agent, onboarding: { completed: true } }, defaultsVersion: 3 })
+  );
+  await seedReadyConfig(dataDir, { withRoutes: true, skipOnboarding: false, devDataDir });
+  const firstRun = await read();
+  assert.equal(firstRun.agent.default, 'workflow-lead', 'copy-auth with onboarding keeps the routes');
+  assert.equal(firstRun.agent.onboarding, undefined, 'and leaves the first-run screens to run');
 });
 
 async function devProfile(root, { secrets = true } = {}) {
