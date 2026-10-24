@@ -1,7 +1,8 @@
 /**
- * Request parsing and target resolution for the agent `visualize` tool. Every
- * file target and capture output must stay inside the session's cwd after
- * symlinks resolve; web targets are http(s) only.
+ * Request parsing and target resolution for the agent `visualize` tool. A file
+ * target may live anywhere; it is rooted in the session's cwd when it resolves
+ * inside it, else in its own folder. Capture and export outputs must stay
+ * inside the session's cwd after symlinks resolve; web targets are http(s) only.
  */
 import { lstat, mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -77,13 +78,31 @@ export type VisualizeRequest =
 
 export type VisualizeTarget =
   | { kind: 'url'; target: string; url: string; label: string }
-  | { kind: VisualizePaneKind; target: string; path: string; label: string };
+  | {
+      kind: VisualizePaneKind;
+      target: string;
+      path: string;
+      label: string;
+      /** The folder (symlink-resolved) the file and its page assets must stay
+       *  inside: the cwd when the file resolves inside it, else its own folder. */
+      root: string;
+    };
 
-/** A target or output that resolves outside the session's cwd. */
+/** An output that resolves outside the session's cwd. */
 export class OutsideWorkingDirectoryError extends Error {
-  constructor(kind: 'target' | 'output', raw: string) {
-    super(`${kind} is outside the working directory: ${raw}`);
+  constructor(raw: string) {
+    super(`output is outside the working directory: ${raw}`);
     this.name = 'OutsideWorkingDirectoryError';
+  }
+}
+
+/** A file target that resolves outside every folder recorded for it (a
+ *  parent swapped for a link, or a reopen naming a file the session never
+ *  opened outside its working directory). */
+export class OutsideRecordedRootError extends Error {
+  constructor(raw: string) {
+    super(`target resolves outside the folder recorded for it: ${raw}`);
+    this.name = 'OutsideRecordedRootError';
   }
 }
 
@@ -276,8 +295,36 @@ export { visualizeKindForPath };
 
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 
-/** Resolve one `open` target: an http(s) URL, or an existing supported file
- *  inside `cwd` (symlinks included). */
+type FileTarget = Exclude<VisualizeTarget, { kind: 'url' }>;
+
+/** An existing supported file `raw` (relative paths from `cwd`, symlinks
+ *  resolved), rooted where `rootOf` says for its resolved path. */
+async function resolveFile(
+  cwd: string,
+  raw: string,
+  rootOf: (real: string) => Promise<string> | string
+): Promise<FileTarget> {
+  const requested = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw);
+  let real: string;
+  try {
+    real = await realpath(requested);
+  } catch {
+    throw new TargetNotFoundError(raw);
+  }
+  if (!(await stat(real)).isFile()) throw new Error(`target is not a file: ${raw}`);
+  const kind = visualizeKindForPath(real);
+  if (!kind) {
+    throw new Error(
+      `unsupported file type: ${raw} (supported: HTML, PDF, Word/Excel/PowerPoint/OpenDocument, images, audio, video, or an http(s) URL)`
+    );
+  }
+  return { kind, target: raw, path: real, label: basename(real), root: await rootOf(real) };
+}
+
+/** Resolve one target of the agent tool's `open` (the only caller that may
+ *  name any file): an http(s) URL, or an existing supported file anywhere
+ *  (relative paths from `cwd`, symlinks resolved), rooted in `cwd` when it
+ *  lies inside it, else in its own folder. */
 export async function resolveVisualizeTarget(cwd: string, raw: string): Promise<VisualizeTarget> {
   if (URL_SCHEME.test(raw)) {
     let url: URL;
@@ -291,29 +338,22 @@ export async function resolveVisualizeTarget(cwd: string, raw: string): Promise<
     }
     return { kind: 'url', target: raw, url: url.href, label: `${url.host}${url.pathname === '/' ? '' : url.pathname}` };
   }
-  const requested = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw);
-  if (!insidePath(cwd, requested)) throw new OutsideWorkingDirectoryError('target', raw);
-  let realCwd: string;
-  let real: string;
-  try {
-    realCwd = await realpath(cwd);
-  } catch {
-    throw new Error(`working directory not found: ${cwd}`);
-  }
-  try {
-    real = await realpath(requested);
-  } catch {
-    throw new TargetNotFoundError(raw);
-  }
-  if (!insidePath(realCwd, real)) throw new OutsideWorkingDirectoryError('target', raw);
-  if (!(await stat(real)).isFile()) throw new Error(`target is not a file: ${raw}`);
-  const kind = visualizeKindForPath(real);
-  if (!kind) {
-    throw new Error(
-      `unsupported file type: ${raw} (supported: HTML, PDF, Word/Excel/PowerPoint/OpenDocument, images, audio, video, or an http(s) URL)`
-    );
-  }
-  return { kind, target: raw, path: real, label: basename(real) };
+  return resolveFile(cwd, raw, async (real) => {
+    const realCwd = await realpath(cwd).catch(() => null);
+    return realCwd && insidePath(realCwd, real) ? realCwd : dirname(real);
+  });
+}
+
+/** Resolve a file target for anything but the agent's `open` (a reload, a
+ *  restore, a reopen from the panel or a paired device): it must resolve
+ *  inside one of `roots` (resolved folders already recorded for it), which
+ *  becomes its root. No other folder is ever authorized here. */
+export async function resolveTargetWithin(cwd: string, raw: string, roots: readonly string[]): Promise<FileTarget> {
+  return resolveFile(cwd, raw, (real) => {
+    const root = roots.find((candidate) => insidePath(candidate, real));
+    if (!root) throw new OutsideRecordedRootError(raw);
+    return root;
+  });
 }
 
 /** Resolve a `capture` output: a `.png` path inside `cwd`, with its folder
@@ -329,22 +369,22 @@ export async function resolveCaptureOutput(cwd: string, raw: string): Promise<st
 export async function resolveProjectOutput(cwd: string, raw: string): Promise<string> {
   const requested = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw);
   if (!insidePath(cwd, requested) || requested === resolve(cwd)) {
-    throw new OutsideWorkingDirectoryError('output', raw);
+    throw new OutsideWorkingDirectoryError(raw);
   }
   const realCwd = await realpath(cwd);
   // Lexically inside cwd and cwd exists, so this stops at cwd at the latest.
   let ancestor = dirname(requested);
   while (!(await lstat(ancestor).catch(() => null))) ancestor = dirname(ancestor);
-  if (!insidePath(realCwd, await realpath(ancestor))) throw new OutsideWorkingDirectoryError('output', raw);
+  if (!insidePath(realCwd, await realpath(ancestor))) throw new OutsideWorkingDirectoryError(raw);
   await mkdir(dirname(requested), { recursive: true });
   const parent = await realpath(dirname(requested));
-  if (!insidePath(realCwd, parent)) throw new OutsideWorkingDirectoryError('output', raw);
+  if (!insidePath(realCwd, parent)) throw new OutsideWorkingDirectoryError(raw);
   const file = resolve(parent, basename(requested));
   const existing = await lstat(file).catch(() => null);
   if (existing) {
     if (existing.isDirectory()) throw new Error(`output is a directory: ${raw}`);
     if (existing.isSymbolicLink() && !insidePath(realCwd, await realpath(file))) {
-      throw new OutsideWorkingDirectoryError('output', raw);
+      throw new OutsideWorkingDirectoryError(raw);
     }
   }
   return file;

@@ -287,7 +287,7 @@ export function useViewportPresetConfigurator(webviewRef: GuestRef, desktopApi: 
 export function useRequestedAddress(
   webviewRef: GuestRef,
   sessionId: string,
-  navigate: (url: string, newTab?: boolean) => boolean
+  navigate: (url: string, newTab?: boolean, requestId?: string) => boolean
 ) {
   const binding = useRef<ReturnType<typeof bindRequestedAddress> | null>(null);
   useEffect(() => {

@@ -205,6 +205,7 @@ export function createDesktopVisualize(options: {
   window(): BrowserWindow | null;
   invokeDesktopOperation(method: string, args: unknown[]): Promise<unknown>;
   browserAvailable(): boolean;
+  watchBrowserTab?(sessionId: string, requestId: string): { page: Promise<string | null>; cancel(): void } | undefined;
   /** Mirror every change to the daemon for paired remote clients. */
   publishRemote?(event: VisualizeHostEvent): void;
   /** Whether a paired remote device is showing this session's visualize tabs. */
@@ -278,6 +279,7 @@ export function createDesktopVisualize(options: {
     ...(options.sessionCwd ? { sessionCwd: options.sessionCwd } : {}),
     windowAvailable: () => liveWindow() !== null,
     browserAvailable: options.browserAvailable,
+    watchBrowserTab: options.watchBrowserTab,
     publish(event: DesktopVisualizeEvent) {
       const contents = liveWindow()?.webContents;
       if (!contents) return;
@@ -286,8 +288,8 @@ export function createDesktopVisualize(options: {
     },
     publishHost: options.publishRemote,
     prepareInlinePage: (content) => inlinePageUrl(content, liveWindow()?.webContents, observePageProblems),
-    preparePane: (target, workingDirectory) =>
-      panePreviewUrl(target, workingDirectory, {
+    preparePane: (target) =>
+      panePreviewUrl(target, {
         contents: () => liveWindow()?.webContents,
         observe: observePageProblems,
         convertDocument: (cwd, rel) => options.invokeDesktopOperation('documentPreviewIn', [cwd, rel]),

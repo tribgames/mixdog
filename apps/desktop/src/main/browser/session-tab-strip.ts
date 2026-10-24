@@ -25,6 +25,9 @@ export function createBrowserSessionTabStrip(options: {
   };
   pageId: (guest: WebContents) => string;
   retainGuest: (guest: WebContents) => void;
+  /** A new tab's page, once the strip made it the session's current page;
+   *  `requestId` names the request that asked for it (none for a user's "+"). */
+  onCreate?: (sessionId: string, pageId: string, requestId?: string) => void;
 }): SessionTabStrip {
   const { tabs, currentGuest, lifecycle } = options;
   return {
@@ -47,12 +50,15 @@ export function createBrowserSessionTabStrip(options: {
         options.retainGuest(guest);
       }
     },
-    create: (sessionId) => {
+    create: (sessionId, requestId) => {
       options.agentFollow?.pause(sessionId);
       tabs.createDisplayTab(sessionId);
       // "+" may reuse the blank stand-in page: it is the user's tab from now on.
       const guest = currentGuest(sessionId);
-      if (guest) lifecycle.claimPage(sessionId, guest);
+      if (guest) {
+        lifecycle.claimPage(sessionId, guest);
+        options.onCreate?.(sessionId, options.pageId(guest), requestId);
+      }
     },
     close: (sessionId, tabId) => tabs.closeDisplayTab(sessionId, tabId),
     isReplacement: (sessionId, tabId) => {

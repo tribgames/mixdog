@@ -7,7 +7,7 @@ import type { VisualizeProblem } from '../../shared/visualize';
 import { blockedNetworkMessage, isOutsideNetworkUrl } from '../../shared/visualize-network-policy';
 import type { VisualizeServiceContext } from './context';
 import { buildProblem, classifyConsole, leasePrefixOf, type PageConsoleReport, recordProblem } from './page-problems';
-import { displayedPanes, realCwdOfTab, type TabState } from './tab-state';
+import { displayedPanes, problemRootsOf, type TabState } from './tab-state';
 
 /** A page counts as settled after this long without a new problem. */
 const PROBLEM_QUIET_MS = 400;
@@ -19,13 +19,6 @@ export interface PaneOfTab {
   index: number;
   version?: number;
 }
-
-/** The tab's cwd as given and as resolved: both are stripped from problem
- *  text (an unreadable cwd only as given). */
-const rootsOf = (tab: TabState): string[] => {
-  const real = realCwdOfTab(tab);
-  return real === tab.cwd ? [tab.cwd] : [tab.cwd, real];
-};
 
 /** The tab and HTML pane whose page-server lease any of `urls` belongs to,
  *  among the panes the tab displays (a kept version's, compare layout
@@ -56,7 +49,7 @@ export function createProblemTracker(ctx: Pick<VisualizeServiceContext, 'session
     draft: { kind: VisualizeProblem['kind']; message: string; source: string; line: number }
   ) => {
     const { sessionId, tab, index, version } = found;
-    const next = recordProblem(tab.problems, buildProblem({ ...draft, pane: index, version }, rootsOf(tab)));
+    const next = recordProblem(tab.problems, buildProblem({ ...draft, pane: index, version }, problemRootsOf(tab)));
     tab.problems = next.list;
     tab.problemSeq += 1;
     if (next.added) publish(sessionId);

@@ -50,7 +50,11 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
       };
     }
     case 'new-tab':
-      return { type: input.type, documentId };
+      return {
+        type: input.type,
+        documentId,
+        ...(input.requestId === undefined ? {} : { requestId: text('requestId', 100) }),
+      };
     case 'select-tab':
     case 'close-tab': {
       const tabId = text('tabId', 80);

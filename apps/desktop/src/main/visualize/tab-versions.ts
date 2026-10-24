@@ -3,8 +3,6 @@
  * its files, the page assets a restore would overwrite, and dropping them.
  * Showing a version is `version-select.ts`; restoring one `version-restore.ts`.
  */
-import { realpath } from 'node:fs/promises';
-
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 import { VersionHistoryFullError, versionChanges } from './versions';
@@ -36,7 +34,7 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
   const recordVersion = async (sessionId: string, tab: TabState, label?: string): Promise<void> => {
     if (!versions || tab.inline) return;
     try {
-      await versions.snapshot(sessionId, tab.id, tab.cwd, tab.targets, label);
+      await versions.snapshot(sessionId, tab.id, tab.targets, label);
       tab.historyFull = false;
     } catch (error) {
       // The tab keeps working live; its version list stays as it was.
@@ -53,10 +51,9 @@ export function createTabVersions(ctx: Pick<VisualizeServiceContext, 'versions' 
     try {
       const changes = await versionChanges(
         version,
-        await realpath(tab.cwd),
         tab.targets.map((target) => target.path)
       );
-      return changes.filter((change) => change.asset).map((change) => change.rel);
+      return changes.filter((change) => change.asset).map((change) => change.name);
     } catch {
       // Unlisted: a restore then refuses any changed asset until listed.
       return [];

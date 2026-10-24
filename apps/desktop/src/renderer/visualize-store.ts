@@ -219,7 +219,13 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
   }
   const sessionId = String(event?.sessionId || '');
   if (!sessionId) return;
-  if (event.openUrl) requestBrowserPage(sessionId, event.openUrl, { newTab: true, agent: true });
+  if (event.openUrl) {
+    requestBrowserPage(sessionId, event.openUrl, {
+      newTab: true,
+      agent: true,
+      ...(event.openRequestId ? { requestId: event.openRequestId } : {}),
+    });
+  }
   const state = event.state ? { ...event.state, sessionId } : undefined;
   if (event.held) {
     // Mid-turn: nothing in the panel opens, activates or reloads; a tab whose

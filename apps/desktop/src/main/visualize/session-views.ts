@@ -19,7 +19,6 @@ import { type HistoryEntry, historyId, historyItems, rememberHistory } from './h
 import { noteReveal } from './turn-hold';
 import {
   paneKindOf,
-  realCwdOfTab,
   remoteLabelOf,
   remoteTargetOf,
   type SessionState,
@@ -48,7 +47,8 @@ const liveHostPanes = (tab: TabState): VisualizeHostPane[] =>
         label: target.label,
         target: target.target,
         path: target.path,
-        remoteTarget: remoteTargetOf(realCwdOfTab(tab), target),
+        remoteTarget: remoteTargetOf(target),
+        root: target.root,
       }));
 
 /** The shown kept version's panes, served from its snapshot folder. */
@@ -56,13 +56,13 @@ function keptHostPanes(tab: TabState): VisualizeHostPane[] {
   const shown = tab.shown;
   if (!shown) return [];
   if (tab.inline) return shown.panes.map((pane) => inlineHost(pane, { version: shown.n }));
-  return shown.targets.map((target, pane) => ({
+  return shown.targets.map((target) => ({
     kind: target.kind,
     label: target.label,
     target: target.target,
     path: target.path,
-    remoteTarget: shown.rels[pane],
-    root: shown.dir,
+    remoteTarget: remoteTargetOf(target),
+    root: target.root,
     version: shown.n,
   }));
 }
@@ -124,7 +124,7 @@ export function createSessionViews(
       ? tab.panes.map((pane) => ({ target: pane.target, remoteTarget: pane.target }))
       : tab.targets.map((target) => ({
           target: target.target,
-          remoteTarget: remoteTargetOf(realCwdOfTab(tab), target),
+          remoteTarget: remoteTargetOf(target),
         }));
     const entry: HistoryEntry = {
       id: historyId(tab.key),

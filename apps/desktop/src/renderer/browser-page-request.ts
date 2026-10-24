@@ -13,7 +13,7 @@ type AddressListener = (url: string) => void;
 
 const revealListeners = new Set<RevealListener>();
 const addressListeners = new Map<string, Set<AddressListener>>();
-const pendingAddress = new Map<string, { url: string; newTab: boolean }>();
+const pendingAddress = new Map<string, { url: string; newTab: boolean; requestId?: string }>();
 
 /** True while a shell that can reveal a browser pane is mounted. A paired
  *  phone mounts one too: its pane streams the host's browser, so a requested
@@ -23,14 +23,19 @@ export function browserPageRequestsAvailable(): boolean {
 }
 
 /** `newTab` asks the pane to open the address in a freshly created tab
- *  instead of the current one. */
+ *  instead of the current one; `requestId` names that tab to the host (the
+ *  agent's open learns the page it made). */
 export function requestBrowserPage(
   sessionId: string,
   url: string,
-  options?: { newTab?: boolean; agent?: boolean }
+  options?: { newTab?: boolean; agent?: boolean; requestId?: string }
 ): void {
   if (!sessionId || !url) return;
-  pendingAddress.set(sessionId, { url, newTab: options?.newTab === true });
+  pendingAddress.set(sessionId, {
+    url,
+    newTab: options?.newTab === true,
+    ...(options?.requestId ? { requestId: options.requestId } : {}),
+  });
   const request: BrowserPageRequest = options?.agent ? { sessionId, url, agent: true } : { sessionId, url };
   for (const listener of revealListeners) listener(request);
   const listeners = addressListeners.get(sessionId);
@@ -147,7 +152,7 @@ type RequestedGuest = {
 export function bindRequestedAddress<G extends RequestedGuest>(
   sessionId: string,
   currentGuest: () => G | null,
-  navigate: (url: string, newTab?: boolean) => boolean
+  navigate: (url: string, newTab?: boolean, requestId?: string) => boolean
 ): { sync(): void; dispose(): void } {
   let attached: G | null = null;
   const guestReady = (guest: G) => {
@@ -162,7 +167,7 @@ export function bindRequestedAddress<G extends RequestedGuest>(
     const guest = currentGuest();
     if (!request || !guest || !guestReady(guest)) return;
     // Settle before navigating: a new-tab request must never run twice.
-    if (!navigate(request.url, request.newTab)) return;
+    if (!navigate(request.url, request.newTab, request.requestId)) return;
     if (pendingAddress.get(sessionId) === request) pendingAddress.delete(sessionId);
   };
   const sync = () => {

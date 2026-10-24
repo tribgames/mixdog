@@ -12,7 +12,8 @@ import type { DesktopBrowserTab, DesktopBrowserTabControlResult } from '../../sh
 export interface SessionTabStrip {
   list(sessionId: string): DesktopBrowserTab[];
   select(sessionId: string, tabId: string, follow?: SessionTabFollow): void;
-  create(sessionId: string): void;
+  /** `requestId`: the request (an agent's URL open) that asked for this tab. */
+  create(sessionId: string, requestId?: string): void;
   close(sessionId: string, tabId: string): void;
   isReplacement?(sessionId: string, tabId: string): boolean;
 }
@@ -22,7 +23,7 @@ export interface SessionTabStrip {
 export type SessionTabFollow = 'agent' | 'resume';
 
 type SessionTabControl =
-  | { type: 'new-tab' }
+  | { type: 'new-tab'; requestId?: string }
   | { type: 'select-tab'; tabId: string; follow?: SessionTabFollow }
   | { type: 'close-tab'; tabId: string };
 
@@ -40,7 +41,7 @@ export async function controlSessionTab(
   control: SessionTabControl
 ): Promise<DesktopBrowserTabControlResult | void> {
   if (!tabs) throw new Error('Browser tabs are unavailable.');
-  if (control.type === 'new-tab') tabs.create(sessionId);
+  if (control.type === 'new-tab') tabs.create(sessionId, control.requestId);
   else if (control.type === 'select-tab') tabs.select(sessionId, control.tabId, control.follow);
   else return closeSessionTab(tabs, sessionId, control.tabId);
 }

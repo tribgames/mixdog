@@ -193,9 +193,13 @@ test('a reload resolved against an older cwd never overwrites the cwd a reopen c
   const original = fsp.realpath;
   const held = [];
   let holding = false;
-  // Hold the reload's own cwd resolution until the reopen has committed.
+  // Hold the reload's own target resolution until the reopen has committed.
   fsp.realpath = function (path, ...rest) {
-    if (holding && String(path) === cwd && /realCwdOf/.test(new Error().stack ?? '')) {
+    if (
+      holding &&
+      String(path) === join(cwd, 'site', 'index.html') &&
+      /resolveTargetWithin/.test(new Error().stack ?? '')
+    ) {
       return new Promise((resolve, reject) =>
         held.push(() => original.call(this, path, ...rest).then(resolve, reject))
       );

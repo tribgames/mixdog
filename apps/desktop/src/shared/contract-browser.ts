@@ -229,7 +229,8 @@ export type DesktopBrowserPageAction =
       keepDefault?: boolean;
     }
   | { type: 'choose-files'; requestId: string; cancel?: boolean }
-  | { type: 'new-tab' }
+  /** `requestId`: the agent's open this tab is for; absent for a user's "+". */
+  | { type: 'new-tab'; requestId?: string }
   | { type: 'select-tab'; tabId: string; follow?: 'agent' | 'resume' }
   | { type: 'close-tab'; tabId: string }
   | { type: 'navigate'; url: string }

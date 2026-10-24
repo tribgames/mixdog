@@ -49,6 +49,7 @@ import { createBrowserHostPresentation } from './host-presentation';
 import { createBrowserLocalPageControl } from './local-page-control';
 import { reloadPageAfterSignIn } from './login-takeover';
 import type { BrowserNativeRect } from './native-view';
+import { createNewTabWaiters, type NewTabWatch } from './new-tab-waiters';
 import { reclaimIdleUserSessions } from './page-power';
 import { createBrowserProfileHostMethods } from './profile-host-methods';
 import type { BrowserSignedInSite } from './signed-in-sites';
@@ -109,6 +110,10 @@ export interface BrowserHost {
    *  `preview`: a page card asks; without a thumbnail, the page's own preview
    *  is read in the background and announced as a change. */
   browserPageIdentity(url: string, preview?: boolean): DesktopBrowserPageIdentity | null;
+  /** Wait for the pane to create the tab that request `requestId` asked for
+   *  (resolves with its agent-facing page id, `p…`). Call before asking the
+   *  pane, and send the same id with the request. */
+  watchNewTab(sessionId: string, requestId: string): NewTabWatch;
   /** Start/renew (options) or stop (null) streaming a session's live frames. */
   remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
   remoteBrowserControl(
@@ -172,7 +177,9 @@ export function createBrowserHost(
     sendToRenderer,
     beginViewportChange: (guest) => shown.pageSurface.beginViewportChange(guest),
   });
+  const newTabs = createNewTabWaiters();
   const shown = createBrowserHostPresentation({
+    onTabCreated: newTabs.created,
     window,
     base,
     lifecycle,
@@ -247,6 +254,7 @@ export function createBrowserHost(
       sendToRenderer,
       remoteTabs: shown.remoteTabs,
     }),
+    watchNewTab: newTabs.watch,
     openForTakeover: (sessionId) => lifecycle.requestBrowserSurface(sessionId, 'handoff'),
     reloadAfterSignIn: (sessionId) => {
       const guest = sessions.liveGuest(sessionId);
@@ -283,6 +291,16 @@ export function createBrowserHost(
       detach: (guest) => cdp.detach(guest),
       lifecycle,
     }),
+  };
+  // A released session or a disposed host never creates the tabs still asked for.
+  const { releaseSession, dispose } = browserHost;
+  browserHost.releaseSession = (sessionId, releaseOptions) => {
+    newTabs.cancelSession(sessionId);
+    releaseSession(sessionId, releaseOptions);
+  };
+  browserHost.dispose = () => {
+    newTabs.cancelAll();
+    return dispose();
   };
   return browserHost;
 }

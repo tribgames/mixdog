@@ -41,67 +41,75 @@ export const relOf = (root: string, path: string): string => relative(root, path
 
 export interface SnapshotSource {
   kind: string;
-  /** Symlink-resolved file inside the working directory. */
+  /** Symlink-resolved file inside `root`. */
   path: string;
+  /** The folder (symlink-resolved) the file and its page assets stay inside. */
+  root: string;
 }
 
 export interface CollectedSnapshot {
-  /** Each kept file by its cwd-relative path. */
+  /** The folders the kept files come from: distinct, in pane order. */
+  roots: string[];
+  /** Each kept file by its kept path (`keptPathOf`). */
   files: Map<string, Buffer>;
   panes: string[];
   assets: string[];
   bytes: number;
 }
 
+/** Where a file at `rel` in root `index` of `count` sits in a version folder:
+ *  at `rel` when the version has one root, else under the root's index. */
+export const keptPathOf = (count: number, index: number, rel: string): string => (count > 1 ? `${index}/${rel}` : rel);
+
 /** The files one version keeps, or null when a pane file does not fit
  *  `maxSnapshotBytes` (an asset that does not fit is left out). */
 export async function collectSnapshot(
-  cwd: string,
   sources: SnapshotSource[],
   maxSnapshotBytes: number
 ): Promise<CollectedSnapshot | null> {
-  const realCwd = await realpath(cwd);
+  const roots = [...new Set(sources.map((source) => source.root))];
+  const keptOf = (root: string, path: string) => keptPathOf(roots.length, roots.indexOf(root), relOf(root, path));
   const files = new Map<string, Buffer>();
   const panes: string[] = [];
   let bytes = 0;
   /** false when the file does not fit the remaining budget. */
-  const add = async (path: string): Promise<boolean> => {
-    const rel = relOf(realCwd, path);
-    if (files.has(rel)) return true;
+  const add = async (kept: string, path: string): Promise<boolean> => {
+    if (files.has(kept)) return true;
     const info = await stat(path);
     if (!info.isFile() || bytes + info.size > maxSnapshotBytes) return false;
     const data = await readFile(path);
     if (bytes + data.length > maxSnapshotBytes) return false;
     bytes += data.length;
-    files.set(rel, data);
+    files.set(kept, data);
     return true;
   };
-  for (const source of sources) {
-    if (!insidePath(realCwd, source.path)) throw new Error('a snapshot source is outside the working directory');
-    panes.push(relOf(realCwd, source.path));
-    if (!(await add(source.path))) return null;
-    if (source.kind !== 'html') continue;
-    const page = files.get(relOf(realCwd, source.path));
-    for (const reference of pageReferences(page?.toString('utf8') ?? '')) {
+  for (const { kind, path, root } of sources) {
+    if (!insidePath(root, path)) throw new Error('a snapshot source is outside its folder');
+    const kept = keptOf(root, path);
+    panes.push(kept);
+    if (!(await add(kept, path))) return null;
+    if (kind !== 'html') continue;
+    for (const reference of pageReferences(files.get(kept)?.toString('utf8') ?? '')) {
       let real: string;
       try {
-        real = await realpath(resolve(dirname(source.path), reference));
+        real = await realpath(resolve(dirname(path), reference));
       } catch {
         continue;
       }
-      // The page server's own asset policy: inside cwd, not hidden, a web type.
-      if (!insidePath(realCwd, real) || !pageAssetType(realCwd, real, dirname(source.path))) continue;
+      // The page server's own asset policy: inside the root, not hidden, a web type.
+      if (!insidePath(root, real) || !pageAssetType(root, real, dirname(path))) continue;
       // An asset that does not fit is left out; the page itself is kept.
-      await add(real).catch(() => false);
+      await add(keptOf(root, real), real).catch(() => false);
     }
   }
-  const assets = [...files.keys()].filter((rel) => !panes.includes(rel));
-  return { files, panes, assets, bytes };
+  const assets = [...files.keys()].filter((kept) => !panes.includes(kept));
+  return { roots, files, panes, assets, bytes };
 }
 
-/** The content identity of a snapshot: its pane order and every kept file. */
-export function snapshotHash(files: Map<string, Buffer>, panes: string[]): string {
-  const hash = createHash('sha256').update(panes.join('\0'));
+/** The content identity of a snapshot: where its files come from, its pane
+ *  order and every kept file. */
+export function snapshotHash({ roots, files, panes }: Omit<CollectedSnapshot, 'assets' | 'bytes'>): string {
+  const hash = createHash('sha256').update(`${roots.join('\0')}\0\0${panes.join('\0')}`);
   for (const rel of [...files.keys()].sort()) {
     hash.update(`\0${rel}\0`).update(
       createHash('sha256')

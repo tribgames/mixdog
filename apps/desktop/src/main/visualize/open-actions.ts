@@ -2,6 +2,7 @@
  * The agent's `open` (files, inline content or a web URL) and the panel's
  * reopen of a closed visual, validated exactly like an agent open.
  */
+import { randomUUID } from 'node:crypto';
 import { relative } from 'node:path';
 
 import type { VisualizeInlineContent } from '../../shared/visualize';
@@ -13,7 +14,6 @@ import {
   type FileTarget,
   inlineKey,
   problemsOf,
-  realCwdOf,
   sameInline,
   summary,
   type TabState,
@@ -22,7 +22,13 @@ import {
   view,
   withProblems,
 } from './tab-state';
-import { parseVisualizeRequest, resolveVisualizeTarget, type VisualizeRequest, type VisualizeTarget } from './targets';
+import {
+  insidePath,
+  parseVisualizeRequest,
+  resolveVisualizeTarget,
+  type VisualizeRequest,
+  type VisualizeTarget,
+} from './targets';
 import { heldTurn } from './turn-hold';
 import { shownVersionOf } from './version-thumbnails';
 
@@ -128,12 +134,11 @@ async function openInline(
   const held = heldTurn(ctx, sessionId) !== null;
   const state = sessionOf(sessionId);
   const key = inlineKey(content);
-  const [pane, realCwd] = await Promise.all([ctx.panes.inlinePaneFor(content), realCwdOf(cwd)]);
+  const pane = await ctx.panes.inlinePaneFor(content);
   let tab = state.tabs.find((candidate) => candidate.key === key);
   if (tab) {
     tab.label = request.label ?? tab.label;
     tab.cwd = cwd;
-    tab.realCwd = realCwd;
     tab.inline = content;
     tab.panes = [pane];
     tab.problems = [];
@@ -146,7 +151,6 @@ async function openInline(
       label: request.label ?? pane.label,
       key,
       cwd,
-      realCwd,
       revision: 0,
       inline: content,
       inlineHistory: [],
@@ -197,18 +201,28 @@ async function openInline(
 
 /** `open` of a web URL: handed to the session's browser panel; the tab
  *  only records it. */
-function openUrl(
+async function openUrl(
   ctx: Pick<OpenContext, 'deps' | 'sessionOf' | 'tabs'>,
   request: OpenRequest,
   target: Extract<VisualizeTarget, { kind: 'url' }>
-): VisualizeResult {
+): Promise<VisualizeResult> {
   const { deps, sessionOf } = ctx;
   const { sessionId, cwd } = request;
   if (!deps.browserAvailable()) {
     throw new Error('web URLs open in the browser panel, which needs the Browser Use feature installed');
   }
-  deps.publish({ sessionId, openUrl: target.url });
-  deps.publishHost?.({ sessionId, openUrl: target.url });
+  // The pane opens this URL in a new tab and names it with this id: the page
+  // that tab creates (not an older page at the same address, nor a tab the
+  // user opened) is the one the browser tool must drive.
+  const openRequestId = randomUUID();
+  const watch = deps.watchBrowserTab?.(sessionId, openRequestId);
+  try {
+    deps.publish({ sessionId, openUrl: target.url, openRequestId });
+    deps.publishHost?.({ sessionId, openUrl: target.url });
+  } catch (error) {
+    watch?.cancel();
+    throw error;
+  }
   const state = sessionOf(sessionId);
   let tab = state.tabs.find((candidate) => candidate.url === target.url);
   if (!tab) {
@@ -229,7 +243,14 @@ function openUrl(
     };
     ctx.tabs.addTab(sessionId, tab);
   }
-  return { text: `Opened ${target.url} in the session's browser panel (tab ${tab.id}).`, tabs: [summary(tab)] };
+  // The tab id only names this record: the browser tool's `v1` is the panel's
+  // first open page, often an older one. The page's own id (`p…`) is what
+  // the browser tool takes. Without a browser host nothing is awaited.
+  const pageId = (await watch?.page) ?? null;
+  const text = pageId
+    ? `Opened ${target.url} in the session's browser panel as page ${pageId}; pass tab:"${pageId}" to the browser tool.`
+    : `Opened ${target.url} in the session's browser panel; its page id (p…) is not known yet, so find it with the browser tool's list_tabs.`;
+  return { text, tabs: [summary(tab)] };
 }
 
 export function createOpenActions(ctx: OpenContext) {
@@ -252,8 +273,7 @@ export function createOpenActions(ctx: OpenContext) {
     }
     const files = targets as FileTarget[];
     const key = files.map((target) => target.path).join('\0');
-    const realCwd = await realCwdOf(cwd);
-    const panes = await ctx.panes.preparePanes(files, cwd, realCwd);
+    const panes = await ctx.panes.preparePanes(files);
     const state = sessionOf(sessionId);
     let tab = state.tabs.find((candidate) => candidate.key === key);
     const label = request.label ?? files.map((target) => target.label).join(' · ');
@@ -266,9 +286,8 @@ export function createOpenActions(ctx: OpenContext) {
     } else if (tab) {
       ctx.tabs.dispose(tab);
       tab.label = request.label ?? tab.label;
-      // cwd and realCwd always come from the same open, committed together.
+      // cwd and the targets' roots always come from the same open, committed together.
       tab.cwd = cwd;
-      tab.realCwd = realCwd;
       tab.loadedStamp = stamp;
       tab.targets = files;
       tab.panes = panes;
@@ -283,7 +302,6 @@ export function createOpenActions(ctx: OpenContext) {
         label,
         key,
         cwd,
-        realCwd,
         loadedStamp: stamp,
         revision: 0,
         targets: files,
@@ -315,7 +333,11 @@ export function createOpenActions(ctx: OpenContext) {
     ctx.publish(sessionId, tab.id);
     if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live files`);
     const shown = files
-      .map((target) => `${relative(cwd, target.path).replace(/\\/g, '/') || target.label} (${target.kind})`)
+      .map((target) => {
+        // A file outside the working directory is named by its full path.
+        const shown = insidePath(cwd, target.path) ? relative(cwd, target.path).replace(/\\/g, '/') : target.path;
+        return `${shown || target.label} (${target.kind})`;
+      })
       .join(', ');
     const placed = held ? heldPlacement(tab, shown) : await placement(deps, sessionId, tab, shown);
     // Give a fresh page a moment to load, so its first errors ride this result

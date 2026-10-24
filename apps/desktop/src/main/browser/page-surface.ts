@@ -60,7 +60,7 @@ export interface BrowserPageSurfaceHost {
   tabs?: {
     list(sessionId: string): DesktopBrowserTab[];
     select(sessionId: string, tabId: string, follow?: 'agent' | 'resume'): void;
-    create(sessionId: string): void;
+    create(sessionId: string, requestId?: string): void;
     close(sessionId: string, tabId: string): void;
   };
 }

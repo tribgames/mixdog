@@ -749,6 +749,7 @@ const visualize = createDesktopVisualize({
   window: () => mainWindow,
   invokeDesktopOperation: (method, args) => localService.invokeDesktopOperation(method, args),
   browserAvailable: () => browserFeatureInstalled,
+  watchBrowserTab: (sessionId, requestId) => browserHost?.watchNewTab(sessionId, requestId),
   // Paired remote clients: the daemon mirrors the tabs and serves pane bytes.
   publishRemote: (event) => {
     void localService.invokeDesktopOperation('visualizeRemotePublish', [event]).catch(() => {});

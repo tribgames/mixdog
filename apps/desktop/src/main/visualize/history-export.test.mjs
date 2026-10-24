@@ -613,7 +613,7 @@ test('export of a kept file version renders its snapshot, not the live file', as
   const watched = new Map();
   const { open, run, rendered, service } = exportSetup(cwd, {
     versions: { directory: join(root, `export-versions-${counter}`) },
-    preparePane: async (target, dir) => `fake://${dir}|${target.path}`,
+    preparePane: async (target) => `fake://${target.root}|${target.path}`,
     watch: (path, onChange) => {
       watched.set(path, onChange);
       return () => watched.delete(path);

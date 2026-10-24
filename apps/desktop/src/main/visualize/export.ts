@@ -70,10 +70,10 @@ async function ensureRealDirectories(
       info = await lstat(next);
     }
     if (info.isSymbolicLink() || !info.isDirectory()) {
-      throw new OutsideWorkingDirectoryError('output', shown);
+      throw new OutsideWorkingDirectoryError(shown);
     }
     const real = await realpath(next);
-    if (!insidePath(root, real)) throw new OutsideWorkingDirectoryError('output', shown);
+    if (!insidePath(root, real)) throw new OutsideWorkingDirectoryError(shown);
     current = real;
   }
   return current;

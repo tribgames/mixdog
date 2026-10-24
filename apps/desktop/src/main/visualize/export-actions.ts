@@ -14,6 +14,7 @@ import { MOCKUPS_DIRECTORY, mockupSlug, resolveExportOutput, saveInlineToProject
 import {
   displayedPanes,
   exportSummary,
+  problemRootsOf,
   problemsOf,
   shownLayout,
   type TabState,
@@ -24,6 +25,7 @@ import {
 import { noVersion } from './tab-versions';
 import type { VisualizeRequest } from './targets';
 import { heldTurn, offscreenTabPng } from './turn-hold';
+import { keptTargets } from './versions';
 
 type ExportRequest = Extract<VisualizeRequest, { action: 'export' }>;
 
@@ -59,11 +61,7 @@ export function createExportActions(
         version,
         list.map((candidate) => candidate.n)
       );
-    const targets = found.panes.map((rel, pane) => ({
-      ...tab.targets[pane],
-      path: join(found.dir, ...rel.split('/')),
-    }));
-    return ctx.panes.preparePanes(targets, found.dir);
+    return ctx.panes.preparePanes(keptTargets(found, tab.targets));
   }
 
   async function exportWork(request: ExportRequest, signal: AbortSignal, commit: () => void): Promise<VisualizeResult> {
@@ -83,7 +81,7 @@ export function createExportActions(
     if (page) {
       if (!deps.renderExport) throw new Error('exporting to a file is unavailable');
       ({ data, problems: problemLines } = await deps.renderExport(page, format, tab.allowNetwork === true, {
-        roots: [request.cwd, tab.cwd],
+        roots: [request.cwd, ...problemRootsOf(tab)],
         signal,
       }));
       how = 'rendered off screen: the tab did not need to be on screen';

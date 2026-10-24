@@ -555,6 +555,84 @@ test('pane reads stay inside cwd and inside the read caps', async () => {
   }
 });
 
+test('a live pane outside cwd is served from its own folder, never above it', async () => {
+  const { base, cwd, outside, cleanup } = workspace();
+  const design = join(outside, 'design');
+  mkdirSync(design, { recursive: true });
+  writeFileSync(join(design, 'mockup.html'), '<link rel="stylesheet" href="style.css"><h1>away</h1>');
+  writeFileSync(join(design, 'style.css'), 'h1{color:teal}');
+  const state = {
+    sessionId: 's1',
+    active: 'v1',
+    tabs: [
+      {
+        id: 'v1',
+        label: 'mockup',
+        remoteLabel: 'mockup',
+        revision: 0,
+        cwd,
+        panes: [{ ...pane('html', join(design, 'mockup.html')), root: design }],
+      },
+    ],
+  };
+  const methods = createRemoteVisualizeMethods({
+    mirror: createRemoteVisualizeMirror(),
+    hostRequest: async (method) => (method === 'visualizeState' ? [state] : null),
+    invokeDesktopOperation: async () => null,
+  });
+  const text = (range) => Buffer.from(range.data, 'base64').toString();
+  try {
+    const [remote] = await methods.visualizeState([]);
+    assert.equal(JSON.stringify(remote).includes(base), false, 'no host path reaches a client');
+    const meta = await methods.visualizePaneFile(['s1', 'v1', 0]);
+    assert.deepEqual([meta.kind, meta.rel], ['html', 'mockup.html']);
+    assert.match(text(await methods.visualizePaneRange(['s1', 'v1', 'mockup.html', 0, 100, 0])), /away/);
+    assert.equal(text(await methods.visualizePaneRange(['s1', 'v1', 'style.css', 0, 100, 0])), 'h1{color:teal}');
+    // Above the page's own folder (a sibling of it, or cwd) stays unreadable.
+    await assert.rejects(methods.visualizePaneRange(['s1', 'v1', '../a.png', 0, 4, 0]), /outside the project/);
+    await assert.rejects(
+      methods.visualizePaneRange(['s1', 'v1', join(cwd, 'chart.png'), 0, 4, 0]),
+      /outside the project/
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('a tab from a host that records no pane root is served under its cwd and gains nothing outside it', async () => {
+  const { cwd, outside, cleanup } = workspace();
+  const state = {
+    sessionId: 's1',
+    active: 'v1',
+    tabs: [
+      {
+        id: 'v1',
+        label: 'old',
+        remoteLabel: 'old',
+        revision: 0,
+        cwd,
+        // Written before panes carried a root: no `root` field at all.
+        panes: [pane('html', join(cwd, 'site', 'index.html')), pane('image', join(outside, 'a.png'))],
+      },
+    ],
+  };
+  const methods = createRemoteVisualizeMethods({
+    mirror: createRemoteVisualizeMirror(),
+    hostRequest: async (method) => (method === 'visualizeState' ? [state] : null),
+    invokeDesktopOperation: async () => null,
+  });
+  const text = (range) => Buffer.from(range.data, 'base64').toString();
+  try {
+    assert.equal((await methods.visualizePaneFile(['s1', 'v1', 0])).rel, 'site/index.html');
+    assert.equal(text(await methods.visualizePaneRange(['s1', 'v1', 'site/style.css', 0, 100, 0])), 'h1{}');
+    // A root-less pane outside cwd is not served: its root falls back to cwd.
+    await assert.rejects(methods.visualizePaneFile(['s1', 'v1', 1]), /outside the project/);
+    await assert.rejects(methods.visualizePaneRange(['s1', 'v1', '../outside/a.png', 0, 4, 0]), /outside the project/);
+  } finally {
+    cleanup();
+  }
+});
+
 test('visualize pushes reach only the clients reading the lane; web URLs use the browser handoff', (t) => {
   const broadcasts = [];
   let listener;

@@ -5,13 +5,13 @@ import { open as openFileHandle, realpath } from 'node:fs/promises';
 
 import { MAX_VISUALIZE_SOURCE_BYTES, type VisualizePaneText } from '../../shared/visualize';
 import type { FileTarget } from './tab-state';
-import { insidePath, OutsideWorkingDirectoryError } from './targets';
+import { insidePath } from './targets';
 
-/** The text of `target` as read now, when it still resolves inside `root`. */
-export async function readPaneSource(target: FileTarget, root: string): Promise<VisualizePaneText> {
+/** The text of `target` as read now, when it still resolves inside its root. */
+export async function readPaneSource(target: FileTarget): Promise<VisualizePaneText> {
   // Re-resolved on every read: a link swapped in must not leave the root.
-  const [file, realRoot] = await Promise.all([realpath(target.path), realpath(root)]);
-  if (!insidePath(realRoot, file)) throw new OutsideWorkingDirectoryError('target', target.target);
+  const [file, realRoot] = await Promise.all([realpath(target.path), realpath(target.root)]);
+  if (!insidePath(realRoot, file)) throw new Error(`target is outside its folder: ${target.target}`);
   const handle = await openFileHandle(file, 'r');
   try {
     const size = (await handle.stat()).size;

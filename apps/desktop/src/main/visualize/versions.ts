@@ -3,8 +3,10 @@
  * tab's pane files when their content changed (HTML pages together with the
  * local styles, scripts and media they reference, so an old version renders
  * as it was). Snapshots live under the app's data folder, never the project,
- * each file at its cwd-relative path inside the version's folder. Tabs do not
- * survive a restart, so the folder starts empty every run.
+ * each file at its path relative to its root (the cwd, or an outside page's
+ * own folder) inside the version's folder (under the root's index when the
+ * panes come from several roots). Tabs do not survive a restart, so the
+ * folder starts empty every run.
  */
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -24,11 +26,13 @@ export const MAX_SESSION_VERSION_BYTES = 128 * 1024 * 1024;
 export const MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 
 export interface VisualizeVersion extends VisualizeVersionView {
-  /** The version's folder (resolved); files sit at their cwd-relative paths. */
+  /** The version's folder (resolved); files sit at their kept paths. */
   dir: string;
-  /** Each pane file's cwd-relative path (`/`-separated), in pane order. */
+  /** The folders the kept files came from (resolved), in pane order. */
+  roots: string[];
+  /** Each pane file's kept path (`/`-separated), in pane order. */
   panes: string[];
-  /** The page assets kept with HTML panes (cwd-relative, `/`-separated). */
+  /** The kept paths of the page assets kept with HTML panes. */
   assets: string[];
   hash: string;
   bytes: number;
@@ -69,39 +73,86 @@ export class VersionHistoryFullError extends Error {
   }
 }
 
+/** Kept path `kept` of `version`: the folder it came from, its path there,
+ *  and the folder of the version that holds that root's files. */
+function keptLocation(
+  version: Pick<VisualizeVersion, 'dir' | 'roots'>,
+  kept: string
+): { root: string; rel: string; keptRoot: string } {
+  if (version.roots.length === 1) return { root: version.roots[0], rel: kept, keptRoot: version.dir };
+  const cut = kept.indexOf('/');
+  const index = kept.slice(0, cut);
+  return { root: version.roots[Number(index)], rel: kept.slice(cut + 1), keptRoot: join(version.dir, index) };
+}
+
+/** The root each pane of `version` was kept from, in pane order. */
+export const keptPaneRoots = (version: Pick<VisualizeVersion, 'dir' | 'roots' | 'panes'>): string[] =>
+  version.panes.map((kept) => keptLocation(version, kept).root);
+
+/** `live` (a tab's targets) as kept `version` shows them: each pane file in
+ *  the version's folder, rooted in the folder that holds its root's files. */
+export function keptTargets<T extends { path: string; root: string }>(
+  version: Pick<VisualizeVersion, 'dir' | 'roots' | 'panes'>,
+  live: T[]
+): T[] {
+  return version.panes.map((kept, pane) => {
+    const { rel, keptRoot } = keptLocation(version, kept);
+    return { ...live[pane], path: join(keptRoot, ...rel.split('/')), root: keptRoot };
+  });
+}
+
+/** The name each kept page asset of `version` is listed, confirmed and
+ *  restored by: its path in its root (`/`-separated), qualified with the
+ *  root's folder name only when another root keeps an asset at the same path.
+ *  Unique within the version (else the kept paths, which always are), so a
+ *  confirmation of one root's file never names another root's. */
+export function keptAssetNames(version: Pick<VisualizeVersion, 'dir' | 'roots' | 'assets'>): Map<string, string> {
+  const located = version.assets.map((kept) => ({ kept, ...keptLocation(version, kept) }));
+  const shared = (rel: string) => located.filter((other) => other.rel === rel).length > 1;
+  const names = located.map(({ rel, root }) => (shared(rel) ? `${rel} (${basename(root)})` : rel));
+  const unique = new Set(names).size === names.length;
+  return new Map(located.map(({ kept }, index) => [kept, unique ? names[index] : kept]));
+}
+
 /** One file a restore writes: the kept bytes and where they go. */
 export interface VisualizeRestoreChange {
-  /** cwd-relative, `/`-separated. */
-  rel: string;
+  /** What it is listed and confirmed by: an asset's `keptAssetNames` name, a
+   *  pane's path in its root. */
+  name: string;
   path: string;
+  /** The folder the write must stay inside. */
+  root: string;
   data: Buffer;
   /** A page asset kept with an HTML pane, not one of the tab's own panes. */
   asset: boolean;
 }
 
-/** The files of `version` that differ from the project's current ones (a
- *  missing file, or one resolving outside cwd, differs): page assets first,
- *  then each pane at `panePaths[i]`, its current resolved file. */
+/** The files of `version` that differ from the current ones (a missing file,
+ *  or one resolving outside its root, differs): page assets first, back in
+ *  the folder they were kept from, then each pane at `panePaths[i]`, its
+ *  current resolved file. Every destination is contained in the root the
+ *  version recorded for it when it was kept, never in a root found later. */
 export async function versionChanges(
   version: VisualizeVersion,
-  realCwd: string,
   panePaths: string[]
 ): Promise<VisualizeRestoreChange[]> {
+  const names = keptAssetNames(version);
   const entries = [
-    ...version.assets.map((rel) => ({ rel, kept: rel, path: join(realCwd, ...rel.split('/')), asset: true })),
-    ...version.panes.map((kept, index) => ({
-      rel: relOf(realCwd, panePaths[index]),
-      kept,
-      path: panePaths[index],
-      asset: false,
-    })),
+    ...version.assets.map((kept) => {
+      const { root, rel } = keptLocation(version, kept);
+      return { name: names.get(kept) ?? kept, kept, path: join(root, ...rel.split('/')), root, asset: true };
+    }),
+    ...version.panes.map((kept, index) => {
+      const { root } = keptLocation(version, kept);
+      return { name: relOf(root, panePaths[index]), kept, path: panePaths[index], root, asset: false };
+    }),
   ];
   const changes: VisualizeRestoreChange[] = [];
-  for (const entry of entries) {
-    const data = await readFile(join(version.dir, ...entry.kept.split('/')));
+  for (const { kept, ...entry } of entries) {
+    const data = await readFile(join(version.dir, ...kept.split('/')));
     const real = await realpath(entry.path).catch(() => null);
-    const current = real && insidePath(realCwd, real) ? await readFile(real).catch(() => null) : null;
-    if (!current?.equals(data)) changes.push({ rel: entry.rel, path: entry.path, data, asset: entry.asset });
+    const current = real && insidePath(entry.root, real) ? await readFile(real).catch(() => null) : null;
+    if (!current?.equals(data)) changes.push({ ...entry, data });
   }
   return changes;
 }
@@ -109,7 +160,7 @@ export async function versionChanges(
 const outsideError = (rel: string) => new Error(`${rel} is outside the working directory`);
 
 /** Where a restore may write `path` right now: its folder re-resolved inside
- *  `root` (the resolved cwd), and the file in it, which must not be a link
+ *  `root` (a resolved folder), and the file in it, which must not be a link
  *  (never followed) or anything but a file. */
 export async function restoreDestination(root: string, path: string): Promise<{ parent: string; file: string }> {
   const rel = relOf(root, path);
@@ -220,13 +271,12 @@ async function takeSnapshot(
   history: TabHistory,
   sessionId: string,
   tabId: string,
-  cwd: string,
   sources: SnapshotSource[],
   label: string | undefined
 ): Promise<VisualizeVersion | null> {
-  const collected = await collectSnapshot(cwd, sources, maxSnapshotBytes);
+  const collected = await collectSnapshot(sources, maxSnapshotBytes);
   if (!collected) return null;
-  const hash = snapshotHash(collected.files, collected.panes);
+  const hash = snapshotHash(collected);
   if (history.versions.at(-1)?.hash === hash) return null;
   if (sessionFloor(sessionId, tabId) + collected.bytes > maxSessionBytes) {
     throw new VersionHistoryFullError(maxSessionBytes);
@@ -255,6 +305,7 @@ async function takeSnapshot(
     at: Date.now(),
     ...(label ? { label } : {}),
     dir,
+    roots: collected.roots,
     panes: collected.panes,
     assets: collected.assets,
     hash,
@@ -321,12 +372,11 @@ export function createVisualizeVersionStore(
     snapshot(
       sessionId: string,
       tabId: string,
-      cwd: string,
       sources: SnapshotSource[],
       label?: string
     ): Promise<VisualizeVersion | null> {
       const history = historyIn(sessions, sessionId, tabId);
-      const run = () => takeSnapshot(snapshotEnv, history, sessionId, tabId, cwd, sources, label);
+      const run = () => takeSnapshot(snapshotEnv, history, sessionId, tabId, sources, label);
       const result = history.chain.then(run, run);
       history.chain = result.catch(() => {});
       return result;

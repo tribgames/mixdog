@@ -39,13 +39,13 @@ export function useBrowserNavigation(
   );
 
   const navigateRequested = useCallback(
-    (url: string, newTab?: boolean) => {
+    (url: string, newTab?: boolean, requestId?: string) => {
       const view = webviewRef.current;
       if (!newTab) return navigate(url);
       if (!view) return false;
       // The new tab becomes the shown page; load the address into it once created.
       view
-        .createTab()
+        .createTab(requestId)
         .then(() => {
           navigate(url);
         })

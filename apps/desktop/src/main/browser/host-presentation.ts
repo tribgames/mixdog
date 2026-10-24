@@ -47,7 +47,8 @@ function createBrowserHostTabs(
   state: BrowserGuestStateStore,
   lifecycle: Lifecycle,
   leave: Leave,
-  retainGuest: (guest: WebContents) => void
+  retainGuest: (guest: WebContents) => void,
+  onCreate?: (sessionId: string, pageId: string, requestId?: string) => void
 ) {
   const tabs = createBrowserTabs({
     visibleGuests: (sessionId) => sessions.visibleGuests(sessionId),
@@ -72,6 +73,7 @@ function createBrowserHostTabs(
     lifecycle,
     pageId: (guest) => state.pageId(guest),
     retainGuest,
+    onCreate,
   });
   return { tabs, sessionTabs };
 }
@@ -149,6 +151,8 @@ export function createBrowserHostPresentation(options: {
   lifecycle: Lifecycle;
   tools: Pick<Toolkit, 'emulation' | 'dispatchInput' | 'dialogs' | 'refActions'>;
   retainGuest: (guest: WebContents) => void;
+  /** A tab the session strip created, with its page id and the request that asked. */
+  onTabCreated?: (sessionId: string, pageId: string, requestId?: string) => void;
   chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
   publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
   publishRemoteTabs?: (tabs: DesktopRemoteBrowserTab[]) => Promise<void>;
@@ -175,7 +179,14 @@ export function createBrowserHostPresentation(options: {
   // session. Those pages are presented and guarded like the dialog page
   // itself; only a view in the dialog page's own session shows and answers it.
   const dialogOwner = (guest: WebContents): WebContents | null => state.dialogOwner(guest);
-  const { tabs, sessionTabs } = createBrowserHostTabs(sessions, state, lifecycle, leave, options.retainGuest);
+  const { tabs, sessionTabs } = createBrowserHostTabs(
+    sessions,
+    state,
+    lifecycle,
+    leave,
+    options.retainGuest,
+    options.onTabCreated
+  );
   // The prompts a person answers, at the pane and on a paired client alike.
   const prompts = createBrowserLocalPrompts({
     state,

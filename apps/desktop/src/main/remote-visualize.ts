@@ -2,7 +2,7 @@
 // owns the tabs and mirrors each change here with every pane's resolved file;
 // clients only ever see the path-free state. Pane bytes ride the encrypted RPC
 // lane in the same bounded ranges as remote file previews, addressed by tab
-// and working-directory-relative path, and every read re-checks containment.
+// and pane-root-relative path, and every read re-checks containment.
 import { realpath } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 
@@ -126,8 +126,9 @@ export type RemoteVisualizeMirror = ReturnType<typeof createRemoteVisualizeMirro
 
 const comparable = (path: string): string => (process.platform === 'win32' ? path.toLowerCase() : path);
 
-/** The folder a pane's file and page assets must stay inside: the tab's cwd,
- *  or a kept version's snapshot folder. */
+/** The folder a pane's file and page assets must stay inside: its root (the
+ *  cwd, an outside page's own folder, or a kept version's snapshot folder),
+ *  else the tab's cwd. */
 const rootOf = (tab: VisualizeHostTab, pane: VisualizeHostPane | undefined): string => pane?.root ?? tab.cwd;
 
 /** The file a remote read of `rawRel` may serve for `tab`, or a thrown error.
@@ -135,7 +136,7 @@ const rootOf = (tab: VisualizeHostTab, pane: VisualizeHostPane | undefined): str
  *  outside cwd fails closed); a tab's own panes are always servable, and an
  *  HTML tab also serves the page assets the local page server would. `rel`
  *  is relative to the root of pane `scope` (the live cwd when absent), and
- *  only that root's panes count. */
+ *  only that root's panes count (named as given or resolved). */
 async function servedFile(
   tab: VisualizeHostTab,
   rawRel: unknown,
@@ -149,7 +150,8 @@ async function servedFile(
   await assertNotSensitive(absolute);
   // Inline panes have no file (their content rides the state): never a page
   // whose folder could serve project assets.
-  const group = tab.panes.filter((candidate) => rootOf(tab, candidate) === rootDir && !candidate.inline);
+  const roots = new Set([comparable(rootDir), comparable(root)]);
+  const group = tab.panes.filter((candidate) => roots.has(comparable(rootOf(tab, candidate))) && !candidate.inline);
   const pane = group.find((candidate) => comparable(resolve(candidate.path)) === comparable(absolute));
   if (pane?.kind === 'document') {
     // The converted PDF lives in the app's conversion cache, outside cwd; its

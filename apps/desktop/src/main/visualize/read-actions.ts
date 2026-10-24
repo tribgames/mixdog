@@ -14,6 +14,7 @@ import { applyVisualizeAnnotationOp } from '../../shared/visualize-annotations';
 import {
   currentAnnotations,
   displayedPanes,
+  problemRootsOf,
   problemsOf,
   shownLayout,
   summary,
@@ -96,7 +97,10 @@ async function readPagesOffscreen(
   const answers: Array<{ pane: string; result: unknown }> = [];
   const problems: string[] = [];
   for (const pane of pages) {
-    const read = await deps.inspectOffscreen(pane, tab.allowNetwork === true, { ...options, roots: [cwd, tab.cwd] });
+    const read = await deps.inspectOffscreen(pane, tab.allowNetwork === true, {
+      ...options,
+      roots: [cwd, ...problemRootsOf(tab)],
+    });
     answers.push({ pane: pane.label, result: read.result });
     problems.push(...read.problems.map((line) => (pages.length > 1 ? `${pane.label}: ${line}` : line)));
   }
@@ -263,12 +267,9 @@ export function createReadActions(ctx: ReadContext) {
       if (!pane || tab.url) throw new Error(`tab ${tab.id} has no pane ${index}`);
       if (pane.inline) return { text: pane.inline.source, truncated: false };
       if (pane.kind !== 'html') throw new Error('only HTML pages and inline content have a source view');
-      const shown = tab.shown;
-      const live = tab.targets.map((target) => ({ target, root: tab.cwd }));
-      const old = shown?.targets.map((target) => ({ target, root: shown.dir })) ?? [];
-      const entry = shownLayout(tab, old, live)[index];
-      if (!entry) throw new Error(`tab ${tab.id} has no pane ${index}`);
-      return readPaneSource(entry.target, entry.root);
+      const target = shownLayout(tab, tab.shown?.targets ?? [], tab.targets)[index];
+      if (!target) throw new Error(`tab ${tab.id} has no pane ${index}`);
+      return readPaneSource(target);
     },
   };
 }

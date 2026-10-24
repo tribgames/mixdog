@@ -32,7 +32,8 @@ export interface BrowserPageElement extends HTMLDivElement {
   setZoomFactor(factor: number): void;
   getTabs(): DesktopBrowserTab[];
   getAgentPage(): { tabId: string; turn: number; paused: boolean } | undefined;
-  createTab(): Promise<DesktopBrowserTabControlResult | void>;
+  /** `requestId`: the open request this tab is for (see requestBrowserPage). */
+  createTab(requestId?: string): Promise<DesktopBrowserTabControlResult | void>;
   selectTab(tabId: string, follow?: 'agent' | 'resume'): Promise<DesktopBrowserTabControlResult | void>;
   closeTab(tabId: string): Promise<DesktopBrowserTabControlResult | void>;
 }
@@ -465,7 +466,7 @@ export function createBrowserPageClient(options: {
     node.setZoomFactor = (factor) => fire({ type: 'zoom', factor });
     node.getTabs = () => metadata?.tabs ?? [];
     node.getAgentPage = () => metadata?.agentPage;
-    node.createTab = () => control({ type: 'new-tab' });
+    node.createTab = (requestId) => control({ type: 'new-tab', ...(requestId ? { requestId } : {}) });
     node.selectTab = (tabId, follow) => control({ type: 'select-tab', tabId, ...(follow ? { follow } : {}) });
     node.closeTab = (tabId) => control({ type: 'close-tab', tabId });
     node.focus = focusInput;

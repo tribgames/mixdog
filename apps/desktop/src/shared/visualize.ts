@@ -180,8 +180,10 @@ export interface VisualizeTabView {
   /** The shown version sits beside the live files (panes interleave
    *  version, live, version, live…). */
   compare?: boolean;
-  /** While a kept version is shown: its kept page assets (cwd-relative) that
-   *  differ from the current files, which a restore also overwrites. */
+  /** While a kept version is shown: its kept page assets that differ from the
+   *  current files, which a restore also overwrites, each by its path in its
+   *  root (qualified with the root's folder name when two roots share it);
+   *  a restore's `assets` confirm exactly these names. */
   restoreAssets?: string[];
   /** The chat card's picture of the tab (see `visualizeThumbnail`); absent
    *  until one could be taken. */
@@ -271,6 +273,9 @@ export interface DesktopVisualizeEvent {
    *  then wait for the turn's end. */
   heldSince?: number;
   openUrl?: string;
+  /** With `openUrl`: names this request, so the browser tab the pane creates
+   *  for it reports back to the agent's open (and no other tab does). */
+  openRequestId?: string;
   zoom?: VisualizeZoomInput;
   point?: { x: number; y: number };
   /** Ctrl/Cmd went down (true) or up while a pane frame held focus, so the
@@ -334,11 +339,13 @@ export interface VisualizeHostPane {
   /** '' for an `inline` pane, which has no file. */
   path: string;
   inline?: VisualizeInlineContent;
-  /** What a remote client is told the target is: the cwd-relative path, or
-   *  the file name when it has none. Never the raw (possibly absolute) input. */
+  /** What a remote client is told the target is: the path relative to its
+   *  root, or the file name when it has none. Never the raw (possibly
+   *  absolute) input. */
   remoteTarget: string;
-  /** The folder this pane's file and page assets must stay inside, when not
-   *  the tab's cwd (a kept version's snapshot folder). */
+  /** The folder (resolved) this pane's file and page assets must stay inside:
+   *  the cwd, an outside page's own folder, or a kept version's snapshot
+   *  folder. Absent for inline panes (and from older hosts: the tab's cwd). */
   root?: string;
   version?: number;
   /** Inline panes: the render id a remote client's report must carry (signed
@@ -364,7 +371,7 @@ export interface VisualizeHostTab {
   versions?: VisualizeVersionView[];
   version?: number | null;
   compare?: boolean;
-  /** cwd-relative already. */
+  /** Root-relative names already (see `VisualizeTabView.restoreAssets`). */
   restoreAssets?: string[];
   /** A data URL (path-free). */
   thumbnail?: string;
@@ -407,7 +414,7 @@ export const REMOTE_VISUALIZE_LANE = 'visualize';
 export const REMOTE_PAGE_MAX_BYTES = 4 * 1024 * 1024;
 
 /** `visualizePaneFile`: what a remote pane loads (`rel` is relative to the
- *  tab's working directory; page assets resolve against it). */
+ *  pane's root; page assets resolve against it). */
 export interface VisualizeRemotePaneFile {
   kind: VisualizePaneKind;
   mime: string;

@@ -1,11 +1,11 @@
 /**
  * File tabs follow their files: each pane file is watched, a change reloads
- * the tab once writes go quiet (re-resolved inside cwd, snapshotted, published
+ * the tab once writes go quiet (re-resolved inside their recorded roots, snapshotted, published
  * as an in-place update), and an older load never overwrites a newer one.
  */
 import type { VisualizeServiceContext } from './context';
-import { type FileTarget, realCwdOf, type TabState } from './tab-state';
-import { isFileMissing, OutsideWorkingDirectoryError, resolveVisualizeTarget } from './targets';
+import type { FileTarget, TabState } from './tab-state';
+import { isFileMissing, OutsideRecordedRootError, resolveTargetWithin } from './targets';
 import { heldTurn } from './turn-hold';
 
 /** A file reloads once its writes have gone quiet this long. */
@@ -67,20 +67,19 @@ export function createReloads(
     const stamp = ctx.nextLoadStamp();
     const superseded = () => tab.cwd !== cwd || !loadIsCurrent(tab, stamp);
     try {
-      // Re-resolve from the original request every time: a parent folder
-      // swapped for a link must not carry the tab outside cwd.
-      const targets = (await Promise.all(
-        tab.targets.map((target) => resolveVisualizeTarget(cwd, target.target))
-      )) as FileTarget[];
-      const realCwd = await realCwdOf(cwd);
-      const panes = await ctx.panes.preparePanes(targets, cwd, realCwd);
+      // Re-resolve from the original request every time, inside the root
+      // recorded at open: a parent folder swapped for a link must not carry
+      // the tab (its page assets, versions or remote reads) anywhere else.
+      const targets: FileTarget[] = await Promise.all(
+        tab.targets.map((target) => resolveTargetWithin(cwd, target.target, [target.root]))
+      );
+      const panes = await ctx.panes.preparePanes(targets);
       if (!state.tabs.includes(tab) || superseded()) return;
       const moved = targets.some((target, index) => target.path !== tab.targets[index]?.path);
       // The files are back: a watch that died with their folder is armed again.
       const rearm = moved || tab.missing === true;
       tab.missing = false;
       tab.loadedStamp = stamp;
-      tab.realCwd = realCwd;
       tab.targets = targets;
       tab.panes = panes;
       ctx.leases.claimLeases(tab, panes);
@@ -97,7 +96,7 @@ export function createReloads(
     } catch (error) {
       // A newer open or reload already decided what the tab shows.
       if (superseded()) return;
-      if (error instanceof OutsideWorkingDirectoryError) {
+      if (error instanceof OutsideRecordedRootError) {
         // Fail closed: the tab stops showing anything from that path.
         console.warn('visualize tab closed:', error.message);
         ctx.tabs.closeTab(sessionId, tab.id);

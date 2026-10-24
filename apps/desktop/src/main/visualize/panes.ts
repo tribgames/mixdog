@@ -5,22 +5,21 @@
 import type { VisualizeInlineContent, VisualizePaneView } from '../../shared/visualize';
 import { inlineContentIsPage } from '../../shared/visualize-inline-page';
 import type { VisualizeServiceContext } from './context';
-import { type FileTarget, inlinePane, realCwdOf, remoteTargetOf } from './tab-state';
+import { type FileTarget, inlinePane, remoteTargetOf } from './tab-state';
 
 export function createPanes(ctx: Pick<VisualizeServiceContext, 'deps'>) {
   const { deps } = ctx;
   return {
-    /** `root` is `cwd` already resolved (`realCwdOf`), when the caller has it. */
-    async preparePanes(targets: FileTarget[], cwd: string, root?: string): Promise<VisualizePaneView[]> {
-      const real = root ?? (await realCwdOf(cwd));
+    /** Each target is served from its own root. */
+    async preparePanes(targets: FileTarget[]): Promise<VisualizePaneView[]> {
       return Promise.all(
         targets.map(async (target) => ({
           kind: target.kind,
           label: target.label,
           target: target.target,
-          url: await deps.preparePane(target, cwd),
+          url: await deps.preparePane(target),
           // What the user's panel feedback names: never a host path.
-          file: remoteTargetOf(real, target),
+          file: remoteTargetOf(target),
         }))
       );
     },

@@ -2,11 +2,10 @@
  * Showing a tab's kept version instead of (or beside) live: file tabs from
  * the version store's snapshot folder, inline tabs from memory.
  */
-import { join } from 'node:path';
-
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 import { noVersion } from './tab-versions';
+import { keptTargets } from './versions';
 
 /** Back to live. */
 export function showLive(tab: TabState, invalidate: (tab: TabState) => void): void {
@@ -40,7 +39,7 @@ export function createVersionSelection(
       if (version !== history.at(-1) || compare) {
         if (tab.shown?.n !== n) {
           const panes = [await ctx.panes.inlinePaneFor(version.content)];
-          tab.shown = { n, dir: '', rels: [], targets: [], panes, restoreAssets: [] };
+          tab.shown = { n, targets: [], panes, restoreAssets: [] };
           ctx.leases.claimLeases(tab, panes);
         }
         tab.compare = compare;
@@ -72,12 +71,9 @@ export function createVersionSelection(
         if (tab.shown?.n === n) {
           tab.shown.restoreAssets = restoreAssets;
         } else {
-          const targets = version.panes.map((rel, pane) => ({
-            ...tab.targets[pane],
-            path: join(version.dir, ...rel.split('/')),
-          }));
-          const panes = await ctx.panes.preparePanes(targets, version.dir);
-          tab.shown = { n, dir: version.dir, rels: version.panes, targets, panes, restoreAssets };
+          const targets = keptTargets(version, tab.targets);
+          const panes = await ctx.panes.preparePanes(targets);
+          tab.shown = { n, targets, panes, restoreAssets };
           ctx.leases.claimLeases(tab, panes);
         }
         tab.compare = compare;

@@ -35,3 +35,22 @@ test('selecting claims and retains the shown page; "+" claims without retaining'
   assert.equal(strip.isReplacement('s', 'p1'), true);
   assert.equal(strip.isReplacement('s', 'p2'), false);
 });
+
+test('a new tab reports its page with the request that asked; a "+" reports none', () => {
+  const reported = [];
+  const guest = { isDestroyed: () => false };
+  const strip = createBrowserSessionTabStrip({
+    tabs: { displayTabs: () => [], selectDisplayTab() {}, createDisplayTab() {}, closeDisplayTab() {} },
+    currentGuest: () => guest,
+    lifecycle: { claimPage() {}, replacementPage: () => null },
+    pageId: () => 'p4',
+    retainGuest() {},
+    onCreate: (...args) => reported.push(args),
+  });
+  strip.create('s', 'req-1');
+  strip.create('s');
+  assert.deepEqual(reported, [
+    ['s', 'p4', 'req-1'],
+    ['s', 'p4', undefined],
+  ]);
+});

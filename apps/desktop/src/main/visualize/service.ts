@@ -51,8 +51,9 @@ export type VisualizeScreenState = 'visible' | 'background' | 'covered' | 'hidde
 export interface VisualizeServiceDeps {
   /** False while no desktop window can show the panel. */
   windowAvailable(): boolean;
-  /** The URL a pane loads for this file (fresh after a change). */
-  preparePane(target: FileTarget, cwd: string): Promise<string>;
+  /** The URL a pane loads for this file (fresh after a change), its page
+   *  assets served from `target.root`. */
+  preparePane(target: FileTarget): Promise<string>;
   /** Push to the renderer: tab state, reveal requests, web URL hand-offs. */
   publish(event: DesktopVisualizeEvent): void;
   /** A scripted inline page (`chart` / `html` content): the URL of its
@@ -62,6 +63,12 @@ export interface VisualizeServiceDeps {
   publishHost?(event: VisualizeHostEvent): void;
   /** Throws when the browser panel cannot take a web URL. */
   browserAvailable(): boolean;
+  /** Start waiting for the browser tab the pane creates for the open request
+   *  `requestId` (the id the published `openUrl` event carries); its `page`
+   *  resolves with that tab's page id (`p…`), or null when the request got no
+   *  tab of its own in time. Absent (or undefined) when there is no browser
+   *  host. Call before handing the pane the URL. */
+  watchBrowserTab?(sessionId: string, requestId: string): { page: Promise<string | null>; cancel(): void } | undefined;
   /** Watch one file; returns the disposer. */
   watch(path: string, onChange: () => void): () => void;
   /** Show exactly `marks` (the tab's whole list, by displayed pane) in the

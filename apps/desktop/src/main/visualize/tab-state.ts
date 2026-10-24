@@ -4,7 +4,6 @@
  * summaries and notes, remote-safe paths and labels).
  */
 import { createHash } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
 import { basename, isAbsolute, relative, sep } from 'node:path';
 
 import type {
@@ -26,13 +25,11 @@ export type FileTarget = Exclude<VisualizeTarget, { kind: 'url' }>;
 /** A kept version on screen in place of (or beside) the live files. */
 export interface ShownVersion {
   n: number;
-  /** The version's snapshot folder; each pane file sits at `rels[i]` in it. */
-  dir: string;
-  rels: string[];
+  /** Each pane file in the version's snapshot folder, rooted in its kept folder. */
   targets: FileTarget[];
   panes: VisualizePaneView[];
-  /** Its kept page assets that differ from the current files (cwd-relative):
-   *  what the restore confirm lists. */
+  /** Its kept page assets that differ from the current files, by their
+   *  root-qualified names (`keptAssetNames`): what the restore confirm lists. */
   restoreAssets: string[];
 }
 
@@ -57,16 +54,15 @@ export interface TabState {
   /** Identity for reuse: the resolved targets in order. */
   key: string;
   cwd: string;
-  /** `cwd` with links resolved, read (asynchronously) whenever the tab's panes
-   *  are prepared: the display-only path math of a publish never touches the
-   *  file system. Containment checks re-resolve on their own. */
-  realCwd?: string;
-  /** Start order (`loadStamp`) of the open or reload whose files, `cwd` and
-   *  `realCwd` the tab holds: an older reload finishing late never overwrites them. */
+  /** Start order (`loadStamp`) of the open or reload whose files and `cwd`
+   *  the tab holds: an older reload finishing late never overwrites them. */
   loadedStamp?: number;
   revision: number;
   /** Web URL tabs live in the browser panel and carry no panes. */
   url?: string;
+  /** Each with the root (resolved when the target was) its page assets,
+   *  versions, restores and remote reads are contained in: the display-only
+   *  path math of a publish never touches the file system. */
   targets: FileTarget[];
   panes: VisualizePaneView[];
   unwatch: Array<() => void>;
@@ -150,12 +146,16 @@ export function exportSummary(tab: TabState, cwd: string): VisualizeTabSummary {
   if (tab.url) return base;
   return {
     ...base,
-    label: localizeProblemText(base.label, [cwd, tab.cwd]),
-    target: tab.inline
-      ? base.target
-      : tab.targets.map((target) => remoteTargetOf(realCwdOfTab(tab), target)).join(' | '),
+    label: localizeProblemText(base.label, [cwd, ...problemRootsOf(tab)]),
+    target: tab.inline ? base.target : tab.targets.map((target) => remoteTargetOf(target)).join(' | '),
   };
 }
+
+/** The host folders kept out of the tab's problem text: its cwd and the
+ *  roots of its live files. */
+export const problemRootsOf = (tab: TabState): string[] => [
+  ...new Set([tab.cwd, ...tab.targets.map((target) => target.root)]),
+];
 
 const INLINE_LABELS: Record<VisualizeInlineKind, string> = {
   mermaid: 'Mermaid diagram',
@@ -185,17 +185,11 @@ export const inlineKey = (content: VisualizeInlineContent): string =>
 export const sameInline = (a: VisualizeInlineContent, b: VisualizeInlineContent): boolean =>
   a.kind === b.kind && a.source === b.source && a.title === b.title;
 
-/** `cwd` with links resolved; an unreadable cwd stays as given. */
-export const realCwdOf = (cwd: string): Promise<string> => realpath(cwd).catch(() => cwd);
-
-/** The tab's resolved cwd as last read (`realCwdOf`), no file system access. */
-export const realCwdOfTab = (tab: TabState): string => tab.realCwd ?? tab.cwd;
-
-/** A target as a remote client may see it: relative to `root` (the cwd with
- *  links resolved, see `realCwdOf`), or the file name when it is not
- *  representable that way. Pure path math: called on every publish. */
-export function remoteTargetOf(root: string, target: FileTarget): string {
-  const rel = relative(root, target.path);
+/** A target as a remote client may see it: relative to its root, or the file
+ *  name when it is not representable that way. Pure path math: called on
+ *  every publish. */
+export function remoteTargetOf(target: FileTarget): string {
+  const rel = relative(target.root, target.path);
   if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return basename(target.path);
   return rel.split(sep).join('/');
 }

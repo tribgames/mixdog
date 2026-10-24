@@ -28,29 +28,29 @@ export async function inlinePageUrl(
   return localVirtualPageUrl(await inlinePageFiles(content), { owner: contents, authorize: authorizeOwned });
 }
 
-/** The preview URL of one pane file of `workingDirectory`. */
+/** The preview URL of one pane file, contained in its root (the cwd, an
+ *  outside page's own folder, or a kept version's folder). */
 export async function panePreviewUrl(
   target: PaneTarget,
-  workingDirectory: string,
   host: {
-    /** Read after the working directory resolves: the window may change meanwhile. */
+    /** Read after the root resolves: the window may change meanwhile. */
     contents(): WebContents | undefined;
     observe(contents: WebContents): void;
-    convertDocument(cwd: string, rel: string): Promise<unknown>;
+    convertDocument(root: string, rel: string): Promise<unknown>;
   }
 ): Promise<string> {
   // Targets arrive symlink-resolved; so must the root they are relative to.
-  const cwd = await realpath(workingDirectory);
-  const rel = relative(cwd, target.path).split(sep).join('/');
+  const root = await realpath(target.root);
+  const rel = relative(root, target.path).split(sep).join('/');
   if (target.kind === 'html') {
     const contents = host.contents();
     if (contents) host.observe(contents);
     // The project scope serves the page's own styles, scripts and media
-    // from the working directory; the lease dies with the window.
-    return localPageUrl(cwd, rel, { scope: 'project', owner: contents, authorize: authorizeOwned });
+    // from its root (never above it); the lease dies with the window.
+    return localPageUrl(root, rel, { scope: 'project', owner: contents, authorize: authorizeOwned });
   }
   if (target.kind === 'document') {
-    const converted = (await host.convertDocument(cwd, rel)) as {
+    const converted = (await host.convertDocument(root, rel)) as {
       path: string;
       mtimeMs: number;
       size: number;
@@ -61,8 +61,8 @@ export async function panePreviewUrl(
   }
   const info = await stat(target.path);
   // Rooted: every request re-resolves the file and refuses it once it no
-  // longer lies inside cwd.
-  const preview = registerFilePreview(target.path, `${info.mtimeMs}:${info.size}`, { root: cwd });
+  // longer lies inside its root.
+  const preview = registerFilePreview(target.path, `${info.mtimeMs}:${info.size}`, { root });
   if (!preview) throw new Error(`no in-app preview for ${target.target}`);
   return preview.url;
 }

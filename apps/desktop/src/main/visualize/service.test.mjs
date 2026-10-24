@@ -8,14 +8,19 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { filePreviewServable, registerFilePreview, resolveFilePreview } from '../file-preview.ts';
+import { createRemoteVisualizeMethods, createRemoteVisualizeMirror } from '../remote-visualize.ts';
+import { panePreviewUrl } from './host-pane-preview.ts';
 import { VisualizeBridgeServer } from './bridge-server.ts';
 import { createDesktopVisualize, REMOTE_ONLY_ANNOTATE } from './host.ts';
 import { createVisualizeService } from './service.ts';
@@ -128,7 +133,7 @@ test('requests are validated before anything runs', () => {
   assert.equal(parseVisualizeRequest({ sessionId: 's1', cwd, action: 'close' }).tab, undefined);
 });
 
-test('targets route by type and must stay inside cwd', async () => {
+test('targets route by type and may live anywhere, rooted in cwd or their own folder', async () => {
   const { root, cwd, cleanup } = workspace();
   try {
     assert.equal(visualizeKindForPath('a/page.HTM'), 'html');
@@ -145,15 +150,22 @@ test('targets route by type and must stay inside cwd', async () => {
     const web = await resolveVisualizeTarget(cwd, 'http://127.0.0.1:5173/app');
     assert.deepEqual([web.kind, web.url], ['url', 'http://127.0.0.1:5173/app']);
 
-    await assert.rejects(resolveVisualizeTarget(cwd, '../secret.html'), /outside the working directory/);
-    await assert.rejects(resolveVisualizeTarget(cwd, join(root, 'secret.html')), /outside the working directory/);
+    assert.equal((await resolveVisualizeTarget(cwd, 'site/index.html')).root, realpathSync(cwd));
+    // Outside cwd: opened all the same, rooted in the file's own folder.
+    for (const raw of ['../secret.html', join(root, 'secret.html')]) {
+      const outside = await resolveVisualizeTarget(cwd, raw);
+      assert.deepEqual(
+        [outside.kind, outside.path, outside.root],
+        ['html', realpathSync(join(root, 'secret.html')), realpathSync(root)]
+      );
+    }
     await assert.rejects(resolveVisualizeTarget(cwd, 'notes.txt'), /unsupported file type/);
     await assert.rejects(resolveVisualizeTarget(cwd, 'missing.html'), /not found/);
     await assert.rejects(resolveVisualizeTarget(cwd, 'site'), /not a file/);
     await assert.rejects(resolveVisualizeTarget(cwd, 'file:///etc/passwd'), /only http\(s\)/);
     await assert.rejects(resolveVisualizeTarget(cwd, 'ftp://example.com/x.html'), /only http\(s\)/);
 
-    // A link inside cwd that points outside it is refused after resolution.
+    // A link inside cwd that points outside it is rooted where it resolves.
     let linked = false;
     try {
       symlinkSync(join(root, 'secret.html'), join(cwd, 'link.html'));
@@ -161,7 +173,7 @@ test('targets route by type and must stay inside cwd', async () => {
     } catch {
       /* symlinks need privileges on some Windows hosts */
     }
-    if (linked) await assert.rejects(resolveVisualizeTarget(cwd, 'link.html'), /outside the working directory/);
+    if (linked) assert.equal((await resolveVisualizeTarget(cwd, 'link.html')).root, realpathSync(root));
 
     const output = await resolveCaptureOutput(cwd, 'shots/home.png');
     assert.equal(output, join(cwd, 'shots', 'home.png'));
@@ -311,7 +323,16 @@ test('web URLs go to the browser panel alone; failures are errors', async () => 
       input: { targets: ['http://localhost:3000/'] },
     });
     assert.equal(opened.tabs[0].kind, 'url');
-    assert.deepEqual(events.at(-1), { sessionId: 's1', openUrl: 'http://localhost:3000/' });
+    assert.deepEqual(events.at(-1), {
+      sessionId: 's1',
+      openUrl: 'http://localhost:3000/',
+      openRequestId: events.at(-1).openRequestId,
+    });
+    assert.ok(events.at(-1).openRequestId);
+    // No page exists yet in this fake panel: the result never offers the
+    // visualize id as a browser tab (the browser tool's `v1` is its first page).
+    assert.doesNotMatch(opened.text, /\(tab v1\)/);
+    assert.match(opened.text, /list_tabs/);
     await assert.rejects(
       service.execute({
         sessionId: 's1',
@@ -332,10 +353,178 @@ test('web URLs go to the browser panel alone; failures are errors', async () => 
     );
     // A failed file resolution leaves no tab behind.
     await assert.rejects(
-      service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['chart.png', '../secret.html'] } }),
-      /outside the working directory/
+      service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['chart.png', '../missing.html'] } }),
+      /target not found/
     );
     assert.equal(service.snapshot().length, 0);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a web URL open names the page its own new tab created, not an older page at the same address', async () => {
+  const { cwd, cleanup } = workspace();
+  const url = 'http://127.0.0.1:8765/index.html';
+  // The panel already shows p1 at this address; the open makes p2.
+  const { deps, watched, panel, serve } = fakePanelDeps({ pages: [{ id: 'p1', url }] });
+  const service = createVisualizeService(deps);
+  try {
+    const pending = opening(service, cwd, url);
+    await published(panel, 1);
+    serve(panel.published[0], 'p2');
+    const opened = await pending;
+    assert.equal(watched.length, 1, 'the watch starts before the pane is asked');
+    assert.equal(watched[0][1], panel.published[0].openRequestId, 'the watch and the pane share the request id');
+    assert.match(opened.text, /as page p2; pass tab:"p2" to the browser tool/);
+    assert.doesNotMatch(opened.text, /\bp1\b|\bv1\b/);
+    assert.equal(panel.pages.length, 2);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+// A tiny fake of the pane + host: a published `openUrl` event is queued, and
+// `serve(requestId, pageId)` plays the pane creating that request's tab.
+function fakePanelDeps({ pages = [] } = {}) {
+  const panel = { pages: [...pages], published: [] };
+  const watchers = new Map();
+  const watched = [];
+  const { deps } = fakeDeps({
+    watchBrowserTab(sessionId, requestId) {
+      watched.push([sessionId, requestId]);
+      let settle;
+      const page = new Promise((resolve) => {
+        settle = resolve;
+      });
+      watchers.set(requestId, settle);
+      return { page, cancel: () => settle(null) };
+    },
+    publish(event) {
+      if (event.openUrl) panel.published.push(event);
+    },
+  });
+  // Auto-serve every request in order unless the test takes over.
+  const serve = (event, pageId) => {
+    panel.pages.push({ id: pageId, url: event.openUrl });
+    watchers.get(event.openRequestId)?.(pageId);
+  };
+  const supersede = (event) => watchers.get(event.openRequestId)?.(null);
+  return { deps, watched, panel, serve, supersede };
+}
+
+const opening = (service, cwd, url) =>
+  service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: [url] } });
+const published = async (panel, count) => {
+  while (panel.published.length < count) await new Promise((resolve) => setImmediate(resolve));
+};
+
+test('a user "+" while a URL open waits does not answer it; the open gets its own tab', async () => {
+  const { cwd, cleanup } = workspace();
+  const url = 'http://127.0.0.1:8765/index.html';
+  const { deps, panel, serve } = fakePanelDeps();
+  const service = createVisualizeService(deps);
+  try {
+    const pending = opening(service, cwd, url);
+    await published(panel, 1);
+    assert.ok(panel.published[0].openRequestId, 'the pane is told which request the tab is for');
+    // The user's "+" makes p9 with no request id: it resolves nobody (the
+    // host ignores an unnamed tab), so the open is still waiting.
+    panel.pages.push({ id: 'p9', url: 'about:blank' });
+    let settled = false;
+    pending.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(settled, false);
+    serve(panel.published[0], 'p10');
+    assert.match((await pending).text, /as page p10;/);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('opens A then B coalesced by the pane: A gets the fallback, B its own page', async () => {
+  const { cwd, cleanup } = workspace();
+  const { deps, panel, serve, supersede } = fakePanelDeps();
+  const service = createVisualizeService(deps);
+  try {
+    const a = opening(service, cwd, 'http://127.0.0.1:8765/a.html');
+    await published(panel, 1);
+    const b = opening(service, cwd, 'http://127.0.0.1:8765/b.html');
+    await published(panel, 2);
+    assert.notEqual(panel.published[0].openRequestId, panel.published[1].openRequestId);
+    // The pane kept only B's address; the host settles A when B's tab appears.
+    supersede(panel.published[0]);
+    serve(panel.published[1], 'p3');
+    const [first, second] = await Promise.all([a, b]);
+    assert.match(first.text, /list_tabs/);
+    assert.doesNotMatch(first.text, /p3/);
+    assert.match(second.text, /as page p3;/);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('two concurrent URL opens that both get tabs each name their own page', async () => {
+  const { cwd, cleanup } = workspace();
+  const { deps, panel, serve } = fakePanelDeps();
+  const service = createVisualizeService(deps);
+  try {
+    const a = opening(service, cwd, 'http://127.0.0.1:8765/a.html');
+    const b = opening(service, cwd, 'http://127.0.0.1:8765/b.html');
+    await published(panel, 2);
+    serve(panel.published[1], 'p8');
+    serve(panel.published[0], 'p7');
+    const [first, second] = await Promise.all([a, b]);
+    assert.match(first.text, /as page p7;/);
+    assert.match(second.text, /as page p8;/);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a web URL open without a browser host answers at once with the list_tabs fallback', async () => {
+  const { cwd, cleanup } = workspace();
+  const { deps } = fakeDeps();
+  const service = createVisualizeService(deps);
+  try {
+    const started = Date.now();
+    const opened = await service.execute({
+      sessionId: 's1',
+      cwd,
+      action: 'open',
+      input: { targets: ['http://127.0.0.1:8765/index.html'] },
+    });
+    assert.ok(Date.now() - started < 500, 'no wait for a page that nothing will create');
+    assert.match(opened.text, /list_tabs/);
+    assert.doesNotMatch(opened.text, /as page/);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a web URL open whose publish fails cancels its tab watch', async () => {
+  const { cwd, cleanup } = workspace();
+  let cancelled = 0;
+  const { deps } = fakeDeps({
+    watchBrowserTab: () => ({ page: new Promise(() => {}), cancel: () => (cancelled += 1) }),
+    publish() {
+      throw new Error('window gone');
+    },
+  });
+  const service = createVisualizeService(deps);
+  try {
+    await assert.rejects(
+      service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['http://127.0.0.1:8765/'] } }),
+      /window gone/
+    );
+    assert.equal(cancelled, 1);
   } finally {
     service.dispose();
     cleanup();
@@ -381,7 +570,7 @@ test('annotate is HTML-only and capture writes the PNG inside cwd', async () => 
   }
 });
 
-test('a parent folder swapped for a link outside cwd stops serving and closes the tab', async () => {
+test('a parent folder swapped for a link outside its recorded root stops serving and closes the tab', async () => {
   const { root, cwd, cleanup } = workspace();
   mkdirSync(join(cwd, 'media'));
   writeFileSync(join(cwd, 'media', 'pic.png'), 'inside');
@@ -401,12 +590,11 @@ test('a parent folder swapped for a link outside cwd stops serving and closes th
     symlinkSync(join(root, 'outside'), join(cwd, 'media'), 'junction');
     // Serving re-resolves the registered path and fails closed.
     assert.equal(await filePreviewServable(record), false);
-    // The reload re-resolves the target and closes the tab instead of
-    // showing the outside file.
+    // The reload re-resolves the target inside the root recorded at open and
+    // closes the tab instead of adopting the folder the link points to.
     [...watched.values()][0]();
     await service.settled();
     assert.deepEqual(events.at(-1).state.tabs, []);
-    // Nothing is open; the closed entry stays in the session's list.
     assert.deepEqual(
       service.snapshot().flatMap((state) => state.tabs),
       []
@@ -416,6 +604,207 @@ test('a parent folder swapped for a link outside cwd stops serving and closes th
       [false]
     );
     assert.equal(watched.size, 0);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a page outside cwd opens with its own folder as root: assets, versions, restore and remote reads', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const elsewhere = join(root, 'workspace', 'unclassified', 'design');
+  mkdirSync(elsewhere, { recursive: true });
+  const page = join(elsewhere, 'mockup.html');
+  const css = join(elsewhere, 'style.css');
+  const write = (word, color) => {
+    writeFileSync(page, `<link rel="stylesheet" href="style.css"><img src="pic.png"><h1>${word}</h1>`);
+    writeFileSync(css, `h1{color:${color}}`);
+  };
+  write('one', 'red');
+  writeFileSync(join(elsewhere, 'pic.png'), 'png');
+  writeFileSync(join(root, 'workspace', 'unclassified', 'above.css'), 'above');
+  const { deps, events, watched } = fakeDeps({
+    versions: { directory: join(root, 'app-data', 'visualize-versions') },
+    preparePane: (target) =>
+      panePreviewUrl(target, {
+        contents: () => undefined,
+        observe: () => {},
+        convertDocument: async () => {
+          throw new Error('no documents here');
+        },
+      }),
+  });
+  const service = createVisualizeService(deps);
+  const get = (url, path) =>
+    new Promise((resolve, reject) => {
+      const { hostname, port } = new URL(url);
+      const req = httpRequest({ hostname, port, path }, (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString() }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  const latest = () => events.filter((event) => event.state).at(-1).state.tabs[0];
+  const command = (rest) => service.command({ sessionId: 's1', tabId: 'v1', ...rest });
+  try {
+    const opened = await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: [page] } });
+    assert.match(opened.text, /as tab v1/);
+    assert.ok(opened.text.includes(realpathSync(page)), 'the result names the outside file by its path');
+
+    // Served from its own folder: the page and its sibling style and image,
+    // but nothing above that folder.
+    const url = latest().panes[0].url;
+    const { pathname } = new URL(url);
+    const prefix = pathname.slice(0, pathname.lastIndexOf('/'));
+    assert.match((await get(url, pathname)).body, /<h1>one<\/h1>/);
+    assert.deepEqual(await get(url, `${prefix}/style.css`), { status: 200, body: 'h1{color:red}' });
+    assert.equal((await get(url, `${prefix}/pic.png`)).status, 200);
+    assert.equal((await get(url, `${prefix}/../above.css`)).status, 404);
+    assert.equal((await get(url, `${prefix}/%2e%2e/above.css`)).status, 404);
+    assert.equal(latest().panes[0].file, 'mockup.html');
+
+    // A change keeps a version; the old one restores page and stylesheet in place.
+    write('two', 'blue');
+    [...watched.entries()].find(([path]) => path.endsWith('mockup.html'))[1]();
+    await service.settled();
+    assert.deepEqual(
+      latest().versions.map((version) => version.n),
+      [1, 2]
+    );
+    await command({ action: 'version', version: 1 });
+    assert.deepEqual(latest().restoreAssets, ['style.css']);
+    await command({ action: 'restore', version: 1, assets: ['style.css'] });
+    assert.match(readFileSync(page, 'utf8'), /<h1>one<\/h1>/);
+    assert.equal(readFileSync(css, 'utf8'), 'h1{color:red}');
+    assert.deepEqual(
+      latest().versions.map((version) => [version.n, version.label ?? '']),
+      [
+        [1, ''],
+        [2, ''],
+        [3, 'Restored from v1'],
+      ]
+    );
+
+    // A paired device reads the tab from the same root.
+    const host = service.hostSnapshot()[0];
+    assert.equal(host.tabs[0].panes[0].root, realpathSync(elsewhere));
+    const methods = createRemoteVisualizeMethods({
+      mirror: createRemoteVisualizeMirror(),
+      hostRequest: async (method) => (method === 'visualizeState' ? service.hostSnapshot() : null),
+      invokeDesktopOperation: async () => null,
+    });
+    const text = (range) => Buffer.from(range.data, 'base64').toString();
+    const remote = await methods.visualizePaneFile(['s1', 'v1', 0]);
+    assert.deepEqual([remote.kind, remote.rel], ['html', 'mockup.html']);
+    assert.match(text(await methods.visualizePaneRange(['s1', 'v1', 'mockup.html', 0, 200, 0])), /one/);
+    assert.equal(text(await methods.visualizePaneRange(['s1', 'v1', 'style.css', 0, 100, 0])), 'h1{color:red}');
+    await assert.rejects(methods.visualizePaneRange(['s1', 'v1', '../above.css', 0, 100, 0]), /outside the project/);
+    const json = JSON.stringify(remoteVisualizeState(host));
+    assert.equal(json.includes(JSON.stringify(realpathSync(root)).slice(1, -1)), false, 'no host path');
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a restore after the page folder was swapped for a link to another folder writes nothing there', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const design = join(root, 'elsewhere', 'design');
+  const unrelated = join(root, 'unrelated');
+  mkdirSync(design, { recursive: true });
+  mkdirSync(unrelated);
+  const pic = join(design, 'pic.png');
+  writeFileSync(pic, 'one');
+  writeFileSync(join(unrelated, 'pic.png'), 'victim');
+  const { deps, events, watched } = fakeDeps({ versions: { directory: join(root, 'app-data', 'visualize-versions') } });
+  const service = createVisualizeService(deps);
+  const latest = () => events.filter((event) => event.state).at(-1).state.tabs[0];
+  const command = (rest) => service.command({ sessionId: 's1', tabId: 'v1', ...rest });
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: [pic] } });
+    writeFileSync(pic, 'two');
+    [...watched.values()][0]();
+    await service.settled();
+    assert.deepEqual(
+      latest().versions.map((version) => version.n),
+      [1, 2]
+    );
+    await command({ action: 'version', version: 1 });
+    // The page's folder now links to a folder the tab never recorded.
+    renameSync(design, `${design}-old`);
+    symlinkSync(unrelated, design, 'junction');
+    await assert.rejects(
+      command({ action: 'restore', version: 1 }),
+      /v1 was not restored: target resolves outside the folder recorded for it/
+    );
+    assert.equal(readFileSync(join(unrelated, 'pic.png'), 'utf8'), 'victim', 'the unrelated file is untouched');
+    assert.deepEqual(readdirSync(unrelated), ['pic.png']);
+    assert.equal(readFileSync(join(`${design}-old`, 'pic.png'), 'utf8'), 'two');
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('a two-folder tab confirms each style.css by its own folder: one never authorizes the other', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const { deps, events, watched } = fakeDeps({ versions: { directory: join(root, 'app-data', 'visualize-versions') } });
+  const service = createVisualizeService(deps);
+  const folder = (name) => join(root, 'elsewhere', name);
+  const page = (name) => join(folder(name), 'index.html');
+  const css = (name) => join(folder(name), 'style.css');
+  for (const name of ['a', 'b']) {
+    mkdirSync(folder(name), { recursive: true });
+    writeFileSync(page(name), `<link rel="stylesheet" href="style.css"><h1>${name} one</h1>`);
+    writeFileSync(css(name), 'h1{color:red}');
+  }
+  const latest = () => events.filter((event) => event.state).at(-1).state.tabs[0];
+  const command = (rest) => service.command({ sessionId: 's1', tabId: 'v1', ...rest });
+  const files = () => ['a', 'b'].flatMap((name) => [readFileSync(page(name), 'utf8'), readFileSync(css(name), 'utf8')]);
+  try {
+    await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: [page('a'), page('b')] } });
+    for (const name of ['a', 'b'])
+      writeFileSync(page(name), `<link rel="stylesheet" href="style.css"><h1>${name} two</h1>`);
+    writeFileSync(css('a'), 'h1{color:blue}');
+    [...watched.values()][0]();
+    await service.settled();
+    assert.deepEqual(
+      latest().versions.map((version) => version.n),
+      [1, 2]
+    );
+    await command({ action: 'version', version: 1 });
+    // Only a's stylesheet differs from v1, named with its folder (b keeps one too).
+    assert.deepEqual(latest().restoreAssets, ['style.css (a)']);
+
+    // b's stylesheet changes after the confirm listed only a's.
+    writeFileSync(css('b'), 'h1{color:green}');
+    const before = files();
+    await assert.rejects(
+      command({ action: 'restore', version: 1, assets: ['style.css (a)'] }),
+      /v1 was not restored: it would also overwrite style\.css \(b\), which the confirmation did not list/
+    );
+    assert.deepEqual(files(), before, "a's confirmation wrote nothing, b's file least of all");
+    // The reverse: b's confirmation does not authorize a's file.
+    await assert.rejects(
+      command({ action: 'restore', version: 1, assets: ['style.css (b)'] }),
+      /it would also overwrite style\.css \(a\),/
+    );
+    // A bare name authorizes neither root's file.
+    await assert.rejects(command({ action: 'restore', version: 1, assets: ['style.css'] }), /was not restored/);
+    assert.deepEqual(files(), before);
+    assert.deepEqual(latest().restoreAssets, ['style.css (a)', 'style.css (b)']);
+
+    // b back as v1 kept it: restoring with a's confirmation writes a's file only.
+    writeFileSync(css('b'), 'h1{color:red}');
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(css('b'), old, old);
+    const bStamp = statSync(css('b')).mtimeMs;
+    await command({ action: 'restore', version: 1, assets: ['style.css (a)'] });
+    assert.equal(readFileSync(css('a'), 'utf8'), 'h1{color:red}');
+    assert.match(readFileSync(page('a'), 'utf8'), /a one/);
+    assert.equal(statSync(css('b')).mtimeMs, bStamp, "b's stylesheet was not written");
   } finally {
     service.dispose();
     cleanup();
@@ -601,7 +990,7 @@ test('version history: kept on change, shown read-only, compared, restored, path
   const { deps, events, watched } = fakeDeps({
     versions: { directory: versionsDir },
     // The URL names the file the pane loads, so a kept version is visible.
-    preparePane: async (target, dir) => `fake://${dir}|${target.path}`,
+    preparePane: async (target) => `fake://${target.root}|${target.path}`,
   });
   const service = createVisualizeService(deps);
   const page = join(cwd, 'site', 'index.html');
@@ -689,7 +1078,7 @@ test('version history: kept on change, shown read-only, compared, restored, path
     await command({ action: 'version', version: 2, compare: true });
     const host = service.hostSnapshot()[0];
     assert.equal(host.tabs[0].panes[0].root.startsWith(realpathSync(versionsDir)), true);
-    assert.equal(host.tabs[0].panes[1].root, undefined);
+    assert.equal(host.tabs[0].panes[1].root, realpathSync(cwd));
     const remote = remoteVisualizeState(host);
     const json = JSON.stringify(remote);
     for (const path of [root, realpathSync(root)]) {
@@ -944,10 +1333,10 @@ test('a closed tab reopens from its card with the same targets, ids never reused
       [['v2', 'Chart', 'chart.png']]
     );
     assert.equal(events.at(-1).reveal, true);
-    // Containment holds like an agent open.
+    // Validated like an agent open.
     await assert.rejects(
-      service.command({ sessionId: 's1', tabId: 'v9', action: 'reopen', targets: ['../secret.html'] }),
-      /outside the working directory/
+      service.command({ sessionId: 's1', tabId: 'v9', action: 'reopen', targets: ['../missing.html'] }),
+      /target not found/
     );
     // A session this run never opened: its own cwd from the session list.
     await service.command({ sessionId: 's2', tabId: 'v1', action: 'reopen', targets: ['paper.pdf'] });
@@ -1759,9 +2148,11 @@ test('the visualize bridge publishes its discovery file and answers flat results
     assert.equal(opened.tabs[0].id, 'v1');
     assert.equal(typeof opened.text, 'string');
     assert.equal(opened.value, undefined);
-    const failed = await (await post({ ...request, input: { targets: ['../secret.html'] } })).json();
+    const outside = await (await post({ ...request, input: { targets: ['../secret.html'] } })).json();
+    assert.equal(outside.ok, true, 'a page outside the working directory opens');
+    const failed = await (await post({ ...request, input: { targets: ['../missing.html'] } })).json();
     assert.equal(failed.ok, false);
-    assert.match(failed.error, /outside the working directory/);
+    assert.match(failed.error, /target not found/);
   } finally {
     await server.stop();
     service.dispose();

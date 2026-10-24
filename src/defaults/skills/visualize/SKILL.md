@@ -120,7 +120,8 @@ or radius are one option.
 - Close tabs that no longer match the conversation (a resolved choice, a
   replaced draft) so the user is never looking at stale work.
 - A web URL is opened alone, never mixed with files; marking, capturing, or
-  closing a web page belongs to `browser`.
+  closing a web page belongs to `browser`. `open` of a URL reports the
+  page id (`p…`); pass it as `browser`'s `tab`.
 - `annotate` and `capture` need the tab on screen (`export` of an HTML page does not). When they report the panel
   is hidden, tell the user to open it rather than retrying.
 - When `visualize` is unavailable, give the file path; never start your own

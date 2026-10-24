@@ -10,8 +10,8 @@ export const TOOL_DEFS = [
     name: 'visualize',
     title: 'Mixdog Visualize',
     description:
-      "Show the user any artifact you produced or changed (mockups, docs, decks, sheets, PDFs, images, video, local dev pages) in the desktop side panel beside the chat. Panel tabs auto-reload when a file changes, so re-opening after edits is unnecessary. " +
-      'open: input.targets (1-3 file paths, 2-3 = side-by-side comparison; or a single http(s) URL alone, never mixed with files or other URLs), optional label, optional version (show that kept version of a file tab read-only; each open/reload that changes the files keeps a version). close: optional tab (omit = all). ' +
+      'Show the user any artifact you produced or changed (mockups, docs, decks, sheets, PDFs, images, video, local dev pages) in the desktop side panel beside the chat. Panel tabs auto-reload when a file changes, so re-opening after edits is unnecessary. ' +
+      'open: input.targets (1-3 file paths, relative to the working directory or absolute anywhere on this machine; 2-3 = side-by-side comparison; or a single http(s) URL alone, never mixed with files or other URLs), optional label, optional version (show that kept version of a file tab read-only; each open/reload that changes the files keeps a version). close: optional tab (omit = all). ' +
       'annotate: tab + add [{selector,label?}] | remove [selector] | clear; HTML pages only, never edits the file. capture: tab + output (.png path). ' +
       'export: tab + format (png|pdf) + output (project-relative path ending .png/.pdf) + optional version (a kept version of the tab) + optional overwrite (true replaces an existing file, only under design/; otherwise an existing file is refused). Writes a record of the approved page inside the project and returns its project-relative path, size/dimensions and the page problems seen while rendering. A single HTML page (file, or inline html/chart) is rendered whole in a hidden window, so the tab need not be on screen (PDF: HTML pages only; PNG has a pixel cap, over it export pdf or shorten the page); any other tab exports as capture does (the displayed tab, PNG only). Same project containment as capture: links and paths outside the working directory are refused. ' +
       'check: tab; HTML pages only; waits briefly for the page to settle and returns only its runtime problems (uncaught errors, unhandled rejections, CSP violations, console errors/warnings, missing local assets). ' +
@@ -36,7 +36,8 @@ export const TOOL_DEFS = [
               items: { type: 'string' },
               minItems: 1,
               maxItems: 3,
-              description: 'open: 1-3 project-relative/absolute file paths (side by side), or exactly one http(s) URL as the only target.',
+              description:
+                'open: 1-3 file paths (side by side), relative to the working directory or absolute in any folder, or exactly one http(s) URL as the only target.',
             },
             content: {
               type: 'object',
@@ -57,7 +58,8 @@ export const TOOL_DEFS = [
             version: {
               type: 'integer',
               minimum: 1,
-              description: 'open (file tabs): kept version number to show read-only instead of the live files. export: kept version number to render instead of the live page.',
+              description:
+                'open (file tabs): kept version number to show read-only instead of the live files. export: kept version number to render instead of the live page.',
             },
             tab: { type: 'string', description: 'Tab id from open (close: omit for all).' },
             add: {
@@ -72,9 +74,16 @@ export const TOOL_DEFS = [
             },
             remove: { type: 'array', items: { type: 'string' }, description: 'annotate: selectors to un-outline.' },
             clear: { type: 'boolean', description: 'annotate: remove all outlines.' },
-            output: { type: 'string', description: 'capture: project path ending .png. export: project path ending .png or .pdf (matching format).' },
+            output: {
+              type: 'string',
+              description:
+                'capture: project path ending .png. export: project path ending .png or .pdf (matching format).',
+            },
             format: { type: 'string', enum: ['png', 'pdf'], description: 'export: file format.' },
-            overwrite: { type: 'boolean', description: 'export: replace an existing output file; honored only for paths under design/.' },
+            overwrite: {
+              type: 'boolean',
+              description: 'export: replace an existing output file; honored only for paths under design/.',
+            },
             viewport: {
               type: 'object',
               properties: {
@@ -83,9 +92,14 @@ export const TOOL_DEFS = [
               },
               required: ['width'],
               additionalProperties: false,
-              description: 'inspect: size to lay the page out at (height defaults to 800); omit for the panel\'s current size.',
+              description:
+                "inspect: size to lay the page out at (height defaults to 800); omit for the panel's current size.",
             },
-            selector: { type: 'string', maxLength: 500, description: 'inspect: CSS selector scoping the read-out to one subtree.' },
+            selector: {
+              type: 'string',
+              maxLength: 500,
+              description: 'inspect: CSS selector scoping the read-out to one subtree.',
+            },
           },
           additionalProperties: false,
         },

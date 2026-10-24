@@ -18,7 +18,15 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 
-import { createVisualizeVersionStore, pageReferences, VersionHistoryFullError, writeFileInside } from './versions.ts';
+import {
+  createVisualizeVersionStore,
+  keptAssetNames,
+  keptTargets,
+  pageReferences,
+  VersionHistoryFullError,
+  versionChanges,
+  writeFileInside,
+} from './versions.ts';
 
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-visualize-versions-'));
@@ -31,7 +39,7 @@ function workspace() {
     cwd,
     store,
     write: (rel, text) => writeFileSync(join(cwd, ...rel.split('/')), text),
-    source: (kind, rel) => ({ kind, path: realpathSync(join(cwd, ...rel.split('/'))) }),
+    source: (kind, rel) => ({ kind, path: realpathSync(join(cwd, ...rel.split('/'))), root: realpathSync(cwd) }),
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -60,7 +68,7 @@ test('a version is kept only when the files changed, with the page assets it use
     const store = createVisualizeVersionStore({ directory: space.store });
     const sources = [space.source('html', 'site/index.html')];
 
-    const first = await store.snapshot('s1', 'v1', space.cwd, sources);
+    const first = await store.snapshot('s1', 'v1', sources);
     assert.equal(first.n, 1);
     assert.equal(existsSync(join(space.store, 'stale')), false);
     assert.ok(realpathSync(first.dir).startsWith(realpathSync(space.store)), 'kept under the app data folder');
@@ -69,10 +77,10 @@ test('a version is kept only when the files changed, with the page assets it use
     assert.equal(read(first, 'site/app.js'), 'one()');
     assert.equal(existsSync(join(first.dir, 'site', '.cache', 'x.js')), false, 'hidden assets are not kept');
 
-    assert.equal(await store.snapshot('s1', 'v1', space.cwd, sources), null, 'unchanged files keep no version');
+    assert.equal(await store.snapshot('s1', 'v1', sources), null, 'unchanged files keep no version');
     // A changed stylesheet alone is a new version: the old one renders as it was.
     space.write('site/css/site.css', 'body{color:blue}');
-    const second = await store.snapshot('s1', 'v1', space.cwd, sources);
+    const second = await store.snapshot('s1', 'v1', sources);
     assert.equal(second.n, 2);
     assert.equal(read(first, 'site/css/site.css'), 'body{color:red}');
     assert.equal(read(second, 'site/css/site.css'), 'body{color:blue}');
@@ -83,16 +91,63 @@ test('a version is kept only when the files changed, with the page assets it use
 
     // Concurrent snapshots of equal content land once.
     space.write('site/app.js', 'two()');
-    const both = await Promise.all([
-      store.snapshot('s1', 'v1', space.cwd, sources),
-      store.snapshot('s1', 'v1', space.cwd, sources),
-    ]);
+    const both = await Promise.all([store.snapshot('s1', 'v1', sources), store.snapshot('s1', 'v1', sources)]);
     assert.equal(both.filter(Boolean).length, 1);
     assert.equal(store.list('s1', 'v1').length, 3);
 
     await store.drop('s1', 'v1');
     assert.deepEqual(store.list('s1', 'v1'), []);
     assert.equal(existsSync(first.dir), false, 'a closed tab deletes its files');
+  } finally {
+    space.cleanup();
+  }
+});
+
+test('panes from different folders keep their files apart and restore back where they came from', async () => {
+  const space = workspace();
+  try {
+    const folders = ['a', 'b'].map((name) => {
+      const folder = join(space.root, 'elsewhere', name);
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, 'index.html'), `<link rel="stylesheet" href="style.css"><h1>${name}</h1>`);
+      writeFileSync(join(folder, 'style.css'), `h1{color:${name}}`);
+      return realpathSync(folder);
+    });
+    const live = folders.map((root) => ({ kind: 'html', target: 'x', path: join(root, 'index.html'), root }));
+    const store = createVisualizeVersionStore({ directory: space.store });
+    const kept = await store.snapshot('s1', 'v1', live);
+    assert.deepEqual(kept.roots, folders);
+    assert.deepEqual(kept.panes, ['0/index.html', '1/index.html']);
+    assert.deepEqual(kept.assets.sort(), ['0/style.css', '1/style.css']);
+    assert.equal(read(kept, '1/style.css'), 'h1{color:b}');
+    // Each kept pane is rooted in its own folder of the version.
+    const shown = keptTargets(kept, live);
+    assert.deepEqual(
+      shown.map((target) => [target.root, target.path]),
+      [
+        [join(kept.dir, '0'), join(kept.dir, '0', 'index.html')],
+        [join(kept.dir, '1'), join(kept.dir, '1', 'index.html')],
+      ]
+    );
+    writeFileSync(join(folders[1], 'style.css'), 'changed');
+    const changes = await versionChanges(
+      kept,
+      live.map((target) => target.path)
+    );
+    // Two roots keep a style.css: each is named with its root's folder.
+    assert.deepEqual(
+      changes.map((change) => [change.name, change.root, change.path, change.asset]),
+      [['style.css (b)', folders[1], join(folders[1], 'style.css'), true]]
+    );
+    assert.deepEqual([...keptAssetNames(kept).values()].sort(), ['style.css (a)', 'style.css (b)']);
+    // Folder names that collide too fall back to the kept paths.
+    assert.deepEqual(
+      [...keptAssetNames({ ...kept, roots: [join(folders[0], 'x'), join(folders[1], 'x')] }).values()].sort(),
+      ['0/style.css', '1/style.css']
+    );
+    // A single root keeps its plain names.
+    const single = await store.snapshot('s1', 'v2', [live[0]]);
+    assert.deepEqual([...keptAssetNames(single).values()], ['style.css']);
   } finally {
     space.cleanup();
   }
@@ -110,7 +165,7 @@ test('the per-tab cap evicts oldest first but never the newest or the pinned ver
     const sources = () => [space.source('image', 'chart.png')];
     for (let index = 1; index <= 5; index += 1) {
       space.write('chart.png', `png-${index}`);
-      await store.snapshot('s1', 'v1', space.cwd, sources());
+      await store.snapshot('s1', 'v1', sources());
     }
     const kept = store.list('s1', 'v1');
     assert.deepEqual(
@@ -120,7 +175,7 @@ test('the per-tab cap evicts oldest first but never the newest or the pinned ver
     assert.equal(read(kept[0], 'chart.png'), 'png-2');
     pinned = null;
     space.write('chart.png', 'png-6');
-    await store.snapshot('s1', 'v1', space.cwd, sources());
+    await store.snapshot('s1', 'v1', sources());
     assert.deepEqual(
       store.list('s1', 'v1').map((version) => version.n),
       [4, 5, 6]
@@ -135,11 +190,11 @@ test('the session byte cap evicts the oldest versions across tabs; oversized pan
   try {
     const store = createVisualizeVersionStore({ directory: space.store, maxSessionBytes: 25, maxSnapshotBytes: 12 });
     space.write('a.png', 'aaaaaaaaaa');
-    await store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'a.png')]);
+    await store.snapshot('s1', 'v1', [space.source('image', 'a.png')]);
     space.write('b.png', 'bbbbbbbbbb');
-    await store.snapshot('s1', 'v2', space.cwd, [space.source('image', 'b.png')]);
+    await store.snapshot('s1', 'v2', [space.source('image', 'b.png')]);
     space.write('a.png', 'AAAAAAAAAA');
-    await store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'a.png')]);
+    await store.snapshot('s1', 'v1', [space.source('image', 'a.png')]);
     // 30 bytes > 25: v1's oldest goes; each tab keeps its newest.
     assert.deepEqual(
       store.list('s1', 'v1').map((version) => version.n),
@@ -151,11 +206,11 @@ test('the session byte cap evicts the oldest versions across tabs; oversized pan
     );
     // Another session has its own budget.
     space.write('c.png', 'cccccccccc');
-    await store.snapshot('s2', 'v1', space.cwd, [space.source('image', 'c.png')]);
+    await store.snapshot('s2', 'v1', [space.source('image', 'c.png')]);
     assert.equal(store.list('s1', 'v1').length + store.list('s1', 'v2').length, 2);
 
     space.write('big.png', 'x'.repeat(13));
-    assert.equal(await store.snapshot('s1', 'v3', space.cwd, [space.source('image', 'big.png')]), null);
+    assert.equal(await store.snapshot('s1', 'v3', [space.source('image', 'big.png')]), null);
     assert.deepEqual(store.list('s1', 'v3'), []);
   } finally {
     space.cleanup();
@@ -178,30 +233,24 @@ test('the session byte cap holds: when versions eviction may not drop fill it, t
     const keptFiles = () =>
       readdirSync(space.store, { recursive: true }).filter((entry) => String(entry).endsWith('.png'));
     for (const name of ['a', 'b', 'c']) space.write(`${name}.png`, name.repeat(10));
-    await store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'a.png')]);
-    await store.snapshot('s1', 'v2', space.cwd, [space.source('image', 'b.png')]);
+    await store.snapshot('s1', 'v1', [space.source('image', 'a.png')]);
+    await store.snapshot('s1', 'v2', [space.source('image', 'b.png')]);
 
     // Each tab's newest stays, so a third tab's 10 bytes cannot fit in 25.
-    await assert.rejects(
-      store.snapshot('s1', 'v3', space.cwd, [space.source('image', 'c.png')]),
-      VersionHistoryFullError
-    );
+    await assert.rejects(store.snapshot('s1', 'v3', [space.source('image', 'c.png')]), VersionHistoryFullError);
     assert.deepEqual([numbers('v1'), numbers('v2'), numbers('v3')], [[1], [1], []]);
     assert.ok(total() <= 25);
 
     // The shown (pinned) version stays too: v1's next version has no room.
     pinned = 1;
     space.write('a.png', 'A'.repeat(10));
-    await assert.rejects(
-      store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'a.png')]),
-      VersionHistoryFullError
-    );
+    await assert.rejects(store.snapshot('s1', 'v1', [space.source('image', 'a.png')]), VersionHistoryFullError);
     assert.deepEqual(numbers('v1'), [1], 'the version list is unchanged');
     assert.ok(total() <= 25);
 
     // Once v1's old version may go, the new one fits within the cap.
     pinned = null;
-    const kept = await store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'a.png')]);
+    const kept = await store.snapshot('s1', 'v1', [space.source('image', 'a.png')]);
     assert.equal(kept.n, 2);
     assert.deepEqual(numbers('v1'), [2]);
     assert.ok(total() <= 25);
@@ -346,7 +395,7 @@ test("a card picture file is part of the tab's work: settled() and drop() wait f
   try {
     const store = createVisualizeVersionStore({ directory: space.store });
     space.write('chart.png', 'png-1');
-    const version = await store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'chart.png')]);
+    const version = await store.snapshot('s1', 'v1', [space.source('image', 'chart.png')]);
     assert.equal(store.keepThumbnail('s1', 'v1', 1, dataUrl('PIC-1')), true);
     assert.equal(store.list('s1', 'v1')[0].thumbnail, dataUrl('PIC-1'), 'in memory at once');
 
@@ -377,7 +426,7 @@ test("a card picture file is part of the tab's work: settled() and drop() wait f
 
     // A drop nobody awaits (as the service closes a tab) is still waited for by settled().
     space.write('chart.png', 'png-2');
-    const second = await store.snapshot('s1', 'v2', space.cwd, [space.source('image', 'chart.png')]);
+    const second = await store.snapshot('s1', 'v2', [space.source('image', 'chart.png')]);
     store.keepThumbnail('s1', 'v2', 1, dataUrl('PIC-3'));
     await tick();
     assert.equal(held.length, 1);
@@ -410,7 +459,7 @@ test('a failed picture write is logged and blocks nothing; a version evicted whi
   try {
     const store = createVisualizeVersionStore({ directory: space.store, maxVersionsPerTab: 1 });
     space.write('chart.png', 'png-1');
-    await store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'chart.png')]);
+    await store.snapshot('s1', 'v1', [space.source('image', 'chart.png')]);
     assert.equal(store.keepThumbnail('s1', 'v1', 1, dataUrl('PIC-1')), true);
     await store.settled();
     assert.deepEqual(warnings, ['visualize card picture write failed: disk full']);
@@ -419,7 +468,7 @@ test('a failed picture write is logged and blocks nothing; a version evicted whi
     // Later work still runs; the picture queued behind the snapshot that evicts
     // its version is never written.
     space.write('chart.png', 'png-2');
-    const second = store.snapshot('s1', 'v1', space.cwd, [space.source('image', 'chart.png')]);
+    const second = store.snapshot('s1', 'v1', [space.source('image', 'chart.png')]);
     assert.equal(store.keepThumbnail('s1', 'v1', 1, dataUrl('PIC-LATE')), true);
     assert.equal((await second)?.n, 2);
     await store.settled();
