@@ -10,6 +10,22 @@ export function paintDrawerIntent(open: boolean): void {
   document.documentElement.setAttribute(DRAWER_INTENT_ATTRIBUTE, open ? 'open' : 'closed');
 }
 
+const dismissListeners = new Set<() => void>();
+
+/** The drawer was asked to close (tap, swipe, back gesture, a navigation): said
+ *  at the request itself, before the closing state commits, so whatever waits
+ *  on the drawer being open drops out at once. */
+export function announceDrawerDismiss(): void {
+  for (const listener of [...dismissListeners]) listener();
+}
+
+export function subscribeDrawerDismiss(listener: () => void): () => void {
+  dismissListeners.add(listener);
+  return () => {
+    dismissListeners.delete(listener);
+  };
+}
+
 /** The drawer's state as the latest tap left it: the stamp while a commit is
  *  pending, else the committed `openNow`. A rapid second tap toggles from this. */
 export function drawerIntentOpen(openNow: boolean): boolean {

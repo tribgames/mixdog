@@ -15,13 +15,20 @@ import { studioViewModule } from './studio-loader';
 import { t } from './i18n';
 import { navigationKey } from './text-format';
 import { desktopFeatureEnabled } from './desktop-feature-config';
+import { loadWorktreeSettings } from './settings/worktree-settings-store';
 
-let settingsViewModulePromise: Promise<typeof import('./settings/SettingsView')> | null = null;
-export function loadSettingsViewModule() {
-  settingsViewModulePromise ||= import('./settings/SettingsView');
-  return settingsViewModulePromise;
+// Deferred module, not React.lazy: once loaded, the dialog renders in the same
+// commit as its open request. The worktree settings load with it, so the
+// Work mode page has them in its first frame.
+export const settingsViewModule = deferredModule(() => {
+  void loadWorktreeSettings();
+  return import('./settings/SettingsView');
+});
+export const loadSettingsViewModule = () => settingsViewModule.load();
+export function SettingsView(props: React.ComponentProps<typeof import('./settings/SettingsView').SettingsView>) {
+  const loaded = useDeferredModule(settingsViewModule);
+  return loaded ? <loaded.SettingsView {...props} /> : null;
 }
-export const SettingsView = lazy(() => loadSettingsViewModule().then((module) => ({ default: module.SettingsView })));
 export const loadOnboardingWizardModule = () => import('./settings/OnboardingWizard');
 export const OnboardingWizard = lazy(() =>
   loadOnboardingWizardModule().then((module) => ({ default: module.OnboardingWizard }))

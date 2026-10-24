@@ -123,6 +123,9 @@ export function PaneDockToggles({
               data-tooltip={active ? t('Close {{label}}', { label }) : t('Open {{label}}', { label })}
               onPointerEnter={descriptor.onPrefetch}
               onFocus={descriptor.onPrefetch}
+              onPointerDown={(event) => {
+                if (event.button === 0) descriptor.onPrefetch?.();
+              }}
               onClick={() => {
                 if (unavailable) return;
                 if (active) press(root, false, onClose);

@@ -295,7 +295,7 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
 
 /** Settings → Work style: how sessions work (tools, instruction files, Auto
  *  reasoning and worktrees). */
-export function WorkPanel({ data, pending, run }: PanelContext) {
+export function WorkPanel({ data, pending, run, active }: PanelContext) {
   const webSearchModule = record(record(data.toolModules).webSearch);
   const rawInstructionFiles = record(data.toolModules).instructionFiles;
   const autoEffortBase = ['low', 'medium', 'high'].includes(String(record(data.toolModules).autoEffortBase))
@@ -345,7 +345,7 @@ export function WorkPanel({ data, pending, run }: PanelContext) {
           onChange={(level) => void run('setAutoEffortBase', [level])}
         />
       </Group>
-      <WorktreeSettings />
+      <WorktreeSettings active={active} />
     </>
   );
 }

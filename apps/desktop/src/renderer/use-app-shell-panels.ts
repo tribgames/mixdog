@@ -7,7 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { paintDrawerIntent, settleDrawerIntent } from './drawer-intent';
+import { announceDrawerDismiss, paintDrawerIntent, settleDrawerIntent } from './drawer-intent';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import {
   getSidePanelMode,
@@ -122,22 +122,32 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // the user's latest intent separately so rapid toggles never read a stale
   // rendered state or let an older close completion reverse the newest input.
   const sidebarOpenIntent = useRef(sidebarOpen);
-  const [sidebarMotion, setSidebarMotion] = useState<'animated' | 'instant'>('animated');
-  const applySidebarOpen = useCallback((open: boolean, motion: 'animated' | 'instant' = 'animated') => {
+  // Every route to a closed drawer (toggle, swipe, backdrop, back gesture, a
+  // navigation) records its intent here, and announces it at once: a request
+  // waiting on the open drawer must not outlive the dismissal into the commit.
+  const setSidebarIntent = useCallback((open: boolean) => {
     sidebarOpenIntent.current = open;
-    if (narrowShellRef.current && motion === 'animated') {
-      // A phone drawer tap: the sheet's look flips through CSS on this very
-      // frame, and the shell's heavy render commits as a transition behind it.
-      paintDrawerIntent(open);
-      startTransition(() => {
-        setSidebarMotion(motion);
-        setSidebarOpen(open);
-      });
-      return;
-    }
-    setSidebarMotion(motion);
-    setSidebarOpen(open);
+    if (!open) announceDrawerDismiss();
   }, []);
+  const [sidebarMotion, setSidebarMotion] = useState<'animated' | 'instant'>('animated');
+  const applySidebarOpen = useCallback(
+    (open: boolean, motion: 'animated' | 'instant' = 'animated') => {
+      setSidebarIntent(open);
+      if (narrowShellRef.current && motion === 'animated') {
+        // A phone drawer tap: the sheet's look flips through CSS on this very
+        // frame, and the shell's heavy render commits as a transition behind it.
+        paintDrawerIntent(open);
+        startTransition(() => {
+          setSidebarMotion(motion);
+          setSidebarOpen(open);
+        });
+        return;
+      }
+      setSidebarMotion(motion);
+      setSidebarOpen(open);
+    },
+    [setSidebarIntent]
+  );
   // Every commit checks whether the rendered drawer has reached the latest
   // tap's intent; only then does the CSS stamp go.
   useLayoutEffect(() => {
@@ -202,7 +212,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
       if (!sidebarOpenIntent.current && !desktopFeatureEnabled('sessions')) return;
       if (!sidePanelToggleReady(event?.timeStamp)) return;
       const nextOpen = !sidebarOpenIntent.current;
-      sidebarOpenIntent.current = nextOpen;
+      setSidebarIntent(nextOpen);
       if (nextOpen) {
         dismissBottomPanelForSheet('drawer');
         beginSidePanelOpen('sidebar', () => applySidebarOpen(true));
@@ -210,7 +220,14 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
         beginSidePanelClose('sidebar', () => applySidebarOpen(false));
       }
     },
-    [applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]
+    [
+      applySidebarOpen,
+      beginSidePanelClose,
+      beginSidePanelOpen,
+      dismissBottomPanelForSheet,
+      setSidebarIntent,
+      sidePanelToggleReady,
+    ]
   );
   // Expanding the bottom panel in the sheet band dismisses the overlay
   // drawer — last press wins. The right dock lives INSIDE each pane now, so
@@ -383,9 +400,9 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // expand always starts from Sessions instead of restoring a stale panel.
   const closeActiveRailPanel = useCallback(() => {
     closeSidebarPanels();
-    sidebarOpenIntent.current = false;
+    setSidebarIntent(false);
     beginSidePanelClose('sidebar', () => applySidebarOpen(false));
-  }, [applySidebarOpen, beginSidePanelClose, closeSidebarPanels]);
+  }, [applySidebarOpen, beginSidePanelClose, closeSidebarPanels, setSidebarIntent]);
   return {
     applySidebarOpen,
     bottomPanel,

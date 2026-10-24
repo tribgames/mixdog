@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
+import { loadSettingsViewModule } from '../app-shell-components.tsx';
 import { AppSidebarDrawer } from './AppSidebarDrawer.tsx';
 
 test('AppSidebarDrawer renders sidebar drawer frame and activity rail with given state', async () => {
@@ -73,6 +74,11 @@ test('AppSidebarDrawer renders sidebar drawer frame and activity rail with given
 
   await act(async () => {
     settingsButton.click();
+  });
+  // The settings module loads on demand: a tap that beats it opens the dialog
+  // once it has resolved (at once when it already had).
+  await act(async () => {
+    await loadSettingsViewModule();
   });
   assert.equal(settingsOpened, true);
   assert.equal(navigationClosedMotion, 'instant');

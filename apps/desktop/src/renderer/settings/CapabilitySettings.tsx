@@ -388,8 +388,10 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       openCategory: onOpenCategory,
       createOpen,
       closeCreate,
+      active,
     }),
     [
+      active,
       api,
       checkDesktopUpdate,
       closeCreate,

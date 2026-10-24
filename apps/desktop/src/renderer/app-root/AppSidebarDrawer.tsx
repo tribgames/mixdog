@@ -18,12 +18,14 @@ import { SidebarDiffColumn } from '../sidebar-diff-column';
 import type { StarterGuide as StarterGuideComponent } from '../StarterGuide';
 import { starterGuideModule } from '../first-screen-deferred';
 import { useDeferredModule } from '../deferred-module';
-import { warmSettingsView } from '../app-shell-components';
+import { settingsViewModule, warmSettingsView } from '../app-shell-components';
+import { desktopFeatureEnabled } from '../desktop-feature-config';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSideDocks } from '../use-app-side-docks';
 import type { createAppSideViewDescriptors } from '../app-side-view-descriptors';
 import type { useSideViewReordering } from '../app-shell-side-views';
 import type { useAppSettingsRouter } from './use-app-settings-router';
+import { useSettingsOpenRequest } from './use-settings-open-request';
 
 interface AppSidebarDrawerProps {
   sidebarOpen: boolean;
@@ -106,16 +108,38 @@ export function AppSidebarDrawer({
   useEdgeSwipeDrawers({ sidebarOpen, openSidebar, applySidebarOpen });
   // The rail and the starter guide are memoised; their handlers and items
   // keep one identity across App commits (a session switch is several).
-  const openSettingsFromRail = useStableEvent((section?: Parameters<typeof openSettings>[0]) => {
-    closeSidebarForNavigation('instant');
-    openSettings(section);
+  // The settings module loads while the drawer is open. A tap that beats it
+  // leaves the drawer as it is until the module resolves, then opens the
+  // dialog with its complete animation, unless the user moved on meanwhile.
+  useEffect(() => {
+    if (sidebarOpen) warmSettingsView();
+  }, [sidebarOpen]);
+  const { request: requestSettingsOpen, cancel: cancelSettingsOpen } = useSettingsOpenRequest({
+    module: settingsViewModule,
+    waits: () => desktopFeatureEnabled('settings'),
+    settingsOpen,
   });
+  const openSettingsFromRail = useStableEvent((section?: Parameters<typeof openSettings>[0]) =>
+    requestSettingsOpen(() => {
+      closeSidebarForNavigation('instant');
+      openSettings(section);
+    })
+  );
   const openRailSettings = useStableEvent((section?: RailUpdateSettingsTarget) => openSettingsFromRail(section));
   const installRailDesktopUpdate = useStableEvent(() => openDesktopUpdate());
   const openRailProviders = useStableEvent(() => openSettingsFromRail('providers'));
-  const openUsageStats = useStableEvent(() => setCommandSurface('stats'));
-  const closeSettings = useStableEvent(() => setSettingsOpen(false));
-  const selectSideView = useStableEvent(selectWorkbenchSideView);
+  const openUsageStats = useStableEvent(() => {
+    cancelSettingsOpen();
+    setCommandSurface('stats');
+  });
+  const closeSettings = useStableEvent(() => {
+    cancelSettingsOpen();
+    setSettingsOpen(false);
+  });
+  const selectSideView = useStableEvent((id: WorkbenchSideViewId) => {
+    cancelSettingsOpen();
+    selectWorkbenchSideView(id);
+  });
   // A routine view with no bot sends the user to make the representative bot.
   useEffect(() => {
     const onAgentsView = () => {
@@ -164,7 +188,7 @@ export function AppSidebarDrawer({
         groups={workbenchSideLayout.layout.left}
         activeRoot={activeSideViews.left}
         descriptors={sideViewDescriptors}
-        onSelect={selectWorkbenchSideView}
+        onSelect={selectSideView}
         onMoveGroup={moveWorkbenchSideGroup}
         onMoveView={moveWorkbenchSideView}
         renderView={(id, active, titleDragProps) => renderWorkbenchSideView('left', id, active, titleDragProps)}

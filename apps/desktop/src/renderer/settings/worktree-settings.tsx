@@ -1,34 +1,27 @@
 // Settings → General: how Lead sessions use git worktrees.
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 import type { DesktopWorktreeSettings } from '../../shared/contract';
 import { t } from '../i18n';
-import { invokeWorktree } from '../worktree-branch-model';
 import { AutoSaveRow, Group, SelectRow, ToggleRow } from './capability-controls';
+import {
+  peekWorktreeSettings,
+  saveWorktreeSettings,
+  subscribeWorktreeSettings,
+  watchWorktreeSettings,
+} from './worktree-settings-store';
 
 const GIB = 1024 ** 3;
 
-export function WorktreeSettings() {
-  const [settings, setSettings] = useState<DesktopWorktreeSettings | null>(null);
-  useEffect(() => {
-    let live = true;
-    invokeWorktree<DesktopWorktreeSettings>('getWorktreeSettings')
-      .then((value) => live && setSettings(value))
-      .catch(() => {
-        // A backend without worktree support has nothing to configure.
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
+export function WorktreeSettings({ active = true }: { active?: boolean }) {
+  const settings = useSyncExternalStore(subscribeWorktreeSettings, peekWorktreeSettings, peekWorktreeSettings);
+  // The cached value is the first frame; the host's current one replaces it
+  // when it differs. The dialog keeps this page mounted while it is closed, so
+  // watching follows the dialog showing, not the mount: every opening
+  // revalidates, and a closed dialog reads nothing.
+  useEffect(() => (active ? watchWorktreeSettings() : undefined), [active]);
   if (!settings) return null;
-  const save = (patch: Partial<DesktopWorktreeSettings>) => {
-    const previous = settings;
-    setSettings({ ...settings, ...patch });
-    invokeWorktree<DesktopWorktreeSettings>('setWorktreeSettings', [patch])
-      .then(setSettings)
-      .catch(() => setSettings(previous));
-  };
+  const save = saveWorktreeSettings;
   return (
     <Group title={t('Worktree')}>
       <SelectRow

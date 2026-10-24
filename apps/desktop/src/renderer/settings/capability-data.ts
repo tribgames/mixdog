@@ -131,6 +131,9 @@ export interface PanelContext {
   /** Create-form disclosure driven by the host's header action. */
   createOpen?: boolean;
   closeCreate?(): void;
+  /** The dialog is showing. Its pages stay mounted, hidden, while it is closed;
+   *  absent means shown. */
+  active?: boolean;
 }
 
 export interface SettingsConfirmation {
