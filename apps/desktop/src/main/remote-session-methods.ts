@@ -135,6 +135,8 @@ export function sessionRemoteMethods(
       const session = requiredSessionId(sessionId);
       const limit = requiredTranscriptItemLimit(itemLimit);
       client?.requestRead?.(session);
+      // Before the read: its answer may be published before it returns.
+      if (limit !== undefined) client?.requestTranscriptPage?.(session, limit);
       try {
         const accepted =
           (await host.prefetchSession?.(

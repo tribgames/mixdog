@@ -4,7 +4,7 @@ import { patchSectionDigests } from '../renderer/renderer-logic.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { normalizeToolName } from '../../../../src/runtime/shared/tool-primitives.mjs';
 import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-output-facts.mjs';
-import { REMOTE_TRANSCRIPT_TAIL_ITEMS } from './desktop-support';
+import { REMOTE_TRANSCRIPT_TAIL_BYTES } from './desktop-support';
 import { DIFF_SECTION, diffSectionPaths, isSensitivePathSync } from './remote-sensitive-paths';
 
 // Provider replay material, not display data: `thinkingBlocks` are Anthropic's
@@ -13,7 +13,18 @@ import { DIFF_SECTION, diffSectionPaths, isSensitivePathSync } from './remote-se
 // session they are a THIRD of the stored transcript — bytes a phone pays for on
 // every join and can never show.
 const REMOTE_TRANSCRIPT_DROP_FIELDS = ['thinkingBlocks', 'providerReplay'] as const;
-const projectedTranscriptItems = new WeakMap<object, { folder: string; result: object }>();
+/** A row's phone copy and its serialized size (UTF-8 bytes of its JSON). */
+export interface RemoteTranscriptRow {
+  row: unknown;
+  bytes: number;
+}
+// One copy per row and role: a phone's window gives each row one role for as
+// long as it holds it (remote-transcript-window.ts), so no row it holds is
+// ever re-sent slimmer or fuller.
+const projectedTranscriptItems = new WeakMap<
+  object,
+  { folder: string; tail?: RemoteTranscriptRow; history?: RemoteTranscriptRow }
+>();
 
 // Tool output is what a phone pays for. Measured on 39 real desktop sessions
 // (3,465 tool rows, 51 MB restored): tool rows were 95% of the transcript
@@ -25,8 +36,8 @@ export const REMOTE_TOOL_OUTPUT_CAP_CHARS = 8_192;
 const REMOTE_TOOL_OUTPUT_HEAD_CHARS = 6_144;
 const REMOTE_TOOL_OUTPUT_TAIL_CHARS = REMOTE_TOOL_OUTPUT_CAP_CHARS - REMOTE_TOOL_OUTPUT_HEAD_CHARS;
 const REMOTE_TOOL_OUTPUT_FIELDS = ['result', 'rawResult'] as const;
-/** Rows older than the newest REMOTE_TRANSCRIPT_TAIL_ITEMS — the history pages
- *  a phone scrolls into — reach it collapsed-sized: `rawResult` goes when it
+/** Rows a history page reveals above the rows a phone opened on (its window,
+ *  remote-transcript-window.ts) reach it collapsed-sized: `rawResult` goes when it
  *  repeats `result` verbatim, and each output keeps its first lines, at most
  *  this many characters. `remoteOutputTruncated` stays on the row, so opening
  *  it (or the phone's idle prefetch) reads the whole text (`remoteToolOutput`). */
@@ -180,12 +191,87 @@ function cappedToolItem(item: Record<string, unknown>, history: boolean): Record
   return capped;
 }
 
-function remoteTranscriptItem(item: unknown, folder: string, history: boolean): unknown {
-  if (!item || typeof item !== 'object') return item;
-  // A row keeps the copy it was first sent as: a tail row that ages into
-  // history is not re-sent slimmer (no patch, no row that shrinks on screen).
-  const cached = projectedTranscriptItems.get(item);
-  if (cached?.folder === folder) return cached.result;
+/** The phone copy a tool row's outputs are cut to fit: a phone's whole first
+ *  page (remote-transcript-window.ts). A message row is sent whole, over it or not. */
+export const REMOTE_TRANSCRIPT_ROW_MAX_BYTES = REMOTE_TRANSCRIPT_TAIL_BYTES;
+
+const serializedBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value ?? null) ?? 'null', 'utf8');
+
+/** `record` with each output field (REMOTE_TOOL_OUTPUT_FIELDS) longer than `cap`
+ *  cut to its first `cap` characters (never splitting a surrogate pair), an
+ *  `omitted` note at the cut (counting what an earlier cut already left out)
+ *  and the whole length in `remoteOutputTruncated`; `record` when none is longer. */
+function headCutRecord(record: Record<string, unknown>, cap: number): Record<string, unknown> {
+  let cut: Record<string, unknown> | null = null;
+  const prior = asRecord(record[REMOTE_OUTPUT_NOTES_FIELD]) ?? {};
+  const notes: Record<string, unknown> = { ...prior };
+  let longest = Number(record[REMOTE_OUTPUT_TRUNCATED_FIELD]) || 0;
+  for (const field of REMOTE_TOOL_OUTPUT_FIELDS) {
+    const value = record[field];
+    if (typeof value !== 'string' || value.length <= cap) continue;
+    let end = cap;
+    const last = value.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    const earlier = asRecord(prior[field]);
+    const before = earlier?.kind === 'omitted' && Number.isInteger(earlier.omitted) ? Number(earlier.omitted) : 0;
+    cut ??= { ...record };
+    cut[field] = value.slice(0, end);
+    notes[field] = { kind: 'omitted', at: end, omitted: value.length - end + before };
+    longest = Math.max(longest, value.length + before);
+  }
+  if (!cut) return record;
+  cut[REMOTE_OUTPUT_NOTES_FIELD] = notes;
+  cut[REMOTE_OUTPUT_TRUNCATED_FIELD] = longest;
+  return cut;
+}
+
+/** An oversized tool row's phone copy — one whose copy alone is over
+ *  REMOTE_TRANSCRIPT_ROW_MAX_BYTES: the row and its aggregate members keep
+ *  every field, their outputs cut to one shared head length, the longest that
+ *  fits (`headCutRecord`: notes and `remoteOutputTruncated` say what was left
+ *  out, and "Show full output" reads the whole outputs, `remoteToolOutput`).
+ *  A row whose other fields alone are over the ceiling goes with empty heads,
+ *  still over it. Message rows are never cut: their text has no way back. */
+function oversizedRow(row: Record<string, unknown>): Record<string, unknown> {
+  const cutAt = (cap: number): Record<string, unknown> => {
+    const cut = headCutRecord(row, cap);
+    if (!Array.isArray(row.toolMembers)) return cut;
+    const members = row.toolMembers.map((member) => {
+      const record = asRecord(member);
+      return record ? headCutRecord(record, cap) : member;
+    });
+    return { ...cut, toolMembers: members };
+  };
+  let low = 0;
+  let high = Math.max(
+    0,
+    ...[row, ...(Array.isArray(row.toolMembers) ? row.toolMembers : [])].flatMap((record) =>
+      REMOTE_TOOL_OUTPUT_FIELDS.map((field) => {
+        const value = asRecord(record)?.[field];
+        return typeof value === 'string' ? value.length : 0;
+      })
+    )
+  );
+  while (low < high) {
+    const cap = Math.ceil((low + high) / 2);
+    if (serializedBytes(cutAt(cap)) <= REMOTE_TRANSCRIPT_ROW_MAX_BYTES) low = cap;
+    else high = cap - 1;
+  }
+  return cutAt(low);
+}
+
+/** A row's phone copy as tail (`history` false: the rows a phone opened on and
+ *  every later one) or as revealed history, and its serialized size. */
+export function remoteTranscriptRow(item: unknown, folder: string, history: boolean): RemoteTranscriptRow {
+  if (!item || typeof item !== 'object') return { row: item, bytes: serializedBytes(item) };
+  let cached = projectedTranscriptItems.get(item);
+  if (cached?.folder !== folder) {
+    cached = { folder };
+    projectedTranscriptItems.set(item, cached);
+  }
+  const role = history ? 'history' : 'tail';
+  const hit = cached[role];
+  if (hit) return hit;
   let projected: Record<string, unknown> | null = null;
   for (const field of REMOTE_TRANSCRIPT_DROP_FIELDS) {
     if (!Object.hasOwn(item, field)) continue;
@@ -193,8 +279,14 @@ function remoteTranscriptItem(item: unknown, folder: string, history: boolean): 
     delete projected[field];
   }
   const base = projected ?? (item as Record<string, unknown>);
-  const result = base.kind === 'tool' ? remoteToolItem(base, folder, history) : base;
-  projectedTranscriptItems.set(item, { folder, result });
+  let row = base.kind === 'tool' ? remoteToolItem(base, folder, history) : base;
+  let bytes = serializedBytes(row);
+  if (base.kind === 'tool' && bytes > REMOTE_TRANSCRIPT_ROW_MAX_BYTES) {
+    row = oversizedRow(row);
+    bytes = serializedBytes(row);
+  }
+  const result = { row, bytes };
+  cached[role] = result;
   return result;
 }
 
@@ -460,8 +552,10 @@ export function remotePromptHistory(list: readonly unknown[]): readonly unknown[
  * deltas and recovery baselines; omit only provider-private replay material
  * and bound the prompt history (remotePromptHistory).
  * `sessionFolder` is where the session's relative paths lead from; absent, the
- * snapshot's own workspace is used, else the process folder. */
-export function remoteTranscriptSnapshot(snapshot: unknown, sessionFolder = ''): unknown {
+ * snapshot's own workspace is used, else the process folder. The first
+ * `historyEnd` rows are history a page revealed (remote-transcript-window.ts);
+ * without one every row is sent as tail. */
+export function remoteTranscriptSnapshot(snapshot: unknown, sessionFolder = '', historyEnd = 0): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot;
   const record = snapshot as Record<string, unknown>;
   const history = Array.isArray(record.promptHistoryList)
@@ -473,9 +567,8 @@ export function remoteTranscriptSnapshot(snapshot: unknown, sessionFolder = ''):
     const workspaceCwd = asRecord(record.workspace)?.cwd;
     const folder = sessionFolder || (typeof workspaceCwd === 'string' ? workspaceCwd : '');
     let dropped = false;
-    const historyEnd = record.items.length - REMOTE_TRANSCRIPT_TAIL_ITEMS;
     const projected = record.items.map((item, index) => {
-      const next = remoteTranscriptItem(item, folder, index < historyEnd);
+      const next = remoteTranscriptRow(item, folder, index < historyEnd).row;
       if (next !== item) dropped = true;
       return next;
     });

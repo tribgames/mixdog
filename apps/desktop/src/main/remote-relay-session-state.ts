@@ -7,7 +7,7 @@ import type { LatestStateMailbox } from './desktop-service-protocol';
 import { reportRemoteFirstTranscript } from './remote-performance-diagnostics';
 import type { RelayClientState } from './remote-relay-clients';
 import { createRemoteStreamingMailbox } from './remote-streaming-mailbox';
-import { remoteTranscriptSnapshot } from './remote-transcript';
+import { encodePhoneSessionState } from './remote-transcript-window';
 import { createSnapshotDeltaEncoder, isNoDelta } from './state-delta';
 
 /** The host owns bounded history pages. A second transport-only slice hid
@@ -21,14 +21,15 @@ export function encodeRelayClientSessionState(
   compact = false,
   prepend = false,
   historyPatch = false,
-  sessionFolder = ''
+  sessionFolder = '',
+  paging = false
 ): unknown {
   let encoder = encoders.get(sessionId);
   if (!encoder) {
     encoder = createSnapshotDeltaEncoder({ compact, prepend, historyPatch });
     encoders.set(sessionId, encoder);
   }
-  return encoder.encode(remoteTranscriptSnapshot(snapshot, sessionFolder));
+  return encodePhoneSessionState(encoder, snapshot, sessionFolder, paging);
 }
 
 /** A client receives a session's frames while it shows the session, and the
@@ -96,7 +97,8 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
             state.compactWire,
             state.transcriptPrepend,
             state.promptHistoryPatch,
-            deps.sessionFolder?.(sessionId) ?? ''
+            deps.sessionFolder?.(sessionId) ?? '',
+            state.transcriptPaging === true
           );
           // This client's baseline already matches the snapshot: the frame would
           // carry a revision number and nothing else.

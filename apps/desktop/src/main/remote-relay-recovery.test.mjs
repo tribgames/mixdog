@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocketServer } from 'ws';
+import { REMOTE_TRANSCRIPT_TAIL_ITEMS } from './desktop-support.ts';
 import { startRemoteRelay } from './remote-relay.ts';
 import { createRelayE2EEClientHandshake } from '../shared/remote-e2ee.ts';
 import { createSnapshotDeltaDecoder, markCompactWire } from './state-delta.ts';
@@ -198,7 +199,11 @@ test('real encrypted clients recover independently and reads bypass a slow read 
     };
     await send(a, { id: 20, method: 'setVisibleSessions', params: [['session']] });
     const firstTranscript = await waitFor(a, (message) => message.e === 'T' || message.event === 'sessionState');
-    assert.deepEqual(decodeTranscript(firstTranscript).items, snapshot.items);
+    // A paging phone opens on its own bounded first page of the host's window
+    // (remote-transcript-window.ts); older rows page in on request.
+    const firstPage = snapshot.items.slice(-REMOTE_TRANSCRIPT_TAIL_ITEMS);
+    assert.deepEqual(decodeTranscript(firstTranscript).items, firstPage);
+    assert.equal(decodeTranscript(firstTranscript).transcriptHasOlder, true);
     socket.send(JSON.stringify({ type: 'client-close', clientId: a.id }));
     const reopened = await open(a.id);
     await send(reopened, { id: 21, method: 'setVisibleSessions', params: [['session']] });
@@ -206,7 +211,7 @@ test('real encrypted clients recover independently and reads bypass a slow read 
       reopened,
       (message) => message.e === 'T' || message.event === 'sessionState'
     );
-    assert.deepEqual(decodeTranscript(restoredTranscript).items, snapshot.items);
+    assert.deepEqual(decodeTranscript(restoredTranscript).items, firstPage, 'a reconnect restores the same page');
     assert.deepEqual(
       (await waitFor(reopened, (message) => message.event === 'agentPool')).payload.rows.map((row) => row[1]),
       agents

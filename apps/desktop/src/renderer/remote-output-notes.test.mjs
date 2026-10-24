@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { remoteTranscriptSnapshot } from '../main/remote-transcript.ts';
-import { localizeRemoteOutputNotes } from './remote-output-notes.ts';
+import { REMOTE_TRANSCRIPT_ROW_MAX_BYTES, remoteTranscriptSnapshot } from '../main/remote-transcript.ts';
+import { remoteOutputNotice } from './remote-output-notes.ts';
 
 const LONG = `HEAD-${'x'.repeat(30_000)}-TAIL exit code: 2`;
 
@@ -22,19 +22,21 @@ test('the host sends data and the phone writes the words', () => {
   };
   const phone = remoteTranscriptSnapshot(host, '/work');
   assert.doesNotMatch(JSON.stringify(phone), /omitted …|Output withheld/u);
-  const shown = localizeRemoteOutputNotes(phone);
-  const [cut, withheld, aggregate, plain] = shown.items;
-  assert.match(cut.result, /^HEAD-x+\n\[… \d+ characters omitted …\]\nx+-TAIL exit code: 2$/u);
-  assert.equal(cut.rawResult, cut.result);
-  assert.equal(cut.result.replace(/\n\[… \d+ characters omitted …\]\n/u, ''), phone.items[0].result);
-  assert.equal('remoteOutputNotes' in cut, false);
-  assert.equal(cut.remoteOutputTruncated, LONG.length, 'the row revision still sees the cut');
-  assert.match(withheld.result, /^Output withheld: this tool call touches a secret file/u);
-  assert.doesNotMatch(JSON.stringify(shown), /sk-live/u);
-  assert.match(aggregate.toolMembers[0].result, /characters omitted/u);
-  assert.equal(plain, host.items[3]);
-  assert.equal(localizeRemoteOutputNotes(phone).items[0], shown.items[0], 'a row is localized once');
-  const whole = { items: [host.items[3]] };
-  assert.equal(localizeRemoteOutputNotes(whole), whole);
-  assert.equal(localizeRemoteOutputNotes(null), null);
+  // Tool rows keep the text their header is parsed from; the note is its own line.
+  const [cut, withheld, aggregate, plain] = phone.items;
+  assert.match(remoteOutputNotice(cut), /^… \d+ characters omitted …$/u);
+  assert.match(remoteOutputNotice(withheld), /^Output withheld: this tool call touches a secret file/u);
+  assert.doesNotMatch(JSON.stringify(phone), /sk-live/u);
+  assert.match(remoteOutputNotice(aggregate.toolMembers[0]), /characters omitted/u);
+  assert.equal(remoteOutputNotice(plain), '');
+  const { remoteOutputTruncated: _cut, ...merged } = { ...cut, result: LONG };
+  assert.equal(remoteOutputNotice(merged), '', 'a row holding its whole output (a full read) has no note');
+});
+
+test('a message row over the per-row ceiling is sent whole', () => {
+  const huge = `${'y'.repeat(200_000)}END`;
+  const row = { id: 'u', kind: 'user', text: huge };
+  const [sent] = remoteTranscriptSnapshot({ items: [row] }).items;
+  assert.ok(Buffer.byteLength(JSON.stringify(sent)) > REMOTE_TRANSCRIPT_ROW_MAX_BYTES);
+  assert.equal(sent, row, 'no cut, no note: message text has no way back');
 });

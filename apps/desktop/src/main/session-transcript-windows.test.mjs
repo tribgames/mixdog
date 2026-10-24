@@ -8,7 +8,9 @@ import {
   REMOTE_TRANSCRIPT_TAIL_BYTES,
   REMOTE_TRANSCRIPT_TAIL_ITEMS,
 } from './desktop-support.ts';
+import { encodePhoneSessionState } from './remote-transcript-window.ts';
 import { SessionTranscriptWindows } from './session-transcript-windows.ts';
+import { createSnapshotDeltaDecoder, createSnapshotDeltaEncoder } from './state-delta.ts';
 
 const id = 'sess_window';
 
@@ -42,6 +44,18 @@ test('a session the desktop window also shows keeps the desktop tail, and a join
     transcriptItemLimit: DESKTOP_TRANSCRIPT_TAIL_ITEMS,
     transcriptByteBudget: DESKTOP_TRANSCRIPT_TAIL_BYTES,
   });
+  // The shared window is the desktop pane's, not the phone's ceiling: the
+  // phone's first page is cut to its own budget on the relay leg.
+  const shared = Array.from({ length: DESKTOP_TRANSCRIPT_TAIL_ITEMS }, (_, n) => ({
+    id: `row${n}`,
+    kind: 'assistant',
+    text: 'w'.repeat(20_000),
+  }));
+  const wire = encodePhoneSessionState(createSnapshotDeltaEncoder(), { items: shared }, '', true);
+  const decoded = createSnapshotDeltaDecoder().decode(JSON.parse(JSON.stringify(wire)));
+  const bytes = Buffer.byteLength(JSON.stringify(decoded.snapshot.items));
+  assert.ok(bytes <= REMOTE_TRANSCRIPT_TAIL_BYTES, `phone first page ${bytes} bytes`);
+  assert.equal(decoded.snapshot.transcriptHasOlder, true);
   // A read for a session no view registered yet keeps the desktop tail.
   assert.equal(new SessionTranscriptWindows(new Map()).request(id).transcriptItemLimit, DESKTOP_TRANSCRIPT_TAIL_ITEMS);
 });

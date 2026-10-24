@@ -2,13 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { REMOTE_HISTORY_OUTPUT_CHARS, remoteTranscriptSnapshot } from './remote-transcript.ts';
+import { encodePhoneSessionState, requestPhoneTranscriptPage } from './remote-transcript-window.ts';
+import { createSnapshotDeltaDecoder, createSnapshotDeltaEncoder } from './state-delta.ts';
 
 const { desktopToolActivityItemPresentation } = await import('../renderer/transcript-tool-model.ts');
 const { desktopToolActivitySummary } = await import('../renderer/transcript-tool-core.ts');
+const { initUiLanguage } = await import('../renderer/i18n.ts');
 
 // Everything a row presents but the output text itself (its cut copy shows the
 // cut text there, by design), and the group summary above it.
-const BODY = new Set(['outputText', 'sections', 'entries', 'entryNotes', 'sectionCopyText', 'diffPatch']);
+const BODY = new Set([
+  'outputText',
+  'outputNotice',
+  'sections',
+  'entries',
+  'entryNotes',
+  'sectionCopyText',
+  'diffPatch',
+]);
 const header = (item) => {
   const presentation = desktopToolActivityItemPresentation(item, 1e13);
   return {
@@ -89,11 +100,13 @@ const ROWS = [
     `# a.ts\n${numbered(40)}\n\n# b.ts\n${numbered(33)}`
   ),
 ];
-// Twenty newer rows: the live tail a phone opens on.
+// Newer rows a phone opened on: its tail. Which rows are history is the
+// phone window's to say (remote-transcript-window.ts), not a row count.
 const TAIL = Array.from({ length: 20 }, (_, n) => ({ id: `u${n}`, kind: 'user', text: `prompt ${n}` }));
+const asHistory = (rows) => remoteTranscriptSnapshot({ items: [...rows, ...TAIL] }, process.cwd(), rows.length).items;
 
 test('an older row is cut to its first lines and keeps the header the whole output gives it', () => {
-  const items = remoteTranscriptSnapshot({ items: [...ROWS, ...TAIL] }, process.cwd()).items;
+  const items = asHistory(ROWS);
   for (const [index, row] of ROWS.entries()) {
     const sent = items[index];
     assert.deepEqual(header(sent), header(row), `${row.id}: the collapsed header reads the same`);
@@ -214,7 +227,7 @@ const LATE = [
 ];
 
 test('a cut row is its plain head plus the whole output facts, and its header reads as the whole one', () => {
-  const items = remoteTranscriptSnapshot({ items: [...LATE, ...TAIL] }, process.cwd()).items;
+  const items = asHistory(LATE);
   const sent = Object.fromEntries(LATE.map((row, index) => [row.id, items[index]]));
   for (const [index, row] of LATE.entries()) {
     assert.deepEqual(header(items[index]), header(row), `${row.id}: the row reads the same but for its text`);
@@ -249,11 +262,76 @@ test('a cut row is its plain head plus the whole output facts, and its header re
 });
 
 test('a command row keeps the six lines its inline preview reads', () => {
-  const items = remoteTranscriptSnapshot({ items: [...ROWS, ...TAIL] }, process.cwd()).items;
+  const items = asHistory(ROWS);
   for (const index of [4, 5]) {
     const kept = ROWS[index].result.split('\n').slice(0, 6).join('\n');
     assert.equal(items[index].result, kept);
   }
+});
+
+async function inLanguage(language, run) {
+  process.env.MIXDOG_UI_LANGUAGE = language;
+  await initUiLanguage();
+  try {
+    return await run();
+  } finally {
+    process.env.MIXDOG_UI_LANGUAGE = 'en';
+    await initUiLanguage();
+  }
+}
+
+test('projection, wire and presentation:a cut row reads as the whole one in English and Korean', async () => {
+  const questions = [
+    { id: 'a', question: 'Q1' },
+    { id: 'b', question: 'Q2' },
+  ];
+  const answer = `User has answered your questions: "Q1"="${'z'.repeat(9_000)}"; "Q2"="b".`;
+  // The review's repros: a one-line read in history (cut at 600 characters)
+  // and a structured answer over the tail cap (cut in the middle).
+  const read = tool('read-1', 'read', { path: 'a.ts' }, `1\t${'x'.repeat(1_500)}`);
+  const asked = tool('ask', 'request_user_input', { questions }, answer);
+  const host = { items: [read, ...TAIL.slice(0, 7), asked] };
+  const encoder = createSnapshotDeltaEncoder({ prepend: true });
+  const decoder = createSnapshotDeltaDecoder();
+  const deliver = (snapshot) => {
+    const decoded = decoder.decode(JSON.parse(JSON.stringify(encodePhoneSessionState(encoder, snapshot, process.cwd(), true))));
+    assert.equal(decoded.ok, true);
+    return decoded.snapshot;
+  };
+  // The phone opens on the newest eight rows, then pages the read in as history.
+  const opened = deliver({ ...host, items: host.items.slice(1), transcriptHasOlder: true });
+  assert.equal(opened.items.length, 8);
+  requestPhoneTranscriptPage(encoder, 8 + 64);
+  const shown = deliver({ ...host, transcriptHasOlder: false }).items;
+  const sentRead = shown[0];
+  const sentAsk = shown.at(-1);
+  assert.ok(sentRead.result.length <= REMOTE_HISTORY_OUTPUT_CHARS, 'the read came as history');
+  assert.ok(sentAsk.remoteOutputTruncated > 0, 'the answer is cut');
+  for (const language of ['en', 'ko']) {
+    await inLanguage(language, () => {
+      for (const [whole, sent] of [
+        [read, sentRead],
+        [asked, sentAsk],
+      ]) {
+        // An answer's own text is body (the cut copy shows its cut text); its status is header.
+        const closed = (row) => {
+          const value = header(row);
+          return { ...value, structuredRows: value.structuredRows.map(({ answer: _answer, ...rest }) => rest) };
+        };
+        assert.deepEqual(closed(sent), closed(whole), `${whole.id} (${language}): the header reads as the whole one`);
+      }
+      const notice = desktopToolActivityItemPresentation(sentRead, 1e13).outputNotice;
+      assert.match(notice, language === 'ko' ? /자/u : /characters omitted/u, 'the note is its own line');
+      assert.ok(!desktopToolActivityItemPresentation(sentRead, 1e13).outputText.includes(notice));
+    });
+  }
+  assert.equal(header(sentRead).resultLabel, '1 line');
+  await inLanguage('ko', () => assert.equal(header(sentRead).resultLabel, '1줄'));
+  assert.equal(header(sentAsk).resultLabel, '2/2');
+  assert.deepEqual(
+    header(sentAsk).structuredRows.map((row) => row.status),
+    ['completed', 'completed']
+  );
 });
 
 test('tail rows and the desktop copy are untouched', () => {

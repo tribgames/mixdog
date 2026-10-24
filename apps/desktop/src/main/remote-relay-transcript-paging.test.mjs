@@ -127,11 +127,19 @@ test('a paging phone opens tail windows and receives older pages and submits as 
       await waitFor(peer, (message) => message.e === 'T');
       assert.deepEqual(decode(peer, frames(peer)[0]), ['r0', 'r1', 'r2']);
     }
-    publishSessionState({
-      sessionId: 'session',
-      snapshot: { sessionId: 'session', items: paged },
-      frameSource: 'replay',
-    });
+    // The paging phone asks for the page (its window grows only on its own
+    // request, remote-transcript-window.ts); the host's answer reaches both.
+    host.prefetchSession = async (sessionId, limit) => {
+      assert.deepEqual([sessionId, limit], ['session', 67]);
+      publishSessionState({
+        sessionId: 'session',
+        snapshot: { sessionId: 'session', items: paged },
+        frameSource: 'replay',
+      });
+      return true;
+    };
+    const ask = await newPhone.channel.encryptJson({ id: 3, method: 'prefetchSession', params: ['session', 67] });
+    socket.send(JSON.stringify({ type: 'frame', clientId: newPhone.id, data: ask }));
     for (const peer of [newPhone, oldPhone]) await waitFor(peer, () => frames(peer).length === 2);
     const page = frames(newPhone)[1].w.ip;
     assert.deepEqual(

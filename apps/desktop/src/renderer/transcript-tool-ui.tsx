@@ -1044,6 +1044,7 @@ function renderToolActivityDetails(
           !presentation.command &&
           presentation.sections.length === 0 &&
           renderToolActivityOutput(presentation, output.text, full)}
+        {presentation.outputNotice && <p className="tool-activity-item-note">{presentation.outputNotice}</p>}
       </ToolActivityPreview>
     </div>
   );
@@ -1147,11 +1148,10 @@ function ToolActivityItem({
   // diff pane on that file (with the way back to the list), where a session
   // has that pane.
   const turnChanges = useContext(TurnChangesContext);
-  const diffPath = presentation.pending
-    ? ''
-    : presentation.diffPatch
-      ? diffTargetPath(presentation.diffPatch)
-      : presentation.diffDigestPath;
+  let diffPath = '';
+  if (!presentation.pending) {
+    diffPath = presentation.diffPatch ? diffTargetPath(presentation.diffPatch) : presentation.diffDigestPath;
+  }
   const openDiff =
     diffPath && turnChanges?.sessionId && turnChanges.onOpenSessionDiff
       ? () => {

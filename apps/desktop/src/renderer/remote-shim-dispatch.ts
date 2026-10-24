@@ -19,7 +19,6 @@ import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '..
 import { isRemotePaintProbe } from '../shared/remote-performance';
 import { RELAY_ROUTING_CAPS_EVENT, readRelayPayloadRejection } from '../shared/remote-payload-limit';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
-import { localizeRemoteOutputNotes } from './remote-output-notes';
 import { markCompactPayload } from './remote-compact-frames';
 import { VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import {
@@ -199,7 +198,7 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
     }
     if (message.event === 'state') {
       const snapshot = ctx.applyStatePayload(message.payload ?? null);
-      if (snapshot !== null) dispatchState(localizeRemoteOutputNotes(snapshot));
+      if (snapshot !== null) dispatchState(snapshot);
     } else if (message.event === 'sessions') {
       const decoded = Array.isArray(message.payload)
         ? { ok: true, items: message.payload as DesktopSessionSummary[] }
@@ -243,7 +242,7 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
         }
         update = {
           sessionId: payload.sessionId,
-          snapshot: localizeRemoteOutputNotes(decoded.snapshot as SessionSnapshot),
+          snapshot: decoded.snapshot as SessionSnapshot,
           frameSource: payload.frameSource,
           ...(payload.laneEnd ? { laneEnd: payload.laneEnd } : {}),
           ...(typeof payload.contentRevision === 'number' ? { contentRevision: payload.contentRevision } : {}),

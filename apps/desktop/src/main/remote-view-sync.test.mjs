@@ -244,7 +244,9 @@ async function harness() {
         f.host.transcripts[sessionId],
         true,
         true,
-        true
+        true,
+        '',
+        state.transcriptPaging === true
       );
       if (isNoDelta(wire)) return;
       leg.wires.push(plain(wire));
@@ -258,17 +260,20 @@ async function harness() {
     leg.drop = () => f.registry.remove(clientId, true);
     return leg;
   };
-  /** Everything the phone shows equals what a fresh full recovery shows. */
+  /** Everything the phone shows equals the host's current state; a transcript
+   *  from the first row of the phone's own window (remote-transcript-window.ts:
+   *  it opens on a bounded first page and grows by live rows and its pages). */
   const assertSynchronized = (phone) => {
     assert.deepEqual(plain(phone.view.state), plain(f.host.state));
     assert.deepEqual(phone.view.sessions, plain(f.host.sessions));
     assert.deepEqual(phone.view.agents, plain(f.host.agents));
     for (const id of IDS) {
-      assert.deepEqual(
-        plain(phone.view.transcripts.get(id)),
-        plain(remoteTranscriptSnapshot(f.host.transcripts[id])),
-        `${id} transcript`
-      );
+      const shown = plain(phone.view.transcripts.get(id));
+      const host = f.host.transcripts[id];
+      const start = host.items.findIndex((item) => item.id === shown.items[0]?.id);
+      assert.ok(start >= 0, `${id}: the phone's first row is the host's`);
+      const window = start > 0 ? { ...host, items: host.items.slice(start), transcriptHasOlder: true } : host;
+      assert.deepEqual(shown, plain(remoteTranscriptSnapshot(window)), `${id} transcript`);
     }
   };
   /** The host moves on while the phone is away: a streaming turn grows, a

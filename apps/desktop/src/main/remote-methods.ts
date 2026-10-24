@@ -184,6 +184,8 @@ export interface RemoteMethodClient {
   /** Marks a read this connection asked for: its answer reaches this
    *  connection although the session is not in its visible set yet. */
   requestRead?(sessionId: string): void;
+  /** This connection asked for a history page: its window may hold `limit` rows. */
+  requestTranscriptPage?(sessionId: string, limit: number): void;
   /** The read failed: its answer is no longer awaited. */
   releaseRead?(sessionId: string): void;
 }

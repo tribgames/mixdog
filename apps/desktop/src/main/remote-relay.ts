@@ -61,6 +61,7 @@ import {
 } from './remote-relay-device';
 import { createRelayMediaLane } from './remote-relay-media';
 import { createRelaySessionStateFanout } from './remote-relay-session-state';
+import { requestPhoneTranscriptPage } from './remote-transcript-window';
 import { viewIsStale } from './remote-view-staleness';
 import { createRelaySessionWiring } from './remote-relay-session-wiring';
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
@@ -322,6 +323,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             state.requestedReads ??= new Set();
             state.requestedReads.add(sessionId);
           },
+          requestTranscriptPage: (sessionId, limit) =>
+            requestPhoneTranscriptPage(state.sessionStateEncoders.get(sessionId), limit),
           releaseRead: (sessionId) => state.requestedReads?.delete(sessionId),
         }
       );

@@ -48,6 +48,7 @@ import {
   visualizeRowSubject,
 } from './transcript-tool-format';
 import { callArgs } from './visualize-card-model';
+import { remoteOutputNotice } from './remote-output-notes';
 import {
   toolActivityBackgroundTask,
   toolActivityCleanOutput,
@@ -116,6 +117,9 @@ interface DesktopToolActivityItemPresentation {
   outputText: string;
   /** One quiet line under the output ("종료 코드 2", the still-running note). */
   outputNote: string;
+  /** A phone copy's note on its own line: the output was withheld, or how
+   *  much of it the host's cut left out (never part of the parsed text). */
+  outputNotice: string;
   /** The part of the closed-row outcome that may ellipsize (an error's first line). */
   outcomeReason: string;
   metaText: string;
@@ -1198,6 +1202,7 @@ export function desktopToolActivityItemPresentation(
   // A finished background task with nothing to read keeps no disclosure: its
   // command is already the subject, its status and id ride on the closed row.
   const commandIsDetail = Boolean(command) && !(backgroundTask && !outputText.trim() && !outputNote);
+  const outputNotice = remoteOutputNotice(wireItem);
   // A phone's copy of a long edit holds the diff's digest, not its text; the
   // counts, verb and path read from the digest are what the text would give.
   const digest = diffPatch ? null : callDigest;
@@ -1218,6 +1223,7 @@ export function desktopToolActivityItemPresentation(
       digest ||
       outputText ||
       outputNote ||
+      outputNotice ||
       sections.length ||
       promptText ||
       beforeText ||
@@ -1248,6 +1254,7 @@ export function desktopToolActivityItemPresentation(
     diffDigestPath: digest?.targetPath ?? '',
     outputText,
     outputNote,
+    outputNotice,
     outcomeReason: outcome.reason,
     metaText: backgroundTask ? backgroundTask.meta : '',
     outputLanguage,

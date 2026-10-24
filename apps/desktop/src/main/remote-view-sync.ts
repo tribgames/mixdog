@@ -6,7 +6,7 @@ import type { SnapshotDeltaEncoder } from './state-delta';
 import { createSnapshotDeltaEncoder, isNoDelta, markCompactWire } from './state-delta';
 import { synchronizeViewSnapshot } from './view-synchronizer';
 import { isSessionId } from './desktop-state';
-import { remoteTranscriptSnapshot } from './remote-transcript';
+import { encodePhoneSessionState } from './remote-transcript-window';
 import { MAX_VIEW_BASELINE_BYTES, readViewBaselineOffer, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import {
   readViewResumeRequest,
@@ -264,11 +264,11 @@ export async function synchronizeRelayViews(
             historyPatch: state.promptHistoryPatch === true,
           });
         state.sessionStateEncoders.set(update.sessionId, encoder);
-        const wire = encoder.encode(
-          remoteTranscriptSnapshot(
-            update.snapshot,
-            snapshot.sessions.find((row) => row.id === update.sessionId)?.cwd ?? ''
-          )
+        const wire = encodePhoneSessionState(
+          encoder,
+          update.snapshot,
+          snapshot.sessions.find((row) => row.id === update.sessionId)?.cwd ?? '',
+          state.transcriptPaging === true
         );
         if (!resumed) {
           writes.push(sendBaseline({ event: 'sessionState', payload: { ...update, wire, snapshot: undefined } }));
