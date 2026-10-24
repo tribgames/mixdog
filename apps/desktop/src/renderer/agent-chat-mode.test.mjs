@@ -30,9 +30,11 @@ const { routineLoginRequiredText } = await import(
   '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs'
 );
 const { useConversationRowRenderer } = await import('./use-conversation-row-renderer.ts');
+const { transcriptRowVariant } = await import('./transcript-list-estimates.ts');
 const { transcriptRowNode } = await import('./conversation-support.tsx');
 const { publishAgentRooms } = await import('./agent-room-store.ts');
 const { publishSessionGlances } = await import('./session-glance-store.ts');
+const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
 const { Composer } = await import('./Composer.tsx');
 const { recognisedAgentRoomSlash } = await import('./slash-commands.ts');
 const { usePaneWorkspace, agentChatSlotKey } = await import('./pane-workspace-state.ts');
@@ -1734,8 +1736,8 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
       ['user', '', false],
     ]
   );
-  // D: a completed reply of a bot's home session names the answering bot; an
-  // ordinary session's is a session-attributed line, and a start paints nothing (no place at all).
+  // D: a completed reply of a bot's home session is its card like any
+  // session's (an aside row), and a start paints nothing (no place at all).
   const taskReply = (id, routine) => ({
     _tag: 'AssistantPart',
     key: id,
@@ -1763,7 +1765,7 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
     replies
       .map((_, index) => agentChatPlace(replies, index))
       .map((place) => place && [place.side, place.speaker, Boolean(place.bot)]),
-    [['agent', MARKETER, true], null, ['agent', 'session:', false]]
+    [['aside', '', false], null, ['aside', '', false]]
   );
   const send = (id, extra = {}) => ({
     kind: 'tool',
@@ -1839,33 +1841,31 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   await act(async () => main().querySelector('.mx-bot-fold-pill .mx-routine-more').click());
   assert.match(main().querySelector('.mx-bot-fold-body').textContent, /Hello from the marketer/);
 
+  // The bot's answer is the session completion card under that bot's face
+  // and name; its words open in place, "Open session" opens its chat.
   await show(replies.slice(0, 1));
-  assert.ok(main().querySelector('.mx-chat-bot-tag'));
-  assert.match(main().querySelector('.mx-bot-fold-preview').textContent, /Got it/);
-  assert.equal(main().querySelector('.mx-bot-fold-body'), null, 'a reply is folded by default');
-  await act(async () => main().querySelector('.mx-bot-fold-pill .mx-routine-more').click());
-  assert.match(main().querySelector('.mx-bot-fold-body').textContent, /Got it/);
-  assert.equal(
-    [...main().querySelectorAll('button')].some((b) => b.textContent === 'View full reply'),
-    false,
-    'the old link is gone'
-  );
-  const openReply = main().querySelector('.mx-bot-fold-pill .mx-open-session');
-  assert.equal(openReply.textContent, 'Open ↗');
-  await act(async () => openReply.click());
+  const card = main().querySelector('.mx-task-card');
+  assert.ok(card, 'the completion card');
+  assert.equal(main().querySelector('.mx-bot-fold, .mx-chat-bot-tag'), null, 'no folded bot bubble');
+  assert.ok(card.querySelector('.mx-task-card-face'), 'the bot’s face');
+  assert.equal(card.querySelector('.turn-changes-title strong').textContent, MARKETER);
+  assert.equal(card.querySelector('.mx-task-card-meta').textContent, 'Session · Completed');
+  assert.equal(card.querySelector('.mx-task-card-answer'), null, 'the answer is folded by default');
+  await act(async () => card.querySelector('.mx-routine-more').click());
+  assert.match(card.querySelector('.mx-task-card-answer').textContent, /Got it/);
+  await act(async () => card.querySelector('.turn-changes-view').click());
   assert.equal(opened.at(-1), replies[0].item.routine.sessionId);
 
-  // C: the send is a folded line naming the recipient; the prompt is plain text behind the disclosure.
+  // C: the send is one hand-off line naming the recipient bot with its face;
+  // no disclosure of the message, Open opens that bot's chat.
   for (const items of [[send('s1')], [ask, send('s1')]]) {
     await show([round(items)]);
-    const pill = main().querySelector('.mx-bot-sent .mx-routine-trigger-name');
-    assert.ok(pill, 'the sent line is drawn');
-    assert.equal(pill.tagName, 'SPAN', 'the name is plain text');
-    assert.match(pill.textContent, /agent-a70d746b04/);
-    assert.equal(main().querySelector('.mx-routine-trigger-body'), null, 'folded by default');
-    await act(async () => main().querySelector('.mx-bot-sent .mx-routine-more').click());
-    assert.equal(main().querySelector('.mx-routine-trigger-body').textContent, 'Please watch the mailbox');
-    await act(async () => main().querySelector('.mx-bot-sent .mx-open-session').click());
+    const line = main().querySelector('.mx-handoff-line');
+    assert.ok(line, 'the sent line is drawn');
+    assert.ok(line.querySelector('.mx-bot-sent-face'), 'the bot’s face');
+    assert.match(line.textContent, /Sent to agent-a70d746b04 · Working/);
+    assert.equal(main().querySelector('.mx-handoff-line .mx-routine-more'), null, 'no message disclosure');
+    await act(async () => line.querySelector('button').click());
     assert.equal(opened.at(-1), CLERK_HOME);
   }
   // The send sits under the sending bot's reply bubble, in its group, never above the name.
@@ -1877,71 +1877,20 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   };
   await show([round([send('s1')]), replyRow]);
   const group = main().querySelector('.mx-chat-row[data-side="agent"]');
-  assert.ok(group.querySelector('.mx-chat-column > .mx-bot-sent'), 'inside the reply column');
-  const nodes = [...group.querySelectorAll('.mx-chat-name, .mx-chat-line, .mx-bot-sent')];
+  assert.ok(group.querySelector('.mx-chat-column > .mx-handoff-block'), 'inside the reply column');
+  const nodes = [...group.querySelectorAll('.mx-chat-name, .mx-chat-line, .mx-handoff-block')];
   const order = (selector) => nodes.findIndex((n) => n.matches(selector));
-  assert.ok(order('.mx-chat-line') < order('.mx-bot-sent'), 'after the bubble');
-  assert.equal(main().querySelectorAll('.mx-bot-sent').length, 1);
-  await act(async () => group.querySelector('.mx-bot-sent .mx-routine-more').click());
-  assert.equal(group.querySelector('.mx-routine-trigger-body').textContent, 'Please watch the mailbox');
-  await act(async () => group.querySelector('.mx-bot-sent .mx-open-session').click());
-  assert.equal(opened.at(-1), CLERK_HOME);
+  assert.ok(order('.mx-chat-line') < order('.mx-handoff-block'), 'after the bubble');
+  assert.equal(main().querySelectorAll('.mx-handoff-line').length, 1);
 
-  // An ordinary session: its current title, a glyph, "Open ↗", "View message"; "Working" while it is busy.
-  publishSessionGlances([{ id: 'sess_dev_1', title: 'Dev session', preview: '', working: true }]);
-  await show([round([send('s2', { session_id: 'sess_dev_1' })])]);
-  const line = main().querySelector('.mx-bot-sent');
-  assert.match(line.textContent, /Sent to Dev session/);
-  assert.ok(line.querySelector('.mx-session-glyph'), 'a session glyph stands for the face');
-  assert.equal(line.querySelector('.mx-routine-more:not(.mx-open-session)').textContent, 'View message');
-  assert.equal(line.querySelector('.mx-open-session').textContent, 'Open ↗');
-  assert.match(line.querySelector('.mx-bot-sent-status').textContent, /Working/);
-  await act(async () => line.querySelector('.mx-open-session').click());
-  assert.equal(opened.at(-1), 'sess_dev_1');
-  await act(async () => publishSessionGlances([{ id: 'sess_dev_1', title: 'Renamed', preview: '', working: false }]));
-  assert.match(main().querySelector('.mx-bot-sent').textContent, /Sent to Renamed/);
-  assert.equal(main().querySelector('.mx-bot-sent-status'), null, 'idle: no working dot');
-  // Busy again, but the session's answer is already in the chat: no dot.
-  await act(async () => publishSessionGlances([{ id: 'sess_dev_1', title: 'Renamed', preview: '', working: true }]));
-  const answer = {
-    _tag: 'AssistantPart',
-    key: 'ans',
-    turnKey: 'ans',
-    item: {
-      kind: 'notice',
-      id: 'ans',
-      text: '🛠 x',
-      at: DAY1,
-      routine: {
-        kind: 'task',
-        name: 'Dev session',
-        status: 'completed',
-        summary: 'Done it',
-        sessionId: 'sess_dev_1',
-        target: 'session',
-      },
-    },
-  };
-  await show([round([send('s2', { session_id: 'sess_dev_1' })]), answer]);
-  assert.equal(main().querySelector('.mx-bot-sent-status'), null, 'the answer arrived');
-  const from = main().querySelector('.mx-chat-row .mx-chat-name');
-  assert.match(from.textContent, /Renamed/);
-  assert.match(from.querySelector('.mx-chat-bot-tag').textContent, /Reply/);
-  assert.ok(main().querySelector('.mx-chat-face.mx-session-glyph'));
-  assert.match(main().querySelector('.mx-bot-fold-preview').textContent, /Done it/);
-  await act(async () => main().querySelector('.mx-bot-fold-pill .mx-open-session').click());
-  assert.equal(opened.at(-1), 'sess_dev_1');
-  // Not a send, and coding mode: no line.
+  // Not a send: no line.
   await show([round([send('s3', { action: 'read' })])]);
-  assert.equal(main().querySelector('.mx-bot-sent'), null);
-  await show([round([send('s4')])], false);
-  assert.equal(main().querySelector('.mx-bot-sent'), null);
+  assert.equal(main().querySelector('.mx-handoff-line'), null);
 });
 
-test('the working dot follows the session that still owes an answer, per send', async (t) => {
+test('a hand-off line stays until that send’s own report, per send', async (t) => {
   const render = rowHarness(t);
-  const CLERK_HOME = 'sess_home_agent-a70d746b04';
-  const DEV = 'sess_dev_1';
+  const DEV = 'sess_dev_2';
   const send = (id, sessionId, sendId) => ({
     kind: 'tool',
     id,
@@ -1999,53 +1948,47 @@ test('the working dot follows the session that still owes an answer, per send', 
     await render(React.createElement(Rows));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   };
-  const lines = () => [...document.querySelectorAll('main .mx-bot-sent')];
-  const working = () => lines().map((line) => Boolean(line.querySelector('.mx-bot-sent-status')));
-  const glance = (id, busy) => ({ id, title: id, preview: '', working: busy });
+  // Which sends still show their line, in order.
+  const open = () => [...document.querySelectorAll('main .mx-handoff-line')].map((line) => line.textContent);
 
-  // A bot recipient: the dot while its chat works, gone once idle; "Open ↗" too.
-  await act(async () => publishSessionGlances([glance(CLERK_HOME, true)]));
-  await show([round('r1', [send('a', CLERK_HOME, 'atask_1')])]);
-  assert.deepEqual(working(), [true]);
-  assert.equal(lines()[0].querySelector('.mx-open-session').textContent, 'Open ↗');
-  await act(async () => publishSessionGlances([glance(CLERK_HOME, false)]));
-  assert.deepEqual(working(), [false]);
-
-  // Several sends in one round: each session's own state.
-  await act(async () => publishSessionGlances([glance(CLERK_HOME, true), glance(DEV, false)]));
-  await show([round('r1', [send('a', CLERK_HOME, 'atask_1'), send('b', DEV, 'atask_2')])]);
-  assert.deepEqual(working(), [true, false]);
-
-  // Two sends to one session in a round: the newest owns the dot.
-  await act(async () => publishSessionGlances([glance(DEV, true)]));
+  // Two sends to one session in a round: each its own line.
   await show([round('r1', [send('a', DEV, 'atask_1'), send('b', DEV, 'atask_2')])]);
-  assert.deepEqual(working(), [false, true]);
-
-  // Across rounds: send A, send B, then A's answer. B's session still works.
+  assert.equal(open().length, 2);
+  // Across rounds: send A, send B, then A's answer: only B still owes one.
   const rounds = [round('r1', [send('a', DEV, 'atask_1')]), round('r2', [send('b', DEV, 'atask_2')])];
   await show(rounds);
-  assert.deepEqual(working(), [false, true], 'B supersedes A');
+  assert.equal(open().length, 2);
   await show([...rounds, answer('ans-a', DEV, 'atask_1')]);
-  assert.deepEqual(working(), [false, true], "A's late answer does not clear B");
+  assert.equal(open().length, 1, "A's answer ends A's line only");
   await show([...rounds, answer('ans-a', DEV, 'atask_1'), answer('ans-b', DEV, 'atask_2')]);
-  assert.deepEqual(working(), [false, false], "B's own answer clears it");
-  // A report without a correlation (an older one) settles by session, as before.
+  assert.equal(open().length, 0, "B's own answer ends it");
+  // A report without a correlation (an older one) ends by session, as before.
   await show([...rounds, answer('old', DEV, '')]);
-  assert.deepEqual(working(), [false, false]);
-  // A failed end settles the send too; a start does not.
+  assert.equal(open().length, 0);
+  // A failed end ends the send too; a start does not.
   await show([...rounds, answer('f', DEV, 'atask_2', 'failed')]);
-  assert.deepEqual(working(), [false, false]);
+  assert.equal(open().length, 1);
   await show([...rounds, answer('s', DEV, 'atask_2', 'started')]);
-  assert.deepEqual(working(), [false, true]);
+  assert.equal(open().length, 2);
   // Sends folded into one running turn get one report that lists them all: it
-  // closes each of them, never a send it does not list.
+  // ends each of them, never a send it does not list.
   await show([...rounds, answer('one', DEV, 'atask_1', 'completed', ['atask_1', 'atask_2'])]);
-  assert.deepEqual(working(), [false, false], 'the one report closes both sends');
+  assert.equal(open().length, 0, 'the one report ends both sends');
   await show([...rounds, answer('one', DEV, 'atask_1', 'completed', ['atask_1', 'atask_3'])]);
-  assert.deepEqual(working(), [false, true], "a report that does not list B leaves B's own turn working");
+  assert.equal(open().length, 1, "a report that does not list B leaves B's line");
+  // A report naming the send ends it wherever it is stored, even before the call.
+  await show([answer('early', DEV, 'atask_2'), ...rounds]);
+  assert.equal(open().length, 1, 'B ended by its own earlier-stored report; A still owes one');
+  await show([answer('early', DEV, '', 'completed', ['atask_1', 'atask_2']), ...rounds]);
+  assert.equal(open().length, 0);
+  // An older report naming no send never closes a later resend to that session.
+  await show([answer('old', DEV, ''), ...rounds]);
+  assert.equal(open().length, 2);
+  await show([answer('old', DEV, ''), round('r9', [send('c', DEV, '')])]);
+  assert.equal(open().length, 1, 'nor a later send without an id');
 });
 
-test('bot-to-bot: only an accepted send draws the sent line; only a completed reply becomes the bot bubble', async (t) => {
+test('only an accepted send draws a hand-off line; a bot’s reports are cards, never its bubble', async (t) => {
   const render = rowHarness(t);
   const CLERK_HOME = 'sess_home_agent-a70d746b04';
   const send = (id, extra) => ({
@@ -2084,7 +2027,7 @@ test('bot-to-bot: only an accepted send draws the sent line; only a completed re
     }
     await render(React.createElement(Rows));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    return document.querySelectorAll('main .mx-bot-sent').length;
+    return document.querySelectorAll('main .mx-handoff-line').length;
   };
   assert.equal(await sentLines(send('ok', { result: '{"sessionId":"x","accepted":true,"reportsBack":true}' })), 1);
   assert.equal(await sentLines(send('run', { status: 'running' })), 0, 'a running call was not sent yet');
@@ -2104,10 +2047,331 @@ test('bot-to-bot: only an accepted send draws the sent line; only a completed re
       },
     },
   ];
-  assert.equal(agentChatPlace(reply('completed'), 0).bot, true);
+  assert.equal(agentChatPlace(reply('completed'), 0).bot, undefined);
+  assert.equal(agentChatPlace(reply('completed'), 0).side, 'aside');
   assert.equal(agentChatPlace(reply('failed'), 0).bot, undefined);
   assert.equal(agentChatPlace(reply('cancelled'), 0).bot, undefined);
 });
+
+test('work handed to a session: one block of lines under the turn’s reply, its live state, then the report card', async (t) => {
+  const render = rowHarness(t);
+  const DEV = 'sess_dev_1';
+  const TASK = 'sess_daemon_7_task';
+  const CLERK_HOME = 'sess_home_agent-a70d746b04';
+  const call = (id, args, result) => ({
+    kind: 'tool',
+    id,
+    name: 'session',
+    args,
+    result: JSON.stringify(result),
+    status: 'done',
+    startedAt: DAY1,
+  });
+  const send = (id, sendId, result = {}, sessionId = DEV) =>
+    call(
+      id,
+      { action: 'send', session_id: sessionId, prompt: `prompt ${id}` },
+      { sessionId, accepted: true, sendId, reportsBack: true, hop: 1, ...result }
+    );
+  const create = (id, args = {}) =>
+    call(
+      id,
+      { action: 'create', title: 'Fence fix', brief: 'Fix the fence', ...args },
+      { session_id: TASK, status: 'started', title: 'Fence fix', project: null }
+    );
+  const round = (key, items) => ({ _tag: 'ToolActivity', key, turnKey: 't1', items });
+  const report = (key, routine) => ({
+    _tag: 'AssistantPart',
+    key,
+    turnKey: key,
+    item: { kind: 'notice', id: key, text: '🛠 x', at: DAY1, routine: { kind: 'task', summary: 'done', ...routine } },
+  });
+  const ended = (key, status, sendId) =>
+    report(key, { name: 'Dev session', status, sessionId: DEV, target: 'session', hop: 1, sendId });
+  const taskEnded = (key, status) => report(key, { name: 'Fence fix', status, sessionId: TASK, sendId: 'atask_9' });
+  const taskWait = (key) => report(key, { name: 'Fence fix', status: 'blocked', summary: '', sessionId: TASK });
+  const started = report('started', { name: 'Fence fix', status: 'started', summary: '', sessionId: TASK });
+  const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't1', active: true };
+  // The reply part while it streams: the same item id, so the same row key,
+  // as the settled reply below (transcript-rows.ts transcriptRowKey).
+  const streaming = {
+    _tag: 'AssistantPart',
+    key: 'a1',
+    turnKey: 't1',
+    live: true,
+    active: true,
+    item: { kind: 'assistant', id: 'a1', text: 'Sent i', streaming: true, at: DAY1 },
+  };
+  const landed = { ...streaming, item: { ...streaming.item, text: 'Handed it over', streaming: false } };
+  const replied = {
+    _tag: 'AssistantPart',
+    key: 'a1',
+    turnKey: 't1',
+    item: { kind: 'assistant', id: 'a1', text: 'Handed it over', at: DAY1 },
+  };
+  const options = {
+    snapshot: { sessionId: HOME, busy: true },
+    disclosureScope: HOME,
+    readOnly: false,
+    transitioning: false,
+    renderAssistantRow: undefined,
+    onOpenSettings() {},
+    settledItems: [],
+    settledTurnKeys: [],
+    optimisticActivityStartedAt: 0,
+    submit: async () => true,
+    questionCard: null,
+    agentMode: true,
+  };
+  const show = async (rows, agentMode = true) => {
+    function Rows() {
+      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
+      return React.createElement(
+        React.Fragment,
+        null,
+        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
+      );
+    }
+    await render(React.createElement(Rows));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  };
+  const main = () => document.querySelector('main');
+  const lines = () => [...main().querySelectorAll('.mx-handoff-line')].map((line) => line.textContent);
+  // What the renderer returns for `rows[index]` (null: no node, no room).
+  const nodeOf = async (rows, index) => {
+    let node;
+    function Probe() {
+      const { renderTranscriptRow } = useConversationRowRenderer(options);
+      node = renderTranscriptRow(rows[index], index, rows);
+      return null;
+    }
+    await render(React.createElement(Probe));
+    return node;
+  };
+  // The row (by its position in `rows`) whose node holds the lines.
+  const linesRow = () => [...main().children].findIndex((node) => node.querySelector('.mx-handoff-line'));
+  const waiting = (ids) =>
+    act(async () => publishCatalogApprovalSessions(ids.map((id) => ({ id, awaitingApproval: true }))));
+  const opened = [];
+  const onOpen = (event) => opened.push(event.detail.sessionId);
+  const NodeCustomEvent = globalThis.CustomEvent;
+  globalThis.CustomEvent = window.CustomEvent;
+  window.addEventListener('mixdog:open-task-session', onOpen);
+  t.after(() => {
+    globalThis.CustomEvent = NodeCustomEvent;
+    window.removeEventListener('mixdog:open-task-session', onOpen);
+    publishSessionGlances([]);
+    publishCatalogApprovalSessions([]);
+  });
+  await act(async () => publishSessionGlances([{ id: DEV, title: 'Dev session', preview: '', working: true }]));
+  const SENT = 'Sent to Dev session · Working·Open';
+
+  // (1) While the turn runs the block stands under the typing bubble, in the
+  // bot's run; once the reply lands, under the reply bubble and its time.
+  // The round itself draws nothing.
+  const sent = round('r1', [send('s1', 'atask_1')]);
+  for (const rest of [[thinking], [streaming, thinking]]) {
+    await show([user('u1', DAY1), sent, ...rest]);
+    assert.deepEqual(lines(), [SENT], `${rest.map((row) => row.key)}`);
+    const run = main().querySelector('.mx-chat-row[data-side="agent"]');
+    assert.ok(run.querySelector('.mx-chat-typing'), 'the typing bubble');
+    const column = [...run.querySelector('.mx-chat-column').children];
+    const at = (selector) => column.findIndex((node) => node.matches(selector));
+    assert.ok(at('.mx-chat-line') < at('.mx-handoff-block'), 'below the typing bubble');
+    assert.equal(linesRow(), 2, 'at the live band or the streaming part, not the round');
+    assert.equal(main().querySelectorAll('.mx-chat-typing').length, 1, 'one typing bubble');
+    assert.equal(main().querySelector('.mx-handoff-line').getAttribute('role'), 'status');
+    assert.ok(main().querySelector('.mx-handoff-line .mx-bot-sent-dot'), 'the dot');
+  }
+  await show([user('u1', DAY1), sent, replied]);
+  assert.deepEqual(lines(), [SENT]);
+  assert.equal(linesRow(), 2, 'at the reply');
+  const run = main().querySelector('.mx-chat-row[data-side="agent"]');
+  const column = [...run.querySelector('.mx-chat-column').children];
+  const at = (selector) => column.findIndex((node) => node.matches(selector));
+  assert.match(run.querySelector('.mx-chat-line').textContent, /Handed it over/);
+  assert.ok(at('.mx-chat-time') < at('.mx-handoff-block'), 'below the bubble and its time');
+  assert.equal(main().querySelector('.mx-bot-sent, .mx-routine-more'), null, 'no pill, no message disclosure');
+  await act(async () => main().querySelector('.mx-handoff-line button').click());
+  assert.equal(opened.at(-1), DEV);
+  // One carrier row from streaming through the turn's end: the reply part's
+  // row (one key, one variant) carries the block while it streams, once it
+  // is whole and after it settles; the band carries nothing then.
+  const carriers = [];
+  for (const rest of [[streaming, thinking], [landed, thinking], [replied]]) {
+    const rows = [user('u1', DAY1), sent, ...rest];
+    await show(rows);
+    const at = linesRow();
+    carriers.push([rows[at].key, transcriptRowVariant(rows, at, new Set())]);
+    assert.equal(
+      rows.filter((_, index) => transcriptRowVariant(rows, index, new Set()).startsWith('lines')).length,
+      1,
+      'one carrier'
+    );
+    assert.deepEqual(lines(), [SENT]);
+  }
+  assert.deepEqual(carriers, [
+    ['a1', 'lines:1'],
+    ['a1', 'lines:1'],
+    ['a1', 'lines:1'],
+  ]);
+  // A turn with no reply keeps the line at its own round.
+  await show([user('u1', DAY1), sent]);
+  assert.deepEqual(lines(), [SENT]);
+  assert.equal(linesRow(), 1);
+  // One block per turn, a line per piece of work in call order.
+  await show([user('u1', DAY1), sent, round('r3', [create('c1')]), replied]);
+  assert.deepEqual(lines(), [SENT, 'Fence fix · Working·Open']);
+  assert.equal(main().querySelectorAll('.mx-handoff-block').length, 1);
+  // The title is the session's current one.
+  await act(async () => publishSessionGlances([{ id: DEV, title: 'Renamed', preview: '', working: true }]));
+  await show([user('u1', DAY1), sent, replied]);
+  assert.deepEqual(lines(), ['Sent to Renamed · Working·Open']);
+  await act(async () => publishSessionGlances([{ id: DEV, title: 'Dev session', preview: '', working: true }]));
+
+  // (2) The session waits for the user's approval: the same line reads so
+  // (amber), and back once approved, with no row of its own.
+  const rows = [user('u1', DAY1), sent, replied];
+  await show(rows);
+  const nodes = main().querySelectorAll('.mx-chat-row').length;
+  await waiting([DEV]);
+  assert.deepEqual(lines(), ['Sent to Dev session · Approval needed·Open']);
+  assert.equal(main().querySelector('.mx-handoff-line').dataset.state, 'approval');
+  assert.equal(main().querySelectorAll('.mx-chat-row').length, nodes, 'no new row');
+  await waiting([]);
+  assert.deepEqual(lines(), [SENT]);
+  assert.equal(main().querySelector('.mx-handoff-line').dataset.state, 'working');
+
+  // (3) Its wait reports draw nothing while the line carries the state: two
+  // of them still leave one line, and no other.
+  await waiting([DEV]);
+  await show([...rows, ended('b1', 'blocked', 'atask_1'), ended('b2', 'blocked', 'atask_1')]);
+  assert.equal(main().querySelectorAll('.mx-chat-routine-failed').length, 1, 'one line for the session');
+  assert.equal(main().children[3].childElementCount + main().children[4].childElementCount, 0);
+  await waiting([]);
+
+  // (4) A wait with no hand-off line here (older history): one named line on
+  // its latest report, only while the session still waits.
+  const older = [user('u1', DAY1), replied, taskWait('w1'), taskWait('w2')];
+  await waiting([TASK]);
+  await show(older);
+  assert.deepEqual(lines(), ['Fence fix · Approval needed·Open']);
+  assert.equal(linesRow(), 3, 'on the latest wait');
+  await waiting([]);
+  assert.deepEqual(lines(), [], 'gone once the session no longer waits');
+  // The row then renders no node at all, and its height variant says so:
+  // the variant changes exactly when the line comes or goes.
+  assert.equal(await nodeOf(older, 3), null);
+  assert.equal(transcriptRowVariant(older, 3, new Set()), 'hidden');
+  await waiting([TASK]);
+  assert.notEqual(await nodeOf(older, 3), null);
+  assert.equal(transcriptRowVariant(older, 3, new Set([TASK])), '');
+  await waiting([]);
+  // A wait the session's later end closed paints nothing at all (no node).
+  await waiting([TASK]);
+  await show([...older, taskEnded('done', 'completed')]);
+  assert.deepEqual(lines(), []);
+  assert.equal(main().children[2].childElementCount + main().children[3].childElementCount, 0);
+  await waiting([]);
+
+  // (5) Its terminal report: the line gone, the session card, no folded answer.
+  for (const [status, label] of [
+    ['completed', 'Completed'],
+    ['failed', 'Failed'],
+    ['cancelled', 'Cancelled'],
+  ]) {
+    await show([...rows, ended('e', status, 'atask_1')]);
+    assert.deepEqual(lines(), [], status);
+    const cards = main().querySelectorAll('.mx-task-card');
+    assert.equal(cards.length, 1, status);
+    assert.equal(cards[0].dataset.status, status);
+    assert.equal(cards[0].querySelector('.turn-changes-title strong').textContent, 'Dev session');
+    assert.equal(cards[0].querySelector('.mx-task-card-meta').textContent, `Session · ${label}`);
+    assert.equal(main().querySelector('.mx-bot-fold'), null, status);
+  }
+  // A start, a wait and another send's end leave it; a send reporting nothing back draws none.
+  await show([...rows, ended('o', 'completed', 'atask_other')]);
+  assert.equal(lines().length, 1);
+  await show([user('u1', DAY1), round('r2', [send('s2', '', { reportsBack: false })]), replied]);
+  assert.deepEqual(lines(), []);
+
+  // (6) A created task session: its name alone, the stored start paints
+  // nothing; its end is the task card.
+  const made = round('r3', [create('c1')]);
+  for (const rest of [[thinking], [replied], [replied, started]]) {
+    await show([user('u1', DAY1), made, ...rest]);
+    assert.deepEqual(lines(), ['Fence fix · Working·Open'], `${rest.map((row) => row.key)}`);
+    assert.equal(main().querySelector('.mx-task-card'), null);
+  }
+  await act(async () => main().querySelector('.mx-handoff-line button').click());
+  assert.equal(opened.at(-1), TASK);
+  await show([user('u1', DAY1), made, replied, started, taskEnded('done', 'completed')]);
+  assert.deepEqual(lines(), []);
+  assert.equal(main().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed');
+  await show([user('u1', DAY1), round('r4', [create('c2', { notify: false })]), replied]);
+  assert.deepEqual(lines(), []);
+
+  // (7) Another bot's chat: its face and name; its answer is the same
+  // completion card under that bot's face and name, the line gone.
+  const toBot = round('r5', [send('s5', 'atask_5', {}, CLERK_HOME)]);
+  await show([user('u1', DAY1), toBot, replied]);
+  assert.deepEqual(lines(), ['Sent to agent-a70d746b04 · Working·Open']);
+  assert.ok(main().querySelector('.mx-handoff-line .mx-bot-sent-face'));
+  const botAnswer = report('ba', {
+    name: 'Clerk',
+    status: 'completed',
+    summary: 'Mailbox watched',
+    sessionId: CLERK_HOME,
+    agentId: 'agent-a70d746b04',
+    target: 'session',
+    sendId: 'atask_5',
+  });
+  await show([user('u1', DAY1), toBot, replied, botAnswer]);
+  assert.deepEqual(lines(), []);
+  assert.equal(main().querySelector('.mx-bot-fold'), null, 'no folded bot bubble');
+  const botCard = main().querySelector('.mx-task-card');
+  assert.equal(botCard.querySelector('.turn-changes-title strong').textContent, 'agent-a70d746b04');
+  assert.ok(botCard.querySelector('.mx-task-card-face'));
+  assert.equal(botCard.querySelector('.mx-task-card-meta').textContent, 'Session · Completed');
+  await act(async () => botCard.querySelector('.mx-routine-more').click());
+  assert.match(botCard.querySelector('.mx-task-card-answer').textContent, /Mailbox watched/);
+  // Its wait with no line here names the bot with its face, not "Session · …".
+  await waiting([CLERK_HOME]);
+  await show([
+    user('u1', DAY1),
+    report('bw', {
+      name: 'x',
+      status: 'blocked',
+      sessionId: CLERK_HOME,
+      agentId: 'agent-a70d746b04',
+      target: 'session',
+    }),
+  ]);
+  assert.deepEqual(lines(), ['agent-a70d746b04 · Approval needed·Open']);
+  assert.ok(main().querySelector('.mx-handoff-line .mx-bot-sent-face'));
+  await waiting([]);
+
+  // (8) A coding transcript: the same block under the turn's reply, the same card.
+  await show([user('u1', DAY1), sent, replied], false);
+  assert.deepEqual(lines(), [SENT]);
+  assert.equal(linesRow(), 2, 'under the reply, not at the round');
+  const reply = main().children[2];
+  assert.ok(
+    reply.querySelector('article.message.assistant').compareDocumentPosition(reply.querySelector('.mx-handoff-block')) &
+      window.Node.DOCUMENT_POSITION_FOLLOWING
+  );
+  await show([user('u1', DAY1), sent, thinking], false);
+  assert.equal(linesRow(), 2, 'under the working row while it runs');
+  await waiting([DEV]);
+  await show([user('u1', DAY1), sent, replied, ended('b1', 'blocked', 'atask_1')], false);
+  assert.deepEqual(lines(), ['Sent to Dev session · Approval needed·Open']);
+  assert.equal(main().children[3].childElementCount, 0, 'its wait report draws nothing');
+  await waiting([]);
+  await show([user('u1', DAY1), sent, replied, ended('e', 'completed', 'atask_1')], false);
+  assert.deepEqual(lines(), []);
+  assert.equal(main().querySelector('.mx-task-card-meta').textContent, 'Session · Completed');
+});
+
 test('a bot message shows its name and its words, never the envelope or LEAD, in a coding transcript and in a bot chat', async (t) => {
   const render = rowHarness(t);
   const { wrapAgentMessage } = await import('../../../../src/runtime/shared/agent-message-envelope.mjs');

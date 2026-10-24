@@ -107,15 +107,30 @@ function median(samples: readonly number[]): number {
   return sorted[sorted.length >> 1] ?? TRANSCRIPT_ROW_ESTIMATE;
 }
 
+/** Every call takes an optional `variant`: what the row paints in its current
+ *  context beyond its own content (an agent chat's tool round: how many lines
+ *  it draws, transcript-list-estimates.ts). Rows learn and are remembered per
+ *  variant, so a row whose variant changed is not estimated from its old height. */
 export interface TranscriptRowHeightStore {
   /** Best known height for an unmeasured row at this width. */
-  estimate(row: TranscriptRowModel | undefined, width: number, surface?: TranscriptRowSurface): number;
+  estimate(
+    row: TranscriptRowModel | undefined,
+    width: number,
+    surface?: TranscriptRowSurface,
+    variant?: string
+  ): number;
   /** Whether `estimate` would return a learned height, not the flat fallback. */
-  knows(row: TranscriptRowModel | undefined, width: number, surface?: TranscriptRowSurface): boolean;
+  knows(row: TranscriptRowModel | undefined, width: number, surface?: TranscriptRowSurface, variant?: string): boolean;
   /** A settled measured height of `row` at this width (0 for a row that paints
    *  nothing). True when it taught a shape something new (a first sample or a
    *  moved median). */
-  record(row: TranscriptRowModel, width: number, size: number, surface?: TranscriptRowSurface): boolean;
+  record(
+    row: TranscriptRowModel,
+    width: number,
+    size: number,
+    surface?: TranscriptRowSurface,
+    variant?: string
+  ): boolean;
 }
 
 export function createTranscriptRowHeightStore(
@@ -153,25 +168,32 @@ export function createTranscriptRowHeightStore(
   // Coding keys carry no surface: the heights stored before surfaces existed
   // were all learned there.
   const surfaceOf = (surface: TranscriptRowSurface) => (surface === 'coding' ? '' : `${surface}|`);
-  const keyAt = (row: TranscriptRowModel, width: number, surface: TranscriptRowSurface = 'coding') =>
-    `${surfaceOf(surface)}${Math.round(width)}|${row.key}`;
-  const shapeAt = (row: TranscriptRowModel, width: number, surface: TranscriptRowSurface = 'coding') =>
-    `${surfaceOf(surface)}${Math.round(width / SHAPE_WIDTH_STEP) * SHAPE_WIDTH_STEP}|${transcriptRowShape(row)}`;
+  // No variant leaves the key as it was stored before variants existed.
+  const variantOf = (variant = '') => (variant ? `|${variant}` : '');
+  const keyAt = (row: TranscriptRowModel, width: number, surface: TranscriptRowSurface = 'coding', variant?: string) =>
+    `${surfaceOf(surface)}${Math.round(width)}|${row.key}${variantOf(variant)}`;
+  const shapeAt = (
+    row: TranscriptRowModel,
+    width: number,
+    surface: TranscriptRowSurface = 'coding',
+    variant?: string
+  ) =>
+    `${surfaceOf(surface)}${Math.round(width / SHAPE_WIDTH_STEP) * SHAPE_WIDTH_STEP}|${transcriptRowShape(row)}${variantOf(variant)}`;
   return {
-    estimate(row, width, surface) {
+    estimate(row, width, surface, variant) {
       if (!row || !(width > 0)) return TRANSCRIPT_ROW_ESTIMATE;
-      const known = keys.get(keyAt(row, width, surface));
+      const known = keys.get(keyAt(row, width, surface, variant));
       if (known !== undefined) return known;
-      return medians.get(shapeAt(row, width, surface)) ?? TRANSCRIPT_ROW_ESTIMATE;
+      return medians.get(shapeAt(row, width, surface, variant)) ?? TRANSCRIPT_ROW_ESTIMATE;
     },
-    knows(row, width, surface) {
+    knows(row, width, surface, variant) {
       if (!row || !(width > 0)) return false;
-      return keys.has(keyAt(row, width, surface)) || medians.has(shapeAt(row, width, surface));
+      return keys.has(keyAt(row, width, surface, variant)) || medians.has(shapeAt(row, width, surface, variant));
     },
-    record(row, width, size, surface) {
+    record(row, width, size, surface, variant) {
       if (!(width > 0) || !(size >= 0)) return false;
       const rounded = Math.round(size);
-      const key = keyAt(row, width, surface);
+      const key = keyAt(row, width, surface, variant);
       if (persistentKey(row)) {
         if (keys.get(key) !== rounded) {
           keys.delete(key);
@@ -189,7 +211,7 @@ export function createTranscriptRowHeightStore(
       if (sampled.has(key)) return false;
       if (sampled.size >= KEY_LIMIT * 4) sampled.clear();
       sampled.add(key);
-      const shape = shapeAt(row, width, surface);
+      const shape = shapeAt(row, width, surface, variant);
       const before = medians.get(shape);
       const samples = shapes.get(shape) ?? [];
       samples.push(rounded);

@@ -5,6 +5,8 @@ import { useTranscriptHandles, useRememberVirtualMeasurements, useSelectionDrag 
 import { useDeferredResizes } from './transcript-list-deferred-resizes';
 import { useTranscriptEndPin } from './transcript-list-end-pin';
 import { logicalScrollOffset, type TranscriptVirtualizer } from './transcript-list-geometry';
+import { transcriptRowVariant } from './transcript-list-estimates';
+import { useSessionAttentionIndex } from './session-attention-index';
 import { useMarkdownPrefetch } from './transcript-list-markdown-prefetch';
 import { useReadingAnchor } from './transcript-list-reading-anchor';
 import { useVirtualizerResizePatch } from './transcript-list-resize-patch';
@@ -77,6 +79,9 @@ export function TranscriptList({
 }: TranscriptListProps) {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
+  // The same live decision the rows take (taskReportHidden): data-variant
+  // changes exactly when a wait line comes or goes.
+  const waiting = useSessionAttentionIndex().needsUser;
   const spacer = useRef<HTMLDivElement>(null);
   // The viewport's scrollTop as last observed in a scroll event or written by
   // this list: every other consumer reads this instead of the DOM.
@@ -256,7 +261,8 @@ export function TranscriptList({
           rows,
           measureRow,
           nodeAt,
-          visible !== null && (virtualRow.index < visible.startIndex || virtualRow.index > visible.endIndex)
+          visible !== null && (virtualRow.index < visible.startIndex || virtualRow.index > visible.endIndex),
+          waiting
         )
       )}
     </div>
@@ -316,12 +322,18 @@ function renderVirtualRow(
   rows: readonly TranscriptRowModel[],
   measureRow: ReturnType<typeof useTranscriptRowRegistration>['measureRow'],
   nodeAt: (index: number) => ReactNode,
-  offscreen: boolean
+  offscreen: boolean,
+  /** Sessions waiting for the user now (a wait report shows only for them). */
+  waiting: ReadonlySet<string>
 ) {
   const row = rows[virtualRow.index];
   if (!row) return null;
   const node = nodeAt(virtualRow.index);
   const { blank, bandLead, stepBefore, turnEnd, afterChanges } = rowSteps(row, virtualRow.index, rows, node, nodeAt);
+  // What the row paints from other rows (hand-off lines, a hidden report),
+  // from the same rows as its node: its measurements are recorded under it
+  // (transcript-list-estimates.ts).
+  const variant = transcriptRowVariant(rows, virtualRow.index, waiting);
   return (
     // A row binds position AND measurement to one element.
     // Position and measurement therefore share the
@@ -353,6 +365,7 @@ function renderVirtualRow(
         data-step-before={stepBefore ? 'true' : undefined}
         data-after-changes={afterChanges ? 'true' : undefined}
         data-blank={blank ? 'true' : undefined}
+        data-variant={variant || undefined}
       >
         {node}
       </div>

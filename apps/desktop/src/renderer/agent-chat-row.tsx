@@ -3,13 +3,12 @@
 // on the left under one face and name, the user's on the right, the time at
 // the run's last bubble, a date pill where the day changes. Tool rounds and
 // notices stay compact rows in the bubble column.
-import { Link2, SquareTerminal, Timer } from 'lucide-react';
+import { Link2, Timer } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import type { RoomMemberLabel } from './agent-room-parts';
 import { RoomMemberFace } from './agent-room-parts';
 import type { AvatarMotionState } from './avatar-motion';
 import { type AgentChatPlace, chatRoutineOf, chatRoutineTriggerOf } from './agent-chat-place';
-import { useSessionGlance, useSessionTitle } from './session-glance-store';
 import { stripRoutineTriggerHeader } from '../../../../src/runtime/shared/routine-trigger.mjs';
 import { OPEN_AGENT_PANEL_EVENT, setAgentPanelTab } from './agent-panel-tab';
 import { OPEN_TASK_SESSION_EVENT } from './agent-task-events';
@@ -295,64 +294,6 @@ export function AgentRoutineTrigger({ item, sessionId }: { item: TranscriptItem;
   );
 }
 
-/** A message this chat's bot sent to another session (a `session` send in the
- *  stored tool call): one compact line in the routine trigger's grammar — the
- *  recipient's face (a bot's, else a session glyph) and name, "Working" while
- *  it still owes the answer, the message as plain text behind a disclosure
- *  (folded by default), and an Open action for the recipient session. */
-export function AgentBotSent({
-  send,
-  member,
-}: {
-  send: { agentId: string; sessionId: string; prompt: string; at: number; pending?: boolean };
-  member: RoomMemberLabel;
-}) {
-  const [open, setOpen] = useState(false);
-  const prompt = send.prompt.trim();
-  // An ordinary session shows its current title and a session glyph for the face.
-  const title = useSessionTitle(send.sessionId, t('Session'));
-  const glance = useSessionGlance(send.sessionId);
-  const toBot = Boolean(send.agentId);
-  const name = toBot ? member.name : title;
-  const working = send.pending === true && glance?.working === true;
-  return (
-    <div className="mx-routine-trigger mx-bot-sent">
-      <div className="mx-routine-trigger-head mx-bot-sent-pill">
-        <span className="mx-routine-trigger-name mx-bot-sent-to">
-          {toBot ? (
-            <RoomMemberFace member={member} className="mx-bot-sent-face" />
-          ) : (
-            <SessionGlyph className="mx-bot-sent-face" />
-          )}
-          <span>{toBot ? t('Sent to {{name}}', { name }) : t('Session send: Sent to {{name}}', { name })}</span>
-        </span>
-        {working && (
-          <span className="mx-bot-sent-status" role="status">
-            <span className="mx-bot-sent-dot" aria-hidden="true" />
-            {t('Working')}
-          </span>
-        )}
-        {prompt && (
-          <button type="button" className="mx-routine-more" aria-expanded={open} onClick={() => setOpen(!open)}>
-            {open ? t('Show less') : t('View message')}
-          </button>
-        )}
-        <OpenSessionButton sessionId={send.sessionId} />
-      </div>
-      {open && <div className="mx-routine-trigger-body">{prompt}</div>}
-    </div>
-  );
-}
-
-/** The session stand-in for a bot's face. */
-export function SessionGlyph({ className = '', size = 12 }: { className?: string; size?: number }) {
-  return (
-    <span className={`mx-session-glyph ${className}`.trim()} aria-hidden="true">
-      <SquareTerminal size={size} />
-    </span>
-  );
-}
-
 /** The separate "Open ↗" action: opens `sessionId`. */
 function OpenSessionButton({ sessionId }: { sessionId: string }) {
   if (!sessionId) return null;
@@ -364,17 +305,6 @@ function OpenSessionButton({ sessionId }: { sessionId: string }) {
     >
       {t('Open ↗')}
     </button>
-  );
-}
-
-/** The name over an ordinary session's answer: its current title and a "reply" tag. */
-export function SessionReplyName({ sessionId, fallback }: { sessionId: string; fallback: string }) {
-  const title = useSessionTitle(sessionId, fallback || t('Session'));
-  return (
-    <>
-      {title}
-      <span className="mx-chat-bot-tag">{t('Reply')}</span>
-    </>
   );
 }
 
@@ -421,16 +351,20 @@ export function AgentRoutineBody({ item }: { item: TranscriptItem }) {
 export function AgentTypingRow({
   member,
   lead,
+  after,
 }: {
   member: RoomMemberLabel;
   /** The bubble opens a run: face, name and tail. */
   lead: boolean;
+  /** Under the bubble, in its column (the turn's hand-off lines). */
+  after?: ReactNode;
 }) {
   return (
     <AgentChatRow
       place={{ side: 'agent', speaker: member.id, first: lead, last: false, at: 0, newDay: false }}
       member={member}
       faceState="typing"
+      after={after}
     >
       <div
         className="message assistant mx-chat-typing"
@@ -455,12 +389,9 @@ export function AgentChatRow({
   card = false,
   faceState,
   after,
-  replyName = '',
   children,
 }: {
-  /** An ordinary session's answer: the title its report carried (until the catalog knows it). */
-  replyName?: string;
-  /** Under the bubble, in its column (the turn's "sent to" lines). */
+  /** Under the bubble, in its column (the turn's hand-off lines). */
   after?: ReactNode;
   /** null: a tool round or the live band, outside any run. */
   place: AgentChatPlace | null;
@@ -490,16 +421,11 @@ export function AgentChatRow({
         data-last={place?.last ? 'true' : undefined}
         data-card={card ? 'routine' : undefined}
       >
-        {lead &&
-          (place?.session ? (
-            <SessionGlyph className="mx-chat-face" size={18} />
-          ) : (
-            <RoomMemberFace member={member} className="mx-chat-face" state={faceState} />
-          ))}
+        {lead && <RoomMemberFace member={member} className="mx-chat-face" state={faceState} />}
         <div className="mx-chat-column">
           {lead && (
             <div className="mx-chat-name">
-              {place?.session ? <SessionReplyName sessionId={place.session} fallback={replyName} /> : member.name}
+              {member.name}
               {place?.bot && <span className="mx-chat-bot-tag">{t('Bot message')}</span>}
             </div>
           )}

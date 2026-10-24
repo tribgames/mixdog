@@ -573,6 +573,7 @@
   "Apply": "適用する",
   "Apply after current requests finish": "現在のリクエストが終了した後に適用します",
   "Apply and reload": "適用してリロード",
+  "Approval needed": "承認待ち",
   "Approval pending · {{action}}": "承認待ち · {{action}}",
   "Approval received. Verifying the secure connection…": "承認を受け取りました。安全な接続を確認しています…",
   "Approval requests": "承認リクエスト",

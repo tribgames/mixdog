@@ -612,6 +612,7 @@
   "Apply": "Anwenden",
   "Apply after current requests finish": "Anwenden, nachdem aktuelle Anfragen abgeschlossen sind",
   "Apply and reload": "Anwenden und neu laden",
+  "Approval needed": "Freigabe nötig",
   "Approval pending · {{action}}": "Freigabe ausstehend · {{action}}",
   "Approval received. Verifying the secure connection…": "Genehmigung erhalten. Überprüfen der sicheren Verbindung…",
   "Approval requests": "Genehmigungsanfragen",

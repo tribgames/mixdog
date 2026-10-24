@@ -1,9 +1,35 @@
 import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from 'react';
-import { roomPassIsQuiet, routineReplyIsQuiet, taskReportIsQuiet } from './agent-chat-place';
+import { handoffLinesAt, roomPassIsQuiet, routineReplyIsQuiet, taskReportHidden } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { type TranscriptRowSurface, transcriptRowHeightStore } from './transcript-row-estimates';
+import { useSessionAttentionIndex } from './session-attention-index';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_RELEARN_ATTRIBUTE, TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
+
+/** Whether a row's painting depends on other rows: the rows that carry a
+ *  turn's hand-off lines (its live band, its last reply, a round of a turn
+ *  with no reply), and a task report a hand-off line makes quiet. */
+const variesWithContext = (row: TranscriptRowModel | undefined) =>
+  row?._tag === 'ToolActivity' || row?._tag === 'Thinking' || row?._tag === 'AssistantPart';
+
+/** What a row paints from its context (use-conversation-row-renderer.ts),
+ *  which comes and goes with other rows: `lines:N` for the N hand-off lines
+ *  it carries, `hidden` for a task report that paints nothing, '' for none of
+ *  it. The height store learns each apart (one hidden round's 0px must not
+ *  estimate a round showing a line). The list marks each painted row with it
+ *  (TranscriptList.tsx data-variant): a measurement is recorded under what
+ *  the row painted, never under rows that changed since. */
+export function transcriptRowVariant(
+  rows: readonly TranscriptRowModel[],
+  index: number,
+  /** Sessions waiting for the user now: a wait report shows only for them. */
+  waiting: ReadonlySet<string>
+): string {
+  if (!variesWithContext(rows[index])) return '';
+  if (taskReportHidden(rows, index, waiting)) return 'hidden';
+  const lines = handoffLinesAt(rows, index).length;
+  return lines ? `lines:${lines}` : '';
+}
 
 /** Unmeasured rows start at their remembered or learned height instead of a
  *  flat 60px (transcript-row-estimates.ts). An estimate is held per key until
@@ -22,25 +48,37 @@ export function useTranscriptRowEstimates({
    *  with the session catalog, after the list mounted). */
   surfaceRef: MutableRefObject<TranscriptRowSurface>;
 }) {
+  const waitingRef = useRef<ReadonlySet<string>>(new Set());
+  waitingRef.current = useSessionAttentionIndex().needsUser;
   const timelineWidth = useRef(0);
   const virtualizerRefForEstimates = useRef<TranscriptVirtualizer | null>(null);
   const endPinForEstimates = useRef<(() => void) | null>(null);
   const heldEstimates = useRef(new Map<unknown, number>());
+  // The variant each held estimate was taken under: a round whose lines
+  // changed since is estimated again, not held at its old size.
+  const heldVariants = useRef(new Map<unknown, string>());
   const fallbackEstimates = useRef(new Set<unknown>());
   const estimateRow = useCallback(
     (index: number) => {
       const row = rowsRef.current[index];
       if (!row) return TRANSCRIPT_ROW_ESTIMATE;
       const held = heldEstimates.current.get(row.key);
-      if (held !== undefined) return held;
-      // A quiet pass or task start paints nothing: estimating it at a reply's
-      // height made it shrink the thread by that much once measured.
+      if (held !== undefined && !variesWithContext(row)) return held;
+      const variant = transcriptRowVariant(rowsRef.current, index, waitingRef.current);
+      if (held !== undefined && (heldVariants.current.get(row.key) ?? '') === variant) return held;
+      heldEstimates.current.delete(row.key);
+      fallbackEstimates.current.delete(row.key);
+      if (variant) heldVariants.current.set(row.key, variant);
+      else heldVariants.current.delete(row.key);
+      // A quiet pass or a hidden task report paints nothing: estimating it at
+      // a reply's height made it shrink the thread by that much once measured.
       // A room's live band too: nobody types until the supervisor picks a
-      // member (use-conversation-row-renderer.ts roomTyping).
+      // member (use-conversation-row-renderer.ts roomTyping), unless it
+      // carries hand-off lines.
       if (
-        (row._tag === 'AssistantPart' &&
-          (roomPassIsQuiet(row.item) || taskReportIsQuiet(row.item.routine) || routineReplyIsQuiet(row.item))) ||
-        (row._tag === 'Thinking' && surfaceRef.current === 'room')
+        variant === 'hidden' ||
+        (row._tag === 'AssistantPart' && (roomPassIsQuiet(row.item) || routineReplyIsQuiet(row.item))) ||
+        (row._tag === 'Thinking' && surfaceRef.current === 'room' && !variant)
       ) {
         heldEstimates.current.set(row.key, 0);
         return 0;
@@ -53,8 +91,8 @@ export function useTranscriptRowEstimates({
       // the session's own first measured rows usually teach its shape a moment
       // later, and relearnEstimates may then replace it.
       const surface = surfaceRef.current;
-      if (!store.knows(row, timelineWidth.current, surface)) fallbackEstimates.current.add(row.key);
-      const estimate = store.estimate(row, timelineWidth.current, surface);
+      if (!store.knows(row, timelineWidth.current, surface, variant)) fallbackEstimates.current.add(row.key);
+      const estimate = store.estimate(row, timelineWidth.current, surface, variant);
       heldEstimates.current.set(row.key, estimate);
       return estimate;
     },
@@ -109,7 +147,11 @@ export function useTranscriptRowEstimates({
         !element.querySelector('[data-transcript-pending]') &&
         (size > 0 || element.firstElementChild?.getAttribute('data-blank') === 'true')
       ) {
-        if (transcriptRowHeightStore().record(row, timelineWidth.current, size, surfaceRef.current)) {
+        // What the observed box painted (TranscriptList.tsx data-variant), not
+        // the current rows: a report can land between the paint and this
+        // observation, and the line's height must not teach the hidden round.
+        const variant = element.firstElementChild?.getAttribute('data-variant') ?? '';
+        if (transcriptRowHeightStore().record(row, timelineWidth.current, size, surfaceRef.current, variant)) {
           relearnEstimates();
         }
       }

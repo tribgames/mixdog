@@ -264,7 +264,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-routine-trigger-head > .mx-routine-more {
   margin-top: 0;
 }
-/* A bot's message into this chat / a bot-to-bot send line (AgentBotSent). */
+/* A bot's message into this chat. */
 .mx-chat-bot-tag {
   margin-left: 6px;
   padding: 0 6px;
@@ -274,21 +274,16 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   font-size: var(--mx-font-micro);
   font-weight: var(--mx-weight-regular, 400);
 }
-/* Under the sending bot's reply bubble: one pill holding the face, the label and the disclosure. */
-.mx-bot-sent {
-  width: auto;
+/* Work handed to sessions (agent-task-line.tsx AgentHandoffBlock): one faint
+   line per piece under the turn's reply, a bot target with its face, the dot
+   amber while that session waits for the user's approval. */
+.mx-handoff-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.mx-bot-sent-pill {
-  display: inline-flex;
-  gap: 6px;
-  padding: 2px 4px 2px 8px;
-  border: var(--mx-hairline) solid var(--mx-border-muted);
-  border-radius: 999px;
-  font-size: 12px;
-}
-.mx-bot-sent-pill > .mx-routine-trigger-name {
-  padding: 0;
-  border: 0;
+.mx-handoff-line[data-state="approval"] > .mx-bot-sent-dot {
+  background: var(--mx-warning, #e0b34a);
 }
 .mx-bot-sent-face {
   display: inline-flex;
@@ -299,11 +294,6 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   width: 18px;
   height: 18px;
 }
-/* Not a button any more: the name is plain text, "Open ↗" is its own action. */
-.mx-bot-sent-pill > .mx-bot-sent-to {
-  cursor: default;
-}
-.mx-bot-sent-pill > .mx-routine-more,
 .mx-bot-fold-pill > .mx-routine-more {
   margin-top: 0;
   min-height: 24px;
@@ -313,29 +303,8 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   color: var(--mx-text);
   font-weight: var(--mx-weight-semibold);
 }
-/* The session's stand-in for a bot's face. */
-.mx-session-glyph {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-text) 12%, transparent);
-}
-.mx-chat-row > .mx-session-glyph.mx-chat-face {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-}
-.mx-bot-sent-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--mx-text-muted);
-}
 .mx-bot-sent-dot {
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -617,6 +586,19 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Another bot's chat: its face in the icon tile, its answer opened in place. */
+.mx-task-card-face > svg.mx-av {
+  width: 22px;
+  height: 22px;
+}
+.mx-task-card > .turn-changes-head > .mx-routine-more {
+  flex: none;
+  margin-top: 0;
+}
+.mx-task-card-answer {
+  padding: 8px 12px 10px;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .mx-task-card-dot {
   flex: none;

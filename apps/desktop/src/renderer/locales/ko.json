@@ -573,6 +573,7 @@
   "Apply": "적용",
   "Apply after current requests finish": "진행 중인 요청이 끝난 뒤 적용",
   "Apply and reload": "적용 및 다시 로드",
+  "Approval needed": "승인 대기",
   "Approval pending · {{action}}": "승인 대기 · {{action}}",
   "Approval received. Verifying the secure connection…": "승인을 받았습니다. 보안 연결 확인 중…",
   "Approval requests": "승인 요청",

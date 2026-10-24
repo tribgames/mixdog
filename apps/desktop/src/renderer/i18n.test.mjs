@@ -300,20 +300,23 @@ test('counted UI text follows locale plural categories while preserving interpol
   }
 });
 
-test('Korean sent line: a session target takes 에, a bot keeps 에게', async () => {
-  const { AgentBotSent } = await import('./agent-chat-row');
+test('Korean sent line: a session target takes 에, a bot keeps 에게', async (t) => {
+  // The line reads the bot's contact and the session's live state.
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  installTestDom(t, { rootId: false });
+  const { AgentHandoffLine } = await import('./agent-task-line');
   const previousLanguage = i18n.language;
   await i18n.changeLanguage('ko');
   try {
-    const { agentAvatar } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
-    const member = { id: 'bot_1', name: '봇', avatar: agentAvatar('bot_1', null) };
-    const markup = (agentId) =>
+    const line = (handoff) =>
       renderToStaticMarkup(
-        React.createElement(AgentBotSent, { send: { agentId, sessionId: 'sess_x', prompt: 'hi', at: 0 }, member })
+        React.createElement(AgentHandoffLine, { handoff: { name: '', agentId: '', created: false, ...handoff } })
       );
-    assert.match(markup(''), /세션에 보냄/);
-    assert.doesNotMatch(markup(''), /에게 보냄/);
-    assert.match(markup('bot_1'), /봇에게 보냄/);
+    const toSession = line({ sessionId: 'sess_x' });
+    assert.match(toSession, /세션에 보냄 · 작업 중/);
+    assert.doesNotMatch(toSession, /에게 보냄/);
+    assert.match(line({ sessionId: 'sess_home_bot_1', agentId: 'bot_1' }), /bot_1에게 보냄 · 작업 중/);
+    assert.match(line({ sessionId: 'sess_y', name: '의존성 업데이트', created: true }), /의존성 업데이트 · 작업 중/);
   } finally {
     await i18n.changeLanguage(previousLanguage);
   }

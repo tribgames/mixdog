@@ -9,28 +9,27 @@ import {
   agentReplyUnfinished,
   agentTypingLead,
   agentTypingShown,
-  chatBotReplyOf,
-  asideBotSends,
-  carriedBotSends,
   chatRoutineOf,
   chatRoutineTriggerOf,
+  handoffLinesAt,
   isEndedTurnLastRow,
   isRoomTypingItem,
   roomPassIsQuiet,
   routineGroupOf,
   routineReplyIsQuiet,
-  taskReportIsQuiet,
+  taskReportHidden,
   turnEndToolItems,
 } from './agent-chat-place';
 import {
   AgentBotFolded,
-  AgentBotSent,
   AgentChatRow,
   AgentRoutineBody,
   AgentRoutineCard,
   AgentRoutineTrigger,
   AgentTypingRow,
 } from './agent-chat-row';
+import { AgentHandoffBlock } from './agent-task-line';
+import { useSessionAttentionIndex } from './session-attention-index';
 import { askUserCardKey, splitAskUser } from './ask-user-record';
 import { BrowserPeekLine, SavedSignInLines, lastBrowserRoundOfTurn, savedSignInSites } from './browser-peek-line';
 import { ConnectorChatCard, connectorCardIds } from './connector-card';
@@ -183,22 +182,30 @@ function turnCards(
   return { cards, visualized };
 }
 
+/** The hand-off lines `rows[index]` paints (agent-chat-place.ts
+ *  handoffLinesAt), as one block; null when it paints none. */
+function handoffBlock(rows: readonly TranscriptRowModel[], index: number): ReactNode {
+  const handoffs = handoffLinesAt(rows, index);
+  return handoffs.length ? createElement(AgentHandoffBlock, { handoffs }) : null;
+}
+
 /** What a tool round leaves in a chat when no question needs the user: its
- *  connect card, the "sent to" lines, a browser peek or saved sign-in lines.
- *  `undefined`: the round shows through the ordinary row (a question). */
+ *  connect card, its hand-off lines (a turn with no reply), a browser peek or
+ *  saved sign-in lines. `undefined`: the round shows through the ordinary row
+ *  (a question). */
 function toolRoundAside(
   items: readonly TranscriptItem[],
   rows: readonly TranscriptRowModel[],
   index: number,
   {
     connectorCards,
-    sentLines,
+    handoffLines,
     asideRow,
     cardKey,
     disclosureScope,
   }: {
     connectorCards: ReactNode;
-    sentLines: ReactNode;
+    handoffLines: ReactNode;
     asideRow: (children: ReactNode) => ReactNode;
     /** The call holding the live card (askUserCardKey); undefined: no card. */
     cardKey: string | undefined;
@@ -207,12 +214,13 @@ function toolRoundAside(
 ): ReactNode | undefined {
   const { asked, waiting } = splitAskUser(items, cardKey !== undefined, cardKey);
   if (asked.length || waiting) return undefined;
-  const withSent = (node: ReactNode): ReactNode => (sentLines ? createElement(Fragment, null, sentLines, node) : node);
-  if (connectorCards) return withSent(asideRow(connectorCards));
+  const withLines = (node: ReactNode): ReactNode =>
+    handoffLines ? createElement(Fragment, null, handoffLines, node) : node;
+  if (connectorCards) return withLines(asideRow(connectorCards));
   const peek = lastBrowserRoundOfTurn(rows, index);
   const signedIn = savedSignInSites(items).length > 0;
-  if (!peek && !signedIn) return sentLines;
-  return withSent(
+  if (!peek && !signedIn) return handoffLines;
+  return withLines(
     asideRow(
       createElement(
         Fragment,
@@ -240,7 +248,9 @@ function chatShownRow(row: TranscriptRowModel, item: TranscriptItem | undefined)
   return row;
 }
 
-/** The working band of a chat: a typing bubble under its face, or nothing. */
+/** The working band of a chat: a typing bubble under its face, or nothing;
+ *  the turn's hand-off lines (`block`) under it, so they stay put when the
+ *  reply replaces the bubble. */
 function thinkingBand(
   rows: readonly TranscriptRowModel[],
   index: number,
@@ -250,29 +260,39 @@ function thinkingBand(
     questionCard,
     label,
     homeAgent,
+    block,
+    asideRow,
   }: {
     inRoom: boolean;
     roomTyping: ReturnType<typeof useRoomTyping>;
     questionCard: ReactNode;
     label: ReturnType<typeof useRoomContacts>['label'];
     homeAgent: string;
+    block: ReactNode;
+    asideRow: (children: ReactNode) => ReactNode;
   }
 ): ReactNode {
+  const alone = block ? asideRow(block) : null;
   if (inRoom) {
     // A room's band is a member's typing bubble, under its face and name,
     // only while one types (roomTyping); otherwise it takes no room.
-    if (!roomTyping || questionCard) return null;
+    if (!roomTyping || questionCard) return alone;
     const member = label(roomTyping.speaker);
     return createElement(AgentTypingRow, {
       member: roomTyping.name ? { ...member, name: roomTyping.name } : member,
       lead: true,
+      after: block,
     });
   }
   // A turn waiting on the user's answer is not typing; nothing to show (the
   // reply right above is whole) gives no row content, so the list gives the
   // band no room (TranscriptList.tsx).
-  if (questionCard || !agentTypingShown(rows, index)) return null;
-  return createElement(AgentTypingRow, { member: label(homeAgent), lead: agentTypingLead(rows, index, '') });
+  if (questionCard || !agentTypingShown(rows, index)) return alone;
+  return createElement(AgentTypingRow, {
+    member: label(homeAgent),
+    lead: agentTypingLead(rows, index, ''),
+    after: block,
+  });
 }
 
 /** The content of a chat bubble:a routine card, another bot's words, or the row itself. */
@@ -280,7 +300,6 @@ function chatRowBody({
   routine,
   runs,
   botMessage,
-  botReply,
   item,
   agentPlaced,
   disclosureScope,
@@ -289,7 +308,6 @@ function chatRowBody({
   routine: boolean;
   runs: TranscriptItem[];
   botMessage: TranscriptItem | undefined;
-  botReply: ReturnType<typeof chatBotReplyOf>;
   item: TranscriptItem | undefined;
   agentPlaced: boolean;
   disclosureScope: string;
@@ -297,7 +315,6 @@ function chatRowBody({
 }): ReactNode {
   if (routine) return createElement(AgentRoutineCard, { runs, sessionId: disclosureScope });
   if (botMessage) return createElement(AgentBotFolded, { text: stripAgentMessageEnvelope(botMessage.text) });
-  if (botReply && item) return createElement(AgentBotFolded, { text: botReply.text, sessionId: botReply.sessionId });
   if (item && agentPlaced && item.kind === 'notice' && !item.room) return createElement(AgentRoutineBody, { item });
   return plain();
 }
@@ -341,6 +358,8 @@ export function useConversationRowRenderer({
   }, [settledItems]);
   const retryDisabled = Boolean(snapshot.busy) || transitioning;
   const { label } = useRoomContacts(agentMode);
+  // Sessions waiting for the user now: a wait report shows only for them.
+  const waiting = useSessionAttentionIndex().needsUser;
   // The one call the live card sits at; every placement decision shares it.
   const cardKey = questionCard
     ? askUserCardKey(settledItems, String(snapshot.toolApproval?.toolCallId ?? ''))
@@ -400,8 +419,13 @@ export function useConversationRowRenderer({
       ? connectorIds.map((id) => createElement(ConnectorChatCard, { key: id, id }))
       : null;
     if (!agentMode) {
+      // A task report a hand-off line already shows paints nothing; the
+      // turn's hand-off lines sit under its reply (or its working row while
+      // it runs), as in a chat.
+      if (taskReportHidden(rows, index, waiting)) return null;
       const node = rowNode(row, seat);
-      return connectorCards ? createElement(Fragment, null, node, connectorCards) : node;
+      const block = handoffBlock(rows, index);
+      return connectorCards || block ? createElement(Fragment, null, node, block, connectorCards) : node;
     }
     return agentChatRow(row, index, rows, seat, {
       rowNode,
@@ -414,6 +438,7 @@ export function useConversationRowRenderer({
       cardKey,
       disclosureScope,
       connectorCards,
+      waiting,
     });
   };
   return { renderTranscriptRow };
@@ -437,6 +462,7 @@ function agentChatRow(
     cardKey,
     disclosureScope,
     connectorCards,
+    waiting,
   }: {
     rowNode: (row: TranscriptRowModel) => ReactNode;
     asideRow: (children: ReactNode) => ReactNode;
@@ -448,17 +474,30 @@ function agentChatRow(
     cardKey: string | undefined;
     disclosureScope: string;
     connectorCards: ReactNode;
+    waiting: ReadonlySet<string>;
   }
 ): ReactNode {
+  // The turn's hand-off lines, at the row that carries them (handoffLinesAt).
+  const block = handoffBlock(rows, index);
   // No working status in a chat: while the agent works, a typing bubble
   // under its face (an approval it waits on docks above the composer).
   if (row._tag === 'Thinking') {
-    return thinkingBand(rows, index, { inRoom, roomTyping, questionCard, label, homeAgent });
+    return thinkingBand(rows, index, { inRoom, roomTyping, questionCard, label, homeAgent, block, asideRow });
   }
   const item = row._tag === 'AssistantPart' ? row.item : undefined;
   // The typing bubble below stands for it until the message is complete,
   // then it appears whole.
-  if (row._tag === 'AssistantPart' && agentReplyUnfinished(row.live, row.item)) return null;
+  // A part that carries the turn's hand-off lines shows the typing bubble
+  // itself, the lines under it (the band shows none, agentTypingShown): the
+  // reply then lands in this same row, the lines unmoved.
+  if (row._tag === 'AssistantPart' && agentReplyUnfinished(row.live, row.item)) {
+    if (!block) return null;
+    return createElement(AgentTypingRow, {
+      member: label(homeAgent),
+      lead: agentTypingLead(rows, index, ''),
+      after: block,
+    });
+  }
   if (item?.kind === 'notice' && item.room?.kind === 'typing') {
     const speaker = item.room.speaker || '';
     const member = label(speaker);
@@ -469,24 +508,18 @@ function agentChatRow(
   }
   // A quiet pass paints nothing: no empty bubble row (its gap shook the
   // thread as members passed), so the list gives it no room (TranscriptList.tsx).
-  if (roomPassIsQuiet(item) || taskReportIsQuiet(item?.routine) || routineReplyIsQuiet(item)) return null;
+  if (roomPassIsQuiet(item) || taskReportHidden(rows, index, waiting) || routineReplyIsQuiet(item)) return null;
   // Tool rounds stay out (the typing bubble covers them); only a question
   // that needs the user shows, and a turn that drove the browser leaves one
-  // "브라우저 · 보기" line (browser-peek-line.tsx).
-  // A send to another session leaves one "sent to" line per message
-  // (derived from the stored call), above whatever else the round shows.
-  // Under the turn's reply bubble when it has one (carriedBotSends).
-  const sends = row._tag === 'ToolActivity' ? asideBotSends(rows, index) : [];
-  const sentLine = (send: (typeof sends)[number]) =>
-    createElement(AgentBotSent, { key: send.id, send, member: label(send.agentId) });
-  const sentLines = sends.length
-    ? createElement(Fragment, null, ...sends.map((send) => asideRow(sentLine(send))))
-    : null;
-  const withSent = (node: ReactNode): ReactNode => (sentLines ? createElement(Fragment, null, sentLines, node) : node);
+  // "브라우저 · 보기" line (browser-peek-line.tsx). A round of a turn with no
+  // reply keeps its own hand-off lines, above whatever else it shows.
+  const handoffLines = row._tag === 'ToolActivity' && block ? asideRow(block) : null;
+  const withLines = (node: ReactNode): ReactNode =>
+    handoffLines ? createElement(Fragment, null, handoffLines, node) : node;
   if (row._tag === 'ToolActivity') {
     const aside = toolRoundAside(row.items, rows, index, {
       connectorCards,
-      sentLines,
+      handoffLines,
       asideRow,
       cardKey,
       disclosureScope,
@@ -514,27 +547,21 @@ function agentChatRow(
   const runs = group?.map((at) => (rows[at] as { item: TranscriptItem }).item) ?? [];
   const cardPlace =
     group && place ? { ...place, first: agentChatPlace(rows, group[0], cardKey)?.first ?? place.first } : place;
-  // Another bot's message into this chat, or its answer to this chat's own
-  // send, is that bot's bubble (place.bot), never the user's.
+  // Another bot's message into this chat is that bot's bubble (place.bot),
+  // never the user's; its answer to this chat's send is its report card.
   const botMessage = row._tag === 'UserMessage' && place?.bot ? row.item : undefined;
-  const botReply = chatBotReplyOf(item);
   const body = chatRowBody({
     routine: Boolean(routine),
     runs,
     botMessage,
-    botReply,
     item,
     agentPlaced: place?.side === 'agent',
     disclosureScope,
     plain: () => rowNode(shown),
   });
-  const carried = carriedBotSends(rows, index);
-  const after = carried.length ? createElement(Fragment, null, ...carried.map(sentLine)) : undefined;
-  const bubble = createElement(
-    AgentChatRow,
-    { place: cardPlace, member: named, card: Boolean(routine), after, replyName: botReply?.name },
-    body
-  );
+  // The turn's last reply carries its hand-off lines, under the bubble and its time.
+  const after = row._tag === 'ToolActivity' ? undefined : block;
+  const bubble = createElement(AgentChatRow, { place: cardPlace, member: named, card: Boolean(routine), after }, body);
   // The turn's changed files: coding mode's own card under its reply (or the
   // error that ended it), in the bubble column, below the turn's visualize cards.
   const changes = row._tag === 'AssistantPart' || row._tag === 'Error' ? row.turnChanges : undefined;
@@ -556,5 +583,5 @@ function agentChatRow(
     : bubble;
   // A round that held an answered question: its connect card goes under the
   // question summary (a card-only round returned it above).
-  return withSent(connectorCards ? createElement(Fragment, null, line, asideRow(connectorCards)) : line);
+  return withLines(connectorCards ? createElement(Fragment, null, line, asideRow(connectorCards)) : line);
 }
