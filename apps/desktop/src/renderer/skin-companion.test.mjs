@@ -2789,6 +2789,43 @@ test("the bot's island reserve goes to the focused composer's island only, and g
   assert.equal(petIslandReserveFor(focused), 0, 'publisher gone (overlay off)');
 });
 
+test("switching focus between panes hands the bot's island reserve to the new pane at once", async (t) => {
+  const { petIslandReserveFor } = await import('./composer-island-state.ts');
+  const on = fakeDesktop({ enabled: true });
+  const { publisher, root, document } = await mountSettings(t, on);
+  const pane = (id) =>
+    `<div class="pane-cell" data-pane="${id}"><div class="conversation">
+      <div class="composer-region"><div class="composer-island"></div><form class="composer"></form></div>
+    </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', pane('a') + pane('b'));
+  for (const card of document.querySelectorAll('form.composer')) {
+    card.getBoundingClientRect = () => ({ left: 20, top: 600, width: 460, height: 120 });
+  }
+  const [a, b] = document.querySelectorAll('.composer-island');
+  const html = document.documentElement;
+  const focus = (id) =>
+    act(async () => {
+      for (const cell of document.querySelectorAll('.pane-cell')) {
+        cell.classList.toggle('is-focused', cell.dataset.pane === id);
+      }
+      root.render(React.createElement(publisher.DesktopPetPublisher, { focusKey: id }));
+    });
+  await focus('a');
+  await act(async () => on.calls.layout({ overTranscript: true, islandReserve: 66 }));
+  assert.equal(petIslandReserveFor(a), 66);
+  // Main resends its layout only when it changes: the same bot beside the
+  // other pane's card sends nothing new.
+  await focus('b');
+  assert.equal(petIslandReserveFor(b), 66, "the newly focused pane's island makes room for the bot");
+  assert.equal(petIslandReserveFor(a), 0, 'the pane left behind does not');
+  assert.equal(html.hasAttribute('data-pet-over-transcript'), true, 'the over-transcript flag holds too');
+  await focus('a');
+  assert.equal(petIslandReserveFor(a), 66, 'and back again');
+  await act(async () => root.render(null));
+  assert.equal(petIslandReserveFor(a), 0, 'publisher gone (overlay off)');
+  assert.equal(html.hasAttribute('data-pet-over-transcript'), false);
+});
+
 test('the composer report carries the island pill extent and top, and re-measures as the pill alone widens', async (t) => {
   const on = fakeDesktop({ enabled: true });
   const { publisher, root, document } = await mountSettings(t, on);
