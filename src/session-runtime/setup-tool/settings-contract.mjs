@@ -177,7 +177,10 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
   entry: object(
     {
       name: text,
-      newName: { ...text, description: 'Schedule only, with overwrite: rename the schedule `name` to this; its history is kept.' },
+      newName: {
+        ...text,
+        description: 'Schedule only, with overwrite: rename the schedule `name` to this; its history is kept.',
+      },
       description: text,
       instructions: text,
       time: { ...text, description: 'Schedule cron expression. Mutually exclusive with at.' },
@@ -364,7 +367,7 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
   riskAccepted: {
     ...boolean,
     description:
-      "set_developer_option: the user's explicit acceptance of the option warning; required to enable an option that has one.",
+      "set_developer_option: the user's explicit acceptance of the option warning; required to enable an option that has one. Exception: allowAllActions (allow all actions except payments and permanent deletes) can only be turned on by the person in the desktop app; it is rejected regardless of riskAccepted, and remote enablement is rejected too.",
   },
 });
 

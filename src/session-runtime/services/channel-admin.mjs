@@ -27,6 +27,7 @@ import { normalizeAutomationAttachments } from '../../runtime/shared/automation-
 import { assertRoutineOwner, routineOwnerProblem } from '../routine-owner.mjs';
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/shared/schedule-time.mjs';
+import { scheduleNameTakenError, scheduleRenameRunningError } from '../../runtime/channels/lib/schedule-errors.mjs';
 import { pgClusterExists } from '../../runtime/memory/lib/pg/adapter.mjs';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tunnel.mjs';
@@ -278,12 +279,22 @@ export async function listSchedules() {
 export async function withScheduleRenameReserved(name, step) {
   const { beginAutomationRename } = await import('../owned-automation-run.mjs');
   const release = beginAutomationRename('schedule', name);
-  if (!release) throw new Error(`Schedule "${name}" is running. Rename it after the run finishes.`);
+  if (!release) throw scheduleRenameRunningError(name);
   try {
     return await step();
   } finally {
     release();
   }
+}
+
+// Whether `next` fires when `existing` does: the same cron in the same zone (a
+// stored row without a zone runs in the default one, as the scheduler arms
+// it), or the same instant, whatever its spelling.
+function sameTiming(existing, next) {
+  const instant = (value) => (value ? new Date(value).getTime() : null);
+  if ((existing.whenCron || null) !== next.whenCron) return false;
+  if (next.whenCron && resolveScheduleTimezone(existing.timezone) !== next.timezone) return false;
+  return instant(existing.whenAt) === instant(next.whenAt);
 }
 
 // The rename when no channels worker owns the scheduler: this process's runs
@@ -296,21 +307,24 @@ export const renameScheduleHere = (oldName, def, opts) =>
 // are mutually exclusive (also enforced by the store's when_at/when_cron XOR).
 // Every schedule runs as a turn in its owner bot's chat; a bot that does not
 // exist (no representative bot yet, an archived bot) cannot own one.
-export async function saveSchedule({
-  name,
-  description = '',
-  time,
-  at,
-  timezone,
-  days,
-  cwd,
-  attachments,
-  enabled,
-  instructions,
-  owner,
-  overwrite = false,
-  newName,
-} = {}, { rename = renameScheduleHere } = {}) {
+export async function saveSchedule(
+  {
+    name,
+    description = '',
+    time,
+    at,
+    timezone,
+    days,
+    cwd,
+    attachments,
+    enabled,
+    instructions,
+    owner,
+    overwrite = false,
+    newName,
+  } = {},
+  { rename = renameScheduleHere } = {}
+) {
   const id = assertScheduleName(name);
   const renameTo = newName != null && String(newName).trim() !== '' ? assertScheduleName(newName) : id;
   const renaming = renameTo !== id;
@@ -348,9 +362,8 @@ export async function saveSchedule({
   };
   let saved;
   if (renaming) {
-    if (await dbGetSchedule(renameTo)) throw new Error(`A schedule named "${renameTo}" already exists.`);
-    const sameInstant = (a, b) => (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
-    const timingChanged = (existing.whenCron || null) !== whenCron || !sameInstant(existing.whenAt, whenAt);
+    if (await dbGetSchedule(renameTo)) throw scheduleNameTakenError(renameTo);
+    const timingChanged = !sameTiming(existing, { whenCron, whenAt, timezone: scheduleTimezone });
     saved = await rename(id, def, { timingChanged });
     if (!saved) throw new Error(`schedule "${id}" does not exist`);
   } else {

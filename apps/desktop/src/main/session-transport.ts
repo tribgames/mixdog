@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
+import { errorParams } from '../shared/coded-error';
 import { sessionClientModuleUrl } from './desktop-support';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import type { DesktopTransport } from './desktop-service-client';
@@ -608,6 +609,7 @@ export class SessionTransport implements DesktopTransport {
       } satisfies DesktopServiceOutbound);
     } catch (error) {
       const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : null;
+      const details = errorParams(error);
       this.emit('message', {
         kind: 'response',
         id: message.id,
@@ -616,6 +618,7 @@ export class SessionTransport implements DesktopTransport {
           name: error instanceof Error ? error.name : typeof error,
           message: error instanceof Error ? error.message : String(error),
           ...(typeof record?.code === 'string' ? { code: record.code } : {}),
+          ...(details ? { details: details as Record<string, string> } : {}),
         },
       } satisfies DesktopServiceOutbound);
     }

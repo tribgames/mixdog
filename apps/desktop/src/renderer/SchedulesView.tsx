@@ -16,6 +16,7 @@ import {
   useAutomationAgents,
 } from './automation-agent-picker';
 import { showDesktopToast } from './notifications';
+import { scheduleErrorText } from './schedule-error-text';
 import { OpenSelect } from './OpenSelect';
 import { timeFormatOptions } from './time-format-preference';
 import { record, rows } from './record-utils';
@@ -489,7 +490,7 @@ export function SchedulesPane({
       void completeMutation('runScheduleNow');
       notifySessionsRefresh();
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+      showDesktopToast(scheduleErrorText(reason), 'error', {
         scope: `schedule:run:${name}`,
       });
     } finally {

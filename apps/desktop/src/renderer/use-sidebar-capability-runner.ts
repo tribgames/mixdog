@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { DesktopApi, DesktopCapability } from '../shared/contract';
 import { showDesktopToast } from './notifications';
+import { scheduleErrorText } from './schedule-error-text';
 
 /** The mutation runner the Schedules, Webhooks and Workflows panels share:
  *  one capability at a time, settled through the host-scoped cache completion
@@ -35,7 +36,7 @@ export function useSidebarCapabilityRunner({
       onSuccess?.();
       return result?.value ?? true;
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : String(reason);
+      const message = scheduleErrorText(reason);
       if (errorMode === 'toast') showDesktopToast(message, 'error', { scope: `${toastScope}:${capability}` });
       else setError(message);
       return undefined;

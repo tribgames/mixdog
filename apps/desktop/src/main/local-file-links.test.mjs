@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { DESKTOP_IPC } from '../shared/contract';
-import { ipcErrorFromEnvelope } from '../shared/file-error-codes';
+import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { registerDesktopIpc } from './ipc';
 import * as projectFiles from './project-files';
 

@@ -3,6 +3,8 @@
 // is deleted with Discord/Telegram; only the automation lifecycle remains.
 // Lifecycle functions are threaded in as a bag of lazy getters so the module
 // reads the live file-level references at call time.
+import { scheduleErrorFields } from './schedule-errors.mjs';
+
 function createToolDispatch({ isChannelsDegraded, lifecycle }) {
   const {
     getChannelBridgeActive,
@@ -103,6 +105,8 @@ function createToolDispatch({ isChannelsDegraded, lifecycle }) {
       result = {
         content: [{ type: 'text', text: `${name} failed: ${msg}` }],
         isError: true,
+        // A schedule refusal keeps its code and public name; nothing else crosses.
+        ...scheduleErrorFields(err),
       };
     }
     return result;

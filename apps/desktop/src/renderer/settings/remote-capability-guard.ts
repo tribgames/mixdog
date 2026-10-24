@@ -1,4 +1,5 @@
 import { remoteCapabilityBlocked } from '../../shared/remote-blocked-capabilities';
+import { REMOTE_DESKTOP_ONLY, remoteErrorCode } from '../../shared/remote-error-codes';
 import { t } from '../i18n';
 import { isRemoteHostOpenAccess } from '../remote-host-access';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
@@ -53,6 +54,7 @@ const BLOCKED_MESSAGE = /capability \S+ is not available over remote access\.?/;
 /** Replaces the host's raw "capability X is not available over remote
  *  access." rejection with a friendly message; other errors pass through. */
 export function friendlyCapabilityError(reason: unknown): unknown {
+  if (remoteErrorCode(reason) === REMOTE_DESKTOP_ONLY) return new Error(t('Turn this on in the desktop app.'));
   const message = reason instanceof Error ? reason.message : String(reason);
   return BLOCKED_MESSAGE.test(message) ? new Error(t('This can only be managed on the host computer.')) : reason;
 }

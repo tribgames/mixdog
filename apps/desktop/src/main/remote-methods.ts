@@ -68,6 +68,9 @@ import {
   requiredWorkspaceTextWrites,
 } from './ipc-validation';
 import { absoluteLocalPath } from './local-files';
+import { codedErrorParams } from '../shared/coded-error';
+import { redactSecrets } from '../shared/redact-secret';
+import { remoteDesktopOnlyError } from '../shared/remote-error-codes';
 import { SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
 import { LocalAccessDeniedError } from './local-access-denied';
 import { FileDownloadError } from '../shared/file-downloads';
@@ -154,7 +157,7 @@ export function assertRemoteCapabilityCall(capability: string, args: readonly un
   // human-only lock (developer-risk-confirm.ts); a paired browser on this PC could
   // be driven by Computer Use, so remote clients may only turn it off.
   if (isAllowAllActionsEnable(capability, args)) {
-    throw new TypeError(`${capability} cannot turn on Allow all actions over remote access; use the desktop.`);
+    throw remoteDesktopOnlyError(`${capability} cannot turn on Allow all actions over remote access; use the desktop.`);
   }
 }
 
@@ -1459,10 +1462,11 @@ export interface RemoteFrameResponse {
    * means "no contract to branch on".
    */
   errorCode?: string;
+  /** The error's whitelisted string params (coded-error.ts), redacted. */
+  errorParams?: Record<string, string>;
 }
 
 const MIN_REDACTED_SECRET_LENGTH = 6;
-const REDACTED = '[redacted]';
 
 /** Capabilities whose arguments carry secrets (API keys, session keys, auth
  *  codes, pasted redirect URLs). */
@@ -1513,9 +1517,7 @@ function secretStringsOf(method: string, params: unknown[]): string[] {
 
 /** An error message with any secret from the failing call removed. */
 export function redactRemoteError(message: string, method: string, params: unknown[]): string {
-  let safe = message;
-  for (const secret of secretStringsOf(method, params)) safe = safe.split(secret).join(REDACTED);
-  return safe;
+  return redactSecrets(message, secretStringsOf(method, params));
 }
 
 // Relay RPC frame executor: parses one wire frame and returns the response
@@ -1559,6 +1561,14 @@ export async function executeRemoteFrame(
       error: redactRemoteError(error instanceof Error ? error.message : String(error), method, params),
     };
     if (typeof code === 'string' && code) response.errorCode = code;
+    // Only the display params the code declares public ride along (coded-error.ts);
+    // the call's own secrets are redacted from them as from the message.
+    const errorParams = codedErrorParams(code, (error as { details?: unknown } | null)?.details);
+    if (errorParams) {
+      response.errorParams = Object.fromEntries(
+        Object.entries(errorParams).map(([key, value]) => [key, redactRemoteError(value, method, params)])
+      );
+    }
     return response;
   }
 }

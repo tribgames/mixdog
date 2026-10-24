@@ -13,6 +13,7 @@ import type {
   DesktopWorktreeRefusalReason,
 } from '../shared/contract';
 import { DESKTOP_WORKTREE_ERROR_CODES } from '../shared/contract';
+import { splitErrorTrailer } from '../shared/error-trailer';
 import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds, rectFrom } from './anchored-panel';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
@@ -24,8 +25,6 @@ export interface WorktreeFailure {
 }
 
 const CODE_PATTERN = new RegExp(`\\b(${DESKTOP_WORKTREE_ERROR_CODES.join('|')})\\b`, 'u');
-/** main/worktree-validation.ts WORKTREE_DETAILS_MARKER. */
-const DETAILS_MARKER = '\n[worktree-details] ';
 
 /** Typed failures keep `code`/`details` locally; across IPC only the message
  *  survives, so the code is also read out of the text and the details out of
@@ -37,16 +36,9 @@ export function worktreeFailure(error: unknown): WorktreeFailure {
     details?: unknown;
   };
   const raw = String(record.message ?? error ?? '');
-  const marker = raw.indexOf(DETAILS_MARKER);
-  const message = marker >= 0 ? raw.slice(0, marker) : raw;
-  let trailed: unknown = null;
-  if (marker >= 0) {
-    try {
-      trailed = JSON.parse(raw.slice(marker + DETAILS_MARKER.length));
-    } catch {
-      trailed = null;
-    }
-  }
+  const split = splitErrorTrailer(raw);
+  const message = split ? split.message : raw;
+  const trailed = split?.payload ?? null;
   const declared = typeof record.code === 'string' ? record.code : (message.match(CODE_PATTERN)?.[1] ?? '');
   const code = (DESKTOP_WORKTREE_ERROR_CODES as readonly string[]).includes(declared)
     ? (declared as DesktopWorktreeErrorCode)

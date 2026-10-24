@@ -15,6 +15,7 @@ import { ensurePgInstance, withSchemaBootstrapLock } from '../../memory/lib/pg/a
 import { createPgSchemaDb } from '../../shared/pg-schema-db.mjs';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { ROUTINE_LIMITS } from '../../shared/routine-limits.mjs';
+import { scheduleNameTakenError } from './schedule-errors.mjs';
 
 const SCHEMA = 'scheduler';
 
@@ -237,7 +238,7 @@ export async function renameSchedule(oldName, def, { timingChanged = false, data
     );
     return rowToDef(rows[0]);
   } catch (error) {
-    if (error?.code === '23505') throw new Error(`A schedule named "${def.name}" already exists.`);
+    if (error?.code === '23505') throw scheduleNameTakenError(def.name);
     throw error;
   }
 }

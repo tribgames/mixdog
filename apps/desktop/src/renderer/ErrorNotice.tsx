@@ -2,8 +2,10 @@ import { AlertCircle, ChevronDown, ExternalLink, RotateCcw, X } from 'lucide-rea
 import { type ReactNode, useState } from 'react';
 // @ts-expect-error Shared runtime module is plain ESM.
 import { describeError, safeErrorDetails } from '../../../../src/runtime/shared/error-presentation.mjs';
+import { displayErrorMessage, withoutErrorTrailer } from '../shared/coded-error';
 import { t } from './i18n';
 import { localizeErrorCopy, localizeErrorRecovery, localizeToolSurfaceError } from './error-notice-copy';
+import { localizeOAuthFailure } from './oauth-failure-copy';
 
 export { describeError, safeErrorDetails };
 
@@ -16,14 +18,16 @@ export function errorWithKind(text: string, errorKind: unknown): unknown {
 /** The message a failure carried, without Electron's IPC envelope
  *  (`Error invoking remote method '…': Error: …`). */
 export function errorMessageText(reason: unknown): string {
-  return safeErrorDetails(reason instanceof Error ? reason.message : String(reason))
+  return safeErrorDetails(displayErrorMessage(reason))
     .replace(/^(?:Error invoking remote method ['"][^'"]+['"]:\s*)?(?:Error:\s*)?/i, '')
     .trim();
 }
 
 export function errorSummary(reason: unknown): string {
-  const { summary, details } = describeError(reason);
-  return localizeToolSurfaceError(details)?.summary ?? localizeErrorCopy(summary);
+  const { summary, details } = describeError(withoutErrorTrailer(reason));
+  return (
+    localizeToolSurfaceError(details)?.summary ?? localizeOAuthFailure(details)?.summary ?? localizeErrorCopy(summary)
+  );
 }
 
 // Google answers an account check with a one-time verification link buried in
@@ -32,7 +36,7 @@ export function errorSummary(reason: unknown): string {
 const VERIFICATION_URL = /https:\/\/accounts\.google\.com\/[^\s'"<>)]+/;
 
 export function verificationUrlOf(reason: unknown): string {
-  return VERIFICATION_URL.exec(describeError(reason).details)?.[0] ?? '';
+  return VERIFICATION_URL.exec(describeError(withoutErrorTrailer(reason)).details)?.[0] ?? '';
 }
 
 export function ErrorNotice({
@@ -65,7 +69,9 @@ export function ErrorNotice({
   action?: ReactNode;
   role?: 'alert' | 'status';
 }) {
-  const reasons = (errors || [error]).filter((value) => value !== undefined && value !== null && value !== '');
+  const reasons = (errors || [error])
+    .filter((value) => value !== undefined && value !== null && value !== '')
+    .map(withoutErrorTrailer);
   const [open, setOpen] = useState(false);
   if (!reasons.length) return null;
   const latest = describeError(reasons.at(-1));
@@ -73,8 +79,12 @@ export function ErrorNotice({
   // The fixed tool-surface overflow carries its own sizes and remedy: shown as
   // written, in the UI language, never as a generic "too large".
   const toolSurface = localizeToolSurfaceError(latest.details);
-  const summary = summaryOverride || toolSurface?.summary || localizeErrorCopy(latest.summary);
-  const recovery = summaryOverride ? (recoveryOverride ?? '') : toolSurface?.recovery || localizeErrorRecovery(latest);
+  // A coded provider sign-in failure states its cause and remedy in the UI language.
+  const oauthFailure = localizeOAuthFailure(latest.details);
+  const summary = summaryOverride || toolSurface?.summary || oauthFailure?.summary || localizeErrorCopy(latest.summary);
+  const recovery = summaryOverride
+    ? (recoveryOverride ?? '')
+    : toolSurface?.recovery || oauthFailure?.recovery || localizeErrorRecovery(latest);
   const details = reasons
     .slice(-50)
     .map((reason) => {

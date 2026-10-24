@@ -18,7 +18,7 @@ import {
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { createBrowserTextureBridge } from './browser-texture';
 import { withApiFileGrantRefresh } from '../renderer/remote-file-grant-refresh';
-import { ipcErrorFromEnvelope } from '../shared/file-error-codes';
+import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { DESKTOP_PET_IPC, desktopPetAppLayout } from '../shared/desktop-pet';
 
 /** `ipcRenderer.invoke` that rebuilds a refusal main returned as an error

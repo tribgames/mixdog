@@ -15,6 +15,7 @@ import { type AgentProfileApi, AgentProfilePane } from './AgentProfilePane';
 export { prefetchAgentProfile } from './AgentProfilePane';
 import { setAgentPanelTab, useAgentPanelTab } from './agent-panel-tab';
 import { showDesktopToast } from './notifications';
+import { scheduleErrorText } from './schedule-error-text';
 import { record, rows } from './record-utils';
 import { type RoutineRow, routineRows, type WebhookRoutineRow, webhookRoutineRows } from './routines-model';
 import { describeSchedule } from './SchedulesView';
@@ -148,7 +149,7 @@ export function RoutinesPane({
       await api.invokeCapability({ capability, args: [name] });
       showDesktopToast(t('"{{name}}" finished. Its result is in this chat.', { name }), 'success');
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+      showDesktopToast(scheduleErrorText(reason), 'error', {
         scope: `routines:run:${name}`,
       });
     } finally {

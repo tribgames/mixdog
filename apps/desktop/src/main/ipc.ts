@@ -15,7 +15,7 @@ import type {
 
 import { resolve as resolvePath } from 'node:path';
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo, type DesktopSettings } from '../shared/contract';
-import { ipcErrorEnvelope } from '../shared/file-error-codes';
+import { ipcErrorEnvelope } from '../shared/coded-error';
 import { translateNativeUi } from '../shared/native-ui';
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';

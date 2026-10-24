@@ -5,7 +5,12 @@ import test from 'node:test';
 
 import { DESKTOP_CAPABILITIES } from '../shared/contract.ts';
 import { DESKTOP_IMPORT_CAPABILITIES } from '../shared/contract-import.ts';
-import { assertRemoteCapability, redactRemoteError, REMOTE_BLOCKED_CAPABILITIES } from './remote-methods.ts';
+import {
+  assertRemoteCapability,
+  executeRemoteFrame,
+  redactRemoteError,
+  REMOTE_BLOCKED_CAPABILITIES,
+} from './remote-methods.ts';
 
 test('only the media resolver and local conversation import are denied over remote access', () => {
   assert.deepEqual([...REMOTE_BLOCKED_CAPABILITIES], ['resolveMediaFile', ...DESKTOP_IMPORT_CAPABILITIES]);
@@ -82,6 +87,27 @@ test('secret-bearing capability errors are redacted for every client', () => {
     redactRemoteError(`bad ${secret}`, 'invokeCapability', [{ capability: 'getSnapshot', args: [secret] }]),
     `bad ${secret}`
   );
+});
+
+test('a key echoed back in JSON-escaped form is redacted on the relay route too', async () => {
+  const secret = 'sk-"quoted"\\back\tslash-0123';
+  const escaped = JSON.stringify(secret).slice(1, -1);
+  assert.notEqual(escaped, secret);
+  const params = [{ capability: 'saveCustomProviderKey', args: ['custom-0b0a8b3e-1111-4222-8333-444455556666', secret] }];
+  const message = `plain ${secret} and in json {"key":"${escaped}"}`;
+  const safe = redactRemoteError(message, 'invokeCapability', params);
+  assert.equal(safe, 'plain [redacted] and in json {"key":"[redacted]"}');
+  // The whole frame: the error that reaches the relay carries neither spelling.
+  const response = await executeRemoteFrame(
+    {
+      invokeCapability: async () => {
+        throw new Error(message);
+      },
+    },
+    JSON.stringify({ id: 1, method: 'invokeCapability', params })
+  );
+  assert.equal(response.ok, false);
+  assert.ok(!response.error.includes(secret) && !response.error.includes(escaped));
 });
 
 test('ordinary capabilities are not blocked by the deny-list', () => {

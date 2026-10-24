@@ -14,6 +14,7 @@ import { asRecord } from './text-format';
 import { hasSendablePromptContent, shouldBlockPromptSubmit } from './renderer-logic.mjs';
 import { registerSentAttachments, sentAttachmentData } from './attachment-menu';
 import { t } from './i18n';
+import { composerSubmitErrorText } from './composer-submit-error';
 import { requestOpenModelPicker } from './model-picker-event';
 import { recognisedAgentRoomSlash, recognisedSlashSpan } from './slash-commands';
 import { registerImagePreview } from './transcript-metrics';
@@ -403,11 +404,7 @@ export function useComposerSubmission({
           setAttachmentError(t('The message was not sent. It has been kept for retry.'));
         }
       } catch (error) {
-        setAttachmentError(
-          error instanceof Error && error.message
-            ? error.message
-            : 'The connection was interrupted. Your message has been kept for retry.'
-        );
+        setAttachmentError(composerSubmitErrorText(error));
       } finally {
         if (showsSubmitProgress) {
           submittingRef.current = false;

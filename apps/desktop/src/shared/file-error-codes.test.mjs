@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fileErrorCode, ipcErrorEnvelope, ipcErrorFromEnvelope } from './file-error-codes.ts';
+import { fileErrorCode } from './file-error-codes.ts';
+import { ipcErrorEnvelope, ipcErrorFromEnvelope } from './coded-error.ts';
 
 test('a structured refusal crosses the IPC boundary with its code and its unchanged message', () => {
   for (const code of ['SELECTED_FILE_GRANT_UNAVAILABLE', 'PROJECT_UNAVAILABLE', 'ENOENT', 'EACCES']) {

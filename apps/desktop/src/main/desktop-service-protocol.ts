@@ -16,6 +16,8 @@ interface DesktopServiceError {
   name: string;
   message: string;
   code?: string;
+  /** Whitelisted string params of a coded error (shared/coded-error.ts). */
+  details?: Record<string, string>;
 }
 
 export type DesktopServiceOutbound =

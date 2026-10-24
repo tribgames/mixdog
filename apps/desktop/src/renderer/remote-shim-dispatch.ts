@@ -13,6 +13,7 @@ import type {
   DesktopUpdaterState,
   SessionSnapshot,
 } from '../shared/contract';
+import { type CodedErrorParams, codedErrorParams } from '../shared/coded-error';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 import { isRemotePaintProbe } from '../shared/remote-performance';
 import { RELAY_ROUTING_CAPS_EVENT, readRelayPayloadRejection } from '../shared/remote-payload-limit';
@@ -157,7 +158,7 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       ctx.pending.delete(message.id);
       if (message.ok === true) entry.resolve(message.value);
       else {
-        const failure: Error & { code?: string } = new Error(
+        const failure: Error & { code?: string; details?: CodedErrorParams } = new Error(
           typeof message.error === 'string' && message.error ? message.error : 'remote call failed.'
         );
         // Transport pass-through: the main side puts an errored call's `code`
@@ -167,6 +168,8 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
         if (typeof message.errorCode === 'string' && message.errorCode) {
           failure.code = message.errorCode;
         }
+        const params = codedErrorParams(message.errorCode, message.errorParams);
+        if (params) failure.details = params;
         entry.reject(failure);
       }
       return;

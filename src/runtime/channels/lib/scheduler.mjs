@@ -18,6 +18,7 @@ import {
   setNextFire,
   setSkippedUntil,
 } from './schedules-db.mjs';
+import { scheduleRenameReloadError, scheduleRenameRunningError } from './schedule-errors.mjs';
 import { appendBuffered } from '../../shared/buffered-appender.mjs';
 import { tryRead } from './settings.mjs';
 
@@ -605,9 +606,7 @@ ${prompt}`;
    *  its completion stamps are written, so a fire either is already in
    *  `running` (refused here) or finds the reservation (not fired). */
   async renameLocked(name, rename, { newName = name, reload = async () => {} } = {}) {
-    if (this.running.has(name) || this.renaming.has(name)) {
-      throw new Error(`Schedule "${name}" is running. Rename it after the run finishes.`);
-    }
+    if (this.running.has(name) || this.renaming.has(name)) throw scheduleRenameRunningError(name);
     this.renaming.add(name);
     this.renameBlocked?.delete(name);
     try {
@@ -619,9 +618,7 @@ ${prompt}`;
         // The row has moved but the reload that arms the new name failed:
         // nothing may keep running under the old one, and the call reports it.
         this.dropSchedule(name);
-        throw new Error(
-          `Renamed to "${newName}", but reloading the scheduler failed (${error?.message || error}); it is armed on the next reload.`
-        );
+        throw scheduleRenameReloadError(newName, error?.message || error);
       }
       return saved;
     } catch (error) {

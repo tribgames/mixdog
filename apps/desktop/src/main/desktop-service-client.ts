@@ -30,6 +30,7 @@ import { filterSessionIds } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
 import { isTerminalRemoteError } from './ssh/remote-bootstrap';
+import { codedErrorParams } from '../shared/coded-error';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { SessionFinalAnswer } from './session-final-answer';
 
@@ -121,10 +122,12 @@ function abortError(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new Error('Mixdog session request aborted.');
 }
 
-function responseError(error: { name: string; message: string; code?: string }): Error {
+function responseError(error: { name: string; message: string; code?: string; details?: unknown }): Error {
   const result = new Error(error.message);
   result.name = error.name || 'Error';
   if (error.code) (result as NodeJS.ErrnoException).code = error.code;
+  const details = codedErrorParams(error.code, error.details);
+  if (details) Object.assign(result, { details });
   return result;
 }
 

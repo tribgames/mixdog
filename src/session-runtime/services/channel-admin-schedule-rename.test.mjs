@@ -83,7 +83,13 @@ test('a rename onto an existing name is refused and changes nothing', async () =
   rows.set('b', { name: 'b', prompt: 'b', whenCron: '0 8 * * *', ownerAgentId: 'lead' });
   const before = JSON.stringify([...rows]);
   const renames = calls.rename.length;
-  await assert.rejects(saveSchedule({ ...base, name: 'a', newName: 'b' }), /A schedule named "b" already exists\./);
+  await assert.rejects(
+    saveSchedule({ ...base, name: 'a', newName: 'b' }),
+    (error) =>
+      /A schedule named "b" already exists\./.test(error.message) &&
+      error.code === 'SCHEDULE_NAME_TAKEN' &&
+      error.details?.name === 'b'
+  );
   assert.equal(JSON.stringify([...rows]), before);
   assert.equal(calls.rename.length, renames, 'the store is never asked');
   await assert.rejects(saveSchedule({ ...base, name: 'a', newName: 'bad/name' }), /schedule name must be/);
@@ -94,7 +100,10 @@ test('a running schedule is not renamed', async () => {
   rows.clear();
   rows.set('a', { name: 'a', prompt: 'a', whenCron: '0 8 * * *', ownerAgentId: 'lead' });
   running.add('schedule:a');
-  await assert.rejects(saveSchedule({ ...base, name: 'a', newName: 'c' }), /is running/);
+  await assert.rejects(
+    saveSchedule({ ...base, name: 'a', newName: 'c' }),
+    (error) => /is running/.test(error.message) && error.code === 'SCHEDULE_RENAME_RUNNING' && error.details?.name === 'a'
+  );
   assert.deepEqual([...rows.keys()], ['a']);
   running.clear();
 });
@@ -116,6 +125,8 @@ test('with the channels worker up, the worker performs the check and the move; a
   let reply = {
     isError: true,
     content: [{ type: 'text', text: 'rename_schedule failed: Schedule "a" is running. Rename it after the run finishes.' }],
+    code: 'SCHEDULE_RENAME_RUNNING',
+    details: { name: 'a' },
   };
   const channels = {
     status: () => ({ running: true }),
@@ -126,7 +137,13 @@ test('with the channels worker up, the worker performs the check and the move; a
   };
   const api = createChannelConfigApi({ channels, reloadChannelsSoon() {} });
   const renames = calls.rename.length;
-  await assert.rejects(api.saveSchedule({ ...base, name: 'a', newName: 'b' }), /^Error: Schedule "a" is running\./);
+  await assert.rejects(
+    api.saveSchedule({ ...base, name: 'a', newName: 'b' }),
+    (error) =>
+      /^Schedule "a" is running\./.test(error.message) &&
+      error.code === 'SCHEDULE_RENAME_RUNNING' &&
+      error.details?.name === 'a'
+  );
   assert.deepEqual(sent, [['rename_schedule', 'a', 'b']]);
   assert.equal(calls.rename.length, renames, 'the engine does not move the row itself');
   assert.equal(running.size, 0, 'the engine-side reservation is released');
@@ -157,7 +174,9 @@ test('an unanswered worker request (timeout / dead worker) releases the reservat
   const api = createChannelConfigApi({ channels, reloadChannelsSoon: () => reloads++ });
   await assert.rejects(
     api.saveSchedule({ ...base, name: 'a', newName: 'b' }),
-    /may or may not have applied.*timed out after 120000ms/
+    (error) =>
+      /may or may not have applied.*timed out after 120000ms/.test(error.message) &&
+      error.code === 'SCHEDULE_RENAME_UNCERTAIN'
   );
   assert.equal(running.size, 0, 'the engine-side reservation is released');
   assert.equal(reloads, 1, 'the worker is asked to re-read the schedules');

@@ -4,7 +4,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { DESKTOP_IPC } from '../../shared/contract.ts';
-import { ipcErrorFromEnvelope } from '../../shared/file-error-codes.ts';
+import { ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
 import { registerDesktopIpc } from '../ipc.ts';
 import {
   REMOTE_ENSURE_TIMEOUT_MS,

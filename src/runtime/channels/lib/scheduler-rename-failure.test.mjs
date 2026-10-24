@@ -45,7 +45,10 @@ test('a reload failing after the row moved drops the old name and reports the fa
   const schedules = [{ name: 'a' }, { name: 'other' }];
   const scheduler = bareScheduler(schedules, { tickTimer: null });
   scheduler.cronJobs.set('a', { destroy: () => cronDestroyed++ });
-  scheduler.oneShotTimers.set('a', setTimeout(() => oneShotFired++, 20));
+  scheduler.oneShotTimers.set(
+    'a',
+    setTimeout(() => oneShotFired++, 20)
+  );
   scheduler.lastFired.set('a', 'then');
   scheduler.lastFired.set('other', 'then');
   await assert.rejects(
@@ -55,7 +58,10 @@ test('a reload failing after the row moved drops the old name and reports the fa
         throw new Error('loadConfig rejected');
       },
     }),
-    /Renamed to "b", but reloading the scheduler failed \(loadConfig rejected\)/
+    (error) =>
+      /Renamed to "b", but reloading the scheduler failed \(loadConfig rejected\)/.test(error.message) &&
+      error.code === 'SCHEDULE_RENAME_RELOAD_FAILED' &&
+      error.details?.name === 'b'
   );
   await delay(50);
   assert.equal(cronDestroyed, 1, 'the old cron job is stopped');
@@ -63,7 +69,10 @@ test('a reload failing after the row moved drops the old name and reports the fa
   assert.equal(scheduler.oneShotTimers.size + scheduler.cronJobs.size, 0);
   assert.equal(scheduler.lastFired.has('a'), false);
   assert.equal(scheduler.lastFired.has('other'), true);
-  assert.deepEqual(scheduler.nonInteractive.map((s) => s.name), ['other']);
+  assert.deepEqual(
+    scheduler.nonInteractive.map((s) => s.name),
+    ['other']
+  );
   assert.equal(scheduler.renaming.has('a'), false, 'the name is released');
 });
 

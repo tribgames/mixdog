@@ -12,7 +12,8 @@ import {
   testWebhook,
   withScheduleRenameReserved,
 } from './services/channel-admin.mjs';
-import { getSchedule, markScheduleFailure, markScheduleSuccess } from '../runtime/channels/lib/schedules-db.mjs';
+import { getSchedule, markScheduleFailure, markScheduleSkipped, markScheduleSuccess } from '../runtime/channels/lib/schedules-db.mjs';
+import { scheduleRenameUncertainError } from '../runtime/channels/lib/schedule-errors.mjs';
 import { loadEndpointConfig, readEndpointLastPayload } from '../runtime/channels/lib/webhooks-db.mjs';
 import { webhookEventSummary, webhookRunPrompt } from '../runtime/channels/lib/webhook/session-dispatch.mjs';
 import { runScheduleSession } from './schedule-session-run.mjs';
@@ -39,7 +40,14 @@ export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAut
       try {
         const reply = await channels.execute('rename_schedule', { name: oldName, def, ...opts });
         const text = reply?.content?.[0]?.text ?? '';
-        if (reply?.isError === true) throw new Error(text.replace(/^rename_schedule failed: /, ''));
+        if (reply?.isError === true) {
+          // The worker's refusal keeps its structured code and details.
+          throw Object.assign(
+            new Error(text.replace(/^rename_schedule failed: /, '')),
+            typeof reply.code === 'string' ? { code: reply.code } : {},
+            reply.details && typeof reply.details === 'object' ? { details: reply.details } : {}
+          );
+        }
         return text ? JSON.parse(text) : null;
       } catch (error) {
         // Whatever the worker did, have it re-read the schedules.
@@ -47,11 +55,7 @@ export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAut
         // execute() already retried a transport failure (call timeout 120 s,
         // same callId so the daemon runs the request once); what is left is
         // an unanswered request.
-        if (error?.daemonTransportError) {
-          throw new Error(
-            `The rename may or may not have applied (the scheduler did not answer: ${error.message}). Check the schedule list.`
-          );
-        }
+        if (error?.daemonTransportError) throw scheduleRenameUncertainError(error.message);
         throw error;
       }
     });

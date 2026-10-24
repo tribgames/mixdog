@@ -7,11 +7,10 @@ import {
   type DesktopCapability,
   type DesktopWorktreeCapability,
 } from '../shared/contract';
+import { appendErrorTrailer } from '../shared/error-trailer';
 
 const WORKTREE_ERROR_CODE_SET = new Set<string>(DESKTOP_WORKTREE_ERROR_CODES);
 
-/** Separates a coded message from its JSON details (worktree-branch-model reads it back). */
-export const WORKTREE_DETAILS_MARKER = '\n[worktree-details] ';
 const MAX_DETAILS_TEXT = 4096;
 
 /** A typed worktree failure whose `code` and `details` survive a message-only
@@ -22,18 +21,14 @@ export function worktreeErrorWithCode(error: unknown): unknown {
   const code = (error as { code?: unknown } | null)?.code;
   if (!(error instanceof Error) || typeof code !== 'string' || !WORKTREE_ERROR_CODE_SET.has(code)) return error;
   const details = (error as { details?: unknown }).details;
-  let trailer = '';
-  if (details && typeof details === 'object' && !error.message.includes(WORKTREE_DETAILS_MARKER)) {
-    try {
-      const text = JSON.stringify(details);
-      if (text.length <= MAX_DETAILS_TEXT) trailer = `${WORKTREE_DETAILS_MARKER}${text}`;
-    } catch {
-      /* details that do not serialize stay local */
-    }
-  }
+  // Details that do not serialize, or are too long, stay local.
+  const withDetails =
+    details && typeof details === 'object'
+      ? appendErrorTrailer(error.message, details, MAX_DETAILS_TEXT)
+      : error.message;
   const leads = new RegExp(`\\b${code}\\b`, 'u').test(error.message);
-  if (leads && !trailer) return error;
-  const coded = new Error(`${leads ? '' : `${code}: `}${error.message}${trailer}`) as Error & {
+  if (leads && withDetails === error.message) return error;
+  const coded = new Error(`${leads ? '' : `${code}: `}${withDetails}`) as Error & {
     code: string;
     details?: unknown;
   };

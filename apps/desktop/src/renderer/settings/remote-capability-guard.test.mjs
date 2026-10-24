@@ -35,6 +35,21 @@ test('a host announcing open access unblocks everything but the media resolver',
   }
 });
 
+test('the coded Allow-all remote refusal becomes desktop-only guidance, by code not text', async () => {
+  const { assertRemoteCapabilityCall } = await import('../../main/remote-methods.ts');
+  let refusal;
+  try {
+    assertRemoteCapabilityCall('setDeveloperOption', ['allowAllActions', true]);
+  } catch (error) {
+    refusal = error;
+  }
+  assert.equal(refusal.code, 'REMOTE_DESKTOP_ONLY');
+  const friendly = friendlyCapabilityError(refusal);
+  assert.equal(friendly.message, 'Turn this on in the desktop app.');
+  const rebuilt = Object.assign(new Error('some other wording'), { code: 'REMOTE_DESKTOP_ONLY' });
+  assert.equal(friendlyCapabilityError(rebuilt).message, 'Turn this on in the desktop app.');
+});
+
 test('the raw remote-access rejection becomes a friendly message', () => {
   const raw = new TypeError('capability saveMcpServer is not available over remote access.');
   const friendly = friendlyCapabilityError(raw);
