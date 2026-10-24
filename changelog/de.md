@@ -20,6 +20,7 @@ Emoji-Reaktionen, regelmäßige Check-ins und SSH-Server-Modell-Logins hinzugef�
 - Zeitpläne, Bots, Räume und Lead-Sitzungen so geändert, dass sie über ihre Menüs umbenannt werden können, wobei einmalige Laufzeiten erhalten bleiben.
 - Linux-Geheimnisspeicher so geändert, dass er auf geschützte lokale Dateien zurückgreift, wenn kein Schlüsselbund verfügbar ist, und erklärt, warum Schlüssel nicht gelesen werden können (#204).
 - Bot-Chats so geändert, dass der Austausch mit anderen Sitzungen inline angezeigt wird, und ein Klick auf die Sprechblase des Hauptbots diese schließt.
+- Die App so geändert, dass sie schneller öffnet, indem Chat und Sitzungsliste angezeigt werden, bevor Agenten laden, und das Zurückwechseln zu einer kürzlichen Sitzung diese nun sofort anzeigt.
 
 ### Fehlerbehebungen
 

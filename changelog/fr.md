@@ -21,6 +21,7 @@ Ajout des réactions emoji, des vérifications régulières et des connexions au
 - Modification des planifications, bots, salons et sessions Lead pour permettre leur renommage depuis leurs menus, tout en préservant les heures d'exécution ponctuelles.
 - Modification du stockage des secrets Linux pour basculer sur des fichiers locaux protégés lorsqu'aucun trousseau de clés n'est disponible, en expliquant pourquoi les clés ne peuvent pas être lues (#204).
 - Modification des discussions de bots pour afficher les échanges avec d'autres sessions de façon intégrée, un clic sur la bulle du bot principal la fermant.
+- Modification de l'application pour s'ouvrir plus rapidement en affichant la discussion et la liste des sessions avant le chargement des agents, et le retour à une session récente l'affiche désormais instantanément.
 
 ### Corrections de bugs
 

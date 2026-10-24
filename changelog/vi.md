@@ -20,6 +20,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 - Đã thay đổi để có thể đổi tên lịch trình, bot, phòng và phiên Lead từ menu của chúng, đồng thời giữ nguyên thời gian chạy một lần.
 - Đã thay đổi kho lưu trữ bí mật trên Linux để dùng tệp cục bộ được bảo vệ khi không có chùm chìa khóa, đồng thời giải thích lý do không thể đọc khóa (#204).
 - Đã thay đổi cuộc trò chuyện với bot để hiển thị nội dung trao đổi với các phiên khác ngay trong dòng, và nhấp vào bong bóng thoại của bot chính để đóng lại.
+- Đã thay đổi ứng dụng để mở nhanh hơn bằng cách hiển thị cuộc trò chuyện và danh sách phiên trước khi tải tác nhân, và việc chuyển lại phiên gần đây giờ đây sẽ hiển thị ngay lập tức.
 
 ### Sửa lỗi
 

@@ -20,6 +20,7 @@ Aggiunte le reazioni con emoji, i controlli periodici e gli accessi ai modelli s
 - Modificati pianificazioni, bot, stanze e sessioni Lead per poter essere rinominati dai rispettivi menu, mantenendo intatti gli orari delle esecuzioni singole.
 - Modificata l'archiviazione dei segreti su Linux per ricorrere a file locali protetti quando non è disponibile un portachiavi, spiegando il motivo per cui non è possibile leggere le chiavi (#204).
 - Modificate le chat dei bot per mostrare gli scambi con altre sessioni inline, consentendo di chiudere il fumetto del bot principale facendovi clic.
+- Modificata l'app per aprirsi più rapidamente mostrando la chat e l'elenco delle sessioni prima del caricamento degli agenti, e il ritorno a una sessione recente ora la mostra all'istante.
 
 ### Correzioni di bug
 

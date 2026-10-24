@@ -20,6 +20,7 @@ Adicionadas reações com emojis, revisões regulares e logins de modelos em ser
 - Agendamentos, bots, salas e sessões Lead foram alterados para permitir renomeação a partir de seus menus, mantendo intactos os horários de execuções únicas.
 - O armazenamento de segredos no Linux foi alterado para usar arquivos locais protegidos como alternativa quando nenhum chaveiro estiver disponível, explicando por que as chaves não podem ser lidas (#204).
 - Os chats de bots foram alterados para exibir trocas com outras sessões em linha, e clicar no balão de fala do bot principal o dispensa.
+- O aplicativo foi alterado para abrir mais rápido ao exibir o chat e a lista de sessões antes de carregar os agentes, e alternar de volta para uma sessão recente agora a exibe instantaneamente.
 
 ### Correções de bugs
 

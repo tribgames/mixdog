@@ -21,6 +21,7 @@ Se agregaron reacciones con emojis, revisiones periódicas e inicio de sesión d
 - Se modificaron programaciones, bots, salas y sesiones Lead para poder ser renombrados desde sus menús, manteniendo intactos los tiempos de ejecuciones únicas.
 - Se modificó el almacenamiento de secretos en Linux para recurrir a archivos locales protegidos cuando no haya un llavero disponible, explicando por qué no se pueden leer las claves (#204).
 - Se modificaron los chats de bots para mostrar intercambios con otras sesiones de forma integrada, y al hacer clic en el bocadillo del bot principal este se descarta.
+- Se modificó la aplicación para abrirse más rápido al mostrar el chat y la lista de sesiones antes de que carguen los agentes, y volver a una sesión reciente ahora la muestra al instante.
 
 ### Correcciones de errores
 

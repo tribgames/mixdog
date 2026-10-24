@@ -21,6 +21,7 @@ Added emoji reactions, regular check-ins and SSH server model logins, with verif
 - Changed schedules, bots, rooms and Lead sessions to be renamable from their menus, keeping one-shot run times intact.
 - Changed Linux secret storage to fall back to protected local files when no keychain is available, explaining why keys cannot be read (#204).
 - Changed bot chats to show exchanges with other sessions inline, and clicking the representative bot's speech bubble dismisses it.
+- Changed the app to open faster by showing your chat and session list before agents load, and switching back to a recent session now shows it instantly.
 
 ### Bug fixes
 
