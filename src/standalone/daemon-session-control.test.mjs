@@ -273,7 +273,7 @@ test("a bot's send to a session it did not create reports the turn to its home a
     send.prompt,
     `<agent-message from="Mixy" agent_id="lead">\n${AGENT_MESSAGE_NOTE}\nrun the simulation\n</agent-message>`
   );
-  assert.deepEqual(send.options.transcriptMeta, { sender: 'lead', fromAgent: 'lead', hop: 1 });
+  assert.deepEqual(send.options.transcriptMeta, { sender: 'lead', fromAgent: 'lead', hop: 1, botChain: ['lead'] });
   send.options.onSettled({ status: 'done', result: { content: 'simulation finished' } });
   await new Promise((resolve) => setImmediate(resolve));
   await delivery.drain(await queued);
@@ -333,7 +333,12 @@ test("a bot's send into another bot's home records the sending bot and the reply
     { action: 'send', session_id: peer.id, prompt: 'please watch the mailbox' },
     { callerCtx: { callerSessionId: home.id }, callerCwd: '/project' }
   );
-  assert.deepEqual(submits[0].options.transcriptMeta, { sender: 'lead', fromAgent: 'lead', hop: 1 });
+  assert.deepEqual(submits[0].options.transcriptMeta, {
+    sender: 'lead',
+    fromAgent: 'lead',
+    hop: 1,
+    botChain: ['lead'],
+  });
   submits[0].options.onSettled({ status: 'done', result: { content: 'will do' } });
   await new Promise((resolve) => setImmediate(resolve));
   await delivery.drain(await queued);
@@ -762,7 +767,13 @@ function effortFixture(sessions = { sess_task_1: { effort: 'high' }, sess_user_1
   const calls = [];
   const levels = ['low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({ value, label: value }));
   const catalog = [{ provider: 'anthropic', id: 'claude-opus-5-5', display: 'Claude Opus 5.5', effortOptions: levels }];
-  const state = (id) => ({ ...sessions[id], provider: 'anthropic', model: 'claude-opus-5-5', fast: false, autoEffort: true });
+  const state = (id) => ({
+    ...sessions[id],
+    provider: 'anthropic',
+    model: 'claude-opus-5-5',
+    fast: false,
+    autoEffort: true,
+  });
   const service = {
     readSession: async (params) => {
       calls.push(['read', params.action || 'state']);
@@ -820,7 +831,10 @@ test('send with effort sets it on the session before the prompt is queued; a bad
     /effort must be one of auto, .*supports: auto, low, medium, high, xhigh, max/
   );
   assert.equal(f.sessions.sess_user_1.effort, 'max');
-  assert.equal(f.calls.some(([kind]) => kind === 'configure' || kind === 'submit'), false);
+  assert.equal(
+    f.calls.some(([kind]) => kind === 'configure' || kind === 'submit'),
+    false
+  );
   const none = await f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'go', effort: 'auto' }, context);
   assert.equal(none.accepted, true);
   assert.equal(f.sessions.sess_user_1.effort, null);
@@ -830,10 +844,14 @@ test('current-session status shows effort, Auto effort and Fast like remote stat
   const handler = createWorkspaceToolHandlers({
     rt: { session: { id: 'caller', title: 'Current', effort: 'max', autoEffort: false, fast: true }, config: {} },
   }).session;
-  const local = JSON.parse(await handler({ action: 'status' }, { callerCtx: { callerSessionId: 'caller' }, callerCwd: '/p' }));
+  const local = JSON.parse(
+    await handler({ action: 'status' }, { callerCtx: { callerSessionId: 'caller' }, callerCwd: '/p' })
+  );
   assert.deepEqual([local.effort, local.autoEffort, local.fast], ['max', false, true]);
   const plain = createWorkspaceToolHandlers({ rt: { session: { id: 'caller' }, config: {} } }).session;
-  const other = JSON.parse(await plain({ action: 'status' }, { callerCtx: { callerSessionId: 'caller' }, callerCwd: '/p' }));
+  const other = JSON.parse(
+    await plain({ action: 'status' }, { callerCtx: { callerSessionId: 'caller' }, callerCwd: '/p' })
+  );
   assert.deepEqual([other.effort, other.autoEffort, other.fast], [null, true, false]);
 });
 
@@ -848,7 +866,141 @@ test("a bot sets the effort only of the task sessions it created; a coding sessi
     /only of the task sessions it created/
   );
   assert.equal(f.sessions.sess_user_1.effort, 'low');
-  assert.equal(f.calls.some(([kind]) => kind === 'submit'), false);
+  assert.equal(
+    f.calls.some(([kind]) => kind === 'submit'),
+    false
+  );
   // The same send without an effort stays allowed.
   assert.equal((await f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'more' }, bot)).accepted, true);
+});
+
+test("an unattended bot run sets the effort only of the task sessions its bot created", async () => {
+  const f = effortFixture();
+  // A schedule run of bot "a": no conversation to report to, but still bot "a".
+  const run = { id: 'sess_run_1', owner: 'cli', sourceType: 'schedule', ownerAgentId: 'a', messages: [] };
+  const handler = createWorkspaceToolHandlers({ rt: { session: run, config: {} }, executeSessionControl: f.run })
+    .session;
+  const send = async (args) =>
+    JSON.parse(await handler({ action: 'send', ...args }, { callerCtx: { callerSessionId: run.id }, callerCwd: '/p' }));
+  await assert.rejects(
+    send({ session_id: 'sess_user_1', prompt: 'more', effort: 'max' }),
+    /only of the task sessions it created/
+  );
+  assert.equal(f.sessions.sess_user_1.effort, 'low');
+  await send({ session_id: 'sess_task_1', prompt: 'more', effort: 'max' });
+  assert.equal(f.sessions.sess_task_1.effort, 'max');
+});
+
+test("a user's own coding session sends to Mixy's chat and to any bot as before, whatever started its turn: no bot chain applies", async () => {
+  const { stampTurnHop } = await import('../runtime/shared/bot-hops.mjs');
+  const submits = [];
+  const execute = createSessionControl({
+    getSessionService: () => ({
+      submitSession: async (params) => {
+        submits.push(params);
+        return { accepted: true };
+      },
+    }),
+  });
+  // A coding task session the user started: its turn carries no bot's chain.
+  const coding = { id: 'sess_task_x', owner: 'user', sourceType: 'lead', agent: 'lead', messages: [] };
+  const handler = createWorkspaceToolHandlers({ rt: { session: coding, config: {} }, executeSessionControl: execute })
+    .session;
+  const send = async (target) =>
+    JSON.parse(
+      await handler(
+        { action: 'send', session_id: target, prompt: 'hi' },
+        { callerCtx: { callerSessionId: coding.id }, callerCwd: '/p' }
+      )
+    );
+  for (const target of ['sess_home_lead', 'sess_home_a']) assert.equal((await send(target)).accepted, true, target);
+  // Its turn started by bot A's message: still no chain check and no chain carried (the hop counts on).
+  stampTurnHop(coding, { hop: 1, botChain: ['a'] });
+  for (const target of ['sess_home_lead', 'sess_home_a']) assert.equal((await send(target)).accepted, true, target);
+  assert.deepEqual(
+    submits.map((params) => [params.sessionId, params.options.transcriptMeta]),
+    [
+      ['sess_home_lead', { sender: 'lead' }],
+      ['sess_home_a', { sender: 'lead' }],
+      ['sess_home_lead', { sender: 'lead', hop: 2 }],
+      ['sess_home_a', { sender: 'lead', hop: 2 }],
+    ]
+  );
+});
+
+test('A → B → A is refused: B, in the turn A started, sends neither to A nor to A\'s room seat, nor to its own seat', async (t) => {
+  const { createAskTranscriptMeta } = await import(
+    '../runtime/agent/orchestrator/session/manager/ask-session.mjs'
+  );
+  const { stampTurnHop } = await import('../runtime/shared/bot-hops.mjs');
+  const { registerAgentRoomHost } = await import('../runtime/shared/agent-room-host.mjs');
+  const { roomMemberSessionId, roomSessionId } = await import('../runtime/agent/orchestrator/session/agent-room.mjs');
+  const asks = [];
+  t.after(
+    registerAgentRoomHost({
+      member: async (_room, { to, prompt }) => ({
+        agentId: to,
+        name: to,
+        sessionId: roomMemberSessionId('abc123', to),
+        text: prompt,
+      }),
+      ask: async (room, request) => {
+        asks.push([room, request]);
+        return true;
+      },
+      relay: async () => ({ settled: Promise.resolve('done') }),
+    })
+  );
+  const submits = [];
+  const service = {
+    materializeSession: async () => ({ getState: () => ({}), subscribe: () => () => {} }),
+    submitSession: async (params) => {
+      submits.push(params);
+      return { accepted: true };
+    },
+  };
+  const agentTasks = createAgentTaskSessions({
+    getSessionService: () => service,
+    deliver: async () => {},
+    watches: { add: async () => {}, list: async () => [], remove: async () => {} },
+    loadSession: async () => null,
+    agentName: async (id) => `Name ${id}`,
+    pendingWork: async () => false,
+    settleMs: 0,
+    log: () => {},
+  });
+  const execute = createSessionControl({ getSessionService: () => service, agentTasks });
+  const home = (agent) => ({ id: `sess_home_${agent}`, owner: 'cli', agent, sourceType: 'lead', messages: [] });
+  const sendFrom = (session) => async (args) =>
+    JSON.parse(
+      await createWorkspaceToolHandlers({ rt: { session, config: {} }, executeSessionControl: execute }).session(
+        { action: 'send', prompt: 'please', ...args },
+        { callerCtx: { callerSessionId: session.id }, callerCwd: '/p' }
+      )
+    );
+  // A (a user turn) hands B work; B's turn starts from that message.
+  const a = home('a');
+  await sendFrom(a)({ session_id: 'sess_home_b' });
+  const b = home('b');
+  stampTurnHop(b, createAskTranscriptMeta(submits[0].options.transcriptMeta).user);
+  const loop = /contact agent "a" is already in this delegation chain \(a → b → a\)/;
+  await assert.rejects(sendFrom(b)({ session_id: 'sess_home_a' }), loop);
+  const ROOM = roomSessionId('abc123');
+  await assert.rejects(sendFrom(b)({ session_id: ROOM, to: 'a' }), loop);
+  await assert.rejects(sendFrom(b)({ session_id: ROOM, to: 'b' }), /contact agent "b" cannot hand work to itself/);
+  // Bot A's own chat cannot hand work to its own room seat either.
+  await assert.rejects(sendFrom(a)({ session_id: ROOM, to: 'a' }), /contact agent "a" cannot hand work to itself/);
+  assert.equal(submits.length, 1, 'A never gets the work back');
+  assert.deepEqual(asks, [], 'no room seat is asked');
+  // B may still hand it on to a bot outside the chain, which then carries a → b.
+  await sendFrom(b)({ session_id: 'sess_home_c' });
+  assert.deepEqual(submits[1].options.transcriptMeta.botChain, ['a', 'b']);
+  // So does a room seat outside the chain: its turn (under the send's id) is in a → b, so it cannot answer A by a send.
+  await sendFrom(b)({ session_id: ROOM, to: 'c' });
+  const seat = { id: roomMemberSessionId('abc123', 'c'), owner: 'cli', sourceType: 'lead', messages: [] };
+  stampTurnHop(seat, createAskTranscriptMeta({ hop: asks[0][1].hop, checkpointId: asks[0][1].id }).user);
+  await assert.rejects(sendFrom(seat)({ session_id: 'sess_home_a' }), /"a" is already in this delegation chain/);
+  // A user turn in B starts a chain of its own: B may ask A then.
+  stampTurnHop(b, createAskTranscriptMeta({ sender: 'user' }).user);
+  assert.equal((await sendFrom(b)({ session_id: 'sess_home_a' })).accepted, true);
 });

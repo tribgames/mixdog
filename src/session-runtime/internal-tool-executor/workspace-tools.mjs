@@ -16,6 +16,7 @@ import { isHeartbeatSession } from '../../runtime/shared/routine-trigger.mjs';
 import { scheduleCallerScope } from '../services/schedule-access.mjs';
 import { worktreeCallerScope } from '../services/worktree-access.mjs';
 import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.mjs';
+import { delegationChainOf } from '../bot-chain.mjs';
 
 const USER_TITLE_ERROR = 'session: the user already titled this session; the title was not changed';
 
@@ -98,7 +99,12 @@ export function createWorkspaceToolHandlers({
       (action === 'status' && target)
     ) {
       const callerSessionId = assertLead(action, callerCtx);
+      // `callerAgentId`: the bot whose conversation gets results reported
+      // back; `callerBotId`: the bot the caller acts as, attended or not,
+      // for what only a bot's own sessions allow (an effort change).
       const callerAgentId = attendedAgentOf(rt.session);
+      const acting = resolveSessionMode({ session: rt.session });
+      const callerBotId = acting.mode === AGENT_MODE ? acting.agentId : '';
       if (action === 'create' && !callerAgentId) {
         throw new Error(
           'session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions'
@@ -127,8 +133,24 @@ export function createWorkspaceToolHandlers({
           {
             callerSessionId,
             callerAgentId,
+            callerBotId,
             callerCwd,
-            ...(action === 'send' || action === 'create' ? { callerHop: turnHopOf(rt.session) } : {}),
+            ...(action === 'send' || action === 'create'
+              ? {
+                  callerHop: turnHopOf(rt.session),
+                  // The bot chain this turn acts in (bot-chain.mjs), checked
+                  // against the target and carried to the turn it starts —
+                  // only when the sender is a bot conversation (a bot's chat,
+                  // room seat or run); any other session hands work to any
+                  // bot as before, whatever started its turn (the hop limit
+                  // still bounds a loop).
+                  callerBotChain: callerBotId
+                    ? delegationChainOf(callerSessionId, (id) =>
+                        id === rt.session?.id ? rt.session : getSessionManager()?.getSession?.(id) || null
+                      )
+                    : [],
+                }
+              : {}),
             // Whether a create may provision a worktree (worktree-access.mjs).
             ...(action === 'create' ? { callerScope: worktreeCallerScope(rt.session) } : {}),
             // Which bots and sessions it may see (bot-status.mjs).

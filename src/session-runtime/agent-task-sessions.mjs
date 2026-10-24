@@ -35,6 +35,7 @@ import { roomMemberOfSession } from '../runtime/agent/orchestrator/session/agent
 import { wrapAgentMessage } from '../runtime/shared/agent-message-envelope.mjs';
 import { hasPendingAgentWork, sessionsWithPendingWork } from '../runtime/shared/pending-agent-work.mjs';
 import { agentTaskIdOfExecution } from './services/agent-tool/restart-notify.mjs';
+import { botChainOf } from '../runtime/shared/bot-hops.mjs';
 import { worktreeError, worktreeNameError } from '../runtime/shared/worktrees/contract.mjs';
 import { samePath } from '../runtime/shared/worktrees/paths.mjs';
 import { readModelCatalog, routeByDisplayName, withEffort } from './task-session-route.mjs';
@@ -1071,6 +1072,8 @@ export function createAgentTaskSessions({
           sender: 'lead',
           ...(origin.envelopeName ? { fromAgent: origin.agentId } : {}),
           ...(origin.hop > 0 ? { hop: origin.hop } : {}),
+          // The bots that handed this work on, the sender last (bot-hops.mjs).
+          ...(origin.botChain?.length ? { botChain: origin.botChain } : {}),
         },
         ...(notify
           ? {
@@ -1147,7 +1150,15 @@ export function createAgentTaskSessions({
    *  caller is refused and the New task default keeps it in the Project folder. */
   async function create(
     args = {},
-    { callerSessionId, callerAgentId, callerCwd, callerHop = 0, callerScope, attachmentParts = [] } = {}
+    {
+      callerSessionId,
+      callerAgentId,
+      callerCwd,
+      callerHop = 0,
+      callerBotChain = [],
+      callerScope,
+      attachmentParts = [],
+    } = {}
   ) {
     if (!callerAgentId) throw new Error('session: create is only for an agent conversation');
     const brief = typeof args.brief === 'string' ? args.brief.trim() : '';
@@ -1253,10 +1264,11 @@ export function createAgentTaskSessions({
     });
     // The brief carries the files the agent forwarded (workspace-tools.mjs).
     const prompt = handoffContent(brief, attachmentParts);
+    const botChain = botChainOf(callerBotChain);
     const { accepted, reportsBack, reportsBackReason } = await agentTurn(
       sessionId,
       prompt,
-      callerHop > 0 ? { ...taskOrigin, hop: callerHop } : taskOrigin,
+      { ...taskOrigin, ...(callerHop > 0 ? { hop: callerHop } : {}), ...(botChain.length ? { botChain } : {}) },
       requestId,
       ready
     );

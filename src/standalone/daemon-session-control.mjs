@@ -5,7 +5,14 @@ import { assertWorktreeMutationAllowed } from '../session-runtime/services/workt
 import { createBotStatus, scanCatalog, scopedBot, sessionBotOf } from '../session-runtime/bot-status.mjs';
 import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
 import { checkEffort, readModelCatalog } from '../session-runtime/task-session-route.mjs';
-import { BOT_HOP_LIMIT_ERROR, MAX_BOT_HOPS } from '../runtime/shared/bot-hops.mjs';
+import {
+  BOT_HOP_LIMIT_ERROR,
+  MAX_BOT_HOPS,
+  assertBotChainTarget,
+  botChainOf,
+  rememberSubmissionBotChain,
+} from '../runtime/shared/bot-hops.mjs';
+import { agentIdOfHomeSession } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import { rebindDelegation } from '../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import { isAgentOnlySession } from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
 import { readSessionSidebarState } from '../runtime/shared/session-sidebar-host.mjs';
@@ -20,7 +27,13 @@ const TARGET_ACTIONS = new Set(['status', 'read', 'send', 'cancel', 'delete']);
 const MUTATING_ACTIONS = new Set(['send', 'cancel', 'delete']);
 // The workspace methods `worktree` reaches on another session (all on the
 // session protocol's read/configure allowlists).
-const WORKTREE_METHODS = new Set(['getBranchMenu', 'requestWorktree', 'selectBranch', 'mergeWorkspace', 'removeWorktree']);
+const WORKTREE_METHODS = new Set([
+  'getBranchMenu',
+  'requestWorktree',
+  'selectBranch',
+  'mergeWorkspace',
+  'removeWorktree',
+]);
 // Why a send from a conversation that is no bot's reports nothing back.
 const NOT_BOT_REASON = 'only a bot conversation gets session results reported back; check that session for the result';
 
@@ -157,6 +170,15 @@ export function createSessionControl({
       // its member session is the turn that answers and reports.
       const room = roomIdOfSession(sessionId) ? await roomAddressee(sessionId, args) : null;
       if (room?.sessionId === caller) throw new Error('session: send must target another session');
+      // Work goes on to a bot (a room seat's, or a bot's home) only outside
+      // the caller's bot chain (`callerBotChain`, bot-chain.mjs), never back
+      // to the caller's own bot; the turn it starts carries that chain on.
+      const botChain = botChainOf(context.callerBotChain);
+      assertBotChainTarget(
+        room ? room.agentId : agentIdOfHomeSession(sessionId),
+        { chain: botChain, self: context.callerBotId || context.callerAgentId || '' },
+        'session'
+      );
       // An agent conversation's send reports its turn back to the agent's
       // home: a task session it created by its stored origin, any other
       // session by an origin for this send only.
@@ -165,20 +187,30 @@ export function createSessionControl({
       const turnSessionId = room ? room.sessionId : sessionId;
       const from = { sessionId: caller, ...(context.callerAgentId ? { agentId: context.callerAgentId } : {}) };
       // The member's turn carries the send's hop (`transcriptMeta.hop`), so a
-      // chain through the room counts on toward MAX_BOT_HOPS.
+      // chain through the room counts on toward MAX_BOT_HOPS; its bot chain is
+      // recorded under every submission id that turn may take.
       const submit = room
-        ? async ({ id, onSettled, follow, transcriptMeta } = {}) => ({
-            accepted:
-              (await room.host.ask(sessionId, {
-                agentId: room.agentId,
-                prompt,
-                from,
-                ...(id ? { id } : {}),
-                ...(transcriptMeta?.hop > 0 ? { hop: transcriptMeta.hop } : {}),
-                ...(onSettled ? { onSettled } : {}),
-                ...(follow ? { follow } : {}),
-              })) === true,
-          })
+        ? async ({ id, onSettled, follow, transcriptMeta } = {}) => {
+            rememberSubmissionBotChain(id, transcriptMeta?.botChain);
+            const followed = follow
+              ? (submissionId) => {
+                  rememberSubmissionBotChain(submissionId, transcriptMeta?.botChain);
+                  return follow(submissionId);
+                }
+              : null;
+            return {
+              accepted:
+                (await room.host.ask(sessionId, {
+                  agentId: room.agentId,
+                  prompt,
+                  from,
+                  ...(id ? { id } : {}),
+                  ...(transcriptMeta?.hop > 0 ? { hop: transcriptMeta.hop } : {}),
+                  ...(onSettled ? { onSettled } : {}),
+                  ...(followed ? { follow: followed } : {}),
+                })) === true,
+            };
+          }
         : null;
       const addressed = room ? { to: room.agentId } : {};
       let origin = await agentTasks.reportOrigin(turnSessionId, context.callerAgentId, caller);
@@ -187,7 +219,10 @@ export function createSessionControl({
       let applyEffort = async () => {};
       if (args.effort !== undefined) {
         if (room) throw new Error('session: effort applies to a session, not a group room');
-        if (context.callerAgentId && origin?.target === 'session') {
+        // Any bot, attended or not (`callerBotId`), changes only the task
+        // sessions it created; reports go only to a bot conversation.
+        const botId = context.callerBotId || context.callerAgentId || '';
+        if (botId && (await agentTasks.reportOrigin(sessionId, botId, caller))?.target === 'session') {
           throw new Error('session: a bot may set the effort only of the task sessions it created');
         }
         const target = (await service.readSession({ sessionId, transcriptItemLimit: 1 })).full;
@@ -215,6 +250,7 @@ export function createSessionControl({
       if (origin) {
         const hop = chained(origin.target === 'session' ? turnHop + 1 : turnHop);
         if (hop > 0) origin = { ...origin, hop };
+        if (botChain.length) origin = { ...origin, botChain };
         // The task session a bot created acts as the sending conversation does
         // from now on (attended chat or run); another's session keeps its own.
         if (origin.target !== 'session') await rebindDelegation(sessionId, caller);
@@ -224,6 +260,7 @@ export function createSessionControl({
       }
       const hop = turnHop > 0 ? chained(turnHop + 1) : 0;
       await applyEffort();
+      const chainMeta = { ...(hop > 0 ? { hop } : {}), ...(botChain.length ? { botChain } : {}) };
       let accepted;
       if (submit) accepted = (await submit(hop > 0 ? { transcriptMeta: { hop } } : {})).accepted;
       else {
@@ -232,7 +269,7 @@ export function createSessionControl({
         const result = await service.submitSession({
           sessionId,
           prompt,
-          options: { mode: 'prompt', transcriptMeta: { sender: 'lead', ...(hop > 0 ? { hop } : {}) } },
+          options: { mode: 'prompt', transcriptMeta: { sender: 'lead', ...chainMeta } },
         });
         accepted = result.accepted === true;
       }

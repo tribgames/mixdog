@@ -2,6 +2,7 @@
 // These pure helpers keep live rows, persisted messages and restored rows on
 // the same field contract without rewriting older display-only transcripts.
 import { displayModelName } from './model-display.mjs';
+import { botChainOf } from './bot-hops.mjs';
 import { routineTriggerField } from './routine-trigger.mjs';
 
 export function transcriptRouteMetadataFields(value) {
@@ -90,6 +91,11 @@ export function persistedUserTranscriptMetadata(value) {
     ...transcriptSourceFields(value),
     // Bot-to-bot chain position of a bot's message (session-runtime/bot-hops.mjs).
     ...(Number.isInteger(value.hop) && value.hop > 0 ? { hop: value.hop } : {}),
+    // The bots that handed this message on, sender last (bot-hops.mjs botChainOf).
+    ...botChainField(value.botChain),
+    // A group-room member turn: the newest user row of the room log its prompt
+    // shows (message-reactions.mjs counts a reaction only on that row).
+    ...(typeof value.roomRow === 'string' && value.roomRow ? { roomRow: value.roomRow } : {}),
     // The turn's change-record key (the outer prompt id), so a restored user
     // row still addresses its turn's Undo/Reapply.
     ...(typeof value.checkpointId === 'string' && value.checkpointId ? { checkpointId: value.checkpointId } : {}),
@@ -102,6 +108,11 @@ export function persistedUserTranscriptMetadata(value) {
     // A routine fire delivered as this turn (routine-trigger.mjs).
     ...routineTriggerField(value),
   };
+}
+
+function botChainField(value) {
+  const bots = botChainOf(value);
+  return bots.length ? { botChain: bots } : {};
 }
 
 function submissionIdsField(value) {
