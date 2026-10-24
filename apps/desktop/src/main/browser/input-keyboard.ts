@@ -161,7 +161,15 @@ function resolveKeyPress(rawKey: string): KeyPress {
 }
 
 export function createKeyboardInput(send: SendBrowserInput, options: { allowClipboard?: boolean }) {
-  async function pressKey(guest: WebContents, rawKey: string, signal?: AbortSignal): Promise<void> {
+  /** `beforeDispatch` revalidates the page the caller meant, right before
+   *  the key's first event is sent; once the key is down the sequence
+   *  completes, so a submit that navigates still gets its key-up. */
+  async function pressKey(
+    guest: WebContents,
+    rawKey: string,
+    signal?: AbortSignal,
+    beforeDispatch?: () => void
+  ): Promise<void> {
     if (!options.allowClipboard) assertBrowserKeyDoesNotAccessClipboard(rawKey);
     const { spec, modifierBits, typesText } = resolveKeyPress(rawKey);
     const base = {
@@ -176,7 +184,13 @@ export function createKeyboardInput(send: SendBrowserInput, options: { allowClip
     const commands =
       process.platform === 'darwin' && modifierBits === 4 && spec.code === 'KeyA' ? { commands: ['selectAll'] } : {};
     if (
-      (await send(guest, 'Input.dispatchKeyEvent', { ...base, type: 'rawKeyDown', ...commands }, signal)) === 'dialog'
+      (await send(
+        guest,
+        'Input.dispatchKeyEvent',
+        { ...base, type: 'rawKeyDown', ...commands },
+        signal,
+        beforeDispatch
+      )) === 'dialog'
     )
       return;
     // Control+Enter is a shortcut, not a newline: a shortcut never types.

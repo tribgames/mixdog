@@ -149,7 +149,7 @@ export function createBrowserHostAgent(options: {
     suggestions: (url) => base.profileImporter.credentialSuggestions(url),
     withCredential: (url, id, use, signal) => base.profileImporter.useCredential(url, id, use, signal),
     fill: (guest, credential, signal) => tools.credentialFill.fillCredentialInGuest(guest, credential, signal),
-    submit: (guest, signal) => tools.input.pressKey(guest, 'enter', signal),
+    submit: (guest, signal, beforeDispatch) => tools.input.pressKey(guest, 'enter', signal, beforeDispatch),
     collect: (guest, expression, signal) => base.documents.collect(guest, expression, signal),
     invalidate: (guest) => base.state.invalidateInteraction(guest),
   });

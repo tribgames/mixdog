@@ -13,7 +13,9 @@ export type SendBrowserInput = (
   guest: WebContents,
   method: string,
   params: Record<string, unknown>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Runs right before the event is sent, after any wait for the debugger. */
+  beforeDispatch?: () => void
 ) => Promise<BrowserInputOutcome>;
 
 export interface Point {

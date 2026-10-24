@@ -49,6 +49,50 @@ test('offscreen child-frame input uses child coordinates and rechecks local owne
   assert.equal(sent.length, 1);
 });
 
+test('ordinary keys and text are sent to whatever document is committed; only the caller guard can stop them', async () => {
+  let document = 'document-1';
+  let release;
+  const ready = new Promise((resolve) => {
+    release = resolve;
+  });
+  const sent = [];
+  const dispatch = createBrowserInputDispatch({
+    documentId: () => document,
+    frames: () => new Map(),
+    cdp: {
+      call: async () => assert.fail('a key needs no hit test'),
+      guestDebugger: () => ready,
+      sendCdpInput: async (_guest, _cdp, method, params, _signal, _session, guard) => {
+        guard();
+        sent.push({ method, params });
+        return 'completed';
+      },
+    },
+  });
+  const guest = { isOffscreen: () => false, getZoomFactor: () => 1 };
+  const key = { type: 'rawKeyDown', key: 'Enter' };
+  const pressed = dispatch(guest, 'Input.dispatchKeyEvent', key);
+  document = 'document-2'; // the page navigates while the debugger is not ready
+  release({});
+  await pressed; // as before: no document rule of its own for non-mouse input
+  const typed = await dispatch(guest, 'Input.dispatchKeyEvent', { type: 'char', text: 'a' });
+  assert.equal(typed, 'completed');
+  assert.equal(sent.length, 2);
+  sent.length = 0;
+  // The caller's own page guard (the saved-login sign-in passes one) runs
+  // right before the send and can still stop the key.
+  let url = 'https://a.test/';
+  const bound = dispatch(guest, 'Input.dispatchKeyEvent', key, undefined, () => {
+    if (url !== 'https://a.test/') throw new Error('url changed');
+  });
+  url = 'https://b.test/';
+  await assert.rejects(bound, /url changed/);
+  assert.deepEqual(sent, []);
+  // An undisturbed key still goes out.
+  await dispatch(guest, 'Input.dispatchKeyEvent', key);
+  assert.equal(sent.length, 1);
+});
+
 test('emulated input compensates host zoom without scaling normal desktop CSS coordinates', async () => {
   for (const layoutZoom of [0.75, 1]) {
     const sent = [];

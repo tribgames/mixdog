@@ -77,3 +77,29 @@ test('punctuation presses carry their real key codes and only Shift still types'
     ['.', '!']
   );
 });
+
+test('the page guard stops an Enter before its key-down; once down, a navigating submit still gets its key-up', async () => {
+  const events = [];
+  const driver = createBrowserInputDriver(async (_guest, _method, params, _signal, beforeDispatch) => {
+    beforeDispatch?.();
+    events.push(params.type);
+    return 'completed';
+  });
+  let url = 'https://a.test/';
+  const guard = () => {
+    if (url !== 'https://a.test/') throw new Error('nothing was submitted');
+  };
+  url = 'https://b.test/';
+  await assert.rejects(driver.pressKey({}, 'enter', undefined, guard), /nothing was submitted/);
+  assert.deepEqual(events, []);
+
+  url = 'https://a.test/';
+  const navigating = createBrowserInputDriver(async (_guest, _method, params, _signal, beforeDispatch) => {
+    beforeDispatch?.();
+    events.push(params.type);
+    if (params.type === 'char') url = 'https://b.test/'; // the submit navigates
+    return 'completed';
+  });
+  await navigating.pressKey({}, 'enter', undefined, guard);
+  assert.deepEqual(events, ['rawKeyDown', 'char', 'keyUp']);
+});

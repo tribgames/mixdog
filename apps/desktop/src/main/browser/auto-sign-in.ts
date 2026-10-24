@@ -127,7 +127,9 @@ export interface BrowserAutoSignInDeps {
     credential: Readonly<BrowserCredentialValue>,
     signal?: AbortSignal
   ) => Promise<BrowserCredentialFillResult>;
-  submit: (guest: WebContents, signal?: AbortSignal) => Promise<void>;
+  /** `beforeDispatch` runs right before the key is sent and throws when the
+   *  page is no longer the one the sign-in was checked on. */
+  submit: (guest: WebContents, signal?: AbortSignal, beforeDispatch?: () => void) => Promise<void>;
   collect: <T>(guest: WebContents, expression: string, signal?: AbortSignal) => Promise<T[]>;
   invalidate: (guest: WebContents) => void;
   /** Bounds for the human-check wait (defaults: 20 s wait, 1.5 s grace for a
@@ -142,6 +144,15 @@ export const SAVED_SIGN_IN_DONE = 'Saved sign-in: signed in to ';
 export const SAVED_SIGN_IN_NEEDS_USER = 'Saved sign-in: the site still needs the user at ';
 
 const ATTEMPT_MEMORY = 500;
+
+/** The page guard of a submit: throws once the guest is gone or left `url`. */
+function submitGuard(guest: WebContents, url: string): () => void {
+  return () => {
+    if (guest.isDestroyed() || guest.getURL() !== url) {
+      throw new Error('The page changed before the submit; nothing was submitted.');
+    }
+  };
+}
 
 export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
   /** `${sessionId}\0${turnId}\0${origin}`: tried once this turn. */
@@ -261,7 +272,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
           throw new Error('The human check changed before the submit; nothing was submitted.');
         }
         submitted = true;
-        await deps.submit(guest, signal);
+        await deps.submit(guest, signal, submitGuard(guest, url));
       }
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;

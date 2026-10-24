@@ -23,9 +23,10 @@ function fixture({
   humanCheck = { waitMs: 150, graceMs: 30, pollMs: 5 },
   onProbe,
   onFill,
+  onSubmit,
 } = {}) {
   const page = { url, password: true, challenge: false, wording: false, check: 'none' };
-  const calls = { suggestions: [], fills: 0, submits: 0, credentials: [], probes: 0 };
+  const calls = { suggestions: [], fills: 0, submits: 0, sent: 0, credentials: [], probes: 0 };
   const guest = { isDestroyed: () => false, getURL: () => page.url };
   const signIn = createBrowserAutoSignIn({
     enabled: () => enabled,
@@ -48,8 +49,12 @@ function fixture({
       onFill?.(page);
       return { usernameFilled: true, passwordFilled: true };
     },
-    submit: async () => {
+    submit: async (_guest, _signal, beforeDispatch) => {
       calls.submits++;
+      // The host waits for the debugger here; the page may move meanwhile.
+      await onSubmit?.(page);
+      beforeDispatch?.();
+      calls.sent++;
       if (after === 'signed-in') Object.assign(page, { password: false, url: 'https://shop.example.com/account' });
       if (after === 'two-factor') Object.assign(page, { password: false, challenge: true });
       if (after === 'error') Object.assign(page, { password: true });
@@ -252,6 +257,19 @@ test('navigation during the awaited re-probe never gives the credential to the n
   assert.equal(f.calls.credentials.length, 1);
   assert.equal(f.calls.fills, 0);
   assert.equal(f.calls.submits, 0);
+});
+
+test('a navigation while the submit waits for the debugger never sends Enter to the new page', async () => {
+  const f = fixture({
+    onSubmit: (page) => {
+      page.url = 'https://shop.example.com.evil.test/login';
+    },
+  });
+  f.page.check = 'solved';
+  assert.ok(handedOff(await f.run()));
+  assert.equal(f.calls.fills, 1);
+  assert.equal(f.calls.submits, 1);
+  assert.equal(f.calls.sent, 0, 'the key guard saw the new address and refused');
 });
 
 test('cancelling during the in-callback probe sends nothing', async () => {
