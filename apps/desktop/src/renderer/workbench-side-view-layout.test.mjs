@@ -325,12 +325,19 @@ test('each side opens on its leading group, never a last-visited view', () => {
   });
 });
 
-test('the left drawer opens on Agents wherever a stored rail order put it', () => {
-  // A phone whose stored rail still leads with Sessions must not reboot into
-  // Sessions: Agents is the left home whenever the rail carries it.
+test('the left rail opens on whatever the user put at its top, Agents included', () => {
+  // No view is a fixed home: the stored order decides, so moving a view to
+  // the top of the rail makes it the starting one.
   assert.deepEqual(
     initialActiveWorkbenchSideViews({
       left: [['sessions'], ['schedules'], ['agents']],
+      right: [],
+    }),
+    { left: 'sessions', right: null }
+  );
+  assert.deepEqual(
+    initialActiveWorkbenchSideViews({
+      left: [['agents'], ['sessions'], ['schedules']],
       right: [],
     }),
     { left: 'agents', right: null }

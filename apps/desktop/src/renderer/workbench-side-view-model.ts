@@ -235,24 +235,18 @@ export function moveWorkbenchSideView(
   return next;
 }
 
-/** The left drawer's home destination: Agents whenever the rail carries it
- *  after a reboot, regardless of
- *  where a stored rail order happens to place it. */
-const LEFT_HOME_VIEW: WorkbenchSideViewId = 'agents';
-
 /**
  * First active view per side. No last-visited view survives a reload — the dock tab and the bottom panel
  * drop their persisted selection for the same reason — so every reconnect
- * lands on one predictable entry point per edge: the left opens on Agents
- * when present (else its leading group), the right on the group that leads
- * it. A side that holds nothing has no active view.
+ * lands on one predictable entry point per edge: the group that leads it.
+ * The user picks the left's by dragging a view to the top of the rail. A side
+ * that holds nothing has no active view.
  */
 export function initialActiveWorkbenchSideViews(
   layout: WorkbenchSideViewLayout
 ): Record<WorkbenchSide, WorkbenchSideViewId | null> {
-  const leftHome = layout.left.find((group) => group[0] === LEFT_HOME_VIEW)?.[0];
   return {
-    left: leftHome ?? layout.left[0]?.[0] ?? null,
+    left: layout.left[0]?.[0] ?? null,
     right: layout.right[0]?.[0] ?? null,
   };
 }
