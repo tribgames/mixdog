@@ -2127,6 +2127,8 @@
   "Headers": "헤더",
   "Heading": "제목",
   "Heading {{level}}": "제목 {{level}}",
+  "Heartbeat: the Maintainer model gave {{failures}} failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "하트비트: Maintainer 모델 호출이 {{failures}}번 연속으로 실패해, Mixdog을 다시 시작하거나 모델을 바꿀 때까지 하트비트 점검에서 더 묻지 않습니다. 그동안에는 실패가 이어지는 루틴만 Mixy를 깨웁니다.",
+  "Heartbeat: the Maintainer model gave {{failures}} unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "하트비트: Maintainer 모델이 {{failures}}번 연속으로 쓸 수 없는 답변을 보내, Mixdog을 다시 시작하거나 모델을 바꿀 때까지 하트비트 점검에서 더 묻지 않습니다. 그동안에는 실패가 이어지는 루틴만 Mixy를 깨웁니다.",
   "Hello there 👋": "안녕하세요 👋",
   "Hello, {{name}} 👋": "안녕하세요, {{name}}님 👋",
   "Help make Mixdog better.": "더 좋은 Mixdog을 위해 힘을 보태 주세요.",

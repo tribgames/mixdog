@@ -2127,6 +2127,8 @@
   "Headers": "標頭",
   "Heading": "標題",
   "Heading {{level}}": "標題 {{level}}",
+  "Heartbeat: the Maintainer model gave {{failures}} failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "心跳：Maintainer 模型的呼叫連續 {{failures}} 次失敗，因此在 Mixdog 重新啟動或更換其模型之前，心跳檢查不再詢問它。在此期間，只有持續失敗的例行任務會喚醒 Mixy。",
+  "Heartbeat: the Maintainer model gave {{failures}} unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "心跳：Maintainer 模型連續 {{failures}} 次傳回無法使用的回覆，因此在 Mixdog 重新啟動或更換其模型之前，心跳檢查不再詢問它。在此期間，只有持續失敗的例行任務會喚醒 Mixy。",
   "Hello there 👋": "你好👋",
   "Hello, {{name}} 👋": "你好，{{name}}👋",
   "Help make Mixdog better.": "助力 Mixdog 變得更好。",

@@ -212,6 +212,26 @@ export function localizeRouteFallbackNotice(text: string): string | null {
   return t('{{from}} {{reason}} — switched to {{to}}.', { from: match[1], reason, to: match[3] });
 }
 
+const HEARTBEAT_BREAKER_NOTICE_RE =
+  /^Heartbeat: the Maintainer model gave (\d+) (unusable replies|failed calls) in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes\. Only failing routines wake Mixy meanwhile\.$/;
+
+/** The heartbeat's circuit-breaker warning (session-runtime/mixy-heartbeat.mjs,
+ *  a notice in Mixy's chat) in the UI language; null for any other notice. */
+export function localizeHeartbeatBreakerNotice(text: string): string | null {
+  const match = HEARTBEAT_BREAKER_NOTICE_RE.exec(text);
+  if (!match) return null;
+  const failures = match[1];
+  return match[2] === 'unusable replies'
+    ? t(
+        'Heartbeat: the Maintainer model gave {{failures}} unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.',
+        { failures }
+      )
+    : t(
+        'Heartbeat: the Maintainer model gave {{failures}} failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.',
+        { failures }
+      );
+}
+
 /** The next-step line of a described error, in the UI language. */
 export function localizeErrorRecovery(presentation: {
   recovery: string;

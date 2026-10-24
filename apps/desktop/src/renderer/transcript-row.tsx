@@ -9,7 +9,7 @@ import { t, uiFormatLocale } from './i18n';
 import { timeFormatOptions } from './time-format-preference';
 import { useRoomContacts } from './agent-room-parts';
 import { stripAgentMessageEnvelope } from '../../../../src/runtime/shared/agent-message-envelope.mjs';
-import { localizeRouteFallbackNotice } from './error-notice-copy';
+import { localizeHeartbeatBreakerNotice, localizeRouteFallbackNotice } from './error-notice-copy';
 import MarkdownBody from './MarkdownBody';
 import {
   createStreamingMarkdownCache,
@@ -220,7 +220,8 @@ export function shortTimeText(at: number): string {
 }
 
 /** A runtime notice in the reader's language: the fixed notices by their
- *  English text, a route fallback by its pattern, anything else as sent. */
+ *  English text, a route fallback or the heartbeat's breaker warning by its
+ *  pattern, anything else as sent. */
 function noticeText(text: string | undefined) {
   if (text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.') {
     return t('The model refused to respond (safety refusal) — retry or rephrase your prompt.');
@@ -228,7 +229,8 @@ function noticeText(text: string | undefined) {
   if (text === 'Allowed this once. The setting could not be saved.') {
     return t('Allowed this once. The setting could not be saved.');
   }
-  return localizeRouteFallbackNotice(String(text || '')) ?? text;
+  const value = String(text || '');
+  return localizeRouteFallbackNotice(value) ?? localizeHeartbeatBreakerNotice(value) ?? text;
 }
 
 function gitRequestIcon(action: string) {

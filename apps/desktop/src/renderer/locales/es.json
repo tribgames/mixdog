@@ -2226,6 +2226,8 @@
   "Headers": "Encabezados",
   "Heading": "Encabezado",
   "Heading {{level}}": "Encabezado {{level}}",
+  "Heartbeat: the Maintainer model gave {{failures}} failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "Heartbeat: llamadas fallidas seguidas al modelo Maintainer: {{failures}}. Las comprobaciones de heartbeat ya no lo consultan hasta que Mixdog se reinicie o cambie su modelo. Mientras tanto, solo las rutinas que fallan despiertan a Mixy.",
+  "Heartbeat: the Maintainer model gave {{failures}} unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "Heartbeat: respuestas inutilizables seguidas del modelo Maintainer: {{failures}}. Las comprobaciones de heartbeat ya no lo consultan hasta que Mixdog se reinicie o cambie su modelo. Mientras tanto, solo las rutinas que fallan despiertan a Mixy.",
   "Hello there 👋": "Hola 👋",
   "Hello, {{name}} 👋": "Hola, {{name}} 👋",
   "Help make Mixdog better.": "Ayuda a mejorar Mixdog.",

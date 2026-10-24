@@ -2127,6 +2127,8 @@
   "Headers": "Tiêu đề",
   "Heading": "Tiêu đề",
   "Heading {{level}}": "Tiêu đề {{level}}",
+  "Heartbeat: the Maintainer model gave {{failures}} failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "Heartbeat: các lệnh gọi mô hình Maintainer đã thất bại {{failures}} lần liên tiếp, nên các lần kiểm tra heartbeat sẽ không hỏi nó nữa cho đến khi Mixdog khởi động lại hoặc mô hình của nó thay đổi. Trong thời gian đó, chỉ những thói quen liên tục thất bại mới đánh thức Mixy.",
+  "Heartbeat: the Maintainer model gave {{failures}} unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.": "Heartbeat: mô hình Maintainer đã trả về {{failures}} câu trả lời không dùng được liên tiếp, nên các lần kiểm tra heartbeat sẽ không hỏi nó nữa cho đến khi Mixdog khởi động lại hoặc mô hình của nó thay đổi. Trong thời gian đó, chỉ những thói quen liên tục thất bại mới đánh thức Mixy.",
   "Hello there 👋": "Xin chào 👋",
   "Hello, {{name}} 👋": "Xin chào {{name}} 👋",
   "Help make Mixdog better.": "Chung tay giúp Mixdog tốt hơn.",
