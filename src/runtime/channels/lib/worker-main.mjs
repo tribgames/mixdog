@@ -7,6 +7,7 @@ import { whisperThreadCount } from './voice-transcription.mjs';
 import { ensureReady, stopVoiceWhisperServer } from './whisper-server.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
 import { Scheduler } from './scheduler.mjs';
+import { renameSchedule as renameScheduleRow } from './schedules-db.mjs';
 import { hasPending as dispatchHasPending } from '../../agent/orchestrator/dispatch-persist.mjs';
 import { stripSoftWarns } from '../../agent/orchestrator/tool-loop-guard.mjs';
 import { JsonStateFile } from './state-file.mjs';
@@ -268,14 +269,10 @@ const { handleToolCall } = createToolDispatch({
     // the renamed row (timers and one-shots of the old name cleared) before
     // the name is released for fires.
     renameSchedule: (name, def, opts) =>
-      scheduler.renameLocked(
-        name,
-        async () => {
-          const { renameSchedule } = await import('./schedules-db.mjs');
-          return renameSchedule(name, def, opts);
-        },
-        { newName: def.name, reload: reloadRuntimeConfig }
-      ),
+      scheduler.renameLocked(name, () => renameScheduleRow(name, def, opts), {
+        newName: def.name,
+        reload: reloadRuntimeConfig,
+      }),
   },
 });
 function ensureConfigWatcher() {

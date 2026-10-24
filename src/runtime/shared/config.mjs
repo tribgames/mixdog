@@ -715,24 +715,22 @@ export async function saveSecretAsync(account, value) {
 }
 
 function saveSecretError(account, err) {
-  {
-    // Reached for a locked keyring, a non-Linux keychain failure, or a Linux host
-    // with no keychain provider whose fallback secrets file could not be written
-    // (keychain-cjs.cjs). Surface an actionable message that points at the
-    // env-var read path the getters already honor, instead of silently writing
-    // the plaintext secret to mixdog-config.json. The fallback is a separate
-    // owner-only file, never the config.
-    const envKey = _envKey(account);
-    const agentMatch = String(account || '').match(/^agent\.([^.]+)\.apiKey$/);
-    const stdEnv = agentMatch ? AGENT_PROVIDER_ENV[agentMatch[1]] : null;
-    const envHint = stdEnv ? `${stdEnv} (or ${envKey})` : envKey;
-    const e = new Error(
-      `[config] could not save secret to the OS keychain: ${err?.message ? err.message : err}\n` +
-        `  Set the ${envHint} environment variable instead — the runtime reads it directly.`
-    );
-    e.cause = err;
-    return e;
-  }
+  // Reached for a locked keyring, a non-Linux keychain failure, or a Linux host
+  // with no keychain provider whose fallback secrets file could not be written
+  // (keychain-cjs.cjs). Surface an actionable message that points at the
+  // env-var read path the getters already honor, instead of silently writing
+  // the plaintext secret to mixdog-config.json. The fallback is a separate
+  // owner-only file, never the config.
+  const envKey = _envKey(account);
+  const agentMatch = String(account || '').match(/^agent\.([^.]+)\.apiKey$/);
+  const stdEnv = agentMatch ? AGENT_PROVIDER_ENV[agentMatch[1]] : null;
+  const envHint = stdEnv ? `${stdEnv} (or ${envKey})` : envKey;
+  const e = new Error(
+    `[config] could not save secret to the OS keychain: ${err?.message ? err.message : err}\n` +
+      `  Set the ${envHint} environment variable instead — the runtime reads it directly.`
+  );
+  e.cause = err;
+  return e;
 }
 
 /** Remove a secret from the OS keychain (if present) and the Linux fallback file. */

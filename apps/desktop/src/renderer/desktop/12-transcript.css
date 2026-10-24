@@ -873,7 +873,7 @@ html[data-mixdog-mobile-tabs] .message.user .message-steer {
 .message-pasted-toggle svg {
   transition: transform 0.15s;
 }
-.message-pasted-toggle[aria-expanded='true'] svg {
+.message-pasted-toggle[aria-expanded="true"] svg {
   transform: rotate(180deg);
 }
 @media (prefers-reduced-motion: reduce) {

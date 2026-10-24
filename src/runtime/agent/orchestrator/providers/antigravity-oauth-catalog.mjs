@@ -146,7 +146,14 @@ export function normalizeAntigravityCatalog(rawModels) {
     const key = familyId(base);
     let family = families.get(key);
     if (!family) {
-      family = { base, contextWindow: 0, maxOutputTokens: 0, supportsVision: false, supportsReasoning: false, wires: new Map() };
+      family = {
+        base,
+        contextWindow: 0,
+        maxOutputTokens: 0,
+        supportsVision: false,
+        supportsReasoning: false,
+        wires: new Map(),
+      };
       families.set(key, family);
     }
     family.contextWindow = Math.max(family.contextWindow, contextWindow);

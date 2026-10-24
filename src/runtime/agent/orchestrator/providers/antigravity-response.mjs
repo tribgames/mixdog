@@ -25,8 +25,7 @@ export function normalizeAntigravityUsage(um) {
   const cachedTokens = um.cachedContentTokenCount || um.cached_content_token_count || 0;
   const thoughtTokens = um.thoughtsTokenCount ?? um.thoughts_token_count;
   // Thought tokens are billed and capped as output.
-  const outputTokens =
-    (um.candidatesTokenCount || um.candidates_token_count || 0) + (Number(thoughtTokens) || 0);
+  const outputTokens = (um.candidatesTokenCount || um.candidates_token_count || 0) + (Number(thoughtTokens) || 0);
   const reportedTotal = Number(um.totalTokenCount ?? um.total_token_count);
   return {
     inputTokens,

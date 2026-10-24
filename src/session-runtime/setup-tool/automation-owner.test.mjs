@@ -83,7 +83,7 @@ test("Mixy's marked heartbeat session runs in her unattended scope; a forged or 
   const unmark = [heartbeat, forged, other].map((session) => markUnattendedRun(session.id, run));
   markHeartbeatSession(heartbeat.id);
   t.after(() => {
-    unmark.forEach((fn) => fn());
+    for (const fn of unmark) fn();
     markHeartbeatSession(heartbeat.id, true);
   });
   assert.deepEqual(scheduleCallerScope(heartbeat), { kind: 'agent', agentId: 'lead', unattended: true });

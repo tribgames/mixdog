@@ -69,7 +69,7 @@ function checkedAge(at: number | null): string {
 }
 
 // Quota windows last seen per account, and how many rows each account showed.
-// The usage read lands after the roster, so a cold list used to show one line
+// The usage read lands after the roster, so a cold list would show one line
 // and then grow by up to two meters. Remembering both (the row count survives
 // restarts) paints the last known meters at once and reserves their height.
 const USAGE_ROWS_KEY = 'mixdog.providerAccountUsageRows';

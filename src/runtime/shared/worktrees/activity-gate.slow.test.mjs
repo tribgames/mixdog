@@ -213,7 +213,11 @@ test('a management lease inside an external checkout refuses its readers from an
     'command:root': true,
     'command:sub': true,
   });
-  assert.deepEqual(ledgerOf(repo).leases.map((lease) => lease.kind), ['management'], 'no reader lease is left');
+  assert.deepEqual(
+    ledgerOf(repo).leases.map((lease) => lease.kind),
+    ['management'],
+    'no reader lease is left'
+  );
   release();
   assert.deepEqual(foreignProbe(checkout, sub), {
     'turn:root': false,
@@ -230,7 +234,10 @@ test('a management lease still refuses readers of its checkout after the registr
   writeFileSync(registryPath(), JSON.stringify({ version: 1, entries: {} }));
   assert.equal(tryAdmitWorkspaceActivity('after-recovery', checkout), null);
   assert.equal(tryAdmitWorkspaceActivity('after-recovery', checkout, { kind: 'command' }), null);
-  assert.deepEqual(ledgerOf(repo).leases.map((lease) => lease.kind), ['management']);
+  assert.deepEqual(
+    ledgerOf(repo).leases.map((lease) => lease.kind),
+    ['management']
+  );
   release();
   tryAdmitWorkspaceActivity('after-release', checkout)();
 });

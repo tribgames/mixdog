@@ -216,7 +216,7 @@ export class StreamFadeTimeline {
     const words = contents.map((content, index): FadeWord => {
       // Blank text (between list items, table cells) shows nothing to fade.
       if (!/\S/.test(content)) return { content, id: '' };
-      const known = previous ? previous[index] : aligned ? inherited?.[index] : undefined;
+      const known = (previous ?? (aligned ? inherited : null))?.[index];
       // A word grows in place, and loses its trailing space where a block
       // ends: either way it is the same word.
       const was = known?.content.trimEnd() ?? '';
@@ -313,8 +313,8 @@ export function streamFadeWords(value: string): string[] {
 function opaque(node: FadeNode): boolean {
   if (node.tagName === 'svg' || node.tagName === 'pre') return true;
   const className = node.properties?.className;
-  const names = Array.isArray(className) ? className.join(' ') : typeof className === 'string' ? className : '';
-  return OPAQUE_CLASS.test(names);
+  if (Array.isArray(className)) return OPAQUE_CLASS.test(className.join(' '));
+  return OPAQUE_CLASS.test(typeof className === 'string' ? className : '');
 }
 
 /** Elements that fade as one word: an inline code chip arrives with its box
@@ -345,8 +345,9 @@ interface FadeUnit {
 /** Units of `node`, in document order. */
 function collectUnits(node: FadeNode, units: Map<FadeNode, FadeUnit>, contents: string[]): void {
   if (node.type === 'text' || unitElement(node)) {
-    const words =
-      node.type === 'text' ? streamFadeWords(node.value ?? '') : [node.tagName === 'hr' ? '—' : textOf(node)];
+    let words: string[];
+    if (node.type === 'text') words = streamFadeWords(node.value ?? '');
+    else words = [node.tagName === 'hr' ? '—' : textOf(node)];
     units.set(node, { words, from: contents.length });
     contents.push(...words);
     return;

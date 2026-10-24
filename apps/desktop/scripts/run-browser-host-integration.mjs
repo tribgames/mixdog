@@ -30,13 +30,13 @@ await withTempWorkspace('mixdog-browser-host-integration-', async (staging) => {
       sourcemap: 'inline',
     });
 
+    const presentationRun = process.argv.includes('--user-dialogs') || process.argv.includes('--popup-blank');
+    const nativeView = process.argv.includes('--native') ? '1' : '0';
     const env = electronProcessEnv({
       MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
       MIXDOG_BROWSER_CONTINUATION_ONLY: process.argv.includes('--action-continuation') ? '1' : '0',
       // --user-dialogs runs one presentation per process: --native picks it.
-      ...(process.argv.includes('--user-dialogs') || process.argv.includes('--popup-blank')
-        ? { MIXDOG_BROWSER_NATIVE_VIEW: process.argv.includes('--native') ? '1' : '0' }
-        : {}),
+      ...(presentationRun ? { MIXDOG_BROWSER_NATIVE_VIEW: nativeView } : {}),
     });
     const child = spawnElectron(output, { env });
     const exitCode = await waitForChildExit(child, {

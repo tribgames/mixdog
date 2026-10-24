@@ -3,7 +3,17 @@ import { TOUCH_SLOP_PX } from './remote-browser-touch';
 
 const ROW_CONTEXT_MENU_SELECTOR = '.dock-scm-context-menu';
 
-const SCROLL_KEYS = new Set(['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ']);
+const SCROLL_KEYS = new Set([
+  'PageUp',
+  'PageDown',
+  'Home',
+  'End',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  ' ',
+]);
 /** Keys typed here edit text instead of scrolling. */
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 /** Space on these activates them instead of scrolling. */

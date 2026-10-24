@@ -1002,8 +1002,7 @@ async function main() {
     busy: (sessionId) => sessionService.liveSessionBusy(sessionId),
     notice: (sessionId, notice) => sessionService.pushLiveSessionNotice(sessionId, notice),
     // A bot's emoji reaction on a user message (message-reactions.mjs).
-    react: (sessionId, messageId, reactions) =>
-      sessionService.setLiveMessageReactions(sessionId, messageId, reactions),
+    react: (sessionId, messageId, reactions) => sessionService.setLiveMessageReactions(sessionId, messageId, reactions),
     // A task session's result (session create): the agent relays it in one
     // turn. Resolves false when the turn was refused, else `{ settled }`, the
     // turn's end status ('done' when it finished).
@@ -1030,7 +1029,7 @@ async function main() {
       (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,
     abort: (sessionId) => sessionService.abortSession({ sessionId }),
   });
-  // Mixy's 2-hourly heartbeat check (mixy-heartbeat.mjs), on an unref'd timer.
+  // Mixy's 30-minute heartbeat check (mixy-heartbeat.mjs), on an unref'd timer.
   import('../session-runtime/mixy-heartbeat.mjs')
     .then(({ startMixyHeartbeat }) =>
       startMixyHeartbeat({ getSessionService: () => sessionService, log: (line) => log(`heartbeat: ${line}`) })

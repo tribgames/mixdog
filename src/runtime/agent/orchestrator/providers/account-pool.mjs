@@ -422,7 +422,8 @@ function poolSend(providerName, account) {
       // Persisting a short cooldown can outlast its deadline. Release only
       // attempts cooled by this send, and only under an enabled wait policy.
       const expired = bound > 0 && rows.some((row) => cooled.has(row.id) && !(coolingUntil(row, model) > now));
-      const wait = all ? null : expired ? 0 : earliestCooldownMs(rows, now, model);
+      let wait = null;
+      if (!all) wait = expired ? 0 : earliestCooldownMs(rows, now, model);
       if (wait == null || waitedMs + wait > bound) throw markExhausted(error, ids);
       options.onStageChange?.('reconnecting', {
         message: `Rate limited — every account is cooling down; retrying in ${Math.ceil(wait / 1000)}s`,
@@ -556,13 +557,10 @@ function poolSend(providerName, account) {
         lastError = error;
         switched = true;
         refusalScoped = accountExhaustedForModelOnly(providerName, row.id, model);
-        options.onStageChange?.('reconnecting', {
-          message: evidence
-            ? 'Quota exhausted — switching to the next account'
-            : accountBlocked
-              ? 'Account blocked — switching to the next account'
-              : 'Rate limited (cooldown) — switching to the next account',
-        });
+        let reason = 'Rate limited (cooldown)';
+        if (evidence) reason = 'Quota exhausted';
+        else if (accountBlocked) reason = 'Account blocked';
+        options.onStageChange?.('reconnecting', { message: `${reason} — switching to the next account` });
       }
     }
     throw markExhausted(lastError || new Error('Provider account attempts exhausted.'));

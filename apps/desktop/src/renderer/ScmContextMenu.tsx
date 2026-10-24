@@ -2,8 +2,7 @@
 // grammar shared by changed-file rows and commit
 // context menus: ONE flat menu of labelled actions, opened by the right
 // button or by the keyboard (Menu / Shift+F10), dismissed by Escape, an
-// outside click, a resize or a user scroll. The per-row "…" trigger buttons the
-// dock used to carry are gone; this menu replaces them.
+// outside click, a resize or a user scroll.
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';

@@ -315,10 +315,11 @@ function windowScopeFields(row) {
   const models = modelTokens(row.models);
   const except = modelTokens(row.except);
   const limit = typeof row.limit === 'string' ? row.limit.trim().slice(0, 80) : '';
-  return {
-    ...(models ? { models } : except?.length ? { except } : {}),
-    ...(limit ? { limit } : {}),
-  };
+  const scope = {};
+  if (models) scope.models = models;
+  else if (except?.length) scope.except = except;
+  if (limit) scope.limit = limit;
+  return scope;
 }
 
 // A refusal window is an AVOIDANCE hint for the roster, not the retry schedule —

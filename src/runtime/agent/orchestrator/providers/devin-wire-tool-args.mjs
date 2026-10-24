@@ -328,7 +328,7 @@ export function parseDevinJsonWithRepair(json) {
 
 /** Final tool-call arguments: `{}` when empty, else repaired JSON, else the invalid-arguments marker. */
 export function parseDevinToolArguments(raw) {
-  const text = typeof raw === 'string' ? raw : raw == null ? '' : String(raw);
+  const text = typeof raw === 'string' ? raw : String(raw ?? '');
   if (!text.trim()) return {};
   try {
     return parseDevinJsonWithRepair(text);

@@ -247,11 +247,9 @@ export function buildAntigravityRequest(requestMessages, model, tools, opts = {}
   // Gemini wire ids carry the model's output ceiling (thoughts count against
   // it); Claude is always sent a cap (the declared limit, else a fixed one);
   // GPT-OSS keeps the plain config its gateway accepts.
-  const maxOutputTokens = claude
-    ? claudeCap
-    : isGeminiFamilyModel(model)
-      ? geminiMaxOutputTokens(model, opts, null, outputLimit)
-      : undefined;
+  let maxOutputTokens;
+  if (claude) maxOutputTokens = claudeCap;
+  else if (isGeminiFamilyModel(model)) maxOutputTokens = geminiMaxOutputTokens(model, opts, null, outputLimit);
   const generationConfig = {
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     ...(thinkingConfig ? { thinkingConfig } : {}),

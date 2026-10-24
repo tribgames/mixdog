@@ -34,7 +34,8 @@ let modalWatch: MutationObserver[] | null = null;
 const MODAL_ATTRIBUTES = ['aria-modal', 'aria-hidden', 'inert', 'open', 'data-surface-active'];
 const MODAL_NODE = '[aria-modal], dialog';
 const isModalNode = (node: Node): boolean =>
-  node.nodeType === 1 && ((node as Element).matches(MODAL_NODE) || (node as Element).querySelector(MODAL_NODE) !== null);
+  node.nodeType === 1 &&
+  ((node as Element).matches(MODAL_NODE) || (node as Element).querySelector(MODAL_NODE) !== null);
 function modalNodesChanged(records: MutationRecord[]) {
   for (const record of records) {
     for (const list of [record.addedNodes, record.removedNodes]) {

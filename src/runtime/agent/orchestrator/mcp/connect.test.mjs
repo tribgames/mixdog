@@ -56,7 +56,7 @@ class FakeClient {
     };
     clients.push(this);
   }
-  async callTool(params, schema, options) {
+  async callTool(params, _schema, options) {
     return this.behavior.callTool(this, params, options);
   }
   setRequestHandler(schema, handler) {

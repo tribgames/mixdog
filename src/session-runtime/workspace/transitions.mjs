@@ -985,7 +985,15 @@ export function createWorkspaceTransitions({
    * `ownTurn` (internal: the Lead's own tool call) tolerates the calling turn.
    */
   async function requestWorktree(
-    { name = null, confirmLarge = false, provision = false, carryChanges, prompt = '', txId = '', expectedRevision } = {},
+    {
+      name = null,
+      confirmLarge = false,
+      provision = false,
+      carryChanges,
+      prompt = '',
+      txId = '',
+      expectedRevision,
+    } = {},
     { ownTurn = false } = {}
   ) {
     const nameHint = validName(name);

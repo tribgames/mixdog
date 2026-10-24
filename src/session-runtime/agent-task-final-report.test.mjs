@@ -511,7 +511,9 @@ test("a request answered while the user's own later turns keep agents working re
   await pump(p.delivery);
   assert.deepEqual(w.ended(), [], "the request's own agent holds it");
   // The user goes on in the same session: their turn starts an agent of its own.
-  w.task().messages.push(...turnRows('desktop-submit-1', 'My agent is on the other thing.', { spawns: ['task_agent_user'] }));
+  w.task().messages.push(
+    ...turnRows('desktop-submit-1', 'My agent is on the other thing.', { spawns: ['task_agent_user'] })
+  );
   w.pool.push(userAgent('running'));
   // The request's agent finishes; its woken turn answers.
   w.pool[0] = worker('completed');
@@ -751,8 +753,7 @@ test("pendingWorkOf narrowed to a chain counts only the chain's tasks, sessions 
   // to the Lead, may be the chain's, so it holds the report — but no record
   // proves which task spawned the child, so the chain never owns it.
   const family = [worker('completed'), child('failed'), userAgent('failed')];
-  const ofFamily = (executionId) =>
-    pendingWorkOf(TASK, { pool: family, taskIds: chain, owed: owed(executionId) });
+  const ofFamily = (executionId) => pendingWorkOf(TASK, { pool: family, taskIds: chain, owed: owed(executionId) });
   assert.equal(ofFamily('restart:task_agent_child'), true, "the chain agent's child result holds it");
   assert.equal(ofFamily('restart:task_agent_user'), false);
   const closure = chainClosure(TASK, chain, { pool: family });

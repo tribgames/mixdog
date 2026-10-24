@@ -83,7 +83,9 @@ export function withEffort(route, value, rows) {
 export function checkEffort(value, route, rows) {
   const row = rows.find((candidate) => sameModel(candidate, route));
   const allowed = row ? effortsOf(row) : null;
-  const offer = allowed ? `; ${route.provider}/${route.model} supports: auto${allowed.map((level) => `, ${level}`).join('')}` : '';
+  const offer = allowed
+    ? `; ${route.provider}/${route.model} supports: auto${allowed.map((level) => `, ${level}`).join('')}`
+    : '';
   let level;
   try {
     level = normalizeEffortInput(value);

@@ -15,10 +15,17 @@ import { GOAL_TOOL_DEFS } from '../../src/session-runtime/goal-tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.mjs';
 import { SESSION_TOOL, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/session-runtime/tool-defs.mjs';
 import { AGENT_TOOL } from '../../src/standalone/agent-tool/tool-def.mjs';
-import { REACTION_TOOL_DEFS, validateReactionArgs } from '../../src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
+import {
+  REACTION_TOOL_DEFS,
+  validateReactionArgs,
+} from '../../src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
-import { COMPUTER_ACTION_CONTRACTS, validateComputerToolArgs, toComputerHostCommand } from '../../src/runtime/computer-bridge/action-schema.mjs';
+import {
+  COMPUTER_ACTION_CONTRACTS,
+  validateComputerToolArgs,
+  toComputerHostCommand,
+} from '../../src/runtime/computer-bridge/action-schema.mjs';
 import { validateXlsxOperations } from '../../src/runtime/office/portable/xlsx-contract.mjs';
 import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
 import { toGeminiTools } from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
@@ -87,13 +94,22 @@ test('the complete catalog and provider projections remain valid without mutatin
 });
 
 test('react first calls that every provider schema accepts agree with runtime validation', () => {
-  for (const args of [{ emoji: '👍' }, { emoji: '❤', messages_back: 3 }, { remove: true }, { remove: true, messages_back: 1 }]) {
+  for (const args of [
+    { emoji: '👍' },
+    { emoji: '❤', messages_back: 3 },
+    { remove: true },
+    { remove: true, messages_back: 1 },
+  ]) {
     for (const [provider, schema] of projections(REACTION_TOOL_DEFS[0])) {
       assert.equal(ajv.validate(schema, args), true, `${provider}: ${JSON.stringify(ajv.errors)}`);
     }
     validateReactionArgs(args);
   }
-  for (const args of [{ emoji: '👍', messages_back: 21 }, { emoji: '👍', messages_back: -1 }, { emoji: '👍', extra: 1 }]) {
+  for (const args of [
+    { emoji: '👍', messages_back: 21 },
+    { emoji: '👍', messages_back: -1 },
+    { emoji: '👍', extra: 1 },
+  ]) {
     assert.equal(ajv.validate(schemaFor('react'), args), false, JSON.stringify(args));
   }
 });
@@ -211,7 +227,10 @@ test('every computer action keeps its usable input fields through provider flatt
   for (const schema of [anthropicSchema(tool, 'anthropic'), anthropicSchema(tool, 'anthropic-oauth')]) {
     for (const key of ['oneOf', 'anyOf', 'allOf', 'not']) assert.equal(schema[key], undefined, key);
     const alternatives = schema.properties.input.anyOf;
-    assert.deepEqual(alternatives.map((alternative) => alternative.title).sort(), [...tool.inputSchema.properties.action.enum].sort());
+    assert.deepEqual(
+      alternatives.map((alternative) => alternative.title).sort(),
+      [...tool.inputSchema.properties.action.enum].sort()
+    );
     for (const contract of COMPUTER_ACTION_CONTRACTS) {
       const [action] = contract.properties.action.enum;
       const { title, description, ...shape } = alternatives.find((alternative) => alternative.title === action);

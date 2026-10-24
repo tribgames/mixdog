@@ -101,9 +101,7 @@ export function sessionOptions(deps, coreMemoryContext) {
         : clean(sessionProfile?.sourceName) || 'main',
     ...(taskOrigin ? { taskOrigin } : {}),
     // The agent a run acts for (agent mode, its memory; agent-mode.mjs).
-    ...(!agentOwned && clean(sessionProfile?.ownerAgentId)
-      ? { ownerAgentId: clean(sessionProfile.ownerAgentId) }
-      : {}),
+    ...(!agentOwned && clean(sessionProfile?.ownerAgentId) ? { ownerAgentId: clean(sessionProfile.ownerAgentId) } : {}),
     ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
     clientHostPid: sessionProfile?.clientHostPid || process.pid,
     mcpScopeId: rt.mcpScopeId,

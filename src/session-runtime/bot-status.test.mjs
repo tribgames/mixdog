@@ -389,5 +389,8 @@ test("Mixy's own unattended routine turn sees only Mixy, never every bot", async
     listed.filter((row) => row.bot).map((row) => row.id),
     ['sess_home_lead']
   );
-  assert.equal(listed.some((row) => row.preview && row.id !== 'sess_home_lead'), false);
+  assert.equal(
+    listed.some((row) => row.preview && row.id !== 'sess_home_lead'),
+    false
+  );
 });

@@ -129,11 +129,7 @@ async function askNewName(title: string, current: string, label: string, maxLeng
 /** Rename a bot: its display name in its definition, as the profile editor
  *  saves it (Mixy's through its identity, as the profile does). Other fields
  *  stay as stored. */
-export async function renameAgent(
-  deps: AgentActionDeps,
-  agentId: string,
-  currentName: string
-): Promise<boolean> {
+export async function renameAgent(deps: AgentActionDeps, agentId: string, currentName: string): Promise<boolean> {
   const api = deps.api ?? window.mixdogDesktop;
   if (!api?.invokeCapability) return false;
   const name = await askNewName(t('Rename bot'), currentName, t('Bot name'), BOT_NAME_MAX, `agent-rename:${agentId}`);
@@ -189,7 +185,13 @@ export async function renameLeadSession(
   sessionId: string,
   currentTitle: string
 ): Promise<boolean> {
-  const title = await askNewName(t('Rename session'), currentTitle, t('Session name'), 160, `session-rename:${sessionId}`);
+  const title = await askNewName(
+    t('Rename session'),
+    currentTitle,
+    t('Session name'),
+    160,
+    `session-rename:${sessionId}`
+  );
   if (!title) return false;
   try {
     await rename(sessionId, title);

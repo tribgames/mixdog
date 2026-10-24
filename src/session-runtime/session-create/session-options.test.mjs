@@ -40,7 +40,7 @@ test('agent profile fallback routes reach the shared session creator unchanged',
   assert.equal(Object.hasOwn(optionsFor('interactive'), 'routeFallbacks'), false);
 });
 
-test("a hidden run of Mixy (the heartbeat) is an exec run in agent mode that acts for her", () => {
+test('a hidden run of Mixy (the heartbeat) is an exec run in agent mode that acts for her', () => {
   const opts = optionsFor('interactive', { ownerAgentId: 'lead', sourceType: 'exec', sourceName: 'heartbeat' });
   assert.equal(opts.sourceType, 'exec');
   assert.equal(opts.sourceName, 'heartbeat');

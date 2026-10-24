@@ -73,7 +73,8 @@ export const SESSION_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  trigger: 'Session lookup/control, bot status, agent task sessions and their initial location, title, compact, fork, Project.',
+  trigger:
+    'Session lookup/control, bot status, agent task sessions and their initial location, title, compact, fork, Project.',
   description:
     'Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion: promise a report of it only when its result has reportsBack: true. create returns status: started — started, not done yet; it reports its final answer, after the agents it started finish, unless its result says reportsBack: false. reportsBack: false carries reportsBackReason, the reason to tell the user. Cancel/delete require the user’s request. Other actions affect only the current session. A new session’s initial location (Project folder branch or its own worktree) is set here, with create’s worktree; worktree operations on existing sessions (enter, return, merge, remove, list, prune) use the git tool’s action:"worktree". Pass files on with attachments; a reported turn returns the files it produced as attachments.',
   inputSchema: {

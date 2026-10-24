@@ -212,12 +212,9 @@ export class RemoteSession implements RemoteDaemonConnector {
       this.failure = error instanceof Error ? error : new Error(String(error));
     }
     this.target = target;
+    const autoRestart = config.autoReconnect === false ? { autoRestart: false } : {};
     this.tunnel = target
-      ? new SshTunnel(target, {
-          spawnImpl: config.spawnImpl,
-          ...(config.autoReconnect === false ? { autoRestart: false } : {}),
-          ...config.tunnel,
-        })
+      ? new SshTunnel(target, { spawnImpl: config.spawnImpl, ...autoRestart, ...config.tunnel })
       : null;
   }
 

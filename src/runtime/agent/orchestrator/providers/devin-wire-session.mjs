@@ -10,7 +10,7 @@ export const DEVIN_GET_USER_JWT_PATH = '/exa.auth_pb.AuthService/GetUserJwt';
 export const DEVIN_ASSIGN_MODEL_PATH = '/exa.api_server_pb.ApiServerService/AssignModel';
 export const DEVIN_SESSION_TOKEN_PREFIX = 'devin-session-token$';
 
-const DEVIN_OS = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'windows' : 'linux';
+const DEVIN_OS = { darwin: 'darwin', win32: 'windows' }[process.platform] ?? 'linux';
 
 // Released CLI identity used for auth and chat. The backend gates the CLI
 // model surface and router assignment on this tuple.
