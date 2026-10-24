@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The Leads rows sit under the bot rows with no visual foreignness: the same
-// pixel face (a grey pup) in the same avatar box, the provider as a small
-// badge where Mixy's star sits, the same title, 2-line muted preview, time and
+// The Leads rows sit under the bot rows with no visual foreignness: the
+// provider mark on a plate (5/6 of the bot face's box) in the same avatar box,
+// the same title, 2-line muted preview, time and
 // spinner / "!" in the same places, and the same row height. Real CSS and
 // components in headless Chrome at the default and the narrow pane widths.
 // MIXDOG_QA_DIR keeps the screenshots (harmony-*.png).
@@ -129,6 +129,7 @@ const MEASURE = () => {
       },
       time: { ...rel(row.querySelector('time')), ...css(row.querySelector('time'), 'fontSize', 'fontWeight', 'color') },
       status: status ? rel(status) : null,
+      spinner: status?.querySelector('svg.progress-spinner')?.width.baseVal.value ?? null,
     };
   };
   const bot = document.querySelector('[data-bot="b-alpha"]');
@@ -202,7 +203,15 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
     const tag = `${width}px`;
     assert.equal(m.lead.avatar.w, face, `${tag}: avatar box`);
     assert.deepEqual(m.lead.avatar, m.bot.avatar, `${tag}: avatar box and place`);
-    assert.deepEqual(m.lead.face, m.bot.face, `${tag}: the face fills the box like a bot's`);
+    assert.deepEqual(m.bot.face, { w: face, h: face }, `${tag}: a bot's face fills the box`);
+    // A Lead's face is a faint plate inset to 5/6 of the box (97602902e), so it
+    // reads apart from the bare-mark sub-agents; layout snaps it to 1/64 px.
+    const plate = Math.round((face * 5) / 6);
+    assert.deepEqual(
+      { w: Math.round(m.lead.face.w), h: Math.round(m.lead.face.h) },
+      { w: plate, h: plate },
+      `${tag}: the Lead's plate is the box inset to 5/6`
+    );
     assert.equal(m.lead.badge, null, `${tag}: a Lead has no corner badge, the plate is the mark`);
     assert.equal(m.lead.rowH, m.bot.rowH, `${tag}: row height`);
     assert.deepEqual(m.lead.title, m.bot.title, `${tag}: title position and type`);
@@ -210,7 +219,13 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
     assert.equal(m.lead.preview.webkitLineClamp, '2');
     assert.deepEqual(m.lead.time, m.bot.time, `${tag}: time place and type`);
     assert.deepEqual(m.lead.status, m.bot.status, `${tag}: spinner place and size`);
-    assert.equal(m.attention.status.w, m.lead.status.w, `${tag}: "!" mark is the spinner's size`);
+    // The "!" pill is drawn at the spinner glyph's size inside the same slot (0c651fbcc).
+    assert.equal(m.lead.spinner, 14, `${tag}: spinner glyph`);
+    assert.deepEqual(
+      { w: m.attention.status.w, h: m.attention.status.h },
+      { w: m.lead.spinner, h: m.lead.spinner },
+      `${tag}: "!" mark is the spinner's size`
+    );
     assert.equal(m.attention.rowH, m.oneLineBot.rowH, `${tag}: a one-line Lead is as tall as a one-line bot`);
   }
   // A face the user picked (Appearance): same box and badge, new palette and breed.
