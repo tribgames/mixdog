@@ -13,7 +13,11 @@ import { redactBrowserUrl } from './redaction';
 const LOAD_FAULT = 'page failed to load: ';
 
 export function watchPageFaults(state: BrowserGuestStateStore, guest: WebContents): void {
+  // Electron repeats `unresponsive` while a page stays stuck; the log keeps
+  // one line per episode, which ends on `responsive` or a replaced document.
+  let unresponsive = false;
   guest.on('render-process-gone', (_event, details) => {
+    unresponsive = false;
     reportPageFault(guest, {
       source: 'render-process-gone',
       scope: 'root',
@@ -23,9 +27,14 @@ export function watchPageFaults(state: BrowserGuestStateStore, guest: WebContent
     state.markCrashed(guest, `renderer ${details.reason}${details.exitCode ? ` (exit ${details.exitCode})` : ''}`);
   });
   guest.on('unresponsive', () => {
+    if (!unresponsive) {
+      unresponsive = true;
+      reportPageFault(guest, { source: 'unresponsive', scope: 'root', reason: 'page became unresponsive' });
+    }
     state.for(guest).fault = 'page became unresponsive';
   });
   guest.on('responsive', () => {
+    unresponsive = false;
     state.for(guest).fault = '';
   });
   guest.on('did-finish-load', () => {
@@ -44,10 +53,18 @@ export function watchPageFaults(state: BrowserGuestStateStore, guest: WebContent
   // The address keeps two failures in a row distinct for the pane.
   guest.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     if (!isMainFrame || code === -3) return;
+    // The address stays out of the log; the sink keeps only the host.
+    reportPageFault(guest, {
+      source: 'did-fail-load',
+      scope: 'root',
+      reason: description || 'unknown error',
+      errorCode: code,
+    });
     state.for(guest).fault = `${LOAD_FAULT}${description || 'unknown error'} (${code}) ${redactBrowserUrl(url)}`;
   });
   guest.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
+    unresponsive = false;
     const record = state.for(guest);
     if (record.fault.startsWith(LOAD_FAULT)) record.fault = '';
   });

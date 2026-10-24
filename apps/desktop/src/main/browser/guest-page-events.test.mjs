@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import { BrowserGuestStateStore } from './guest-state.ts';
+import { setPageFaultDiagnosticSink } from './page-fault-diagnostics.ts';
 import { watchPageFaults } from './page-faults.ts';
 import { handleWindowOpens } from './popup-opening.ts';
 
@@ -37,6 +38,52 @@ test('a failed main-frame load is a fault until the next main-frame navigation',
   assert.equal(state.for(guest).fault, 'page became unresponsive');
   guest.emit('responsive');
   assert.equal(state.for(guest).fault, '');
+});
+
+test('unresponsive and failed-load faults reach the diagnostic sink with the host only', () => {
+  const entries = [];
+  setPageFaultDiagnosticSink((entry) => entries.push(entry));
+  try {
+    const state = new BrowserGuestStateStore();
+    const guest = fakeGuest('https://example.test/private/path?token=secret');
+    watchPageFaults(state, guest);
+    guest.emit('unresponsive');
+    guest.emit('did-fail-load', {}, -3, 'ABORTED', 'https://example.test/', true);
+    guest.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://example.test/', false);
+    guest.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://example.test/private?token=secret', true);
+    assert.deepEqual(entries, [
+      { source: 'unresponsive', scope: 'root', reason: 'page became unresponsive', host: 'example.test' },
+      {
+        source: 'did-fail-load',
+        scope: 'root',
+        reason: 'NAME_NOT_RESOLVED',
+        errorCode: -105,
+        host: 'example.test',
+      },
+    ]);
+    assert.doesNotMatch(JSON.stringify(entries), /secret|private/);
+
+    // One line per unresponsive episode, however often Electron repeats the event.
+    entries.length = 0;
+    guest.emit('responsive');
+    guest.emit('unresponsive');
+    guest.emit('unresponsive');
+    guest.emit('unresponsive');
+    assert.equal(entries.length, 1);
+    assert.equal(state.for(guest).fault, 'page became unresponsive', 'the pane fault itself stays set');
+    guest.emit('responsive');
+    guest.emit('unresponsive');
+    assert.equal(entries.length, 2, 'a new episode after responsive logs again');
+    // A same-document navigation does not end it; a replaced document does.
+    guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true });
+    guest.emit('unresponsive');
+    assert.equal(entries.length, 2);
+    guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    guest.emit('unresponsive');
+    assert.equal(entries.length, 3);
+  } finally {
+    setPageFaultDiagnosticSink(undefined);
+  }
 });
 
 test('a main-frame load after a crash clears the fault and the crash flag', () => {
