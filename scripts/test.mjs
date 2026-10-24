@@ -56,6 +56,11 @@ export const USAGE = `Usage: node scripts/test.mjs [--lane ${LANES.join('|')}] [
                   Selection, lanes, reporting and exit codes are untouched.
   --list          print the selected files with their lane, run nothing.
 
+Test-file rule: files run with --test-force-exit, so a file's top-level
+evaluation (including any top-level await) must finish before its registered
+tests do. A file that is force-exited first fails — tests registered after the
+await would never run, and an await that never settles cannot be told apart.
+
 Every run ends with a "[failure-summary]" block, printed after all other
 output, naming each failed and flaky test by file and test name; every line of
 it carries that tag, so it survives line filtering.`;

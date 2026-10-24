@@ -27,6 +27,16 @@ async function fixture(t, entries) {
   return cwd;
 }
 
+const cjsEntry = `
+  const assert = require('node:assert/strict');
+  const test = require('node:test');
+  globalThis.cjsRuns = (globalThis.cjsRuns || 0) + 1;
+  test('CJS entry runs once and is main', () => {
+    assert.equal(globalThis.cjsRuns, 1);
+    assert.equal(require.main, module);
+  });
+`;
+
 function runNode(cwd, args) {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
@@ -555,6 +565,96 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
     `${SUMMARY_TAG} FAILED src/fail.test.mjs > fails`,
     `${SUMMARY_TAG} ${policyLine(0)}`,
   ]);
+});
+
+test('a test registered after a still-pending top-level await fails the file instead of vanishing', async (t) => {
+  // --test-force-exit ends the process once the tests registered so far finish;
+  // a late test (here behind a timer) would otherwise be dropped with exit 0.
+  const cwd = await fixture(t, {
+    'src/late.test.mjs': `
+      import assert from 'node:assert/strict';
+      import test from 'node:test';
+      test('early', () => {});
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      test('late', () => assert.fail('late test failure'));
+    `,
+    'src/settled.test.mjs': `
+      import test from 'node:test';
+      await Promise.resolve();
+      test('registered after an await that settles first', () => {});
+    `,
+  });
+  const late = runNode(cwd, [runnerPath, 'src/late.test.mjs']);
+  assert.equal(late.status, 1, late.stdout);
+  assert.match(late.stdout, /force-exited before the file's top-level evaluation completed/);
+  assert.match(late.stdout, /an await that never settles is treated the same way/);
+  assert.match(late.stdout, /src\/late\.test\.mjs\s+\(failed\)/);
+  const settled = runNode(cwd, [runnerPath, 'src/settled.test.mjs']);
+  assert.equal(settled.status, 0, settled.stdout + settled.stderr);
+  assert.match(settled.stdout, /tests 1\b/);
+  assert.match(USAGE, /Test-file rule/);
+});
+
+test('the force-exit guard leaves CommonJS entries unobserved and keeps the exit code a file already set', async (t) => {
+  const cwd = await fixture(t, {
+    'package.json': '{"type":"commonjs"}',
+    'esm/package.json': '{"type":"module"}',
+    // Re-importing a CommonJS entry would run it twice and make
+    // require.main !== module, so a main-guarded file would lose its tests.
+    'cjs-main.test.cjs': cjsEntry,
+    'cjs-scope.test.js': cjsEntry,
+    'esm/module-scope.test.js': `
+      import assert from 'node:assert/strict';
+      import test from 'node:test';
+      test('early', () => {});
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      test('late', () => assert.fail('late'));
+    `,
+    'exit7.mjs': `
+      setTimeout(() => process.exit(7), 50);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    `,
+    'exit-code-then-exit.mjs': `
+      setTimeout(() => { process.exitCode = 7; process.exit(); }, 50);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    `,
+  });
+  const direct = (file, extra = {}) => {
+    const env = { ...process.env, NODE_TEST_CONTEXT: 'child-v8', ...extra };
+    delete env.MIXDOG_TEST_CONCURRENCY;
+    const result = spawnSync(
+      process.execPath,
+      ['--test-force-exit', '--import', spawnLedgerUrl, file],
+      { cwd, env, encoding: 'utf8', timeout: 10_000 }
+    );
+    assert.ifError(result.error);
+    return result;
+  };
+  const viaNodeTest = (file) => {
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const result = spawnSync(
+      process.execPath,
+      ['--test', '--test-force-exit', '--import', spawnLedgerUrl, file],
+      { cwd, env, encoding: 'utf8', timeout: 20_000 }
+    );
+    assert.ifError(result.error);
+    return result;
+  };
+  for (const file of ['cjs-main.test.cjs', 'cjs-scope.test.js']) {
+    const run = viaNodeTest(file);
+    assert.equal(run.status, 0, `${file}\n${run.stdout}${run.stderr}`);
+    assert.match(run.stdout, /pass 1\b/, file);
+  }
+  // A package scope of type module makes a .js entry ESM, so it is observed.
+  const esmScope = viaNodeTest('esm/module-scope.test.js');
+  assert.equal(esmScope.status, 1, esmScope.stdout);
+  assert.match(esmScope.stdout + esmScope.stderr, /force-exited before the file's top-level evaluation completed/);
+  // A code the file already chose is never replaced by the guard's 1.
+  for (const file of ['exit7.mjs', 'exit-code-then-exit.mjs']) {
+    const run = direct(file);
+    assert.equal(run.status, 7, `${file}\n${run.stdout}${run.stderr}`);
+  }
 });
 
 test('--rerun-failed reports a flaky test in its own category and states its exit policy', async (t) => {

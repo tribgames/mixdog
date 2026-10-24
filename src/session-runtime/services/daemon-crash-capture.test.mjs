@@ -125,9 +125,14 @@ function workspace(t, prefix) {
       return capture;
     },
     // Fixture children run INSIDE the temp directory: a native crash artifact
-    // (core dump, report) must never land in the repository.
+    // (core dump, report) must never land in the repository. They also start
+    // with a clean execArgv: `fork` otherwise inherits this process's, and
+    // under scripts/test.mjs that carries `--import=<spawn ledger>` plus
+    // `--test-force-exit`, which makes a fixture that exits early print the
+    // runner's "force-exited before top-level evaluation completed" notice to
+    // fd 2 — evidence of a boot that has none to give.
     fork(entry, args = [], options = {}) {
-      const child = fork(entry, args, { cwd: root, ...options });
+      const child = fork(entry, args, { cwd: root, execArgv: [], ...options });
       if (child.pid) children.add(child.pid);
       return child;
     },
