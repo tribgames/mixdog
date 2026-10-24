@@ -156,6 +156,10 @@ export function createBrowserPageClient(options: {
         errorDescription: frame.fault,
         isMainFrame: true,
       });
+    // The host cleared the fault (a reloaded page, a page that answers
+    // again). A same-address reload between two samples shows no loading
+    // state, navigation or attach, so the pane learns it only from here.
+    if (previous?.fault && !frame.fault) emit('fault-cleared');
   }
 
   function pollMetadata(): Promise<void> {

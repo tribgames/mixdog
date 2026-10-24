@@ -24,7 +24,7 @@ export type BrowserPageFailure = {
 /** Bridges one guest's page events onto the pane's state: navigation, load
  *  progress, the tab list, and the failure surface. Returns its own teardown
  *  so the caller effect stays a single wiring statement. */
-function watchBrowserPageEvents(
+export function watchBrowserPageEvents(
   view: BrowserPageElement,
   {
     addressFocused,
@@ -125,6 +125,8 @@ function watchBrowserPageEvents(
       detail: t('Wait or reload the page.'),
     });
   const onResponsive = () => setPageFailure((failure) => (failure?.kind === 'unresponsive' ? null : failure));
+  // The host cleared the page's fault (crash mark, unresponsive, load failure).
+  const onFaultCleared = () => setPageFailure(null);
   const syncTabs = () => setTabs(view.getTabs());
   const onAttach = () => {
     addressFocused.current = false;
@@ -145,6 +147,7 @@ function watchBrowserPageEvents(
   view.addEventListener('render-process-gone', onRenderProcessGone);
   view.addEventListener('unresponsive', onUnresponsive);
   view.addEventListener('responsive', onResponsive);
+  view.addEventListener('fault-cleared', onFaultCleared);
   return () => {
     view.removeEventListener('tabs-changed', syncTabs);
     view.removeEventListener('did-attach', onAttach);
@@ -157,6 +160,7 @@ function watchBrowserPageEvents(
     view.removeEventListener('render-process-gone', onRenderProcessGone);
     view.removeEventListener('unresponsive', onUnresponsive);
     view.removeEventListener('responsive', onResponsive);
+    view.removeEventListener('fault-cleared', onFaultCleared);
   };
 }
 

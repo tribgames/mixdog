@@ -3,6 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { createBrowserPageClient } from './browser-page-client.ts';
 import { createBrowserPixelPresentation } from './browser-pixel-presentation.ts';
+import { watchBrowserPageEvents } from './browser-pane-page-state.ts';
 
 const frame = (documentId = 'p1:1') => ({
   documentId,
@@ -99,6 +100,45 @@ test('new native metadata cannot retarget input from old visible pixels or publi
   await read;
   assert.deepEqual(updates, []);
   assert.equal(parked.metadata(), null);
+});
+
+test('a same-address reload that clears the fault between two samples clears the failure overlay', async () => {
+  let latest = { ...frame(), fault: 'renderer crashed (exit 5)' };
+  const client = createBrowserPageClient({
+    sessionId: 's', update() {}, failure: (error) => assert.fail(error),
+    api: { browserPageMetadata: async () => latest },
+  });
+  const node = new EventTarget();
+  client.bind(node, () => {});
+  let failure = null;
+  const apply = (value) => {
+    failure = typeof value === 'function' ? value(failure) : value;
+  };
+  const stop = watchBrowserPageEvents(node, {
+    addressFocused: { current: false },
+    agentViewports: { current: new Map() },
+    refreshCredentialSuggestions() {},
+    setAddress() {},
+    setAddressHasFocus() {},
+    setAgentViewport() {},
+    setCanGoBack() {},
+    setCanGoForward() {},
+    setCredentialMenuOpen() {},
+    setCredentialStatus() {},
+    setCurrentUrl() {},
+    setHistorySuggestions() {},
+    setLoading() {},
+    setPageFailure: apply,
+    setTabs() {},
+  });
+  await client.pollMetadata();
+  assert.match(failure?.detail ?? '', /renderer crashed/);
+  // The reload landed between samples: same address, never loading, no new attach.
+  latest = { ...frame(), fault: undefined };
+  await client.pollMetadata();
+  assert.equal(failure, null);
+  stop();
+  client.dispose();
 });
 
 test('a pixel read without a native metadata read attaches the page', async () => {
