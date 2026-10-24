@@ -390,7 +390,7 @@ export interface DesktopApi {
     projectPath: string,
     relPath: string,
     accessToken?: string
-  ): Promise<{ mtimeMs: number; size: number }>;
+  ): Promise<{ mtimeMs: number; size: number; directory?: boolean }>;
   createProjectEntry?(projectPath: string, relDir: string, name: string, dir: boolean): Promise<void>;
   renameProjectEntry?(projectPath: string, relPath: string, newName: string): Promise<void>;
   /** A server window's daemon moves the entry to the server's trash, or with

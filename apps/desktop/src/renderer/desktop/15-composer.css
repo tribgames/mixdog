@@ -2715,6 +2715,25 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .mention-palette .mention-path strong {
   color: var(--mx-text);
 }
+/* Matched characters, in both the Recent and the project group. */
+.mention-palette .mention-path b {
+  color: var(--mx-text-accent);
+  font-weight: var(--mx-weight-semibold);
+}
+/* Recent rows carry a muted "Changed" / "Mentioned" chip on the right. */
+.slash-palette.mention-palette button.mention-recent {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+}
+.mention-palette .mention-chip {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  white-space: nowrap;
+}
+/* The project group's label sits a little apart from the Recent rows above. */
+.mention-palette button + header {
+  margin-top: 4px;
+}
 /* `$` skill mentions. A recognised token is accent ink on a soft accent
    fill, in the composer (painted on the layer behind the textarea) and in the
    sent user message alike. */
@@ -2752,9 +2771,10 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Empty and no-match states: one left-aligned muted line, the settings
-   link inline in accent ink. */
-.slash-palette.skill-mention-palette .skill-mention-empty {
+/* Empty, searching and no-match states of the `@` and `$` palettes: one
+   left-aligned muted line under the header, on the rows' 12px text inset; the
+   settings link inline in accent ink. */
+.slash-palette.mention-palette > p[role="status"] {
   padding: 4px 12px 6px;
   color: var(--mx-text-muted);
   text-align: left;
@@ -3288,6 +3308,9 @@ html[data-mixdog-mobile-tabs] .slash-palette.message-selector button {
   }
   html[data-mixdog-mobile-tabs] .slash-palette.mention-palette button {
     grid-template-columns: 18px minmax(0, 1fr);
+  }
+  html[data-mixdog-mobile-tabs] .slash-palette.mention-palette button.mention-recent {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
   }
 }
 html[data-mixdog-mobile-tabs] .btw-icon {

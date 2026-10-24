@@ -54,7 +54,10 @@ interface ComposerKeyboardOptions {
     match: { start: number; end: number; query: string } | null;
     open: boolean;
     signature: string;
-    results: string[];
+    /** Rows across the Recent and project groups, in display order. */
+    items: Array<{ path: string }>;
+    /** A search is in flight: the rows still answer the previous query. */
+    loading: boolean;
     index: number;
     setIndex: Dispatch<SetStateAction<number>>;
     setDismissed(value: string): void;
@@ -262,13 +265,20 @@ export function useComposerKeyboard({
         mention.setDismissed(mention.signature);
         return true;
       }
-      if (!mention.results.length) return false;
-      if (event.key === 'Enter' || event.key === 'Tab') {
+      const accept = event.key === 'Enter' || event.key === 'Tab';
+      // While a search runs the rows (if any) answer an earlier query or
+      // project: neither insert one nor send the half-typed mention.
+      if (accept && mention.loading) {
         event.preventDefault();
-        selectMention(mention.results[mention.index] || mention.results[0]);
         return true;
       }
-      return movePaletteIndex(event, mention.results.length, mention.setIndex);
+      if (!mention.items.length) return false;
+      if (accept) {
+        event.preventDefault();
+        selectMention((mention.items[mention.index] || mention.items[0]).path);
+        return true;
+      }
+      return movePaletteIndex(event, mention.items.length, mention.setIndex);
     },
     [mention, selectMention]
   );

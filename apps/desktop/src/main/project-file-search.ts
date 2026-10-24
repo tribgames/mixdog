@@ -1,5 +1,6 @@
 import { opendir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { compareFileMatches, matchFile, normalizeFileQuery, type FileMatch } from '../shared/file-match';
 
 const DEFAULT_PRUNED_DIRECTORIES = new Set(['.git', 'node_modules']);
 const MAX_SCANNED_ENTRIES = 100_000;
@@ -87,28 +88,6 @@ export function ignoredPath(path: string, directory: boolean, rules: readonly Ig
     }
   }
   return ignored;
-}
-
-function fuzzyMatches(value: string, query: string): boolean {
-  let queryIndex = 0;
-  for (let index = 0; index < value.length && queryIndex < query.length; index += 1) {
-    if (value[index] === query[queryIndex]) queryIndex += 1;
-  }
-  return queryIndex === query.length;
-}
-
-/** Match tier, best first; one tier lists folders first, then by name. An
- *  empty query lists only the root's own entries. */
-function matchTier(path: string, query: string): number | null {
-  const normalized = path.toLowerCase();
-  if (!query) return normalized.includes('/') ? null : 0;
-  const basename = normalized.slice(normalized.lastIndexOf('/') + 1);
-  if (normalized === query) return 0;
-  if (basename === query) return 1;
-  if (normalized.startsWith(query)) return 2;
-  if (basename.startsWith(query)) return 3;
-  if (normalized.includes(query)) return 4;
-  return fuzzyMatches(normalized, query) ? 5 : null;
 }
 
 export interface ProjectFileSearchOptions {
@@ -218,7 +197,9 @@ export async function searchProjectDirectory(
   limit: number,
   options: ProjectFileSearchOptions = {}
 ): Promise<string[]> {
-  const normalizedQuery = query.trim().replace(/\\/g, '/').toLowerCase();
+  // An empty query lists only the root's own entries, folders first, then by
+  // name; any other query ranks by the shared file-match score.
+  const rootOnly = !normalizeFileQuery(query);
   // Explicit traversal options (tests, capped callers) bypass the cache so
   // scan-cap semantics stay exact; the interactive keystroke path shares the
   // TTL-cached index.
@@ -226,21 +207,23 @@ export async function searchProjectDirectory(
   const files = usesCache
     ? await projectFilesFor(root, Boolean(options.includeIgnored))
     : await collectProjectFiles(root, options);
-  const matches: Array<{ path: string; name: string; tier: number; directory: boolean }> = [];
+  const matches: Array<{ path: string; match: FileMatch; name: string; directory: boolean }> = [];
   for (const path of files) {
     const directory = path.endsWith('/');
     if (directory && !options.includeDirectories) continue;
     const entry = directory ? path.slice(0, -1) : path;
-    const tier = matchTier(entry, normalizedQuery);
-    if (tier !== null) matches.push({ path, name: entry.slice(entry.lastIndexOf('/') + 1), tier, directory });
+    if (rootOnly && entry.includes('/')) continue;
+    const match = matchFile(path, query);
+    if (match) matches.push({ path, match, name: entry.slice(entry.lastIndexOf('/') + 1), directory });
   }
   return matches
     .sort(
-      (left, right) =>
-        left.tier - right.tier ||
-        Number(right.directory) - Number(left.directory) ||
-        left.name.localeCompare(right.name) ||
-        left.path.localeCompare(right.path)
+      rootOnly
+        ? (left, right) =>
+            Number(right.directory) - Number(left.directory) ||
+            left.name.localeCompare(right.name) ||
+            left.path.localeCompare(right.path)
+        : compareFileMatches
     )
     .slice(0, limit)
     .map((match) => match.path);

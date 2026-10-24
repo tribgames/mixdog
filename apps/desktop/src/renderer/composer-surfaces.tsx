@@ -7,6 +7,8 @@ import { composerAttachmentSource } from './attachment-menu';
 import { AttachmentCard, composerCardKind, composerCardMeta } from './attachment-card';
 import { openAttachmentSource, useAttachmentContextMenu, type AttachmentOpenFile } from './attachment-context-menu';
 import { CapabilityIcon } from './CapabilityIcon';
+import type { FileMatch } from '../shared/file-match';
+import type { MentionItem } from './composer-mention-rows';
 import type { SkillMentionResult } from './composer-skill-mentions';
 import type { ComposerAttachment } from './composer-support';
 import { ComposerPalette } from './ComposerPalette';
@@ -144,10 +146,25 @@ function splitMentionPath(path: string): { directory: string; filename: string }
   return { directory: path.slice(0, separator + 1), filename: path.slice(separator + 1) };
 }
 
+/** `text` is `path.slice(offset, offset + text.length)`; the part inside the
+ *  matched range is drawn in accent ink. */
+function highlightedPathText(text: string, offset: number, match: FileMatch | null): React.ReactNode {
+  const start = match ? Math.max(match.start - offset, 0) : 0;
+  const end = match ? Math.min(match.end - offset, text.length) : 0;
+  if (end <= start) return text;
+  return (
+    <>
+      {text.slice(0, start)}
+      <b>{text.slice(start, end)}</b>
+      {text.slice(end)}
+    </>
+  );
+}
+
 export function MentionPalette({
   anchor,
   panel,
-  results,
+  items,
   loading,
   index,
   setIndex,
@@ -155,12 +172,15 @@ export function MentionPalette({
 }: {
   anchor: Anchor;
   panel: Panel;
-  results: string[];
+  /** Recent rows first, then project search results. */
+  items: MentionItem[];
   loading: boolean;
   index: number;
   setIndex: (index: number) => void;
   onSelect: (path: string) => void;
 }) {
+  // Recent rows come first; without any, the list keeps its single "Files" group.
+  const recentCount = items.filter((item) => item.group === 'recent').length;
   return (
     <ComposerPalette
       anchor={anchor}
@@ -170,32 +190,44 @@ export function MentionPalette({
       label={t('Project files')}
     >
       <header>
-        <MxIcon name="open-file" size={14} />
-        <span>{t('Files')}</span>
+        <MxIcon name={recentCount ? 'clock' : 'open-file'} size={14} />
+        <span>{recentCount ? t('Recent work') : t('Files')}</span>
       </header>
-      {results.map((path, rowIndex) => {
+      {items.map((item, rowIndex) => {
+        const { path } = item;
         const { directory, filename } = splitMentionPath(path);
         return (
-          <button
-            type="button"
-            role="option"
-            aria-selected={rowIndex === index}
-            key={path}
-            id={`composer-mention-option-${rowIndex}`}
-            title={path}
-            onMouseDown={preventFocusSteal}
-            onMouseEnter={() => setIndex(rowIndex)}
-            onClick={() => onSelect(path)}
-          >
-            <MxIcon name={path.endsWith('/') ? 'folder' : 'open-file'} size={14} />
-            <span className="mention-path">
-              <span>{directory}</span>
-              <strong>{filename}</strong>
-            </span>
-          </button>
+          <React.Fragment key={path}>
+            {recentCount > 0 && rowIndex === recentCount && (
+              <header>
+                <MxIcon name="folder" size={14} />
+                <span>{t('Project')}</span>
+              </header>
+            )}
+            <button
+              type="button"
+              role="option"
+              aria-selected={rowIndex === index}
+              className={item.source ? 'mention-recent' : undefined}
+              id={`composer-mention-option-${rowIndex}`}
+              title={path}
+              onMouseDown={preventFocusSteal}
+              onMouseEnter={() => setIndex(rowIndex)}
+              onClick={() => onSelect(path)}
+            >
+              <MxIcon name={path.endsWith('/') ? 'folder' : 'open-file'} size={14} />
+              <span className="mention-path">
+                <span>{highlightedPathText(directory, 0, item.match)}</span>
+                <strong>{highlightedPathText(filename, directory.length, item.match)}</strong>
+              </span>
+              {item.source && (
+                <small className="mention-chip">{item.source === 'changed' ? t('Changed') : t('Mentioned')}</small>
+              )}
+            </button>
+          </React.Fragment>
         );
       })}
-      {results.length === 0 && <p role="status">{loading ? t('Searching project files…') : t('No matching files.')}</p>}
+      {items.length === 0 && <p role="status">{loading ? t('Searching project files…') : t('No matching files.')}</p>}
     </ComposerPalette>
   );
 }
@@ -260,12 +292,12 @@ export function SkillMentionPalette({
         </button>
       ))}
       {results.length === 0 && available && (
-        <p className="skill-mention-empty" role="status">
+        <p role="status">
           {t('No matching skills.')}
         </p>
       )}
       {!available && (
-        <p className="skill-mention-empty" role="status">
+        <p role="status">
           {t('No skills are on.')}{' '}
           <button
             type="button"

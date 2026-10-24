@@ -228,9 +228,12 @@ function projectTextReply(bytes: Buffer, mtimeMs: number): ProjectTextFile {
 }
 
 /** Editor tab external-change polling. */
-export async function statProjectFileIn(root: string, relPath: string): Promise<{ mtimeMs: number; size: number }> {
+export async function statProjectFileIn(
+  root: string,
+  relPath: string
+): Promise<{ mtimeMs: number; size: number; directory: boolean }> {
   const info = await stat(projectEntryPathIn(root, relPath));
-  return { mtimeMs: info.mtimeMs, size: info.size };
+  return { mtimeMs: info.mtimeMs, size: info.size, directory: info.isDirectory() };
 }
 
 /** Editor F12 / Shift+F12: symbol lookup through the bundled code graph.

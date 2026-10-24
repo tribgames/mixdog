@@ -97,7 +97,7 @@ test('an empty query lists the root entries, folders first, then by name', async
   ]);
 });
 
-test('matches of one tier list folders first, then by name', async (t) => {
+test('matches of one tier list fewer path segments first, then shorter paths, then by name', async (t) => {
   const root = await tempRoot(t);
   await mkdir(join(root, 'src', 'views'), { recursive: true });
   await mkdir(join(root, 'a'));
@@ -109,9 +109,84 @@ test('matches of one tier list folders first, then by name', async (t) => {
   assert.deepEqual(await searchProjectDirectory(root, 'view', 10, { includeDirectories: true }), [
     'view.md',
     'src/views/',
+    'a/zebra-review.md',
     'z/apple-review.md',
     'a/longer-review.md',
-    'a/zebra-review.md',
+  ]);
+});
+
+test('a name match outranks a deeper folder match: comp lists Composer.tsx before benchmark folders', async (t) => {
+  const root = await tempRoot(t);
+  const folders = ['apps/ui', 'src/a/b/compact', 'bench/r/s/compile-compcert__abc', 'hooks', 'lib/xcomp', 'tools'];
+  for (const folder of folders) await mkdir(join(root, folder), { recursive: true });
+  for (const file of [
+    'apps/ui/Composer.tsx',
+    'hooks/use-composer.ts',
+    'tools/uncompressed.txt',
+    'bench/r/s/compile-compcert__abc/log.txt',
+    'lib/xcomp/readme.md',
+  ]) {
+    await writeFile(join(root, file), '');
+  }
+  assert.deepEqual(await searchProjectDirectory(root, 'comp', 10, { includeDirectories: true }), [
+    // name starts with the query, shallow paths first
+    'apps/ui/Composer.tsx',
+    'src/a/b/compact/',
+    'bench/r/s/compile-compcert__abc/',
+    // the query starts a word of the name
+    'hooks/use-composer.ts',
+    // the name contains it
+    'lib/xcomp/',
+    'tools/uncompressed.txt',
+    // a folder of the path starts with it
+    'bench/r/s/compile-compcert__abc/log.txt',
+    // the path contains it
+    'lib/xcomp/readme.md',
+  ]);
+});
+
+test('letters scattered through the path do not match', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'p', 'a', 'l', 'e', 't', 't', 'e'), { recursive: true });
+  await mkdir(join(root, 'ui'));
+  await writeFile(join(root, 'p', 'a', 'l', 'e', 't', 't', 'e', 'x.txt'), '');
+  await writeFile(join(root, 'ui', 'palette.tsx'), '');
+  assert.deepEqual(await searchProjectDirectory(root, 'palette', 10, { includeDirectories: true }), ['ui/palette.tsx']);
+});
+
+test('folders get no priority: they rank by the same score as files', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'sub', 'target'), { recursive: true });
+  await writeFile(join(root, 'target.txt'), '');
+  assert.deepEqual(await searchProjectDirectory(root, 'target', 10, { includeDirectories: true }), [
+    'target.txt',
+    'sub/target/',
+  ]);
+});
+
+test('ties go to the shorter path, then to name order; a camelCase hump beats a mid-word hit', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'src'));
+  await mkdir(join(root, 'z'));
+  for (const file of ['abcdef.ts', 'abd.ts', 'abc.ts', 'z/abc.ts', 'src/decomposer.ts', 'src/MainComposer.tsx']) {
+    await writeFile(join(root, file), '');
+  }
+  assert.deepEqual(await searchProjectDirectory(root, 'ab', 10), ['abc.ts', 'abd.ts', 'abcdef.ts', 'z/abc.ts']);
+  assert.deepEqual(await searchProjectDirectory(root, 'composer', 10), [
+    'src/MainComposer.tsx',
+    'src/decomposer.ts',
+  ]);
+});
+
+test('a bare file name still lists its exact-basename files first and drops scattered hits', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'src'));
+  await mkdir(join(root, 'a', 'b', 'c'), { recursive: true });
+  for (const file of ['xapp.ts', 'apple.tsx', 'src/app.ts', 'a/b/c/app.ts']) await writeFile(join(root, file), '');
+  assert.deepEqual(await searchProjectDirectory(root, 'app.ts', 50, { includeIgnored: true }), [
+    'src/app.ts',
+    'a/b/c/app.ts',
+    'xapp.ts',
   ]);
 });
 

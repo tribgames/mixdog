@@ -11,7 +11,8 @@ const WINDOWS_INVALID_FILE_CHARS = /[\\/:*?"<>|]/;
 const UNIX_INVALID_FILE_CHARS = /[/]/;
 const WINDOWS_FORBIDDEN_NAMES = /^(con|prn|aux|clock\$|nul|lpt[0-9]|com[0-9])(\.(.*?))?$/i;
 
-const runtimeIsWindows: boolean =
+/** Whether this renderer runs on Windows, where file names are case-insensitive. */
+export const runtimeIsWindows: boolean =
   typeof navigator === 'object' && (navigator as { platform?: string }).platform
     ? /win/i.test(String((navigator as { platform?: string }).platform))
     : (globalThis as { process?: { platform?: string } }).process?.platform === 'win32';

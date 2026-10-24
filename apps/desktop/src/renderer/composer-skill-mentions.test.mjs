@@ -537,3 +537,91 @@ test('skill catalog reads are single-flight with a minimum age; focus never re-r
     host.remove();
   }
 });
+
+test('@ palette keeps the previous rows while the next query searches, and Enter never inserts them', async () => {
+  const pending = new Map();
+  window.mixdogDesktop = {
+    invokeCapability: async (request) =>
+      request.capability === 'getVoiceStatus' ? { value: { installed: false } } : { value: STATUS },
+    readCapabilities: async () => [{ ok: true, value: STATUS }],
+    searchProjectFiles: (_project, query) => new Promise((resolve) => pending.set(query, resolve)),
+    rendererDiagnostic() {},
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const palette = () => document.getElementById('composer-mention-palette');
+  const rows = () => Array.from(palette()?.querySelectorAll('[role="option"]') || [], (node) => node.title);
+  const settle = () => act(async () => new Promise((resolve) => window.setTimeout(resolve, 150)));
+  const answer = (query, paths) => act(async () => pending.get(query)(paths));
+  let input;
+  const type = async (value) => {
+    await act(async () => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
+      input.setSelectionRange(value.length, value.length);
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+  };
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(Composer, {
+          turnBusy: false,
+          commandBusy: false,
+          transitioning: false,
+          focusRequest: 0,
+          historyScope: 'mention-test',
+          identityScope: 'mention-test',
+          recoveryScope: 'mention-test',
+          projectScope: 'C:/project',
+          sessionId: 'mention-test',
+          hasConversation: true,
+          provider: 'openai-oauth',
+          model: 'test-model',
+          effort: 'medium',
+          fast: false,
+          fastCapable: false,
+          paneActive: true,
+          submit: async () => true,
+          abort: async () => {},
+          invokeResult: (action) => action(),
+          applySnapshot() {},
+          onNewTask() {},
+          onResumeSession() {},
+          onOpenSessions() {},
+          onOpenProjects() {},
+          onOpenSettings() {},
+          onOpenCommandSurface() {},
+          dropTargetRef: { current: null },
+        })
+      )
+    );
+    input = host.querySelector('textarea');
+    await type('see @a');
+    await settle();
+    assert.equal(palette().querySelector('p[role="status"]').textContent, 'Searching project files…');
+    await answer('a', ['apps/', 'apps/main.ts']);
+    assert.deepEqual(rows(), ['apps/', 'apps/main.ts']);
+
+    // The next keystroke searches again; the earlier rows stay on screen.
+    await type('see @ap');
+    await settle();
+    assert.deepEqual(rows(), ['apps/', 'apps/main.ts'], 'no collapse to the status line');
+    assert.equal(palette().querySelector('p[role="status"]'), null);
+    await act(async () =>
+      input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    );
+    assert.equal(input.value, 'see @ap', 'a row of the previous query is never inserted');
+
+    await answer('ap', ['apps/main.ts']);
+    assert.deepEqual(rows(), ['apps/main.ts']);
+    await act(async () =>
+      input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    );
+    assert.equal(input.value, 'see @apps/main.ts ');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

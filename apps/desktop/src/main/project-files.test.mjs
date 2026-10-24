@@ -28,11 +28,23 @@ import {
   renameProjectEntryIn,
   replaceProjectFileBytes,
   rewriteFileThrough,
+  statProjectFileIn,
   writeProjectTextFileIn,
   writeProjectTextFileThrough,
   writeProjectTextFilesIn,
   writeProjectTextFilesThrough,
 } from './project-files.ts';
+
+test('stat tells a folder from a file', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-project-stat-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'dir'));
+  await writeFile(join(root, 'file.txt'), 'x');
+  assert.equal((await statProjectFileIn(root, 'dir')).directory, true);
+  const file = await statProjectFileIn(root, 'file.txt');
+  assert.equal(file.directory, false);
+  assert.equal(file.size, 1);
+});
 
 test('project file operations reject symlink and junction escapes', async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), 'mixdog-project-path-'));

@@ -583,6 +583,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     composerFocused,
     selectorOpen: selector.open,
     skills: skillCatalog.selectable,
+    userMessages,
     room: Boolean(roomMembers),
     plain: agentMode,
   });
@@ -1052,7 +1053,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           <MentionPalette
             anchor={paletteAnchor}
             panel={mention.palette}
-            results={mention.results}
+            items={mention.items}
             loading={mention.loading}
             index={mention.index}
             setIndex={mention.setIndex}
