@@ -365,6 +365,7 @@ export async function sweep(root, { all = false, now = Date.now(), alive = isPid
 // ── start ────────────────────────────────────────────────────────────────────
 
 const CREDENTIAL_FILE = /^(provider-accounts\.json|[a-z0-9-]+-oauth(-credentials)?\.json)$/;
+const ACCOUNT_PROVIDER_DIR = /^[a-z0-9-]+$/;
 
 /** Runs an fs lookup that names the dev-profile path in its failure; a missing path yields null when optional. */
 async function readDevSource(lookup, path, { optional = false } = {}) {
@@ -448,6 +449,24 @@ export async function copyDevAuth(
     await assertDevFile(trustedRoot, join(source, entry));
     await copyFile(join(source, entry), join(dataDir, entry));
     copied.push(entry);
+  }
+  // Every account but a provider's default keeps its credential in
+  // provider-accounts/<provider>/<id>.json; the pool file alone names accounts
+  // whose sign-ins would then be missing.
+  const accountsDir = join(source, 'provider-accounts');
+  if (await lstatTrusted(trustedRoot, accountsDir, { optional: true })) {
+    for (const provider of (await readDevDir(accountsDir)).filter((name) => ACCOUNT_PROVIDER_DIR.test(name))) {
+      const providerDir = join(accountsDir, provider);
+      const stat = await lstatTrusted(trustedRoot, providerDir);
+      if (!stat.isDirectory()) continue;
+      const accounts = (await readDevDir(providerDir)).filter((name) => name.endsWith('.json'));
+      if (accounts.length) await mkdir(join(dataDir, 'provider-accounts', provider), { recursive: true });
+      for (const entry of accounts) {
+        await assertDevFile(trustedRoot, join(providerDir, entry));
+        await copyFile(join(providerDir, entry), join(dataDir, 'provider-accounts', provider, entry));
+        copied.push(`provider-accounts/${provider}/${entry}`);
+      }
+    }
   }
   const secretsDir = join(source, 'secrets');
   if (await lstatTrusted(trustedRoot, secretsDir, { optional: true })) {

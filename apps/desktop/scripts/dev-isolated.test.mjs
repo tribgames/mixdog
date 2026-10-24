@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -196,6 +196,21 @@ test('--copy-auth copies only allowlisted sign-ins; a missing secrets directory 
   const bare = join(root, 'data2');
   await mkdir(bare);
   assert.deepEqual(await copyDevAuth(bare, { devProfileDir: profile }), ['provider-accounts.json']);
+});
+
+test('--copy-auth copies each provider account credential the pool file names', async (t) => {
+  const root = await tempRoot(t);
+  const { profile, dataDir } = await devProfile(root, { secrets: false });
+  const accounts = join(profile, 'data', 'provider-accounts', 'anthropic-oauth');
+  await mkdir(accounts, { recursive: true });
+  await writeFile(join(accounts, 'acct-1.json'), '{"token":"t"}');
+  await writeFile(join(accounts, 'notes.txt'), 'skip');
+  assert.deepEqual(await copyDevAuth(dataDir, { devProfileDir: profile }), [
+    'provider-accounts.json',
+    'provider-accounts/anthropic-oauth/acct-1.json',
+  ]);
+  assert.equal(readFileSync(join(dataDir, 'provider-accounts', 'anthropic-oauth', 'acct-1.json'), 'utf8'), '{"token":"t"}');
+  assert.equal(existsSync(join(dataDir, 'provider-accounts', 'anthropic-oauth', 'notes.txt')), false);
 });
 
 test('--copy-auth fails clearly when the dev profile is missing, unreadable or holds no sign-ins', async (t) => {
