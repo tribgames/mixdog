@@ -299,6 +299,10 @@ export function loadConfig(options = {}) {
         heartbeat: raw.heartbeat !== false,
         // Bots may leave an emoji reaction on the user's message (react tool); default on.
         reactions: raw.reactions !== false,
+        // Bots page layout (order, hidden groups, pins, retention) and the shared
+        // Lead face, set from Settings; absent = the UI defaults.
+        ...(Array.isArray(raw.botOrder) ? { botOrder: [...raw.botOrder] } : {}),
+        ...(raw.leadAvatar && typeof raw.leadAvatar === 'object' ? { leadAvatar: { ...raw.leadAvatar } } : {}),
         worktree: normalizeWorktreeSettings(raw.worktree),
         developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
@@ -480,6 +484,10 @@ function buildAgentSaveBuilder(config) {
     else delete next.heartbeat;
     if (config.reactions === false) next.reactions = false;
     else delete next.reactions;
+    if (Array.isArray(config.botOrder) && config.botOrder.length) next.botOrder = [...config.botOrder];
+    else delete next.botOrder;
+    if (config.leadAvatar && typeof config.leadAvatar === 'object') next.leadAvatar = { ...config.leadAvatar };
+    else delete next.leadAvatar;
     delete next.instructionFiles;
     Object.assign(next, storedInstructionFiles(config));
     delete next.autoEffortBase;

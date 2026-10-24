@@ -54,6 +54,32 @@ test('a profile with no stored config starts fresh: built-ins uninstalled, agent
   );
 });
 
+test('the Bots page layout and Lead face survive a save and a restart', () => {
+  // setBotOrder / setLeadAppearance save through createConfigPatch: a key the
+  // save form omits makes no patch, so the choice vanished on the next launch.
+  runIsolatedConfigTest(
+    'mixdog-config-bot-order-',
+    `
+    import assert from 'node:assert/strict';
+    import { createConfigPatch, loadConfig, saveConfigPatch } from './src/runtime/agent/orchestrator/config.mjs';
+
+    const before = loadConfig({ secrets: false });
+    const botOrder = ['beta', 'section:rooms', 'hidden:connectors', 'pin:s1', 'retain:7d'];
+    const leadAvatar = { kind: 'mascot', breed: 'corgi' };
+    saveConfigPatch(createConfigPatch(before, { ...before, botOrder, leadAvatar }));
+    const reloaded = loadConfig({ secrets: false });
+    assert.deepEqual(reloaded.botOrder, botOrder);
+    assert.deepEqual(reloaded.leadAvatar, leadAvatar);
+
+    const { botOrder: _order, leadAvatar: _avatar, ...cleared } = reloaded;
+    saveConfigPatch(createConfigPatch(reloaded, cleared));
+    const reset = loadConfig({ secrets: false });
+    assert.equal(reset.botOrder, undefined);
+    assert.equal(reset.leadAvatar, undefined);
+    `
+  );
+});
+
 test('a profile with a stored API key and no config section loads that provider enabled', () => {
   // A copied auth (dev --copy-auth) brings the keychain secret but no config:
   // Settings lists the provider as connected, so the registry must load it.
