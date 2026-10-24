@@ -180,6 +180,7 @@ not as two blocks joined.
 - Routing is automatic; never supply a session id.
 - A panel closed by the user stays closed until the user reopens it. Automation
   may continue on its hidden page; do not repeat `open` to override that choice.
+  A later user request to see the page reopens it with `open`.
 
 ## Finish or hand off
 
@@ -212,15 +213,26 @@ not as two blocks joined.
 
 ## Common flows
 
-**Log in** — navigate to the sign-in form (or its password step) → `fill`
-with `savedAccount:"<email or masked label>"` when the user has stored logins
-for that HTTPS site; the host fills user + password itself and the password
-never appears in any reply. Without a stored login, use the returned refs and
-`fill.fields` for user + password. Then `click` submit (or `submit:true`) with
-`expect.url` or `expect.text`. A `savedAccount` miss lists the site's stored
-logins as masked labels; the user chooses which to use. If the page shows a
-CAPTCHA, 2FA prompt, or identity check, stop and hand control to the user;
-never try to solve or bypass it.
+**Log in** — navigate to the sign-in form (or its password step). When the
+user has exactly one stored login for that HTTPS site, the host signs in by
+itself right after the command that shows the form: it waits for the page's
+human check (Turnstile, reCAPTCHA, hCaptcha) to hold its token, fills user +
+password, submits, and replies with one line — `Saved sign-in: signed in to
+<site>` (done: verify with the returned page, do not fill or submit again) or
+`Saved sign-in: the site still needs the user at <site>` (a check that did not
+finish, a code, CAPTCHA, passkey, or an error: hand the sign-in to the user,
+do not retry). It tries once per site per turn, and the password never
+appears in any reply. When the host did not sign in by itself (several
+stored logins, or automatic sign-in did not run), call `fill` with
+`savedAccount:"<email or masked label>"` (and `submit:true` to sign in). Do
+not press Enter or click submit yourself after a `savedAccount` fill that
+already used `submit:true`. A
+`savedAccount` miss lists the site's stored logins as masked labels; the user
+chooses which to use. Without a stored login, use the returned refs and
+`fill.fields` for user + password, then `click` submit (or `submit:true`) with
+`expect.url` or `expect.text`. If the page shows a CAPTCHA, 2FA prompt, or
+identity check, stop and hand control to the user; never try to solve or
+bypass it.
 
 **Form** — use the latest returned refs → `fill.fields` (text, `values` for selects, `checked`
 for boxes) → submit via `click` or `fill` with `submit:true` → verify with
