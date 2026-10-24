@@ -413,11 +413,14 @@ function watchComposerCard(
   };
 }
 
-/** Publishes the open floating layers, at most once a frame. */
-function watchLayers(publish: (layers: DesktopPetLayers) => void) {
+/** Publishes the open floating layers, at most once a frame. `beforePublish`
+ *  runs first, in the same frame callback (panel discovery: one document
+ *  query a frame, however many DOM mutations arrived). */
+function watchLayers(publish: (layers: DesktopPetLayers) => void, beforePublish: () => void) {
   let frame = 0;
   const publishNow = () => {
     frame = 0;
+    beforePublish();
     publish(floatingLayers());
   };
   const schedule = () => {
@@ -428,6 +431,32 @@ function watchLayers(publish: (layers: DesktopPetLayers) => void) {
     schedule,
     dispose: () => {
       if (frame) cancelAnimationFrame(frame);
+    },
+  };
+}
+
+/** Calls `onChange` when a side panel's box changes without a DOM insertion:
+ *  a resize drag (width via an inline style or token) or a retained panel
+ *  opening/closing in place (`hidden`). `track` re-finds the panels. */
+function watchSidePanels(onChange: () => void) {
+  const resize = new ResizeObserver(onChange);
+  const attributes = new MutationObserver(onChange);
+  let observed: Element[] = [];
+  return {
+    track: () => {
+      const panels = [...document.querySelectorAll(SIDE_PANEL_SELECTOR)];
+      if (panels.length === observed.length && panels.every((panel, index) => panel === observed[index])) return;
+      resize.disconnect();
+      attributes.disconnect();
+      observed = panels;
+      for (const panel of panels) {
+        resize.observe(panel);
+        attributes.observe(panel, { attributes: true, attributeFilter: ['style', 'hidden', 'class'] });
+      }
+    },
+    dispose: () => {
+      resize.disconnect();
+      attributes.disconnect();
     },
   };
 }
@@ -461,7 +490,12 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     const publishTheme = () => sendTheme(composerTheme(cardWatch.card() ?? document.documentElement));
     // The app's own menus/popovers/dialogs: the pet shows behind them.
     // Checked once a frame after DOM changes (portals mount into <body>).
-    const layersWatch = watchLayers(onChange((layers) => api.publishDesktopPetLayers?.(layers)));
+    // Side panels (found again each frame, before publishing) change width
+    // (a resize drag) and `hidden` in place.
+    const layersWatch = watchLayers(
+      onChange((layers) => api.publishDesktopPetLayers?.(layers)),
+      () => sidePanels.track()
+    );
     const { schedule: scheduleLayers, publishNow: publishLayers } = layersWatch;
     // A backdrop modal opening or closing (some flip in place, no mutation
     // of <body>'s children).
@@ -470,6 +504,7 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     // The boot cover lifting (data-ready) measures the card it uncovers.
     // A popover that stays mounted and opens in place (data-open, e.g. the
     // context gauge's card) is a layer change too.
+    const sidePanels = watchSidePanels(scheduleLayers);
     const mutations = new MutationObserver((records) => {
       scheduleLayers();
       if (
@@ -489,7 +524,7 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     });
     // Such a popover turns visible or hidden only when its fade ends.
     document.addEventListener('transitionend', scheduleLayers, true);
-    // A side panel resized by hand changes its rect, not the DOM.
+    // Backstop: a panel moved by a sibling's resize changes no box of its own.
     document.addEventListener('pointerup', scheduleLayers, true);
     // Theme, skin or accent changes land on <html> (attributes, inline tokens).
     const looks = new MutationObserver(publishTheme);
@@ -508,6 +543,7 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
       setPetOverTranscript(false);
       setPetIslandReserve(null, 0);
       mutations.disconnect();
+      sidePanels.dispose();
       document.removeEventListener('transitionend', scheduleLayers, true);
       document.removeEventListener('pointerup', scheduleLayers, true);
       looks.disconnect();

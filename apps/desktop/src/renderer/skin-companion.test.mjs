@@ -2888,6 +2888,88 @@ test("while on, the publisher reports the app's open floating menus/dialogs, onc
   assert.deepEqual(on.calls.layers.at(-1), [], 'closed in place');
 });
 
+test('a side panel resized mid-drag or reopened in place updates the bot cut-out without a pointer-up', async (t) => {
+  const on = fakeDesktop({ enabled: true });
+  const { publisher, root, document } = await mountSettings(t, on);
+  const frame = () => new Promise((resolve) => setTimeout(resolve, 40));
+  const panel = document.createElement('aside');
+  panel.className = 'workbench-side-panel';
+  let box = { left: 900, top: 40, width: 380, height: 680 };
+  panel.getBoundingClientRect = () => box;
+  document.body.append(panel);
+  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
+  await act(frame);
+  assert.deepEqual(on.calls.layers.at(-1), [{ x: 900, y: 40, width: 380, height: 680 }]);
+  // Mid-drag: the width token moves on the element, no pointer-up, no insertion.
+  box = { left: 780, top: 40, width: 500, height: 680 };
+  await act(async () => {
+    panel.style.setProperty('--workbench-side-panel-width', '500px');
+    await frame();
+  });
+  assert.deepEqual(on.calls.layers.at(-1), [{ x: 780, y: 40, width: 500, height: 680 }], 'style change');
+  box = { left: 700, top: 40, width: 580, height: 680 };
+  await act(async () => {
+    FakeResizeObserver.fire();
+    await frame();
+  });
+  assert.deepEqual(on.calls.layers.at(-1), [{ x: 700, y: 40, width: 580, height: 680 }], 'size change');
+  // Closed and retained, then reopened in place (`hidden` toggles).
+  await act(async () => {
+    panel.hidden = true;
+    await frame();
+  });
+  assert.deepEqual(on.calls.layers.at(-1), [], 'retained panel closed');
+  await act(async () => {
+    panel.hidden = false;
+    await frame();
+  });
+  assert.deepEqual(on.calls.layers.at(-1), [{ x: 700, y: 40, width: 580, height: 680 }], 'reopened');
+});
+
+test('panel discovery runs once a frame however many unrelated mutations arrive, and a new panel is still tracked', async (t) => {
+  const on = fakeDesktop({ enabled: true });
+  const { publisher, root, document } = await mountSettings(t, on);
+  const frame = () => new Promise((resolve) => setTimeout(resolve, 40));
+  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
+  await act(frame);
+  let queries = 0;
+  const query = document.querySelectorAll.bind(document);
+  document.querySelectorAll = (selector) => {
+    if (selector === '.workbench-side-panel, .pane-side-dock') queries += 1;
+    return query(selector);
+  };
+  t.after(() => {
+    document.querySelectorAll = query;
+  });
+  // Streaming chat: many unrelated insertions inside one frame.
+  await act(async () => {
+    for (let n = 0; n < 50; n += 1) {
+      const row = document.createElement('div');
+      row.textContent = `chunk ${n}`;
+      document.body.append(row);
+      await Promise.resolve();
+    }
+    await frame();
+  });
+  assert.ok(queries <= 1, `at most one panel query for the frame, saw ${queries}`);
+  // A panel added later is found, observed and cut out; its in-place changes publish.
+  const panel = document.createElement('aside');
+  panel.className = 'workbench-side-panel';
+  let box = { left: 900, top: 40, width: 380, height: 680 };
+  panel.getBoundingClientRect = () => box;
+  await act(async () => {
+    document.body.append(panel);
+    await frame();
+  });
+  assert.deepEqual(on.calls.layers.at(-1), [{ x: 900, y: 40, width: 380, height: 680 }], 'new panel cut out');
+  box = { left: 800, top: 40, width: 480, height: 680 };
+  await act(async () => {
+    panel.style.setProperty('--workbench-side-panel-width', '480px');
+    await frame();
+  });
+  assert.deepEqual(on.calls.layers.at(-1), [{ x: 800, y: 40, width: 480, height: 680 }], 'and tracked in place');
+});
+
 test('while on, a backdrop modal (scrim claim or isolating modal) is flagged apart from the transient layers, nested ones until the last closes', async (t) => {
   const on = fakeDesktop({ enabled: true });
   const { publisher, root, document } = await mountSettings(t, on);
