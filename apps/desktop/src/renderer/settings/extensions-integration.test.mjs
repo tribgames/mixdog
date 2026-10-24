@@ -129,7 +129,7 @@ async function renderPanel(category, overrides = {}) {
   };
 }
 
-test('About keeps GitHub and issue links without a sponsorship option', async (t) => {
+test('About offers GitHub, GitHub Sponsors, and issue links', async (t) => {
   const previousApi = window.mixdogDesktop;
   const opened = [];
   window.mixdogDesktop = {
@@ -144,24 +144,33 @@ test('About keeps GitHub and issue links without a sponsorship option', async (t
   const panel = await renderPanel('about');
   t.after(() => panel.cleanup());
 
-  assert.doesNotMatch(panel.host.textContent, /Sponsor|Ko-fi|Support mixdog development/i);
+  assert.doesNotMatch(panel.host.textContent, /Ko-fi|Support mixdog development/i);
+  const rows = [...panel.host.querySelectorAll('.settings-about-row')];
+  const rowButtons = (row) => [...row.querySelectorAll('button')].map((button) => button.textContent.trim());
+  assert.deepEqual(
+    rows.slice(0, 2).map((row) => row.querySelector('.settings-resource-title b').textContent),
+    ['GitHub', 'Sponsor']
+  );
+  assert.deepEqual(rowButtons(rows[0]), ['Star on GitHub ↗', 'Open ↗']);
+  assert.deepEqual(rowButtons(rows[1]), ['Sponsor ↗']);
   const buttons = [...panel.host.querySelectorAll('button')];
   assert.deepEqual(
     buttons.map((button) => button.textContent.trim()),
-    ['Star on GitHub ↗', 'Open ↗', 'Issues ↗', 'Give feedback', 'View changelog']
+    ['Star on GitHub ↗', 'Open ↗', 'Sponsor ↗', 'Issues ↗', 'Give feedback', 'View changelog']
   );
   assert.doesNotMatch(panel.host.textContent, /Contact support|Email ↗|Copy/);
-  for (const button of buttons.slice(0, 3)) {
+  for (const button of buttons.slice(0, 4)) {
     await act(async () => button.click());
   }
   assert.deepEqual(opened, [
     'https://github.com/tribgames/mixdog',
     'https://github.com/tribgames/mixdog',
+    'https://github.com/sponsors/JYP8877',
     'https://github.com/tribgames/mixdog/issues',
   ]);
-  await act(async () => buttons[3].click());
+  await act(async () => buttons[4].click());
   assert.ok(document.querySelector('[role="dialog"][data-settings-nested-dialog]'));
-  assert.equal(opened.length, 3);
+  assert.equal(opened.length, 4);
 });
 
 test('extension settings routes collapse into Plugin and Skill', () => {
