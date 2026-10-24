@@ -30,6 +30,7 @@ import { uiCurrency } from './ui-format';
 import { memoryCacheStorage } from './sw-test-harness.mjs';
 import { UI_LANGUAGE_ENTRY, APP_STATE_CACHE_NAME } from './push-notification-bridge';
 import { parseMarkdownFrontmatter } from '../../../../src/runtime/shared/markdown-frontmatter.mjs';
+import { DEVELOPER_SECTIONS } from '../../../../src/runtime/shared/developer-options.mjs';
 
 const catalogs = new Map(
   SUPPORTED_UI_LANGUAGES.filter(({ value }) => value !== 'en').map(({ value }) => [
@@ -132,6 +133,22 @@ test('the bundled workflow description is translated in every supported UI langu
     assert.equal(t(description), '요청에 맞춰 작업을 진행합니다.');
   } finally {
     await i18n.changeLanguage(previousLanguage);
+  }
+});
+
+test('every developer option string in the runtime registry is translated in every supported UI language', () => {
+  const strings = new Set();
+  for (const section of DEVELOPER_SECTIONS) {
+    for (const entry of [section, ...section.options]) {
+      for (const field of ['label', 'description', 'warning']) if (entry[field]) strings.add(entry[field]);
+    }
+  }
+  assert.ok(strings.has('Show Devin OAuth in Providers and the model picker.'));
+  for (const [language, catalog] of catalogs) {
+    for (const key of strings) {
+      assert.equal(typeof catalog[key], 'string', `${language}: missing developer option text "${key}"`);
+      assert.ok(catalog[key].trim(), `${language}: empty developer option text "${key}"`);
+    }
   }
 });
 
