@@ -277,6 +277,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     getSnapshot: () => call('getSnapshot'),
     subscribeState: (listener) => listenOn(stateListeners, listener),
     termEnsure: (id, cwd, shell) => call('termEnsure', [id, cwd ?? null, shell ?? null]),
+    termAttach: (id) => call('termAttach', [id]),
     termProfiles: () => call('termProfiles'),
     termWrite: (id, data) => fire('termWrite', [id, data]),
     termResize: (id, cols, rows, phoneOwner) => fire('termResize', [id, cols, rows, phoneOwner === true]),

@@ -64,7 +64,16 @@ export function createAppSideViewDescriptors(
         onPrefetch: () => onPrefetch('session-diff'),
       },
     ],
-    ['visualize', { id: 'visualize', label: t('Visualize'), tooltip: t('Visualize'), icon: VisualizeIcon }],
+    [
+      'visualize',
+      {
+        id: 'visualize',
+        label: t('Visualize'),
+        tooltip: t('Visualize'),
+        icon: VisualizeIcon,
+        onPrefetch: () => onPrefetch('visualize'),
+      },
+    ],
     // A home thread's agent panel (프로필 · 루틴); the view id stays 'routines'.
     ['routines', { id: 'routines', label: t('Profile'), tooltip: t('Profile'), icon: IdCard }],
     // A group room's panel: members, limits, leave/delete.

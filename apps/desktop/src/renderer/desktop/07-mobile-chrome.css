@@ -980,6 +980,12 @@ html[data-mixdog-mobile-tabs] .pane-side-dock[data-open="false"] {
     transform var(--mx-sheet-motion),
     visibility var(--mx-sheet-motion);
 }
+/* A closing sheet (useSheetExit: from the close commit until the sheet's own
+   transform transition ends) keeps its panel displayed, so the body slides out
+   with it. The panel is already hidden, inert and aria-hidden. */
+html[data-mixdog-mobile-tabs] .pane-side-dock .workbench-side-panel[hidden][data-closing="true"] {
+  display: flex;
+}
 /* Responsive band corrections are layout, not gesture — they never animate. */
 html[data-mixdog-mobile-tabs]
 .pane-side-dock:has(> .pane-side-dock-main > .workbench-side-panel[data-motion="instant"]) {

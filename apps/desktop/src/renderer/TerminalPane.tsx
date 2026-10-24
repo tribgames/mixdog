@@ -15,6 +15,8 @@ import { TerminalImeGuard } from './terminal-ime-guard';
 const IS_LINUX =
   typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
 import { TerminalWritePump } from './terminal-write-pump';
+import { trackReplay, viewPaintsAtOnce } from './terminal-replay-state';
+import { createTerminalConnectGate, type TerminalConnectMode } from './terminal-connect-gate';
 import { attachTerminalOutput, detachTerminalOutput } from './terminal-output-subscription';
 import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
 import { dataTransferHasLocalFiles, droppedLocalPaths, terminalPathText } from './file-drag';
@@ -68,6 +70,16 @@ type TerminalView = {
   refit: (() => void) | null;
   /** Typed-input path (modifiers, local echo, PTY write) for bar keys. */
   sendInput: ((data: string) => void) | null;
+  /** A prewarm's attach in flight (prewarmTerminal). */
+  warming: Promise<boolean> | null;
+  /** Prewarmed for a pane about to open: its parked mount takes the GPU
+   *  renderer the open would, so the opening frame keeps the drawn screen. */
+  warmed: boolean;
+  /** The saved viewport a prewarmed replay restores at its first fit. */
+  warmRestore: TerminalViewState | null;
+  /** A scrollback replay still being written into `term` (trackReplay): the
+   *  screen is not complete until it settles, whoever started it. */
+  replayPending: Promise<void> | null;
 };
 interface TerminalViewState {
   cols: number;
@@ -278,6 +290,10 @@ function terminalView(key: string): TerminalView {
     followSize: null,
     refit: null,
     sendInput: null,
+    warming: null,
+    warmed: false,
+    warmRestore: null,
+    replayPending: null,
   };
   terminalViews.set(key, created);
   watchTerminalSizeOwner();
@@ -315,6 +331,55 @@ function armTerminalMonoRefresh() {
   } catch {
     /* font readiness stays cosmetic */
   }
+}
+
+/** The tab's terminal paints complete in its mount frame: this renderer holds
+ *  its screen (a live view whose replay is fully written), or it never ran (no
+ *  saved view, so no scrollback to replay). The same rule lets the mount
+ *  report ready at once. A replay still being written is never complete. */
+export function terminalPaintsAtOnce(terminalId: string): boolean {
+  return viewPaintsAtOnce(terminalViews.get(terminalId), Boolean(readTerminalViewState(terminalId)));
+}
+
+/** Attaches a tab's PTY before its pane mounts (the dock toggle's hover,
+ *  focus or touch-down) when that PTY is already running: its scrollback
+ *  replays into the view and its output streams there, so the pane that
+ *  mounts next holds the screen and paints it in its first frame
+ *  (terminalPaintsAtOnce) instead of a loading cover. Attach-only: a shell
+ *  that never started or has exited stays so (resolves false) — a warm-up
+ *  never starts or changes a process. A tab this renderer already holds
+ *  resolves true; one being warmed shares that attach. */
+export function prewarmTerminal(terminalId: string): Promise<boolean> {
+  const view = terminalView(terminalId);
+  if (view.id) return Promise.resolve(true);
+  if (connectionLinkView()?.terminalsAvailable === false) return Promise.resolve(false);
+  view.warming ??= (async () => {
+    const attached = await window.mixdogDesktop.termAttach?.(terminalId);
+    // Released meanwhile, or attached by a pane that mounted first.
+    if (terminalViews.get(terminalId) !== view) return false;
+    if (view.id) return true;
+    if (!attached) return false;
+    view.id = attached.id;
+    applyEnsuredSizeOwner(view, attached.sizeOwner);
+    let replayWrite: Promise<void> | null = null;
+    if (attached.replay) {
+      view.warmRestore = readTerminalViewState(terminalId);
+      if (view.warmRestore) view.term.resize(view.warmRestore.cols, view.warmRestore.rows);
+      view.localEcho?.reset();
+      replayWrite = trackReplay(view, attached.replay);
+    } else {
+      clearTerminalViewState(terminalId);
+    }
+    attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData);
+    view.warmed = true;
+    await replayWrite;
+    return true;
+  })()
+    .catch(() => false)
+    .finally(() => {
+      view.warming = null;
+    });
+  return view.warming;
 }
 
 export async function disposeTerminalPane(id: string): Promise<void> {
@@ -379,6 +444,7 @@ export default function TerminalPane({
   terminalId,
   shell = '',
   active = true,
+  attachOnly = false,
   onReady,
 }: {
   cwd: string | null;
@@ -386,12 +452,20 @@ export default function TerminalPane({
   /** Shell profile id the PTY spawns with; '' is the OS default. */
   shell?: string;
   active?: boolean;
+  /** Warm-up mount: attach to the PTY only if it is already running
+   *  (termAttach), never start, respawn or dispose one. The first render
+   *  without it (the real open) runs the usual ensure (terminal-connect-gate). */
+  attachOnly?: boolean;
   onReady?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const fitSchedulerRef = useRef<StableTerminalFitScheduler<TerminalViewState> | null>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const attachOnlyRef = useRef(attachOnly);
+  attachOnlyRef.current = attachOnly;
+  /** The real open of a warm-up mount (set by the mount effect). */
+  const openRef = useRef<(() => void) | null>(null);
   // The mount effect's ensure pipeline outlives renders; a stale captured
   // `active` skipped the boot-complete focus when the tab activated while
   // the PTY was still spawning (cold entry via Ctrl+Arrow).
@@ -415,7 +489,6 @@ export default function TerminalPane({
     let retryTimer = 0;
     let retryDelay = 1000;
     let noticeShown = false;
-    let ensureInFlight: Promise<void> | null = null;
     let pendingRestore: TerminalViewState | null = null;
     let replayOnReattach = false;
     const view = terminalView(key);
@@ -445,7 +518,9 @@ export default function TerminalPane({
       },
       onSettled: () => {
         writeTerminalViewState(key, view);
-        if (view.id && term.element?.querySelector('.xterm-screen')) {
+        // A replay still being written is not a ready screen; its own fit,
+        // once written, settles again.
+        if (view.id && !view.replayPending && term.element?.querySelector('.xterm-screen')) {
           onReadyRef.current?.();
         }
       },
@@ -461,13 +536,14 @@ export default function TerminalPane({
     // Phone: send the PTY ensure before the blocking xterm attach so the
     // relay round trip overlaps it instead of following it.
     let earlyEnsure: ReturnType<NonNullable<typeof window.mixdogDesktop.termEnsure>> | null = null;
-    if (isMobileRemoteSurface() && connectionLinkView()?.terminalsAvailable !== false) {
+    if (!attachOnlyRef.current && isMobileRemoteSurface() && connectionLinkView()?.terminalsAvailable !== false) {
       earlyEnsure = window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null) ?? null;
       earlyEnsure?.catch(() => {});
     }
     if (term.element) container.appendChild(term.element);
     else term.open(container);
-    if (activeRef.current) tryEnableWebglRenderer(view);
+    if (activeRef.current || view.warmed) tryEnableWebglRenderer(view);
+    view.warmed = false;
     // Focus at ATTACH time, not after the PTY round trip. A phone raises its
     // keypad only for a focus that still sits inside the opening tap's
     // activation window, so waiting for termEnsure() + replay + fit made the
@@ -491,8 +567,9 @@ export default function TerminalPane({
     // screen (view.id) or the tab never ran (no saved view, so no scrollback
     // to replay): the frame and the cursor line show at once, fitted, and the
     // prompt prints into them as it arrives.
-    if (view.id || !readTerminalViewState(key)) {
-      fitScheduler.schedule();
+    if (terminalPaintsAtOnce(key)) {
+      fitScheduler.schedule(view.warmRestore);
+      view.warmRestore = null;
       if (term.element?.querySelector('.xterm-screen')) onReadyRef.current?.();
     }
     revealTimer = window.setTimeout(() => {
@@ -502,13 +579,16 @@ export default function TerminalPane({
       }
     }, 1_500);
     scrollDisposable = term.onScroll(schedulePersist);
-    const runEnsure = async () => {
+    const runEnsure = async (mode: TerminalConnectMode) => {
+      const shellChanged = Boolean(view.id) && view.shell !== undefined && view.shell !== shell;
+      // A warm-up never respawns: the open's ensure applies the shell change.
+      if (mode === 'attach' && shellChanged) return;
       // A strip shell change respawns THIS tab's PTY: dispose the old
       // process, clear the scrollback, and let ensure() below create the
       // replacement under the same terminal id (tab identity holds).
-      const early = view.id && view.shell !== undefined && view.shell !== shell ? null : earlyEnsure;
+      const early = shellChanged ? null : earlyEnsure;
       earlyEnsure = null;
-      if (view.id && view.shell !== undefined && view.shell !== shell) {
+      if (shellChanged && view.id) {
         const previous = view.id;
         view.id = null;
         clearTerminalViewState(key);
@@ -520,8 +600,14 @@ export default function TerminalPane({
         }
         await window.mixdogDesktop.termDispose?.(previous);
       }
-      const ensured = await (early ??
-        window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null));
+      const ensureNow = () => window.mixdogDesktop.termEnsure?.(view.id ?? terminalId ?? null, cwd, shell || null);
+      let ensured: Awaited<ReturnType<typeof ensureNow>> | null | undefined;
+      if (early) ensured = await early;
+      else if (mode === 'attach') {
+        ensured = await window.mixdogDesktop.termAttach?.(view.id || terminalId || key);
+        // Not running: the open's ensure starts it.
+        if (!ensured) return;
+      } else ensured = await ensureNow();
       reportBootSurfaceStage('terminal', key, 'data', ensured ? 'pty-ready' : 'shell-only');
       if (!ensured) {
         if (!disposed) onReadyRef.current?.();
@@ -550,12 +636,18 @@ export default function TerminalPane({
       applyEnsuredSizeOwner(view, ensured.sizeOwner);
       view.shell = shell;
       if (isNewPty) fitScheduler.invalidateResize();
-      let replayWrite: Promise<void> | null = null;
+      // A warm-up's replay still being written (opened mid-replay) finishes
+      // before this pane fits and reports ready, with its saved viewport.
+      let replayWrite: Promise<void> | null = view.replayPending;
+      if (replayWrite && view.warmRestore) {
+        pendingRestore = view.warmRestore;
+        view.warmRestore = null;
+      }
       if (isNewPty && ensured.replay) {
         pendingRestore = readTerminalViewState(key);
         if (pendingRestore) term.resize(pendingRestore.cols, pendingRestore.rows);
         view.localEcho?.reset();
-        replayWrite = view.writer.writeReplay(ensured.replay);
+        replayWrite = trackReplay(view, ensured.replay);
       } else if (isNewPty) {
         // A restored tab backed by a fresh PTY must not inherit the old
         // process's viewport position.
@@ -567,7 +659,7 @@ export default function TerminalPane({
         } catch {
           /* disposed mid-reattach */
         }
-        replayWrite = view.writer.writeReplay(ensured.replay);
+        replayWrite = trackReplay(view, ensured.replay);
       }
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
@@ -627,47 +719,46 @@ export default function TerminalPane({
     // The PTY host can be down (worker exit, ensure timeout, spawn failure).
     // Surface it once, reveal the pane, and keep retrying: TerminalHost
     // lazily respawns its worker on the next ensure().
-    const attemptEnsure = () => {
-      if (disposed || ensureInFlight || connectionLinkView()?.terminalsAvailable === false) return;
-      ensureInFlight = runEnsure();
-      void ensureInFlight
-        .catch((error: unknown) => {
-          if (disposed) return;
-          // Notice/reveal are best-effort (the terminal may already be
-          // disposed); retry scheduling must always run.
-          if (!noticeShown) {
-            noticeShown = true;
-            // Name the concrete failure. A bare "unavailable" hid a missing
-            // native PTY binding behind an endless retry loop.
-            const detail = errorSummary(error);
-            try {
-              term.write(
-                `\r\n\x1b[31mterminal service unavailable${detail ? ` — ${detail}` : ''} — retrying…\x1b[0m\r\n`
-              );
-            } catch {
-              /* xterm disposed mid-failure */
-            }
-            // A dead PTY host left NO trace in the desktop diagnostics log, so
-            // a terminal that never opened could only be diagnosed live.
-            reportRendererFailure('unhandled-rejection', error, {
-              components: ['TerminalPane'],
-              failureCode: 'terminal-pty-unavailable',
-            });
-          }
+    const connectGate = createTerminalConnectGate(attachOnlyRef.current, (mode) => {
+      if (disposed || connectionLinkView()?.terminalsAvailable === false) return Promise.resolve();
+      return runEnsure(mode).catch((error: unknown) => {
+        if (disposed) return;
+        // Notice/reveal are best-effort (the terminal may already be
+        // disposed); retry scheduling must always run.
+        if (!noticeShown) {
+          noticeShown = true;
+          // Name the concrete failure. A bare "unavailable" hid a missing
+          // native PTY binding behind an endless retry loop.
+          const detail = errorSummary(error);
           try {
-            onReadyRef.current?.();
+            term.write(
+              `\r\n\x1b[31mterminal service unavailable${detail ? ` — ${detail}` : ''} — retrying…\x1b[0m\r\n`
+            );
           } catch {
-            /* gate consumer threw */
+            /* xterm disposed mid-failure */
           }
-          retryTimer = window.setTimeout(() => {
-            retryTimer = 0;
-            if (!disposed) attemptEnsure();
-          }, retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 5000);
-        })
-        .finally(() => {
-          ensureInFlight = null;
-        });
+          // A dead PTY host left NO trace in the desktop diagnostics log, so
+          // a terminal that never opened could only be diagnosed live.
+          reportRendererFailure('unhandled-rejection', error, {
+            components: ['TerminalPane'],
+            failureCode: 'terminal-pty-unavailable',
+          });
+        }
+        try {
+          onReadyRef.current?.();
+        } catch {
+          /* gate consumer threw */
+        }
+        retryTimer = window.setTimeout(() => {
+          retryTimer = 0;
+          if (!disposed) attemptEnsure();
+        }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 5000);
+      });
+    });
+    const attemptEnsure = () => {
+      if (disposed || connectionLinkView()?.terminalsAvailable === false) return;
+      connectGate.connect();
     };
     const onRemoteReconnected = () => {
       if (retryTimer) {
@@ -684,6 +775,9 @@ export default function TerminalPane({
       replayOnReattach = true;
       onRemoteReconnected();
     };
+    openRef.current = () => {
+      if (!disposed) connectGate.open();
+    };
     window.addEventListener('mixdog:remote-reconnected', onRemoteReconnected);
     window.addEventListener(CONNECTION_REATTACHED_EVENT, onConnectionReattached);
     // A server without terminals: the pane says so instead of retrying.
@@ -691,6 +785,7 @@ export default function TerminalPane({
     else onReadyRef.current?.();
     return () => {
       disposed = true;
+      openRef.current = null;
       window.removeEventListener('mixdog:remote-reconnected', onRemoteReconnected);
       window.removeEventListener(CONNECTION_REATTACHED_EVENT, onConnectionReattached);
       window.clearTimeout(fitDebounce);
@@ -713,6 +808,11 @@ export default function TerminalPane({
       if (term.element?.parentElement === container) container.removeChild(term.element);
     };
   }, [cwd, key, shell, terminalId]);
+  // The warm-up ends (the real open): the ensure runs whatever the warm-up
+  // found, since a shell it attached to can have exited since.
+  useEffect(() => {
+    if (!attachOnly) openRef.current?.();
+  }, [attachOnly]);
   useEffect(() => {
     const view = terminalViews.get(key);
     let releaseTimer = 0;

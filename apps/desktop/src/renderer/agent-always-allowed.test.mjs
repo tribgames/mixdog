@@ -13,7 +13,7 @@ for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'navi
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
-const { AlwaysAllowedList, alwaysAllowedItems } = await import('./agent-always-allowed.tsx');
+const { AlwaysAllowedList, alwaysAllowedItems, prefetchAlwaysAllowed } = await import('./agent-always-allowed.tsx');
 const { alwaysAllowNote } = await import('./BrowserApprovalHost.tsx');
 
 const PERMISSIONS = [
@@ -167,6 +167,54 @@ test('the profile lists allows and "Ask again" revokes one, leaving the rest', a
     null,
     'the section hides when empty'
   );
+  await act(async () => root.unmount());
+});
+
+/** A host whose permission reads the test answers by hand. */
+function slowPermissionsHost() {
+  const reads = [];
+  const api = {
+    invokeCapability: ({ capability }) => {
+      if (capability !== 'getAgentPermissions') return Promise.resolve({ value: [] });
+      const answer = Promise.withResolvers();
+      reads.push(answer);
+      return answer.promise;
+    },
+  };
+  return { api, reads };
+}
+const allow = (...actions) => ({ value: actions.map((action) => ({ action, mode: 'allow', rememberable: true })) });
+const flush = () => act(async () => new Promise((resolve) => setImmediate(resolve)));
+const listed = () =>
+  [...dom.window.document.querySelectorAll('.connector-switch-name')].map((node) => node.textContent);
+
+test("a warm-up's read in flight is the mounted list's read: the host is asked once", async () => {
+  const { api, reads } = slowPermissionsHost();
+  const warm = prefetchAlwaysAllowed(api, 'shared-bot');
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(AlwaysAllowedList, { api, agentId: 'shared-bot' })));
+  assert.equal(reads.length, 1);
+  reads[0].resolve(allow('email'));
+  await warm;
+  await flush();
+  assert.deepEqual(listed(), ['Send an email']);
+  await act(async () => root.unmount());
+});
+
+test('a change announced mid-read ends on the newer answer, whatever order the host answers in', async () => {
+  const { api, reads } = slowPermissionsHost();
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(AlwaysAllowedList, { api, agentId: 'ordered-bot' })));
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.CustomEvent('mixdog:setup-changed'));
+  });
+  // The newer read answers first when both are out; the older one last.
+  if (reads[1]) reads[1].resolve(allow('email', 'browser_submit'));
+  reads[0].resolve(allow('email'));
+  await flush();
+  reads[1].resolve(allow('email', 'browser_submit'));
+  await flush();
+  assert.deepEqual(listed(), ['Send an email', 'Submit a form in the browser']);
   await act(async () => root.unmount());
 });
 

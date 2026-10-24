@@ -11,6 +11,7 @@ import { useDeferredModule } from './deferred-module';
 import { browserPaneModule } from './lazy-widgets';
 import { useSlotRemeasure } from './surface-slot-remeasure';
 import {
+  applySurfaceInteractivity,
   expandedSurfaceRect,
   placeFixedSurface,
   preferredSurfaceSlot,
@@ -22,6 +23,8 @@ import './session-browser-surfaces.css';
 type BrowserSurfaceSlot = {
   active: boolean;
   foreground: boolean;
+  /** Its sheet slides closed: pixels kept, interaction gone (applySurfaceInteractivity). */
+  exiting: boolean;
 };
 
 type BrowserSurface = {
@@ -47,7 +50,7 @@ type SessionBrowserSurfaceRenderer = (props: SessionBrowserSurfaceRenderProps) =
 
 interface SessionBrowserSurfaceController {
   ensure(sessionId: string): void;
-  registerSlot(sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean): void;
+  registerSlot(sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean, exiting?: boolean): void;
   unregisterSlot(sessionId: string, node: HTMLDivElement): void;
   refresh(sessionId: string): void;
   release(sessionId: string): void;
@@ -91,10 +94,11 @@ export function useSessionBrowserSurfaces(
     if (visible && rect) {
       placeFixedSurface(surface.container, rect, selected?.[0]);
       surface.container.dataset.parked = 'false';
-      surface.container.removeAttribute('aria-hidden');
+      applySurfaceInteractivity(surface.container, selected?.[1].exiting !== true);
       return selected;
     }
     surface.expanded = false;
+    applySurfaceInteractivity(surface.container, false);
     const remoteViewed = remoteViewers.current.has(surface.sessionId);
     surface.container.style.left = remoteViewed ? '0' : '-10000px';
     surface.container.style.top = '0';
@@ -106,14 +110,15 @@ export function useSessionBrowserSurfaces(
     }px`;
     surface.container.dataset.parked = 'true';
     surface.container.dataset.remoteViewed = remoteViewed ? 'true' : 'false';
-    surface.container.setAttribute('aria-hidden', 'true');
     return null;
   }, []);
 
   const commit = useCallback(
     (surface: BrowserSurface): void => {
       const selected = position(surface);
-      const active = Boolean(selected);
+      // A closing sheet's slot keeps the page placed (its pixels) but not
+      // active, as the terminal: not the shown guest, no zoom sync, no keys.
+      const active = Boolean(selected) && selected?.[1].exiting !== true;
       const foreground = selected?.[1].foreground === true;
       renderSurfaceRoot(
         surface.root,
@@ -121,6 +126,8 @@ export function useSessionBrowserSurfaces(
           sessionId: surface.sessionId,
           active,
           foreground,
+          // Every inactive page keeps its guest laid out at full size (an
+          // Electron guest stops repainting otherwise), the exiting one too.
           parked: !active,
           expanded: surface.expanded && foreground,
           onToggleExpanded: () => {
@@ -154,14 +161,14 @@ export function useSessionBrowserSurfaces(
   );
 
   const registerSlot = useCallback(
-    (sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean) => {
+    (sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean, exiting = false) => {
       let surface = surfaces.current.get(sessionId);
       if (!surface && active) {
         ensure(sessionId);
         surface = surfaces.current.get(sessionId);
       }
       if (!surface) return;
-      surface.slots.set(node, { active, foreground });
+      surface.slots.set(node, { active, foreground: foreground && !exiting, exiting });
       commit(surface);
     },
     [commit, ensure]
@@ -247,19 +254,21 @@ export function SessionBrowserSlot({
   sessionId,
   active,
   foreground,
+  exiting = false,
 }: {
   controller: SessionBrowserSurfaceController;
   sessionId: string;
   active: boolean;
   foreground: boolean;
+  exiting?: boolean;
 }) {
   const slotRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const node = slotRef.current;
     if (!node) return undefined;
-    controller.registerSlot(sessionId, node, active, foreground);
+    controller.registerSlot(sessionId, node, active, foreground, exiting);
     return () => controller.unregisterSlot(sessionId, node);
-  }, [active, controller, foreground, sessionId]);
+  }, [active, controller, exiting, foreground, sessionId]);
   useSlotRemeasure(slotRef, active, controller, sessionId, true);
   return <div ref={slotRef} className="session-browser-slot" data-browser-session-id={sessionId} />;
 }

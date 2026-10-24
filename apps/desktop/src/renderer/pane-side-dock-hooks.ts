@@ -28,21 +28,62 @@ import type { SideFileChrome } from './side-surface-strip';
  * Lazy panel mounting. The focused pane may hidden-mount its shell after
  * boot; every other pane stays lazy until first expand, and once opened a
  * panel remains mounted so tree expansions and scroll survive fold/unfold.
- * A cold dock commits the correctly sized shell first, then attaches the
- * heavy body on the next frame; warmed and previously visited docks keep
- * their live body and reopen without this hand-off.
+ * An open dock always carries its body: a cold dock mounts it in the opening
+ * commit, so the sheet never paints empty. Only the closed prewarm attaches
+ * the body a frame after its hidden shell.
  */
 export function useDockMounting(openNow: boolean, prewarm: boolean) {
   const everOpened = useRef(openNow);
   if (openNow) everOpened.current = true;
   const panelMounted = openNow || everOpened.current || prewarm;
-  const [dockBodyMounted, setDockBodyMounted] = useState(openNow);
+  const [warmed, setWarmed] = useState(false);
+  const opened = everOpened.current;
   useEffect(() => {
-    if (dockBodyMounted || (!openNow && !prewarm)) return undefined;
-    const frame = window.requestAnimationFrame(() => setDockBodyMounted(true));
+    if (warmed || opened || !prewarm) return undefined;
+    const frame = window.requestAnimationFrame(() => setWarmed(true));
     return () => window.cancelAnimationFrame(frame);
-  }, [dockBodyMounted, openNow, prewarm]);
-  return { panelMounted, dockBodyMounted };
+  }, [warmed, opened, prewarm]);
+  return { panelMounted, dockBodyMounted: opened || warmed };
+}
+
+/**
+ * The phone sheet's exit slide. A close keeps the sheet's last open body on
+ * screen while the sheet's own transform transition carries it off: true from
+ * the close commit until that transition ends or is cancelled (filtered to the
+ * sheet and its transform), false at once on a reopen and whenever no such
+ * transition runs (an instant close, reduced motion). The close itself stays
+ * semantic and immediate; the caller keeps the closing body hidden, inert and
+ * aria-hidden.
+ */
+export function useSheetExit(hostRef: RefObject<HTMLElement | null>, open: boolean, sheet: boolean): boolean {
+  const [exit, setExit] = useState({ open, closing: false });
+  let closing = exit.closing;
+  if (exit.open !== open) {
+    closing = sheet && !open;
+    setExit({ open, closing });
+  }
+  useLayoutEffect(() => {
+    if (!closing) return undefined;
+    const host = hostRef.current;
+    const end = () => setExit((current) => (current.closing ? { ...current, closing: false } : current));
+    const sliding = host
+      ?.getAnimations()
+      .some((a) => a instanceof CSSTransition && a.transitionProperty === 'transform' && a.playState === 'running');
+    if (!host || !sliding) {
+      end();
+      return undefined;
+    }
+    const settle = (event: TransitionEvent) => {
+      if (event.target === host && event.propertyName === 'transform') end();
+    };
+    host.addEventListener('transitionend', settle);
+    host.addEventListener('transitioncancel', settle);
+    return () => {
+      host.removeEventListener('transitionend', settle);
+      host.removeEventListener('transitioncancel', settle);
+    };
+  }, [closing, hostRef]);
+  return closing;
 }
 
 /** The side file tabs' strip chrome (one per mounted editor, keyed by file

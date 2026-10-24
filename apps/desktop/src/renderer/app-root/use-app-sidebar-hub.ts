@@ -51,6 +51,8 @@ export interface UseAppSidebarHubOptions {
   closePaneRightRegion: (leafId: string) => void;
   focusedLeafIdRef: React.MutableRefObject<string>;
   paneLeavesRef: React.MutableRefObject<PaneLeaf[]>;
+  paneLeaves: readonly PaneLeaf[];
+  focusedLeafId: string;
 
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
@@ -111,6 +113,8 @@ export function useAppSidebarHub({
   closePaneRightRegion,
   focusedLeafIdRef,
   paneLeavesRef,
+  paneLeaves,
+  focusedLeafId,
   settingsOpen,
   setSettingsOpen,
   commandSurface,
@@ -226,6 +230,8 @@ export function useAppSidebarHub({
     refreshProjects,
     paneLeavesRef,
     focusedLeafIdRef,
+    paneLeaves,
+    focusedLeafId,
     browserSurfaces,
     pendingBrowserAutoReveal: sessionPaneSurfaces.pendingBrowserAutoReveal,
     setSessionSideSurface,

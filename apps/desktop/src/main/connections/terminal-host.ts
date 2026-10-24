@@ -32,6 +32,17 @@ export function createServiceTerminalHost(service: TerminalService): DesktopTerm
         ...(owner ? { sizeOwner: { cols: Number(owner.cols) || 0, rows: Number(owner.rows) || 0, own: false } } : {}),
       };
     },
+    async attach(id: string) {
+      const value = await service.invokeDesktopOperation('termAttach', [id]);
+      if (!value || typeof value !== 'object') return null;
+      const result = value as Record<string, unknown>;
+      const owner = result.sizeOwner as { cols?: unknown; rows?: unknown } | undefined;
+      return {
+        id: String(result.id || ''),
+        replay: String(result.replay || ''),
+        ...(owner ? { sizeOwner: { cols: Number(owner.cols) || 0, rows: Number(owner.rows) || 0, own: false } } : {}),
+      };
+    },
     write(id: string, data: string): void {
       // Keystrokes take the fire-and-forget lane: a response frame per keypress
       // only queued the input behind whatever session request was in flight.

@@ -3,12 +3,15 @@
 // own policy entry) and an action kind it may do without asking (its
 // permission table: form submits, send/post clicks, and the outbound kinds
 // that offer "다시 묻지 않기"). Nothing shows while the bot has none.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { DesktopApi } from '../shared/contract';
 import { actionLabel, connectorToolLabel } from './ApprovalCard';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
+import { createKeyedReadCache } from './keyed-read-cache';
 import { subscribeSetupChanges } from './setup-change-refresh';
+
+const NO_ITEMS: AlwaysAllowedItem[] = [];
 
 export type AlwaysAllowedApi = Partial<Pick<DesktopApi, 'invokeCapability'>>;
 
@@ -41,6 +44,25 @@ export function alwaysAllowedItems(agentId: string, permissions: unknown, tools:
   return [...actions, ...connectorTools];
 }
 
+/** The host's answer for one bot, as rows. */
+async function readAlwaysAllowed(api: AlwaysAllowedApi | undefined, agentId: string): Promise<AlwaysAllowedItem[]> {
+  const read = (capability: 'getAgentPermissions' | 'getAgentAlwaysAllowedTools') =>
+    api?.invokeCapability?.({ capability, args: [agentId] }).then((result) => result?.value);
+  const [permissions, tools] = await Promise.all([read('getAgentPermissions'), read('getAgentAlwaysAllowedTools')]);
+  return alwaysAllowedItems(agentId, permissions, tools);
+}
+
+/** Each bot's rows (keyed-read-cache): its profile opens on the last read ones
+ *  in its first frame and revalidates behind them, sharing a warm-up's read
+ *  still in flight. */
+const alwaysAllowedCache = createKeyedReadCache<AlwaysAllowedItem[]>();
+
+/** Reads a bot's rows into that cache before its profile opens (a bot tab
+ *  turning active, prefetchAgentProfile). */
+export async function prefetchAlwaysAllowed(api: AlwaysAllowedApi | undefined, agentId: string): Promise<void> {
+  await alwaysAllowedCache.load(agentId, () => readAlwaysAllowed(api, agentId));
+}
+
 export function AlwaysAllowedList({
   api,
   agentId,
@@ -50,42 +72,34 @@ export function AlwaysAllowedList({
   agentId: string;
   active?: boolean;
 }) {
-  const [items, setItems] = useState<AlwaysAllowedItem[]>([]);
+  const subscribe = useCallback((listener: () => void) => alwaysAllowedCache.subscribe(agentId, listener), [agentId]);
+  const items = useSyncExternalStore(subscribe, () => alwaysAllowedCache.peek(agentId)) ?? NO_ITEMS;
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => {
-    const read = (capability: 'getAgentPermissions' | 'getAgentAlwaysAllowedTools') =>
-      api?.invokeCapability?.({ capability, args: [agentId] }).then((result) => result?.value);
-    const [permissions, tools] = await Promise.all([read('getAgentPermissions'), read('getAgentAlwaysAllowedTools')]);
-    return alwaysAllowedItems(agentId, permissions, tools);
-  }, [api, agentId]);
+  const reader = useCallback(() => readAlwaysAllowed(api, agentId), [api, agentId]);
   useEffect(() => {
     if (!active || !agentId) return undefined;
     let live = true;
-    const reload = () =>
-      load()
-        .then((next) => {
-          if (live) setItems(next);
-        })
-        .catch((reason) => {
-          if (live) setError(errorMessageText(reason));
-        });
+    const failed = (reason: unknown) => {
+      if (live) setError(errorMessageText(reason));
+    };
     setError('');
-    void reload();
+    // Each activation revalidates behind the cached rows.
+    alwaysAllowedCache.load(agentId, reader).catch(failed);
     // A grant made while this list is open ("Always allow" on a card) arrives
     // through the same settings-changed broadcast every settings reader uses.
-    const unsubscribe = subscribeSetupChanges(() => void reload());
+    const unsubscribe = subscribeSetupChanges(() => void alwaysAllowedCache.refresh(agentId, reader).catch(failed));
     return () => {
       live = false;
       unsubscribe();
     };
-  }, [load, active, agentId]);
+  }, [reader, active, agentId]);
   const askAgain = async (item: AlwaysAllowedItem) => {
     setBusy(true);
     setError('');
     try {
       await api?.invokeCapability?.({ capability: item.revoke.capability, args: item.revoke.args });
-      setItems(await load());
+      await alwaysAllowedCache.refresh(agentId, reader);
     } catch (reason) {
       setError(errorMessageText(reason));
     } finally {

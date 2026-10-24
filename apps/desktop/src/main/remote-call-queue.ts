@@ -135,7 +135,14 @@ export type SideQuestionCall = { sessionId: string; superseded?: () => Promise<v
  *  that has not started yet is answered by `superseded` and never runs. */
 export type LatestCall = { latest: string; superseded?: () => Promise<void> };
 
-const TERMINAL_METHODS = new Set(['termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose']);
+const TERMINAL_METHODS = new Set([
+  'termEnsure',
+  'termAttach',
+  'termProfiles',
+  'termWrite',
+  'termResize',
+  'termDispose',
+]);
 
 type CallLane = ReturnType<typeof createCallLane>;
 

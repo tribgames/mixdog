@@ -484,6 +484,8 @@ export function createDesktopOperations({
         profile
       );
     }
+    // Attach-only (warm-ups): a running PTY's replay, or null; never spawns.
+    if (name === 'termAttach') return terminals.attach(String(args[0] || ''));
     if (name === 'termProfiles') return listShellProfiles();
     // The Ports panel of a server window: what listens on this machine.
     if (name === 'listListeningPorts') return listListeningPorts();
@@ -566,6 +568,13 @@ export function createDesktopOperations({
         replay: string;
         sizeOwner?: TerminalSizeOwner;
       }>;
+    },
+    attach(id: string) {
+      return invoke('termAttach', [id]) as Promise<{
+        id: string;
+        replay: string;
+        sizeOwner?: TerminalSizeOwner;
+      } | null>;
     },
     write(id: string, data: string): void {
       void invoke('termWrite', [id, data]).catch(() => {});

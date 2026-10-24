@@ -1,7 +1,7 @@
 // A side panel's own actions (agent profile, room info) ride the dock
 // header's ⋯ menu instead of a button footer in the content. The panel
 // publishes them under its pane's leaf id; the dock header row reads them.
-import { useEffect, useSyncExternalStore } from 'react';
+import { useLayoutEffect, useSyncExternalStore } from 'react';
 
 import type { DockAction } from './pane-dock-chrome';
 
@@ -20,13 +20,15 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-/** Publish `actions` for the pane while `active`; withdrawn on unmount. */
+/** Publish `actions` for the pane while `active`; withdrawn on unmount. The
+ *  header row lays out around them, so they land before the paint of the
+ *  commit that shows the panel (its header never gains its ⋯ a frame late). */
 export function usePublishDockPanelActions(
   leafId: string | undefined,
   active: boolean,
   actions: readonly DockAction[]
 ): void {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!leafId || !active) return undefined;
     publish(leafId, actions);
     return () => publish(leafId, NONE);

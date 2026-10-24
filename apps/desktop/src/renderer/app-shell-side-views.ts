@@ -1,12 +1,17 @@
-import { useCallback, type MutableRefObject } from 'react';
+import { useCallback, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from './sidebar-view-layout';
 import { loadSidebarPanelModule, type SidebarPanelKey } from './app-shell-components';
 import { prefetchBrowserPane, prefetchDiffView, prefetchTerminalPane } from './lazy-widgets';
+import { loadShellProfiles } from './terminal-shell-profiles';
+import { sessionDiffPaneModule, visualizePaneModule } from './first-screen-deferred';
 import { preloadUtilityDock } from './app-snapshot-views';
 import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import { isSessionSidePanelView } from './session-side-surface-policy';
 import { allowVisualizeReveal } from './visualize-store';
+import { subscribeDrawerDismiss } from './drawer-intent';
+import { isMobileRemoteSurface } from './mobile-surface';
+import { type OpenRequestModule, useModuleOpenRequest } from './use-module-open-request';
 import type { useAppSideDocks } from './use-app-side-docks';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 import type { WorkbenchSideViewId, WorkbenchSide, WorkbenchSideViewPlacement } from './workbench-side-view-layout';
@@ -24,11 +29,19 @@ interface SideViewRoutingActions {
   refreshProjects: () => Promise<unknown>;
   paneLeavesRef: MutableRefObject<PaneLeaf[]>;
   focusedLeafIdRef: MutableRefObject<string>;
+  /** The committed panes and focus: each navigation among them (a pane's
+   *  selection, a pane added or removed, focus moving) drops a pending open. */
+  paneLeaves: readonly PaneLeaf[];
+  focusedLeafId: string;
   browserSurfaces: ReturnType<typeof useSessionPaneSurfaces>['browserSurfaces'];
   pendingBrowserAutoReveal: ReturnType<typeof useSessionPaneSurfaces>['pendingBrowserAutoReveal'];
   setSessionSideSurface: ReturnType<typeof useSessionPaneSurfaces>['setSessionSideSurface'];
   setSessionPanelView: ReturnType<typeof useSessionPaneSurfaces>['setSessionPanelView'];
+  /** What a Visualize open waits for: its chunk, on the phone (the default). */
+  visualizeOpenGate?: { module: OpenRequestModule; waits(): boolean };
 }
+
+const VISUALIZE_OPEN_GATE = { module: visualizePaneModule, waits: isMobileRemoteSurface };
 
 export function useSideViewPrefetch(
   trackSidebarPanelModule: (panel: SidebarPanelKey, modulePromise: Promise<unknown>) => void
@@ -46,12 +59,22 @@ export function useSideViewPrefetch(
         return;
       }
       if (id === 'terminal') {
+        // The pane chunk and the shell list: a terminal opened next paints
+        // directly (SessionTerminalTabs) with its tab named and its ⋯ ready.
         void prefetchTerminalPane().catch(() => {});
+        void loadShellProfiles();
         return;
       }
-      if (id === 'visualize' || id === 'ports') return;
+      if (id === 'visualize') {
+        // Its chunk stays out of the idle lane; the toggle's hover or touch-down
+        // loads it, so the sheet opens with its body.
+        void visualizePaneModule.load().catch(() => {});
+        return;
+      }
+      if (id === 'ports') return;
       if (id === 'session-diff') {
         void prefetchDiffView().catch(() => {});
+        void sessionDiffPaneModule.load().catch(() => {});
         return;
       }
       if (id !== 'sessions') void preloadUtilityDock().catch(() => {});
@@ -73,12 +96,15 @@ export function useSideViewSelection({
   refreshProjects,
   paneLeavesRef,
   focusedLeafIdRef,
+  paneLeaves,
+  focusedLeafId,
   browserSurfaces,
   pendingBrowserAutoReveal,
   setSessionSideSurface,
   setSessionPanelView,
+  visualizeOpenGate = VISUALIZE_OPEN_GATE,
 }: SideViewRoutingActions) {
-  return useCallback(
+  const selectNow = useCallback(
     (id: WorkbenchSideViewId, paneLeafId?: string) => {
       // The browser flows to the right-side branch as the pane dock's own child.
       const side = sideOf(id);
@@ -142,6 +168,41 @@ export function useSideViewSelection({
       setActiveSideViews,
     ]
   );
+  // The phone sheet slides in with its body: a Visualize open waits for its
+  // chunk (the toggle's touch-down started it), so the sheet never slides
+  // empty. Desktop docks open at once. The wait drops when the user moves
+  // on first: a drawer dismissal, another side view, or a pane navigation.
+  const { request: requestVisualizeOpen, cancel: cancelVisualizeOpen } = useModuleOpenRequest({
+    ...visualizeOpenGate,
+    subscribeDismiss: subscribeDrawerDismiss,
+  });
+  // Every committed navigation drops it, at that navigation: a pane showing
+  // something else (even one that comes back before the chunk is in), a pane
+  // added or removed, or focus moving to another pane.
+  const navigation = paneNavigationKey(paneLeaves, focusedLeafId);
+  const committedNavigation = useRef(navigation);
+  useLayoutEffect(() => {
+    if (committedNavigation.current === navigation) return;
+    committedNavigation.current = navigation;
+    cancelVisualizeOpen();
+  }, [cancelVisualizeOpen, navigation]);
+  return useCallback(
+    (id: WorkbenchSideViewId, paneLeafId?: string) => {
+      if (id !== 'visualize') {
+        cancelVisualizeOpen();
+        selectNow(id, paneLeafId);
+        return;
+      }
+      const leafId = paneLeafId ?? focusedLeafIdRef.current;
+      requestVisualizeOpen(() => selectNow(id, leafId));
+    },
+    [cancelVisualizeOpen, focusedLeafIdRef, requestVisualizeOpen, selectNow]
+  );
+}
+
+/** What a navigation changes: the focused pane and what each pane shows. */
+function paneNavigationKey(leaves: readonly PaneLeaf[], focusedLeafId: string): string {
+  return JSON.stringify([focusedLeafId, leaves.map((leaf) => [leaf.id, leaf.activeKey])]);
 }
 
 export function useSideViewReordering(

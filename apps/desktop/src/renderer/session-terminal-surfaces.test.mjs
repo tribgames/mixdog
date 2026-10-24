@@ -55,16 +55,22 @@ const { SessionTerminalParkingHost, SessionTerminalSlot, sessionTerminalId, useS
 const { applyTerminalActivity, StableTerminalFitScheduler } = await import('./terminal-fit.ts');
 
 const renderFixture = (props) =>
-  React.createElement('div', {
-    className: 'terminal-surface-fixture',
-    'data-cwd': props.cwd,
-    'data-active': props.active ? 'true' : 'false',
-    'data-parked': props.parked ? 'true' : 'false',
-    'data-expanded': props.expanded ? 'true' : 'false',
-    onClick: props.onToggleExpanded,
-  });
+  React.createElement(
+    'div',
+    {
+      className: 'terminal-surface-fixture',
+      'data-cwd': props.cwd,
+      'data-active': props.active ? 'true' : 'false',
+      'data-foreground': props.foreground ? 'true' : 'false',
+      'data-parked': props.parked ? 'true' : 'false',
+      'data-attach-only': props.attachOnly ? 'true' : 'false',
+      'data-expanded': props.expanded ? 'true' : 'false',
+      onClick: props.onToggleExpanded,
+    },
+    React.createElement('button', { type: 'button', className: 'terminal-fixture-key' })
+  );
 
-function Harness({ sessionId, active, cwd, disposeTerminal, onController, docked = false }) {
+function Harness({ sessionId, active, cwd, disposeTerminal, onController, docked = false, exiting = false }) {
   const controller = useSessionTerminalSurfaces(renderFixture, disposeTerminal);
   React.useEffect(() => {
     onController?.(controller);
@@ -75,6 +81,7 @@ function Harness({ sessionId, active, cwd, disposeTerminal, onController, docked
     active,
     foreground: active,
     cwd,
+    exiting,
   });
   return React.createElement(
     React.Fragment,
@@ -239,6 +246,101 @@ test('a slot that only moves is re-measured while it slides and after the transi
     slotShift = 0;
     delete window.requestAnimationFrame;
     delete window.cancelAnimationFrame;
+  }
+});
+
+test('a prewarmed session root renders parked before its dock opens and is placed, not remounted, by the open', async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  let controller = null;
+  const props = {
+    sessionId: 'warm',
+    cwd: 'C:/warm',
+    onController: (value) => {
+      controller = value;
+    },
+  };
+  try {
+    // Closed dock: no active slot, so no root yet.
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: false })));
+    assert.equal(document.querySelector('.session-terminal-surface-container'), null);
+
+    // The toggle's prewarm: the root renders its tree parked, off screen.
+    await act(async () => controller.prewarm('warm'));
+    const container = document.querySelector('.session-terminal-surface-container');
+    assert.ok(container);
+    assert.equal(container.dataset.parked, 'true');
+    assert.equal(container.getAttribute('aria-hidden'), 'true');
+    assert.equal(container.hasAttribute('inert'), true, 'the warmed tree is out of the Tab order');
+    const fixture = container.querySelector('.terminal-surface-fixture');
+    assert.equal(fixture.dataset.active, 'false');
+    // A warm-up render attaches only: its panes never start or change a shell.
+    assert.equal(fixture.dataset.attachOnly, 'true');
+
+    // A second prewarm keeps the root it has.
+    await act(async () => controller.prewarm('warm'));
+    assert.equal(container.querySelector('.terminal-surface-fixture'), fixture);
+
+    // The open places the same container and tree over the slot.
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: true })));
+    assert.equal(document.querySelector('.session-terminal-surface-container'), container);
+    assert.equal(container.querySelector('.terminal-surface-fixture'), fixture);
+    assert.equal(container.dataset.parked, 'false');
+    assert.equal(fixture.dataset.active, 'true');
+    assert.equal(fixture.dataset.cwd, 'C:/warm');
+    // The real open ends the warm-up: the panes ensure as usual from here.
+    assert.equal(fixture.dataset.attachOnly, 'false');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a closing sheet's terminal keeps its pixels but is inert, aria-hidden, unfocused and inactive from the close commit", async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const props = { sessionId: 'exit', cwd: 'C:/exit' };
+  try {
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: true })));
+    const container = document.querySelector('.session-terminal-surface-container');
+    const fixture = container.querySelector('.terminal-surface-fixture');
+    const key = container.querySelector('.terminal-fixture-key');
+    key.focus();
+    assert.equal(document.activeElement, key);
+
+    // The close commit: the sheet still slides, carrying the surface.
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: true, exiting: true })));
+    assert.equal(container.dataset.parked, 'false', 'still placed over the sliding slot');
+    assert.equal(container.style.left, '40px');
+    assert.equal(container.hasAttribute('inert'), true);
+    assert.equal(container.getAttribute('aria-hidden'), 'true');
+    assert.notEqual(document.activeElement, key, 'focus inside is let go');
+    assert.equal(fixture.dataset.active, 'false', 'no focus hold, keys or fits');
+    assert.equal(fixture.dataset.foreground, 'false');
+
+    // Reopened mid-close: interactive again.
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: true })));
+    assert.equal(container.hasAttribute('inert'), false);
+    assert.equal(container.hasAttribute('aria-hidden'), false);
+    assert.equal(fixture.dataset.active, 'true');
+    assert.equal(fixture.dataset.foreground, 'true');
+
+    // The exit ends: parked, and it stays inert while parked.
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: true, exiting: true })));
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: false })));
+    assert.equal(container.dataset.parked, 'true');
+    assert.equal(container.getAttribute('aria-hidden'), 'true');
+    assert.equal(container.hasAttribute('inert'), true, 'a parked terminal is never interactive');
+
+    // A genuine reopen restores it.
+    await act(async () => root.render(React.createElement(Harness, { ...props, active: true })));
+    assert.equal(container.hasAttribute('inert'), false);
+    assert.equal(container.hasAttribute('aria-hidden'), false);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });
 

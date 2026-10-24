@@ -7,7 +7,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { ReadyTerminalPane } from './app-shell-components';
 import { t } from './i18n';
-import { disposeTerminalPane } from './lazy-widgets';
+import { reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
+import { disposeTerminalPane, terminalPaneModule } from './lazy-widgets';
 import { useForegroundMedia } from './media-lifecycle';
 import { getTerminalActivityStates, holdTerminalFocus, subscribeTerminalActivity } from './terminal-activity-store';
 import type { TerminalActivityState } from '../shared/terminal-activity';
@@ -203,16 +204,65 @@ function TerminalTabItem({
   );
 }
 
+/** Warms a session's terminal before it opens (the dock toggle's hover, focus
+ *  or touch-down): the shown tab's PTY, when it is already running, attaches
+ *  and replays into its view (prewarmTerminal), then the session's root
+ *  renders parked and attach-only (`renderParked`), so its pane mounts and
+ *  draws the screen off screen and the opening frame only places it. A warm-up
+ *  never starts or changes a shell: a tab whose shell is not running is left
+ *  for the real open; a session without tabs opens a fresh one that paints at
+ *  once. */
+export function prewarmSessionTerminal(sessionId: string, renderParked: (sessionId: string) => void): void {
+  const state = getSessionTerminalTabs(sessionId);
+  const shown = state.tabs.find((tab) => tab.id === state.activeId);
+  if (!shown) return;
+  void terminalPaneModule
+    .load()
+    .then((module) => module.prewarmTerminal(shown.id))
+    .then((attached) => {
+      if (attached) renderParked(sessionId);
+    })
+    .catch(() => {});
+}
+
+/** One tab's terminal. A tab whose terminal paints complete in its mount frame
+ *  (terminalPaintsAtOnce: its screen is live here, or it never ran) renders the
+ *  loaded pane directly, with no loading cover over it; a tab whose scrollback
+ *  must replay first, or whose chunk is still loading, keeps the cover
+ *  (ReadyTerminalPane). Decided once, when the tab mounts. */
+function SessionTerminalPane(props: {
+  cwd: string | null;
+  terminalId: string;
+  shell: string;
+  active: boolean;
+  attachOnly: boolean;
+}) {
+  const { terminalId } = props;
+  const [direct] = useState(() => {
+    const module = terminalPaneModule.peek();
+    return module?.terminalPaintsAtOnce(terminalId) ? module : null;
+  });
+  useEffect(() => {
+    if (direct) reportBootSurfaceReady('terminal', terminalId, 'shell');
+  }, [direct, terminalId]);
+  if (!direct) return <ReadyTerminalPane {...props} />;
+  return <direct.default {...props} onReady={() => reportBootSurfaceStage('terminal', terminalId, 'interactive')} />;
+}
+
 export function SessionTerminalTabs({
   sessionId,
   cwd,
   active,
+  attachOnly = false,
   expanded = false,
   onToggleExpanded,
 }: {
   sessionId: string;
   cwd: string | null;
   active: boolean;
+  /** Warm-up render: every tab's pane attaches to a shell already running and
+   *  never starts or changes one (TerminalPane `attachOnly`). */
+  attachOnly?: boolean;
   expanded?: boolean;
   onToggleExpanded?(): void;
 }) {
@@ -364,11 +414,12 @@ export function SessionTerminalTabs({
       <div className="session-terminal-tab-panels">
         {state.tabs.map((tab) => (
           <div key={tab.id} className="session-terminal-tab-panel" hidden={tab.id !== state.activeId}>
-            <ReadyTerminalPane
+            <SessionTerminalPane
               cwd={tab.cwd || cwd}
               terminalId={tab.id}
               shell={tab.shell}
               active={active && tab.id === state.activeId}
+              attachOnly={attachOnly}
             />
           </div>
         ))}

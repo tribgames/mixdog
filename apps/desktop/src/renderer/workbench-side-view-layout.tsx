@@ -469,6 +469,11 @@ interface WorkbenchSidePanelProps {
   open: boolean;
   /** Narrow-band sheets slide; a responsive fold applies its state instantly. */
   motion?: 'animated' | 'instant';
+  /** Closed, but its container's exit slide still carries it (the phone dock
+   *  sheet, useSheetExit): it stays displayed (`data-closing`) and its shown
+   *  views keep rendering as shown, while hidden/inert/aria-hidden follow
+   *  `open` at once. */
+  exiting?: boolean;
   /** Pane-embedded panel (per-pane right dock): keeps the horizontal tabs
    *  header for view switching, is exempt from the window sheet-band CSS,
    *  and skips idle pre-retain — one hidden mount per pane would multiply
@@ -518,6 +523,7 @@ export function WorkbenchSidePanel({
   side,
   open,
   motion = 'animated',
+  exiting = false,
   embedded = false,
   widthStorageKey,
   widthRange,
@@ -694,6 +700,7 @@ export function WorkbenchSidePanel({
       data-side={side}
       data-motion={motion}
       data-embedded={embedded ? 'true' : undefined}
+      data-closing={exiting && !open ? 'true' : undefined}
       hidden={!open}
       aria-hidden={open ? undefined : true}
       inert={open ? undefined : true}
@@ -847,7 +854,7 @@ export function WorkbenchSidePanel({
                   <Fragment key={id}>
                     <WorkbenchSideSection
                       id={id}
-                      active={selected && open}
+                      active={selected && (open || exiting)}
                       movable={movable}
                       sectioned={group.length > 1}
                       order={index * 2}

@@ -84,6 +84,8 @@ test('Sessions → Bots → Sessions keeps the active tab, the strip, the draft 
       refreshProjects: async () => {},
       paneLeavesRef: { current: workspace.leaves },
       focusedLeafIdRef: { current: workspace.focusedLeafId },
+      paneLeaves: workspace.leaves,
+      focusedLeafId: workspace.focusedLeafId,
       browserSurfaces: { ensure() {} },
       pendingBrowserAutoReveal: { current: new Set() },
       setSessionSideSurface() {},

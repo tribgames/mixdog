@@ -40,11 +40,29 @@ function dropPendingSurfaceRender(root: Root): void {
 
 /** The visible slot a persistent surface (terminal, browser) should follow: the
  *  foreground active slot, else the first active one. */
-export function preferredSurfaceSlot<Slot extends { active: boolean; foreground: boolean }>(
+export function preferredSurfaceSlot<Slot extends { active: boolean; foreground: boolean; exiting?: boolean }>(
   slots: ReadonlyMap<HTMLDivElement, Slot>
 ): [HTMLDivElement, Slot] | null {
   const active = [...slots].filter(([, slot]) => slot.active);
-  return active.find(([, slot]) => slot.foreground) ?? active[0] ?? null;
+  return active.find(([, slot]) => slot.foreground) ?? active.find(([, slot]) => !slot.exiting) ?? active[0] ?? null;
+}
+
+/** A persistent surface's semantics, applied to its own container in the
+ *  commit that places or parks it (its root renders later on the phone,
+ *  renderSurfaceRoot). Only a surface shown over an open slot is interactive.
+ *  A parked one (off screen or beneath the UI) and one whose sheet is sliding
+ *  closed (`exiting`, its pixels kept) are inert and aria-hidden with focus
+ *  inside let go, so Tab never reaches them; a genuine reopen restores it. */
+export function applySurfaceInteractivity(container: HTMLElement, interactive: boolean): void {
+  if (interactive) {
+    container.removeAttribute('inert');
+    container.removeAttribute('aria-hidden');
+    return;
+  }
+  container.setAttribute('inert', '');
+  container.setAttribute('aria-hidden', 'true');
+  const focused = container.ownerDocument.activeElement;
+  if (focused instanceof HTMLElement && container.contains(focused)) focused.blur();
 }
 
 type SurfaceRect = { left: number; top: number; width: number; height: number };

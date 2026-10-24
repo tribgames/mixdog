@@ -63,6 +63,40 @@ test('concurrent ensure for one terminal id spawns exactly one PTY', async () =>
   assert.equal(spawns, 1);
 });
 
+test('attach never starts a shell: a never-started or exited one answers null, a live one its replay', async () => {
+  const manager = new TerminalManager();
+  let spawns = 0;
+  let exit = null;
+  manager.loadPtyBindings = async () => ({
+    spawn: () => {
+      spawns += 1;
+      return {
+        onData() {},
+        onExit(listener) {
+          exit = listener;
+        },
+        write() {},
+        resize() {},
+        kill() {},
+      };
+    },
+  });
+  const id = 'session-terminal:warm';
+  assert.equal(await manager.attach(id), null, 'never started: not running');
+  assert.equal(spawns, 0);
+  assert.equal(manager.terminals.has(id), false, 'attach leaves no entry behind');
+
+  await manager.ensure(id, null);
+  assert.equal(spawns, 1);
+  manager.terminals.get(id).buffer.append('PS C:\\> ');
+  assert.deepEqual(await manager.attach(id), { id, replay: 'PS C:\\> ' });
+  assert.equal(spawns, 1, 'attaching to a live shell spawns nothing');
+
+  exit({ exitCode: 0 });
+  assert.equal(await manager.attach(id), null, 'exited: not running');
+  assert.equal(spawns, 1, 'attaching to an exited shell spawns nothing');
+});
+
 test('sessionTabs lists only one session in tab order and snapshot is read-only', () => {
   const manager = new TerminalManager();
   const entry = (shell, disposed = false, cwd = null) => {

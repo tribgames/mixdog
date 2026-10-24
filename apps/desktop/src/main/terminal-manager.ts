@@ -249,6 +249,20 @@ export class TerminalManager {
     return pending;
   }
 
+  /** Attach to a PTY that is already running, never starting one: its id and
+   *  replay buffer, or null when it is not running (never started, exited,
+   *  disposed). A spawn already under way for the id is waited for, not
+   *  joined by another. Warm-ups use this; only a real open ensures. */
+  async attach(id: string): Promise<{ id: string; replay: string; sizeOwner?: TerminalSizeOwner } | null> {
+    if (this.disposed || !id) return null;
+    const inFlight = this.spawning.get(id);
+    if (inFlight) await inFlight.catch(() => undefined);
+    const existing = this.terminals.get(id);
+    if (!existing || existing.disposed) return null;
+    const sizeOwner = this.sizeOwner(id);
+    return { id, replay: existing.buffer.read(), ...(sizeOwner ? { sizeOwner } : {}) };
+  }
+
   /** Create (or reuse) a PTY; returns id + replay buffer for reattach. */
   async ensure(
     id: string | null,

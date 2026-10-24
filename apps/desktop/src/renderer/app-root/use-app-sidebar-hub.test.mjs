@@ -49,6 +49,8 @@ test('useAppSidebarHub wires sidebar surface, side views descriptors, and reorde
       paneSideDocks: { open: () => {}, setOpen: () => {}, select: () => {} },
       focusedLeafIdRef,
       paneLeavesRef: leavesRef,
+      paneLeaves: leavesRef.current,
+      focusedLeafId: focusedLeafIdRef.current,
       settingsOpen: false,
       setSettingsOpen: () => {},
       commandSurface: null,

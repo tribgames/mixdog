@@ -11,6 +11,7 @@ import { SessionTerminalTabs } from './SessionTerminalTabs';
 import { releaseSessionTerminalTabs, sessionTerminalId } from './session-terminal-tabs';
 import { useSlotRemeasure } from './surface-slot-remeasure';
 import {
+  applySurfaceInteractivity,
   expandedSurfaceRect,
   placeFixedSurface,
   preferredSurfaceSlot,
@@ -22,12 +23,17 @@ import { cachedShellProfiles, loadShellProfiles } from './terminal-shell-profile
 type TerminalSurfaceSlot = {
   active: boolean;
   foreground: boolean;
+  /** Its sheet slides closed: pixels kept, interaction gone (applySurfaceInteractivity). */
+  exiting: boolean;
   cwd: string | null;
 };
 
 type TerminalSurface = {
   sessionId: string;
   cwd: string | null;
+  /** Rendered by a warm-up (prewarm) and not opened since: its panes only
+   *  attach to shells already running, never start or change one. */
+  warm: boolean;
   expanded: boolean;
   /** Side dock header widened while this surface is expanded. */
   header: HTMLElement | null;
@@ -42,6 +48,8 @@ type SessionTerminalSurfaceRenderProps = {
   active: boolean;
   foreground: boolean;
   parked: boolean;
+  /** Warm-up render (TerminalSurface.warm): attach-only panes. */
+  attachOnly: boolean;
   expanded: boolean;
   onToggleExpanded(): void;
 };
@@ -57,8 +65,16 @@ const disposeDefaultTerminalSurface: SessionTerminalSurfaceDisposer = (terminalI
 };
 
 interface SessionTerminalSurfaceController {
-  registerSlot(sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean, cwd: string | null): void;
+  registerSlot(
+    sessionId: string,
+    node: HTMLDivElement,
+    active: boolean,
+    foreground: boolean,
+    cwd: string | null,
+    exiting?: boolean
+  ): void;
   unregisterSlot(sessionId: string, node: HTMLDivElement): void;
+  prewarm(sessionId: string): void;
   refresh(sessionId: string): void;
   release(sessionId: string): void;
   setParkingHost(node: HTMLDivElement | null): void;
@@ -68,6 +84,7 @@ const renderDefaultTerminalSurface: SessionTerminalSurfaceRenderer = ({
   sessionId,
   cwd,
   active,
+  attachOnly,
   expanded,
   onToggleExpanded,
 }) => (
@@ -75,6 +92,7 @@ const renderDefaultTerminalSurface: SessionTerminalSurfaceRenderer = ({
     sessionId={sessionId}
     cwd={cwd}
     active={active}
+    attachOnly={attachOnly}
     expanded={expanded}
     onToggleExpanded={onToggleExpanded}
   />
@@ -100,17 +118,17 @@ export function useSessionTerminalSurfaces(
     if (visible && rect) {
       placeFixedSurface(surface.container, rect, selected?.[0]);
       surface.container.dataset.parked = 'false';
-      surface.container.removeAttribute('aria-hidden');
+      applySurfaceInteractivity(surface.container, selected?.[1].exiting !== true);
       return selected;
     }
     surface.expanded = false;
+    applySurfaceInteractivity(surface.container, false);
     surface.container.style.left = '-10000px';
     surface.container.style.top = '0';
     // Preserve the last visible grid while parked. Browser Use intentionally
     // takes a synthetic desktop viewport, but resizing a hidden PTY would send
     // a false SIGWINCH and restore the wrong row count on return.
     surface.container.dataset.parked = 'true';
-    surface.container.setAttribute('aria-hidden', 'true');
     return null;
   }, []);
 
@@ -118,7 +136,9 @@ export function useSessionTerminalSurfaces(
     (surface: TerminalSurface) => {
       const selected = position(surface);
       if (selected) surface.cwd = selected[1].cwd;
-      const active = Boolean(selected);
+      // A closing sheet's slot keeps the terminal placed (its pixels) but not
+      // active: no focus hold, no keys, no fits.
+      const active = Boolean(selected) && selected?.[1].exiting !== true;
       const foreground = selected?.[1].foreground === true;
       renderSurfaceRoot(
         surface.root,
@@ -127,7 +147,8 @@ export function useSessionTerminalSurfaces(
           cwd: surface.cwd,
           active,
           foreground,
-          parked: !active,
+          parked: !selected,
+          attachOnly: surface.warm,
           expanded: surface.expanded && foreground,
           onToggleExpanded: () => {
             surface.expanded = !surface.expanded;
@@ -151,6 +172,7 @@ export function useSessionTerminalSurfaces(
     const surface: TerminalSurface = {
       sessionId,
       cwd,
+      warm: false,
       expanded: false,
       header: null,
       container,
@@ -162,11 +184,34 @@ export function useSessionTerminalSurfaces(
   }, []);
 
   const registerSlot = useCallback(
-    (sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean, cwd: string | null) => {
+    (
+      sessionId: string,
+      node: HTMLDivElement,
+      active: boolean,
+      foreground: boolean,
+      cwd: string | null,
+      exiting = false
+    ) => {
       let surface = surfaces.current.get(sessionId);
       if (!surface && active) surface = ensure(sessionId, cwd);
       if (!surface) return;
-      surface.slots.set(node, { active, foreground, cwd });
+      surface.slots.set(node, { active, foreground: foreground && !exiting, exiting, cwd });
+      // The real open: from here its panes start or change shells as usual.
+      if (active && !exiting) surface.warm = false;
+      commit(surface);
+    },
+    [commit, ensure]
+  );
+
+  // A session's terminal root rendered parked before its dock opens (the
+  // toggle's prewarm): its panes mount and draw off screen, attach-only, so
+  // the opening frame only places the container. A root that already exists
+  // is kept.
+  const prewarm = useCallback(
+    (sessionId: string) => {
+      if (surfaces.current.has(sessionId)) return;
+      const surface = ensure(sessionId, null);
+      surface.warm = true;
       commit(surface);
     },
     [commit, ensure]
@@ -223,11 +268,12 @@ export function useSessionTerminalSurfaces(
     () => ({
       registerSlot,
       unregisterSlot,
+      prewarm,
       refresh,
       release,
       setParkingHost,
     }),
-    [refresh, registerSlot, release, setParkingHost, unregisterSlot]
+    [prewarm, refresh, registerSlot, release, setParkingHost, unregisterSlot]
   );
 }
 
@@ -251,20 +297,22 @@ export function SessionTerminalSlot({
   active,
   foreground,
   cwd,
+  exiting = false,
 }: {
   controller: SessionTerminalSurfaceController;
   sessionId: string;
   active: boolean;
   foreground: boolean;
   cwd: string | null;
+  exiting?: boolean;
 }) {
   const slotRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const node = slotRef.current;
     if (!node) return undefined;
-    controller.registerSlot(sessionId, node, active, foreground, cwd);
+    controller.registerSlot(sessionId, node, active, foreground, cwd, exiting);
     return () => controller.unregisterSlot(sessionId, node);
-  }, [active, controller, cwd, foreground, sessionId]);
+  }, [active, controller, cwd, exiting, foreground, sessionId]);
   useSlotRemeasure(slotRef, active, controller, sessionId);
   return <div ref={slotRef} className="session-terminal-slot" data-terminal-session-id={sessionId} />;
 }

@@ -42,6 +42,8 @@ test('useSideViewSelection routes right-side views to paneSideDocks.select and l
     refreshProjects: async () => {},
     paneLeavesRef,
     focusedLeafIdRef,
+    paneLeaves: paneLeavesRef.current,
+    focusedLeafId: 'leaf-1',
     browserSurfaces: {
       ensure: () => {},
     },
@@ -93,6 +95,155 @@ test('useSideViewSelection routes right-side views to paneSideDocks.select and l
       root.unmount();
     });
     restore();
+  }
+});
+
+/** A Visualize chunk whose import the test finishes by hand. */
+function slowVisualizeModule() {
+  const gate = Promise.withResolvers();
+  let loaded = null;
+  return {
+    peek: () => loaded,
+    load: () => gate.promise.then(() => loaded),
+    finish: () => {
+      loaded = {};
+      gate.resolve();
+    },
+    fail: () => gate.reject(new Error('chunk failed')),
+  };
+}
+
+async function mountPhoneSelection(module, waits = () => true) {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><div id="root"></div>',
+    jsdom: { url: 'about:blank' },
+  });
+  const docked = [];
+  const leaf = { id: 'leaf-1', tabs: [{ kind: 'session', id: 'session-1' }], activeKey: 'session:session-1' };
+  const other = { id: 'leaf-2', tabs: [{ kind: 'session', id: 'session-3' }], activeKey: 'session:session-3' };
+  const paneLeavesRef = { current: [leaf, other] };
+  const focusedLeafIdRef = { current: 'leaf-1' };
+  const actions = {
+    sideOf: (id) => (['browser', 'terminal', 'visualize', 'session-diff'].includes(id) ? 'right' : 'left'),
+    selectDock: (leafId, viewId) => docked.push(`${leafId}:${viewId}`),
+    activeSideViews: { left: 'sessions', right: 'browser' },
+    setActiveSideViews: () => {},
+    sidebarOpen: false,
+    applySidebarOpen: () => {},
+    closeSidebarPanels: () => {},
+    mountSidebarPanel: () => {},
+    trackSidebarPanelModule: () => {},
+    refreshProjects: async () => {},
+    paneLeavesRef,
+    focusedLeafIdRef,
+    browserSurfaces: { ensure: () => {} },
+    pendingBrowserAutoReveal: { current: new Set() },
+    setSessionSideSurface: () => {},
+    setSessionPanelView: () => {},
+    visualizeOpenGate: { module, waits },
+  };
+  let select;
+  function Harness({ paneLeaves, focusedLeafId }) {
+    select = useSideViewSelection({ ...actions, paneLeaves, focusedLeafId });
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  /** Commits a navigation, as the pane workspace does: new leaves and focus. */
+  const navigate = ({ shows = paneLeavesRef.current[0].activeKey, focus = focusedLeafIdRef.current } = {}) =>
+    act(async () => {
+      paneLeavesRef.current = [{ ...paneLeavesRef.current[0], activeKey: shows }, paneLeavesRef.current[1]];
+      focusedLeafIdRef.current = focus;
+      root.render(React.createElement(Harness, { paneLeaves: paneLeavesRef.current, focusedLeafId: focus }));
+    });
+  await navigate();
+  return {
+    docked,
+    navigate,
+    select: (id) => act(async () => select(id, 'leaf-1')),
+    settle: (finish) =>
+      act(async () => {
+        finish();
+        await new Promise((resolve) => setImmediate(resolve));
+      }),
+    unmount: async () => {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+test('a phone Visualize tap before its chunk loads opens the sheet once the chunk is in, not before', async () => {
+  const module = slowVisualizeModule();
+  const view = await mountPhoneSelection(module);
+  try {
+    await view.select('visualize');
+    assert.deepEqual(view.docked, [], 'no sheet slides open without its body');
+    await view.select('visualize');
+    // A commit that navigates nowhere keeps the request.
+    await view.navigate();
+    await view.settle(module.finish);
+    assert.deepEqual(view.docked, ['leaf-1:visualize'], 'repeated taps open once');
+    await view.select('visualize');
+    assert.deepEqual(view.docked, ['leaf-1:visualize', 'leaf-1:visualize'], 'loaded: opens at once');
+  } finally {
+    await view.unmount();
+  }
+});
+
+test('a pending phone Visualize open drops on another side view, a drawer dismissal or any pane navigation', async () => {
+  const { announceDrawerDismiss } = await import('./drawer-intent.ts');
+  const cases = [
+    ['another side view', (view) => view.select('terminal'), ['leaf-1:terminal']],
+    ['a drawer dismissal', () => act(async () => announceDrawerDismiss()), []],
+    ['a pane switch', (view) => view.navigate({ shows: 'session:session-2' }), []],
+    [
+      'a pane switch that comes back (A, B, then A) before the chunk is in',
+      async (view) => {
+        await view.navigate({ shows: 'session:session-2' });
+        await view.navigate({ shows: 'session:session-1' });
+      },
+      [],
+    ],
+    ['focus moving to another pane', (view) => view.navigate({ focus: 'leaf-2' }), []],
+    [
+      'focus moving away and back',
+      async (view) => {
+        await view.navigate({ focus: 'leaf-2' });
+        await view.navigate({ focus: 'leaf-1' });
+      },
+      [],
+    ],
+  ];
+  for (const [label, moveOn, expected] of cases) {
+    const module = slowVisualizeModule();
+    const view = await mountPhoneSelection(module);
+    try {
+      await view.select('visualize');
+      await moveOn(view);
+      await view.settle(module.finish);
+      assert.deepEqual(view.docked, expected, `${label} drops the pending open`);
+    } finally {
+      await view.unmount();
+    }
+  }
+});
+
+test('a failed Visualize import still opens, so the panel reports it; the desktop never waits', async () => {
+  const failing = slowVisualizeModule();
+  const phone = await mountPhoneSelection(failing);
+  try {
+    await phone.select('visualize');
+    await phone.settle(failing.fail);
+    assert.deepEqual(phone.docked, ['leaf-1:visualize']);
+  } finally {
+    await phone.unmount();
+  }
+  const desktop = await mountPhoneSelection(slowVisualizeModule(), () => false);
+  try {
+    await desktop.select('visualize');
+    assert.deepEqual(desktop.docked, ['leaf-1:visualize']);
+  } finally {
+    await desktop.unmount();
   }
 });
 

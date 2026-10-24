@@ -731,18 +731,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-heade
   flex-direction: row;
   overflow: visible;
 }
-/* The opening frame paints the sheet at its final width only (useDockBodyShown):
-   the panel view stays out of the render tree as it was while folded — its
-   style and layout (a retained diff tree is tens of thousands of nodes) wait
-   for the next frame, where it is inserted rather than moved. The surface
-   layer and the diff pair keep their boxes, undrawn; none of these sizes the
-   sheet, so the reveal never moves the pane's edge. */
-.pane-side-dock[data-body-pending="true"] .workbench-side-panel-content > .workbench-side-panel-body {
-  display: none;
-}
-.pane-side-dock[data-body-pending="true"] :is(.workbench-side-panel-surfaces, .pane-dock-diff-body) {
-  visibility: hidden;
-}
 .pane-side-dock .workbench-side-panel[data-embedded="true"] {
   height: 100%;
   /* The content wrapper still clips its children; the resize edge must not

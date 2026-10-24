@@ -750,7 +750,7 @@ test('mobile always stacks the visible diff so Goal has a visible DIFF anchor', 
   assert.equal(paneDiffStacks(false, 500, 640, true), false);
 });
 
-test('a cold pane dock paints its open shell before mounting the heavy body', async () => {
+test('a cold pane dock opens with its body in the same commit', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
@@ -805,25 +805,16 @@ test('a cold pane dock paints its open shell before mounting the heavy body', as
     assert.equal(dock?.dataset.open, 'true');
     assert.ok(panel);
     assert.equal(panel.hidden, false);
-    assert.equal(document.querySelector('[data-testid="heavy-dock-body"]'), null);
-    // One frame attaches the body, one activates it (useDockBodyShown).
-    assert.equal(pendingFrames.size, 2);
-
-    await act(async () => {
-      const callbacks = [...pendingFrames.values()];
-      pendingFrames.clear();
-      callbacks.forEach((callback) => {
-        callback(16);
-      });
-    });
+    // No frame hand-off: the opening commit already carries the body.
     assert.ok(document.querySelector('[data-testid="heavy-dock-body"]'));
+    assert.equal(pendingFrames.size, 0);
   } finally {
     await act(async () => root.unmount());
     restore();
   }
 });
 
-test('a warm pane dock reopens at its width first and activates its body a frame later', async () => {
+test('a warm pane dock reopens with its width and its active body in the click commit', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
@@ -884,17 +875,14 @@ test('a warm pane dock reopens at its width first and activates its body a frame
     await render(true);
     const dock = document.querySelector('.pane-side-dock');
     assert.equal(dock.dataset.open, 'true', 'the sheet takes its width in the click commit');
-    assert.equal(dock.dataset.bodyPending, 'true');
-    assert.ok(activity.length > 0 && activity.every((active) => active === false), 'the body stays inactive');
+    assert.equal(activity.at(-1), true, 'the body is active in the same commit');
+    assert.equal(pendingFrames.size, 0, 'nothing waits for a later frame');
     assert.ok(widthSyncs > syncsBeforeOpen, "the commit that moved the pane's edge re-measured the transcripts");
 
-    await runFrames();
-    assert.equal(dock.dataset.bodyPending, undefined);
-    assert.equal(activity.at(-1), true);
-
-    // A close hides the body in its own commit.
+    // A desktop close hides the body in the close commit (no exit slide).
     await render(false);
     assert.equal(activity.at(-1), false);
+    assert.equal(dock.dataset.closing, undefined);
   } finally {
     unregister();
     await act(async () => root.unmount());

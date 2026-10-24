@@ -24,7 +24,6 @@ import { PaneDockDiffColumn } from './pane-dock-diff-column';
 import { PaneDockFileSurface } from './PaneDockFileSurface';
 import { SESSION_BOUND_VIEWS } from './pane-dock-toggles';
 import { useVisualizeAvailable } from './visualize-store';
-import { usePhoneSheetBodyReady } from './phone-deferred-mount';
 import { publishPhoneDockSwitch, type PhoneDockSwitchItem } from './phone-dock-switch';
 import {
   clampPaneDockHeight,
@@ -42,6 +41,7 @@ import {
   useDockRoomHeight,
   useInlineDockFlag,
   usePanelWidthDrag,
+  useSheetExit,
   useSidePanelPlacement,
   useSideFileProblems,
 } from './pane-side-dock-hooks';
@@ -1461,8 +1461,11 @@ type PaneSideDockProps = {
   ): void;
   onFocusPane(): void;
   openFileTab(project: string, rel: string, line?: number, accessToken?: string): void;
-  renderBrowserSurface?(active: boolean): ReactNode;
-  renderTerminalSurface?(active: boolean): ReactNode;
+  /** `exiting`: the dock closed, but its sheet's exit slide still carries the
+   *  surface (useSheetExit) — it keeps its pixels and nothing else: inert,
+   *  aria-hidden, unfocused and not foreground from the close commit. */
+  renderBrowserSurface?(active: boolean, exiting: boolean): ReactNode;
+  renderTerminalSurface?(active: boolean, exiting: boolean): ReactNode;
   /** `onSideChrome` receives the editor's dirty/problem/action state for the
    *  dock's file strip; the editor draws no breadcrumb row of its own. */
   renderFileSurface?(
@@ -1585,12 +1588,14 @@ function renderPaneDockSurfaces(
   >,
   {
     showing,
+    exiting,
     dockBodyMounted,
     twoDepth,
     fileProblems,
     diffContext,
   }: {
     showing: ReturnType<typeof paneDockShowing>;
+    exiting: boolean;
     dockBodyMounted: boolean;
     twoDepth: boolean;
     fileProblems: ReturnType<typeof useSideFileProblems>;
@@ -1624,8 +1629,8 @@ function renderPaneDockSurfaces(
       {renderDockDiffSurface(entry.diff, diffContext, true)}
     </div>
   );
-  const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing) ?? null) : null;
-  const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing) ?? null) : null;
+  const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing, exiting) ?? null) : null;
+  const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing, exiting) ?? null) : null;
   const leadingTab =
     sessionBound && entry.view === 'session-diff'
       ? { label: t('Changes'), onSelect: () => onSelect('session-diff') }
@@ -1682,22 +1687,22 @@ function renderPaneDockMain(
   >,
   {
     openNow,
+    closing,
     dockBodyMounted,
     diffColumn,
     surfaces,
     surfacesActive,
-    bodyShown,
     asideWidth,
     panelWidthDrag,
     widthRange,
     widthResizable,
   }: {
     openNow: boolean;
+    closing: boolean;
     dockBodyMounted: boolean;
     diffColumn: ReactNode;
     surfaces: ReactNode;
     surfacesActive: boolean;
-    bodyShown: boolean;
     asideWidth: number;
     panelWidthDrag: ReturnType<typeof usePanelWidthDrag>;
     widthRange: ReturnType<typeof dockWidthRange>;
@@ -1713,6 +1718,7 @@ function renderPaneDockMain(
         embedded
         hideTabs
         open={openNow}
+        exiting={closing}
         groups={groups}
         activeRoot={entry.view}
         surfaces={surfaces}
@@ -1725,9 +1731,7 @@ function renderPaneDockMain(
         onWidthDrag={panelWidthDrag}
         widthRange={widthRange}
         resizable={widthResizable}
-        renderView={(id, active, titleDragProps) =>
-          dockBodyMounted ? renderView(id, active && bodyShown, titleDragProps) : null
-        }
+        renderView={(id, active, titleDragProps) => (dockBodyMounted ? renderView(id, active, titleDragProps) : null)}
         hiddenKey={dockBodyMounted ? 'body' : ''}
       />
     </div>
@@ -1829,28 +1833,6 @@ function expandedHostStyle(
   };
 }
 
-/** The dock body shows one frame after the dock opens. The opening commit
- *  carries only the sheet at its final width — the pane's edge, the
- *  transcript's rewrap and its anchor (syncTranscriptWidths) — so the click
- *  paints at once; the body's own reveal (style and layout of a retained diff
- *  tree, a terminal's focus and fit, a view's reopen reset) lands in the next
- *  commit, inside a sheet whose size no longer changes. A close hides the body
- *  in its own commit. The phone sheet overlays the conversation (no width
- *  changes under it) and keeps showing its body with the sheet. */
-export function useDockBodyShown(openNow: boolean, deferred: boolean): boolean {
-  const [shownOpen, setShownOpen] = useState(openNow);
-  useEffect(() => {
-    if (!openNow) {
-      setShownOpen(false);
-      return undefined;
-    }
-    if (shownOpen) return undefined;
-    const frame = window.requestAnimationFrame(() => startTransition(() => setShownOpen(true)));
-    return () => window.cancelAnimationFrame(frame);
-  }, [openNow, shownOpen]);
-  return openNow && (shownOpen || !deferred);
-}
-
 export function PaneSideDock(props: PaneSideDockProps) {
   const {
     leafId,
@@ -1865,31 +1847,19 @@ export function PaneSideDock(props: PaneSideDockProps) {
     openFileTab,
   } = props;
   const openNow = entry.open && (entry.view !== null || entry.surface !== '');
-  const { panelMounted, dockBodyMounted: dockBodyMountedRaw } = useDockMounting(openNow, prewarm);
+  // The body shows in the commit that opens the sheet, with the sheet.
+  const { panelMounted, dockBodyMounted } = useDockMounting(openNow, prewarm);
   const mobileSheet = useMobileRemoteSurface();
-  // Phone: the sheet paints and starts sliding before its body mounts.
-  const phoneBodyReady = usePhoneSheetBodyReady(openNow, dockBodyMountedRaw);
-  const dockBodyMounted = dockBodyMountedRaw && phoneBodyReady;
-  const bodyShown = useDockBodyShown(openNow, !mobileSheet);
   const fileProblems = useSideFileProblems((entry.files?.length ?? 0) > 0);
-  // Geometry follows `openNow`; what the body's children treat as showing
-  // (their activity, focus, fit) follows `bodyShown`.
+  // Geometry and semantics follow `openNow`.
   const showing = paneDockShowing(entry, openNow);
-  const bodyShowing = paneDockShowing(entry, bodyShown);
-  const {
-    browserShowing,
-    terminalShowing,
-    sessionSurfaceShowing,
-    widthSurfaceShowing,
-    diffShowing,
-    sessionDiffPanelShowing,
-  } = showing;
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const { browserShowing, terminalShowing, widthSurfaceShowing, diffShowing, sessionDiffPanelShowing } = showing;
   // The dock measures its own pane cell (see resolveDockLayout).
   const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
     useDockWidthPrefs();
   // The dock header mounts the diff controls; the pane body shares this state.
   const diffView = useDiffViewState('pane-side-dock');
-  const hostRef = useRef<HTMLDivElement | null>(null);
   // The workspace column's inline-dock flag (useInlineDockFlag): rewritten by
   // every render, false until the layout below resolves an inline dock. Called
   // before every measuring hook: on the commit that creates the host its
@@ -1897,6 +1867,14 @@ export function PaneSideDock(props: PaneSideDockProps) {
   const inlineDock = useRef(false);
   inlineDock.current = false;
   useInlineDockFlag(hostRef, inlineDock);
+  // The phone sheet slides closed with its last open body on it
+  // (useSheetExit); what the body's children treat as showing follows that.
+  const closing = useSheetExit(hostRef, openNow, mobileSheet);
+  const lastOpenEntry = useRef(entry);
+  if (openNow) lastOpenEntry.current = entry;
+  const bodyProps = closing ? { ...props, entry: lastOpenEntry.current } : props;
+  const bodyOpen = openNow || closing;
+  const bodyShowing = paneDockShowing(bodyProps.entry, bodyOpen);
   const cellWidth = useDockCellWidth(hostRef, openNow);
   // Desktop placement (Settings → Side panel position); the phone sheet keeps
   // its overlay grammar, so it always resolves to the right-hand layout.
@@ -2023,8 +2001,9 @@ export function PaneSideDock(props: PaneSideDockProps) {
     openFileTab,
     onCloseDiff,
   };
-  const surfaces = renderPaneDockSurfaces(props, {
+  const surfaces = renderPaneDockSurfaces(bodyProps, {
     showing: bodyShowing,
+    exiting: closing,
     dockBodyMounted,
     twoDepth,
     fileProblems,
@@ -2041,7 +2020,12 @@ export function PaneSideDock(props: PaneSideDockProps) {
       {renderDockDiffSurface(columnDiff, diffContext)}
     </PaneDockDiffColumn>
   );
-  const { chromeRow, phoneSwitch } = renderPaneDockHeader(props, { openNow, mobileSheet, showing, diffView });
+  const { chromeRow, phoneSwitch } = renderPaneDockHeader(bodyProps, {
+    openNow: bodyOpen,
+    mobileSheet,
+    showing: bodyShowing,
+    diffView,
+  });
   // The spacer holds the dock's row (below) or column (beside) while expanded.
   const spacerStyle = bottom ? { height: restHeight.current } : { width: restWidth.current };
   return (
@@ -2055,7 +2039,10 @@ export function PaneSideDock(props: PaneSideDockProps) {
         data-open={openNow ? 'true' : 'false'}
         data-overlay={overlay ? 'true' : 'false'}
         data-expanded={dockExpanded ? 'true' : 'false'}
-        data-body-pending={openNow && !bodyShown ? 'true' : undefined}
+        data-closing={closing ? 'true' : undefined}
+        // The sliding-out sheet is already closed: nothing on it is reachable.
+        inert={closing || undefined}
+        aria-hidden={closing || undefined}
         style={
           expandedHostStyle(dockExpanded, expandedRect) ?? (bottom && openNow ? { height: dockHeight } : undefined)
         }
@@ -2079,13 +2066,13 @@ export function PaneSideDock(props: PaneSideDockProps) {
         {chromeRow}
         {phoneSwitch}
         {panelMounted &&
-          renderPaneDockMain(props, {
+          renderPaneDockMain(bodyProps, {
             openNow,
+            closing,
             dockBodyMounted,
             diffColumn,
             surfaces,
-            surfacesActive: sessionSurfaceShowing || twoDepth,
-            bodyShown,
+            surfacesActive: bodyShowing.sessionSurfaceShowing || twoDepth,
             asideWidth,
             panelWidthDrag,
             widthRange: dockWidthRange(widthSurfaceShowing, session),

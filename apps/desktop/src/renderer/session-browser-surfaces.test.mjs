@@ -174,6 +174,55 @@ test('an unloaded parked browser drops its display and recreates only when its s
   }
 });
 
+function ExitHarness({ exiting }) {
+  const controller = useSessionBrowserSurfaces(renderFixture);
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(SessionBrowserParkingHost, { controller }),
+    React.createElement(SessionBrowserSlot, {
+      controller,
+      sessionId: 'exit',
+      active: true,
+      foreground: true,
+      exiting,
+    })
+  );
+}
+
+test("a closing sheet's browser keeps its pixels but is inert, aria-hidden, unfocused, inactive and not foreground", async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(React.createElement(ExitHarness, { exiting: false })));
+    const container = host.querySelector('.session-browser-surface-container');
+    const fixture = container.querySelector('.browser-surface-fixture');
+    const control = fixture.querySelector('button');
+    control.focus();
+    assert.equal(document.activeElement, control);
+
+    await act(async () => root.render(React.createElement(ExitHarness, { exiting: true })));
+    assert.equal(container.dataset.parked, 'false', 'still placed over the sliding slot');
+    assert.equal(container.style.left, '80px');
+    assert.equal(fixture.dataset.active, 'false', 'not the shown guest: no zoom sync, no keys');
+    assert.equal(fixture.dataset.parked, 'true', 'its guest stays laid out, so the page keeps painting');
+    assert.equal(container.hasAttribute('inert'), true);
+    assert.equal(container.getAttribute('aria-hidden'), 'true');
+    assert.notEqual(document.activeElement, control, 'focus inside is let go');
+    assert.equal(fixture.dataset.foreground, 'false');
+
+    await act(async () => root.render(React.createElement(ExitHarness, { exiting: false })));
+    assert.equal(container.hasAttribute('inert'), false);
+    assert.equal(container.hasAttribute('aria-hidden'), false);
+    assert.equal(fixture.dataset.active, 'true');
+    assert.equal(fixture.dataset.foreground, 'true');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 const paneBrowserEntry = {
   open: true,
   view: 'sourceControl',
@@ -209,8 +258,14 @@ test('one session browser root moves between parking and dock without replacemen
     assert.ok(container);
     assert.ok(container.parentElement.classList.contains('session-browser-parking-host'));
     assert.equal(container.querySelector('.browser-surface-fixture').dataset.parked, 'true');
+    assert.deepEqual(
+      [container.hasAttribute('inert'), container.getAttribute('aria-hidden')],
+      [true, 'true'],
+      'a parked page is never interactive'
+    );
 
     await act(async () => root.render(React.createElement(Harness, { show: true })));
+    assert.deepEqual([container.hasAttribute('inert'), container.hasAttribute('aria-hidden')], [false, false]);
     assert.equal(document.querySelector('.session-browser-surface-container'), container);
     assert.ok(container.parentElement.classList.contains('session-browser-parking-host'));
     assert.equal(container.dataset.parked, 'false');
@@ -234,7 +289,9 @@ test('one session browser root moves between parking and dock without replacemen
     assert.equal(document.querySelector('.session-browser-surface-container'), container);
     assert.ok(container.parentElement.classList.contains('session-browser-parking-host'));
     assert.equal(container.querySelector('.browser-surface-fixture').dataset.parked, 'true');
+    assert.equal(container.hasAttribute('inert'), true, 'parked after a close: inert again');
     await act(async () => root.render(React.createElement(Harness, { show: true })));
+    assert.equal(container.hasAttribute('inert'), false, 'the reopen restores it');
     assert.equal(container.style.width, '640px', 'reopening a folded browser restores its dock size');
 
     await act(async () => browserController.release('alpha'));

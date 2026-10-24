@@ -167,6 +167,7 @@ function useSidebarHubWiring(
   tabWorkflow: AppTabWorkflow
 ) {
   const {
+    paneWorkspace,
     shellPanels,
     sideDocks,
     projectCatalog,
@@ -200,6 +201,8 @@ function useSidebarHubWiring(
     removeProject,
     focusedLeafIdRef,
     paneLeavesRef,
+    paneLeaves: paneWorkspace.leaves,
+    focusedLeafId: paneWorkspace.focusedLeafId,
     onboardingOpen,
     setOnboardingOpen,
     quickAccessMode,

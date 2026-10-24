@@ -39,8 +39,9 @@ import {
 } from './agent-face-editor';
 import { useDeletedBotSession } from './agent-chat-mode';
 import { AgentInstructionEditors } from './agent-instruction-editors';
-import { ConnectorSwitchList } from './connector-switches';
-import { AlwaysAllowedList } from './agent-always-allowed';
+import { ConnectorSwitchList, prefetchConnectorSwitches } from './connector-switches';
+import { AlwaysAllowedList, prefetchAlwaysAllowed } from './agent-always-allowed';
+import { createKeyedReadCache } from './keyed-read-cache';
 import { type AgentActionsApi, deleteAgent, resetConversation, setAgentOn } from './agent-profile-actions';
 import { subscribeAgentRouteChange } from './agent-chat-route';
 import { usePublishDockPanelActions } from './dock-panel-actions';
@@ -110,20 +111,24 @@ function routeSelection(value: unknown, leaf = false): DesktopModelSelection {
 const sameRoute = (left: DesktopModelSelection, right: DesktopModelSelection) =>
   JSON.stringify(routeSelection(left)) === JSON.stringify(routeSelection(right));
 
-/** The last loaded profile per home thread: reopening the panel paints it in
- *  the first frame and revalidates behind it. */
-const profileCache = new Map<string, AgentProfile>();
+/** The profile per home thread (keyed-read-cache): opening the panel paints
+ *  the last loaded one in the first frame and revalidates behind it, sharing
+ *  the warm-up's read still in flight. */
+const profileCache = createKeyedReadCache<AgentProfile>();
 
-/** Loads `sessionId`'s profile and the shared model/routine data into the
- *  caches before the panel opens (the bot tab turning active calls this). */
+/** Loads `sessionId`'s profile, its connector switches and always-allowed
+ *  rows, and the shared model/routine data into the caches before the panel
+ *  opens (the bot tab turning active calls this), so the panel paints complete
+ *  in its first frame. */
 export async function prefetchAgentProfile(api: AgentProfileApi | undefined, sessionId: string): Promise<void> {
   const agentId = agentIdOfHomeSession(sessionId);
   if (!agentId || !api?.invokeCapability) return;
-  const [profile] = await Promise.all([
-    loadProfile(api, agentId, sessionId).catch(() => undefined),
+  await Promise.all([
+    profileCache.load(sessionId, () => loadProfile(api, agentId, sessionId)).catch(() => undefined),
     loadSidebarReferences(api, [...MODEL_REFERENCE_KEYS, 'channelSetup']),
+    prefetchConnectorSwitches(api, 'agent', agentId).catch(() => undefined),
+    prefetchAlwaysAllowed(api, agentId).catch(() => undefined),
   ]);
-  if (profile) profileCache.set(sessionId, profile);
 }
 
 async function loadProfile(api: AgentProfileApi | undefined, agentId: string, sessionId: string) {
@@ -401,7 +406,7 @@ export function AgentProfilePane({
   // `profile` with the count of loads that produced it: the form restarts
   // from each newly loaded profile, never from a stale one mid-reload.
   const [loaded, setLoaded] = useState<{ profile: AgentProfile; count: number } | null>(() => {
-    const cached = profileCache.get(sessionId);
+    const cached = profileCache.peek(sessionId);
     return cached ? { profile: cached, count: 1 } : null;
   });
   const profile = loaded?.profile ?? null;
@@ -433,9 +438,11 @@ export function AgentProfilePane({
     // Loads on mount even while the panel is closed, so opening it is warm.
     if (!agentId || deleted) return undefined;
     let live = true;
-    loadProfile(api, agentId, sessionId)
+    // An activation shares a read in flight (the bot tab's warm-up); an
+    // asked-for reload (after a save or an action) reads anew after it.
+    const reader = () => loadProfile(api, agentId, sessionId);
+    (restartForm.current ? profileCache.refresh(sessionId, reader) : profileCache.load(sessionId, reader))
       .then((next) => {
-        profileCache.set(sessionId, next);
         // An unchanged silent revalidation keeps the form (and any edits in
         // it); an asked-for reload (reload()) always restarts it.
         const restart = restartForm.current;

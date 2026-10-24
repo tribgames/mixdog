@@ -21,6 +21,7 @@ import type { EditorSaveHandle } from './use-pane-tab-close';
 import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
 import { SessionBrowserSlot } from './session-browser-surfaces';
 import { SessionTerminalSlot } from './session-terminal-surfaces';
+import { prewarmSessionTerminal } from './SessionTerminalTabs';
 import { resolveTerminalCwd } from './session-terminal-tabs';
 import { sessionDiffStripHasTabs } from './use-session-diff-tabs';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
@@ -232,18 +233,19 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           </DeferredPersistentSurface>
         );
       }}
-      renderBrowserSurface={(surfaceActive) => {
+      renderBrowserSurface={(surfaceActive, exiting) => {
         if (!sessionId) return null;
         return (
           <SessionBrowserSlot
             controller={context.sessionSurfaces.browserSurfaces}
             sessionId={sessionId}
             active={surfaceActive}
-            foreground={surfaceActive && focused}
+            foreground={surfaceActive && focused && !exiting}
+            exiting={exiting}
           />
         );
       }}
-      renderTerminalSurface={(surfaceActive) => {
+      renderTerminalSurface={(surfaceActive, exiting) => {
         if (!sessionId) return null;
         return (
           <SessionTerminalSlot
@@ -251,7 +253,8 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
             sessionId={sessionId}
             cwd={resolveTerminalCwd(context.sessionWorkspaceCwdFor?.(sessionId), projectPath)}
             active={surfaceActive}
-            foreground={surfaceActive && focused}
+            foreground={surfaceActive && focused && !exiting}
+            exiting={exiting}
           />
         );
       }}
@@ -272,6 +275,40 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
       }
     />
   );
+}
+
+const sessionToggleDescriptorCache = new WeakMap<
+  ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>,
+  Map<string, ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>>
+>();
+
+/** A session pane's toggle descriptors: its Terminal toggle's prefetch also
+ *  warms that session's terminal (prewarmSessionTerminal). One stable map per
+ *  base map and session. */
+function sessionToggleDescriptors(
+  base: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>,
+  sessionId: string,
+  renderParked: (sessionId: string) => void
+): ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor> {
+  const terminal = base.get('terminal');
+  if (!terminal) return base;
+  let bySession = sessionToggleDescriptorCache.get(base);
+  if (!bySession) {
+    bySession = new Map();
+    sessionToggleDescriptorCache.set(base, bySession);
+  }
+  let descriptors = bySession.get(sessionId);
+  if (!descriptors) {
+    descriptors = new Map(base).set('terminal', {
+      ...terminal,
+      onPrefetch: () => {
+        terminal.onPrefetch?.();
+        prewarmSessionTerminal(sessionId, renderParked);
+      },
+    });
+    bySession.set(sessionId, descriptors);
+  }
+  return descriptors;
 }
 
 export function renderPaneDockStripTrailing(
@@ -305,7 +342,11 @@ export function renderPaneDockStripTrailing(
   return (
     <PaneDockToggles
       groups={groups}
-      descriptors={sideViewDescriptors}
+      descriptors={
+        sessionId
+          ? sessionToggleDescriptors(sideViewDescriptors, sessionId, sessionSurfaces.terminalSurfaces.prewarm)
+          : sideViewDescriptors
+      }
       activeRoot={paneDockActiveRoot(entry)}
       sessionBound={Boolean(sessionId)}
       onSelect={(id) => {

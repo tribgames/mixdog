@@ -15,6 +15,10 @@ export interface DesktopTerminalHost {
   ):
     | { id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } }
     | Promise<{ id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } }>;
+  /** A running PTY's replay, or null when it is not running; never spawns. */
+  attach?(
+    id: string
+  ): Promise<{ id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } } | null>;
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
   pauseOutput?(id: string): void;
@@ -73,6 +77,7 @@ export function registerTerminalIpc({
         typeof profile === 'string' && profile ? profile : null
       )
     );
+    handle(DESKTOP_IPC.termAttach, (_event, id) => terminals.attach?.(requiredString(id, 'terminal id', 128)) ?? null);
     handle(DESKTOP_IPC.termProfiles, () => invokeDesktopOperation('termProfiles', []));
     handle(DESKTOP_IPC.termActivity, () => terminals.activity?.() ?? []);
     handle(DESKTOP_IPC.termDispose, (_event, id) => {

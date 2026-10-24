@@ -429,6 +429,8 @@ async function mountHeader(tabs) {
       refreshProjects: async () => {},
       paneLeavesRef: { current: leaves },
       focusedLeafIdRef: { current: 'L1' },
+      paneLeaves: leaves,
+      focusedLeafId: 'L1',
       browserSurfaces: sessionSurfaces.browserSurfaces,
       pendingBrowserAutoReveal: sessionSurfaces.pendingBrowserAutoReveal,
       setSessionSideSurface: sessionSurfaces.setSessionSideSurface,

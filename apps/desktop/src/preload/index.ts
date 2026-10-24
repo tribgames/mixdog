@@ -515,6 +515,7 @@ const api: DesktopApi = {
     }
   },
   termEnsure: (id, cwd, shell) => invokeIpc(DESKTOP_IPC.termEnsure, id, cwd ?? null, shell ?? null),
+  termAttach: (id) => invokeIpc(DESKTOP_IPC.termAttach, id),
   termProfiles: () => invokeIpc(DESKTOP_IPC.termProfiles),
   termWrite: (id, data) => {
     try {

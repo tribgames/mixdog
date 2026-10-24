@@ -3,7 +3,7 @@
 // unless switched off here, and one installed later shows up on; each switch
 // saves at once (setAgentConnectorEnabled / setProjectConnectorEnabled).
 import { Plug } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
 import type { DesktopApi } from '../shared/contract';
 import { openConnectorsTab } from './connector-connect';
@@ -11,6 +11,8 @@ import { ConnectorIcon } from './connector-icon';
 import { baseConnectorId } from './connectors-model';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
+import { createKeyedReadCache } from './keyed-read-cache';
+import { subscribeSetupChanges } from './setup-change-refresh';
 import { CompactSwitch } from './settings/capability-controls';
 
 export type ConnectorSwitchApi = Partial<Pick<DesktopApi, 'invokeCapability'>>;
@@ -32,6 +34,24 @@ export function connectorSwitches(value: unknown): ConnectorSwitch[] {
     .map((row) => ({ id: String(row.id), enabled: row.enabled === true }));
 }
 
+/** Each target's switches (keyed-read-cache): a list opens on the last read
+ *  ones in its first frame and revalidates behind them, sharing a warm-up's
+ *  read still in flight. */
+const switchesCache = createKeyedReadCache<ConnectorSwitch[]>();
+const switchesKey = (kind: 'agent' | 'project', target: string) => `${kind}\0${target}`;
+const switchesReader = (api: ConnectorSwitchApi | undefined, kind: 'agent' | 'project', target: string) => async () =>
+  connectorSwitches((await api?.invokeCapability?.({ capability: CAPABILITIES[kind].read, args: [target] }))?.value);
+
+/** Reads a target's switches into that cache before its list opens (a bot tab
+ *  turning active warms its profile's, prefetchAgentProfile). */
+export async function prefetchConnectorSwitches(
+  api: ConnectorSwitchApi | undefined,
+  kind: 'agent' | 'project',
+  target: string
+): Promise<void> {
+  await switchesCache.load(switchesKey(kind, target), switchesReader(api, kind, target));
+}
+
 export function ConnectorSwitchList({
   api,
   kind,
@@ -44,33 +64,39 @@ export function ConnectorSwitchList({
   target: string;
   active?: boolean;
 }) {
-  const [rows, setRows] = useState<ConnectorSwitch[] | null>(null);
+  const key = switchesKey(kind, target);
+  const subscribe = useCallback((listener: () => void) => switchesCache.subscribe(key, listener), [key]);
+  const rows = useSyncExternalStore(subscribe, () => switchesCache.peek(key)) ?? null;
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const { read, write } = CAPABILITIES[kind];
+  const { write } = CAPABILITIES[kind];
   useEffect(() => {
     if (!active || !target) return undefined;
     let live = true;
     setError('');
-    api
-      ?.invokeCapability?.({ capability: read, args: [target] })
-      .then((result) => {
-        if (live) setRows(connectorSwitches(result?.value));
-      })
-      .catch((reason) => {
-        if (live) setError(errorMessageText(reason));
-      });
+    if (!api?.invokeCapability) return undefined;
+    const reader = switchesReader(api, kind, target);
+    const failed = (reason: unknown) => {
+      if (live) setError(errorMessageText(reason));
+    };
+    // Each activation revalidates behind the cached rows.
+    switchesCache.load(key, reader).catch(failed);
+    // A connector installed, removed or switched elsewhere (a setup tool, the
+    // Extensions page, another window) arrives through the settings-changed
+    // broadcast every settings reader uses; it reads after any read in flight.
+    const unsubscribe = subscribeSetupChanges(() => void switchesCache.refresh(key, reader).catch(failed));
     return () => {
       live = false;
+      unsubscribe();
     };
-  }, [api, read, target, active]);
+  }, [api, kind, target, active, key]);
   const toggle = async (ids: string[], enabled: boolean) => {
     setBusy(true);
     setError('');
     try {
       let result: { value?: unknown } | undefined;
       for (const id of ids) result = await api?.invokeCapability?.({ capability: write, args: [target, id, enabled] });
-      setRows(connectorSwitches(result?.value));
+      switchesCache.write(key, connectorSwitches(result?.value));
     } catch (reason) {
       setError(errorMessageText(reason));
     } finally {

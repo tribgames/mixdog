@@ -707,6 +707,11 @@ export interface DesktopApi {
     cwd?: string | null,
     shell?: string | null
   ): Promise<{ id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } }>;
+  /** Warm-ups: attach to a PTY that is already running (its replay), or null
+   *  when it is not running. Never starts or changes a process. */
+  termAttach?(
+    id: string
+  ): Promise<{ id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } } | null>;
   termWrite?(id: string, data: string): void;
   /** `phoneOwner`: the phone showing this terminal owns the PTY size (a
    *  non-positive size releases it); other views follow instead of fitting. */

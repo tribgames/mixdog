@@ -9,7 +9,6 @@ import { FilesRootPane, type ExplorerControls } from './ExplorerTree';
 import type { PaneSideDockFolder } from './pane-side-dock';
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
-import { PhoneDeferredMount } from './phone-deferred-mount';
 
 const NO_CHANGED_FILES = new Set<string>();
 const ignoreReadyChange = () => {};
@@ -102,22 +101,20 @@ export const PaneDockFilesSurface = memo(function PaneDockFilesSurface({
         onClose={onClose}
       />
       <div className="workbench-explorer pane-dock-files-body">
-        <PhoneDeferredMount>
-          <FilesRootPane
-            projectPath={folder.project}
-            gitStatus={null}
-            changed={NO_CHANGED_FILES}
-            activeFileKey={paneDockFolderRevealKey(folder)}
-            active={active}
-            readinessKey={`dock-files:${folder.project}`}
-            onReadyChange={ignoreReadyChange}
-            onOpenFile={openTreeFile}
-            onRenameEntry={onRenameEntry}
-            revealDir
-            revealNonce={folder.nonce}
-            onControls={setControls}
-          />
-        </PhoneDeferredMount>
+        <FilesRootPane
+          projectPath={folder.project}
+          gitStatus={null}
+          changed={NO_CHANGED_FILES}
+          activeFileKey={paneDockFolderRevealKey(folder)}
+          active={active}
+          readinessKey={`dock-files:${folder.project}`}
+          onReadyChange={ignoreReadyChange}
+          onOpenFile={openTreeFile}
+          onRenameEntry={onRenameEntry}
+          revealDir
+          revealNonce={folder.nonce}
+          onControls={setControls}
+        />
       </div>
     </div>
   );

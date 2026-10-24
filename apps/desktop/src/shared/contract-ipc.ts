@@ -236,6 +236,7 @@ export const DESKTOP_IPC = {
   rendererReady: 'mixdog:renderer-ready',
   acknowledgeWhatsNew: 'mixdog:acknowledge-whats-new',
   termEnsure: 'mixdog:term-ensure',
+  termAttach: 'mixdog:term-attach',
   termWrite: 'mixdog:term-write',
   termResize: 'mixdog:term-resize',
   termAcknowledge: 'mixdog:term-acknowledge',

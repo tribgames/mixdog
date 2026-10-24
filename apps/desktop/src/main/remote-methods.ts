@@ -235,6 +235,8 @@ export interface RemoteMethodDependencies {
     ):
       | { id: string; replay: string; sizeOwner?: TerminalSizeOwner }
       | Promise<{ id: string; replay: string; sizeOwner?: TerminalSizeOwner }>;
+    /** A running PTY's replay, or null when it is not running; never spawns. */
+    attach(id: string): Promise<{ id: string; replay: string; sizeOwner?: TerminalSizeOwner } | null>;
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number, client?: string): void;
   };
@@ -1432,6 +1434,13 @@ function terminalRemoteMethods(
       );
       const owner = clientSizeOwner(sizeOwner, connectionId());
       return owner ? { ...ensured, sizeOwner: owner } : ensured;
+    },
+    termAttach: async ([id]) => {
+      const attached = await terminals.attach(requiredString(id, 'terminal id', 128));
+      if (!attached) return null;
+      const { sizeOwner, ...rest } = attached;
+      const owner = clientSizeOwner(sizeOwner, connectionId());
+      return owner ? { ...rest, sizeOwner: owner } : rest;
     },
     termProfiles: () => invokeDesktopOperation('termProfiles', []),
     termWrite: ([id, data]) => {

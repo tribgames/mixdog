@@ -121,7 +121,9 @@ test('remote reconnect re-ensures mounted terminals without duplicate attempts',
     await h.dial();
     await until(() => reconnected() === 1, 'the reconnect announcement');
   });
-  assert.match(pane, /if\s*\(\s*disposed\s*\|\|\s*ensureInFlight\b.*\)\s*return;/);
+  // Every (re)connect goes through the pane's connect gate, which starts none
+  // while one is in flight (terminal-connect-gate.test.mjs).
+  assert.match(pane, /const attemptEnsure = \(\) => \{\s*if \(disposed[^}]*connectGate\.connect\(\);/);
   assert.match(pane, /addEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);
   assert.match(pane, /removeEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);
 });

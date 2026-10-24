@@ -10,7 +10,6 @@ import type { usePaneWorkspace } from '../pane-workspace-state';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from '../sidebar-view-layout';
 import type { SidebarPanelKey } from '../app-shell-components';
 import { requestPaneDockClose } from '../pane-dock-chrome';
-import { PhoneDeferredMount } from '../phone-deferred-mount';
 import type { SessionDiffPane as SessionDiffPaneComponent } from '../SessionDiffPane';
 import type { ServerPortsPanel as ServerPortsPanelComponent } from '../ServerPortsPanel';
 import { useDeferredModule } from '../deferred-module';
@@ -79,13 +78,7 @@ function SessionDiffPane({
   const lane = useSessionLane(ownsWorkspace ? props.sessionId : '');
   const cwd = sessionChangesCwd(ownsWorkspace, lane?.cwd, props.cwd ?? '');
   const loading = <DesktopLoadingSurface label={t('Loading view…')} />;
-  return module ? (
-    <PhoneDeferredMount placeholder={loading}>
-      <module.SessionDiffPane {...props} cwd={cwd} />
-    </PhoneDeferredMount>
-  ) : (
-    loading
-  );
+  return module ? <module.SessionDiffPane {...props} cwd={cwd} /> : loading;
 }
 
 function RoutinesPane(props: React.ComponentProps<typeof RoutinesPaneComponent> & { leafId?: string }) {
@@ -371,9 +364,7 @@ export function useAppWorkbenchViews({
     if (id === 'visualize') {
       if (!pane) return null;
       return (
-        <PhoneDeferredMount>
-          <VisualizePane sessionId={pane.sessionId} active={active} onClose={() => requestPaneDockClose('visualize')} />
-        </PhoneDeferredMount>
+        <VisualizePane sessionId={pane.sessionId} active={active} onClose={() => requestPaneDockClose('visualize')} />
       );
     }
     // Session-owned surfaces render in the pane dock's persistent stack.
