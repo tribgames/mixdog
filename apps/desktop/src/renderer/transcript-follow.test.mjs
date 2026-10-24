@@ -1355,6 +1355,45 @@ test('pressing, or pressing Enter or Space on, a control lets go of follow; pros
   }
 });
 
+test('answering the question card at the followed end keeps following the reply after it', async () => {
+  const harness = await tailHarness('question-card-answer');
+  const { state, viewport } = harness;
+  const [React, { createRoot }, { QuestionCard }] = await Promise.all([
+    import('react'),
+    import('react-dom/client'),
+    import('./QuestionCard.tsx'),
+  ]);
+  window.Element.prototype.scrollIntoView = () => {};
+  const host = document.createElement('div');
+  viewport.appendChild(host);
+  const card = createRoot(host);
+  try {
+    const questions = [
+      { question: 'Which topic next?', header: 'Topic', options: [{ label: 'Cats' }, { label: 'Birds' }] },
+    ];
+    await harness.act(async () =>
+      card.render(React.createElement(QuestionCard, { questions, resolve: () => new Promise(() => {}) }))
+    );
+    // The live press lands on the option's label text, inside its button.
+    const label = host.querySelector('.question-option .question-option-label');
+    assert.ok(label, 'the card renders its options');
+    await harness.pointerDown(label);
+    assert.equal(state.hook.followingRef.current, true, 'picking an option keeps the tail followed');
+    for (const target of [
+      host.querySelector('.question-close'),
+      host.querySelector('.question-other input'),
+      host.querySelector('[data-primary]'),
+    ]) {
+      await harness.pointerDown(target);
+      harness.key({ key: 'Enter', target });
+    }
+    assert.equal(state.hook.followingRef.current, true, "none of the card's controls lets go of the tail");
+  } finally {
+    await harness.act(async () => card.unmount());
+    await harness.dispose();
+  }
+});
+
 test('the jump control shows only while follow is off and the end is more than 200px away', async () => {
   const harness = await tailHarness('jump-state');
   const { state } = harness;

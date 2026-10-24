@@ -218,6 +218,10 @@ export function QuestionCard({
       aria-label={t('Agent question')}
       data-multi={multi || undefined}
       data-agent-mode={agentMode || undefined}
+      // The card is the turn's waiting end: answering it resumes the reply
+      // below, so a press or Enter on its controls must not let go of the
+      // followed tail the way an expander does (user: 선택하고 나서 스크롤 풀림).
+      data-transcript-keeps-follow=""
     >
       <div className="question-head">
         <span className="question-icon" aria-hidden="true">
