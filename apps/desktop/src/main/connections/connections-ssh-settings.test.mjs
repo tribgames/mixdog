@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
+import { createServerPayload, setServerPayloadResolver } from '../ssh/remote-install-payload.ts';
 import { currentSshContext, runWithSshContext } from '../ssh/ssh-context.ts';
 import { createDesktopConnection } from './index.ts';
+
+// The bootstrap resolves the runtime payload before its first ssh. The real
+// one needs the desktop build's generated server lockfile (out/server/deps),
+// which a checkout that was not built (CI's test job) does not have.
+setServerPayloadResolver((bundle) =>
+  createServerPayload(
+    [
+      { path: 'package.json', source: Buffer.from('{"name":"mixdog","version":"1.1.2"}') },
+      { path: 'apps/desktop/out/main/daemon.cjs', source: bundle },
+    ],
+    '1.1.2'
+  )
+);
+after(() => setServerPayloadResolver(null));
 
 const deps = {
   moduleUrl: () => 'file:///daemon.cjs',
