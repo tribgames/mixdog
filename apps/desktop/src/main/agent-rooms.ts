@@ -36,6 +36,7 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import { roomMemberSwitchedOffError } from '../shared/room-error-codes';
 import { routeParams } from './agent-home-sessions';
 import { type RoomExchangeHost, runRoomExchangeIn } from './agent-room-exchange';
 import { createRoomLog } from './agent-room-log';
@@ -227,8 +228,15 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   const pollMs = deps.pollMs ?? 500;
   const log = deps.log ?? ((line: string) => console.warn(`[mixdog-rooms] ${line}`));
   const records = createRoomRecords(deps);
-  const { loadRecords, ready: recordsReady, refreshNames, memberLabels, speakingMembers, persist, roomOf, names } =
-    records;
+  const {
+    loadRecords,
+    ready: recordsReady,
+    refreshNames,
+    memberLabels,
+    persist,
+    roomOf,
+    names,
+  } = records;
   const running = new Map<string, RunState>();
   /** Per room, the send/ask requests still on their way to route(): Stop
    *  cancels them even when no exchange runs yet. */
@@ -641,11 +649,12 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     // accepted before — this process or an earlier one — is acknowledged once.
     if (submissionId && room.submissions?.includes(submissionId)) return true;
     const labels = await memberLabels(room);
-    const parsed = parseRoomAsk(promptText(prompt), speakingMembers(labels));
-    if (parsed.error === 'member') {
-      const off = parseRoomAsk(promptText(prompt), [...labels.values()]).to.find((id) => labels.get(id)?.disabled);
-      throw new Error(off ? `"${labels.get(off)?.name ?? off}" is switched off.` : 'No member of this room has that name.');
-    }
+    // Names resolve against every member first, so a switched-off "Bench lead"
+    // is never mistaken for "Bench"; a switched-off target is then refused.
+    const parsed = parseRoomAsk(promptText(prompt), [...labels.values()]);
+    if (parsed.error === 'member') throw new Error('No member of this room has that name.');
+    const off = parsed.to.find((id) => labels.get(id)?.disabled);
+    if (off) throw roomMemberSwitchedOffError(labels.get(off)?.name ?? off);
     // The files go up with the row: the log's intake stores them as a chat
     // prompt's are (agent-room-delivery.mjs), and the members the message
     // reaches get them on their next turn.
@@ -687,7 +696,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     const roomId = roomIdOfSession(sessionId);
     const room = roomOf(roomId);
     const labels = await memberLabels(room);
-    const members = speakingMembers(labels);
+    const members = [...labels.values()];
     const named = typeof to === 'string' ? to.trim() : '';
     const asked = typeof prompt === 'string' ? prompt.trim() : '';
     // `to`, else a leading `@name`, resolved against `list`.
@@ -702,11 +711,10 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     };
     const { id: agentId, body: text } = resolveIn(members);
     const roster = members.map((member) => `${member.name} (${member.id})`).join(', ');
+    if (agentId && labels.get(agentId)?.disabled) {
+      throw new Error(`"${labels.get(agentId)?.name ?? agentId}" in room "${room.name}" is switched off.`);
+    }
     if (!agentId) {
-      const off = resolveIn([...labels.values()]).id;
-      if (off && labels.get(off)?.disabled) {
-        throw new Error(`"${labels.get(off)?.name ?? off}" in room "${room.name}" is switched off.`);
-      }
       throw new Error(
         named
           ? `"${named}" is not a member of room "${room.name}"; its members are ${roster}.`

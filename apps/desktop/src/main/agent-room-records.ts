@@ -84,10 +84,6 @@ export function createRoomRecords(deps: Pick<AgentRoomDeps, 'store' | 'listAgent
     return labels;
   }
 
-  /** The members that may take a new turn: switched-off bots stay members but never speak. */
-  const speakingMembers = (labels: Map<string, MemberLabel>): MemberLabel[] =>
-    [...labels.values()].filter((member) => !member.disabled);
-
   return {
     /** The loaded rooms by id (the live map: changes are saved by `persist`). */
     rooms: (): Record<string, AgentRoomRecord> => doc.rooms,
@@ -96,7 +92,6 @@ export function createRoomRecords(deps: Pick<AgentRoomDeps, 'store' | 'listAgent
     ready,
     refreshNames,
     memberLabels,
-    speakingMembers,
     persist: () => deps.store.save(doc),
     roomOf(roomId: string): AgentRoomRecord {
       const room = doc.rooms[roomId];

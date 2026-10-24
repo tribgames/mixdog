@@ -314,9 +314,15 @@ async function memberTurn(
     // can start; a record that fails throws, so the turn is never submitted
     // and its calls end failed (below).
     if (call?.id) await call.follow?.(call.id);
-    if (state.stop) return 'stopped';
-    if (gone()) return await left();
-    if (interrupted()) return await cutShort();
+    // Synchronous: null when the turn may proceed, else the halt's outcome.
+    const halted = () => {
+      if (state.stop) return Promise.resolve('stopped' as const);
+      if (gone()) return left();
+      if (interrupted()) return cutShort();
+      return null;
+    };
+    const haltedBefore = halted();
+    if (haltedBefore) return await haltedBefore;
     // Switched off while its session, the room history or the call records
     // were awaited: still no turn, and the rows it was not handed stay new.
     if (await host.switchedOff(agentId)) {
@@ -325,6 +331,10 @@ async function memberTurn(
       outcome.removed = true;
       return 'pass';
     }
+    // Stop, removal or a newer message may have landed during that read.
+    // Nothing may yield between this check and the submit below.
+    const haltedAfter = halted();
+    if (haltedAfter) return await haltedAfter;
     startedAt = now();
     // From here the submission id counts as used, even when the call throws.
     outcome.submitted = true;

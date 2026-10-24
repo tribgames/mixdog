@@ -621,12 +621,35 @@ test('a switched-off member stays in the room but takes no new turn; switched ba
     h.prompts.map((p) => p.agentId),
     ['gh', 'bench']
   );
-  await assert.rejects(h.rooms.send(sessionId, '/ask rel only you'), /"Release" is switched off/);
+  await assert.rejects(
+    h.rooms.send(sessionId, '/ask rel only you'),
+    (error) => error.code === 'ROOM_MEMBER_SWITCHED_OFF' && /"Release" is switched off/.test(error.message)
+  );
   assert.deepEqual(h.saved.doc.rooms[roomId].members, ['gh', 'rel', 'bench'], 'membership is kept');
   agents[1].disabled = false;
   await h.rooms.send(sessionId, '/ask rel back?');
   await h.idle(roomId);
   assert.equal(h.prompts.at(-1).agentId, 'rel');
+});
+
+test('a name resolves against every member first: "/ask Bench lead" never goes to Bench when Bench lead is off', async () => {
+  const agents = [
+    ...AGENTS.map((row) => ({ ...row })),
+    { id: 'benchlead', custom: true, kind: 'bot', label: 'Bench lead', route: { provider: 'openai', model: 'gpt-5' } },
+  ];
+  const h = harness({ agents, decide: () => ({ action: 'unmanaged' }) });
+  const { sessionId, roomId } = await room(h, { members: ['gh', 'bench', 'benchlead'] });
+  agents[3].disabled = true;
+  const off = (error) => error.code === 'ROOM_MEMBER_SWITCHED_OFF' && /"Bench lead" is switched off/.test(error.message);
+  await assert.rejects(h.rooms.send(sessionId, '/ask Bench lead status?'), off);
+  await assert.rejects(h.rooms.send(sessionId, '/ask Bench, Bench lead status?'), off);
+  await assert.rejects(h.rooms.member(sessionId, { to: 'Bench lead', prompt: 'status?' }), /"Bench lead" .*is switched off/);
+  await assert.rejects(h.rooms.member(sessionId, { prompt: '@Bench lead status?' }), /"Bench lead" .*is switched off/);
+  await h.idle(roomId);
+  assert.deepEqual(h.prompts, [], 'nothing went to Bench');
+  await h.rooms.send(sessionId, '/ask Bench status?');
+  await h.idle(roomId);
+  assert.equal(h.prompts.at(-1).agentId, 'bench');
 });
 
 test('a member switched off while an exchange runs gets no turn in it', async () => {
@@ -668,6 +691,95 @@ test('a member switched off while its turn is being prepared is not submitted', 
     ['gh', 'bench']
   );
   assert.equal(h.log.some((row) => row.speaker === 'rel'), false, 'nothing is posted for it');
+});
+
+/** A room whose /ask turn of `gh` is held inside the final switched-off read:
+ *  `change(h, ids)` runs while it is pending, then the read is released. */
+async function heldSwitchedOffRead(change, { script, afterRelease } = {}) {
+  let armed = false;
+  let hit;
+  const reached = new Promise((resolve) => {
+    hit = resolve;
+  });
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const h = harness({
+    ...(script ? { script } : {}),
+    decide: () => ({ action: 'finish' }),
+    // The member session is created right before the final check.
+    createGate: (id) => {
+      if (id.endsWith('_gh')) armed = true;
+    },
+    listGate: async () => {
+      if (!armed) return;
+      armed = false;
+      hit();
+      await gate;
+    },
+  });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, '/ask gh status?');
+  await reached;
+  await change(h, { sessionId, roomId });
+  release();
+  afterRelease?.(h, { sessionId, roomId });
+  await h.idle(roomId);
+  return h;
+}
+
+test('a Stop landing in a microtask right as the final check completes never reaches submit', async () => {
+  // The stop is queued `ticks` microtasks after the read is released, so
+  // across the range it lands on each await between the read resuming and
+  // the submit: none may let the turn submit with the room already stopped.
+  for (let ticks = 0; ticks < 16; ticks += 1) {
+    let stopped = false;
+    const submittedStopped = [];
+    await heldSwitchedOffRead(async () => undefined, {
+      script: () => {
+        submittedStopped.push(stopped);
+        return 'ok';
+      },
+      afterRelease: (h, ids) => {
+        let left = ticks;
+        const step = () => {
+          if (left-- > 0) return queueMicrotask(step);
+          stopped = true;
+          h.rooms.stop(ids.sessionId);
+        };
+        queueMicrotask(step);
+      },
+    });
+    assert.equal(submittedStopped.includes(true), false, `submitted after a stop (ticks=${ticks})`);
+  }
+});
+
+test('a Stop pressed while the final switched-off read is pending never submits the turn', async () => {
+  const h = await heldSwitchedOffRead(async (host, ids) => host.rooms.stop(ids.sessionId));
+  assert.deepEqual(h.prompts, []);
+});
+
+test('a member removed while the final switched-off read is pending never gets its turn submitted', async () => {
+  const h = await heldSwitchedOffRead((host, ids) => host.rooms.update(ids.roomId, { members: ['rel', 'bench'] }));
+  assert.equal(h.prompts.some((p) => p.agentId === 'gh'), false);
+});
+
+test('a turn interrupted while the final switched-off read is pending is not submitted', async () => {
+  const h = await heldSwitchedOffRead((host, ids) => host.rooms.send(ids.sessionId, 'newer message'));
+  assert.equal(
+    h.prompts.some((p) => p.agentId === 'gh' && !/newer message/.test(String(p.prompt))),
+    false,
+    'the cut-short turn is never submitted'
+  );
+});
+
+test('nothing changing during the final switched-off read still submits the turn', async () => {
+  const h = await heldSwitchedOffRead(async () => undefined);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh']
+  );
 });
 
 test('/ask gives only the addressed member a turn', async () => {
