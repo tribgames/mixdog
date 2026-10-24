@@ -86,7 +86,13 @@ test("a bot's task session is a Lead row under its own title, never a bot-named 
 test('a task Lead blocked on its OWN approval reads as waiting for approval, not working; it clears when answered', async (t) => {
   const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
   defaultSessionLaneStore.clear();
-  t.after(() => defaultSessionLaneStore.clear());
+  t.after(() => {
+    defaultSessionLaneStore.setShownSessionIds([]);
+    defaultSessionLaneStore.clear();
+  });
+  // A lane approval counts only for a session shown in a pane whose lane has
+  // received a frame since (session-attention-index effectiveApprovalSessionIds).
+  defaultSessionLaneStore.setShownSessionIds(['t1']);
   const frame = (toolApproval) =>
     defaultSessionLaneStore.apply({
       sessionId: 't1',
@@ -105,6 +111,26 @@ test('a task Lead blocked on its OWN approval reads as waiting for approval, not
   assert.equal(status('t1'), 'attention-mark', 'blocked on its own approval');
   assert.equal(status('t2'), 'running', 'another Lead keeps working');
   await act(async () => frame(null));
+  assert.equal(status('t1'), 'running', 'answered, it works again');
+});
+
+test('a background task Lead the host catalog marks awaitingApproval reads as waiting for approval', async (t) => {
+  const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
+  t.after(() => publishCatalogApprovalSessions([]));
+  const { document, render } = mount(
+    t,
+    [poolLead('t1'), poolLead('t2')],
+    [task('t1', { working: true }), task('t2', { working: true })]
+  );
+  publishCatalogApprovalSessions([
+    { id: 't1', awaitingApproval: true },
+    { id: 't2', awaitingApproval: false },
+  ]);
+  await render();
+  const status = (id) => document.querySelector(`[data-agent-lead="${id}"] .agent-chat-status`).dataset.kind;
+  assert.equal(status('t1'), 'attention-mark', 'blocked on its own approval');
+  assert.equal(status('t2'), 'running', 'another Lead keeps working');
+  await act(async () => publishCatalogApprovalSessions([]));
   assert.equal(status('t1'), 'running', 'answered, it works again');
 });
 
