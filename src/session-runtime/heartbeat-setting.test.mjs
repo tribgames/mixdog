@@ -67,7 +67,6 @@ test('the heartbeat setting end to end over the real config file: setup, stored 
       now: () => clock,
       path: join(dir, 'heartbeat.json'),
       userTurnAt: () => 0,
-      storedUserActivityAt: async () => 0,
       collect: async () => {
         calls.collect += 1;
         return { sessions: [{ id: 'sess_lead_a', bot: '', title: 'Taxes', preview: 'Filed' }], tasks: [], approvals: 0, routines: [] };
@@ -128,7 +127,7 @@ test('the heartbeat setting end to end over the real config file: setup, stored 
   );
 });
 
-test("the session surface forwards the heartbeat setting, and reads on when the runtime does not know it", async () => {
+test('the session surface forwards the heartbeat setting, and reads on when the runtime does not know it', async () => {
   let config = {};
   const settings = createSettingsApi({
     getConfig: () => config,
@@ -196,7 +195,6 @@ test('the daemon timers run the check: first tick after a minute arms, a turn th
     now: () => clock,
     path,
     isEnabled: async () => true,
-    storedUserActivityAt: async () => 0,
     collect: async () => {
       collects += 1;
       return { sessions: [{ id: 'sess_lead_a', bot: '', title: 'T', preview: 'p' }], tasks: [], approvals: 0, routines: [] };

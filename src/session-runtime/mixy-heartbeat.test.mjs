@@ -449,8 +449,8 @@ test("a wake runs in Mixy's hidden session and posts her reply once into her hom
   assert.match(turn.content, /\n- schedule "daily-news" failed 3x in a row\n/);
   assert.equal(turn.options.mode, 'routine');
   assert.equal(turn.options.skillSelection, '', 'quoted items never select skills');
-  // Unattended, but as the heartbeat: it never asks, and what would need an approval is refused.
-  assert.deepEqual(mixy.runs, [{ kind: 'schedule', agentId: 'lead', name: 'heartbeat', heartbeat: true }]);
+  // Unattended like a schedule run: it never asks.
+  assert.deepEqual(mixy.runs, [{ kind: 'schedule', agentId: 'lead', name: 'heartbeat' }]);
   const posted = mixy.home.messages.slice(1);
   assert.equal(posted.length, 1);
   assert.equal(posted[0].role, 'assistant');
