@@ -9,7 +9,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { applyBeforeToolHook } from '../loop/tool-exec/before-hook.mjs';
-import { setLiveSession } from '../store.mjs';
+import { drainSessionStore, setLiveSession } from '../store.mjs';
+import { settleSessionSummaryIndex } from '../store/listing.mjs';
 import { loadSession } from '../store/load-session.mjs';
 import { runtimeState } from '../manager/runtime-state.mjs';
 import { delegationOf, rebindDelegation } from './delegation.mjs';
@@ -30,7 +31,11 @@ for (const [id, kind] of [
   mkdirSync(join(dataRoot, 'agents', id), { recursive: true });
   writeFileSync(join(dataRoot, 'agents', id, 'AGENT.md'), `---\nkind: ${kind}\n---\nYou are ${id}.\n`);
 }
-test.after(() => {
+test.after(async () => {
+  // A save (rebindDelegation) lands its session file, then flushes the summary
+  // index after it; land both before the data root is removed.
+  drainSessionStore();
+  await settleSessionSummaryIndex();
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   rmSync(dataRoot, { recursive: true, force: true });
