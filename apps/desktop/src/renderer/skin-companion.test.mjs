@@ -598,6 +598,32 @@ test('a long reply shows page by page: dots, click and arrows turn, the last pag
   assert.equal(calls.dismiss.at(-1), 'p3');
 });
 
+test('Enter on the last page\'s Copy or Close button is the button\'s, not the bubble\'s: the reply stays open and Copy runs', async (t) => {
+  const { $, render, page, calls, window } = await mountPaged(t, { name: 'Mixy' });
+  await render({ bubble: { kind: 'reply', key: 'k1', text: 'Only.|Last.' } });
+  await act(async () => $('.skin-companion-bubble').click());
+  assert.equal(page(), 'Last.');
+  const copy = $('.skin-companion-reply-copy');
+  let enter;
+  await act(async () => {
+    enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    copy.dispatchEvent(enter);
+  });
+  assert.equal(enter.defaultPrevented, false, 'the browser still activates the focused button');
+  assert.deepEqual(calls.dismiss, [], 'the reply is not closed');
+  // The activation the browser then performs (a click) copies the whole reply.
+  await act(async () => copy.click());
+  assert.deepEqual(calls.copy, ['k1']);
+  assert.deepEqual(calls.dismiss, []);
+  // Enter on the bubble itself still closes the last page.
+  await act(async () =>
+    $('.skin-companion-bubble').dispatchEvent(
+      new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    )
+  );
+  assert.deepEqual(calls.dismiss, ['k1']);
+});
+
 test('a short reply: a click closes it (never the chat or the quick message), no bar or dots', async (t) => {
   const { $, render, calls } = await mountPet(t, { measurePages: () => assert.fail('a short reply is not paged') });
   await render({ bubble: { kind: 'reply', key: 's1', text: 'Done.' } });

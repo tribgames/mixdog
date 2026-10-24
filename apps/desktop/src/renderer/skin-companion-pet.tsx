@@ -506,16 +506,18 @@ function CompanionBubbleView({
       onClose();
       return;
     }
+    // Enter/Space on a button inside the bubble (Copy, ✕) is that button's, not the bubble's.
+    const own = event.target === event.currentTarget;
     if (paging) {
       const last = paging.index === paging.pages.length - 1;
       if (event.key === 'ArrowRight' && !last) paging.go(paging.index + 1);
       else if (event.key === 'ArrowLeft' && paging.index > 0) paging.go(paging.index - 1);
-      else if (event.key === 'Enter' && last) onClose();
+      else if (event.key === 'Enter' && last && own) onClose();
       else return;
       event.preventDefault();
       return;
     }
-    if (!short || (event.key !== 'Enter' && event.key !== ' ')) return;
+    if (!own || !short || (event.key !== 'Enter' && event.key !== ' ')) return;
     event.preventDefault();
     onClose();
   };
