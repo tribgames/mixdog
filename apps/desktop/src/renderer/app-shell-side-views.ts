@@ -1,10 +1,11 @@
-import { useCallback, useLayoutEffect, useRef, type MutableRefObject } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from './sidebar-view-layout';
 import { loadSidebarPanelModule, type SidebarPanelKey } from './app-shell-components';
 import { prefetchBrowserPane, prefetchDiffView, prefetchTerminalPane } from './lazy-widgets';
 import { loadShellProfiles } from './terminal-shell-profiles';
 import { sessionDiffPaneModule, visualizePaneModule } from './first-screen-deferred';
-import { preloadUtilityDock } from './app-snapshot-views';
+import { preloadUtilityDock, utilityDockModule } from './app-snapshot-views';
+import { explorerRootSettled, loadExplorerRoot, prefetchExplorerRoot } from './explorer-root-cache';
 import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import { isSessionSidePanelView } from './session-side-surface-policy';
@@ -39,12 +40,41 @@ interface SideViewRoutingActions {
   setSessionPanelView: ReturnType<typeof useSessionPaneSurfaces>['setSessionPanelView'];
   /** What a Visualize open waits for: its chunk, on the phone (the default). */
   visualizeOpenGate?: { module: OpenRequestModule; waits(): boolean };
+  /** What an open of a dock-chunk view waits for: the dock chunk (the default). */
+  dockOpenGate?: { module: OpenRequestModule; waits(): boolean };
+  /** The Project Search lists: its open also waits for that project's root listing. */
+  explorerProjectPath?: string;
+  /** What a Search open waits for (the default: the dock chunk and the root listing). */
+  searchOpenGate?: { module: OpenRequestModule; waits(): boolean };
 }
 
 const VISUALIZE_OPEN_GATE = { module: visualizePaneModule, waits: isMobileRemoteSurface };
+const DOCK_OPEN_GATE = { module: utilityDockModule, waits: () => true };
+/** The views UtilityDock draws. */
+const DOCK_CHUNK_VIEWS: ReadonlySet<WorkbenchSideViewId> = new Set(['agents', 'source-control', 'pull-requests']);
+
+/** Search opens on its project's file tree: it waits for the dock chunk AND the
+ *  root listing (cached or read), so the tree paints rows in the open's first
+ *  frame. A failed read opens anyway, on the failure the cache kept: the tree
+ *  shows its own error in that first frame. */
+function searchOpenGateFor(projectPath: string) {
+  return {
+    module: {
+      peek: () => utilityDockModule.peek() && (!projectPath || explorerRootSettled(projectPath)),
+      load: () =>
+        Promise.all([
+          utilityDockModule.load(),
+          projectPath ? loadExplorerRoot(window.mixdogDesktop, projectPath).catch(() => undefined) : undefined,
+        ]),
+    },
+    waits: () => true,
+  };
+}
 
 export function useSideViewPrefetch(
-  trackSidebarPanelModule: (panel: SidebarPanelKey, modulePromise: Promise<unknown>) => void
+  trackSidebarPanelModule: (panel: SidebarPanelKey, modulePromise: Promise<unknown>) => void,
+  /** The Project the Search view's tree lists: its root is read on open intent. */
+  explorerProjectPath = ''
 ) {
   return useCallback(
     (id: WorkbenchSideViewId) => {
@@ -77,9 +107,12 @@ export function useSideViewPrefetch(
         void sessionDiffPaneModule.load().catch(() => {});
         return;
       }
+      // Search opens on its project's file tree: the root listing is read with
+      // the chunk, so the tree paints rows in the open's first frame.
+      if (id === 'search') void prefetchExplorerRoot(window.mixdogDesktop, explorerProjectPath).catch(() => {});
       if (id !== 'sessions') void preloadUtilityDock().catch(() => {});
     },
-    [trackSidebarPanelModule]
+    [explorerProjectPath, trackSidebarPanelModule]
   );
 }
 
@@ -103,7 +136,11 @@ export function useSideViewSelection({
   setSessionSideSurface,
   setSessionPanelView,
   visualizeOpenGate = VISUALIZE_OPEN_GATE,
+  dockOpenGate = DOCK_OPEN_GATE,
+  explorerProjectPath = '',
+  searchOpenGate,
 }: SideViewRoutingActions) {
+  const defaultSearchOpenGate = useMemo(() => searchOpenGateFor(explorerProjectPath), [explorerProjectPath]);
   const selectNow = useCallback(
     (id: WorkbenchSideViewId, paneLeafId?: string) => {
       // The browser flows to the right-side branch as the pane dock's own child.
@@ -176,6 +213,18 @@ export function useSideViewSelection({
     ...visualizeOpenGate,
     subscribeDismiss: subscribeDrawerDismiss,
   });
+  // The same wait for the views the dock chunk draws (Search among them): a
+  // page opens with its body, never over a placeholder, however early the tap
+  // comes. A loaded chunk (the boot warm-up, the press's prefetch) opens at once.
+  const { request: requestDockOpen, cancel: cancelDockOpen } = useModuleOpenRequest({
+    ...dockOpenGate,
+    subscribeDismiss: subscribeDrawerDismiss,
+  });
+  // Search also waits for its project's root listing, so its tree opens on rows.
+  const { request: requestSearchOpen, cancel: cancelSearchOpen } = useModuleOpenRequest({
+    ...(searchOpenGate ?? defaultSearchOpenGate),
+    subscribeDismiss: subscribeDrawerDismiss,
+  });
   // Every committed navigation drops it, at that navigation: a pane showing
   // something else (even one that comes back before the chunk is in), a pane
   // added or removed, or focus moving to another pane.
@@ -185,18 +234,35 @@ export function useSideViewSelection({
     if (committedNavigation.current === navigation) return;
     committedNavigation.current = navigation;
     cancelVisualizeOpen();
-  }, [cancelVisualizeOpen, navigation]);
+    cancelDockOpen();
+    cancelSearchOpen();
+  }, [cancelDockOpen, cancelSearchOpen, cancelVisualizeOpen, navigation]);
   return useCallback(
     (id: WorkbenchSideViewId, paneLeafId?: string) => {
-      if (id !== 'visualize') {
-        cancelVisualizeOpen();
+      // At most one open waits: a request for another view drops the rest.
+      const gated =
+        id === 'visualize' ? 'visualize' : id === 'search' ? 'search' : DOCK_CHUNK_VIEWS.has(id) ? 'dock' : null;
+      if (gated !== 'visualize') cancelVisualizeOpen();
+      if (gated !== 'dock') cancelDockOpen();
+      if (gated !== 'search') cancelSearchOpen();
+      if (!gated) {
         selectNow(id, paneLeafId);
         return;
       }
       const leafId = paneLeafId ?? focusedLeafIdRef.current;
-      requestVisualizeOpen(() => selectNow(id, leafId));
+      const request = { visualize: requestVisualizeOpen, dock: requestDockOpen, search: requestSearchOpen }[gated];
+      request(() => selectNow(id, leafId));
     },
-    [cancelVisualizeOpen, focusedLeafIdRef, requestVisualizeOpen, selectNow]
+    [
+      cancelDockOpen,
+      cancelSearchOpen,
+      cancelVisualizeOpen,
+      focusedLeafIdRef,
+      requestDockOpen,
+      requestSearchOpen,
+      requestVisualizeOpen,
+      selectNow,
+    ]
   );
 }
 

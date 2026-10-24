@@ -6,6 +6,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopApi } from '../shared/contract';
 import { explorerErrorText } from './explorer-mutations';
+import {
+  loadExplorerRoot,
+  peekExplorerRoot,
+  peekExplorerRootFailure,
+  refreshExplorerRoot,
+  retainExplorerRoot,
+} from './explorer-root-cache';
 import { subscribeProjectFileChanges } from './project-file-changes';
 import { startVisibleRefreshCadence } from './visible-refresh-cadence';
 import {
@@ -25,6 +32,16 @@ import {
 // Watcher overflow and hosts without native change delivery still converge
 // through this slow safety pass.
 const SAFETY_REFRESH_MS = 30_000;
+
+/** The tree as the cached root read shows it (collapsed below the root): the\n *  listing, or the error its newest read failed with. */
+function seededExplorerDirs(projectPath: string): ExplorerDirs {
+  const entries = projectPath ? peekExplorerRoot(projectPath) : undefined;
+  if (entries) return new Map([['', { expanded: true, entries }]]);
+  const failure = projectPath ? peekExplorerRootFailure(projectPath) : undefined;
+  return failure
+    ? new Map([['', { expanded: true, entries: [], error: explorerErrorText(failure.reason) }]])
+    : new Map();
+}
 
 interface ExplorerDirTree {
   dirs: ExplorerDirs;
@@ -58,7 +75,7 @@ export function useExplorerDirs(input: {
   onProjectReset(): void;
 }): ExplorerDirTree {
   const { api, projectPath, active, readinessKey, onReadyChange } = input;
-  const [dirs, setDirs] = useState<ExplorerDirs>(() => new Map());
+  const [dirs, setDirs] = useState<ExplorerDirs>(() => seededExplorerDirs(projectPath));
   const [refreshing, setRefreshing] = useState(false);
   // The watcher refresh reads the tree from here: React may run a state
   // updater more than once, so its listings must not be issued from one.
@@ -72,26 +89,31 @@ export function useExplorerDirs(input: {
   const patch = useCallback((rel: string, next: Partial<ExplorerDirState>) => {
     setDirs((current) => patchExplorerDir(current, rel, next));
   }, []);
+  // A mounted tree holds its project's cached root listing.
+  useEffect(() => (projectPath ? retainExplorerRoot(projectPath) : undefined), [projectPath]);
+  // The root listing rides the shared cache the next open paints from.
+  const listDir = useCallback(
+    (rel: string) => (rel ? api?.listProjectDir?.(projectPath, rel) : refreshExplorerRoot(api, projectPath)),
+    [api, projectPath]
+  );
   const load = useCallback(
     (rel: string) => {
       patch(rel, { expanded: true, error: undefined });
-      void api
-        ?.listProjectDir?.(projectPath, rel)
-        .then((entries) => patch(rel, { entries: entries ?? [] }))
+      void listDir(rel)
+        ?.then((entries) => patch(rel, { entries: entries ?? [] }))
         .catch((reason) => patch(rel, { entries: [], error: explorerErrorText(reason) }));
     },
-    [api, projectPath, patch]
+    [listDir, patch]
   );
   const refreshDir = useCallback(
     (rel: string) => {
-      void api
-        ?.listProjectDir?.(projectPath, rel)
-        .then((entries) => patch(rel, { entries: entries ?? [] }))
+      void listDir(rel)
+        ?.then((entries) => patch(rel, { entries: entries ?? [] }))
         .catch(() => {
           /* gone — collapsed on next interaction */
         });
     },
-    [api, patch, projectPath]
+    [listDir, patch]
   );
   // The Dock retains every visited tab, so this effect must never rebuild the
   // tree for a surface the user is not looking at: an inactive Files pane keeps
@@ -105,7 +127,9 @@ export function useExplorerDirs(input: {
     loadedTreeSignature.current = signature;
     let live = true;
     onReadyChange(readinessKey, false);
-    setDirs(new Map());
+    // The cached root keeps the tree populated while this activation
+    // revalidates it; nothing cached opens empty until the first listing.
+    setDirs(seededExplorerDirs(projectPath));
     resetPaneState.current();
     if (!projectPath) {
       onReadyChange(readinessKey, true);
@@ -113,10 +137,16 @@ export function useExplorerDirs(input: {
         live = false;
       };
     }
-    const rootRequest = api?.listProjectDir?.(projectPath, '');
-    void Promise.resolve(rootRequest ?? [])
+    void loadExplorerRoot(api, projectPath)
       .then((entries) => {
-        if (live) setDirs(new Map([['', { expanded: true, entries: entries ?? [] }]]));
+        // Folders opened on the cached rows stay open: a listing that matches
+        // them changes nothing, a changed one replaces only the root level.
+        if (live)
+          setDirs((current) =>
+            current.get('')?.entries && !current.get('')?.error
+              ? withChangedExplorerDirEntries(current, '', entries)
+              : new Map([['', { expanded: true, entries }]])
+          );
       })
       .catch((reason) => {
         if (live)
@@ -146,9 +176,8 @@ export function useExplorerDirs(input: {
     const refreshExpanded = () => {
       for (const [rel, state] of dirsRef.current) {
         if (!state.expanded || !state.entries) continue;
-        void api
-          ?.listProjectDir?.(projectPath, rel)
-          .then((entries) => {
+        void listDir(rel)
+          ?.then((entries) => {
             if (!entries) return;
             setDirs((latest) => withChangedExplorerDirEntries(latest, rel, entries));
           })
@@ -168,7 +197,7 @@ export function useExplorerDirs(input: {
       unsubscribeProject();
       stopSafety();
     };
-  }, [active, api, projectPath]);
+  }, [active, listDir, projectPath]);
   const refreshTree = useCallback(async () => {
     if (!projectPath || refreshing) return;
     setRefreshing(true);
@@ -179,7 +208,7 @@ export function useExplorerDirs(input: {
       const refreshed = await Promise.all(
         targets.map(async (rel): Promise<ExplorerDirListing | null> => {
           try {
-            return { rel, entries: await Promise.resolve(api?.listProjectDir?.(projectPath, rel) ?? []) };
+            return { rel, entries: await Promise.resolve(listDir(rel) ?? []) };
           } catch {
             return null;
           }
@@ -190,7 +219,7 @@ export function useExplorerDirs(input: {
     } finally {
       setRefreshing(false);
     }
-  }, [api, dirs, projectPath, refreshing]);
+  }, [dirs, listDir, projectPath, refreshing]);
   const collapseAll = useCallback(() => {
     setDirs((current) => collapseExplorerDirs(current));
   }, []);

@@ -12,6 +12,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { deferredModule, useDeferredModule } from './deferred-module';
 import { InitialSurface } from './InitialSurface';
 import { useMobileRemoteSurface } from './mobile-surface';
 
@@ -52,22 +53,17 @@ import { ComposerRoutineReadout } from './composer-routine-readout';
 import { ComposerUsageReadout } from './composer-usage-readout';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 
-let utilityDockModulePromise: Promise<typeof import('./UtilityDock')> | null = null;
-function loadUtilityDockModule() {
-  utilityDockModulePromise ||= import('./UtilityDock').catch((error) => {
-    utilityDockModulePromise = null;
-    throw error;
-  });
-  return utilityDockModulePromise;
-}
+/** The Search / Source Control / Pull Requests / Bots dock chunk. Once loaded
+ *  it renders synchronously (a React.lazy wrapper suspends once per mount even
+ *  for a resolved import, which painted a placeholder frame on every first open). */
+export const utilityDockModule = deferredModule(() => import('./UtilityDock'));
 export function preloadUtilityDock(): Promise<unknown> {
-  return loadUtilityDockModule();
+  return utilityDockModule.load();
 }
 export async function prewarmUtilityDockGitState(projectPath: string): Promise<void> {
-  const module = await loadUtilityDockModule();
+  const module = await utilityDockModule.load();
   await module.prewarmUtilityDockGitState(projectPath);
 }
-const UtilityDock = React.lazy(() => loadUtilityDockModule().then((module) => ({ default: module.UtilityDock })));
 
 export const selectDesktopSnapshot = (snapshot: Snapshot) => snapshot;
 
@@ -599,15 +595,16 @@ export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
     () => draftModelSelectionFromSnapshot(snapshotStore.getSnapshot()) ?? focusedDraftModelSelection(),
     [snapshotStore]
   );
+  const dockModule = useDeferredModule(utilityDockModule, { load: activated || !hidden });
   if (!activated && hidden) return null;
+  if (!dockModule) return <InitialSurface />;
+  const UtilityDock = dockModule.UtilityDock;
   return (
-    <React.Suspense fallback={<InitialSurface />}>
-      <UtilityDock
-        {...props}
-        prewarm={prewarm}
-        snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot}
-        readComposerModel={readComposerModel}
-      />
-    </React.Suspense>
+    <UtilityDock
+      {...props}
+      prewarm={prewarm}
+      snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot}
+      readComposerModel={readComposerModel}
+    />
   );
 });

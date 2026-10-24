@@ -140,6 +140,7 @@ export function ActivityRailNavigation({
                 active: entry.id === activeId,
                 pinned: pins.includes(entry.id),
                 onSelect: () => onSelect(entry.id),
+                onPrefetch: entry.onPrefetch,
                 onTogglePin: () => togglePin(entry.id),
               };
             }),

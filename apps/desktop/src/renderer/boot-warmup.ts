@@ -30,6 +30,8 @@ export const BOOT_WARMUP = Object.freeze({
   /** A phone's agent catalog read, held off its first screen. */
   agentPool: 35,
   dockGitState: 40,
+  /** The Search file tree's root listing, so its first open paints rows. */
+  dockExplorerRoot: 42,
   dockBody: 45,
   transcript: 50,
   /** Goal capsule, so the first Goal session entered after boot shows it in

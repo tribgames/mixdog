@@ -21,6 +21,8 @@ export interface ScmContextMenuItem {
   id: string;
   label: string;
   onSelect?(): void;
+  /** Open intent (hover, focus, press): prepares what selecting it shows. */
+  onPrefetch?(): void;
   disabled?: boolean;
   danger?: boolean;
   separatorBefore?: boolean;
@@ -141,6 +143,11 @@ function ScmContextMenuRow({
       disabled={item.disabled}
       aria-haspopup={hasChildren ? 'menu' : undefined}
       title={item.title}
+      onPointerEnter={item.onPrefetch}
+      onFocus={item.onPrefetch}
+      onPointerDown={(event) => {
+        if (event.button === 0) item.onPrefetch?.();
+      }}
       onClick={() => onActivate(item)}
     >
       <span className={`dock-scm-context-check${item.icon ? ' is-icon' : ''}`}>

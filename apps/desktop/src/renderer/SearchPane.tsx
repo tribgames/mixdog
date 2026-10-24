@@ -1,5 +1,5 @@
 import { Search, X } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import type { DesktopGitStatus } from '../shared/contract';
 import { ErrorNotice } from './ErrorNotice';
 import { FilesRootPane, SetiFileIcon } from './ExplorerTree';
@@ -21,15 +21,25 @@ function splitRelPath(relPath: string): { name: string; parent: string } {
 
 function SearchNameResultList({
   results,
+  pending,
   onOpenFile,
 }: {
   results: SearchNameResults;
+  /** The next query is being read: these rows are the previous query's. */
+  pending: boolean;
   onOpenFile?(project: string, rel: string, mode?: 'preview' | 'pinned'): void;
 }) {
   const totalNameHits = results.reduce((sum, result) => sum + result.paths.length, 0);
   if (totalNameHits === 0) return <p className="utility-dock-empty">{t('No matching files.')}</p>;
   return (
-    <div className="workbench-search-results" role="tree" aria-label={t('File name results')}>
+    <div
+      className="workbench-search-results"
+      role="tree"
+      aria-label={t('File name results')}
+      data-pending={pending || undefined}
+      aria-busy={pending || undefined}
+      inert={pending}
+    >
       <p className="workbench-search-summary">
         {totalNameHits === 1 ? t('1 file') : t('{{count}} files', { count: totalNameHits })}
       </p>
@@ -44,7 +54,7 @@ function SearchNameResultList({
               key={`${project}:${relPath}`}
               onPointerEnter={scheduleEditorPanePrefetch}
               onFocus={scheduleEditorPanePrefetch}
-              onClick={() => onOpenFile?.(project, relPath, 'preview')}
+              onClick={() => !pending && onOpenFile?.(project, relPath, 'preview')}
             >
               <SetiFileIcon name={name} />
               <b>{name}</b>
@@ -59,17 +69,27 @@ function SearchNameResultList({
 
 function SearchContentResultList({
   results,
+  pending,
   onOpenFile,
   onOpenFileAt,
 }: {
   results: SearchContentResults;
+  /** The next query is being read: these rows are the previous query's. */
+  pending: boolean;
   onOpenFile?(project: string, rel: string, mode?: 'preview' | 'pinned'): void;
   onOpenFileAt?(project: string, rel: string, line?: number): void;
 }) {
   const totalMatches = results.reduce((sum, result) => sum + result.matchCount, 0);
   if (results.length === 0) return <p className="utility-dock-empty">{t('No results found.')}</p>;
   return (
-    <div className="workbench-search-results" role="tree" aria-label={t('Search results')}>
+    <div
+      className="workbench-search-results"
+      role="tree"
+      aria-label={t('Search results')}
+      data-pending={pending || undefined}
+      aria-busy={pending || undefined}
+      inert={pending}
+    >
       <p className="workbench-search-summary">
         {totalMatches === 1 ? t('1 result') : t('{{count}} results', { count: totalMatches })}
       </p>
@@ -92,11 +112,12 @@ function SearchContentResultList({
                   key={`${match.line}:${match.column}:${index}`}
                   onPointerEnter={scheduleEditorPanePrefetch}
                   onFocus={scheduleEditorPanePrefetch}
-                  onClick={() =>
-                    onOpenFileAt
-                      ? onOpenFileAt(project, file.relPath, match.line)
-                      : onOpenFile?.(project, file.relPath, 'preview')
-                  }
+                  onClick={() => {
+                    // The previous query's rows are not actionable (inert in a browser).
+                    if (pending) return;
+                    if (onOpenFileAt) onOpenFileAt(project, file.relPath, match.line);
+                    else onOpenFile?.(project, file.relPath, 'preview');
+                  }}
                 >
                   <span>{match.line}</span>
                   <code>{match.preview || match.matchText}</code>
@@ -139,28 +160,33 @@ export const SearchPane = memo(function SearchPane({
   // The tree's New File / New Folder / Refresh / Collapse All actions portal
   // into the title row, or into the mode row where no title row is shown.
   const [explorerActions, setExplorerActions] = useState<HTMLDivElement | null>(null);
-  const {
-    folders,
-    query,
-    setQuery,
-    searchMode,
-    setSearchMode,
-    searchInputRef,
-    nameResults,
-    contentResults,
-    searchLoading,
-    searchError,
-  } = useWorkspaceSearch(projectPath, active);
-  const searching = Boolean(query.trim());
+  const { folders, query, setQuery, searchMode, setSearchMode, searchInputRef, settled, pending } = useWorkspaceSearch(
+    projectPath,
+    active
+  );
   const contentsMode = searchMode === 'contents';
+  // The previous query's rows go inert while the next is read: focus on one of
+  // them returns to the field, so Enter can never open a stale result.
+  const explorerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!pending) return;
+    const results = explorerRef.current?.querySelector('.workbench-search-results');
+    if (results?.contains(document.activeElement)) searchInputRef.current?.focus({ preventScroll: true });
+  }, [pending, searchInputRef]);
   const renderBody = () => {
-    if (searching) {
-      if (searchLoading) return <p className="utility-dock-empty">{t('Searching…')}</p>;
-      if (searchError) return <ErrorNotice error={searchError} role="status" />;
-      return contentsMode ? (
-        <SearchContentResultList results={contentResults} onOpenFile={onOpenFile} onOpenFileAt={onOpenFileAt} />
+    // The newest finished search stays up while the next one is read (the
+    // idle body before the first): no placeholder frame, no empty frame.
+    if (settled) {
+      if (settled.error) return <ErrorNotice error={settled.error} role="status" />;
+      return settled.mode === 'contents' ? (
+        <SearchContentResultList
+          results={settled.contents}
+          pending={pending}
+          onOpenFile={onOpenFile}
+          onOpenFileAt={onOpenFileAt}
+        />
       ) : (
-        <SearchNameResultList results={nameResults} onOpenFile={onOpenFile} />
+        <SearchNameResultList results={settled.names} pending={pending} onOpenFile={onOpenFile} />
       );
     }
     if (contentsMode) {
@@ -187,7 +213,10 @@ export const SearchPane = memo(function SearchPane({
     );
   };
   return (
-    <div className="workbench-explorer">
+    <div className="workbench-explorer" ref={explorerRef} aria-busy={pending || undefined}>
+      <span className="sr-only" role="status">
+        {pending ? t('Searching…') : ''}
+      </span>
       {/* Workspace open/add/save toolbar removed on purpose: Mixdog exposes
         ONE Project concept — no multi-root workspace UI (user:
         Project 개념만 있고 워크트리 격리가 없는데 혼용돼 헷갈린다). */}

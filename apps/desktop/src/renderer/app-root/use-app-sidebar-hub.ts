@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useEffect, useLayoutEffect, useMemo } from 'react';
 import { SHOW_IMPORTED_CHATS_EVENT } from '../import-conversation-events';
+import { pruneExplorerRoots, setCurrentExplorerProject } from '../explorer-root-cache';
 import { useAppSidebarSurface } from '../use-app-sidebar-surface';
 import { useAppMobileBack, useAppMobileInitialClose } from '../app-shell-mobile-back';
 import { useSideViewPrefetch, useSideViewSelection, useSideViewReordering } from '../app-shell-side-views';
@@ -35,6 +36,8 @@ export interface UseAppSidebarHubOptions {
   projects: ReturnType<typeof useAppProjectCatalog>['projects'];
   projectCatalogReady: boolean;
   selectedProjectPath: string;
+  /** The Project the Search view lists. */
+  quickAccessProjectPath?: string;
   extensionsSection: ExtensionsSection;
   setExtensionsSection: (section: ExtensionsSection) => void;
   closeSidebarForNavigation: (motion?: 'animated' | 'instant') => void;
@@ -98,6 +101,7 @@ export function useAppSidebarHub({
   projects,
   projectCatalogReady,
   selectedProjectPath,
+  quickAccessProjectPath,
   extensionsSection,
   setExtensionsSection,
   closeSidebarForNavigation,
@@ -211,7 +215,14 @@ export function useAppSidebarHub({
     focusedLeafIdRef,
   });
 
-  const prefetchWorkbenchSideView = useSideViewPrefetch(trackSidebarPanelModule);
+  // The Search tree's cached root listing lives with the project the app is on
+  // and the registered projects: the current one stays, a removed one leaves.
+  useEffect(() => setCurrentExplorerProject(quickAccessProjectPath ?? ''), [quickAccessProjectPath]);
+  useEffect(() => {
+    if (projectCatalogReady) pruneExplorerRoots(projects.map((project) => project.path));
+  }, [projectCatalogReady, projects]);
+
+  const prefetchWorkbenchSideView = useSideViewPrefetch(trackSidebarPanelModule, quickAccessProjectPath);
   const sideViewDescriptors = useMemo(
     () => createAppSideViewDescriptors(prefetchWorkbenchSideView),
     [prefetchWorkbenchSideView]
@@ -236,6 +247,7 @@ export function useAppSidebarHub({
     pendingBrowserAutoReveal: sessionPaneSurfaces.pendingBrowserAutoReveal,
     setSessionSideSurface,
     setSessionPanelView,
+    explorerProjectPath: quickAccessProjectPath,
   });
 
   // "View chats" after a batch import lands on the Sessions list without

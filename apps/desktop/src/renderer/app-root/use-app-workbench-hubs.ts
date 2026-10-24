@@ -130,7 +130,7 @@ export function useAppWorkbenchHubs(
     selectWorkbenchSideView,
     moveWorkbenchSideGroup,
     moveWorkbenchSideView,
-  } = useSidebarHubWiring(shell, nav, lifecycle, commands, context, tabWorkflow);
+  } = useSidebarHubWiring(shell, nav, lifecycle, commands, context, tabWorkflow, quickAccessProjectPath);
 
   return {
     activatePaneSurface,
@@ -166,7 +166,8 @@ function useSidebarHubWiring(
   lifecycle: AppSessionLifecycle,
   commands: AppSessionCommands,
   context: AppSelectionContext,
-  tabWorkflow: AppTabWorkflow
+  tabWorkflow: AppTabWorkflow,
+  quickAccessProjectPath: string
 ) {
   const {
     paneWorkspace,
@@ -193,6 +194,7 @@ function useSidebarHubWiring(
     ...sessionPaneSurfaces,
     runningAutomationNames,
     selectedProjectPath: context.selectedProjectPath,
+    quickAccessProjectPath,
     extensionsSection,
     setExtensionsSection,
     closeSidebarForNavigation,

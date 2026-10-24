@@ -50,6 +50,8 @@ test('useSideViewSelection routes right-side views to paneSideDocks.select and l
     pendingBrowserAutoReveal: { current: new Set() },
     setSessionSideSurface: () => {},
     setSessionPanelView: () => {},
+    // The dock chunk is in (boot warm-up): a dock view opens at once.
+    dockOpenGate: { module: { peek: () => ({}), load: async () => ({}) }, waits: () => true },
   };
 
   let selectFn;
@@ -113,7 +115,7 @@ function slowVisualizeModule() {
   };
 }
 
-async function mountPhoneSelection(module, waits = () => true) {
+async function mountPhoneSelection(module, waits = () => true, dockOpenGate = undefined, extra = {}) {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><div id="root"></div>',
     jsdom: { url: 'about:blank' },
@@ -127,7 +129,7 @@ async function mountPhoneSelection(module, waits = () => true) {
     sideOf: (id) => (['browser', 'terminal', 'visualize', 'session-diff'].includes(id) ? 'right' : 'left'),
     selectDock: (leafId, viewId) => docked.push(`${leafId}:${viewId}`),
     activeSideViews: { left: 'sessions', right: 'browser' },
-    setActiveSideViews: () => {},
+    setActiveSideViews: (update) => docked.push(`left:${update({ left: 'sessions', right: 'browser' }).left}`),
     sidebarOpen: false,
     applySidebarOpen: () => {},
     closeSidebarPanels: () => {},
@@ -141,6 +143,8 @@ async function mountPhoneSelection(module, waits = () => true) {
     setSessionSideSurface: () => {},
     setSessionPanelView: () => {},
     visualizeOpenGate: { module, waits },
+    ...(dockOpenGate ? { dockOpenGate } : {}),
+    ...extra,
   };
   let select;
   function Harness({ paneLeaves, focusedLeafId }) {
@@ -244,6 +248,123 @@ test('a failed Visualize import still opens, so the panel reports it; the deskto
     assert.deepEqual(desktop.docked, ['leaf-1:visualize']);
   } finally {
     await desktop.unmount();
+  }
+});
+
+test('a dock-view tap before the dock chunk loads opens the page once the chunk is in, not before', async () => {
+  const module = slowVisualizeModule();
+  const phone = await mountPhoneSelection(slowVisualizeModule(), () => true, { module, waits: () => true });
+  try {
+    await phone.select('agents');
+    await phone.select('agents');
+    assert.deepEqual(phone.docked, [], 'the drawer does not open Search over a placeholder');
+    await phone.settle(module.finish);
+    assert.deepEqual(phone.docked, ['left:agents'], 'repeated taps open once, with the chunk');
+    await phone.select('agents');
+    assert.deepEqual(phone.docked, ['left:agents', 'left:agents'], 'loaded: opens at once');
+  } finally {
+    await phone.unmount();
+  }
+  const slow = slowVisualizeModule();
+  const moved = await mountPhoneSelection(slowVisualizeModule(), () => true, { module: slow, waits: () => true });
+  try {
+    await moved.select('agents');
+    await moved.select('terminal');
+    await moved.settle(slow.finish);
+    assert.deepEqual(moved.docked, ['leaf-1:terminal'], 'another view drops the pending dock-view open');
+  } finally {
+    await moved.unmount();
+  }
+  const failing = slowVisualizeModule();
+  const failed = await mountPhoneSelection(slowVisualizeModule(), () => true, { module: failing, waits: () => true });
+  try {
+    await failed.select('agents');
+    await failed.settle(failing.fail);
+    assert.deepEqual(failed.docked, ['left:agents'], 'a failed import still opens, so the dock reports it');
+  } finally {
+    await failed.unmount();
+  }
+});
+
+test('a Search tap waits for its project root listing too, then opens with rows already cached', async () => {
+  const { resetExplorerRootCache, peekExplorerRoot, setCurrentExplorerProject } = await import(
+    './explorer-root-cache.ts'
+  );
+  const { utilityDockModule } = await import('./app-snapshot-views.tsx');
+  await utilityDockModule.load();
+  const reads = [];
+  const api = {
+    listProjectDir: (project, rel) => {
+      const read = Promise.withResolvers();
+      reads.push({ project, rel, read });
+      return read.promise;
+    },
+  };
+  const loaded = { peek: () => ({}), load: async () => ({}) };
+  {
+    resetExplorerRootCache();
+    setCurrentExplorerProject('C:/demo');
+    const view = await mountPhoneSelection(loaded, () => true, undefined, { explorerProjectPath: 'C:/demo' });
+    window.mixdogDesktop = api;
+    try {
+      await view.select('search');
+      await view.select('search');
+      assert.deepEqual(view.docked, [], 'the chunk is in but the root is not: nothing opens yet');
+      assert.equal(reads.length, 1, 'one read serves both taps');
+      assert.equal(peekExplorerRoot('C:/demo'), undefined);
+      await act(async () => {
+        reads[0].read.resolve([{ name: 'src', dir: true }]);
+        await new Promise((resolve) => setImmediate(resolve));
+      });
+      assert.deepEqual(view.docked, ['left:search'], 'opens once, with the root cached for its first frame');
+      assert.equal(peekExplorerRoot('C:/demo').length, 1);
+      await view.select('search');
+      assert.deepEqual(view.docked, ['left:search', 'left:search'], 'cached root: opens at once');
+    } finally {
+      await view.unmount();
+    }
+    // A failed read opens anyway: the tree reports it itself.
+    resetExplorerRootCache();
+    setCurrentExplorerProject('C:/demo');
+    reads.length = 0;
+    const failing = await mountPhoneSelection(loaded, () => true, undefined, { explorerProjectPath: 'C:/demo' });
+    window.mixdogDesktop = api;
+    try {
+      await failing.select('search');
+      assert.deepEqual(failing.docked, []);
+      await act(async () => {
+        reads[0].read.reject(new Error('EACCES'));
+        await new Promise((resolve) => setImmediate(resolve));
+      });
+      assert.deepEqual(failing.docked, ['left:search']);
+      // The failure is kept for the tree that opens: a further tap opens at once, no new read.
+      await failing.select('search');
+      assert.deepEqual(failing.docked, ['left:search', 'left:search']);
+      assert.equal(reads.length, 1);
+    } finally {
+      await failing.unmount();
+    }
+    // Another view, or a drawer dismissal, drops the pending Search open.
+    const { announceDrawerDismiss } = await import('./drawer-intent.ts');
+    for (const moveOn of [(v) => v.select('terminal'), () => act(async () => announceDrawerDismiss())]) {
+      resetExplorerRootCache();
+      setCurrentExplorerProject('C:/demo');
+      reads.length = 0;
+      const dropped = await mountPhoneSelection(loaded, () => true, undefined, { explorerProjectPath: 'C:/demo' });
+      window.mixdogDesktop = api;
+      try {
+        await dropped.select('search');
+        await moveOn(dropped);
+        const before = [...dropped.docked];
+        await act(async () => {
+          reads[0].read.resolve([]);
+          await new Promise((resolve) => setImmediate(resolve));
+        });
+        assert.deepEqual(dropped.docked, before, 'a request the user moved on from never opens');
+      } finally {
+        await dropped.unmount();
+      }
+    }
   }
 });
 

@@ -14,6 +14,7 @@ import {
 } from './app-snapshot-views';
 import { armBootWarmup, BOOT_WARMUP, BOOT_WARMUP_ARM_DELAY_MS, scheduleBootWarmup } from './boot-warmup';
 import { onFirstConversationPaint } from './boot-metrics';
+import { prefetchExplorerRoot } from './explorer-root-cache';
 import { loadCommandSurfaceModule } from './command-surface-loader';
 import { FIRST_SCREEN_DEFERRED_MODULES, visualizePaneModule } from './first-screen-deferred';
 import { desktopFeatureEnabled, desktopSidebarDestinationEnabled } from './desktop-feature-config';
@@ -530,6 +531,14 @@ export function useAppDockWarmup(ready: boolean, projectPath: string) {
       id: 'dock:git-state',
       priority: BOOT_WARMUP.dockGitState,
       run: () => prewarmUtilityDockGitState(projectPath).catch(() => {}),
+    });
+  }, [ready, projectPath]);
+  useEffect(() => {
+    if (!ready || !projectPath || backgroundWarmupThrottled()) return undefined;
+    return scheduleBootWarmup({
+      id: 'dock:explorer-root',
+      priority: BOOT_WARMUP.dockExplorerRoot,
+      run: () => prefetchExplorerRoot(window.mixdogDesktop, projectPath).catch(() => {}),
     });
   }, [ready, projectPath]);
   const [dockBodyWarm, setDockBodyWarm] = useState(false);

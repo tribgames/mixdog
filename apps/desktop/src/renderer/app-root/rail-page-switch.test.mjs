@@ -45,6 +45,8 @@ const { useSideViewSelection } = await import('../app-shell-side-views.ts');
 const { AgentActivityPane } = await import('../AgentActivityPane.tsx');
 const { AppWorkspaceMain } = await import('./AppWorkspaceMain.tsx');
 const { navigationKey } = await import('../text-format.ts');
+// The boot warm-up has loaded the dock chunk: a dock page opens at once.
+await (await import('../app-snapshot-views.tsx')).utilityDockModule.load();
 
 const settle = () =>
   act(async () => {

@@ -112,6 +112,11 @@
   flex: 1;
   overflow: auto;
 }
+/* The previous query's rows while the next is read: dimmed in place (no new
+   space, no shift) and inert, so they cannot be opened. */
+.workbench-search-results[data-pending="true"] {
+  opacity: 0.55;
+}
 .workbench-search-summary {
   margin: 0;
   padding: 5px 10px;
