@@ -48,7 +48,8 @@ export const noteApprovalDecision = () => {
   cardKeysChanged();
 };
 /** Milliseconds left of a card's settling since it mounted at `mountedAt`. */
-const settleLeft = (mountedAt: number) => Math.max(0, KEY_SETTLE_MS - (Date.now() - Math.max(mountedAt, lastDecisionAt)));
+const settleLeft = (mountedAt: number) =>
+  Math.max(0, KEY_SETTLE_MS - (Date.now() - Math.max(mountedAt, lastDecisionAt)));
 
 // The asking sessions whose request is docked as a card right now, per chat:
 // a task session's "waiting for approval" line in that chat gives way to it.
@@ -257,7 +258,7 @@ const PASSIVE_ROLES = new Set([
 /** `active` or an ancestor up to `scope` (the card's pane) has key semantics of its own. */
 const ownsItsKeys = (active: Element, scope: Element): boolean => {
   if (active.closest(OWN_KEY_CONTROLS)) return true;
-  for (let node: Element | null = active; node && node !== scope; node = node.parentElement) {
+  for (let node: Element | null = active; node; node = node === scope ? null : node.parentElement) {
     const role = node.getAttribute('role')?.trim().split(/\s+/)[0];
     if (role && !PASSIVE_ROLES.has(role)) return true;
   }
@@ -335,15 +336,13 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   const denyIndex = buttons.findIndex((button) => button.deny);
   const initialIndex = focus === 'deny' && denyIndex >= 0 ? denyIndex : primaryIndex;
 
+  // The one dispatch path of an accepted decision (click, pane Enter, Esc):
+  // it restarts every other card's settle window before the answer goes out.
   const press = (button: ApprovalButton) => {
     if (button.disabled || busy) return;
-    if (button.deny && onDeny) return sendDeny();
-    button.onClick?.();
-  };
-  const sendDeny = () => {
-    if (busy) return;
     noteApprovalDecision();
-    onDeny?.('');
+    if (button.deny && onDeny) return onDeny('');
+    button.onClick?.();
   };
   const live = useRef({ press, buttons, primaryIndex, denyIndex, enterAllows, onClose });
   live.current = { press, buttons, primaryIndex, denyIndex, enterAllows, onClose };
@@ -554,11 +553,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
                     onKeyDown={blockKey}
                     // Space clicks as its keyup's default action.
                     onKeyUp={blockKey}
-                    onClick={() => {
-                      // sendDeny notes a deny itself.
-                      if (!button.deny || !onDeny) noteApprovalDecision();
-                      press(button);
-                    }}
+                    onClick={() => press(button)}
                   >
                     <span className="approval-button-label">{button.label}</span>
                     {shortcut && <kbd className="approval-kbd">{shortcut}</kbd>}

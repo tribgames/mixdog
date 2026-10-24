@@ -208,7 +208,10 @@ test("a held request row offers the scopes the gate gave it: a room seat's row c
     await ui.done();
   }
   // An unattended schedule's row (or an older one with no scopes) asks once only.
-  for (const row of [{ ...held, remember: ['once'] }, { ...held, remember: undefined }]) {
+  for (const row of [
+    { ...held, remember: ['once'] },
+    { ...held, remember: undefined },
+  ]) {
     ui = await mount(rowOf(row));
     try {
       assert.deepEqual(ui.rows(), ['Deny', 'Allow just once']);
@@ -818,7 +821,7 @@ test('Enter allows from a non-editable element of the same conversation, and whe
   }
 });
 
-test("a focused button, link or widget elsewhere in the pane keeps its own Enter: no approval, its click runs, no chips", async () => {
+test('a focused button, link or widget elsewhere in the pane keeps its own Enter: no approval, its click runs, no chips', async () => {
   const doc = dom.window.document;
   const pane = doc.querySelector('.conversation');
   const make = (tag, attrs = {}) => {
@@ -834,10 +837,7 @@ test("a focused button, link or widget elsewhere in the pane keeps its own Enter
     make('div', { role: 'menuitem', tabindex: '0' }),
     make('span', { role: 'tab', tabindex: '0' }),
   ];
-  const plain = [
-    make('div', { role: 'log', tabindex: '0' }),
-    make('div', { tabindex: '0' }),
-  ];
+  const plain = [make('div', { role: 'log', tabindex: '0' }), make('div', { tabindex: '0' })];
   const c = card({ ...comment, id: 'ctl1' });
   const ui = await mount(c.element);
   try {
@@ -921,9 +921,44 @@ test('a focused keyboard-owning composite widget or embedded surface keeps its k
     }
   } finally {
     await ui.done();
-    for (const node of pane.querySelectorAll('[role], [aria-activedescendant], [contenteditable], iframe, .monaco-editor, .xterm')) {
+    for (const node of pane.querySelectorAll(
+      '[role], [aria-activedescendant], [contenteditable], iframe, .monaco-editor, .xterm'
+    )) {
       if (!node.closest('.approval-prompt')) node.remove();
     }
+  }
+});
+
+test('the conversation scope itself with an unknown role closes the keys; a passive descendant keeps them', async () => {
+  const doc = dom.window.document;
+  const pane = doc.querySelector('.conversation');
+  const child = doc.createElement('div');
+  child.setAttribute('tabindex', '0');
+  pane.append(child);
+  const c = card({ ...comment, id: 'sr1' });
+  const ui = await mount(c.element);
+  try {
+    await settle();
+    await focusOn(child);
+    await ui.key('Enter', {}, child);
+    assert.deepEqual(c.decisions, [{ approved: true }], 'no role on the scope: Enter answers');
+  } finally {
+    await ui.done();
+  }
+  const c2 = card({ ...comment, id: 'sr2' });
+  const ui2 = await mount(c2.element);
+  pane.setAttribute('role', 'application');
+  try {
+    await settle();
+    await focusOn(child);
+    assert.ok(!doc.querySelector('.approval-prompt').dataset.keys, 'no chips');
+    await ui2.key('Enter', {}, child);
+    await ui2.key('Escape', {}, child);
+    assert.deepEqual(c2.decisions, [], 'an unknown role on the scope closes the keys');
+  } finally {
+    pane.removeAttribute('role');
+    await ui2.done();
+    child.remove();
   }
 });
 

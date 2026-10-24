@@ -190,6 +190,46 @@ test('one click on deny sends the denial with no reason; Enter allows once', asy
   }
 });
 
+test('a pane Enter that answers one browser card restarts the settle of another mounted card', async () => {
+  const api = desktop();
+  const second = doc.createElement('section');
+  second.className = 'conversation';
+  second.innerHTML = '<div id="chat2" class="pane-leaf"></div>';
+  doc.body.append(second);
+  // Each card sits in its own pane (a pane owns its own Enter).
+  doc.getElementById('chat').classList.add('pane-leaf');
+  const host = createRoot(doc.getElementById('host'));
+  const chatA = createRoot(doc.getElementById('chat'));
+  const chatB = createRoot(doc.getElementById('chat2'));
+  await act(async () => host.render(React.createElement(BrowserApprovalHost)));
+  await act(async () => chatA.render(React.createElement(Dock, { sessionId: 'paneA' })));
+  await act(async () => chatB.render(React.createElement(Dock, { sessionId: 'paneB' })));
+  try {
+    await api.send(prompt({ id: 'pa', surfaceSessionId: 'paneA' }));
+    await api.send(prompt({ id: 'pb', surfaceSessionId: 'paneB' }));
+    await settle();
+    const cardA = doc.querySelector('#chat .approval-prompt');
+    const cardB = doc.querySelector('#chat2 .approval-prompt');
+    cardA.focus();
+    await key('Enter', cardA);
+    assert.deepEqual(api.decisions, [['pa', 'once', undefined]], 'Enter answers the first card');
+    cardB.focus();
+    await key('Enter', cardB);
+    assert.deepEqual(api.decisions, [['pa', 'once', undefined]], 'the other card is still settling');
+    assert.equal(cardB.dataset.keys, undefined, 'and shows no key chip');
+    await settle();
+    cardB.focus();
+    await key('Enter', cardB);
+    assert.deepEqual(api.decisions.at(-1), ['pb', 'once', undefined], 'it answers once it has settled');
+  } finally {
+    await act(async () => chatB.unmount());
+    await act(async () => chatA.unmount());
+    await act(async () => host.unmount());
+    doc.getElementById('chat').classList.remove('pane-leaf');
+    second.remove();
+  }
+});
+
 test('an unconfirmed receiver or an outside file: focus on 거절, Enter never allows; the allow says why in its tooltip', async () => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));
