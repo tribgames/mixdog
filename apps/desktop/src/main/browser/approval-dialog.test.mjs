@@ -524,7 +524,7 @@ test('Allow all actions: a bot submits, posts and uploads without a card, audite
   setBrowserApprovalHooks({});
 });
 
-test('Allow all actions: an operator confirm still asks, the bot block still blocks, a schedule run is unchanged', async () => {
+test('Allow all actions: an operator confirm is not asked (nor remembered), the bot block still blocks, a schedule run is unchanged', async () => {
   const audits = [];
   const blocked = new Set();
   const grants = {
@@ -533,12 +533,34 @@ test('Allow all actions: an operator confirm still asks, the bot block still blo
     isBlocked: async (agentId, actions) => actions.some((action) => blocked.has(`${agentId}\n${action}`)),
     audit: async (agent, actions, decision) => audits.push([agent, actions, decision]),
   };
-  // An operator-confirmed action (alone or inside a submit) always asks.
+  // An operator-confirmed action (alone or inside a submit) runs unasked in the
+  // bot's chat; a schedule/webhook run keeps its rule and still asks.
   for (const kinds of [['confirm'], ['submit', 'confirm']]) {
     const confirm = await ask(grants, 'sess_home_marketer', kinds, 'deny');
-    assert.deepEqual({ shown: confirm.shown, outcome: confirm.outcome }, { shown: true, outcome: false }, `${kinds}`);
+    assert.deepEqual({ shown: confirm.shown, outcome: confirm.outcome }, { shown: false, outcome: true }, `${kinds}`);
+    setBrowserApprovalHooks(grants);
+    const run = fakeWindow(true);
+    const pending = requestBrowserApproval(run, {
+      ...asRequest('sess_home_marketer', kinds),
+      unattended: true,
+      unattendedAgent: 'marketer',
+    });
+    const card = await cardOrSettled(run, pending);
+    assert.ok(card, `run ${kinds} asks`);
+    decideBrowserApproval(run.contents, card.id, 'deny');
+    assert.equal(await pending, false);
   }
-  assert.deepEqual(audits, [], 'nothing was let through unasked');
+  assert.deepEqual(audits, [['marketer', ['browser_submit'], 'dev-allow-all']]);
+  assert.deepEqual([...grants.allowed], [], 'nothing was remembered');
+  // The bot's block still stops a confirm that holds a blocked kind.
+  blocked.add('marketer\nbrowser_submit');
+  setBrowserApprovalHooks(grants);
+  await assert.rejects(
+    requestBrowserApproval(fakeWindow(true), asRequest('sess_home_marketer', ['submit', 'confirm'])),
+    /blocked by this bot's permission/
+  );
+  blocked.clear();
+  audits.length = 0;
   // The bot's own block refuses the step, with no card.
   blocked.add('marketer\nbrowser_upload');
   const window = fakeWindow(true);

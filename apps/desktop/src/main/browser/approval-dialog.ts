@@ -44,6 +44,11 @@ async function cardFiles(files: Array<{ path: string; size: number }>, cwd: stri
   }));
 }
 
+/** The store actions of the kinds that have one (`confirm` has none): what a
+ *  bot's `block` is read for under "Allow all actions", and what its audit names. */
+const kindActions = (kinds: readonly BrowserApprovalKind[]): string[] =>
+  kinds.map((kind) => GRANT_ACTION[kind]).filter((action): action is string => Boolean(action));
+
 /** The actions a standing allow would cover, or null when any of the request's
  *  kinds can never have one (then the card offers only once / deny). */
 function grantActions(kinds: readonly BrowserApprovalKind[]): string[] | null {
@@ -191,15 +196,22 @@ export async function requestBrowserApproval(
     runAudit('run-allowed');
     return !signal?.aborted;
   }
-  // "Allow all actions": the bot's own submits, posts and uploads run unasked.
-  // `actions` is null when the command holds an operator `confirm`, which
-  // always asks; the bot's `block` still stops the step.
-  if (bot && actions && (await allowsAllActions())) {
-    if (await blockedBy(bot, actions)) {
-      audit('blocked');
+  // "Allow all actions" in a bot's own session (never a run: that keeps its
+  // rule above): the bot's submits, posts and uploads run unasked, and so does
+  // an operator `confirm`, which is never remembered. The bot's `block` still
+  // stops the step, read for every kind of it that has a store action.
+  if (ownBot && request.unattended !== true && (await allowsAllActions())) {
+    const stepActions = kindActions(request.kinds);
+    const auditAs = (decision: string) => {
+      if (stepActions.length) {
+        void (async () => hooks.audit?.(ownBot, stepActions, decision))().catch(() => undefined);
+      }
+    };
+    if (stepActions.length && (await blockedBy(ownBot, stepActions))) {
+      auditAs('blocked');
       throw new Error(BLOCKED_BY_PERMISSION);
     }
-    audit('dev-allow-all');
+    auditAs('dev-allow-all');
     return !signal?.aborted;
   }
   if (bot && actions && (await standingAllow(bot, actions))) {
