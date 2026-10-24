@@ -698,7 +698,12 @@ function _noteSyncOutcome(error) {
  *  keyring is never a fallback. */
 function keychainStatus() {
   const { unavailable, ...status } = _keychainStatus;
-  return { ...status, fallback: unavailable === true && platform() === 'linux' };
+  const fallback = unavailable === true && platform() === 'linux';
+  // `unsafeStore` ({ path: the secrets directory, kind: type | owner |
+  // permissions }, never a value) says the private file store is being ignored
+  // because its layout is unsafe — see fallbackUnsafeStore.
+  const unsafe = fallback ? fallbackUnsafeStore() : null;
+  return { ...status, fallback, ...(unsafe ? { unsafeStore: { path: unsafe.dir, kind: unsafe.kind } } : {}) };
 }
 
 function _linuxLoaded() {
@@ -1095,8 +1100,10 @@ function win32Delete(account) {
 // When secret-tool/libsecret is missing or no Secret Service is running (a
 // headless SSH server, WSL), a secret is kept in `<dataDir>/secrets/
 // <account>.secret`: one owner-only (0600) file per account in an owner-only
-// (0700) directory, written atomically. Never in mixdog-config.json. A locked
-// keyring is NOT such a host — it fails with its unlock message instead.
+// (0700) directory, written atomically. Never in mixdog-config.json. A read
+// re-verifies that layout (no symlink, regular file, this user's, no group/other
+// access) and treats a store that fails it as absent. A locked keyring is NOT
+// such a host — it fails with its unlock message instead.
 // Order: the keychain is always tried first and wins when it has the account;
 // the file is read only when the keychain has nothing (or cannot be read), so a
 // value saved here stays readable after a keychain becomes available, and a
@@ -1110,11 +1117,36 @@ function fallbackFile(account) {
   return path.join(secretsDir(), `${encodeURIComponent(account)}.secret`);
 }
 
+function unsafeFallback(message, kind) {
+  return Object.assign(new Error(message), { code: 'EUNSAFE', ...(kind ? { kind } : {}) });
+}
+
+// Owner and mode bits are POSIX: without getuid (Windows) there is nothing to compare.
+function ownedByUser(stat) {
+  return typeof process.getuid !== 'function' || stat.uid === process.getuid();
+}
+
+function groupOrOtherAccessible(stat) {
+  return typeof process.getuid === 'function' && (stat.mode & 0o077) !== 0;
+}
+
+// Why a stat (an lstat/fstat of the store directory, or of an account file)
+// disqualifies it, as the repair it needs: 'type' (a symlink or not a regular
+// file/directory: remove it), 'owner' (someone else's: chown it), 'permissions'
+// (group/other can reach it: chmod it); null when it is fine.
+function unsafeKind(stat, directory) {
+  if (directory ? !stat.isDirectory() : !stat.isFile()) return 'type';
+  if (!ownedByUser(stat)) return 'owner';
+  return groupOrOtherAccessible(stat) ? 'permissions' : null;
+}
+
 // The verified secrets directory, or null when absent and not `create`d. A
 // pre-existing symlink, a non-directory, or a directory owned by someone else is
 // refused: following it would chmod and write outside the data dir. lstat does
-// not follow links, so a symlink never passes isDirectory().
-function fallbackDir({ create = false } = {}) {
+// not follow links, so a symlink never passes isDirectory(). `create` repairs
+// the mode itself (chmod 0700); a reader passes `requirePrivate` and refuses a
+// directory that group/other can reach instead.
+function fallbackDir({ create = false, requirePrivate = false } = {}) {
   const dir = secretsDir();
   let before;
   try {
@@ -1126,34 +1158,75 @@ function fallbackDir({ create = false } = {}) {
     fs.mkdirSync(dir, { mode: 0o700 });
     before = fs.lstatSync(dir);
   }
-  const owned = typeof process.getuid !== 'function' || before.uid === process.getuid();
-  if (!before.isDirectory() || !owned) {
-    throw Object.assign(new Error('the secrets directory is not a private directory owned by this user'), {
-      code: 'EUNSAFE',
-    });
+  const kind = unsafeKind(before, true);
+  if (kind && (kind !== 'permissions' || requirePrivate)) {
+    throw unsafeFallback('the secrets directory is not a private directory owned by this user', kind);
   }
   if (create) {
     fs.chmodSync(dir, 0o700);
     // The chmod must have hit the directory that was verified, not a swapped-in link.
     const after = fs.lstatSync(dir);
     if (!after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
-      throw Object.assign(new Error('the secrets directory changed while it was being secured'), {
-        code: 'EUNSAFE',
-      });
+      throw unsafeFallback('the secrets directory changed while it was being secured');
     }
   }
   return dir;
 }
 
+// A stored value is served only from a private regular file owned by this user.
+// The file is opened without following a symlink (O_NOFOLLOW; ELOOP means it is
+// one) and without blocking on a FIFO (O_NONBLOCK), then judged by fstat on the
+// descriptor that is actually read, so nothing can be swapped in between check
+// and read. Anything else reads as absent: the EUNSAFE reason is thrown like the
+// directory's, and callers that tolerate a failed read treat it as "no secret".
 function fallbackGet(account) {
   if (platform() !== 'linux') return null;
-  if (fallbackDir() === null) return null;
+  if (fallbackDir({ requirePrivate: true }) === null) return null;
+  const { O_RDONLY, O_NOFOLLOW = 0, O_NONBLOCK = 0 } = fs.constants;
+  let descriptor;
   try {
-    return fs.readFileSync(fallbackFile(account), 'utf8') || null;
+    descriptor = fs.openSync(fallbackFile(account), O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
+    if (error?.code === 'ELOOP') {
+      throw unsafeFallback('the secret file is a symbolic link, not a private file', 'type');
+    }
     throw error;
   }
+  try {
+    const kind = unsafeKind(fs.fstatSync(descriptor), false);
+    if (kind) throw unsafeFallback('the secret file is not a private regular file owned by this user', kind);
+    return fs.readFileSync(descriptor, 'utf8') || null;
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+// Passive health check for the status path: `{ dir, kind }` when the store has a
+// layout fallbackGet refuses (so its keys read as absent), else null. The read
+// path swallows that refusal when the keychain also failed, so without this the
+// user would see a bare "No key". Every call scans the directory afresh, so an
+// external repair shows at once; callers that need it for many rows ask once
+// (provider setup passes the one answer down).
+function fallbackUnsafeStore() {
+  if (platform() !== 'linux') return null;
+  const dir = secretsDir();
+  let value = null;
+  try {
+    if (fallbackDir({ requirePrivate: true }) !== null) {
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith('.secret')) continue;
+        const kind = unsafeKind(fs.lstatSync(path.join(dir, name)), false);
+        if (kind) {
+          value = { dir, kind };
+          break;
+        }
+      }
+    }
+  } catch (error) {
+    if (error?.code === 'EUNSAFE') value = { dir, kind: error.kind };
+  }
+  return value;
 }
 
 /** Whether a read of `account` would be served by the Linux fallback file: the

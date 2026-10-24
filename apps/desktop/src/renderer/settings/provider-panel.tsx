@@ -39,6 +39,16 @@ export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown>
   );
 }
 
+/** The storage note of an API-key row, from the setup's structured credential source. */
+export function credentialNote(provider: RecordValue): string | undefined {
+  if (provider.credentialSource === 'private-file') return t('Stored in a private file');
+  if (provider.credentialSource === 'environment') {
+    const name = typeof provider.envName === 'string' && provider.envName ? ` · ${provider.envName}` : '';
+    return `${t('From an environment variable')}${name}`;
+  }
+  return undefined;
+}
+
 export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContext) {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
@@ -59,9 +69,10 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       key={String(provider.id)}
       title={providerLabel(provider)}
       description={String(provider.detail || provider.envName || '')}
-      // ResourceRow drops `description`; where the key is kept (a private file when
-      // there is no OS keychain) is shown as the row's secondary text.
-      meta={provider.detail === 'stored in private file' ? t('Stored in a private file') : undefined}
+      // ResourceRow drops `description`; where the effective key comes from (a private
+      // file when there is no OS keychain, or an environment variable) is shown as the
+      // row's secondary text.
+      meta={credentialNote(provider)}
       status={providerStatus(provider)}
       actions={
         <>
@@ -178,6 +189,12 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       {keychainBlocked && (
         <p className="settings-error" role="alert" data-keychain-state={String(keychainIssue.state || '')}>
           {t(String(keychainIssue.message))}
+          {typeof keychainIssue.path === 'string' && keychainIssue.path !== '' && (
+            <>
+              {' '}
+              <code>{keychainIssue.path}</code>{' '}
+            </>
+          )}
           {(keychainState === 'locked' || keychainState === 'error' || keychainState === 'unreachable') && (
             <ActionButton
               disabled={busy}

@@ -26,16 +26,27 @@ function providerSecretEnv(provider) {
     .toUpperCase()}_APIKEY`;
 }
 
-function environmentApiKey(provider) {
-  const id = String(provider || '').trim();
+// The environment variable that supplies a provider's key, in the resolver's
+// precedence (standard name, MIXDOG_AGENT_<ID>_APIKEY, then aliases); null when none is set.
+function environmentKeyName(id) {
   const standardEnv = AGENT_PROVIDER_ENV[id];
-  if (standardEnv && process.env[standardEnv]) return process.env[standardEnv];
+  if (standardEnv && process.env[standardEnv]) return standardEnv;
   const mixdogEnv = providerSecretEnv(id);
-  if (process.env[mixdogEnv]) return process.env[mixdogEnv];
-  for (const alias of AGENT_PROVIDER_ENV_ALIASES[id] || []) {
-    if (process.env[alias]) return process.env[alias];
-  }
-  return null;
+  if (process.env[mixdogEnv]) return mixdogEnv;
+  return (AGENT_PROVIDER_ENV_ALIASES[id] || []).find((alias) => process.env[alias]) ?? null;
+}
+
+function environmentApiKey(provider) {
+  const name = environmentKeyName(String(provider || '').trim());
+  return name ? process.env[name] : null;
+}
+
+/** Name of the environment variable getAgentApiKey would return for `provider`
+ *  (it wins over any stored key), or null when the effective key is not an
+ *  environment one. Provenance for the setup views; never the value. */
+export function agentApiKeyEnvName(provider) {
+  if (modelProxyClientMode()) return null;
+  return environmentKeyName(String(provider || '').trim());
 }
 
 /** Presence-only credential probe. On Windows this is a cheap DPAPI-file

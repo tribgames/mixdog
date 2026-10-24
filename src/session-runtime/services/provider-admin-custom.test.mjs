@@ -23,6 +23,7 @@ mock.module('../../runtime/shared/provider-api-key.mjs', {
   namedExports: {
     getAgentApiKey: (id) => secrets.get(`agent.${id}.apiKey`) || null,
     hasAgentApiKey: (id) => secrets.has(`agent.${id}.apiKey`),
+    agentApiKeyEnvName: () => null,
   },
 });
 

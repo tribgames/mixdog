@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { renameSync } from 'node:fs';
 import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../runtime/shared/model-proxy-mode.mjs';
 import { sameAccountIdentity } from '../../runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs';
+import { agentApiKeyEnvName } from '../../runtime/shared/provider-api-key.mjs';
 import {
   AGENT_PROVIDER_ENV,
   SECRET_ACCOUNTS,
@@ -339,12 +340,28 @@ const KEYCHAIN_HINTS = Object.freeze({
   error: 'The system keyring could not be read — check that it is running and unlocked.',
 });
 
+// The private-file store being ignored, by what is wrong with it (the repair
+// differs: chmod cannot fix an owner or a symlink, and a save fails through a
+// foreign or symlinked folder).
+const UNSAFE_STORE_HINTS = Object.freeze({
+  permissions:
+    'The private secrets folder has unsafe permissions, so its keys are ignored — run chmod 700 on the folder and chmod 600 on its files, or save the key again.',
+  owner:
+    'The private secrets folder or one of its files belongs to another user, so its keys are ignored — change its owner to the current user (chown).',
+  type: 'The private secrets folder or one of its files is a symlink or not a regular file, so its keys are ignored — remove it and save the key again.',
+});
+
 export function keychainIssueFor(checkSecrets) {
   if (!checkSecrets) return null;
   // A host with no keychain provider keeps its keys in the private secrets
   // file (keychain-cjs.cjs "Linux fallback file"): that works, so nothing to
-  // report. A locked keyring is still an issue.
-  const { state, fallback } = getKeychainStatus();
+  // report — unless the store's permissions make reads ignore it, which is
+  // reported with the folder to repair. A locked keyring is still an issue.
+  const { state, fallback, unsafeStore } = getKeychainStatus();
+  if (fallback && unsafeStore) {
+    const { kind, path } = unsafeStore;
+    return { state: 'unsafe-store', kind, message: UNSAFE_STORE_HINTS[kind] ?? UNSAFE_STORE_HINTS.permissions, path };
+  }
   if (fallback) return null;
   const message = KEYCHAIN_HINTS[state];
   return message ? { state, message } : null;
@@ -357,26 +374,37 @@ function storedSecretDetail(account) {
   return isFallbackSecret(account) ? 'stored in private file' : 'stored in keychain';
 }
 
-function apiProviderSetup(p, providers, checkSecrets) {
+// `keychainIssue`: the setup response's one keyring check (never asked per row).
+function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
   const configured = providers[p.id] || {};
-  const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
-  const env = Boolean(envName && process.env[envName]);
+  // The environment variable the key resolver actually reads (aliases included);
+  // it wins over a stored key, so provenance follows it, not the stored secret.
+  const resolvedEnv = agentApiKeyEnvName(p.id);
+  const declaredEnv = AGENT_PROVIDER_ENV[p.id] || p.env;
+  const envName = resolvedEnv || declaredEnv;
+  const env = Boolean(resolvedEnv || (declaredEnv && process.env[declaredEnv]));
   const configuredEnabled = configured.enabled === true;
   const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id)) : false;
   const authenticated = env || stored || (checkSecrets ? Boolean(getAgentApiKey(p.id)) : configuredEnabled);
   let status = configuredEnabled ? 'No Key' : 'Off';
-  if (stored) status = 'Set';
-  else if (env) status = 'Env';
-  else if (authenticated) status = 'Set';
+  if (env) status = 'Env';
+  else if (stored || authenticated) status = 'Set';
+  // Where the effective credential comes from: environment | private-file | keychain.
+  let credentialSource = null;
   let detail = envName;
-  if (stored) detail = storedSecretDetail(SECRET_ACCOUNTS.agentApiKey(p.id));
-  else if (env) detail = envName;
-  else if (authenticated) detail = 'runtime credential';
-  const keychainIssue = authenticated ? null : keychainIssueFor(checkSecrets);
-  if (keychainIssue) detail = keychainIssue.message;
+  if (env) {
+    credentialSource = 'environment';
+  } else if (stored) {
+    detail = storedSecretDetail(SECRET_ACCOUNTS.agentApiKey(p.id));
+    credentialSource = detail === 'stored in private file' ? 'private-file' : 'keychain';
+  } else if (authenticated) {
+    detail = 'runtime credential';
+  }
+  const rowIssue = authenticated ? null : keychainIssue;
+  if (rowIssue) detail = rowIssue.message;
   return {
     ...p,
-    ...(keychainIssue ? { keychainIssue } : {}),
+    ...(rowIssue ? { keychainIssue: rowIssue } : {}),
     group: 'api',
     type: 'api-key',
     enabled: configuredEnabled || authenticated,
@@ -386,6 +414,7 @@ function apiProviderSetup(p, providers, checkSecrets) {
     envName,
     status,
     detail,
+    ...(credentialSource ? { credentialSource } : {}),
   };
 }
 
@@ -563,7 +592,7 @@ export async function providerSetup(config = {}, options = {}) {
   return {
     ...(keychain ? { keychain } : {}),
     api: [
-      ...API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets)),
+      ...API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets, keychain)),
       ...customProviderRows(providers, checkSecrets),
     ],
     oauth: availableOAuthProviders().map((p) => oauthProviderSetup(p, providers, checkSecrets)),
