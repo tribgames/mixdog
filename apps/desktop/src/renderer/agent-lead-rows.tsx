@@ -19,6 +19,7 @@ import { useLeadAvatar } from './lead-avatar-store';
 import { timeMs } from './transcript-primitives';
 import { ProgressSpinner } from './ProgressSpinner';
 import { contextMenuRowProps } from './ScmContextMenu';
+import { SessionAttentionGlyph } from './session-status-mark';
 import { ProviderIcon, modelDisplayName } from './provider-display';
 import { sessionDisplayTitle } from './session-display-title';
 import { SubtreeToggle, subAgentNodes, subtreeRowAttr } from './agent-subtree';
@@ -179,8 +180,11 @@ export function AgentLeadRows({
   renderSubtree,
   divider = true,
   onExpire,
+  asking,
 }: {
   rows: readonly AgentLeadRow[];
+  /** Waiting sessions whose wait is a question (the attention index's `asking`). */
+  asking?: ReadonlySet<string>;
   /** Called when the earliest row's window ends, so the owner rebuilds the
    *  rows: nothing else changes then (no pool or catalog event). */
   onExpire?(): void;
@@ -263,8 +267,12 @@ export function AgentLeadRows({
                       )}
                       {row.kind === 'attention' && (
                         <span className="agent-chat-status" data-kind="attention-mark">
-                          <span aria-hidden="true">!</span>
-                          <span className="sr-only">{t('Waiting for approval')}</span>
+                          <SessionAttentionGlyph
+                            status={asking?.has(row.sessionId) ? 'asking' : 'needs-you'}
+                            name={row.title}
+                            size={14}
+                            className="agent-chat-attention"
+                          />
                         </span>
                       )}
                       {row.pinned && (

@@ -573,6 +573,7 @@
   "Apply": "套用",
   "Apply after current requests finish": "目前請求完成後套用",
   "Apply and reload": "套用並重新載入",
+  "Answer needed": "等待回答",
   "Approval needed": "等待核准",
   "Approval pending · {{action}}": "待核准 · {{action}}",
   "Approval received. Verifying the secure connection…": "已收到核准。驗證安全連線…",

@@ -1300,6 +1300,7 @@ export function AgentActivityPane({
               {/* Without a representative bot the page shows only its create prompt. */}
               <AgentLeadRows
                 rows={shownLeadRows}
+                asking={asking}
                 onExpire={rebuildLeadRows}
                 divider={divider || workCount > 0}
                 selectedSessionId={selectedSessionId}

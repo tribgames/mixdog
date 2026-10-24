@@ -28,9 +28,12 @@ function openTaskSession(sessionId: string) {
 function useHandoffTarget(sessionId: string, agentId: string, fallback: string) {
   const { label } = useRoomContacts(Boolean(agentId));
   const title = useSessionTitle(sessionId, fallback || t('Session'));
-  const waiting = useSessionAttentionIndex().needsUser.has(sessionId);
+  const attention = useSessionAttentionIndex();
+  const waiting = attention.needsUser.has(sessionId);
+  // The wait is a question for the user, not an approval (as the list says).
+  const asking = waiting && attention.asking.has(sessionId);
   const member = agentId ? label(agentId) : null;
-  return { member, name: member?.name ?? title, waiting };
+  return { member, name: member?.name ?? title, waiting, asking };
 }
 
 /** One faint line: the dot (accent while the session works, amber while it
@@ -40,17 +43,22 @@ function HandoffLineView({
   member,
   what,
   waiting,
+  asking = false,
 }: {
   sessionId: string;
   member: ReturnType<typeof useHandoffTarget>['member'];
   what: string;
   waiting: boolean;
+  asking?: boolean;
 }) {
+  let state: 'working' | 'approval' | 'question' = 'working';
+  if (waiting) state = asking ? 'question' : 'approval';
+  const label = { working: t('Working'), approval: t('Approval needed'), question: t('Answer needed') }[state];
   return (
-    <div className="mx-chat-routine-failed mx-handoff-line" role="status" data-state={waiting ? 'approval' : 'working'}>
+    <div className="mx-chat-routine-failed mx-handoff-line" role="status" data-state={state}>
       <span className="mx-bot-sent-dot" aria-hidden="true" />
       {member && <RoomMemberFace member={member} className="mx-bot-sent-face" />}
-      <span>{`${what} · ${waiting ? t('Approval needed') : t('Working')}`}</span>
+      <span>{`${what} · ${label}`}</span>
       <span aria-hidden="true">·</span>
       <button type="button" onClick={() => openTaskSession(sessionId)}>
         {t('Open')}
@@ -64,12 +72,14 @@ function HandoffLineView({
  *  created task session's name alone. The state flips with the session's
  *  live approval wait, without a row of its own. */
 export function AgentHandoffLine({ handoff }: { handoff: Omit<Handoff, 'id' | 'sendId'> }) {
-  const { member, name, waiting } = useHandoffTarget(handoff.sessionId, handoff.agentId, handoff.name);
+  const { member, name, waiting, asking } = useHandoffTarget(handoff.sessionId, handoff.agentId, handoff.name);
   let what = name;
   if (!handoff.created) {
     what = handoff.agentId ? t('Sent to {{name}}', { name }) : t('Session send: Sent to {{name}}', { name });
   }
-  return <HandoffLineView sessionId={handoff.sessionId} member={member} what={what} waiting={waiting} />;
+  return (
+    <HandoffLineView sessionId={handoff.sessionId} member={member} what={what} waiting={waiting} asking={asking} />
+  );
 }
 
 /** A turn's hand-off lines, one block in call order. */
@@ -91,9 +101,9 @@ export function AgentHandoffBlock({ handoffs }: { handoffs: readonly Handoff[] }
 function AgentTaskWait({ routine }: { routine: Record<string, unknown> }) {
   const sessionId = String(routine.sessionId || '');
   const agentId = typeof routine.agentId === 'string' ? routine.agentId : '';
-  const { member, name, waiting } = useHandoffTarget(sessionId, agentId, String(routine.name || ''));
+  const { member, name, waiting, asking } = useHandoffTarget(sessionId, agentId, String(routine.name || ''));
   if (!waiting) return null;
-  return <HandoffLineView sessionId={sessionId} member={member} what={name} waiting />;
+  return <HandoffLineView sessionId={sessionId} member={member} what={name} waiting asking={asking} />;
 }
 
 /** A session's ended turn: one card in the changed-files card's frame, head

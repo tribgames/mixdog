@@ -282,7 +282,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   flex-direction: column;
   gap: 2px;
 }
-.mx-handoff-line[data-state="approval"] > .mx-bot-sent-dot {
+.mx-handoff-line:is([data-state="approval"], [data-state="question"]) > .mx-bot-sent-dot {
   background: var(--mx-warning, #e0b34a);
 }
 .mx-bot-sent-face {

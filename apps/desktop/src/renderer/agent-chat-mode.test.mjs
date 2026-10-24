@@ -2241,6 +2241,26 @@ test('work handed to a session: one block of lines under the turn’s reply, its
   await waiting([]);
   assert.deepEqual(lines(), [SENT]);
   assert.equal(main().querySelector('.mx-handoff-line').dataset.state, 'working');
+  // A question for the user (its open lane asks) reads as an answer wait, as the list says.
+  const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+  const laneAsk = (toolApproval) =>
+    act(async () => {
+      defaultSessionLaneStore.setShownSessionIds([DEV]);
+      defaultSessionLaneStore.apply({
+        sessionId: DEV,
+        frameSource: 'live',
+        snapshot: { sessionId: DEV, busy: true, toolApproval },
+      });
+    });
+  try {
+    await laneAsk({ id: 'q1', kind: 'question', args: { questions: [] } });
+    assert.deepEqual(lines(), ['Sent to Dev session · Answer needed·Open']);
+    assert.equal(main().querySelector('.mx-handoff-line').dataset.state, 'question');
+    await laneAsk(null);
+    assert.deepEqual(lines(), [SENT]);
+  } finally {
+    await act(async () => defaultSessionLaneStore.clear());
+  }
 
   // (3) Its wait reports draw nothing while the line carries the state: two
   // of them still leave one line, and no other.

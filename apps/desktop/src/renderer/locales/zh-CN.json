@@ -573,6 +573,7 @@
   "Apply": "应用",
   "Apply after current requests finish": "当前请求完成后应用",
   "Apply and reload": "应用并重新加载",
+  "Answer needed": "等待回答",
   "Approval needed": "等待批准",
   "Approval pending · {{action}}": "待审批 · {{action}}",
   "Approval received. Verifying the secure connection…": "已收到批准。验证安全连接…",

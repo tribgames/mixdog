@@ -690,6 +690,7 @@
   "Apply": "Применить",
   "Apply after current requests finish": "Применить после завершения текущих запросов",
   "Apply and reload": "Применить и перезагрузить",
+  "Answer needed": "Нужен ответ",
   "Approval needed": "Нужно одобрение",
   "Approval pending · {{action}}": "Ожидает решения · {{action}}",
   "Approval received. Verifying the secure connection…": "Одобрение получено. Проверка безопасного соединения…",

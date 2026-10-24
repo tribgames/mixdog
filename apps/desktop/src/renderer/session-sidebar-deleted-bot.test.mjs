@@ -460,9 +460,12 @@ test('a Sessions 봇 row shows the amber triangle, with a digit from 2 waiting s
     );
   const row = () => document.querySelector('.sidebar-agents [data-agent-contact="watcher"]');
   const glyph = () => row().querySelector('.session-row-attention[data-status="needs-you"]');
+  const task2 = { ...task, id: 'task-2' };
+  // The home waits too: that is the tasks' docked copy, not a third approval.
   const waiting = [
     { ...WATCHER_HOME, working: true, awaitingApproval: true },
     { ...task, working: true, awaitingApproval: true },
+    { ...task2, working: true, awaitingApproval: true },
   ];
   publishCatalogApprovalSessions(waiting);
   await render(waiting);
@@ -473,7 +476,7 @@ test('a Sessions 봇 row shows the amber triangle, with a digit from 2 waiting s
   assert.match(glyph().getAttribute('aria-label'), /Watcher · (Waiting for approval \(2\)|승인 대기 2건)/);
   assert.equal(row().querySelector('.session-row-spinner'), null, 'the triangle replaces the spinner');
 
-  const one = [waiting[0], { ...task, working: true }];
+  const one = [waiting[0], waiting[1], { ...task2, working: true }];
   publishCatalogApprovalSessions(one);
   await render(one);
   assert.ok(glyph());
@@ -481,7 +484,7 @@ test('a Sessions 봇 row shows the amber triangle, with a digit from 2 waiting s
   assert.match(glyph().getAttribute('aria-label'), /^Watcher · (Waiting for approval|승인 대기)$/);
 
   publishCatalogApprovalSessions([]);
-  await render([WATCHER_HOME, task]);
+  await render([WATCHER_HOME, task, task2]);
   assert.equal(glyph(), null, 'answered: the triangle is gone');
 });
 

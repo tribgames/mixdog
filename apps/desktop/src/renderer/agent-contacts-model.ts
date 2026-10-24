@@ -28,8 +28,9 @@ export interface AgentContact {
   /** The home thread holds an unread reply, whatever status the badge shows
    *  (running/attention/error take the badge, not the unread mark). */
   unread: boolean;
-  /** How many of the bot's sessions wait on the user's approval: its home
-   *  thread plus its task sessions (taskAgent). Sessions it sent work to are
+  /** How many of the bot's sessions wait on the user's approval: its task
+   *  sessions (taskAgent), else its home thread (a home wait beside waiting
+   *  task sessions is their docked copy). Sessions it sent work to are
    *  not in the list's data, so they are not counted. At least 1 while the
    *  indicator is attention, unless every wait is a question (`asking`). */
   approvals: number;
@@ -126,7 +127,12 @@ export function agentContacts(
       needsUser
     );
     const waiting = [session, ...(tasks.get(agentId) ?? [])].filter((row) => row && needsUser?.has(row.id));
-    const approvalRows = waiting.filter((row) => !asking?.has(row?.id ?? '')).length;
+    const approvalIds = waiting.map((row) => row?.id ?? '').filter((id) => !asking?.has(id));
+    // A task session's approval also docks in the home thread, so a home wait
+    // beside waiting task sessions is their copy: count the tasks alone, as
+    // the home's dock counts them ("1/N").
+    const taskApprovals = approvalIds.filter((id) => id !== session?.id).length;
+    const approvalRows = taskApprovals > 0 ? taskApprovals : approvalIds.length;
     const questionOnly = indicator?.kind === 'attention' && waiting.length > 0 && approvalRows === 0;
     return {
       agentId,
