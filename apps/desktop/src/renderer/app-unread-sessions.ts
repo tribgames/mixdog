@@ -217,7 +217,8 @@ export function useUnreadSessions({
       }
       // Work a bot handed off reports back in that bot's chat, which takes the
       // dot: the delegated session's own completion is not a second one.
-      for (const row of rows) if (row.taskAgent) unread.delete(row.id);
+      // The delegated session's agent-owned descendants are part of that work.
+      for (const row of rows) if (row.taskAgent || row.delegatedDescendant) unread.delete(row.id);
       commitUnread(unread);
     },
     [commitUnread, loadSeen, persistSeen, publishRead, screenSessionIdsRef, viewedSessionRef]

@@ -126,6 +126,49 @@ test("a bot's delegated session takes no completion dot; the bot's own chat stil
   }
 });
 
+test("a delegated session's descendants (via the desktop projection) take no completion dot; a user's /inherit continuation does", async () => {
+  const { desktopSessionSummaries } = await import('../main/desktop-state.ts');
+  const raw = (id, extra) => ({
+    id,
+    cwd: 'C:\\work',
+    preview: id,
+    messageCount: 1,
+    desktopSession: { classification: 'project', projectPath: 'C:\\work' },
+    ...extra,
+  });
+  const project = (working, count) =>
+    desktopSessionSummaries([
+      raw('task-a', { owner: 'user', sourceType: 'lead', sourceName: 'agent:bot@home', working, messageCount: count }),
+      raw('kid', { owner: 'agent', visibility: 'agent-only', parentSessionId: 'task-a', working, messageCount: count }),
+      raw('grandkid', {
+        owner: 'agent',
+        visibility: 'agent-only',
+        parentSessionId: 'kid',
+        ownerSessionId: 'task-a',
+        working,
+        messageCount: count,
+      }),
+      raw('cont', { owner: 'user', sourceType: 'lead', inheritedFromSessionId: 'task-a', working, messageCount: count }),
+    ]);
+  const dom = installDom({ focused: false });
+  const api = {};
+  function Harness() {
+    const viewedSessionRef = useRef('');
+    Object.assign(api, useUnreadSessions({ viewedSessionRef }));
+    return React.createElement('div', null, [...api.unreadSessionIds].join(','));
+  }
+  const marks = () => document.querySelector('#root div').textContent;
+  try {
+    await act(async () => dom.root.render(React.createElement(Harness)));
+    await act(async () => api.reconcileUnreadSessions(project(true, 1)));
+    await act(async () => api.reconcileUnreadSessions(project(false, 3)));
+    assert.equal(marks(), 'cont');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test("a bot chat's turn answered by a reaction alone leaves no unread dot; its next reply does", async () => {
   const dom = installDom({ focused: false });
   const api = {};

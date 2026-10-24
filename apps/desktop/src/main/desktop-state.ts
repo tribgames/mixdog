@@ -106,11 +106,43 @@ export function requiredVisibleSessionVersion(value: unknown): number {
   return Number(value);
 }
 
+/** `agent:<id>[@from]` of a host-made task session (a Lead, never an agent-owned session). */
+function taskAgentSource(row: Record<string, unknown>): string[] {
+  const sourceType = String(row.sourceType || '')
+    .trim()
+    .toLowerCase();
+  const sourceName = String(row.sourceName || '').trim();
+  const taskRow = sourceType === 'lead' && row.owner !== 'agent' && row.visibility !== 'agent-only';
+  return taskRow && sourceName.startsWith('agent:') ? sourceName.slice(6).split('@') : [];
+}
+
+/** Agent-owned sessions whose parent/owner chain reaches a delegated task session. */
+function delegatedDescendantIds(rows: Array<Record<string, unknown>>): Set<string> {
+  const delegated = new Set<string>();
+  for (const row of rows) if (taskAgentSource(row)[0]) delegated.add(String(row.id || ''));
+  const descendants = new Set<string>();
+  for (let grew = delegated.size > 0; grew; ) {
+    grew = false;
+    for (const row of rows) {
+      const id = String(row.id || '');
+      if (delegated.has(id) || !(row.owner === 'agent' || row.visibility === 'agent-only')) continue;
+      const links = [row.parentSessionId, row.ownerSessionId].map((link) => String(link || '').trim());
+      if (links.some((link) => link && delegated.has(link))) {
+        delegated.add(id);
+        descendants.add(id);
+        grew = true;
+      }
+    }
+  }
+  return descendants;
+}
+
 export function desktopSessionSummaries(
   rows: Array<Record<string, unknown>>,
   titles: Readonly<Record<string, string>> = {},
   names: Readonly<Record<string, string>> = {}
 ): DesktopSessionSummary[] {
+  const delegatedDescendants = delegatedDescendantIds(rows);
   return rows
     .flatMap((row): DesktopSessionSummary[] => {
       const rawMeta = row.desktopSession;
@@ -168,9 +200,7 @@ export function desktopSessionSummaries(
       // A coding task session an agent created (session create): `agent:<id>`,
       // then where it was created (`@home`, `@room`, `@run`) when recorded.
       // Only a host-made task session (a Lead, never an agent-owned session) carries it.
-      const taskRow = sourceType === 'lead' && row.owner !== 'agent' && row.visibility !== 'agent-only';
-      const [taskAgent = '', taskFrom = ''] =
-        taskRow && sourceName.startsWith('agent:') ? sourceName.slice(6).split('@') : [];
+      const [taskAgent = '', taskFrom = ''] = taskAgentSource(row);
       // Empty and synthetic runtime previews both normalize to no usable title.
       // Keep compacted handoffs when their earliest real user prompt can be
       // recovered, but hide abandoned/interrupted/internal rows instead of
@@ -226,6 +256,7 @@ export function desktopSessionSummaries(
           ...(workspace ? { workspace } : {}),
           ...(agentHome ? { agentHome } : {}),
           ...(taskAgent ? { taskAgent } : {}),
+          ...(delegatedDescendants.has(id) ? { delegatedDescendant: true } : {}),
           ...(taskAgent && (taskFrom === 'home' || taskFrom === 'room' || taskFrom === 'run') ? { taskFrom } : {}),
           ...(row.sessionMode === 'agent' ? { sessionMode: 'agent' as const } : {}),
           ...(lastMessagePreview ? { lastMessagePreview } : {}),

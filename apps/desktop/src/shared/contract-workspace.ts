@@ -159,6 +159,9 @@ export interface DesktopSessionSummary {
    *  schedule/webhook run; absent when not recorded (an older session). Only a
    *  `home` task acts as the bot for Browser Use approvals. */
   taskFrom?: 'home' | 'room' | 'run';
+  /** An agent-owned session below a delegated `taskAgent` session (child,
+   *  grandchild…): part of that delegated work, so it takes no completion dot. */
+  delegatedDescendant?: boolean;
   /** 'agent' for a Lead created as an agent (an agent home, a room member, an
    *  agent's schedule/webhook run: session/agent-mode.mjs); absent = coding. */
   sessionMode?: 'agent';
