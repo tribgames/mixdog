@@ -7,11 +7,11 @@ import {
   type OpenImportedSessionDetail,
 } from '../import-conversation-events';
 import { startImportJobStore } from '../import-job-store';
-import { requestSessionRead } from '../app-snapshot-views';
+import { prepareSessionOpen } from '../session-open-intent';
 import { createProjectActions } from '../app-project-actions';
 import { useAppSessionActions } from '../use-app-session-actions';
 import { closeSessionPaneTabs } from '../session-tab-cleanup';
-import { useAppSessionOpen } from '../app-shell-session-open';
+import { beginProjectNavigation, useAppSessionOpen } from '../app-shell-session-open';
 import { useAppSettingsRouter } from './use-app-settings-router';
 import type { AppWorkspaceShell } from './use-app-workspace-shell';
 import type { AppNavigationShell } from './use-app-navigation-shell';
@@ -71,9 +71,7 @@ export function useAppSessionCommands(
     closeSidebarForNavigation,
     refreshProjects,
     refreshSessionsBestEffort,
-    beginNavigation: () => {
-      navigationEpoch.current += 1;
-    },
+    beginNavigation: () => beginProjectNavigation(navigationEpoch, setRequestedSessionId),
   });
   const closeSessionTabs = useCallback(
     (sessionId: string) =>
@@ -109,10 +107,9 @@ export function useAppSessionCommands(
     tabs,
     finishPendingConversationHandoff,
     activateSelection,
-    announceOpen: paneWorkspace.announceOpenInFocused,
   });
   openSessionRef.current = openSession;
-  const prefetchSession = useCallback((sessionId: string) => requestSessionRead(sessionId), []);
+  const prefetchSession = useCallback((sessionId: string) => prepareSessionOpen(sessionId), []);
   const { openSettings } = useAppSettingsRouter({
     ...shellPanels,
     ...sideDocks,

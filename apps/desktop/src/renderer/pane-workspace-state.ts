@@ -3,7 +3,7 @@
 // open commands, and persistence. It deliberately knows nothing about what a
 // leaf renders — the integration layer maps NavigationSelection to views —
 // so it stays testable and independent of the in-flight renderer work.
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import type { WorkspaceSelection } from './nav-types';
 import { paneDropDirection, paneDropPosition } from './pane-drop-zone';
@@ -57,25 +57,6 @@ export { initialPaneWorkspaceState } from './pane-workspace-storage';
 
 /** Drop zone of a drag-to-split gesture over one pane. */
 export type PaneDropZone = 'left' | 'right' | 'top' | 'bottom';
-
-/** An open the focused pane has been asked for but not yet rendered: the
- *  pane body follows in a transition, its strip shows the tab at once. */
-interface PaneOpenAnnouncement {
-  leafId: string;
-  selection: WorkspaceSelection;
-}
-
-/** The leaf as its tab strip shows it: with an announced open applied
- *  exactly as openInFocused will apply it (the same activate-or-append rule,
- *  so the committed tab lands where the announced one stood). A view open in
- *  another group is revealed there instead, which moves no tab here. */
-export function announcedStripLeaf(layout: PaneNode, leaf: PaneLeaf, announced: PaneOpenAnnouncement | null): PaneLeaf {
-  if (!announced || announced.leafId !== leaf.id) return leaf;
-  const key = navigationKey(announced.selection);
-  const holds = (candidate: PaneLeaf) => candidate.tabs.some((tab) => navigationKey(tab) === key);
-  if (!holds(leaf) && paneLeaves(layout).some((other) => other.id !== leaf.id && holds(other))) return leaf;
-  return openTabInPaneLeaf(leaf, leaf.id, announced.selection) as PaneLeaf;
-}
 
 function isSoleNewTaskPane(layout: PaneNode, leafId: string): boolean {
   return layout.type === 'leaf' && layout.id === leafId && layout.tabs.length === 1 && layout.tabs[0].kind === 'new';
@@ -272,7 +253,6 @@ function moveTabState(
 
 export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = null) {
   const { setState, state, restorePending, restoredFromStorage } = usePaneWorkspaceState(initialSelection);
-  const [announcedOpen, setAnnouncedOpen] = useState<PaneOpenAnnouncement | null>(null);
 
   const focusLeaf = useCallback(
     (leafId: string) => {
@@ -300,20 +280,9 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
    *  surface per session — duplicates share one engine and read as a bug). */
   const openInFocused = useCallback(
     (selection: WorkspaceSelection, replaceKey = '', options: { preview?: boolean } = {}) => {
-      // Lands in the same commit as the layout it announced (both are set in
-      // the caller's transition), so the strip never shows the tab twice.
-      setAnnouncedOpen(null);
       setState((prev) => openInFocusedState(prev, selection, replaceKey, options));
     },
     [setState]
-  );
-
-  /** Urgent half of a session open whose pane renders in a transition: the
-   *  focused strip shows (and selects) the tab in the click's own commit
-   *  instead of after the incoming pane has rendered (see announcedStripLeaf). */
-  const announceOpenInFocused = useCallback(
-    (selection: WorkspaceSelection) => setAnnouncedOpen({ leafId: state.focusedLeafId, selection }),
-    [state.focusedLeafId]
   );
 
   /** Explicit pane drop: open a closed view in the target group, or MOVE its
@@ -584,11 +553,6 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     [state.layout, state.focusedLeafId, leaves]
   );
 
-  const stripLeaf = useCallback(
-    (leaf: PaneLeaf) => announcedStripLeaf(state.layout, leaf, announcedOpen),
-    [state.layout, announcedOpen]
-  );
-
   return useMemo(
     () => ({
       layout: state.layout,
@@ -599,8 +563,6 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       focusedLeafId: focusedLeaf?.id ?? '',
       focusLeaf,
       openInFocused,
-      announceOpenInFocused,
-      stripLeaf,
       openInLeaf,
       promoteInLeaf,
       updateSelection,
@@ -630,8 +592,6 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       focusedLeaf,
       focusLeaf,
       openInFocused,
-      announceOpenInFocused,
-      stripLeaf,
       openInLeaf,
       promoteInLeaf,
       updateSelection,

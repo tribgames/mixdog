@@ -4,6 +4,7 @@
 // contract for the strip-contract dom tests and the shared CSS.
 import React, { type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useStableEvent } from './use-stable-event';
+import { confirmSessionOpen, prepareSessionOpen, useSessionOpenIntent } from './session-open-intent';
 import { createPortal } from 'react-dom';
 import { explorerAbsolutePath } from './explorer-tree-model';
 import { isRemoteHostRenderer } from './remote-ui-projection';
@@ -250,53 +251,58 @@ function sameTabCell(previous: WorkspaceTabCellProps, next: WorkspaceTabCellProp
 /** One tab of the strip, rendered only when that tab changed: the strip
  *  itself renders on every App commit (a session switch is several). */
 const WorkspaceTabCell = memo(function WorkspaceTabCell(props: WorkspaceTabCellProps) {
-  return workspaceTabNode(props);
+  const { tab } = props;
+  const intent = useSessionOpenIntent(tab.selection.kind === 'session' ? tab.selection.id : '', prepareSessionOpen);
+  return workspaceTabNode(props, intent);
 }, sameTabCell);
 
 /** One live tab cell: selection, its status readout (the strongest of needs
  *  you, failed, working and unread), the drag source, the middle-click and
  *  context gestures, and the close control. */
-function workspaceTabNode({
-  tab,
-  active,
-  working,
-  attention,
-  dragging,
-  entering,
-  dropLeft,
-  dropRight,
-  pinnedTabWidth,
-  suppressTabClick,
-  setTabNode,
-  selectTab,
-  startNativeDrag,
-  setTabMenu,
-  onCloseTab,
-  onPinTab,
-  rename,
-}: {
-  tab: WorkspaceTab;
-  active: boolean;
-  working: boolean;
-  attention: SessionAttention | '';
-  rename: TabRename | null;
-  dragging: boolean;
-  entering: boolean;
-  dropLeft: boolean;
-  dropRight: boolean;
-  pinnedTabWidth: number | undefined;
-  suppressTabClick: { current: string };
-  setTabNode(key: string, node: HTMLDivElement | null): void;
-  selectTab(tab: WorkspaceTab): void;
-  startNativeDrag(
-    event: React.DragEvent<HTMLElement>,
-    kind: 'tab' | 'group',
-    sourceTab: WorkspaceTab | undefined
-  ): void;
-  setTabMenu: SetTabMenu;
-  onCloseTab(tab: WorkspaceTab): void;
-  onPinTab?(tab: WorkspaceTab): void;
-}) {
+function workspaceTabNode(
+  {
+    tab,
+    active,
+    working,
+    attention,
+    dragging,
+    entering,
+    dropLeft,
+    dropRight,
+    pinnedTabWidth,
+    suppressTabClick,
+    setTabNode,
+    selectTab,
+    startNativeDrag,
+    setTabMenu,
+    onCloseTab,
+    onPinTab,
+    rename,
+  }: {
+    tab: WorkspaceTab;
+    active: boolean;
+    working: boolean;
+    attention: SessionAttention | '';
+    rename: TabRename | null;
+    dragging: boolean;
+    entering: boolean;
+    dropLeft: boolean;
+    dropRight: boolean;
+    pinnedTabWidth: number | undefined;
+    suppressTabClick: { current: string };
+    setTabNode(key: string, node: HTMLDivElement | null): void;
+    selectTab(tab: WorkspaceTab): void;
+    startNativeDrag(
+      event: React.DragEvent<HTMLElement>,
+      kind: 'tab' | 'group',
+      sourceTab: WorkspaceTab | undefined
+    ): void;
+    setTabMenu: SetTabMenu;
+    onCloseTab(tab: WorkspaceTab): void;
+    onPinTab?(tab: WorkspaceTab): void;
+  },
+  intent: ReturnType<typeof useSessionOpenIntent>
+) {
   const editing = rename?.draft != null;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the tab wrapper only carries drag, middle-click and context menu; its inner button is the control.
@@ -318,7 +324,11 @@ function workspaceTabNode({
           : undefined
       }
       onPointerEnter={() => prefetchTabSurface(tab)}
-      onFocusCapture={() => prefetchTabSurface(tab)}
+      onFocusCapture={() => {
+        prefetchTabSurface(tab);
+        intent.handlers.onFocusCapture();
+      }}
+      onBlur={intent.handlers.onBlur}
       onDragStart={(event) => {
         if ((event.target as Element | null)?.closest?.('.workspace-tab-close')) {
           event.preventDefault();
@@ -328,6 +338,11 @@ function workspaceTabNode({
         event.stopPropagation();
         startNativeDrag(event, 'tab', tab);
       }}
+      onPointerDownCapture={intent.handlers.onPointerDownCapture}
+      onPointerUpCapture={intent.handlers.onPointerUpCapture}
+      onDragEnd={intent.handlers.onDragEnd}
+      onPointerCancel={intent.handlers.onPointerCancel}
+      onPointerLeave={intent.handlers.onPointerLeave}
       onMouseDown={(event) => {
         if (event.button !== 1) return;
         event.preventDefault();
@@ -339,6 +354,7 @@ function workspaceTabNode({
         rename?.start(tab);
       }}
       onContextMenu={(event) => {
+        intent.finalize();
         if (editing) return;
         event.preventDefault();
         setTabMenu(tabMenuAnchorAt(tab.key, event));
@@ -354,7 +370,10 @@ function workspaceTabNode({
           aria-label={t('Rename {{name}}', { name: tab.title })}
           onFocus={(event) => event.currentTarget.select()}
           onInput={(event) => rename.change(event.currentTarget.value)}
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            intent.finalize();
+            event.stopPropagation();
+          }}
           onMouseDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
@@ -374,11 +393,16 @@ function workspaceTabNode({
         type="button"
         className="workspace-tab-main"
         onClick={() => {
-          if (suppressTabClick.current === tab.key) {
-            suppressTabClick.current = '';
-            return;
+          try {
+            if (suppressTabClick.current === tab.key) {
+              suppressTabClick.current = '';
+              return;
+            }
+            selectTab(tab);
+          } finally {
+            // selectTab confirmed the intent synchronously if it navigated.
+            intent.finalize();
           }
-          selectTab(tab);
         }}
         aria-current={active ? 'page' : undefined}
         // Compact tabs hide the title text; the name must not depend on it.
@@ -413,6 +437,7 @@ function workspaceTabNode({
         type="button"
         className="workspace-tab-close"
         onClick={(event) => {
+          intent.finalize();
           event.stopPropagation();
           onCloseTab(tab);
         }}
@@ -553,6 +578,7 @@ export function WorkspaceTabStrip({
   const selectTab = useCallback(
     (tab: WorkspaceTab) => {
       prefetchTabSurface(tab);
+      if (tab.selection.kind === 'session') confirmSessionOpen(tab.selection.id);
       const startedAt = performance.now();
       selectTabEvent(tab);
       if (!window.mixdogDesktop?.perfLog) return;

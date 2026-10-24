@@ -148,26 +148,23 @@ export function useAppPaneChrome({
   };
 
   const paneStripFor = (leaf: PaneLeaf) => {
-    // An open announced in this commit shows its tab before the pane renders.
-    const shown = paneWorkspace.stripLeaf(leaf);
     // A bot chat is a tab of the shared strip like any session, on the phone too.
-    const stripTabs = shown.tabs;
-    if (stripTabs.length === 0) return null;
-    const leafTabs = stripTabs.map((selection) => {
+    if (leaf.tabs.length === 0) return null;
+    const leafTabs = leaf.tabs.map((selection) => {
       const key = navigationKey(selection);
       return {
         key,
         title: stripTitleFor(key, selection),
         selection,
-        preview: shown.previewKey === key,
-        pinned: shown.previewKey !== key,
+        preview: leaf.previewKey === key,
+        pinned: leaf.previewKey !== key,
         dirty: dirtyFileKeys.has(key),
       };
     });
     return (
       <WorkspaceTabStrip
         tabs={leafTabs}
-        activeKey={shown.activeKey}
+        activeKey={leaf.activeKey}
         sessions={sessions}
         workingSessionIds={workingSessionIds}
         unreadSessionIds={unreadSessionIds}
@@ -178,7 +175,7 @@ export function useAppPaneChrome({
           // The agent's name on its open home tab (the phone's thread header
           // too) opens its profile.
           if (
-            tab.key === shown.activeKey &&
+            tab.key === leaf.activeKey &&
             tab.selection.kind === 'session' &&
             isAgentHomeSessionId(tab.selection.id)
           ) {

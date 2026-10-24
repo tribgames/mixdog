@@ -234,10 +234,18 @@ test('a revisit reveals in its first frame only while its remembered geometry st
 
   await page.evaluate(() => window.settle());
   // First visits settle as they always did: A (mount), then B and C.
+  // Its data is present and its rows exact in the click's commit: the final,
+  // settled rows paint in frame 1 (no covered frames, no later correction).
   const firstB = await visit('B');
-  expect(!firstB[0].visible, 'a first visit still paints no rows in frame 1');
+  expect(firstVisible(firstB) === 0, 'a first visit with its data present paints settled rows in frame 1');
   assertNoWrongFrame(firstB, 'first visit');
-  await visit('C');
+  // Fonts still loading is a genuine wait: the cover holds frame 1.
+  await page.evaluate(() =>
+    Object.defineProperty(document.fonts, 'status', { configurable: true, get: () => 'loading' })
+  );
+  const pendingFonts = await visit('C');
+  expect(!pendingFonts[0].visible, 'a first visit with fonts pending stays covered in frame 1');
+  await page.evaluate(() => delete document.fonts.status);
 
   // Unchanged revisit: rows at the end in frame 1, nothing moves afterwards.
   const unchanged = await visit('A');

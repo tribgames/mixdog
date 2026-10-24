@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { transcriptThreadInset } from './transcript-list-geometry';
-import { TRANSCRIPT_RELEARN_ATTRIBUTE } from './transcript-virtual-cache';
+import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_RELEARN_ATTRIBUTE } from './transcript-virtual-cache';
 import { transcriptScrollPosition } from './use-transcript-follow';
 
 /** A row's remembered size and offset (a virtual item of the snapshot). */
@@ -134,6 +134,7 @@ export function useTranscriptReveal({
       let visible = 0;
       let visiblePending = false;
       const visibleRows: HTMLElement[] = [];
+      const closedEnds: number[] = [];
       rows.forEach((row, index) => {
         const start = Number.parseFloat(row.style.top) || 0;
         const next = rows[index + 1];
@@ -141,13 +142,21 @@ export function useTranscriptReveal({
         if (end <= top || start >= bottom) return;
         visible++;
         visibleRows.push(row);
+        closedEnds.push(next ? end : end - TRANSCRIPT_BOTTOM_SPACER);
         if (warm && !visiblePending) visiblePending = Boolean(row.querySelector(ROW_PENDING));
         signature.push(Number(row.dataset.index), start, end);
       });
       // An entry waits on every mounted row. A revisit's offscreen rows hold
       // their remembered boxes, so only a row on screen can still paint empty.
       const rowsPending = warm ? visiblePending : Boolean(space.querySelector(ROW_PENDING));
-      return { position, visible, visibleRows, rowsPending, current: JSON.stringify(signature) };
+      return {
+        position,
+        visible,
+        visibleRows,
+        closedEnds,
+        rowsPending,
+        current: JSON.stringify(signature),
+      };
     };
     const sample = () => {
       const root = viewport.current;
@@ -193,7 +202,7 @@ export function useTranscriptReveal({
       const root = viewport.current;
       const space = content.current;
       if (cancelled || !root || !space) return;
-      const { position, visible, visibleRows, rowsPending, current } = measure(root, space);
+      const { position, visible, visibleRows, closedEnds, rowsPending, current } = measure(root, space);
       if (eager && eagerReady(space, visible)) {
         cancelled = true;
         cancelAnimationFrame(frame);
@@ -201,6 +210,24 @@ export function useTranscriptReveal({
         return;
       }
       const pending = rowsPending || scope?.current?.querySelector(chrome) || document.fonts?.status === 'loading';
+      // A first visit whose rows are all real and exact in this commit (the
+      // layout phase measured them and re-rendered before this microtask) is
+      // final too: it reveals in the click's frame, not after confirming
+      // samples. The end it follows must have landed. The last row's extent
+      // excludes the list's tail spacer, which no row owns.
+      if (
+        !warm &&
+        !pending &&
+        visible > 0 &&
+        position.maxScrollTop - position.top <= 1 &&
+        isExact(root, visibleRows, closedEnds) &&
+        !hasScrollGesture()
+      ) {
+        cancelled = true;
+        cancelAnimationFrame(frame);
+        reveal();
+        return;
+      }
       // A revisit's geometry is final here when its mounted visible rows read
       // back at exactly the sizes and offsets they were remembered with (one
       // layout read the browser needs before paint anyway), no estimate
@@ -260,6 +287,18 @@ function matchesRetained(rows: readonly HTMLElement[], retained: readonly Retain
       kept.start === (Number.parseFloat(row.style.top) || 0)
     );
   });
+}
+
+/** Every given visible row, read back from layout, is exactly the extent the
+ *  virtualizer gave it (up to the next row's offset), and no estimate relearn
+ *  waits for its frame. No tolerance. */
+function isExact(root: HTMLElement, rows: readonly HTMLElement[], ends: readonly number[]): boolean {
+  if (root.hasAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE)) return false;
+  return rows.every(
+    (row, index) =>
+      Math.round(row.getBoundingClientRect().height) ===
+      Math.round(ends[index] - (Number.parseFloat(row.style.top) || 0))
+  );
 }
 
 /** An eager reveal needs real rows only: a visible row and no suspended

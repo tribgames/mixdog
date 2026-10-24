@@ -144,24 +144,17 @@ function useSidebarWidth() {
 }
 
 /** Warms the first recent rows during idle time; returns the per-row prefetch request. */
-function useSessionPrefetch(
+export function useSessionPrefetch(
   onPrefetchSession: ((sessionId: string) => Promise<boolean>) | undefined,
   open: boolean,
   sessionsReady: boolean,
   visibleRecentRows: readonly DesktopSessionSummary[]
 ) {
-  const prefetchedSessionIds = useRef(new Set<string>());
+  // Every press or focus asks again: the shared read and its caches dedupe
+  // what is held or in flight, and a failed or outdated one is made anew.
   const requestPrefetch = useCallback(
     (sessionId: string) => {
-      if (!onPrefetchSession || prefetchedSessionIds.current.has(sessionId)) return;
-      prefetchedSessionIds.current.add(sessionId);
-      void onPrefetchSession(sessionId)
-        .then((ready) => {
-          if (!ready) prefetchedSessionIds.current.delete(sessionId);
-        })
-        .catch(() => {
-          prefetchedSessionIds.current.delete(sessionId);
-        });
+      void onPrefetchSession?.(sessionId).catch(() => undefined);
     },
     [onPrefetchSession]
   );

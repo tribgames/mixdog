@@ -5,6 +5,7 @@ import { sessionDisplayTitle } from './session-display-title';
 import { t } from './i18n';
 import { defaultSessionLaneStore } from './session-lane-store';
 import { requestSessionRead } from './app-snapshot-views';
+import { confirmSessionOpen } from './session-open-intent';
 
 interface SessionOpenProps {
   navigationEpoch: React.MutableRefObject<number>;
@@ -14,8 +15,18 @@ interface SessionOpenProps {
   tabs: WorkspaceTab[];
   finishPendingConversationHandoff: () => void;
   activateSelection: (selection: NavigationSelection, title: string, replaceKey?: string) => void;
-  /** Shows the session's tab in the focused strip ahead of the transition. */
-  announceOpen: (selection: NavigationSelection) => void;
+}
+
+/** A navigation that is not a session open (entering a project) supersedes
+ *  one in flight: its epoch moves on, so the open's own clear of the
+ *  requested id no longer runs, and the id is dropped here instead. Left set it
+ *  kept the sidebar on the abandoned session's row. */
+export function beginProjectNavigation(
+  navigationEpoch: React.MutableRefObject<number>,
+  setRequestedSessionId: (id: string) => void
+): void {
+  navigationEpoch.current += 1;
+  setRequestedSessionId('');
 }
 
 export function useAppSessionOpen({
@@ -26,17 +37,20 @@ export function useAppSessionOpen({
   tabs,
   finishPendingConversationHandoff,
   activateSelection,
-  announceOpen,
 }: SessionOpenProps) {
   /** `replaceKey`: the tab the session takes the place of (an untouched draft). */
   const openSession = async (sessionId: string, _force = false, fallbackTitle = '', replaceKey = ''): Promise<void> => {
     const navigationToken = ++navigationEpoch.current;
     closeSidebarForNavigation();
-    setRequestedSessionId(sessionId);
     // Select immediately; a cold lane fills behind the already-committed tab
-    // instead of making the relay RTT part of navigation latency.
-    const laneReady = defaultSessionLaneStore.get(sessionId) ? Promise.resolve(true) : requestSessionRead(sessionId);
+    // instead of making the relay RTT part of navigation latency. A warm lane
+    // has nothing in flight to bridge, so it never holds a requested id.
+    const warm = Boolean(defaultSessionLaneStore.get(sessionId));
+    setRequestedSessionId(warm ? '' : sessionId);
+    const laneReady = warm ? Promise.resolve(true) : requestSessionRead(sessionId);
     if (navigationEpoch.current !== navigationToken) return;
+    // The navigation goes ahead: the press or focus that led here is an open.
+    confirmSessionOpen(sessionId);
     const session = sessions.find((item) => item.id === sessionId);
     finishPendingConversationHandoff();
     // Pin explicit titles such as "Reviewer · tag" across pane moves and
@@ -46,33 +60,26 @@ export function useAppSessionOpen({
     const openedPinnedTitle =
       openedTab && openedTab.selection.kind === 'session' ? String(openedTab.selection.title || '').trim() : '';
     const pinnedTitle = fallbackTitle.trim() || openedPinnedTitle;
-    // Cleared as a transition: pending transitions render together, so a
-    // warm lane drops the requested id in the same commit that selects the
-    // session. Cleared urgently it committed first, alone: the sidebar row
-    // fell back to the outgoing session for that commit and every shell
-    // surface rendered once more.
-    void laneReady.finally(() => {
-      if (navigationEpoch.current === navigationToken) startTransition(() => setRequestedSessionId(''));
-    });
+    // A cold lane's id is dropped once its read settles; the selection is
+    // already committed by then, so the clear repaints nothing.
+    if (!warm) {
+      void laneReady.finally(() => {
+        if (navigationEpoch.current === navigationToken) startTransition(() => setRequestedSessionId(''));
+      });
+    }
     const selection: NavigationSelection = {
       kind: 'session',
       id: sessionId,
       ...(pinnedTitle ? { title: pinnedTitle } : {}),
     };
-    // The requested id and the announced tab are the urgent part of the
-    // click: the sidebar row and the focused strip's tab select in its own
-    // commit (the tab used to wait for the whole incoming pane, then grow in
-    // under that pane's first long tasks). Rendering the incoming pane
-    // (transcript, dock) is a transition, so it yields to input and the
-    // outgoing pane stays on screen, whole, until the new one commits.
-    // A replacing open swaps the tab in place; announcing would add a second.
-    if (!replaceKey) announceOpen(selection);
-    startTransition(() =>
-      activateSelection(
-        selection,
-        pinnedTitle || (session ? sessionDisplayTitle(session, t('Untitled session')) : t('Untitled session')),
-        replaceKey
-      )
+    // The click's selection, tab, sidebar row and incoming pane commit
+    // together: a transition (or an announced tab ahead of it) committed the
+    // strip and sidebar first, leaving the outgoing transcript painted for
+    // the frames the incoming pane took to render.
+    activateSelection(
+      selection,
+      pinnedTitle || (session ? sessionDisplayTitle(session, t('Untitled session')) : t('Untitled session')),
+      replaceKey
     );
   };
 

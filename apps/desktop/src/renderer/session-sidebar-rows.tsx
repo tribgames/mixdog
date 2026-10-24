@@ -18,12 +18,11 @@ import { RoomMemberFace } from './agent-room-parts';
 import { useArchivedBotIdentities } from './archived-bot-identity';
 import { SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';
 import { t } from './i18n';
+import { useSessionOpenIntent } from './session-open-intent';
 import { NotificationMuteMark } from './notification-controls';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 import type { usePersistedListOrder } from './use-persisted-list-order';
-
-const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 
 export function sessionLabel(session: DesktopSessionSummary) {
   return sessionDisplayTitle(session, t('Untitled session'));
@@ -250,29 +249,24 @@ const SessionRow = React.memo(function SessionRow({
     titleInput.current?.focus({ preventScroll: true });
     titleInput.current?.select();
   }, [editing]);
-  const prefetchTimer = useRef<number | null>(null);
-  const cancelPrefetch = useCallback(() => {
-    if (prefetchTimer.current === null) return;
-    window.clearTimeout(prefetchTimer.current);
-    prefetchTimer.current = null;
-  }, []);
-  const schedulePrefetch = useCallback(() => {
-    cancelPrefetch();
-    prefetchTimer.current = window.setTimeout(() => {
-      prefetchTimer.current = null;
-      onPrefetchSession(session.id);
-    }, SESSION_PREFETCH_INTENT_DELAY_MS);
-  }, [cancelPrefetch, onPrefetchSession, session.id]);
-  useEffect(() => cancelPrefetch, [cancelPrefetch]);
+  // Pressing a row (mouse, touch, pen) or focusing it is the commitment to
+  // open it: request the lane then, so it is usually held by the click's
+  // commit. The sidebar dedupes per session and the read joins the open's.
+  const openIntent = useSessionOpenIntent(session.id, onPrefetchSession);
+  const { handlers: openHandlers, finalize: finalizeOpen } = openIntent;
   const activateFromClick = useCallback(() => {
-    if (suppressClick.current) {
-      suppressClick.current = false;
-      return;
+    try {
+      if (suppressClick.current) {
+        suppressClick.current = false;
+        return;
+      }
+      if (editing || confirmingDelete || deleting) return;
+      resume();
+    } finally {
+      // Opening confirmed the intent synchronously if it navigated.
+      finalizeOpen();
     }
-    if (editing || confirmingDelete || deleting) return;
-    cancelPrefetch();
-    resume();
-  }, [cancelPrefetch, confirmingDelete, deleting, editing, resume]);
+  }, [confirmingDelete, deleting, editing, resume, finalizeOpen]);
   const clearNativeDrag = useCallback(() => {
     const drag = nativeDrag.current;
     nativeDrag.current = null;
@@ -308,10 +302,7 @@ const SessionRow = React.memo(function SessionRow({
       aria-current={active ? 'page' : undefined}
       aria-grabbed={dragging ? 'true' : undefined}
       draggable={!editing && !confirmingDelete && !deleting}
-      onPointerEnter={schedulePrefetch}
-      onPointerLeave={cancelPrefetch}
-      onFocusCapture={schedulePrefetch}
-      onBlurCapture={cancelPrefetch}
+      {...openHandlers}
       onDragStart={(event) => {
         if ((event.target as Element | null)?.closest?.('.session-row-actions, .session-title-input')) {
           event.preventDefault();
@@ -326,19 +317,19 @@ const SessionRow = React.memo(function SessionRow({
         };
         beginPaneDrag(event.nativeEvent, drag, event.currentTarget, clearNativeDrag);
         nativeDrag.current = drag;
-        cancelPrefetch();
         setDragging(true);
         document.body.dataset.tabDragging = '1';
       }}
       onDragEnd={() => {
+        finalizeOpen();
         reorder?.onDragEnd?.();
         finishPaneDrag();
       }}
       onClick={activateFromClick}
       onContextMenu={(event) => {
+        finalizeOpen();
         if (!onOpenMenu || editing || deleting) return;
         event.preventDefault();
-        cancelPrefetch();
         onOpenMenu(session, pointerMenuPoint(event));
       }}
       onDoubleClick={(event) => {
@@ -365,7 +356,10 @@ const SessionRow = React.memo(function SessionRow({
         aria-label={t('Rename {{name}}', { name: label })}
         aria-invalid={titleInvalid || undefined}
         onInput={(event) => onTitleDraftChange(event.currentTarget.value)}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          finalizeOpen();
+          event.stopPropagation();
+        }}
         onDoubleClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           event.stopPropagation();
@@ -425,12 +419,14 @@ const SessionRow = React.memo(function SessionRow({
                 : t('Expand forks of {{name}}', { name: label })
             }
             onClick={(event) => {
+              finalizeOpen();
               event.preventDefault();
               event.stopPropagation();
               onToggleFork?.(session.id);
             }}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' && event.key !== ' ') return;
+              finalizeOpen();
               event.preventDefault();
               event.stopPropagation();
               onToggleFork?.(session.id);
@@ -445,7 +441,12 @@ const SessionRow = React.memo(function SessionRow({
         </span>
         {attention === 'unread' && <SessionRowUnreadDot name={label} />}
       </button>
-      <div className="session-row-actions" inert={editing ? true : undefined} aria-hidden={editing ? true : undefined}>
+      <div
+        className="session-row-actions"
+        onClickCapture={finalizeOpen}
+        inert={editing ? true : undefined}
+        aria-hidden={editing ? true : undefined}
+      >
         {/* Archived rows always carry restore/delete; any other row shows the
             same cancel/confirm pair while a menu-started delete awaits
             confirmation. */}

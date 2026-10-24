@@ -187,6 +187,36 @@ function rememberTurnChanges(
   replyCache.set(turnChangesKey(sessionId, checkpointId), { boundary, epoch, reply });
 }
 
+/** One capability read per card, shared by the mounted card and an earlier
+ *  prefetch of the same card (a session about to open). */
+const readsInFlight = new Map<string, Promise<TurnChangesReply>>();
+
+export function readTurnChanges(sessionId: string, checkpointId: string, boundary: string, epoch: number) {
+  const key = `${turnChangesKey(sessionId, checkpointId)}\u0000${boundary}\u0000${epoch}`;
+  const shared = readsInFlight.get(key);
+  if (shared) return shared;
+  const read = invokeTurnChanges(TURN_CHANGES_CAPABILITY, [{ checkpointId }], sessionId)
+    .then((reply) => {
+      rememberTurnChanges(sessionId, checkpointId, boundary, epoch, reply);
+      return reply;
+    })
+    .finally(() => {
+      readsInFlight.delete(key);
+    });
+  readsInFlight.set(key, read);
+  return read;
+}
+
+/** Reads a card's reply ahead of its mount, so the row that mounts it paints
+ *  the card (or its absence) in its first commit. A held or in-flight reply is
+ *  never read twice. */
+export function prefetchTurnChanges(sessionId: string, checkpointId: string, boundary: string): void {
+  if (!sessionId || !checkpointId) return;
+  const epoch = turnChangesEpoch(sessionId);
+  if (cachedTurnChanges(sessionId, checkpointId, boundary, epoch)) return;
+  readTurnChanges(sessionId, checkpointId, boundary, epoch).catch(() => undefined);
+}
+
 /** Test seam: forget every cached reply and epoch. */
 export function resetTurnChangesCache() {
   replyCache.clear();
@@ -236,7 +266,7 @@ export function useTurnChanges({
     let stale = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const attempt = (retry: number) => {
-      void invokeTurnChanges(TURN_CHANGES_CAPABILITY, [{ checkpointId }], sessionId).then(
+      void readTurnChanges(sessionId, checkpointId, boundary, epoch).then(
         (next) => {
           if (stale) return;
           if (next.status === 'pending') {
@@ -245,7 +275,6 @@ export function useTurnChanges({
             if (delay !== undefined) timer = setTimeout(() => attempt(retry + 1), delay);
             return;
           }
-          rememberTurnChanges(sessionId, checkpointId, boundary, epoch, next);
           setState({ key, reply: next });
         },
         () => {

@@ -141,22 +141,3 @@ test('a NEW TASK beside other tabs is kept when a real tab opens', () => {
   assert.equal(next.tabs.length, 3);
   assert.equal(next.activeKey, 'session:session-b');
 });
-
-test('an announced open shows its tab in the strip exactly where the open will land it', async () => {
-  const { announcedStripLeaf } = await import('./pane-workspace-state.ts');
-  const layout = parsePaneLayout(twoPaneStored.layout);
-  const right = layout.second;
-  const selection = { kind: 'session', id: 'session-c' };
-  const shown = announcedStripLeaf(layout, right, { leafId: 'right', selection });
-  const opened = openTabInPaneLeaf(layout, 'right', selection).second;
-  assert.deepEqual(shown.tabs, opened.tabs, 'appended at the committed position');
-  assert.equal(shown.activeKey, 'session:session-c', 'and selected in the same commit');
-  assert.equal(announcedStripLeaf(layout, layout.first, { leafId: 'right', selection }), layout.first);
-  assert.equal(announcedStripLeaf(layout, right, null), right);
-  // A view open in another group is revealed there: this strip gains nothing.
-  const revealed = announcedStripLeaf(layout, right, {
-    leafId: 'right',
-    selection: { kind: 'session', id: 'session-a' },
-  });
-  assert.equal(revealed, right);
-});

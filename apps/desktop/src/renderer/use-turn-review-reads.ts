@@ -2,21 +2,15 @@ import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useStat
 import type { TranscriptItem } from './desktop-types';
 import { turnReviewScope } from './renderer-logic.mjs';
 import { isMobileRemoteSurface } from './mobile-surface';
-import { adoptLastTurnReview } from './session-changes-store';
 import { useTurnChangesEpoch } from './turn-changes-model';
+import { recordTurnReviewAnswer, turnReviewPrefetch } from './turn-review-prefetch';
 import {
   leadReviewSnapshotKindCache,
-  rememberAgentReviews,
   reviewTagCache,
   type AgentTurnReview,
   type TurnReviewFile,
 } from './turn-review-cache';
-import {
-  cachedTurnReviewState,
-  TURN_REVIEW_CAPABILITY,
-  decodeTurnReviewCapabilityValue,
-  type TurnReviewCapabilityValue,
-} from './turn-review-model';
+import { cachedTurnReviewState, TURN_REVIEW_CAPABILITY, type TurnReviewCapabilityValue } from './turn-review-model';
 import type { useTurnReviewDisclosure } from './use-turn-review-disclosure';
 
 type AgentReviewState = {
@@ -145,22 +139,30 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     // A `none` scope names no turn, so nothing read under it is kept for
     // a later mount to show as its own review.
     const cacheable = requestedCheckpoint !== 'none';
-    const known = cacheable ? (reviewTagCache.get(requestedScope) ?? '') : '';
-    // The collapsed bar draws files and counts only. Its patch text is
-    // most of each read (and, for a large change, most of its cost), so
-    // it is read once the bar is opened.
-    const result = await api.invokeCapability({
-      capability: TURN_REVIEW_CAPABILITY,
-      args: [
-        {
-          refresh: refreshWorktree,
-          ...(known ? { known } : {}),
-          ...(summary ? { summary } : {}),
-          ...(background ? { poll: 'background' } : {}),
-        },
-      ],
-      sessionId,
-    });
+    // The entry read a session's open already started is this same request
+    // (stored summary, no worktree refresh, foreground): its answer is taken
+    // rather than asked for again. A refresh, a poll and an expanded patch are
+    // different requests and are issued as usual.
+    const entryRead = !refreshWorktree && summary && !background ? turnReviewPrefetch(requestedScope) : undefined;
+    let result = entryRead ? await entryRead : null;
+    if (!result) {
+      const known = cacheable ? (reviewTagCache.get(requestedScope) ?? '') : '';
+      // The collapsed bar draws files and counts only. Its patch text is
+      // most of each read (and, for a large change, most of its cost), so
+      // it is read once the bar is opened.
+      result = await api.invokeCapability({
+        capability: TURN_REVIEW_CAPABILITY,
+        args: [
+          {
+            refresh: refreshWorktree,
+            ...(known ? { known } : {}),
+            ...(summary ? { summary } : {}),
+            ...(background ? { poll: 'background' } : {}),
+          },
+        ],
+        sessionId,
+      });
+    }
     const value = (result?.value ?? null) as TurnReviewCapabilityValue;
     // Leaving and re-entering a scope issues a newer read of it while this
     // one runs; that read owns the scope's cache and state.
@@ -168,32 +170,10 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     if (value?.unchanged === true) return;
     recorded = value?.reason === 'recorded';
     cachedAnswer = value?.reason === 'cached';
-    const decoded = decodeTurnReviewCapabilityValue(value);
-    if (!decoded) {
-      return;
-    }
+    const decoded = recordTurnReviewAnswer(sessionId, requestedScope, requestedCheckpoint, value);
+    if (!decoded) return;
     const { leadPatch, snapshotKind, checkpointId, files, reviews, historyTurns } = decoded;
-    // Until the runtime opens the new turn (and before its first tool),
-    // it still answers with the previous turn's review. Shown under the
-    // new prompt, that brought the old diff back above the composer.
-    if (checkpointId && requestedCheckpoint !== 'none' && checkpointId !== requestedCheckpoint) return;
-    // The "Last turn changes" source follows this same read.
-    adoptLastTurnReview(sessionId, decoded);
     const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews, historyTurns]);
-    if (cacheable) {
-      rememberAgentReviews(
-        requestedScope,
-        reviews,
-        leadPatch,
-        files,
-        snapshotKind,
-        checkpointId,
-        // No tag for a cached summary: a later read must get it again (and
-        // queue its refresh), never an `unchanged` that skips the refresh.
-        !cachedAnswer && typeof value?.etag === 'string' ? value.etag : '',
-        historyTurns
-      );
-    }
     // The signature belongs to the active scope: an outgoing session's answer
     // (cached above) must not mark the incoming one's review as already shown.
     if (ctx.activeScope.current !== requestedScope) return;

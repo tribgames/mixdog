@@ -7,11 +7,20 @@ import { installTestDom } from './test-support/test-dom.mjs';
 /** A fresh jsdom window installed as the globals the sidebar reads; `restore`
  *  puts the previous globals back and closes the window. */
 function installDom() {
-  return installTestDom(null, { jsdom: { url: 'http://localhost/' }, expose: ['navigator', 'CustomEvent'] });
+  const dom = installTestDom(null, { jsdom: { url: 'http://localhost/' }, expose: ['navigator', 'CustomEvent'] });
+  polyfillPropertyChange();
+  return dom;
+}
+
+/** React's onpropertychange shim calls these when a row takes focus; jsdom has neither. */
+function polyfillPropertyChange() {
+  window.HTMLElement.prototype.attachEvent ??= () => {};
+  window.HTMLElement.prototype.detachEvent ??= () => {};
 }
 
 test('auxiliary sidebars omit duplicate lists while a visited Sessions surface keeps its state', async (t) => {
   const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
+  polyfillPropertyChange();
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   let sessions = Array.from({ length: 100 }, (_, index) => ({
     id: `retained-${index}`,
