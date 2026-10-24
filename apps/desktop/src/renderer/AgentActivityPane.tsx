@@ -742,7 +742,11 @@ function AgentContactRow({
           {/* The right column: time over the one status. Without a status it
               sits on the name line; with one the pair centres on the row. */}
           {(contact.at > 0 || contact.indicator) && (
-            <span className="agent-contact-aside" data-has-status={contact.indicator ? 'true' : undefined}>
+            <span
+              className="agent-contact-aside"
+              data-has-status={contact.indicator ? 'true' : undefined}
+              data-unread={contact.unread ? 'true' : undefined}
+            >
               {contact.at > 0 && <time className="agent-chat-time">{agentChatTimeLabel(contact.at)}</time>}
               <AgentChatStatus indicator={contact.indicator} id={`${describedBy}-status`} attentionMark />
             </span>

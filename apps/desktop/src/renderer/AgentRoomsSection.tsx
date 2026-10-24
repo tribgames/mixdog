@@ -71,7 +71,11 @@ function RoomRow({
             {indicator?.kind === 'running' ? t('Members are speaking') : row.preview}
           </span>
           {(row.at > 0 || indicator) && (
-            <span className="agent-contact-aside" data-has-status={indicator ? 'true' : undefined}>
+            <span
+              className="agent-contact-aside"
+              data-has-status={indicator ? 'true' : undefined}
+              data-unread={row.unread ? 'true' : undefined}
+            >
               {row.at > 0 && <time className="agent-chat-time">{agentChatTimeLabel(row.at)}</time>}
               {indicator?.kind === 'running' && (
                 <span className="agent-chat-status" data-kind="running">

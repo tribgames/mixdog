@@ -21,6 +21,8 @@ export interface AgentRoomRowModel {
   preview: string;
   at: number;
   indicator: AgentChatIndicator;
+  /** The room holds an unread reply, even while a running badge takes the slot. */
+  unread: boolean;
 }
 
 /** The row's spoken label: its name and member count, only the parts that
@@ -68,6 +70,7 @@ export function agentRoomRows(
         preview: preview || t('No messages yet'),
         at: Number(session.activityAt) || session.updatedAt || 0,
         indicator,
+        unread: unreadSessionIds?.has(session.id) === true,
       };
     })
     .sort((left, right) => right.at - left.at || left.sessionId.localeCompare(right.sessionId));

@@ -420,7 +420,7 @@ test('home threads leave the work sessions; every other group stays', () => {
   assert.deepEqual([...split.homeNodes], [['sess_home_lead', ['m']]]);
 });
 
-function mount(t, { agents = AGENTS, pool = [], sessions = [work] } = {}) {
+function mount(t, { agents = AGENTS, pool = [], sessions = [work], unreadSessionIds } = {}) {
   const { dom, root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
     expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'navigator'],
@@ -444,6 +444,7 @@ function mount(t, { agents = AGENTS, pool = [], sessions = [work] } = {}) {
         React.createElement(AgentActivityPane, {
           active: true,
           sessions,
+          unreadSessionIds,
           onOpenLeadSession: (id) => opened.push(['lead', id]),
           onOpenSession: (id, title) => opened.push(['thread', id, title]),
         })
@@ -517,6 +518,48 @@ test('the unread pill caps at "99+"', async () => {
   assert.equal(unreadBadgeLabel(99), '99');
   assert.equal(unreadBadgeLabel(100), '99+');
   assert.equal(unreadBadgeLabel(5000), '99+');
+});
+
+test('an unread contact or room keeps its unread flag while a running badge takes the status slot', async () => {
+  const unreadIds = new Set(['sess_home_translator', 'sess_home_github-watcher']);
+  const sessions = [
+    home('translator', { working: true }),
+    home('github-watcher', { messageCount: 4, readMessageCount: 1, incomingTail: [3] }),
+  ];
+  const [mixy, watcher, translator] = agentContacts(AGENTS, sessions, new Map(), unreadIds);
+  assert.deepEqual(translator.indicator, { kind: 'running' });
+  assert.equal(translator.unread, true, 'running badge, still unread');
+  assert.equal(watcher.unread, true);
+  assert.equal(mixy.unread, false, 'no thread, nothing unread');
+  const { agentRoomRows } = await import('./agent-rooms-model.ts');
+  const room = { id: 'abc', name: 'Standup', members: ['a', 'b'], maxRounds: 3, maxMessages: 8, shareTools: false };
+  const rows = agentRoomRows(
+    [{ id: 'sess_room_abc', title: 'Standup', preview: '', updatedAt: 1, agentRoom: { ...room, running: true } }],
+    (id) => ({ id, name: id }),
+    new Set(['sess_room_abc'])
+  );
+  assert.deepEqual(rows[0].indicator, { kind: 'running' });
+  assert.equal(rows[0].unread, true);
+});
+
+test('the row exposes data-unread on its time column whatever status badge shows', async (t) => {
+  const sessions = [
+    work,
+    home('translator', { lastMessagePreview: 'Reviewing', working: true }),
+    home('github-watcher', { lastMessagePreview: 'Hi', messageCount: 4, readMessageCount: 1, incomingTail: [3] }),
+  ];
+  const { document, render } = mount(t, {
+    sessions,
+    unreadSessionIds: new Set(['sess_home_translator', 'sess_home_github-watcher']),
+  });
+  await render();
+  await render();
+  const aside = (id) => document.querySelector(`[data-agent-contact="${id}"] .agent-contact-aside`);
+  assert.equal(aside('translator').querySelector('.agent-chat-status').dataset.kind, 'running');
+  assert.equal(aside('translator').dataset.unread, 'true', 'running badge, unread time');
+  assert.equal(aside('github-watcher').querySelector('.agent-chat-status').dataset.kind, 'unread');
+  assert.equal(aside('github-watcher').dataset.unread, 'true');
+  assert.equal(aside('lead')?.dataset.unread, undefined, 'a read row carries no flag');
 });
 
 test('a running contact keeps its time and shows exactly one status: the spinner', async (t) => {

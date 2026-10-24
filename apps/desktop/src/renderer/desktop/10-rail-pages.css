@@ -987,10 +987,12 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   font-size: var(--agent-contact-time);
   line-height: var(--agent-contact-name-line);
 }
-/* Unread: the time takes the accent, as a messenger marks a new message. */
+/* Unread: the time takes the accent, as a messenger marks a new message —
+   keyed off the row's own flag, since a running/attention/error badge takes
+   the status slot while the thread is still unread. */
 .utility-dock
   .agent-chat-row[data-kind="contact"]
-  .agent-contact-aside:has(> .agent-chat-status[data-kind="unread"])
+  .agent-contact-aside[data-unread="true"]
   > .agent-chat-time {
   color: var(--mx-accent);
 }

@@ -25,6 +25,9 @@ export interface AgentContact {
   preview: string;
   at: number;
   indicator: AgentChatIndicator;
+  /** The home thread holds an unread reply, whatever status the badge shows
+   *  (running/attention/error take the badge, not the unread mark). */
+  unread: boolean;
   /** The bot is switched off (listed only where `includeDisabled` asks). */
   disabled: boolean;
 }
@@ -103,6 +106,7 @@ export function agentContacts(
       preview: contactPreview(indicator, session, description, mixy, disabled),
       at: session ? Number(session.activityAt) || session.updatedAt : 0,
       indicator,
+      unread: session ? unreadSessionIds?.has(session.id) === true : false,
       disabled,
     };
   };
