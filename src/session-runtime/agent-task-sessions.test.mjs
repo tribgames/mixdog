@@ -742,6 +742,42 @@ test('a task session that could not be dropped after a provisioning failure is n
   );
 });
 
+test('one approval wait reports blocked once, not once per watcher; a later approval reports again', async () => {
+  const h = fakeService();
+  const { api, delivered, stored } = tasks(h);
+  const { session_id: taskId } = await api.create(
+    { brief: 'Read README', title: 'README' },
+    { callerSessionId: 'sess_home_lead', callerAgentId: 'lead', callerCwd: '/home' }
+  );
+  stored.set(taskId, { id: taskId, taskOrigin: h.calls[0][1].sessionProfile.taskOrigin });
+  const execute = createSessionControl({ getSessionService: () => h.service, agentTasks: api });
+  await execute(
+    { action: 'send', session_id: taskId, prompt: 'and the second line?' },
+    { callerSessionId: 'sess_home_lead', callerAgentId: 'lead' }
+  );
+  const [, queuedSend] = submitted(h);
+  // The send waits behind the running brief turn, which hits the approval.
+  h.state.queued = [{ id: queuedSend.options.id }];
+  const blocked = () => delivered.filter(([, report]) => report.status === 'blocked');
+  h.state.toolApproval = { id: 'approval_1' };
+  h.emit();
+  h.emit();
+  await settle();
+  assert.equal(blocked().length, 1, 'the queued send does not report the running turn’s approval');
+  assert.equal(h.listeners.size, 2, 'both watchers stay until their turns end');
+
+  // The same turn asks again, differently: reported again, once.
+  h.state.toolApproval = null;
+  h.emit();
+  h.state.toolApproval = { id: 'approval_2' };
+  h.emit();
+  h.emit();
+  await settle();
+  assert.equal(blocked().length, 2);
+  assert.notEqual(blocked()[0][1].runId, blocked()[1][1].runId);
+  assert.equal(blocked()[0][1].taskSessionId, taskId);
+});
+
 test('only turns the origin agent starts report back, ended or waiting for the user', async () => {
   const h = fakeService();
   const { api, delivered, stored, watched } = tasks(h);

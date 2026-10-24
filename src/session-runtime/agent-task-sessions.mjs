@@ -987,12 +987,17 @@ export function createAgentTaskSessions({
     // A report that cannot be queued is retried in this process; when every try
     // fails the durable watch stays and restart recovery delivers it (the queue
     // dedupes by runId, so a retry never posts twice).
-    const report = (status, text = '') =>
+    const report = (status, text = '', approvalId = '') =>
       Promise.resolve(beforeReport)
         .then(async () =>
           deliverWithRetries({ deliver, retryDelaysMs, log }, origin.agentId, sessionId, {
             // 'working': a still-in-progress answer (followToFinal), not the end.
-            runId: `${id}_${{ blocked: 'blocked', working: 'progress' }[status] || 'end'}`,
+            // A wait for approval belongs to the target session, not to this
+            // send: every watcher of it names the same row, so it posts once.
+            runId:
+              status === 'blocked'
+                ? `${sessionId}_${approvalId}_blocked`
+                : `${id}_${{ working: 'progress' }[status] || 'end'}`,
             taskSessionId: sessionId,
             title: origin.title,
             status,
@@ -1044,13 +1049,23 @@ export function createAgentTaskSessions({
     try {
       if (notify) {
         runtime = await sessions.materializeSession(sessionId);
-        let blocked = false;
+        // The approval wait last reported; a later, different one reports again.
+        let reportedApproval = null;
         unwatch =
           runtime?.subscribe?.(() => {
             follow?.check();
-            if (blocked || !runtime.getState?.()?.toolApproval) return;
-            blocked = true;
-            void report('blocked');
+            const state = runtime.getState?.() || {};
+            if (!state.toolApproval) {
+              reportedApproval = null;
+              return;
+            }
+            const approvalId = String(state.toolApproval.id ?? 'approval');
+            if (approvalId === reportedApproval) return;
+            // A send still queued behind the running turn is not the turn
+            // waiting: that turn's own watcher reports it.
+            if ((state.queued || []).some((entry) => entry?.id === id)) return;
+            reportedApproval = approvalId;
+            void report('blocked', '', approvalId);
           }) || unwatch;
       }
       // A bot's send to a session that is not its own task session reaches the
