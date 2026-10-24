@@ -41,7 +41,7 @@ function fixture(runOverride, hostOverrides = {}) {
     ...hostOverrides,
   });
   coordinator.beginCommand({ sessionId: 'a', action: 'click', mode: 'foreground' });
-  coordinator.pauseForUser('user_input_active');
+  coordinator.pauseForUser('user_pause');
   return { coordinator, execution, lifecycle, released, commands, observations, workers, nativeCalls };
 }
 
@@ -157,7 +157,7 @@ test('an interruption during the resume drain invalidates the pending request wi
   coordinator.reset();
 });
 
-test('native interruption stops the active input but retains a queued read through resume', async () => {
+test('native interruption refuses only the active input and never pauses the session', async () => {
   const coordinator = new ComputerUseCoordinator();
   const execution = createExecutionState();
   let calls = 0;
@@ -184,23 +184,19 @@ test('native interruption stops the active input but retains a queued read throu
     recaptureRequiredReply: async () => null,
   });
   const interrupted = lifecycle.executeSerialized({ action: 'type', session_id: 'a', delivery: 'background' });
-  const paused = JSON.parse((await interrupted).text);
-  assert.equal(paused.status, 'paused');
-  assert.equal(paused.input_replayed, false);
-  assert.equal(paused.pending_work.uncertain_step, 1);
-  let completed = false;
-  const queued = lifecycle
-    .executeSerialized({ action: 'capture', session_id: 'a', delivery: 'background' })
-    .then((value) => {
-      completed = true;
-      return value;
-    });
-  await lifecycle.waitForCleanup();
-  assert.equal(calls, 1);
-  assert.equal(completed, false);
-  assert.equal(coordinator.snapshot().userControlActive, true);
-  await lifecycle.resumeAfterTakeover(coordinator.snapshot().takeoverGeneration);
-  assert.equal((await queued).text, 'fresh capture');
+  const refused = JSON.parse((await interrupted).text);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, 'user_input_active');
+  assert.equal(refused.effect, 'unverifiable');
+  assert.equal(refused.input_may_have_executed, true);
+  assert.equal(refused.verdict.decision, 'escalate');
+  assert.equal(refused.verdict.recommended, 'recapture');
+  assert.equal(refused.status, undefined);
+  assert.equal(coordinator.snapshot().userControlActive, false);
+  assert.equal(
+    (await lifecycle.executeSerialized({ action: 'capture', session_id: 'a', delivery: 'background' })).text,
+    'fresh capture'
+  );
   assert.equal(calls, 2);
   coordinator.reset();
 });

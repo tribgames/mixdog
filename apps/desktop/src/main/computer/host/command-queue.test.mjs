@@ -5,10 +5,8 @@ import { createExecutionState } from './execution-state.ts';
 import { ComputerUseCoordinator } from '../session/coordinator.ts';
 import { buildRecaptureRequiredPayload } from '../observation/recapture.ts';
 import { executeComputerSequenceSteps } from '../input/sequence.ts';
-import { createComputerUserWait } from '../session/user-wait.ts';
 import { computerUseOverlayPresentation, computerUseCursorPresentations } from '../overlay/model.ts';
 import { createCaptureAfter } from '../observation/capture-after.ts';
-
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 function fixture(t, overrides = {}) {
   const coordinator = new ComputerUseCoordinator();
@@ -170,7 +168,7 @@ test('background semantic focus guards cannot interrupt another session pointer 
   assert.deepEqual(events.at(-1), ['semantic', 'background']);
 });
 
-for (const reason of ['user_pause', 'user_input_active']) {
+for (const reason of ['user_pause']) {
   test(`${reason} retains FIFO work without holding the resume drain or replaying stale input`, {
     timeout: 3000,
   }, async (t) => {
@@ -267,15 +265,15 @@ test('a queued foreground request yields its lane to cleanup instead of blocking
 
 test('lost callers cancel only their parked queue and release its admission budget', { timeout: 3000 }, async (t) => {
   const f = fixture(t);
-  f.coordinator.pauseForUser('user_input_active', ['a', 'b']);
+  f.coordinator.pauseForUser('user_pause', ['a', 'b']);
   const a = Array.from({ length: 4 }, () => f.host.executeSerialized({ action: 'capture', session_id: 'a' }));
   const cancelled = Promise.allSettled(a);
   const b = f.host.executeSerialized({ action: 'capture', session_id: 'b' });
   await f.host.abortComputerSession({ action: 'session_abort', session_id: 'a' });
   assert.equal(
     f.coordinator.snapshot().takeoverReason,
-    'user_input_active',
-    'caller cancellation must not turn an idle-resumable pause into global Stop'
+    'user_pause',
+    'caller cancellation must not turn a pause into global Stop'
   );
   assert.ok((await cancelled).every((result) => result.status === 'rejected'));
   await f.host.resumeAfterTakeover(f.coordinator.snapshot().takeoverGeneration);
@@ -305,7 +303,7 @@ test('a long pause frees the native queue but retains pending task activity with
   timeout: 3000,
 }, async (t) => {
   const f = fixture(t, { pauseWaitMs: 15 });
-  f.coordinator.pauseForUser('user_input_active', ['a']);
+  f.coordinator.pauseForUser('user_pause', ['a']);
   const result = JSON.parse(
     (
       await f.host.executeSerialized({
@@ -334,56 +332,7 @@ test('a long pause frees the native queue but retains pending task activity with
   assert.equal(computerUseOverlayPresentation(f.coordinator.snapshot()).visible, false);
 });
 
-test('idle resume recovers transient observation loss, returns fresh evidence and hides settled work', {
-  timeout: 3000,
-}, async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
-  const f = fixture(t);
-  let sequence = 0;
-  let lastInput = 0;
-  const manager = createComputerUserWait({
-    coordinator: f.coordinator,
-    now: () => Date.now(),
-    enabled: () => true,
-    observe: async () => ({
-      ready: Date.now() > 500,
-      monitor: 'fixture',
-      sequence,
-      held: false,
-      idleMs: Date.now() - lastInput,
-    }),
-    resume: (generation, signal, recheck) => f.host.resumeAfterTakeover(generation, signal, recheck),
-  });
-  t.after(() => manager.dispose());
-  const tick = async () => {
-    t.mock.timers.tick(500);
-    for (let i = 0; i < 30; i++) await Promise.resolve();
-  };
-  f.coordinator.pauseForUser('user_input_active', ['a']);
-  const pending = f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1' });
-  let settled = false;
-  pending.then(() => {
-    settled = true;
-  });
-  for (let i = 0; i < 8; i++) await tick();
-  sequence++;
-  lastInput = Date.now();
-  for (let i = 0; i < 10; i++) await tick();
-  assert.equal(settled, false, 'new user activity restarts the configured quiet interval');
-  await tick();
-  const result = JSON.parse((await pending).text);
-  assert.equal(result.status, 'resumed');
-  assert.equal(result.observation.frame_id, 'fresh');
-  assert.equal(result.input_replayed, false);
-  assert.deepEqual(f.calls, ['recapture']);
-  await turn();
-  assert.deepEqual(computerUseOverlayPresentation(f.coordinator.snapshot()).sessionIds, ['a']);
-  f.coordinator.endExecution('a');
-  assert.deepEqual(computerUseOverlayPresentation(f.coordinator.snapshot()).sessionIds, []);
-  assert.equal(computerUseOverlayPresentation(f.coordinator.snapshot()).visible, false);
-});
-
-for (const reason of ['user_input_active', 'user_pause']) {
+for (const reason of ['user_pause']) {
   test(`${reason} parks in-flight sequence progress until cleanup and resume, without replay`, {
     timeout: 3000,
   }, async (t) => {
@@ -445,7 +394,7 @@ test('Stop cancels an in-flight mutation parked after user intervention', { time
   const request = f.host.executeSerialized({ action: 'type', session_id: 'a', window_id: 'hwnd:0x1' });
   const result = request.catch((error) => error);
   await turn();
-  f.host.takeOverComputer('user_input_active');
+  f.host.takeOverComputer('user_pause');
   dispatch();
   await f.host.waitForCleanup();
   await turn();
@@ -475,47 +424,121 @@ test('recovery failure survives worker cancellation and remains blocked rather t
   assert.deepEqual(f.calls, []);
 });
 
-test('user input detected by a capture shows waiting controls and keeps user wait pending until resume', {
+test('a sequence step with unconfirmed input cleanup ends in the global takeover', {
+  timeout: 3000,
+}, async (t) => {
+  const f = fixture(t, {
+    runCommand: async () => {
+      await executeComputerSequenceSteps([{ action: 'key' }, { action: 'click' }], 'hwnd:0x1', async () => {
+        throw new Error('input_cleanup_unconfirmed: a key may still be held');
+      });
+      return { text: 'sequence completed' };
+    },
+  });
+  await assert.rejects(
+    f.host.executeSerialized({ action: 'sequence', session_id: 'a', window_id: 'hwnd:0x1' }),
+    /input_cleanup_unconfirmed/
+  );
+  await f.host.waitForCleanup();
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_cleanup_unconfirmed');
+});
+
+test('user input detected by a capture refuses that capture alone and leaves the session running', {
   timeout: 3000,
 }, async (t) => {
   let captures = 0;
   const f = fixture(t, {
-    runCommand: async () => {
-      captures++;
-      throw new Error('user_input_active: user input changed during capture');
+    runCommand: async (command) => {
+      if (command.window_id === 'hwnd:0x1' && ++captures === 1) {
+        throw new Error('user_input_active: user input changed during capture');
+      }
+      return { text: command.action };
     },
   });
-  await assert.rejects(
-    f.host.executeSerialized({ action: 'capture', session_id: 'a', window_id: 'hwnd:0x1' }),
-    /user_input_active/
+  const refused = JSON.parse(
+    (await f.host.executeSerialized({ action: 'capture', session_id: 'a', window_id: 'hwnd:0x1' })).text
   );
   await f.host.waitForCleanup();
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, 'user_input_active');
+  assert.equal(refused.effect, 'unverifiable');
+  assert.equal(refused.input_may_have_executed, false, 'a read sent no input');
+  assert.equal(refused.verdict.decision, 'escalate');
   const snapshot = f.coordinator.snapshot();
-  assert.equal(snapshot.userControlActive, true);
-  assert.equal(snapshot.takeoverReason, 'user_input_active');
-  const presentation = computerUseOverlayPresentation(snapshot, 'ko');
-  assert.equal(presentation.visible, true);
-  assert.equal(presentation.title, '대기 중');
-  assert.equal(presentation.resumable, true);
-  assert.deepEqual(presentation.sessionIds, ['a']);
-  const wait = createComputerUserWait({
-    coordinator: f.coordinator,
-    enabled: () => false,
-    observe: async () => assert.fail('manual resume does not poll input'),
-    resume: (...args) => f.host.resumeAfterTakeover(...args),
+  assert.equal(snapshot.userControlActive, false);
+  f.coordinator.assertAutomationAllowed();
+  assert.deepEqual(f.calls, [], 'no recovery capture is attempted while the user is typing');
+  assert.equal((await f.host.executeSerialized({ action: 'capture', session_id: 'b' })).text, 'capture');
+  assert.equal(
+    (await f.host.executeSerialized({ action: 'capture', session_id: 'a', window_id: 'hwnd:0x1' })).text,
+    'capture'
+  );
+  assert.equal(captures, 2, 'the interrupted capture is not replayed on its own');
+});
+
+test('user input mid-dispatch refuses the action as possibly executed, without parking it or others', {
+  timeout: 3000,
+}, async (t) => {
+  let f;
+  let inputCalls = 0;
+  f = fixture(t, {
+    runCommand: async (command) => {
+      if (command.action !== 'type') return { text: command.action };
+      inputCalls++;
+      f.execution.executionContext.getStore().progress = { completed: 0, inFlight: 1 };
+      throw new Error('user_input_active: external input interrupted this action');
+    },
   });
-  t.after(() => wait.dispose());
-  let finished = false;
-  const pending = wait.wait('a', 1000).then((status) => {
-    finished = true;
-    return status;
+  const other = f.host.executeSerialized({ action: 'capture', session_id: 'b' });
+  const refused = JSON.parse(
+    (await f.host.executeSerialized({ action: 'type', session_id: 'a', window_id: 'hwnd:0x1', text: 'secret' })).text
+  );
+  assert.equal((await other).text, 'capture');
+  await f.host.waitForCleanup();
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, 'user_input_active');
+  assert.equal(refused.effect, 'unverifiable');
+  assert.equal(refused.input_may_have_executed, true);
+  assert.equal(refused.verdict.decision, 'escalate');
+  assert.equal(refused.verdict.recommended, 'recapture');
+  assert.match(refused.message, /do not replay/);
+  assert.equal(refused.status, undefined, 'the request is not parked as pending work');
+  assert.equal(JSON.stringify(refused).includes('secret'), false);
+  assert.equal(f.coordinator.snapshot().userControlActive, false);
+  assert.equal(inputCalls, 1, 'the interrupted input is never replayed');
+  assert.equal((await f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1' })).text, 'click');
+});
+
+test('background commands run through user input while only the touched action is refused', {
+  timeout: 3000,
+}, async (t) => {
+  const f = fixture(t, {
+    runCommand: async (command) => {
+      if (command.session_id === 'a' && command.action === 'key') {
+        throw new Error('user_input_active: external input interrupted this action');
+      }
+      return { text: `${command.session_id}:${command.action}` };
+    },
   });
-  await turn();
-  assert.equal(finished, false);
-  await f.host.resumeAfterTakeover(snapshot.takeoverGeneration);
-  assert.equal(await pending, 'resumed');
-  assert.equal(captures, 1, 'the interrupted capture is not replayed');
-  assert.deepEqual(f.calls, [], 'no recovery capture is attempted during user control');
+  const foreground = f.host.executeSerialized({
+    action: 'key',
+    session_id: 'a',
+    window_id: 'hwnd:0x1',
+    delivery: 'foreground',
+  });
+  const background = f.host.executeSerialized({
+    action: 'click',
+    session_id: 'b',
+    window_id: 'hwnd:0x2',
+    delivery: 'background',
+  });
+  assert.equal(JSON.parse((await foreground).text).code, 'user_input_active');
+  assert.equal((await background).text, 'b:click');
+  assert.equal(f.coordinator.snapshot().userControlActive, false);
+  assert.equal(
+    (await f.host.executeSerialized({ action: 'click', session_id: 'b', window_id: 'hwnd:0x2' })).text,
+    'b:click'
+  );
 });
 
 test('a read whose observer changed fails alone; only input takes the desktop back', {
@@ -542,7 +565,31 @@ test('a read whose observer changed fails alone; only input takes the desktop ba
   }
 });
 
-test('native interruption inside a sequence reaches the pending queue instead of a failed tool reply', {
+test('a returned takeover code is classified like a thrown one', {
+  timeout: 3000,
+}, async (t) => {
+  for (const [code, action, takesOver] of [
+    ['input_cleanup_unconfirmed', 'click', true],
+    ['input_observation_unavailable', 'click', true],
+    ['input_observation_unavailable', 'capture', false],
+  ]) {
+    const f = fixture(t, {
+      runCommand: async () => ({ text: JSON.stringify({ ok: false, code, message: 'reported by native' }) }),
+      recaptureRequiredReply: async () => null,
+    });
+    await assert.rejects(
+      f.host.executeSerialized({ action, session_id: 'a', window_id: 'hwnd:0x1' }),
+      new RegExp(code),
+      `${code} ${action}`
+    );
+    await f.host.waitForCleanup();
+    assert.equal(f.coordinator.snapshot().userControlActive, takesOver, `${code} ${action}`);
+    if (takesOver) assert.equal(f.coordinator.snapshot().takeoverReason, code);
+    f.coordinator.reset();
+  }
+});
+
+test('native interruption inside a sequence reports the interrupted row and runs no later step', {
   timeout: 3000,
 }, async (t) => {
   let f;
@@ -550,41 +597,42 @@ test('native interruption inside a sequence reaches the pending queue instead of
   f = fixture(t, {
     runCommand: async (command) => {
       const state = f.execution.executionContext.getStore();
-      await executeComputerSequenceSteps(
+      const sequence = await executeComputerSequenceSteps(
         command.steps,
         command.window_id,
         async (_, index) => {
           state.progress = { completed: index, inFlight: index };
           dispatched.push(index);
-          return index === 0 ? { ok: true } : { ok: false, code: 'user_input_active' };
+          return index === 0 ? { ok: true } : { ok: false, code: 'user_input_active', input_may_have_executed: true };
         },
         (completed) => {
           state.progress = { completed };
         }
       );
-      throw new Error('unexpected sequence completion');
+      return { text: JSON.stringify({ ok: false, code: sequence.stoppedReason, steps: sequence.rows }) };
     },
   });
-  const request = f.host.executeSerialized({
-    action: 'sequence',
-    session_id: 'a',
-    window_id: 'hwnd:0x1',
-    steps: [{ action: 'click' }, { action: 'type' }, { action: 'key' }],
-  });
-  await turn();
+  const result = JSON.parse(
+    (
+      await f.host.executeSerialized({
+        action: 'sequence',
+        session_id: 'a',
+        window_id: 'hwnd:0x1',
+        steps: [{ action: 'click' }, { action: 'type' }, { action: 'key' }],
+      })
+    ).text
+  );
   await f.host.waitForCleanup();
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
-  await f.host.resumeAfterTakeover(f.coordinator.snapshot().takeoverGeneration);
-  const result = JSON.parse((await request).text);
-  assert.equal(result.status, 'resumed');
+  assert.equal(f.coordinator.snapshot().userControlActive, false);
+  assert.equal(result.code, 'user_input_active');
   assert.deepEqual(
     result.steps.map((step) => step.status),
-    ['succeeded', 'uncertain', 'pending']
+    ['succeeded', 'uncertain', 'skipped']
   );
   assert.deepEqual(dispatched, [0, 1]);
 });
 
-test('post-input capture takeover pauses, then recaptures without replaying uncertain input', {
+test('an observation that reports user input refuses the action without a takeover or replay', {
   timeout: 3000,
 }, async (t) => {
   let deliveries = 0;
@@ -604,18 +652,15 @@ test('post-input capture takeover pauses, then recaptures without replaying unce
       assert.fail('interrupted observation must not return a normal input reply');
     },
   });
-  const request = f.host.executeSerialized({ action: 'type', session_id: 'a', window_id: 'hwnd:0x1', text: 'once' });
-  await turn();
+  const result = JSON.parse(
+    (await f.host.executeSerialized({ action: 'type', session_id: 'a', window_id: 'hwnd:0x1', text: 'once' })).text
+  );
   await f.host.waitForCleanup();
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
-  assert.deepEqual(f.calls, [], 'there is no recapture while the user has control');
-  await f.host.resumeAfterTakeover(f.coordinator.snapshot().takeoverGeneration);
-  const result = JSON.parse((await request).text);
-  assert.equal(result.status, 'resumed');
-  assert.equal(result.input_replayed, false);
-  assert.equal(result.steps[0].status, 'uncertain');
-  assert.equal(result.observation.frame_id, 'fresh');
-  assert.deepEqual(f.calls, ['recapture']);
+  assert.equal(f.coordinator.snapshot().userControlActive, false);
+  assert.equal(result.code, 'user_input_active');
+  assert.equal(result.input_may_have_executed, true);
+  assert.equal(result.verdict.recommended, 'recapture');
+  assert.deepEqual(f.calls, [], 'the host does not capture while the user is typing');
   assert.equal(deliveries, 1);
   assert.equal(captures, 1);
 });

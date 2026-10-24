@@ -3,7 +3,7 @@ import test from 'node:test';
 import { ComputerUseCoordinator } from './coordinator.ts';
 import { createComputerUserWait } from './user-wait.ts';
 
-function fixture(t, reason = 'user_input_active') {
+function fixture(t, reason = 'input_recovery_unconfirmed') {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
   const coordinator = new ComputerUseCoordinator();
   let sequence = 0,
@@ -91,7 +91,7 @@ test('held keys/buttons wait without treating ordinary input as an observation f
   const f = fixture(t);
   f.hold(true);
   await f.advance(7000);
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
   assert.equal(f.counts().resumes, 0);
   f.hold(false);
   f.input();
@@ -150,7 +150,7 @@ test('transient observation loss restarts a full quiet interval without input re
   await f.advance(4000);
   f.fail();
   await f.tick();
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
   f.recover();
   await f.advance(5000);
   assert.equal(f.counts().resumes, 0);
@@ -177,7 +177,7 @@ test('a locked or secure input desktop waits as user activity, never as an obser
   const f = fixture(t);
   f.lock(true);
   await f.advance(10000);
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
   assert.equal(f.counts().resumes, 0);
   f.lock(false);
   await f.advance(5000);
@@ -191,7 +191,7 @@ test('a desktop locked at the final resume check cannot release control', async 
   f.beforeResume(() => f.lock(true));
   await f.advance(6000);
   assert.equal(f.counts().resumes, 0);
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
 });
 
 test('Stop during observer retry prevents all later automatic recovery', async (t) => {
@@ -210,7 +210,7 @@ test('input arriving at the final resume check cannot release control', async (t
   f.beforeResume(() => f.input());
   await f.advance(12000);
   assert.equal(f.counts().resumes, 0);
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
 });
 
 test('manual mode, cancellation and duplicate wait budgets are explicit', async (t) => {

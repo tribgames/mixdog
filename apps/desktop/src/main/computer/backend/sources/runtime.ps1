@@ -64,7 +64,8 @@ function Handle($req) {
     if ($req.read_only -and -not ($readActions -contains [string]$req.action)) {
         throw "read_only run: '$($req.action)' is a mutation"
     }
-    $inputScope = $req.delivery -eq 'foreground' -and -not ($readActions -contains [string]$req.action)
+    # Activating a window moves the desktop whatever the delivery field says.
+    $inputScope = ($req.delivery -eq 'foreground' -or [string]$req.action -eq 'focus_window') -and -not ($readActions -contains [string]$req.action)
     if ($inputScope) {
         if ($req.observed_input_monitor_id -and $null -ne $req.observed_input_user_sequence) {
             [MixInputObservation]::BeginExpected([string]$req.observed_input_monitor_id, [long]$req.observed_input_user_sequence)

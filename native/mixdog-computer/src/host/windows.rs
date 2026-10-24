@@ -329,12 +329,10 @@ impl Host {
 
     pub(super) fn do_focus(&self, req: &Req) -> Res<Obj> {
         let info = self.resolve_window(req)?;
-        if self.wait_user_input_idle().is_none() {
-            return Ok(self.user_input_active_result("focus_window", Some(info.id())));
-        }
         self.authorize(req, info.handle)?;
         let previous = self.desktop.foreground();
         self.remember_focus_origin(previous, info.handle);
+        self.assert_continue()?;
         self.mark_own();
         if !self.desktop.focus(info.handle) {
             return Ok(self.action_result(

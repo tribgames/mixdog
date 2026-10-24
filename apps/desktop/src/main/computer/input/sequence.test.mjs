@@ -136,21 +136,76 @@ test('executed steps expose distinct phase timings without copying arbitrary met
   }
 });
 
-test('sequence checkpoints retain only completed steps before interrupted input', async () => {
+test('user input interrupting a step stops the sequence there and keeps earlier rows', async () => {
+  const checkpoints = [];
+  const dispatched = [];
+  const result = await executeComputerSequenceSteps(
+    [{ action: 'click' }, { action: 'type' }, { action: 'key' }],
+    'hwnd:0x1',
+    async (_, index) => {
+      dispatched.push(index);
+      if (index === 1) throw new Error('user_input_active: interrupted');
+      return { ok: true };
+    },
+    (completed) => checkpoints.push(completed)
+  );
+  assert.deepEqual(checkpoints, [1]);
+  assert.deepEqual(dispatched, [0, 1]);
+  assert.equal(result.completedSteps, 1);
+  assert.equal(result.stoppedReason, 'user_input_active');
+  assert.deepEqual(
+    result.rows.map((row) => row.status),
+    ['succeeded', 'uncertain', 'skipped']
+  );
+  assert.equal(result.rows[1].code, 'user_input_active');
+  assert.equal(result.rows[1].input_may_have_executed, true);
+  assert.equal(result.rows[1].verdict.recommended, 'recapture');
+});
+
+test('an unconfirmed input cleanup in a step aborts the sequence instead of becoming a row', async () => {
   const checkpoints = [];
   await assert.rejects(
     executeComputerSequenceSteps(
-      [{ action: 'click' }, { action: 'type' }, { action: 'key' }],
+      [{ action: 'click' }, { action: 'key' }, { action: 'click' }],
       'hwnd:0x1',
       async (_, index) => {
-        if (index === 1) throw new Error('user_input_active: interrupted');
+        if (index === 1) throw new Error('input_cleanup_unconfirmed: a key may still be held');
         return { ok: true };
       },
       (completed) => checkpoints.push(completed)
     ),
-    /user_input_active/
+    /^Error: input_cleanup_unconfirmed:/
   );
   assert.deepEqual(checkpoints, [1]);
+});
+
+test('every global-takeover code in a step reaches the takeover, thrown or returned', async () => {
+  for (const code of ['input_cleanup_unconfirmed', 'input_observation_unavailable']) {
+    for (const thrown of [true, false]) {
+      await assert.rejects(
+        executeComputerSequenceSteps([{ action: 'click' }, { action: 'key' }], 'hwnd:0x1', async (_, index) => {
+          if (index === 0) return { ok: true };
+          if (thrown) throw new Error(`${code}: observer lost`);
+          return { ok: false, code, message: 'observer lost' };
+        }),
+        new RegExp(`^Error: ${code}:`),
+        `${code} ${thrown ? 'thrown' : 'returned'}`
+      );
+    }
+  }
+});
+
+test('a step reply refusing on user input without sending any is failed, not uncertain', async () => {
+  const result = await executeComputerSequenceSteps([{ action: 'click' }, { action: 'key' }], 'hwnd:0x1', async () => ({
+    ok: false,
+    code: 'user_input_active',
+    effect: 'unverifiable',
+  }));
+  assert.deepEqual(
+    result.rows.map((row) => row.status),
+    ['failed', 'skipped']
+  );
+  assert.equal(result.stoppedReason, 'user_input_active');
 });
 
 test('possibly partial background input is retained as uncertain and stops all follow-up steps', async () => {

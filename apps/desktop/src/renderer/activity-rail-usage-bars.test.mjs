@@ -94,7 +94,8 @@ test('a flyout opened before its module is ready shows the loading placeholder u
 test('the rail draws one bar per brand by default and saves the chosen two-bar mode in settings', async (t) => {
   const { root, props, stored } = await mountRail(t);
   assert.equal(meters('claude').length, 1);
-  assert.equal(brand('claude').querySelector('small').textContent, '41%');
+  assert.equal(brand('claude').querySelector('small').textContent, '99%');
+  assert.equal(meters('claude')[0].classList.contains('is-thick'), true);
 
   const menuButton = await openFlyout();
   assert.ok(menuButton);
@@ -113,8 +114,11 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
     ['99%', '41%']
   );
   assert.deepEqual(
-    claudeBars.map((bar) => bar.classList.contains('is-cool')),
-    [false, true]
+    claudeBars.map((bar) => [bar.classList.contains('is-thick'), bar.classList.contains('tone-danger')]),
+    [
+      [true, true],
+      [false, false],
+    ]
   );
   assert.equal(brand('claude').className.includes('tone-danger'), true);
   assert.equal(brand('claude').querySelector('small').textContent, '99%');

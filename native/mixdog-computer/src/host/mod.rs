@@ -21,8 +21,6 @@ use std::time::Duration;
 
 pub type Res<T> = Result<T, String>;
 
-const USER_INPUT_IDLE_MS: u64 = 1500;
-const USER_INPUT_WAIT_MAX_MS: u64 = 30_000;
 const GLIDE_WAIT_MS: u64 = 360;
 const GLIDE_MIN_WAIT_MS: u64 = 140;
 const GLIDE_SPEED_PX_PER_MS: f64 = 1.4;
@@ -179,7 +177,8 @@ impl Host {
         if req.truthy("read_only") && !read {
             return Err(format!("read_only run: '{action}' is a mutation"));
         }
-        let input_scope = req.delivery_foreground() && !read;
+        // Activating a window is foreground input whatever the delivery says.
+        let input_scope = (req.delivery_foreground() || action == "focus_window") && !read;
         if input_scope {
             let mut scope = self.scope.borrow_mut();
             match (
@@ -571,41 +570,6 @@ impl Host {
         self.observer.foreign_idle_ms().min(i32::MAX as u64)
     }
 
-    /// Milliseconds spent waiting for the user to pause, or `None` when the
-    /// user was still active at the deadline.
-    fn wait_user_input_idle(&self) -> Option<u64> {
-        let started = now_ms();
-        let mut waited = false;
-        loop {
-            let idle = self.physical_idle_ms();
-            if idle >= USER_INPUT_IDLE_MS {
-                return Some(if waited { now_ms() - started } else { 0 });
-            }
-            if now_ms() - started >= USER_INPUT_WAIT_MAX_MS {
-                return None;
-            }
-            waited = true;
-            sleep_ms((USER_INPUT_IDLE_MS - idle).clamp(100, 500));
-        }
-    }
-
-    fn user_input_active_result(&self, action: &str, window: Option<String>) -> Obj {
-        let seconds = USER_INPUT_WAIT_MAX_MS / 1000;
-        let message = format!(
-            "the user is actively using the mouse or keyboard; {action} waited {seconds}s and sent no input. Capture fresh state and retry once the user pauses"
-        );
-        self.action_result(
-            action,
-            "foreground",
-            "suspected_noop",
-            false,
-            &message,
-            Some("user_input_active"),
-            "foreground",
-            window,
-        )
-    }
-
     fn fg_move(&self, x: i32, y: i32) -> Res<()> {
         self.assert_continue()?;
         self.mark_own();
@@ -768,23 +732,7 @@ impl Host {
                 None,
             ));
         }
-        let id = Some(window_id(target));
-        let Some(user_wait_ms) = self.wait_user_input_idle() else {
-            return Ok(self.user_input_active_result(action, id));
-        };
         self.authorize_current(target)?;
-        if user_wait_ms > 0 {
-            return Ok(self.action_result(
-                action,
-                "foreground",
-                "suspected_noop",
-                false,
-                "user input occurred after observation; capture fresh state before acting",
-                Some("user_input_active"),
-                "foreground",
-                id,
-            ));
-        }
         let previous = self.desktop.foreground();
         self.remember_focus_origin(previous, target);
         self.scope.borrow_mut().begin(&self.observer)?;
@@ -792,14 +740,7 @@ impl Host {
             target,
             ready: false,
         }));
-        let outcome = self.foreground_body(
-            target,
-            action,
-            pointer_may_activate,
-            previous,
-            user_wait_ms,
-            body,
-        );
+        let outcome = self.foreground_body(target, action, pointer_may_activate, previous, body);
         self.dispatch.set(prior_dispatch);
         self.scope.borrow_mut().end();
         outcome
@@ -811,7 +752,6 @@ impl Host {
         action: &str,
         pointer_may_activate: bool,
         previous: Wid,
-        user_wait_ms: u64,
         body: &mut dyn FnMut() -> Res<()>,
     ) -> Res<Obj> {
         let id = Some(window_id(target));
@@ -903,9 +843,6 @@ impl Host {
         );
         result.insert("cursor_feedback".into(), Value::Object(cursor_feedback));
         result.insert("foreground_phase_ms".into(), Value::Object(phases));
-        if user_wait_ms > 0 {
-            result.insert("user_wait_ms".into(), json!(user_wait_ms));
-        }
         Ok(result)
     }
 }
@@ -939,5 +876,398 @@ fn super_name() -> &'static str {
         "cmd"
     } else {
         "super"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::rc::Rc;
+
+    type Log = Rc<RefCell<Vec<String>>>;
+
+    struct Posts(Log);
+
+    impl Posts {
+        fn note(&self, what: &str) -> Result<String, String> {
+            self.0.borrow_mut().push(what.into());
+            Ok("fake".into())
+        }
+    }
+
+    impl platform::Background for Posts {
+        fn validate(&self, _: Wid, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn pointer(&self, _: Wid, _: i32, _: i32, kind: &str, _: &[Mod]) -> Result<String, String> {
+            self.note(kind)
+        }
+        fn wheel(&self, _: Wid, _: i32, _: i32, _: i32, _: bool, _: &[Mod]) -> Result<String, String> {
+            self.note("wheel")
+        }
+        fn drag(&self, _: Wid, _: &[(i32, i32)], _: &[Mod]) -> Result<String, String> {
+            self.note("drag")
+        }
+        fn keys(&self, _: Wid, _: &str) -> Result<String, String> {
+            self.note("keys")
+        }
+        fn text(&self, _: Wid, _: &str) -> Result<String, String> {
+            self.note("text")
+        }
+    }
+
+    struct Menus(Log);
+
+    impl crate::a11y::Accessibility for Menus {
+        fn available(&self) -> Result<(), String> {
+            Ok(())
+        }
+        fn snapshot(
+            &self,
+            _: &WindowInfo,
+            _: bool,
+            _: usize,
+        ) -> Result<Vec<crate::a11y::Node>, String> {
+            Err("fake".into())
+        }
+        fn focused_masked(&self) -> bool {
+            false
+        }
+        fn invoke_menu(
+            &self,
+            _: &WindowInfo,
+            _: &[String],
+            _: &dyn Fn() -> Result<(), String>,
+        ) -> Result<crate::a11y::MenuOutcome, String> {
+            self.0.borrow_mut().push("menu".into());
+            Ok(crate::a11y::MenuOutcome {
+                path: "menu",
+                verified: false,
+                message: "fake".into(),
+            })
+        }
+    }
+
+    /// A pressable button living in `window`.
+    struct Button1 {
+        window: Wid,
+        log: Log,
+    }
+
+    impl crate::a11y::Element for Button1 {
+        fn identity(&self) -> String {
+            "button".into()
+        }
+        fn window(&self) -> Wid {
+            self.window
+        }
+        fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
+            Some((0.0, 0.0, 10.0, 10.0))
+        }
+        fn enabled(&self) -> bool {
+            true
+        }
+        fn alive(&self) -> bool {
+            true
+        }
+        fn press(&self) -> Result<(), String> {
+            self.log.borrow_mut().push("press".into());
+            Ok(())
+        }
+        fn can_press(&self) -> bool {
+            true
+        }
+        fn toggle_state(&self) -> Option<String> {
+            None
+        }
+        fn expand_state(&self) -> Option<String> {
+            None
+        }
+        fn set_expanded(&self, _: bool) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn value(&self) -> Option<String> {
+            None
+        }
+        fn settable(&self) -> bool {
+            false
+        }
+        fn set_value(&self, _: &str) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn can_select(&self) -> bool {
+            false
+        }
+        fn select(&self) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn focus(&self) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn scroll(&self, _: bool, _: i32) -> Result<Option<(String, String)>, String> {
+            Ok(None)
+        }
+        fn structure(&self) -> Obj {
+            Obj::new()
+        }
+    }
+
+    /// Windows 1 (owner), 2 (owned by 1) and 3 (unrelated); point (50, 50)
+    /// lies inside window 2.
+    struct Fake {
+        foreground: Wid,
+        posts: Posts,
+        menus: Menus,
+        /// While set, looking a window up records foreign input.
+        armed: Rc<Cell<bool>>,
+        shared: std::sync::Arc<crate::observer::Shared>,
+    }
+
+    impl Desktop for Fake {
+        fn name(&self) -> &'static str {
+            "fake"
+        }
+        fn windows(&self) -> Result<Vec<WindowInfo>, String> {
+            Ok([1, 2, 3].iter().filter_map(|w| self.info(*w)).collect())
+        }
+        fn info(&self, handle: Wid) -> Option<WindowInfo> {
+            if self.armed.get() {
+                self.shared.record(false);
+            }
+            [1, 2, 3].contains(&handle).then(|| WindowInfo {
+                handle,
+                title: format!("window {handle}"),
+                ..Default::default()
+            })
+        }
+        fn foreground(&self) -> Wid {
+            self.foreground
+        }
+        fn focus(&self, _: Wid) -> bool {
+            self.posts.0.borrow_mut().push("focus".into());
+            false
+        }
+        fn window_at_point(&self, x: i32, y: i32) -> Wid {
+            match (x, y) {
+                (50, 50) => 2,
+                (90, 90) => 3,
+                _ => 0,
+            }
+        }
+        fn related_windows(&self, _: Wid) -> Vec<Wid> {
+            Vec::new()
+        }
+        fn is_owned_by(&self, candidate: Wid, owner: Wid) -> bool {
+            (candidate, owner) == (2, 1)
+        }
+        fn move_window(&self, _: Wid, _: i32, _: i32, _: i32, _: i32) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn set_window_state(&self, _: Wid, _: platform::WinState) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn close_window(&self, _: Wid) -> Result<bool, String> {
+            Err("fake".into())
+        }
+        fn is_responding(&self, _: Wid) -> bool {
+            true
+        }
+        fn cursor(&self) -> (i32, i32) {
+            (0, 0)
+        }
+        fn move_pointer(&self, _: i32, _: i32) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn button(&self, _: Button, _: bool, _: i32, _: i32, _: u32) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn drag_move(&self, _: i32, _: i32) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn wheel(&self, _: i32, _: i32, _: i32, _: bool) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn key(&self, _: crate::keys::Key, _: bool) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn text(&self, _: &str) -> Result<(), String> {
+            Err("fake".into())
+        }
+        fn input_held(&self) -> bool {
+            false
+        }
+        fn background(&self) -> Option<&dyn platform::Background> {
+            Some(&self.posts)
+        }
+        fn accessibility(&self) -> Option<&dyn crate::a11y::Accessibility> {
+            Some(&self.menus)
+        }
+        fn clipboard_read(&self) -> Result<String, String> {
+            Err("fake".into())
+        }
+        fn clipboard_write(&self, _: &str) -> Result<bool, String> {
+            Err("fake".into())
+        }
+        fn launch(
+            &self,
+            _: &str,
+            _: Option<&platform::AppEntry>,
+        ) -> Result<platform::Launched, String> {
+            Err("fake".into())
+        }
+        fn installed_apps(&self) -> Result<Vec<platform::AppEntry>, String> {
+            Err("fake".into())
+        }
+        fn ocr(&self, _: &[u8], _: &str, _: usize) -> Result<Value, String> {
+            Err("fake".into())
+        }
+        fn ocr_status(&self, _: &str) -> Value {
+            Value::Null
+        }
+    }
+
+    /// A host whose observer is ready and saw foreign input just now when
+    /// `user_active`, and cannot observe input at all otherwise.
+    fn setup(foreground: Wid, user_active: bool) -> (Host, Log) {
+        build(foreground, user_active, Rc::new(Cell::new(false)))
+    }
+
+    fn build(foreground: Wid, user_active: bool, armed: Rc<Cell<bool>>) -> (Host, Log) {
+        let log: Log = Rc::new(RefCell::new(Vec::new()));
+        let observer = Observer::new();
+        let desktop = Fake {
+            foreground,
+            posts: Posts(log.clone()),
+            menus: Menus(log.clone()),
+            armed,
+            shared: observer.shared.clone(),
+        };
+        let host = Host {
+            cfg: Config {
+                read_actions: Default::default(),
+                retain_ref_actions: Default::default(),
+                sequence_settle_ms: 0,
+                max_foreground_text: 4000,
+                input_marker: 0,
+            },
+            desktop: Box::new(desktop),
+            observer,
+            sessions: RefCell::new(HashMap::new()),
+            current: RefCell::new("default".into()),
+            request: RefCell::new(Req(Value::Null)),
+            scope: RefCell::new(Scope::default()),
+            dispatch: Cell::new(None),
+            feedback: RefCell::new(Feedback::default()),
+        };
+        if user_active {
+            host.observer.shared.set_ready(true);
+            host.observer.shared.record(false);
+        }
+        (host, log)
+    }
+
+    fn add_ref(host: &Host, log: &Log, window: Wid) {
+        host.session(|session| {
+            session.refs.insert(
+                "r1".into(),
+                crate::session::RefRecord {
+                    element: Rc::new(Button1 {
+                        window,
+                        log: log.clone(),
+                    }),
+                    window_id: window_id(window),
+                    generation: session.generation,
+                    identity: "button".into(),
+                },
+            );
+        });
+    }
+
+    fn run(host: &Host, request: Value) -> Obj {
+        host.handle(&Req(request)).expect("action result")
+    }
+
+    fn code(result: &Obj) -> Option<&str> {
+        result.get("code").and_then(Value::as_str)
+    }
+
+    #[test]
+    fn stale_observation_refuses_foreground_input_without_waiting() {
+        let (host, log) = setup(3, true);
+        let observed = host.observer.read();
+        // The user touches the keyboard after the capture.
+        host.observer.shared.record(false);
+        let request = Req(json!({
+            "action": "click", "delivery": "foreground", "window_id": "hwnd:0x3",
+            "x": 90, "y": 90,
+            "observed_input_monitor_id": observed.generation,
+            "observed_input_user_sequence": observed.sequence,
+        }));
+        let started = std::time::Instant::now();
+        let error = host.handle(&request).unwrap_err();
+        assert!(error.starts_with("user_input_active"), "{error}");
+        assert!(started.elapsed() < Duration::from_millis(500));
+        assert!(log.borrow().is_empty());
+    }
+
+    fn focus_request(observed: Option<&crate::observer::Snapshot>) -> Req {
+        let mut request = json!({ "action": "focus_window", "window_id": "hwnd:0x3" });
+        if let Some(observed) = observed {
+            request["observed_input_monitor_id"] = json!(observed.generation);
+            request["observed_input_user_sequence"] = json!(observed.sequence);
+        }
+        Req(request)
+    }
+
+    #[test]
+    fn focus_with_a_stale_observation_activates_nothing() {
+        let (host, log) = setup(1, true);
+        let observed = host.observer.read();
+        host.observer.shared.record(false);
+        let error = host.handle(&focus_request(Some(&observed))).unwrap_err();
+        assert!(error.starts_with("user_input_active"), "{error}");
+        assert!(log.borrow().is_empty());
+        // The delivery field does not exempt it.
+        let mut request = focus_request(Some(&observed));
+        request.0["delivery"] = json!("background");
+        let error = host.handle(&request).unwrap_err();
+        assert!(error.starts_with("user_input_active"), "{error}");
+        assert!(log.borrow().is_empty());
+    }
+
+    #[test]
+    fn focus_interrupted_before_activation_activates_nothing() {
+        let armed = Rc::new(Cell::new(false));
+        let (host, log) = build(1, true, armed.clone());
+        let observed = host.observer.read();
+        // Admitted on a current token; input arrives while the window resolves.
+        armed.set(true);
+        let error = host.handle(&focus_request(Some(&observed))).unwrap_err();
+        assert!(error.starts_with("user_input_active"), "{error}");
+        assert!(log.borrow().is_empty());
+        // Without input in between, the same request reaches the activation.
+        armed.set(false);
+        let observed = host.observer.read();
+        host.handle(&focus_request(Some(&observed))).unwrap();
+        assert_eq!(*log.borrow(), ["focus"]);
+    }
+
+    #[test]
+    fn background_input_proceeds_while_the_user_is_active() {
+        let (host, log) = setup(3, true);
+        assert!(host.observer.foreign_idle_ms() < 1000);
+        let click = json!({
+            "action": "click", "delivery": "background", "window_id": "hwnd:0x3",
+            "x": 90, "y": 90,
+        });
+        assert_eq!(code(&run(&host, click)), None);
+        let text = json!({
+            "action": "type", "delivery": "background", "window_id": "hwnd:0x3", "text": "a",
+        });
+        assert_eq!(code(&run(&host, text)), None);
+        add_ref(&host, &log, 3);
+        let invoke = json!({ "action": "invoke", "delivery": "background", "ref": "r1" });
+        assert_eq!(code(&run(&host, invoke)), None);
+        assert_eq!(*log.borrow(), ["click", "text", "press"]);
     }
 }

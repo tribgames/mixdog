@@ -8,6 +8,7 @@ function Do-Focus($req) {
     # it, and a target that does not keep the foreground was not focused.
     [MixInputObservation]::Begin()
     try {
+        [MixInputObservation]::AssertContinue()
         if (-not [MixWin32]::Focus($info.Handle)) {
             return New-ActionResult 'focus_window' 'foreground' 'suspected_noop' $false "could not bring window to foreground: $($info.Title)" 'foreground_unavailable' 'foreground' $info.Id
         }

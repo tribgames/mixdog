@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
+import { usagePinAccountEntries } from './usage-pin-entries.ts';
 import { publishUsageDashboard } from './usage-dashboard-store.ts';
 import { usagePinStackFits, usagePinStackHeight } from './rail-usage-pin-room.ts';
 
@@ -32,14 +33,14 @@ test('short + long mode picks the shortest and the longest window, short first',
     ]
   );
   assert.equal(entry.percent, 99);
-  assert.equal(entry.hot, 0);
   // The default mode keeps the single longest-window bar.
   const [longOnly] = usagePinEntries(claude(windows));
   assert.deepEqual(
     longOnly.bars.map((bar) => bar.label),
     ['M']
   );
-  assert.equal(longOnly.percent, 5);
+  // The figure follows every window, not only the drawn bars.
+  assert.equal(longOnly.percent, 99);
 });
 
 test('the figure and the driving bar follow the higher of the two', () => {
@@ -51,7 +52,17 @@ test('the figure and the driving bar follow the higher of the two', () => {
     'short-long'
   );
   assert.equal(entry.percent, 75);
-  assert.equal(entry.hot, 1);
+});
+
+test('the tooltip names every window, including ones that are not drawn', () => {
+  const windows = [
+    { label: '5H', usedPct: 10 },
+    { label: 'W', usedPct: 95 },
+    { label: 'M', usedPct: 20 },
+  ];
+  const [entry] = usagePinEntries(claude(windows), 'short-long');
+  assert.equal(entry.percent, 95);
+  assert.equal(entry.tooltip, 'Claude · 5-hour 10% · monthly 20% · weekly 95%');
 });
 
 test('a provider without a short window gets one bar and no placeholder', () => {
@@ -90,21 +101,73 @@ test('daily counts as a short window under a weekly one', () => {
   );
 });
 
-test('Cursor keeps Basic as the long bar', () => {
-  const [entry] = usagePinEntries(
-    dashboardOf(
-      oauth('cursor-oauth', [
-        { label: 'API', usedPct: 50 },
-        { label: 'Basic', usedPct: 10 },
-      ])
-    ),
-    'short-long'
+test('Cursor keeps Basic as the long bar and API becomes the second bar', () => {
+  const cursor = dashboardOf(
+    oauth('cursor-oauth', [
+      { label: 'Basic', usedPct: 0.2 },
+      { label: 'API', usedPct: 70 },
+    ])
   );
+  const [entry] = usagePinEntries(cursor, 'short-long');
   assert.deepEqual(
     entry.bars.map((bar) => bar.label),
+    ['Basic', 'API']
+  );
+  assert.equal(entry.percent, 70);
+  const [longOnly] = usagePinEntries(cursor, 'long');
+  assert.deepEqual(
+    longOnly.bars.map((bar) => bar.label),
     ['Basic']
   );
-  assert.equal(entry.percent, 10);
+  assert.equal(longOnly.percent, 70);
+});
+
+test('account slots show the highest window of the account in both modes', () => {
+  const [entry] = usagePinEntries(claude([{ label: 'W', usedPct: 1 }]));
+  const pools = new Map([
+    [
+      'anthropic-oauth',
+      {
+        selectedId: 'a',
+        auto: false,
+        accounts: [
+          {
+            id: 'a',
+            label: 'A',
+            email: '',
+            windows: [
+              { label: 'Basic', usedPct: 0.2 },
+              { label: 'API', usedPct: 70 },
+            ],
+          },
+          {
+            id: 'b',
+            label: 'B',
+            email: '',
+            windows: [
+              { label: '5H', usedPct: 80 },
+              { label: 'W', usedPct: 10 },
+            ],
+          },
+        ],
+      },
+    ],
+  ]);
+  for (const mode of ['long', 'short-long']) {
+    const slots = usagePinAccountEntries([entry], pools, mode);
+    assert.deepEqual(
+      slots.map((slot) => slot.percent),
+      [70, 80]
+    );
+  }
+});
+
+test('the rail defaults to the 5-hour + longest period mode without a stored choice', async (t) => {
+  installTestDom(t, { expose: ['HTMLElement', 'Node'], rootId: 'root' });
+  const { readRailPrefs } = await import('./use-usage-rail-pin.ts');
+  assert.equal(readRailPrefs().bars, 'short-long');
+  window.localStorage.setItem('mixdog.desktop.usage-rail-prefs.v2', JSON.stringify({ bars: 'long' }));
+  assert.equal(readRailPrefs().bars, 'long');
 });
 
 test('the tooltip names the provider and both windows with percent and reset time', () => {
@@ -133,7 +196,7 @@ test('the tooltip names the provider and both windows with percent and reset tim
 });
 
 test('the taller two-bar stack counts toward rail room', () => {
-  assert.equal(usagePinStackHeight(3, 2), usagePinStackHeight(3) + 10);
+  assert.equal(usagePinStackHeight(3, 2), usagePinStackHeight(3) + 12);
   const base = { navHeight: 400, settingsHeight: 44, rowCount: 3 };
   const railHeight = 400 + 44 + usagePinStackHeight(3);
   assert.equal(usagePinStackFits({ ...base, railHeight }), true);
@@ -234,10 +297,10 @@ test('the pin item toggles the rail pin and the radios apply the bar mode', asyn
       ['5-hour + longest period', 'false'],
     ]
   );
-  assert.deepEqual(radios().map((radio) => radio.getAttribute('data-tooltip')), [
-    'Only the longest period, such as monthly or weekly',
-    '5-hour and weekly as two bars; the number shows the higher',
-  ]);
+  assert.deepEqual(
+    radios().map((radio) => radio.getAttribute('data-tooltip')),
+    ['Only the longest period, such as monthly or weekly', '5-hour and weekly as two bars; the number shows the higher']
+  );
   assert.equal(document.querySelector('.usage-menu-hint'), null);
   assert.equal(radios()[0].querySelector('svg') !== null, true);
   assert.equal(radios()[1].querySelector('svg'), null);

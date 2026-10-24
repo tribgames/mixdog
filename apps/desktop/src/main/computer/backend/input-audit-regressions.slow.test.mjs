@@ -739,7 +739,6 @@ public static class MixWin32 {
 }
 '@
 foreach ($name in @('Invoke-ForegroundInput','Get-ForegroundRefusal','New-ActionResult','Clear-ExpiredCursorTheme','Acquire-CursorTheme')) { . (Import-InputFunction $name) }
-function Wait-UserInputIdle { return 0 }
 # Keyboard feedback reads the target's focus before any key lands; the drift
 # under test happens later, so the fixture answers it without a real window.
 function Test-FocusMasked { return $false }

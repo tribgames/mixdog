@@ -12,7 +12,7 @@ export class PauseWaitExpired extends Error {}
 
 type CoordinatorSnapshot = ReturnType<ComputerUseCoordinator['snapshot']>;
 
-const USER_PAUSE_REASONS = ['user_input_active', 'user_pause'];
+const USER_PAUSE_REASONS = ['user_pause'];
 
 /** The user is holding the desktop and expects work to resume afterwards. */
 export function pausedForUserInput(snapshot: CoordinatorSnapshot): boolean {

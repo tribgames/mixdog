@@ -541,10 +541,10 @@ test('rail: collapsed (default) is one slot per provider without badges', async 
 });
 
 test('rail: a short rail shows fewer slots, and the pie icon when not even one fits', async (t) => {
-  // 5 slots, limit 5: one slot needs 17 + 34 + two 12px chevrons = 75px.
-  await mountRail(t, { stored: { usageAccountsExpanded: true }, railHeight: 120 });
+  // 5 slots, limit 5: one slot needs 17 + 40 + two 12px chevrons = 81px.
+  await mountRail(t, { stored: { usageAccountsExpanded: true }, railHeight: 140 });
   await waitFor(() => pinKeys().length > 0 && document.querySelector('.rail-usage-pin-mark'));
-  // 17 + 2×34 + 10 + 24 = 119 fits two slots; three need 163.
+  // 17 + 2×40 + 12 + 24 = 133 fits two slots; three need 185.
   assert.equal(pinKeys().length, 2);
   assert.ok(step(1));
 });

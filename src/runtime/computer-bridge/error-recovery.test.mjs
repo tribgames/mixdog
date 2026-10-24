@@ -76,6 +76,17 @@ test('window, lease and user-yield codes keep their next actions', () => {
   assert.equal(computerResultRecovery({ code: 'unknown_code' }, input), undefined);
 });
 
+test('user input refuses one action and is not a session yield', () => {
+  const input = { input: { window_id: 'hwnd:0x1' } };
+  const interrupted = computerResultRecovery({ code: 'user_input_active' }, input);
+  assert.equal(interrupted.next, 'capture');
+  assert.match(interrupted.guidance, /Do not call wait_for_user/);
+  assert.match(interrupted.guidance, /never replay/);
+  assert.match(interrupted.guidance, /after the user pauses or use a supported background route/);
+  assert.equal(computerToolErrorRecovery('user_input_active: interrupted', input).next, 'capture');
+  assert.equal(computerResultRecovery({ code: 'computer_user_takeover' }, input).next, 'wait_for_user');
+});
+
 test('a native timeout requires diagnosis and preserves possible execution instead of suggesting replacement input', () => {
   const recovery = computerToolErrorRecovery('computer_command_timeout: input host restarted', {
     action: 'menu',

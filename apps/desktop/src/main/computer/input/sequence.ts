@@ -1,5 +1,6 @@
 import type { ComputerCommand } from '../shared/types';
 import { computerTimings } from '../shared/timings';
+import { TAKEOVER_CODES } from '../shared/takeover-codes';
 import { computerCursorFeedback } from '../shared/cursor-feedback';
 import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
 
@@ -35,6 +36,9 @@ export async function executeComputerSequenceSteps(
     } catch (error) {
       const message = (error as Error).message || String(error);
       const explicitCode = computerErrorCode(error);
+      // User input interrupts only this step: the row stands, the input may
+      // already have landed, and the steps after it never run.
+      const userInput = explicitCode === 'user_input_active';
       payload = {
         ok: false,
         action: stepAction,
@@ -42,13 +46,16 @@ export async function executeComputerSequenceSteps(
         code: explicitCode || 'step_failed',
         effect: 'unverifiable',
         verified: false,
-        verdict: { decision: 'escalate', recommended: 'inspect_failed_step' },
+        ...(userInput ? { input_may_have_executed: true } : {}),
+        verdict: { decision: 'escalate', recommended: userInput ? 'recapture' : 'inspect_failed_step' },
       };
     }
-    // The outer queue owns pause, cleanup and resume. Turning this into a
-    // normal failed row would bypass that queue and drop the pending request.
-    if (payload.code === 'user_input_active') {
-      throw new Error('user_input_active: sequence yielded during input; dispatch outcome is uncertain');
+    // A step that hands the desktop back to the user is not a step outcome: it
+    // must reach the global takeover instead of ending as a failed row.
+    const takeoverCode = TAKEOVER_CODES.find((code) => code === payload.code);
+    if (takeoverCode) {
+      const text = String(payload.message || '');
+      throw new Error(text.startsWith(takeoverCode) ? text : `${takeoverCode}: ${text}`);
     }
     const transition = payload.window_transition as SequenceWindowTransition | undefined;
     lastTransition = transition || null;

@@ -8,7 +8,7 @@ const pending = value({
   action: 'sequence',
   status: 'paused',
   code: 'computer_user_intervention_pending',
-  reason: 'user_input_active',
+  reason: 'user_pause',
   fresh_capture_required: true,
   verdict: { decision: 'wait_for_user', recommended: 'wait_for_user' },
   completed: false,
@@ -28,7 +28,7 @@ test('long human interaction stays pending across waits then returns fresh state
       calls.push(command);
       if (command.action === 'wait_for_user') {
         return value(
-          ++waits < 3 ? { status: 'timeout', reason: 'user_input_active' } : { status: 'resumed', resumed: true }
+          ++waits < 3 ? { status: 'timeout', reason: 'user_pause' } : { status: 'resumed', resumed: true }
         );
       }
       return { ...value({ ok: true, frame_id: 'fresh' }), image: { data: 'image', mimeType: 'image/png' } };

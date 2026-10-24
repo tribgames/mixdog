@@ -25,17 +25,17 @@ const NO_ENTRIES: ReturnType<typeof usagePinEntries> = [];
 
 type RailPrefs = { pinned: boolean; bars: UsageRailBars; expanded: boolean; slots: UsageRailSlots };
 
-function readRailPrefs(): RailPrefs {
+export function readRailPrefs(): RailPrefs {
   try {
     const stored = JSON.parse(window.localStorage.getItem(USAGE_RAIL_PREFS_KEY) || 'null');
     return {
       pinned: typeof stored?.pinned === 'boolean' ? stored.pinned : true,
-      bars: stored?.bars === 'short-long' ? 'short-long' : 'long',
+      bars: stored?.bars === 'long' ? 'long' : 'short-long',
       expanded: stored?.expanded === true,
       slots: stored?.slots === '3' || stored?.slots === 'all' ? stored.slots : '5',
     };
   } catch {
-    return { pinned: true, bars: 'long', expanded: false, slots: '5' };
+    return { pinned: true, bars: 'short-long', expanded: false, slots: '5' };
   }
 }
 
@@ -219,10 +219,7 @@ export function useUsageRailPin(
   // reserved from the start, and live data only updates the figures.
   // Entries, windows and tooltips are rebuilt only when their inputs change,
   // not on every render (each scroll step re-renders).
-  const dashboardEntries = useMemo(
-    () => usagePinEntries(snapshot.dashboard, railBars),
-    [snapshot.dashboard, railBars]
-  );
+  const dashboardEntries = useMemo(() => usagePinEntries(snapshot.dashboard, railBars), [snapshot.dashboard, railBars]);
   const real = usagePinned ? dashboardEntries : NO_ENTRIES;
   // Which providers get a row is local knowledge, never the slow quota fetch:
   // the roster the rail last drew, else the connected accounts of the provider

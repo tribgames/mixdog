@@ -41,7 +41,7 @@ export function createSessionStop(
         { action: 'session_abort', session_id: sessionId },
         false,
         undefined,
-        reason === 'user_input_active' || reason === 'user_pause'
+        reason === 'user_pause'
       )
     );
     // A worker killed mid-call takes seconds to unwind, so its first cleanup

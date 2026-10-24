@@ -83,8 +83,10 @@ GNOME with Mixdog's own shell extension, which the app sets up); prefer accessib
   `input_may_have_executed:true` or unknown delivery is not a no-input refusal.
   A refusal applies to that action, not to earlier completed steps. Keep the
   selected app/browser session when choosing another supported delivery route.
-- User intervention means pending work, not permission to work around the pause
-  through background input. Resume only through the recovery flow below.
+- Background work continues while the user works. A foreground step is refused
+  or interrupted (that action only, `user_input_active`) when the user acts; it
+  never pauses the session. Retry it after the user pauses. Explicit
+  Stop/Pause still halts everything; resume through the recovery flow below.
 
 ## Rules
 
@@ -114,11 +116,14 @@ GNOME with Mixdog's own shell extension, which the app sets up); prefer accessib
 - Window pixels come only from a window-owned capture, never a sampled region
   of the shared desktop. If that surface is unavailable, use semantic refs or
   report `pixel_unavailable`; do not substitute a screen grab.
-- If the user intervenes, preserve their cursor and focus. Worker termination
-  and input cleanup must finish before resuming. The user's Resume on the
-  overlay continues a pause; an ordinary physical-input pause may also resume
-  after the host's configured quiet interval (renewed input resets it), while
-  explicit pauses, stops and uncertain cleanup never auto-resume. Stop (or
+- If the user's physical input interrupts an action, it fails alone with
+  `user_input_active` (input may have landed: capture fresh state, never replay,
+  no `wait_for_user`). Their cursor and focus stay theirs. Worker
+  termination and input cleanup must finish before resuming a pause. The user's
+  Resume on the overlay continues a pause; an unverified-recovery pause may
+  also resume after the host's configured quiet interval (renewed input resets
+  it), while explicit pauses, stops and uncertain cleanup never auto-resume.
+  Stop (or
   `Ctrl+Alt+Esc`) cancels the task, which then reports the stop as a failure.
   A cleanup that could not be confirmed is retried before the next input
   command; if it still fails, that command returns the reason — relay it to

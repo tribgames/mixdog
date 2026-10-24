@@ -17,13 +17,13 @@
 }
 .rail-usage-pin-stack {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   justify-items: center;
   width: 100%;
 }
 .rail-usage-pin-brand {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   justify-items: center;
   width: 100%;
 }
@@ -36,21 +36,14 @@
   height: 16px;
   margin: 0 auto;
 }
-/* The sparkle/star marks carry far less ink than the knot/letterforms —
-   one step up keeps their optical size on the same line. */
-.rail-usage-pin-brand svg[data-provider-icon="synthetic"],
-.rail-usage-pin-brand svg[data-provider-icon="google"] {
-  width: var(--mx-icon-lg);
-  height: var(--mx-icon-lg);
-}
 /* Miniature of the flyout meter (user: 프로그래스라도 중간에): a 3px track
    between icon and number, filled in accent ink until the tone escalates. */
 .rail-usage-pin-brand > i {
   position: relative;
   display: block;
   overflow: hidden;
-  width: 26px;
-  height: 3px;
+  width: 24px;
+  height: 4px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-meter-track);
 }
@@ -62,25 +55,28 @@
      warning/danger tones below take over. */
   background: var(--mx-meter-fill);
 }
-/* Short + long mode stacks two meters (the brand's 2px gap separates them);
-   the tone colors only the bar that drives the figure. */
-.rail-usage-pin-brand.tone-warning > i:not(.is-cool) > i {
+/* Thick bar = short window (or the only one), thin bar = long window; each
+   bar carries its own tone. */
+.rail-usage-pin-brand > i.is-thin {
+  height: 2px;
+}
+.rail-usage-pin-brand > i.tone-warning > i {
   background: var(--mx-meter-warning);
 }
-.rail-usage-pin-brand.tone-danger > i:not(.is-cool) > i {
+.rail-usage-pin-brand > i.tone-danger > i {
   background: var(--mx-meter-danger);
 }
 .rail-usage-pin-brand > small {
-  color: var(--mx-text);
+  color: var(--mx-text-muted);
   display: block;
   width: 100%;
   text-align: left;
-  font-size: var(--mx-font-micro);
+  font-size: 10px;
   /* A gauge readout, not a heading: regular weight keeps the figures
      legible without out-weighing the rail icons (user: % 가 좀 굵다 →
      레일 % 폰트 굵기 조정; 500 still read bold under the 22px glyphs). */
   font-weight: var(--mx-weight-regular);
-  line-height: 11px;
+  line-height: 12px;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }

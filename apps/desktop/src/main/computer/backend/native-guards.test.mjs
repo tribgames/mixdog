@@ -479,7 +479,6 @@ public static class MixWin32 {
 $script:state=@{LastFocus=[IntPtr]1}
 $script:CurrentRequest=@{}
 function Get-CurrentSession { return $script:state }
-function Wait-UserInputIdle { return 0 }
 function Assert-ExecutionAuthorization($req,$target) {}
 $result=Invoke-ForegroundInput ([IntPtr]1) 'click' { [MixWin32]::X=30 }
 # A pointer action blanks the system cursor so the overlay arrow is the only one.
@@ -554,7 +553,6 @@ public static class MixWin32 {
 $script:state=@{LastFocus=[IntPtr]1}
 $script:CurrentRequest=@{hold_pointer=$true}
 function Get-CurrentSession { return $script:state }
-function Wait-UserInputIdle { return 0 }
 function Assert-ExecutionAuthorization($req,$target) {}
 function Refuse { throw 'element e1 is covered by another window at its click point' }
 # Nothing held yet: the refused click leaves the user's own cursor on screen.
@@ -751,7 +749,7 @@ $ended = [DragFixture]::Check()
   assert.equal(output, 'target_mismatch ok target_mismatch ok target_mismatch');
 });
 
-test('foreground admission names an elevated holder before waiting and refuses an unobservable origin at once', {
+test('foreground admission names an elevated holder and never waits on recent user input', {
   skip: process.platform !== 'win32' && 'Windows only',
 }, async () => {
   const output = await isolatedProgram(
@@ -777,18 +775,129 @@ function Assert-ExecutionAuthorization($req,$target) {}
 # The elevated holder is named before any wait, which could only end in the wrong reason.
 $elevated = Get-ForegroundRefusal 'click' ([IntPtr]1) @{}
 if ($elevated.code -ne 'foreground_unavailable') { throw "elevated holder: $($elevated.code)" }
-# An input origin that cannot be observed refuses at once instead of after the idle wait.
+# Admission is not where user input is refused: the observation token and the
+# dispatch checks own that, so an unobservable origin does not hold it here.
 [MixWin32]::Front=[IntPtr]1
 $clock=[Diagnostics.Stopwatch]::StartNew()
-try { $null = Wait-UserInputIdle; throw 'missing refusal' } catch {
-  if ($_.Exception.Message -notmatch '^input_observation_unavailable:') { throw }
-}
-if ($clock.ElapsedMilliseconds -gt 2000) { throw "unobservable origin waited $($clock.ElapsedMilliseconds)ms" }
+if ($null -ne (Get-ForegroundRefusal 'click' ([IntPtr]1) @{})) { throw 'admission refused without cause' }
+if ($clock.ElapsedMilliseconds -gt 1000) { throw "admission waited $($clock.ElapsedMilliseconds)ms" }
 [Console]::WriteLine('ADMISSION')
 `,
     { 'input.ps1': PS_INPUT }
   );
   assert.equal(output, 'ADMISSION');
+});
+
+const OBSERVATION_FIXTURE = `
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public class IntegrityValue { public bool Known=true, Higher=false; public string TargetName="Medium", OwnName="Medium"; }
+public static class MixInputObservation {
+  public static long Current = 2;
+  public static int Began, BeganExpected, Ended;
+  public static void Begin() { Began++; }
+  public static void BeginExpected(string monitor, long sequence) {
+    BeganExpected++;
+    if (sequence != Current) throw new Exception("user_input_active: observation was superseded by external input");
+  }
+  public static void End() { Ended++; }
+}
+public static class MixWin32 {
+  public static int Probed;
+  public static IntPtr Foreground() { return new IntPtr(1); }
+  public static bool IsWindowHandle(IntPtr target) { return target != IntPtr.Zero; }
+  public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static IntegrityValue WindowIntegrity(IntPtr target) { return new IntegrityValue(); }
+  // The user is typing right now; nothing here may look at that.
+  public static int PhysicalInputIdleMs(int known, bool hasKnown) { Probed++; return 0; }
+}
+'@
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+  (Join-Path $env:AUDIT_DIRECTORY 'runtime.ps1'), [ref]$tokens, [ref]$errors)
+$function = $ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Handle'}, $true)
+. ([scriptblock]::Create($function.Extent.Text))
+$script:Dispatched = 0
+function Get-SessionState($id) { return @{} }
+function Assert-ExecutionAuthorization($req, $target) {}
+function Do-ClickFamily($req, $kind) { $script:Dispatched++; return @{ ok = $true } }
+function Do-Key($req) { $script:Dispatched++; return @{ ok = $true } }
+function Do-Type($req) { $script:Dispatched++; return @{ ok = $true } }
+function Do-Focus($req) { $script:Dispatched++; return @{ ok = $true } }
+function Invoke-BackgroundSemantic($ref, $operation, $effect = 'release') { $script:Dispatched++; return @{ ok = $true } }
+function Attempt($request) {
+  $script:Dispatched = 0
+  try { $null = Handle $request; return @{ error = ''; dispatched = $script:Dispatched } }
+  catch { return @{ error = $_.Exception.GetBaseException().Message; dispatched = $script:Dispatched } }
+}
+`;
+
+test('a foreground action with a stale observation token is refused at once, without waiting', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const output = await isolatedProgram(
+    `${OBSERVATION_FIXTURE}
+$rows = [ordered]@{}
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$rows.stale = Attempt @{ action='click'; delivery='foreground'; session_id='s'; ref='e1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
+$rows.staleMs = $clock.ElapsedMilliseconds
+# Activation is fact-guarded whatever the delivery field says.
+$rows.staleFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
+$rows.freshFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
+$rows.fresh = Attempt @{ action='click'; delivery='foreground'; session_id='s'; ref='e1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
+# Admission names an elevated holder only; recent user input does not hold the lane.
+$clock.Restart()
+$admitted = Get-ForegroundRefusal 'click' ([IntPtr]1) @{}
+$rows.admitted = ($null -eq $admitted)
+$rows.admitMs = $clock.ElapsedMilliseconds
+$rows.probed = [MixWin32]::Probed
+$rows | ConvertTo-Json -Compress -Depth 4
+`,
+    { 'input.ps1': PS_INPUT, 'runtime.ps1': PS_RUNTIME }
+  );
+  const rows = JSON.parse(output);
+  assert.match(rows.stale.error, /^user_input_active:/);
+  assert.equal(rows.stale.dispatched, 0, 'a stale observation must send nothing');
+  assert.ok(rows.staleMs < 2000, `refused after ${rows.staleMs}ms`);
+  assert.match(rows.staleFocus.error, /^user_input_active:/);
+  assert.equal(rows.staleFocus.dispatched, 0, 'a stale token must not activate a window');
+  assert.equal(rows.freshFocus.dispatched, 1);
+  assert.equal(rows.fresh.error, '');
+  assert.equal(rows.fresh.dispatched, 1);
+  assert.equal(rows.admitted, true);
+  assert.ok(rows.admitMs < 1000, `admission waited ${rows.admitMs}ms`);
+  assert.equal(rows.probed, 0, 'foreground admission must not look at recent user input');
+});
+
+test('background input proceeds while foreign input is recent and never consults it', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const output = await isolatedProgram(
+    `${OBSERVATION_FIXTURE}
+$rows = [ordered]@{}
+$token = @{ observed_input_monitor_id='m'; observed_input_user_sequence=1 }
+foreach ($case in @(
+    @{ action='click'; ref='e1' }, @{ action='key'; window_id='hwnd:0x1'; keys='a' },
+    @{ action='type'; window_id='hwnd:0x1'; text='a' }, @{ action='set_value'; ref='e1'; text='x' },
+    @{ action='toggle'; ref='e1' }, @{ action='invoke'; ref='e1' })) {
+  $request = @{ delivery='background'; session_id='s' } + $case + $token
+  $rows[$case.action] = Attempt $request
+}
+$rows.began = [MixInputObservation]::Began + [MixInputObservation]::BeganExpected
+$rows.probed = [MixWin32]::Probed
+$rows | ConvertTo-Json -Compress -Depth 4
+`,
+    { 'input.ps1': PS_INPUT, 'runtime.ps1': PS_RUNTIME }
+  );
+  const rows = JSON.parse(output);
+  for (const action of ['click', 'key', 'type', 'set_value', 'toggle', 'invoke']) {
+    assert.equal(rows[action].error, '', action);
+    assert.equal(rows[action].dispatched, 1, `${action} was not dispatched`);
+  }
+  assert.equal(rows.began, 0, 'background delivery never opens an input observation');
+  assert.equal(rows.probed, 0, 'background delivery never reads recent user input');
 });
 
 test('focus_window passes the foreground admission and confirms only a settled foreground', {
@@ -802,9 +911,13 @@ using System;
 public class IntegrityValue { public bool Known=true, Higher=false; public string TargetName="Medium", OwnName="Medium"; }
 public static class MixInputObservation {
   public static int Depth, Asserts;
+  public static bool Interrupt;
   public static Action DispatchAuthorization;
   public static void Begin() { Depth++; }
-  public static void AssertContinue() { Asserts++; }
+  public static void AssertContinue() {
+    Asserts++;
+    if (Interrupt) throw new Exception("user_input_active: external input interrupted this action");
+  }
   public static void End() { Depth--; }
 }
 public static class MixWin32 {
@@ -823,11 +936,16 @@ $script:state=@{}
 function Resolve-WindowInfo($window,$id) { return @{ Handle=[IntPtr]1; Id='hwnd:0x1'; Title='Notepad' } }
 function Get-CurrentSession { return $script:state }
 function Assert-ExecutionAuthorization($req,$target) {}
-# Input during the wait refuses focus like any other foreground action.
-function Wait-UserInputIdle { return 800 }
-$busy = Do-Focus @{ window_id='hwnd:0x1' }
-if ($busy.code -ne 'user_input_active' -or [MixWin32]::Focused -ne 0) { throw 'focus was taken after user input' }
-function Wait-UserInputIdle { return 0 }
+# Input while focus settles stops it like any other foreground action.
+[MixInputObservation]::Interrupt = $true
+try { $null = Do-Focus @{ window_id='hwnd:0x1' }; throw 'missing interruption' } catch {
+  if ($_.Exception.GetBaseException().Message -ne 'user_input_active: external input interrupted this action') { throw }
+}
+if ([MixInputObservation]::Depth -ne 0) { throw 'interrupted focus left its input scope open' }
+if ([MixWin32]::Focused -ne 0) { throw 'focus activated after user input' }
+[MixInputObservation]::Interrupt = $false
+[MixInputObservation]::Asserts = 0
+[MixWin32]::Front=[IntPtr]2
 # A window that does not keep the foreground was not focused.
 [MixWin32]::Settled=[IntPtr]3
 $moved = Do-Focus @{ window_id='hwnd:0x1' }
@@ -836,7 +954,7 @@ if ($moved.code -ne 'foreground_changed' -or $null -ne $script:state.LastFocus) 
 [MixWin32]::Settled=[IntPtr]1
 $done = Do-Focus @{ window_id='hwnd:0x1' }
 if ($done.code -or $script:state.LastFocus -ne [IntPtr]1) { throw "focus failed: $($done.code)" }
-if ([MixInputObservation]::Depth -ne 0 -or [MixInputObservation]::Asserts -ne 2) { throw 'focus ran outside an observed input scope' }
+if ([MixInputObservation]::Depth -ne 0 -or [MixInputObservation]::Asserts -ne 4) { throw 'focus ran outside an observed input scope' }
 [Console]::WriteLine('FOCUS_GUARDED')
 `,
     { 'input.ps1': PS_INPUT }

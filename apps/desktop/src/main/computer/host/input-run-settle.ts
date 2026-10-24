@@ -15,6 +15,7 @@ import type { ComputerExecutionPolicy } from './execution-policy';
 import type { InputRecoveryState, SessionDesktopAnchor } from './execution-state';
 import type { InputRunContext, PreparedInputRun } from './input-run-prepare';
 import { readSequenceStep } from './sequence-dispatch';
+import { nativeAnswerStandsAgainstUserInput, userInputRefusalPayload } from './user-input-refusal';
 
 /**
  * The restore point once the user lets the agent go on after touching the
@@ -98,8 +99,9 @@ type RecoveryVerification = NonNullable<Awaited<ReturnType<InputRunSettleHost['v
 /** The transition a batched native step already observed for itself. */
 type NativeStepTransition = { transition: ComputerWindowTransition; settleDelayMs: number } | undefined;
 
-/** Input recovery could not be confirmed: the desktop goes back to the user
- *  and the reply says why, with the native evidence the verdict rests on. */
+/** Input recovery could not be confirmed. The user's own input refuses only
+ *  this action; anything else hands the desktop back to the user. The reply
+ *  says why, with the native evidence the verdict rests on. */
 function inputRecoveryFailureReply(
   host: InputRunSettleHost,
   run: InputRunContext,
@@ -112,8 +114,9 @@ function inputRecoveryFailureReply(
     verification.user_control === true
       ? 'user_input_active'
       : String(verification.code || 'input_recovery_unconfirmed');
+  const userInput = reason === 'user_input_active';
   const active = host.executionContext.getStore();
-  if (active) active.failureCode = reason;
+  if (active && !userInput) active.failureCode = reason;
   host.recordDiagnostic?.(host.sessionIdFor(command), {
     action,
     stage: 'input_recovery',
@@ -124,6 +127,20 @@ function inputRecoveryFailureReply(
     input_recovery: verification,
     timings_ms: actionTimings,
   });
+  const evidence = {
+    input_recovery: verification,
+    native_result: {
+      code: result.code,
+      path: result.path,
+      effect: result.effect,
+      delivery_accepted: result.delivery_accepted,
+      cursor_feedback: result.cursor_feedback,
+    },
+  };
+  if (userInput) {
+    // The readback follows a dispatch, so the input may have landed.
+    return { text: JSON.stringify(userInputRefusalPayload(action, targetWindowId, true, evidence)) };
+  }
   host.takeOverComputer(reason);
   return {
     text: JSON.stringify({
@@ -133,14 +150,7 @@ function inputRecoveryFailureReply(
       code: reason,
       effect: 'unverifiable',
       verified: false,
-      input_recovery: verification,
-      native_result: {
-        code: result.code,
-        path: result.path,
-        effect: result.effect,
-        delivery_accepted: result.delivery_accepted,
-        cursor_feedback: result.cursor_feedback,
-      },
+      ...evidence,
       verdict: { decision: 'escalate', recommended: 'wait_for_user' },
       capture_skipped: 'user_control_active',
     }),
@@ -234,12 +244,19 @@ export async function settleInputRun(
     recoveryBaseline && !anchor?.userOwned
       ? await host.verifyInputRecovery(command, targetWindowId, recoveryBaseline, actionTimings, result, true)
       : undefined;
-  if (inputRecoveryVerification?.user_control === true && anchor) anchor.userOwned = true;
+  const userTookControl = inputRecoveryVerification?.user_control === true;
+  if (userTookControl && anchor) anchor.userOwned = true;
   if (anchor && typeof inputRecoveryVerification?.actual_focus_window_id === 'string') {
     anchor.heldWindowId = inputRecoveryVerification.actual_focus_window_id;
   }
+  // Restoration was skipped because the user owns focus and pointer; when the
+  // native result says nothing was sent, it is the reply, marked as such.
+  let recoveryReport = inputRecoveryVerification;
   if (inputRecoveryVerification?.ok === false) {
-    return inputRecoveryFailureReply(host, run, targetWindowId, result, inputRecoveryVerification);
+    if (!userTookControl || !nativeAnswerStandsAgainstUserInput(result)) {
+      return inputRecoveryFailureReply(host, run, targetWindowId, result, inputRecoveryVerification);
+    }
+    recoveryReport = { recovery_skipped: true, user_control: true };
   }
   if (action === 'snapshot' || action === 'find') {
     host.rememberElementTargets(command, host.normalizeElementRecords(result.elements));
@@ -265,7 +282,7 @@ export async function settleInputRun(
     }
     await host.claimComputerTargets(command, [windowTransition.next_target.id]);
   }
-  if (action === 'focus_window' && inputRecovery && result.verified === true && !result.code) {
+  if (action === 'focus_window' && inputRecovery && result.verified === true && !result.code && !userTookControl) {
     host.sessionRecoveryBySession.set(host.sessionIdFor(command), inputRecovery);
   }
   return await buildActionReply(host.captureAfterAction, {
@@ -276,7 +293,7 @@ export async function settleInputRun(
     targetWindowId,
     logicalTargetWindowId,
     windowTransition,
-    inputRecoveryVerification,
+    inputRecoveryVerification: recoveryReport,
     semanticTargetIdentity,
     settleDelayMs,
     commandStartedAt,

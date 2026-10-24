@@ -29,7 +29,7 @@ export async function continuePendingComputerWork(initial, command, send, signal
     try {
       const waited = payload(await send({ action: 'wait_for_user', timeout_ms: 60_000 }));
       signal?.throwIfAborted();
-      if (waited.status === 'timeout' && ['user_input_active', 'user_pause'].includes(waited.reason)) continue;
+      if (waited.status === 'timeout' && waited.reason === 'user_pause') continue;
       if (waited.status !== 'resumed' || waited.resumed !== true) {
         return {
           text: JSON.stringify({

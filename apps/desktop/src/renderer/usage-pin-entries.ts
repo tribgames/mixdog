@@ -72,14 +72,12 @@ interface UsagePinEntry {
   key: string;
   label: string;
   provider: string;
-  /** The figure shown under the bars: the higher of the drawn bars. */
+  /** The figure shown under the bars: the highest of all the quota windows. */
   percent: number;
   /** Drawn bars, short window first. */
   bars: UsagePinWindow[];
   /** Every window the tooltip names (short window first when there is one). */
   windows: UsagePinWindow[];
-  /** Index in `bars` of the bar that drives the figure and the tone. */
-  hot: number;
   /** Rail hover text naming the provider and every window. */
   tooltip: string;
   /** Known-connected provider whose quota has not arrived: the row keeps its
@@ -115,7 +113,7 @@ export function usagePinRosterFromSetup(setup: unknown): UsagePinRosterEntry[] {
   );
   return SUBSCRIPTIONS.filter((subscription) => connected.has(subscription.provider)).map((subscription) => ({
     key: subscription.key,
-    bars: 1,
+    bars: TWO_WINDOW_SUBSCRIPTIONS.has(subscription.key) ? 2 : 1,
   }));
 }
 
@@ -145,7 +143,6 @@ export function usagePinEntriesWithRoster(
         percent: 0,
         bars,
         windows: bars,
-        hot: 0,
         tooltip: subscription.label,
         pending: true,
       },
@@ -175,7 +172,7 @@ function windowHours(label: string): number | null {
 function pinWindows(
   windows: UsageRecord[],
   provider: string
-): { long: UsagePinWindow; short: UsagePinWindow | null } | null {
+): { pair: UsagePinWindow[]; long: UsagePinWindow; all: UsagePinWindow[]; peak: number } | null {
   const candidates = windows.flatMap((window): UsagePinWindow[] => {
     const percent = usedPercent(window);
     return percent === null
@@ -204,7 +201,30 @@ function pinWindows(
       shortHours = hours;
     }
   }
-  return { long, short };
+  // The drawn pair, thick bar first. A second window without a duration
+  // (Cursor API) still draws, after the long one.
+  let pair = short ? [short, long] : [long];
+  if (!short) {
+    const other = candidates.find((candidate) => candidate !== long && windowHours(candidate.label) === null);
+    if (other) pair = [long, other];
+  }
+  return { pair, long, all: candidates, peak: Math.max(...candidates.map((candidate) => candidate.percent)) };
+}
+
+/** The windows the hover text names: the drawn pair, then every other one. */
+function pinTooltipWindows(picked: NonNullable<ReturnType<typeof pinWindows>>): UsagePinWindow[] {
+  return [...picked.pair, ...picked.all.filter((window) => !picked.pair.includes(window))];
+}
+
+/** Subscriptions known to report two quota windows, so a row whose quota has
+ *  not arrived reserves both bars. */
+const TWO_WINDOW_SUBSCRIPTIONS = new Set(['codex', 'claude', 'cursor', 'antigravity']);
+
+/** Rail tone: warning from 50 %, danger from 90 %. */
+export function usagePinToneClass(percent: number | null): string {
+  if (percent === null) return '';
+  if (percent >= 90) return ' tone-danger';
+  return percent >= 50 ? ' tone-warning' : '';
 }
 
 /** Rail pin mode: one entry per brand that has quota data —
@@ -217,22 +237,17 @@ export function usagePinEntries(dashboard: unknown, mode: UsageRailBars = 'long'
   return SUBSCRIPTIONS.flatMap((subscription) => {
     const picked = pinWindows(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);
     if (!picked) return [];
-    const windows = picked.short ? [picked.short, picked.long] : [picked.long];
+    const windows = picked.pair;
     const bars = mode === 'short-long' ? windows : [picked.long];
-    let hot = 0;
-    bars.forEach((bar, index) => {
-      if (bar.percent >= bars[hot].percent) hot = index;
-    });
     return [
       {
         key: subscription.key,
         label: subscription.label,
         provider: subscription.provider,
-        percent: bars[hot].percent,
+        percent: picked.peak,
         bars,
         windows,
-        hot,
-        tooltip: usagePinTooltip(subscription.label, windows),
+        tooltip: usagePinTooltip(subscription.label, pinTooltipWindows(picked)),
       },
     ];
   });
@@ -256,26 +271,21 @@ export function usagePinAccountEntries(
     const selectedId = pools.get(entry.provider)?.selectedId;
     return accounts.map((account, index): UsagePinEntry => {
       const picked = pinWindows(account.windows, entry.provider);
-      const windows = picked ? (picked.short ? [picked.short, picked.long] : [picked.long]) : [];
+      const windows = picked ? picked.pair : [];
       const bars = picked
         ? mode === 'short-long'
           ? windows
           : [picked.long]
         : [{ label: '0', percent: 0, resetAt: null }];
-      let hot = 0;
-      bars.forEach((bar, barIndex) => {
-        if (bar.percent >= bars[hot].percent) hot = barIndex;
-      });
       const title = `${entry.label} · ${index + 1} ${usageAccountName(account)}`;
       return {
         key: `${entry.key}:${account.id}`,
         label: entry.label,
         provider: entry.provider,
-        percent: bars[hot].percent,
+        percent: picked ? picked.peak : 0,
         bars,
-        windows: picked ? windows : [],
-        hot,
-        tooltip: picked ? usagePinTooltip(title, windows) : title,
+        windows,
+        tooltip: picked ? usagePinTooltip(title, pinTooltipWindows(picked)) : title,
         pending: picked ? undefined : true,
         accountIndex: index + 1,
         accountSelected: account.id === selectedId,

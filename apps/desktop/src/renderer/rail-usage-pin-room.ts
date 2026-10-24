@@ -5,12 +5,12 @@
 // destinations, the stack and Settings cannot all keep whole cells.
 
 /** Layout constants of .rail-usage-pin-brand / .is-pinned in 09-sidebar-chrome.css. */
-const PIN_ROW_HEIGHT = 16 + 2 + 3 + 2 + 11;
-const PIN_ROW_GAP = 10;
+const PIN_ROW_HEIGHT = 16 + 4 + 4 + 4 + 12;
+const PIN_ROW_GAP = 12;
 const PIN_STACK_PADDING = 9 + 8;
 
-/** A second 3px meter plus its 2px gap. */
-const PIN_EXTRA_BAR_HEIGHT = 3 + 2;
+/** A second, thin 2px meter plus its 4px gap. */
+const PIN_EXTRA_BAR_HEIGHT = 2 + 4;
 
 export function usagePinStackHeight(rowCount: number, doubleBarCount = 0): number {
   if (rowCount <= 0) return 0;

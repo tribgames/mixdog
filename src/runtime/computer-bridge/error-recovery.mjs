@@ -20,7 +20,7 @@ function targetLabel(args) {
 
 const LIST_WINDOW_CODES = new Set(['ambiguous_window_target', 'window_stale', 'window_target_not_found']);
 const STALE_TARGET_CODES = new Set(['stale_frame', 'stale_target', 'target_mismatch']);
-const USER_YIELD_CODES = new Set(['computer_user_control_active', 'computer_user_takeover', 'user_input_active']);
+const USER_YIELD_CODES = new Set(['computer_user_control_active', 'computer_user_takeover']);
 const DIAGNOSE_CODES = new Set(['input_observation_unavailable', 'computer_cursor_unavailable']);
 const CLEANUP_CODES = new Set([
   'computer_cleanup_pending',
@@ -109,7 +109,14 @@ function recoveryForCode(code, args) {
       code,
       next: 'wait_for_user',
       guidance:
-        "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause, and ordinary physical input may also resume after the host-configured quiet interval (default 5 seconds); explicit stops and uncertain cleanup/observation require the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.",
+        "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause. Physical input alone never pauses the session; only an explicit Pause/Stop or uncertain cleanup/observation does, and those require the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.",
+    };
+  }
+  if (code === 'user_input_active') {
+    return {
+      code,
+      next: 'capture',
+      guidance: `The user's own input interrupted this action only; the session keeps running and this is not a pause. Do not call wait_for_user for it. Capture ${target} again before any further input, and never replay the interrupted input, which may have been partly delivered. If the step needed foreground, retry it after the user pauses or use a supported background route.`,
     };
   }
   if (code === 'input_recovery_unconfirmed') {

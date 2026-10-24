@@ -304,13 +304,18 @@ test(
 );
 
 test(
-  'a pause or cancellation during the native batch cannot dispatch a continuation',
+  'user input or cancellation during the native batch cannot dispatch a continuation',
   NATIVE_POINTS_KNOWN,
   async () => {
     const paused = fixture(() => ({ id: 1, ok: false, error: 'user_input_active: native input interrupted' }));
-    await assert.rejects(paused.router.runCommand(command), /user_input_active/);
+    const interrupted = JSON.parse((await paused.router.runCommand(command)).text);
+    assert.equal(interrupted.code, 'user_input_active');
+    assert.deepEqual(
+      interrupted.steps.map((step) => step.status),
+      ['uncertain', 'skipped']
+    );
     assert.equal(paused.requests.length, 1);
-    assert.deepEqual(paused.captures, []);
+    assert.deepEqual(paused.captures, ['hwnd:0x1'], 'the observation still follows the stopped sequence');
     const stopped = fixture((_, __, abort) => {
       abort();
     });

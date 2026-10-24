@@ -709,7 +709,7 @@ test('another session invalidates stored frames, refs and scopes only for its ch
   }
 });
 
-test('external input interrupts capture without publishing targets, while stable captures carry the original watermark', async () => {
+test('stable captures carry the original watermark; input during a capture publishes it not foreground-ready', async () => {
   for (const changed of [false, true]) {
     let reads = 0;
     const f = fixture({
@@ -720,43 +720,40 @@ test('external input interrupts capture without publishing targets, while stable
       },
     });
     const command = { action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a' };
-    if (changed) {
-      await assert.rejects(
-        f.run(() => f.capture.captureComputer(command)),
-        /user_input_active/
-      );
-      assert.equal(f.state.observedWindowBySession.has('a'), false);
-      assert.equal(f.state.elementTargetsBySession.has('a'), false);
-      continue;
-    }
     const observation = await f.run(() => f.capture.captureComputer(command));
-    assert.equal(observation.payload.foreground_input_ready, true);
-    assert.equal(observation.payload.foreground_input_reason, undefined);
-    let sent;
+    assert.equal(observation.payload.foreground_input_ready, !changed);
+    assert.equal(observation.payload.foreground_input_reason, changed ? 'user_input_during_capture' : undefined);
+    assert.equal(f.state.observedWindowBySession.has('a'), true);
+    const scope = f.state.freshObservedWindowScope(command);
+    assert.equal(scope.inputObservation.ready, !changed);
+    const sent = [];
     const dispatch = createInputDispatch(
       {
         ...f.host,
         isObserveOnly: () => false,
         readWindowIntegrity: async () => ({ known: true, higher: false }),
         callPowerShell: async (request) => {
-          sent = request;
+          sent.push(request);
           return { ok: true };
         },
       },
       createComputerExecutionPolicy()
     );
-    const input = () =>
-      dispatch({ action: 'key', keys: '{TAB}', delivery: 'foreground', session_id: 'a' }, 'key', {
-        targetWindowId: 'hwnd:0x1',
-        allowedWindowIds: ['hwnd:0x1'],
-        observedScope: f.state.freshObservedWindowScope(command),
-      });
-    await input();
-    assert.equal(sent.observed_input_monitor_id, 'worker-a');
-    assert.equal(sent.observed_input_user_sequence, 3);
+    const target = { targetWindowId: 'hwnd:0x1', allowedWindowIds: ['hwnd:0x1'], observedScope: scope };
+    const foreground = () =>
+      dispatch({ action: 'key', keys: '{TAB}', delivery: 'foreground', session_id: 'a' }, 'key', target);
+    if (changed) {
+      await assert.rejects(foreground(), /foreground_input_not_ready/);
+      assert.deepEqual(sent, [], 'foreground input is never sent on a not-ready observation');
+      await dispatch({ action: 'key', keys: 'a', delivery: 'background', session_id: 'a' }, 'key', target);
+      assert.equal(sent.length > 0, true, 'background input proceeds');
+    } else {
+      await foreground();
+      assert.equal(sent[0].observed_input_monitor_id, 'worker-a');
+      assert.equal(sent[0].observed_input_user_sequence, 3);
+    }
   }
 });
-
 test('unavailable input observers remain distinguishable from user intervention in usable captures', async () => {
   for (const failed of [false, true]) {
     const f = fixture({

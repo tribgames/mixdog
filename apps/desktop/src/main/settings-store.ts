@@ -68,7 +68,7 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
       : NOTIFICATION_VOLUME_DEFAULT,
     // A fresh install starts pinned; an explicit unpin is kept.
     usagePinned: desktop.usagePinned !== false,
-    usageRailShortLong: desktop.usageRailShortLong === true,
+    usageRailShortLong: desktop.usageRailShortLong !== false,
     usageAccountsExpanded: desktop.usageAccountsExpanded === true,
     usageRailSlotsThree: desktop.usageRailSlotsThree === true,
     usageRailSlotsAll: desktop.usageRailSlotsAll === true,
@@ -106,7 +106,7 @@ export const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, b
   runInBackground: true,
   turnNotifications: true,
   usagePinned: true,
-  usageRailShortLong: false,
+  usageRailShortLong: true,
   usageAccountsExpanded: false,
   usageRailSlotsThree: false,
   usageRailSlotsAll: false,

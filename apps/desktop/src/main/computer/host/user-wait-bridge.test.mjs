@@ -67,7 +67,7 @@ test('user wait bypasses execution queues, permits concurrent discovery and rele
   });
   try {
     coordinator.beginCommand({ sessionId: 'a', action: 'type', mode: 'foreground' });
-    coordinator.pauseForUser('user_input_active');
+    coordinator.pauseForUser('user_pause');
     server.startBridge();
     const record = await discovery;
     const send = (command) =>

@@ -3,8 +3,9 @@
  * happened since the request was queued turns a mutation into a pending
  * observation instead of replaying its input. A failure is judged before it
  * is reported: codes that mean the user has the desktop trigger a takeover,
- * a user pause parks the work (keeping only its progress), and anything else
- * gets one recovery capture so the reply carries fresh evidence.
+ * a user pause parks the work (keeping only its progress), the user's own
+ * input refuses just this action, and anything else gets one recovery capture
+ * so the reply carries fresh evidence.
  */
 import { beginComputerOperation } from '../../human-only-approval';
 import { type ComputerUseCoordinator, computerResultLastNumber } from '../session/coordinator';
@@ -19,6 +20,8 @@ import type { ActiveExecution, ExecutionState } from './execution-state';
 import { PausedComputerWork, pendingWorkReply } from './pending-work';
 import type { PointerHold } from './pointer-hold';
 import { isComputerRecoveryRead } from './recovery-reads';
+import { userInputRefusalPayload } from './user-input-refusal';
+import { TAKEOVER_CODES } from '../shared/takeover-codes';
 
 export interface CommandAttemptDeps {
   coordinator: ComputerUseCoordinator;
@@ -32,9 +35,6 @@ export interface CommandAttemptDeps {
   runForegroundExclusive: ForegroundLane['runForegroundExclusive'];
   pointerHold?: Pick<PointerHold, 'claim' | 'arm'>;
 }
-
-/** Failure codes that mean the user, not the agent, has the desktop now. */
-const TAKEOVER_CODES = ['user_input_active', 'input_cleanup_unconfirmed', 'input_observation_unavailable'];
 
 interface Attempt {
   command: ComputerCommand;
@@ -56,6 +56,21 @@ function recoveryFailure(failureCode: string): Error {
 /** Reads and recovery reads observe the desktop; they never replay input. */
 function observesOnly(command: ComputerCommand): boolean {
   return READ_ACTIONS.has(String(command.action)) || isComputerRecoveryRead(String(command.action));
+}
+
+/** The takeover code a returned reply carries, if any. */
+function takeoverCodeIn(result: ComputerCommandResult): { code: string; message: string } | undefined {
+  let reply: unknown;
+  try {
+    reply = JSON.parse(result.text);
+  } catch {
+    return undefined;
+  }
+  if (!reply || typeof reply !== 'object') return undefined;
+  const { code, message } = reply as { code?: unknown; message?: unknown };
+  return typeof code === 'string' && TAKEOVER_CODES.includes(code)
+    ? { code, message: typeof message === 'string' ? message : 'reported by the native result' }
+    : undefined;
 }
 
 export function createCommandAttempt(deps: CommandAttemptDeps) {
@@ -95,6 +110,10 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
         foreground && lastInjectionTick !== null ? { ...command, known_injection_tick: lastInjectionTick } : command
       );
       if (!Array.isArray(command.steps)) state.progress = { completed: 1 };
+      // A takeover code in a returned reply is classified like a thrown one,
+      // unless the reply's own path already took the desktop over.
+      const returned = takeoverCodeIn(result);
+      if (returned && !coordinator.snapshot().userControlActive) throw new Error(`${returned.code}: ${returned.message}`);
       return result;
     });
   }
@@ -141,11 +160,9 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
     const captureAttempts = captureAttemptsFromError(failure);
     const error = state.aborted && state.failureCode ? recoveryFailure(state.failureCode) : failure;
     const code = computerLogError(error);
-    // Actual user input takes control even during a read. A broken or
-    // replaced read observer alone is not evidence of user intervention.
-    if (code === 'user_input_active' || (TAKEOVER_CODES.includes(code) && !observesOnly(command))) {
-      deps.takeOver(code);
-    }
+    // A broken or replaced read observer alone is not evidence that the
+    // user has the desktop.
+    if (TAKEOVER_CODES.includes(code) && !observesOnly(command)) deps.takeOver(code);
     if (pausedForUserInput(coordinator.snapshot()) && !observesOnly(command)) {
       // Throw out of the active lane before waiting: cleanup and resume
       // must be able to drain it. Only progress survives, never stale refs.
@@ -158,6 +175,20 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       ...(captureAttempts.length ? { capture_attempts: captureAttempts } : {}),
     };
     appendComputerRunRecord(state.sessionId, record);
+    if (code === 'user_input_active') {
+      // The user's input refuses this action alone. They own the desktop, so
+      // there is no recovery capture; the session and its queue go on.
+      deps.recordDiagnostic?.(state.sessionId, { ...record, stage: 'execution' });
+      return {
+        text: JSON.stringify(
+          userInputRefusalPayload(
+            String(command.action || ''),
+            command.window_id,
+            !observesOnly(command)
+          )
+        ),
+      };
+    }
     const recapture = await recoveryCapture(attempt, error, record);
     if (recapture) return recapture;
     throw error;

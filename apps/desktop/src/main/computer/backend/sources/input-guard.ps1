@@ -1,9 +1,3 @@
-# The user and the agent share one physical mouse and keyboard. Physical input
-# within this window means the user is working, so foreground actions hold
-# until the user pauses instead of fighting them for the cursor.
-$UserInputIdleMs = 3000
-$UserInputWaitMaxMs = 30000
-
 function Get-PhysicalInputIdleMs {
     $req = $script:CurrentRequest
     $known = 0
@@ -13,31 +7,6 @@ function Get-PhysicalInputIdleMs {
         $hasKnown = $true
     }
     return [MixWin32]::PhysicalInputIdleMs($known, $hasKnown)
-}
-
-# Returns the milliseconds spent waiting, or -1 when the user was still active
-# at the deadline. An input origin that cannot be observed refuses at once:
-# waiting would hold the foreground lane only to report the wrong reason.
-function Wait-UserInputIdle {
-    $started = [Environment]::TickCount
-    $waited = $false
-    while ($true) {
-        $idle = Get-PhysicalInputIdleMs
-        if ($idle -lt 0) { throw 'input_observation_unavailable: input origin cannot be observed' }
-        if ($idle -ge $UserInputIdleMs) {
-            if ($waited) { return [int]([Environment]::TickCount - $started) }
-            return 0
-        }
-        if (([Environment]::TickCount - $started) -ge $UserInputWaitMaxMs) { return -1 }
-        $waited = $true
-        [System.Threading.Thread]::Sleep([math]::Max(100, [math]::Min(500, $UserInputIdleMs - $idle)))
-    }
-}
-
-function New-UserInputActiveResult($action, $windowId) {
-    $seconds = [math]::Round($UserInputWaitMaxMs / 1000)
-    $message = 'the user is actively using the mouse or keyboard; ' + $action + ' waited ' + $seconds + 's and sent no input. Capture fresh state and retry once the user pauses'
-    return New-ActionResult $action 'foreground' 'suspected_noop' $false $message 'user_input_active' 'foreground' $windowId
 }
 
 # Acquiring a theme launches the watchdog that releases whatever this session
@@ -100,8 +69,9 @@ function Release-CursorTheme($state) {
 # Every foreground action passes this before anything moves. An elevated window
 # holding the foreground cannot be displaced by a lower process, so it refuses
 # first: activation would fail, and waiting on input that window hides from the
-# observer could only end in the wrong reason. Then the user gets the idle
-# window, and input during the wait refuses too. Returns the refusal, or $null.
+# observer could only end in the wrong reason. User input is refused by the
+# observation token and by the checks during dispatch, never by waiting here.
+# Returns the refusal, or $null.
 function Get-ForegroundRefusal($action, $targetHandle, $request) {
     $windowId = [MixWin32]::WindowId($targetHandle)
     $holderHandle = [MixWin32]::Foreground()
@@ -112,12 +82,7 @@ function Get-ForegroundRefusal($action, $targetHandle, $request) {
             return New-ActionResult $action 'foreground' 'suspected_noop' $false "the foreground belongs to '$($holderInfo.Title)', which runs at $($holder.TargetName) integrity above this host ($($holder.OwnName)); Windows lets a lower process neither take the foreground from it nor type into it, so no input was sent. Ask the user to switch away from that window." 'foreground_unavailable' 'foreground' $windowId
         }
     }
-    $userWaitMs = Wait-UserInputIdle
-    if ($userWaitMs -lt 0) { return New-UserInputActiveResult $action $windowId }
     Assert-ExecutionAuthorization $request $targetHandle
-    if ($userWaitMs -gt 0) {
-        return New-ActionResult $action 'foreground' 'suspected_noop' $false 'user input occurred after observation; capture fresh state before acting' 'user_input_active' 'foreground' $windowId
-    }
     return $null
 }
 

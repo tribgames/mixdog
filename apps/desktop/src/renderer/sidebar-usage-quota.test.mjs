@@ -16,49 +16,50 @@ const DAY = 86_400_000;
 const dashboard = (windows) => ({ rows: [{ id: 'antigravity-oauth', group: 'oauth', authenticated: true, windows }] });
 
 const pinPercent = (windows) => usagePinEntries(dashboard(windows))[0]?.percent ?? null;
+// The drawn bars in the default long mode: the long window only.
+const pinBars = (windows) =>
+  (usagePinEntries(dashboard(windows), 'long')[0]?.bars ?? []).map((bar) => [bar.label, bar.percent]);
 
-test('Antigravity pins weekly 7D usage like other providers, independent of window order', () => {
+test('Antigravity pins weekly 7D as the bar and the highest window as the figure, independent of order', () => {
   const windows = [
     { label: '5H', usedPct: 90, resetAt: NOW + 4 * HOUR, source: 'antigravity-quota' },
     { label: '7D', usedPct: 20, resetAt: NOW + 3 * DAY, source: 'antigravity-quota' },
   ];
-  assert.equal(pinPercent(windows), 20);
-  assert.equal(pinPercent([...windows].reverse()), 20);
+  for (const ordered of [windows, [...windows].reverse()]) {
+    assert.deepEqual(pinBars(ordered), [['7D', 20]]);
+    assert.equal(pinPercent(ordered), 90);
+  }
 });
 
 test('exhausted weekly usage is pinned; missing weekly data is never invented; known zero stays visible', () => {
-  assert.equal(
-    pinPercent([
-      { label: '5H', usedPct: 4, resetAt: NOW + HOUR },
-      { label: '7D', usedPct: 100, resetAt: NOW + DAY },
-    ]),
-    100
-  );
-  assert.equal(
-    pinPercent([
-      { label: '5H', usedPct: 4 },
-      { label: '7D', usedPct: null },
-    ]),
-    4
-  );
+  const exhausted = [
+    { label: '5H', usedPct: 4, resetAt: NOW + HOUR },
+    { label: '7D', usedPct: 100, resetAt: NOW + DAY },
+  ];
+  assert.deepEqual(pinBars(exhausted), [['7D', 100]]);
+  assert.equal(pinPercent(exhausted), 100);
+  const missing = [
+    { label: '5H', usedPct: 4 },
+    { label: '7D', usedPct: null },
+  ];
+  assert.deepEqual(pinBars(missing), [['5H', 4]]);
+  assert.equal(pinPercent(missing), 4);
   assert.equal(pinPercent([{ label: '5H', usedPct: 4 }]), 4);
-  assert.equal(
-    pinPercent([
-      { label: '5H', usedPct: 40 },
-      { label: '7D', usedPct: 0 },
-    ]),
-    0
-  );
+  const zero = [
+    { label: '5H', usedPct: 40 },
+    { label: '7D', usedPct: 0 },
+  ];
+  assert.deepEqual(pinBars(zero), [['7D', 0]]);
+  assert.equal(pinPercent(zero), 40);
   assert.equal(pinPercent([]), null);
-  assert.equal(
-    pinPercent([
-      { label: 'FLASH', usedPct: 80 },
-      { label: 'PRO', usedPct: 90 },
-      { label: '5H', usedPct: 4 },
-      { label: '7D', usedPct: 12 },
-    ]),
-    12
-  );
+  const many = [
+    { label: 'FLASH', usedPct: 80 },
+    { label: 'PRO', usedPct: 90 },
+    { label: '5H', usedPct: 4 },
+    { label: '7D', usedPct: 12 },
+  ];
+  assert.deepEqual(pinBars(many), [['7D', 12]]);
+  assert.equal(pinPercent(many), 90);
 });
 
 test('Grok usage is not borrowed by Muse Code or MiMo', () => {
@@ -122,10 +123,10 @@ test('other providers retain their existing quota-window selection', () => {
     ],
   });
   assert.deepEqual(
-    entries.map(({ key, percent }) => [key, percent]),
+    entries.map(({ key, percent, bars }) => [key, percent, bars.map((bar) => bar.label)]),
     [
-      ['codex', 20],
-      ['cursor', 10],
+      ['codex', 90, ['7D']],
+      ['cursor', 50, ['Basic']],
     ]
   );
 });
