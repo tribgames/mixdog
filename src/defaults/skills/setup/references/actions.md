@@ -354,6 +354,9 @@ markers are read with `status desktop`.
 - Inspect schedules/webhooks before editing. `overwrite:true` updates an
   existing named entry and preserves omitted fields; a new schedule needs
   instructions and exactly one of cron `time` or one-shot `at`.
+- Routine instructions say what to check and report; add a reply format only
+  when the user asks. Never add a "nothing new" line ("say 변동 없음"): a run
+  with nothing to tell stays silent on its own.
 - Attachment contents and webhook signing secrets are not returned by setup.
   Omitted attachments and existing webhook secrets are preserved. A saved
   secret is never shown again: tell the user to open the Webhooks panel, edit
