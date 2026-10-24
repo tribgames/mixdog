@@ -43,6 +43,10 @@
 /* ── Transcript: KakaoTalk-style runs ── */
 .conversation[data-chat-mode="agent"] {
   --mx-chat-face: 36px;
+  /* The face slot starts 4px in from the composer bar's edge (the mascot's own
+     transparent cells add the rest); the coding transcript's 16px text inset
+     left a wide empty gutter beside the faces. */
+  --transcript-text-inset: 4px;
   /* The bubble column's left edge; the decision cards (15-composer.css) and
      compact rows line up on it. */
   --mx-agent-bubble-inset: calc(var(--mx-chat-face) + 10px);
