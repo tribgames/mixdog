@@ -280,6 +280,15 @@ test('create with effort stores it on the new session as the menu does', async (
   assert.equal(createdOf(h)[2].effort, undefined);
 });
 
+test('without an injected catalog, a display name resolves through the session service menu rows', async () => {
+  const h = fakeService();
+  h.service.readSession = async ({ action }) => (action === 'listProviderModels' ? { value: CATALOG } : null);
+  const { api } = tasks(h, { modelRoute: undefined, modelCatalog: undefined });
+  await api.create({ brief: 'a', model: 'Claude Opus 5.5' }, CALLER);
+  const [created] = createdOf(h);
+  assert.deepEqual([created.provider, created.model], ['anthropic', 'claude-opus-5-5']);
+});
+
 test('create resolves a model display name, case-insensitively, with an optional trailing effort word', async () => {
   const h = fakeService();
   const { api } = withCatalog(h);

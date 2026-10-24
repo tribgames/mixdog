@@ -868,7 +868,7 @@ export function createAgentTaskSessions({
     (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).worktree?.newTaskDefault,
   modelRoute = configModelRoute,
   // The model menu's catalog rows, read through the calling session's runtime.
-  modelCatalog = (sessionId) => readModelCatalog(service(), sessionId),
+  modelCatalog = (sessionId) => readModelCatalog(getSessionService(), sessionId),
   // The Lead (Main) route of the config — what a desktop New task starts on.
   leadRoute = configLeadRoute,
   // The model the user last used in a coding session.
