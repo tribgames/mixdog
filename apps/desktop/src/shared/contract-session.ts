@@ -522,6 +522,9 @@ export interface DesktopSubmitOptions {
    *  (bot-hops.mjs), from the send or relay it answers. Request validation
    *  rejects it from a caller. */
   hop?: number;
+  /** Host-only: the newest user row of the room log a group-room member turn's
+   *  prompt shows. Request validation rejects it from a caller. */
+  roomRow?: string;
 }
 
 export interface DesktopAbortOptions {

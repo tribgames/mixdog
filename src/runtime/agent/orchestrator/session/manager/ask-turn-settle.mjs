@@ -224,7 +224,8 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
   // Tag empty-synthesis BEFORE markSessionDone so the watchdog
   // (which inspects entry.emptyFinal first) classifies the
   // terminal state correctly even if it ticks during unwind.
-  const isEmptyFinal = !terminalResultPreview.content && !terminalResultPreview.reasoningContent;
+  const isEmptyFinal =
+    !terminalResultPreview.content && !terminalResultPreview.reasoningContent && !terminalResultPreview.reactionCompleted;
   if (isEmptyFinal) {
     markSessionEmptyFinal(sessionId);
   }

@@ -78,11 +78,12 @@ export function createInternalToolExecutor({
         'memory tools are disabled in settings; background memory and manual core memory remain available'
       );
     }
-    if (name === 'react' && rt.config?.reactions === false) throw new Error('reactions are turned off in settings');
   };
 
   return async (name, args, callerCtx = {}) => {
     const callerCwd = clean(callerCtx?.callerCwd) || rt.currentCwd;
+    // The Reactions setting gates the tool whoever calls it, not only the model.
+    if (name === 'react' && rt.config?.reactions === false) throw new Error('reactions are turned off in settings');
     if (callerCtx?.invocationSource === 'model-tool') guardModelCall(name);
     if (Object.hasOwn(handlers, name)) return handlers[name](args, { name, callerCtx, callerCwd });
     if (channels.isChannelTool(name)) {

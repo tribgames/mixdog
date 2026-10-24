@@ -98,7 +98,7 @@ export interface RoomTurnHost {
   submit(
     sessionId: string,
     prompt: ReturnType<typeof roomTurnPrompt>,
-    options?: { id?: string; hop?: number }
+    options?: { id?: string; hop?: number; roomRow?: string }
   ): Promise<boolean>;
   readSnapshot(sessionId: string): Promise<SessionSnapshot>;
   abort(sessionId: string): Promise<void>;
@@ -338,7 +338,14 @@ async function memberTurn(
     startedAt = now();
     // From here the submission id counts as used, even when the call throws.
     outcome.submitted = true;
-    const options = { ...(call?.id ? { id: call.id } : {}), ...(call?.hop ? { hop: call.hop } : {}) };
+    // The newest user row this prompt shows: what a reaction must hit to
+    // count as this turn's answer (message-reactions.mjs).
+    const shownUser = [...shown].reverse().find((row) => row.kind === 'user');
+    const options = {
+      ...(call?.id ? { id: call.id } : {}),
+      ...(call?.hop ? { hop: call.hop } : {}),
+      ...(shownUser?.id ? { roomRow: shownUser.id } : {}),
+    };
     if (!(await host.submit(sessionId, prompt, options))) throw new Error('the turn was not accepted');
     // The member's session now holds every row up to the newest: a cut
     // short restores the cursor, never this.

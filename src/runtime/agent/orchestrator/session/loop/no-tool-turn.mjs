@@ -18,7 +18,9 @@ import { resetOutputLimitRecovery, resolveOutputLimit } from './no-tool-turn/out
 import { resolveRefusal } from './no-tool-turn/refusal.mjs';
 import { resumeContinuation } from './no-tool-turn/continuation.mjs';
 import { nudgeEmptyTurn } from './no-tool-turn/empty-nudge.mjs';
-import { isReactionSuccess, reactionCallIds } from '../../runtime-core/reaction-tool-defs.mjs';
+import { isReactionSuccess, reactionCallIds, takeReactionTarget } from '../../runtime-core/reaction-tool-defs.mjs';
+import { messageIdOf } from '../message-ids.mjs';
+import { isReactableMessage } from '../message-reactions.mjs';
 
 // `escalateMaxTokens()` asks the live provider for a higher one-shot max_tokens
 // (number) or reports none (null/undefined) — the loop stays provider-agnostic.
@@ -38,8 +40,9 @@ export function createNoToolTurnResolver({
     outputEscalationUsed: false,
     refusalRetryUsed: false,
     emptyNudgeStreak: 0,
-    // This turn left a reaction on the user's message (react tool).
-    reacted: false,
+    // Successful reactions (react tool): the input each was left against and
+    // whether it answered that input.
+    reactions: [],
     // Structured provider continuation signals honored this turn. Diagnostic
     // only: the loop has no iteration cap, so this count bounds nothing. A
     // text-only continuation runaway is bounded by continuationsSinceToolBatch
@@ -48,6 +51,39 @@ export function createNoToolTurnResolver({
     // Continuations since the last executed tool batch — bounds the text-only
     // continuation runaway (see PROVIDER_CONTINUATION_NO_TOOL_LIMIT).
     continuationsSinceToolBatch: 0,
+  };
+  // The stable id (message-ids.mjs, kept across compaction) of the newest
+  // real user input; runtime reminders and notices are not reactable.
+  // A group-room member turn's prompt is a runtime message (not reactable)
+  // that carries the newest room-log user row it shows (`roomRow`).
+  const roomRowOf = (message) => message?.meta?.transcript?.roomRow || '';
+  const latestInput = () => messages.findLast((message) => isReactableMessage(message) || roomRowOf(message));
+  const latestInputId = () => messageIdOf(latestInput());
+  // A reaction exempts the input only while no newer input arrived since it
+  // landed (same latest input id) and it answered that input.
+  const reactionAnswersLatest = () => {
+    const id = latestInputId();
+    return state.reactions.some((reaction) => reaction.answered && reaction.inputId === id);
+  };
+  // What this batch's react calls hit, from the id the react tool recorded
+  // for each (never rebuilt from this transcript: a room reaction runs
+  // against the room's own log). Every record is consumed; a success that
+  // recorded none exempts nothing. A home-chat reaction answers the input
+  // only when it hit that very message; a room reaction, whose message is in
+  // another log, only when it hit the row this turn's prompt showed.
+  const batchReactions = (calls, results) => {
+    const input = latestInput();
+    const inputId = messageIdOf(input);
+    const hit = [];
+    for (const id of reactionCallIds(calls)) {
+      const target = takeReactionTarget(sessionId, id);
+      if (!target || !results.some((message) => isReactionSuccess(message, new Set([id])))) continue;
+      const answered = target.room
+        ? roomRowOf(input) === target.messageId
+        : inputId !== '' && target.messageId === inputId;
+      hit.push({ inputId, answered });
+    }
+    return hit;
   };
   const trace = (iteration, kind, payload) => {
     try {
@@ -106,7 +142,7 @@ export function createNoToolTurnResolver({
       // model in a tool-call-blocked vs contract-required oscillation.
       // A turn that left a reaction on the user's message may end with no
       // text: the reaction is its answer (react tool), never an empty turn.
-      if (!hasContent && !HIDDEN_AGENT_NAMES.has(sessionAgent) && !state.reacted) {
+      if (!hasContent && !HIDDEN_AGENT_NAMES.has(sessionAgent) && !reactionAnswersLatest()) {
         return nudgeEmptyTurn(
           response,
           { stopReason, isIncompleteStop: stopReason && INCOMPLETE_STOP_REASONS.has(stopReason) },
@@ -142,8 +178,11 @@ export function createNoToolTurnResolver({
     noteToolBatchCompleted(calls = [], results = []) {
       state.continuationsSinceToolBatch = 0;
       segments.clear();
-      const ids = reactionCallIds(calls);
-      if (ids.size && results.some((message) => isReactionSuccess(message, ids))) state.reacted = true;
+      state.reactions.push(...batchReactions(calls, results));
+    },
+    // The loop ended on a reaction that answered the latest user input.
+    get reactionCompleted() {
+      return reactionAnswersLatest();
     },
     get providerContinuations() {
       return state.providerContinuationCount;

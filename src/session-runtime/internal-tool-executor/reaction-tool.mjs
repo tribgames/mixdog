@@ -4,7 +4,7 @@
 // the message is the user's row in the room's log. Never a coding session, a
 // delegated worker, or a run nobody attends.
 import { isAgentOwner } from '../../runtime/agent/orchestrator/agent-owner.mjs';
-import { validateReactionArgs } from '../../runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
+import { noteReactionTarget, validateReactionArgs } from '../../runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomMemberOfSession, roomSessionId } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
 import { reactInSession } from '../../runtime/agent/orchestrator/session/message-reactions.mjs';
@@ -38,6 +38,7 @@ export function createReactionToolHandlers({ rt, live = agentHomeLiveSurface, ro
         if (result.changed) live()?.react?.(sessionId, result.messageId, result.reactions);
       }
       if (!emoji) return result.changed ? 'Removed your reaction.' : 'You had no reaction on that message.';
+      noteReactionTarget(sessionId, callerCtx?.toolCallId, { messageId: result.messageId, room: Boolean(member) });
       return `Reacted ${emoji}. ${DONE}`;
     },
   };

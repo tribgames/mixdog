@@ -63,7 +63,7 @@ export function validateReactionArgs(args) {
 }
 
 /** Whether a provider tool call (direct, or bridged through call_tool) is a react call. */
-export function isReactionToolCall(call) {
+function isReactionToolCall(call) {
   const name = call?.name ?? call?.function?.name;
   if (name === REACTION_TOOL_NAME) return true;
   return name === 'call_tool' && call?.arguments?.name === REACTION_TOOL_NAME;
@@ -71,7 +71,53 @@ export function isReactionToolCall(call) {
 
 /** The ids of a batch's react calls. */
 export function reactionCallIds(calls) {
-  return new Set((calls || []).filter(isReactionToolCall).map((call) => call?.id).filter(Boolean));
+  return new Set(
+    (calls || [])
+      .filter(isReactionToolCall)
+      .map((call) => call?.id)
+      .filter(Boolean)
+  );
+}
+
+// What each successful react call actually hit, keyed by session and tool
+// call id: the tool result reaches the loop as plain text (internal-tools.mjs
+// normalizes every handler return to a string), so this is the result's
+// metadata side channel. `{ messageId, room }`: the id of the message
+// reactToMessage reacted on, and whether that log is a group room's (a
+// separate transcript from the worker's own).
+//
+// A record belongs to the loop of its session: the batch that ran the call
+// consumes it (takeReactionTarget), agentLoop clears the session's leftovers
+// whenever it ends, success or not (clearReactionTargets), and the cap bounds
+// the map even if neither ever ran.
+const REACTION_TARGET_CAP = 256;
+const reactionTargets = new Map();
+const targetKey = (sessionId, toolCallId) => `${sessionId}\u0000${toolCallId}`;
+
+/** Records the message a successful react call landed on. */
+export function noteReactionTarget(sessionId, toolCallId, target) {
+  if (!sessionId || !toolCallId || !target?.messageId) return;
+  reactionTargets.set(targetKey(sessionId, toolCallId), target);
+  if (reactionTargets.size > REACTION_TARGET_CAP) reactionTargets.delete(reactionTargets.keys().next().value);
+}
+
+/** Drops every record of `sessionId`: its loop has ended. */
+export function clearReactionTargets(sessionId) {
+  const prefix = `${sessionId}\u0000`;
+  for (const key of reactionTargets.keys()) if (key.startsWith(prefix)) reactionTargets.delete(key);
+}
+
+/** How many records are held (tests). */
+export function reactionTargetCount() {
+  return reactionTargets.size;
+}
+
+/** The recorded target of a react call, consumed; null when it recorded none. */
+export function takeReactionTarget(sessionId, toolCallId) {
+  const key = targetKey(sessionId, toolCallId);
+  const target = reactionTargets.get(key) ?? null;
+  reactionTargets.delete(key);
+  return target;
 }
 
 /** Whether a tool result reports one of `ids` (reactionCallIds) as executed

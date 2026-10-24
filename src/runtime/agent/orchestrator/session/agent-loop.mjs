@@ -10,6 +10,7 @@ import {
 import { repairTranscriptBeforeProviderSend } from './loop/transcript-repair.mjs';
 import { resetAccountProbePacing } from '../providers/account-pool.mjs';
 import { createLoopState, finishLoop } from './loop/loop-state.mjs';
+import { clearReactionTargets } from '../runtime-core/reaction-tool-defs.mjs';
 import { applyRetryAction, beginIteration, sendProviderRequest, settleSendResult } from './loop/send-phase.mjs';
 import { runToolPhase } from './loop/tool-phase.mjs';
 import { endedWithoutReply } from './loop/turn-limits.mjs';
@@ -45,6 +46,16 @@ export {
  * ./loop/tool-phase.mjs.
  */
 export async function agentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts) {
+  try {
+    return await runAgentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts);
+  } finally {
+    // A react call's recorded target belongs to this loop: whatever the batch
+    // did not consume (cancelled or failed turn) ends with it.
+    if (sendOpts?.sessionId) clearReactionTargets(sendOpts.sessionId);
+  }
+}
+
+async function runAgentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts) {
   // An explicit request asks for a current answer. Let the account pool
   // re-measure quota it recorded as exhausted instead of refusing from the old
   // reading — once per loop entry, not per provider round inside the turn.

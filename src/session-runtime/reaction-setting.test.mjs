@@ -132,6 +132,15 @@ test("while the setting is off a bot's react call is refused before it runs; rea
     /reactions are turned off in settings/
   );
   assert.equal(rt.session.messages[0], message, 'nothing changed');
+  // The gate holds for any invocation source, including an omitted one.
+  for (const callerCtx of [{}, { invocationSource: 'cli' }, { invocationSource: 'internal' }]) {
+    await assert.rejects(
+      execute('react', { emoji: '❤️' }, { ...callerCtx, callerSessionId: 'sess_home_reviewer' }),
+      /reactions are turned off in settings/,
+      JSON.stringify(callerCtx)
+    );
+  }
+  assert.equal(rt.session.messages[0], message, 'still nothing changed');
   rt.config.reactions = true;
   assert.match(
     await execute('react', { emoji: '❤️' }, { invocationSource: 'model-tool', callerSessionId: 'sess_home_reviewer' }),

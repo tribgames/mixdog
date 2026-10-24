@@ -131,6 +131,7 @@ function harness({
         prompt,
         ...(options.id ? { id: options.id } : {}),
         ...(options.hop ? { hop: options.hop } : {}),
+        ...(options.roomRow ? { roomRow: options.roomRow } : {}),
       });
       const text = await script(agentId, prompt);
       answers.set(id, { text, at: clock + 1 });
@@ -367,6 +368,17 @@ test('the supervisor picks every speaker; its step cap (rounds × members) ends 
   );
   assert.equal(h.decisions.length, 6);
   assert.deepEqual(h.log.at(-1), { ...h.log.at(-1), kind: 'cap', limit: 'rounds', rounds: 2 });
+});
+
+test("every member turn carries the newest user row its prompt shows, for a reaction to be judged against", async () => {
+  const h = harness({ decide: () => ({ action: 'unmanaged' }) });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, '얘들아');
+  await h.idle(roomId);
+  const userRow = h.log.find((row) => row.kind === 'user');
+  assert.ok(userRow?.id);
+  assert.ok(h.prompts.length > 0);
+  for (const prompt of h.prompts) assert.equal(prompt.roomRow, userRow.id, prompt.agentId);
 });
 
 test('with no Maintainer model every member answers a whole-room call once, in order; no follow-ups', async () => {

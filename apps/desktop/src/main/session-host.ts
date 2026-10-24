@@ -303,6 +303,7 @@ export class SessionHost implements DesktopService {
         this.lifecycle.submitToSession(sessionId, prompt as DesktopPromptContent, {
           ...(options?.id ? { id: options.id } : {}),
           ...(options?.hop ? { hop: options.hop } : {}),
+          ...(options?.roomRow ? { roomRow: options.roomRow } : {}),
         }),
       readSnapshot: (sessionId) => this.readSession(sessionId, false, false),
       decideTurn: async (input) =>

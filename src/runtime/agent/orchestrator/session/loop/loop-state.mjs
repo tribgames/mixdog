@@ -150,6 +150,9 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
  *  promote an empty/abnormal finish to an explicit Lead-facing error). */
 export function finishLoop(state) {
   const { response } = state;
+  // A reaction-only turn is a successful completion, never an empty finish.
+  const terminationReason = classifyTerminationReason(response, { sessionAgent: state.sessionAgent });
+  const reactionCompleted = terminationReason === 'empty' && state.noToolTurn.reactionCompleted;
   return {
     ...response,
     usage: state.lastUsage || response.usage,
@@ -160,7 +163,8 @@ export function finishLoop(state) {
     toolCallsTotal: state.toolCallsTotal,
     providerState: state.providerState,
     providerStateUpdated: state.providerStateUpdated,
-    terminationReason: classifyTerminationReason(response, { sessionAgent: state.sessionAgent }),
+    terminationReason: reactionCompleted ? undefined : terminationReason,
+    ...(reactionCompleted ? { reactionCompleted: true } : {}),
     providerContinuations: state.noToolTurn.providerContinuations,
     ...(state.routeUsageHops?.length
       ? {

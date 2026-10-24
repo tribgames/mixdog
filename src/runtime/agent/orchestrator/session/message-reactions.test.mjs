@@ -13,6 +13,10 @@ import {
   REACTION_EMOJI,
   REACTION_TOOL_DEFS,
   isReactionSuccess,
+  clearReactionTargets,
+  noteReactionTarget,
+  reactionTargetCount,
+  takeReactionTarget,
   reactionCallIds,
   reactionEmoji,
   validateReactionArgs,
@@ -20,6 +24,7 @@ import {
 import { featureDisallowedToolsFor } from '../runtime-core/builtin-features.mjs';
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from '../runtime-core/tool-catalog-data.mjs';
 import { setInternalToolsProvider } from '../internal-tools.mjs';
+import { agentLoop } from './agent-loop.mjs';
 import { createNoToolTurnResolver } from './loop/no-tool-turn.mjs';
 import { runReactionTurn } from './message-reactions.test-support.mjs';
 import { reactInSession, reactToMessage } from './message-reactions.mjs';
@@ -238,6 +243,144 @@ test('an empty reply after a reaction that landed ends the turn; without one it 
   );
   assert.equal(done.sends, 2, 'no nudge round after the reaction');
   assert.equal(done.result.content, '');
+});
+
+test('steering after a reaction invalidates the exemption: an empty reply to the new input is recovered', async () => {
+  const messages = [userMessage('m1', 'thanks')];
+  const resolver = createNoToolTurnResolver({
+    messages,
+    opts: {},
+    sessionId: 's',
+    sessionAgent: 'lead',
+    drainSteering: () => false,
+  });
+  const call = { id: 'c', name: 'react', arguments: { emoji: '👍' } };
+  noteReactionTarget('s', 'c', { messageId: 'm1', room: false });
+  resolver.noteToolBatchCompleted([call], [{ role: 'tool', toolCallId: 'c', toolKind: 'normal', content: 'Reacted' }]);
+  assert.equal(resolver.reactionCompleted, true);
+  assert.equal((await resolver.resolve({ content: '' }, 1)).action, 'break', 'the reaction answered m1');
+  messages.push(userMessage('m2', 'one more thing'));
+  assert.equal(resolver.reactionCompleted, false);
+  assert.equal((await resolver.resolve({ content: '' }, 2)).action, 'continue', 'm2 is nudged');
+});
+
+test('a reaction to an older message does not exempt an unanswered newer request', async () => {
+  const messages = [userMessage('m1', 'thanks'), reply('np'), userMessage('m2', 'please also do X')];
+  const resolver = createNoToolTurnResolver({
+    messages,
+    opts: {},
+    sessionId: 's',
+    sessionAgent: 'lead',
+    drainSteering: () => false,
+  });
+  const call = { id: 'c', name: 'react', arguments: { emoji: '👍', messages_back: 1 } };
+  noteReactionTarget('s', 'c', { messageId: 'm1', room: false });
+  resolver.noteToolBatchCompleted([call], [{ role: 'tool', toolCallId: 'c', toolKind: 'normal', content: 'Reacted' }]);
+  assert.equal(resolver.reactionCompleted, false);
+  assert.equal((await resolver.resolve({ content: '' }, 1)).action, 'continue', 'm2 still needs an answer');
+});
+
+test('the exemption follows the id the react tool recorded, never a rebuilt target', async () => {
+  const run = async (target, id = 'c', shown = null) => {
+    // A room member's prompt is a runtime message naming the newest room row it showed.
+    const messages = [
+      shown
+        ? { role: 'user', content: '[mixdog-runtime] Group room', meta: { transcript: { messageId: 'w1', roomRow: shown } } }
+        : userMessage('w1', 'turn prompt'),
+    ];
+    const resolver = createNoToolTurnResolver({
+      messages,
+      opts: {},
+      sessionId: 's',
+      sessionAgent: 'lead',
+      drainSteering: () => false,
+    });
+    if (target) noteReactionTarget('s', 'c', target);
+    const call = { id, name: 'react', arguments: { emoji: '👍' } };
+    resolver.noteToolBatchCompleted([call], [{ role: 'tool', toolCallId: id, toolKind: 'normal', content: 'Reacted' }]);
+    return (await resolver.resolve({ content: '' }, 1)).action;
+  };
+  assert.equal(await run(null), 'continue', 'a success that recorded no target exempts nothing');
+  assert.equal(await run({ messageId: 'other', room: false }), 'continue', 'a different message');
+  assert.equal(await run({ messageId: 'w1', room: false }), 'break', 'the input itself');
+  // A room reaction runs on the room log: its ids are not the worker's. It
+  // counts only on the row this turn's prompt showed.
+  assert.equal(await run({ messageId: 'row_5', room: true }, 'c', 'row_5'), 'break', 'the row the prompt showed');
+  assert.equal(await run({ messageId: 'row_9', room: true }, 'c', 'row_5'), 'continue', 'a newer row the worker never saw');
+  assert.equal(await run({ messageId: 'row_3', room: true }, 'c', 'row_5'), 'continue', 'an older room row');
+  assert.equal(await run({ messageId: 'row_5', room: true }), 'continue', 'a turn that showed no row');
+  noteReactionTarget('s', 'stale', { messageId: 'w1', room: false });
+  assert.equal(takeReactionTarget('s', 'stale').messageId, 'w1');
+  assert.equal(takeReactionTarget('s', 'stale'), null, 'consumed once');
+});
+
+test('a react record is turn-owned: a cancelled or failed turn leaves none, and the map is capped', async () => {
+  const before = reactionTargetCount();
+  noteReactionTarget('cancelled-session', 'tc', { messageId: 'm1', room: false });
+  noteReactionTarget('other-session', 'tc', { messageId: 'm1', room: false });
+  assert.equal(reactionTargetCount(), before + 2);
+  const controller = new AbortController();
+  controller.abort();
+  const provider = { async send() { return { content: 'never', toolCalls: [] }; } };
+  await assert.rejects(
+    agentLoop(provider, [userMessage('m1')], 'fake-model', [], null, process.cwd(), {
+      sessionId: 'cancelled-session',
+      signal: controller.signal,
+    })
+  );
+  assert.equal(takeReactionTarget('cancelled-session', 'tc'), null, 'the cancelled turn left no record');
+  assert.deepEqual(takeReactionTarget('other-session', 'tc'), { messageId: 'm1', room: false }, 'another session is untouched');
+  for (let i = 0; i < 1000; i += 1) noteReactionTarget('flood', `tc${i}`, { messageId: 'm', room: false });
+  assert.ok(reactionTargetCount() <= 256, String(reactionTargetCount()));
+  clearReactionTargets('flood');
+});
+
+test('the react tool records the message it reacted on: the room log’s, not the worker transcript’s', async () => {
+  const worker = { id: 'sess_rmem_abc123_bench', messages: [userMessage('w1', 'prompt')] };
+  const roomLog = [userMessage('row_old', 'earlier'), userMessage('row_new', 'newer, unseen by the worker')];
+  const handlers = createReactionToolHandlers({
+    rt: { session: worker },
+    live: () => null,
+    roomReact: async (_id, change) => reactToMessage(roomLog, change),
+  });
+  await handlers.react({ emoji: '👍' }, { callerCtx: { toolCallId: 'tc1' } });
+  assert.deepEqual(takeReactionTarget(worker.id, 'tc1'), { messageId: 'row_new', room: true });
+  await handlers.react({ emoji: '👍', messages_back: 1 }, { callerCtx: { toolCallId: 'tc2' } });
+  assert.deepEqual(takeReactionTarget(worker.id, 'tc2'), { messageId: 'row_old', room: true });
+  await handlers.react({ remove: true }, { callerCtx: { toolCallId: 'tc3' } });
+  assert.equal(takeReactionTarget(worker.id, 'tc3'), null, 'a removal records no target');
+
+  const home = { id: 'sess_home_reviewer', messages: [userMessage('h1', 'hi'), reply('hey'), userMessage('h2', 'yo')] };
+  await createReactionToolHandlers({ rt: { session: home }, live: () => null }).react(
+    { emoji: '🙏', messages_back: 1 },
+    { callerCtx: { toolCallId: 'tc4' } }
+  );
+  assert.deepEqual(takeReactionTarget(home.id, 'tc4'), { messageId: 'h1', room: false });
+});
+
+test('compaction and synthetic reminders between the reaction and the finish keep the completion', async () => {
+  const messages = [reply('earlier'), userMessage('m1', 'old'), reply('ok'), userMessage('m2', 'thanks')];
+  const resolver = createNoToolTurnResolver({
+    messages,
+    opts: {},
+    sessionId: 's',
+    sessionAgent: 'lead',
+    drainSteering: () => false,
+  });
+  const call = { id: 'c', name: 'call_tool', arguments: { name: 'react', arguments: { emoji: '👍' } } };
+  noteReactionTarget('s', 'c', { messageId: 'm2', room: false });
+  resolver.noteToolBatchCompleted([call], [{ role: 'tool', toolCallId: 'c', toolKind: 'normal', content: 'Reacted' }]);
+  messages.splice(0, 3); // compaction drops the older turns
+  messages.push({ role: 'user', content: '[mixdog-runtime] reminder', meta: { source: 'reminder' } });
+  messages.push({ role: 'user', content: 'tool-injected', meta: 'hook' });
+  assert.equal(resolver.reactionCompleted, true);
+  assert.equal((await resolver.resolve({ content: '' }, 1)).action, 'break');
+});
+
+test('a reaction-only turn reports an explicit reaction completion, not an empty termination', async () => {
+  const quiet = await runReactionTurn({ emoji: '👍' });
+  assert.equal(quiet.result.reactionCompleted, true);
+  assert.equal(quiet.result.terminationReason, undefined);
 });
 
 test('reacting mid-turn leaves the provider prefix unchanged: the reply and the next turn go through', async () => {
