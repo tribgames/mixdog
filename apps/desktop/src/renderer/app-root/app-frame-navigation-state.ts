@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import type { NavigationSelection } from '../navigation';
+import type { NavigationSelection, WorkspaceSelection } from '../navigation';
 import { navigationKey } from '../text-format';
 import type { ConversationHandoff } from '../use-pane-tab-close';
 
@@ -17,6 +17,9 @@ export function useAppFrameNavigationState(startupNavigationSelection: Navigatio
   const pendingConversationHandoff = useRef<ConversationHandoff | null>(null);
   const [conversationHandoff, setConversationHandoff] = useState<ConversationHandoff | null>(null);
   const openSessionRef = useRef<(sessionId: string, force?: boolean) => Promise<void>>(async () => {});
+  // The pane chrome's activatePaneSurface (an existing tab became the focused
+  // one: the selection follows it), for entry points wired before the chrome.
+  const activatePaneSurfaceRef = useRef<(selection: WorkspaceSelection) => void>(() => {});
   // Monotonic navigation stamp: an async switch completion may only activate
   // its target while no NEWER navigation happened in flight (user: + during a
   // settling session switch resurrected the old transcript in the new draft).
@@ -50,6 +53,7 @@ export function useAppFrameNavigationState(startupNavigationSelection: Navigatio
     conversationHandoff,
     setConversationHandoff,
     openSessionRef,
+    activatePaneSurfaceRef,
     navigationEpoch,
     viewedSessionRef,
     unreadViewedSessionRef,

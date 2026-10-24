@@ -6,6 +6,9 @@ import { NOTIFICATION_JUMP_LATEST_EVENT, usePushNotificationNavigation } from '.
 import { activateTabInPaneLeaf, findPaneLeaf, paneLeaves } from './pane-layout.ts';
 import { remotePairingKeys } from './remote-pairing-recovery.ts';
 import { installTestDom } from './test-support/test-dom.mjs';
+import { useAppFrameEntryIntake } from './app-root/app-frame-entry-intake.ts';
+import { useAppFrameNavigationState } from './app-root/app-frame-navigation-state.ts';
+import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 
 const session = (id) => ({ kind: 'session', id });
 const layout = () => ({
@@ -26,9 +29,14 @@ test('a desktop notification selects the existing tab in its own pane without ad
     },
   };
   const beforeTabs = paneLeaves(workspace.layout).flatMap((leaf) => leaf.tabs);
-  assert.equal(focusOpenNotificationSession(workspace, 'b'), true);
+  const surfaced = [];
+  assert.equal(
+    focusOpenNotificationSession(workspace, 'b', (selection) => surfaced.push(selection)),
+    true
+  );
   assert.equal(workspace.focusedLeafId, 'right');
   assert.equal(findPaneLeaf(workspace.layout, 'right').activeKey, 'session:b');
+  assert.deepEqual(surfaced, [session('b')]);
   assert.deepEqual(
     paneLeaves(workspace.layout).flatMap((leaf) => leaf.tabs),
     beforeTabs
@@ -43,8 +51,81 @@ test('a closed session leaves both the selected pane and its tabs untouched', ()
       assert.fail('A closed session must not select or create a tab');
     },
   };
-  assert.equal(focusOpenNotificationSession(workspace, 'closed'), false);
+  assert.equal(
+    focusOpenNotificationSession(workspace, 'closed', () => assert.fail('A closed session must not be selected')),
+    false
+  );
   assert.equal(workspace.layout, original);
+});
+
+test('a desktop notification click moves the sidebar selection to the revealed session or bot chat', async (t) => {
+  const { window, root } = installTestDom(t, { expose: ['navigator'], rootId: 'root' });
+  Object.defineProperty(window.navigator, 'serviceWorker', { configurable: true, value: new window.EventTarget() });
+  let click;
+  window.mixdogDesktop = {
+    onNotificationOpenSession(listener) {
+      click = listener;
+      return () => {
+        click = undefined;
+      };
+    },
+  };
+  const bot = agentHomeSessionId('helper');
+  const workspace = {
+    layout: {
+      type: 'split',
+      direction: 'row',
+      ratio: 0.5,
+      first: { type: 'leaf', id: 'left', tabs: [session('a'), session('b')], activeKey: 'session:a' },
+      second: { type: 'leaf', id: 'right', tabs: [session(bot)], activeKey: `session:${bot}` },
+    },
+    restorePending: false,
+    activateTab(leafId, key) {
+      this.layout = activateTabInPaneLeaf(this.layout, leafId, key);
+    },
+  };
+  const opened = [];
+  let nav;
+  function Probe() {
+    nav = useAppFrameNavigationState(session('a'));
+    nav.openSessionRef.current = async (id) => {
+      opened.push(id);
+    };
+    // What the pane chrome's activatePaneSurface does with a session tab.
+    nav.activatePaneSurfaceRef.current = (selection) => nav.setSelection(selection);
+    useAppFrameEntryIntake({
+      sessionCatalogReady: true,
+      openSessionRef: nav.openSessionRef,
+      activatePaneSurfaceRef: nav.activatePaneSurfaceRef,
+      navigationEpoch: nav.navigationEpoch,
+      setRequestedSessionId: nav.setRequestedSessionId,
+      paneWorkspace: workspace,
+    });
+    return null;
+  }
+  await act(async () => root.render(React.createElement(Probe)));
+  assert.equal(nav.sidebarSelection.id, 'a');
+
+  // A cold open of 'cold' is still loading (its requested id leads the
+  // sidebar) when the click arrives: the reveal supersedes it, row and stamp.
+  await act(async () => nav.setRequestedSessionId('cold'));
+  assert.equal(nav.sidebarSelection.id, 'cold');
+  const epoch = nav.navigationEpoch.current;
+
+  // A session in the same pane: the row the sidebar highlights follows the tab.
+  await act(async () => click('b'));
+  assert.equal(findPaneLeaf(workspace.layout, 'left').activeKey, 'session:b');
+  assert.deepEqual(nav.sidebarSelection, session('b'));
+  assert.ok(nav.navigationEpoch.current > epoch, 'the loading open can no longer settle over the reveal');
+
+  // A bot chat in the other pane: its bot row is the selected one.
+  await act(async () => click(bot));
+  assert.deepEqual(nav.sidebarSelection, session(bot));
+
+  // A closed conversation selects nothing and opens nothing.
+  await act(async () => click('closed'));
+  assert.deepEqual(nav.sidebarSelection, session(bot));
+  assert.deepEqual(opened, []);
 });
 
 async function harness(t, { url, ...initial } = {}) {
@@ -76,7 +157,8 @@ async function harness(t, { url, ...initial } = {}) {
           layout: currentLayout,
           activateTab: (leafId, key) => selected.push([leafId, key]),
         },
-        id
+        id,
+        () => {}
       ),
     ...initial,
   };

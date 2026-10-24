@@ -40,6 +40,7 @@ export function useAppNavigationShell(shell: AppWorkspaceShell) {
     conversationHandoff,
     setConversationHandoff,
     openSessionRef,
+    activatePaneSurfaceRef,
     navigationEpoch,
     viewedSessionRef,
     unreadViewedSessionRef,
@@ -78,7 +79,14 @@ export function useAppNavigationShell(shell: AppWorkspaceShell) {
   const [startupSettled, setStartupSettled] = useState(() =>
     Boolean((window as typeof window & { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled)
   );
-  useAppFrameEntryIntake({ sessionCatalogReady, openSessionRef, paneWorkspace });
+  useAppFrameEntryIntake({
+    sessionCatalogReady,
+    openSessionRef,
+    activatePaneSurfaceRef,
+    navigationEpoch,
+    setRequestedSessionId,
+    paneWorkspace,
+  });
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   usePaneTypingFocus(paneWorkspace.focusedLeafId, focusedPaneSelection?.kind);
   useAppFrameBootEffects(startupSettled, trackSidebarPanelModule);
@@ -109,6 +117,7 @@ export function useAppNavigationShell(shell: AppWorkspaceShell) {
     conversationHandoff,
     setConversationHandoff,
     openSessionRef,
+    activatePaneSurfaceRef,
     navigationEpoch,
     viewedSessionRef,
     unreadViewedSessionRef,

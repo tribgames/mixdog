@@ -87,6 +87,8 @@ export function useAppWorkbenchHubs(
       }),
     lastSessionStorageKey: LAST_SESSION_KEY,
   });
+  // A desktop notification click reveals its tab through this (app-frame-entry-intake.ts).
+  nav.activatePaneSurfaceRef.current = activatePaneSurface;
   const { focusedLeafForShortcuts, tabSwitcher, quickAccessProjectPath, quickAccessRecentFiles, workbenchCommands } =
     useAppWorkbenchNavigationHub({
       ...shellPanels,
