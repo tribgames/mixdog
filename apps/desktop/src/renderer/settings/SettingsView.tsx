@@ -28,6 +28,7 @@ import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { t } from '../i18n';
+import { isImeKey } from '../question-card-keys';
 import { scrimDismiss } from '../scrim-dismiss';
 import { useMobileRemoteSurface } from '../mobile-surface';
 import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
@@ -218,7 +219,7 @@ export const SettingsView = memo(function SettingsView({
       const dialog = dialogRef.current;
       const nestedDialog = dialog?.querySelector<HTMLElement>('[data-settings-nested-dialog]') || null;
       if (event.key === 'Escape') {
-        if (portaledMenuOpen(dialog)) return;
+        if (portaledMenuOpen(dialog) || isImeKey(event)) return;
         event.preventDefault();
         event.stopPropagation();
         if (nestedDialog) {

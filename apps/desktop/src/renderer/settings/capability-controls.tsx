@@ -7,6 +7,7 @@ import { OpenSelect } from '../OpenSelect';
 // The primitives render their string props literally. Call sites localize
 // app-authored copy with t(...); custom names and content stay untouched.
 import { t } from '../i18n';
+import { isImeKey } from '../question-card-keys';
 import { scrimDismiss } from '../scrim-dismiss';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
@@ -319,7 +320,7 @@ export function SettingsConfirmDialog({
           }
           return;
         }
-        if (event.key !== 'Escape') return;
+        if (event.key !== 'Escape' || isImeKey(event.nativeEvent)) return;
         event.preventDefault();
         event.stopPropagation();
         onClose();
@@ -351,7 +352,7 @@ export function SettingsConfirmDialog({
             maxLength={options.input.maxLength}
             onChange={(event) => setText(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+              if (event.key === 'Enter' && !isImeKey(event.nativeEvent)) {
                 event.preventDefault();
                 accept();
               }
