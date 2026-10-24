@@ -132,6 +132,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
       termSizeOwnerListeners: new Set(),
       activityRailPinsListeners: new Set(),
       providerModelsListeners: new Set(),
+      orchestrationModeListeners: new Set(),
       remoteBrowserFrameListeners: new Set(),
       browserOpenListeners: new Set(),
       remoteBrowserTabListeners: new Set(),

@@ -483,6 +483,7 @@ const CAPABILITY_ARITY = {
   setOutputStyle: [1, 1],
   setWorkflow: [1, 2],
   getOrchestrationMode: [0, 0],
+  getConfiguredOrchestrationMode: [0, 0],
   setOrchestrationMode: [1, 2],
   getWorkflowPack: [1, 1],
   saveWorkflowPack: [1, 1],

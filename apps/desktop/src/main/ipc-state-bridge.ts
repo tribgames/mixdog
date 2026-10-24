@@ -8,6 +8,7 @@ import {
 } from '../shared/contract';
 import { isSessionId, requiredSessionId, requiredSessionIds } from './desktop-state';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
+import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
 import { requiredTranscriptItemLimit } from './ipc-validation';
@@ -100,6 +101,7 @@ export class DesktopStateBridge {
         else if (name === 'activity-rail-pins-changed') this.send(DESKTOP_IPC.activityRailPinsChanged, value);
         else if (name === 'provider-models-changed') this.send(DESKTOP_IPC.providerModelsChanged, value);
         else if (name === SETTINGS_CHANGED_EVENT) this.send(DESKTOP_IPC.settingsChanged, value);
+        else if (name === ORCHESTRATION_MODE_EVENT) this.send(DESKTOP_IPC.orchestrationModeChanged, value);
         else if (name === 'lsp-diagnostics') this.send(DESKTOP_IPC.lspDiagnostics, value);
         else if (name === 'lsp-status') this.send(DESKTOP_IPC.lspStatus, value);
         else if (name === 'relay-payload-refused') {

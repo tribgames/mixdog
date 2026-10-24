@@ -8,6 +8,7 @@ import type {
 import { beginBootSurface, holdBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { routePreferenceStore } from './app-route-preference';
 import { useModelSelection } from './use-model-selection';
+import { publishInheritedOrchestrationMode, useInheritedOrchestrationMode } from './orchestration-mode-store';
 import type { RecordValue } from './desktop-types';
 import { isDesktopProvidersUnavailableError, useDesktopProvidersRetry } from './desktop-provider-retry';
 import { t } from './i18n';
@@ -290,27 +291,9 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onDraftChange?: (mode: DesktopOrchestrationMode) => void;
 }) {
-  const [inherited, setInherited] = useState<DesktopOrchestrationMode | null>(null);
+  const inherited = useInheritedOrchestrationMode(!mode);
   const [switching, setSwitching] = useState(false);
   const guard = useRef(false);
-  useEffect(() => {
-    if (mode) return;
-    let cancelled = false;
-    void window.mixdogDesktop
-      .invokeCapability<DesktopOrchestrationMode>({
-        capability: 'getOrchestrationMode',
-        args: [],
-      })
-      .then((result) => {
-        if (!cancelled) setInherited(result.value);
-      })
-      .catch(() => {
-        // Keep the unknown control disabled; do not claim an unconfirmed mode.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
   const selected = mode ?? inherited;
   const change = async (value: string) => {
     if (disabled || guard.current || value === selected) return;
@@ -328,7 +311,10 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
           args: [next],
         })
       );
-      if (result !== undefined) applySnapshot(result.snapshot);
+      if (result !== undefined) {
+        publishInheritedOrchestrationMode(next);
+        applySnapshot(result.snapshot);
+      }
     } finally {
       guard.current = false;
       setSwitching(false);

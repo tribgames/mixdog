@@ -33,6 +33,7 @@ const COALESCED_READS = new Set([
 const COALESCED_CAPABILITY_READS = new Set([
   'getBotOrder',
   'getOrchestrationMode',
+  'getConfiguredOrchestrationMode',
   'getProviderSetup',
   'getVoiceStatus',
   'getWorktreeSettings',

@@ -15,6 +15,7 @@ import type {
 } from '../shared/contract';
 import { type CodedErrorParams, codedErrorParams } from '../shared/coded-error';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
+import { ORCHESTRATION_MODE_EVENT, readOrchestrationModeChange } from '../shared/orchestration-mode';
 import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 import { isRemotePaintProbe } from '../shared/remote-performance';
 import { RELAY_ROUTING_CAPS_EVENT, readRelayPayloadRejection } from '../shared/remote-payload-limit';
@@ -276,6 +277,10 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (!authenticated) return;
       const change = readSettingsChange(message.payload);
       if (change) fanOut(ctx.settingsChangedListeners, change);
+    } else if (message.event === ORCHESTRATION_MODE_EVENT) {
+      if (!authenticated) return;
+      const change = readOrchestrationModeChange(message.payload);
+      if (change) fanOut(ctx.orchestrationModeListeners, change);
     } else if (message.event === UPDATER_STATE_EVENT) {
       if (!authenticated) return;
       const state = message.payload as DesktopUpdaterState | null;

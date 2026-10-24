@@ -44,6 +44,7 @@ import type { ConversationImportJob } from './contract-import';
 import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
 import type { SettingsChange } from './settings-changed';
+import type { OrchestrationModeChange } from './orchestration-mode';
 import type { HostDisplayPreferences } from './host-display-preferences';
 import type { TerminalSizeOwnerEvent } from './terminal-size-owner';
 import type { TerminalActivityEvent } from './terminal-activity';
@@ -163,6 +164,7 @@ export * from './contract-settings';
 export * from './activity-rail-pins';
 export * from './provider-models';
 export * from './settings-changed';
+export * from './orchestration-mode';
 export * from './contract-browser';
 export * from './contract-git';
 export * from './contract-computer';
@@ -882,6 +884,9 @@ export interface DesktopApi {
   previewNotificationSound?(): Promise<string>;
   /** A desktop setting or the global Git identity was written (here or on the host). */
   subscribeSettingsChanged?(listener: (change: SettingsChange) => void): () => void;
+  /** The configured orchestration default changed (any writer; only when its value differs).
+   *  An older host never emits it. */
+  subscribeOrchestrationModeChanged?(listener: (change: OrchestrationModeChange) => void): () => void;
   /** Remote clients only: the host window's theme preference and UI language. */
   readHostDisplayPreferences?(): Promise<HostDisplayPreferences | null>;
   readActivityRailPins(): Promise<ActivityRailPinsState | null>;

@@ -64,6 +64,10 @@ export function createStyleAndModeApi(deps) {
     listOutputStyles: () => getOutputStyleStatusCached(),
     setOutputStyle,
     getOrchestrationMode: () => configuredOrchestrationMode(displayConfig()),
+    // The default new sessions inherit. The runtime facade's own
+    // getOrchestrationMode answers for the ACTIVE session when one exists, so a
+    // New Task composer reads this one: it never depends on which session is open.
+    getConfiguredOrchestrationMode: () => configuredOrchestrationMode(displayConfig()),
     setOrchestrationMode,
   };
 }

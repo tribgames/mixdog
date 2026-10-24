@@ -7,6 +7,7 @@ import { TerminalDataBufferer } from './terminal-data-buffer';
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
+import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
 import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
 import { TERMINAL_ACTIVITY_EVENT } from '../shared/terminal-activity';
@@ -48,6 +49,7 @@ const GLOBAL_DESKTOP_EVENTS = new Set<string>([
   ACTIVITY_RAIL_PINS_EVENT,
   PROVIDER_MODELS_EVENT,
   SETTINGS_CHANGED_EVENT,
+  ORCHESTRATION_MODE_EVENT,
   UPDATER_STATE_EVENT,
 ]);
 

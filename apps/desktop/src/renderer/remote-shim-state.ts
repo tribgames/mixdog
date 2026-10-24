@@ -18,6 +18,7 @@ import type { RelayE2EEChannel, RelayE2EEPairingMaterial } from '../shared/remot
 import type { ActivityRailPinsState } from '../shared/activity-rail-pins';
 import type { ProviderModelsChange } from '../shared/provider-models';
 import type { SettingsChange } from '../shared/settings-changed';
+import type { OrchestrationModeChange } from '../shared/orchestration-mode';
 import type { DesktopVisualizeEvent } from '../shared/visualize';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import { createRemoteCatalog } from '../shared/remote-catalog';
@@ -199,6 +200,7 @@ export interface RemoteShimCollaborators {
   activityRailPinsListeners: Set<(state: ActivityRailPinsState) => void>;
   providerModelsListeners: Set<(change: ProviderModelsChange) => void>;
   settingsChangedListeners: Set<(change: SettingsChange) => void>;
+  orchestrationModeListeners: Set<(change: OrchestrationModeChange) => void>;
   updaterListeners: Set<(state: DesktopUpdaterState) => void>;
   remoteBrowserFrameListeners: Set<(frame: DesktopRemoteBrowserStreamFrame) => void>;
   browserOpenListeners: Set<(request: DesktopBrowserOpenRequest) => void>;
@@ -460,6 +462,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     activityRailPinsListeners: new Set(),
     providerModelsListeners: new Set(),
     settingsChangedListeners: new Set(),
+    orchestrationModeListeners: new Set(),
     updaterListeners: new Set(),
     remoteBrowserFrameListeners: new Set(),
     browserOpenListeners: new Set(),

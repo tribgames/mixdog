@@ -435,6 +435,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // Always present: settings pages subscribe once at mount, possibly before
     // the handshake. An older host simply never emits the event.
     subscribeSettingsChanged: (listener) => listenOn(ctx.settingsChangedListeners, listener),
+    subscribeOrchestrationModeChanged: (listener) => listenOn(ctx.orchestrationModeListeners, listener),
     // An older host answers `unknown method`; the caller keeps its own defaults.
     readHostDisplayPreferences: () => call('readHostDisplayPreferences'),
     // Agent visualize panel. Always present (the store connects at mount,

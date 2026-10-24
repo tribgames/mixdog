@@ -40,6 +40,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getOAuthProviderLoginStatus',
   'getOutputStyle',
   'getOrchestrationMode',
+  'getConfiguredOrchestrationMode',
   'getProfile',
   'getProviderSetup',
   'getProviderAccounts',

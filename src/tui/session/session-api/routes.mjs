@@ -128,6 +128,7 @@ export function createSessionRouteApi(bag) {
       return result;
     }),
     getOrchestrationMode: () => runtime.getOrchestrationMode(),
+    getConfiguredOrchestrationMode: () => runtime.getConfiguredOrchestrationMode(),
     setOrchestrationMode: withCommandLock(async (mode, options) => {
       const result = await runtime.setOrchestrationMode(mode, options);
       publishSessionSwitches(bag, { orchestrationModeSwitch: result?.orchestrationModeSwitch });

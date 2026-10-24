@@ -162,6 +162,7 @@ export const DESKTOP_IPC = {
   setNotificationVolume: 'mixdog:set-notification-volume',
   previewNotificationSound: 'mixdog:preview-notification-sound',
   settingsChanged: 'mixdog:settings-changed',
+  orchestrationModeChanged: 'mixdog:orchestration-mode-changed',
   readActivityRailPins: 'mixdog:read-activity-rail-pins',
   updateActivityRailPins: 'mixdog:update-activity-rail-pins',
   activityRailPinsChanged: 'mixdog:activity-rail-pins-changed',

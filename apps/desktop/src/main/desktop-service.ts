@@ -13,6 +13,7 @@ import type {
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
+import { watchConfiguredOrchestrationMode } from './orchestration-mode-watch';
 import { REMOTE_VISUALIZE_LANE, VISUALIZE_REMOTE_DESKTOP_EVENT } from '../shared/visualize';
 import { createRemoteVisualizeMirror } from './remote-visualize';
 import { randomUUID } from 'node:crypto';
@@ -668,6 +669,10 @@ export async function createDesktopService({
   // member's relay of its reported work reach them through this host.
   const unregisterAgentRoomHost = registerAgentRoomHost(host.agentRoomHost());
   const settingsStore = operations.settingsStore;
+  // The configured orchestration default (a New Task's mode) is cached by every
+  // client; its own narrow event, published only when the value changes, keeps
+  // those caches current without waking any other settings reader.
+  const stopConfigChanges = watchConfiguredOrchestrationMode(await runtime.loadConfig(), publishDesktopEvent);
   // A deleted session takes its server-window upload staging folder with it.
   const deleteSessionWithUploads = async (sessionId: unknown): Promise<unknown> => {
     const result = await host.deleteSession(String(sessionId || ''));
@@ -837,6 +842,7 @@ export async function createDesktopService({
       unregisterTerminalReleaser();
       unregisterSessionSidebarHost();
       unregisterAgentRoomHost();
+      stopConfigChanges?.();
       importProgress.dispose();
       stateSync.dispose();
       desktopEventListeners.clear();

@@ -21,6 +21,8 @@ import { packagedRuntimeSourceRoot } from './runtime-layout';
 export interface MixdogConfigModule {
   readConfig(): unknown;
   updateConfigAsync(updater: (current: Record<string, unknown>) => Record<string, unknown>): Promise<unknown>;
+  /** Persisted config changes from this process or another; absent on an older daemon. */
+  subscribeConfigChange?(listener: () => void): () => void;
 }
 
 interface DesktopSettingsStoreOptions {

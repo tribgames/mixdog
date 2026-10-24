@@ -673,6 +673,7 @@ const api: DesktopApi = {
   setNotificationVolume: (volume) => invokeIpc(DESKTOP_IPC.setNotificationVolume, volume),
   previewNotificationSound: () => invokeIpc(DESKTOP_IPC.previewNotificationSound),
   subscribeSettingsChanged: (listener) => subscribeIpc(DESKTOP_IPC.settingsChanged, listener),
+  subscribeOrchestrationModeChanged: (listener) => subscribeIpc(DESKTOP_IPC.orchestrationModeChanged, listener),
   readActivityRailPins: () => invokeIpc(DESKTOP_IPC.readActivityRailPins),
   updateActivityRailPins: (pins, initializeIfMissing) =>
     invokeIpc(DESKTOP_IPC.updateActivityRailPins, pins, initializeIfMissing),

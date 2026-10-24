@@ -302,13 +302,36 @@ export function DesktopBootGate({
   }, [barrier, revealed, timedOut]);
   useEffect(() => () => barrier.dispose(), [barrier]);
 
+  // The watermark's boot fade belongs to the hand-off alone. At hand-off the
+  // gate collects the fades actually running on a watermark (none for a hidden
+  // logo, reduced motion or no logo); once each has finished or been cancelled
+  // (interrupted, logo removed) the attribute goes, so a watermark mounted
+  // later (a New Task switch) starts at its final opacity.
+  const gateRef = useRef<HTMLDivElement>(null);
+  const [brandSettled, setBrandSettled] = useState(false);
+  useEffect(() => {
+    if (!handoffComplete || brandSettled) return undefined;
+    let live = true;
+    const fades = (gateRef.current?.getAnimations?.({ subtree: true }) ?? []).filter(
+      (animation) =>
+        (animation as Animation & { animationName?: string }).animationName === 'desktop-boot-brand-in' &&
+        (animation.effect as KeyframeEffect | null)?.target?.classList.contains('welcome-logo')
+    );
+    void Promise.allSettled(fades.map((fade) => fade.finished)).then(() => {
+      if (live) setBrandSettled(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [handoffComplete, brandSettled]);
   const brandHandoff = enabled ? 'desktop' : 'browser';
   return (
     <div
+      ref={gateRef}
       className="desktop-boot-gate"
       data-ready={handoffComplete ? 'true' : 'false'}
       data-leaving={coverLeaving ? 'true' : undefined}
-      data-brand-handoff={handoffComplete ? brandHandoff : undefined}
+      data-brand-handoff={handoffComplete && !brandSettled ? brandHandoff : undefined}
       data-timeout={timedOut ? 'true' : undefined}
       data-pending={enabled && !handoffComplete ? surfaces.pending : undefined}
     >

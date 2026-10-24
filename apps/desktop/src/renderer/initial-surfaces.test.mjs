@@ -317,6 +317,8 @@ test('orchestration selector inherits its mode and stages all four choices witho
     calls.push(request);
     return { value: 'none', snapshot: null };
   };
+  const { _resetInheritedOrchestrationModeForTest } = await import('./orchestration-mode-store.ts');
+  _resetInheritedOrchestrationModeForTest();
   const { OrchestrationModeSelect } = await import('./model-controls.tsx');
   const staged = [];
   const props = {
@@ -327,7 +329,7 @@ test('orchestration selector inherits its mode and stages all four choices witho
   };
   await view.render(React.createElement(OrchestrationModeSelect, props));
   assert.match(view.host.textContent, /Solo/);
-  assert.deepEqual(calls, [{ capability: 'getOrchestrationMode', args: [] }]);
+  assert.deepEqual(calls, [{ capability: 'getConfiguredOrchestrationMode', args: [] }]);
   for (const [mode, label] of [
     ['focused', 'Assisted'],
     ['balanced', 'Collaborative'],
@@ -344,6 +346,266 @@ test('orchestration selector inherits its mode and stages all four choices witho
     assert.equal(staged.at(-1), mode);
   }
   assert.equal(calls.length, 1, 'draft choices remain local until submit');
+});
+
+test('the inherited orchestration mode is read once, shown in the first frame of every mount, and shared on change', async (t) => {
+  const view = harness(t);
+  const calls = [];
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request.capability);
+    return {
+      value: request.capability === 'getConfiguredOrchestrationMode' ? 'focused' : request.args[0],
+      snapshot: null,
+    };
+  };
+  const { _resetInheritedOrchestrationModeForTest } = await import('./orchestration-mode-store.ts');
+  _resetInheritedOrchestrationModeForTest();
+  const { OrchestrationModeSelect } = await import('./model-controls.tsx');
+  const props = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
+  const pair = React.createElement(
+    React.Fragment,
+    null,
+    React.createElement('section', { id: 'a' }, React.createElement(OrchestrationModeSelect, props)),
+    React.createElement('section', { id: 'b' }, React.createElement(OrchestrationModeSelect, props))
+  );
+  await view.render(pair);
+  assert.match(view.host.querySelector('#a').textContent, /Assisted/);
+  // A later mount (a New Task tab switch) paints the value with no skeleton and no refetch.
+  await view.render(null);
+  await act(async () => {
+    view.root.render(pair);
+  });
+  assert.match(view.host.querySelector('#a').textContent, /Assisted/);
+  assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
+  assert.deepEqual(calls, ['getConfiguredOrchestrationMode']);
+  // A change made in one composer reaches the other open one.
+  await view.settle(() => view.host.querySelector('#a [role="combobox"]').click());
+  const option = [...document.querySelectorAll('[role="option"]')].find((item) => item.textContent === 'Swarm');
+  await view.settle(() => option.click());
+  assert.match(view.host.querySelector('#b').textContent, /Swarm/);
+});
+
+async function inheritedModeHarness(
+  t,
+  { configured = 'focused', activeSession = 'swarm', failFirstRead = false, olderHost = false } = {}
+) {
+  const view = harness(t);
+  const state = { configured, calls: [], failNext: failFirstRead, changeListener: null, settingsListeners: 0 };
+  // The ONLY host event the store may follow; a settings-changed subscription is a defect.
+  window.mixdogDesktop.subscribeOrchestrationModeChanged = (listener) => {
+    state.changeListener = listener;
+    return () => {
+      state.changeListener = null;
+    };
+  };
+  window.mixdogDesktop.subscribeSettingsChanged = () => {
+    state.settingsListeners += 1;
+    return () => {};
+  };
+  state.emit = (mode) => {
+    state.configured = mode;
+    state.changeListener({ mode });
+  };
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    state.calls.push(request.capability);
+    if (request.capability === 'getOrchestrationMode') return { value: activeSession, snapshot: null };
+    if (request.capability === 'getConfiguredOrchestrationMode') {
+      if (olderHost) throw new TypeError('capability is unavailable.');
+      if (state.failNext) {
+        state.failNext = false;
+        throw new Error('host unavailable');
+      }
+      return { value: state.configured, snapshot: null };
+    }
+    return { value: request.args[0], snapshot: null };
+  };
+  const { _resetInheritedOrchestrationModeForTest } = await import('./orchestration-mode-store.ts');
+  _resetInheritedOrchestrationModeForTest();
+  const { OrchestrationModeSelect } = await import('./model-controls.tsx');
+  const props = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
+  const composer = (id) =>
+    React.createElement('section', { id, key: id }, React.createElement(OrchestrationModeSelect, props));
+  const open = (...ids) => view.render(React.createElement(React.Fragment, null, ...ids.map(composer)));
+  return { view, state, open, text: (id) => view.host.querySelector(`#${id}`)?.textContent ?? '' };
+}
+
+test('a New Task composer shows the configured default, never the active session mode', async (t) => {
+  const { state, open, text } = await inheritedModeHarness(t, { configured: 'focused', activeSession: 'swarm' });
+  await open('a');
+  assert.match(text('a'), /Assisted/);
+  assert.doesNotMatch(text('a'), /Swarm/);
+  assert.ok(!state.calls.includes('getOrchestrationMode'), 'the active session answers getOrchestrationMode');
+  assert.equal(state.settingsListeners, 0, 'the store follows its own event, not settings-changed');
+});
+
+test('a change of the configured default reaches open and later composers', async (t) => {
+  const { view, state, open, text } = await inheritedModeHarness(t);
+  await open('a', 'b');
+  assert.match(text('b'), /Assisted/);
+  await view.settle(() => state.emit('balanced')); // the setup tool, another window or the settings UI
+  assert.match(text('a'), /Collaborative/);
+  assert.match(text('b'), /Collaborative/);
+  // A change while no composer is open is kept, so a later mount is never stale.
+  await open();
+  await view.settle(() => state.emit('swarm'));
+  await open('a');
+  assert.match(text('a'), /Swarm/);
+  assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
+  assert.equal(state.calls.filter((name) => name === 'getConfiguredOrchestrationMode').length, 1, 'loaded once');
+});
+
+test('a read answered after a newer change is read again, not published', async (t) => {
+  const { view, state, open, text } = await inheritedModeHarness(t);
+  const release = Promise.withResolvers();
+  const answer = window.mixdogDesktop.invokeCapability;
+  let first = true;
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (first && request.capability === 'getConfiguredOrchestrationMode') {
+      first = false;
+      await release.promise; // the stale answer: 'focused', read before the change
+      return { value: 'focused', snapshot: null };
+    }
+    return answer(request);
+  };
+  await open('a');
+  await view.settle(() => state.emit('balanced'));
+  await view.settle(() => release.resolve());
+  assert.match(text('a'), /Collaborative/);
+});
+
+test('a failed first load stays unknown and recovers on the next event', async (t) => {
+  const { view, state, open, text } = await inheritedModeHarness(t, { failFirstRead: true });
+  await open('a');
+  assert.ok(view.host.querySelector('[aria-busy="true"]'), 'unconfirmed mode stays a pending control');
+  assert.doesNotMatch(text('a'), /Assisted/);
+  await view.settle(() => state.emit('focused'));
+  assert.match(text('a'), /Assisted/);
+});
+
+test('a failed first load is read again by the next mount', async (t) => {
+  const { view, open, text } = await inheritedModeHarness(t, { failFirstRead: true });
+  await open('a');
+  await view.settle(() => {});
+  assert.doesNotMatch(text('a'), /Assisted/);
+  await open();
+  await open('a');
+  await view.settle(() => {});
+  assert.match(text('a'), /Assisted/);
+});
+
+test('a failed refresh keeps the cached mode on screen and is read again on the next mount', async (t) => {
+  const { view, state, open, text } = await inheritedModeHarness(t);
+  const { REMOTE_CONNECTION_READY_EVENT } = await import('./remote-connection-state.ts');
+  await open('a');
+  assert.match(text('a'), /Assisted/);
+  // The link came back and the refresh fails: the last good value stays shown.
+  state.failNext = true;
+  state.configured = 'balanced';
+  await view.settle(() => window.dispatchEvent(new window.Event(REMOTE_CONNECTION_READY_EVENT)));
+  assert.match(text('a'), /Assisted/);
+  assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
+  await open();
+  await open('a');
+  await view.settle(() => {});
+  assert.match(text('a'), /Collaborative/, 'the dirty cache is refreshed on mount');
+  const reads = state.calls.filter((name) => name === 'getConfiguredOrchestrationMode').length;
+  await open();
+  await open('a');
+  await view.settle(() => {});
+  assert.equal(
+    state.calls.filter((name) => name === 'getConfiguredOrchestrationMode').length,
+    reads,
+    'a clean cache is not read again'
+  );
+});
+
+test('an older host that rejects the capability falls back to the per-mount read, without retry loops', async (t) => {
+  const { view, state, open, text } = await inheritedModeHarness(t, { olderHost: true, activeSession: 'swarm' });
+  await open('a');
+  await view.settle(() => {});
+  assert.match(text('a'), /Swarm/, 'the pre-change path answers');
+  await open();
+  await open('a', 'b');
+  await view.settle(() => {});
+  assert.match(text('b'), /Swarm/);
+  await view.advance(10_000);
+  const count = (name) => state.calls.filter((call) => call === name).length;
+  assert.equal(count('getConfiguredOrchestrationMode'), 1, 'the unsupported capability is asked once');
+  assert.equal(count('getOrchestrationMode'), 3, 'one read per composer mount (a, then a and b), as before the store');
+});
+
+function stubFades(t, fades) {
+  const proto = window.HTMLElement.prototype;
+  proto.getAnimations = () => fades();
+  t.after(() => {
+    delete proto.getAnimations;
+  });
+}
+
+const brandFade = (target, finished, animationName = 'desktop-boot-brand-in') => ({
+  animationName,
+  effect: { target },
+  finished,
+});
+
+async function bootedGate(t) {
+  const view = harness(t);
+  const { DesktopBootGate } = await import('./PaneSurfaceGate.tsx');
+  const { _resetBootMetricsForTest } = await import('./boot-metrics.ts');
+  _resetBootMetricsForTest();
+  const boot = async (children) => {
+    await view.render(React.createElement(DesktopBootGate, { ready: true }, children));
+    await view.advance(120);
+    return view.host.querySelector('.desktop-boot-gate');
+  };
+  return { view, boot };
+}
+
+test('the boot brand fade leaves the gate once it finishes, so a later watermark starts at its final opacity', async (t) => {
+  const { view, boot } = await bootedGate(t);
+  const finished = Promise.withResolvers();
+  stubFades(t, () => [brandFade(document.querySelector('.welcome-logo'), finished.promise)]);
+  const gate = await boot(React.createElement('div', { className: 'welcome-logo' }));
+  // The fade is still running: the attribute that drives it stays.
+  assert.equal(gate.dataset.brandHandoff, 'desktop', 'the first boot fade still plays');
+  await view.settle(() => finished.resolve());
+  assert.equal(gate.dataset.brandHandoff, undefined);
+});
+
+test('an interrupted or removed boot fade (animationcancel) also settles the gate', async (t) => {
+  const { view, boot } = await bootedGate(t);
+  const finished = Promise.withResolvers();
+  stubFades(t, () => [brandFade(document.querySelector('.welcome-logo'), finished.promise)]);
+  const gate = await boot(React.createElement('div', { className: 'welcome-logo' }));
+  assert.equal(gate.dataset.brandHandoff, 'desktop');
+  await view.settle(() => finished.reject(new DOMException('cancelled', 'AbortError')));
+  assert.equal(gate.dataset.brandHandoff, undefined);
+});
+
+test('a hidden logo or no logo plays no fade, so nothing is left to wait for', async (t) => {
+  const { boot } = await bootedGate(t);
+  stubFades(t, () => []); // display:none / reduced motion / no watermark: no running animation
+  const gate = await boot(React.createElement('div', { className: 'welcome-logo' }));
+  assert.equal(gate.dataset.brandHandoff, undefined);
+});
+
+test('only the watermark fade holds the gate: other animations and other targets are ignored', async (t) => {
+  const { boot } = await bootedGate(t);
+  const never = new Promise(() => {});
+  stubFades(t, () => [
+    brandFade(document.querySelector('.welcome-logo'), never, 'some-other-animation'),
+    brandFade(document.querySelector('.not-the-logo'), never),
+  ]);
+  const gate = await boot(
+    React.createElement(
+      React.Fragment,
+      null,
+      React.createElement('div', { className: 'welcome-logo' }),
+      React.createElement('div', { className: 'not-the-logo' })
+    )
+  );
+  // Neither pending animation qualifies, so neither holds the attribute.
+  assert.equal(gate.dataset.brandHandoff, undefined);
 });
 
 test('native boot keeps the mounted content inert until its ready frame, with bounded recovery', async (t) => {
