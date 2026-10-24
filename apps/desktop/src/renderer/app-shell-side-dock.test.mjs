@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import React, { act } from 'react';
+import { installTestDom } from './test-support/test-dom.mjs';
 import { renderPaneDockStripTrailing } from './app-shell-side-dock.tsx';
 
 test('renderPaneDockStripTrailing uses activeKey rather than first tab, returning null when active tab is a file', () => {
@@ -46,10 +48,12 @@ test('renderPaneDockStripTrailing uses activeKey rather than first tab, returnin
 
   const trailingWhenSessionActive = renderPaneDockStripTrailing(leafWithSecondSessionActive, baseProps);
   assert.notEqual(trailingWhenSessionActive, null, 'Strip trailing should render when active tab is session');
-  assert.equal(trailingWhenSessionActive.props.sessionBound, true);
+  // The strip hands its toggles the pane's descriptors through a render function.
+  assert.equal(trailingWhenSessionActive.props.children(descriptors).props.sessionBound, true);
 });
 
-test("a session pane's Terminal toggle prefetch also warms that session's terminal, through one stable map", () => {
+test("a session pane's Terminal toggle prefetch also warms that session's terminal, through one stable map per live pane", async (t) => {
+  const { root } = installTestDom(t, { expose: ['navigator', 'HTMLElement', 'Node'], rootId: 'root' });
   const prefetched = [];
   const descriptors = new Map([
     ['terminal', { id: 'terminal', label: 'Terminal', icon: () => null, onPrefetch: () => prefetched.push('chunk') }],
@@ -73,12 +77,27 @@ test("a session pane's Terminal toggle prefetch also warms that session's termin
     activeKey: `session:${sessionId}`,
     tabs: [{ kind: 'session', id: sessionId }],
   });
-  const first = renderPaneDockStripTrailing(leaf('warm-a'), props).props.descriptors;
-  const again = renderPaneDockStripTrailing(leaf('warm-a'), props).props.descriptors;
-  const other = renderPaneDockStripTrailing(leaf('warm-b'), props).props.descriptors;
-  assert.equal(first, again, 'the same session keeps one descriptor map across renders');
-  assert.notEqual(first, other, 'each session has its own');
-  assert.notEqual(first, descriptors);
-  first.get('terminal').onPrefetch();
+  // Renders the strip's toggles and records the descriptors they receive.
+  const seen = [];
+  const draw = (sessionId, key = 'pane') =>
+    act(async () =>
+      root.render(
+        React.cloneElement(renderPaneDockStripTrailing(leaf(sessionId), props), {
+          key,
+          children: (received) => {
+            seen.push(received);
+            return null;
+          },
+        })
+      )
+    );
+  await draw('warm-a');
+  await draw('warm-a');
+  assert.equal(seen.at(-1), seen[0], 'the same session keeps one descriptor map across renders');
+  assert.notEqual(seen[0], descriptors);
+  await draw('warm-b');
+  assert.notEqual(seen.at(-1), seen[0], 'a session change builds the next map (the pane keeps only its current one)');
+  seen.at(-1).get('terminal').onPrefetch();
   assert.deepEqual(prefetched, ['chunk'], 'the shared prefetch still runs');
+  await act(async () => root.unmount());
 });

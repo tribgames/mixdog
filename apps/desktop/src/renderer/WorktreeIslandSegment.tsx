@@ -26,6 +26,8 @@ import { t } from './i18n';
 import { useIslandGitStatus } from './IslandGitSegment';
 import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
+import { usePaneKey } from './pane-key-context';
+import { prefetchSessionChanges } from './session-changes-store';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import type { SettingsConfirmation } from './settings/capability-data';
 import { branchRows, invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
@@ -211,6 +213,13 @@ export function BranchIslandSegment({
     refocus.current = false;
   }, [open]);
 
+  // Opening a tab that offers View changes is the first sign Changes may open.
+  const offersChanges = !recovery && Boolean(onViewChanges);
+  const paneKey = usePaneKey();
+  useEffect(() => {
+    if (open && offersChanges) prefetchSessionChanges(sessionId, { paneKey });
+  }, [open, offersChanges, sessionId, paneKey]);
+
   // Nothing read or cached for the session yet: the segment keeps its room.
   if (!shown || !workspace) return sessionId && loading ? <IslandSegmentPending kind="branch" /> : null;
   const branch = workspace.branch || (worktree ? t('Worktree') : commit || 'HEAD');
@@ -279,6 +288,8 @@ export function BranchIslandSegment({
     danger?: boolean;
     /** Changes the workspace: unavailable while work runs. */
     switches?: boolean;
+    /** Pressing or focusing the item signals intent to run it. */
+    onIntent?(): void;
     onSelect(): void;
   };
   const items: WorktreeAction[] = [];
@@ -288,6 +299,7 @@ export function BranchIslandSegment({
         id: 'view-changes',
         label: t('View changes'),
         icon: FileDiff,
+        onIntent: () => prefetchSessionChanges(sessionId, { paneKey }),
         onSelect: () => {
           close();
           onViewChanges();
@@ -334,7 +346,7 @@ export function BranchIslandSegment({
     });
   }
   const worktreeActions = items.length
-    ? items.map(({ id, label, icon: Icon, danger, switches, onSelect }) => {
+    ? items.map(({ id, label, icon: Icon, danger, switches, onIntent, onSelect }) => {
         const unavailable = running || (switches && locked);
         return (
           <button
@@ -345,6 +357,8 @@ export function BranchIslandSegment({
             data-action-id={id}
             data-danger={danger || undefined}
             aria-disabled={unavailable || undefined}
+            onPointerDown={onIntent}
+            onFocus={onIntent}
             onClick={() => {
               if (!unavailable) onSelect();
             }}

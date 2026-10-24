@@ -759,6 +759,172 @@ function inlineBytes(row: SessionDiffRow): number {
   return bytes;
 }
 
+/** A Git file's patch moves with its status, counts and content revision (or
+ *  an explicit refresh); the index sources carry no revision, so theirs moves
+ *  with Git evidence. The last turn's and the session diff's with their result. */
+function gitPatchStamp(target: ChangesTarget, entry: ChangesEntry, row: SessionDiffRow): string {
+  if (sessionScopedSource(target.source)) return `g${entry.generation}`;
+  const untracked = entry.untracked.has(row.path) ? 'u' : '';
+  const content =
+    target.source === 'staged' || target.source === 'unstaged'
+      ? `a${entry.evidenceEpoch}`
+      : (entry.revisions.get(row.path) ?? '');
+  return `e${entry.patchEpoch}\0${content}\0${row.status}${untracked}\0${row.additions}\0${row.deletions}\0${row.oldPath}`;
+}
+
+/** Asks for these Git files' patches (single-flight per file and stamp, so the
+ *  pane's own request for the same files joins a prefetch instead of repeating it). */
+function requestGitPatches(target: ChangesTarget, key: string, entry: ChangesEntry, rows: readonly SessionDiffRow[]) {
+  const api = window.mixdogDesktop;
+  const root = entry.root || target.cwd;
+  const source = target.source;
+  const cacheKeyOf = (row: SessionDiffRow) => `${key}\0${row.path}`;
+  const readBatch = api?.gitReviewDiffs;
+  if ((source === 'uncommitted' || source === 'branch') && readBatch) {
+    const batch = rows.map((row) => ({
+      cacheKey: cacheKeyOf(row),
+      stamp: gitPatchStamp(target, entry, row),
+      path: row.path,
+      untracked: entry.untracked.has(row.path),
+    }));
+    const rowOf = new Map(rows.map((row) => [cacheKeyOf(row), row]));
+    requestPatchBatch(
+      batch,
+      (files) => readBatch(root, files, source),
+      (file) => readFilePatch(target, key, entry, rowOf.get(file.cacheKey) as SessionDiffRow)
+    );
+    return;
+  }
+  for (const row of rows) {
+    requestPatch(cacheKeyOf(row), gitPatchStamp(target, entry, row), () => readFilePatch(target, key, entry, row));
+  }
+}
+
+/** The files whose patches a set of rows asks for: the lazy ones, within the
+ *  per-file limit; a capped set reads only the selected file. The open and
+ *  the intent prefetch both ask through this, so they name the same files. */
+function wantedPatchRows(
+  rows: readonly SessionDiffRow[],
+  lazy: (row: SessionDiffRow) => boolean,
+  rowKey: (row: SessionDiffRow) => string,
+  selectedId: string
+): { capped: boolean; wantedRows: SessionDiffRow[] } {
+  // The set's patch text in UTF-8 bytes: inline parts, plus what the lazy
+  // files read so far.
+  let bytes = 0;
+  for (const row of rows) bytes += lazy(row) ? (patches.peek(rowKey(row))?.bytes ?? 0) : inlineBytes(row);
+  const capped = sessionDiffSetCapped(rows, bytes);
+  const wantedRows = rows.filter(
+    (row) => lazy(row) && !sessionDiffRowOverLineLimit(row) && (!capped || row.id === selectedId)
+  );
+  return { capped, wantedRows };
+}
+
+// ── The selected file of a capped set ────────────────────────────────────
+// A capped set reads and draws one file. Which one is decided here for both
+// the pane and the intent prefetch, so the prefetch asks for the file the
+// open will. Each pane owns its pick (local state); while mounted it only
+// publishes it, by its pane key, for the intents that open that pane.
+
+const publishedSelections = new Map<string, { sessionId: string; path: string }>();
+
+/** A mounted pane publishes its current pick; the returned function
+ *  unpublishes it. Nothing flows back into the pane. */
+export function publishPaneSelection(paneKey: string, sessionId: string, path: string): () => void {
+  const published = { sessionId, path };
+  publishedSelections.set(paneKey, published);
+  return () => {
+    if (publishedSelections.get(paneKey) === published) publishedSelections.delete(paneKey);
+  };
+}
+
+/** What the pane of this key draws for the session: its published pick, or ''
+ *  (the first row) for a pane that is not mounted — what a fresh pane picks. */
+function publishedSelection(paneKey: string, sessionId: string): string {
+  const published = publishedSelections.get(paneKey);
+  return published?.sessionId === sessionId ? published.path : '';
+}
+/** The file the pane of `paneKey` will draw for a capped set when an entry
+ *  opens it: the entry's own file, else the pane's published pick. */
+export function intentSelectedRow<Row extends { path: string }>(
+  rows: readonly Row[],
+  sessionId: string,
+  paneKey: string,
+  focusPath: string
+): Row | null {
+  const focusRow = focusPath ? (rows.find((row) => row.path === focusPath) ?? null) : null;
+  return resolveSelectedRow(rows, focusRow, publishedSelection(paneKey, sessionId));
+}
+
+/** The file a capped set draws: the focused file tab, else the retained
+ *  pick, else the first row. */
+export function resolveSelectedRow<Row extends { path: string }>(
+  rows: readonly Row[],
+  focusRow: Row | null,
+  selectedPath: string
+): Row | null {
+  return focusRow ?? rows.find((row) => row.path === selectedPath) ?? rows[0] ?? null;
+}
+
+/** Per session: the workspaces its Changes readers are reading, counted per
+ *  reader. An entry lives only while a reader does, so intent never reads a
+ *  workspace nothing shows any more. */
+const changesReaders = new Map<string, Map<string, number>>();
+
+function registerChangesReader(session: string, cwd: string): () => void {
+  let byCwd = changesReaders.get(session);
+  if (!byCwd) {
+    byCwd = new Map();
+    changesReaders.set(session, byCwd);
+  }
+  byCwd.set(cwd, (byCwd.get(cwd) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const current = changesReaders.get(session);
+    const count = (current?.get(cwd) ?? 0) - 1;
+    if (!current) return;
+    if (count > 0) current.set(cwd, count);
+    else current.delete(cwd);
+    if (current.size === 0) changesReaders.delete(session);
+  };
+}
+
+/** The user signalled intent to open Changes (menu open, press or focus on an
+ *  entry): do what the open itself will do first — read the list (a failed or
+ *  absent one is read again, as the open does) and ask for the same patches in
+ *  the same batch — so the open finds them landed. Safe to call repeatedly:
+ *  the list read and every patch are single-flight, and the open's own
+ *  requests join them. `paneKey`: the pane whose dock the entry opens (its
+ *  published pick decides a capped set's file; a pane not mounted opens on the
+ *  first row). `focusPath`: the file the entry opens on, if it names one. */
+export function prefetchSessionChanges(
+  sessionId: string | undefined,
+  { paneKey = '', focusPath = '' }: { paneKey?: string; focusPath?: string } = {}
+): void {
+  const session = String(sessionId || '');
+  for (const cwd of changesReaders.get(session)?.keys() ?? []) {
+    const target: ChangesTarget = { cwd, source: readSessionChangesSource(), sessionId: session };
+    const warm = () => {
+      const entry = readEntry(target);
+      if (entry?.repository !== true) return;
+      const key = changesKey(target);
+      const selected = intentSelectedRow(entry.rows, session, paneKey, focusPath);
+      const { wantedRows } = wantedPatchRows(
+        entry.rows,
+        (row) => row.parts.length === 0 && !row.reason,
+        (row) => `${key}\0${row.path}`,
+        selected?.id ?? ''
+      );
+      requestGitPatches(target, key, entry, wantedRows);
+    };
+    const held = readEntry(target);
+    if (held && !held.error) warm();
+    else void loadChanges(target, 'safety').then(warm);
+  }
+}
+
 /** Completes the pane's rows with their own patches: a Git row listed with
  *  counts only, or a session-diff row its reply listed without its patch for
  *  size. Codex's model: an uncapped set reads every file's patch at once (one
@@ -791,53 +957,13 @@ export function useSessionChangePatches({
   const lazy = (row: SessionDiffRow) =>
     row.parts.length === 0 && ((git && !row.reason) || (sessionDiff && row.patchOmitted === true));
   const rowKey = (row: SessionDiffRow) => `${key}\0${git ? row.path : row.id}`;
-  // A Git file's patch moves with its status, counts and content revision (or
-  // an explicit refresh); the index sources carry no revision, so theirs moves
-  // with Git evidence. The last turn's and the session diff's with their result.
-  const stampOf = (row: SessionDiffRow) => {
-    if (!git) return `r${generation}`;
-    if (sessionScopedSource(target.source)) return `g${generation}`;
-    const untracked = entry.untracked.has(row.path) ? 'u' : '';
-    const content =
-      target.source === 'staged' || target.source === 'unstaged'
-        ? `a${entry.evidenceEpoch}`
-        : (entry.revisions.get(row.path) ?? '');
-    return `e${entry.patchEpoch}\0${content}\0${row.status}${untracked}\0${row.additions}\0${row.deletions}\0${row.oldPath}`;
-  };
-  // The set's patch text in UTF-8 bytes: inline parts, plus what the lazy
-  // files read so far.
-  let bytes = 0;
-  for (const row of rows) bytes += lazy(row) ? (patches.peek(rowKey(row))?.bytes ?? 0) : inlineBytes(row);
-  const capped = sessionDiffSetCapped(rows, bytes);
-  const wantedRows = rows.filter(
-    (row) => lazy(row) && !sessionDiffRowOverLineLimit(row) && (!capped || row.id === selectedId)
-  );
+  const stampOf = (row: SessionDiffRow) => (git ? gitPatchStamp(target, entry, row) : `r${generation}`);
+  const { capped, wantedRows } = wantedPatchRows(rows, lazy, rowKey, selectedId);
   const wantedKey = wantedRows.map((row) => `${rowKey(row)}\0${stampOf(row)}`).join('\0\0');
   // biome-ignore lint/correctness/useExhaustiveDependencies: wantedKey (rows and stamps) with generation names the reads
   useEffect(() => {
-    const api = window.mixdogDesktop;
     if (git && entry) {
-      const root = entry.root || target.cwd;
-      const source = target.source;
-      const readBatch = api?.gitReviewDiffs;
-      if ((source === 'uncommitted' || source === 'branch') && readBatch) {
-        const batch = wantedRows.map((row) => ({
-          cacheKey: rowKey(row),
-          stamp: stampOf(row),
-          path: row.path,
-          untracked: entry.untracked.has(row.path),
-        }));
-        const rowOf = new Map(wantedRows.map((row) => [rowKey(row), row]));
-        requestPatchBatch(
-          batch,
-          (files) => readBatch(root, files, source),
-          (file) => readFilePatch(target, key, entry, rowOf.get(file.cacheKey) as SessionDiffRow)
-        );
-        return;
-      }
-      for (const row of wantedRows) {
-        requestPatch(rowKey(row), stampOf(row), () => readFilePatch(target, key, entry, row));
-      }
+      requestGitPatches(target, key, entry, wantedRows);
       return;
     }
     if (!sessionDiff) return;
@@ -966,6 +1092,12 @@ export function useSessionChanges({
     if (!active || !watchable) return;
     return retainChangesWatch(target);
   }, [active, target, watchable]);
+  // A reader of this session and workspace, whatever the source: a source
+  // change is no gap in it, so what the session retained survives one.
+  useEffect(() => {
+    if (!active || !watchable || !project || !session) return;
+    return registerChangesReader(session, project);
+  }, [active, watchable, project, session]);
   // Undo/Reapply and Delete history move the session review without touching
   // Git evidence, so its entry re-reads on the session's history epoch.
   const mutations = useTurnChangesEpoch(session);

@@ -333,6 +333,7 @@ export function useAppWorkbenchViews({
         <SessionDiffPane
           sessionId={sessionId}
           active={active}
+          paneKey={pane.leafId}
           ownsWorkspace={ownsWorkspace}
           cwd={pane.projectPath}
           onClose={() => requestPaneDockClose('session-diff')}

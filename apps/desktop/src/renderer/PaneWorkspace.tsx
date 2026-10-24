@@ -14,6 +14,7 @@ import { DESKTOP_PET_SESSION_ID, DesktopPetPublisher, useDesktopPetSessionIds } 
 import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { DownloadSessionContext } from './project-file-download';
+import { PaneKeyContext } from './pane-key-context';
 import { PaneSplitLayout } from './PaneSplitLayout';
 import {
   isConversationSelection,
@@ -235,14 +236,16 @@ export function PaneWorkspace({
           retained={retained}
         >
           <RetainedConversation retained={retained}>
-            {renderConversation(
-              active,
-              focused && !handoff && !parked && !retained,
-              focusPane,
-              leaf.id,
-              warm,
-              !parked && !retained
-            )}
+            <PaneKeyContext.Provider value={leaf.id}>
+              {renderConversation(
+                active,
+                focused && !handoff && !parked && !retained,
+                focusPane,
+                leaf.id,
+                warm,
+                !parked && !retained
+              )}
+            </PaneKeyContext.Provider>
           </RetainedConversation>
         </PersistentPanePortal>
       );

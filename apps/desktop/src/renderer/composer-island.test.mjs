@@ -3138,3 +3138,63 @@ test('the git button opens the Git tab; each row runs its own action and nothing
     ['commit', 'pr']
   );
 });
+
+test('the worktree menu prefetches Changes on open and on pressing or focusing View changes', async (t) => {
+  const { createRoot } = await import('react-dom/client');
+  const { useSessionChanges, setSessionChangesSource } = await import('./session-changes-store.ts');
+  const { root, document, window } = mount(t);
+  setSessionChangesSource('uncommitted');
+  // A workspace no other test read, so no earlier answer is held for it.
+  const cwd = '/data/worktrees/prefetch-wt';
+  let batches = 0;
+  // Opening and pressing fail; focusing succeeds: three signals, three reads.
+  window.mixdogDesktop.gitReview = async () => ({
+    repository: true,
+    root: cwd,
+    base: 'HEAD',
+    files: [{ path: 'a.ts', status: 'M', additions: 1, deletions: 1, untracked: false }],
+  });
+  window.mixdogDesktop.gitReviewDiffs = async (_cwd, requested) => {
+    batches += 1;
+    if (batches <= 2) throw new Error('read failed');
+    return { patches: requested.map(({ path }) => ({ path, patch: `@@ -1 +1 @@\n-a\n+b\n` })), omitted: [] };
+  };
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getBranchMenu') return { value: worktreeMenu() };
+    return { value: null };
+  };
+  // Something already reads this session's changes (the files chip), naming its workspace.
+  function Reader() {
+    useSessionChanges({ cwd, sessionId: 'island-session', active: true });
+    return null;
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const readerRoot = createRoot(host);
+  t.after(() => act(async () => readerRoot.unmount()));
+  await act(async () => readerRoot.render(React.createElement(Reader)));
+  await act(async () =>
+    root.render(
+      React.createElement(
+        ComposerDock,
+        dockProps({ workspace: worktreeWorkspace(), reviewSessionId: 'island-session', onOpenSessionDiff: () => {} })
+      )
+    )
+  );
+  const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await flush();
+  assert.equal(batches, 0, 'nothing is read before the user signals intent');
+  await act(async () => document.querySelector('.composer-island-seg-worktree').click());
+  await flush();
+  assert.equal(batches, 1, 'opening the menu starts the load');
+  const viewChanges = () => document.querySelector('[data-action-id="view-changes"]');
+  await act(async () => viewChanges().dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
+  await flush();
+  assert.equal(batches, 2, 'pressing View changes asks again');
+  // The first action already holds focus from the open: leave and return.
+  await act(async () => viewChanges().blur());
+  await act(async () => viewChanges().focus());
+  await flush();
+  assert.equal(batches, 3, 'focusing View changes asks again');
+  window.localStorage.removeItem('mixdog.session-changes-source.v1');
+});

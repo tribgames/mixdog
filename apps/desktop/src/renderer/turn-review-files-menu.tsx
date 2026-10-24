@@ -7,12 +7,14 @@ import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { scrimDismiss } from './scrim-dismiss';
 import { trappedTabIndex } from './list-navigation';
+import { usePaneKey } from './pane-key-context';
 import { MxIcon } from './MxIcon';
 import { useMobileBack } from './mobile-back';
 import { acquireModalLayer } from './modal-layer';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import {
   SESSION_CHANGES_SOURCES,
+  prefetchSessionChanges,
   sessionChangesSourceLabel,
   setSessionChangesSource,
   useSessionChangesSource,
@@ -88,6 +90,8 @@ export function TurnReviewFilesMenu({
 }) {
   // The island owns the open tab (one at a time); alone, it is local state.
   const [open, setOpen] = useComposerIslandTab('files-menu');
+  // The pane whose dock View changes opens.
+  const paneKey = usePaneKey();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -113,6 +117,8 @@ export function TurnReviewFilesMenu({
       refocus.current = false;
       return undefined;
     }
+    // Opening the menu is the first sign the user may open Changes.
+    prefetchSessionChanges(sessionId, { paneKey });
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(MENU_ITEM)?.focus());
     // Same dismissal as the island's other tabs: a press outside the island,
     // or Escape.
@@ -139,7 +145,7 @@ export function TurnReviewFilesMenu({
       document.removeEventListener('pointerdown', dismiss, true);
       document.removeEventListener('keydown', keydown, true);
     };
-  }, [open]);
+  }, [open, sessionId, paneKey]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Tab') {
@@ -242,6 +248,7 @@ export function TurnReviewFilesMenu({
                     role="menuitem"
                     className="turn-review-files-row"
                     title={clean}
+                    onPointerDown={() => prefetchSessionChanges(sessionId, { paneKey, focusPath: path })}
                     onClick={() => {
                       close(false);
                       onOpenFile(path);
@@ -284,6 +291,8 @@ export function TurnReviewFilesMenu({
                 type="button"
                 role="menuitem"
                 className="composer-island-button"
+                onPointerDown={() => prefetchSessionChanges(sessionId, { paneKey })}
+                onFocus={() => prefetchSessionChanges(sessionId, { paneKey })}
                 onClick={() => {
                   close(false);
                   onViewChanges();

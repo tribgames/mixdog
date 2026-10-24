@@ -1,5 +1,5 @@
 import { RefreshCw } from 'lucide-react';
-import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { SESSION_DIFF_STYLE_KEY } from './desktop-types';
 import { diffModeActions, useDiffViewState, type DiffViewState } from './diff-header-controls';
 import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
@@ -11,6 +11,8 @@ import {
   SESSION_CHANGES_SOURCES,
   sessionChangesEmptyText,
   sessionChangesSourceLabel,
+  publishPaneSelection,
+  resolveSelectedRow,
   useSessionChangePatches,
   type SessionChangesSource,
 } from './session-changes-store';
@@ -145,11 +147,15 @@ type SessionDiffPaneProps = {
   headerControlsExternal?: boolean;
   /** The host's Unified/Split + filter state (the pane keeps its own otherwise). */
   viewState?: DiffViewState;
+  /** The pane (dock) this view lives in: while mounted, its capped-set pick
+   *  is published under this key for the entries that open it. */
+  paneKey?: string;
 };
 
 export function SessionDiffPane({
   sessionId,
   active,
+  paneKey,
   fileTabs,
   headerControlsExternal,
   viewState,
@@ -187,6 +193,11 @@ export function SessionDiffPane({
   const [revertError, setRevertError] = useState('');
   // A capped set draws one file: the one picked by its header (default: first).
   const [selectedPath, setSelectedPath] = useState('');
+  // The pick is the pane's own; the intents that open this pane only read a copy.
+  useEffect(
+    () => (paneKey ? publishPaneSelection(paneKey, sessionId, selectedPath) : undefined),
+    [paneKey, sessionId, selectedPath]
+  );
   const bodyRef = useRef<HTMLDivElement | null>(null);
   // The (session, source, folder) whose list was already drawn: later reads of
   // it never hold the list back again.
@@ -239,7 +250,7 @@ export function SessionDiffPane({
   });
   // Git rows list counts only; the files drawn open read their own patch —
   // one over the render limit only once the user asks to see it anyway.
-  const selectedRow = focusRow ?? visibleRows.find((row) => row.path === selectedPath) ?? visibleRows[0] ?? null;
+  const selectedRow = resolveSelectedRow(visibleRows, focusRow, selectedPath);
   const { withPatch, capped } = useSessionChangePatches({
     cwd,
     sessionId,
