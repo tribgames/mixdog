@@ -228,6 +228,7 @@ export function conversationIslandFlash(
     return {
       key: `retired:${approvalInstanceKey(approval.id)}`,
       text: `${approvalRecordLabel(approval)} · ${result}`,
+      icon: outcome.expired ? 'clock' : outcome.approved ? 'check' : 'close-small',
     };
   }
   if (answeredElsewhere) {

@@ -53,7 +53,8 @@ import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
 import { useClock } from './use-clock';
 
 /** A short notice the island shows in place of its pill, then returns. */
-export type ComposerIslandFlash = { key: string; text: string };
+/** `icon`: the glyph before the text (default the check). */
+export type ComposerIslandFlash = { key: string; text: string; icon?: 'check' | 'close-small' | 'clock' };
 
 /** A quota-stopped turn that resumes by itself at the reset time. */
 export type ComposerIslandQuotaResume = {
@@ -1330,7 +1331,7 @@ export const ComposerIsland = memo(function ComposerIsland({
             {approval ? <div className="composer-island-approval">{approval}</div> : null}
             {mode === 'flash' && visibleFlash ? (
               <div className="composer-island-flash" role="status" key={visibleFlash.key}>
-                <MxIcon name="check" size={16} />
+                <MxIcon name={visibleFlash.icon ?? 'check'} size={16} />
                 <span>{visibleFlash.text}</span>
               </div>
             ) : null}

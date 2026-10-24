@@ -510,6 +510,12 @@ test('an approval answered on another device flashes "<action> · Allowed from <
       .text,
     'Run a command · Expired'
   );
+  // The glyph matches the outcome: a deny is never drawn with the allow's check.
+  const glyph = (outcome) => conversationIslandFlash({ approval: shell, outcome }, null, 'DESKTOP-7').icon;
+  assert.equal(glyph({ approved: true, device: '' }), 'check');
+  assert.equal(glyph({ approved: false, device: '' }), 'close-small');
+  assert.equal(glyph({ approved: false, device: 'Pixel 9' }), 'close-small');
+  assert.equal(glyph({ approved: false, device: '', expired: true }), 'clock');
   // A question leaves no trace line, however it ended.
   const question = { id: 'q1', kind: 'question' };
   for (const outcome of [
