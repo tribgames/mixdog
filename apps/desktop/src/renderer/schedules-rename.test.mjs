@@ -71,6 +71,59 @@ test('the edit dialog name is enabled, and a changed name saves old name + newNa
   }
 });
 
+/** Open the one-shot's editor, apply `edit` to the form, save; resolves the saved entry. */
+async function saveOneShot(whenAt, edit) {
+  resetSidebarReferenceCache();
+  updateSidebarReference('channelSetup', {
+    schedules: [{ name: 'once', whenAt, instructions: 'Report', enabled: true, owner: 'lead' }],
+    webhooks: [],
+  });
+  updateSidebarReference('projects', []);
+  updateSidebarReference('agents', []);
+  const saves = [];
+  const api = {
+    invokeCapability(request) {
+      if (request.capability === 'getLeadStatus') return Promise.resolve({ value: { created: true } });
+      if (request.capability === 'saveSchedule') {
+        saves.push(request.args[0]);
+        return Promise.resolve({ value: {} });
+      }
+      return new Promise(() => {});
+    },
+  };
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(SchedulesPane, { api, active: true })));
+    await act(async () => document.querySelector('.routines-open').click());
+    edit();
+    await act(async () =>
+      document
+        .querySelector('form')
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+    );
+    assert.equal(saves.length, 1);
+    return saves[0];
+  } finally {
+    await act(async () => root.unmount());
+  }
+}
+
+test('renaming a one-shot without touching its time sends the saved instant whole, not cut to the minute', async () => {
+  const whenAt = '2030-01-02T03:04:05.678Z';
+  const saved = await saveOneShot(whenAt, () => {
+    document.querySelector('input[name="schedule-name"]').value = 'renamed';
+  });
+  assert.equal(saved.newName, 'renamed');
+  assert.equal(saved.at, whenAt, 'an untouched time is the saved instant');
+});
+
+test('an edited one-shot time is sent as typed', async () => {
+  const saved = await saveOneShot('2030-01-02T03:04:05.678Z', () => {
+    document.querySelector('input[name="schedule-at"]').value = '2030-02-01T09:30';
+  });
+  assert.equal(saved.at, '2030-02-01T09:30');
+});
+
 test('saving an edit without changing the name carries no newName', async () => {
   resetSidebarReferenceCache();
   updateSidebarReference('channelSetup', {

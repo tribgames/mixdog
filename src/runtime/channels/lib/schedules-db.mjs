@@ -199,9 +199,11 @@ export async function upsertSchedule(def, { dataDir } = {}) {
 /**
  * Rename schedule `oldName` to `def.name` in one UPDATE of the primary key,
  * applying the edited settings. Run history (last_* stamps, failure streak,
- * undelivered results), status and next_fire_at stay on the row. When
- * `timingChanged`, the row is re-armed the way `upsertSchedule` re-arms a
- * redefinition. Resolves null when `oldName` is gone; an occupied `def.name`
+ * undelivered results), status and the next_fire_at cursor (a deferral, or
+ * none for a finished one-shot) stay on the row. When `timingChanged`, the row
+ * is re-armed the way `upsertSchedule` re-arms a redefinition: a one-shot's
+ * cursor becomes its `when_at`, a recurring one's is cleared for the scheduler
+ * to compute. Resolves null when `oldName` is gone; an occupied `def.name`
  * rejects and changes nothing.
  */
 export async function renameSchedule(oldName, def, { timingChanged = false, dataDir } = {}) {
@@ -211,8 +213,7 @@ export async function renameSchedule(oldName, def, { timingChanged = false, data
       `UPDATE scheduler.schedules SET
          name = $2, description = $3, when_at = $4, when_cron = $5, timezone = $6, cwd = $7,
          attachments = $8, prompt = $9, enabled = $10, owner_agent_id = $11,
-         next_fire_at = CASE WHEN $4::timestamptz IS NOT NULL THEN $4::timestamptz
-                             WHEN $12::boolean THEN NULL ELSE next_fire_at END,
+         next_fire_at = CASE WHEN $12::boolean THEN $4::timestamptz ELSE next_fire_at END,
          status = CASE WHEN $12::boolean THEN 'active' ELSE status END,
          deferred_until = CASE WHEN $12::boolean THEN NULL ELSE deferred_until END,
          skipped_until = CASE WHEN $12::boolean THEN NULL ELSE skipped_until END,

@@ -89,6 +89,8 @@ interface ScheduleDraft {
   clock: string;
   weekday: string;
   at: string;
+  /** The saved one-shot instant, whole (the `at` field shows it to the minute). */
+  whenAt: string;
   cwd: string;
   attachments: AutomationAttachment[];
   /** The bot it belongs to: each run is a turn in that bot's chat. */
@@ -187,6 +189,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string):
     clock: parsed.clock,
     weekday: parsed.weekday,
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
+    whenAt: parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt.toISOString() : '',
     cwd: String(source.cwd || ''),
     attachments: attachmentsFromRecords(source.attachments),
     agent: automationAgentOf(schedule, defaultAgent),
@@ -260,13 +263,17 @@ function ScheduleEditor({
             event.preventDefault();
             const data = new FormData(event.currentTarget);
             const text = (name: string) => String(data.get(name) || '').trim();
+            // An untouched run time keeps the saved instant to the millisecond,
+            // so the save does not read as a new time (which re-arms a
+            // finished one-shot).
+            const at = text('schedule-at');
             setFormError('');
             onSave({
               name: editing ? draft.name : text('schedule-name'),
               ...(editing && text('schedule-name') !== draft.name ? { newName: text('schedule-name') } : {}),
               description: draft.description,
               ...(frequency === 'once'
-                ? { at: text('schedule-at') }
+                ? { at: draft.whenAt && at === draft.at ? draft.whenAt : at }
                 : { time: scheduleCron(frequency, text, weekday) }),
               ...automationRunFields(agent),
               ...(cwd ? { cwd } : {}),
