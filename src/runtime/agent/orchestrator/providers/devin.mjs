@@ -108,6 +108,7 @@ export function createDevinTurn({ onReasoningDelta } = {}) {
   let activeCall = '';
   let inThinking = false;
   const signatures = [];
+  let signatureType = '';
   const turn = {
     sawOutput: false,
     messageId: '',
@@ -170,13 +171,19 @@ export function createDevinTurn({ onReasoningDelta } = {}) {
       if (!inThinking) signatures.push('');
       inThinking = true;
       turn.thinking += msg.deltaThinking;
-      // A signature counts only on a thinking frame; the latest one wins.
-      if (msg.deltaSignature) signatures[signatures.length - 1] = msg.deltaSignature;
       delta.reasoning_content = msg.deltaThinking;
       try {
         onReasoningDelta?.(msg.deltaThinking);
       } catch {}
     }
+    // Signatures stream as deltas and may arrive after the thinking they sign
+    // (behind its text or tool calls): every fragment extends the latest
+    // thinking block's signature.
+    if (msg.deltaSignature) {
+      if (!signatures.length) signatures.push('');
+      signatures[signatures.length - 1] += msg.deltaSignature;
+    }
+    if (msg.deltaSignatureType) signatureType = msg.deltaSignatureType;
     if (msg.deltaText) {
       inThinking = false;
       delta.content = msg.deltaText;
@@ -195,17 +202,20 @@ export function createDevinTurn({ onReasoningDelta } = {}) {
   };
 
   // Replay record for the next request: native message id, thinking and the
-  // first thinking block's signature, bound to the model that produced them.
-  turn.replay = (model) =>
-    createProviderReplay(DEVIN_PROVIDER_ID, [
+  // first thinking block's signature (with the signature type the stream
+  // reported), bound to the model that produced them.
+  turn.replay = (model) => {
+    const signature = signatures.find(Boolean);
+    return createProviderReplay(DEVIN_PROVIDER_ID, [
       {
         type: DEVIN_REPLAY_ITEM_TYPE,
         model,
         ...(turn.messageId ? { messageId: turn.messageId } : {}),
         ...(turn.thinking ? { thinking: turn.thinking } : {}),
-        ...(signatures.find(Boolean) ? { signature: signatures.find(Boolean) } : {}),
+        ...(signature ? { signature, ...(signatureType ? { signatureType } : {}) } : {}),
       },
     ]);
+  };
   return turn;
 }
 

@@ -486,6 +486,19 @@ test('thinking and signature replay natively for the same model; other models de
   assert.equal(native.messageId, 'bot-1');
   assert.deepEqual([native.prompt, native.thinking, native.signature], ['a1', 'native reasoning', 'sig-1']);
   assert.equal(native.signatureType, undefined);
+  // A signature type the stream reported rides back with its signature.
+  const typed = build(
+    [
+      history[0],
+      {
+        ...history[1],
+        providerReplay: devinReplay('claude-x', { thinking: 't', signature: 'sig-1', signatureType: 'anthropic' }),
+      },
+      history[2],
+    ],
+    { model: 'claude-x' }
+  ).wire.chatMessagePrompts[1];
+  assert.deepEqual([typed.signature, typed.signatureType], ['sig-1', 'anthropic']);
   assert.match(otherModel.messageId, UUID_RE);
   assert.deepEqual([otherModel.prompt, otherModel.thinking, otherModel.signature], ['other\na2', undefined, undefined]);
   assert.deepEqual([otherProvider.prompt, otherProvider.thinking], ['a3', undefined]);

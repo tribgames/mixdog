@@ -185,6 +185,7 @@ function assistantPrompt(message, model, messageId) {
   }));
   const thinking = native?.thinking || '';
   const signature = native?.signature || '';
+  const signatureType = (signature && native?.signatureType) || '';
   if (!prompt && !thinking && !signature && !toolCalls.length) return null;
   return {
     // Native assistant ids are the response's own message id.
@@ -193,6 +194,8 @@ function assistantPrompt(message, model, messageId) {
     prompt,
     ...(thinking ? { thinking } : {}),
     ...(signature ? { signature } : {}),
+    // The signature type the stream reported for that signature, echoed back.
+    ...(signatureType ? { signatureType } : {}),
     toolCalls,
   };
 }

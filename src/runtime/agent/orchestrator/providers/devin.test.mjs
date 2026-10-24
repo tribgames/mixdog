@@ -151,9 +151,10 @@ test('streams text and thinking, reports usage, and keeps the native replay reco
     [
       streamReply([
         data({ messageId: 'bot-1', deltaThinking: 'Let me ' }),
-        data({ deltaThinking: 'think', deltaSignature: 'sig-abc' }),
-        data({ deltaSignature: 'not-on-a-thinking-frame' }),
+        data({ deltaThinking: 'think', deltaSignature: 'sig-' }),
         data({ deltaText: 'Hel' }),
+        // The rest of the signature arrives late, behind the text.
+        data({ deltaSignature: 'abc', deltaSignatureType: 'anthropic' }),
         data({ deltaText: 'lo', stopReason: StopReason.STOP_PATTERN }),
         data({ usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 100 } }),
         trailer(),
@@ -313,6 +314,42 @@ test('partial tool JSON is never executed: a cut frame fails, unparsable final a
     assert.equal(result.toolCalls[0].arguments.__rawArguments, raw);
   }
   for (const call of dispatched) assert.equal(call.arguments.__invalidToolArgs, true, 'never real arguments');
+});
+
+test('a response cut off before its trailer is a truncated stream: its complete tool calls never dispatch', async () => {
+  const call = data({ deltaToolCalls: [{ id: 'k1', name: 'read', argumentsJson: '{"path":"a.ts"}' }] });
+  const server = fakeDevin([
+    streamReply([data({ deltaText: 'Reading.' }), call]),
+    streamReply([call, data({ stopReason: StopReason.FUNCTION_CALL })]),
+  ]);
+  const dispatched = [];
+  const opts = { onToolCall: (entry) => dispatched.push(entry) };
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(provider(server).send([{ role: 'user', content: 'x' }], 'claude-x', TOOLS, opts), (error) => {
+      assert.equal(error.code, 'protocol');
+      assert.match(error.message, /without an end-of-stream trailer/);
+      assert.equal(error.truncatedStream, true);
+      assert.equal(error.retryable, true);
+      return true;
+    });
+  }
+  assert.equal(dispatched.length, 0);
+});
+
+test('arguments the server could not parse (invalidJsonStr) are repaired or marked, never run as {}', async () => {
+  const server = fakeDevin([
+    streamReply([
+      data({ deltaToolCalls: [{ id: 'i1', name: 'read', invalidJsonStr: "{'path': 'a.ts'}", invalidJsonErr: 'quote' }] }),
+      trailer(),
+    ]),
+    streamReply([data({ deltaToolCalls: [{ id: 'i2', name: 'read', invalidJsonStr: '{"path":' }] }), trailer()]),
+  ]);
+  const devin = provider(server);
+  const send = () => devin.send([{ role: 'user', content: 'x' }], 'claude-x', TOOLS, {});
+  assert.deepEqual((await send()).toolCalls[0].arguments, { path: 'a.ts' });
+  const marked = (await send()).toolCalls[0].arguments;
+  assert.equal(marked.__invalidToolArgs, true);
+  assert.equal(marked.__rawArguments, '{"path":');
 });
 
 test('cancellation rejects with the caller reason and stops the stream', async () => {
