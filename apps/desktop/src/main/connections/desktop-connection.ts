@@ -19,7 +19,7 @@ import { describeConnectFailure } from '../ssh/connect-failure';
 import { REMOTE_INSTALL_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS } from '../ssh/remote-bootstrap';
 import { RemoteSession, type RemoteDaemonConnector, type RemoteSessionConfig } from '../ssh/remote-session';
 import { parseSshTarget } from '../ssh/ssh-command';
-import { currentSshContext, type SshModelLogin } from '../ssh/ssh-context';
+import { currentSshContext, runWithSshContext, type SshHostSettings, type SshModelLogin } from '../ssh/ssh-context';
 import {
   ConnectionLink,
   LINK_STABLE_RESET_MS,
@@ -132,6 +132,17 @@ interface RemoteBinding {
   session: RemoteSession;
   readonly connector: RemoteDaemonConnector;
   userDataPath: string | null;
+  /** The saved settings (identity file, ...) the connect attempt that created
+   *  this connection ran under; later reconnects run outside any attempt. */
+  settings: SshHostSettings | undefined;
+}
+
+/** Runs ssh work of a connection under its retained settings, unless the
+ *  caller already runs under an attempt that carries its own. */
+function underSettings<T>(binding: RemoteBinding, run: () => T): T {
+  const current = currentSshContext();
+  if (current?.settings || !binding.settings) return run();
+  return runWithSshContext({ ...current, settings: binding.settings }, run);
 }
 
 function bindRemote(
@@ -161,10 +172,11 @@ function bindRemote(
     config,
     session: first,
     userDataPath: null,
+    settings: currentSshContext()?.settings,
     connector: {
       display: first.display,
       async connect(log) {
-        const endpoint = await binding.session.connect(log);
+        const endpoint = await underSettings(binding, () => binding.session.connect(log));
         binding.userDataPath = endpoint.remapOptions(deps.sessionOptions()).userDataPath;
         return endpoint;
       },
@@ -214,8 +226,8 @@ function createConnectionLink(
       hold: () => session().hold(),
       release: () => session().release(),
       probe: (timeoutMs) => session().probeHealth(timeoutMs),
-      resetTunnel: () => session().resetTunnel(),
-      reviveTunnel: () => session().reviveTunnel(),
+      resetTunnel: () => underSettings(binding, () => session().resetTunnel()),
+      reviveTunnel: () => underSettings(binding, () => session().reviveTunnel()),
       retryService: () => void client.retryNow().catch(() => {}),
       stoppedBy: () => {
         const failure = session().stoppedBy;
@@ -491,9 +503,12 @@ export function createDesktopConnection(
         panels.link.retry();
         return;
       }
+      const attempted = currentSshContext()?.settings;
       await reopenRemote(binding);
       panels.link.reopening();
       await client.reattach();
+      // A user's attempt authenticated with these: later reconnects keep them.
+      if (attempted) binding.settings = attempted;
     },
     dispose() {
       disposal ??= (async () => {

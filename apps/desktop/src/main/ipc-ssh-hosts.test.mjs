@@ -218,6 +218,46 @@ test('entered settings that change an already-open server are refused, so a wron
   assert.equal(same.result.ok, true);
 });
 
+test('concurrent first connects of one server are serialized: the second never saves a key the first connection did not log in with', async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const s = await setup({ open: () => gate });
+  const first = s.connectTo('root@race.example.com', { settings: { identityFile: '~/.ssh/good' } });
+  await untilOpening(s);
+  const second = s.connectTo('root@race.example.com', { settings: { identityFile: '~/.ssh/untested' } });
+  // The second waits for the first instead of opening (the manager would reuse the first connection).
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(opens(s).length, 1);
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.result.ok, true);
+  assert.deepEqual(b.result, { ok: false, failure: { kind: 'already-connected' } });
+  assert.equal(opens(s).length, 1);
+  assert.equal((await s.invoke('sshListHosts'))[0].settings.identityFile, '~/.ssh/good');
+});
+
+test('a queued connect runs normally when the first one failed', async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  let calls = 0;
+  const s = await setup({
+    open: async () => {
+      if (calls++ === 0) {
+        await gate;
+        throw new SshError('ssh root@retry.example.com failed:\nboom', 'terminal', 'boom', 255);
+      }
+    },
+  });
+  const first = s.connectTo('root@retry.example.com', { settings: { identityFile: '~/.ssh/bad' } });
+  await untilOpening(s);
+  const second = s.connectTo('root@retry.example.com', { settings: { identityFile: '~/.ssh/fixed' } });
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.result.ok, false);
+  assert.equal(b.result.ok, true);
+  assert.equal((await s.invoke('sshListHosts'))[0].settings.identityFile, '~/.ssh/fixed');
+});
+
 test('a key file starting with "-" in the connect request is refused before anything connects', async () => {
   const s = await setup();
   const { attemptId } = await s.invoke('sshInspectHostKey', 'root@bad.example.com');
@@ -417,6 +457,26 @@ test('a cancelled attempt neither saves the server nor leaves its window open', 
   assert.equal(s.opened.size, 0);
 });
 
+test('an attempt cancelled while queued behind another on the same server pins and replaces no host key', async () => {
+  const release = Promise.withResolvers();
+  let inspections = 0;
+  const s = await setup({ open: () => release.promise, inspect: async () => (inspections++ === 0 ? TRUSTED : UNKNOWN_KEY) });
+  const first = await s.invokeFrom(s.win, 'sshInspectHostKey', 'root@queue.example.com');
+  const second = await s.invokeFrom(s.other, 'sshInspectHostKey', 'root@queue.example.com');
+  const running = s.invokeFrom(s.win, 'sshConnect', { attemptId: first.attemptId });
+  await untilOpening(s);
+  const queued = s.invokeFrom(s.other, 'sshConnect', { attemptId: second.attemptId, trustHostKey: true });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await s.invokeFrom(s.other, 'sshCancel', second.attemptId);
+  release.resolve();
+  const [done, cancelled] = await Promise.all([running, queued]);
+  assert.equal(done.ok, true);
+  assert.equal(cancelled.ok, false);
+  assert.equal(s.pins.length, 0);
+  assert.equal(s.calls.some((call) => call[0] === 'pin' || call[0] === 'replace'), false);
+  assert.equal(opens(s).length, 1);
+});
+
 test('cancelling before connect ends the attempt, so a later connect is refused', async () => {
   const s = await setup({ inspect: async () => UNKNOWN_KEY });
   const { attemptId } = await s.invoke('sshInspectHostKey', 'root@10.0.0.1');
@@ -467,7 +527,8 @@ test('concurrent first connections to one target share a single saved-host id', 
   const second = await s.invokeFrom(s.other, 'sshInspectHostKey', 'root@10.0.0.1');
   const a = s.invokeFrom(s.win, 'sshConnect', { attemptId: first.attemptId });
   const b = s.invokeFrom(s.other, 'sshConnect', { attemptId: second.attemptId });
-  while (opens(s).length < 2) await new Promise((resolve) => setImmediate(resolve));
+  // Attempts on one target run one at a time: the second opens once the first is done.
+  while (opens(s).length < 1) await new Promise((resolve) => setImmediate(resolve));
   release.resolve();
   const [resultA, resultB] = await Promise.all([a, b]);
   assert.equal(resultA.host.id, resultB.host.id);
@@ -803,7 +864,7 @@ test('the same server spelled with another letter case is one saved server, also
   const b = await s.invokeFrom(s.other, 'sshInspectHostKey', 'root@vps.example.com');
   const first = s.invokeFrom(s.win, 'sshConnect', { attemptId: a.attemptId });
   const second = s.invokeFrom(s.other, 'sshConnect', { attemptId: b.attemptId });
-  while (opens(s).length < 2) await new Promise((resolve) => setImmediate(resolve));
+  while (opens(s).length < 1) await new Promise((resolve) => setImmediate(resolve));
   release.resolve();
   const [one, two] = await Promise.all([first, second]);
   assert.equal(one.host.id, two.host.id);

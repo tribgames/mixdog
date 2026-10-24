@@ -155,6 +155,7 @@ export function createConnectHandlers(deps: ConnectHandlerDeps): {
 } {
   const { connections, attempts, platform } = deps;
   const reserveHost = createHostReservations();
+  const lockTarget = createTargetLocks();
 
   /** Opens the server window and, once it is up, saves the server. A cancelled
    *  attempt neither saves nor leaves the window it just opened. */
@@ -204,7 +205,13 @@ export function createConnectHandlers(deps: ConnectHandlerDeps): {
     }
     attempt.state = 'connecting';
     let releaseHost = (): void => undefined;
+    // Validate, open and save run one at a time per server: a queued attempt
+    // sees what the first one left (a live connection, the saved settings)
+    // instead of reusing its connection with settings it never tested.
+    const unlock = await lockTarget(sshTargetKey(attempt.target));
     try {
+      // Cancelled (or its window closed) while queued: no trust is changed for it.
+      if (attempt.cancelled) return cancelledResult();
       const { target } = attempt;
       const reservation = reserveHost(await deps.store(), target);
       releaseHost = reservation.release;
@@ -251,11 +258,30 @@ export function createConnectHandlers(deps: ConnectHandlerDeps): {
       return result;
     } finally {
       releaseHost();
+      unlock();
       if (attempt.state === 'connecting') attempts.drop(attempt);
     }
   }
 
   return { open, connect };
+}
+
+/** A lock per target: resolves with its release once every earlier holder released. */
+function createTargetLocks(): (key: string) => Promise<() => void> {
+  const tails = new Map<string, Promise<void>>();
+  return async (key) => {
+    const previous = tails.get(key) ?? Promise.resolve();
+    let release = (): void => undefined;
+    const tail = new Promise<void>((resolve) => {
+      release = () => {
+        if (tails.get(key) === tail) tails.delete(key);
+        resolve();
+      };
+    });
+    tails.set(key, tail);
+    await previous;
+    return release;
+  };
 }
 
 /**
