@@ -162,9 +162,10 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       // settle, even if focus momentarily remains in the covered editor. Only a
       // PRESENTED dialog counts: Settings and the command surfaces stay mounted
       // while parked, and treating those as modal killed the whole keymap.
-      if (modalDialogPresented()) return;
+      // The keymap is resolved first (it reads only the event): a plain
+      // keystroke matches nothing and never asks about dialogs.
       const run = resolve(event);
-      if (!run) return;
+      if (!run || modalDialogPresented()) return;
       event.preventDefault();
       // Capture + stopImmediatePropagation: xterm, Monaco and the composer
       // never see a workbench shortcut, so the SAME key does the SAME thing on

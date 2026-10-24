@@ -20,6 +20,7 @@ import {
 import { useRoomContacts } from './agent-room-parts';
 import { setPetIslandReserve } from './composer-island-state';
 import { isSshConnectionWindow } from './desktop-connection';
+import { registerElements } from './element-registry';
 import { isMobileRemoteSurface } from './mobile-surface';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSessionAttentionIndex } from './session-attention-index';
@@ -231,6 +232,11 @@ const FLOATING_SELECTOR =
  *  of it like a menu: the bot stays on the conversation's side of them. */
 const SIDE_PANEL_SELECTOR = '.workbench-side-panel, .pane-side-dock';
 
+/** The layer and panel candidates, registered as they mount, unmount or
+ *  change role/class: a publish reads these, never the whole document (a
+ *  hidden but mounted dock panel can hold ~50k nodes). */
+const layerElements = registerElements(`${FLOATING_SELECTOR}, ${SIDE_PANEL_SELECTOR}`, ['role', 'class']);
+
 const roundedRect = (box: DOMRect): DesktopPetRect => ({
   x: Math.round(box.left),
   y: Math.round(box.top),
@@ -263,7 +269,7 @@ function subscribeModalBackdrop(listener: () => void): () => void {
  *  page) and have a size (cut out of the pet, which shows behind them). */
 export function floatingLayers(): DesktopPetLayers {
   const rects: DesktopPetRect[] = [];
-  for (const element of document.querySelectorAll(`${FLOATING_SELECTOR}, ${SIDE_PANEL_SELECTOR}`)) {
+  for (const element of layerElements.list()) {
     const style = window.getComputedStyle(element);
     const floats =
       element.matches(SIDE_PANEL_SELECTOR) ||
@@ -414,8 +420,8 @@ function watchComposerCard(
 }
 
 /** Publishes the open floating layers, at most once a frame. `beforePublish`
- *  runs first, in the same frame callback (panel discovery: one document
- *  query a frame, however many DOM mutations arrived). */
+ *  runs first, in the same frame callback (the side panels' observers follow
+ *  the registered panels, however many DOM mutations arrived). */
 function watchLayers(publish: (layers: DesktopPetLayers) => void, beforePublish: () => void) {
   let frame = 0;
   const publishNow = () => {
@@ -437,14 +443,14 @@ function watchLayers(publish: (layers: DesktopPetLayers) => void, beforePublish:
 
 /** Calls `onChange` when a side panel's box changes without a DOM insertion:
  *  a resize drag (width via an inline style or token) or a retained panel
- *  opening/closing in place (`hidden`). `track` re-finds the panels. */
+ *  opening/closing in place (`hidden`). `track` follows the registered panels. */
 function watchSidePanels(onChange: () => void) {
   const resize = new ResizeObserver(onChange);
   const attributes = new MutationObserver(onChange);
   let observed: Element[] = [];
   return {
     track: () => {
-      const panels = [...document.querySelectorAll(SIDE_PANEL_SELECTOR)];
+      const panels = layerElements.list().filter((element) => element.matches(SIDE_PANEL_SELECTOR));
       if (panels.length === observed.length && panels.every((panel, index) => panel === observed[index])) return;
       resize.disconnect();
       attributes.disconnect();
@@ -464,34 +470,46 @@ function watchSidePanels(onChange: () => void) {
 /** Publishes the focused pane's composer card rect (CSS px) as it moves or
  *  resizes, and null when no card shows: main pins the pet onto it. */
 function PetComposerAnchor({ focusKey }: { focusKey: string }) {
+  // Main's answer: whether the pinned bot stands over the transcript's
+  // column (the live status row then drops its token readout,
+  // 14-live-activity.css), and the width it takes at the card's right end
+  // (the card's island goes compact rather than run under it). Main sends it
+  // only when it changes, so it is held across focus changes: the same bot
+  // beside another pane's card sends nothing new, and that pane's island
+  // takes the held width at once.
+  const reserve = useRef(0);
+  const shareCurrent = useRef(() => {});
+  useEffect(() => {
+    const stopAppLayout = petApi()?.subscribeDesktopPetAppLayout?.((layout) => {
+      setPetOverTranscript(layout.overTranscript);
+      reserve.current = layout.islandReserve;
+      shareCurrent.current();
+    });
+    return () => {
+      stopAppLayout?.();
+      setPetOverTranscript(false);
+      setPetIslandReserve(null, 0);
+    };
+  }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: focusKey re-finds the focused pane's card
   useEffect(() => {
     const api = petApi();
     if (!api?.publishDesktopPetComposer) return;
-    // Main's answer: whether the pinned bot stands over the transcript's
-    // column (the live status row then drops its token readout,
-    // 14-live-activity.css), and the width it takes at the card's right end
-    // (the card's island goes compact rather than run under it).
-    let reserve = 0;
     const shareReserve = (card: Element | null) =>
-      setPetIslandReserve(card?.closest('.composer-region') ?? null, reserve);
+      setPetIslandReserve(card?.closest('.composer-region') ?? null, reserve.current);
     const cardWatch = watchComposerCard(
       onChange((composer) => api.publishDesktopPetComposer?.(composer)),
       shareReserve
     );
     const { measure } = cardWatch;
-    const stopAppLayout = api.subscribeDesktopPetAppLayout?.((layout) => {
-      setPetOverTranscript(layout.overTranscript);
-      reserve = layout.islandReserve;
-      shareReserve(cardWatch.card());
-    });
+    shareCurrent.current = () => shareReserve(cardWatch.card());
     // The chat look, read off the card (skin plates scope their tokens there).
     const sendTheme = onChange<DesktopPetTheme>((theme) => api.publishDesktopPetTheme?.(theme));
     const publishTheme = () => sendTheme(composerTheme(cardWatch.card() ?? document.documentElement));
     // The app's own menus/popovers/dialogs: the pet shows behind them.
     // Checked once a frame after DOM changes (portals mount into <body>).
-    // Side panels (found again each frame, before publishing) change width
-    // (a resize drag) and `hidden` in place.
+    // Side panels (the registered ones, followed before publishing) change
+    // width (a resize drag) and `hidden` in place.
     const layersWatch = watchLayers(
       onChange((layers) => api.publishDesktopPetLayers?.(layers)),
       () => sidePanels.track()
@@ -505,6 +523,8 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     // A popover that stays mounted and opens in place (data-open, e.g. the
     // context gauge's card) is a layer change too.
     const sidePanels = watchSidePanels(scheduleLayers);
+    // A layer or panel registered, removed or moved (a role or class flip too).
+    const stopLayerMembership = layerElements.subscribe(scheduleLayers);
     const mutations = new MutationObserver((records) => {
       scheduleLayers();
       if (
@@ -522,8 +542,11 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
       attributes: true,
       attributeFilter: ['data-ready', 'data-open'],
     });
-    // Such a popover turns visible or hidden only when its fade ends.
+    // Such a popover turns visible or hidden only when its fade ends; a layer
+    // also settles after its entrance animation or moves with a scroll.
     document.addEventListener('transitionend', scheduleLayers, true);
+    document.addEventListener('animationend', scheduleLayers, true);
+    document.addEventListener('scroll', scheduleLayers, { capture: true, passive: true });
     // Backstop: a panel moved by a sibling's resize changes no box of its own.
     document.addEventListener('pointerup', scheduleLayers, true);
     // Theme, skin or accent changes land on <html> (attributes, inline tokens).
@@ -538,13 +561,14 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     publishLayers();
     return () => {
       cardWatch.dispose();
-      stopAppLayout?.();
+      shareCurrent.current = () => {};
       stopModalBackdrop();
-      setPetOverTranscript(false);
-      setPetIslandReserve(null, 0);
       mutations.disconnect();
+      stopLayerMembership();
       sidePanels.dispose();
       document.removeEventListener('transitionend', scheduleLayers, true);
+      document.removeEventListener('animationend', scheduleLayers, true);
+      document.removeEventListener('scroll', scheduleLayers, true);
       document.removeEventListener('pointerup', scheduleLayers, true);
       looks.disconnect();
       layersWatch.dispose();

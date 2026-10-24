@@ -1,4 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
+import { registerElements } from './element-registry';
 
 const SURFACE_INTERACTIVE_SELECTOR = [
   'a[href]',
@@ -72,12 +73,18 @@ export function shouldFocusSurfaceInput(
  *  of those actually owns the keyboard. */
 const PARKED_SURFACE_SELECTOR = '[inert],[aria-hidden="true"],[data-surface-active="false"]';
 
-/** The topmost presented modal dialog (last in document order), or null. */
+/** Every mounted `aria-modal="true"` element, registered as it mounts,
+ *  unmounts or flips the attribute: the keydown path never scans the document. */
+const modalDialogs = registerElements('[aria-modal="true"]', ['aria-modal']);
+
+/** The topmost presented modal dialog (last in document order), or null.
+ *  Parked or presented is read at call time, walking up from each candidate. */
 export function presentedModalDialog(): HTMLElement | null {
-  const presented = Array.from(document.querySelectorAll<HTMLElement>('[aria-modal="true"]')).filter(
-    (dialog) => !dialog.closest(PARKED_SURFACE_SELECTOR)
-  );
-  return presented[presented.length - 1] ?? null;
+  const candidates = modalDialogs.list();
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    if (!candidates[index].closest(PARKED_SURFACE_SELECTOR)) return candidates[index] as HTMLElement;
+  }
+  return null;
 }
 
 export function modalDialogPresented(): boolean {

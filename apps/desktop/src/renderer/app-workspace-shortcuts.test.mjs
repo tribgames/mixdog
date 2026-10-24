@@ -344,3 +344,74 @@ test('Ctrl+Alt+N starts a task without a project; Ctrl+N is unchanged; AltGr is 
   assert.equal(await press({ key: 'N', code: 'KeyN', ctrlKey: true, altKey: true, shiftKey: true }), false);
   assert.deepEqual(calls, []);
 });
+
+test('a presented modal dialog outranks the keymap, a parked one does not, and plain typing never queries the document', async (t) => {
+  const host = document.createElement('main');
+  const field = document.createElement('textarea');
+  const parked = document.createElement('div');
+  parked.setAttribute('aria-hidden', 'true');
+  parked.innerHTML = '<section role="dialog" aria-modal="true"></section>';
+  document.body.append(host, field, parked);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    field.remove();
+    parked.remove();
+  });
+  const calls = [];
+  const noop = () => {};
+  await act(async () => {
+    root.render(
+      React.createElement(Harness, {
+        actions: {
+          tabs: [],
+          activeTabKey: '',
+          navigateTab: noop,
+          startTask: () => calls.push('start'),
+          startProjectlessTask: noop,
+          openSettings: noop,
+          toggleSidebar: noop,
+          toggleDock: noop,
+          togglePanel: noop,
+          openQuickAccess: noop,
+          openCommandPalette: noop,
+          openFindInFiles: noop,
+          openTabSwitcher: noop,
+          focusSiblingPane: noop,
+          focusVerticalPane: noop,
+          navigateBack: noop,
+          navigateForward: noop,
+        },
+      })
+    );
+  });
+  const press = async (init) => {
+    const event = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    await act(async () => {
+      field.dispatchEvent(event);
+    });
+    return event.defaultPrevented;
+  };
+  const ctrlN = { key: 'n', code: 'KeyN', ctrlKey: true };
+  assert.equal(await press(ctrlN), true, 'a parked dialog leaves the keymap working');
+  parked.removeAttribute('aria-hidden');
+  assert.equal(await press(ctrlN), false, 'the same dialog presented owns the key');
+  parked.setAttribute('aria-hidden', 'true');
+  assert.equal(await press(ctrlN), true, 'parked again');
+  assert.deepEqual(calls, ['start', 'start']);
+
+  const wide = (self) => self === document || self === document.documentElement || self === document.body;
+  let queries = 0;
+  const original = window.Document.prototype.querySelectorAll;
+  window.Document.prototype.querySelectorAll = function (...args) {
+    if (wide(this)) queries += 1;
+    return original.apply(this, args);
+  };
+  try {
+    for (const key of 'typing') assert.equal(await press({ key }), false);
+  } finally {
+    window.Document.prototype.querySelectorAll = original;
+  }
+  assert.equal(queries, 0);
+});
