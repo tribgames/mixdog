@@ -922,7 +922,6 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   --agent-contact-avatar-size: 48px;
   --agent-contact-padding: 6px 8px 6px 10px;
   --agent-contact-gap: 8px;
-  --agent-contact-min-height: 60px;
   /* The app's own scale: name = UI size, time = meta size, the preview one
      step under it (KakaoTalk PC's 12px), each on a fixed line so every row is
      the same height and a line holds more of the message. */
@@ -930,6 +929,9 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   --agent-contact-name-line: var(--mx-line-ui);
   --agent-contact-preview: var(--mx-font-micro);
   --agent-contact-preview-line: var(--mx-line-micro);
+  /* The full text block (name + the preview's two reserved lines) plus the
+     6px block padding: a name-only row is as tall as every other row. */
+  --agent-contact-min-height: calc(var(--agent-contact-name-line) + 2 * var(--agent-contact-preview-line) + 12px);
   --agent-contact-time: var(--agent-contact-preview);
   /* Fits the widest COMPACT time label of the locale ("오후 12:59", "어제",
      "12월 28일"), measured once in em of the time size with tabular figures
@@ -953,7 +955,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   opacity: 0.55;
 }
 /* The text block: name | time, preview | status; the right column is always
-   reserved. The block centres on the face, so one preview line sits mid-row. */
+   reserved. The block (name + two preview lines) centres on the face. */
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-body {
   display: grid;
   /* The right column is as wide as its actual time/status, not a reserved
@@ -990,10 +992,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 /* Unread: the time takes the accent, as a messenger marks a new message —
    keyed off the row's own flag, since a running/attention/error badge takes
    the status slot while the thread is still unread. */
-.utility-dock
-  .agent-chat-row[data-kind="contact"]
-  .agent-contact-aside[data-unread="true"]
-  > .agent-chat-time {
+.utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside[data-unread="true"] > .agent-chat-time {
   color: var(--mx-accent);
 }
 /* A pinned Lead's mark: a quiet pin under the time (and status). */
@@ -1002,11 +1001,15 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   color: var(--mx-text-faint);
 }
 /* The name is one line; the preview up to two (KakaoTalk), both inside the
-   text column — never under the time/status column. */
+   text column — never under the time/status column. The preview always holds
+   its two lines: it swaps between the last message and "Working" as a turn
+   starts and ends, and the badge padding below moves its wrap, so a box sized
+   to its text would grow and shrink the row (and move every row under it). */
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-body > .agent-chat-preview {
   grid-column: 1;
   grid-row: 2;
   min-width: 0;
+  height: calc(2 * var(--agent-contact-preview-line));
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1052,7 +1055,6 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 @container (max-width: 280px) {
   .utility-dock .agent-chat-row[data-kind="contact"] {
     --agent-contact-avatar-size: 32px;
-    --agent-contact-min-height: 54px;
   }
 }
 /* One status (attention > error > running > unread); "99+" fits the compact
