@@ -33,10 +33,11 @@ test('retirement distinguishes read, semantic, character and press/release lifet
       'scroll',
     ].map((action) => [{ action }, false]),
     ...['click', 'drag', 'key'].map((action) => [{ action }, true]),
-    [{ action: 'type', text: 'plain characters' }, false],
+    // macOS background typing posts key-down/key-up per character.
+    [{ action: 'type', text: 'plain characters' }, process.platform === 'darwin'],
     [{ action: 'type', text: 'line\nbreak' }, true],
     [{ action: 'type', text: 'point-targeted', x: 0, y: 0 }, true],
-    [{ action: 'sequence_step', step: { action: 'type', text: 'plain characters' } }, false],
+    [{ action: 'sequence_step', step: { action: 'type', text: 'plain characters' } }, process.platform === 'darwin'],
     [{ action: 'sequence_step', step: { action: 'type', text: 'line\nbreak' } }, true],
   ]) {
     const action = request.action;

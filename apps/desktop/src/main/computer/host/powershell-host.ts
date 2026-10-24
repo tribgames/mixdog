@@ -208,6 +208,7 @@ export function createPowerShellComputerHost(
       isAppOwnedWindow: (windowId) => Boolean(electronWindowForNativeId(windowId)),
     }),
     sessionIdFor,
+    recordDiagnostic: failureDiagnostics.record,
     recordProgress: (completed, inFlight) => {
       const state = execution.executionContext.getStore();
       if (state) state.progress = { completed, inFlight };

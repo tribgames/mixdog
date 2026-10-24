@@ -202,6 +202,7 @@ export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAct
   sessionIdFor(command: ComputerCommand): string;
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
   recordProgress?(completed: number, inFlight?: number): void;
+  recordDiagnostic?(sessionId: string, record: Record<string, unknown>): void;
   preflightSteps?(command: ComputerCommand, steps: ComputerCommand[]): Promise<void>;
   /** Late-bound: each step goes back through the router. */
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
@@ -335,49 +336,51 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
     }
     const stepsMs = elapsedMs(stepsStartedAt);
     const { rows, completedSteps, stoppedReason, finalWindowId, lastTransition } = sequence;
-    const completed = completedSteps === steps.length && !stoppedReason;
-    const captureStartedAt = performance.now();
-    let capture: Awaited<ReturnType<typeof captureAfterAction>>;
-    try {
-      capture = await captureAfterAction(command, finalWindowId, 0, 0);
-    } catch (error) {
-      // A failed capture must not hide a hold that may still be on the target.
-      if (holdCleanupError === undefined) throw error;
+    // A hold that may still keep the target non-activatable outranks why the
+    // steps stopped and must not wait for an observation: it takes the global
+    // takeover path like a standalone command, with no after-capture. The rows
+    // go to the run diagnostic; the message carries the counts for the agent.
+    if (holdCleanupError !== undefined) {
+      const lastCompleted = rows.filter((row) => row.ok === true).length;
+      host.recordDiagnostic?.(sessionIdFor(command), {
+        action: 'sequence',
+        stage: 'hold_cleanup',
+        ok: false,
+        code: 'input_cleanup_unconfirmed',
+        completed_steps: completedSteps,
+        total_steps: steps.length,
+        ...(stoppedReason ? { stopped_reason: stoppedReason } : {}),
+        steps: rows,
+      });
       throw new Error(
-        `input_cleanup_unconfirmed: ${errorMessage(holdCleanupError)}; the after-capture also failed: ${errorMessage(error)}`,
-        { cause: error }
+        `input_cleanup_unconfirmed: ${errorMessage(holdCleanupError)}; completed ${completedSteps}/${steps.length} steps` +
+          `${lastCompleted ? ` (last completed step ${lastCompleted})` : ''}${
+            stoppedReason ? `, stopped: ${stoppedReason}` : ''
+          }`,
+        { cause: holdCleanupError }
       );
     }
+    const completed = completedSteps === steps.length && !stoppedReason;
+    const captureStartedAt = performance.now();
+    const capture = await captureAfterAction(command, finalWindowId, 0, 0);
     const postCaptureMs = elapsedMs(captureStartedAt);
     const { unavailable: observationUnavailable, pixelUnavailable } = classifyComputerSequenceObservation(
       capture.metadata
     );
-    // A hold that may still keep the target non-activatable outranks why the
-    // steps stopped; the stop reason stays in stopped_reason.
-    const holdCleanupCode = holdCleanupError === undefined ? '' : 'input_cleanup_unconfirmed';
     const resultCode =
-      holdCleanupCode ||
       stoppedReason ||
       (observationUnavailable ? String(capture.metadata.code || 'observation_unavailable') : '');
     let escalation = 'inspect_failed_step';
     if (stoppedReason === 'target_transition') escalation = 'switch_target';
     else if (observationUnavailable) escalation = 'recapture';
     let verdict: Record<string, unknown> = { decision: 'escalate', recommended: escalation };
-    if (completed && !observationUnavailable && !holdCleanupCode) {
+    if (completed && !observationUnavailable) {
       verdict = { decision: 'verify_fresh_state' };
       if (pixelUnavailable) verdict.recommended = 'use_semantic_target';
     }
     const payload: Record<string, unknown> = {
-      ok: completed && !observationUnavailable && !holdCleanupCode,
+      ok: completed && !observationUnavailable,
       ...(activationUnprotected ? { activation_protection: 'unavailable' } : {}),
-      ...(holdCleanupCode
-        ? {
-            hold_cleanup: {
-              ok: false,
-              message: errorMessage(holdCleanupError),
-            },
-          }
-        : {}),
       action: 'sequence',
       window_id: windowId,
       completed,

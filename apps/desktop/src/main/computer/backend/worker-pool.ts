@@ -94,7 +94,9 @@ function classifyWorkerRequest(request: Record<string, unknown>): {
     backgroundPressRelease:
       computerActionHas(String(inputAction), 'backgroundPressRelease') ||
       (inputAction === 'type' &&
-        ((target?.x != null && target?.y != null) || String(target?.text ?? '').includes('\n'))),
+        (process.platform === 'darwin' ||
+          (target?.x != null && target?.y != null) ||
+          String(target?.text ?? '').includes('\n'))),
     pointerAction: POINTER_FEEDBACK_ACTIONS.includes(String(inputAction)),
   };
 }

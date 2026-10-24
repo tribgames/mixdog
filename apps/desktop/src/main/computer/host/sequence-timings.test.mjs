@@ -55,9 +55,11 @@ test('sequence reply exposes executed phases and one separate final observation 
 
 function holdRunner({ stepReply, release, delivery, capture }) {
   const events = [];
+  const diagnostics = [];
   const runner = createSequenceRunner({
     sessionIdFor: () => 's',
     freshObservedWindowScope: () => ({ primaryWindowId: 'hwnd:0x1', relatedWindowIds: ['hwnd:0x1'] }),
+    recordDiagnostic: (_session, record) => diagnostics.push(record),
     runCommand: async (command) => {
       events.push(`step:${command.action}:${command.input_continues === true}`);
       return { text: JSON.stringify(stepReply(command)) };
@@ -83,7 +85,7 @@ function holdRunner({ stepReply, release, delivery, capture }) {
         { action: 'key', keys: 'c' },
       ],
     });
-  return { events, run };
+  return { events, diagnostics, run };
 }
 
 test('a background sequence ends its worker holds before the capture, however it stops', async () => {
@@ -138,11 +140,7 @@ test('a sequence whose holds could not be ended does not report success', async 
       throw new Error('input_cleanup_unconfirmed: the background target could not be made activatable again');
     },
   });
-  const payload = JSON.parse((await run()).text);
-  assert.equal(payload.ok, false);
-  assert.equal(payload.code, 'input_cleanup_unconfirmed');
-  assert.equal(payload.hold_cleanup.ok, false);
-  assert.equal(payload.verdict.decision, 'escalate');
+  await assert.rejects(run(), /^Error: input_cleanup_unconfirmed: .*activatable/);
 });
 
 test('a hold cleanup failure outranks why the sequence stopped', async () => {
@@ -156,10 +154,11 @@ test('a hold cleanup failure outranks why the sequence stopped', async () => {
         : { ok: true, action: command.action },
     release: failRelease,
   });
-  const payload = JSON.parse((await stopped.run()).text);
-  assert.equal(payload.code, 'input_cleanup_unconfirmed');
-  assert.equal(payload.stopped_reason, 'background_target_hung', 'the stop reason stays as detail');
-  assert.match(payload.hold_cleanup.message, /worker_exited/);
+  await assert.rejects(stopped.run(), (error) => {
+    assert.match(error.message, /^input_cleanup_unconfirmed: worker_exited/);
+    assert.match(error.message, /stopped: background_target_hung/, 'the stop reason stays as detail');
+    return true;
+  });
 
   const yielded = holdRunner({
     stepReply: () => {
@@ -169,18 +168,20 @@ test('a hold cleanup failure outranks why the sequence stopped', async () => {
   });
   await assert.rejects(yielded.run(), (error) => {
     assert.match(error.message, /^input_cleanup_unconfirmed: worker_exited/);
-    assert.match(error.message, /user_input_active/);
-    assert.match(error.cause.message, /^user_input_active/);
+    assert.match(error.message, /stopped: user_input_active/);
     return true;
   });
 });
 
-test('a failed after-capture keeps a failed hold release as the reported failure', async () => {
+test('an unconfirmed hold release skips the after-capture and keeps counts and rows', async () => {
   const captureFails = async () => {
     throw new Error('observation_unavailable: no frame');
   };
   const unreleased = holdRunner({
-    stepReply: (command) => ({ ok: true, action: command.action }),
+    stepReply: (command) =>
+      command.keys === 'c'
+        ? { ok: false, action: command.action, code: 'background_target_hung', input_may_have_executed: true }
+        : { ok: true, action: command.action },
     release: async () => {
       throw new Error('worker_exited: the worker died');
     },
@@ -188,11 +189,18 @@ test('a failed after-capture keeps a failed hold release as the reported failure
   });
   await assert.rejects(unreleased.run(), (error) => {
     assert.match(error.message, /^input_cleanup_unconfirmed: worker_exited/);
-    assert.match(error.message, /observation_unavailable/);
-    assert.match(error.cause.message, /^observation_unavailable/);
+    assert.match(error.message, /completed 2\/3 steps \(last completed step 2\), stopped: background_target_hung/);
+    assert.match(error.cause.message, /^worker_exited/);
     return true;
   });
-  assert.deepEqual(unreleased.events.slice(-2), ['release:s', 'capture']);
+  assert.equal(unreleased.events.includes('capture'), false, 'no capture delays the takeover');
+  assert.deepEqual(unreleased.events.slice(-1), ['release:s']);
+  assert.equal(unreleased.diagnostics.length, 1);
+  assert.equal(unreleased.diagnostics[0].code, 'input_cleanup_unconfirmed');
+  assert.deepEqual(
+    unreleased.diagnostics[0].steps.map((row) => row.status),
+    ['succeeded', 'succeeded', 'uncertain']
+  );
 
   const released = holdRunner({
     stepReply: (command) => ({ ok: true, action: command.action }),
