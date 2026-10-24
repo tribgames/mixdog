@@ -233,7 +233,11 @@ final class MixdogDownloadHandler: NSObject, WKDownloadDelegate {
 final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUserNotificationCenterDelegate {
     static let shared = MixdogNativeBridge()
     static let handlerName = "mixdogNative"
+    /// Deny and Allow: an approval the PC's card allows once with a bare Enter (`allowOnce`).
     static let approvalCategory = "MIXDOG_APPROVAL"
+    /// Deny alone: any other approval opens the app on it to be decided there.
+    static let approvalDenyCategory = "MIXDOG_APPROVAL_DENY"
+    private static let labelsKey = "mixdog.notification.labels"
     private static let tokenKey = "mixdog.apns.token"
     private static let pendingKey = "mixdog.pending.actions"
     private static let askedKey = "mixdog.push.asked"
@@ -294,12 +298,7 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
     func configureNotifications() {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        let allow = UNNotificationAction(identifier: "allow", title: "Allow", options: [.foreground])
-        let deny = UNNotificationAction(identifier: "deny", title: "Deny", options: [.foreground])
-        center.setNotificationCategories([
-            UNNotificationCategory(
-                identifier: Self.approvalCategory, actions: [allow, deny], intentIdentifiers: [], options: [])
-        ])
+        registerCategories()
         // Keep the token fresh on every launch once the user has allowed alerts.
         refreshRegistration()
         // Coming back from Settings: the permission may have changed there.
@@ -309,6 +308,34 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
             self?.refreshRegistration()
             self?.notifyWeb()
         }
+    }
+
+    /// The approval actions in the card's order and words (거절 · 한 번만 허용), in the
+    /// web app's language once it said them (setNotificationLabels).
+    private func registerCategories() {
+        let labels = UserDefaults.standard.dictionary(forKey: Self.labelsKey) as? [String: String] ?? [:]
+        let deny = UNNotificationAction(identifier: "deny", title: labels["deny"] ?? "Deny", options: [.foreground])
+        let allow = UNNotificationAction(
+            identifier: "allow", title: labels["allowOnce"] ?? "Allow just once", options: [.foreground])
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(
+                identifier: Self.approvalCategory, actions: [deny, allow], intentIdentifiers: [], options: []),
+            UNNotificationCategory(
+                identifier: Self.approvalDenyCategory, actions: [deny], intentIdentifiers: [], options: []),
+        ])
+    }
+
+    /// False (nothing kept) when either label is missing.
+    private func setNotificationLabels(_ args: [String: Any]?) -> Bool {
+        let label = { (value: Any?) -> String in
+            String(((value as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        }
+        let deny = label(args?["deny"])
+        let allowOnce = label(args?["allowOnce"])
+        guard !deny.isEmpty, !allowOnce.isEmpty else { return false }
+        UserDefaults.standard.set(["deny": deny, "allowOnce": allowOnce], forKey: Self.labelsKey)
+        registerCategories()
+        return true
     }
 
     private func refreshRegistration() {
@@ -382,6 +409,8 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
             requestPush { replyHandler($0, nil) }
         case "openNotificationSettings":
             openNotificationSettings { replyHandler($0, nil) }
+        case "setNotificationLabels":
+            replyHandler(setNotificationLabels(body?["args"] as? [String: Any]), nil)
         case "peekPendingActions":
             let args = body?["args"] as? [String: Any]
             replyHandler(peekPendingActions(hostId: args?["hostId"] as? String ?? ""), nil)

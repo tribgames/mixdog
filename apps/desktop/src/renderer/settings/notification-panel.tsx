@@ -300,7 +300,7 @@ const EVENT_ROWS: ReadonlyArray<{ event: NotificationEvent; title: () => string;
     title: () => t('When a question arrives'),
     description: () => t('The agent stopped to wait for your answer.'),
   },
-  { event: 'approval', title: () => t('Approval requests') },
+  { event: 'approval', title: () => t('When an approval is requested') },
   { event: 'error', title: () => t('When a turn stops on an error') },
 ];
 
@@ -363,7 +363,7 @@ function DeviceSettings({
       <Group
         title={t('Quiet hours')}
         description={t(
-          'No notifications on this device in this window. Missed items stay as unread and “needs you” marks.'
+          'No notifications on this device in this window. Missed items stay as unread and “Approval needed” or “Answer needed” marks.'
         )}
       >
         <ToggleRow

@@ -72,7 +72,7 @@ export function createApnsSender({ config, now, origins }) {
     return `bearer ${apnsJwt.value}`;
   };
 
-  async function sendApns({ token, mx, reason, collapseKey, sandbox }) {
+  async function sendApns({ token, mx, collapseKey, sandbox }) {
     // The app reports its environment at registration (development builds are
     // sandbox, TestFlight/App Store are production); APNS_ENVIRONMENT only
     // decides for a subscription that did not say.
@@ -85,7 +85,8 @@ export function createApnsSender({ config, now, origins }) {
         alert: { title: 'Mixdog', body: '\u{1F514}' },
         'mutable-content': 1,
         sound: 'default',
-        ...(reason === 'approval-pending' ? { category: 'MIXDOG_APPROVAL' } : {}),
+        // No action category: whether an approval offers Allow is in the
+        // encrypted content, and the phone's extension picks it from there.
       },
       mx,
     };

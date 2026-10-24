@@ -65,6 +65,8 @@
     "Undo": "Rückgängig",
     "Video": "Video",
     "View": "Ansicht",
+    "Waiting for your answer.": "Wartet auf Ihre Antwort.",
+    "Waiting for your approval.": "Wartet auf Ihre Freigabe.",
     "Window": "Fenster",
     "Your active task remains in the desktop host. Reload the interface to continue.": "Ihre aktive Aufgabe bleibt auf dem Desktop-Host. Laden Sie die Schnittstelle neu, um fortzufahren."
   },
@@ -134,6 +136,8 @@
     "Undo": "Deshacer",
     "Video": "Vídeo",
     "View": "Ver",
+    "Waiting for your answer.": "Esperando tu respuesta.",
+    "Waiting for your approval.": "Esperando tu aprobación.",
     "Window": "Ventana",
     "Your active task remains in the desktop host. Reload the interface to continue.": "Su tarea activa permanece en el host de escritorio. Vuelva a cargar la interfaz para continuar."
   },
@@ -203,6 +207,8 @@
     "Undo": "Annuler",
     "Video": "Vidéo",
     "View": "Voir",
+    "Waiting for your answer.": "En attente de votre réponse.",
+    "Waiting for your approval.": "En attente de votre approbation.",
     "Window": "Fenêtre",
     "Your active task remains in the desktop host. Reload the interface to continue.": "Votre tâche active reste dans l'hôte de bureau. Rechargez l'interface pour continuer."
   },
@@ -272,6 +278,8 @@
     "Undo": "Annulla",
     "Video": "Video",
     "View": "Visualizza",
+    "Waiting for your answer.": "In attesa della tua risposta.",
+    "Waiting for your approval.": "In attesa della tua approvazione.",
     "Window": "Finestra",
     "Your active task remains in the desktop host. Reload the interface to continue.": "L'attività attiva rimane nell'host desktop. Ricaricare l'interfaccia per continuare."
   },
@@ -341,6 +349,8 @@
     "Undo": "元に戻す",
     "Video": "動画",
     "View": "見る",
+    "Waiting for your answer.": "回答を待っています。",
+    "Waiting for your approval.": "承認を待っています。",
     "Window": "窓",
     "Your active task remains in the desktop host. Reload the interface to continue.": "アクティブなタスクはデスクトップ ホストに残ります。続行するにはインターフェイスをリロードします。"
   },
@@ -410,6 +420,8 @@
     "Undo": "실행 취소",
     "Video": "영상",
     "View": "보기",
+    "Waiting for your answer.": "답변을 기다리고 있습니다.",
+    "Waiting for your approval.": "승인을 기다리고 있습니다.",
     "Window": "창",
     "Your active task remains in the desktop host. Reload the interface to continue.": "활성 작업은 데스크톱 호스트에 유지됩니다. 계속하려면 화면을 다시 불러오세요."
   },
@@ -479,6 +491,8 @@
     "Undo": "Desfazer",
     "Video": "Vídeo",
     "View": "Ver",
+    "Waiting for your answer.": "Aguardando sua resposta.",
+    "Waiting for your approval.": "Aguardando sua aprovação.",
     "Window": "Janela",
     "Your active task remains in the desktop host. Reload the interface to continue.": "Sua tarefa ativa permanece no host da área de trabalho. Recarregue a interface para continuar."
   },
@@ -548,6 +562,8 @@
     "Undo": "Отменить",
     "Video": "Видео",
     "View": "Посмотреть",
+    "Waiting for your answer.": "Ожидает вашего ответа.",
+    "Waiting for your approval.": "Ожидает вашего подтверждения.",
     "Window": "Окно",
     "Your active task remains in the desktop host. Reload the interface to continue.": "Ваша активная задача остается на хосте рабочего стола. Перезагрузите интерфейс, чтобы продолжить."
   },
@@ -617,6 +633,8 @@
     "Undo": "Hoàn tác",
     "Video": "Video",
     "View": "Xem",
+    "Waiting for your answer.": "Đang chờ bạn trả lời.",
+    "Waiting for your approval.": "Đang chờ bạn phê duyệt.",
     "Window": "Cửa sổ",
     "Your active task remains in the desktop host. Reload the interface to continue.": "Tác vụ đang hoạt động của bạn vẫn còn trong máy chủ để bàn. Tải lại giao diện để tiếp tục."
   },
@@ -686,6 +704,8 @@
     "Undo": "撤销",
     "Video": "视频",
     "View": "查看",
+    "Waiting for your answer.": "正在等待您的回答。",
+    "Waiting for your approval.": "正在等待您的批准。",
     "Window": "窗户",
     "Your active task remains in the desktop host. Reload the interface to continue.": "您的活动任务保留在桌面主机中。重新加载界面以继续。"
   },
@@ -755,6 +775,8 @@
     "Undo": "復原",
     "Video": "影片",
     "View": "查看",
+    "Waiting for your answer.": "正在等待您的回答。",
+    "Waiting for your approval.": "正在等待您的核准。",
     "Window": "窗戶",
     "Your active task remains in the desktop host. Reload the interface to continue.": "您的活動任務保留在桌面主機中。重新加載介面以繼續。"
   }

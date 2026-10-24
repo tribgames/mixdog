@@ -28,6 +28,10 @@ export interface NativePushContent {
   sessionId: string;
   reason: NativePushReason;
   approvalId?: string;
+  /** Only `true`: this PC's card allows the approval once with a bare Enter
+   *  (shared/approval-enter-rule.ts), so the phone may offer Allow. Absent, the
+   *  notification offers Deny and opens the app on the approval. */
+  allowOnce?: boolean;
   /** Relay device id of the sending PC (the `/d/<deviceId>/` route). */
   hostId?: string;
 }

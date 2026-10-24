@@ -17,6 +17,9 @@ final class MixdogPushStore {
   private static final String TOKEN = "fcm_token";
   private static final String ASKED = "permission_asked";
   private static final String PENDING = "pending_actions";
+  private static final String LABEL_DENY = "label_deny";
+  private static final String LABEL_ALLOW_ONCE = "label_allow_once";
+  private static final int LABEL_MAX = 40;
 
   private MixdogPushStore() {}
 
@@ -38,6 +41,29 @@ final class MixdogPushStore {
 
   static void setPermissionAsked(Context context) {
     prefs(context).edit().putBoolean(ASKED, true).apply();
+  }
+
+  /** The approval actions' words, as the web app's language says them (setNotificationLabels). */
+  static String denyLabel(Context context) {
+    return prefs(context).getString(LABEL_DENY, "Deny");
+  }
+
+  static String allowOnceLabel(Context context) {
+    return prefs(context).getString(LABEL_ALLOW_ONCE, "Allow just once");
+  }
+
+  /** False (nothing kept) when either label is empty. */
+  static boolean setLabels(Context context, String deny, String allowOnce) {
+    String denyText = label(deny);
+    String allowText = label(allowOnce);
+    if (denyText.isEmpty() || allowText.isEmpty()) return false;
+    prefs(context).edit().putString(LABEL_DENY, denyText).putString(LABEL_ALLOW_ONCE, allowText).apply();
+    return true;
+  }
+
+  private static String label(String value) {
+    String text = value == null ? "" : value.trim();
+    return text.length() > LABEL_MAX ? text.substring(0, LABEL_MAX) : text;
   }
 
   private static List<Map<String, String>> load(Context context) {

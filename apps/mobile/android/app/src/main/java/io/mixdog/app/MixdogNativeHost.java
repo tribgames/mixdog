@@ -231,6 +231,10 @@ public final class MixdogNativeHost implements WebViewCompat.WebMessageListener 
           return state().toString();
         case "openNotificationSettings":
           return openNotificationSettings() ? "true" : "false";
+        case "setNotificationLabels":
+          return MixdogPushStore.setLabels(activity, args.optString("deny", ""), args.optString("allowOnce", ""))
+              ? "true"
+              : "false";
         case "peekPendingActions":
           return MixdogPushStore.peekActions(activity, args.optString("hostId", "")).toString();
         case "ackPendingAction":

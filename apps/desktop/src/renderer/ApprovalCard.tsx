@@ -22,6 +22,7 @@ import { useRemoteHostImageUrl } from './local-image-preview';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { useSessionTitle } from './session-glance-store';
+import { approvalAllowIsPointerOnly, type PermissionScope, permissionChoices } from '../shared/approval-enter-rule';
 
 function approvalText(value: unknown, preferredKey: string): string {
   const preferred = asRecord(value)?.[preferredKey];
@@ -334,36 +335,6 @@ export function approvalCardModel(approval: Approval) {
 
 type CardModel = ReturnType<typeof approvalCardModel>;
 
-type PermissionScope = { id: string; kind: string; label: string };
-
-// A permission request's options are mapped to buttons by their KIND (never by
-// label text); a scope without a `kind` is read by its id. Rule:
-//  - 항상 허용 ← the first allow_always / always option;
-//  - 한 번만 허용 ← the narrowest once-type option: allow_once / once first,
-//    else the first session-scoped one (allow_session / session / allow_scoped);
-//  - reject / cancel kinds and unknown kinds get no button (거절 is the card's own).
-// Ties go to the option listed first. With no always option there is no always button.
-const ALWAYS_KINDS = ['allow_always', 'always'];
-const ONCE_KINDS = ['allow_once', 'once', 'allow_session', 'session', 'allow_scoped'];
-
-export function permissionChoices(scopes: readonly Record<string, unknown>[]): {
-  always: PermissionScope | null;
-  once: PermissionScope | null;
-} {
-  const list = scopes.map((scope) => ({
-    id: String(scope.id),
-    kind: String(scope.kind || scope.id).toLowerCase(),
-    label: String(scope.label || scope.id),
-  }));
-  const always = list.find((scope) => ALWAYS_KINDS.includes(scope.kind)) ?? null;
-  let once: PermissionScope | null = null;
-  for (const kind of ONCE_KINDS) {
-    once = list.find((scope) => scope.kind === kind) ?? null;
-    if (once) break;
-  }
-  return { always, once };
-}
-
 /** The numbered one-click rows of a card, in order (1–n). */
 export function approvalCardRows(
   model: CardModel,
@@ -406,19 +377,24 @@ export function approvalCardRows(
   }
   if (model.office) {
     return [
-      { label: officeLabel, decision: { approved: true } },
+      // response 'approve': this card's own click (remote-session-methods.ts
+      // refuses a bare Allow for a click-only approval).
+      { label: officeLabel, decision: { approved: true, response: 'approve' } },
       { label: t('Keep editing'), decision: { approved: false } },
     ];
   }
   if (model.action === 'payment') {
     return [
-      { label: t('Allow payment'), decision: { approved: true } },
+      { label: t('Allow payment'), decision: { approved: true, response: 'approve' } },
       { ...cancel, label: t('Deny') },
     ];
   }
   if (model.action === 'delete') {
     return [
-      { label: t('Delete {{n}} permanently', { n: model.details.count || '1' }), decision: { approved: true } },
+      {
+        label: t('Delete {{n}} permanently', { n: model.details.count || '1' }),
+        decision: { approved: true, response: 'approve' },
+      },
       { ...cancel, label: t('Deny') },
     ];
   }
@@ -985,8 +961,9 @@ function ToolApprovalCard({
   const denyRow = rows.find(
     (row) => typeof row.decision === 'object' && row.decision.approved === false && !row.decision.response
   );
-  // Payment and permanent delete are allowed by a click only.
-  const clickOnly = model.action === 'payment' || model.action === 'delete';
+  // Payment, permanent delete and an Office rollback or recovery discard are
+  // allowed by a click only (shared/approval-enter-rule.ts, as a notification's Allow).
+  const clickOnly = approvalAllowIsPointerOnly(approval);
   const permission = permissionChoices(model.kind === 'permission' ? model.scopes : []);
   const [primary, ...others] = rows;
   // "Always allow" is only ever pressed on purpose (a click, or Enter / Space

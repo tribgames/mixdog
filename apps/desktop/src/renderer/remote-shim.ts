@@ -43,7 +43,7 @@ import { installRemoteSync } from './remote-shim-sync';
   installPushSubscriptionSync(w.mixdogDesktop, REMOTE_CONNECTION_READY_EVENT);
   // The phone app's APNs/FCM token reaches the host over this same channel.
   (w as unknown as Record<string, unknown>)[REMOTE_NATIVE_PUSH_GLOBAL] = Object.freeze(createNativePushHost(ctx));
-  installNativePushBridge({ api: w.mixdogDesktop });
+  installNativePushBridge();
   // Settings → Connection on a remote surface: expose where this session is
   // connected so the panel shows live status instead of desktop-only pairing.
   (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer = ctx.serverBase || location.origin;

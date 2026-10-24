@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 
@@ -151,7 +152,7 @@ test('every control writes its patch for the selected device', async (t) => {
   await choose(document, 'Notification scope', 'Off');
   await clickEl(checkbox(document, 'When a reply finishes'));
   await clickEl(checkbox(document, 'When a question arrives'));
-  await clickEl(checkbox(document, 'Approval requests'));
+  await clickEl(checkbox(document, 'When an approval is requested'));
   await clickEl(checkbox(document, 'When a turn stops on an error'));
   await clickEl(checkbox(document, 'Schedule and webhook results'));
   await clickEl(checkbox(document, 'Taskbar flash'));
@@ -166,6 +167,18 @@ test('every control writes its patch for the selected device', async (t) => {
   ]);
   await settle();
   assert.equal(checkbox(document, 'When a reply finishes').checked, false, 'the re-read state shows the change');
+});
+
+test('approval items read as the app’s approval waits: 승인 요청이 왔을 때, and 승인 대기 marks', async (t) => {
+  const { document } = await mountPanel(t, makeApi());
+  const quietNote =
+    'No notifications on this device in this window. Missed items stay as unread and “Approval needed” or “Answer needed” marks.';
+  assert.ok(checkbox(document, 'When an approval is requested'));
+  assert.ok(document.body.textContent.includes(quietNote));
+  const ko = JSON.parse(readFileSync(new URL('../locales/ko.json', import.meta.url), 'utf8'));
+  assert.equal(ko['When an approval is requested'], '승인 요청이 왔을 때');
+  assert.match(ko[quietNote], /“승인 대기”/);
+  assert.doesNotMatch(ko[quietNote], /확인 필요/);
 });
 
 test('quiet hours: toggle, 30-minute localized times, days and the waiting exception', async (t) => {

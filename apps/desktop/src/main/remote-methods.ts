@@ -203,6 +203,13 @@ export interface RemoteMethodDependencies {
     }): Promise<unknown>;
     remove(clientId: string, token?: string): Promise<boolean>;
   };
+  /** Which approval a notification's Allow may answer (push-notifier.ts). Only
+   *  the relay leg supplies it; without it every such Allow opens the app. */
+  approvalNotifications?: {
+    approvalAllowsOnce(sessionId: string, approvalId: string): boolean;
+    /** Allowed only by a click on its card: a bare Allow for it is refused. */
+    approvalPointerOnly(sessionId: string, approvalId: string): boolean;
+  };
   terminals?: {
     ensure(
       id: string | null,
@@ -813,6 +820,7 @@ export function createRemoteMethods(
     terminals,
     push,
     nativePush,
+    approvalNotifications,
     browserRemote,
     hostRequest,
     visualize,
@@ -842,7 +850,7 @@ export function createRemoteMethods(
     listSessions: () => host.listSessions(),
     listAgentPool: () => host.listAgentPool(),
     searchSessionContent: ([query]) => host.searchSessionContent(requiredSessionContentQuery(query)),
-    ...sessionRemoteMethods(host, client, browserRemote),
+    ...sessionRemoteMethods(host, client, browserRemote, approvalNotifications),
     ...hostCapabilityRemoteMethods(host, browserRemote, invokeDesktopOperation),
     ...browserParityRemoteMethods(browserRemote),
     ...gitRemoteMethods(invokeDesktopOperation),

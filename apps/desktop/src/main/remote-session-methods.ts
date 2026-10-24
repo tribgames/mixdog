@@ -27,10 +27,16 @@ export const READ_NOT_HELD = 'This row is not in the transcript this device hold
 
 export const STALE_SESSION_VIEW_MESSAGE = `${STALE_SESSION_VIEW_MARKER} Review the latest messages, then send again.`;
 
+/** How the host took a notification's Allow / Deny: `answered`; `settled`
+ *  (already decided elsewhere, or no longer waiting); `open` (an Allow this
+ *  PC takes only in the app: it opens on the approval, decided there). */
+export type ApprovalNotificationAnswer = 'answered' | 'settled' | 'open';
+
 export function sessionRemoteMethods(
   host: DesktopService,
   client: RemoteMethodClient | undefined,
-  browserRemote: RemoteMethodDependencies['browserRemote']
+  browserRemote: RemoteMethodDependencies['browserRemote'],
+  approvalNotifications?: RemoteMethodDependencies['approvalNotifications']
 ): Record<string, RemoteMethod> {
   const connectionDevice = async (): Promise<string> => (await client?.deviceName?.()) || 'Web app';
   const sidebar = sessionSidebarActions(host);
@@ -141,14 +147,50 @@ export function sessionRemoteMethods(
         ...requiredAbortOptions(options),
         device: await connectionDevice(),
       }),
-    resolveToolApprovalForSession: async ([sessionId, id, decision]) =>
-      resolveToolApprovalAnnouncingGrant(
+    resolveToolApprovalForSession: async ([sessionId, id, decision]) => {
+      const session = requiredSessionId(sessionId);
+      const approvalId = requiredString(id, 'approval id', 1_024);
+      const answer = requiredToolApprovalDecision(decision);
+      // An older phone page answers a notification's Allow here with a bare
+      // { approved: true }. The card's own Allow on a payment, a permanent
+      // delete or an Office rollback says response 'approve' (ApprovalCard.tsx
+      // approvalCardRows), so a bare Allow for one of those is refused: the
+      // notification already opened the app on it, where it is decided.
+      if (
+        answer.approved &&
+        answer.response === undefined &&
+        approvalNotifications?.approvalPointerOnly(session, approvalId) === true
+      ) {
+        return false;
+      }
+      return resolveToolApprovalAnnouncingGrant(
         host,
         (name, args) => host.invokeDesktopOperation(name, args),
-        requiredSessionId(sessionId),
-        requiredString(id, 'approval id', 1_024),
-        { ...requiredToolApprovalDecision(decision), device: await connectionDevice() }
-      ),
+        session,
+        approvalId,
+        { ...answer, device: await connectionDevice() }
+      );
+    },
+    // A phone notification's Allow / Deny (native-push-bridge.ts). Deny answers
+    // as the card's 거절. Allow answers once, and only the approval the session
+    // shows now where this PC's card allows it with a bare Enter
+    // (push-notifier.ts approvalAllowsOnce); any other Allow (a payment, a
+    // permanent delete, an always-only permission, a sign-in...) is refused
+    // here, whatever the phone offered, and answered 'open'.
+    answerApprovalNotification: async ([sessionId, id, action]): Promise<ApprovalNotificationAnswer> => {
+      const session = requiredSessionId(sessionId);
+      const approvalId = requiredString(id, 'approval id', 1_024);
+      if (action !== 'allow' && action !== 'deny') throw new TypeError('action must be allow or deny.');
+      if (action === 'allow' && approvalNotifications?.approvalAllowsOnce(session, approvalId) !== true) return 'open';
+      const accepted = await resolveToolApprovalAnnouncingGrant(
+        host,
+        (name, args) => host.invokeDesktopOperation(name, args),
+        session,
+        approvalId,
+        { approved: action === 'allow', device: await connectionDevice() }
+      );
+      return accepted ? 'answered' : 'settled';
+    },
     inheritSession: ([sourceSessionId, selection, options]) =>
       host.inheritSession(
         requiredSessionId(sourceSessionId),

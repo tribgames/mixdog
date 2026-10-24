@@ -5,6 +5,7 @@
 // session that triggered it.
 import { createHash } from 'node:crypto';
 
+import { approvalAllowIsPointerOnly, approvalEnterAllowsOnce } from '../shared/approval-enter-rule';
 import { TURN_FAILED_TEXT } from './desktop-turn-notifier';
 import { createFinalAnswerWatcher } from './final-answer-watcher';
 import { encryptNativePush, type NativePushContent, type NativePushReason } from '../shared/native-push-crypto';
@@ -98,10 +99,25 @@ export function heldRequestPushText(agentName: string): string {
   return `${String(agentName || 'Mixy').slice(0, 60)}가 승인을 기다립니다`;
 }
 
+/** The approval a push is about, and whether the phone may offer Allow on it. */
+interface PushApproval {
+  id: string;
+  allowOnce: boolean;
+  /** A payment, permanent delete or Office rollback: allowed only by a click. */
+  pointerOnly?: boolean;
+}
+
 interface PushNotifier {
   onSessions(sessions: readonly DesktopSessionSummary[]): void;
   /** Live per-session snapshots: a new tool approval wakes a background phone. */
   onSessionState(update: DesktopSessionStateUpdate): void;
+  /** Whether a notification's Allow may answer `approvalId`: the approval the
+   *  session shows now, which this PC's card allows once with a bare Enter
+   *  (shared/approval-enter-rule.ts). Anything else is decided in the app. */
+  approvalAllowsOnce(sessionId: string, approvalId: string): boolean;
+  /** Whether `approvalId`, the approval the session shows now, is allowed only
+   *  by a click on its card (shared/approval-enter-rule.ts). */
+  approvalPointerOnly(sessionId: string, approvalId: string): boolean;
   /** Child agents and shell jobs: a Lead waiting on them has not answered yet. */
   onAgentPool(agents: readonly DesktopAgentPoolRow[]): void;
   /** A held request of an unattended run (held-request-host.mjs): pushed as
@@ -253,11 +269,11 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     turn: TurnCompletion,
     reason: PushReason,
     due: () => boolean,
-    approvalId?: string
+    approval?: PushApproval
   ): Promise<void> => {
     const event = EVENT_OF_REASON[reason];
     const held = new Set<string>();
-    const outcome = await send(turn, reason, deliveryGate(turn, event, held), approvalId);
+    const outcome = await send(turn, reason, deliveryGate(turn, event, held), approval);
     if (outcome.targets === 0) {
       options.onDiagnostic?.('suppressed', { sessionId: turn.sessionId, reason: 'no-subscription' });
     }
@@ -270,14 +286,14 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     const gate = deliveryGate(turn, event, null);
     const heldOnly: DeliveryGate = async (deviceId, foreground, target) =>
       held.has(deviceId) && (await gate(deviceId, foreground, target));
-    await send(turn, reason, heldOnly, approvalId);
+    await send(turn, reason, heldOnly, approval);
   };
 
   const send = async (
     turn: TurnCompletion,
     reason: PushReason,
     allow: DeliveryGate,
-    approvalId?: string,
+    approval?: PushApproval,
     onlyClientId?: string
   ): Promise<SendOutcome> => {
     // An attachment-only title (`[Image]` …) goes out as its kind's label.
@@ -286,7 +302,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     const outcome: SendOutcome = { targets: 0, sent: 0, failures: [] };
     const only = <T extends { clientId: string }>(rows: readonly T[]): T[] =>
       onlyClientId === undefined ? [...rows] : rows.filter((row) => row.clientId === onlyClientId);
-    const nativeDelivery = deliverNative(completion, reason, allow, outcome, only, approvalId);
+    const nativeDelivery = deliverNative(completion, reason, allow, outcome, only, approval);
     const hostId = options.hostId ? options.hostId.slice(0, 64) : '';
     // `hostId` names the PC that sent it: one browser hears from every PC it
     // is paired with, and a tap has to open the session on THAT PC.
@@ -396,7 +412,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     allow: DeliveryGate,
     outcome: SendOutcome,
     only: <T extends { clientId: string }>(rows: readonly T[]) => T[],
-    approvalId?: string
+    approval?: PushApproval
   ): Promise<void> => {
     const native = options.native;
     if (!native) return;
@@ -414,7 +430,9 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
           body: body.slice(0, NATIVE_BODY_CHARS),
           sessionId: completion.sessionId,
           reason,
-          ...(approvalId ? { approvalId: approvalId.slice(0, 120) } : {}),
+          ...(approval ? { approvalId: approval.id.slice(0, 120) } : {}),
+          // Inside the encryption: the relay never learns whether Allow is offered.
+          ...(approval?.allowOnce ? { allowOnce: true } : {}),
           ...(options.hostId ? { hostId: options.hostId.slice(0, 64) } : {}),
         };
         const sent = native.send({
@@ -468,19 +486,28 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   const notifiedApproval = new Map<string, string>();
   const notifiedInput = new Map<string, string>();
   const notifiedQuestion = new Map<string, string>();
+  // The tool approval each session shows now: a notification's Allow is taken
+  // for that very approval only, and only where a bare Enter allows it once.
+  const shownApprovals = new Map<string, PushApproval>();
   const onSessionState = (update: DesktopSessionStateUpdate): void => {
     const sessionId = String(update?.sessionId || '');
-    if (!sessionId || update.frameSource === 'replay') return;
+    if (!sessionId) return;
     const snapshot = update.snapshot as (PendingInputSnapshot & { toolApproval?: { id?: unknown } | null }) | null;
     const approval = snapshot?.toolApproval as { id?: unknown; kind?: unknown } | null | undefined;
     // A question has no Allow/Deny: it only opens the app.
     const isQuestion = approval?.kind === 'question';
-    notifyWait(
-      sessionId,
-      'approval-pending',
-      notifiedApproval,
-      approval && !isQuestion ? String(approval.id ?? 'pending') : null
-    );
+    const shown =
+      approval && !isQuestion
+        ? {
+            id: String(approval.id ?? 'pending'),
+            allowOnce: approvalEnterAllowsOnce(approval),
+            pointerOnly: approvalAllowIsPointerOnly(approval),
+          }
+        : null;
+    if (shown) shownApprovals.set(sessionId, shown);
+    else shownApprovals.delete(sessionId);
+    if (update.frameSource === 'replay') return;
+    notifyWait(sessionId, 'approval-pending', notifiedApproval, shown?.id ?? null, '', shown?.allowOnce);
     notifyWait(
       sessionId,
       'input-needed',
@@ -496,7 +523,8 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     reason: PushReason,
     seen: Map<string, string>,
     key: string | null,
-    preview = ''
+    preview = '',
+    allowOnce = false
   ): void => {
     if (!key) {
       seen.delete(sessionId);
@@ -522,7 +550,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
       reason,
       // Still open: answered on this PC meanwhile clears the key.
       () => seen.get(sessionId) === key,
-      reason === 'approval-pending' ? key : undefined
+      reason === 'approval-pending' ? { id: key, allowOnce } : undefined
     ).catch((error: unknown) => {
       options.onError?.(error instanceof Error ? error.message : String(error));
     });
@@ -568,6 +596,14 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
       watcher.onSessions(sessions);
     },
     onSessionState,
+    approvalAllowsOnce(sessionId, approvalId) {
+      const shown = shownApprovals.get(sessionId);
+      return shown?.allowOnce === true && shown.id === approvalId;
+    },
+    approvalPointerOnly(sessionId, approvalId) {
+      const shown = shownApprovals.get(sessionId);
+      return shown?.pointerOnly === true && shown.id === approvalId;
+    },
     onHeldRequest(event) {
       const sessionId = String(event?.sessionId || '');
       const requestId = String(event?.requestId || '');
@@ -595,9 +631,10 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
           leadFinished: false,
         },
         'approval-pending',
-        // An unattended run's request has no answer this notifier sees.
+        // An unattended run's request has no answer this notifier sees, nor
+        // content: the phone offers no Allow for it.
         () => true,
-        requestId
+        { id: requestId, allowOnce: false }
       ).catch((error: unknown) => {
         options.onError?.(error instanceof Error ? error.message : String(error));
       });

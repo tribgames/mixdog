@@ -318,7 +318,8 @@ test('email shows account, to, cc, subject and the body; payment and delete are 
     assert.deepEqual(pay.decisions, [], 'nor Enter or Space on the focused button');
     // A pointer or assistive-tech activation is a plain click.
     await act(async () => allow.click());
-    assert.deepEqual(pay.decisions, [{ approved: true }]);
+    // response 'approve' marks the card's own click (remote-session-methods.ts).
+    assert.deepEqual(pay.decisions, [{ approved: true, response: 'approve' }]);
   } finally {
     await ui.done();
   }

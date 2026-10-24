@@ -66,7 +66,7 @@ test('no credentials: no platform is advertised and sends fail gracefully', asyn
   assert.deepEqual(broken.platforms, []);
 });
 
-test('APNs request shape: token auth, headers, mutable-content, approval category', async (t) => {
+test('APNs request shape: token auth, headers, mutable-content, and no action category from the relay', async (t) => {
   const apns = await apnsServer(() => ({ status: 200 }));
   const push = createNativePush({ env: APNS_ENV, origins: { apnsProduction: apns.origin } });
   t.after(() => {
@@ -84,7 +84,9 @@ test('APNs request shape: token auth, headers, mutable-content, approval categor
   assert.equal(approval.headers['apns-collapse-id'], 'collapse-1');
   assert.equal(approval.body.mx, 'bXg');
   assert.equal(approval.body.aps['mutable-content'], 1);
-  assert.equal(approval.body.aps.category, 'MIXDOG_APPROVAL');
+  // Whether an approval offers Allow is inside the encrypted content, which
+  // the relay cannot read: the phone's extension picks the actions from it.
+  assert.equal(approval.body.aps.category, undefined);
   assert.equal(ordinary.body.aps.category, undefined);
   // Fallback alert carries no session content.
   assert.deepEqual(Object.keys(approval.body.aps.alert).sort(), ['body', 'title']);

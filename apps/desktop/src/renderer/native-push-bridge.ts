@@ -10,9 +10,9 @@
 // Allow / Deny action, reaches the shell first. The shell parks it and this
 // module drains it, opens the session through the web app's notification
 // navigation path (use-push-notification-navigation.ts) and, for an approval
-// action, resolves it with the same `resolveToolApprovalForSession` the
-// approval card uses.
-import type { DesktopApi } from '../shared/contract';
+// action, answers it with the host's `answerApprovalNotification`, which takes
+// an Allow only where this PC's card allows it once with a bare Enter and
+// otherwise answers 'open': the app is already open on that approval.
 import {
   NATIVE_PUSH_EVENT,
   nativeAppInfo,
@@ -40,6 +40,9 @@ interface NativePushHost {
    *  notification actions are matched against it. */
   hostId?(): string;
   register(input: NativePushRegistration): Promise<unknown>;
+  /** A notification's Allow / Deny (remote-session-methods.ts
+   *  answerApprovalNotification): 'answered', 'settled' or 'open'. */
+  answerApproval?(sessionId: string, approvalId: string, action: 'allow' | 'deny'): Promise<unknown>;
 }
 
 export const REMOTE_NATIVE_PUSH_GLOBAL = 'mixdogRemoteNativePush';
@@ -50,6 +53,8 @@ export function createNativePushHost(
   return {
     available: () => ctx.peerNativePush === true,
     hostId: () => ctx.deviceId ?? '',
+    answerApproval: (sessionId, approvalId, action) =>
+      ctx.call('answerApprovalNotification', [sessionId, approvalId, action]),
     register: (input) =>
       ctx.call('registerNativePush', [
         {
@@ -95,6 +100,22 @@ export async function openNativeNotificationSettings(
   if (!native?.call) return false;
   try {
     return (await native.call('openNotificationSettings')) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The words the shell puts on an approval notification's actions, in this
+ *  app's language: the card's 거절 and 한 번만 허용. True once the shell took
+ *  them; false outside the phone app or for an older shell. */
+export async function publishNativeNotificationLabels(
+  labels: { deny: string; allowOnce: string },
+  deps: { native?: MixdogNativeInfo | null } = {}
+): Promise<boolean> {
+  const native = deps.native === undefined ? nativeAppInfo() : deps.native;
+  if (!native?.call) return false;
+  try {
+    return (await native.call('setNotificationLabels', labels)) === true;
   } catch {
     return false;
   }
@@ -168,9 +189,8 @@ const isApproval = (action: NativeNotificationAction): boolean =>
 const publishedActionIds = new Set<string>();
 const settlingActionIds = new Set<string>();
 
-function currentHostId(): string {
-  const host = (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
-  return host?.hostId?.() ?? '';
+function currentHost(): NativePushHost | undefined {
+  return (window as unknown as Record<string, NativePushHost | undefined>)[REMOTE_NATIVE_PUSH_GLOBAL];
 }
 
 /** Act on the actions the shell parked for the host this page is connected to.
@@ -178,26 +198,21 @@ function currentHostId(): string {
  *  the shell) only after the host answered it; an open is acknowledged once
  *  delivered. Older shells without peek/ack hand over one action at a time. */
 export async function drainNativeNotificationActions(
-  deps: {
-    native?: MixdogNativeInfo | null;
-    api?: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'>;
-    retryDelayMs?: number;
-    hostId?: string;
-  } = {}
+  deps: { native?: MixdogNativeInfo | null; host?: NativePushHost; retryDelayMs?: number; hostId?: string } = {}
 ): Promise<number> {
   const native = deps.native === undefined ? nativeAppInfo() : deps.native;
   if (!native?.call) return 0;
-  const api = deps.api ?? (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const host = deps.host ?? currentHost();
   const retryDelayMs = deps.retryDelayMs ?? APPROVAL_RETRY_DELAY_MS;
   const call = native.call;
   let parked: NativeNotificationAction[] | null = null;
   try {
-    const peeked = await call('peekPendingActions', { hostId: deps.hostId ?? currentHostId() });
+    const peeked = await call('peekPendingActions', { hostId: deps.hostId ?? host?.hostId?.() ?? '' });
     parked = Array.isArray(peeked) ? peeked : null;
   } catch {
     parked = null;
   }
-  if (!parked) return drainLegacyActions(native, api, retryDelayMs);
+  if (!parked) return drainLegacyActions(native, host, retryDelayMs);
   let handled = 0;
   // Bounded: the shell parks a handful at most.
   for (const action of parked.slice(0, 8)) {
@@ -211,7 +226,7 @@ export async function drainNativeNotificationActions(
     }
     const settle = async (): Promise<void> => {
       try {
-        if (isApproval(action) && !(await resolveParkedApproval(api, action, retryDelayMs))) return;
+        if (isApproval(action) && !(await answerParkedApproval(host, action, retryDelayMs))) return;
         await call('ackPendingAction', { id });
         publishedActionIds.delete(id);
       } catch {
@@ -230,7 +245,7 @@ export async function drainNativeNotificationActions(
  *  the only delivery it will ever get. */
 async function drainLegacyActions(
   native: MixdogNativeInfo,
-  api: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'> | undefined,
+  host: NativePushHost | undefined,
   retryDelayMs: number
 ): Promise<number> {
   let handled = 0;
@@ -244,7 +259,7 @@ async function drainLegacyActions(
     if (!action?.sessionId) break;
     handled += 1;
     publishAction(action);
-    if (isApproval(action)) void resolveParkedApproval(api, action, retryDelayMs);
+    if (isApproval(action)) void answerParkedApproval(host, action, retryDelayMs);
   }
   return handled;
 }
@@ -255,20 +270,25 @@ const APPROVAL_RETRY_DELAY_MS = 500;
 /** Resolves true once the host ANSWERED. A call cut off by the reconnect that
  *  carries it (a rejected call, i.e. nothing answered) is sent again. Safe to
  *  repeat: the host settles an approval by its id, and an id that is already
- *  settled or no longer pending answers `false` — an answer, which ends the
- *  retries. False when every attempt failed: the action then stays parked. */
-async function resolveParkedApproval(
-  api: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'> | undefined,
+ *  settled or no longer pending answers 'settled' — an answer, which ends the
+ *  retries, as does 'open' (an Allow this PC takes only in the app, which the
+ *  action already opened on that session). False when every attempt failed:
+ *  the action then stays parked. */
+async function answerParkedApproval(
+  host: NativePushHost | undefined,
   action: NativeNotificationAction,
   retryDelayMs: number
 ): Promise<boolean> {
-  const resolve = api?.resolveToolApprovalForSession;
-  if (!resolve) return false;
+  const answer = host?.answerApproval;
+  if (!answer) return false;
   for (let attempt = 1; attempt <= APPROVAL_ATTEMPTS; attempt += 1) {
     try {
-      await resolve.call(api, action.sessionId, action.approvalId as string, {
-        approved: action.action === 'allow',
-      });
+      await answer.call(
+        host,
+        action.sessionId,
+        action.approvalId as string,
+        action.action === 'allow' ? 'allow' : 'deny'
+      );
       return true;
     } catch {
       if (attempt < APPROVAL_ATTEMPTS) await new Promise((r) => setTimeout(r, retryDelayMs * attempt));
@@ -279,12 +299,10 @@ async function resolveParkedApproval(
 
 /** Wire the shell to the web app: register on every connection, drain on
  *  launch, on the shell's own event and whenever the app returns to the front. */
-export function installNativePushBridge(
-  deps: { api?: Pick<Partial<DesktopApi>, 'resolveToolApprovalForSession'> } = {}
-): () => void {
+export function installNativePushBridge(): () => void {
   if (!nativeAppInfo()?.call) return () => {};
   const sync = (): void => void syncNativePush();
-  const drain = (): void => void drainNativeNotificationActions({ api: deps.api });
+  const drain = (): void => void drainNativeNotificationActions();
   const syncAndDrain = (): void => {
     sync();
     drain();

@@ -102,25 +102,35 @@ test('registerNativePush sends exactly the contract fields', async () => {
   ]);
 });
 
-test('parked actions are delivered once, approvals resolve through the web API', async () => {
+/** The host's notification answer (remote-session-methods answerApprovalNotification). */
+const answering = (answer) => {
+  const answered = [];
+  return {
+    answered,
+    host: {
+      available: () => true,
+      register: async () => {},
+      answerApproval: async (sessionId, id, action) => {
+        answered.push([sessionId, id, action]);
+        return typeof answer === 'function' ? answer() : answer;
+      },
+    },
+  };
+};
+
+test('parked actions are delivered once, approvals answer through the host’s notification method', async () => {
   const queue = [
     { action: 'allow', sessionId: 's1', approvalId: 'a1' },
     { action: 'deny', sessionId: 's2', approvalId: 'a2' },
     { action: 'open', sessionId: 's3' },
   ];
   const native = nativeWith({ takePendingAction: () => queue.shift() ?? null });
-  const resolved = [];
-  const api = {
-    resolveToolApprovalForSession: async (sessionId, id, decision) => {
-      resolved.push([sessionId, id, decision]);
-      return true;
-    },
-  };
+  const { host, answered } = answering('answered');
   // Published before anyone subscribes: held for the React subscriber.
-  assert.equal(await drainNativeNotificationActions({ native, api }), 3);
-  assert.deepEqual(resolved, [
-    ['s1', 'a1', { approved: true }],
-    ['s2', 'a2', { approved: false }],
+  assert.equal(await drainNativeNotificationActions({ native, host }), 3);
+  assert.deepEqual(answered, [
+    ['s1', 'a1', 'allow'],
+    ['s2', 'a2', 'deny'],
   ]);
   const opened = [];
   const stop = subscribeNativeNotificationActions((action) => opened.push(action.sessionId));
@@ -138,19 +148,17 @@ test('an approval whose call is cut off by the reconnect is sent again, and an a
   let calls = 0;
   let answered;
   const done = new Promise((resolve) => (answered = resolve));
-  const api = {
-    resolveToolApprovalForSession: async () => {
-      calls += 1;
-      if (calls < 3) throw new Error('Remote connection interrupted.');
-      answered();
-      return false; // already settled / stale: an answer, not a failure
-    },
-  };
-  assert.equal(await drainNativeNotificationActions({ native, api, retryDelayMs: 1 }), 1);
+  const { host } = answering(() => {
+    calls += 1;
+    if (calls < 3) throw new Error('Remote connection interrupted.');
+    answered();
+    return 'settled'; // already settled / stale: an answer, not a failure
+  });
+  assert.equal(await drainNativeNotificationActions({ native, host, retryDelayMs: 1 }), 1);
   await done;
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(calls, 3);
-  assert.equal(await drainNativeNotificationActions({ native, api, retryDelayMs: 1 }), 0);
+  assert.equal(await drainNativeNotificationActions({ native, host, retryDelayMs: 1 }), 0);
 });
 
 const parkedShell = (items) => ({
@@ -176,16 +184,11 @@ test('only the connected host takes its actions; other hosts stay parked, and ac
     { id: 'h-open', action: 'open', sessionId: 's3', hostId: 'hostA' },
   ];
   const native = parkedShell(items);
-  const resolved = [];
-  const api = {
-    resolveToolApprovalForSession: async (sessionId, id, decision) => {
-      resolved.push([sessionId, id, decision]);
-      return false; // wrong/stale answer is still an answer
-    },
-  };
-  assert.equal(await drainNativeNotificationActions({ native, api, hostId: 'hostA' }), 2);
+  // A wrong or stale approval is still an answer.
+  const { host, answered } = answering('settled');
+  assert.equal(await drainNativeNotificationActions({ native, host, hostId: 'hostA' }), 2);
   await until(() => items.length === 1);
-  assert.deepEqual(resolved, [['s1', 'a1', { approved: true }]]);
+  assert.deepEqual(answered, [['s1', 'a1', 'allow']]);
   assert.deepEqual(
     items.map((a) => a.id),
     ['h-b1']
@@ -197,21 +200,70 @@ test('an approval nobody answered stays parked and is retried by the next drain'
   const native = parkedShell(items);
   let fail = true;
   let calls = 0;
-  const api = {
-    resolveToolApprovalForSession: async () => {
-      calls += 1;
-      if (fail) throw new Error('Remote connection interrupted.');
-      return true;
-    },
-  };
-  await drainNativeNotificationActions({ native, api, hostId: 'hostA', retryDelayMs: 1 });
+  const { host } = answering(() => {
+    calls += 1;
+    if (fail) throw new Error('Remote connection interrupted.');
+    return 'answered';
+  });
+  await drainNativeNotificationActions({ native, host, hostId: 'hostA', retryDelayMs: 1 });
   await until(() => calls === 4);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(items.length, 1);
   fail = false;
-  await drainNativeNotificationActions({ native, api, hostId: 'hostA', retryDelayMs: 1 });
+  await drainNativeNotificationActions({ native, host, hostId: 'hostA', retryDelayMs: 1 });
   await until(() => items.length === 0);
   assert.equal(calls, 5);
+});
+
+test('an Allow the host answers "open" is acknowledged once and its session opened, never retried', async () => {
+  const items = [{ id: 'pay-1', action: 'allow', sessionId: 's9', approvalId: 'p1', hostId: 'hostA' }];
+  const native = parkedShell(items);
+  const { host, answered } = answering('open');
+  const opened = [];
+  const stop = subscribeNativeNotificationActions((action) => opened.push(action.sessionId));
+  // What earlier drains published with nobody listening.
+  opened.length = 0;
+  try {
+    await drainNativeNotificationActions({ native, host, hostId: 'hostA', retryDelayMs: 1 });
+    await until(() => items.length === 0);
+    assert.deepEqual(answered, [['s9', 'p1', 'allow']]);
+    assert.deepEqual(opened, ['s9'], 'the app opens on the approval, to be decided there');
+  } finally {
+    stop();
+  }
+});
+
+test('the shim host sends a notification answer as answerApprovalNotification', async () => {
+  const calls = [];
+  const host = createNativePushHost({
+    peerNativePush: true,
+    call: async (method, params) => {
+      calls.push([method, params]);
+      return 'answered';
+    },
+  });
+  assert.equal(await host.answerApproval('s1', 'a1', 'allow'), 'answered');
+  assert.deepEqual(calls, [['answerApprovalNotification', ['s1', 'a1', 'allow']]]);
+});
+
+test('the shell is handed the approval action labels to show', async () => {
+  const { publishNativeNotificationLabels } = await import('./native-push-bridge.ts');
+  const calls = [];
+  const native = {
+    platform: 'android',
+    version: '1',
+    call: async (method, args) => {
+      calls.push([method, args]);
+      return true;
+    },
+  };
+  assert.equal(await publishNativeNotificationLabels({ deny: '거절', allowOnce: '한 번만 허용' }, { native }), true);
+  assert.deepEqual(calls, [['setNotificationLabels', { deny: '거절', allowOnce: '한 번만 허용' }]]);
+  // A plain browser, or an older shell that does not know the call.
+  const english = { deny: 'Deny', allowOnce: 'Allow just once' };
+  assert.equal(await publishNativeNotificationLabels(english, { native: null }), false);
+  const older = { ...native, call: async () => null };
+  assert.equal(await publishNativeNotificationLabels(english, { native: older }), false);
 });
 
 test('the shim host reports the connected device id for action matching', () => {

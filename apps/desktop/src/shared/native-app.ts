@@ -85,6 +85,9 @@ export interface MixdogNativeCalls extends NativeFileSaveCalls {
    *  older shells answer `null`. The shell fires `mixdognativepush` when the
    *  app returns to the foreground. */
   openNotificationSettings: [undefined, boolean | null];
+  /** The approval notification actions' words, in the web app's language
+   *  (the card's 거절 / 한 번만 허용); older shells answer `null`. */
+  setNotificationLabels: [{ deny: string; allowOnce: string }, boolean | null];
   takePendingAction: [undefined, NativeNotificationAction | null];
   /** Actions this host may act on; they stay parked until acknowledged. */
   peekPendingActions: [{ hostId: string }, NativeNotificationAction[]];

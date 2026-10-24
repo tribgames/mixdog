@@ -300,6 +300,33 @@ test('counted UI text follows locale plural categories while preserving interpol
   }
 });
 
+test('the phone app shell labels approval notification actions in the app’s own language', async () => {
+  const close = browser();
+  const calls = [];
+  window.mixdogNative = {
+    platform: 'android',
+    version: '1',
+    call: async (method, args) => {
+      calls.push([method, args]);
+      return true;
+    },
+  };
+  try {
+    setUiLanguagePreference('ko');
+    await initUiLanguage();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(
+      calls.filter(([method]) => method === 'setNotificationLabels'),
+      [['setNotificationLabels', { deny: '거절', allowOnce: '한 번만 허용' }]]
+    );
+  } finally {
+    delete window.mixdogNative;
+    setUiLanguagePreference('en');
+    await initUiLanguage();
+    close();
+  }
+});
+
 test('Korean sent line: a session target takes 에, a bot keeps 에게', async (t) => {
   // The line reads the bot's contact and the session's live state.
   const { installTestDom } = await import('./test-support/test-dom.mjs');

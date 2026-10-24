@@ -829,6 +829,9 @@ const turnNotifier = createDesktopTurnNotifier({
     pendingPrimaryActivation = !openDesktopNotificationSession(mainWindow, sessionId);
   },
   turnFailedText: () => nativeT('The turn stopped with an error.'),
+  // "{name} · 승인을 기다리고 있습니다." / "{name} · 답변을 기다리고 있습니다."
+  waitingText: (wait) =>
+    wait === 'question' ? nativeT('Waiting for your answer.') : nativeT('Waiting for your approval.'),
   titleLabels: nativeSessionTitleLabels,
   agentName: (agentId) => browserApprovalGrants.agentName(agentId),
 });
@@ -2525,9 +2528,13 @@ if (!app.requestSingleInstanceLock()) {
         latestAgentPool = agents;
         turnNotifier.onAgentPool(agents);
       });
+      // A session starting to wait on a tool approval or a question, while it
+      // is not on screen, is told like a finished turn.
+      const unsubscribeTurnWaits = localService.subscribeSessionStates((update) => turnNotifier.onSessionState(update));
       unsubscribeTurnNotifier = () => {
         unsubscribeTurnSessions();
         unsubscribeTurnAgents();
+        unsubscribeTurnWaits();
       };
       void settingsStore
         .read()

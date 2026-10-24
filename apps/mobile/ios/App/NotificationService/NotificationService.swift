@@ -36,8 +36,11 @@ final class NotificationService: UNNotificationServiceExtension {
             // The ciphertext has served its purpose; do not keep it on the notification.
             info.removeValue(forKey: "mx")
             content.userInfo = info
+            // Allow only for an approval the PC's card allows once with a bare
+            // Enter (`allowOnce`); any other offers Deny and opens the app on it.
             if (message["reason"] as? String) == "approval-pending", info["mxApprovalId"] != nil {
-                content.categoryIdentifier = "MIXDOG_APPROVAL"
+                content.categoryIdentifier =
+                    (message["allowOnce"] as? Bool) == true ? "MIXDOG_APPROVAL" : "MIXDOG_APPROVAL_DENY"
             }
         }
         contentHandler(content)

@@ -389,6 +389,114 @@ for (const mode of ['foreground', 'disabled', 'show']) {
   });
 }
 
+// Waits: a session that starts waiting on a tool approval or a question.
+const waiting = (sessionId, toolApproval, frameSource = 'live') => ({
+  sessionId,
+  frameSource,
+  snapshot: { toolApproval },
+});
+const WAITING_KO = { approval: '승인을 기다리고 있습니다.', question: '답변을 기다리고 있습니다.' };
+const shell = { id: 'a1', kind: 'approval', name: 'shell', args: { command: 'npm test' } };
+function waitHarness(t, extra = {}) {
+  const h = harness(t, { waitingText: (wait) => WAITING_KO[wait], agentName: async () => '비서', ...extra });
+  h.notifier.onSessions([
+    { id: 'code', title: 'Fix the bug' },
+    { id: 'home', title: '', agentHome: 'secretary' },
+    { id: 'task', title: 'Release notes' },
+  ]);
+  return h;
+}
+
+test('an unfocused session’s approval and question notify in this PC’s words, and a click opens that session', async (t) => {
+  const h = waitHarness(t);
+  h.notifier.onSessionState(waiting('code', shell));
+  h.notifier.onSessionState(waiting('home', { id: 'q1', kind: 'question' }));
+  await h.tick(0);
+  assert.deepEqual(
+    h.notifications.map((n) => n.content).sort((a, b) => (a.title < b.title ? -1 : 1)),
+    [
+      { title: 'Fix the bug · 승인을 기다리고 있습니다.', body: '' },
+      { title: '비서 · 답변을 기다리고 있습니다.', body: '' },
+    ]
+  );
+  for (const notification of h.notifications) notification.emit('click');
+  assert.deepEqual(h.opened.sort(), ['code', 'home']);
+});
+
+test('without words of its own a wait notification speaks English', async (t) => {
+  const h = waitHarness(t, { waitingText: undefined });
+  h.notifier.onSessionState(waiting('code', shell));
+  h.notifier.onSessionState(waiting('task', { id: 'q1', kind: 'question' }));
+  await h.tick(0);
+  assert.deepEqual(h.notifications.map((n) => n.content.title).sort(), [
+    'Fix the bug · Waiting for your approval.',
+    'Release notes · Waiting for your answer.',
+  ]);
+});
+
+for (const mode of ['muted', 'quiet-hours', 'foreground-visible', 'event']) {
+  test(`a waiting approval is not notified when ${mode}`, async (t) => {
+    const h = waitHarness(t);
+    if (mode === 'muted') {
+      h.state.overrides = [{ target: { kind: 'session', id: 'code' }, setting: { mode: 'muted', until: null } }];
+    }
+    if (mode === 'quiet-hours') {
+      h.state.preferences = {
+        ...DEFAULT_NOTIFICATION_PREFERENCES,
+        quietHours: { enabled: true, start: '00:00', end: '23:59', days: 'every', allowWaiting: false },
+      };
+    }
+    if (mode === 'foreground-visible') h.state.onScreen.add('code');
+    if (mode === 'event') {
+      h.state.preferences = {
+        ...DEFAULT_NOTIFICATION_PREFERENCES,
+        events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, approval: false },
+      };
+    }
+    h.notifier.onSessionState(waiting('code', shell));
+    await h.tick(0);
+    assert.equal(h.notifications.length, 0);
+    assert.ok(h.events.some((row) => row.event === 'suppressed' && row.sessionId === 'code' && row.reason === mode));
+  });
+}
+
+test('an approval docked in every chat a hand-off reaches is one notification, not one per copy', async (t) => {
+  const h = waitHarness(t);
+  const ask = { ...shell, sessionId: 'task' };
+  const copy = (chat) => ({ ...ask, surfaceSessionId: chat, handoff: { title: 'Release notes' } });
+  h.notifier.onSessionState(waiting('task', ask));
+  h.notifier.onSessionState(waiting('home', copy('home')));
+  h.notifier.onSessionState(waiting('code', copy('code')));
+  h.notifier.onSessionState(waiting('task', ask));
+  h.notifier.onSessionState(waiting('home', copy('home'), 'replay'));
+  await h.tick(0);
+  assert.equal(h.notifications.length, 1);
+  // Settled everywhere: the next approval of that session is a new wait.
+  for (const id of ['task', 'home', 'code']) h.notifier.onSessionState(waiting(id, null));
+  h.notifier.onSessionState(waiting('task', { ...ask, id: 'a2' }));
+  await h.tick(0);
+  assert.equal(h.notifications.length, 2);
+});
+
+test('a sub-agent’s approval is told as, and opens, the chat it shows in', async (t) => {
+  const h = waitHarness(t);
+  h.notifier.onSessionState(
+    waiting('sub', { ...shell, sessionId: 'sub', surfaceSessionId: 'code', chain: ['Lead', 'Worker'] })
+  );
+  await h.tick(0);
+  assert.equal(h.notifications[0].content.title, 'Fix the bug · 승인을 기다리고 있습니다.');
+  h.notifications[0].emit('click');
+  assert.deepEqual(h.opened, ['code']);
+});
+
+test('a replayed wait is not a new one', async (t) => {
+  const h = waitHarness(t);
+  h.notifier.onSessionState(waiting('code', shell, 'replay'));
+  h.notifier.onSessionState(waiting('code', shell));
+  await h.tick(0);
+  assert.equal(h.notifications.length, 0);
+});
+
 test('a sound failure leaves the native banner and click navigation intact', async (t) => {
   const h = harness(t, {
     playSound: async () => {

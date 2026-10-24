@@ -173,6 +173,8 @@ function devices(t, { preferences = {}, desktopActive = false, foreground = [], 
   });
   const web = { ...subscription(), clientId: 'tab-1', label: '', createdAt: 0 };
   const native = [];
+  // What the relay itself is handed, before the phone decrypts anything.
+  const relayed = [];
   const posted = [];
   const asked = [];
   let activeChecks = 0;
@@ -206,6 +208,7 @@ function devices(t, { preferences = {}, desktopActive = false, foreground = [], 
       list: async () => phones,
       isClientForeground: (id, sessionId) => foreground.includes(`${id}:${sessionId}`),
       send: (message) => {
+        relayed.push(message);
         const recipient = phones.find((phone) => phone.token === message.token).clientId;
         native.push({ recipient, outer: message.reason, ...decryptNativePush(keys.get(recipient).getPrivateKey(), message.mx) });
         return true;
@@ -214,7 +217,7 @@ function devices(t, { preferences = {}, desktopActive = false, foreground = [], 
     },
   });
   t.after(() => notifier.dispose());
-  return { notifier, native, posted, asked, checks: () => activeChecks };
+  return { notifier, native, relayed, posted, asked, checks: () => activeChecks };
 }
 
 test('each paired device gets its own decision: scope and event switch', async (t) => {
@@ -347,4 +350,83 @@ test('an approval and an input wait on the same session are separate pushes', as
   });
   await settle();
   assert.equal(f.sent.length, 2);
+});
+
+// Each kind of approval as a session's snapshot shows it (human-gate/requests.mjs).
+const APPROVALS = {
+  shell: { kind: 'approval', name: 'shell', args: { command: 'npm test' } },
+  comment: { kind: 'outbound', outbound: { category: 'comment', target: 'repo#1' } },
+  officeCommit: { kind: 'approval', name: 'office', args: { action: 'commit' } },
+  permissionOnce: {
+    kind: 'permission',
+    permission: {
+      scopes: [
+        { id: 'o', kind: 'allow_once' },
+        { id: 'a', kind: 'allow_always' },
+      ],
+    },
+  },
+  payment: { kind: 'outbound', outbound: { category: 'payment' } },
+  delete: { kind: 'outbound', outbound: { category: 'delete' } },
+  officeRollback: { kind: 'approval', name: 'office', args: { action: 'rollback' } },
+  officeDiscard: { kind: 'approval', name: 'office', args: { action: 'discard' } },
+  alwaysOnly: { kind: 'permission', permission: { scopes: [{ id: 'a', kind: 'allow_always' }] } },
+  login: { kind: 'takeover', takeover: { purpose: 'login', url: 'https://github.com/login' } },
+  takeover: { kind: 'takeover', takeover: { surface: 'browser' } },
+  secret: { kind: 'secret', secret: { requestId: 'r1', form: 'otp' } },
+};
+/** The ones this PC's card allows once with a bare Enter (its 한 번만 허용). */
+const ALLOWED_ONCE = new Set(['shell', 'comment', 'officeCommit', 'permissionOnce']);
+
+test('a phone’s approval push offers Allow only where this PC’s card allows it once with a bare Enter', async (t) => {
+  const f = devices(t);
+  for (const [name, approval] of Object.entries(APPROVALS)) {
+    f.notifier.onSessionState({
+      sessionId: name,
+      frameSource: 'live',
+      snapshot: { toolApproval: { id: `${name}-1`, ...approval } },
+    });
+  }
+  await settle();
+  const pushes = f.native.filter((push) => push.recipient === 'phone-a');
+  assert.deepEqual(pushes.map((push) => push.sessionId).sort(), Object.keys(APPROVALS).sort());
+  for (const push of pushes) {
+    assert.equal(push.reason, 'approval-pending', push.sessionId);
+    // Every one still names its approval: a tap opens it there, Deny answers it.
+    assert.equal(push.approvalId, `${push.sessionId}-1`);
+    assert.equal(push.allowOnce === true, ALLOWED_ONCE.has(push.sessionId), push.sessionId);
+  }
+  // The relay is handed the reason alone, never whether Allow is offered.
+  for (const message of f.relayed) {
+    assert.deepEqual(Object.keys(message).sort(), ['collapseKey', 'mx', 'platform', 'reason', 'sandbox', 'token']);
+  }
+});
+
+test('a held request’s push names it but never offers Allow: its content is not known here', async (t) => {
+  const f = devices(t);
+  f.notifier.onHeldRequest({ sessionId: 'sess_home_x', agentId: 'x', agentName: 'Mixy', requestId: 'held_1' });
+  await settle();
+  assert.equal(f.native.length, 2);
+  for (const push of f.native) {
+    assert.equal(push.approvalId, 'held_1');
+    assert.equal(push.allowOnce, undefined);
+  }
+});
+
+test('a notification’s Allow may answer only the approval a session shows now, where Enter allows it once', async (t) => {
+  const f = fixture();
+  t.after(() => f.notifier.dispose());
+  const show = (approval, frameSource = 'live') =>
+    f.notifier.onSessionState({ sessionId: 's1', frameSource, snapshot: { toolApproval: approval } });
+  show({ id: 'a1', ...APPROVALS.shell });
+  assert.equal(f.notifier.approvalAllowsOnce('s1', 'a1'), true);
+  assert.equal(f.notifier.approvalAllowsOnce('s1', 'another'), false);
+  assert.equal(f.notifier.approvalAllowsOnce('s2', 'a1'), false);
+  show({ id: 'p1', ...APPROVALS.payment });
+  assert.equal(f.notifier.approvalAllowsOnce('s1', 'p1'), false);
+  assert.equal(f.notifier.approvalAllowsOnce('s1', 'a1'), false, 'no longer shown');
+  show(null);
+  assert.equal(f.notifier.approvalAllowsOnce('s1', 'p1'), false);
+  show({ id: 'a2', ...APPROVALS.shell }, 'replay');
+  assert.equal(f.notifier.approvalAllowsOnce('s1', 'a2'), true, 'a replayed frame still says what the session shows');
 });

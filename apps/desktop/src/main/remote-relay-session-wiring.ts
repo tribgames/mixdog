@@ -56,6 +56,10 @@ export interface RelaySessionSubscriptions {
   /** A revoked client: its push registrations and notification preferences go. */
   forgetClient(clientId: string): void;
   sendTestNotification(clientId: string): Promise<NotificationTestResult>;
+  /** Whether a notification's Allow may answer that approval (push-notifier.ts). */
+  approvalAllowsOnce(sessionId: string, approvalId: string): boolean;
+  /** Whether that approval is allowed only by a click on its card (push-notifier.ts). */
+  approvalPointerOnly(sessionId: string, approvalId: string): boolean;
   /** Sent to each connection right after its handshake (remote-relay-push-lanes.ts). */
   joinFrames(): unknown[];
   dispose(): void;
@@ -203,6 +207,10 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
           void notifications?.preferences.removeDevice(clientId).catch(() => undefined);
         },
         sendTestNotification: (clientId: string) => pushNotifier.sendTest(clientId),
+        approvalAllowsOnce: (sessionId: string, approvalId: string) =>
+          pushNotifier.approvalAllowsOnce(sessionId, approvalId),
+        approvalPointerOnly: (sessionId: string, approvalId: string) =>
+          pushNotifier.approvalPointerOnly(sessionId, approvalId),
         joinFrames: () => pushLanes.joinFrames(),
         dispose: (): void => {
           unsubscribeState();

@@ -8,6 +8,7 @@ import { markKoValue, resolveKoParticles } from '../shared/ko-particle';
 import pluralSources from './ui-plurals.json';
 
 import { hasLocalDisplayChoice, markHostDisplayChoice, markLocalDisplayChoice } from './display-preference-source';
+import { publishNativeNotificationLabels } from './native-push-bridge';
 import { publishUiLanguage } from './push-notification-bridge';
 import {
   SUPPORTED_UI_LANGUAGES,
@@ -190,6 +191,8 @@ export async function initUiLanguage(
   const active = uiLanguageForLocale(i18next.language) || 'en';
   if (typeof document !== 'undefined') document.documentElement.lang = active;
   void publishUiLanguage(active);
+  // The phone app labels an approval notification's actions as the card does.
+  void publishNativeNotificationLabels({ deny: t('Deny'), allowOnce: t('Allow just once') });
 }
 
 /** All UI formatting follows the loaded catalog, including its English fallback. */

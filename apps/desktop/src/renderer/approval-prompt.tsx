@@ -149,7 +149,8 @@ export interface ApprovalPromptProps {
   buttons: ApprovalButton[];
   /** Which button takes focus: the allow, or deny for anything risky. */
   focus: 'deny' | 'primary';
-  /** Enter allows (the primary); false for payment, delete and unconfirmed targets. */
+  /** Enter allows (the primary); false for payment, delete, an Office rollback or
+   *  recovery discard (shared/approval-enter-rule.ts) and unconfirmed targets. */
   enterAllows: boolean;
   /** Deny the request; the card always passes '' (no reason). */
   onDeny?: (reason: string) => void;

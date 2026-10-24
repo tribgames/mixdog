@@ -53,6 +53,12 @@ final class MixdogNotifications {
         context, notificationId * 3 + salt, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
   }
 
+  /**
+   * An approval offers Deny, and Allow only when the PC said its card allows that approval once
+   * with a bare Enter (`allowOnce`, desktop shared/approval-enter-rule.ts). Any other approval (a
+   * payment, a permanent delete...) opens the app on it to be decided there; the PC also refuses an
+   * Allow for it.
+   */
   static void show(
       Context context,
       String title,
@@ -60,6 +66,7 @@ final class MixdogNotifications {
       String sessionId,
       String reason,
       String approvalId,
+      boolean allowOnce,
       String hostId) {
     ensureChannel(context);
     // One notification per session: a newer one replaces the older.
@@ -74,8 +81,15 @@ final class MixdogNotifications {
             .setAutoCancel(true)
             .setContentIntent(open(context, id, "open", sessionId, null, hostId, 0));
     if (REASON_APPROVAL.equals(reason) && approvalId != null && !approvalId.isEmpty()) {
-      builder.addAction(0, "Allow", open(context, id, "allow", sessionId, approvalId, hostId, 1));
-      builder.addAction(0, "Deny", open(context, id, "deny", sessionId, approvalId, hostId, 2));
+      // The card's order and words: 거절 · 한 번만 허용, in the web app's language.
+      builder.addAction(
+          0, MixdogPushStore.denyLabel(context), open(context, id, "deny", sessionId, approvalId, hostId, 2));
+      if (allowOnce) {
+        builder.addAction(
+            0,
+            MixdogPushStore.allowOnceLabel(context),
+            open(context, id, "allow", sessionId, approvalId, hostId, 1));
+      }
     }
     try {
       NotificationManagerCompat.from(context).notify(id, builder.build());

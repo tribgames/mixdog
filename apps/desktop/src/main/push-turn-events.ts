@@ -52,6 +52,14 @@ function clip(value: unknown, limit: number): string {
   return `${text.slice(0, limit - 1)}…`;
 }
 
+/** A session's notification title: a room's own name, else its title; a bot's
+ *  home chat is renamed to its bot by whoever knows the bot's name. */
+export function notificationTitleOf(
+  session: Pick<DesktopSessionSummary, 'title'> & Partial<Pick<DesktopSessionSummary, 'agentRoom' | 'preview'>>
+): string {
+  return clip(session.agentRoom?.name || session.title || session.preview || 'Mixdog', MAX_TITLE_CHARS) || 'Mixdog';
+}
+
 function isWorking(session: DesktopSessionSummary): boolean {
   return Boolean(session.working || session.leadWorking || session.agentWorking);
 }
@@ -105,8 +113,7 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
         completions.push({
           sessionId: id,
           conversation: notificationConversationOf(session),
-          title:
-            clip(session.agentRoom?.name || session.title || session.preview || 'Mixdog', MAX_TITLE_CHARS) || 'Mixdog',
+          title: notificationTitleOf(session),
           ...(session.agentHome ? { agentHome: session.agentHome } : {}),
           preview: '',
           startedAt: started.get(id) ?? nowMs,
