@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { noteBrowserRemoteViewer } from './browser-remote-drive';
 import { releaseSessionDiff } from './session-diff-cache';
+import { releaseFullToolOutputs } from './tool-full-output';
 import { useSessionBrowserSurfaces } from './session-browser-surfaces';
 import {
   withSessionDiff,
@@ -107,6 +108,7 @@ export function useSessionPaneSurfaces() {
       setSessionDiffs((current) => withSessionDiff(current, sessionId, null));
       setSessionPanelViews((current) => withSessionPanelView(current, sessionId, null));
       releaseSessionDiff(sessionId);
+      releaseFullToolOutputs(sessionId);
       browserSurfaces.release(sessionId);
       terminalSurfaces.release(sessionId);
     },

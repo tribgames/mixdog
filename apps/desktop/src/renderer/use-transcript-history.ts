@@ -114,25 +114,53 @@ export function useTranscriptHistoryFill(
  * windows says whether older history exists, and each page asks for the
  * current count plus one page. Without it (an older host) the count-based
  * 512-item paging applies. */
+interface HistoryPaging {
+  sessionId: string;
+  limit: number;
+  pagedFrom: number;
+  pending: boolean;
+  /** The page on its way: the count it was asked at, and the release of the
+   *  background-read hold (tool-output-prefetch.ts) it keeps until it lands. */
+  page: { from: number; release: () => void } | null;
+}
+
+const newPaging = (sessionId: string): HistoryPaging => ({
+  sessionId,
+  limit: TRANSCRIPT_HISTORY_PAGE_ITEMS,
+  pagedFrom: -1,
+  pending: false,
+  page: null,
+});
+
+/** The page's background-read hold ends (once). */
+function endPage(paging: HistoryPaging, page = paging.page): void {
+  if (!page || paging.page !== page) return;
+  paging.page = null;
+  page.release();
+}
+
 export function useTranscriptHistory(sessionId: string, itemCount: number, hasOlder?: boolean): () => void {
   const countRef = useRef(itemCount);
   countRef.current = itemCount;
   const hasOlderRef = useRef(hasOlder);
   hasOlderRef.current = hasOlder;
-  const pagingRef = useRef({
-    sessionId,
-    limit: TRANSCRIPT_HISTORY_PAGE_ITEMS,
-    pagedFrom: -1,
-    pending: false,
-  });
-  if (pagingRef.current.sessionId !== sessionId) {
-    pagingRef.current = {
-      sessionId,
-      limit: TRANSCRIPT_HISTORY_PAGE_ITEMS,
-      pagedFrom: -1,
-      pending: false,
-    };
-  }
+  const pagingRef = useRef(newPaging(sessionId));
+  if (pagingRef.current.sessionId !== sessionId) pagingRef.current = newPaging(sessionId);
+  // The ACK of a page read comes apart from the page itself (its transcript
+  // frame may land before or after it): background reads resume once the
+  // published window holds more rows than the page was asked at, or says
+  // nothing older exists — after the rows are applied, not on the ACK.
+  useEffect(() => {
+    const paging = pagingRef.current;
+    const page = paging.page;
+    if (page && (itemCount > page.from || hasOlder === false)) endPage(paging, page);
+  }, [itemCount, hasOlder]);
+  // Leaving the session (or unmounting) cancels the wait.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger; the paging it owns is read at setup
+  useEffect(() => {
+    const paging = pagingRef.current;
+    return () => endPage(paging);
+  }, [sessionId]);
   return useCallback(() => {
     const prefetch = window.mixdogDesktop?.prefetchSession;
     const paging = pagingRef.current;
@@ -146,19 +174,23 @@ export function useTranscriptHistory(sessionId: string, itemCount: number, hasOl
     if (nextLimit === null) return;
     paging.pending = true;
     // Background tool-output reads hold off while the page is on its way.
-    const settlePage = noteHistoryPageRequest();
+    endPage(paging);
+    const page = { from: count, release: noteHistoryPageRequest() };
+    paging.page = page;
     void Promise.resolve()
       .then(() => prefetch(sessionId, nextLimit))
       .then((accepted) => {
+        // A refused read brings no page.
+        if (accepted !== true) endPage(paging, page);
         if (pagingRef.current !== paging || accepted !== true) return;
         if (tail) paging.pagedFrom = count;
         else paging.limit = nextLimit;
       })
       .catch(() => {
         // Read-only failures remain retryable on the next boundary gesture.
+        endPage(paging, page);
       })
       .finally(() => {
-        settlePage();
         if (pagingRef.current === paging) paging.pending = false;
       });
   }, [sessionId]);

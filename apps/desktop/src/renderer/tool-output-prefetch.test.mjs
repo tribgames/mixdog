@@ -16,6 +16,7 @@ const {
   heldToolOutputReads,
   useFullToolOutput,
   prefetchToolOutputs,
+  releaseFullToolOutputs,
   resetFullToolOutputs,
   TOOL_OUTPUT_PREFETCH_RETRY_MS,
   toolOutputPrefetchesInFlight,
@@ -232,6 +233,172 @@ test('a read dropped from the held ones is not prefetched again, and its button 
   assert.equal(asked.length, rows.length + 1, 'the press reads it again');
   assert.equal(output.item.result, 'full d0');
   await act(async () => root.unmount());
+});
+
+test('past 1,024 settlements a done read is not prefetched again and a failure keeps its wait; the press still loads', async () => {
+  resetFullToolOutputs();
+  resetToolOutputPrefetch();
+  const asked = [];
+  const failing = new Set(['x0']);
+  window.mixdogDesktop = {
+    readTranscriptItem: async (_session, id) => {
+      asked.push(id);
+      if (failing.has(id)) throw new Error('offline');
+      return { id, result: `full ${id}` };
+    },
+  };
+  const owner = {};
+  const rows = Array.from({ length: 1030 }, (_, n) => cutRow(`x${n}`));
+  await act(async () => {
+    prefetchToolOutputs('session-1', rows, owner);
+    for (let n = 0; n < 5000 && asked.length < rows.length; n += 1)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(asked.length, rows.length);
+  // rows[0] failed; rows[1] was the first success: both settled > 1,024 reads ago.
+  const realNow = Date.now;
+  try {
+    await act(async () => prefetchToolOutputs('session-1', [rows[1], rows[0]], owner));
+    assert.equal(asked.length, rows.length, 'neither the first success nor the first failure is read again');
+    Date.now = () => realNow() + TOOL_OUTPUT_PREFETCH_RETRY_MS;
+    failing.clear();
+    await act(async () => prefetchToolOutputs('session-1', [rows[1], rows[0]], owner));
+    assert.equal(asked.length, rows.length + 1, 'only the failure is read again once its wait is over');
+    assert.equal(asked.at(-1), 'x0');
+  } finally {
+    Date.now = realNow;
+  }
+  let output;
+  function Row() {
+    output = useFullToolOutput('session-1', rows[1], false);
+    return null;
+  }
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  await act(async () => root.render(React.createElement(Row)));
+  await act(async () => output.load());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  assert.equal(asked.at(-1), 'x1', 'the explicit press reads a tombstoned output again');
+  assert.equal(output.item.result, 'full x1');
+  await act(async () => root.unmount());
+  releaseFullToolOutputs('session-1');
+  await act(async () => prefetchToolOutputs('session-1', [rows[2]], owner));
+  assert.equal(asked.at(-1), 'x2', 'a released session forgets its tombstones');
+});
+
+test('reads of a released session that settle late free their slots for other sessions', async () => {
+  resetFullToolOutputs();
+  resetToolOutputPrefetch();
+  const calls = [];
+  window.mixdogDesktop = {
+    readTranscriptItem: (session, id) =>
+      new Promise((resolve) => {
+        calls.push({ session, id, resolve: () => resolve({ id, result: `full ${id}` }) });
+      }),
+  };
+  const owner = {};
+  await act(async () => prefetchToolOutputs('gone', [cutRow('g1'), cutRow('g2')], owner));
+  await act(async () => prefetchToolOutputs('live', [cutRow('l1')], owner));
+  assert.deepEqual(
+    calls.map((call) => call.id),
+    ['g1', 'g2'],
+    'both slots held; the other session waits'
+  );
+  releaseFullToolOutputs('gone');
+  await act(async () => calls[0].resolve());
+  await act(async () => calls[1].resolve());
+  assert.deepEqual(
+    calls.map((call) => call.id),
+    ['g1', 'g2', 'l1'],
+    'the queued read of another session starts'
+  );
+  await act(async () => calls[2].resolve());
+  assert.equal(toolOutputPrefetchesInFlight(), 0);
+});
+
+test('a request in flight when its session was released cannot settle the replacement request', async () => {
+  resetFullToolOutputs();
+  resetToolOutputPrefetch();
+  const calls = [];
+  window.mixdogDesktop = {
+    readTranscriptItem: (_session, id) =>
+      new Promise((resolve, reject) => {
+        calls.push({ id, resolve: () => resolve({ id, result: `full ${id}` }), reject: () => reject(new Error('x')) });
+      }),
+  };
+  const row = cutRow('stale');
+  await act(async () => prefetchToolOutputs('session-1', [row], {}));
+  assert.equal(calls.length, 1);
+  releaseFullToolOutputs('session-1');
+  let output;
+  function Row() {
+    output = useFullToolOutput('session-1', row, false);
+    return null;
+  }
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  await act(async () => root.render(React.createElement(Row)));
+  await act(async () => output.load());
+  assert.equal(calls.length, 2);
+  assert.equal(output.loading, true);
+  await act(async () => calls[0].reject());
+  assert.equal(output.loading, true, 'the old failure does not settle the new request');
+  assert.equal(output.failed, false);
+  await act(async () => calls[1].resolve());
+  assert.equal(output.item.result, 'full stale');
+  assert.equal(output.failed, false);
+  assert.equal(toolOutputPrefetchesInFlight(), 0, 'the old request freed its slot');
+  await act(async () => root.unmount());
+});
+
+test('a mounted row keeps its full output past the limit; an unsubscribed read is still evicted', async () => {
+  resetFullToolOutputs();
+  resetToolOutputPrefetch();
+  const asked = [];
+  window.mixdogDesktop = {
+    readTranscriptItem: async (_session, id) => {
+      asked.push(id);
+      return { id, result: `full ${id}` };
+    },
+  };
+  const kept = cutRow('kept');
+  let output;
+  function Row({ tick }) {
+    output = useFullToolOutput('session-1', kept, false);
+    return React.createElement('span', null, tick);
+  }
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  await act(async () => root.render(React.createElement(Row, { tick: 0 })));
+  const owner = {};
+  await act(async () => {
+    prefetchToolOutputs('session-1', [kept], owner);
+    for (let n = 0; n < 200 && asked.length < 1; n += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(output.item.result, 'full kept', 'the mounted row shows the settled read');
+  const rows = Array.from({ length: 80 }, (_, n) => cutRow(`n${n}`));
+  await act(async () => {
+    prefetchToolOutputs('session-1', rows, owner);
+    for (let n = 0; n < 400 && asked.length < rows.length + 1; n += 1)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(asked.length, rows.length + 1);
+  assert.equal(output.item.result, 'full kept', 'still full after newer reads settled');
+  await act(async () => root.render(React.createElement(Row, { tick: 1 })));
+  assert.equal(output.item.result, 'full kept', 'and after a later render');
+  assert.equal(heldToolOutputReads(), 64 + 1, 'the limit applies to the unsubscribed reads');
+  let evicted;
+  function Other() {
+    evicted = useFullToolOutput('session-1', rows[0], false);
+    return null;
+  }
+  const otherHost = document.createElement('div');
+  const otherRoot = createRoot(otherHost);
+  await act(async () => otherRoot.render(React.createElement(Other)));
+  assert.equal(evicted.item.result, rows[0].result, 'an unsubscribed old read was evicted');
+  await act(async () => otherRoot.unmount());
+  await act(async () => root.unmount());
+  assert.ok(heldToolOutputReads() <= 64, 'the read counts toward the limit once its row left');
 });
 
 test('nothing is prefetched while the link to the host is down', async () => {

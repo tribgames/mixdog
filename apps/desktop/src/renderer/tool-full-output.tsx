@@ -20,14 +20,20 @@ export const TOOL_OUTPUT_PREFETCH_RETRY_MS = 60_000;
 /** Reads by session, row and row revision (a text read for one revision of a
  *  row is never shown for another): in flight, failed, or done — newest last,
  *  so a row the virtual list remounts keeps its full text. The settled ones,
- *  done or failed, are kept to FULL_TOOL_OUTPUT_LIMIT. */
+ *  done or failed, that no mounted row is subscribed to are kept to
+ *  FULL_TOOL_OUTPUT_LIMIT; subscribed ones are always kept. */
 const reads = new Map<string, ReadState>();
-/** When each key's last read settled and whether it failed, remembered well
- *  past the held reads (to SETTLED_MEMORY_LIMIT, oldest dropped first): an
- *  output dropped from `reads` is not prefetched again, and a failure keeps
- *  its wait. */
-const settledReads = new Map<string, { failed: boolean; at: number }>();
-const SETTLED_MEMORY_LIMIT = 1024;
+/** Keys whose last read succeeded, kept (key only, no output) for the life of
+ *  the session or the row revision, whatever happens to the held reads: an
+ *  output dropped from `reads` is not prefetched again. Cleared with the
+ *  session (releaseFullToolOutputs); a new revision is a new key. */
+const readKeys = new Set<string>();
+/** When each key's last read failed, until its wait is over: a failure keeps
+ *  its wait however many reads settle after it or leave `reads`. Oldest first. */
+const failedAt = new Map<string, number>();
+/** The one request per key allowed to write its answer: a request still in
+ *  flight when its session was released (or reset) settles without effect. */
+const requests = new Map<string, object>();
 /** Rows waiting on a read, by its key: a read wakes only its own row. */
 const listeners = new Map<string, Set<() => void>>();
 /** Prefetches waiting for a slot, oldest first, by the element that asked. */
@@ -40,23 +46,63 @@ function publish(key: string): void {
   for (const listener of [...(listeners.get(key) ?? [])]) listener();
 }
 
+/** Keeps the newest FULL_TOOL_OUTPUT_LIMIT settled reads nobody is subscribed
+ *  to; a read a mounted row shows is never dropped from under it. */
+function trimSettledReads(): void {
+  let settled = 0;
+  for (const [entry, value] of [...reads].reverse()) {
+    if (value.status === 'loading' || listeners.has(entry)) continue;
+    if (++settled > FULL_TOOL_OUTPUT_LIMIT) reads.delete(entry);
+  }
+}
+
 function subscribeKey(key: string, listener: () => void): () => void {
   const set = listeners.get(key) ?? new Set<() => void>();
   listeners.set(key, set);
   set.add(listener);
   return () => {
     set.delete(listener);
-    if (!set.size && listeners.get(key) === set) listeners.delete(key);
+    if (!set.size && listeners.get(key) === set) {
+      listeners.delete(key);
+      // Its row left: the read counts toward the limit again.
+      trimSettledReads();
+    }
   };
 }
 
 export function resetFullToolOutputs(): void {
   reads.clear();
-  settledReads.clear();
+  readKeys.clear();
+  failedAt.clear();
+  requests.clear();
   queued.length = 0;
   prefetching = 0;
   historyPagesPending = 0;
   for (const key of [...listeners.keys()]) publish(key);
+}
+
+/** A session went away: its held reads, tombstones, failure waits and queued
+ *  prefetches go with it. */
+export function releaseFullToolOutputs(sessionId: string): void {
+  const prefix = `${sessionId}|`;
+  const gone = new Set<string>();
+  for (const map of [reads, failedAt]) {
+    for (const key of [...map.keys()]) {
+      if (!key.startsWith(prefix)) continue;
+      map.delete(key);
+      gone.add(key);
+    }
+  }
+  for (const key of [...readKeys]) {
+    if (!key.startsWith(prefix)) continue;
+    readKeys.delete(key);
+    gone.add(key);
+  }
+  for (const key of [...requests.keys()]) if (key.startsWith(prefix)) requests.delete(key);
+  for (let index = queued.length - 1; index >= 0; index -= 1) {
+    if (queued[index]?.sessionId === sessionId) queued.splice(index, 1);
+  }
+  for (const key of gone) publish(key);
 }
 
 /** The key a row's read is held under. */
@@ -73,25 +119,32 @@ export function toolOutputCut(item: TranscriptItem): boolean {
 function startRead(key: string, sessionId: string, id: string, prefetch: boolean): void {
   const read = typeof window === 'undefined' ? undefined : window.mixdogDesktop?.readTranscriptItem;
   if (!read) return;
+  const request = {};
+  requests.set(key, request);
   reads.set(key, { status: 'loading', background: prefetch });
   // A background read starts unseen: no row is woken until it settles.
   if (prefetch) prefetching += 1;
   else publish(key);
   const settle = (state: ReadState) => {
     if (prefetch) prefetching -= 1;
-    if (reads.get(key)?.status !== 'loading') return;
+    if (requests.get(key) !== request) {
+      // Superseded or released: it writes nothing, but its slot is free.
+      pumpPrefetches();
+      return;
+    }
+    requests.delete(key);
     reads.delete(key);
     reads.set(key, state);
-    settledReads.delete(key);
-    settledReads.set(key, { failed: state.status === 'failed', at: Date.now() });
-    if (settledReads.size > SETTLED_MEMORY_LIMIT) {
-      const oldest = settledReads.keys().next().value;
-      if (oldest !== undefined) settledReads.delete(oldest);
+    readKeys.delete(key);
+    failedAt.delete(key);
+    if (state.status === 'failed') failedAt.set(key, state.at);
+    else readKeys.add(key);
+    // A failure whose wait is over is as good as never read.
+    for (const [entry, at] of failedAt) {
+      if (Date.now() - at < TOOL_OUTPUT_PREFETCH_RETRY_MS) break;
+      failedAt.delete(entry);
     }
-    let settled = 0;
-    for (const [entry, value] of [...reads].reverse()) {
-      if (value.status !== 'loading' && ++settled > FULL_TOOL_OUTPUT_LIMIT) reads.delete(entry);
-    }
+    trimSettledReads();
     publish(key);
     pumpPrefetches();
   };
@@ -115,8 +168,9 @@ function startRead(key: string, sessionId: string, id: string, prefetch: boolean
 function prefetchDue(key: string): boolean {
   const state = reads.get(key);
   if (state) return state.status === 'failed' && Date.now() - state.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS;
-  const last = settledReads.get(key);
-  return !last || (last.failed && Date.now() - last.at >= TOOL_OUTPUT_PREFETCH_RETRY_MS);
+  if (readKeys.has(key)) return false;
+  const failed = failedAt.get(key);
+  return failed === undefined || Date.now() - failed >= TOOL_OUTPUT_PREFETCH_RETRY_MS;
 }
 
 /** The phone's link to the host is up (a desktop window has no remote state). */
