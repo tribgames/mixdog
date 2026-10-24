@@ -138,6 +138,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       (input) => runtime.saveCustomProvider(input),
       (result) => `custom provider saved: ${result.id}`
     ),
+    saveCustomProviderKey: (id, secret) => runtime.saveCustomProviderKey(id, secret),
     updateCustomProviderModel: (id, modelId, patch) => runtime.updateCustomProviderModel(id, modelId, patch),
     setModelPreferences: (provider, changes) => runtime.setModelPreferences(provider, changes),
     removeCustomProvider: async (id) => {

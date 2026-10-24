@@ -23,6 +23,7 @@ const admin = {
   saveOpenAIUsageSessionKey: (_cfg, secret) => calls.push(['saveUsageKey', secret]) && 'saved-usage',
   saveProviderApiKey: (_cfg, providerId, secret) => calls.push(['saveKey', providerId, secret]) && 'saved-key',
   saveCustomProvider: async (_cfg, input) => calls.push(['saveCustom', input]) && { id: 'custom-1' },
+  saveCustomProviderKey: async (_cfg, id, secret) => calls.push(['saveCustomKey', id, secret]) && { id },
   removeCustomProvider: (_cfg, id) => calls.push(['removeCustom', id]) && { provider: id },
   updateCustomProviderModel: async (_cfg, id, modelId, patch) =>
     calls.push(['updateCustomModel', id, modelId, patch]) && { id },

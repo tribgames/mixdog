@@ -186,3 +186,36 @@ test("a pending key write never holds up another provider's save", async () => {
   await saving;
   assert.equal(keyOf(id), 'key-new');
 });
+
+test('a provider removed during a key-only save leaves no secret behind, and a later key save writes nothing', async () => {
+  const cfg = makeCfg();
+  const id = await register(cfg);
+  const hold = holdKeyWrite(id);
+  const saving = admin.saveCustomProviderKey(cfg, id, 'key-new');
+  await hold.reached;
+  const removing = admin.removeCustomProvider(cfg, id);
+  const later = admin.saveCustomProviderKey(cfg, id, 'key-later');
+  await settle();
+  assert.notEqual(cfg.peek().providers[id], undefined, 'the removal waits for the key write in flight');
+  hold.release();
+  await saving;
+  await removing;
+  await assert.rejects(later, /unknown custom provider/);
+  assert.equal(cfg.peek().providers[id], undefined);
+  assert.equal(secrets.has(`agent.${id}.apiKey`), false, 'no orphan key for the removed provider');
+});
+
+test('a key-only save that finds its provider gone restores nothing', async () => {
+  const cfg = makeCfg();
+  const id = await register(cfg);
+  const hold = holdKeyWrite(id);
+  const saving = admin.saveCustomProviderKey(cfg, id, 'key-new');
+  await hold.reached;
+  // Gone by a config write outside the provider's queue (another process).
+  const current = cfg.loadConfig();
+  delete current.providers[id];
+  cfg.saveConfig(current);
+  hold.release();
+  await assert.rejects(saving, /unknown custom provider/);
+  assert.equal(secrets.has(`agent.${id}.apiKey`), false, 'neither the new key nor the previous one is written back');
+});

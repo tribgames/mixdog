@@ -136,6 +136,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'deleteMediaAssets',
   'deleteSchedule',
   'saveCustomProvider',
+  'saveCustomProviderKey',
   'removeCustomProvider',
   'updateCustomProviderModel',
   'setModelPreferences',

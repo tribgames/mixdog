@@ -9,6 +9,7 @@ import { isRemoteHostRenderer } from '../remote-ui-projection';
 const LEGACY_HOST_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'saveProviderApiKey',
   'saveCustomProvider',
+  'saveCustomProviderKey',
   'removeCustomProvider',
   'updateCustomProviderModel',
   'testCustomProvider',

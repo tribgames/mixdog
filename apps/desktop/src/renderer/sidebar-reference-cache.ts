@@ -145,6 +145,7 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   saveProviderApiKey: PROVIDER_KEYS,
   forgetProviderAuth: PROVIDER_KEYS,
   saveCustomProvider: PROVIDER_KEYS,
+  saveCustomProviderKey: PROVIDER_KEYS,
   removeCustomProvider: PROVIDER_KEYS,
   updateCustomProviderModel: PROVIDER_KEYS,
   setModelPreferences: PROVIDER_KEYS,

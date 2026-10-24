@@ -8,6 +8,7 @@ import {
   saveOpenAIUsageSessionKey,
   saveProviderApiKey,
   saveCustomProvider,
+  saveCustomProviderKey,
   removeCustomProvider,
   updateCustomProviderModel,
   saveModelPreferences,
@@ -73,6 +74,12 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
     async saveCustomProvider(input) {
       await awaitKeychainPrewarm();
       const result = await saveCustomProvider(cfgMod, input);
+      refresh.afterCredentialChange();
+      return result;
+    },
+    async saveCustomProviderKey(providerId, secret) {
+      await awaitKeychainPrewarm();
+      const result = await saveCustomProviderKey(cfgMod, providerId, secret);
       refresh.afterCredentialChange();
       return result;
     },

@@ -201,6 +201,7 @@ export const DESKTOP_CAPABILITIES = [
   'cancelOAuthProviderLogin',
   'saveProviderApiKey',
   'saveCustomProvider',
+  'saveCustomProviderKey',
   'removeCustomProvider',
   'updateCustomProviderModel',
   'setModelPreferences',

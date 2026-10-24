@@ -1144,6 +1144,44 @@ export async function saveCustomProvider(cfgMod, rawInput) {
   return typed ? serializeCustomKeySave(id, commit) : commit();
 }
 
+// Replaces only the stored key of an existing custom provider. The provider's
+// settings are never read back and rewritten, so a concurrent edit of them
+// (or a removal) is never reverted.
+export async function saveCustomProviderKey(cfgMod, rawId, rawKey) {
+  requireLocalProviderManagement();
+  const id = String(rawId || '').trim();
+  if (typeof rawKey !== 'string' || rawKey.length > CUSTOM_API_KEY_MAX) throw new TypeError('custom provider apiKey is invalid');
+  const key = rawKey.trim();
+  if (!key) throw new Error('API key is required');
+  const takesStoredKey = () => {
+    const entry = existingCustomEntry(cfgMod.loadConfig(), id);
+    const config = storedCustomConfig(entry);
+    if ((config?.auth ?? entry.auth) === 'none') throw new Error('this custom provider needs no API key');
+    if (config?.apiKeyEnv) throw new Error(`this custom provider reads its key from ${config.apiKeyEnv}`);
+    return entry;
+  };
+  takesStoredKey();
+  // The provider's removal runs in the same queue, so it never lands between
+  // the checks and the write below; a removal queued earlier is seen by the
+  // check, before anything is written.
+  return serializeCustomKeySave(id, async () => {
+    takesStoredKey();
+    const account = SECRET_ACCOUNTS.agentApiKey(id);
+    const previousKey = getAgentApiKey(id);
+    await saveSecretAsync(account, key);
+    try {
+      return customProviderRow(id, takesStoredKey());
+    } catch (error) {
+      // Switched to keyless (or the provider is gone) meanwhile: the key written
+      // is dropped, and the previous one is only put back for a provider that exists.
+      const exists = isCustomProviderConfig(cfgMod.loadConfig().providers?.[id]);
+      if (exists && previousKey) await saveSecretAsync(account, previousKey);
+      else await deleteSecretAsync(account);
+      throw error;
+    }
+  });
+}
+
 const MODEL_PATCH_KEYS = new Set([
   'manual',
   'hidden',
@@ -1323,14 +1361,19 @@ export async function removeCustomProvider(cfgMod, rawId) {
   requireLocalProviderManagement();
   const id = String(rawId || '').trim();
   existingCustomEntry(cfgMod.loadConfig(), id);
-  // Secret first: a real keychain failure (locked, permission) leaves the
-  // provider registered so the removal can be retried. A missing secret
-  // (keyless provider) is not an error.
-  await deleteSecretAsync(SECRET_ACCOUNTS.agentApiKey(id));
-  const current = cfgMod.loadConfig();
-  const { [id]: _removed, ...providers } = current.providers || {};
-  cfgMod.saveConfig(withoutProviderReferences({ ...current, providers }, id), { baseConfig: current });
-  return { provider: id, type: 'custom', removed: true };
+  // In the provider's key queue: a key write in flight finishes first and
+  // none starts between the secret's deletion and the config's.
+  return serializeCustomKeySave(id, async () => {
+    existingCustomEntry(cfgMod.loadConfig(), id);
+    // Secret first: a real keychain failure (locked, permission) leaves the
+    // provider registered so the removal can be retried. A missing secret
+    // (keyless provider) is not an error.
+    await deleteSecretAsync(SECRET_ACCOUNTS.agentApiKey(id));
+    const current = cfgMod.loadConfig();
+    const { [id]: _removed, ...providers } = current.providers || {};
+    cfgMod.saveConfig(withoutProviderReferences({ ...current, providers }, id), { baseConfig: current });
+    return { provider: id, type: 'custom', removed: true };
+  });
 }
 
 export async function testCustomProvider(cfgMod, rawInput) {

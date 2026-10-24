@@ -1474,6 +1474,7 @@ const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
   'saveProviderApiKey',
   'saveOpenAIUsageSessionKey',
   'saveCustomProvider',
+  'saveCustomProviderKey',
   'removeCustomProvider',
   'updateCustomProviderModel',
   'testCustomProvider',

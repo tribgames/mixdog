@@ -138,6 +138,35 @@ test('edit with blank key preserves secret; unknown or built-in id is rejected',
   await assert.rejects(admin.saveCustomProvider(cfg, { ...input, apiKey: '' }), /API key is required/);
 });
 
+test('saveCustomProviderKey replaces only the key and never writes the provider config', async () => {
+  const cfg = makeCfg();
+  const { id } = await admin.saveCustomProvider(cfg, input);
+  // An edit that landed meanwhile is never reverted: the config is not touched at all.
+  await admin.saveCustomProvider(cfg, { ...input, id, name: 'Renamed', apiKey: '' });
+  const before = JSON.stringify(cfg.peek());
+  const saves = mock.fn(cfg.saveConfig);
+  cfg.saveConfig = saves;
+  const row = await admin.saveCustomProviderKey(cfg, id, '  sk-replacement-9999  ');
+  assert.equal(secrets.get(`agent.${id}.apiKey`), 'sk-replacement-9999');
+  assert.equal(saves.mock.callCount(), 0);
+  assert.equal(JSON.stringify(cfg.peek()), before);
+  assert.equal(row.name, 'Renamed');
+  assert.equal(JSON.stringify(row).includes('sk-replacement-9999'), false);
+
+  await assert.rejects(admin.saveCustomProviderKey(cfg, id, '   '), /API key is required/);
+  await assert.rejects(admin.saveCustomProviderKey(cfg, 'openai', 'sk-x'), /unknown custom provider/);
+  await assert.rejects(
+    admin.saveCustomProviderKey(cfg, 'custom-00000000-0000-4000-8000-000000000000', 'sk-x'),
+    /unknown custom provider/
+  );
+  const keyless = await admin.saveCustomProvider(cfg, { ...input, auth: 'none', apiKey: undefined });
+  await assert.rejects(admin.saveCustomProviderKey(cfg, keyless.id, 'sk-x'), /needs no API key/);
+  assert.equal(secrets.has(`agent.${keyless.id}.apiKey`), false);
+  const viaEnv = await admin.saveCustomProvider(cfg, { ...input, apiKey: undefined, apiKeyEnv: 'ACME_KEY' });
+  await assert.rejects(admin.saveCustomProviderKey(cfg, viaEnv.id, 'sk-x'), /ACME_KEY/);
+  assert.equal(secrets.has(`agent.${viaEnv.id}.apiKey`), false);
+});
+
 test('remove deletes config and secret, and only custom providers', async () => {
   const cfg = makeCfg();
   const { id } = await admin.saveCustomProvider(cfg, input);

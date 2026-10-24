@@ -24,6 +24,36 @@ test('immediate resume validates its addressed session and turn at the desktop b
   );
 });
 
+test('a custom provider key save needs the exact custom provider id and a bounded key', () => {
+  const id = 'custom-0d6f3d4e-8c55-4a43-9b3e-6a8f6c3f1b10';
+  const request = { capability: 'saveCustomProviderKey', args: [id, 'sk-live-0123'] };
+  assert.deepEqual(requiredDesktopCapabilityRequest(request), request);
+  for (const bad of [
+    'openai',
+    '',
+    'custom-',
+    'custom-nope',
+    id.toUpperCase(),
+    `${id}x`,
+    ` ${id}`,
+    `${id}\n`,
+    id.replace('custom-', 'custom_'),
+    'custom-0d6f3d4e-8c55-4a43-9b3e-6a8f6c3f1b1',
+    5,
+    null,
+    { id },
+  ]) {
+    assert.throws(
+      () => requiredDesktopCapabilityRequest({ ...request, args: [bad, 'sk-live-0123'] }),
+      /custom provider id is invalid/,
+      JSON.stringify(bad)
+    );
+  }
+  assert.throws(() => requiredDesktopCapabilityRequest({ ...request, args: [id] }), TypeError);
+  assert.throws(() => requiredDesktopCapabilityRequest({ ...request, args: [id, ''] }), TypeError);
+  assert.throws(() => requiredDesktopCapabilityRequest({ ...request, args: [id, 'k'.repeat(70_000)] }), TypeError);
+});
+
 test('an editor save without an encoding change passes the IPC and remote boundaries', () => {
   // IPC keeps `undefined`; the remote lane is JSON and sends `null`.
   assert.equal(requiredTextFileEncoding(undefined), undefined);

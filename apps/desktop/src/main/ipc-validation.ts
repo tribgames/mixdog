@@ -552,6 +552,7 @@ const CAPABILITY_ARITY = {
   cancelOAuthProviderLogin: [1, 1],
   saveProviderApiKey: [2, 2],
   saveCustomProvider: [1, 1],
+  saveCustomProviderKey: [2, 2],
   removeCustomProvider: [1, 1],
   updateCustomProviderModel: [3, 3],
   setModelPreferences: [2, 2],
@@ -1383,6 +1384,12 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   if (capability === 'updateCustomProviderModel') requiredCustomModelPatch(args[0], args[1], args[2]);
   if (capability === 'setModelPreferences') requiredModelPreferences(args[0], args[1]);
   if (capability === 'removeCustomProvider') requiredString(args[0], 'custom provider id', 128);
+  if (capability === 'saveCustomProviderKey') {
+    if (typeof args[0] !== 'string' || !CUSTOM_PROVIDER_ID.test(args[0])) {
+      throw new TypeError('custom provider id is invalid.');
+    }
+    validateSecret(args[1], 'provider secret');
+  }
   if (capability === 'saveOpenAIUsageSessionKey') {
     validateSecret(args[0], 'secret');
   }
