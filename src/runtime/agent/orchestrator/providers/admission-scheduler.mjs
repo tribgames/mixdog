@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { PRIORITY_RANK, normalizePriority, resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 import { sanitizeSurrogates } from '../../../shared/llm/well-formed.mjs';
+import { providerAvailable, providerUnavailableError } from './provider-availability.mjs';
 import {
   finalizeProviderRequestTools,
   isFinalizedProviderRequestTools,
@@ -547,6 +548,9 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
         scheduler.run(
           key,
           (admissionSignal, admissionMetrics) => {
+            // The Developer option may have been switched off after lookup or
+            // while this request waited: the gate is rechecked right before send.
+            if (!providerAvailable(providerName)) throw providerUnavailableError(providerName);
             // Admission is the common request-clock boundary for WS/SSE/HTTP.
             // Queue wait therefore cannot consume first-byte or agent-watchdog
             // time. Provider-local retry remains the sole retry owner.

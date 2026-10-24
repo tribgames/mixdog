@@ -1,5 +1,6 @@
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
-import { isOAuthProviderAvailable, oauthCredentialProbeState } from './oauth-credential-probes.mjs';
+import { oauthCredentialProbeState } from './oauth-credential-probes.mjs';
+import { providerAvailable } from './provider-availability.mjs';
 import { refreshCatalog as refreshMetadataCatalog } from './model-catalog.mjs';
 import { wrapProviderAdmission } from './admission-scheduler.mjs';
 import { createAccountPoolProvider } from './account-pool.mjs';
@@ -553,12 +554,6 @@ export function getAllProviders() {
 // Live instances minus dev-gated providers whose Developer option is off.
 function availableProviderEntries() {
   return [...providers].filter(([name]) => providerAvailable(name));
-}
-
-// Remote client mode serves the PC's providers, whose availability the PC
-// already decided; only a locally run provider answers to the local option.
-function providerAvailable(name) {
-  return modelProxyClientMode() || isOAuthProviderAvailable(name);
 }
 
 export function disableProvider(name) {

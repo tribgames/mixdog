@@ -14,6 +14,7 @@ import {
   effortConfigurationMode,
 } from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
+import { providerAvailable } from '../../runtime/agent/orchestrator/providers/provider-availability.mjs';
 import {
   DAYBREAK_PARAMETER_OPTION,
   DAYBREAK_PROVIDER,
@@ -96,7 +97,17 @@ export function createRowHydration({
     hydrateProviderModelRow: (row) => hydrateProviderModelRow(config(), row),
     sortProviderModels,
     providerModelCacheRow,
-    providerModelsFromCacheRows: (rows) =>
-      sortProviderModels((rows || []).map((row) => hydrateProviderModelRow(config(), row))),
+    // Cached rows outlive a Developer option switch, so availability is
+    // applied at read time, once per provider per call.
+    providerModelsFromCacheRows: (rows) => {
+      const availability = new Map();
+      const available = (provider) => {
+        if (!availability.has(provider)) availability.set(provider, providerAvailable(provider));
+        return availability.get(provider);
+      };
+      return sortProviderModels(
+        (rows || []).filter((row) => available(row.provider)).map((row) => hydrateProviderModelRow(config(), row))
+      );
+    },
   };
 }
