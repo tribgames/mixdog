@@ -418,6 +418,29 @@ test('a contact whose own home turn waits on the user reads attention over runni
   assert.deepEqual(translator.indicator, { kind: 'running' }, 'only the waiting home');
 });
 
+// A bot that hands work to a task session ends its own turn while the task
+// runs: the task is still the bot's work, so its row keeps the spinner.
+test("a contact reads running while a task session it created works, and attention while one waits on the user", () => {
+  const task = (id, overrides = {}) => ({ ...work, id, taskAgent: 'github-watcher', taskFrom: 'home', ...overrides });
+  const sessions = [
+    home('github-watcher'),
+    home('translator'),
+    task('task-live', { working: true }),
+    task('task-old', { archived: true, working: true, taskAgent: 'translator' }),
+  ];
+  const [, watcher, translator] = agentContacts(AGENTS, sessions, new Map());
+  assert.deepEqual(watcher.indicator, { kind: 'running' });
+  assert.equal(watcher.preview, 'Working');
+  assert.equal(translator.indicator, null, 'an archived task is no live work');
+
+  const needsUser = new Set(['task-live']);
+  const [, waiting] = agentContacts(AGENTS, sessions, new Map(), undefined, { needsUser });
+  assert.deepEqual(waiting.indicator, { kind: 'attention' });
+
+  const [, idle] = agentContacts(AGENTS, [home('github-watcher'), task('task-done')], new Map());
+  assert.equal(idle.indicator, null, 'a finished task leaves the row quiet');
+});
+
 test('the bot page marks a working home thread that waits on approval, not a spinner', async (t) => {
   const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
   const sessions = [work, home('github-watcher', { working: true, awaitingApproval: true })];

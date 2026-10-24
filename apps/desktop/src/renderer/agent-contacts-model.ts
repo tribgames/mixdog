@@ -34,21 +34,24 @@ export interface AgentContact {
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
-/** The row's one trailing status: attention > error > running > unread. */
+/** The row's one trailing status: attention > error > running > unread. The
+ *  task sessions the bot created (taskAgent) are its work too: the bot's own
+ *  turn often ends once it hands the work over, while the task still runs. */
 function contactIndicator(
   session: DesktopSessionSummary | null,
+  tasks: readonly DesktopSessionSummary[],
   nodes: readonly AgentActivityNode[] | undefined,
   unreadSessionIds: ReadonlySet<string> | undefined,
   needsUser: ReadonlySet<string> | undefined
 ): AgentChatIndicator {
-  if (!session) return null;
-  // The home thread's own turn waits on the user (an approval or a question):
-  // no pool row carries that, and it outranks the running turn it is part of.
-  if (needsUser?.has(session.id)) return { kind: 'attention' };
-  const pooled = nodes?.length ? agentGroupIndicator(session.id, nodes, unreadSessionIds) : null;
+  // The home thread's own turn or one of its tasks waits on the user (an
+  // approval or a question): no pool row carries that, and it outranks the
+  // running turn it is part of.
+  if ([session, ...tasks].some((row) => row && needsUser?.has(row.id))) return { kind: 'attention' };
+  const pooled = session && nodes?.length ? agentGroupIndicator(session.id, nodes, unreadSessionIds) : null;
   if (pooled && pooled.kind !== 'unread') return pooled;
-  if (session.working) return { kind: 'running' };
-  if (!unreadSessionIds?.has(session.id)) return null;
+  if (session?.working || tasks.some((task) => task.working)) return { kind: 'running' };
+  if (!session || !unreadSessionIds?.has(session.id)) return null;
   // The chat messages that arrived since the read cursor, a whole number of at
   // least 1; the row caps how it shows it.
   return { kind: 'unread', count: unseenIncomingCount(session) };
@@ -89,8 +92,11 @@ export function agentContacts(
   { includeDisabled = false, needsUser }: { includeDisabled?: boolean; needsUser?: ReadonlySet<string> } = {}
 ): AgentContact[] {
   const homes = new Map<string, DesktopSessionSummary>();
+  const tasks = new Map<string, DesktopSessionSummary[]>();
   for (const session of sessions) {
-    if (session.agentHome && !session.archived) homes.set(session.agentHome, session);
+    if (session.archived) continue;
+    if (session.agentHome) homes.set(session.agentHome, session);
+    if (session.taskAgent) tasks.set(session.taskAgent, [...(tasks.get(session.taskAgent) ?? []), session]);
   }
   const contact = (
     agentId: string,
@@ -103,6 +109,7 @@ export function agentContacts(
     const session = homes.get(agentId) ?? null;
     const indicator = contactIndicator(
       session,
+      tasks.get(agentId) ?? [],
       session ? groups.get(session.id) : undefined,
       unreadSessionIds,
       needsUser
