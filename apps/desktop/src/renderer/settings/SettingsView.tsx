@@ -6,6 +6,7 @@ import {
   Cable,
   Code,
   GitBranch,
+  Hammer,
   Heart,
   Keyboard,
   ListChecks,
@@ -20,7 +21,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
@@ -93,6 +94,7 @@ const CATEGORY_ICONS = {
   shortcuts: Keyboard,
   about: Heart,
   display: Palette,
+  work: Hammer,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
 export const SettingsView = memo(function SettingsView({
@@ -110,9 +112,8 @@ export const SettingsView = memo(function SettingsView({
   const serverWindow = isSshConnectionWindow();
   // The Shortcuts reference is keyboard-only, so the phone drops the tab.
   const phone = useMobileRemoteSurface();
-  // The bot overlay is this PC's own window: not in a server window either.
   const hidden = (value: SettingsCategory) =>
-    (serverWindow && (value === 'connection' || value === 'bots')) || (phone && value === 'shortcuts');
+    (serverWindow && value === 'connection') || (phone && value === 'shortcuts');
   const visibleCategories = settingsCategoriesForSurface(remoteSettings, hostOpenAccess).filter(
     (item) => !hidden(item.value)
   );
@@ -126,7 +127,7 @@ export const SettingsView = memo(function SettingsView({
   const openCategory = useCallback(
     (next: SettingsCategory) => {
       const resolved = settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
-      setCategory(serverWindow && (resolved === 'connection' || resolved === 'bots') ? 'general' : resolved);
+      setCategory(serverWindow && resolved === 'connection' ? 'general' : resolved);
     },
     [remoteSettings, hostOpenAccess, serverWindow]
   );
@@ -283,10 +284,9 @@ export const SettingsView = memo(function SettingsView({
       >
         <aside className="mixdog-settings__rail" aria-label={t('Settings categories')}>
           <nav>
-            {/* One flat, evenly spaced list (user decision): the category
-              headings AND the gaps between their blocks are gone — twelve
-              short rows read better as a single run. `group` survives in the
-              data purely as the authoring order. */}
+            {/* The PC's pages run in sections (Basics, AI behavior,
+              Integrations, Support), each opened by its heading (user
+              decision: the categories must read as clearly divided). */}
             {remoteSettings && (
               <div className="mixdog-settings__rail-group" data-settings-group="device">
                 <div className="mixdog-settings__rail-group-label">
@@ -302,7 +302,14 @@ export const SettingsView = memo(function SettingsView({
                   <RemotePcLabel />
                 </div>
               )}
-              {visibleCategories.map(railButton)}
+              {visibleCategories.map((item, index) => (
+                <Fragment key={item.value}>
+                  {item.group !== visibleCategories[index - 1]?.group && (
+                    <div className="mixdog-settings__rail-section">{t(item.group)}</div>
+                  )}
+                  {railButton(item)}
+                </Fragment>
+              ))}
             </div>
           </nav>
           {/* No brand/version footer (user decision): the nav ends with its

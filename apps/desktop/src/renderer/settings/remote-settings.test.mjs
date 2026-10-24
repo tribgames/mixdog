@@ -60,7 +60,7 @@ test('remote settings: This device group holds Display and Theme, the PC group h
   assert.deepEqual(
     [...groups[0].querySelectorAll('button')].map((button) => button.getAttribute('aria-label')),
     // Theme, skin, fonts and color themes are stored per device (localStorage).
-    ['Display', 'Theme']
+    ['Theme', 'Display']
   );
   assert.match(groups[1].querySelector('.mixdog-settings__rail-group-label').textContent, /Home PC/);
   assert.ok(railLabels(document).includes('General'));
@@ -68,7 +68,7 @@ test('remote settings: This device group holds Display and Theme, the PC group h
   assert.match(document.querySelector('.mixdog-settings__where').textContent, /Home PC/);
   assert.equal(document.querySelector('.mixdog-settings__where').dataset.settingsWhere, 'pc');
   assert.equal(document.body.textContent.includes('Display language'), false);
-  await act(async () => groups[0].querySelector('button').click());
+  await act(async () => groups[0].querySelector('button[aria-label="Display"]').click());
   assert.equal(document.querySelector('#mixdog-settings-title').textContent, 'Display');
   assert.equal(document.querySelector('.mixdog-settings__where').dataset.settingsWhere, 'device');
   assert.match(document.querySelector('.mixdog-settings__where').textContent, /This device/);
@@ -77,13 +77,23 @@ test('remote settings: This device group holds Display and Theme, the PC group h
   }
 });
 
-test('main PC settings keep one flat nav with no group labels, badge or Display page', async (t) => {
+test('main PC settings: one nav in four headed sections, no badge, display settings on the Display page', async (t) => {
   const document = await renderSettings(t, { remote: false });
   assert.equal(document.querySelectorAll('.mixdog-settings__rail-group').length, 1);
   assert.equal(document.querySelector('.mixdog-settings__rail-group-label'), null);
+  assert.deepEqual(
+    [...document.querySelectorAll('.mixdog-settings__rail-section')].map((node) => node.textContent),
+    ['Basics', 'AI behavior', 'Integrations', 'Support']
+  );
   assert.equal(document.querySelector('.mixdog-settings__where'), null);
-  assert.equal(railLabels(document).includes('Display'), false);
-  for (const title of ['Display language', 'Side panels']) {
+  assert.equal(document.body.textContent.includes('Display language'), false, 'General no longer holds it');
+  await act(async () => document.querySelector('.mixdog-settings__rail-group button[aria-label="Display"]').click());
+  assert.equal(document.querySelector('#mixdog-settings-title').textContent, 'Display');
+  for (const title of ['Display language', 'Side panels', 'Link preview']) {
     assert.ok(document.body.textContent.includes(title), title);
   }
+  assert.deepEqual(
+    [...document.querySelectorAll('.settings-group > header h3')].map((node) => node.textContent),
+    ['Language and time', 'Windows and panels']
+  );
 });

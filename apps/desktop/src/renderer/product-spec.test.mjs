@@ -47,18 +47,44 @@ test('developer settings are a local-only Support category ahead of shortcuts', 
   assert.equal(settingsCategoryForSurface('developer', false), 'developer');
 });
 
-test('Bots is a desktop-only Mixdog page right after General and Theme', () => {
-  const local = settingsCategoriesForSurface(false).map((category) => category.value);
-  assert.deepEqual(local.slice(0, 3), ['general', 'skin', 'bots']);
+test('the rail runs in Basics, AI behavior, Integrations and Support sections, Bots right after General', () => {
+  const local = settingsCategoriesForSurface(false);
+  assert.deepEqual(
+    local.map((category) => category.value),
+    [
+      'general',
+      'bots',
+      'skin',
+      'display',
+      'output-style',
+      'context',
+      'work',
+      'providers',
+      'models',
+      'connection',
+      'system',
+      'developer',
+      'shortcuts',
+      'about',
+    ]
+  );
+  const groups = local.map((category) => category.group);
+  assert.deepEqual(
+    groups.filter((group, index) => group !== groups[index - 1]),
+    ['Basics', 'AI behavior', 'Integrations', 'Support'],
+    'each section is one adjacent run'
+  );
   assert.equal(SETTINGS_CATEGORIES.find((category) => category.value === 'bots')?.label, 'Bots');
+  // Check-ins and reactions are the PC's settings: every surface lists Bots.
   for (const open of [false, true]) {
     assert.equal(
       settingsCategoriesForSurface(true, open).some((category) => category.value === 'bots'),
-      false
+      true
     );
-    assert.equal(settingsCategoryForSurface('bots', true, open), 'general');
+    assert.equal(settingsCategoryForSurface('bots', true, open), 'bots');
   }
   assert.equal(settingsCategoryForSurface('bots', false), 'bots');
+  assert.equal(settingsCategoryForSurface('work', true), 'work');
 });
 
 test('a host with open access shows remote clients the Providers and Developer pages', () => {

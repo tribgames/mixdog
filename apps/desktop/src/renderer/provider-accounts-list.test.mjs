@@ -586,21 +586,22 @@ test('account rows show every usage window, the limit holding them and the switc
   const meters = (id) =>
     [...row(id).querySelectorAll('.provider-account-usage > span')].map((line) => [
       line.className,
-      ...[...line.children].filter((cell) => cell.tagName !== 'I').map((cell) => cell.textContent),
+      line.querySelector('small').textContent,
+      line.querySelector('em').textContent,
+      line.querySelector('b').textContent,
     ]);
-  assert.deepEqual(meters('codex'), [['', '7D', '61%', '3d 2h']]);
+  assert.deepEqual(meters('codex'), [['', '7D', 'Resets in 3d 2h', '61%']]);
   assert.deepEqual(meters('claude'), [
-    ['tone-danger', '5H', '92%', '1h 12m'],
-    ['tone-warning', '7D', '75%', '2d 2h'],
-    ['tone-danger', '7D FABLE', '100%', '2d 2h'],
+    ['tone-danger', '5H', 'Resets in 1h 12m', '92%'],
+    ['tone-warning', '7D', 'Resets in 2d 2h', '75%'],
+    ['tone-danger', '7D FABLE', 'Resets in 2d 2h', '100%'],
   ]);
   assert.equal(row('claude').querySelector('.provider-account-usage i > i').style.width, '92%');
   assert.deepEqual(meters('fresh'), []);
-  assert.equal(row('fresh').querySelector('.provider-account-usage .empty').textContent, 'Usage not checked yet');
-  assert.equal(
-    row('expired').querySelector('.provider-account-usage .empty').textContent,
-    'Shown after signing in again'
-  );
+  // The empty note is secondary text under the account name, not a usage block.
+  assert.equal(row('fresh').querySelector('.provider-account-usage'), null);
+  assert.equal(row('fresh').querySelector('.provider-account-meta').textContent, 'Usage not checked yet');
+  assert.equal(row('expired').querySelector('.provider-account-meta').textContent, 'Shown after signing in again');
   assert.equal(row('expired').classList.contains('is-dim'), true);
   assert.equal(row('codex').classList.contains('is-dim'), false);
   const pills = (id) => [...row(id).querySelectorAll('.settings-status')].map((pill) => pill.textContent);

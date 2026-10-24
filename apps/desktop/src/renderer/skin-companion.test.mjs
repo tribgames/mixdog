@@ -2177,13 +2177,14 @@ async function mountSettings(t, desktop, { legacy = null, remote = false, mixy =
   publisher.resetDesktopPetConfigForTests();
   t.after(() => publisher.resetDesktopPetConfigForTests());
   const { BotsPanel } = await import('./settings/desktop-pet-toggle');
-  await act(async () => dom.root.render(React.createElement(BotsPanel)));
+  await act(async () =>
+    dom.root.render(React.createElement(BotsPanel, { data: {}, pending: '', run: async () => undefined }))
+  );
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return { ...dom, publisher };
 }
 
-const switchOf = (document) =>
-  document.querySelector('input[type="checkbox"][aria-label="Representative bot overlay"]');
+const switchOf = (document) => document.querySelector('input[type="checkbox"][aria-label="Show on screen"]');
 
 const optionSwitch = (document, label) => document.querySelector(`input[type="checkbox"][aria-label="${label}"]`);
 
@@ -2500,7 +2501,7 @@ test('no representative bot: the overlay options are disabled with a note; the s
   const desktop = fakeDesktop();
   const { document, publisher, root } = await mountSettings(t, desktop, { mixy: false });
   assert.ok(document.body.textContent.includes('Create the representative bot to use the overlay.'));
-  for (const label of ['Representative bot overlay', 'Keep above other windows', 'Collapse bubble']) {
+  for (const label of ['Show on screen', 'Keep above other windows', 'Collapse bubble']) {
     assert.equal(optionSwitch(document, label).disabled, true, `${label} disabled`);
   }
   assert.equal(document.querySelector('[role="combobox"][aria-label="Position"]').disabled, true);

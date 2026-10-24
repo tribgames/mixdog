@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from '../test-support/test-dom.mjs';
-import { GeneralPanel } from './general-panel.tsx';
+import { WorkPanel } from './general-panel.tsx';
 import { t as translate } from '../i18n.ts';
 
 function mount(t, toolModules, run) {
@@ -14,7 +14,7 @@ function mount(t, toolModules, run) {
   dom.window.mixdogDesktop = api;
   const render = (modules) =>
     act(async () =>
-      root.render(React.createElement(GeneralPanel, { data: { toolModules: modules }, pending: '', run, api }))
+      root.render(React.createElement(WorkPanel, { data: { toolModules: modules }, pending: '', run, api }))
     );
   return { document: dom.window.document, render };
 }

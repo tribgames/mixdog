@@ -4,7 +4,7 @@ import { Plus, X } from 'lucide-react';
 import { t } from '../i18n';
 import { scrimDismiss } from '../scrim-dismiss';
 import { OpenSelect } from '../OpenSelect';
-import { ActionButton, CompactSwitch, ResourceRow } from './capability-controls';
+import { ActionButton, CompactSwitch, ListEmpty, ResourceRow } from './capability-controls';
 import { providerLabel, type PanelContext, type RecordValue } from './capability-data';
 import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
@@ -711,25 +711,24 @@ export function CustomProvidersSection({
   return (
     <section className="settings-group settings-custom-providers">
       <header>
-        <h3>{t('Custom providers')}</h3>
+        <div className="settings-group-head">
+          <h3>{t('Custom providers')}</h3>
+          <button
+            type="button"
+            className="settings-action"
+            disabled={busy || loading || editing !== null}
+            onClick={() => openEditor('new')}
+          >
+            <Plus size={14} aria-hidden="true" />
+            {t('Add custom provider')}
+          </button>
+        </div>
       </header>
-      <div className="settings-group-body">
-        <ResourceRow
-          title={t('Add custom provider')}
-          actions={
-            <button
-              type="button"
-              className="provider-account-add-button"
-              disabled={busy || loading || editing !== null}
-              aria-label={t('Add custom provider')}
-              title={t('Add custom provider')}
-              onClick={() => openEditor('new')}
-            >
-              <Plus size={16} aria-hidden="true" />
-            </button>
-          }
-        />
-      </div>
+      {providers.length === 0 && (
+        <div className="settings-group-body">
+          <ListEmpty text={t('No custom providers yet.')} />
+        </div>
+      )}
       {providers.map((provider) => {
         const id = String(provider.id);
         const total = customModels(provider).length;

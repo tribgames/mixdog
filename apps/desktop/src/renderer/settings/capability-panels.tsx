@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { ErrorNotice } from '../ErrorNotice';
 
 import type { DesktopApi } from '../../shared/contract';
@@ -19,7 +19,7 @@ import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { ConnectionPanel } from './connection-panel';
 import { DeveloperPanel } from './developer-panel';
 import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
-import { DisplayPanel, GeneralPanel } from './general-panel';
+import { DisplayPanel, GeneralPanel, WorkPanel } from './general-panel';
 import { SkinPanel } from './skin-panel';
 import { BotsPanel } from './desktop-pet-toggle';
 
@@ -62,62 +62,74 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'about') return <AboutPanel />;
   if (category === 'display') return <DisplayPanel {...context} />;
   if (category === 'skin') return <SkinPanel {...context} />;
-  if (category === 'bots') return <BotsPanel />;
+  if (category === 'bots') return <BotsPanel {...context} />;
+  if (category === 'work') return <WorkPanel {...context} />;
   return <GeneralPanel {...context} />;
 }
 
 // Keybind reference (read-only). Bindings live in App.tsx's
 // global keydown handler and the composer key map; keep this list in sync.
-const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
+export const SHORTCUT_GROUPS: ReadonlyArray<
+  readonly [string, ReadonlyArray<readonly [ReadonlyArray<string>, string]>]
+> = [
   [
-    'Project',
+    'Tasks and tabs',
     [
-      ['Ctrl+N', 'New task'],
-      ['Ctrl+Alt+N', 'New task without a project'],
-      ['Ctrl+P', 'Quick Open'],
-      ['Ctrl+Shift+P / Ctrl+K / Ctrl+/', 'Command Palette'],
-      ['Ctrl+F', 'Search sessions (no tab open)'],
-      ['Ctrl+W', 'Close tab'],
-      ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
-      ['Ctrl+Shift+] / Ctrl+Shift+[', 'Next / previous tab'],
-      ['Ctrl+1–8 / Ctrl+9', 'Go to tab / last tab'],
-      ['Ctrl+[ / Ctrl+]', 'Go back / forward'],
-      ['Ctrl+← / →', 'Switch tab / pane'],
-      ['Ctrl+↑ / ↓', 'Focus pane above / below'],
-      ['Ctrl+B', 'Toggle right utility panel'],
-      ['Ctrl+Shift+B', 'Toggle left side bar'],
-      ['Ctrl+` / Ctrl+T', 'Toggle terminal panel'],
-      ['Ctrl+,', 'Open settings'],
-      ['Esc', 'Close menus and popovers'],
+      [['Ctrl+N'], 'New task'],
+      [['Ctrl+Alt+N'], 'New task without a project'],
+      [['Ctrl+W'], 'Close tab'],
+      [['Ctrl+Tab', 'Ctrl+Shift+]'], 'Next tab'],
+      [['Ctrl+Shift+Tab', 'Ctrl+Shift+['], 'Previous tab'],
+      [['Ctrl+1–8', 'Ctrl+9'], 'Go to tab / last tab'],
+      [['Ctrl+[', 'Ctrl+]'], 'Go back / forward'],
     ],
   ],
   [
-    'Editor',
+    'Find and move',
     [
-      ['F2', 'Rename symbol'],
-      ['Ctrl+.', 'Quick Fix'],
-      ['Shift+Alt+F', 'Format document'],
-      ['F12 / Shift+F12', 'Go to definition / references'],
+      [['Ctrl+P'], 'Quick Open'],
+      [['Ctrl+Shift+P', 'Ctrl+K', 'Ctrl+/'], 'Command Palette'],
+      [['Ctrl+F'], 'Search sessions (no tab open)'],
+      [['Ctrl+←', 'Ctrl+→'], 'Switch tab / pane'],
+      [['Ctrl+↑', 'Ctrl+↓'], 'Focus pane above / below'],
+    ],
+  ],
+  [
+    'Layout',
+    [
+      [['Ctrl+Shift+B'], 'Toggle left side bar'],
+      [['Ctrl+B'], 'Toggle right utility panel'],
+      [['Ctrl+`', 'Ctrl+T'], 'Toggle terminal panel'],
+      [['Ctrl+,'], 'Open settings'],
+      [['Esc'], 'Close menus and popovers'],
     ],
   ],
   [
     'Composer',
     [
-      ['Enter', 'Send message'],
-      ['Shift+Enter / Ctrl+Enter', 'Insert new line'],
-      ['Ctrl+J', 'Insert new line'],
-      ['Ctrl+U', 'Delete to line start'],
-      ['↑ / ↓', 'Prompt history (empty draft)'],
-      ['/', 'Command palette'],
-      ['@', 'File and context mentions'],
+      [['Enter'], 'Send message'],
+      [['Shift+Enter', 'Ctrl+Enter', 'Ctrl+J'], 'Insert new line'],
+      [['Ctrl+U'], 'Delete to line start'],
+      [['↑', '↓'], 'Prompt history (empty draft)'],
+      [['/'], 'Command palette'],
+      [['@'], 'File and context mentions'],
     ],
   ],
   [
     'Conversation',
     [
-      ['PageUp / PageDown', 'Scroll conversation'],
-      ['Home / End', 'First / latest message'],
-      ['Ctrl+O', 'Expand or collapse all tool activity'],
+      [['PageUp', 'PageDown'], 'Scroll conversation'],
+      [['Home', 'End'], 'First / latest message'],
+      [['Ctrl+O'], 'Expand or collapse all tool activity'],
+    ],
+  ],
+  [
+    'Editor',
+    [
+      [['F2'], 'Rename symbol'],
+      [['Ctrl+.'], 'Quick Fix'],
+      [['Shift+Alt+F'], 'Format document'],
+      [['F12', 'Shift+F12'], 'Go to definition / references'],
     ],
   ],
 ];
@@ -129,9 +141,16 @@ function ShortcutsPanel() {
         <Group key={title} title={t(title)}>
           <div className="settings-shortcut-list">
             {shortcuts.map(([keys, action]) => (
-              <div className="settings-shortcut-row" key={keys}>
+              <div className="settings-shortcut-row" key={action}>
                 <span>{t(action)}</span>
-                <kbd>{keys}</kbd>
+                <span className="settings-shortcut-keys">
+                  {keys.map((key, index) => (
+                    <Fragment key={key}>
+                      {index > 0 && <span className="settings-shortcut-or">{t('or')}</span>}
+                      <kbd>{key}</kbd>
+                    </Fragment>
+                  ))}
+                </span>
               </div>
             ))}
           </div>
@@ -168,7 +187,11 @@ function ChoicePanel({
             <ResourceRow
               key={id}
               title={label(entry)}
-              description={String(entry.description || entry.source || '')}
+              meta={
+                String(entry.description || entry.source || '')
+                  ? t(String(entry.description || entry.source))
+                  : undefined
+              }
               selected={id === active || entry.active === true}
               actions={
                 id !== active &&
@@ -220,7 +243,7 @@ function OutputStylePanel({ data, pending, run }: PanelContext) {
         <ErrorNotice error={failure} role="status" />
       ) : (
         <ChoicePanel
-          title=""
+          title={t('Response style')}
           values={styleRows}
           active={String(record(output.current).id || output.configured || 'default')}
           pending={pending}
@@ -282,21 +305,21 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
     updaterState.status === 'downloading' ||
     updaterState.status === 'installing';
   const installLabel = updaterInstallLabel(updaterState);
+  const current = String(update.currentVersion || '');
+  let versionMeta: string | undefined;
+  if (updaterState.status === 'checking') versionMeta = t('Checking for update…');
+  else if (updaterState.status === 'error') versionMeta = t('Update unavailable');
+  else if (updaterState.status === 'up-to-date') versionMeta = t('Up to date');
+  else if (version && version !== current) versionMeta = t('Version {{version}} is available', { version });
+  else if (version) versionMeta = t('Up to date');
   // Over remote access the updater is the host computer's, not this device's.
   // A host without the updater methods reports 'disabled': keep the old wording.
   const onHost = isRemoteHostRenderer() && updaterState.status !== 'disabled';
   return (
     <Group title={onHost ? t('Update (host computer)') : t('Update')}>
       <ResourceRow
-        title={t('Current version')}
-        description={
-          onHost ? t('Installed Mixdog Desktop version on the host computer.') : t('Installed Mixdog Desktop version.')
-        }
-        meta={String(update.currentVersion || t('unknown'))}
-      />
-      <ResourceRow
-        title={onHost ? t('Latest version (host computer)') : t('Latest version')}
-        meta={version || t('unknown')}
+        title={t('Mixdog {{version}}', { version: current || t('unknown') })}
+        meta={versionMeta}
         actions={
           <ActionButton disabled={busy} onClick={() => void checkDesktopUpdate()}>
             {onHost ? t('Check on host computer') : t('Check now')}
@@ -309,14 +332,21 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
         disabled={busy}
         onChange={(enabled) => void run('setAutoUpdate', [enabled])}
       />
-      <ResourceRow
-        title={onHost ? t('Install update on host computer') : t('Install update')}
-        actions={
-          <ActionButton disabled={busy || updaterState.status !== 'ready'} onClick={() => void installDesktopUpdate()}>
-            {installLabel}
-          </ActionButton>
-        }
-      />
+      {(updaterState.status === 'ready' ||
+        updaterState.status === 'downloading' ||
+        updaterState.status === 'installing') && (
+        <ResourceRow
+          title={onHost ? t('Install update on host computer') : t('Install update')}
+          actions={
+            <ActionButton
+              disabled={busy || updaterState.status !== 'ready'}
+              onClick={() => void installDesktopUpdate()}
+            >
+              {installLabel}
+            </ActionButton>
+          }
+        />
+      )}
     </Group>
   );
 }
@@ -341,115 +371,131 @@ function ContextPanel({ data, pending, run }: PanelContext) {
   const providerNames = customProviderDisplayNames(data.providerSetup);
   const busy = Boolean(pending);
   return (
-    <Group title={t('Session lifecycle')}>
-      <ToggleRow
-        title={t('Let AI rename sessions')}
-        description={t('Allow the assistant to give a session a descriptive title.')}
-        checked={sessionTitles.aiSessionTitles !== false}
-        disabled={busy}
-        onChange={(enabled) => void run('setAiSessionTitles', [enabled])}
-      />
-      <ToggleRow
-        title={t('Auto-compact')}
-        description={t('Compact automatically as the active context reaches its limit.')}
-        checked={compaction.auto !== false}
-        disabled={busy}
-        onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])}
-      />
-      <ToggleRow
-        title={t('Auto-compact on model change')}
-        description={t(
-          'Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.'
-        )}
-        checked={compaction.onModelChange !== false}
-        disabled={busy}
-        onChange={(enabled) => void run('setCompactionSettings', [{ onModelChange: enabled }])}
-      />
-      <SelectRow
-        title={t('Compaction summary model')}
-        description={t(
-          'Smart reuses the conversation’s cache while it is warm, otherwise the Maintainer or a lighter model.'
-        )}
-        value={String(compaction.summaryMode || 'smart')}
-        disabled={busy}
-        options={[
-          { value: 'smart', label: t('Smart') },
-          { value: 'maintainer', label: t('Maintainer') },
-          { value: 'self', label: t('Conversation model') },
-        ]}
-        onChange={(summaryMode) => void run('setCompactionSettings', [{ summaryMode }])}
-      />
-      <ToggleRow
-        title={t('Auto-clear')}
-        description={
-          autoClear.unlimited === true
-            ? t('Never clear idle sessions ({{value0}}). A provider idle window below overrides the global duration.', {
-                value0: autoClearSource(autoClear),
-              })
-            : t(
-                'Clear idle sessions after {{value0}} ({{value1}}). A provider idle window below overrides the global duration.',
-                {
-                  value0: formatDuration(autoClear.idleMs) || t('the provider default'),
-                  value1: autoClearSource(autoClear),
-                }
-              )
-        }
-        checked={autoClear.enabled !== false}
-        disabled={busy}
-        onChange={(enabled) => void run('setAutoClear', [{ enabled }])}
-      />
-      {providerDefaults.map((entry) => (
-        <AutoSaveRow
-          key={String(entry.provider)}
-          title={t('{{value0}} idle window', {
-            value0: resolveProviderDisplayName(String(entry.provider || 'default'), providerNames),
-          })}
-          name="duration"
-          // 'unlimited' is the typed token the runtime parses (never auto-clear).
-          value={entry.unlimited === true ? AUTO_CLEAR_UNLIMITED_INPUT : durationTextInput(entry.idleMs)}
-          placeholder={
-            entry.builtInUnlimited === true ? AUTO_CLEAR_UNLIMITED_INPUT : durationTextInput(entry.builtInMs)
-          }
-          required
+    <>
+      <Group title={t('Session names')}>
+        <ToggleRow
+          title={t('Let AI rename sessions')}
+          description={t('Allow the assistant to give a session a descriptive title.')}
+          checked={sessionTitles.aiSessionTitles !== false}
           disabled={busy}
-          onSave={(duration) =>
-            void run('setAutoClear', [{ provider: entry.provider, duration }], `autoclear-${entry.provider}`)
-          }
-          actions={
-            <>
-              {entry.unlimited !== true && (
-                <ActionButton
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      'setAutoClear',
-                      [{ provider: entry.provider, unlimited: true }],
-                      `autoclear-unlimited-${entry.provider}`
-                    )
-                  }
-                >
-                  {t('Unlimited')}
-                </ActionButton>
-              )}
-              {Boolean(entry.custom) && (
-                <ActionButton
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      'setAutoClear',
-                      [{ provider: entry.provider, resetProvider: true }],
-                      `autoclear-reset-${entry.provider}`
-                    )
-                  }
-                >
-                  {t('Reset')}
-                </ActionButton>
-              )}
-            </>
-          }
+          onChange={(enabled) => void run('setAiSessionTitles', [enabled])}
         />
-      ))}
-    </Group>
+      </Group>
+      <Group title={t('Compaction')}>
+        <ToggleRow
+          title={t('Auto-compact')}
+          description={t('Compact automatically as the active context reaches its limit.')}
+          checked={compaction.auto !== false}
+          disabled={busy}
+          onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])}
+        />
+        <ToggleRow
+          title={t('Auto-compact on model change')}
+          description={t(
+            'Compact the conversation on its current model before the chat switches to another model. Skipped when the current model has run out of usage.'
+          )}
+          checked={compaction.onModelChange !== false}
+          disabled={busy}
+          onChange={(enabled) => void run('setCompactionSettings', [{ onModelChange: enabled }])}
+        />
+        <SelectRow
+          title={t('Compaction summary model')}
+          description={t(
+            'Smart reuses the conversation’s cache while it is warm, otherwise the Maintainer or a lighter model.'
+          )}
+          value={String(compaction.summaryMode || 'smart')}
+          disabled={busy}
+          options={[
+            { value: 'smart', label: t('Smart') },
+            { value: 'maintainer', label: t('Maintainer') },
+            { value: 'self', label: t('Conversation model') },
+          ]}
+          onChange={(summaryMode) => void run('setCompactionSettings', [{ summaryMode }])}
+        />
+      </Group>
+      <Group
+        title={t('Idle session cleanup')}
+        description={t(
+          'Sessions left unused this long are cleared automatically. Each provider can have its own time.'
+        )}
+      >
+        <ToggleRow
+          title={t('Auto-clear')}
+          description={
+            autoClear.unlimited === true
+              ? t(
+                  'Never clear idle sessions ({{value0}}). A provider idle window below overrides the global duration.',
+                  {
+                    value0: autoClearSource(autoClear),
+                  }
+                )
+              : t(
+                  'Clear idle sessions after {{value0}} ({{value1}}). A provider idle window below overrides the global duration.',
+                  {
+                    value0: formatDuration(autoClear.idleMs) || t('the provider default'),
+                    value1: autoClearSource(autoClear),
+                  }
+                )
+          }
+          checked={autoClear.enabled !== false}
+          disabled={busy}
+          onChange={(enabled) => void run('setAutoClear', [{ enabled }])}
+        />
+        {providerDefaults.map((entry) => (
+          <AutoSaveRow
+            key={String(entry.provider)}
+            title={
+              entry.provider && entry.provider !== 'default'
+                ? resolveProviderDisplayName(String(entry.provider), providerNames)
+                : t('Default')
+            }
+            name="duration"
+            // 'unlimited' is the typed token the runtime parses (never auto-clear).
+            value={entry.unlimited === true ? AUTO_CLEAR_UNLIMITED_INPUT : durationTextInput(entry.idleMs)}
+            placeholder={
+              entry.builtInUnlimited === true ? AUTO_CLEAR_UNLIMITED_INPUT : durationTextInput(entry.builtInMs)
+            }
+            required
+            disabled={busy}
+            onSave={(duration) =>
+              void run('setAutoClear', [{ provider: entry.provider, duration }], `autoclear-${entry.provider}`)
+            }
+            actions={
+              <>
+                {entry.unlimited !== true && (
+                  <ActionButton
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        'setAutoClear',
+                        [{ provider: entry.provider, unlimited: true }],
+                        `autoclear-unlimited-${entry.provider}`
+                      )
+                    }
+                  >
+                    {t('Unlimited')}
+                  </ActionButton>
+                )}
+                {Boolean(entry.custom) && (
+                  <ActionButton
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        'setAutoClear',
+                        [{ provider: entry.provider, resetProvider: true }],
+                        `autoclear-reset-${entry.provider}`
+                      )
+                    }
+                  >
+                    {t('Reset')}
+                  </ActionButton>
+                )}
+              </>
+            }
+          />
+        ))}
+      </Group>
+    </>
   );
 }
 
@@ -523,11 +569,10 @@ function SystemPanel(context: PanelContext) {
       {/* The updater is this PC's: a server window has no update entry. */}
       {!isSshConnectionWindow() && <UpdatePanel {...context} />}
       <DesktopPowerGroup />
-      <Group title={t('Doctor')}>
+      <Group title={t('Diagnostics')}>
         <ResourceRow
-          title={t('Diagnostics')}
-          description={t('Check the runtime, providers, integrations, and local installation.')}
-          actions={<ActionButton onClick={requestOpenDoctor}>{t('Run doctor')}</ActionButton>}
+          title={t('Runtime, providers and installation')}
+          actions={<ActionButton onClick={requestOpenDoctor}>{t('Run diagnostics')}</ActionButton>}
         />
       </Group>
     </>

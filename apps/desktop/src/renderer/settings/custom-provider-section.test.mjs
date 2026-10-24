@@ -96,15 +96,14 @@ test('custom section ends the list with a registration row, a popup and separate
   const section = [...document.querySelectorAll('section')].at(-1);
   assert.ok(section.textContent.includes('Acme'));
   const add = button('Add custom provider');
-  assert.equal(section.querySelector('header button'), null);
-  assert.equal(add.closest('.settings-resource').querySelector('b').textContent, 'Add custom provider');
-  assert.equal(add.textContent, '');
+  // The add action sits in the group header line, beside the title.
+  assert.equal(add.closest('.settings-group-head').querySelector('h3').textContent, 'Custom providers');
   assert.ok(add.querySelector('svg'));
   assert.equal([...section.querySelectorAll('button')][0], add);
   const cards = [...section.querySelectorAll(':scope > .settings-group-body')];
   assert.deepEqual(
     cards.map((card) => card.querySelector('.settings-resource-title b').textContent),
-    ['Add custom provider', 'Acme', 'Second']
+    ['Acme', 'Second']
   );
   await click(add);
   assert.ok(add.disabled);

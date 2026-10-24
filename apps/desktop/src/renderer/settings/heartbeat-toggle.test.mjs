@@ -3,7 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { applySectionRefresh, refreshCapabilitySections } from './capability-data.ts';
-import { GeneralPanel } from './general-panel.tsx';
+import { BotsPanel } from './desktop-pet-toggle.tsx';
 import { t as translate } from '../i18n.ts';
 
 function mount(t) {
@@ -16,7 +16,7 @@ function mount(t) {
   const runs = [];
   const run = async (name, args) => runs.push([name, args]);
   const render = (data, pending = '') =>
-    act(async () => root.render(React.createElement(GeneralPanel, { data, pending, run, api })));
+    act(async () => root.render(React.createElement(BotsPanel, { data, pending, run, api })));
   const toggle = () => dom.window.document.querySelector(`input[aria-label="${translate('Regular check-ins')}"]`);
   return { render, toggle, runs };
 }

@@ -277,10 +277,10 @@
   position: relative;
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  /* Status chips stay on the name's line; the name shrinks instead. */
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  row-gap: 2px;
 }
 .provider-account-title > .settings-status {
   flex: none;
@@ -356,30 +356,39 @@
   max-width: none;
   margin-left: auto;
 }
-/* Usage, in the sidebar usage flyout's grammar: label | meter | % | reset,
-   one line per quota window the account carries. */
+/* Usage: its own full-width block under the account line, aligned with the
+   name past the grip. One grid row per quota window:
+   label + reset sentence | meter | percent. */
 .provider-account-usage {
-  flex: 0 0 264px;
+  order: 3;
+  flex: 1 0 100%;
+  box-sizing: border-box;
+  padding-left: 32px;
   display: grid;
-  grid-template-columns: fit-content(108px) minmax(48px, 1fr) 38px minmax(52px, max-content);
-  column-gap: 6px;
-  row-gap: 4px;
-  align-items: center;
+  row-gap: 14px;
   align-content: start;
-  /* Reserve the meters' height (JS sets --usage-rows) so the usage read
+  /* Reserve the windows' height (JS sets --usage-rows) so the usage read
      landing after the roster moves nothing below it. */
-  min-height: calc(var(--usage-rows, 1) * 16px + (var(--usage-rows, 1) - 1) * 4px);
+  min-height: calc(var(--usage-rows, 1) * 32px + (var(--usage-rows, 1) - 1) * 14px);
 }
 .provider-account-usage > span {
-  display: contents;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 48px;
+  column-gap: 12px;
+  align-items: center;
+}
+.provider-account-usage-label {
+  min-width: 0;
+  display: grid;
 }
 .provider-account-usage small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--mx-row-meta-ink, var(--mx-text-muted));
-  font-size: var(--mx-font-supporting, 12px);
+  color: var(--mx-text);
+  font-size: 13px;
+  font-weight: var(--mx-weight-medium);
   line-height: 16px;
   letter-spacing: var(--mx-tracking-wide, 0);
 }
@@ -387,7 +396,7 @@
   position: relative;
   display: block;
   overflow: hidden;
-  height: 5px;
+  height: 8px;
   border-radius: var(--mx-radius-pill, 999px);
   background: var(--mx-meter-track);
 }
@@ -422,30 +431,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: right;
   font-style: normal;
   color: var(--mx-row-meta-ink, var(--mx-text-muted));
   font-size: var(--mx-font-supporting, 12px);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
-.provider-account-usage .empty {
-  grid-column: 1 / -1;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-supporting, 12px);
-}
 .provider-accounts-list > li.is-dim .provider-account-identity,
 .provider-accounts-list > li.is-dim .provider-account-usage {
   opacity: 0.55;
 }
-/* Narrow card: usage drops under the identity at full width, aligned with
-   the name past the grip. */
 @container (max-width: 520px) {
-  .provider-account-usage {
-    order: 3;
-    flex: 1 0 100%;
-    padding-left: 32px;
-  }
   .provider-account-row > .settings-resource-actions {
     min-width: 0;
   }
@@ -464,6 +460,42 @@
   .provider-accounts-heading-actions {
     gap: 8px;
   }
+}
+.settings-custom-providers .settings-group-head {
+  align-items: center;
+}
+.settings-custom-providers .settings-group-head .settings-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Providers without a connected account: one card, one compact row each. */
+.provider-accounts-sublabel {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.provider-accounts-empty-row {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+.provider-accounts-empty-row + .provider-accounts-empty-row {
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.provider-accounts-empty-row > b {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .provider-accounts-notice,
 .provider-accounts-error {

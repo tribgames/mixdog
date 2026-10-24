@@ -160,7 +160,11 @@ export function SkinPanel(_props: Partial<PanelContext>) {
   return (
     <>
       <SkinPreview id={previewId} previewing={previewing} state={state} />
-      <Group>
+      <Group
+        title={t('Appearance')}
+        description={t('Saved on this device only. Other devices keep their own skin.')}
+        actions={<ActionButton onClick={resetSkin}>{t('Reset to defaults')}</ActionButton>}
+      >
         <AppearanceChoice onPreview={setHover} />
       </Group>
       {active && (
@@ -253,10 +257,6 @@ export function SkinPanel(_props: Partial<PanelContext>) {
           </SkinRow>
         </Group>
       )}
-      <div className="skin-foot">
-        <span>{t('Saved on this device only. Other devices keep their own skin.')}</span>
-        <ActionButton onClick={resetSkin}>{t('Reset to defaults')}</ActionButton>
-      </div>
       <ThemeFilesGroup />
       <FontsGroup />
     </>

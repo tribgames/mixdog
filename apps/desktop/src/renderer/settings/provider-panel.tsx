@@ -1,5 +1,5 @@
 import { ExternalLink, Plus } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
@@ -14,7 +14,9 @@ import {
   PROVIDER_ACCOUNTS_CHANGED,
   preloadProviderAccounts,
   useProviderPoolsReady,
+  useProvidersWithoutAccounts,
 } from '../ProviderAccountsList';
+import { ProviderIcon } from '../provider-display';
 import { ActionButton, Group, ListEmpty, ResourceRow } from './capability-controls';
 import { ClientManagedProviders } from './client-managed-providers';
 import { QuotaAutoResumeToggle } from './quota-auto-resume-toggle';
@@ -55,6 +57,26 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   const setup = record(data.providerSetup);
   const { custom: customProviders, otherApi: otherApiProviders, oauth: oauthProviders } = providerPageGroups(setup);
   const busy = Boolean(pending);
+  // The one API-key row whose key form is open.
+  const [openKeyId, setOpenKeyId] = useState<string | null>(null);
+  // Where focus goes once the row has re-rendered: the revealed key input, or
+  // the row's Connect button after the form closes.
+  const pendingFocus = useRef<{ id: string; target: 'key' | 'connect' } | null>(null);
+  const openKeyForm = (id: string) => {
+    pendingFocus.current = { id, target: 'key' };
+    setOpenKeyId(id);
+  };
+  const closeKeyForm = (id: string) => {
+    pendingFocus.current = { id, target: 'connect' };
+    setOpenKeyId(null);
+  };
+  useEffect(() => {
+    const next = pendingFocus.current;
+    if (!next) return;
+    pendingFocus.current = null;
+    const attribute = next.target === 'key' ? 'data-provider-key' : 'data-provider-connect';
+    document.querySelector<HTMLElement>(`[${attribute}="${next.id}"]`)?.focus();
+  });
   const loading = !sectionLoaded(data, 'providerSetup');
   const secretsPending = setup.pendingSecrets === true;
   const providerStatus = (provider: RecordValue) => {
@@ -76,34 +98,52 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       status={providerStatus(provider)}
       actions={
         <>
-          {typeof provider.url === 'string' && /^https:\/\//.test(provider.url) && (
-            <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>
-              {provider.authenticated ? `${t('API keys')} ↗` : t('Get API key ↗')}
-            </ActionButton>
-          )}
-          {!provider.authenticated && (
-            <form
-              className="settings-provider-secret"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const form = event.currentTarget;
-                const secret = new FormData(form).get('secret');
-                form.reset();
-                void run('saveProviderApiKey', [provider.id, secret], `provider-key-${String(provider.id)}`);
-              }}
+          {!provider.authenticated && openKeyId !== String(provider.id) && (
+            <button
+              type="button"
+              className="settings-action"
+              data-provider-connect={String(provider.id)}
+              disabled={busy}
+              onClick={() => openKeyForm(String(provider.id))}
             >
-              <input
-                name="secret"
-                type="password"
-                autoComplete="off"
-                placeholder={t('API key')}
-                aria-label={`${providerLabel(provider)} ${t('API key')}`}
-                required
-              />
-              <button type="submit" disabled={busy}>
-                {t('Save')}
-              </button>
-            </form>
+              {t('Connect')}
+            </button>
+          )}
+          {typeof provider.url === 'string' &&
+            /^https:\/\//.test(provider.url) &&
+            (provider.authenticated || openKeyId === String(provider.id)) && (
+              <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>
+                {provider.authenticated ? `${t('API keys')} ↗` : t('Get API key ↗')}
+              </ActionButton>
+            )}
+          {!provider.authenticated && openKeyId === String(provider.id) && (
+            <>
+              <form
+                className="settings-provider-secret"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const secret = new FormData(form).get('secret');
+                  form.reset();
+                  closeKeyForm(String(provider.id));
+                  void run('saveProviderApiKey', [provider.id, secret], `provider-key-${String(provider.id)}`);
+                }}
+              >
+                <input
+                  name="secret"
+                  data-provider-key={String(provider.id)}
+                  type="password"
+                  autoComplete="off"
+                  placeholder={t('API key')}
+                  aria-label={`${providerLabel(provider)} ${t('API key')}`}
+                  required
+                />
+                <button type="submit" disabled={busy}>
+                  {t('Save')}
+                </button>
+              </form>
+              <ActionButton onClick={() => closeKeyForm(String(provider.id))}>{t('Cancel')}</ActionButton>
+            </>
           )}
           {Boolean(provider.stored || (!provider.env && provider.authenticated)) && (
             <ActionButton
@@ -165,10 +205,9 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   const keychainState = String(keychainIssue.state || '');
   // Cold open: one same-size block until the setup and every account roster
   // are in, then the whole page at once — nothing on screen has to move.
-  const poolsReady = useProviderPoolsReady(
-    api,
-    setup.managedByClient === true ? [] : oauthProviders.map((provider) => String(provider.id))
-  );
+  const oauthIds = setup.managedByClient === true ? [] : oauthProviders.map((provider) => String(provider.id));
+  const poolsReady = useProviderPoolsReady(api, oauthIds);
+  const withoutAccounts = useProvidersWithoutAccounts(api, oauthIds);
   if (loading || !poolsReady) {
     return (
       <div className="settings-panel-placeholder" role="status" aria-busy="true">
@@ -179,8 +218,8 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   if (setup.managedByClient === true) {
     return (
       <>
-        <QuotaAutoResumeToggle />
         <ClientManagedProviders setup={setup} />
+        <QuotaAutoResumeToggle />
       </>
     );
   }
@@ -205,52 +244,71 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
           )}
         </p>
       )}
-      <QuotaAutoResumeToggle />
-      {/* One card PER provider: sharing a single card ran "OpenAI's accounts →
-        Anthropic header" as one continuous list (user: 프로바이더별 분리된
-        느낌이 없다). The section keeps the shared heading; each provider owns
-        its own bordered body. */}
+      {/* One card PER connected provider: sharing a single card ran "OpenAI's
+        accounts → Anthropic header" as one continuous list (user: 프로바이더별
+        분리된 느낌이 없다). Providers without an account share one compact card
+        after them. */}
       <section className="settings-group settings-provider-cards">
         <header>
           <h3>{t('OAuth providers')}</h3>
         </header>
         {oauthProviders.length > 0 &&
-          oauthProviders.map((provider) => (
-            <div className="settings-group-body" key={String(provider.id)}>
-              <ProviderAccountsList
-                api={api}
-                provider={String(provider.id)}
-                title={providerLabel(provider)}
-                onChange={() => void run('getProviderSetup', [{ force: true }])}
-                renderActions={(account) => (
-                  <>
-                    {(!account.authenticated || account.reauthRequired) && (
-                      <OAuthControl api={api} provider={provider} disabled={busy} run={run} accountId={account.id} />
-                    )}
-                    <ActionButton
-                      danger
-                      disabled={busy}
-                      onClick={() => {
-                        confirm({
-                          title: t('Disconnect account?'),
-                          description: t('Remove the saved authentication for {{name}}.', { name: account.label }),
-                          confirmLabel: t('Disconnect'),
-                          danger: true,
-                          onConfirm: async () => {
-                            await run('forgetProviderAuth', [provider.id, account.id]);
-                            window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
-                          },
-                        });
-                      }}
-                    >
-                      {t('Disconnect')}
-                    </ActionButton>
-                  </>
-                )}
-                headerAction={<OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />}
-              />
+          oauthProviders
+            .filter((provider) => !withoutAccounts.has(String(provider.id)))
+            .map((provider) => (
+              <div className="settings-group-body" key={String(provider.id)}>
+                <ProviderAccountsList
+                  api={api}
+                  provider={String(provider.id)}
+                  title={providerLabel(provider)}
+                  onChange={() => void run('getProviderSetup', [{ force: true }])}
+                  renderActions={(account) => (
+                    <>
+                      {(!account.authenticated || account.reauthRequired) && (
+                        <OAuthControl api={api} provider={provider} disabled={busy} run={run} accountId={account.id} />
+                      )}
+                      <ActionButton
+                        danger
+                        disabled={busy}
+                        onClick={() => {
+                          confirm({
+                            title: t('Disconnect account?'),
+                            description: t('Remove the saved authentication for {{name}}.', { name: account.label }),
+                            confirmLabel: t('Disconnect'),
+                            danger: true,
+                            onConfirm: async () => {
+                              await run('forgetProviderAuth', [provider.id, account.id]);
+                              window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
+                            },
+                          });
+                        }}
+                      >
+                        {t('Disconnect')}
+                      </ActionButton>
+                    </>
+                  )}
+                  headerAction={<OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />}
+                />
+              </div>
+            ))}
+        {withoutAccounts.size > 0 && (
+          <>
+            <p className="provider-accounts-sublabel">{t('Providers without a connected account')}</p>
+            <div className="settings-group-body provider-accounts-empty-card">
+              {oauthProviders
+                .filter((provider) => withoutAccounts.has(String(provider.id)))
+                .map((provider) => (
+                  <div className="provider-accounts-empty-row" key={String(provider.id)}>
+                    <span className="provider-accounts-icon">
+                      <ProviderIcon provider={String(provider.id)} />
+                    </span>
+                    <b>{providerLabel(provider)}</b>
+                    <OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />
+                  </div>
+                ))}
             </div>
-          ))}
+          </>
+        )}
         {oauthProviders.length === 0 && (
           <div className="settings-group-body">
             <ListEmpty text={loading ? t('Loading providers…') : t('No OAuth providers available.')} />
@@ -264,6 +322,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
         )}
       </Group>
       <CustomProvidersSection providers={customProviders} loading={loading} run={run} confirm={confirm} busy={busy} />
+      <QuotaAutoResumeToggle />
     </>
   );
 }

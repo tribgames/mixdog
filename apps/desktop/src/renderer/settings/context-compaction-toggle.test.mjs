@@ -86,11 +86,16 @@ test('auto-clear idle windows name a custom provider by its registered name, bui
   });
   try {
     const text = document.body.textContent;
-    assert.match(text, /Team Gateway idle window/);
+    assert.match(text, /Team Gateway/);
     assert.equal(text.includes(custom), false);
-    assert.match(text, /OpenAI OAuth idle window/);
+    assert.match(text, /OpenAI OAuth/);
     assert.equal(text.includes('Renamed OAuth'), false);
-    assert.match(text, /custom-noname idle window/);
+    assert.match(text, /custom-noname/);
+    assert.equal(text.includes('idle window'), false);
+    assert.deepEqual(
+      [...document.querySelectorAll('.settings-group > header h3')].map((h) => h.textContent),
+      ['Session names', 'Compaction', 'Idle session cleanup']
+    );
   } finally {
     await view.cleanup();
   }

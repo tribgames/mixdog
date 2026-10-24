@@ -110,7 +110,10 @@ test('custom provider names stay literal while provider section copy is localize
   const titles = [...document.querySelectorAll('.settings-resource-title b')].map((b) => b.textContent);
   assert.ok(titles.includes('Agent'));
   assert.ok(!titles.includes('에이전트'));
-  assert.ok(titles.includes('사용자 지정 제공자 추가'));
+  assert.equal(
+    document.querySelector('.settings-custom-providers .settings-group-head button').textContent,
+    '사용자 지정 제공자 추가'
+  );
   assert.equal(document.querySelector('.settings-custom-providers h3').textContent, '사용자 지정 제공자');
 });
 

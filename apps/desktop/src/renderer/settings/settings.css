@@ -455,6 +455,18 @@
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-medium);
 }
+/* Section heading inside the PC's run of pages (Basics, AI behavior, …): the
+   app's rail group label (--mx-rail-label-*, 01-tokens.css). */
+.mixdog-settings__rail-section {
+  padding: 10px 10px 2px;
+  color: var(--mx-rail-label-ink);
+  font-size: var(--mx-rail-label-size);
+  font-weight: var(--mx-rail-label-weight);
+  line-height: var(--mx-line-ui);
+}
+.mixdog-settings__rail-section:first-child {
+  padding-top: 0;
+}
 .mixdog-settings__rail-group-label .remote-pc-label-name {
   color: var(--mx-text);
 }
@@ -667,7 +679,8 @@
     justify-items: start;
     gap: 0;
   }
-  .mixdog-settings__rail-group-label {
+  .mixdog-settings__rail-group-label,
+  .mixdog-settings__rail-section {
     display: none;
   }
   .mixdog-settings__rail-group button {
@@ -796,9 +809,14 @@
     align-items: center;
     column-gap: 12px;
   }
-  .settings-shortcut-row kbd {
+  .settings-shortcut-keys {
     max-width: 100%;
     justify-self: end;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .settings-shortcut-row kbd {
+    max-width: 100%;
     overflow-wrap: anywhere;
     white-space: normal;
     text-align: right;
@@ -1777,4 +1795,15 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
 .ssh-key-row > .conn-btn {
   flex: none;
   height: 40px;
+}
+
+/* Shortcut keys: each key its own chip; alternatives joined by a muted "or". */
+.settings-shortcut-row .settings-shortcut-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-shortcut-row .settings-shortcut-or {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
 }

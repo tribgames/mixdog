@@ -117,44 +117,36 @@ function resolveAccountUsage(account: ProviderAccount): {
 
 /** One row per quota window the account carries, in the sidebar usage flyout's
  *  grammar: label | meter | percent | short reset time. */
-function AccountUsage({ account }: { account: ProviderAccount }) {
-  const { windows, checkedAt, rows } = resolveAccountUsage(account);
+function AccountUsage({ usage: { windows, checkedAt, rows } }: { usage: ReturnType<typeof resolveAccountUsage> }) {
   const refreshedAt = Number(checkedAt) || 0;
-  let emptyNote = '';
-  if (account.reauthRequired) emptyNote = t('Shown after signing in again');
-  else if (windows.length === 0) emptyNote = t('Usage not checked yet');
   return (
     <div className="provider-account-usage" style={{ '--usage-rows': rows } as CSSProperties}>
-      {emptyNote ? (
-        <small className="empty">{emptyNote}</small>
-      ) : (
-        windows.map((window, index) => {
-          const used = typeof window.usedPct === 'number' ? Math.max(0, Math.min(100, window.usedPct)) : null;
-          const presentation = usageResetPresentation({
-            percent: used,
-            resetAt: usageTimestamp(window.resetAt),
-            refreshedAt,
-            verificationFailed: false,
-          });
-          const percent = presentation.percent;
-          const displayed = displayUsagePercent(percent);
-          const label = usageWindowLabel(window);
-          const sentence = presentation.resetTextOverride === null ? usageResetText(window.resetAt) : '';
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: windows carry no id and a provider may repeat a label; the list is replaced whole, never reordered.
-            <span className={usageToneClass(percent).trim() || undefined} key={`${label}:${index}`}>
+      {windows.map((window, index) => {
+        const used = typeof window.usedPct === 'number' ? Math.max(0, Math.min(100, window.usedPct)) : null;
+        const presentation = usageResetPresentation({
+          percent: used,
+          resetAt: usageTimestamp(window.resetAt),
+          refreshedAt,
+          verificationFailed: false,
+        });
+        const percent = presentation.percent;
+        const displayed = displayUsagePercent(percent);
+        const label = usageWindowLabel(window);
+        const sentence = presentation.resetTextOverride === null ? usageResetText(window.resetAt) : '';
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: windows carry no id and a provider may repeat a label; the list is replaced whole, never reordered.
+          <span className={usageToneClass(percent).trim() || undefined} key={`${label}:${index}`}>
+            <span className="provider-account-usage-label">
               <small title={label}>{label}</small>
-              <i>
-                <i style={{ width: `${percent ?? 0}%` }} />
-              </i>
-              <b>{displayed === null ? '—' : `${displayed}%`}</b>
-              <em title={sentence || undefined}>
-                {presentation.resetTextOverride ?? usageResetShortText(window.resetAt)}
-              </em>
+              <em>{sentence || (presentation.resetTextOverride ?? usageResetShortText(window.resetAt))}</em>
             </span>
-          );
-        })
-      )}
+            <i>
+              <i style={{ width: `${percent ?? 0}%` }} />
+            </i>
+            <b>{displayed === null ? '—' : `${displayed}%`}</b>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -313,6 +305,39 @@ function AccountPolicyMenu({
 // Last roster per provider. The rail picker remounts on every open; seeding
 // from here paints instantly and the fresh read merely revalidates.
 const lastPools = new Map<string, Pool>();
+const poolListeners = new Set<() => void>();
+const storePool = (provider: string, pool: Pool) => {
+  lastPools.set(provider, pool);
+  for (const listener of poolListeners) listener();
+};
+
+/** The providers (of `providers`) whose cached roster is known to hold no
+ *  account. Follows roster changes: an account added or removed moves a
+ *  provider between the connected and the empty group. */
+export function useProvidersWithoutAccounts(api: UsageApi | undefined, providers: string[]): Set<string> {
+  const [, setTick] = useState(0);
+  const key = providers.join('|');
+  const empty = new Set(providers.filter((provider) => lastPools.get(provider)?.accounts.length === 0));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: key is providers' identity.
+  useEffect(() => {
+    const rerender = () => setTick((tick) => tick + 1);
+    poolListeners.add(rerender);
+    // An empty provider draws no list of its own, so nothing else re-reads it.
+    const reread = () =>
+      void preloadProviderAccounts(
+        api,
+        providers.filter((provider) => lastPools.get(provider)?.accounts.length === 0)
+      );
+    window.addEventListener(PROVIDER_ACCOUNTS_CHANGED, reread);
+    // Accounts may have changed while this page was not mounted.
+    reread();
+    return () => {
+      poolListeners.delete(rerender);
+      window.removeEventListener(PROVIDER_ACCOUNTS_CHANGED, reread);
+    };
+  }, [api, key]);
+  return empty;
+}
 // Bumped by every list-adopted roster (read or mutation result): a preload
 // started before it is stale and must not overwrite the newer roster.
 const poolGenerations = new Map<string, number>();
@@ -344,7 +369,7 @@ export function preloadProviderAccounts(api: UsageApi | undefined, providers: st
           // A roster adopted since this read began is newer; with none cached
           // yet, this read is still the best there is.
           if (poolGenerations.get(provider) !== generation && lastPools.has(provider)) return;
-          lastPools.set(provider, result as unknown as Pool);
+          storePool(provider, result as unknown as Pool);
         })
         .catch(() => undefined)
         .finally(() => poolPreloads.delete(provider));
@@ -415,7 +440,7 @@ export function ProviderAccountsList({
   const setPool = useCallback(
     (next: Pool) => {
       bumpPoolGeneration(provider);
-      lastPools.set(provider, next);
+      storePool(provider, next);
       setPoolState(next);
     },
     [provider]
@@ -693,6 +718,10 @@ export function ProviderAccountsList({
           const selected = pool.selectedId === account.id;
           const selectable = !selected && account.authenticated && !account.reauthRequired;
           const lifted = drag?.moved && drag.from === index;
+          const usage = listOnly ? null : resolveAccountUsage(account);
+          let usageNote = '';
+          if (usage && account.reauthRequired) usageNote = t('Shown after signing in again');
+          else if (usage && usage.windows.length === 0) usageNote = t('Usage not checked yet');
           return (
             <li
               key={account.id}
@@ -818,9 +847,10 @@ export function ProviderAccountsList({
                           (account.email || account.identity) !== account.label && (
                             <small className="provider-account-meta">{account.email || account.identity}</small>
                           )}
+                        {usageNote && <small className="provider-account-meta">{usageNote}</small>}
                       </div>
                     </div>
-                    <AccountUsage account={account} />
+                    {usage && !usageNote && <AccountUsage usage={usage} />}
                     <div className="settings-resource-actions">
                       {selectable && (
                         <button

@@ -36,7 +36,7 @@ function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const [preference, setPreference] = useState<UiLanguagePreference>(() => getUiLanguagePreference());
   const [error, setError] = useState('');
   return (
-    <Group title={t('Display language')}>
+    <>
       <SelectRow
         title={t('Display language')}
         value={preference}
@@ -55,7 +55,7 @@ function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
         }}
       />
       {error && <p role="alert">{error}</p>}
-    </Group>
+    </>
   );
 }
 
@@ -65,7 +65,7 @@ function TimeFormatChoice({ pending }: Pick<PanelContext, 'pending'>) {
   const format = useSyncExternalStore(subscribeTimeFormat, getTimeFormat, () => 'system' as TimeFormat);
   const [error, setError] = useState('');
   return (
-    <Group title={t('Time format')}>
+    <>
       <SelectRow
         title={t('Time format')}
         value={format}
@@ -86,7 +86,7 @@ function TimeFormatChoice({ pending }: Pick<PanelContext, 'pending'>) {
         }}
       />
       {error && <p role="alert">{error}</p>}
-    </Group>
+    </>
   );
 }
 
@@ -132,9 +132,9 @@ function MarkdownDefaultViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
       .catch(() => setError(t('Default view could not be saved to your user settings.')));
   };
   return (
-    <Group title={t('Markdown files')}>
+    <>
       <SelectRow
-        title={t('Default view')}
+        title={t('Markdown default view')}
         value={view}
         disabled={Boolean(pending) || !api?.writeMarkdownDefaultView}
         options={[
@@ -145,7 +145,7 @@ function MarkdownDefaultViewChoice({ pending }: Pick<PanelContext, 'pending'>) {
         onChange={(next) => choose(next as DesktopEditorSettings['markdownDefaultView'])}
       />
       {error && <p role="alert">{error}</p>}
-    </Group>
+    </>
   );
 }
 
@@ -155,7 +155,7 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const mode = narrow ? 'close-both' : configuredMode;
   const position = useSyncExternalStore(subscribeSidePanelPosition, getSidePanelPosition, () => 'right');
   return (
-    <Group title={t('Side panels')}>
+    <>
       <SelectRow
         title={t('Side panels')}
         value={mode}
@@ -179,13 +179,16 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
         ]}
         onChange={(next) => setSidePanelPosition(next as SidePanelPosition)}
       />
-    </Group>
+    </>
   );
 }
 
-/** Remote surfaces: the settings this device stores for itself (localStorage),
- *  split out of General so the page says where they apply. */
+/** The Display page: display language, time format, link preview, side panels
+ *  and the Markdown view. On a remote surface it is a "This device" page (the
+ *  values live in this device's storage), so the PC's Markdown setting stays
+ *  in General there. */
 export function DisplayPanel({ pending }: PanelContext) {
+  const remoteSurface = isRemoteHostRenderer();
   const hostApi = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
   const followable = isRemoteBrowserRenderer() && Boolean(hostApi?.readHostDisplayPreferences);
   return (
@@ -203,12 +206,15 @@ export function DisplayPanel({ pending }: PanelContext) {
           />
         </Group>
       )}
-      <UiLanguageChoices pending={pending} />
-      <TimeFormatChoice pending={pending} />
-      <Group title={t('Link preview')}>
-        <LinkPreviewToggle pending={pending} />
+      <Group title={t('Language and time')}>
+        <UiLanguageChoices pending={pending} />
+        <TimeFormatChoice pending={pending} />
       </Group>
-      <SidePanelChoices pending={pending} />
+      <Group title={t('Windows and panels')}>
+        <SidePanelChoices pending={pending} />
+        <LinkPreviewToggle pending={pending} />
+        {!remoteSurface && <MarkdownDefaultViewChoice pending={pending} />}
+      </Group>
     </>
   );
 }
@@ -235,14 +241,6 @@ function ImportConversationsRow({ pending }: Pick<PanelContext, 'pending'>) {
 export function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const remoteSurface = isRemoteHostRenderer();
   const profile = record(data.profile);
-  const webSearchModule = record(record(data.toolModules).webSearch);
-  const rawInstructionFiles = record(data.toolModules).instructionFiles;
-  const autoEffortBase = ['low', 'medium', 'high'].includes(String(record(data.toolModules).autoEffortBase))
-    ? String(record(data.toolModules).autoEffortBase)
-    : 'medium';
-  const instructionFilesMode = ['all', 'agents', 'claude', 'off'].includes(String(rawInstructionFiles))
-    ? String(rawInstructionFiles)
-    : 'off';
   const languageOptions = rows(profile.languages).map((entry) => ({
     value: String(entry.id || entry.value || 'system'),
     label: t(label(entry)),
@@ -278,23 +276,38 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           onChange={(experienceLevel) => void run('setProfile', [{ experienceLevel }])}
         />
       </Group>
-      <Group title={t('Features')}>
-        <ToggleRow
-          title={t('Regular check-ins')}
-          description={t(
-            'Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.'
-          )}
-          checked={record(data.heartbeat).heartbeat !== false}
-          disabled={busy}
-          onChange={(enabled) => void run('setHeartbeatEnabled', [enabled])}
-        />
-        <ToggleRow
-          title={t('Reactions')}
-          description={t('Bots can react to your messages with an emoji when it fits.')}
-          checked={record(data.reactions).reactions !== false}
-          disabled={busy}
-          onChange={(enabled) => void run('setReactionsEnabled', [enabled])}
-        />
+      <PushNotificationToggle api={api} />
+      <DesktopNotificationToggle />
+      {!remoteSurface && (
+        <Group>
+          <ImportConversationsRow pending={pending} />
+        </Group>
+      )}
+      {/* Over remote access the Markdown view is the PC's setting, not this device's. */}
+      {remoteSurface && (
+        <Group title={t('Markdown files')}>
+          <MarkdownDefaultViewChoice pending={pending} />
+        </Group>
+      )}
+    </>
+  );
+}
+
+/** Settings → Work style: how sessions work (tools, instruction files, Auto
+ *  reasoning and worktrees). */
+export function WorkPanel({ data, pending, run }: PanelContext) {
+  const webSearchModule = record(record(data.toolModules).webSearch);
+  const rawInstructionFiles = record(data.toolModules).instructionFiles;
+  const autoEffortBase = ['low', 'medium', 'high'].includes(String(record(data.toolModules).autoEffortBase))
+    ? String(record(data.toolModules).autoEffortBase)
+    : 'medium';
+  const instructionFilesMode = ['all', 'agents', 'claude', 'off'].includes(String(rawInstructionFiles))
+    ? String(rawInstructionFiles)
+    : 'off';
+  const busy = Boolean(pending);
+  return (
+    <>
+      <Group title={t('Tools and instructions')}>
         <ToggleRow
           title={t('Web search')}
           description={t('Expose web search and web fetch tools to new sessions.')}
@@ -302,7 +315,6 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           disabled={busy}
           onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
         />
-        {!remoteSurface && <ImportConversationsRow pending={pending} />}
         <SelectRow
           title={t('Load instruction files')}
           description={t(
@@ -332,19 +344,8 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
           ]}
           onChange={(level) => void run('setAutoEffortBase', [level])}
         />
-        {!remoteSurface && <LinkPreviewToggle pending={pending} />}
       </Group>
-      <PushNotificationToggle api={api} />
-      <DesktopNotificationToggle />
       <WorktreeSettings />
-      {!remoteSurface && (
-        <>
-          <UiLanguageChoices pending={pending} />
-          <TimeFormatChoice pending={pending} />
-          <SidePanelChoices pending={pending} />
-        </>
-      )}
-      <MarkdownDefaultViewChoice pending={pending} />
     </>
   );
 }

@@ -1,8 +1,13 @@
-// Settings → Bots, this PC's desktop window only: the representative bot
-// overlay, a small window that is a side chat with the representative bot
-// (Mixy's agent id, whatever it is named). Every overlay option lives here,
-// the same ones its right-click menu shows, kept in sync through main.
+// Settings → Bots: regular check-ins and reactions, plus (this PC's desktop
+// window only) the representative bot overlay, a small window that is a side
+// chat with the representative bot (Mixy's agent id, whatever it is named).
+// Every overlay option lives here, the same ones its right-click menu shows,
+// kept in sync through main.
 import { useState } from 'react';
+import { isSshConnectionWindow } from '../desktop-connection';
+import { record } from '../record-utils';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
+import type { PanelContext } from './capability-data';
 import { DESKTOP_PET_SCALES, type DesktopPetOption } from '../../shared/desktop-pet';
 import {
   resetDesktopPetPosition,
@@ -46,7 +51,7 @@ export function DesktopPetToggle() {
       }
     >
       <ToggleRow
-        title={t('Representative bot overlay')}
+        title={t('Show on screen')}
         checked={config.enabled}
         disabled={missing}
         onChange={(enabled) => void setDesktopPetEnabled(enabled).catch(() => {})}
@@ -105,7 +110,31 @@ export function DesktopPetToggle() {
   );
 }
 
-/** The Bots page. */
-export function BotsPanel() {
-  return <DesktopPetToggle />;
+/** The Bots page: bot behavior on every surface, the overlay options only in
+ *  this PC's own desktop window (the overlay is a window on this PC). */
+export function BotsPanel({ data, pending, run }: PanelContext) {
+  const busy = Boolean(pending);
+  return (
+    <>
+      <Group title={t('Bot activity')}>
+        <ToggleRow
+          title={t('Regular check-ins')}
+          description={t(
+            'Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.'
+          )}
+          checked={record(data.heartbeat).heartbeat !== false}
+          disabled={busy}
+          onChange={(enabled) => void run('setHeartbeatEnabled', [enabled])}
+        />
+        <ToggleRow
+          title={t('Reactions')}
+          description={t('Bots can react to your messages with an emoji when it fits.')}
+          checked={record(data.reactions).reactions !== false}
+          disabled={busy}
+          onChange={(enabled) => void run('setReactionsEnabled', [enabled])}
+        />
+      </Group>
+      {!isRemoteHostRenderer() && !isSshConnectionWindow() && <DesktopPetToggle />}
+    </>
+  );
 }
