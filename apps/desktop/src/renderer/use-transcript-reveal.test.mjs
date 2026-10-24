@@ -248,6 +248,27 @@ test('a warm revisit reveals in its first frame, off its end and with dock segme
   assert.ok(document.querySelector('[data-entry-pending]'), 'the segment is still undecided');
 });
 
+// User: 대화창 들어가면 덜컥 한 줄 정도 내려앉는다. The island slot held the
+// outgoing pill's height for a chat whose segments were still reading; the
+// revisit painted above that room and its tail dropped when the room closed.
+test('a warm revisit waits on an island slot still holding a reserved height', async (t) => {
+  const entry = mount(t);
+  const time = revealEntryThenOther(entry);
+  const slot = document.createElement('div');
+  slot.className = 'composer-island-slot';
+  slot.setAttribute('data-reserved', '');
+  document.getElementById('scope').append(slot);
+  entry.visit('entry');
+  await Promise.resolve();
+  entry.tick(time);
+  entry.tick(time + 16);
+  assert.equal(entry.revealed(), false, 'the reserved room may still close under the tail');
+  slot.removeAttribute('data-reserved');
+  entry.tick(time + 32);
+  entry.tick(time + 48);
+  assert.equal(entry.revealed(), true);
+});
+
 test('a revisit whose remembered geometry was evicted enters cold', async (t) => {
   const entry = mount(t);
   const time = revealEntryThenOther(entry);
@@ -259,7 +280,7 @@ test('a revisit whose remembered geometry was evicted enters cold', async (t) =>
   entry.tick(time);
   entry.tick(time + 16);
   assert.equal(entry.revealed(), false, 'undecided chrome holds a timeline remounting from estimates');
-  document.querySelectorAll('[data-entry-pending]').forEach((marker) => marker.remove());
+  for (const marker of document.querySelectorAll('[data-entry-pending]')) marker.remove();
   entry.tick(time + 32);
   entry.tick(time + 48);
   assert.equal(entry.revealed(), false, 'off its end it waits for the end anchor, like an entry');
@@ -269,7 +290,7 @@ test('a revisit whose remembered geometry was evicted enters cold', async (t) =>
 
 test('a warm revisit still waits on a visible row body and a moving dock, never on offscreen rows', async (t) => {
   const entry = mount(t);
-  let time = revealEntryThenOther(entry);
+  const time = revealEntryThenOther(entry);
   const content = document.getElementById('content');
   const offscreen = document.createElement('div');
   offscreen.className = 'transcript-virtual-row';
@@ -288,12 +309,12 @@ test('a warm revisit still waits on a visible row body and a moving dock, never 
   slot.className = 'composer-island-slot';
   slot.setAttribute('data-motion', '');
   document.getElementById('scope').append(slot);
-  entry.tick((time += 16));
+  entry.tick(time + 16);
   assert.equal(entry.revealed(), false, 'the viewport the tail is pinned to is still moving');
   slot.removeAttribute('data-motion');
-  entry.tick((time += 16));
+  entry.tick(time + 32);
   assert.equal(entry.revealed(), false, 'the settled dock needs a stable frame');
-  entry.tick((time += 16));
+  entry.tick(time + 48);
   assert.equal(entry.revealed(), true, 'a pending row below the viewport holds its remembered box');
   assert.ok(offscreen.querySelector('[data-transcript-pending]'));
 });

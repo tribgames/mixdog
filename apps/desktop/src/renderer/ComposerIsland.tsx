@@ -239,6 +239,9 @@ const ISLAND_RESERVE_HOLD_MS = 2_000;
 /** What the island carries; the stylesheet's empty-island rule tests the same. */
 const ISLAND_CONTENT =
   '.composer-island-seg, .session-goal-island, .composer-island-approval, .composer-island-flash, .composer-island-quota, .turn-review-bar';
+/** A segment still reading its state (IslandSegmentPending, a Goal whose
+ *  module is loading): the only thing a reserved slot can wait for. */
+const ISLAND_UNDECIDED = '[data-island-pending], [data-entry-pending]';
 
 type SlotPresence = 'open' | 'grace' | 'closing' | 'closed';
 
@@ -419,7 +422,8 @@ function fitDockedApproval(slot: HTMLElement, island: HTMLElement): void {
  * island remounted for a session it showed before starts at that session's
  * resting height (a session never shown: the carried height of the island it
  * replaces) and holds it up to ISLAND_RESERVE_HOLD_MS for the first segment,
- * so an entry opens without moving the composer.
+ * so an entry opens without moving the composer. The hold lasts only while a
+ * segment is undecided, and holds the transcript's reveal (data-reserved).
  */
 /** A panel paints upward from the pill's resting floor, so its real room is
  *  the pane's top down to that floor (the dock's height varies). */
@@ -493,14 +497,23 @@ function useIslandSlotPresence(
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     // Dock chrome this island replaces wins; otherwise the session's resting
     // height is reserved for the mount (see restingSlotHeights).
-    const held =
+    let held =
       heldHeightRef.current > 0
         ? heldHeightRef.current
         : (rememberedSlotHeight(sessionIdRef.current) ?? carriedHeightRef.current);
     // A reserved mount waits for its segments' first read (a cold session's
     // lane and git state), which outlasts the ordinary grace; the hold ends
-    // with the first content.
-    let reserving = heldHeightRef.current <= 0 && held > 0;
+    // with the first content, or once no segment is left undecided.
+    let reserving = false;
+    // A reserved height is only a guess at the island's resting height, so
+    // while it stands the slot is unsettled dock chrome: it holds the
+    // transcript's reveal (use-transcript-reveal). Revealed above it, the
+    // end-pinned rows dropped by the slot's height when it closed.
+    const reserve = (value: boolean) => {
+      reserving = value;
+      slot.toggleAttribute('data-reserved', value);
+    };
+    reserve(heldHeightRef.current <= 0 && held > 0);
     let armed = false;
     let grace = 0;
     let height = -1;
@@ -553,7 +566,7 @@ function useIslandSlotPresence(
       shape = mode;
       if (content) {
         cancelGrace();
-        reserving = false;
+        reserve(false);
         // Shown first: a closed slot has no box to measure.
         presence('open');
         if (pane && mode === 'approval') measureApprovalRoom(slot, island, stage, pane);
@@ -565,6 +578,21 @@ function useIslandSlotPresence(
           const pill = island.querySelector('.composer-island-pill');
           if (pill) rememberSegmentAdvances(sessionIdRef.current, pill);
         }
+        return;
+      }
+      // Every segment has decided and none shows: nothing can fill the
+      // reservation (a bot chat carries no late segments at all). Held to
+      // the hold's end, it closed seconds after the entry painted and dropped
+      // the end-pinned transcript by the slot's height. The room is empty, so
+      // behind a still-hidden entry (Conversation data-transcript-entering)
+      // there is no motion to show: it closes at once, not after the reveal
+      // waited out an unseen easing.
+      if (reserving && !island.querySelector(ISLAND_UNDECIDED)) {
+        cancelGrace();
+        reserve(false);
+        held = 0;
+        rememberSlotHeight(sessionIdRef.current, 0);
+        collapse(animate && !pane?.hasAttribute('data-transcript-entering'));
         return;
       }
       if (!armed) {
@@ -584,7 +612,7 @@ function useIslandSlotPresence(
       grace = window.setTimeout(
         () => {
           grace = 0;
-          reserving = false;
+          reserve(false);
           rememberSlotHeight(sessionIdRef.current, 0);
           collapse(!reducedMotion.matches);
         },

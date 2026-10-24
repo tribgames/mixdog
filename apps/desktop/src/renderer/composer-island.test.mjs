@@ -1118,7 +1118,10 @@ test('a revisited session reserves its resting island height until its segments 
   const { root, document, window } = mount(t);
   const { slot, presence, moving } = slotFixture(t, window, document);
   const { ComposerIsland, ISLAND_COLLAPSE_GRACE_MS } = await import('./ComposerIsland.tsx');
+  // The specifier ComposerIsland itself uses: one module, one island context.
+  const { IslandSegmentPending } = await import('./composer-island-state');
   const segment = React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'files');
+  const pending = React.createElement(IslandSegmentPending, { kind: 'files' });
   const render = (sessionId, files) =>
     act(async () => root.render(React.createElement(ComposerIsland, { key: sessionId, sessionId, files })));
   await render('reserve-a', segment);
@@ -1127,7 +1130,7 @@ test('a revisited session reserves its resting island height until its segments 
   await render('reserve-b', null);
   assert.equal(presence(), 'closed', 'a session never shown mounts at its true state');
   // Back on the first session before its segments have read their state.
-  await render('reserve-a', null);
+  await render('reserve-a', pending);
   assert.equal(presence(), 'grace', 'the slot holds the session’s resting height');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   await firstFrame();
@@ -1144,6 +1147,7 @@ test('a first entry reserves the resting height of the island it replaces in the
   const { root, document, window } = mount(t);
   const { slot, presence, moving } = slotFixture(t, window, document);
   const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  const { IslandSegmentPending } = await import('./composer-island-state');
   const segment = React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'files');
   const render = (sessionId, files, carriedHeight) =>
     act(async () =>
@@ -1152,7 +1156,7 @@ test('a first entry reserves the resting height of the island it replaces in the
   await render('carry-a', segment);
   await firstFrame();
   // Never shown: its segments have not read their state yet.
-  await render('carry-b', null, 46);
+  await render('carry-b', React.createElement(IslandSegmentPending, { kind: 'files' }), 46);
   assert.equal(presence(), 'grace', 'the outgoing pill’s height is held, not dropped');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   await firstFrame();
@@ -1160,6 +1164,45 @@ test('a first entry reserves the resting height of the island it replaces in the
   assert.equal(presence(), 'open');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   assert.equal(moving(), false, 'the arriving segments move nothing');
+});
+
+// User: 대화창 들어가면 덜컥 한 줄 정도 내려앉는다. Entering a chat from a
+// session whose pill showed reserved the pill's height; the transcript
+// revealed above that room and dropped by it when the hold ran out.
+test('a reserved slot holds the entry reveal only while a segment is undecided', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot, presence } = slotFixture(t, window, document);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  const { IslandSegmentPending } = await import('./composer-island-state');
+  const segment = React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'main');
+  const pending = React.createElement(IslandSegmentPending, { kind: 'branch' });
+  const render = (sessionId, branch, carriedHeight) =>
+    act(async () =>
+      root.render(
+        React.createElement(ComposerIsland, { key: sessionId, sessionId, branch: () => branch, carriedHeight })
+      )
+    );
+  const height = () => slot().style.getPropertyValue('--island-slot-height');
+  const holdsEntry = () => slot().hasAttribute('data-reserved');
+  await render('undecided-a', segment);
+  await firstFrame();
+  assert.equal(presence(), 'open');
+  // A chat with no late segment (a bot chat): nothing can fill the room.
+  await render('undecided-bot', null, 46);
+  assert.equal(presence(), 'closed', 'the chat mounts at its true state in the entry commit');
+  assert.equal(height(), '0px');
+  assert.equal(holdsEntry(), false);
+  // A segment still reading: the room is reserved and the reveal waits.
+  await render('undecided-b', pending, 46);
+  assert.equal(presence(), 'grace');
+  assert.equal(height(), '46px');
+  assert.equal(holdsEntry(), true, 'the reserved room holds the entry reveal');
+  await firstFrame();
+  // It decides empty: the slot closes now, not when the hold runs out.
+  await render('undecided-b', null, 46);
+  assert.notEqual(presence(), 'grace');
+  assert.equal(height(), '0px');
+  assert.equal(holdsEntry(), false, 'the reveal is released with the reservation');
 });
 
 test('an undecided files segment keeps the room its last width needs in the pill', async (t) => {

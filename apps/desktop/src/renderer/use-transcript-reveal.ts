@@ -9,8 +9,10 @@ export const ENTRY_REVEAL_MAX_MS = 2_000;
 export const ENTRY_CHROME_MAX_MS = 1_500;
 // A dock still easing to a new height: the viewport the rows are pinned to
 // reaches its observer a frame after each step, so a reveal mid-motion
-// painted the tail moving with the dock.
-const DOCK_MOTION = '.composer-island-slot[data-motion]';
+// painted the tail moving with the dock. An island slot holding a reserved
+// height (ComposerIsland) may yet close, on a revisit too: revealed above
+// it, the end-pinned tail dropped by the slot's height when it did.
+const DOCK_MOTION = '.composer-island-slot[data-motion], .composer-island-slot[data-reserved]';
 // Undecided dock chrome too, on an entry whose island height is not known yet.
 const ENTRY_CHROME_PENDING = `[data-entry-pending], ${DOCK_MOTION}`;
 const ROW_PENDING = '[data-transcript-pending]';
@@ -51,7 +53,8 @@ export function useTranscriptReveal({
   content: RefObject<HTMLDivElement | null>;
   /** Conversation root: chrome outside the rows (the review bar) marks its
    *  undecided entry state with `data-entry-pending`; the island slot marks
-   *  its height motion with `data-motion`. */
+   *  its height motion with `data-motion`, a reserved height with
+   *  `data-reserved`. */
   scope?: RefObject<HTMLElement | null>;
   hasScrollGesture(): boolean;
 }): boolean {
