@@ -706,6 +706,7 @@ export class GeminiProvider {
         sleepFn: this.config?.sleepFn,
         onRetry: geminiRetryLogger(opts, '[gemini-rest]'),
         afterToolResult,
+        failureUsage: geminiFailureUsage(opts, cachedContent, useModel),
         run: async ({ signal: attemptSignal, connected }) => {
           callbacks.retractReasoning();
           signalRequesting(opts);
@@ -779,6 +780,7 @@ export class GeminiProvider {
         sleepFn: this.config?.sleepFn,
         onRetry: geminiRetryLogger(opts, '[gemini]'),
         afterToolResult: geminiEndsWithFunctionResponse(contents),
+        failureUsage: geminiFailureUsage(opts, stream.cachedContent, useModel),
         run: async ({ signal: attemptSignal, connected }) => {
           stream.callbacks.retractReasoning();
           signalRequesting(opts);

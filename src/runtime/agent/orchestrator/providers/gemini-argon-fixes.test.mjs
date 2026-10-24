@@ -31,6 +31,7 @@ const { antigravityModelCache } = await import('./antigravity-oauth-catalog.mjs'
 const { buildGeminiRequest } = await import('./gemini-request-body.mjs');
 const { buildAntigravityRequest } = await import('./antigravity-request.mjs');
 const { normalizeAntigravityUsage } = await import('./antigravity-response.mjs');
+const { withUsageContext } = await import('../../../shared/llm/usage-context.mjs');
 
 const protocols = [
   {
@@ -404,6 +405,50 @@ test('API-key SDK re-asks an empty STOP and discards the thinking the dead attem
   assert.equal(result.content, 'Real answer.');
   assert.deepEqual(events, ['reasoning:first thoughts', 'reset:true:0']);
 });
+
+// A discarded re-ask attempt was still billed: its usage is recorded.
+const billedEmptyStop = [{ ...chunkOf([], 'STOP'), usageMetadata: USAGE }];
+const billedUsageOf = (entry) => entry.usage.outputTokens;
+const reaskHarnesses = [
+  { name: 'Antigravity', make: antigravityProvider, model: 'gemini-3-flash', wireModel: (h) => h.bodies[0].model },
+  { name: 'API-key SDK', make: sdkProvider, model: 'gemini-3.1-pro', wireModel: (h) => h.configs[0].model },
+  { name: 'API-key REST', make: restProvider, model: 'gemini-3.1-pro', wireModel: () => 'gemini-3.1-pro' },
+];
+
+for (const { name, make, model, wireModel } of reaskHarnesses) {
+  test(`${name} records the usage of an empty STOP it re-asked, under the wire model`, async () => {
+    const harness = make([billedEmptyStop, answer]);
+    const identity = {};
+    const result = await withUsageContext(identity, () => harness.provider.send(HELLO, model, [], {}));
+    assert.equal(result.content, 'Real answer.');
+    assert.equal(harness.attemptsMade(), 2);
+    assert.equal(identity.abandonedUsage.length, 1);
+    assert.equal(billedUsageOf(identity.abandonedUsage[0]), 8);
+    assert.equal(identity.abandonedUsage[0].model, wireModel(harness));
+  });
+
+  test(`${name} carries the last empty STOP's usage on the error once the re-asks are spent`, async () => {
+    const harness = make([billedEmptyStop]);
+    const identity = {};
+    let failure;
+    await assert.rejects(
+      withUsageContext(identity, () => harness.provider.send(HELLO, model, [], {})),
+      (error) => {
+        failure = error;
+        assert.equal(error.code, 'no_response_text');
+        assert.equal(billedUsageOf({ usage: error.partialUsage }), 8);
+        assert.equal(error.partialModel, wireModel(harness));
+        return true;
+      }
+    );
+    assert.equal(harness.attemptsMade(), 4);
+    // Three re-asks were noted as they were scheduled; the send's error
+    // accounting records the fourth (the error's partialUsage) once.
+    assert.equal(identity.abandonedUsage.length, 4);
+    assert.equal(identity.abandonedUsage[3].usage, failure.partialUsage);
+    assert.equal(new Set(identity.abandonedUsage.map((entry) => entry.usage)).size, 4);
+  });
+}
 
 // ── Fix 5: leak-guard fence state ──
 const LEAKED = '<invoke name="read"><parameter name="path">a.txt</parameter></invoke>';

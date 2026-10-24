@@ -23,6 +23,7 @@
  * Replay stays gated by the stream-outcome contract: a stream that exposed
  * text or dispatched a tool is never re-issued.
  */
+import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { DETERMINISTIC_KINDS, providerErrorKind, typedCodeKind } from './provider-error-kind.mjs';
 import { midstreamRetryDelayMs } from './retry-backoff.mjs';
@@ -42,7 +43,7 @@ export const GEMINI_REQUEST_RETRY = Object.freeze({
 });
 
 // A server wait longer than this is a lock-out, not a retry.
-export const GEMINI_MAX_RETRYABLE_ADVICE_MS = 300_000;
+const GEMINI_MAX_RETRYABLE_ADVICE_MS = 300_000;
 
 function hasLongAdvice(err) {
   const { kind, retryAfterMs } = providerErrorKind(err);
@@ -56,7 +57,7 @@ export function geminiEndsWithFunctionResponse(contents) {
 }
 
 export const GEMINI_MIDSTREAM_MAX_ATTEMPTS = 4;
-export const GEMINI_MIDSTREAM_INITIAL_DELAY_MS = 1000;
+const GEMINI_MIDSTREAM_INITIAL_DELAY_MS = 1000;
 
 const midstreamStepMs = (streamAttempt) => GEMINI_MIDSTREAM_INITIAL_DELAY_MS * 2 ** streamAttempt;
 
@@ -116,7 +117,14 @@ export function geminiInvalidStreamReason(response, textLeakGuard = null, { afte
  * open + consume and calls `connected()` once the response opened; it resolves
  * `{ response, textLeakGuard }`.
  */
-export async function runGeminiStreamAttempts({ run, signal, onRetry, sleepFn, afterToolResult = false }) {
+export async function runGeminiStreamAttempts({
+  run,
+  signal,
+  onRetry,
+  sleepFn,
+  afterToolResult = false,
+  failureUsage = null,
+}) {
   for (let streamAttempt = 0; ; streamAttempt++) {
     let connected = false;
     let result;
@@ -158,7 +166,11 @@ export async function runGeminiStreamAttempts({ run, signal, onRetry, sleepFn, a
       continue;
     }
     if (signal?.aborted) return result;
-    const reask = geminiInvalidStreamReask(result.response, result.textLeakGuard, { afterToolResult, streamAttempt });
+    const reask = geminiInvalidStreamReask(result.response, result.textLeakGuard, {
+      afterToolResult,
+      streamAttempt,
+      failureUsage,
+    });
     if (!reask) return result;
     onRetry?.({
       attempt: streamAttempt + 1,
@@ -177,21 +189,36 @@ export async function runGeminiStreamAttempts({ run, signal, onRetry, sleepFn, a
  * null when the response stands (usable, or a spent ladder on a malformed
  * call, which keeps its finish-reason error). A spent ladder on an empty
  * answer throws: it is a failure, not an answer.
+ *
+ * The discarded response was still billed. `failureUsage` ({ model,
+ * normalize(usageMetadata) }) records it: a scheduled re-ask notes it as
+ * abandoned usage; a spent ladder that throws carries it as
+ * partialUsage/partialModel (the send's error accounting records it once).
  */
-export function geminiInvalidStreamReask(response, textLeakGuard, { afterToolResult = false, streamAttempt = 0 } = {}) {
+export function geminiInvalidStreamReask(
+  response,
+  textLeakGuard,
+  { afterToolResult = false, streamAttempt = 0, failureUsage = null } = {}
+) {
   const invalid = geminiInvalidStreamReason(response, textLeakGuard, { afterToolResult });
   if (!invalid) return null;
   const unusable = Object.assign(new Error(`Gemini stream unusable: ${invalid}`), {
     name: 'InvalidStreamError',
     code: invalid.toLowerCase(),
   });
+  const usage = response?.usageMetadata && failureUsage ? failureUsage.normalize(response.usageMetadata) : null;
   if (streamAttempt + 1 >= GEMINI_MIDSTREAM_MAX_ATTEMPTS) {
     if (invalid !== 'NO_RESPONSE_TEXT') return null;
+    if (usage) {
+      unusable.partialUsage = usage;
+      unusable.partialModel = failureUsage.model;
+    }
     throw markProviderRecoveryExhausted(unusable, {
       owner: 'gemini-stream',
       attempts: GEMINI_MIDSTREAM_MAX_ATTEMPTS,
       terminal: true,
     });
   }
+  if (usage) noteAbandonedUsage(usage, failureUsage.model);
   return { unusable, waitMs: midstreamStepMs(streamAttempt) };
 }

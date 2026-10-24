@@ -91,6 +91,8 @@ export function createAntigravityStreamCollector({
     textLeakGuard = null;
   };
 
+  const failureUsage = { model: useModel, normalize: normalizeAntigravityUsage };
+
   const consume = async (res, attemptSignal, { firstByteTimeoutMs } = {}) => {
     try {
       return await consumeGeminiRestStreamResponse(res, {
@@ -102,7 +104,7 @@ export function createAntigravityStreamCollector({
         onChunk,
         textLeakGuard,
         label: 'Antigravity streamGenerateContent',
-        failureUsage: { model: useModel, normalize: normalizeAntigravityUsage },
+        failureUsage,
         // Cloud Code Assist nests the Gemini payload under
         // `response`; in-band error events stay top level.
         unwrapChunk: (chunk) => (chunk && typeof chunk === 'object' && chunk.response ? chunk.response : chunk),
@@ -117,6 +119,7 @@ export function createAntigravityStreamCollector({
     beginAttempt,
     releaseGuard,
     consume,
+    failureUsage,
     get leakGuard() {
       return textLeakGuard;
     },

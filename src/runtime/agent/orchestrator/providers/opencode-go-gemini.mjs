@@ -144,6 +144,7 @@ export class OpenCodeGoGeminiEngine extends GeminiProvider {
           );
         },
         afterToolResult: geminiEndsWithFunctionResponse(contents),
+        failureUsage: geminiFailureUsage(opts, null, useModel),
         run: async ({ signal: attemptSignal, connected }) => {
           try {
             opts.onStageChange?.('requesting');

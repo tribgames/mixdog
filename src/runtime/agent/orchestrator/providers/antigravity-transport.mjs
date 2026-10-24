@@ -114,7 +114,7 @@ export function antigravityError(res, text, endpoint) {
  * @param {string} deps.body  serialized request
  * @param {object} deps.opts  send options (stage heartbeat)
  * @param {AbortSignal|null} deps.signal  retry-loop signal (session pass-through)
- * @param {{ beginAttempt: Function, consume: Function }} deps.collector
+ * @param {{ beginAttempt: Function, consume: Function, failureUsage?: { model: string, normalize: Function } }} deps.collector
  * @param {{ timeoutMs: number, maxMs: number, retries: number|null }} [deps.firstByte]
  *   first-byte window per attempt (antigravityFirstBytePolicy)
  * @param {boolean} [deps.afterToolResult]  the request ends with a tool result (an empty STOP is then a valid answer)
@@ -251,7 +251,11 @@ export function createAntigravityRequest({
         // the same bounded re-ask as the API-key transport. The dead
         // attempt's thinking is retracted when the next attempt begins.
         if (signal?.aborted) return response;
-        const reask = geminiInvalidStreamReask(response, collector.leakGuard, { afterToolResult, streamAttempt });
+        const reask = geminiInvalidStreamReask(response, collector.leakGuard, {
+          afterToolResult,
+          streamAttempt,
+          failureUsage: collector.failureUsage,
+        });
         if (!reask) return response;
         log(streamAttempt + 1, reask.unusable, reask.waitMs);
         streamAttempt += 1;
