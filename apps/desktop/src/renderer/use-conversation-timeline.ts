@@ -24,6 +24,7 @@ export function useConversationTimeline({
   steerItems,
   optimisticActivityStartedAt,
   room,
+  listHeld = false,
   onEntryRevealed,
   onTranscriptHiddenChange,
 }: {
@@ -46,6 +47,9 @@ export function useConversationTimeline({
   optimisticActivityStartedAt: number;
   /** A group room: the live band is its typing slot (use-conversation-rows.ts). */
   room?: boolean;
+  /** The list is not mounted yet (held one frame behind the cover): the
+   *  reveal and the entry record start only once it is. */
+  listHeld?: boolean;
   onEntryRevealed?: (sessionKey: string) => void;
   onTranscriptHiddenChange?: (hidden: boolean) => void;
 }) {
@@ -71,7 +75,7 @@ export function useConversationTimeline({
     optimisticActivityStartedAt,
     room,
   });
-  const populated = showTimeline && transcriptRows.length > 0;
+  const populated = showTimeline && !listHeld && transcriptRows.length > 0;
   const phone = useMobileRemoteSurface();
   const transcriptRevealed = useTranscriptReveal({
     identity,

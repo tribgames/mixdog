@@ -34,76 +34,10 @@
   border-radius: 0;
   box-shadow: none;
 }
-/* A wide pane's conversation cover spans the transcript viewport only; the
+/* A conversation cover (phone and wide pane alike) spans the transcript viewport only; the
    composer dock below it stays painted, so it carries no sheet corner. */
 :root .conversation > .transcript-shell > .pane-surface-cover {
   border-radius: 0;
-}
-/* Phone conversation entry: a transcript-shaped placeholder painted in the
-   opening frame. Rows sit at the bottom like a pinned transcript. */
-.pane-surface-cover.transcript-skeleton {
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-}
-.transcript-skeleton-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  animation: transcript-skeleton-breathe 1.4s ease-in-out infinite;
-}
-.transcript-skeleton-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.transcript-skeleton-row > span,
-.transcript-skeleton-composer {
-  display: block;
-  border-radius: var(--mx-radius-pill);
-  background: var(--mx-bg-layer-2);
-}
-.transcript-skeleton-row > span {
-  height: 10px;
-  width: 92%;
-}
-.transcript-skeleton-row > span:nth-child(2) {
-  width: 78%;
-}
-.transcript-skeleton-row > span:nth-child(3) {
-  width: 54%;
-}
-.transcript-skeleton-row[data-kind="user"] {
-  align-items: flex-end;
-}
-.transcript-skeleton-row[data-kind="user"] > span {
-  width: 58%;
-  height: 34px;
-  border-radius: 16px;
-}
-.transcript-skeleton-row[data-kind="tool"] > span {
-  width: 40%;
-  height: 14px;
-  opacity: var(--mx-op-dim);
-}
-.transcript-skeleton-composer {
-  height: 48px;
-  border-radius: 24px;
-}
-@keyframes transcript-skeleton-breathe {
-  0%,
-  100% {
-    opacity: var(--mx-op-dim);
-  }
-  50% {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .transcript-skeleton-rows {
-    animation: none;
-  }
 }
 /* A conversation entry that is still loading shows its spinner early; only a
    switch that settles within a few frames stays silent. */

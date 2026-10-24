@@ -131,9 +131,13 @@ export function ConversationTranscript({
   renderRow,
   itemCount,
   cover,
+  listHeld = false,
   intro,
   agentMode = false,
 }: {
+  /** The list mounts one frame after the shell (a phone entering a cold
+   *  session); the cover stays up until it has. */
+  listHeld?: boolean;
   /** An agent chat: its rows learn their estimated heights apart from coding's. */
   agentMode?: boolean;
   /** Agent mode: the contact's profile a chat with no messages yet shows. */
@@ -251,7 +255,7 @@ export function ConversationTranscript({
             viewerDevice={viewerDevice}
             turnChangesSurface={links.turnChangesSurface}
           >
-            {source.showTranscriptTimeline && (
+            {source.showTranscriptTimeline && !listHeld && (
               <TranscriptList
                 key={source.transcriptIdentity.current}
                 sessionKey={sessionKey}

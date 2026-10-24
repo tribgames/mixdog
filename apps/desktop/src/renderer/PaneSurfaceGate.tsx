@@ -394,34 +394,6 @@ export function PaneSurfaceGate({
   );
 }
 
-const TRANSCRIPT_SKELETON_ROWS = [
-  { id: 'row-1', kind: 'user' },
-  { id: 'row-2', kind: 'assistant' },
-  { id: 'row-3', kind: 'tool' },
-  { id: 'row-4', kind: 'assistant' },
-  { id: 'row-5', kind: 'user' },
-  { id: 'row-6', kind: 'assistant' },
-] as const;
-
-/** A pane-sized transcript placeholder: static bars, painted in the same
- *  frame the conversation is opened, until its first rows are revealed. */
-export function TranscriptSkeletonCover({ label }: { label: string }) {
-  return (
-    <div className="pane-surface-cover transcript-skeleton" role="status" aria-busy="true" aria-label={label}>
-      <div className="transcript-skeleton-rows">
-        {TRANSCRIPT_SKELETON_ROWS.map(({ id, kind }) => (
-          <div key={id} className="transcript-skeleton-row" data-kind={kind}>
-            <span />
-            {kind === 'assistant' && <span />}
-            {kind === 'assistant' && <span />}
-          </div>
-        ))}
-      </div>
-      <div className="transcript-skeleton-composer" />
-    </div>
-  );
-}
-
 /** Overlay form for layout-sensitive trees (Conversation/virtualizer) that
  * must remain a direct child of their existing flex container. */
 export function PaneSurfaceCover({
@@ -430,7 +402,6 @@ export function PaneSurfaceCover({
   transitionKey,
   hold = false,
   holdSignal = NO_HOLD,
-  skeleton = false,
   revealOnReady = false,
 }: {
   ready: boolean;
@@ -444,9 +415,6 @@ export function PaneSurfaceCover({
   /** The same hold, reported by the covered content without rendering the
    *  cover's owner. */
   holdSignal?: SurfaceHoldSignal;
-  /** Paint a transcript skeleton at once instead of the delayed brand mark
-   *  (the phone, where the first rows cross the relay). */
-  skeleton?: boolean;
   /** `ready` already means settled, composed content (the conversation's
    *  entry reveal waits for stable rows, fonts and dock chrome): the cover
    *  leaves in that commit. The generic font and composed-frame settle on top
@@ -457,7 +425,6 @@ export function PaneSurfaceCover({
   const signalled = useSyncExternalStore(holdSignal.subscribe, holdSignal.get, holdSignal.get);
   const holding = useSurfaceHold(hold || signalled);
   if ((revealed || (revealOnReady && ready)) && !holding) return null;
-  if (skeleton) return <TranscriptSkeletonCover label={label} />;
   return (
     <div className="pane-surface-cover">
       {/* A pane-sized cover that stays mute is indistinguishable from a broken

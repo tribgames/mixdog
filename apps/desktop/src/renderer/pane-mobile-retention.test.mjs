@@ -39,7 +39,11 @@ async function mountPhoneWorkspace(t) {
       live.add(id);
       return () => live.delete(id);
     }, [id]);
-    return React.createElement('section', { 'data-session': id, 'data-focused': String(focused) });
+    return React.createElement(
+      'section',
+      { 'data-session': id, 'data-focused': String(focused) },
+      React.createElement('textarea', { 'data-composer': id })
+    );
   }
   const leafOf = (id, tabs, active) => ({ ...createPaneLeaf(active, id), tabs });
   return {
@@ -97,8 +101,8 @@ test('a phone keeps its recent sessions mounted and switches back by visibility 
   const view = await mountPhoneWorkspace(t);
   const tabs = [A, B, C, D];
   await view.render(tabs, A);
-  assert.ok(view.host.ownerDocument.querySelector('.transcript-skeleton'), 'the skeleton paints in the opening frame');
-  assert.equal(view.conversation('a'), null, 'the conversation mounts in the next frame');
+  assert.equal(view.host.ownerDocument.querySelector('.transcript-skeleton'), null, 'no pane-sized skeleton');
+  assert.ok(view.conversation('a'), 'the conversation mounts in the opening commit');
   await view.flushFrame();
   const first = view.conversation('a');
   assert.ok(first);
@@ -128,8 +132,8 @@ test('a phone keeps its recent sessions mounted and switches back by visibility 
   await view.flushFrame();
   // The pool is full: D reuses the owner B gave up, and still opens cold.
   await view.render(tabs, D);
-  assert.equal(view.conversation('d'), null, 'a cold session on a reused owner mounts in the next frame');
-  assert.ok(view.host.ownerDocument.querySelector('.transcript-skeleton'), 'and paints its skeleton first');
+  assert.ok(view.conversation('d'), 'a cold session on a reused owner mounts in the switch commit');
+  assert.equal(view.host.ownerDocument.querySelector('.transcript-skeleton'), null, 'and paints no skeleton');
   assert.equal(view.conversation('a'), first, 'the retained sessions are not remounted');
   await view.flushFrame();
   assert.ok(view.conversation('d'));
@@ -139,6 +143,20 @@ test('a phone keeps its recent sessions mounted and switches back by visibility 
   // A closed tab is not kept.
   await view.render([A, B, D], D);
   assert.deepEqual(view.mountedSessions(), ['a', 'd']);
+});
+
+test('a phone keeps the real composer mounted through a conversation entry and a cold switch', async (t) => {
+  const view = await mountPhoneWorkspace(t);
+  const doc = view.host.ownerDocument;
+  const composers = () => [...doc.querySelectorAll('[data-composer]')];
+  await view.render([A, B], A);
+  assert.equal(composers().length, 1, 'the entry commit already holds the real composer');
+  assert.equal(doc.querySelector('.transcript-skeleton-composer'), null, 'no fake composer bar');
+  const first = view.conversation('a').querySelector('[data-composer]');
+  await view.render([A, B], B);
+  assert.ok(view.conversation('b').querySelector('[data-composer]'), 'a cold switch mounts the composer at once');
+  assert.equal(doc.querySelector('.transcript-skeleton-composer'), null, 'no fake composer bar');
+  assert.ok(first.isConnected, 'the previous composer stays mounted');
 });
 
 test('a phone session whose lane is already loaded mounts in the opening frame, with no skeleton', async (t) => {

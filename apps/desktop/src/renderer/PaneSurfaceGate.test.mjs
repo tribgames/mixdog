@@ -29,13 +29,15 @@ test('a latched-revealed cover returns while its transcript stays hidden', async
 
 test('a conversation cover leaves in the commit its settled rows become ready', async (t) => {
   const view = await mount(t);
-  await view.render({ ready: false, skeleton: true, revealOnReady: true });
-  assert.ok(view.document.querySelector('.transcript-skeleton'), 'the skeleton paints while no rows exist');
-  await view.render({ ready: true, skeleton: true, revealOnReady: true });
+  await view.render({ ready: false, revealOnReady: true });
+  assert.ok(view.document.querySelector('.pane-surface-cover'), 'the cover paints while no rows exist');
+  assert.equal(view.document.querySelector('.transcript-skeleton'), null, 'no skeleton, never a fake composer bar');
+  assert.equal(view.document.querySelector('.transcript-skeleton-composer'), null);
+  await view.render({ ready: true, revealOnReady: true });
   assert.equal(
     view.document.querySelector('.pane-surface-cover'),
     null,
-    'no font or composed-frame settle holds the skeleton over the first messages'
+    'no font or composed-frame settle holds the cover over the first messages'
   );
   await view.render({ ready: false, transitionKey: 'b' });
   await view.render({ ready: true, transitionKey: 'b' });

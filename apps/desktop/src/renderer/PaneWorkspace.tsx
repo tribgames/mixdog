@@ -7,7 +7,7 @@
 // while the lanes already deliver concurrent live output.
 
 import type React from 'react';
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useScreenSessions, useVisibleSessions } from './use-visible-sessions';
 import { DESKTOP_PET_SESSION_ID, DesktopPetPublisher, useDesktopPetSessionIds } from './desktop-pet-publisher';
@@ -27,7 +27,7 @@ import {
   usePaneSelectionFence,
   useSinglePaneMode,
 } from './use-pane-workspace-interactions';
-import { PersistentPanePortal, TranscriptSkeletonCover } from './PaneSurfaceGate';
+import { PersistentPanePortal } from './PaneSurfaceGate';
 import type { NavigationSelection, WorkspaceSelection } from './nav-types';
 import {
   paneActiveSessionIds,
@@ -79,41 +79,12 @@ const MOBILE_RETAINED_CONVERSATIONS = 2;
 
 /** A retained conversation is frozen: the app re-creates its props on every
  *  workspace render, and re-rendering an unpainted transcript is pure cost.
- *  Its own lane subscriptions still update it.
- *
- *  `deferMount`: a cold session on a phone paints its transcript skeleton in
- *  the opening frame and mounts the Conversation (rows, composer, dock) in the
- *  next one, so the tap answers at once. A session whose lane is already on
- *  the phone mounts at once: its rows paint in the opening commit instead of
- *  behind a skeleton frame. The gate follows the selection, not
- *  the owner: an owner handed from one session to a cold one closes it again,
- *  while a draft that became its session keeps its Conversation. */
+ *  Its own lane subscriptions still update it. The Conversation always mounts
+ *  in the selection's own commit: its transcript cover (not a pane-sized
+ *  placeholder) carries the load, so the composer stays mounted. */
 const RetainedConversation = memo(
-  function RetainedConversation({
-    selectionKey,
-    deferMount,
-    children,
-  }: {
-    retained: boolean;
-    selectionKey: string;
-    deferMount: boolean;
-    children: React.ReactNode;
-  }) {
-    const [gate, setGate] = useState({ selectionKey, deferred: deferMount, mounted: !deferMount });
-    let current = gate;
-    if (gate.selectionKey !== selectionKey && (deferMount || gate.deferred)) {
-      current = { selectionKey, deferred: deferMount, mounted: !(deferMount && gate.deferred) };
-      setGate(current);
-    }
-    const { mounted } = current;
-    useEffect(() => {
-      if (mounted) return undefined;
-      const frame = window.requestAnimationFrame(() =>
-        setGate((state) => (state.selectionKey === selectionKey ? { ...state, mounted: true } : state))
-      );
-      return () => window.cancelAnimationFrame(frame);
-    }, [mounted, selectionKey]);
-    return mounted ? children : <TranscriptSkeletonCover label={t('Loading conversation…')} />;
+  function RetainedConversation({ children }: { retained: boolean; children: React.ReactNode }) {
+    return <>{children}</>;
   },
   (previous, next) => previous.retained && next.retained
 );
@@ -249,39 +220,33 @@ export function PaneWorkspace({
   // A phone also keeps its last few sessions mounted (retained, unpainted).
   let conversationPortals: React.ReactNode[] = [];
   if (renderConversation) {
-    conversationPortals = conversationLeaves.map(
-      ({ leaf, active, selectionKey, handoff, parked, retained, warm, owner }) => {
-        const focused = leaf.id === focusedLeafId;
-        const focusPane = (): void => {
-          workspace.focusLeaf(leaf.id);
-          onFocusSelection(active);
-        };
-        return (
-          <PersistentPanePortal
-            key={owner}
-            targetId={paneConversationSlotId(leaf.id)}
-            owner={owner}
-            className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
-            retained={retained}
-          >
-            <RetainedConversation
-              retained={retained}
-              selectionKey={selectionKey}
-              deferMount={mobileSurface && active.kind === 'session' && defaultSessionLaneStore.get(active.id) === null}
-            >
-              {renderConversation(
-                active,
-                focused && !handoff && !parked && !retained,
-                focusPane,
-                leaf.id,
-                warm,
-                !parked && !retained
-              )}
-            </RetainedConversation>
-          </PersistentPanePortal>
-        );
-      }
-    );
+    conversationPortals = conversationLeaves.map(({ leaf, active, handoff, parked, retained, warm, owner }) => {
+      const focused = leaf.id === focusedLeafId;
+      const focusPane = (): void => {
+        workspace.focusLeaf(leaf.id);
+        onFocusSelection(active);
+      };
+      return (
+        <PersistentPanePortal
+          key={owner}
+          targetId={paneConversationSlotId(leaf.id)}
+          owner={owner}
+          className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
+          retained={retained}
+        >
+          <RetainedConversation retained={retained}>
+            {renderConversation(
+              active,
+              focused && !handoff && !parked && !retained,
+              focusPane,
+              leaf.id,
+              warm,
+              !parked && !retained
+            )}
+          </RetainedConversation>
+        </PersistentPanePortal>
+      );
+    });
   }
   // The desktop pet: a side chat with Mixy.
   if (!mobileSurface) {

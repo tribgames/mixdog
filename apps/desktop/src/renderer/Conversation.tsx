@@ -102,6 +102,7 @@ export function Conversation(props: ConversationProps) {
     optimisticActivityStartedAt,
     // A group room's band is its typing slot (use-conversation-row-renderer.ts).
     room: Boolean(roomIdOfSession(routeSessionId)),
+    listHeld: props.transcriptListHeld,
     onEntryRevealed,
     onTranscriptHiddenChange,
   });
@@ -179,6 +180,7 @@ export function Conversation(props: ConversationProps) {
           renderRow={renderTranscriptRow}
           itemCount={itemCount}
           cover={props.transcriptCover}
+          listHeld={props.transcriptListHeld}
           intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
           agentMode={agentMode}
         />

@@ -13,6 +13,7 @@ import React, {
   useSyncExternalStore,
 } from 'react';
 import { InitialSurface } from './InitialSurface';
+import { useMobileRemoteSurface } from './mobile-surface';
 
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { Conversation } from './Conversation';
@@ -27,7 +28,6 @@ import { EMPTY_SNAPSHOT, type Snapshot, type TranscriptItem } from './desktop-ty
 import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { focusedDraftModelSelection } from './use-focused-draft-route';
 import { createSurfaceHoldSignal, PaneSurfaceCover } from './PaneSurfaceGate';
-import { useMobileRemoteSurface } from './mobile-surface';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { useSessionLaneRead } from './use-session-lane-read';
 import { requestSessionRead } from './session-read-request';
@@ -168,7 +168,6 @@ export const PaneConversation = memo(function PaneConversation({
   ...props
 }: PaneConversationProps) {
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopConversationShellSnapshotsEqual, !hidden);
-  const mobileSurface = useMobileRemoteSurface();
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
     hasLane: lane !== null,
@@ -176,6 +175,27 @@ export const PaneConversation = memo(function PaneConversation({
     reconcileOnMount,
     read: requestSessionRead,
   });
+  // A phone entering a session whose lane it does not hold mounts the shell
+  // and the real composer in the entry commit and the transcript list one
+  // frame later, behind the viewport cover, so the tap answers at once. The
+  // decision belongs to the INCOMING session id and is taken once, in the
+  // commit that selects it: the lane arriving later does not reopen it.
+  const mobileSurface = useMobileRemoteSurface();
+  const holdsList = mobileSurface && !hidden && sessionId !== '' && lane === null;
+  const [listGate, setListGate] = useState({ sessionId, mounted: !holdsList });
+  let currentListGate = listGate;
+  if (listGate.sessionId !== sessionId) {
+    currentListGate = { sessionId, mounted: !holdsList };
+    setListGate(currentListGate);
+  }
+  const listHeld = !currentListGate.mounted;
+  useEffect(() => {
+    if (!listHeld) return undefined;
+    const frame = window.requestAnimationFrame(() =>
+      setListGate((state) => (state.sessionId === sessionId ? { ...state, mounted: true } : state))
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, [listHeld, sessionId]);
   const coverIdRef = useRef(sessionId || 'draft');
   const originSessionRef = useRef(sessionId || '');
   // Armed by this draft's own submit; only that submit promotes the draft.
@@ -280,7 +300,7 @@ export const PaneConversation = memo(function PaneConversation({
   // A parallel timer would uncover a slow diff/Goal before its height lands.
   // Sidebar session registration remounts the virtualizer. Keep the sheet
   // cover up until the incoming lane exists and one frame has committed it.
-  const surfaceReady = paintGate.reveal && !entryPending;
+  const surfaceReady = paintGate.reveal && !entryPending && !listHeld;
   const showingIncoming = presentedSessionId === sessionId;
   const timelinePending =
     showingIncoming && !promotingFromDraft && (markdownPending || Boolean(sessionId && !hidden && lane === null));
@@ -335,14 +355,12 @@ export const PaneConversation = memo(function PaneConversation({
     ),
     [hidden, presentedSessionId, props.onOpenCommandSurface]
   );
-  // A phone keeps its pane-sized cover (its skeleton draws its own composer
-  // bar); a wide pane covers the transcript viewport only, so the composer
-  // dock never disappears under a session switch.
+  // The cover covers the transcript viewport only (phone and wide pane alike),
+  // so the composer dock never disappears under a session switch.
   // The cover, the Goal island and the assistant row renderer keep their
   // identities between the conversation's own commits (a session switch is
   // several), so the transcript and the memoised island skip those renders.
   const coverHold = hidden ? undefined : transcriptHidden;
-  const coverSkeleton = mobileSurface && Boolean(sessionId);
   const surfaceCover = useMemo(
     () => (
       <PaneSurfaceCover
@@ -350,11 +368,10 @@ export const PaneConversation = memo(function PaneConversation({
         label={t('Loading conversation…')}
         transitionKey={coverKey}
         holdSignal={coverHold}
-        skeleton={coverSkeleton}
         revealOnReady
       />
     ),
-    [surfaceReady, coverKey, coverHold, coverSkeleton]
+    [surfaceReady, coverKey, coverHold]
   );
   const goalIsland = useMemo(
     () => <PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />,
@@ -384,7 +401,8 @@ export const PaneConversation = memo(function PaneConversation({
         goalIsland={goalIsland}
         contextIndicator={contextIndicator}
         usageReadout={usageReadout}
-        transcriptCover={unavailable || mobileSurface ? undefined : surfaceCover}
+        transcriptCover={unavailable ? undefined : surfaceCover}
+        transcriptListHeld={listHeld && showingIncoming}
       />
       {unavailable ? (
         <div className="pane-surface-cover session-unavailable" role="alert">
@@ -396,9 +414,7 @@ export const PaneConversation = memo(function PaneConversation({
             </button>
           </div>
         </div>
-      ) : (
-        mobileSurface && surfaceCover
-      )}
+      ) : null}
     </>
   );
 });

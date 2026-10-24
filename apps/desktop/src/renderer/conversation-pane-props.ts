@@ -97,4 +97,7 @@ export type ConversationProps = {
   /** The pane's loading cover, laid over the transcript viewport only: the
    *  composer dock below it stays painted and usable while rows load. */
   transcriptCover?: ReactNode;
+  /** The transcript list is held back one frame behind the cover; the shell
+   *  and composer are already mounted. */
+  transcriptListHeld?: boolean;
 };
