@@ -20,7 +20,7 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import { t } from './i18n';
-import { shouldStopComposerGeneration } from './renderer-logic.mjs';
+import { hasSendablePromptContent, shouldStopComposerGeneration } from './renderer-logic.mjs';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import { touchPrimaryPointer } from './surface-input-focus';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
@@ -878,6 +878,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       text: draft,
       attachments,
     });
+  // What the send disc needs of the draft: queued visualize feedback or any
+  // sendable text/attachment. A boolean, so typing re-renders the disc only
+  // when it flips.
+  const sendable = feedbackPending || hasSendablePromptContent({ text: draft, attachments });
   // A live take turns the send disc into "finish and send".
   const voiceSend = dictation.dictationState === 'recording';
   // biome-ignore lint/correctness/useExhaustiveDependencies: draft is a re-check trigger for the pending voice submit even though the body does not read it
@@ -1167,9 +1171,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           dictation={dictation}
           stopOnly={stopOnly}
           voiceSend={voiceSend}
-          draft={draft}
-          attachments={attachments}
-          feedbackPending={feedbackPending}
+          sendable={sendable}
           onStop={() => void stop()}
           sessionId={sessionId}
           onOpenSettings={onOpenSettings}

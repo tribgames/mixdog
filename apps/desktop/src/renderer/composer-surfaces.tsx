@@ -480,16 +480,14 @@ export function DictationButton({
 // sitting disabled: the transcript still only reaches the draft after the
 // recorder stops, so this press chains stop → transcribe → submit.
 // Transcribing keeps it disabled — that take is already on its way.
-export function SendButton({
+export const SendButton = React.memo(function SendButton({
   stopOnly,
   voiceSend,
   submitting,
   transitioning,
   hasConversation,
   dictationState,
-  draft,
-  attachments,
-  feedbackPending = false,
+  sendable,
   onStop,
   onStopDictationAndSend,
 }: {
@@ -499,24 +497,17 @@ export function SendButton({
   transitioning: boolean;
   hasConversation: boolean;
   dictationState: DictationState;
-  draft: string;
-  attachments: ComposerAttachment[];
-  /** Visualize pins or picks are queued: sendable without text. */
-  feedbackPending?: boolean;
+  /** The draft or attachments hold something to send, or visualize pins or
+   *  picks are queued. Derived by the composer so typing re-renders this
+   *  button only when sendability flips. */
+  sendable: boolean;
   onStop: () => void;
   onStopDictationAndSend: () => void;
 }) {
   let onClick: (() => void) | undefined;
   if (stopOnly) onClick = onStop;
   else if (voiceSend) onClick = onStopDictationAndSend;
-  const disabled =
-    !stopOnly &&
-    !voiceSend &&
-    ((!draft.trim() &&
-      !feedbackPending &&
-      !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
-      transitioning ||
-      dictationState !== 'idle');
+  const disabled = !stopOnly && !voiceSend && (!sendable || transitioning || dictationState !== 'idle');
   let label = t('Send message');
   if (stopOnly) label = t('Stop generation');
   else if (voiceSend) label = t('Stop dictation and send');
@@ -540,4 +531,4 @@ export function SendButton({
       {glyph}
     </button>
   );
-}
+});

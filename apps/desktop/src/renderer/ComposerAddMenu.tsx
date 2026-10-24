@@ -220,7 +220,7 @@ function renderComposerAddMenuPanel({
   );
 }
 
-export function ComposerAddMenu({
+export const ComposerAddMenu = React.memo(function ComposerAddMenu({
   anchor,
   disabled,
   goalDisabled,
@@ -343,4 +343,4 @@ export function ComposerAddMenu({
         })}
     </React.Fragment>
   );
-}
+});
