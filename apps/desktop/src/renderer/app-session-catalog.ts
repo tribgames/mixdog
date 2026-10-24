@@ -96,6 +96,7 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     const merged = mergeSessionCatalogRows(current, proposed);
     if (merged === current) return;
     sessionsRef.current = merged;
+    publishSessionGlances(merged);
     setSessionsState(merged);
   }, []);
 
