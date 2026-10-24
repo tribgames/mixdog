@@ -1,7 +1,8 @@
 /* One status set for every session surface (tabs, sidebar rows, collapsed
    project groups) and the agent rows: needs you > failed > running >
    finished-unread. Each has its own hue, and the shape names the state too
-   (warning triangle, crossed circle, spinner, dot), so live work never reads
+   (warning triangle for an approval, speech bubble with "?" for a question,
+   crossed circle, spinner, dot), so live work never reads
    like something that waits on the user. */
 :root {
   --mx-status-needs-you: var(--mx-warning);
@@ -16,7 +17,7 @@
   align-items: center;
   justify-content: center;
 }
-.session-attention-glyph[data-status="needs-you"] {
+.session-attention-glyph:is([data-status="needs-you"], [data-status="asking"]) {
   color: var(--mx-status-needs-you);
 }
 .session-attention-glyph[data-status="failed"] {
@@ -50,6 +51,22 @@
 .session-row:has(.session-row-attention) .session-row-copy,
 .project-folder-toggle:has(.session-row-status) .session-row-copy {
   padding-right: 18px;
+}
+
+/* A bot row with 2+ sessions waiting on approval: the count digit right after
+   the triangle, no background; the slot grows to the left of its centerline. */
+.session-attention-count {
+  margin-left: 2px;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.session-row-status:has(.session-attention-count) {
+  width: auto;
+}
+.session-row:has(.session-attention-count) .session-row-copy {
+  padding-right: 30px;
 }
 
 /* Agent rows (Agents pane, composer island): the same hues. */

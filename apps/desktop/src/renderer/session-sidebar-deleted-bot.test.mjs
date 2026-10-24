@@ -429,6 +429,62 @@ test('a Sessions 봇 row spins while its home chat is running, like a session ro
   assert.ok(row().classList.contains('working'), 'a running row yields space to the spinner');
 });
 
+test('a Sessions 봇 row shows the amber triangle, with a digit from 2 waiting sessions, not a spinner', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const { setBotHiddenInSidebar } = await import('./sidebar-hidden-bots-store.ts');
+  const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
+  stubDesktop(document.defaultView, [{ id: 'watcher', custom: true, kind: 'bot', definition: { name: 'Watcher' } }]);
+  setBotHiddenInSidebar('watcher', false);
+  t.after(() => publishCatalogApprovalSessions([]));
+  const task = { ...WATCHER_HOME, id: 'task-1', agentHome: undefined, taskAgent: 'watcher', taskFrom: 'home' };
+  const render = (sessions) =>
+    act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          open: true,
+          sessions,
+          sessionsReady: true,
+          selection: { kind: 'new' },
+          workingSessionIds: new Set(),
+          unreadSessionIds: new Set(),
+          onNewTask() {},
+          onNewStudio() {},
+          onResumeSession() {},
+          async onRenameSession() {},
+          async onFavoriteSession() {},
+          async onArchiveSession() {},
+          async onDeleteSession() {},
+        })
+      )
+    );
+  const row = () => document.querySelector('.sidebar-agents [data-agent-contact="watcher"]');
+  const glyph = () => row().querySelector('.session-row-attention[data-status="needs-you"]');
+  const waiting = [
+    { ...WATCHER_HOME, working: true, awaitingApproval: true },
+    { ...task, working: true, awaitingApproval: true },
+  ];
+  publishCatalogApprovalSessions(waiting);
+  await render(waiting);
+  await settle();
+  await render(waiting);
+  assert.ok(glyph(), 'the warning triangle');
+  assert.equal(glyph().querySelector('.session-attention-count').textContent, '2');
+  assert.match(glyph().getAttribute('aria-label'), /Watcher · (Waiting for approval \(2\)|승인 대기 2건)/);
+  assert.equal(row().querySelector('.session-row-spinner'), null, 'the triangle replaces the spinner');
+
+  const one = [waiting[0], { ...task, working: true }];
+  publishCatalogApprovalSessions(one);
+  await render(one);
+  assert.ok(glyph());
+  assert.equal(glyph().querySelector('.session-attention-count'), null, 'one waiting: no digit');
+  assert.match(glyph().getAttribute('aria-label'), /^Watcher · (Waiting for approval|승인 대기)$/);
+
+  publishCatalogApprovalSessions([]);
+  await render([WATCHER_HOME, task]);
+  assert.equal(glyph(), null, 'answered: the triangle is gone');
+});
+
 test('deleting a bot also forgets its hidden flag', async (t) => {
   installTestDom(t, { expose: ['CustomEvent'] });
   const { deleteAgent } = await import('./agent-profile-actions.ts');

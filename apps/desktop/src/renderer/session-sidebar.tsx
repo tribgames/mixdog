@@ -782,7 +782,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     unreadSessionIds,
     open && hasSessionSurface,
     onOpenAgent,
-    attentionIndex.needsUser
+    attentionIndex.needsUser,
+    attentionIndex.asking
   );
   const {
     allRows,

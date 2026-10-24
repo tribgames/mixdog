@@ -32,6 +32,39 @@ const { WorkspaceTabStrip } = await import('./WorkspaceTabStrip.tsx');
 const { SessionSidebarRow } = await import('./session-sidebar-rows.tsx');
 const { projectsSection } = await import('./session-sidebar-sections.tsx');
 
+test('a question wait reads asking, ranks with needs-you, and an approval outranks it in a group', () => {
+  assert.equal(sessionAttention({ needsUser: true, asking: true, failed: true }), 'asking');
+  assert.equal(sessionAttention({ asking: true, failed: true }), 'failed', 'asking needs needsUser');
+  assert.equal(strongestSessionAttention(['failed', 'asking', 'running']), 'asking');
+  assert.equal(strongestSessionAttention(['asking', 'needs-you']), 'needs-you');
+  const index = sessionAttentionIndex([], new Set(['q', 'a']), new Set(), new Set(['q']));
+  assert.equal(sessionAttentionOf(index, 'q'), 'asking');
+  assert.equal(sessionAttentionOf(index, 'a'), 'needs-you');
+});
+
+test('a shown lane with an ask_user question reads asking; an approval stays needs-you; answered clears', () => {
+  const store = defaultSessionLaneStore;
+  store.clear();
+  store.setShownSessionIds(['q', 'a']);
+  const frame = (sessionId, toolApproval) =>
+    store.apply({ sessionId, frameSource: 'live', snapshot: { sessionId, busy: true, toolApproval } });
+  const read = (id) => {
+    const approvals = effectiveApprovalSessionIds(store.approvalSessionIds(), new Set(), store.liveSessionIds());
+    return sessionAttentionOf(sessionAttentionIndex([], approvals, new Set(), store.questionSessionIds()), id);
+  };
+  try {
+    frame('q', { id: 'k1', kind: 'question', args: { questions: [] } });
+    frame('a', { id: 'k2', tool: 'send_email' });
+    assert.equal(read('q'), 'asking');
+    assert.equal(read('a'), 'needs-you');
+    frame('q', null);
+    assert.equal(read('q'), '');
+    assert.equal(store.questionSessionIds().has('q'), false);
+  } finally {
+    store.clear();
+  }
+});
+
 test('one status per session, strongest first: needs you > failed > running > unread', () => {
   assert.equal(sessionAttention({ needsUser: true, failed: true, running: true, unread: true }), 'needs-you');
   assert.equal(sessionAttention({ failed: true, running: true, unread: true }), 'failed');
@@ -539,15 +572,23 @@ test('sidebar rows and collapsed project groups use the same status set', async 
     React.createElement(
       'div',
       null,
-      ...['needs-you', 'failed', 'running', 'unread'].map((attention) =>
+      ...['needs-you', 'asking', 'failed', 'running', 'unread'].map((attention) =>
         React.createElement(SessionSidebarRow, { key: attention, ...rowProps(attention, attention) })
       )
     )
   );
   try {
     const row = (id) => rows.host.querySelector(`.session-row[data-session-id="${id}"]`);
-    assert.ok(row('needs-you').querySelector('.session-row-attention[data-status="needs-you"]'));
+    const glyph = row('needs-you').querySelector('.session-row-attention[data-status="needs-you"]');
+    assert.ok(glyph, 'an approval wait is the warning triangle');
+    assert.match(glyph.getAttribute('aria-label'), /^needs-you · (Waiting for approval|승인 대기)$/);
+    assert.equal(glyph.textContent, '', 'icon only, no words or digit');
+    const asking = row('asking').querySelector('.session-row-attention[data-status="asking"]');
+    assert.ok(asking, 'a question wait is its own glyph');
+    assert.match(asking.getAttribute('aria-label'), /^asking · (Waiting for your answer|답변 대기)$/);
+    assert.notEqual(asking.innerHTML, glyph.innerHTML, 'a different shape from the triangle');
     assert.equal(row('needs-you').querySelector('.session-row-spinner'), null);
+    assert.equal(row('failed').querySelector('[data-status="asking"]'), null);
     assert.ok(row('failed').querySelector('.session-row-attention[data-status="failed"]'));
     assert.ok(row('running').querySelector('.session-row-spinner'));
     assert.ok(row('unread').querySelector('.session-row-unread-dot'));

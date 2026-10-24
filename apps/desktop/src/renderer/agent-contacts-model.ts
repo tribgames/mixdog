@@ -28,6 +28,13 @@ export interface AgentContact {
   /** The home thread holds an unread reply, whatever status the badge shows
    *  (running/attention/error take the badge, not the unread mark). */
   unread: boolean;
+  /** How many of the bot's sessions wait on the user's approval: its home
+   *  thread plus its task sessions (taskAgent). Sessions it sent work to are
+   *  not in the list's data, so they are not counted. At least 1 while the
+   *  indicator is attention, unless every wait is a question (`asking`). */
+  approvals: number;
+  /** Everything the bot waits on is a question for the user, not an approval. */
+  asking: boolean;
   /** The bot is switched off (listed only where `includeDisabled` asks). */
   disabled: boolean;
 }
@@ -89,7 +96,11 @@ export function agentContacts(
   sessions: readonly DesktopSessionSummary[],
   groups: ReadonlyMap<string, readonly AgentActivityNode[]>,
   unreadSessionIds?: ReadonlySet<string>,
-  { includeDisabled = false, needsUser }: { includeDisabled?: boolean; needsUser?: ReadonlySet<string> } = {}
+  {
+    includeDisabled = false,
+    needsUser,
+    asking,
+  }: { includeDisabled?: boolean; needsUser?: ReadonlySet<string>; asking?: ReadonlySet<string> } = {}
 ): AgentContact[] {
   const homes = new Map<string, DesktopSessionSummary>();
   const tasks = new Map<string, DesktopSessionSummary[]>();
@@ -114,10 +125,15 @@ export function agentContacts(
       unreadSessionIds,
       needsUser
     );
+    const waiting = [session, ...(tasks.get(agentId) ?? [])].filter((row) => row && needsUser?.has(row.id));
+    const approvalRows = waiting.filter((row) => !asking?.has(row?.id ?? '')).length;
+    const questionOnly = indicator?.kind === 'attention' && waiting.length > 0 && approvalRows === 0;
     return {
       agentId,
       name,
       mixy,
+      asking: questionOnly,
+      approvals: indicator?.kind === 'attention' && !questionOnly ? Math.max(1, approvalRows) : 0,
       avatar: agentAvatar(agentId, storedAvatar),
       session,
       preview: contactPreview(indicator, session, description, mixy, disabled),

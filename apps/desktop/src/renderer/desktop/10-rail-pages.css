@@ -1071,12 +1071,9 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   font-weight: var(--mx-weight-semibold);
   white-space: nowrap;
 }
-/* Waiting for approval and failed: a filled "!" pill in the count's shape,
-   amber and red, so a blocked bot reads from across the list. */
-.utility-dock
-  .agent-chat-row[data-kind="contact"]
-  .agent-contact-aside
-  > .agent-chat-status:is([data-kind="attention-mark"], [data-kind="error"]) {
+/* Failed: a filled "!" pill in the count's shape, red. Waiting on the user
+   shows the shared amber glyph (session-status.css) instead. */
+.utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-chat-status[data-kind="error"] {
   /* The running spinner's size (14px): the mark does not outgrow the slot. */
   min-width: 14px;
   height: 14px;
@@ -1085,12 +1082,6 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   color: var(--mx-bg-base);
   font-weight: var(--mx-weight-strong);
   line-height: 1;
-}
-.utility-dock
-  .agent-chat-row[data-kind="contact"]
-  .agent-contact-aside
-  > .agent-chat-status[data-kind="attention-mark"] {
-  background: var(--mx-warning);
 }
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-chat-status[data-kind="error"] {
   background: var(--mx-danger);

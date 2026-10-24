@@ -450,7 +450,11 @@ test('the bot page marks a working home thread that waits on approval, not a spi
   await render();
   await render();
   const watcher = document.querySelector('[data-agent-contact="github-watcher"]');
-  assert.ok(watcher.querySelector('.agent-chat-status[data-kind="attention-mark"]'));
+  const glyph = watcher.querySelector('.agent-chat-status[data-kind="attention-mark"] .session-attention-glyph');
+  assert.equal(glyph.dataset.status, 'needs-you');
+  assert.match(glyph.getAttribute('aria-label'), /Waiting for approval|승인 대기/);
+  assert.equal(glyph.querySelector('.session-attention-count'), null, 'one waiting: no digit');
+  assert.equal(watcher.querySelector('.approval-pill'), null);
   assert.equal(watcher.querySelector('.agent-chat-status[data-kind="running"]'), null);
 });
 

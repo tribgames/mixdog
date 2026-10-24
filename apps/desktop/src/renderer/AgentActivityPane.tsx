@@ -34,6 +34,7 @@ import { clearableAgentTreeRows, dismissFinishedAgentRows, useVisibleAgentPool }
 import { AgentProviderMark, AgentRouteSummary, useSessionDragSource } from './agent-row-parts';
 import { type AgentChatIndicator, agentChatTimeLabel, agentRowName } from './agent-chat-summary';
 import { ProgressSpinner } from './ProgressSpinner';
+import { SessionAttentionGlyph } from './session-status-mark';
 import { AgentRoomsSection, useAgentRoomRows } from './AgentRoomsSection';
 import { AgentPaneHeaderActions } from './agent-pane-header-actions';
 import { useNotificationSnapshot } from './notification-overrides';
@@ -265,17 +266,28 @@ function AgentChatStatus({
   indicator,
   id,
   attentionMark = false,
+  name = '',
+  approvals = 1,
+  asking = false,
 }: {
   indicator: AgentChatIndicator;
   id: string;
   attentionMark?: boolean;
+  name?: string;
+  approvals?: number;
+  asking?: boolean;
 }) {
   if (!indicator) return null;
   if (indicator.kind === 'attention' && attentionMark) {
     return (
       <span id={id} className="agent-chat-status" data-kind="attention-mark">
-        <span aria-hidden="true">!</span>
-        <span className="sr-only">{t('Waiting for approval')}</span>
+        <SessionAttentionGlyph
+          status={asking ? 'asking' : 'needs-you'}
+          name={name}
+          size={14}
+          className="agent-chat-attention"
+          count={approvals}
+        />
       </span>
     );
   }
@@ -753,7 +765,14 @@ function AgentContactRow({
               data-unread={contact.unread ? 'true' : undefined}
             >
               {contact.at > 0 && <time className="agent-chat-time">{agentChatTimeLabel(contact.at)}</time>}
-              <AgentChatStatus indicator={contact.indicator} id={`${describedBy}-status`} attentionMark />
+              <AgentChatStatus
+                indicator={contact.indicator}
+                id={`${describedBy}-status`}
+                attentionMark
+                name={contact.name}
+                approvals={contact.approvals}
+                asking={contact.asking}
+              />
             </span>
           )}
         </span>
@@ -1015,11 +1034,12 @@ export function AgentActivityPane({
   const [creating, setCreating] = useState<{ route: DesktopModelSelection | null } | null>(null);
   const needle = searching ? query.trim().toLowerCase() : '';
   // Sessions waiting on the user, a Lead's own approval or question included.
-  const { needsUser } = useSessionAttentionIndex();
+  const { needsUser, asking } = useSessionAttentionIndex();
   // The bot page lists every bot, a switched-off one too (shown as off).
   const contacts = useMemo(
-    () => agentContacts(contactAgents, sessions, homeNodes, unreadSessionIds, { includeDisabled: true, needsUser }),
-    [contactAgents, homeNodes, sessions, unreadSessionIds, needsUser]
+    () =>
+      agentContacts(contactAgents, sessions, homeNodes, unreadSessionIds, { includeDisabled: true, needsUser, asking }),
+    [contactAgents, homeNodes, sessions, unreadSessionIds, needsUser, asking]
   );
   const openContact = (contact: AgentContact): Promise<string> => openAgentContact(contact, onOpenSession);
 

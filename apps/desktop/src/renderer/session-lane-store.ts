@@ -36,6 +36,8 @@ interface SessionLaneStore {
   /** Sessions whose cached lane carries a pending tool approval; a new set
    *  identity only when membership changes. */
   approvalSessionIds(): ReadonlySet<string>;
+  /** The subset of those whose pending request is an ask_user question. */
+  questionSessionIds(): ReadonlySet<string>;
   subscribeApprovals(listener: () => void): () => void;
   /** The sessions this window shows in a pane (the host forwards their lane
    *  frames from now on). */
@@ -474,6 +476,7 @@ export function createSessionLaneStore({
   const notificationKeys = new Map<string, object>();
   let stop: (() => void) | null = null;
   let approvals: ReadonlySet<string> = new Set();
+  let questions: ReadonlySet<string> = new Set();
   const approvalListeners = new Set<() => void>();
   let shown: ReadonlySet<string> = new Set();
   let live: ReadonlySet<string> = new Set();
@@ -488,13 +491,24 @@ export function createSessionLaneStore({
   // its approval, so every path that can drop one reconciles here too.
   const syncApprovals = (sessionId?: string): void => {
     const next = new Set(approvals);
-    for (const id of approvals) if (!snapshots.get(id)) next.delete(id);
-    if (sessionId !== undefined) {
-      if (snapshots.get(sessionId)?.snapshot.toolApproval) next.add(sessionId);
-      else next.delete(sessionId);
+    const nextQuestions = new Set(questions);
+    for (const id of approvals) {
+      if (snapshots.get(id)) continue;
+      next.delete(id);
+      nextQuestions.delete(id);
     }
-    if (next.size === approvals.size && [...next].every((id) => approvals.has(id))) return;
-    approvals = next;
+    if (sessionId !== undefined) {
+      const pending = snapshots.get(sessionId)?.snapshot.toolApproval;
+      if (pending) next.add(sessionId);
+      else next.delete(sessionId);
+      if (pending?.kind === 'question') nextQuestions.add(sessionId);
+      else nextQuestions.delete(sessionId);
+    }
+    const same = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+      a.size === b.size && [...a].every((id) => b.has(id));
+    if (same(next, approvals) && same(nextQuestions, questions)) return;
+    if (!same(next, approvals)) approvals = next;
+    if (!same(nextQuestions, questions)) questions = nextQuestions;
     for (const listener of [...approvalListeners]) listener();
   };
   const notificationKey = (sessionId: string): object => {
@@ -638,6 +652,7 @@ export function createSessionLaneStore({
     },
     subscribedSessionIds: () => [...listeners.keys()],
     approvalSessionIds: () => approvals,
+    questionSessionIds: () => questions,
     setShownSessionIds(sessionIds) {
       shown = new Set(sessionIds);
       // A newly shown session waits for its first frame; one no longer shown leaves.
@@ -684,6 +699,7 @@ export function createSessionLaneStore({
       decorator.clear();
       if (approvals.size > 0) {
         approvals = new Set();
+        questions = new Set();
         for (const listener of [...approvalListeners]) listener();
       }
       setLive(new Set());

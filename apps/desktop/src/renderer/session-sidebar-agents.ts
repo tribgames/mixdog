@@ -28,7 +28,8 @@ export function useSidebarAgents(
   unreadSessionIds: ReadonlySet<string> | undefined,
   active: boolean,
   onOpenAgent: ((sessionId: string, title: string) => void) | undefined,
-  needsUserSessionIds?: ReadonlySet<string>
+  needsUserSessionIds?: ReadonlySet<string>,
+  askingSessionIds?: ReadonlySet<string>
 ) {
   const { values } = useSidebarReferences(window.mixdogDesktop, AGENT_KEYS, active);
   const mixyCreated = useMixyCreated(window.mixdogDesktop, active);
@@ -37,7 +38,10 @@ export function useSidebarAgents(
   const contacts = useMemo(
     () =>
       applyBotOrder(
-        agentContacts(values.agents, sessions, NO_GROUPS, unreadSessionIds).filter(
+        agentContacts(values.agents, sessions, NO_GROUPS, unreadSessionIds, {
+          needsUser: needsUserSessionIds,
+          asking: askingSessionIds,
+        }).filter(
           (contact) =>
             (!contact.mixy || mixyCreated === true) &&
             // A hidden bot shows again while it has unread messages or waits on the user.
@@ -47,7 +51,7 @@ export function useSidebarAgents(
         ),
         order
       ),
-    [values.agents, sessions, unreadSessionIds, mixyCreated, hidden, needsUserSessionIds, order]
+    [values.agents, sessions, unreadSessionIds, mixyCreated, hidden, needsUserSessionIds, askingSessionIds, order]
   );
   // The 봇 page's room list, same data and order; opens like a bot row.
   const { label } = useRoomContacts(active);

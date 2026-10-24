@@ -388,7 +388,7 @@ function workspaceTabNode({
         {/* The tab GLYPH carries the strongest status: the needs-you or
               failure mark, else the progress spinner while the session works
               (user decision) — no extra dot. */}
-        {attention === 'needs-you' || attention === 'failed' || attention === 'waiting' ? (
+        {attention === 'needs-you' || attention === 'asking' || attention === 'failed' || attention === 'waiting' ? (
           <SessionAttentionGlyph status={attention} name={tab.title} size={14} className="workspace-tab-attention" />
         ) : working ? (
           <ProgressSpinner

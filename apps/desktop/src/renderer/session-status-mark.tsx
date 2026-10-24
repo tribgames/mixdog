@@ -1,4 +1,4 @@
-import { AlertTriangle, CircleX } from 'lucide-react';
+import { AlertTriangle, CircleX, MessageCircleQuestion } from 'lucide-react';
 import type { SessionAttention } from '../shared/session-attention';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -12,13 +12,16 @@ export function SessionAttentionGlyph({
   name,
   size,
   className,
+  count = 1,
 }: {
   status: SessionAttention | '';
   name: string;
   size: number;
   className: string;
+  /** Sessions waiting on approval behind a bot row; the digit shows from 2. */
+  count?: number;
 }) {
-  if (status !== 'needs-you' && status !== 'failed' && status !== 'waiting') return null;
+  if (status !== 'needs-you' && status !== 'asking' && status !== 'failed' && status !== 'waiting') return null;
   // Waiting on its own background work still reads as working: the plain
   // spinner, labelled with the waiting state.
   if (status === 'waiting') {
@@ -33,12 +36,24 @@ export function SessionAttentionGlyph({
       </span>
     );
   }
-  const needsYou = status === 'needs-you';
-  const label = needsYou ? t('{{name}} needs you', { name }) : t('{{name}} has a failure', { name });
-  const Glyph = needsYou ? AlertTriangle : CircleX;
+  const many = status === 'needs-you' && count >= 2;
+  const label =
+    status === 'needs-you'
+      ? many
+        ? t('{{name}} · Waiting for approval ({{count}})', { name, count })
+        : t('{{name}} · Waiting for approval', { name })
+      : status === 'asking'
+        ? t('{{name}} · Waiting for your answer', { name })
+        : t('{{name}} has a failure', { name });
+  const Glyph = status === 'needs-you' ? AlertTriangle : status === 'asking' ? MessageCircleQuestion : CircleX;
   return (
     <span className={`session-attention-glyph ${className}`} data-status={status} role="status" aria-label={label}>
       <Glyph size={size} aria-hidden="true" />
+      {many && (
+        <span className="session-attention-count" aria-hidden="true">
+          {count}
+        </span>
+      )}
     </span>
   );
 }
@@ -46,7 +61,15 @@ export function SessionAttentionGlyph({
 /** The trailing status icon of a sidebar row or a collapsed project folder:
  *  the spinner while running, the needs-you or failure glyph, else nothing
  *  (unread is the separate dot). */
-export function SessionRowStatusIcon({ status, name }: { status: SessionAttention | ''; name: string }) {
+export function SessionRowStatusIcon({
+  status,
+  name,
+  count,
+}: {
+  status: SessionAttention | '';
+  name: string;
+  count?: number;
+}) {
   if (status === 'running') {
     return (
       <ProgressSpinner
@@ -57,7 +80,9 @@ export function SessionRowStatusIcon({ status, name }: { status: SessionAttentio
       />
     );
   }
-  return <SessionAttentionGlyph status={status} name={name} size={12} className="session-row-attention" />;
+  return (
+    <SessionAttentionGlyph status={status} name={name} size={12} className="session-row-attention" count={count} />
+  );
 }
 
 /** The finished-unread dot of a sidebar row or a collapsed project folder. */

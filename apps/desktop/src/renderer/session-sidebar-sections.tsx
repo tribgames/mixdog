@@ -361,7 +361,7 @@ function AgentBotRow({
       </button>
       {status && status !== 'unread' && (
         <span className="session-row-status" data-working={status === 'running' || undefined}>
-          <SessionRowStatusIcon status={status} name={contact.name} />
+          <SessionRowStatusIcon status={status} name={contact.name} count={contact.approvals} />
         </span>
       )}
       {status === 'unread' && <SessionRowUnreadDot name={contact.name} />}
@@ -403,6 +403,7 @@ function AgentsSection({
             // unread); a running home thread the caller's signal missed still spins.
             const status = strongestSessionAttention([
               contact.session ? (attentionOf?.(contact.session.id) ?? '') : '',
+              contact.indicator?.kind === 'attention' ? (contact.asking ? 'asking' : 'needs-you') : '',
               contact.indicator?.kind === 'running' ? 'running' : '',
               contact.indicator?.kind === 'unread' ? 'unread' : '',
             ]);
