@@ -4,6 +4,8 @@ export interface RoutineTrigger {
   event?: string;
 }
 
+export declare const ROUTINE_QUIET: 'ROUTINE_QUIET';
+export declare function isRoutineQuietReply(text: unknown): boolean;
 export declare function routineTriggerHeader(input: {
   kind: string;
   name: string;

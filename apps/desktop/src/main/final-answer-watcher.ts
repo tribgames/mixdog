@@ -6,6 +6,7 @@ import { createTurnCompletionTracker, sessionsWithPendingWork, type TurnCompleti
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import { isSessionMissingError, type SessionFinalAnswer } from './session-final-answer';
 import { notificationPreview } from './notification-preview';
+import { isRoutineQuietReply } from '../../../../src/runtime/shared/routine-trigger.mjs';
 
 export interface FinalAnswerWatcher {
   onSessions(sessions: readonly DesktopSessionSummary[]): void;
@@ -175,6 +176,10 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     cancel(completion.sessionId);
     if (answer.status !== 'done') {
       options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: answer.status });
+      return;
+    }
+    if (isRoutineQuietReply(answer.text)) {
+      options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: 'routine-quiet' });
       return;
     }
     const botName = completion.agentHome ? await options.agentName?.(completion.agentHome).catch(() => '') : '';

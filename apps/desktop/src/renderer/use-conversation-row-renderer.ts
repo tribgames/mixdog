@@ -18,6 +18,7 @@ import {
   isRoomTypingItem,
   roomPassIsQuiet,
   routineGroupOf,
+  routineReplyIsQuiet,
   taskReportIsQuiet,
   turnEndToolItems,
 } from './agent-chat-place';
@@ -468,7 +469,7 @@ function agentChatRow(
   }
   // A quiet pass paints nothing: no empty bubble row (its gap shook the
   // thread as members passed), so the list gives it no room (TranscriptList.tsx).
-  if (roomPassIsQuiet(item) || taskReportIsQuiet(item?.routine)) return null;
+  if (roomPassIsQuiet(item) || taskReportIsQuiet(item?.routine) || routineReplyIsQuiet(item)) return null;
   // Tool rounds stay out (the typing bubble covers them); only a question
   // that needs the user shows, and a turn that drove the browser leaves one
   // "브라우저 · 보기" line (browser-peek-line.tsx).

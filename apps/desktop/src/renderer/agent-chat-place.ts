@@ -9,7 +9,11 @@ import { desktopToolDisplayIdentity } from './transcript-tool-core';
 import { toolActivityResultValue } from './transcript-tool-result';
 import type { TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
-import { type RoutineTrigger, normalizeRoutineTrigger } from '../../../../src/runtime/shared/routine-trigger.mjs';
+import {
+  type RoutineTrigger,
+  isRoutineQuietReply,
+  normalizeRoutineTrigger,
+} from '../../../../src/runtime/shared/routine-trigger.mjs';
 
 export type AgentChatSide = 'agent' | 'user' | 'aside' | 'hidden';
 export interface AgentChatPlace {
@@ -80,6 +84,12 @@ export function chatRoutineTriggerOf(item: TranscriptItem | undefined): RoutineT
  *  only a failed turn shows a line. */
 export function roomPassIsQuiet(item: TranscriptItem | undefined): boolean {
   return item?.kind === 'notice' && item.room?.kind === 'pass' && !item.room.failed;
+}
+
+/** A routine turn's "nothing new" reply (routine-trigger.mjs ROUTINE_QUIET):
+ *  kept in the record, painted as nothing. */
+export function routineReplyIsQuiet(item: TranscriptItem | undefined): boolean {
+  return item?.kind === 'assistant' && isRoutineQuietReply(item.text);
 }
 
 const TASK_REPORT_SHOWN = new Set(['blocked', 'completed', 'failed', 'cancelled']);
@@ -278,7 +288,7 @@ function rowSender(row: TranscriptRowModel | undefined, cardKey?: string): Sende
   if (row._tag === 'AssistantPart' && item) {
     // An unfinished reply part paints nothing (agentReplyUnfinished).
     if (agentReplyUnfinished(row.live, item)) return null;
-    if (item.kind === 'assistant') return { side: 'agent', speaker: '' };
+    if (item.kind === 'assistant') return routineReplyIsQuiet(item) ? null : { side: 'agent', speaker: '' };
     // A schedule's or webhook's result is a routine card under the agent's
     // face, consecutive runs of one routine in one card (routineGroupStart);
     // an old result row without the marker stays a bubble.

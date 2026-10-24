@@ -84,6 +84,18 @@ test('a turn answered by a reaction alone raises no notification and stops polli
   assert.ok(diagnostics.some(([event, id, reason]) => event === 'suppressed' && id === 'a' && reason === 'reaction'));
 });
 
+test('a routine "nothing new" answer raises no notification', async (t) => {
+  const { watcher, delivered, answers, diagnostics, tick } = harness(t);
+  answers.read = async () => ({ id: 'turn', at: Date.now(), status: 'done', text: 'ROUTINE_QUIET\n' });
+  watcher.onSessions([session('a', { working: true })]);
+  watcher.onSessions([session('a')]);
+  await tick(10_000);
+  assert.deepEqual(delivered, []);
+  assert.ok(
+    diagnostics.some(([event, id, reason]) => event === 'suppressed' && id === 'a' && reason === 'routine-quiet')
+  );
+});
+
 test('a turn that resumes within the quiet period is not delivered', async (t) => {
   const { watcher, delivered, tick } = harness(t);
   watcher.onSessions([session('a', { working: true })]);

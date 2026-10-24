@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { lastMessageSummary } from './store-summary-last-message.mjs';
+import { incomingTailOf, lastMessageSummary } from './store-summary-last-message.mjs';
+
+test('a routine "nothing new" reply is neither the last line nor an incoming message', () => {
+  const messages = [
+    { role: 'assistant', content: 'Two new issues: #221, #222.' },
+    { role: 'assistant', content: 'ROUTINE_QUIET' },
+  ];
+  assert.equal(lastMessageSummary(messages).lastMessagePreview, 'Two new issues: #221, #222.');
+  assert.equal(incomingTailOf(messages).includes(2), false);
+});
 
 const notification = (id) =>
   ['<task-notification>', `<task-id>${id}</task-id>`, '<status>completed</status>', '</task-notification>'].join('\n');

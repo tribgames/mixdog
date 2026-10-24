@@ -9,6 +9,15 @@ import { localTimestampParts } from './time-format.mjs';
 const HEADER_PREFIX = '[Routine trigger]';
 const KINDS = new Set(['schedule', 'webhook']);
 
+/** The whole reply of a routine turn with nothing new to tell: kept in the
+ *  record, never painted, previewed, counted unread or notified. */
+export const ROUTINE_QUIET = 'ROUTINE_QUIET';
+
+/** Whether a reply is exactly the routine quiet sentinel. */
+export function isRoutineQuietReply(text) {
+  return String(text ?? '').trim() === ROUTINE_QUIET;
+}
+
 /** The first line of a routine turn's prompt: which routine fired, when (local
  *  time and zone: the turn gets no other date), and how to treat the turn.
  *  It is the routine's only conduct text. Only the turn's content carries it,
@@ -24,6 +33,7 @@ export function routineTriggerHeader({ kind, name, project = '', now = new Date(
     'Payments and permanent deletes are refused here: report that and suggest doing it from the chat.',
     'If a sign-in, code or CAPTCHA blocks you, stop and say which site needs the user.',
     'Reply in this chat in plain words, without tool names; if you handed work off, say it started — its result arrives here later.',
+    `Tell what is new in a fitting tone; if nothing is worth telling, reply with exactly ${ROUTINE_QUIET}.`,
     ...(project ? [`Project folder: ${project}`] : []),
   ].join(' ');
 }

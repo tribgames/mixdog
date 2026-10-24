@@ -5,6 +5,7 @@ import {
   HEARTBEAT_SOURCE,
   heartbeatTriggerHeader,
   isHeartbeatSession,
+  isRoutineQuietReply,
   markHeartbeatSession,
   routineTriggerHeader,
   stripRoutineTriggerHeader,
@@ -28,6 +29,9 @@ test('the routine header carries the local time and the whole routine conduct on
   assert.match(header, /If a sign-in, code or CAPTCHA blocks you, stop and say which site needs the user/);
   assert.match(header, /in plain words, without tool names/);
   assert.match(header, /if you handed work off, say it started — its result arrives here later\./);
+  assert.match(header, /if nothing is worth telling, reply with exactly ROUTINE_QUIET\./);
+  assert.equal(isRoutineQuietReply(' ROUTINE_QUIET\n'), true);
+  assert.equal(isRoutineQuietReply('ROUTINE_QUIET — nothing new'), false);
   assert.match(header, / Project folder: \/repo$/);
   assert.doesNotMatch(header, /\n/);
   assert.equal(stripRoutineTriggerHeader(`${header}\n\nSummarize my day.`), 'Summarize my day.');

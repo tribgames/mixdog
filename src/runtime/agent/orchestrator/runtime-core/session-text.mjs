@@ -2,6 +2,7 @@
 import { clean } from '../../../shared/clean.mjs';
 import { stripInjectedBlocks } from '../../../shared/injected-display-text.mjs';
 import { CONTROL_MARKER_RE } from '../../../shared/tool-execution-contract.mjs';
+import { isRoutineQuietReply } from '../../../shared/routine-trigger.mjs';
 
 export function sessionMessageText(content) {
   if (content == null) return '';
@@ -69,6 +70,7 @@ export function isSessionPreviewNoise(text) {
   const value = String(text || '').trim();
   return (
     !value ||
+    isRoutineQuietReply(value) ||
     isSyntheticSessionText(value) ||
     !cleanSessionPreview(value) ||
     isLateToolAnnouncement(value) ||

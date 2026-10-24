@@ -1,5 +1,5 @@
 import { type MutableRefObject, type RefObject, useCallback, useRef } from 'react';
-import { roomPassIsQuiet, taskReportIsQuiet } from './agent-chat-place';
+import { roomPassIsQuiet, routineReplyIsQuiet, taskReportIsQuiet } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { type TranscriptRowSurface, transcriptRowHeightStore } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
@@ -38,7 +38,8 @@ export function useTranscriptRowEstimates({
       // A room's live band too: nobody types until the supervisor picks a
       // member (use-conversation-row-renderer.ts roomTyping).
       if (
-        (row._tag === 'AssistantPart' && (roomPassIsQuiet(row.item) || taskReportIsQuiet(row.item.routine))) ||
+        (row._tag === 'AssistantPart' &&
+          (roomPassIsQuiet(row.item) || taskReportIsQuiet(row.item.routine) || routineReplyIsQuiet(row.item))) ||
         (row._tag === 'Thinking' && surfaceRef.current === 'room')
       ) {
         heldEstimates.current.set(row.key, 0);

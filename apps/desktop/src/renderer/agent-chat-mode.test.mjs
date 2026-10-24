@@ -86,6 +86,17 @@ const compacted = {
   item: { kind: 'statusdone', status: 'compacted' },
 };
 
+test('a routine "nothing new" reply paints nothing and leaves the run before it closed', () => {
+  const quiet = {
+    ...reply('q', DAY1),
+    turnKey: 'q',
+    item: { kind: 'assistant', id: 'q', text: 'ROUTINE_QUIET', at: DAY1 },
+  };
+  const rows = [reply('a1', DAY1), quiet];
+  assert.equal(agentChatPlace(rows, 1), null);
+  assert.equal(agentChatPlace(rows, 0).last, true);
+});
+
 test('bubble runs: face and name on the first bubble, the time on the last, a day pill per date', () => {
   const rows = [
     user('u1', DAY1),
