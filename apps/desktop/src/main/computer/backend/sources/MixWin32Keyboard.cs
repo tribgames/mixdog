@@ -575,6 +575,78 @@ public partial class MixWin32
         }
         return strokes;
     }
+    const uint EM_GETSEL = 0x00B0, EM_SETSEL = 0x00B1;
+    /// Selects all of a control's text, so the keys sent next replace it as they
+    /// replace a selection made by hand. Background keys carry no modifier state
+    /// (a control reads Ctrl from its own key state, not from the message), so
+    /// select-all cannot be typed. The proof stays in the control's own selection
+    /// units (an editor may count a line break differently in its text length):
+    /// the caret is put at the end, which the control clamps to its last insertion
+    /// position P, then everything is selected, and the control must report a
+    /// selection from 0 that reaches P. It may reach past P: a multi-line RichEdit
+    /// reports P + 1, its final paragraph mark, which no caret can stand after and
+    /// no key deletes. The null-pointer EM_GETSEL reply packs both ends, so
+    /// nothing crosses processes.
+    /// Returns P, or -1 when the proof fails: a partial selection, a reply that
+    /// cannot carry the positions, or no position at all (P = 0, how a window that
+    /// ignores the messages answers) while the caller knows the value has text.
+    /// A failed proof puts back the selection the control reported before the
+    /// first selection message, so only that round trip reached the control.
+    public static int BackgroundSelectAll(IntPtr top, IntPtr preferred, bool valueHasText)
+    {
+        int end = -1;
+        WhileInactive(top, delegate
+        {
+            IntPtr target = KeyboardTarget(top, preferred);
+            int originalStart, originalEnd, start, last;
+            bool original = ReadSelection(target, out originalStart, out originalEnd);
+            int caret = CaretAtEnd(target);
+            SendMessageChecked(target, EM_SETSEL, UIntPtr.Zero, new IntPtr(-1));
+            if (caret >= 0 && (caret > 0 || !valueHasText) &&
+                ReadSelection(target, out start, out last) && start == 0 && last >= caret)
+            {
+                end = caret;
+            }
+            else if (original)
+            {
+                SendMessageChecked(target, EM_SETSEL, new UIntPtr((uint)originalStart), new IntPtr(originalEnd));
+            }
+            return WindowId(target);
+        });
+        return end;
+    }
+    /// The control's last insertion position after Delete: 0 proves it empty in
+    /// its own selection units (RichEdit's undeletable final paragraph mark lies
+    /// past it). -1 when the reply is not one position.
+    public static int BackgroundTextEnd(IntPtr top, IntPtr preferred)
+    {
+        int end = -1;
+        WhileInactive(top, delegate
+        {
+            IntPtr target = KeyboardTarget(top, preferred);
+            end = CaretAtEnd(target);
+            return WindowId(target);
+        });
+        return end;
+    }
+    /// Puts the caret past the end, which the control clamps to its last
+    /// insertion position, and returns that position; -1 when the reply is not
+    /// one collapsed position.
+    static int CaretAtEnd(IntPtr target)
+    {
+        SendMessageChecked(target, EM_SETSEL, new UIntPtr(0x7FFFFFFFu), new IntPtr(0x7FFFFFFF));
+        int start, end;
+        return ReadSelection(target, out start, out end) && start == end ? end : -1;
+    }
+    /// False when the packed reply cannot carry the positions: -1 (an end past
+    /// 65,535) or anything wider than two 16-bit words.
+    static bool ReadSelection(IntPtr target, out int start, out int end)
+    {
+        ulong reply = SendMessageValue(target, EM_GETSEL, UIntPtr.Zero, IntPtr.Zero).ToUInt64();
+        start = (int)(reply & 0xFFFF);
+        end = (int)((reply >> 16) & 0xFFFF);
+        return reply < 0xFFFFFFFFUL;
+    }
     public static string BackgroundKeys(IntPtr top, IntPtr preferred, string keys)
     {
         return WhileInactive(top, delegate { return BackgroundKeysCore(top, preferred, keys); });

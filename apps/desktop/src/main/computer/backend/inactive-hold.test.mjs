@@ -257,7 +257,7 @@ public static class MixWin32 {
 }
 '@
 ${LOAD_FUNCTIONS}
-Import-Functions 'input.ps1' @('Invoke-BackgroundWindow')
+Import-Functions 'input.ps1' @('Invoke-BackgroundWindow', 'Test-TargetWindow')
 $rows = @()
 foreach ($scenario in @('enable_fails', 'focus_fails', 'resteal', 'delayed_unshielded')) {
   [MixWin32]::Releases = 0; [MixWin32]::FocusCalls = 0; [MixWin32]::Current = [IntPtr]2

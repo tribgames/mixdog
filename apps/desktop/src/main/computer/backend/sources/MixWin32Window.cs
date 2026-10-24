@@ -348,6 +348,16 @@ public partial class MixWin32
         }
         return false;
     }
+    /// The process and thread that own a window, or "" once it is gone. A handle
+    /// can be reused after its window is destroyed; this pair tells the window a
+    /// fact was observed on from a later window that received the same number.
+    public static string WindowOwnerIdentity(IntPtr h)
+    {
+        if (!IsWindowHandle(h)) return "";
+        uint pid;
+        uint thread = GetWindowThreadProcessId(h, out pid);
+        return thread == 0 || pid == 0 ? "" : pid + ":" + thread;
+    }
     public static bool SharesProcess(IntPtr first, IntPtr second)
     {
         if (!IsWindowHandle(first) || !IsWindowHandle(second)) return false;

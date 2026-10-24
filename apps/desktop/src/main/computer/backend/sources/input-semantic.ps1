@@ -55,14 +55,7 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
             # no wait here prevents and no restore can undo from a process without
             # foreground rights; the shield still spares every window that does honour it.
             if ($shielded -and $wasEnabled) { [void][MixWin32]::SetWindowEnabled($target, $true) }
-            $tookFocus = {
-                $foregroundAfter = [MixWin32]::Foreground()
-                $target -ne [IntPtr]::Zero -and (
-                    [MixWin32]::IsWithinTopLevel($foregroundAfter, $target) -or
-                    [MixWin32]::IsContainedSameProcess($foregroundAfter, $target) -or
-                    [MixWin32]::IsOwnedBy($foregroundAfter, $target)
-                )
-            }
+            $tookFocus = { Test-TargetWindow ([MixWin32]::Foreground()) $target }
             # False once user input superseded the observation: nothing is restored then.
             $restore = {
                 try {
@@ -105,6 +98,39 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
         }
     }
     return $result
+}
+
+# The window itself, a window inside it, or one it owns or hosts in its process.
+function Test-TargetWindow($window, $target) {
+    return $target -ne [IntPtr]::Zero -and (
+        [MixWin32]::IsWithinTopLevel($window, $target) -or
+        [MixWin32]::IsContainedSameProcess($window, $target) -or
+        [MixWin32]::IsOwnedBy($window, $target)
+    )
+}
+
+# Forgets windows that are gone, or whose handle now names another window.
+function Get-ValueWriteActivators {
+    $known = (Get-CurrentSession).ValueWriteActivators
+    foreach ($key in @($known.Keys)) {
+        $identity = [MixWin32]::WindowOwnerIdentity([IntPtr][int64]$key)
+        if (-not [string]::Equals([string]$known[$key], $identity, [StringComparison]::Ordinal)) { $known.Remove($key) }
+    }
+    return $known
+}
+
+function Register-ValueWriteActivation($root) {
+    $identity = [MixWin32]::WindowOwnerIdentity($root)
+    if (-not $identity) { return }
+    (Get-ValueWriteActivators)[[int64]$root] = $identity
+}
+
+function Unregister-ValueWriteActivation($root) {
+    (Get-ValueWriteActivators).Remove([int64]$root)
+}
+
+function Test-ValueWriteActivates($root) {
+    return (Get-ValueWriteActivators).ContainsKey([int64]$root)
 }
 
 function Show-ReferencePointer($ref, $phase) {
@@ -353,13 +379,91 @@ function Select-OwningItemAlone($el) {
     catch { return 'selection could not be read' }
 }
 
+# Values are text: a readback that differs only in letter case is a different value.
+function Test-SameValue($actual, $expected) {
+    return [string]::Equals([string]$actual, [string]$expected, [StringComparison]::Ordinal)
+}
+
+# A typed line break is an Enter key, which each editor stores in its own form
+# (CR LF or CR alone); the text is the same either way.
+function ConvertTo-TypedLineBreaks($value) {
+    return ([string]$value).Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
+function Read-ValueUntil($pattern, $expected) {
+    $actual = ''
+    for ($attempt = 0; $attempt -lt 8; $attempt++) {
+        $actual = [string]$pattern.Current.Value
+        if (Test-SameValue $actual $expected) { return @{ Value = $actual; Equal = $true } }
+        Start-Sleep -Milliseconds 25
+    }
+    return @{ Value = $actual; Equal = $false }
+}
+
+# Replaces the value through the control's keyboard: the same sent messages
+# background type uses, handled by the control as typing, so its read-only
+# state, length limit and change notifications all apply. No key that deletes
+# is sent until the control itself reports its whole text selected, and nothing
+# is typed until it reports itself empty; the one readback after the send must
+# equal the requested text, and anything else is reported unverified and never
+# written again. Returns $null when the selection could not be proven: only
+# selection messages were sent, so the caller may write another way.
+function Write-ValueByKeys($ref, $pattern, $top, $preferred, [string]$text) {
+    $windowId = [MixWin32]::WindowId($top)
+    $before = $null
+    try { $before = [string]$pattern.Current.Value }
+    catch { return Background-Unavailable 'set_value' "the value of $ref cannot be read, so its replacement could not be verified; no input was sent" $windowId 'background_unsupported' }
+    # Delivery and verification share one form: a bare CR would be dropped by the
+    # keyboard route, so every line break is sent as the Enter it stands for.
+    $typed = ConvertTo-TypedLineBreaks $text
+    $deleted = $false
+    try {
+        $inactive = [MixWin32]::BeginInactive($top)
+        try {
+            $end = [MixWin32]::BackgroundSelectAll($top, $preferred, ($before.Length -gt 0))
+            # Unproven selection, and only selection messages were sent (the control's
+            # own selection is already put back): the accessibility write runs instead.
+            if ($end -lt 0) { return $null }
+            if ($end -gt 0) {
+                $deleted = $true
+                [void][MixWin32]::BackgroundKeys($top, $preferred, '{DELETE}')
+                # A selected range can still refuse deletion (protected text, a key
+                # filter); typing would then edit what is left. Empty is proven in the
+                # same selection units: the end of the text is position 0.
+                if ([MixWin32]::BackgroundTextEnd($top, $preferred) -ne 0) {
+                    $kept = New-ActionResult 'set_value' 'win32_message' 'unverifiable' $false "sent Delete to the selected text of $ref, but the control still holds text, so nothing was typed; refresh state before writing again" $null 'background' $windowId
+                    $kept.input_may_have_executed = $true
+                    return $kept
+                }
+            }
+            if ($typed.Length -gt 0) { [void][MixWin32]::BackgroundText($top, $preferred, $typed) }
+        }
+        finally { [MixWin32]::EndInactive($inactive) }
+    }
+    catch {
+        return Native-BackgroundFailure 'set_value' $_.Exception $windowId $deleted
+    }
+    $verified = $false
+    try { $verified = Test-SameValue (ConvertTo-TypedLineBreaks ([string]$pattern.Current.Value)) $typed } catch {}
+    $readback = if ($verified) { 'readback=True' } else { 'it does not read back as the requested text; refresh state before treating it as complete' }
+    return New-ActionResult 'set_value' 'win32_message' (Get-VerifiedEffect $verified) $verified "replaced $ref value with native keyboard messages; $readback" $null 'background' $windowId
+}
+
 function Do-SetValue($ref, $text) {
     $record = Get-RefRecord $ref
     if ($record.Kind -eq 'msaa') {
+        # The accessible's own state, as just refreshed by Get-RefRecord: a value
+        # write would otherwise land in a field the user cannot edit.
+        if (-not $record.Msaa.Enabled) {
+            return Background-Unavailable 'set_value' "element $ref is disabled; no input was sent" $record.WindowId 'element_disabled'
+        }
+        if ($record.Msaa.ReadOnly) {
+            return Background-Unavailable 'set_value' "element $ref is read-only; no input was sent" $record.WindowId 'element_read_only'
+        }
         try {
             Assert-ExecutionAuthorization $script:CurrentRequest
             $actual = [string]$record.Msaa.SetValue([string]$text)
-            $verified = $actual -eq [string]$text
+            $verified = Test-SameValue $actual $text
             $effect = Get-VerifiedEffect $verified
             return New-ActionResult 'set_value' 'msaa_value' $effect $verified "set $ref value through MSAA; readback=$verified" $null 'background' $record.WindowId
         }
@@ -374,19 +478,55 @@ function Do-SetValue($ref, $text) {
         if (Test-IgnoredValueWrite $el) {
             return Background-Unavailable 'set_value' "element $ref is an Excel cell, which echoes an accessibility value write without entering it; select the cell and type with explicit foreground delivery; no value was set" $record.WindowId 'value_write_ignored'
         }
+        # This window raised itself over the user's during an earlier accessibility
+        # value write here, so the write goes through its keyboard instead. A
+        # control refuses keyboard edits on its own, but a refusal is only proven
+        # before anything is sent, so the element's own state is honoured first.
+        $top = Get-RefTopHandle $record
+        $byKeys = Test-ValueWriteActivates $top
+        $preferred = [IntPtr]::Zero
+        if ($byKeys) {
+            if (-not $el.Current.IsEnabled) {
+                return Background-Unavailable 'set_value' "element $ref is disabled; no input was sent" $record.WindowId 'element_disabled'
+            }
+            if ($pat.Current.IsReadOnly) {
+                return Background-Unavailable 'set_value' "element $ref is read-only; no input was sent" $record.WindowId 'element_read_only'
+            }
+            # No keyboard target of its own, or one that drops sent keys: nothing was
+            # sent, so the accessibility write runs once, as for a failed selection
+            # proof, and its observation keeps or forgets this window.
+            $preferred = Get-ExactNativeElementHandle $el
+            if ($preferred -eq [IntPtr]::Zero -or -not (Test-BackgroundKeyboardRoute $top $preferred)) { $byKeys = $false }
+        }
         Assert-ExecutionAuthorization $script:CurrentRequest
         $scope = Select-OwningItemAlone $el
         if ($null -ne $scope) {
             return Background-Unavailable 'set_value' "element $ref belongs to an item that could not be made the only selection, and the write would apply to every selected item ($scope); no value was set" $record.WindowId 'selection_not_exclusive'
         }
-        $pat.SetValue($text)
-        $actual = ''
-        for ($attempt = 0; $attempt -lt 8; $attempt++) {
-            $actual = [string]$pat.Current.Value
-            if ($actual -eq [string]$text) { break }
-            Start-Sleep -Milliseconds 25
+        if ($byKeys) {
+            $keyed = Write-ValueByKeys $ref $pat $top $preferred ([string]$text)
+            if ($null -ne $keyed) { return $keyed }
         }
-        $verified = $actual -eq [string]$text
+        # The observer brackets the foreground reads, so user input anywhere
+        # between the two baselines shows up as a changed sequence.
+        $inputBefore = [MixInputObservation]::Read()
+        $foregroundBefore = [MixWin32]::Foreground()
+        $pat.SetValue($text)
+        $foregroundAfter = [MixWin32]::Foreground()
+        $inputAfter = [MixInputObservation]::Read()
+        # Only a call the user stayed out of, made while they were in another
+        # window, tells whether the write raised this one: remembered when it did,
+        # forgotten when it did not (a replacement window behind a reused handle
+        # returns to this route). A later change is never attributed to the write.
+        if ($inputBefore.Ready -and $inputAfter.Ready -and
+            [string]::Equals([string]$inputBefore.Generation, [string]$inputAfter.Generation, [StringComparison]::Ordinal) -and
+            $inputBefore.Sequence -eq $inputAfter.Sequence -and
+            [MixWin32]::IsWindowHandle($foregroundBefore) -and
+            -not (Test-TargetWindow $foregroundBefore $top)) {
+            if (Test-TargetWindow $foregroundAfter $top) { Register-ValueWriteActivation $top }
+            else { Unregister-ValueWriteActivation $top }
+        }
+        $verified = (Read-ValueUntil $pat $text).Equal
         $effect = Get-VerifiedEffect $verified
         return New-ActionResult 'set_value' 'uia_value' $effect $verified "set $ref value through UIA; readback=$verified" $null 'background' (Get-TopWindowId $el)
     }

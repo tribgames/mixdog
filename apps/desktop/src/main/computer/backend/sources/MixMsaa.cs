@@ -27,6 +27,8 @@ public sealed class MixMsaaNode
     public int Width { get; private set; }
     public int Height { get; private set; }
     public bool Enabled { get; private set; }
+    /// STATE_SYSTEM_READONLY: the element shows a value it does not let anyone edit.
+    public bool ReadOnly { get; private set; }
     public bool Offscreen { get; private set; }
     /// Hidden, not merely scrolled away: a closed drop-down list or a collapsed
     /// dialog section, whose descendants often do not repeat the flag.
@@ -77,6 +79,7 @@ public sealed class MixMsaaNode
             DefaultAction = Read(() => Accessible.get_accDefaultAction(ChildId));
             ControlType = MixMsaa.ControlTypeForRole(role);
             Enabled = (state & 0x1u) == 0;
+            ReadOnly = (state & 0x40u) != 0;
             Offscreen = (state & (0x8000u | 0x10000u)) != 0;
             Invisible = (state & 0x8000u) != 0;
             return Width > 0 && Height > 0;

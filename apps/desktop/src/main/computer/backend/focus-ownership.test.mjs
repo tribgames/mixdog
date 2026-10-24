@@ -101,6 +101,8 @@ $ast=[Management.Automation.Language.Parser]::ParseFile(
   (Join-Path $env:FIXTURE_DIRECTORY 'input.ps1'),[ref]$tokens,[ref]$errors)
 $function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-BackgroundWindow'},$true)
 . ([scriptblock]::Create($function.Extent.Text))
+$function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-TargetWindow'},$true)
+. ([scriptblock]::Create($function.Extent.Text))
 foreach($scenario in @('background_unchanged','background_user_input','background_observer_lost','background_other_window')) {
   [MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2
   [MixInputObservation]::Current=New-Object ObservedInput

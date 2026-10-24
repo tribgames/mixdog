@@ -62,6 +62,9 @@ function Get-SessionState($id) {
             HeldPointerTargets = @{}
             HeldKeys           = @{}
             CursorTheme        = $null
+            # Top-level window handle -> owner identity, for windows seen taking
+            # the foreground during their own accessibility value write.
+            ValueWriteActivators = @{}
         }
     }
     return $Sessions[$key]
