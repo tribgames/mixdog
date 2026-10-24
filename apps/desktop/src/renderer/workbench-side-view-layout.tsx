@@ -2,6 +2,7 @@ import {
   Fragment,
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -613,6 +614,39 @@ export function WorkbenchSidePanel({
   } | null>(null);
   const splitCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => splitCleanupRef.current?.(), []);
+  // A panel inside the phone drawer frame closes semantically at once
+  // (hidden/inert/aria-hidden) but stays displayed (`data-closing`) while the
+  // frame's own transform transition runs, so the content slides out with the
+  // sheet. The mark clears when that transition ends or is cancelled, on a
+  // reopen, and is never set when no transform transition is running (instant
+  // close, reduced motion, a close that already finished).
+  const panelRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return undefined;
+    if (open) {
+      delete panel.dataset.closing;
+      return undefined;
+    }
+    const frame = panel.closest('.sidebar-drawer-frame');
+    if (!frame) return undefined;
+    const sliding = frame
+      .getAnimations()
+      .some((a) => a instanceof CSSTransition && a.transitionProperty === 'transform' && a.playState === 'running');
+    if (!sliding) return undefined;
+    panel.dataset.closing = 'true';
+    const settle = (event: Event) => {
+      if (event.target !== frame || (event as TransitionEvent).propertyName !== 'transform') return;
+      delete panel.dataset.closing;
+    };
+    frame.addEventListener('transitionend', settle);
+    frame.addEventListener('transitioncancel', settle);
+    return () => {
+      frame.removeEventListener('transitionend', settle);
+      frame.removeEventListener('transitioncancel', settle);
+      delete panel.dataset.closing;
+    };
+  }, [open]);
   const startSplitResize = (index: number, event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const body = panelBodyRef.current;
@@ -655,6 +689,7 @@ export function WorkbenchSidePanel({
   if (!root || groups.length === 0) return null;
   return (
     <aside
+      ref={panelRef}
       className="workbench-side-panel"
       data-side={side}
       data-motion={motion}

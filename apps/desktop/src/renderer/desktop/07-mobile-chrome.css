@@ -812,6 +812,14 @@ html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame {
   visibility: visible;
   --mx-drawer-visibility-motion: 0s;
 }
+/* A closing panel (WorkbenchSidePanel marks `data-closing` on the close commit
+   and clears it when the frame's transform transition ends) stays displayed
+   while the sheet slides out, so the content leaves with it. Closed otherwise:
+   the panel is display:none and costs no layout. It is already inert and
+   aria-hidden during the slide. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .workbench-side-panel[hidden][data-closing="true"] {
+  display: flex;
+}
 html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame > .workbench-side-panel[hidden] {
   display: flex;
 }
