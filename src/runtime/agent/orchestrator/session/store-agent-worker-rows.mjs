@@ -17,7 +17,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   isSettledSessionStamp,
   sameSessionStamp,
@@ -27,6 +27,11 @@ import {
 import { readJsonProjection } from '../../../shared/pending-json-projection.mjs';
 import { listStoredAgentWorkers as assembleStoredAgentWorkers } from './store-agent-worker-pool.mjs';
 import { readTopLevelFields } from './store-agent-worker-header.mjs';
+import {
+  readPersistedWorkerHeaders,
+  storedAgentWorkerHeaderCachePath,
+  writePersistedWorkerHeaders,
+} from './store-agent-worker-header-cache.mjs';
 import {
   TAG_TOMBSTONE_TTL_MS,
   agentPaneVisible,
@@ -330,8 +335,104 @@ const WORKER_HEADER_FIELDS = [
 // assembly the first answer stands, absent or unreadable included.
 let passHeaders = null; // path -> header | null, live only during an assembly
 
-function workerSessionHeaderPath(sessionId) {
-  return join(dataDir(), 'sessions', `${sessionId}.json`);
+function workerSessionHeaderPath(sessionId, dir = dataDir()) {
+  return join(dir, 'sessions', `${sessionId}.json`);
+}
+
+// Every change to the header cache is counted, so the persisted copy is
+// rewritten only when the cache it mirrors moved.
+let headerCacheEdits = 0;
+
+function cacheHeader(path, entry) {
+  workerSessionHeaderCache.set(path, entry);
+  headerCacheEdits += 1;
+}
+
+function dropHeader(path) {
+  if (workerSessionHeaderCache.delete(path)) headerCacheEdits += 1;
+}
+
+// The header cache outlives the daemon through store-agent-worker-header-
+// cache.mjs: the first awaited listing of a data directory seeds the cache
+// from its file (entries already in memory win), and an awaited listing that
+// changed the cache schedules a rewrite. The write waits out
+// HEADER_PERSIST_DELAY_MS — off the boot path, and at most one write per
+// window however often agents churn. Seeded entries pass the same full-stamp
+// check as any other, so a seed never serves a header its file no longer has.
+const HEADER_PERSIST_DELAY_MS = 10_000;
+let seededDir = null;
+let seeding = null;
+// The edit count the last write left on disk, and the directory it went to:
+// a count persisted for one data directory says nothing about another.
+let persistedEdits = 0;
+let persistedDir = null;
+let persistTimer = null;
+let persistTimerDir = null;
+let persistWrite = null;
+
+function seedPersistedHeaders() {
+  const dir = dataDir();
+  if (seededDir !== dir) {
+    seededDir = dir;
+    seeding = readPersistedWorkerHeaders(storedAgentWorkerHeaderCachePath(dir), WORKER_HEADER_FIELDS).then(
+      (entries) => {
+        for (const [sessionId, { stamp, header }] of entries) {
+          const path = workerSessionHeaderPath(sessionId, dir);
+          if (!workerSessionHeaderCache.has(path)) workerSessionHeaderCache.set(path, { stamp, header, pass: 0 });
+        }
+      }
+    );
+  }
+  return seeding;
+}
+
+function schedulePersistHeaders() {
+  const dir = dataDir();
+  // A write pending for the directory this listing left is dropped: the
+  // listing just forgot that directory's unread headers, so writing it now
+  // would shrink its file. Its last written cache still stands.
+  if (persistTimer && persistTimerDir !== dir) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (persistTimer || (persistedDir === dir && headerCacheEdits === persistedEdits)) return;
+  persistTimerDir = dir;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistHeaders(persistTimerDir);
+  }, HEADER_PERSIST_DELAY_MS);
+  persistTimer.unref?.();
+}
+
+function persistHeaders(dir) {
+  if (persistWrite) return persistWrite;
+  const edits = headerCacheEdits;
+  const entries = [];
+  for (const [path, entry] of workerSessionHeaderCache) {
+    const sessionId = basename(path, '.json');
+    if (isStoredSessionId(sessionId) && workerSessionHeaderPath(sessionId, dir) === path) {
+      entries.push([sessionId, entry]);
+    }
+  }
+  persistWrite = writePersistedWorkerHeaders(storedAgentWorkerHeaderCachePath(dir), WORKER_HEADER_FIELDS, entries).then(
+    (written) => {
+      if (written) {
+        persistedEdits = edits;
+        persistedDir = dir;
+      }
+      persistWrite = null;
+    }
+  );
+  return persistWrite;
+}
+
+/** Test/diagnostic seam: writes a scheduled header-cache persist now and
+ *  resolves once no write is in flight. */
+export function flushStoredAgentWorkerHeaderCache() {
+  if (!persistTimer) return persistWrite || Promise.resolve();
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  return persistHeaders(persistTimerDir);
 }
 
 function readWorkerSessionHeader(sessionId) {
@@ -358,15 +459,18 @@ function observeStamp(path) {
 // window when read. Size + mtime alone let an equal-length rewrite that kept
 // its mtime serve stale ownership, status and cancel fields.
 function probeWorkerSessionHeader(path) {
-  // Absent and unreadable alike: no header.
+  // Absent and unreadable alike: no header, and no cached one kept for it.
   const before = observeStamp(path);
-  if (!before) return null;
+  if (!before) {
+    dropHeader(path);
+    return null;
+  }
   const cached = workerSessionHeaderCache.get(path);
   if (cached && sameSessionStamp(cached.stamp, before)) {
     cached.pass = headerPass;
     return cached.header;
   }
-  workerSessionHeaderCache.delete(path);
+  dropHeader(path);
   // A rewrite re-reads only this record, and only its top-level fields are
   // decoded: the transcript bytes are validated, never materialized.
   let header = null;
@@ -378,7 +482,7 @@ function probeWorkerSessionHeader(path) {
   if (!header) return null;
   workerHeaderReads += 1;
   if (isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path))) {
-    workerSessionHeaderCache.set(path, { stamp: before, header, pass: headerPass });
+    cacheHeader(path, { stamp: before, header, pass: headerPass });
   }
   return header;
 }
@@ -395,10 +499,13 @@ async function observeStampAsync(path) {
  *  same full-stamp cache policy. */
 async function probeWorkerSessionHeaderAsync(path) {
   const before = await observeStampAsync(path);
-  if (!before) return null;
+  if (!before) {
+    dropHeader(path);
+    return null;
+  }
   const cached = workerSessionHeaderCache.get(path);
   if (cached && sameSessionStamp(cached.stamp, before)) return cached.header;
-  workerSessionHeaderCache.delete(path);
+  dropHeader(path);
   let header = null;
   try {
     header = readTopLevelFields(await readFile(path), WORKER_HEADER_FIELDS);
@@ -408,7 +515,7 @@ async function probeWorkerSessionHeaderAsync(path) {
   if (!header) return null;
   workerHeaderReads += 1;
   if (isSettledSessionStamp(before) && sameSessionStamp(before, await observeStampAsync(path))) {
-    workerSessionHeaderCache.set(path, { stamp: before, header, pass: headerPass });
+    cacheHeader(path, { stamp: before, header, pass: headerPass });
   }
   return header;
 }
@@ -418,7 +525,9 @@ async function probeWorkerSessionHeaderAsync(path) {
 const HEADER_READ_CONCURRENCY = 4;
 
 async function prefetchWorkerHeaders(sessionIds, headers) {
-  const paths = [...new Set([...sessionIds].map(workerSessionHeaderPath))].filter((path) => !headers.has(path));
+  const paths = [...new Set([...sessionIds].map((sessionId) => workerSessionHeaderPath(sessionId)))].filter(
+    (path) => !headers.has(path)
+  );
   let next = 0;
   const drain = async () => {
     while (next < paths.length) {
@@ -634,7 +743,7 @@ export function listStoredAgentWorkers({ runningSessionIds = null } = {}) {
 // Keep what the latest assembly read, whatever the index size; forget the rest.
 function forgetUnreadHeaders() {
   for (const [path, entry] of workerSessionHeaderCache) {
-    if (entry.pass !== headerPass) workerSessionHeaderCache.delete(path);
+    if (entry.pass !== headerPass) dropHeader(path);
   }
 }
 
@@ -643,6 +752,8 @@ function forgetUnreadHeaders() {
  *  each Lead row's, and each child's owner) are read first with awaited
  *  stats and reads; the assembly then runs over what was read, with no file
  *  access left in it (any header it still asks for falls back to a read).
+ *  The first listing after a restart seeds the header cache from its
+ *  persisted copy, so only records changed since are read again.
  *  `runningSessionIds` may be a function, asked once the reads are done. */
 export async function listStoredAgentWorkersAsync({ runningSessionIds = null } = {}) {
   const agentIndexPath = storedAgentWorkerIndexPath();
@@ -650,6 +761,7 @@ export async function listStoredAgentWorkersAsync({ runningSessionIds = null } =
   const [agentIndex, leadIndex] = await Promise.all([
     readWorkerIndexFileAsync(agentIndexPath),
     readWorkerIndexFileAsync(leadIndexPath),
+    seedPersistedHeaders(),
   ]);
   const headers = new Map();
   const childRows = workerRows(agentIndex);
@@ -683,6 +795,7 @@ export async function listStoredAgentWorkersAsync({ runningSessionIds = null } =
     passHeaders = null;
     passIndexes = null;
     forgetUnreadHeaders();
+    schedulePersistHeaders();
   }
 }
 

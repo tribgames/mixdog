@@ -52,6 +52,35 @@ test('a boot with several bots lists reads getBotOrder once', async (t) => {
   assert.equal(listeners.size, 1, 'one settings subscription for every list');
 });
 
+test('the link becoming ready while the initial read is pending or done adds no second read', async (t) => {
+  const { root, dom, asked } = boot(t);
+  const gates = [];
+  dom.window.mixdogDesktop.invokeCapability = ({ capability }) => {
+    asked.push(capability);
+    return new Promise((resolve) => gates.push(resolve));
+  };
+  const fire = (name) => act(async () => dom.window.dispatchEvent(new dom.window.Event(name)));
+  await act(async () => root.render(lists(2)));
+  assert.equal(asked.length, 1);
+  await fire('mixdog:remote-connection-ready');
+  assert.equal(asked.length, 1, 'readiness joins the pending initial read');
+  await act(async () => gates[0]({ value: { order: ['b', 'a'] } }));
+  await fire('mixdog:remote-connection-ready');
+  assert.equal(asked.length, 1, 'readiness after the read adopts it');
+  assert.equal(document.querySelector('[data-probe]').textContent, 'b,a');
+});
+
+test('a reconnect invalidates the read and rereads once', async (t) => {
+  const { root, dom, asked } = boot(t);
+  const fire = (name) => act(async () => dom.window.dispatchEvent(new dom.window.Event(name)));
+  await act(async () => root.render(lists(2)));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await fire('mixdog:remote-connection-ready');
+  assert.equal(asked.length, 1);
+  await fire('mixdog:remote-reconnected');
+  assert.equal(asked.length, 2, 'a returning link invalidates the read');
+});
+
 test('the last list leaving retires a pending read: its late answer neither publishes nor fills the cache', async (t) => {
   const { root, dom } = boot(t);
   const gates = [];

@@ -31,6 +31,7 @@ const COALESCED_READS = new Set([
   'viewerDevice',
 ]);
 const COALESCED_CAPABILITY_READS = new Set([
+  'getBotOrder',
   'getOrchestrationMode',
   'getProviderSetup',
   'getVoiceStatus',

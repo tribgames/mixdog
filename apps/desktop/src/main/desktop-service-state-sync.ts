@@ -11,7 +11,7 @@ import {
   shouldPublishSessionState,
   type SnapshotDeltaEncoder,
 } from './state-delta';
-import { synchronizeViewSnapshot } from './view-synchronizer';
+import { synchronizeSessionViewSnapshot } from './view-synchronizer';
 import { requiredSessionIds, requiredVisibleSessionVersion } from './desktop-state';
 
 /** Per-session transcript deltas: one encoder per session, the last snapshot it
@@ -151,9 +151,38 @@ export function createDesktopServiceStateSync({
   const unsubscribeSessions = host.subscribeSessions((sessions) => {
     if (!viewsSyncing) emit({ kind: 'sessions', sessions });
   });
+  // The Agents pool is its own lane, outside the view baseline: every
+  // publication goes out as it lands, during a view sync too.
+  let agentPoolPublications = 0;
   const unsubscribeAgentPool = host.subscribeAgentPool((agents) => {
-    if (!viewsSyncing) emit({ kind: 'agent-pool', agents });
+    agentPoolPublications += 1;
+    emit({ kind: 'agent-pool', agents });
   });
+  /** A view sync re-reads the pool after its baseline instead of inside it:
+   *  the first read after a daemon start opens every worker session record
+   *  (~5s at boot), which held the restored conversation and the session
+   *  list behind it. A publication since the read began is at least as new;
+   *  a failed read keeps the last pool for the next store event. A sync that
+   *  lands while a refresh is pending joins it with that refresh's counter:
+   *  the host shares the outstanding read, so a fresh counter would let the
+   *  older read's rows overwrite a publication made after it began. */
+  let agentPoolRefresh: Promise<void> | null = null;
+  const refreshAgentPool = (): void => {
+    if (agentPoolRefresh) return;
+    const seen = agentPoolPublications;
+    agentPoolRefresh = host
+      .listAgentPool()
+      .then(
+        (agents) => {
+          if (serviceClosed || agentPoolPublications !== seen) return;
+          emit({ kind: 'agent-pool', agents });
+        },
+        () => undefined
+      )
+      .finally(() => {
+        agentPoolRefresh = null;
+      });
+  };
   const unsubscribeSessionStates = host.subscribeSessionStates((update) => {
     if (viewsSyncing) {
       reportTranscriptRead(update.sessionId, update.readTraceId, 'service-syncing');
@@ -177,13 +206,12 @@ export function createDesktopServiceStateSync({
           viewsSyncing = true;
           try {
             await host.setVisibleSessions([...visibleSessionIds]);
-            await synchronizeViewSnapshot(host, [...visibleSessionIds], (snapshot) => {
+            await synchronizeSessionViewSnapshot(host, [...visibleSessionIds], (snapshot) => {
               if (serviceClosed) return;
               stateMailbox.reset(snapshot.snapshot);
               sessionStates.resetEncoders();
               for (const update of snapshot.sessionStates) sessionStates.post(update);
               emit({ kind: 'sessions', sessions: snapshot.sessions });
-              emit({ kind: 'agent-pool', agents: snapshot.agents });
               viewsSyncing = false;
               if (version === viewVersion) emit({ kind: 'view-sync-complete' });
             });
@@ -191,6 +219,7 @@ export function createDesktopServiceStateSync({
             viewsSyncing = false;
           }
         } while (version !== viewVersion);
+        refreshAgentPool();
       });
     viewSyncQueue = run;
     return run;

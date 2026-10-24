@@ -7,6 +7,7 @@ import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
  *  list; a change reaches the others through the settings-changed event.
  *  Agent ids only, Mixy excluded (it is pinned first and never moves).
  *  Missing → the list's own order; unknown ids are ignored where applied. */
+const REMOTE_RECONNECTED_EVENT = 'mixdog:remote-reconnected';
 const EMPTY: readonly string[] = Object.freeze([]);
 const listeners = new Set<() => void>();
 /** Bumped by every read and write: a stale read must not publish. */
@@ -262,11 +263,18 @@ let detachWatch: (() => void) | null = null;
 function watchBotOrder(api: OrderApi): () => void {
   if (watchers++ === 0) {
     const reread = () => void readBotOrder(api);
+    // The link's first readiness is the boot every list already reads for:
+    // it joins the pending (or finished) initial read. Only a link that came
+    // back invalidates what was read.
+    const ready = () => void loadBotOrder(api);
     const unsubscribe = globalThis.window.mixdogDesktop?.subscribeSettingsChanged?.(reread);
-    globalThis.window.addEventListener(REMOTE_CONNECTION_READY_EVENT, reread);
+    const win = globalThis.window;
+    win.addEventListener(REMOTE_CONNECTION_READY_EVENT, ready);
+    win.addEventListener(REMOTE_RECONNECTED_EVENT, reread);
     detachWatch = () => {
       unsubscribe?.();
-      globalThis.window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reread);
+      win.removeEventListener(REMOTE_CONNECTION_READY_EVENT, ready);
+      win.removeEventListener(REMOTE_RECONNECTED_EVENT, reread);
     };
   }
   void loadBotOrder(api);

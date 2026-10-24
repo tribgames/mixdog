@@ -187,7 +187,7 @@ test('a failed catalog watcher rearms and reconciles without remounting consumer
   }
 });
 
-test('desktop stream recovery restores every visible lane and catalogs before its completion marker', async () => {
+test('desktop stream recovery restores every visible lane and the session catalog before its completion marker', async () => {
   const f = await viewSyncHost();
   let service;
   const messages = [];
@@ -211,9 +211,57 @@ test('desktop stream recovery restores every visible lane and catalogs before it
       ['lead completed', 'agent completed']
     );
     assert.equal(messages.find((message) => message.kind === 'sessions').sessions.length, 2);
+    assert.equal(messages.filter((message) => message.kind !== 'agent-pool').at(-1).kind, 'view-sync-complete');
+    // The Agents pool follows the baseline on its own lane.
+    while (!messages.some((message) => message.kind === 'agent-pool')) await delay(5);
     assert.equal(messages.find((message) => message.kind === 'agent-pool').agents[0].status, 'completed');
-    assert.equal(messages.at(-1).kind, 'view-sync-complete');
   } finally {
+    await service?.dispose();
+    await f.close();
+  }
+});
+
+test('desktop view sync does not wait for a slow Agents pool read', async () => {
+  const f = await viewSyncHost();
+  let service;
+  const messages = [];
+  const pool = Promise.withResolvers();
+  try {
+    f.put('lead', 'lead initial');
+    service = await createDesktopService({
+      options: f.options,
+      runtime: {
+        ...f.runtime,
+        loadConfig: async () => ({}),
+        async loadSessionStore() {
+          const store = await f.runtime.loadSessionStore();
+          return {
+            ...store,
+            async listStoredAgentWorkers() {
+              await pool.promise;
+              return store.listStoredAgentWorkers();
+            },
+          };
+        },
+      },
+      emit: (message) => messages.push(message),
+    });
+    await service.invoke('setVisibleSessions', [['lead']]);
+    f.state.agents = [{ sessionId: 'lead', ownerSessionId: 'lead', status: 'completed' }];
+    messages.length = 0;
+    await service.control({ kind: 'state-resync' });
+    assert.equal(messages.at(-1).kind, 'view-sync-complete');
+    assert.ok(messages.some((message) => message.kind === 'sessions'));
+    assert.ok(messages.some((message) => message.kind === 'session-state' && message.sessionId === 'lead'));
+    assert.equal(
+      messages.some((message) => message.kind === 'agent-pool'),
+      false
+    );
+    pool.resolve();
+    while (!messages.some((message) => message.kind === 'agent-pool')) await delay(5);
+    assert.equal(messages.find((message) => message.kind === 'agent-pool').agents[0].status, 'completed');
+  } finally {
+    pool.resolve();
     await service?.dispose();
     await f.close();
   }
