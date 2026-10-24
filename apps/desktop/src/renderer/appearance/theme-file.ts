@@ -8,7 +8,6 @@ export type Appearance = 'dark' | 'light';
 
 /** The schema shipped with the app; exported files point their `$schema` at it. */
 export const THEME_SCHEMA_URL: string = schema.$id;
-export const THEME_FORMAT = 'mixdog-theme/v1';
 
 export const THEME_ROLES = [
   'background',

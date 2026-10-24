@@ -3,14 +3,6 @@ export function enforceOwnerOnlyAclWin32(targetPath: string, options?: { fresh?:
 /** Test hook: the live per-process ACL helper, or null. */
 export function ownerOnlyAclHelperForTests(): import('node:child_process').ChildProcess | null;
 
-/** Test/diagnostic hook: helper attachment, pending requests, starts in the restart window. */
-export function ownerOnlyAclHelperStats(): {
-  alive: boolean;
-  pid: number | null;
-  pending: number;
-  recentStarts: number;
-};
-
 /** Non-fresh calls verify (and tighten) the real DACL on every call through a shared helper. */
 export function enforceOwnerOnlyAclWin32Async(targetPath: string, options?: { fresh?: boolean }): Promise<void>;
 

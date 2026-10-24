@@ -267,17 +267,6 @@ export async function prewarmOwnerOnlyAclWin32({ bridge = true } = {}) {
   }
 }
 
-/** Test/diagnostic hook: whether a helper is attached, its requests awaiting
- *  an answer, and the starts inside the current restart window. */
-export function ownerOnlyAclHelperStats() {
-  return {
-    alive: aclHelper !== null,
-    pid: aclHelper?.child.pid ?? null,
-    pending: aclHelper?.pending.size ?? 0,
-    recentStarts: aclHelperStartTimes.length,
-  };
-}
-
 /** Test hook: the live helper process, or null. */
 export function ownerOnlyAclHelperForTests() {
   return aclHelper?.child ?? null;

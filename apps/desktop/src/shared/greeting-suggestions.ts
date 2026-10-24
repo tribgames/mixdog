@@ -3,7 +3,6 @@
 //   <!-- mixdog:suggestions ["Show open PRs", "Change the interval"] -->
 // The agent-mode transcript strips it and shows the suggestions as chips.
 
-export const GREETING_SUGGESTIONS_MARK = 'mixdog:suggestions';
 const MARK = /<!--\s*mixdog:suggestions\b([\s\S]*?)(?:-->|$)/;
 
 /** The text without the suggestions comment (also an unfinished one while it

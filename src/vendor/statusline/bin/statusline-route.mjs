@@ -246,10 +246,6 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
   };
 }
 
-// Test-only export of the route context-meta resolver for the auto-compact
-// limit migration smoke (scripts/compact-trigger-migration-smoke.mjs).
-export const _routeContextMeta = routeContextMeta;
-
 // Resolve the auto-compact limit displayed by loadGatewayStatus(). The active
 // value MUST be validated against the ACTIVE route's own boundary/window, never
 // configured?.contextWindow: the configured window can be larger than the
@@ -275,9 +271,6 @@ function resolveStatusAutoCompactTokenLimit(configured, active = {}, lastCompact
   if (activeBoundary > 0) return raw < activeBoundary ? raw : null;
   return raw;
 }
-
-// Test-only export of the status auto-compact-limit resolver.
-export const _resolveStatusAutoCompactTokenLimit = resolveStatusAutoCompactTokenLimit;
 
 export function compactBoundaryForStatus(routeInfo = {}, compact = null) {
   const n = compactBoundaryDenominator(routeInfo, compact);
@@ -564,7 +557,6 @@ export function loadGatewayStatus(options = {}) {
   const activeTranscriptMatch = currentSessionId
     ? sessionIdFromTranscriptPath(currentTranscript) === currentSessionId
     : false;
-  const transcriptMatch = gatewayCcSessionMatch || gatewayTranscriptMatch || (!gwTranscript && activeTranscriptMatch);
   const routeMatchesConfigured = configured
     ? configured.provider === active.gateway_provider && configured.model === active.gateway_model
     : true;

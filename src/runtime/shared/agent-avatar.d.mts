@@ -42,7 +42,6 @@ export const MASCOT_EXPRESSIONS: readonly string[];
 export const MASCOT_INKS: Readonly<Record<string, string>>;
 export const MIXY_AVATAR: Readonly<MascotAvatar>;
 export const AGENT_AVATAR_STATES: readonly AgentAvatarState[];
-export const AGENT_AVATAR_LATER_STATES: readonly string[];
 export const AGENT_AVATAR_IMAGE_FILE: RegExp;
 export const AGENT_AVATAR_STATE_FILE: RegExp;
 export const AGENT_AVATAR_DIR: string;

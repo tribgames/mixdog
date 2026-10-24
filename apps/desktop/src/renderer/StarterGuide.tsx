@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
-import { requestMixyDialog, setOnboardingActive, useMixyDialogSettled, useMixyStatus } from './mixy-identity';
+import { requestMixyDialog, useMixyDialogSettled, useMixyStatus } from './mixy-identity';
 import { providerConnected } from './setup-facts';
 import { record } from './record-utils';
 import { SettingsConfirmDialog } from './settings/capability-controls';
@@ -492,11 +492,6 @@ export function StarterGuide({
     setStarterGuideBlocking(coversWindow);
     return () => setStarterGuideBlocking(false);
   }, [coversWindow]);
-  // The 대표 에이전트 dialog opens only after the onboarding (mixy-identity.ts).
-  useLayoutEffect(() => {
-    setOnboardingActive(onboardingActive);
-    return () => setOnboardingActive(false);
-  }, [onboardingActive]);
   const answerWelcome = () => update((current) => ({ ...current, welcomed: true }));
   const pill = hidden ? null : (
     <section

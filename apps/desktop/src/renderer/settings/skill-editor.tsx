@@ -5,9 +5,8 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
-import { SidebarLoadingDialog } from '../sidebar-dialog';
 import { CompactSwitch } from './capability-controls';
-import { rows, type PanelContext, type RecordValue } from './capability-data';
+import type { RecordValue } from './capability-data';
 import { ExtensionDetailDialog, ExtensionField, ExtensionNote } from './extension-detail';
 import { ToolNameInput } from './tool-name-input';
 
@@ -241,43 +240,4 @@ export function SkillEditorDialog({
       </ExtensionField>
     </ExtensionDetailDialog>
   );
-}
-
-/** Built-in and plugin cards share the same editor; their source stays read-only. */
-export function useSkillToolLinks({ data, pending, run }: Pick<PanelContext, 'data' | 'pending' | 'run'>) {
-  const [detail, setDetail] = useState<{ name: string; resource: RecordValue | null } | null>(null);
-  const skill = rows(record(data.skills), 'skills').find((entry) => entry.name === detail?.name);
-  const openSkillTools = (name: string) => {
-    setDetail({ name, resource: null });
-    void run<RecordValue>('skillContent', [name], `skill-content-${name}`, false).then((resource) => {
-      setDetail((current) => {
-        if (current?.name !== name) return current;
-        return resource ? { name, resource } : null;
-      });
-    });
-  };
-  let skillToolsDialog: ReactNode = null;
-  if (detail && skill) {
-    skillToolsDialog =
-      detail.resource === null ? (
-        <SidebarLoadingDialog title={detail.name} onClose={() => setDetail(null)} />
-      ) : (
-        <SkillEditorDialog
-          key={detail.name}
-          skill={{ ...skill, ...detail.resource }}
-          instructions={String(detail.resource.content || '')}
-          disabled={false}
-          busy={Boolean(pending)}
-          readOnly
-          tools={rows(record(data.skills), 'tools')}
-          onClose={() => setDetail(null)}
-          onSave={(payload) => {
-            void run('saveSkill', [payload]).then((saved) => {
-              if (saved !== undefined) setDetail(null);
-            });
-          }}
-        />
-      );
-  }
-  return { openSkillTools, skillToolsDialog };
 }

@@ -156,10 +156,6 @@ export function approvalInstanceKey(id) {
   return String(id || 'approval');
 }
 
-export function isApprovalDismissKey(key) {
-  return key === 'Escape';
-}
-
 export function normalizeApplyPatch(value) {
   const input = String(value || '').replace(/\r\n?/g, '\n');
   if (!/^\*\*\* Begin Patch\s*$/m.test(input)) return input;

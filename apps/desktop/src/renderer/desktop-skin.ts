@@ -243,10 +243,6 @@ export function getSkinId(): SkinId {
   return skinImage(id) ? id : 'none';
 }
 
-export function hasCustomSkin(): boolean {
-  return Boolean(customImage());
-}
-
 export function subscribeSkin(listener: () => void): () => void {
   window.addEventListener(CHANGE_EVENT, listener);
   return () => window.removeEventListener(CHANGE_EVENT, listener);

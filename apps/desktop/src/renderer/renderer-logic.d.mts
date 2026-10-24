@@ -93,7 +93,6 @@ export function shouldStopComposerGeneration(input?: {
   attachments?: Array<{ token?: string; chipOnly?: boolean }>;
 }): boolean;
 export function approvalInstanceKey(id: unknown): string;
-export function isApprovalDismissKey(key: string): boolean;
 export function normalizeApplyPatch(value: unknown): string;
 export function diffFileStatus(section: unknown): string;
 export function parseUnifiedDiff(patch: string): DiffData[];

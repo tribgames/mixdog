@@ -142,12 +142,6 @@ export function hasLocalThemeChoice(): boolean {
   return hasLocalDisplayChoice('theme', stored !== null && stored !== 'dark');
 }
 
-export function desktopThemePreferenceForTheme(value: unknown): DesktopThemePreference {
-  const requested = themeId(value);
-  const resolved = registry[requested] ? requested : aliases[requested];
-  return resolved === 'light' ? 'white' : 'dark';
-}
-
 /** Settings picker options — Desktop owns System + White/Dark.
  * The TUI registry themes (nord, dracula, …) stay
  * TUI-only; a previously stored registry id still resolves for rendering,

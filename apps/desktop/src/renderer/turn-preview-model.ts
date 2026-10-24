@@ -51,9 +51,6 @@ export function turnPreviewSurfaced(path: string, surfaced: readonly string[]): 
   });
 }
 
-/** The paths a reply links (markdown links, inline-code and prose paths). */
-export const turnPreviewLinked = linkedLocalPaths;
-
 /** The file `target` names under `root`, as the panel opens it. */
 function previewTarget(root: string, path: string): string {
   const base = root.replace(/\\/g, '/').replace(/\/+$/, '');

@@ -103,22 +103,6 @@ export function useMixyDialogSettled(): boolean {
   );
 }
 
-// The onboarding wizard (open or still deciding), as the app shell knows it
-// (published by StarterGuide): the 대표 에이전트 dialog waits for it.
-let onboardingActive = false;
-export function setOnboardingActive(value: boolean): void {
-  if (onboardingActive === value) return;
-  onboardingActive = value;
-  notify();
-}
-export function useOnboardingActive(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => onboardingActive,
-    () => onboardingActive
-  );
-}
-
 /** Window event: show the Agents view (where the representative bot is made). */
 export const OPEN_AGENTS_VIEW_EVENT = 'mixdog:open-agents-view';
 
