@@ -18,16 +18,18 @@ const outputBytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 export function sessionListOutput(page, limit, { rich = true } = {}) {
   const raw = page.sessions;
   const sessions = raw.slice(0, limit).map((row) => {
+    // Decided first: a session that is not the caller's carries its real
+    // title only, never a preview standing in for it.
+    const own = typeof rich === 'function' ? rich(row) : rich;
+    const title = own ? row.title || row.preview : row.title;
     const base = {
       id: row.id,
-      ...(row.title || row.preview
-        ? { title: escapeHarnessTags(truncateToolText(row.title || row.preview, 160)) }
-        : {}),
+      ...(title ? { title: escapeHarnessTags(truncateToolText(title, 160)) } : {}),
       ...(row.status ? { status: row.status } : {}),
       ...(row.cwd ? { cwd: row.cwd } : {}),
       ...(row.archived === true ? { archived: true } : {}),
     };
-    if (typeof rich === 'function' ? !rich(row) : !rich) return base;
+    if (!own) return base;
     // The bot it belongs to: its chat, room seat or the task's creator.
     const bot = sessionBotOf(row);
     const lastUsedAt = Number(row.lastUsedAt) || 0;

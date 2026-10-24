@@ -86,6 +86,25 @@ test('list rows carry the owning bot, last activity, latest line and working sta
   );
 });
 
+test("a bot's list never titles another's untitled session with its preview", () => {
+  const page = {
+    sessions: [
+      { id: 'sess_user_1', preview: 'private first line', status: 'running', cwd: '/secret', lastMessagePreview: 'x' },
+      { id: 'sess_home_mailer', preview: 'own first line', status: 'idle', cwd: '/own' },
+    ],
+    nextCursor: null,
+  };
+  const { sessions } = sessionListOutput(page, 25, { rich: (row) => row.id === 'sess_home_mailer' });
+  assert.deepEqual(sessions[0], { id: 'sess_user_1', status: 'running', cwd: '/secret' });
+  assert.deepEqual(sessions[1], {
+    id: 'sess_home_mailer',
+    title: 'own first line',
+    status: 'idle',
+    cwd: '/own',
+    bot: 'mailer',
+  });
+});
+
 test('uncut and empty catalog pages retain the service cursor', () => {
   assert.deepEqual(sessionListOutput({ sessions: [], nextCursor: null }, 25), { sessions: [], nextCursor: null });
   assert.equal(
