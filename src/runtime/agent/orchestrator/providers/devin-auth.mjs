@@ -8,7 +8,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 import { openLoginUrl } from './lib/open-login-url.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
-import { createOAuthPkce } from './lib/oauth-pkce.mjs';
+import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import {
   accountIdentityFields,
   decodeJwtPayload,
@@ -31,6 +31,24 @@ export const REAUTH_GUIDANCE = 'Open /providers in Mixdog to sign in again.';
 
 function reauthError(message) {
   return Object.assign(new Error(message), { reauthRequired: true });
+}
+
+// Sign-in failures the desktop words in the user's language: the message leads
+// with `DEVIN_OAUTH_<CODE>:` and apps/desktop/src/renderer/oauth-failure-copy.ts
+// maps each code to its cause and remedy (like GMAIL_APP_PASSWORD_<CODE>).
+export const DEVIN_OAUTH_FAILURE_CODES = Object.freeze([
+  'DEVIN_OAUTH_CALLBACK_PORT_IN_USE',
+  'DEVIN_OAUTH_CALLBACK_SERVER_FAILED',
+  'DEVIN_OAUTH_LOGIN_TIMED_OUT',
+  'DEVIN_OAUTH_AUTHORIZATION_DENIED',
+  'DEVIN_OAUTH_STATE_MISMATCH',
+  'DEVIN_OAUTH_CODE_REQUIRED',
+  'DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED',
+]);
+
+function loginFailure(code, text, props = {}) {
+  const failureCode = `DEVIN_OAUTH_${code}`;
+  return Object.assign(new Error(`${failureCode}: ${text}`), { failureCode }, props);
 }
 
 function credentialsPath() {
@@ -146,23 +164,37 @@ export function generateDevinOAuthParams() {
 
 export async function exchangeDevinCode(code, verifier, { fetchFn = fetch, signal } = {}) {
   const timeout = AbortSignal.timeout(EXCHANGE_TIMEOUT_MS);
-  const response = await fetchFn(TOKEN_URL, {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, code_verifier: verifier }),
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    redirect: 'error',
-  });
+  let response;
+  try {
+    response = await fetchFn(TOKEN_URL, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, code_verifier: verifier }),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      redirect: 'error',
+    });
+  } catch (error) {
+    // A cancelled login keeps its own abort; any other failure to get an
+    // answer (network, timeout) is a coded exchange failure. The cause is not
+    // quoted: only its kind is.
+    if (signal?.aborted) throw error;
+    throw loginFailure(
+      'TOKEN_EXCHANGE_FAILED',
+      error?.name === 'TimeoutError' ? 'Devin token exchange timed out' : 'Devin token exchange request failed'
+    );
+  }
   // Response bodies may carry the login token itself, so none is ever quoted
   // in an error: only the status is reported.
   if (!response.ok) {
-    const error = new Error(`Devin token exchange failed (${response.status})`);
-    error.status = response.status;
-    error.httpStatus = response.status;
-    throw error;
+    throw loginFailure('TOKEN_EXCHANGE_FAILED', `Devin token exchange failed (${response.status})`, {
+      status: response.status,
+      httpStatus: response.status,
+    });
   }
   const data = await response.json().catch(() => null);
-  if (typeof data?.token !== 'string' || !data.token) throw new Error('Devin token exchange returned no token');
+  if (typeof data?.token !== 'string' || !data.token) {
+    throw loginFailure('TOKEN_EXCHANGE_FAILED', 'Devin token exchange returned no token');
+  }
   return tokenRecord(data.token);
 }
 
@@ -191,11 +223,7 @@ export function beginDevinOAuthLogin(options) {
   return started;
 }
 
-async function startDevinOAuthLogin({
-  openBrowser = true,
-  timeoutMs = LOGIN_TIMEOUT_MS,
-  fetchFn = fetch,
-} = {}) {
+async function startDevinOAuthLogin({ openBrowser = true, timeoutMs = LOGIN_TIMEOUT_MS, fetchFn = fetch } = {}) {
   activeLogin?.cancel();
   const params = generateDevinOAuthParams();
   const controller = new AbortController();
@@ -217,6 +245,22 @@ async function startDevinOAuthLogin({
     url: params.loginUrl,
     manualUrl: null,
     waitForCallback,
+    // A remote client signs in on its own machine, where the redirect to this
+    // host's loopback listener cannot land: it pastes the final address (or
+    // code) back, and the state it carries must be this login's own.
+    completeCode: async (input) => {
+      const text = String(input || '').trim();
+      // An address carries its code and state as query parameters only: one
+      // without a code is not a bare code (the shared parser would take the
+      // whole address for one and spend it on the exchange).
+      const address = URL.canParse(text) ? new URL(text) : null;
+      const pasted = address
+        ? { code: address.searchParams.get('code') || '', state: address.searchParams.get('state') || '' }
+        : parseOAuthCodeInput(text, { allowHashState: true });
+      if (pasted.state && pasted.state !== params.state) throw loginFailure('STATE_MISMATCH', 'OAuth state mismatch');
+      if (!pasted.code) throw loginFailure('CODE_REQUIRED', 'Authorization code is required');
+      return await acceptCode(pasted.code);
+    },
     cancel: () => finish(null, new Error('Devin OAuth cancelled')),
   };
 
@@ -285,7 +329,7 @@ async function startDevinOAuthLogin({
       reply(res, 400, oauthErrorHtml('Devin did not authorize this sign-in.'));
       // A late denial must not cancel an already accepted code.
       if (!exchangePromise) {
-        finish(null, new Error(`[devin-oauth] authorization failed${code}`));
+        finish(null, loginFailure('AUTHORIZATION_DENIED', `Authorization failed${code}`));
       }
       return;
     }
@@ -319,22 +363,24 @@ async function startDevinOAuthLogin({
   } catch (error) {
     const failure =
       error?.code === 'EADDRINUSE'
-        ? Object.assign(
-            new Error(
-              `[devin-oauth] callback port ${CALLBACK_HOST}:${CALLBACK_PORT} is already in use. Close the program using it (or another Devin sign-in) and try again.`
-            ),
+        ? loginFailure(
+            'CALLBACK_PORT_IN_USE',
+            `Callback port ${CALLBACK_HOST}:${CALLBACK_PORT} is already in use. Close the program using it (or another Devin sign-in) and try again.`,
             { code: 'EADDRINUSE' }
           )
-        : new Error(`[devin-oauth] callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${error?.message || error}`);
+        : loginFailure(
+            'CALLBACK_SERVER_FAILED',
+            `Callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${error?.message || error}`
+          );
     finish(null, failure);
     throw failure;
   }
   // Once bound, a runtime fault on the listener ends the login.
   server.on('error', (error) =>
-    finish(null, new Error(`[devin-oauth] callback server failed: ${error?.message || error}`))
+    finish(null, loginFailure('CALLBACK_SERVER_FAILED', `Callback server failed: ${error?.message || error}`))
   );
   timer = setTimeout(
-    () => finish(null, new Error(`[devin-oauth] browser authentication timed out after ${timeoutMs}ms`)),
+    () => finish(null, loginFailure('LOGIN_TIMED_OUT', `Browser authentication timed out after ${timeoutMs}ms`)),
     timeoutMs
   );
   timer.unref?.();

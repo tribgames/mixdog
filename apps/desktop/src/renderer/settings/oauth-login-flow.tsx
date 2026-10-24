@@ -9,6 +9,7 @@ import '../desktop/github-device-code.css';
 import { ErrorNotice } from '../ErrorNotice';
 import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
+import { localizeOAuthFailure } from '../oauth-failure-copy';
 import { scrimDismiss } from '../scrim-dismiss';
 import { registerMobileBack } from '../mobile-back';
 import { record } from '../record-utils';
@@ -149,6 +150,8 @@ const INVALID_PASTE = /pasted sign-in url is invalid/i;
 /** The text shown under the paste field for a failed completion. */
 export function pasteErrorText(reason: unknown): string {
   const message = errorMessage(reason);
+  const failure = localizeOAuthFailure(message);
+  if (failure) return `${failure.summary} ${failure.recovery}`;
   return INVALID_PASTE.test(message)
     ? t('Invalid sign-in address. Paste the full address you were redirected to after signing in.')
     : message;

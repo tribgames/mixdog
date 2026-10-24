@@ -78,6 +78,7 @@ test('the authorize URL carries PKCE S256, a uuid state, the loopback redirect a
   assert.match(url.searchParams.get('code_challenge'), /^[A-Za-z0-9_-]{43}$/);
   assert.equal(login.provider, 'devin-oauth');
   assert.equal(login.manualUrl, null);
+  assert.equal(typeof login.completeCode, 'function');
   assert.equal(typeof login.cancel, 'function');
 });
 
@@ -201,7 +202,8 @@ test('an authorization error on the callback fails the login and frees the port'
     400
   );
   const error = await outcome;
-  assert.equal(error.message, '[devin-oauth] authorization failed (access_denied)');
+  assert.equal(error.message, 'DEVIN_OAUTH_AUTHORIZATION_DENIED: Authorization failed (access_denied)');
+  assert.equal(error.failureCode, 'DEVIN_OAUTH_AUTHORIZATION_DENIED');
   assert.doesNotMatch(`${error.stack} ${JSON.stringify(error)}`, /SECRET-TOKEN/);
   assert.equal(endpoint.calls.length, 0);
   assert.equal(existsSync(path), false);
@@ -221,7 +223,8 @@ test('a rejected token exchange fails the login without storing or leaking the c
   assert.doesNotMatch(await response.text(), /secret-code/);
   const error = await outcome;
   assert.equal(error.status, 401);
-  assert.match(error.message, /Devin token exchange failed \(401\)/);
+  assert.equal(error.failureCode, 'DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED');
+  assert.match(error.message, /^DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange failed \(401\)$/);
   assert.doesNotMatch(error.message, /secret-code/);
   assert.equal(existsSync(path), false);
   await assertPortFree();
@@ -263,7 +266,7 @@ test('a login whose exchange is rejected never surfaces the response body', asyn
   const response = await callback({ code: 'c', state: new URL(login.url).searchParams.get('state') });
   assert.doesNotMatch(await response.text(), /SECRET-TOKEN/);
   const error = await outcome;
-  assert.equal(error.message, 'Devin token exchange failed (400)');
+  assert.equal(error.message, 'DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange failed (400)');
   assert.doesNotMatch(JSON.stringify(error), /SECRET-TOKEN/);
 });
 
@@ -384,7 +387,8 @@ test('an occupied callback port fails with a clear error and leaves nothing behi
 
   await assert.rejects(beginDevinOAuthLogin({ openBrowser: false }), (error) => {
     assert.equal(error.code, 'EADDRINUSE');
-    assert.match(error.message, /127\.0\.0\.1:59653 is already in use/);
+    assert.equal(error.failureCode, 'DEVIN_OAUTH_CALLBACK_PORT_IN_USE');
+    assert.match(error.message, /^DEVIN_OAUTH_CALLBACK_PORT_IN_USE: .*127\.0\.0\.1:59653 is already in use/);
     return true;
   });
 
@@ -446,8 +450,140 @@ test('cancelling during the token exchange stores nothing', async (t) => {
 test('the login times out, rejects and frees the port', async (t) => {
   bindCredentialFile(t);
   const login = await startLogin(t, { timeoutMs: 40 });
-  await assert.rejects(login.waitForCallback, /timed out after 40ms/);
+  await assert.rejects(
+    login.waitForCallback,
+    (error) => error.failureCode === 'DEVIN_OAUTH_LOGIN_TIMED_OUT' && /timed out after 40ms/.test(error.message)
+  );
   await assertPortFree();
+});
+
+test('a pasted redirect carrying this login\'s state completes it through the same exchange', async (t) => {
+  const path = bindCredentialFile(t);
+  const token = jwt({ exp: nowSeconds() + 3600, sub: 'phone-user' });
+  const endpoint = tokenEndpoint(token);
+  const login = await startLogin(t, { fetchFn: endpoint.fetchFn });
+  const state = new URL(login.url).searchParams.get('state');
+  const challenge = new URL(login.url).searchParams.get('code_challenge');
+
+  const tokens = await login.completeCode(`${CALLBACK}?code=pasted-code&state=${state}`);
+
+  assert.equal(tokens.access_token, token);
+  assert.equal((await login.waitForCallback).access_token, token);
+  assert.equal(endpoint.calls.length, 1);
+  assert.equal(endpoint.calls[0].body.code, 'pasted-code');
+  assert.equal(createHash('sha256').update(endpoint.calls[0].body.code_verifier).digest('base64url'), challenge);
+  assert.equal(readStored(path).access_token, token);
+  assert.equal(await resolveDevinOAuthAccessToken(), token);
+  await assertPortFree();
+});
+
+test('a pasted code#state or bare code completes the login too', async (t) => {
+  bindCredentialFile(t);
+  for (const paste of [(state) => `pasted#${state}`, () => 'pasted']) {
+    const endpoint = tokenEndpoint(jwt({ exp: nowSeconds() + 3600 }));
+    const login = await startLogin(t, { fetchFn: endpoint.fetchFn });
+    await login.completeCode(paste(new URL(login.url).searchParams.get('state')));
+    await login.waitForCallback;
+    assert.equal(endpoint.calls.length, 1);
+    assert.equal(endpoint.calls[0].body.code, 'pasted');
+  }
+});
+
+test('a pasted redirect with another login\'s state is rejected and the login keeps waiting', async (t) => {
+  const path = bindCredentialFile(t);
+  const endpoint = tokenEndpoint(jwt({ exp: nowSeconds() + 3600 }));
+  const login = await startLogin(t, { fetchFn: endpoint.fetchFn });
+  const state = new URL(login.url).searchParams.get('state');
+
+  for (const paste of [`${CALLBACK}?code=forged&state=other-login`, 'forged#other-login']) {
+    await assert.rejects(login.completeCode(paste), (error) => {
+      assert.equal(error.failureCode, 'DEVIN_OAUTH_STATE_MISMATCH');
+      assert.doesNotMatch(error.message, /forged/);
+      return true;
+    });
+  }
+  for (const paste of [
+    '',
+    CALLBACK,
+    `${CALLBACK}?foo=bar`,
+    `${CALLBACK}?state=${state}`,
+    `${CALLBACK}?state=${state}&error=access_denied`,
+  ]) {
+    await assert.rejects(login.completeCode(paste), (error) => error.failureCode === 'DEVIN_OAUTH_CODE_REQUIRED');
+  }
+  assert.equal(endpoint.calls.length, 0);
+  assert.equal(existsSync(path), false);
+
+  assert.equal((await callback({ code: 'real', state })).status, 200);
+  await login.waitForCallback;
+  assert.equal(endpoint.calls.length, 1);
+  assert.equal(endpoint.calls[0].body.code, 'real');
+});
+
+test('a request that gets no answer, or times out, is a coded exchange failure', async () => {
+  const failures = [
+    [Object.assign(new TypeError('fetch failed'), { cause: new Error('ECONNRESET secret-code') }), /request failed$/],
+    [new DOMException('signal timed out', 'TimeoutError'), /timed out$/],
+  ];
+  for (const [thrown, wording] of failures) {
+    const error = await exchangeDevinCode('secret-code', 'v', {
+      fetchFn: async () => {
+        throw thrown;
+      },
+    }).then(
+      () => assert.fail('exchange should have failed'),
+      (caught) => caught
+    );
+    assert.equal(error.failureCode, 'DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED');
+    assert.match(error.message, wording);
+    assert.doesNotMatch(`${error.message} ${JSON.stringify(error)}`, /secret-code|ECONNRESET/);
+  }
+});
+
+test('cancelling during the exchange keeps its abort rather than a coded failure', async () => {
+  const controller = new AbortController();
+  const fetchFn = async (_url, init) => {
+    controller.abort();
+    init.signal.throwIfAborted();
+  };
+  const error = await exchangeDevinCode('c', 'v', { fetchFn, signal: controller.signal }).then(
+    () => assert.fail('exchange should have been aborted'),
+    (caught) => caught
+  );
+  assert.equal(error.failureCode, undefined);
+  assert.equal(error.name, 'AbortError');
+});
+
+test('a pasted redirect and the browser callback run one exchange', async (t) => {
+  bindCredentialFile(t);
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let requested;
+  const exchangeStarted = new Promise((resolve) => {
+    requested = resolve;
+  });
+  const token = jwt({ exp: nowSeconds() + 3600 });
+  const endpoint = tokenEndpoint(token);
+  const fetchFn = async (url, init) => {
+    requested();
+    await gate;
+    return await endpoint.fetchFn(url, init);
+  };
+  const login = await startLogin(t, { fetchFn });
+  const state = new URL(login.url).searchParams.get('state');
+
+  const browser = callback({ code: 'browser-code', state });
+  await exchangeStarted;
+  const pasted = login.completeCode(`${CALLBACK}?code=pasted-code&state=${state}`);
+  release();
+
+  assert.equal((await pasted).access_token, token);
+  assert.equal((await browser).status, 200);
+  assert.equal((await login.waitForCallback).access_token, token);
+  assert.equal(endpoint.calls.length, 1);
+  assert.equal(endpoint.calls[0].body.code, 'browser-code');
 });
 
 test('overlapping starts supersede in call order and only the last login owns the port', async (t) => {
