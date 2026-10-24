@@ -220,8 +220,6 @@ test('truncated, malformed and unterminated streams are protocol errors', async 
 test('stream ends like the native client: lenient trailer, flags and termination', async () => {
   const texts = async (chunks) =>
     (await collect(streamCall(async () => streamResponse(chunks).response))).map((msg) => msg.deltaText);
-  // No trailer at a frame boundary is a complete stream.
-  assert.deepEqual(await texts([frame(delta('a'))]), ['a']);
   // Reserved flag bits are ignored.
   assert.deepEqual(await texts([frame(delta('a'), 0x04), trailer({}, 0x06)]), ['a']);
   // A trailer that is not JSON (or empty) carries no error.
@@ -230,6 +228,66 @@ test('stream ends like the native client: lenient trailer, flags and termination
   ]);
   // Reading continues to the end of the body after an error-free trailer.
   assert.deepEqual(await texts([frame(delta('a')), trailer(), frame(delta('b'))]), ['a', 'b']);
+});
+
+test('a body that stops without an end-of-stream trailer is a retryable truncated stream', async () => {
+  // Cut at a frame boundary or before any frame.
+  for (const [chunks, expected] of [
+    [[frame(delta('a'))], ['a']],
+    [[], []],
+  ]) {
+    const seen = [];
+    await rejectsWith(
+      (async () => {
+        for await (const msg of streamCall(async () => streamResponse(chunks).response)) seen.push(msg.deltaText);
+      })(),
+      { code: 'protocol', retryable: true, message: /without an end-of-stream trailer/ }
+    );
+    assert.deepEqual(seen, expected, 'frames before the cut are delivered, never completed');
+  }
+});
+
+test('throttles Devin words under other codes are typed as throttles', async () => {
+  const trailerError = (code, message) =>
+    collect(streamCall(async () => streamResponse([trailer({ error: { code, message } })]).response));
+  // A model at capacity is a throttle (the reference maps it to 429), not a permission failure.
+  await rejectsWith(
+    trailerError('permission_denied', 'The model is currently in high demand, please try again later (trace ID: 0)'),
+    { code: 'resource_exhausted', status: 429, retryable: true, connectCode: 'permission_denied' }
+  );
+  // A spent quota is a throttle too; nothing says it is permanent or plan-wide.
+  await assert.rejects(
+    trailerError('failed_precondition', 'User monthly ACU quota exhausted (trace ID: 12345)'),
+    (error) => {
+      assert.equal(error.code, 'resource_exhausted');
+      assert.equal(error.status, 429);
+      assert.equal(error.retryable, true);
+      assert.equal('quotaScope' in error, false);
+      return true;
+    }
+  );
+  // Other wording, including an account message cap, keeps the code's own mapping.
+  await rejectsWith(trailerError('permission_denied', 'no seat'), { code: 'permission', status: 403 });
+  await rejectsWith(
+    trailerError('permission_denied', 'Reached overall message rate limit. Your limit will reset in 13 minutes.'),
+    { code: 'permission', status: 403 }
+  );
+  await rejectsWith(trailerError('failed_precondition', 'Client version 3000.1.0 is no longer supported'), {
+    code: 'invalid_argument',
+    status: 400,
+  });
+  // An HTTP carrier status does not override the throttle it reports.
+  await rejectsWith(
+    collect(
+      streamCall(
+        async () =>
+          new Response(JSON.stringify({ code: 'permission_denied', message: 'model in high demand' }), {
+            status: 403,
+          })
+      )
+    ),
+    { code: 'resource_exhausted', status: 429, message: /HTTP 403/ }
+  );
 });
 
 test('HTTP failures map Connect JSON bodies and statuses', async () => {

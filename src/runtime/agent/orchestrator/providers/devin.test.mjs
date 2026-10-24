@@ -174,7 +174,14 @@ test('streams text and thinking, reports usage, and keeps the native replay reco
   assert.equal(result.stopReason, 'stop');
   assert.equal(result.reasoningContent, 'Let me think');
   assert.deepEqual(result.providerReplay.items, [
-    { type: 'devin_assistant', model: 'claude-x', messageId: 'bot-1', thinking: 'Let me think', signature: 'sig-abc' },
+    {
+      type: 'devin_assistant',
+      model: 'claude-x',
+      messageId: 'bot-1',
+      thinking: 'Let me think',
+      signature: 'sig-abc',
+      signatureType: 'anthropic',
+    },
   ]);
   assert.deepEqual(
     { ...result.usage, raw: undefined },
@@ -288,7 +295,7 @@ test('partial tool JSON is never executed: a cut frame fails, unparsable final a
   const cut = data({ deltaToolCalls: [{ id: 'c0', name: 'read', argumentsJson: '{"path":"abc"}' }] }).subarray(0, 8);
   const server = fakeDevin([
     streamReply([cut]),
-    streamReply([data({ deltaToolCalls: [{ id: 'c1', name: 'read', argumentsJson: '{"path":"a' }] })]),
+    streamReply([data({ deltaToolCalls: [{ id: 'c1', name: 'read', argumentsJson: '{"path":"a' }] }), trailer()]),
     streamReply([data({ deltaToolCalls: [{ id: 'c2', name: 'read', argumentsJson: '{"path":' }] }), trailer()]),
   ]);
   const dispatched = [];

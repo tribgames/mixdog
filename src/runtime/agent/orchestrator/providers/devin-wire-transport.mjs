@@ -81,6 +81,19 @@ const HTTP_STATUS_CONNECT_CODE = Object.freeze({
 const TOO_LARGE_RE =
   /\b(?:too\s+(?:large|big|long)|exceeds?\s+(?:the\s+)?(?:maximum|max|size|length)|(?:payload|message|request|prompt|context)\s+(?:size|length)\b|maximum\s+(?:request|message|payload)\s+size)/i;
 const THROTTLE_RE = /too\s+many\s+requests|quota|rate[\s_-]*limit|throttl|credits?|capacity/i;
+// Devin words two throttles under other codes, as the reference executor
+// (CLIProxyAPI devin_wire.go) maps them to 429: a model "in high demand"
+// arrives as permission_denied, a spent quota as failed_precondition.
+const HIGH_DEMAND_RE = /high demand/i;
+const SPENT_QUOTA_RE = /quota|credit|acu|exhausted|limit/i;
+
+// The throttle's [Mixdog code, HTTP-equivalent status, retryable] for a
+// throttle Devin sent under a non-throttle code; null otherwise.
+function rewordedThrottle(code, detail) {
+  if (code === 'permission_denied' && HIGH_DEMAND_RE.test(detail)) return CONNECT_CODES.resource_exhausted;
+  if (code === 'failed_precondition' && SPENT_QUOTA_RE.test(detail)) return CONNECT_CODES.resource_exhausted;
+  return null;
+}
 
 function sanitizeDetail(text) {
   const normalized = String(text || '')
@@ -166,8 +179,10 @@ function connectError(
   if (code && !Object.hasOwn(CONNECT_CODES, code)) code = 'unknown';
   if (!code && status >= 500) code = 'internal';
   if (!code && status === 413) code = 'resource_exhausted';
-  const [mixdogCode, mappedStatus, retryable] = CONNECT_CODES[code] || ['internal', status || 500, status >= 500];
   const detail = sanitizeDetail(redactCredentials(message, secrets));
+  const reworded = rewordedThrottle(code, detail);
+  const [mixdogCode, mappedStatus, retryable] = reworded ||
+    CONNECT_CODES[code] || ['internal', status || 500, status >= 500];
   const detailsSummary = summarizeDetails(details, secrets);
   const tooLarge =
     status === 413 ||
@@ -175,14 +190,16 @@ function connectError(
   const finalCode = tooLarge ? 'request_too_large' : mixdogCode;
   const head = `Devin ${operation} ${code || 'error'}${status ? ` (HTTP ${status})` : ''}`;
   const text = [head, detail].filter(Boolean).join(': ') + (detailsSummary ? ` [details: ${detailsSummary}]` : '');
-  return new DevinWireError(text, {
+  const error = new DevinWireError(text, {
     code: finalCode,
-    status: tooLarge ? 413 : status || mappedStatus,
+    // A reworded throttle reports its throttle status, not the carrier's.
+    status: tooLarge ? 413 : (reworded ? mappedStatus : status || mappedStatus),
     retryable: tooLarge ? false : retryable,
     connectCode: code,
     detail: [detail, detailsSummary].filter(Boolean).join(' '),
     retryAfterMs: retryAfterMsOf(headers),
   });
+  return error;
 }
 
 // Builds the error for a Connect `{ code, message, details }` object, an HTTP
@@ -335,6 +352,10 @@ const textDecoder = new TextDecoder('utf-8', { fatal: true });
 const lenientTextDecoder = new TextDecoder('utf-8');
 
 // A trailer that is not JSON carries no error: the stream simply ended.
+// Tolerated on purpose: established clients of this service accept such a
+// trailer, and whether the server ever sends one cannot be ruled out, so
+// rejecting it could fail every turn. Completion still requires the
+// end-of-stream frame itself.
 function readTrailer(bytes, operation, secrets) {
   let parsed;
   try {
@@ -409,14 +430,7 @@ async function httpError(response, operation, signal, secrets) {
       try {
         const parsed = JSON.parse(text);
         if (typeof parsed?.code === 'string') connectCode = parsed.code;
-        message =
-          typeof parsed?.message === 'string'
-            ? parsed.message
-            : typeof parsed?.error === 'string'
-              ? parsed.error
-              : typeof parsed?.error?.message === 'string'
-                ? parsed.error.message
-                : '';
+        message = [parsed?.message, parsed?.error, parsed?.error?.message].find((v) => typeof v === 'string') ?? '';
         details = parsed?.details;
       } catch {
         message = text;
@@ -511,9 +525,11 @@ export async function* devinStream({
 
   const reader = response.body.getReader();
   const frames = createDevinFrameReader({ maxFrameBytes });
+  // Whether the end-of-stream trailer arrived. The body is read to its end: an
+  // error-free trailer does not stop it, but a body that stops without one (a
+  // frame boundary included) was cut short.
+  let terminated = false;
   try {
-    // The body is read to its end: an error-free trailer does not stop it,
-    // and a stream that ends on a frame boundary without one is complete.
     for (;;) {
       let chunk;
       try {
@@ -528,6 +544,7 @@ export async function* devinStream({
         if (flags & DEVIN_END_STREAM_FLAG) {
           const trailerError = readTrailer(bytes, operation, secrets);
           if (trailerError) throw trailerError;
+          terminated = true;
           continue;
         }
         yield decodeOrThrow(responseType, bytes);
@@ -536,6 +553,7 @@ export async function* devinStream({
     if (frames.bufferedBytes) {
       throw protocolError(`stream ended inside a frame (${frames.bufferedBytes} bytes buffered)`, { retryable: true });
     }
+    if (!terminated) throw protocolError('stream ended without an end-of-stream trailer', { retryable: true });
   } finally {
     await reader.cancel().catch(() => {});
   }

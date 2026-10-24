@@ -136,7 +136,9 @@ export function createDevinTurn({ onReasoningDelta } = {}) {
       activeCall = id;
       // The last name a call is given wins; names go out with the terminal chunk.
       if (call.name) entry.name = call.name;
-      const raw = String(call.argumentsJson || '');
+      // Arguments the server could not parse arrive as invalidJsonStr instead;
+      // they take the same repair-or-marker path, never an empty `{}`.
+      const raw = String(call.argumentsJson || call.invalidJsonStr || '');
       const merged = raw.startsWith(entry.args) ? raw : entry.args + raw;
       const piece = raw ? merged.slice(entry.args.length) : '';
       if (raw) entry.args = merged;
@@ -212,6 +214,8 @@ export function devinWireUid(row, modelId, effort) {
   return (effort && row?.effortUids?.[effort]) || row?.uid || modelId;
 }
 
+// The transport ends `frames` only after the end-of-stream trailer, so the
+// terminal chunk (and with it tool dispatch) follows a complete response.
 async function* devinChunks(frames, turn) {
   for await (const msg of frames) yield turn.chunk(msg);
   const names = turn.finalToolNames();
