@@ -107,7 +107,7 @@ test('the session catalog call returns a page with its cursor', async () => {
     listSessions: stored.listSessions,
     getRemoteSessionState: async () => null,
     projection: {},
-    retention: { awaitingApprovalSessionIds: () => new Set() },
+    retention: { awaitingApprovalSessionKinds: () => new Map() },
     entries: {},
   });
   assert.deepEqual(await actions.listSessionCatalog({ page: { limit: 1 } }), {
@@ -146,7 +146,7 @@ test('the session catalog marks every session whose live runtime shows an approv
   });
   const expected = [
     { id: 'asks', awaitingApproval: true },
-    { id: 'question', awaitingApproval: true },
+    { id: 'question', awaitingApproval: true, awaitingQuestion: true },
     { id: 'busy' },
     { id: 'cold' },
   ];
@@ -167,4 +167,25 @@ test('a live session that starts or stops showing an approval card announces it 
   busy.updateEntryBusy(entry, { busy: true, toolApproval: null });
   busy.updateEntryBusy(entry, { busy: false });
   assert.deepEqual(seen, ['lead', 'lead'], 'the card went away: once');
+});
+
+test('a live card that turns from an approval into a question, or back, announces each kind change once', (t) => {
+  const seen = [];
+  t.after(onSessionApprovalCardChange((sessionId) => seen.push(sessionId)));
+  let state = {};
+  const entry = { id: 'lead', runtime: { getState: () => state } };
+  const busy = createBusyTracker({ sessions: new Set([entry]), currentSessionId: (row) => row.id });
+  const show = (next) => {
+    state = next;
+    busy.updateEntryBusy(entry, next);
+  };
+  show({ busy: true, toolApproval: { id: 'ap' } });
+  assert.deepEqual([...busy.awaitingApprovalSessionKinds()], [['lead', 'approval']]);
+  show({ busy: true, toolApproval: { id: 'q', kind: 'question' } });
+  show({ busy: true, toolApproval: { id: 'q', kind: 'question' } });
+  assert.deepEqual([...busy.awaitingApprovalSessionKinds()], [['lead', 'question']]);
+  assert.deepEqual(seen, ['lead', 'lead'], 'approval → question: once');
+  show({ busy: true, toolApproval: { id: 'ap2' } });
+  assert.deepEqual([...busy.awaitingApprovalSessionKinds()], [['lead', 'approval']]);
+  assert.deepEqual(seen, ['lead', 'lead', 'lead'], 'question → approval: once');
 });

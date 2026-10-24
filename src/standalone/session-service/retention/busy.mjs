@@ -24,21 +24,28 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     // delegated copy included) announces it, so the session catalog — the one
     // status source every list row has, open pane or not — re-reads it.
     const awaitingApproval = Boolean(state?.toolApproval);
-    if (awaitingApproval !== (entry.awaitingApproval === true)) {
+    const awaitingQuestion = state?.toolApproval?.kind === 'question';
+    if (
+      awaitingApproval !== (entry.awaitingApproval === true) ||
+      awaitingQuestion !== (entry.awaitingQuestion === true)
+    ) {
       entry.awaitingApproval = awaitingApproval;
+      entry.awaitingQuestion = awaitingQuestion;
       emitSessionApprovalCardChange(currentSessionId(entry) || '');
     }
     return next;
   }
 
-  /** Session ids whose live runtime shows an approval card waiting on the user. */
-  function awaitingApprovalSessionIds() {
-    const ids = new Set();
+  /** Session id -> the kind of its pending card ('approval' | 'question') for
+   *  every session whose live runtime shows one waiting on the user. */
+  function awaitingApprovalSessionKinds() {
+    const kinds = new Map();
     for (const entry of sessions) {
       const sessionId = currentSessionId(entry);
-      if (sessionId && entry.runtime?.getState?.()?.toolApproval) ids.add(sessionId);
+      const pending = sessionId ? entry.runtime?.getState?.()?.toolApproval : null;
+      if (pending) kinds.set(sessionId, pending.kind === 'question' ? 'question' : 'approval');
     }
-    return ids;
+    return kinds;
   }
 
   function sessionBusy(entry) {
@@ -88,7 +95,7 @@ export function createBusyTracker({ sessions, currentSessionId }) {
   return {
     stateBusy,
     updateEntryBusy,
-    awaitingApprovalSessionIds,
+    awaitingApprovalSessionKinds,
     sessionBusy,
     liveBusyCount,
     liveTurnBusyCount,

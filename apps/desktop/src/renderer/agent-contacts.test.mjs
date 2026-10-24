@@ -409,6 +409,17 @@ test('a contact surfaces approval and failure from its thread first', () => {
 
 // A bot's home is an agent-mode Lead: its own turn has no pool row, so only
 // the sessions waiting on the user say its turn is blocked, not working.
+test('a question wait (asking) is not counted as an approval', () => {
+  const sessions = [home('github-watcher', { working: true }), home('translator', { working: true })];
+  const needsUser = new Set(['sess_home_github-watcher', 'sess_home_translator']);
+  const asking = new Set(['sess_home_github-watcher']);
+  const [, watcher, translator] = agentContacts(AGENTS, sessions, new Map(), undefined, { needsUser, asking });
+  assert.equal(watcher.approvals, 0);
+  assert.equal(watcher.asking, true);
+  assert.equal(translator.approvals, 1);
+  assert.equal(translator.asking, false);
+});
+
 test('a contact whose own home turn waits on the user reads attention over running', () => {
   const sessions = [home('github-watcher', { working: true }), home('translator', { working: true })];
   const needsUser = new Set(['sess_home_github-watcher']);

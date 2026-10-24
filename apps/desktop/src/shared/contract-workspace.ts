@@ -147,6 +147,9 @@ export interface DesktopSessionSummary {
    *  question, a sub-agent's delegated copy) waiting on the user: its list
    *  rows read "needs you", whether or not any pane receives its lane. */
   awaitingApproval?: boolean;
+  /** With `awaitingApproval`: the pending card is an ask_user question, not a
+   *  tool approval (a background session then reads "awaiting answer"). */
+  awaitingQuestion?: boolean;
   /** Archive: hidden from Recent, restorable; file stays on disk. */
   archived?: boolean;
   /** Favorite: pinned to the Favorites section above Recent. */

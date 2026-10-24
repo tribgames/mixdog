@@ -10,13 +10,17 @@ import { agentPoolStore, startAgentPool } from './agent-activity-model';
 import { withoutDismissedAgentRows } from './agent-dismiss';
 import { dismissedJobsRevision, subscribeDismissedJobs } from './background-jobs-dismissed-store';
 import { browserApprovalSessionIds, subscribeBrowserApprovalSessions } from './browser-approval-marks';
-import { catalogApprovalSessionIds, subscribeCatalogApprovalSessions } from './session-catalog-approvals';
+import {
+  catalogApprovalSessionIds,
+  catalogQuestionSessionIds,
+  subscribeCatalogApprovalSessions,
+} from './session-catalog-approvals';
 import { defaultSessionLaneStore } from './session-lane-store';
 
 interface SessionAttentionIndex {
   needsUser: ReadonlySet<string>;
   /** The needsUser sessions whose wait is an ask_user question (known from a
-   *  shown session's lane; the catalog marks carry no kind). */
+   *  shown session's lane, any other's from the catalog's `awaitingQuestion`). */
   asking: ReadonlySet<string>;
   failed: ReadonlySet<string>;
   /** Sessions whose own agent waits on background work it handed off. */
@@ -120,6 +124,7 @@ interface AttentionSelection {
   questions: ReadonlySet<string>;
   browserApprovals: ReadonlySet<string>;
   catalogApprovals: ReadonlySet<string>;
+  catalogQuestions: ReadonlySet<string>;
   liveSessions: ReadonlySet<string>;
   dismissedRevision: number;
   index: SessionAttentionIndex;
@@ -135,6 +140,7 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
   const questions = defaultSessionLaneStore.questionSessionIds();
   const browserApprovals = browserApprovalSessionIds();
   const catalogApprovals = catalogApprovalSessionIds();
+  const catalogQuestions = catalogQuestionSessionIds();
   const liveSessions = defaultSessionLaneStore.liveSessionIds();
   const dismissedRevision = dismissedJobsRevision();
   const cached = selections.get(store);
@@ -145,6 +151,7 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
     cached.questions === questions &&
     cached.browserApprovals === browserApprovals &&
     cached.catalogApprovals === catalogApprovals &&
+    cached.catalogQuestions === catalogQuestions &&
     cached.liveSessions === liveSessions &&
     cached.dismissedRevision === dismissedRevision
   ) {
@@ -155,8 +162,12 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
     effectiveApprovalSessionIds(approvals, catalogApprovals, liveSessions),
     browserApprovals,
     // A lane's question kind counts only while that lane is live: a left
-    // session's cached question must not mask its catalog approval.
-    new Set([...questions].filter((id) => liveSessions.has(id)))
+    // session's cached question must not mask its catalog approval. Every
+    // other session's kind comes from the catalog.
+    new Set([
+      ...[...questions].filter((id) => liveSessions.has(id)),
+      ...[...catalogQuestions].filter((id) => !liveSessions.has(id)),
+    ])
   );
   const index =
     cached &&
@@ -172,6 +183,7 @@ function selectSessionAttentionIndex(store: AttentionPoolStore): SessionAttentio
     questions,
     browserApprovals,
     catalogApprovals,
+    catalogQuestions,
     liveSessions,
     dismissedRevision,
     index,

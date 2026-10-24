@@ -40,7 +40,7 @@ export function createSessionActionCalls(ctx) {
     responseSessionId,
   } = ctx;
   const { bodyForClient } = ctx.projection;
-  const { retainUnwatched, awaitingApprovalSessionIds } = ctx.retention;
+  const { retainUnwatched, awaitingApprovalSessionKinds } = ctx.retention;
   const { assertAvailable, hostedEntryForSession, entryForSession } = ctx.entries;
 
   /** A cold session's review, read from its durable turn record (the same
@@ -116,9 +116,13 @@ export function createSessionActionCalls(ctx) {
    *  pane receives that session's lane. */
   function withApprovalWaits(rows) {
     if (!Array.isArray(rows)) return rows;
-    const waiting = awaitingApprovalSessionIds();
+    const waiting = awaitingApprovalSessionKinds();
     if (!waiting.size) return rows;
-    return rows.map((row) => (waiting.has(row?.id) ? { ...row, awaitingApproval: true } : row));
+    return rows.map((row) => {
+      const kind = waiting.get(row?.id);
+      if (!kind) return row;
+      return { ...row, awaitingApproval: true, ...(kind === 'question' ? { awaitingQuestion: true } : {}) };
+    });
   }
 
   async function listSessionCatalog(options = {}) {

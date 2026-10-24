@@ -25,9 +25,12 @@ const { effectiveApprovalSessionIds, sessionAttentionIndex, sessionAttentionOf }
 );
 const { useVisibleSessions } = await import('./use-visible-sessions.ts');
 const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
-const { catalogApprovalSessionIds, publishCatalogApprovalSessions, subscribeCatalogApprovalSessions } = await import(
-  './session-catalog-approvals.ts'
-);
+const {
+  catalogApprovalSessionIds,
+  catalogQuestionSessionIds,
+  publishCatalogApprovalSessions,
+  subscribeCatalogApprovalSessions,
+} = await import('./session-catalog-approvals.ts');
 const { WorkspaceTabStrip } = await import('./WorkspaceTabStrip.tsx');
 const { SessionSidebarRow } = await import('./session-sidebar-rows.tsx');
 const { projectsSection } = await import('./session-sidebar-sections.tsx');
@@ -532,6 +535,62 @@ test('a daemon disconnect drops a shown lane’s approval authority until its ne
     // Reconnected, the first real frame makes the lane the source again.
     await apply({ ...approvalFrame, frameSource: 'replay' });
     assert.ok(defaultSessionLaneStore.liveSessionIds().has('shown'));
+    assert.equal(attention(), 'needs-you');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    publishCatalogApprovalSessions([]);
+    defaultSessionLaneStore.clear();
+  }
+});
+
+test('a background session reads asking from the catalog question kind; a live lane still wins', async () => {
+  window.mixdogDesktop = {
+    listAgentPool: async () => [],
+    subscribeAgentPool: () => () => {},
+  };
+  defaultSessionLaneStore.clear();
+  const tabs = [{ key: 'session:bg', title: 'bg', selection: { kind: 'session', id: 'bg' } }];
+  const row = (extra = {}) => ({ id: 'bg', title: 'bg', preview: '', updatedAt: 1, messageCount: 2, ...extra });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const show = (ids) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(Visible, { ids }),
+          React.createElement(WorkspaceTabStrip, {
+            tabs,
+            activeKey: 'session:bg',
+            workingSessionIds: new Set(['bg']),
+            onSelectTab() {},
+            onCloseTab() {},
+            onReorderTab() {},
+            onNewTask() {},
+          })
+        )
+      )
+    );
+  const attention = () => host.querySelector('.workspace-tab[data-tab-key="session:bg"]').dataset.attention;
+  try {
+    await show([]);
+    await act(async () => publishCatalogApprovalSessions([row({ awaitingApproval: true })]));
+    assert.equal(attention(), 'needs-you', 'an approval wait stays needs-you');
+    await act(async () => publishCatalogApprovalSessions([row({ awaitingApproval: true, awaitingQuestion: true })]));
+    assert.deepEqual([...catalogQuestionSessionIds()], ['bg']);
+    assert.equal(attention(), 'asking', 'same membership, new kind: still republished');
+    // Shown with a live approval frame: the lane wins over the catalog's question kind.
+    await show(['bg']);
+    await act(async () =>
+      defaultSessionLaneStore.apply({
+        sessionId: 'bg',
+        frameSource: 'replay',
+        snapshot: { sessionId: 'bg', busy: true, toolApproval: { id: 'ap', tool: 'shell' } },
+      })
+    );
     assert.equal(attention(), 'needs-you');
   } finally {
     await act(async () => root.unmount());

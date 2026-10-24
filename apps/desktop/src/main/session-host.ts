@@ -337,9 +337,21 @@ export class SessionHost implements DesktopService {
     this.settlePublishedAgentPool();
     let changed = false;
     this.rawSessionRows = this.rawSessionRows.map((row) => {
-      if (!('working' in row) && !('agentWorking' in row) && !('awaitingApproval' in row)) return row;
+      if (
+        !('working' in row) &&
+        !('agentWorking' in row) &&
+        !('awaitingApproval' in row) &&
+        !('awaitingQuestion' in row)
+      )
+        return row;
       changed = true;
-      const { working: _working, agentWorking: _agentWorking, awaitingApproval: _awaitingApproval, ...settled } = row;
+      const {
+        working: _working,
+        agentWorking: _agentWorking,
+        awaitingApproval: _awaitingApproval,
+        awaitingQuestion: _awaitingQuestion,
+        ...settled
+      } = row;
       return settled;
     });
     if (changed) this.publishSessionCatalog(this.sessionCatalog());
