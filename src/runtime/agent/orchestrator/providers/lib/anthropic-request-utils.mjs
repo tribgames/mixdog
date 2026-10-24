@@ -17,7 +17,7 @@ const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
 // Anthropic allows at most 4 cache_control breakpoints across the whole
 // serialized request (tools + system + messages).
-export const ANTHROPIC_MAX_CACHE_BREAKPOINTS = 4;
+const ANTHROPIC_MAX_CACHE_BREAKPOINTS = 4;
 
 // A block can carry a breakpoint unless it is thinking/redacted_thinking or an
 // empty text block (both are rejected by the API).

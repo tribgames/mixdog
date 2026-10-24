@@ -13,7 +13,7 @@ import { artifactLines, artifactRecords, normalizeHandoffFiles } from '../../../
 import { transcriptAttachmentFields } from '../../../shared/transcript-metadata.mjs';
 import { agentIdOfHomeSession } from './agent-home.mjs';
 
-export const ROUTINE_RESULT_SOURCE = 'schedule-result';
+const ROUTINE_RESULT_SOURCE = 'schedule-result';
 const SUMMARY_LIMIT = 600;
 
 /** The one-line, bounded summary a routine result keeps of its run output. */
@@ -275,7 +275,7 @@ export function agentTaskMessage({
 }
 
 /** Reply text one wake message carries across all its reports. */
-export const WAKE_TEXT_BUDGET = 24000;
+const WAKE_TEXT_BUDGET = 24000;
 
 /** A task report's content with its reply replaced by the row's one-line
  *  summary and a pointer to the session; null for any other message. */

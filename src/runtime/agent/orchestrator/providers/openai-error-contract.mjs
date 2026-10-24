@@ -19,7 +19,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
  * Parse an HTTP error body ONCE into its contract fields. `message` is the
  * body's own message (untruncated); callers truncate for diagnostics.
  */
-export function parseErrorBody(text) {
+function parseErrorBody(text) {
   let json = null;
   try {
     json = JSON.parse(String(text || ''));

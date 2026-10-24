@@ -35,12 +35,10 @@ export interface RoutineNotice {
   }>;
 }
 
-export const ROUTINE_RESULT_SOURCE: 'schedule-result';
 export const TASK_LOOP_CAP: number;
 export function routineSummary(text: unknown): string;
 export const REPLY_LIMIT: number;
 export function boundedReply(text: unknown): { text: string; chars: number };
-export const WAKE_TEXT_BUDGET: number;
 export function routineResultMessage(options: {
   kind?: 'schedule' | 'webhook';
   name: string;

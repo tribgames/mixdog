@@ -26,7 +26,7 @@ export function messageIdOf(message) {
 }
 
 /** Whether `meta` can hold a transcript id (absent or a plain object). */
-export function canCarryMessageId(message) {
+function canCarryMessageId(message) {
   if (!message || typeof message !== 'object') return false;
   const meta = message.meta;
   return meta === undefined || meta === null || (typeof meta === 'object' && !Array.isArray(meta));

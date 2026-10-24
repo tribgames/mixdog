@@ -38,7 +38,7 @@ import {
   savesAutomation,
 } from './run-policy.mjs';
 
-export const OUTBOUND_APPROVAL_REASON = 'This sends or posts outside Mixdog; it needs your approval.';
+const OUTBOUND_APPROVAL_REASON = 'This sends or posts outside Mixdog; it needs your approval.';
 export const BLOCKED_ACTION_REASON = "This agent's permission blocks this action.";
 /** Outbound grants may be remembered for this agent, never for every agent;
  *  payments and deletes never. */

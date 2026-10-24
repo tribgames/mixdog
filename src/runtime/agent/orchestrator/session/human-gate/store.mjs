@@ -17,7 +17,7 @@ import { ACTION_KINDS, isRememberableAction } from './outbound-policy.mjs';
 const ANY_AGENT = '*';
 const FIELD_LIMIT = 200;
 const AUDIT_KEYS = ['agentId', 'kind', 'action', 'tool', 'target', 'decision', 'device'];
-export const PERMISSION_MODES = Object.freeze(['ask', 'allow', 'block']);
+const PERMISSION_MODES = Object.freeze(['ask', 'allow', 'block']);
 
 const field = (value) => String(value ?? '').slice(0, FIELD_LIMIT);
 const grantId = (agentId, action) =>

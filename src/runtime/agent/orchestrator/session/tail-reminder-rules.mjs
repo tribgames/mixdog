@@ -23,7 +23,7 @@ import { AGENT_MODE } from './agent-mode.mjs';
 import { _buildLeadLanguage } from './manager/rules-cache.mjs';
 import { TAIL_REMINDER_META } from '../providers/lib/tail-reminder-split.mjs';
 
-export const TAIL_REMINDER_TAGS = Object.freeze(['provider', 'model', 'language', 'role']);
+const TAIL_REMINDER_TAGS = Object.freeze(['provider', 'model', 'language', 'role']);
 const ROLES = ['lead', 'bot', 'worker'];
 
 const PROVIDER_FAMILIES = Object.freeze({
@@ -90,7 +90,7 @@ export function modelFamilyId(model) {
 }
 
 /** The session's role: 'worker' (agent-owned), 'bot' (agent mode) or 'lead'. */
-export function tailReminderRole(session) {
+function tailReminderRole(session) {
   if (session?.owner === 'agent') return 'worker';
   return session?.sessionMode === AGENT_MODE ? 'bot' : 'lead';
 }

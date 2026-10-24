@@ -22,7 +22,7 @@ const positiveInt = (value) => {
  * the limit a relay gateway declared for the model — when both exist; else
  * whichever is known, else null (nothing known, nothing imposed).
  */
-export function geminiOutputCeiling(model, outputLimit = null, gatewayLimit = null) {
+function geminiOutputCeiling(model, outputLimit = null, gatewayLimit = null) {
   const id = String(model || '').replace(/^models\//, '');
   const declared = positiveInt(outputLimit) ?? positiveInt(getModelMetadataSync(id, 'gemini')?.outputTokens);
   const gateway = positiveInt(gatewayLimit);

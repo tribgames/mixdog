@@ -84,15 +84,12 @@ export const ROOM_LIMITS: Readonly<
   Record<'maxRounds' | 'maxMessages', Readonly<{ min: number; max: number; default: number }>>
 >;
 export const ROOM_INSTRUCTION_LIMIT: number;
-export const ROOM_PASS_REPLY: string;
 export const ROOM_ROW_SOURCE: string;
-export function isRoomId(value: unknown): value is string;
 export function roomSessionId(roomId: unknown): string;
 export function roomIdOfSession(sessionId: unknown): string;
 export function roomMemberSessionId(roomId: unknown, agentId: unknown): string;
 export function roomMemberOfSession(sessionId: unknown): { roomId: string; agentId: string } | null;
 export function isRoomThreadSessionId(sessionId: unknown): boolean;
-export function clampRoomLimit(kind: 'maxRounds' | 'maxMessages', value: unknown): number;
 export function normalizeRoomConfig(value?: Partial<RoomConfig> & Record<string, unknown>): RoomConfig;
 export function parseRoomAsk(
   text: unknown,

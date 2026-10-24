@@ -51,7 +51,7 @@ const GEMINI_RPC_CODES = new Set(['UNAVAILABLE', 'DEADLINE_EXCEEDED', 'ABORTED',
  * Copy a typed Gemini/gRPC status onto the error so classifyError can retry
  * UNAVAILABLE/DEADLINE_EXCEEDED/ABORTED/INTERNAL without an HTTP status.
  */
-export function stampGeminiRpcError(err) {
+function stampGeminiRpcError(err) {
   if (!err || typeof err !== 'object') return err;
   if (typeof err.geminiStatus === 'string' && err.geminiStatus) return err;
   for (const field of [err.status, err.error?.status, err.cause?.status, err.cause?.geminiStatus]) {
@@ -476,7 +476,12 @@ export function createGeminiTextLeakGuard({
   const pumpLeakBuffer = (final) => {
     if (!_enabled) return;
     if (!leakBuffer && !final) return;
-    const { emit, calls, rest, fenceState: nextFence } = scanLeakedToolCalls(leakBuffer, {
+    const {
+      emit,
+      calls,
+      rest,
+      fenceState: nextFence,
+    } = scanLeakedToolCalls(leakBuffer, {
       isKnownTool: _isKnownTool,
       final,
       fenceState,

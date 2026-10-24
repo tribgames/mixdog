@@ -33,7 +33,7 @@ export const ROOM_LIMITS = Object.freeze({
 /** The longest supervisor note a member's turn carries. */
 export const ROOM_INSTRUCTION_LIMIT = 200;
 /** A member's reply that says it has nothing to add. */
-export const ROOM_PASS_REPLY = '(pass)';
+const ROOM_PASS_REPLY = '(pass)';
 /** `meta.source` of every row stored in a room's log. */
 export const ROOM_ROW_SOURCE = 'agent-room';
 /** First-time members see at most this many earlier rows. */
@@ -48,7 +48,7 @@ const PART_TYPES = new Set(['image', 'file', 'text']);
 const ATTACHMENT_LIMIT = 64;
 const SENDER_SESSION = /^[A-Za-z0-9_.:-]{1,200}$/;
 
-export function isRoomId(value) {
+function isRoomId(value) {
   return typeof value === 'string' && ROOM_ID.test(value);
 }
 
@@ -90,7 +90,7 @@ export function isRoomThreadSessionId(sessionId) {
 }
 
 /** `value` as a whole number inside the `kind` limit's bounds. */
-export function clampRoomLimit(kind, value) {
+function clampRoomLimit(kind, value) {
   const bounds = ROOM_LIMITS[kind];
   const number = Math.round(Number(value));
   if (!Number.isFinite(number)) return bounds.default;
