@@ -285,6 +285,7 @@ const api: DesktopApi = {
   sshServerLoginCancel: (id, flowId) => invokeIpc(DESKTOP_IPC.sshServerLoginCancel, id, flowId),
   sshServerLoginSaveKey: (id, provider, key) => invokeIpc(DESKTOP_IPC.sshServerLoginSaveKey, id, provider, key),
   sshServerLoginLogout: (id, provider) => invokeIpc(DESKTOP_IPC.sshServerLoginLogout, id, provider),
+  sshServerLoginRemoveCustom: (id, provider) => invokeIpc(DESKTOP_IPC.sshServerLoginRemoveCustom, id, provider),
   subscribeSshAskpass: (listener) => subscribeIpc(DESKTOP_IPC.sshAskpass, listener),
   sshDiagnosticsLog: (ref) => invokeIpc(DESKTOP_IPC.sshDiagnosticsLog, ref),
   sshDiagnosticsCopy: (ref) => invokeIpc(DESKTOP_IPC.sshDiagnosticsCopy, ref),

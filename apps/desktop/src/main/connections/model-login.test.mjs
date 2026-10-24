@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { DESKTOP_IPC } from '../../shared/contract.ts';
 import { registerWindowSettingsIpc } from '../ipc-window-settings.ts';
+import { createServerLoginHandlers } from '../ssh/ssh-ipc-server-logins.ts';
 import { createModelProxyHost } from '../model-proxy-host.ts';
 import { ConnectionPool, createConnectionManager, createDesktopConnection } from './index.ts';
 import {
@@ -101,6 +102,45 @@ test("a watch of the server's own logins ends on a changed model login or a disc
   assert.deepEqual(ended, ['mode', 'stale', 'disconnect', 'after']);
   await own.connection.applyModelLogin('server');
   assert.equal(ended.length, 4, 'an ended watch is never called again');
+});
+
+test('a pending login without a forward is cancelled on the old attachment even when the restart fails', async (t) => {
+  const own = serverConnection(t, 'server');
+  const sent = [];
+  own.connection.client.invokeCapability = async (capability, args) => {
+    sent.push([capability, args]);
+    return { value: capability === 'beginOAuthProviderLogin' ? { flowId: 'f1', provider: 'openai-oauth', state: 'pending', url: 'https://auth.example/x' } : null };
+  };
+  own.connection.client.reattach = async () => {
+    throw new Error('the daemon did not restart');
+  };
+  const host = { id: 'srv', name: 'Box', target: 'root@127.0.0.1:2223', lastConnectedAt: 1 };
+  const handlers = createServerLoginHandlers({
+    store: async () => ({ get: () => host }),
+    connection: () => {
+      const modelLogin = own.connection.modelLogin;
+      return {
+        modelLogin,
+        invoke: async (capability, args) => (await own.connection.client.invokeCapability(capability, args)).value,
+        busySessions: async () => 0,
+        onEnd: (listener) => own.connection.onModelLoginEnd(modelLogin, listener),
+      };
+    },
+    openExternal: async () => undefined,
+    // The callback port is taken here: nothing is forwarded.
+    forwardCallback: async () => {
+      throw new Error('port in use');
+    },
+  });
+  const started = await handlers.begin('srv', 'openai-oauth');
+  assert.equal(started.forwarded, false);
+  await assert.rejects(own.connection.applyModelLogin('pc'), /did not restart/);
+  assert.deepEqual(
+    sent.filter(([capability]) => capability === 'cancelOAuthProviderLogin'),
+    [['cancelOAuthProviderLogin', ['f1']]],
+    'the login is cancelled before the restart is attempted'
+  );
+  await handlers.dispose();
 });
 
 test('a model proxy host that is not serving takes up no request until it serves again', async () => {

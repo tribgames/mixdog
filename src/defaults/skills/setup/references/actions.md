@@ -150,6 +150,19 @@ key's source.
 
 - API-key and OAuth providers: `open providers`, then the user completes
   authentication in the visible UI.
+- An SSH server's models run on this PC's logins by default. A server can use
+  its own instead (Settings → Connection → the server → Model login → Server
+  accounts); its logins are then managed in "Manage server logins" (a
+  subscription login opens in this PC's browser; an API key is stored on the
+  server, in an owner-only private file where it has no keychain, as on
+  Linux). No setup action exists for this. Changing the model login restarts
+  the server's Mixdog and stops its running sessions, so say so before the
+  user confirms. The login key file (Advanced options of the connect dialog,
+  or the server's settings) is also UI-only; it applies to every connection
+  to that server. The connect dialog refuses a different key or folder for a
+  server that is connected already (disconnect first); the server's own
+  settings accept and save a changed key file while connected, and it applies
+  from the next connection.
 - Custom providers are registered, edited (non-secret fields too), tested, and
   removed in the Providers UI; no setup action exists yet;
   `status providers` with `detail: true` lists them as API rows with `custom: true`.

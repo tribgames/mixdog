@@ -64,6 +64,18 @@ An attached Desktop or TUI may navigate and return `opened:true`.
   the remote-access switch, connected devices (rename, Disconnect all), "PCs
   I opened", SSH servers (per-server settings, server logins, cleanup), and
   "Reopen server windows". Only `revoke_linked_device` has a tool action.
+  SSH connect: the address dialog's collapsed "Advanced options" take a login
+  key file (typed or browsed) and a default server folder; the key file is
+  used for every later connection to that server (reconnects included), and a
+  server is saved only after a connection with those settings worked. A server
+  that is connected already refuses a changed key or folder: disconnect first.
+  Per-server "Model login" is "This PC's accounts" (the default; models run
+  through this PC, only while it is connected) or "Server accounts" (models run
+  with the logins signed in on the server). "Manage server logins" (Server
+  accounts, connected server) logs a provider in or out on the server; an API
+  key saved there is kept in a private file (owner-only) when the server has
+  no keychain, as on Linux. Changing the model login restarts the server's
+  Mixdog after one confirmation and stops its running sessions.
 - Settings → System: update, keep-awake, run in background after the window
   closes, and Doctor.
 - Settings → Developer options: data-driven sections (approvals, risk-gated

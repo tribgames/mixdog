@@ -585,6 +585,8 @@ export interface DesktopApi {
   sshServerLoginSaveKey?(id: string, provider: string, key: string): Promise<void>;
   /** Removes a provider login from the server. */
   sshServerLoginLogout?(id: string, provider: string): Promise<void>;
+  /** Deletes a custom provider (and its models) from the server. */
+  sshServerLoginRemoveCustom?(id: string, provider: string): Promise<void>;
   /** A server window's link to its daemon; null in this PC's window. */
   getConnectionLink?(): Promise<import('./contract-connection-link').DesktopConnectionLinkView | null>;
   subscribeConnectionLink?(

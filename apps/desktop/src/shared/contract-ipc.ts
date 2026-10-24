@@ -118,6 +118,7 @@ export const DESKTOP_IPC = {
   sshServerLoginCancel: 'mixdog:ssh-server-login-cancel',
   sshServerLoginSaveKey: 'mixdog:ssh-server-login-save-key',
   sshServerLoginLogout: 'mixdog:ssh-server-login-logout',
+  sshServerLoginRemoveCustom: 'mixdog:ssh-server-login-remove-custom',
   sshProgress: 'mixdog:ssh-progress',
   connectionLinkGet: 'mixdog:connection-link-get',
   connectionLinkState: 'mixdog:connection-link-state',

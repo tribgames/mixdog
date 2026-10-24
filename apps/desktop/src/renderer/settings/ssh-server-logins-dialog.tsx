@@ -13,7 +13,7 @@ import type {
 } from '../../shared/contract-ssh';
 import { t } from '../i18n';
 import type { CapabilityApi } from './capability-data';
-import { ConnDialog } from './connection-dialogs';
+import { ConfirmDialog, ConnDialog } from './connection-dialogs';
 import { isConnectFirstError, sshErrorText } from './ssh-error-text';
 
 const NO_SERVER_LOGINS: DesktopSshServerLogins = {
@@ -46,6 +46,7 @@ export function useServerLogins(api: CapabilityApi, hostId: string) {
 function loginDetail(provider: DesktopSshServerLogin): string {
   if (!provider.signedIn) return t('Not signed in');
   if (provider.fromEnvironment) return t('API key · from the server’s environment');
+  if (provider.keyless) return t('No API key needed');
   if (provider.kind === 'api') {
     return provider.storedInPrivateFile ? t('API key · stored in a private file') : t('API key');
   }
@@ -66,13 +67,22 @@ function LoginRow({
   onLogOut(): void;
 }) {
   let actions = null;
-  if (!provider.signedIn) {
+  // An environment key cannot be changed here; a keyless custom provider has no key but can be removed.
+  if (provider.fromEnvironment) {
+    actions = null;
+  } else if (provider.keyless) {
+    actions = provider.custom ? (
+      <button type="button" className="conn-btn conn-btn--sm" disabled={disabled} onClick={onLogOut}>
+        {t('Delete')}
+      </button>
+    ) : null;
+  } else if (!provider.signedIn) {
     actions = (
       <button type="button" className="conn-btn conn-btn--sm conn-btn--primary" disabled={disabled} onClick={onLogIn}>
         {t('Log in')}
       </button>
     );
-  } else if (!provider.fromEnvironment) {
+  } else {
     actions = (
       <>
         {provider.kind === 'api' && (
@@ -81,7 +91,7 @@ function LoginRow({
           </button>
         )}
         <button type="button" className="conn-btn conn-btn--sm" disabled={disabled} onClick={onLogOut}>
-          {t('Log out')}
+          {provider.custom ? t('Delete') : t('Log out')}
         </button>
       </>
     );
@@ -116,31 +126,41 @@ function LoginSteps({
     const address = String(new FormData(form).get('address') ?? '').trim();
     if (address) onPaste(address, form);
   };
+  const manual = flow.manualCodeSupported !== false;
   return (
     <div className="ssh-login-codebox">
       <ol>
         <li>{t('When the browser opens, sign in to {{provider}}.', { provider: name })}</li>
+        {flow.userCode && (
+          <li data-user-code={flow.userCode}>
+            {t('When the browser asks for a code, enter {{code}}.', { code: flow.userCode })}
+          </li>
+        )}
         {flow.forwarded && <li>{t('When the sign-in finishes, it is passed to the server automatically.')}</li>}
-        <li>
-          {flow.forwarded
-            ? t('If the browser shows “can’t connect”, paste the address from its address bar below.')
-            : t('After signing in, paste the address from the browser’s address bar, or the code it shows, below.')}
-        </li>
+        {manual && (
+          <li>
+            {flow.forwarded
+              ? t('If the browser shows “can’t connect”, paste the address from its address bar below.')
+              : t('After signing in, paste the address from the browser’s address bar, or the code it shows, below.')}
+          </li>
+        )}
       </ol>
-      <form onSubmit={submit}>
-        <input
-          type="text"
-          name="address"
-          className="conn-input"
-          placeholder={REDIRECT_EXAMPLE}
-          aria-label={t('Paste the address after signing in')}
-          aria-invalid={error ? true : undefined}
-          autoComplete="off"
-          spellCheck={false}
-          // biome-ignore lint/a11y/noAutofocus: the paste field is the next step of the login just started.
-          autoFocus
-        />
-      </form>
+      {manual && (
+        <form onSubmit={submit}>
+          <input
+            type="text"
+            name="address"
+            className="conn-input"
+            placeholder={REDIRECT_EXAMPLE}
+            aria-label={t('Paste the address after signing in')}
+            aria-invalid={error ? true : undefined}
+            autoComplete="off"
+            spellCheck={false}
+            // biome-ignore lint/a11y/noAutofocus: the paste field is the next step of the login just started.
+            autoFocus
+          />
+        </form>
+      )}
       {error && (
         <p className="conn-field-msg conn-field-msg--error" role="alert">
           {error}
@@ -209,6 +229,7 @@ export function SshServerLoginsDialog({
   const [flow, setFlow] = useState<DesktopSshServerLoginFlow | null>(null);
   const [flowName, setFlowName] = useState('');
   const [keyFor, setKeyFor] = useState<DesktopSshServerLogin | null>(null);
+  const [removing, setRemoving] = useState<DesktopSshServerLogin | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pasteError, setPasteError] = useState('');
@@ -249,15 +270,21 @@ export function SshServerLoginsDialog({
   };
 
   /** A status answer: done refreshes the list, a failure says why. */
-  const settle = (next: DesktopSshServerLoginFlow): void => {
-    if (next.state === 'pending') {
-      setFlow((current) => (current?.flowId === next.flowId ? { ...current, forwarded: next.forwarded } : current));
-      return;
-    }
+  const finish = (next: DesktopSshServerLoginFlow): void => {
     setFlow(null);
     setPasteError('');
     if (next.state === 'complete') refresh();
     else if (next.state !== 'cancelled') setError(next.error || t('The sign-in did not finish.'));
+  };
+
+  /** A status or paste answer: only the active login's, in a mounted dialog. */
+  const settle = (next: DesktopSshServerLoginFlow): void => {
+    if (!mounted.current || flowRef.current?.flowId !== next.flowId) return;
+    if (next.state === 'pending') {
+      setFlow((current) => (current?.flowId === next.flowId ? { ...current, forwarded: next.forwarded } : current));
+      return;
+    }
+    finish(next);
   };
 
   const pendingId = flow?.state === 'pending' ? flow.flowId : '';
@@ -322,7 +349,7 @@ export function SshServerLoginsDialog({
         }
         setFlowName(provider.name);
         if (started.state === 'pending') setFlow(started);
-        else settle(started);
+        else finish(started);
       })
       .catch(report)
       .finally(() => setBusy(false));
@@ -338,7 +365,9 @@ export function SshServerLoginsDialog({
         form.reset();
         settle(next);
       })
-      .catch((reason: unknown) => setPasteError(sshErrorText(reason)));
+      .catch((reason: unknown) => {
+        if (mounted.current && flowRef.current?.flowId === pending.flowId) setPasteError(sshErrorText(reason));
+      });
   };
 
   let body = <p className="conn-note">{t('Loading…')}</p>;
@@ -354,10 +383,27 @@ export function SshServerLoginsDialog({
             disabled={busy}
             onLogIn={() => logIn(provider)}
             onChangeKey={() => setKeyFor(provider)}
-            onLogOut={() => act(() => Promise.resolve(api.sshServerLoginLogout?.(host.id, provider.id)))}
+            onLogOut={() => {
+              // Removing a custom provider deletes it on the server: asked first, as in Settings.
+              if (provider.custom) setRemoving(provider);
+              else act(() => Promise.resolve(api.sshServerLoginLogout?.(host.id, provider.id)));
+            }}
           />
         ))}
       </div>
+    );
+  }
+  if (removing) {
+    return (
+      <ConfirmDialog
+        title={t('Delete custom provider?')}
+        description={t('Remove {{name}} and its saved API key. Its models will no longer be available.', {
+          name: removing.name,
+        })}
+        confirmLabel={t('Delete')}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => act(() => Promise.resolve(api.sshServerLoginRemoveCustom?.(host.id, removing.id)))}
+      />
     );
   }
   return (
@@ -375,6 +421,22 @@ export function SshServerLoginsDialog({
         </>
       }
     >
+      {logins?.keychain && (
+        <p
+          className="conn-field-msg conn-field-msg--error"
+          role="alert"
+          data-keychain-state={logins.keychain.state}
+          data-keychain-kind={logins.keychain.kind}
+        >
+          {t(logins.keychain.message)}
+          {logins.keychain.path && (
+            <>
+              {' '}
+              <code>{logins.keychain.path}</code>
+            </>
+          )}
+        </p>
+      )}
       {body}
       {flow && <LoginSteps flow={flow} name={flowName} error={pasteError} onPaste={paste} />}
       {keyFor && (

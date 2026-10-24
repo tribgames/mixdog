@@ -30,6 +30,7 @@ const CHANNELS = [
   'sshServerLoginCancel',
   'sshServerLoginSaveKey',
   'sshServerLoginLogout',
+  'sshServerLoginRemoveCustom',
 ];
 /** Answered in a server window too (about its own server only). */
 const DIAGNOSTICS_CHANNELS = ['sshDiagnosticsLog', 'sshDiagnosticsCopy', 'sshServerLog'];

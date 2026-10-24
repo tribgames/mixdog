@@ -202,6 +202,10 @@ export interface DesktopSshProgress {
   detail?: string;
 }
 
+/** Where an API key's effective value comes from on the server: its OS keychain, its private
+ *  secrets file (no keychain provider), or an environment variable (which wins over both). */
+export type DesktopSshCredentialSource = 'keychain' | 'private-file' | 'environment';
+
 /** One provider login stored on a server (its daemon's own config). */
 export interface DesktopSshServerLogin {
   id: string;
@@ -209,12 +213,31 @@ export interface DesktopSshServerLogin {
   /** 'oauth': a subscription login; 'api': an API key. */
   kind: 'oauth' | 'api';
   signedIn: boolean;
+  /** An API key's effective source on the server, when it reports one. */
+  credentialSource?: DesktopSshCredentialSource;
   /** The key comes from the server's environment: it cannot be changed or removed here. */
   fromEnvironment?: boolean;
   /** The key is kept in the server's private secrets file (the server has no OS keychain). */
   storedInPrivateFile?: boolean;
+  /** A custom provider of the server's own (an 'api' row): its key is saved and the provider removed
+   *  through the custom-provider operations, not the built-in key ones. */
+  custom?: boolean;
+  /** A custom provider that needs no key at all: it has no key to enter, change or remove. */
+  keyless?: boolean;
   /** A signed-in subscription's account as the server knows it (its email). */
   identity?: string;
+}
+
+/** Why the server's stored keys cannot be read (its keyring is locked, or its private secrets
+ *  store is unsafe): the sanitized issue the server's setup reports. Never holds a secret. */
+export interface DesktopSshKeychainIssue {
+  state: string;
+  /** For an unsafe private store: 'permissions' | 'owner' | 'type'. */
+  kind?: string;
+  /** The server's fixed, translatable hint. */
+  message: string;
+  /** The server's secrets folder to repair. */
+  path?: string;
 }
 
 /** The server's logins as the settings dialog shows them. `connected`: the
@@ -226,6 +249,8 @@ export interface DesktopSshServerLogins {
   /** Running sessions on the server (null when unknown). */
   busySessions: number | null;
   providers: DesktopSshServerLogin[] | null;
+  /** Set when the server's credential storage needs attention. */
+  keychain?: DesktopSshKeychainIssue;
 }
 
 /** A subscription login running on the server; `forwarded`: the provider's
@@ -237,4 +262,8 @@ export interface DesktopSshServerLoginFlow {
   url: string | null;
   error: string | null;
   forwarded: boolean;
+  /** The device code the provider's page asks for, when the URL does not carry it. */
+  userCode?: string;
+  /** Whether a pasted address or code can complete the login (absent: unknown, offered). */
+  manualCodeSupported?: boolean;
 }

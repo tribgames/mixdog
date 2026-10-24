@@ -7,12 +7,15 @@
 // reaches the server. Pasting the redirected address completes it otherwise.
 import type { DesktopCapability } from '../../shared/contract-capabilities';
 import type {
+  DesktopSshCredentialSource,
+  DesktopSshKeychainIssue,
   DesktopSshServerLogin,
   DesktopSshServerLoginFlow,
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
 import type { SshModelLogin } from './ssh-context';
 import type { SshHostRecord, SshHostStore } from './ssh-host-store';
+import { redactSecrets } from '../../shared/redact-secret';
 import { text } from './ssh-ipc-input';
 
 /** An attached server connection, as the login handlers use it. */
@@ -86,6 +89,8 @@ interface QueuedCancel {
   startedAt: number;
 }
 const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** A custom provider's generated id (CUSTOM_ID_RE in provider-admin.mjs). */
+const CUSTOM_PROVIDER_ID = /^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_KEY_LENGTH = 8_192;
 const MAX_URL_LENGTH = 16_384;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is refused.
@@ -103,8 +108,10 @@ const record = (value: unknown): Record<string, unknown> =>
 const list = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.map(record) : []);
 const optionalText = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
 
-/** The port of a loopback `http://localhost:<port>/…` redirect_uri in an
- *  authorization URL: the server's callback listener for this login. */
+/** The port of an IPv4 loopback `http://localhost:<port>/…` redirect_uri in an
+ *  authorization URL: the server's callback listener for this login. An IPv6
+ *  `[::1]` redirect is refused (null): the forward is IPv4-only, so such a
+ *  login completes by pasting the redirected address. */
 export function callbackPortOf(authUrl: string | null): number | null {
   if (!authUrl) return null;
   let redirect: URL;
@@ -115,9 +122,15 @@ export function callbackPortOf(authUrl: string | null): number | null {
   } catch {
     return null;
   }
-  if (redirect.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(redirect.hostname)) return null;
+  if (redirect.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(redirect.hostname)) return null;
   const port = Number(redirect.port);
   return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : null;
+}
+
+/** A failed key save, safe to show and log: the key itself is blanked out of
+ *  the server's message. */
+function keyFailure(error: unknown, secret: string): Error {
+  return new Error(redactSecrets(error instanceof Error ? error.message : String(error), [secret]));
 }
 
 function providerId(value: unknown): string {
@@ -126,19 +139,30 @@ function providerId(value: unknown): string {
   return id;
 }
 
+const CREDENTIAL_SOURCES: readonly DesktopSshCredentialSource[] = ['keychain', 'private-file', 'environment'];
+
 function loginRows(setup: unknown): DesktopSshServerLogin[] {
   const source = record(setup);
   const row = (entry: Record<string, unknown>, kind: DesktopSshServerLogin['kind']): DesktopSshServerLogin | null => {
     const id = optionalText(entry.id);
     if (!id) return null;
-    const fromEnvironment = kind === 'api' && entry.env === true && entry.stored !== true;
+    // Reported as the server states it; the actions follow `fromEnvironment` alone.
+    const credentialSource = kind === 'api' ? CREDENTIAL_SOURCES.find((known) => known === entry.credentialSource) : undefined;
+    // An environment key with nothing stored is read-only; a stored key can still be changed or
+    // logged out. A custom provider with a key variable takes no key saved here.
+    const fromEnvironment =
+      kind === 'api' &&
+      ((entry.env === true && entry.stored !== true) || (entry.custom === true && optionalText(entry.apiKeyEnv) !== null));
     return {
       id,
       name: optionalText(entry.name) ?? id,
       kind,
       signedIn: entry.authenticated === true,
+      ...(credentialSource ? { credentialSource } : {}),
       ...(fromEnvironment ? { fromEnvironment: true } : {}),
       ...(kind === 'api' && entry.detail === 'stored in private file' ? { storedInPrivateFile: true } : {}),
+      ...(kind === 'api' && entry.custom === true ? { custom: true } : {}),
+      ...(kind === 'api' && entry.custom === true && entry.auth === 'none' ? { keyless: true } : {}),
     };
   };
   const rows = [
@@ -147,6 +171,22 @@ function loginRows(setup: unknown): DesktopSshServerLogin[] {
   ].filter((entry): entry is DesktopSshServerLogin => entry !== null);
   // Signed-in logins first; each group keeps the server's order.
   return [...rows.filter((entry) => entry.signedIn), ...rows.filter((entry) => !entry.signedIn)];
+}
+
+/** The server's credential-storage issue from its setup, reduced to plain
+ *  bounded text (state, kind, hint, folder); undefined without one. */
+function keychainIssueOf(setup: unknown): DesktopSshKeychainIssue | undefined {
+  const issue = record(record(setup).keychain);
+  const bounded = (value: unknown, max: number): string | null => {
+    const found = optionalText(value);
+    return found && found.length <= max && !CONTROL_CHARACTERS.test(found) ? found : null;
+  };
+  const state = bounded(issue.state, 40);
+  const message = bounded(issue.message, 400);
+  if (!state || !message) return undefined;
+  const kind = bounded(issue.kind, 40);
+  const path = bounded(issue.path, 1_024);
+  return { state, message, ...(kind ? { kind } : {}), ...(path ? { path } : {}) };
 }
 
 /** The selected account of a server's subscription roster, as it names
@@ -163,6 +203,7 @@ function flowOf(value: unknown, forwarded: boolean): DesktopSshServerLoginFlow &
   const flowId = optionalText(flow.flowId);
   if (!flowId) throw new Error('The server did not start a login.');
   const state = String(flow.state || 'pending') as DesktopSshServerLoginFlow['state'];
+  const userCode = optionalText(flow.userCode);
   return {
     flowId,
     provider: String(flow.provider || ''),
@@ -171,6 +212,8 @@ function flowOf(value: unknown, forwarded: boolean): DesktopSshServerLoginFlow &
     manualUrl: optionalText(flow.manualUrl),
     error: optionalText(flow.error),
     forwarded,
+    ...(userCode ? { userCode } : {}),
+    ...(typeof flow.manualCodeSupported === 'boolean' ? { manualCodeSupported: flow.manualCodeSupported } : {}),
   };
 }
 
@@ -192,6 +235,7 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
   cancel(id: unknown, flowId: unknown): Promise<void>;
   saveKey(id: unknown, provider: unknown, key: unknown): Promise<void>;
   logout(id: unknown, provider: unknown): Promise<void>;
+  removeCustomProvider(id: unknown, provider: unknown): Promise<void>;
   /** A saved server was removed: the cancels still waiting for it are dropped. */
   forgetHost(id: unknown): void;
   /** Closes every callback forward still open and cancels the logins pending. */
@@ -363,7 +407,8 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
           return identity ? { ...row, identity } : row;
         })
       );
-      return { connected: true, modelLogin: 'server', busySessions, providers };
+      const keychain = keychainIssueOf(setup);
+      return { connected: true, modelLogin: 'server', busySessions, providers, ...(keychain ? { keychain } : {}) };
     },
 
     async begin(id, provider) {
@@ -480,12 +525,28 @@ export function createServerLoginHandlers(deps: ServerLoginDeps): {
       if (!secret || secret.length > MAX_KEY_LENGTH || CONTROL_CHARACTERS.test(secret)) {
         throw new Error('The API key is not valid.');
       }
-      await server.invoke('saveProviderApiKey', [providerId(provider), secret]);
+      const providerName = providerId(provider);
+      // A custom provider's key is replaced on its own, so the provider's other
+      // settings are never rewritten from a stale read.
+      const custom = CUSTOM_PROVIDER_ID.test(providerName);
+      try {
+        await server.invoke(custom ? 'saveCustomProviderKey' : 'saveProviderApiKey', [providerName, secret]);
+      } catch (error) {
+        throw keyFailure(error, secret);
+      }
     },
 
     async logout(id, provider) {
       const { server } = await serverConnection(id);
       await server.invoke('forgetProviderAuth', [providerId(provider)]);
+    },
+
+    /** Deletes a custom provider (and its models) on the server: only the explicit Delete asks for it. */
+    async removeCustomProvider(id, provider) {
+      const { server } = await serverConnection(id);
+      const providerName = providerId(provider);
+      if (!CUSTOM_PROVIDER_ID.test(providerName)) throw new Error('The provider id is not valid.');
+      await server.invoke('removeCustomProvider', [providerName]);
     },
 
     forgetHost(id) {

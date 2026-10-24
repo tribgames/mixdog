@@ -322,6 +322,72 @@ test('server logins: a server that disconnects mid-login closes the steps and sh
   assert.deepEqual(cancelled, [['h1', 'f5']]);
 });
 
+test('server logins: a late answer for an earlier login does not end the one started after it', async (t) => {
+  let release;
+  const providers = [
+    { id: 'a-oauth', name: 'Alpha', kind: 'oauth', signedIn: false },
+    { id: 'b-oauth', name: 'Beta', kind: 'oauth', signedIn: false },
+  ];
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    logins: { ...SERVER_LOGINS, providers },
+    sshServerLoginBegin: async (_id, provider) => ({
+      flowId: provider === 'a-oauth' ? 'fa' : 'fb',
+      provider,
+      state: 'pending',
+      url: 'https://x',
+      error: null,
+      forwarded: false,
+    }),
+    sshServerLoginComplete: (_id, flowId) =>
+      new Promise((done) => {
+        release = () =>
+          done({ flowId, provider: 'a-oauth', state: 'complete', url: null, error: null, forwarded: false });
+      }),
+    sshServerLoginCancel: async () => undefined,
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  await click(document.querySelectorAll('.ssh-login-row')[0].querySelector('button'));
+  await settle();
+  const address = document.querySelector('.ssh-login-codebox input');
+  await typeInto(address, 'http://localhost:1455/cb?code=x');
+  await submit(address.form);
+  await click(document.querySelectorAll('.ssh-login-row')[1].querySelector('button'));
+  await settle();
+  assert.match(document.querySelector('.ssh-login-codebox li').textContent, /sign in to Beta/);
+  await act(async () => release());
+  await settle();
+  assert.match(document.querySelector('.ssh-login-codebox li')?.textContent ?? '', /sign in to Beta/);
+});
+
+test('server logins: a device code is shown, and paste controls only where manual completion is supported', async (t) => {
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    sshServerLoginBegin: async (_id, provider) => ({
+      flowId: 'f7',
+      provider,
+      state: 'pending',
+      url: 'https://muse.example/device',
+      error: null,
+      forwarded: false,
+      userCode: 'ABCD-1234',
+      manualCodeSupported: false,
+    }),
+    sshServerLoginCancel: async () => undefined,
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
+  await settle();
+  const steps = [...document.querySelectorAll('.ssh-login-codebox li')].map((item) => item.textContent);
+  assert.deepEqual(steps, [
+    'When the browser opens, sign in to Gemini.',
+    'When the browser asks for a code, enter ABCD-1234.',
+  ]);
+  assert.equal(document.querySelector('.ssh-login-codebox input'), null);
+});
+
 test('server logins: a refusal shows without the IPC envelope', async (t) => {
   const { document } = await mount(t, {
     host: { ...HOST, settings: { modelLogin: 'server' } },
@@ -358,4 +424,107 @@ test('server logins: an API key kept in the server’s private file says so', as
   await settle();
   const rows = [...document.querySelectorAll('.ssh-login-row small')].map((small) => small.textContent);
   assert.deepEqual(rows, ['API key · stored in a private file', 'API key']);
+});
+
+test('server logins: a custom provider asks before it is deleted; keyless and environment-key ones have no key action', async (t) => {
+  const calls = [];
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    sshServerLogins: async () => ({
+      ...SERVER_LOGINS,
+      providers: [
+        { id: 'custom-a', name: 'Acme', kind: 'api', signedIn: true, custom: true },
+        { id: 'custom-b', name: 'Gateway', kind: 'api', signedIn: true, custom: true, keyless: true },
+        { id: 'custom-c', name: 'Fresh', kind: 'api', signedIn: false, custom: true },
+        { id: 'custom-d', name: 'Envy', kind: 'api', signedIn: true, custom: true, fromEnvironment: true },
+        { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true },
+      ],
+    }),
+    sshServerLoginSaveKey: async (id, provider, key) => {
+      calls.push(['key', id, provider, key]);
+    },
+    sshServerLoginLogout: async (id, provider) => {
+      calls.push(['logout', id, provider]);
+    },
+    sshServerLoginRemoveCustom: async (id, provider) => {
+      calls.push(['remove', id, provider]);
+    },
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  const rows = [...document.querySelectorAll('.ssh-login-row')];
+  const labels = (row) => [...row.querySelectorAll('button')].map((button) => button.textContent);
+  assert.deepEqual(labels(rows[0]), ['Change', 'Delete']);
+  assert.deepEqual(labels(rows[1]), ['Delete'], 'a keyless custom provider can be removed but has no key controls');
+  assert.equal(rows[1].querySelector('small').textContent, 'No API key needed');
+  assert.deepEqual(labels(rows[2]), ['Log in']);
+  assert.deepEqual(labels(rows[3]), [], 'an environment key has no key action');
+  assert.equal(rows[3].querySelector('small').textContent, 'API key · from the server’s environment');
+  assert.deepEqual(labels(rows[4]), ['Change', 'Log out']);
+  await click(buttonNamed(rows[0], 'Delete'));
+  assert.equal(document.querySelector('.conn-dialog h3').textContent, 'Delete custom provider?');
+  assert.match(document.querySelector('.conn-dialog').textContent, /Remove Acme and its saved API key/);
+  assert.deepEqual(calls, [], 'nothing is deleted before the answer');
+  await click(buttonNamed(document, 'Cancel'));
+  await settle();
+  assert.deepEqual(calls, [], 'cancel keeps the provider');
+  assert.equal(document.querySelectorAll('.ssh-login-row').length, 5);
+  await click(buttonNamed(document.querySelectorAll('.ssh-login-row')[0], 'Delete'));
+  await click(buttonNamed(document, 'Delete'));
+  await settle();
+  assert.deepEqual(calls, [['remove', HOST.id, 'custom-a']]);
+  await click(buttonNamed(document.querySelectorAll('.ssh-login-row')[1], 'Delete'));
+  assert.match(document.querySelector('.conn-dialog').textContent, /Remove Gateway and its saved API key/);
+  await click(buttonNamed(document, 'Delete'));
+  await settle();
+  assert.deepEqual(calls[1], ['remove', HOST.id, 'custom-b'], 'a keyless custom provider is removed after confirmation');
+});
+
+test('server logins: a server whose credential storage is unsafe shows its repair hint and folder, secret-free', async (t) => {
+  const keychain = {
+    state: 'unsafe-store',
+    kind: 'owner',
+    message: 'The private secrets folder belongs to another user — change its owner (chown).',
+    path: '/home/dev/.mixdog/secrets',
+  };
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    logins: { ...SERVER_LOGINS, keychain },
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  const alert = document.querySelector('[role="alert"][data-keychain-state="unsafe-store"]');
+  assert.ok(alert, 'the dialog shows the server credential issue');
+  assert.equal(alert.getAttribute('data-keychain-kind'), 'owner');
+  assert.match(alert.textContent, /change its owner/);
+  assert.equal(alert.querySelector('code').textContent, '/home/dev/.mixdog/secrets');
+});
+
+test('server logins: no credential alert without an issue', async (t) => {
+  const { document } = await mount(t, { host: { ...HOST, settings: { modelLogin: 'server' } } });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  assert.equal(document.querySelector('[data-keychain-state]'), null);
+});
+
+test('server logins: only an environment key with nothing stored is read-only; a stored key keeps Change and Log out', async (t) => {
+  const { document } = await mount(t, {
+    host: { ...HOST, settings: { modelLogin: 'server' } },
+    logins: {
+      ...SERVER_LOGINS,
+      providers: [
+        { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true, credentialSource: 'environment', fromEnvironment: true },
+        { id: 'xai', name: 'xAI', kind: 'api', signedIn: true, credentialSource: 'private-file', storedInPrivateFile: true },
+        { id: 'groq', name: 'Groq', kind: 'api', signedIn: true, credentialSource: 'environment' },
+      ],
+    },
+  });
+  await click(buttonNamed(document, 'Manage server logins'));
+  await settle();
+  const [env, file, shadowed] = document.querySelectorAll('.ssh-login-row');
+  assert.deepEqual([...shadowed.querySelectorAll('button')].map((b) => b.textContent), ['Change', 'Log out']);
+  assert.equal(env.querySelector('small').textContent, 'API key · from the server’s environment');
+  assert.equal(env.querySelectorAll('button').length, 0, 'the environment key is read-only');
+  assert.equal(file.querySelector('small').textContent, 'API key · stored in a private file');
+  assert.deepEqual([...file.querySelectorAll('button')].map((b) => b.textContent), ['Change', 'Log out']);
 });

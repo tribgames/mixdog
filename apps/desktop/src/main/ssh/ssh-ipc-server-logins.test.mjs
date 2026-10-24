@@ -95,9 +95,38 @@ test('the callback port is the loopback redirect_uri port of the authorization U
     'https://x.example/auth?redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback',
     'https://x.example/auth?redirect_uri=http%3A%2F%2Fevil.example%3A1455%2Fcb',
     'https://x.example/auth?redirect_uri=http%3A%2F%2Flocalhost%2Fcb',
+    'https://x.example/auth?redirect_uri=http%3A%2F%2F%5B%3A%3A1%5D%3A1455%2Fcb',
   ]) {
     assert.equal(callbackPortOf(url), null, String(url));
   }
+});
+
+test('an IPv6 loopback callback is not forwarded; the manual paste completes it', async () => {
+  const v6 = 'https://x.example/auth?redirect_uri=http%3A%2F%2F%5B%3A%3A1%5D%3A1455%2Fauth%2Fcallback';
+  const pasted = 'http://[::1]:1455/auth/callback?code=abc&state=s1';
+  const s = setup({
+    answers: {
+      beginOAuthProviderLogin: pending({ url: v6 }),
+      completeOAuthProviderLogin: (flowId, code) =>
+        pending({ flowId, url: v6, state: code === pasted ? 'complete' : 'failed' }),
+    },
+  });
+  const flow = await s.handlers.begin('h1', 'openai-oauth');
+  assert.equal(s.forwards.length, 0);
+  assert.equal(flow.forwarded, false);
+  assert.equal(flow.url, v6);
+  const done = await s.handlers.complete('h1', 'f1', pasted);
+  assert.deepEqual(s.calls.at(-1), ['completeOAuthProviderLogin', ['f1', pasted]]);
+  assert.equal(done.state, 'complete');
+  assert.equal(done.forwarded, false);
+});
+
+test('an IPv4 loopback callback is still forwarded', async () => {
+  const v4 = 'https://x.example/auth?redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback';
+  const s = setup({ answers: { beginOAuthProviderLogin: pending({ url: v4 }) } });
+  const flow = await s.handlers.begin('h1', 'openai-oauth');
+  assert.equal(s.forwards.length, 1);
+  assert.equal(flow.forwarded, true);
 });
 
 test("a subscription login runs on the server, opens in this PC's browser and forwards the callback port until it ends", async () => {
@@ -205,6 +234,24 @@ test('cancel, a failed browser open, the time cap and dispose all close the forw
   await disposed.handlers.begin('h1', 'openai-oauth');
   await disposed.handlers.dispose();
   assert.equal(disposed.forwards[0].closed, 1);
+});
+
+test('a plain verification URL carries the separate device code and the manual-completion flag', async () => {
+  const url = 'https://muse.example/device';
+  const s = setup({
+    answers: {
+      beginOAuthProviderLogin: pending({ url, userCode: 'ABCD-1234', manualCodeSupported: false }),
+      getOAuthProviderLoginStatus: pending({ url, userCode: 'ABCD-1234', manualCodeSupported: false }),
+    },
+  });
+  const flow = await s.handlers.begin('h1', 'muse-code-oauth');
+  assert.equal(flow.url, url);
+  assert.equal(flow.forwarded, false);
+  assert.equal(flow.userCode, 'ABCD-1234');
+  assert.equal(flow.manualCodeSupported, false);
+  const status = await s.handlers.status('h1', 'f1');
+  assert.equal(status.userCode, 'ABCD-1234');
+  assert.equal(status.manualCodeSupported, false);
 });
 
 test('a disconnect or a changed model login closes the forward at once, without any status read', async () => {
@@ -657,4 +704,187 @@ test("the server's own logins are listed, signed-in first, and keys and log-outs
   await assert.rejects(s.handlers.saveKey('h1', '../x', 'sk'), /provider id is not valid/);
   await assert.rejects(s.handlers.saveKey('h1', 'openai', 'sk\u0000'), /API key is not valid/);
   await assert.rejects(s.handlers.logout('h1', ''), /provider/);
+});
+
+const CUSTOM_KEYED = 'custom-0b0a8b3e-1111-4222-8333-444455556666';
+const CUSTOM_KEYLESS = 'custom-1c1b9c4f-2222-4333-8444-555566667777';
+
+test('a custom provider on the server saves its key and is removed through the custom-provider operations, and the refreshed list shows it', async () => {
+  // A scripted server: the custom provider is signed in once its key is saved, and gone once removed.
+  let stored = false;
+  let removed = false;
+  const s = setup({
+    answers: {
+      getProviderSetup: () => ({
+        oauth: [],
+        api: [
+          { id: 'openai', name: 'OpenAI', authenticated: false },
+          ...(removed
+            ? []
+            : [
+                {
+                  id: CUSTOM_KEYED,
+                  name: 'Acme',
+                  custom: true,
+                  auth: 'key',
+                  protocol: 'openai-chat',
+                  baseURL: 'https://llm.acme.test/v1',
+                  schemaVersion: 2,
+                  enabled: true,
+                  authenticated: stored,
+                  stored,
+                },
+              ]),
+          {
+            id: CUSTOM_KEYLESS,
+            name: 'Local gateway',
+            custom: true,
+            auth: 'none',
+            protocol: 'openai-chat',
+            baseURL: 'http://127.0.0.1:8080/v1',
+            schemaVersion: 2,
+            enabled: true,
+            authenticated: true,
+            stored: false,
+          },
+        ],
+      }),
+      saveCustomProviderKey: () => {
+        stored = true;
+      },
+      removeCustomProvider: () => {
+        removed = true;
+      },
+    },
+  });
+  const find = async (id) => (await s.handlers.logins('h1')).providers.find((row) => row.id === id);
+  assert.deepEqual(await find(CUSTOM_KEYED), {
+    id: CUSTOM_KEYED,
+    name: 'Acme',
+    kind: 'api',
+    signedIn: false,
+    custom: true,
+  });
+  assert.deepEqual(await find(CUSTOM_KEYLESS), {
+    id: CUSTOM_KEYLESS,
+    name: 'Local gateway',
+    kind: 'api',
+    signedIn: true,
+    custom: true,
+    keyless: true,
+  });
+
+  s.calls.length = 0;
+  await s.handlers.saveKey('h1', CUSTOM_KEYED, '  sk-acme  ');
+  assert.deepEqual(s.calls, [['saveCustomProviderKey', [CUSTOM_KEYED, 'sk-acme']]], 'only the key travels; the provider’s settings are never resubmitted');
+  assert.equal((await find(CUSTOM_KEYED)).signedIn, true, 'the refreshed list shows the saved key');
+
+  s.calls.length = 0;
+  await s.handlers.logout('h1', CUSTOM_KEYED);
+  assert.deepEqual(s.calls, [['forgetProviderAuth', [CUSTOM_KEYED]]], 'Log out never deletes the provider');
+  assert.notEqual(await find(CUSTOM_KEYED), undefined, 'the provider is still listed');
+
+  s.calls.length = 0;
+  await s.handlers.removeCustomProvider('h1', CUSTOM_KEYED);
+  assert.deepEqual(s.calls, [['removeCustomProvider', [CUSTOM_KEYED]]]);
+  assert.equal(await find(CUSTOM_KEYED), undefined, 'the refreshed list no longer has it');
+  await assert.rejects(s.handlers.removeCustomProvider('h1', 'openai'), /provider id is not valid/);
+});
+
+test('the server refuses a key for a keyless or environment-key custom provider; the refusal reaches the dialog', async () => {
+  const s = setup({
+    answers: { saveCustomProviderKey: new Error('this custom provider needs no API key') },
+  });
+  await assert.rejects(s.handlers.saveKey('h1', CUSTOM_KEYLESS, 'sk-x'), /needs no API key/);
+  assert.deepEqual(
+    s.calls.map(([capability]) => capability),
+    ['saveCustomProviderKey']
+  );
+});
+
+test('a failed key save never carries the key, and the server’s own failure is what is shown', async () => {
+  const key = 'sk-very-secret-123';
+  for (const id of ['openai', CUSTOM_KEYED]) {
+    const s = setup({
+      answers: {
+        saveProviderApiKey: new Error(`401 for key ${key} (${JSON.stringify(key)})`),
+        saveCustomProviderKey: new Error(`bad key ${key}`),
+      },
+    });
+    const failure = await s.handlers.saveKey('h1', id, key).then(
+      () => null,
+      (error) => error
+    );
+    assert.ok(failure, 'the save fails');
+    assert.ok(!String(failure.message).includes(key) && !String(failure.stack).includes(key), 'no key in the error');
+    assert.match(failure.message, /\[redacted\]/);
+  }
+  const failing = setup({
+    answers: { saveCustomProviderKey: new TypeError('session action saveCustomProviderKey is unavailable') },
+  });
+  await assert.rejects(failing.handlers.saveKey('h1', CUSTOM_KEYED, key), /session action saveCustomProviderKey is unavailable/);
+  assert.deepEqual(
+    failing.calls.map(([capability]) => capability),
+    ['saveCustomProviderKey'],
+    'no stale round trip follows'
+  );
+});
+
+test('a custom provider with a key variable is listed as from the environment, set or not, stored key or not', async () => {
+  const rows = async (entries) =>
+    (await setup({ answers: { getProviderSetup: { api: entries } } }).handlers.logins('h1')).providers;
+  const base = { name: 'Acme', custom: true, apiKeyEnv: 'ACME_KEY' };
+  assert.deepEqual(
+    await rows([
+      { ...base, id: 'custom-a', authenticated: true, env: true, stored: false },
+      { ...base, id: 'custom-b', authenticated: false, env: false, stored: false },
+      { ...base, id: 'custom-c', authenticated: true, env: true, stored: true },
+      { ...base, id: 'custom-d', authenticated: false, env: false, stored: true },
+    ]),
+    [
+      { id: 'custom-a', name: 'Acme', kind: 'api', signedIn: true, fromEnvironment: true, custom: true },
+      { id: 'custom-c', name: 'Acme', kind: 'api', signedIn: true, fromEnvironment: true, custom: true },
+      { id: 'custom-b', name: 'Acme', kind: 'api', signedIn: false, fromEnvironment: true, custom: true },
+      { id: 'custom-d', name: 'Acme', kind: 'api', signedIn: false, fromEnvironment: true, custom: true },
+    ]
+  );
+  // Without a variable the stored key is the key.
+  assert.deepEqual(await rows([{ id: 'custom-e', name: 'Plain', custom: true, authenticated: true, stored: true }]), [
+    { id: 'custom-e', name: 'Plain', kind: 'api', signedIn: true, custom: true },
+  ]);
+});
+
+test('the effective credential source is carried; only an environment key with nothing stored is read-only', async () => {
+  const s = setup({
+    answers: {
+      getProviderSetup: {
+        api: [
+          { id: 'openai', name: 'OpenAI', authenticated: true, stored: true, env: true, credentialSource: 'environment', detail: 'OPENAI_API_KEY' },
+          { id: 'groq', name: 'Groq', authenticated: true, stored: false, env: true, credentialSource: 'environment', detail: 'GROQ_API_KEY' },
+          { id: 'xai', name: 'xAI', authenticated: true, stored: true, credentialSource: 'private-file', detail: 'stored in private file' },
+          { id: 'gemini', name: 'Gemini', authenticated: true, stored: true, credentialSource: 'keychain' },
+          { id: 'deepseek', name: 'DeepSeek', authenticated: true, stored: true, credentialSource: 'bogus' },
+        ],
+      },
+    },
+  });
+  const rows = Object.fromEntries((await s.handlers.logins('h1')).providers.map((row) => [row.id, row]));
+  assert.equal(rows.openai.fromEnvironment, undefined, 'a stored key can still be changed or logged out');
+  assert.equal(rows.openai.storedInPrivateFile, undefined);
+  assert.equal(rows.openai.credentialSource, 'environment');
+  assert.equal(rows.groq.fromEnvironment, true, 'an environment key with nothing stored is read-only');
+  assert.equal(rows.groq.credentialSource, 'environment');
+  assert.equal(rows.xai.storedInPrivateFile, true);
+  assert.equal(rows.xai.fromEnvironment, undefined);
+  assert.equal(rows.xai.credentialSource, 'private-file');
+  assert.equal(rows.gemini.credentialSource, 'keychain');
+  assert.equal(rows.gemini.storedInPrivateFile, undefined);
+  assert.equal(rows.deepseek.credentialSource, undefined, 'an unknown source is dropped');
+});
+
+test('a key with quotes or backslashes is redacted in its JSON-escaped spelling too', async () => {
+  const key = 'sk-"q"\\b-0123';
+  const s = setup({ answers: { saveCustomProviderKey: new Error(`bad {"apiKey":${JSON.stringify(key)}} / ${key}`) } });
+  const failure = await s.handlers.saveKey('h1', CUSTOM_KEYED, key).catch((error) => error);
+  assert.equal(failure.message, 'bad {"apiKey":"[redacted]"} / [redacted]');
 });

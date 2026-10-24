@@ -61,6 +61,7 @@ export type CapabilityApi = Partial<
     | 'sshServerLoginCancel'
     | 'sshServerLoginSaveKey'
     | 'sshServerLoginLogout'
+    | 'sshServerLoginRemoveCustom'
     | 'subscribeSshAskpass'
     | 'subscribeSshCleanupProgress'
     | 'sshDiagnosticsLog'
