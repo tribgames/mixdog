@@ -112,6 +112,29 @@ test('bubble runs: face and name on the first bubble, the time on the last, a da
       ['user', true, true, true],
     ]
   );
+  // Separate turns join only within one minute: a later message opens its own
+  // run (face, name) and the earlier one keeps its own time.
+  const proactive = (id, at) => ({ ...reply(id, at), turnKey: id });
+  const later = [
+    proactive('p1', DAY1),
+    proactive('p2', DAY1 + 20_000),
+    proactive('p3', DAY1 + 5 * 60_000),
+    user('u3', DAY1 + 6 * 60_000),
+    user('u4', DAY1 + 6 * 60_000 + 30_000),
+  ];
+  assert.deepEqual(
+    later.map((_, index) => {
+      const at = agentChatPlace(later, index);
+      return [at.first, at.last];
+    }),
+    [
+      [true, false],
+      [false, true],
+      [true, true],
+      [true, false],
+      [false, true],
+    ]
+  );
   // A room: each member's own run; a pass is a compact row that ends a run.
   const room = [speech('s1', 'rel', DAY1), speech('s2', 'rel', DAY1), speech('s3', 'bench', DAY1)];
   assert.deepEqual(

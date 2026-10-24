@@ -310,6 +310,7 @@ function rowTime(row: TranscriptRowModel | undefined): number {
 }
 
 const dayOf = (at: number) => new Date(at).toDateString();
+const minuteOf = (at: number) => Math.floor(at / 60_000);
 
 /** Whether the typing bubble at `rows[index]` (the live band, or a room's
  *  typing row) opens its own run under `speaker`'s face and name: it does
@@ -409,16 +410,24 @@ export function agentChatPlace(
   const neighbour = (step: number) => {
     for (let next = index + step; next >= 0 && next < rows.length; next += step) {
       const sender = rowSender(rows[next], cardKey);
-      if (sender && sender.side !== 'hidden') return sender;
+      if (sender && sender.side !== 'hidden') return { sender, row: rows[next] };
     }
     return null;
   };
-  const grouped = (other: Sender | null) =>
+  // A run shows one time, on its last bubble: bubbles of one turn always join,
+  // other turns join only when sent in the same minute.
+  const together = (row: TranscriptRowModel) => {
+    if (row.turnKey === rows[index].turnKey) return true;
+    const other = rowTime(row);
+    return !at || !other || minuteOf(other) === minuteOf(at);
+  };
+  const grouped = (hit: { sender: Sender; row: TranscriptRowModel } | null) =>
     (own.side === 'agent' || own.side === 'user') &&
-    other?.side === own.side &&
-    other.speaker === own.speaker &&
-    Boolean(other.bot) === Boolean(own.bot) &&
-    (other.source ?? '') === (own.source ?? '');
+    hit?.sender.side === own.side &&
+    hit.sender.speaker === own.speaker &&
+    Boolean(hit.sender.bot) === Boolean(own.bot) &&
+    (hit.sender.source ?? '') === (own.source ?? '') &&
+    together(hit.row);
   let newDay = false;
   if (at) {
     let previous = 0;
