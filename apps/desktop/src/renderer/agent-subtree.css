@@ -57,13 +57,13 @@ html[data-mixdog-mobile-tabs] .agent-chat-row[data-kind="contact"] {
   --agent-contact-gap: 8px;
   --subtree-inset: 10px;
   --subtree-inset-end: 8px;
-  --subtree-mark: 24px;
+  --subtree-mark: 20px;
 }
 html[data-mixdog-mobile-tabs] .agent-subtree {
   --agent-contact-gap: 10px;
   --subtree-inset: var(--mx-drawer-bleed);
   --subtree-inset-end: var(--mx-drawer-bleed);
-  --subtree-mark: 28px;
+  --subtree-mark: 24px;
 }
 @container (max-width: 280px) {
   .agent-subtree {
