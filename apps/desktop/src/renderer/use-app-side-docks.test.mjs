@@ -10,6 +10,9 @@ import { JSDOM } from 'jsdom';
 import { useAppSideDocks } from './use-app-side-docks.ts';
 import { useSessionPaneSurfaces } from './use-session-pane-surfaces.ts';
 import { useAppMobileBack } from './app-shell-mobile-back.ts';
+import { useSideViewSelection } from './app-shell-side-views.ts';
+import { sideFileKey, sideFileTabDirtyKey } from './side-file-tabs.ts';
+import { paneDockEntryForSession } from './session-side-surface-policy.ts';
 
 const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://mixdog.test/' });
 dom.window.document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
@@ -265,6 +268,385 @@ test('CloseWatcher path: an agent-opened visualize dock (no activation) falls ba
   } finally {
     await phone.unmount();
     uninstall();
+  }
+});
+
+test('file tabs opened beside a session stay with it: a bot chat in the same pane shows no foreign panel', async () => {
+  const BOT = 'sess_home_agent-marketer';
+  const pane = (active) => ({
+    type: 'leaf',
+    id: 'L1',
+    tabs: [session('s1'), session(BOT)],
+    activeKey: `session:${active}`,
+  });
+  const api = {};
+  function Harness() {
+    const [leaves, setLeaves] = useState([pane('s1')]);
+    const sessionSurfaces = useSessionPaneSurfaces();
+    const sideDocks = useAppSideDocks({
+      paneWorkspace: { leaves, focusedLeafId: 'L1' },
+      sessionSurfaces,
+      applySidebarOpen: () => {},
+    });
+    Object.assign(api, { sessionSurfaces, sideDocks, show: (id) => setLeaves([pane(id)]) });
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Harness)));
+  try {
+    // A chat file link in s1 opens the image in the pane's side dock.
+    await act(async () => api.sideDocks.paneSideDocks.openFile('L1', 'C:/p', 'image-9cb6.png'));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true);
+
+    await act(async () => api.show(BOT));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, false, "the bot chat shows no panel of s1's");
+
+    await act(async () => api.show('s1'));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true, 'back on s1 its file returns');
+
+    // The bot's own panel opens and closes over the pane without touching s1's file.
+    await act(async () => api.show(BOT));
+    await act(async () => api.sideDocks.toggleDock());
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true, "the bot's toggle opens its own panel");
+    await act(async () => api.sideDocks.toggleDock());
+    assert.equal(api.sideDocks.focusedPaneDockOpen, false);
+    await act(async () => api.show('s1'));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true);
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L1').surface, 'file', "s1's file is still in front for s1");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+/** Mounts the side docks over a pane list the test can replace. */
+async function mountPanes(initial, focusedLeafId = 'L1') {
+  const api = {};
+  function Harness() {
+    const [state, setState] = useState({ leaves: initial, focusedLeafId });
+    const sessionSurfaces = useSessionPaneSurfaces();
+    const sideDocks = useAppSideDocks({ paneWorkspace: state, sessionSurfaces, applySidebarOpen: () => {} });
+    Object.assign(api, {
+      sessionSurfaces,
+      sideDocks,
+      setPanes: (leaves, focused = 'L1') => setState({ leaves, focusedLeafId: focused }),
+    });
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Harness)));
+  api.unmount = () => act(async () => root.unmount());
+  return api;
+}
+
+const DRAFT = { kind: 'new', draftId: 'd1' };
+const paneOf = (id, tabs, activeKey) => ({ type: 'leaf', id, tabs, activeKey });
+
+test("a toggle on a draft or another session never overwrites the owner's file", async () => {
+  const tabs = [session('s1'), session('s2'), DRAFT];
+  const api = await mountPanes([paneOf('L1', tabs, 'session:s1')]);
+  try {
+    await act(async () => api.sideDocks.paneSideDocks.openFile('L1', 'C:/p', 'image-9cb6.png'));
+    const owned = ownerSide(api.sideDocks.paneSideDocks.entryFor('L1'), 's1');
+    for (const key of ['new:d1', 'session:s2']) {
+      await act(async () => api.setPanes([paneOf('L1', tabs, key)]));
+      await act(async () => api.sideDocks.toggleDock());
+      assert.deepEqual(
+        ownerSide(api.sideDocks.paneSideDocks.entryFor('L1'), 's1'),
+        owned,
+        `${key}'s toggle leaves s1's side as s1 left it`
+      );
+      if (api.sideDocks.focusedPaneDockOpen) await act(async () => api.sideDocks.toggleDock());
+      assert.equal(api.sideDocks.focusedPaneDockOpen, false);
+      assert.deepEqual(
+        ownerSide(api.sideDocks.paneSideDocks.entryFor('L1'), 's1'),
+        owned,
+        `${key}'s close leaves it too`
+      );
+    }
+    await act(async () => api.setPanes([paneOf('L1', tabs, 'session:s1')]));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true, 's1 gets its file back');
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L1').surface, 'file');
+  } finally {
+    await api.unmount();
+  }
+});
+
+test("an owned file follows its session's tab to another pane and is released when the session's tab closes", async () => {
+  const BOT = 'sess_home_agent-marketer';
+  const api = await mountPanes([
+    paneOf('L1', [session('s1'), session(BOT)], 'session:s1'),
+    paneOf('L2', [session('s2')], 'session:s2'),
+  ]);
+  try {
+    await act(async () => api.sideDocks.paneSideDocks.openFile('L1', 'C:/p', 'image-9cb6.png'));
+    // s1's tab moves to L2: its file goes with it, L1 lets it go.
+    await act(async () =>
+      api.setPanes(
+        [paneOf('L1', [session(BOT)], `session:${BOT}`), paneOf('L2', [session('s2'), session('s1')], 'session:s1')],
+        'L2'
+      )
+    );
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true, 's1 shows its file in its new pane');
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L2').owner, 's1');
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L1').files, undefined, 'the old pane holds nothing of s1');
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L1').owner, undefined);
+    // s1's tab closes: the owned file is released, not stranded behind a session no tab shows.
+    await act(async () =>
+      api.setPanes([paneOf('L1', [session(BOT)], `session:${BOT}`), paneOf('L2', [session('s2')], 'session:s2')], 'L2')
+    );
+    const released = api.sideDocks.paneSideDocks.entryFor('L2');
+    assert.equal(released.owner, undefined);
+    assert.equal(released.files, undefined);
+    assert.equal(released.surface, '');
+    assert.equal(api.sideDocks.focusedPaneDockOpen, false);
+    assert.equal(JSON.parse(dom.window.localStorage.getItem(DOCK_KEY)).L2.owner, undefined, 'nothing owned persists');
+  } finally {
+    await api.unmount();
+  }
+});
+
+/** Mounts the side docks with the real header selection (useSideViewSelection) over one pane. */
+async function mountHeader(tabs) {
+  const api = {};
+  function Harness() {
+    const [leaves, setLeaves] = useState([paneOf('L1', tabs, 'session:s1')]);
+    const sessionSurfaces = useSessionPaneSurfaces();
+    const sideDocks = useAppSideDocks({
+      paneWorkspace: { leaves, focusedLeafId: 'L1' },
+      sessionSurfaces,
+      applySidebarOpen: () => {},
+    });
+    const selectView = useSideViewSelection({
+      sideOf: sideDocks.workbenchSideLayout.sideOf,
+      selectDock: sideDocks.paneSideDocks.select,
+      activeSideViews: sideDocks.activeSideViews,
+      setActiveSideViews: sideDocks.setActiveSideViews,
+      sidebarOpen: false,
+      applySidebarOpen: () => {},
+      closeSidebarPanels: () => {},
+      mountSidebarPanel: () => {},
+      trackSidebarPanelModule: () => {},
+      refreshProjects: async () => {},
+      paneLeavesRef: { current: leaves },
+      focusedLeafIdRef: { current: 'L1' },
+      browserSurfaces: sessionSurfaces.browserSurfaces,
+      pendingBrowserAutoReveal: sessionSurfaces.pendingBrowserAutoReveal,
+      setSessionSideSurface: sessionSurfaces.setSessionSideSurface,
+      setSessionPanelView: sessionSurfaces.setSessionPanelView,
+    });
+    Object.assign(api, { sideDocks, selectView, show: (key) => setLeaves([paneOf('L1', tabs, key)]) });
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Harness)));
+  api.unmount = () => act(async () => root.unmount());
+  api.entry = () => api.sideDocks.paneSideDocks.entryFor('L1');
+  return api;
+}
+
+/** The pane entry's side its owner sees: the parts a non-owner must not change. */
+const ownerSide = (entry, owner) => {
+  const seen = paneDockEntryForSession(entry, owner);
+  return {
+    open: seen.open,
+    surface: seen.surface,
+    files: seen.files,
+    activeFile: seen.activeFile,
+    folder: seen.folder,
+    diff: seen.diff,
+    owner: seen.owner,
+  };
+};
+
+test("the header buttons on another session never replace the owner's file", async () => {
+  const api = await mountHeader([session('s1'), session('s2')]);
+  try {
+    await act(async () => api.sideDocks.paneSideDocks.openFile('L1', 'C:/p', 'image-9cb6.png'));
+    const owned = ownerSide(api.entry(), 's1');
+    await act(async () => api.show('session:s2'));
+    for (const view of ['visualize', 'terminal']) {
+      await act(async () => api.selectView(view, 'L1'));
+      assert.equal(api.sideDocks.focusedPaneDockOpen, true, `s2's ${view} shows from its own session`);
+      assert.deepEqual(ownerSide(api.entry(), 's1'), owned, `s2's ${view} leaves s1's side as it was`);
+    }
+    await act(async () => api.show('session:s1'));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true);
+    assert.deepEqual(ownerSide(api.entry(), 's1'), owned, "s1's file is back in front, unchanged");
+    assert.equal(api.entry().surface, 'file');
+  } finally {
+    await api.unmount();
+  }
+});
+
+test("a pane-level view picked on another session opens there; the owner's file comes back in front", async () => {
+  // The shipped right side pins its views (normalizeWorkbenchSideViewLayout):
+  // its one pane-level view is Pull Requests (Source Control and Search live
+  // on the left rail), off in this build, so the pane docks run here over a
+  // right side that carries it.
+  const { usePaneSideDocks } = await import('./pane-side-dock.tsx');
+  const GROUPS = [['session-diff'], ['visualize'], ['browser'], ['terminal'], ['pull-requests']];
+  const api = {};
+  function Harness() {
+    const [shown, setShown] = useState('s1');
+    const docks = usePaneSideDocks({
+      leafIds: ['L1'],
+      groups: GROUPS,
+      sessionOf: () => shown,
+      paneSessions: { L1: ['s1', 's2'] },
+    });
+    Object.assign(api, { docks, shown, show: setShown });
+    return null;
+  }
+  const mount = async () => {
+    const root = createRoot(dom.window.document.getElementById('root'));
+    await act(async () => root.render(React.createElement(Harness)));
+    return () => act(async () => root.unmount());
+  };
+  const seen = () => paneDockEntryForSession(api.docks.entryFor('L1'), api.shown);
+  let unmount = await mount();
+  try {
+    await act(async () => api.docks.openFile('L1', 'C:/p', 'image-9cb6.png'));
+    const owned = ownerSide(api.docks.entryFor('L1'), 's1');
+    assert.equal(seen().surface, 'file');
+
+    await act(async () => api.show('s2'));
+    assert.equal(seen().open, false, "s2 sees nothing of s1's");
+    // The header pick on s2 opens the pane-level view for s2.
+    await act(async () => api.docks.select('L1', 'pull-requests'));
+    assert.equal(seen().open, true, 'Pull Requests opens for s2');
+    assert.equal(seen().view, 'pull-requests');
+    assert.equal(seen().surface, '');
+    assert.deepEqual(api.docks.entryFor('L1').files, owned.files, "s1's file tabs stay mounted behind it");
+
+    await act(async () => api.show('s1'));
+    assert.deepEqual(ownerSide(api.docks.entryFor('L1'), 's1'), owned, "s1's file is back in front, unchanged");
+    assert.equal(api.docks.entryFor('L1').surface, 'file', 'restored in the stored entry, not only on screen');
+
+    await act(async () => api.show('s2'));
+    assert.equal(seen().open, true, 'Pull Requests is still open for s2');
+    assert.equal(seen().view, 'pull-requests');
+    assert.equal(seen().surface, '');
+
+    // A restart keeps both fronts: s2's pane-level view and s1's file.
+    await unmount();
+    unmount = await mount();
+    assert.equal(api.shown, 's1');
+    assert.deepEqual(ownerSide(api.docks.entryFor('L1'), 's1'), owned, "after a restart s1's file is in front");
+    await act(async () => api.show('s2'));
+    assert.equal(seen().open, true);
+    assert.equal(seen().view, 'pull-requests');
+    // s2 folds its view; s1's file is untouched by that.
+    await act(async () => api.docks.toggle('L1'));
+    assert.equal(seen().open, false);
+    await act(async () => api.show('s1'));
+    assert.deepEqual(ownerSide(api.docks.entryFor('L1'), 's1'), owned);
+  } finally {
+    await unmount();
+  }
+});
+
+test('a file opened from a chat link outside the project (access token) survives tab switches', async () => {
+  const BOT = 'sess_home_lead';
+  const tabs = [session('s1'), session(BOT)];
+  const api = await mountPanes([paneOf('L1', tabs, 'session:s1')]);
+  try {
+    await act(async () =>
+      api.sideDocks.paneSideDocks.openFile('L1', 'C:/tmp', 'image-9cb6a1.png', undefined, 'token-1')
+    );
+    const opened = api.sideDocks.paneSideDocks.entryFor('L1').files;
+    await act(async () => api.setPanes([paneOf('L1', tabs, `session:${BOT}`)]));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, false);
+    await act(async () => api.setPanes([paneOf('L1', tabs, 'session:s1')]));
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true, "s1's linked file is back in front");
+    assert.deepEqual(api.sideDocks.paneSideDocks.entryFor('L1').files, opened);
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L1').surface, 'file');
+    // Splitting and moving s1's tab to the new pane re-shapes the panes: the
+    // linked file is live state, so it follows s1 instead of being dropped.
+    await act(async () => api.setPanes([paneOf('L1', tabs, 'session:s1'), paneOf('L2', [DRAFT], 'new:d1')]));
+    assert.deepEqual(api.sideDocks.paneSideDocks.entryFor('L1').files, opened, 'a split keeps the linked file');
+    await act(async () =>
+      api.setPanes([paneOf('L1', [session(BOT)], `session:${BOT}`), paneOf('L2', [DRAFT, session('s1')], 'session:s1')])
+    );
+    assert.deepEqual(api.sideDocks.paneSideDocks.entryFor('L2').files, opened, 'the linked file followed s1');
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L2').surface, 'file');
+    assert.equal(api.sideDocks.paneSideDocks.entryFor('L1').files?.length ?? 0, 0, 'L1 released it');
+  } finally {
+    await api.unmount();
+  }
+});
+
+test('access tokens never reach storage: a chat-link file stays live only, across tab switches and a split', async () => {
+  const BOT = 'sess_home_lead';
+  const tabs = [session('s1'), session(BOT)];
+  const stored = () => dom.window.localStorage.getItem(DOCK_KEY) ?? '';
+  const api = await mountPanes([paneOf('L1', tabs, 'session:s1')]);
+  try {
+    const pinned = { preview: false };
+    await act(async () =>
+      api.sideDocks.paneSideDocks.openFile('L1', 'C:/p', 'src/a.ts', undefined, undefined, undefined, pinned)
+    );
+    await act(async () =>
+      api.sideDocks.paneSideDocks.openFile('L1', 'C:/tmp', 'image-9cb6a1.png', undefined, 'token-1', undefined, pinned)
+    );
+    const check = (step) => {
+      assert.doesNotMatch(stored(), /accessToken|token-1|image-9cb6a1/, `${step}: no token file in storage`);
+      assert.deepEqual(
+        (JSON.parse(stored()).L1.files ?? []).map((file) => file.rel),
+        ['src/a.ts'],
+        `${step}: the project file is still stored`
+      );
+      assert.ok(
+        api.sideDocks.paneSideDocks.entryFor('L1').files.some((file) => file.accessToken === 'token-1'),
+        `${step}: the live entry keeps the linked file`
+      );
+    };
+    check('opened');
+    await act(async () => api.setPanes([paneOf('L1', tabs, `session:${BOT}`)]));
+    await act(async () => api.setPanes([paneOf('L1', tabs, 'session:s1')]));
+    check('tab switches');
+    await act(async () => api.setPanes([paneOf('L1', tabs, 'session:s1'), paneOf('L2', [DRAFT], 'new:d1')]));
+    check('split');
+  } finally {
+    await api.unmount();
+  }
+});
+
+test('unsaved file tabs never move or join another pane: their entry stays exactly where it is', async () => {
+  const BOT = 'sess_home_agent-marketer';
+  const files = (leafId) => (api.sideDocks.paneSideDocks.entryFor(leafId).files ?? []).map((entry) => entry.rel);
+  const markDirty = (leafId) => {
+    api.sideDocks.paneSideDocks.dirtyKeysRef.current = new Set(
+      (api.sideDocks.paneSideDocks.entryFor(leafId).files ?? []).map((entry) =>
+        sideFileTabDirtyKey(leafId, sideFileKey(entry))
+      )
+    );
+  };
+  const api = await mountPanes([
+    paneOf('L1', [session('s1'), session(BOT)], 'session:s1'),
+    paneOf('L2', [session('s2')], 'session:s2'),
+  ]);
+  try {
+    await act(async () => api.sideDocks.paneSideDocks.openFile('L1', 'C:/p', 'draft.ts'));
+    const dirty = api.sideDocks.paneSideDocks.entryFor('L1');
+    markDirty('L1');
+    // s1's tab moves to a free L2 while L1 stays: the dirty entry is not remounted there.
+    await act(async () =>
+      api.setPanes(
+        [paneOf('L1', [session(BOT)], `session:${BOT}`), paneOf('L2', [session('s2'), session('s1')], 'session:s1')],
+        'L2'
+      )
+    );
+    assert.strictEqual(api.sideDocks.paneSideDocks.entryFor('L1'), dirty, 'L1 keeps the dirty entry untouched');
+    assert.deepEqual(files('L2'), [], 'nothing moved to L2');
+    // L1 closes with it (its last tab leaves): no join into L2 either; the pane's
+    // dock entry goes the way a closed pane's entry always went.
+    await act(async () =>
+      api.setPanes([paneOf('L2', [session('s2'), session('s1'), session(BOT)], 'session:s1')], 'L2')
+    );
+    assert.deepEqual(files('L2'), [], 'the dirty tabs never join L2');
+    assert.deepEqual(Object.keys(api.sideDocks.paneSideDocks.docks), ['L2']);
+  } finally {
+    await api.unmount();
   }
 });
 

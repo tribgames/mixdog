@@ -107,6 +107,16 @@ export type PaneSideDockEntry = {
   folder?: PaneSideDockFolder | null;
   /** The single open file diff — a project-tool click REPLACES it. */
   diff: PaneSideDockDiff | null;
+  /** The session the pane showed when its file tabs, Files tree or diff were
+   *  last brought up: they show beside that session only. Absent when the
+   *  pane showed no session (a draft or a main file tab). */
+  owner?: string;
+  /** The front (open, surface) the tabs that are not in front keep while
+   *  the other side is: with the owner's file tabs, Files tree or diff in
+   *  front, what every other tab sees (a pane-level view, open or folded);
+   *  with another tab's pick in front, the owner's front, given back when
+   *  the owner is shown again. Absent when nothing is parked. */
+  parked?: { open: boolean; surface: string };
 };
 
 const PANE_SIDE_DOCK_KEY = 'mixdog.desktop.pane-side-dock.v1';
@@ -274,7 +284,7 @@ function isDockDiff(value: unknown): value is PaneSideDockDiff {
 
 type StoredDockFile = Omit<PaneSideDockFile, 'openedAt'> & { openedAt?: number };
 
-function isDockFile(value: unknown): value is StoredDockFile {
+function isDockFile(value: unknown, live = false): value is StoredDockFile {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return (
@@ -283,8 +293,9 @@ function isDockFile(value: unknown): value is StoredDockFile {
     typeof record.rel === 'string' &&
     record.rel.length > 0 &&
     typeof record.nonce === 'number' &&
-    // A file-scoped access token does not outlive its session.
-    record.accessToken === undefined &&
+    // A file-scoped access token does not outlive its session (storage), but
+    // a live entry keeps it across layout changes.
+    (record.accessToken === undefined || (live && typeof record.accessToken === 'string')) &&
     (record.preview === undefined || typeof record.preview === 'boolean') &&
     (record.sidePreview === undefined || typeof record.sidePreview === 'boolean') &&
     (record.openedAt === undefined || typeof record.openedAt === 'number') &&
@@ -295,7 +306,7 @@ function isDockFile(value: unknown): value is StoredDockFile {
 
 /** A stored file tab list; a legacy single `file` becomes a one-tab list.
  *  Malformed and duplicate tabs drop, and only the first preview tab stays one. */
-function storedDockFiles(entry: Record<string, unknown> | null): PaneSideDockFile[] {
+function storedDockFiles(entry: Record<string, unknown> | null, live = false): PaneSideDockFile[] {
   if (!entry) return [];
   let list: unknown[] = [];
   if (Array.isArray(entry.files)) list = entry.files;
@@ -304,7 +315,7 @@ function storedDockFiles(entry: Record<string, unknown> | null): PaneSideDockFil
   let previewTaken = false;
   const files: PaneSideDockFile[] = [];
   for (const raw of list) {
-    if (!isDockFile(raw)) continue;
+    if (!isDockFile(raw, live)) continue;
     const key = sideFileKey(raw);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -327,6 +338,25 @@ function entryFiles(entry: Record<string, unknown> | null, files: PaneSideDockFi
   return Array.isArray(live) && sameSideFiles(live as PaneSideDockFile[], files) ? (live as PaneSideDockFile[]) : files;
 }
 
+/** The dock map as written to storage: file tabs opened with a file-scoped
+ *  access token (and an active-file key naming one) never reach storage. The
+ *  live map is not touched; a load drops such tabs anyway. */
+export function storablePaneSideDocks(docks: Record<string, PaneSideDockEntry>): Record<string, PaneSideDockEntry> {
+  let out = docks;
+  for (const [leafId, entry] of Object.entries(docks)) {
+    if (!entry.files?.some((file) => file.accessToken !== undefined)) continue;
+    const { files: _files, activeFile: _activeFile, ...rest } = entry;
+    const files = entry.files.filter((file) => file.accessToken === undefined);
+    const activeFile = files.some((file) => sideFileKey(file) === entry.activeFile) ? entry.activeFile : undefined;
+    const surface = files.length === 0 && entry.surface === PANE_DOCK_FILE_SURFACE ? '' : entry.surface;
+    out = {
+      ...out,
+      [leafId]: { ...rest, surface, ...(files.length > 0 ? { files, ...(activeFile ? { activeFile } : {}) } : {}) },
+    };
+  }
+  return out;
+}
+
 function isDockFolder(value: unknown): value is PaneSideDockFolder {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
@@ -344,12 +374,14 @@ function isDockFolder(value: unknown): value is PaneSideDockFolder {
  * side remaps to the first remaining panel view, malformed diffs and a stale
  * active surface degrade instead of throwing, and a pane seen for the first
  * time follows the side-panel mode policy (open-both keeps it expanded).
+ * `live` marks the in-memory map (not storage): its access-token file tabs stay.
  */
 export function normalizePaneSideDocks(
   value: unknown,
   leafIds: readonly string[],
   groups: readonly WorkbenchSideViewGroup[],
-  defaultOpen: boolean
+  defaultOpen: boolean,
+  live = false
 ): Record<string, PaneSideDockEntry> {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const members = new Set<WorkbenchSideViewId>(groups.flat().filter(isPanelView));
@@ -381,7 +413,7 @@ export function normalizePaneSideDocks(
       | typeof PANE_DOCK_FILE_SURFACE
       | typeof PANE_DOCK_FILES_SURFACE
       | '' = '';
-    const files = storedDockFiles(entry);
+    const files = storedDockFiles(entry, live);
     const folder = entry && isDockFolder(entry.folder) ? entry.folder : null;
     if (storedSurface === PANE_DOCK_BROWSER_SURFACE || storedSurface === PANE_DOCK_TERMINAL_SURFACE) {
       if (sessionSurfaces.has(storedSurface)) surface = storedSurface;
@@ -399,6 +431,18 @@ export function normalizePaneSideDocks(
     } else if (files.length > 0) {
       activeFile = sideFileKey(files[files.length - 1]);
     }
+    const owner = entry && typeof entry.owner === 'string' ? entry.owner : '';
+    const storedParked =
+      entry?.parked && typeof entry.parked === 'object' ? (entry.parked as Record<string, unknown>) : null;
+    const parkedSurface = typeof storedParked?.surface === 'string' ? storedParked.surface : null;
+    const parkedValid =
+      owner !== '' &&
+      parkedSurface !== null &&
+      (parkedSurface === '' ||
+        sessionSurfaces.has(parkedSurface) ||
+        (parkedSurface === PANE_DOCK_DIFF_SURFACE && diff !== null) ||
+        (parkedSurface === PANE_DOCK_FILE_SURFACE && files.length > 0) ||
+        (parkedSurface === PANE_DOCK_FILES_SURFACE && folder !== null));
     next[leafId] = {
       open,
       view,
@@ -406,6 +450,8 @@ export function normalizePaneSideDocks(
       diff,
       ...(files.length > 0 && activeFile ? { files: entryFiles(entry, files), activeFile } : {}),
       ...(folder ? { folder } : {}),
+      ...(owner ? { owner } : {}),
+      ...(parkedValid ? { parked: { open: storedParked?.open === true, surface: parkedSurface ?? '' } } : {}),
     };
   }
   return next;
@@ -428,9 +474,130 @@ export function samePaneSideDocks(
       a.diff === b.diff &&
       sameSideFiles(a.files, b.files) &&
       (a.activeFile ?? null) === (b.activeFile ?? null) &&
-      (a.folder ?? null) === (b.folder ?? null)
+      (a.folder ?? null) === (b.folder ?? null) &&
+      (a.owner ?? '') === (b.owner ?? '') &&
+      sameParked(a.parked, b.parked)
     );
   });
+}
+
+function sameParked(a: PaneSideDockEntry['parked'], b: PaneSideDockEntry['parked']): boolean {
+  return a === b || (Boolean(a) && Boolean(b) && a?.open === b?.open && a?.surface === b?.surface);
+}
+
+/** `entry` as its owner `session` sees it: the owner's parked front back in
+ *  front, and what other tabs had in front parked for them. `entry` itself
+ *  when `session` is not the owner or nothing of the owner's is parked. */
+export function paneDockRestored(entry: PaneSideDockEntry, session: string): PaneSideDockEntry {
+  const parked = entry.parked;
+  if (!session || entry.owner !== session || !parked || !paneLocalSurface(parked.surface)) return entry;
+  if (paneLocalSurface(entry.surface)) return entry;
+  return { ...entry, open: parked.open, surface: parked.surface, parked: { open: entry.open, surface: entry.surface } };
+}
+
+/** A non-owner tab opening or folding the pane: only the front other tabs see changes. */
+function withParkedOpen(
+  entry: PaneSideDockEntry,
+  open: boolean,
+  firstRoot: WorkbenchSideViewId | null
+): PaneSideDockEntry {
+  const view = entry.view ?? firstRoot;
+  const surface = entry.parked && !paneLocalSurface(entry.parked.surface) ? entry.parked.surface : '';
+  return { ...entry, view, parked: { open: open && (view !== null || surface !== ''), surface } };
+}
+
+/** File tabs, the Files tree or a git diff: what a pane's dock holds of its own. */
+export const paneLocalSurface = (surface: string) =>
+  surface === PANE_DOCK_DIFF_SURFACE || surface === PANE_DOCK_FILE_SURFACE || surface === PANE_DOCK_FILES_SURFACE;
+
+/** Another session's file tabs, Files tree or diff are in front of `entry`
+ *  for a pane showing `session` ('' for none). */
+export function paneDockForeign(entry: PaneSideDockEntry, session: string): boolean {
+  return paneLocalSurface(entry.surface) && Boolean(entry.owner) && entry.owner !== session;
+}
+
+/** `entry` without its file tabs, Files tree, diff and owner; folded when one
+ *  of them was in front. */
+function withoutPaneLocal(entry: PaneSideDockEntry): PaneSideDockEntry {
+  const { files: _files, activeFile: _activeFile, folder: _folder, owner: _owner, parked, ...rest } = entry;
+  if (!paneLocalSurface(entry.surface)) return { ...rest, diff: null };
+  // The owner's front leaves; what the other tabs had in front comes back.
+  const front = parked && !paneLocalSurface(parked.surface) ? parked : { open: false, surface: '' };
+  return { ...rest, diff: null, open: front.open, surface: front.surface };
+}
+
+/**
+ * Session ownership follows the tabs (`paneSessions`: the session ids of each
+ * pane's tabs). Owned file tabs, Files tree and diff move with their session's
+ * tab to the pane now holding it (unless that pane already has its own), and
+ * are released from a pane that no longer holds the tab; with the session's
+ * last tab gone (closed, archived, deleted) they are released for good, so the
+ * pane is never left hidden behind a session it cannot show.
+ *
+ * An entry with unsaved file tabs (`isDirty(leafId, fileKey)`) is left exactly
+ * where it is: its editors are never remounted elsewhere or merged into
+ * another pane's tabs (the editor backup is written asynchronously on
+ * unmount, so a remount could load the file before the edits land). When its
+ * pane closes it goes the way every pane's dock entry always went.
+ */
+export function reconcilePaneDockOwners(
+  docks: Readonly<Record<string, PaneSideDockEntry>>,
+  paneSessions: Readonly<Record<string, readonly string[]>>,
+  isDirty: (leafId: string, fileKey: string) => boolean = () => false
+): Record<string, PaneSideDockEntry> {
+  let next = docks as Record<string, PaneSideDockEntry>;
+  const put = (leafId: string, entry: PaneSideDockEntry) => {
+    if (next === docks) next = { ...docks };
+    next[leafId] = entry;
+  };
+  for (const [leafId, entry] of Object.entries(docks)) {
+    const owner = entry.owner;
+    if (!owner || paneSessions[leafId]?.includes(owner)) continue;
+    if (entry.files?.some((file) => isDirty(leafId, sideFileKey(file)))) continue;
+    put(leafId, withoutPaneLocal(entry));
+    const holder = Object.keys(paneSessions).find((id) => id !== leafId && paneSessions[id].includes(owner));
+    if (!holder) continue;
+    const dest = next[holder] ?? CLOSED_ENTRY;
+    if (dest.files?.length || dest.folder || dest.diff) continue;
+    put(holder, movedInto(dest, entry, owner));
+  }
+  return next;
+}
+
+/** `dest` taking over `entry`'s file tabs, Files tree and diff (and its front
+ *  place when one of them was in front), owned by `owner`. */
+function movedInto(dest: PaneSideDockEntry, entry: PaneSideDockEntry, owner: string): PaneSideDockEntry {
+  const moved = ownedBy(
+    {
+      ...dest,
+      diff: entry.diff,
+      ...(entry.files?.length ? { files: entry.files, activeFile: entry.activeFile } : {}),
+      ...(entry.folder ? { folder: entry.folder } : {}),
+    },
+    owner
+  );
+  // The owner's front, in front or parked behind another tab's pick, goes
+  // along; the destination's own front is parked for its other tabs.
+  const front = paneLocalSurface(entry.surface)
+    ? { open: entry.open, surface: entry.surface }
+    : entry.parked && paneLocalSurface(entry.parked.surface)
+      ? entry.parked
+      : null;
+  if (!front) return moved;
+  return {
+    ...moved,
+    open: front.open,
+    surface: front.surface,
+    ...(owner ? { parked: { open: dest.open, surface: dest.surface } } : {}),
+  };
+}
+
+/** `entry` with its file tabs, Files tree and diff owned by `owner` ('' for none). */
+function ownedBy(entry: PaneSideDockEntry, owner: string): PaneSideDockEntry {
+  if ((entry.owner ?? '') === owner) return entry;
+  // A parked front belongs to the previous owner's arrangement.
+  const { owner: _owner, parked: _parked, ...rest } = entry;
+  return owner ? { ...rest, owner } : rest;
 }
 
 function activeFileKey(entry: Pick<PaneSideDockEntry, 'files' | 'activeFile'>): string | null {
@@ -565,26 +732,62 @@ function openedPaneDockEntry(entry: PaneSideDockEntry, firstRoot: WorkbenchSideV
 function usePaneSideDockShape({
   leafKey,
   groupsKey,
+  sessionsKey,
   leafIdsRef,
   groupsRef,
+  paneSessionsRef,
+  isDirty,
+  ownerOf,
   setDocks,
 }: {
   leafKey: string;
   groupsKey: string;
+  /** Changes with the session ids of each pane's tabs and the one it shows. */
+  sessionsKey: string;
   leafIdsRef: { current: readonly string[] };
   groupsRef: { current: readonly WorkbenchSideViewGroup[] };
+  paneSessionsRef: { current: Readonly<Record<string, readonly string[]>> | undefined };
+  isDirty: (leafId: string, fileKey: string) => boolean;
+  ownerOf: PaneDockOwnerOf;
   setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
 }): void {
   // Splits, closes, and view moves re-shape the map declaratively: entries
   // follow the live pane list and the CURRENT right-side layout, so a view
   // dragged to the left sidebar can never linger as a pane's active view.
+  // Owned entries follow their session's tab first, so a pane that closes
+  // while its session moves hands the owned state over before it drops; an
+  // owner shown again then takes its parked front back.
+  const followOwners = (current: Record<string, PaneSideDockEntry>) => {
+    const paneSessions = paneSessionsRef.current;
+    const owned = paneSessions ? reconcilePaneDockOwners(current, paneSessions, isDirty) : current;
+    let restored = owned;
+    for (const [leafId, entry] of Object.entries(owned)) {
+      const back = paneDockRestored(entry, ownerOf(leafId));
+      if (back !== entry) restored = { ...restored, [leafId]: back };
+    }
+    return restored;
+  };
   // biome-ignore lint/correctness/useExhaustiveDependencies: leafKey/groupsKey are the change triggers for the ref-held leaf ids and groups
   useEffect(() => {
     setDocks((current) => {
-      const next = normalizePaneSideDocks(current, leafIdsRef.current, groupsRef.current, modeDefaultOpen());
+      const next = normalizePaneSideDocks(
+        followOwners(current),
+        leafIdsRef.current,
+        groupsRef.current,
+        modeDefaultOpen(),
+        true
+      );
       return samePaneSideDocks(current, next) ? current : next;
     });
   }, [leafKey, groupsKey]);
+  // A tab switch or a tab moving between live panes only re-homes owned
+  // state: the live entries are not re-read as if from storage (that drops
+  // file tabs opened with a file-scoped access token, which never survive a
+  // restart but must survive a tab switch).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionsKey is the change trigger for the ref-held pane sessions and shown sessions
+  useEffect(() => {
+    setDocks(followOwners);
+  }, [sessionsKey]);
   // The side-panel mode policy still owns the dock half of its contract:
   // switching to open-both expands every pane dock, close-* folds them.
   useEffect(
@@ -619,7 +822,7 @@ function usePaneSideDockStorage(docks: Record<string, PaneSideDockEntry>): void 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(PANE_SIDE_DOCK_KEY, JSON.stringify(docks));
+      window.localStorage.setItem(PANE_SIDE_DOCK_KEY, JSON.stringify(storablePaneSideDocks(docks)));
     } catch {
       // Dock state remains active for this renderer session.
     }
@@ -652,7 +855,9 @@ function usePaneSideDockPatch({
           next.diff === entry.diff &&
           sameSideFiles(next.files, entry.files) &&
           (next.activeFile ?? null) === (entry.activeFile ?? null) &&
-          (next.folder ?? null) === (entry.folder ?? null);
+          (next.folder ?? null) === (entry.folder ?? null) &&
+          (next.owner ?? '') === (entry.owner ?? '') &&
+          sameParked(next.parked, entry.parked);
         return same && current[leafId] ? current : { ...current, [leafId]: next };
       });
     },
@@ -674,18 +879,34 @@ function cleanDockTarget(project: string, rel: string): { project: string; rel: 
 }
 
 /** Header-tab, open, and fold commands for the unit as a whole. */
-function usePaneDockViewCommands(patch: PaneSideDockPatch) {
+function usePaneDockViewCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOwnerOf) {
   /** Header-tab click contract: a panel view lands in the body, the browser lands as its stacked
-   *  surface; folding stays with the dock's own toggle/close controls. */
+   *  surface; folding stays with the dock's own toggle/close controls.
+   *  One rule for every caller (header buttons, reveals, dock-tab events):
+   *  while another session's file tabs, Files tree or diff are in front, a
+   *  tab that does not own them opens what it picked, and the owner's front
+   *  (which child, open or folded) is parked in `parked`. The file tabs,
+   *  Files tree and diff themselves stay in the entry, mounted (unsaved
+   *  edits intact); the owner gets its front back when it is shown again
+   *  (paneDockRestored). The owner's own pick drops a parked front. */
   const select = useCallback(
     (leafId: string, id: WorkbenchSideViewId) => {
-      patch(leafId, (entry) =>
-        id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE
-          ? { ...entry, open: true, surface: id }
-          : { ...entry, open: true, view: id, surface: '' }
-      );
+      const owner = ownerOf(leafId);
+      patch(leafId, (entry) => {
+        const { parked: previous, ...base } = entry;
+        const picked =
+          id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE
+            ? { ...base, open: true, surface: id }
+            : { ...base, open: true, view: id, surface: '' };
+        // The owner's front: parked now, or kept parked across another non-owner pick.
+        let parked: PaneSideDockEntry['parked'];
+        if (paneDockForeign(entry, owner)) parked = { open: entry.open, surface: entry.surface };
+        else if (entry.owner && entry.owner !== owner && previous && paneLocalSurface(previous.surface))
+          parked = previous;
+        return parked ? { ...picked, parked } : picked;
+      });
     },
-    [patch]
+    [patch, ownerOf]
   );
   /** Ensure the dock is open, optionally landing on a specific child. */
   const open = useCallback(
@@ -694,47 +915,61 @@ function usePaneDockViewCommands(patch: PaneSideDockPatch) {
         select(leafId, id);
         return;
       }
-      patch(leafId, openedPaneDockEntry);
+      const owner = ownerOf(leafId);
+      patch(leafId, (entry, firstRoot) =>
+        paneDockForeign(entry, owner) ? withParkedOpen(entry, true, firstRoot) : openedPaneDockEntry(entry, firstRoot)
+      );
     },
-    [patch, select]
+    [patch, select, ownerOf]
   );
   const setOpen = useCallback(
     (leafId: string, nextOpen: boolean) => {
-      patch(leafId, (entry, firstRoot) =>
-        nextOpen ? openedPaneDockEntry(entry, firstRoot) : { ...entry, open: false }
-      );
+      const owner = ownerOf(leafId);
+      patch(leafId, (entry, firstRoot) => {
+        if (paneDockForeign(entry, owner)) return withParkedOpen(entry, nextOpen, firstRoot);
+        return nextOpen ? openedPaneDockEntry(entry, firstRoot) : { ...entry, open: false };
+      });
     },
-    [patch]
+    [patch, ownerOf]
   );
   /** Fold/unfold the WHOLE unit — header, panel view, browser,
    *  and diff surfaces together. Children survive the fold. */
   const toggle = useCallback(
     (leafId: string) => {
-      patch(leafId, (entry, firstRoot) =>
-        entry.open ? { ...entry, open: false } : openedPaneDockEntry(entry, firstRoot)
-      );
+      const owner = ownerOf(leafId);
+      patch(leafId, (entry, firstRoot) => {
+        if (paneDockForeign(entry, owner)) return withParkedOpen(entry, !entry.parked?.open, firstRoot);
+        return entry.open ? { ...entry, open: false } : openedPaneDockEntry(entry, firstRoot);
+      });
     },
-    [patch]
+    [patch, ownerOf]
   );
   return { select, open, setOpen, toggle };
 }
 
+/** The session a pane shows right now ('' for none): it owns what opens in its dock. */
+type PaneDockOwnerOf = (leafId: string) => string;
+
 /** Opens and closes the unit's single file diff. */
-function usePaneDockDiffCommands(patch: PaneSideDockPatch) {
+function usePaneDockDiffCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOwnerOf) {
   const openDiff = useCallback(
     (leafId: string, project: string, rel: string, request: PaneSideDiffRequest) => {
       const { project: cleanProject, rel: cleanRel } = cleanDockTarget(project, rel);
       if (!cleanProject || !cleanRel) return;
+      const owner = ownerOf(leafId);
       patch(leafId, (entry) =>
-        withPaneDockDiffOpened(entry, {
-          kind: 'diff',
-          project: cleanProject,
-          rel: cleanRel,
-          ...request,
-        })
+        ownedBy(
+          withPaneDockDiffOpened(entry, {
+            kind: 'diff',
+            project: cleanProject,
+            rel: cleanRel,
+            ...request,
+          }),
+          owner
+        )
       );
     },
-    [patch]
+    [patch, ownerOf]
   );
   const closeDiff = useCallback(
     (leafId: string) => {
@@ -749,7 +984,8 @@ function usePaneDockDiffCommands(patch: PaneSideDockPatch) {
 function usePaneDockFileCommands(
   patch: PaneSideDockPatch,
   /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
-  dirtyKeysRef: { current: ReadonlySet<string> }
+  dirtyKeysRef: { current: ReadonlySet<string> },
+  ownerOf: PaneDockOwnerOf
 ) {
   const openFile = useCallback(
     (
@@ -764,28 +1000,32 @@ function usePaneDockFileCommands(
       const { project: cleanProject, rel: cleanRel } = cleanDockTarget(project, rel);
       if (!cleanProject || !cleanRel) return;
       const nonce = Date.now();
+      const owner = ownerOf(leafId);
       patch(leafId, (entry) =>
-        withPaneDockFileOpened(
-          entry,
-          {
-            project: cleanProject,
-            rel: cleanRel,
-            ...(line ? { line } : {}),
-            ...(line && column ? { column } : {}),
-            ...(accessToken ? { accessToken } : {}),
-          },
-          nonce,
-          {
-            preview: request?.preview,
-            from: request?.from,
-            sidePreview: request?.sidePreview,
-            now: nonce,
-            isDirty: (fileKey) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
-          }
+        ownedBy(
+          withPaneDockFileOpened(
+            entry,
+            {
+              project: cleanProject,
+              rel: cleanRel,
+              ...(line ? { line } : {}),
+              ...(line && column ? { column } : {}),
+              ...(accessToken ? { accessToken } : {}),
+            },
+            nonce,
+            {
+              preview: request?.preview,
+              from: request?.from,
+              sidePreview: request?.sidePreview,
+              now: nonce,
+              isDirty: (fileKey) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
+            }
+          ),
+          owner
         )
       );
     },
-    [patch, dirtyKeysRef]
+    [patch, dirtyKeysRef, ownerOf]
   );
   const closeFile = useCallback(
     (leafId: string, fileKey?: string) => {
@@ -795,9 +1035,13 @@ function usePaneDockFileCommands(
   );
   const activateFile = useCallback(
     (leafId: string, fileKey: string) => {
-      patch(leafId, (entry) => withPaneDockFileActivated(entry, fileKey));
+      const owner = ownerOf(leafId);
+      patch(leafId, (entry) => {
+        const activated = withPaneDockFileActivated(entry, fileKey);
+        return activated === entry ? entry : ownedBy(activated, owner);
+      });
     },
-    [patch]
+    [patch, ownerOf]
   );
   const keepFile = useCallback(
     (leafId: string, fileKey: string) => {
@@ -809,7 +1053,7 @@ function usePaneDockFileCommands(
 }
 
 /** The Files tree a transcript folder link opens. */
-function usePaneDockFolderCommands(patch: PaneSideDockPatch) {
+function usePaneDockFolderCommands(patch: PaneSideDockPatch, ownerOf: PaneDockOwnerOf) {
   const openFolder = useCallback(
     (leafId: string, project: string, rel: string) => {
       const cleanProject = String(project || '').trim();
@@ -819,9 +1063,12 @@ function usePaneDockFolderCommands(patch: PaneSideDockPatch) {
       const cleanRel = trimmedRel === '.' ? '' : trimmedRel;
       if (!cleanProject) return;
       const nonce = Date.now();
-      patch(leafId, (entry) => withPaneDockFolderOpened(entry, { project: cleanProject, rel: cleanRel }, nonce));
+      const owner = ownerOf(leafId);
+      patch(leafId, (entry) =>
+        ownedBy(withPaneDockFolderOpened(entry, { project: cleanProject, rel: cleanRel }, nonce), owner)
+      );
     },
-    [patch]
+    [patch, ownerOf]
   );
   const closeFolder = useCallback(
     (leafId: string) => {
@@ -836,19 +1083,21 @@ function usePaneDockFolderCommands(patch: PaneSideDockPatch) {
 function usePaneSideDockCommands({
   groupsRef,
   dirtyKeysRef,
+  ownerOf,
   setDocks,
 }: {
   groupsRef: { current: readonly WorkbenchSideViewGroup[] };
   /** Dirty keys of the open file tabs; dirty tabs are never evicted. */
   dirtyKeysRef: { current: ReadonlySet<string> };
+  ownerOf: PaneDockOwnerOf;
   setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
 }) {
   const patch = usePaneSideDockPatch({ groupsRef, setDocks });
   return {
-    ...usePaneDockViewCommands(patch),
-    ...usePaneDockDiffCommands(patch),
-    ...usePaneDockFileCommands(patch, dirtyKeysRef),
-    ...usePaneDockFolderCommands(patch),
+    ...usePaneDockViewCommands(patch, ownerOf),
+    ...usePaneDockDiffCommands(patch, ownerOf),
+    ...usePaneDockFileCommands(patch, dirtyKeysRef, ownerOf),
+    ...usePaneDockFolderCommands(patch, ownerOf),
   };
 }
 
@@ -876,9 +1125,16 @@ function useLinkPreviewKeep(setDocks: Dispatch<SetStateAction<Record<string, Pan
 export function usePaneSideDocks({
   leafIds,
   groups,
+  sessionOf,
+  paneSessions,
 }: {
   leafIds: readonly string[];
   groups: readonly WorkbenchSideViewGroup[];
+  /** The session each pane shows ('' for none), read when something opens in its dock. */
+  sessionOf?: (leafId: string) => string;
+  /** The session ids of each pane's tabs: owned dock state follows them
+   *  (reconcilePaneDockOwners). Absent: ownership is not reconciled. */
+  paneSessions?: Readonly<Record<string, readonly string[]>>;
 }) {
   const leafKey = leafIds.join('\0');
   const groupsKey = groups.map((group) => group.join(',')).join('|');
@@ -889,10 +1145,36 @@ export function usePaneSideDocks({
   groupsRef.current = groups;
   const leafIdsRef = useRef(leafIds);
   leafIdsRef.current = leafIds;
-  usePaneSideDockShape({ leafKey, groupsKey, leafIdsRef, groupsRef, setDocks });
+  const paneSessionsRef = useRef(paneSessions);
+  paneSessionsRef.current = paneSessions;
+  const sessionsKey = paneSessions
+    ? Object.entries(paneSessions)
+        .map(([leafId, ids]) => `${leafId}:${ids.join(',')}`)
+        .join('|')
+    : '';
+  const dirtyKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const isDirty = useCallback(
+    (leafId: string, fileKey: string) => dirtyKeysRef.current.has(sideFileTabDirtyKey(leafId, fileKey)),
+    []
+  );
+  const sessionOfRef = useRef(sessionOf);
+  sessionOfRef.current = sessionOf;
+  const ownerOf = useCallback((leafId: string) => sessionOfRef.current?.(leafId) ?? '', []);
+  // What each pane shows: an owner shown again gets its parked front back.
+  const shownKey = sessionOf ? leafIds.map((leafId) => `${leafId}:${sessionOf(leafId)}`).join('|') : '';
+  usePaneSideDockShape({
+    leafKey,
+    groupsKey,
+    sessionsKey: `${sessionsKey}\n${shownKey}`,
+    leafIdsRef,
+    groupsRef,
+    paneSessionsRef,
+    isDirty,
+    ownerOf,
+    setDocks,
+  });
   usePaneSideDockStorage(docks);
   useLinkPreviewKeep(setDocks);
-  const dirtyKeysRef = useRef<ReadonlySet<string>>(new Set());
   const entryFor = useCallback((leafId: string): PaneSideDockEntry => docks[leafId] ?? CLOSED_ENTRY, [docks]);
   const {
     select,
@@ -910,6 +1192,7 @@ export function usePaneSideDocks({
   } = usePaneSideDockCommands({
     groupsRef,
     dirtyKeysRef,
+    ownerOf,
     setDocks,
   });
   return {

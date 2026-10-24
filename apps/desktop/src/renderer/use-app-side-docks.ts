@@ -19,6 +19,7 @@ import {
 import { usePaneSideDocks, type PaneSideDockDiff } from './pane-side-dock';
 import {
   isSessionSidePanelView,
+  paneDockEntryForSession,
   sessionSideDockEntryForSession,
   terminalSessionsToRestore,
 } from './session-side-surface-policy';
@@ -83,9 +84,26 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
   const [activeSideViews, setActiveSideViews] = useState<Record<WorkbenchSide, WorkbenchSideViewId | null>>(() =>
     initialActiveWorkbenchSideViews(workbenchSideLayout.layout)
   );
+  /** The session a pane shows ('' for a draft or a non-session tab). */
+  const sessionOfLeaf = (leafId: string) => {
+    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
+    const selection = leaf ? paneActiveSelection(leaf) : null;
+    return selection?.kind === 'session' ? selection.id : '';
+  };
   const paneSideDocks = usePaneSideDocks({
     leafIds: paneWorkspace.leaves.map((leaf) => leaf.id),
     groups: workbenchSideLayout.layout.right,
+    sessionOf: sessionOfLeaf,
+    // Owned dock state follows its session's tab; read only once the layout
+    // is restored, so a placeholder pane list never releases it.
+    paneSessions: paneWorkspace.restorePending
+      ? undefined
+      : Object.fromEntries(
+          paneWorkspace.leaves.map((leaf) => [
+            leaf.id,
+            leaf.tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : [])),
+          ])
+        ),
   });
   // A reload keeps the pane entry (open, terminal) but not the in-memory session
   // surface; give the terminal back to the session each pane starts on, once.
@@ -104,9 +122,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
   /** The dock entry the leaf actually shows: the pane's own entry overridden by
    *  its session's browser/terminal/diff/visualize surface. */
   const displayedDockEntry = (leafId: string) => {
-    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
-    const selection = leaf ? paneActiveSelection(leaf) : null;
-    const sessionId = selection?.kind === 'session' ? selection.id : '';
+    const sessionId = sessionOfLeaf(leafId);
     return {
       sessionId,
       entry: sessionSideDockEntryForSession(
@@ -151,13 +167,14 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     if (sessionId && sessionPanelViews.get(sessionId)) {
       setSessionPanelView(sessionId, null);
     }
+    // Over another session's file tabs or diff this folds only the front
+    // parked for the other tabs (pane-side-dock `parked`).
     paneSideDocks.setOpen(leafId, false);
   };
   const togglePaneRightRegion = useStableEvent((leafId: string) => {
-    const rawEntry = paneSideDocks.entryFor(leafId);
-    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
-    const selection = leaf ? paneActiveSelection(leaf) : null;
-    const sessionId = selection?.kind === 'session' ? selection.id : '';
+    const sessionId = sessionOfLeaf(leafId);
+    // The pane as this tab sees it: another session's file tabs or diff are not its own.
+    const rawEntry = paneDockEntryForSession(paneSideDocks.entryFor(leafId), sessionId);
     const selectedSurface = sessionSideSurfaces.get(sessionId) ?? null;
     const selectedPanelView = sessionPanelViews.get(sessionId) ?? null;
     const displayedEntry = sessionSideDockEntryForSession(

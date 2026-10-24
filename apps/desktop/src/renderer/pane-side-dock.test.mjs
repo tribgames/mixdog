@@ -11,6 +11,8 @@ import {
   paneDockActiveRoot,
   paneDockFileCloseEndsDock,
   paneDiffShowing,
+  paneDockRestored,
+  reconcilePaneDockOwners,
   samePaneSideDocks,
   withPaneDockDiffClosed,
   withPaneDockDiffOpened,
@@ -301,6 +303,102 @@ test('the side files persist, restore, and stay in front of a session surface', 
   // The session's browser surface does not hide a freshly opened file.
   const shown = sessionSideDockEntryForSession(restored['pane-1'], 'sess', 'browser');
   assert.equal(shown.surface, 'file');
+  // The session the file opened beside survives a restart, and counts as a change.
+  const owned = { 'pane-1': { ...stored['pane-1'], owner: 'sess' } };
+  assert.equal(normalizePaneSideDocks(owned, ['pane-1'], RIGHT, false)['pane-1'].owner, 'sess');
+  assert.ok(!samePaneSideDocks(restored, normalizePaneSideDocks(owned, ['pane-1'], RIGHT, false)));
+});
+
+test("owned dock state follows its session's tab between panes and is released with its last tab", () => {
+  const file = withPaneDockFileOpened(closed(), fileLink, 1, { now: 1 });
+  const owned = { ...file, owner: 's1' };
+  const empty = closed();
+  // Still in its pane: nothing changes (same object).
+  const docks = { L1: owned, L2: empty };
+  assert.strictEqual(reconcilePaneDockOwners(docks, { L1: ['s1'], L2: ['s2'] }), docks);
+  // Moved to L2: the file, its front place and the owner go along; L1 folds.
+  const moved = reconcilePaneDockOwners(docks, { L1: ['bot'], L2: ['s2', 's1'] });
+  assert.deepEqual(moved.L2.files, owned.files);
+  assert.equal(moved.L2.surface, 'file');
+  assert.equal(moved.L2.open, true);
+  assert.equal(moved.L2.owner, 's1');
+  assert.deepEqual(moved.L1, { ...closed(), surface: '', open: false });
+  // A pane that closed while its session moved hands it over too.
+  assert.equal(reconcilePaneDockOwners({ L1: owned }, { L2: ['s1'] }).L2.owner, 's1');
+  // The destination keeps its own file tabs; the moved ones are released.
+  const busy = { ...withPaneDockFileOpened(closed(), { project: 'C:/p', rel: 'b.ts' }, 2, { now: 2 }), owner: 's2' };
+  const kept = reconcilePaneDockOwners({ L1: owned, L2: busy }, { L1: [], L2: ['s2', 's1'] });
+  assert.strictEqual(kept.L2, busy);
+  assert.equal(kept.L1.files, undefined);
+  // Last tab gone (closed, archived, deleted): released, never stranded.
+  const gone = reconcilePaneDockOwners(
+    { L1: { ...owned, folder: { project: 'C:/p', rel: '', nonce: 1 } } },
+    { L1: [] }
+  );
+  assert.deepEqual(gone.L1, { ...closed(), surface: '', open: false });
+  // An entry with unsaved file tabs stays exactly where it is: not released,
+  // not moved to a free pane holding its session, not joined into another pane.
+  const dirty = { L1: owned };
+  for (const panes of [{ L1: [] }, { L1: [], L2: ['s1'] }, { L2: ['s1'] }, { L2: ['s2'] }]) {
+    assert.strictEqual(
+      reconcilePaneDockOwners(dirty, panes, () => true),
+      dirty,
+      JSON.stringify(panes)
+    );
+  }
+  const crowded = { L1: owned, L2: { ...withPaneDockFileOpened(closed(), fileLink, 3, { now: 3 }), owner: 's2' } };
+  assert.strictEqual(
+    reconcilePaneDockOwners(crowded, { L2: ['s2', 's1'] }, (leafId) => leafId === 'L1'),
+    crowded
+  );
+  // Unowned entries are left alone.
+  const free = { L1: file };
+  assert.strictEqual(reconcilePaneDockOwners(free, { L1: [] }), free);
+});
+
+test("a parked owner front follows the owned entry's lifecycle and survives a restart", () => {
+  const files = withPaneDockFileOpened(closed(), fileLink, 1, { now: 1 }).files;
+  // s2 picked Source Control over s1's file: s1's front is parked.
+  const parked = {
+    open: true,
+    view: 'source-control',
+    surface: '',
+    diff: null,
+    files,
+    activeFile: sideFileKey(files[0]),
+    owner: 's1',
+    parked: { open: true, surface: 'file' },
+  };
+  // s1 shown again: its front comes back, s2's view is parked for the others.
+  const back = paneDockRestored(parked, 's1');
+  assert.equal(back.surface, 'file');
+  assert.deepEqual(back.parked, { open: true, surface: '' });
+  assert.strictEqual(paneDockRestored(parked, 's2'), parked);
+  // Restart: kept as stored; a parked file surface without files is dropped.
+  assert.deepEqual(normalizePaneSideDocks({ L1: parked }, ['L1'], RIGHT, false).L1.parked, parked.parked);
+  assert.equal(
+    normalizePaneSideDocks({ L1: { ...parked, files: undefined } }, ['L1'], RIGHT, false).L1.parked,
+    undefined
+  );
+  // s1's tab moves to L2: the parked front goes along and is in front there.
+  const moved = reconcilePaneDockOwners({ L1: parked, L2: closed() }, { L1: ['s2'], L2: ['s1'] });
+  assert.equal(moved.L2.surface, 'file');
+  assert.equal(moved.L2.open, true);
+  assert.equal(moved.L1.parked, undefined);
+  assert.equal(moved.L1.view, 'source-control', "s2's view stays in L1");
+  assert.equal(moved.L1.open, true);
+  // s1 gone: released; with its file in front, the front parked for the others comes back.
+  const gone = reconcilePaneDockOwners({ L1: back }, { L1: ['s2'] });
+  assert.equal(gone.L1.files, undefined);
+  assert.equal(gone.L1.parked, undefined);
+  assert.equal(gone.L1.surface, '');
+  assert.equal(gone.L1.open, true);
+  // Unsaved tabs behind a parked front are never dropped either.
+  const dirty = { L1: parked };
+  assert.strictEqual(
+    reconcilePaneDockOwners(dirty, { L1: ['s2'] }, () => true),
+    dirty
+  );
 });
 
 // Module-level so its identity is stable across the dock's re-renders.

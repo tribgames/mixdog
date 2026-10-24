@@ -6,6 +6,9 @@ import {
   PANE_DOCK_TERMINAL_SURFACE,
   type PaneSideDockDiff,
   type PaneSideDockEntry,
+  paneDockForeign,
+  paneDockRestored,
+  paneLocalSurface,
 } from './pane-side-dock';
 import { navigationKey } from './text-format';
 
@@ -92,10 +95,23 @@ export function withSessionPanelView(
   return withSessionEntry(current, sessionId, view);
 }
 
+/** The pane entry as the tab `sessionId` sees it: file tabs, a Files tree or
+ *  a git diff in front belong to the session they were brought up beside
+ *  (`owner`). Any other tab of the pane — another session, a bot chat, a
+ *  draft — sees the dock as if closed; the owner gets it back as it was. */
+export function paneDockEntryForSession(entry: PaneSideDockEntry, sessionId: string): PaneSideDockEntry {
+  const restored = paneDockRestored(entry, sessionId);
+  if (restored !== entry || !paneDockForeign(entry, sessionId)) return restored;
+  // Any other tab sees the front parked for it (a pane-level view another
+  // tab opened), else the dock closed.
+  const parked = entry.parked && !paneLocalSurface(entry.parked.surface) ? entry.parked : null;
+  return { ...entry, open: parked?.open ?? false, surface: parked?.surface ?? '' };
+}
+
 /**
  * Session-owned surfaces override the pane's remembered panel only for their
- * own session. A pane-local (git) diff stays in front until it closes; a
- * session's own diff rides in front of that session only.
+ * own session. A pane-local (git) diff stays in front of its own session
+ * until it closes; a session's own diff rides in front of that session only.
  */
 export function sessionSideDockEntryForSession(
   entry: PaneSideDockEntry,
@@ -106,10 +122,12 @@ export function sessionSideDockEntryForSession(
 ): PaneSideDockEntry {
   // A session diff persisted into the pane entry by an older build belongs to
   // no pane: drop it so the session map below is the only owner.
-  const base =
+  const base = paneDockEntryForSession(
     entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff?.source === 'session'
       ? { ...entry, surface: '', diff: null }
-      : entry;
+      : entry,
+    sessionId
+  );
   if (sessionId && sessionDiff) {
     if (
       base.open &&

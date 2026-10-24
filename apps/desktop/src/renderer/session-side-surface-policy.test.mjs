@@ -132,6 +132,31 @@ test('session list selections stay per session', () => {
   assert.deepEqual([...views], [['beta', 'session-diff']]);
 });
 
+test('file tabs, a Files tree or a git diff show beside the session they opened with only', () => {
+  const files = [{ project: 'C:/p', rel: 'image-9cb6.png', nonce: 1, openedAt: 1 }];
+  const file = { open: true, view: 'visualize', surface: 'file', diff: null, files, owner: 'alpha' };
+  assert.strictEqual(sessionSideDockEntryForSession(file, 'alpha', null), file);
+  // A bot chat, another session or a draft in the same pane: the dock is closed for it.
+  for (const other of ['sess_home_agent-marketer', 'beta', '']) {
+    const shown = sessionSideDockEntryForSession(file, other, null);
+    assert.equal(shown.open, false, `no foreign panel beside ${other || 'a draft'}`);
+    assert.equal(shown.surface, '');
+  }
+  // Its own panel still opens there; the file tabs stay for their session.
+  const beta = sessionSideDockEntryForSession(file, 'beta', null, null, 'visualize');
+  assert.equal(beta.open, true);
+  assert.equal(beta.surface, '');
+  assert.deepEqual(beta.files, files);
+  for (const surface of ['files', 'diff']) {
+    const entry = { ...file, surface, folder: { project: 'C:/p', rel: '', nonce: 1 }, diff: { kind: 'diff' } };
+    assert.equal(sessionSideDockEntryForSession(entry, 'beta', null).open, false, surface);
+    assert.strictEqual(sessionSideDockEntryForSession(entry, 'alpha', null), entry, surface);
+  }
+  // Opened beside no session (a draft, a main file tab): every tab sees it, as before.
+  const { owner: _owner, ...unowned } = file;
+  assert.strictEqual(sessionSideDockEntryForSession(unowned, 'beta', null), unowned);
+});
+
 test('the visualize view rides its own session like the Session Diff list', () => {
   const showing = { open: true, view: 'visualize', surface: '', diff: null };
   assert.strictEqual(sessionSideDockEntryForSession(showing, 'alpha', null, null, 'visualize'), showing);
