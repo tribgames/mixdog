@@ -1488,6 +1488,81 @@ test("the overlay bot pinned above the message box takes its width from the isla
   assert.equal((await state(59)).compact, true, 'would reach the visible art');
 });
 
+test('labels that change beside an open side panel still go compact under the pinned bot once it closes', async (t) => {
+  const page = await realPage(
+    t,
+    `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
+        import { setPetIslandReserve } from './composer-island-state.ts';
+        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        const region = document.getElementById('root');
+        window.__reserve = (width) => setPetIslandReserve(region, width);
+        const h = React.createElement;
+        const root = createRoot(region);
+        window.__render = (count) =>
+          flushSync(() =>
+            root.render(
+              h(ComposerIsland, {
+                sessionId: 'side-panel',
+                branch: () =>
+                  h('button', { type: 'button', className: 'composer-island-seg composer-island-seg-branch' },
+                    h(IslandSegLabel, { text: '', count: 0, icon: 'git-branch' }),
+                    h('span', { className: 'composer-island-seg-text' },
+                      h('span', { className: 'composer-island-seg-label' },
+                        h('span', { className: 'composer-island-seg-prefix' }, 'feature/'), 'island-fits-narrow-phones'))),
+                files: h('button', { type: 'button', className: 'composer-island-seg turn-review-segment' },
+                  h(IslandSegLabel, { text: count + ' files changed', count, icon: 'file-diff' }),
+                  h('span', { className: 'diff-stats' }, h('i', null, '+764'), ' ', h('em', null, '-132'))),
+                git: h('span', { className: 'composer-island-seg composer-island-git' },
+                  h('button', { type: 'button', className: 'composer-island-git-main' }, h('span', null, 'Git'))),
+              })
+            )
+          );
+      `
+  );
+  const settle = () => page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  const state = () =>
+    page.evaluate(() => {
+      const island = document.querySelector('.composer-island');
+      return {
+        compact: island.hasAttribute('data-compact'),
+        glyph: island.hasAttribute('data-fit-glyph'),
+        room: island.parentElement.clientWidth,
+        pill: island.querySelector('.composer-island-pill').offsetWidth,
+      };
+    });
+  await page.evaluate(() => window.__render(12));
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+  const full = await state();
+  assert.equal(full.compact, false, `full labels in the room: ${JSON.stringify(full)}`);
+  const reserve = 40;
+  await page.evaluate((width) => window.__reserve(width), reserve);
+  // A side panel opens: the room is so narrow that even the compact pill
+  // gives way (the worktree name down to its glyph).
+  await page.setViewport({ width: 140, height: 800 });
+  await settle();
+  const narrow = await state();
+  assert.ok(narrow.compact && narrow.glyph, JSON.stringify(narrow));
+  // A count changes meanwhile (labels never laid out before: read, not reused).
+  await page.evaluate(() => window.__render(13));
+  await settle();
+  // The panel closes: room for the full labels, but not beside the bot.
+  const room = full.pill + 2 * reserve - 10;
+  await page.setViewport({ width: room, height: 800 });
+  await settle();
+  const wide = await state();
+  assert.equal(wide.room, room, JSON.stringify(wide));
+  assert.equal(wide.compact, true, `would run under the bot: ${JSON.stringify(wide)}`);
+  assert.ok(wide.pill <= room - 2 * reserve, JSON.stringify(wide));
+  // A room that clears the bot takes the full labels back.
+  await page.setViewport({ width: 900, height: 800 });
+  await settle();
+  assert.equal((await state()).compact, false);
+});
+
 /** ComposerDock on a real page: a New Task draft (context bar) or a session. */
 function dockPage(t) {
   return realPage(

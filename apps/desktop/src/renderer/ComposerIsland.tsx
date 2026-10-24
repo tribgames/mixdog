@@ -173,15 +173,12 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     // Last resort once compact still overflows: the agents' running state
     // gives way to the segment's pulse and padding tightens.
     const fitTight = () => {
-      island.removeAttribute('data-fit-tight');
       if (island.hasAttribute('data-compact') && overflows()) island.setAttribute('data-fit-tight', '');
     };
     // The worktree name is the one label that gives way after compact (which
     // already drops its prefix and caps it): a name squeezed below its cap
     // takes the Goal's pips, and below a readable width only its glyph stays.
     const fitWorktree = () => {
-      island.removeAttribute('data-fit-pips');
-      island.removeAttribute('data-fit-glyph');
       const name = pill.querySelector<HTMLElement>('.composer-island-seg-branch .composer-island-seg-text');
       if (!name || !island.hasAttribute('data-compact')) return;
       const cut = () => name.scrollWidth > name.clientWidth;
@@ -192,6 +189,15 @@ function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRef: RefO
     };
     const fit = (contentChanged: boolean) => {
       if (room < 0) return;
+      // The narrow room's give-ways (tight padding, the worktree name's pips
+      // and glyph) follow from the labels' fit, so they come off first: the
+      // full-label read and the overflow check see the whole labels. Read
+      // under them, a width measured beside an open side panel stayed too
+      // small once the room widened again, and the full pill ran under the
+      // pinned bot.
+      island.removeAttribute('data-fit-tight');
+      island.removeAttribute('data-fit-pips');
+      island.removeAttribute('data-fit-glyph');
       fitLabels(contentChanged);
       fitWorktree();
       fitTight();
