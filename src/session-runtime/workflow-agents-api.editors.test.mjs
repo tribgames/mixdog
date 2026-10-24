@@ -3,7 +3,7 @@
 // agent create/update/delete (including starter tombstones and fixed-role
 // overrides), and workflow pack create/save/delete with active fallback.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
@@ -480,6 +480,233 @@ test('getAgentDefinition returns the user copy path only; a direct AGENT.md edit
   const shipped = api.listAgents().find((agent) => !agent.userOverride && agent.custom);
   if (shipped) assert.equal('path' in api.getAgentDefinition(shipped.id), false);
   assert.equal('path' in api.getAgentDefinition('worker'), false);
+});
+
+test('a user agent whose agent.json entry names another file reads and revalidates through that file', (t) => {
+  const { dataDir, api } = fixture(t);
+  const dir = join(dataDir, 'agents', 'entry-agent');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'agent.json'), JSON.stringify({ name: 'Entry Agent', entry: 'prompt.md' }));
+  writeFileSync(join(dir, 'AGENT.md'), 'Default body.');
+  const file = join(dir, 'prompt.md');
+  writeFileSync(file, 'First prompt.');
+  const first = api.getAgentDefinition('entry-agent');
+  assert.equal(first.userOverride, true);
+  assert.equal(first.path, file);
+  assert.equal(first.body, 'First prompt.');
+  writeFileSync(file, 'Second prompt, edited on disk.');
+  const second = api.getAgentDefinition('entry-agent');
+  assert.equal(second.body, 'Second prompt, edited on disk.');
+  assert.notEqual(second.revision, first.revision);
+});
+
+// A user agent whose agent.json names `entry`, with prompt.md written when `files` says so.
+function entryAgent(dataDir, id, entry, files = {}) {
+  const dir = join(dataDir, 'agents', id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'agent.json'), JSON.stringify({ name: id, entry }));
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(join(dir, name, '..'), { recursive: true });
+    writeFileSync(join(dir, name), text);
+  }
+  return dir;
+}
+
+test('an agent.json entry that climbs out or resolves outside its folder loads as at HEAD but is handed out with no editable path', async (t) => {
+  const { dataDir, helpers, api } = fixture(t);
+  const outside = join(dataDir, 'outside');
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(outside, 'prompt.md'), 'Outside body.');
+  entryAgent(dataDir, 'climb-agent', '../../outside/prompt.md', { 'AGENT.md': 'Own body.' });
+  const linked = entryAgent(dataDir, 'link-agent', 'linked/prompt.md', { 'AGENT.md': 'Own body.' });
+  symlinkSync(outside, join(linked, 'linked'), 'junction');
+  const ids = ['climb-agent', 'link-agent'];
+  for (const id of ids) {
+    assert.equal(helpers.loadAgentDefinition(dataDir, id).body, 'Outside body.', `${id} loads`);
+    assert.ok(helpers.listCustomAgentIds(dataDir).includes(id), `${id} is discovered`);
+    const read = api.getAgentDefinition(id);
+    assert.equal(read.body, 'Outside body.');
+    assert.equal(read.userOverride, true);
+    assert.equal('path' in read, false, `${id} hands out no path`);
+  }
+  assert.deepEqual(api.agentDefinitionPresence(ids), { 'climb-agent': 'present', 'link-agent': 'present' });
+  // Delete acts as HEAD did (it archives only the folder's own AGENT.md and
+  // writes the tombstone) and never moves the outside file.
+  const outsideStays = () => {
+    assert.equal(readFileSync(join(outside, 'prompt.md'), 'utf8'), 'Outside body.');
+    assert.deepEqual(readdirSync(outside), ['prompt.md']);
+  };
+  const climbDir = join(dataDir, 'agents', 'climb-agent');
+  assert.deepEqual(await api.deleteAgentDefinition('climb-agent'), {
+    id: 'climb-agent',
+    deleted: true,
+    revertedToBuiltIn: false,
+  });
+  assert.equal(existsSync(join(climbDir, AGENT_DELETED_MARKER)), true);
+  assert.equal(readFileSync(join(climbDir, 'AGENT.md.archived'), 'utf8'), 'Own body.');
+  outsideStays();
+  const linkDir = join(dataDir, 'agents', 'link-agent');
+  await api.deleteAgentDefinition('link-agent');
+  assert.equal(readFileSync(join(linkDir, 'AGENT.md.archived'), 'utf8'), 'Own body.');
+  assert.equal(existsSync(join(linkDir, 'AGENT.md')), false);
+  assert.equal(existsSync(join(linkDir, AGENT_DELETED_MARKER)), true);
+  outsideStays();
+  // Restore puts HEAD's AGENT.md.archived back as AGENT.md, again leaving the outside file be.
+  await api.restoreAgentDefinition('link-agent');
+  assert.equal(readFileSync(join(linkDir, 'AGENT.md'), 'utf8'), 'Own body.');
+  assert.equal(existsSync(join(linkDir, 'AGENT.md.archived')), false);
+  outsideStays();
+  // The same entry kept inside the folder gets its path.
+  entryAgent(dataDir, 'link-agent', 'inside/prompt.md', { 'inside/prompt.md': 'Inside body.' });
+  const fixed = api.getAgentDefinition('link-agent');
+  assert.equal(fixed.body, 'Inside body.');
+  assert.equal(fixed.path, join(dataDir, 'agents', 'link-agent', 'inside', 'prompt.md'));
+});
+
+test('restore finds the legacy AGENT.md.archived for the default entry and when the selected entry has no archive', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const tombstone = (dir) => writeFileSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
+  const legacy = join(dataDir, 'agents', 'legacy-agent');
+  mkdirSync(legacy, { recursive: true });
+  writeFileSync(join(legacy, 'agent.json'), JSON.stringify({ name: 'Legacy' }));
+  writeFileSync(join(legacy, 'AGENT.md.archived'), 'Legacy body.');
+  tombstone(legacy);
+  const first = await api.restoreAgentDefinition('legacy-agent');
+  assert.equal(first.body, 'Legacy body.');
+  assert.equal(first.path, join(legacy, 'AGENT.md'));
+  assert.equal(existsSync(join(legacy, 'AGENT.md.archived')), false);
+
+  const custom = entryAgent(dataDir, 'legacy-entry', 'prompt.md', { 'AGENT.md.archived': 'Older body.' });
+  tombstone(custom);
+  // As at HEAD the file goes back to AGENT.md; the loader still reads the selected entry, so the read-back is not found.
+  await assert.rejects(api.restoreAgentDefinition('legacy-entry'), /not found/);
+  assert.equal(readFileSync(join(custom, 'AGENT.md'), 'utf8'), 'Older body.');
+  assert.equal(existsSync(join(custom, 'prompt.md')), false);
+  assert.equal(existsSync(join(custom, 'AGENT.md.archived')), false);
+});
+
+test('HEAD compatibility: an AGENT.md beside a missing entry is discovered and present; delete leaves a blocked entry under the tombstone; legacy restore goes to AGENT.md', async (t) => {
+  const { dataDir, helpers, api } = fixture(t);
+  // 1. AGENT.md exists, the manifest-selected entry does not: still discovered and present.
+  entryAgent(dataDir, 'md-only', 'prompt.md', { 'AGENT.md': 'Default body.' });
+  assert.ok(helpers.listCustomAgentIds(dataDir).includes('md-only'));
+  assert.deepEqual(api.agentDefinitionPresence(['md-only']), { 'md-only': 'present' });
+  // 2. prompt.md and prompt.md.archived, no AGENT.md: delete writes the tombstone, overwrites nothing.
+  const dir = entryAgent(dataDir, 'blocked-entry', 'prompt.md', { 'prompt.md': 'Live.', 'prompt.md.archived': 'Stray.' });
+  assert.equal((await api.deleteAgentDefinition('blocked-entry')).deleted, true);
+  assert.equal(existsSync(join(dir, AGENT_DELETED_MARKER)), true);
+  assert.equal(readFileSync(join(dir, 'prompt.md'), 'utf8'), 'Live.');
+  assert.equal(readFileSync(join(dir, 'prompt.md.archived'), 'utf8'), 'Stray.');
+  // A default AGENT.md over an existing AGENT.md.archived is the one move refused.
+  const plain = join(dataDir, 'agents', 'plain-clash');
+  mkdirSync(plain, { recursive: true });
+  writeFileSync(join(plain, 'AGENT.md'), 'Live.');
+  writeFileSync(join(plain, 'AGENT.md.archived'), 'Stray.');
+  await assert.rejects(api.deleteAgentDefinition('plain-clash'), /cannot be deleted.*already exists/);
+  assert.equal(readFileSync(join(plain, 'AGENT.md.archived'), 'utf8'), 'Stray.');
+  assert.equal(existsSync(join(plain, AGENT_DELETED_MARKER)), false);
+  // 3. A legacy AGENT.md.archived restores to AGENT.md even when agent.json selects prompt.md;
+  //    the selected entry's own archive restores to that entry.
+  const legacy = entryAgent(dataDir, 'legacy-target', 'prompt.md', { 'AGENT.md.archived': 'Old body.' });
+  writeFileSync(join(legacy, AGENT_DELETED_MARKER), 'deleted\n');
+  await assert.rejects(api.restoreAgentDefinition('legacy-target'), /not found/);
+  assert.equal(readFileSync(join(legacy, 'AGENT.md'), 'utf8'), 'Old body.');
+  assert.equal(existsSync(join(legacy, 'prompt.md')), false);
+  const selected = entryAgent(dataDir, 'selected-archive', 'prompt.md', { 'prompt.md.archived': 'New body.' });
+  writeFileSync(join(selected, AGENT_DELETED_MARKER), 'deleted\n');
+  await api.restoreAgentDefinition('selected-archive');
+  assert.equal(readFileSync(join(selected, 'prompt.md'), 'utf8'), 'New body.');
+});
+
+test('delete and restore refuse a conflicting destination and touch neither file', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const dir = entryAgent(dataDir, 'clash-agent', 'prompt.md', { 'prompt.md': 'Live body.' });
+  const tombstone = join(dir, AGENT_DELETED_MARKER);
+  await api.deleteAgentDefinition('clash-agent');
+  await assert.rejects(api.deleteAgentDefinition('clash-agent'), /not found/);
+  // Restore over a recreated entry is refused.
+  writeFileSync(join(dir, 'prompt.md'), 'Recreated.');
+  await assert.rejects(api.restoreAgentDefinition('clash-agent'), /cannot be restored.*already exists/);
+  assert.equal(readFileSync(join(dir, 'prompt.md'), 'utf8'), 'Recreated.');
+  assert.equal(readFileSync(join(dir, 'prompt.md.archived'), 'utf8'), 'Live body.');
+  assert.equal(existsSync(tombstone), true);
+  rmSync(join(dir, 'prompt.md'));
+  const restored = await api.restoreAgentDefinition('clash-agent');
+  assert.equal(restored.body, 'Live body.');
+  await assert.rejects(api.restoreAgentDefinition('clash-agent'), /is not deleted/);
+});
+
+test('delete archives AGENT.md beside a missing selected entry, and restore brings it back past an unrelated entry archive', async (t) => {
+  const { dataDir, api } = fixture(t);
+  const dir = entryAgent(dataDir, 'mixed-agent', 'prompt.md', { 'AGENT.md': 'Default body.' });
+  await api.deleteAgentDefinition('mixed-agent');
+  assert.equal(existsSync(join(dir, 'AGENT.md')), false);
+  assert.equal(readFileSync(join(dir, 'AGENT.md.archived'), 'utf8'), 'Default body.');
+  assert.deepEqual(api.agentDefinitionPresence(['mixed-agent']), { 'mixed-agent': 'deleted' });
+  // A live prompt.md and a stray prompt.md.archived do not block the legacy move.
+  writeFileSync(join(dir, 'prompt.md'), 'Live prompt.');
+  writeFileSync(join(dir, 'prompt.md.archived'), 'Stray archive.');
+  await api.restoreAgentDefinition('mixed-agent');
+  assert.equal(readFileSync(join(dir, 'AGENT.md'), 'utf8'), 'Default body.');
+  assert.equal(readFileSync(join(dir, 'prompt.md'), 'utf8'), 'Live prompt.');
+  assert.equal(readFileSync(join(dir, 'prompt.md.archived'), 'utf8'), 'Stray archive.');
+});
+
+test('a BOM-prefixed agent.json is read the same by discovery, the loader and the editor', (t) => {
+  const { dataDir, helpers, api } = fixture(t);
+  // The BOM must not hide the selected entry: the loader reads it, not AGENT.md.
+  const only = entryAgent(dataDir, 'bom-only', 'prompt.md', { 'prompt.md': 'Entry only.', 'AGENT.md': 'Default body.' });
+  writeFileSync(join(only, 'agent.json'), `\ufeff${JSON.stringify({ name: 'Bom Only', entry: 'prompt.md' })}`);
+  assert.ok(helpers.listCustomAgentIds(dataDir).includes('bom-only'));
+  assert.equal(helpers.loadAgentDefinition(dataDir, 'bom-only').body, 'Entry only.');
+  assert.equal(api.getAgentDefinition('bom-only').path, join(only, 'prompt.md'));
+
+  const both = entryAgent(dataDir, 'bom-both', 'prompt.md', { 'prompt.md': 'Entry body.', 'AGENT.md': 'Default body.' });
+  writeFileSync(join(both, 'agent.json'), `\ufeff${JSON.stringify({ name: 'Bom Both', entry: 'prompt.md' })}`);
+  const read = api.getAgentDefinition('bom-both');
+  assert.equal(read.body, 'Entry body.');
+  assert.equal(read.path, join(both, 'prompt.md'));
+});
+
+test('a folder with only a manifest-selected entry and no AGENT.md is neither discovered nor present, as at HEAD', (t) => {
+  const { dataDir, helpers, api } = fixture(t);
+  entryAgent(dataDir, 'entry-only', 'prompt.md', { 'prompt.md': 'Entry body.' });
+  assert.equal(helpers.listCustomAgentIds(dataDir).includes('entry-only'), false);
+  assert.equal(api.listAgents().some((agent) => agent.id === 'entry-only'), false);
+  assert.deepEqual(api.agentDefinitionPresence(['entry-only']), { 'entry-only': 'deleted' });
+});
+
+test('an agent with an AGENT.md and another selected entry is discovered and present, and delete + restore keep both files', async (t) => {
+  const { dataDir, helpers, api } = fixture(t);
+  const dir = entryAgent(dataDir, 'entry-agent', 'prompt.md', { 'prompt.md': 'Entry body.', 'AGENT.md': 'Default body.' });
+  assert.ok(helpers.listCustomAgentIds(dataDir).includes('entry-agent'));
+  assert.ok(api.listAgents().some((agent) => agent.id === 'entry-agent' && agent.userOverride));
+  assert.deepEqual(api.agentDefinitionPresence(['entry-agent']), { 'entry-agent': 'present' });
+
+  assert.deepEqual(await api.deleteAgentDefinition('entry-agent'), {
+    id: 'entry-agent',
+    deleted: true,
+    revertedToBuiltIn: false,
+  });
+  // AGENT.md always moves aside; the selected entry too, its archive being free.
+  assert.equal(existsSync(join(dir, 'AGENT.md')), false);
+  assert.equal(existsSync(join(dir, 'AGENT.md.archived')), true);
+  assert.equal(existsSync(join(dir, 'prompt.md')), false);
+  assert.equal(existsSync(join(dir, 'prompt.md.archived')), true);
+  assert.equal(existsSync(join(dir, AGENT_DELETED_MARKER)), true);
+  assert.equal(helpers.loadAgentDefinition(dataDir, 'entry-agent'), null);
+  assert.equal(helpers.listCustomAgentIds(dataDir).includes('entry-agent'), false);
+  assert.deepEqual(api.agentDefinitionPresence(['entry-agent']), { 'entry-agent': 'deleted' });
+
+  const restored = await api.restoreAgentDefinition('entry-agent');
+  assert.equal(restored.path, join(dir, 'prompt.md'));
+  assert.equal(restored.body, 'Entry body.');
+  assert.equal(readFileSync(join(dir, 'AGENT.md'), 'utf8'), 'Default body.');
+  assert.equal(readFileSync(join(dir, 'prompt.md'), 'utf8'), 'Entry body.');
+  assert.equal(existsSync(join(dir, 'prompt.md.archived')), false);
+  assert.equal(existsSync(join(dir, AGENT_DELETED_MARKER)), false);
+  assert.ok(helpers.listCustomAgentIds(dataDir).includes('entry-agent'));
+  assert.deepEqual(api.agentDefinitionPresence(['entry-agent']), { 'entry-agent': 'present' });
 });
 
 test('a deleted bot restores exactly under its own id, even after a new bot took its name', async (t) => {

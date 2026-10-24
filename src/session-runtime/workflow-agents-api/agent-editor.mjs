@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   accessSync,
@@ -7,18 +7,19 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
 } from 'node:fs';
 import {
   holdsNoData,
-  parseJsonText,
   readJsonStateSync,
   writeFileAtomicSync,
   writeJsonAtomicSync,
 } from '../../runtime/shared/atomic-file.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { agentEntryFile, agentEntryPath, parseManifestText } from '../../runtime/agent/orchestrator/runtime-core/workflow/agents.mjs';
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';
@@ -79,9 +80,43 @@ import {
 
 const isFixedAgent = (id) => FIXED_AGENT_SLOTS.some((agent) => agent.id === id);
 const userDir = userDefinitionDir;
-const hasUserAgentFile = (dataDir, id) => existsSync(join(userDir(dataDir, id), 'AGENT.md'));
-// An archived (deleted) agent's AGENT.md, moved aside beside the tombstone:
-// no loader reads it, and restoring moves it back.
+// The entry file of the agent folder `dir`, exactly as the loader reads it
+// (agent.json `entry`, AGENT.md by default).
+const entryIn = (dir) => agentEntryPath(dir, readManifest(dir));
+const userEntryPath = (dataDir, id) => entryIn(userDir(dataDir, id));
+// An agent exists where its folder has an AGENT.md, as discovery lists it.
+const hasEntryFile = (dir) => existsSync(join(dir, 'AGENT.md'));
+const hasUserAgentFile = (dataDir, id) => hasEntryFile(userDir(dataDir, id));
+const leavesFolder = (rel) => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+// The file delete moves aside and restore moves back: the agent's entry when
+// it is named inside `dir` and its folder resolves inside too (a symlink as the
+// last part moves as the link alone), else HEAD's AGENT.md. An entry outside the
+// folder (`..`, or through a linked folder) is shared and never moved.
+const archivableEntry = (dir, entry) => {
+  try {
+    const rel = relative(dir, entry);
+    if (rel && !leavesFolder(rel) && !leavesFolder(relative(realpathSync(dir), realpathSync(dirname(entry))))) {
+      return entry;
+    }
+  } catch {
+    // an unresolvable folder holds no entry to move
+  }
+  return join(dir, 'AGENT.md');
+};
+// The entry file the editor may hand out to edit in place: it resolves (symlinks
+// followed) to a file inside its own agent folder, else null. The loader still
+// reads an entry outside; only the editable path is contained.
+const editablePathIn = (dir, path) => {
+  try {
+    return leavesFolder(relative(realpathSync(dir), realpathSync(path))) ? null : path;
+  } catch {
+    return null;
+  }
+};
+// An archived (deleted) agent's entry file, moved aside beside the tombstone
+// as `<entry>.archived`: no loader reads it, and restoring moves it back.
+const archivedEntryPath = (entryPath) => `${entryPath}.archived`;
+// The default entry's archive (all that HEAD wrote); a save clears it.
 const ARCHIVED_AGENT_FILE = 'AGENT.md.archived';
 
 // Frontmatter the editor does not show (e.g. `permission`), taken from the
@@ -123,13 +158,17 @@ const writeManifest = (file, manifest) => writeJsonAtomicSync(file, manifest, DE
 // no data (empty, or NUL-filled by a crash) or is not a JSON object.
 function readManifestStrict(file) {
   try {
-    const text = readFileSync(file, 'utf8');
-    if (holdsNoData(text)) return null;
-    const value = parseJsonText(text);
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    return readManifestFile(file);
   } catch {
     return null;
   }
+}
+
+// The same, but a file that cannot be read throws its error.
+function readManifestFile(file) {
+  const text = readFileSync(file, 'utf8');
+  if (holdsNoData(text)) return null;
+  return parseManifestText(text);
 }
 
 // A read-only agent.json is a standing refusal, not a transient lock: the
@@ -559,10 +598,16 @@ function definitionPresence({ dataDir, rootDir, stat }, agentIds) {
 // A definition folder's revision: a hash of the three files an editor writes.
 function definitionDirRevision(dir) {
   const hash = createHash('sha256');
-  for (const name of ['agent.json', 'AGENT.md', PERSONA_FILE]) {
+  const manifest = readManifest(dir);
+  const files = [
+    ['agent.json', join(dir, 'agent.json')],
+    [agentEntryFile(manifest), agentEntryPath(dir, manifest)],
+    [PERSONA_FILE, join(dir, PERSONA_FILE)],
+  ];
+  for (const [name, file] of files) {
     hash.update(`${name}\0`);
     try {
-      hash.update(readFileSync(join(dir, name)));
+      hash.update(readFileSync(file));
     } catch {
       hash.update('\u0001absent');
     }
@@ -660,13 +705,27 @@ function createAgentArchiveApi({
       await announceBotChange(dataDir);
       return { id, deleted: true, revertedToBuiltIn: Boolean(sourceFallback) };
     }
-    // A custom agent is archived: its AGENT.md (what makes it an agent
-    // anywhere) moves aside, the tombstone keeps the packaged copy of a
-    // starter from coming back, and the rest (agent.json: name and face,
-    // persona, memory, its model and on/off) stays for its archived chat —
-    // until restoreAgentDefinition brings it back or purgeAgentDefinition.
+    // A custom agent is archived: its entry file (AGENT.md, or the one its
+    // agent.json names; what makes it an agent anywhere) moves aside, the
+    // tombstone keeps the packaged copy of a starter from coming back, and the
+    // rest (agent.json: name and face, persona, memory, its model and on/off)
+    // stays for its archived chat — until restoreAgentDefinition brings it back
+    // or purgeAgentDefinition.
+    // AGENT.md always moves aside; an AGENT.md over an existing archive is
+    // refused, since the move would overwrite it. Another selected entry
+    // moves too when its own archive is free, and otherwise stays in place
+    // under the tombstone.
+    const agentFile = join(dir, 'AGENT.md');
+    const agentArchive = archivedEntryPath(agentFile);
+    if (existsSync(agentFile) && existsSync(agentArchive)) {
+      throw new Error(`agent "${id}" cannot be deleted: ${agentArchive} already exists; move or remove it first`);
+    }
+    const entry = archivableEntry(dir, entryIn(dir));
     mkdirSync(dir, { recursive: true });
-    if (existsSync(join(dir, 'AGENT.md'))) renameSync(join(dir, 'AGENT.md'), join(dir, ARCHIVED_AGENT_FILE));
+    if (existsSync(agentFile)) renameSync(agentFile, agentArchive);
+    if (entry !== agentFile && existsSync(entry) && !existsSync(archivedEntryPath(entry))) {
+      renameSync(entry, archivedEntryPath(entry));
+    }
     writeFileAtomicSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
     clearAgentDefinitionCache(id);
     // The Leads listing it drop it from their roster from their next turn.
@@ -683,11 +742,22 @@ function createAgentArchiveApi({
     const dataDir = dataDirOf();
     if (!isArchivedAgent(dataDir, id)) throw new Error(`agent "${id}" is not deleted`);
     const dir = userDir(dataDir, id);
-    const kept = join(dir, ARCHIVED_AGENT_FILE);
-    if (!existsSync(kept) && !existsSync(join(shippedDir(id), 'AGENT.md'))) {
+    // AGENT.md.archived back to AGENT.md, and the selected entry's archive back
+    // to that entry. Nothing is overwritten: an archive whose file exists again
+    // stays as it is, and when every kept archive collides the restore is refused.
+    const agentFile = join(dir, 'AGENT.md');
+    const entry = archivableEntry(dir, entryIn(dir));
+    const moves = [{ from: join(dir, ARCHIVED_AGENT_FILE), to: agentFile }];
+    if (entry !== agentFile) moves.push({ from: archivedEntryPath(entry), to: entry });
+    const kept = moves.filter((move) => existsSync(move.from));
+    if (kept.length === 0 && !hasEntryFile(shippedDir(id))) {
       throw new Error(`agent "${id}" was deleted before deleted agents were kept, so it cannot be restored`);
     }
-    if (existsSync(kept)) renameSync(kept, join(dir, 'AGENT.md'));
+    const free = kept.filter((move) => !existsSync(move.to));
+    if (kept.length > 0 && free.length === 0) {
+      throw new Error(`agent "${id}" cannot be restored: ${kept[0].to} already exists; move or remove it first`);
+    }
+    for (const move of free) renameSync(move.from, move.to);
     rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
     clearAgentDefinitionCache(id);
     // Back in the roster of the Leads that list it, from their next turn.
@@ -804,9 +874,10 @@ export function createAgentEditorApi(deps) {
       custom: !isFixedAgent(id),
       userOverride,
       // The user copy's entry file, editable in place; a shipped-only agent has
-      // none (an install-dir edit would be lost on update).
-      ...(userOverride
-        ? { path: join(userDir(dataDir, id), String(readManifest(userDir(dataDir, id)).entry || '').trim() || 'AGENT.md') }
+      // none (an install-dir edit would be lost on update), nor has an entry
+      // that resolves outside its folder (the body is still returned).
+      ...(userOverride && editablePathIn(userDir(dataDir, id), userEntryPath(dataDir, id))
+        ? { path: userEntryPath(dataDir, id) }
         : {}),
       route: routeFor(getConfig(), id),
       routeConfigured: routeConfigured(getConfig(), id),

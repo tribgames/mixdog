@@ -5,7 +5,8 @@
 import { join } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { clean } from '../session-text.mjs';
-import { defaultDirResolver, readJsonSafe, readTextSafe } from '../fs-utils.mjs';
+import { parseJsonText } from '../../../../shared/atomic-file.mjs';
+import { defaultDirResolver, readTextSafe } from '../fs-utils.mjs';
 import { SHARED_SCAN_REVALIDATE_MS, createSharedScanCache } from './shared-scan-cache.mjs';
 import { isHiddenAgent } from '../../internal-agents.mjs';
 import { isAgentDisabled } from '../../../../shared/agent-route-config.mjs';
@@ -29,6 +30,27 @@ import {
   normalizeWorkflowId,
   setAgentDefinitionCache,
 } from '../workflow-ids.mjs';
+
+/** The entry file name an agent folder's manifest names (default AGENT.md). */
+export const agentEntryFile = (manifest) => clean(manifest?.entry) || 'AGENT.md';
+
+/** The entry file path of the agent folder `dir` for `manifest`, exactly as the
+ *  loader reads it. The one resolver the loader, discovery, presence and the
+ *  editor's revision share. */
+export const agentEntryPath = (dir, manifest) => join(dir, agentEntryFile(manifest));
+
+/** The agent.json object in `text` (a leading BOM tolerated), or null when it
+ *  is not a JSON object. The one manifest parser: loader, discovery, editor. */
+export function parseManifestText(text) {
+  try {
+    const value = parseJsonText(String(text));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+const manifestOfText = (text) => parseManifestText(text) || {};
 
 // Yields its fs requests; see shared-scan-cache.mjs. With the bot store
 // active, bots/ is scanned too and the agents/ originals of the ids the split
@@ -137,13 +159,13 @@ export function createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, n
       return definition;
     };
     for (const d of agentSourceDirs(dir, agentId)) {
-      const manifest = readJsonSafe(join(d, 'agent.json')) || {};
-      const entry = clean(manifest.entry) || 'AGENT.md';
+      const manifest = manifestOfText(readTextSafe(join(d, 'agent.json')));
+      const entry = agentEntryPath(d, manifest);
       // Shipped files change only with an install update (a restart).
       if (d !== join(rootDir, 'agents', agentId)) {
-        files.push(join(d, 'agent.json'), join(d, entry), join(d, 'PERSONA.md'), join(d, AGENT_DELETED_MARKER));
+        files.push(join(d, 'agent.json'), entry, join(d, 'PERSONA.md'), join(d, AGENT_DELETED_MARKER));
       }
-      const doc = readMarkdownDocument(readTextSafe(join(d, entry)));
+      const doc = readMarkdownDocument(readTextSafe(entry));
       const body = doc.body;
       if (!body) continue;
       const definition = {
