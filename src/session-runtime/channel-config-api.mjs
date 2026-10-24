@@ -18,7 +18,7 @@ import { loadEndpointConfig, readEndpointLastPayload } from '../runtime/channels
 import { webhookEventSummary, webhookRunPrompt } from '../runtime/channels/lib/webhook/session-dispatch.mjs';
 import { runScheduleSession } from './schedule-session-run.mjs';
 import { runWebhookSession } from './webhook-session-run.mjs';
-import { retryRoutineDelivery } from './owned-automation-run.mjs';
+import { beginAutomationRename, retryRoutineDelivery } from './owned-automation-run.mjs';
 
 /** Why a "Run now" did not run: its owner bot is missing, or a run is going. */
 function skippedRunMessage(name, outcome) {
@@ -119,22 +119,35 @@ export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAut
     },
     async runScheduleNow(name) {
       const id = String(name || '').trim();
-      const schedule = await getSchedule(id);
-      if (!schedule) throw new Error(`schedule "${id}" does not exist`);
-      // Runs in the engine process as a turn in the owner bot's chat, so it
-      // works even while the channels worker is off.
-      let outcome;
-      try {
-        // Asked for by a person: no failure backoff.
-        outcome = await runScheduleSession(schedule, { attended: true });
-      } catch (error) {
-        await markScheduleFailure(schedule.name, new Date()).catch(() => {});
-        throw error;
+      // The name is held from the read of the row through the outcome stamps,
+      // so a rename can neither move the row this run read nor slip in before
+      // its stamps are written (they would land on no row).
+      const release = beginAutomationRename('schedule', id);
+      // A run or a rename holding it: not run, recorded as an overlap skip.
+      if (!release) {
+        await markScheduleSkipped(id, new Date()).catch(() => {});
+        throw new Error(skippedRunMessage(id, { reason: 'overlap' }));
       }
-      if (outcome.skipped) throw new Error(skippedRunMessage(schedule.name, outcome));
-      // The run's outcome shows as the schedule's last run, like a timed fire.
-      await markScheduleSuccess(schedule.name, new Date()).catch(() => {});
-      return { name: schedule.name, ok: true, sessionId: outcome.sessionId, result: outcome.result };
+      try {
+        const schedule = await getSchedule(id);
+        if (!schedule) throw new Error(`schedule "${id}" does not exist`);
+        // Runs in the engine process as a turn in the owner bot's chat, so it
+        // works even while the channels worker is off.
+        let outcome;
+        try {
+          // Asked for by a person: no failure backoff.
+          outcome = await runScheduleSession(schedule, { attended: true, reserved: true });
+        } catch (error) {
+          await markScheduleFailure(schedule.name, new Date()).catch(() => {});
+          throw error;
+        }
+        if (outcome.skipped) throw new Error(skippedRunMessage(schedule.name, outcome));
+        // The run's outcome shows as the schedule's last run, like a timed fire.
+        await markScheduleSuccess(schedule.name, new Date()).catch(() => {});
+        return { name: schedule.name, ok: true, sessionId: outcome.sessionId, result: outcome.result };
+      } finally {
+        release();
+      }
     },
     // Re-runs the endpoint on its latest received payload, with its current
     // instructions, behind the same untrusted-data fence as a live delivery.

@@ -32,6 +32,8 @@ const activeRuns = new Set();
  * run is in flight; otherwise a release function. The check and the reservation
  * are one synchronous step, and a run that finds the reservation is skipped as
  * an overlap (runOwnedAutomation), so none can start under the name meanwhile.
+ * "Run now" takes the same reservation to hold the name from its read of the
+ * row through its outcome stamps (runOwnedAutomation `reserved`).
  */
 export function beginAutomationRename(kind, name, active = activeRuns) {
   const key = `${kind}:${name}`;
@@ -116,7 +118,8 @@ async function queueResult(row, item, entry, { deliver, recordDelivery, onDelive
  * result }` (`signal` is the caller's cancellation, if any). Resolves the
  * outcome, or `{ skipped: true, reason: 'owner' | 'overlap' | 'backoff' | 'paused' }`
  * (an owner skip also names `ownerProblem` and its `message`); a failed run
- * rejects.
+ * rejects. `reserved`: the caller already holds `kind:name` (beginAutomationRename)
+ * and releases it itself, so this run neither checks for nor releases it.
  */
 export async function runOwnedAutomation(kind, row, run, deps = {}) {
   if (!row?.name) throw new Error(`${kind} run: a ${kind} row is required`);
@@ -125,6 +128,7 @@ export async function runOwnedAutomation(kind, row, run, deps = {}) {
     active = activeRuns,
     limits = ROUTINE_LIMITS,
     attended = false,
+    reserved = false,
     signal = null,
     now = Date.now,
     ownerProblem = routineOwnerProblem,
@@ -140,8 +144,9 @@ export async function runOwnedAutomation(kind, row, run, deps = {}) {
   };
   // The name is reserved before the owner check, so a rename can neither
   // complete while it waits nor leave this run to start under the old name.
-  const overlap = active.has(key);
-  if (!overlap) active.add(key);
+  const overlap = !reserved && active.has(key);
+  const holds = !reserved && !overlap;
+  if (holds) active.add(key);
   try {
     // A routine runs only in its own bot's thread: without that bot it waits.
     const problem = await Promise.resolve()
@@ -172,7 +177,7 @@ export async function runOwnedAutomation(kind, row, run, deps = {}) {
     }
     return await run({ signal });
   } finally {
-    if (!overlap) active.delete(key);
+    if (holds) active.delete(key);
   }
 }
 

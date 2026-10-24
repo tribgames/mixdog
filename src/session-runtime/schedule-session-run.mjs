@@ -11,9 +11,13 @@ import { runRoutineTurn } from './routine-home-turn.mjs';
 /**
  * One fire of `schedule`. `prompt` overrides schedule.prompt when the caller
  * (channels worker) already resolved the body; `attended` marks a person's
- * "Run now" (no failure backoff).
+ * "Run now" (no failure backoff); `reserved` that the caller holds the name
+ * (owned-automation-run.mjs beginAutomationRename).
  */
-export async function runScheduleSession(schedule, { attended = false, prompt = null, signal = null } = {}) {
+export async function runScheduleSession(
+  schedule,
+  { attended = false, prompt = null, signal = null, reserved = false } = {}
+) {
   const body = String(prompt ?? schedule.prompt ?? '').trim();
   return runOwnedSchedule(
     schedule,
@@ -27,7 +31,7 @@ export async function runScheduleSession(schedule, { attended = false, prompt = 
         cwd: schedule.cwd || null,
         signal: runSignal,
       }),
-    { attended, signal }
+    { attended, signal, reserved }
   );
 }
 
