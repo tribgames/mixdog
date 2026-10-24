@@ -126,6 +126,31 @@ test("a bot's delegated session takes no completion dot; the bot's own chat stil
   }
 });
 
+test('while the user reads a bot chat, a coding session that finishes takes the dot; the tasks that bot made do not', async () => {
+  const dom = installDom();
+  const api = {};
+  const home = { ...row, id: 'mixy-home', messageCount: 2, readMessageCount: 2, agentHome: 'mixy' };
+  const coding = { ...row, id: 'coding', messageCount: 2, readMessageCount: 2, working: true };
+  const task = { ...coding, id: 'task-cache', taskAgent: 'mixy', taskFrom: 'home' };
+  function Harness() {
+    const viewedSessionRef = useRef('mixy-home');
+    Object.assign(api, useUnreadSessions({ viewedSessionRef }));
+    return React.createElement('div', null, [...api.unreadSessionIds].join(','));
+  }
+  const marks = () => document.querySelector('#root div').textContent;
+  try {
+    await act(async () => dom.root.render(React.createElement(Harness)));
+    await act(async () => api.reconcileUnreadSessions([home, coding, task]));
+    // Both finish while the focused window shows Mixy's chat, where the task reports back.
+    const settled = (session) => ({ ...session, working: false, messageCount: 5 });
+    await act(async () => api.reconcileUnreadSessions([settled(home), settled(coding), settled(task)]));
+    assert.equal(marks(), 'coding');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test("a delegated session's descendants (via the desktop projection) take no completion dot; a user's /inherit continuation does", async () => {
   const { desktopSessionSummaries } = await import('../main/desktop-state.ts');
   const raw = (id, extra) => ({
