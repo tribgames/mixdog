@@ -232,6 +232,18 @@ function mcpRows(status) {
       error: server.error || null,
       ...(server.warnings?.length ? { warnings: server.warnings } : {}),
       scope: Array.isArray(server.scope) ? server.scope : null,
+      ...(server.connector ? { connector: server.connector } : {}),
+      // A multi-account connector's accounts: remove_mcp_server / sign-in take an account's name.
+      ...(Array.isArray(server.accounts)
+        ? {
+            accounts: server.accounts.map((account) => ({
+              name: account.name,
+              email: account.email || '',
+              ...(account.authRequired ? { authRequired: true } : {}),
+              ...(account.error ? { error: account.error } : {}),
+            })),
+          }
+        : {}),
     })),
     ...(status?.warnings?.length ? { warnings: status.warnings } : {}),
     ...(status?.declarationErrors?.length ? { declarationErrors: status.declarationErrors } : {}),

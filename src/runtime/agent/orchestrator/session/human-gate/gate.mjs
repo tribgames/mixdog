@@ -157,7 +157,13 @@ async function describeEmails(call, outbound, ctx) {
     const { executeMcpTool } = await import('../../mcp/client.mjs');
     const ids = outbound.category === 'trash' && Array.isArray(call.args?.ids) ? call.args.ids.map(String) : [];
     const shown = ids.slice(0, PREVIEW_MESSAGES);
-    const raw = await executeMcpTool(name, { ids: shown }, { scopeId: ctx.mcpScopeId });
+    // The account the call acts as (one server holds every Gmail account).
+    const chosen = typeof call.args?.account === 'string' ? call.args.account.trim() : '';
+    const raw = await executeMcpTool(
+      name,
+      { ids: shown, ...(chosen ? { account: chosen } : {}) },
+      { scopeId: ctx.mcpScopeId }
+    );
     const { account, emails } = JSON.parse(raw);
     const messages = (Array.isArray(emails) ? emails : []).map((mail) =>
       [mail.from, mail.subject, String(mail.date || '').slice(0, 10)].filter(Boolean).join(' · ')

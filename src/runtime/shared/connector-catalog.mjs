@@ -190,6 +190,114 @@ export function connectorMultiAccount(entry) {
   return entry?.backend?.kind === 'oauth' && entry.backend.oauthClient === 'google';
 }
 
+// ── One server per multi-account connector ──────────────────────────────────
+// A multi-account connector is ONE MCP server (`gmail`, `google-calendar`,
+// `google-drive`) holding its accounts:
+//   { type: 'http', url: connectorAccountsUrl(id), connector: id,
+//     accounts: [{ name, url, headers?, oauthClientId? }, …] }
+// Each account keeps the transport it had as a server of its own (the Google
+// sign-in URL its tokens are stored under, or the app-password address and
+// account header), so its keychain entries are untouched. Account names share
+// the server-name space (`gmail`, `gmail-2`…): a name-based call (remove, sign
+// in, sign out) that names an account acts on that account. The server is
+// answered in-process (connectors/connector-accounts-mcp.mjs): one tool set
+// with an `account` argument.
+const ACCOUNT_FIELDS = ['url', 'headers', 'oauthClientId'];
+
+/** The reserved (never resolvable) address of connector `id`'s accounts server. */
+export function connectorAccountsUrl(id) {
+  return `https://connectors.mixdog.invalid/${encodeURIComponent(id)}/mcp`;
+}
+
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+/** The stored accounts of a multi-account connector server, [] for any other
+ *  config (a legacy one-account server included). */
+export function connectorAccountsOf(cfg) {
+  if (!isRecord(cfg) || !Array.isArray(cfg.accounts)) return [];
+  if (!connectorMultiAccount(connectorById(connectorOfServer(cfg)))) return [];
+  return cfg.accounts.filter(
+    (account) => isRecord(account) && typeof account.name === 'string' && account.name && typeof account.url === 'string'
+  );
+}
+
+/** The one-account server config of `account` of server `cfg` (the shape the
+ *  account had as a server of its own), named by the account. */
+export function connectorAccountServer(cfg, account) {
+  const out = { name: account.name, type: 'http' };
+  for (const field of ACCOUNT_FIELDS) if (account[field] !== undefined) out[field] = account[field];
+  out.connector = cfg.connector;
+  return out;
+}
+
+/** Every account of `cfg` as its one-account server config. */
+export function connectorAccountServers(cfg) {
+  return connectorAccountsOf(cfg).map((account) => connectorAccountServer(cfg, account));
+}
+
+/** The stored account entry of one-account config `cfg` under `name`. */
+export function connectorAccountEntry(name, cfg) {
+  const out = { name };
+  for (const field of ACCOUNT_FIELDS) if (cfg?.[field] !== undefined) out[field] = cfg[field];
+  return out;
+}
+
+const naturalOrder = (a, b) => a.localeCompare(b, 'en', { numeric: true });
+
+/**
+ * Merges every multi-account connector's servers into one server holding the
+ * accounts: legacy one-account servers (`gmail`, `gmail-2`…, Calendar and
+ * Drive alike) and any second accounts server. The server keeps the name of
+ * an existing accounts server, else the connector id when a server has it,
+ * else the first name; its other fields come from that server. Accounts keep
+ * their names, transports and order (that server's first); a second entry
+ * for the same name or app-password address is dropped. The merged server is
+ * off only when every merged one was. Idempotent: `merged` is empty when
+ * nothing changed. Returns `{ servers, merged: [{ connector, name, from }] }`.
+ */
+export function mergeConnectorAccountServers(input) {
+  const servers = isRecord(input) ? { ...input } : {};
+  const merged = [];
+  for (const entry of CONNECTOR_CATALOG.filter(connectorMultiAccount)) {
+    const names = Object.keys(servers)
+      .filter((name) => isRecord(servers[name]) && connectorOfServer(servers[name]) === entry.id)
+      .sort(naturalOrder);
+    if (!names.length) continue;
+    const grouped = names.filter((name) => Array.isArray(servers[name].accounts));
+    if (names.length === 1 && grouped.length === 1) continue;
+    const target = grouped[0] ?? (names.includes(entry.id) ? entry.id : names[0]);
+    const order = [target, ...names.filter((name) => name !== target)];
+    const accounts = [];
+    const seenNames = new Set();
+    const seenAddresses = new Set();
+    for (const name of order) {
+      const cfg = servers[name];
+      const own = Array.isArray(cfg.accounts) ? connectorAccountsOf(cfg) : [connectorAccountEntry(name, cfg)];
+      for (const account of own) {
+        const address = gmailAppPasswordAccount(connectorAccountServer(cfg, account));
+        if (seenNames.has(account.name) || (address && seenAddresses.has(address))) continue;
+        seenNames.add(account.name);
+        if (address) seenAddresses.add(address);
+        accounts.push(account);
+      }
+    }
+    const { type: _type, url: _url, headers: _headers, oauthClientId: _client, accounts: _accounts, enabled: _enabled, ...rest } =
+      servers[target];
+    for (const name of order) delete servers[name];
+    const off = order.every((name) => input[name].enabled === false);
+    servers[target] = {
+      ...rest,
+      type: 'http',
+      url: connectorAccountsUrl(entry.id),
+      connector: entry.id,
+      accounts,
+      ...(off ? { enabled: false } : {}),
+    };
+    merged.push({ connector: entry.id, name: target, from: order });
+  }
+  return { servers, merged };
+}
+
 /** Whether a new connection of `entry` goes by app password only (Gmail). */
 export function connectorAppPasswordOnly(entry) {
   return entry?.appPasswordOnly === true;

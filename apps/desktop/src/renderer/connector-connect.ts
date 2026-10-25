@@ -23,6 +23,7 @@ import {
   type ConnectorLoginMode,
   type ConnectorLoginPhase,
   PENDING_LOGIN_PHASES,
+  connectorAccountRows,
   uniqueServerName,
 } from './connectors-model';
 import { isScopeNotGrantedError, mcpErrorSummary } from './settings/mcp-editor-dialog';
@@ -146,11 +147,12 @@ export function announceConnectorsChanged(): void {
   window.dispatchEvent(new Event(CONNECTORS_CHANGED_EVENT));
 }
 
-/** The host's current MCP status rows. */
+/** The host's current MCP status rows, a multi-account connector's server as
+ *  one row per account (connectorAccountRows). */
 export async function readMcpStatus(): Promise<{ servers: Row[]; googleClient: boolean }> {
   const status = (await invoke<Row>('mcpStatus')) ?? {};
   return {
-    servers: Array.isArray(status.servers) ? (status.servers as Row[]) : [],
+    servers: Array.isArray(status.servers) ? connectorAccountRows(status.servers as Row[]) : [],
     // Only an explicit `false` means no built-in client; a host that does not
     // say (an older SSH/phone host) is attempted as before.
     googleClient: status.googleClient !== false,

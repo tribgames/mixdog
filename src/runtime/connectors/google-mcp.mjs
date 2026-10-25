@@ -9,7 +9,7 @@
 // live in the keychain, and each MCP request carries the access token, which
 // this server spends on the Gmail / Calendar / Drive REST APIs.
 
-import { accountInstructions } from '../shared/connector-accounts.mjs';
+import { connectorAccountsInstructions } from '../shared/connector-accounts.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const ORIGIN_SUFFIX = '.mixdog.invalid';
@@ -329,6 +329,12 @@ const SERVICES = {
   drive: { name: 'Google Drive', tools: DRIVE_TOOLS },
 };
 
+/** The tool definitions (name, description, schema, annotations) of built-in
+ *  Google service `service` (`gmail`, `calendar`, `drive`). */
+export function googleMcpTools(service) {
+  return (SERVICES[service]?.tools || []).map(({ run, ...tool }) => tool);
+}
+
 /** The reserved MCP address of built-in Google service `service`. */
 export function googleMcpUrl(service) {
   return `https://${service}${ORIGIN_SUFFIX}/mcp`;
@@ -367,20 +373,12 @@ async function rpc(service, token, message) {
       protocolVersion: text(params?.protocolVersion) || PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: `mixdog-${service.key}`, version: '1.0.0' },
-      instructions: accountInstructions(service.name, info.email),
+      // The one account this sign-in is (the connector's accounts server reads it back).
+      instructions: connectorAccountsInstructions([{ email: info.email }]),
     });
   }
   if (method === 'ping') return reply({});
-  if (method === 'tools/list') {
-    // Several accounts of one service are separate servers: each tool says whose it is.
-    const { email } = await tokenInfo(token).catch(() => ({ email: '' }));
-    return reply({
-      tools: service.tools.map(({ run, ...tool }) => ({
-        ...tool,
-        ...(email ? { description: `${tool.description} (${service.name} account: ${email})` } : {}),
-      })),
-    });
-  }
+  if (method === 'tools/list') return reply({ tools: googleMcpTools(service.key) });
   if (method === 'tools/call') {
     const tool = service.tools.find((candidate) => candidate.name === params?.name);
     if (!tool) return { jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown tool: ${params?.name}` } };

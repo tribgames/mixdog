@@ -3,7 +3,7 @@
 // client_secret_*.json is parsed here; the secret goes to the host only in the
 // apply call (saveMcpServer → keychain), never into config or renderer state.
 import { CONNECTOR_CATALOG, connectorServerInput } from '../../../../src/runtime/shared/connector-catalog.mjs';
-import { uniqueServerName } from './connectors-model';
+import { connectorAccountRows, uniqueServerName } from './connectors-model';
 
 export interface GoogleOwnKey {
   clientId: string;
@@ -38,10 +38,10 @@ export function parseGoogleClientJson(source: string): GoogleOwnKey {
   return { clientId, clientSecret };
 }
 
-/** The Google connector servers that exist, by catalog id. */
+/** The Google connector accounts that exist (one row each), by catalog id. */
 async function googleServers(invoke: Invoke) {
   const status = ((await invoke('mcpStatus')) as Row | undefined) ?? {};
-  const servers = Array.isArray(status.servers) ? (status.servers as Row[]) : [];
+  const servers = Array.isArray(status.servers) ? connectorAccountRows(status.servers as Row[]) : [];
   return { servers, byId: (id: string) => servers.find((s) => s.connector === id && s.source !== 'plugin') };
 }
 
@@ -92,9 +92,11 @@ export async function revertGoogleOwnKey(invoke: Invoke): Promise<void> {
   }
 }
 
-/** Whether the server `name` runs on the user's own Google client. */
+/** Whether the server `name` (any of its accounts) runs on the user's own Google client. */
 export async function usesGoogleOwnKey(invoke: Invoke, name: string): Promise<boolean> {
   const config = ((await invoke('getMcpServerConfig', [name])) as Row | undefined) ?? {};
   const inner = config.config && typeof config.config === 'object' ? (config.config as Row) : config;
-  return typeof inner.oauthClientId === 'string' && inner.oauthClientId.trim() !== '';
+  const own = (cfg: Row) => typeof cfg.oauthClientId === 'string' && cfg.oauthClientId.trim() !== '';
+  const accounts = Array.isArray(inner.accounts) ? (inner.accounts as Row[]) : [];
+  return own(inner) || accounts.some((account) => account && typeof account === 'object' && own(account));
 }

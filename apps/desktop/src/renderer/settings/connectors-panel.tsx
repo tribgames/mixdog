@@ -35,10 +35,12 @@ import {
   type ConnectorRowStatus,
   type ConnectorRowView,
   type ConnectorSourceKind,
+  connectorAccountRows,
   connectorIdentity,
   connectorRowView,
   detectConnectorSource,
   groupConnectors,
+  serverNameOf,
   uniqueServerName,
 } from '../connectors-model';
 import { errorMessage } from '../editor-pane-session-errors';
@@ -368,7 +370,7 @@ function CustomServerRow({
 
 function toolRows(server: Row | null): Row[] {
   // Live tool names carry the `mcp__<server>__` routing prefix.
-  const prefix = `mcp__${String(server?.name || '')}__`;
+  const prefix = `mcp__${serverNameOf(server)}__`;
   return (Array.isArray(server?.tools) ? server.tools : []).map((tool) => {
     const row = typeof tool === 'string' ? { name: tool } : record(tool);
     const name = String(row.name || '');
@@ -1314,6 +1316,8 @@ export function ConnectorsPanel(context: PanelContext) {
   const servers = rows(record(data.mcp), 'servers');
   const plugins = rows(record(data.plugins), 'plugins');
   const groups = groupConnectors(servers, plugins);
+  // Server and account names share one space (an account's name addresses it).
+  const takenNames = connectorAccountRows(servers).map((server) => String(server.name));
   const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [keyEntry, setKeyEntry] = useState<ConnectorCatalogEntry | null>(null);
   // "내 Google 키 사용": `null` closed, else whether a Google server already runs on the user's key.
@@ -1440,7 +1444,8 @@ export function ConnectorsPanel(context: PanelContext) {
           run={run}
           onConnect={() => connectCatalog(row.entry, row.server)}
           onDisconnect={() => row.server && disconnect(row.server, true, row.entry.name)}
-          onAdvanced={row.server ? () => openEditor(String(row.server?.name)) : null}
+          // An account row edits the server holding the accounts.
+          onAdvanced={row.server ? () => openEditor(serverNameOf(row.server)) : null}
           onRemovePlugin={null}
           accounts={row.servers}
           onAddAccount={
@@ -1588,7 +1593,7 @@ export function ConnectorsPanel(context: PanelContext) {
       )}
       {(createOpen || addOpen) && !connectLocked && (
         <CustomConnectorDialog
-          taken={servers.map((server) => String(server.name))}
+          taken={takenNames}
           run={run}
           onGoogleKey={() => openGoogleKey()}
           onAdvanced={() => {
@@ -1604,7 +1609,7 @@ export function ConnectorsPanel(context: PanelContext) {
           key="new-mcp"
           server={null}
           busy={busy}
-          takenNames={servers.map((server) => String(server.name))}
+          takenNames={takenNames}
           onClose={() => setEditor(null)}
           onConnect={(name) => void startConnectorLogin(name, name)}
           onProbe={async (config) => {

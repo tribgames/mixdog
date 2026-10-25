@@ -265,7 +265,7 @@ test('connecting Gmail signs in with the pre-registered client and sends through
   assert.equal(seen.api.length, 1, 'a header break is refused before Google is called');
 });
 
-test('a second Google account is its own server: its own URL and tokens, tools that name the account', async () => {
+test('a second Google account has its own URL and tokens; its endpoint names only its account, no tool does', async () => {
   const second = `${googleMcpUrl('gmail')}?account=gmail-2`;
   assert.ok(googleMcpService(second));
   assert.notEqual(mcpOAuthAccount(second), mcpOAuthAccount(googleMcpUrl('gmail')), 'tokens are kept per URL');
@@ -287,7 +287,9 @@ test('a second Google account is its own server: its own URL and tokens, tools t
     return (await response.json()).result;
   };
   const first = await rpc(googleMcpUrl('gmail'), 't1', 'initialize');
-  assert.match(first.instructions, /^Account: a@x\.com\. /);
+  assert.equal(first.instructions, 'Accounts: a@x.com. `account` may be left out.');
+  const other = await rpc(second, 't2', 'initialize');
+  assert.equal(other.instructions, 'Accounts: b@x.com. `account` may be left out.');
   const { tools } = await rpc(second, 't2', 'tools/list');
-  assert.ok(tools.length > 0 && tools.every((tool) => tool.description.endsWith('(Gmail account: b@x.com)')));
+  assert.ok(tools.length > 0 && tools.every((tool) => !/@x\.com/.test(tool.description)));
 });

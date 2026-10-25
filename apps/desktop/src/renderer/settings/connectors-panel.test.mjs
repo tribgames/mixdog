@@ -637,6 +637,85 @@ test('several Gmail accounts side by side: each is its own server, shown with it
   await pane.unmount();
 });
 
+test('one Gmail server holding several accounts: one row per account, each added, reconnected and removed by its name', async () => {
+  const gmail = {
+    name: 'gmail',
+    connector: 'gmail',
+    enabled: true,
+    connected: true,
+    status: 'connected',
+    source: 'config',
+    tools: [{ name: 'mcp__gmail__search_emails' }],
+    accounts: [
+      { name: 'gmail', email: 'me@gmail.com', appPassword: { account: 'me@gmail.com' } },
+      { name: 'gmail-2', email: 'work@gmail.com', appPassword: { account: 'work@gmail.com' } },
+      { name: 'gmail-3', email: '', appPassword: { account: 'team@gmail.com' }, error: 'GMAIL_APP_PASSWORD_MISSING: x' },
+    ],
+  };
+  const live = [gmail];
+  const row = groupConnectors(live, []).catalog.find((item) => item.entry.id === 'gmail');
+  assert.deepEqual(
+    row.servers.map((account) => [account.name, account.server, account.connected, account.appPassword.account]),
+    [
+      ['gmail', 'gmail', true, 'me@gmail.com'],
+      ['gmail-2', 'gmail', true, 'work@gmail.com'],
+      ['gmail-3', 'gmail', false, 'team@gmail.com'],
+    ]
+  );
+  assert.equal(row.servers[2].status, 'failed', 'a failing account keeps its own state');
+  assert.equal(row.servers[1].accounts, undefined);
+
+  calls.length = 0;
+  handlers = {
+    mcpStatus: () => ({ servers: live }),
+    addMcpServer: () => ({}),
+    saveMcpServer: () => ({}),
+    removeMcpServer: () => ({ signIn: 'removed', revoked: false }),
+  };
+  // A connected address is reconnected by its account name, never duplicated.
+  await connectCatalogConnector(
+    connectorById('gmail'),
+    '',
+    { email: 'work@gmail.com', password: 'abcdwxyzabcdwxyz' },
+    { add: true }
+  );
+  assert.equal(calls.find(([capability]) => capability === 'saveMcpServer')[1][0].originalName, 'gmail-2');
+  // A new address is one more account, under a name no account has.
+  calls.length = 0;
+  await connectCatalogConnector(
+    connectorById('gmail'),
+    '',
+    { email: 'new@gmail.com', password: 'abcdwxyzabcdwxyz' },
+    { add: true }
+  );
+  assert.equal(calls.find(([capability]) => capability === 'addMcpServer')[1][0].name, 'gmail-4');
+
+  calls.length = 0;
+  const pane = await render(
+    React.createElement(CategoryPanel, {
+      category: 'connectors',
+      context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+    })
+  );
+  await click(rowOf(pane.host, 'gmail').querySelector('button'));
+  const dialog = document.body.querySelector('.connectors-detail-dialog');
+  for (const address of ['me@gmail.com', 'work@gmail.com', 'team@gmail.com']) assert.match(dialog.textContent, new RegExp(address));
+  const menus = dialog.querySelectorAll('.extensions-item .row-overflow-trigger');
+  assert.equal(menus.length, 3, 'one ⋯ menu per account');
+  await act(async () => menus[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
+  await click(
+    [...document.body.querySelectorAll('.row-overflow-menu [role="menuitem"]')].find(
+      (node) => node.textContent.trim() === 'Disconnect'
+    )
+  );
+  assert.deepEqual(
+    calls.filter(([name]) => name === 'run:removeMcpServer'),
+    [['run:removeMcpServer', ['gmail-2']]],
+    'only that account goes'
+  );
+  await pane.unmount();
+});
+
 test('a sign-in connector: clicking its unconnected row starts the sign-in at once, no detail first', async () => {
   calls.length = 0;
   handlers = {

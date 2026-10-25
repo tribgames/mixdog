@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyInitialDeferredToolManifestToBp2 } from './collect.mjs';
 import { listedDeferredToolNames } from './deferred-tools.mjs';
-import { accountInstructions } from '../../../shared/connector-accounts.mjs';
+// The per-account instruction line servers wrote before the single-server connectors.
+const accountInstructions = (service, account) =>
+  `Account: ${account}. This server acts only for this ${service} account; other ${service} accounts are separate servers. If several are connected and the user did not name one, ask which account before acting.`;
 import {
   CONNECTOR_TRIGGER_MAX_CHARS,
   CONNECTOR_TRIGGERS,

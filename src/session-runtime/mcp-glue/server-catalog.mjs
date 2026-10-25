@@ -2,7 +2,12 @@
 // servers plus the servers registered plugins declare (resolved live, with
 // explicit owner metadata), per-server config reads, and the live/failed rollup.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import { connectorOfServer, gmailAppPasswordAccount } from '../../runtime/shared/connector-catalog.mjs';
+import {
+  connectorAccountServers,
+  connectorOfServer,
+  gmailAppPasswordAccount,
+} from '../../runtime/shared/connector-catalog.mjs';
+import { connectorAccountHealth } from '../../runtime/connectors/connector-accounts-mcp.mjs';
 import { googleOAuthClient } from '../../runtime/shared/google-oauth-client.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
 import { resolveMcpServerCatalog } from './plugin-servers.mjs';
@@ -112,6 +117,23 @@ export function createMcpServerCatalog({
     };
   }
 
+  /** One account of a multi-account connector server, as its row lists it:
+   *  `{ name, email, appPassword?, oauth?, ownClient?, error?, authRequired? }`. */
+  function accountRow(accountCfg) {
+    const address = gmailAppPasswordAccount(accountCfg);
+    const oauth = address ? null : mcpClient.getMcpServerOAuthState?.(accountCfg);
+    const state = connectorAccountHealth(accountCfg.name);
+    const authRequired = Boolean(oauth && oauth.signedIn !== true) || state?.authRequired === true;
+    return {
+      name: accountCfg.name,
+      email: address || oauth?.account || state?.email || '',
+      ...(address ? { appPassword: { account: address } } : {}),
+      ...(oauth ? { oauth } : {}),
+      ...(typeof accountCfg.oauthClientId === 'string' && accountCfg.oauthClientId.trim() ? { ownClient: true } : {}),
+      ...(authRequired ? { authRequired: true } : state?.error ? { error: state.error } : {}),
+    };
+  }
+
   function statusRows(catalog) {
     const { servers: configured, sources, entries } = catalog;
     const connected = new Map((mcpClient.getMcpServerStatus?.(getMcpScopeId()) || []).map((row) => [row.name, row]));
@@ -126,7 +148,15 @@ export function createMcpServerCatalog({
         failures.get(name) || (dead ? { msg: live.error || live.lastError || 'MCP server is not alive' } : undefined);
       const entry = entries[name] || {};
       const loginPending = !(live && !dead) && mcpClient.isMcpLoginPending?.(name, getMcpScopeId()) === true;
-      const status = mcpServerStatus(cfg, live && !dead, fail, loginPending);
+      const accounts = entry.owner ? [] : connectorAccountServers(cfg).map(accountRow);
+      // A connector server none of whose accounts is signed in needs a sign-in, not a repair.
+      const accountsSignIn = accounts.length > 0 && accounts.every((account) => account.authRequired === true);
+      const status = mcpServerStatus(
+        cfg,
+        live && !dead,
+        fail && accountsSignIn ? { ...fail, authRequired: true } : fail,
+        loginPending
+      );
       // Needing an OAuth sign-in is a state, not an error.
       const authRequired = status === 'sign-in required';
       const row = {
@@ -156,6 +186,14 @@ export function createMcpServerCatalog({
       if (appPasswordAccount) row.appPassword = { account: appPasswordAccount };
       // A catalog connector running on the user's own Google client.
       if (connector && typeof cfg?.oauthClientId === 'string' && cfg.oauthClientId.trim()) row.ownClient = true;
+      if (accounts.length) {
+        // A multi-account connector: its accounts, each with its own state.
+        row.accounts = accounts;
+        if (accounts.some((account) => account.ownClient)) row.ownClient = true;
+        // One account reads like the one-account server it replaces.
+        if (accounts.length === 1 && accounts[0].oauth) row.oauth = accounts[0].oauth;
+        if (accounts.length === 1 && accounts[0].appPassword) row.appPassword = accounts[0].appPassword;
+      }
       if (entry.owner) {
         row.owner = entry.owner;
         row.pluginEnabled = entry.pluginEnabled;

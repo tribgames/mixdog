@@ -109,6 +109,13 @@ export function wireApis(boot) {
     } catch (error) {
       bootProfile('plugin-mcp:adopt-failed', { error: error?.message || String(error) });
     }
+    // One server per multi-account connector: `gmail`, `gmail-2`… merge into
+    // `gmail` holding the accounts (their sign-ins and app passwords stay).
+    try {
+      boot.resourceApi.migrateConnectorAccounts();
+    } catch (error) {
+      bootProfile('connector-accounts:merge-failed', { error: error?.message || String(error) });
+    }
   }
   boot.disposeGlobalExtensionSubscription = () => {
     boot.disposeConfigSync?.();

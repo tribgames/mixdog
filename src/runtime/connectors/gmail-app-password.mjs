@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import keychain from '../../lib/keychain-cjs.cjs';
 import { GMAIL_APP_PASSWORD, gmailAddress } from '../shared/connector-catalog.mjs';
-import { accountInstructions } from '../shared/connector-accounts.mjs';
+import { connectorAccountsInstructions } from '../shared/connector-accounts.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
 export const GMAIL_IMAP = Object.freeze({ host: 'imap.gmail.com', port: 993, secure: true });
@@ -588,6 +588,12 @@ const TOOLS = [
   ...MANAGE_TOOLS,
 ];
 
+/** The tool definitions (name, description, schema, annotations) the server
+ *  lists; with `hidden`, also the ones only the approval gate calls. */
+export function gmailAppPasswordTools({ hidden = false } = {}) {
+  return TOOLS.filter((tool) => hidden || !tool.hidden).map(({ run, hidden: _hidden, ...tool }) => tool);
+}
+
 // ── The MCP server at the reserved address ──────────────────────────────────
 const GMAIL_HOST = new URL(GMAIL_APP_PASSWORD.url).host;
 
@@ -616,18 +622,11 @@ async function rpc(session, message) {
       protocolVersion: text(params?.protocolVersion) || PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'mixdog-gmail-app-password', version: '1.0.0' },
-      instructions: accountInstructions('Gmail', session.email),
+      instructions: connectorAccountsInstructions([{ email: session.email }]),
     });
   }
   if (method === 'ping') return reply({});
-  if (method === 'tools/list') {
-    return reply({
-      tools: TOOLS.filter((tool) => !tool.hidden).map(({ run, hidden, ...tool }) => ({
-        ...tool,
-        description: `${tool.description} (Gmail account: ${session.email})`,
-      })),
-    });
-  }
+  if (method === 'tools/list') return reply({ tools: gmailAppPasswordTools() });
   if (method === 'tools/call') {
     const tool = TOOLS.find((candidate) => candidate.name === params?.name);
     if (!tool) return { jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown tool: ${params?.name}` } };

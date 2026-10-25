@@ -125,7 +125,9 @@ export function createMcpOAuthLogins({
     Promise.all([...flows.values()].filter((flow) => flow.owner === owner && flow.name === name).map(cancelFlow));
 
   async function begin(name, options = {}) {
-    const { openBrowser: hostBrowser, mode = 'connect' } = options || {};
+    // `beside`: run any mode through `switchAccount` (a sign-in beside the
+    // stored one, for an account that is not a server of its own).
+    const { openBrowser: hostBrowser, mode = 'connect', beside = false } = options || {};
     if (hostBrowser !== undefined && typeof hostBrowser !== 'boolean') {
       throw new TypeError('openBrowser must be a boolean');
     }
@@ -178,7 +180,7 @@ export function createMcpOAuthLogins({
       flow.done = (async () => {
         try {
           const outcome =
-            mode === 'switch'
+            mode === 'switch' || beside === true
               ? await switchAccount(name, launch, {
                   set abort(fn) {
                     flow.abort = fn;

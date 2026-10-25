@@ -43,12 +43,57 @@ export interface ConnectorGroups {
 
 const byName = (a: string, b: string) => a.localeCompare(b, 'en', { sensitivity: 'base' });
 
+/**
+ * The host's MCP rows with a multi-account connector's one server (Gmail,
+ * Calendar, Drive: its `accounts`) as one row per account: the account's
+ * name (what remove / sign-in / sign-out take), its own sign-in or app
+ * password and state, and `server`, the server it belongs to (its config,
+ * tools and on/off). Every other row is returned as it is.
+ */
+export function connectorAccountRows(servers: readonly Row[]): Row[] {
+  return servers.flatMap((server) => {
+    if (!Array.isArray(server.accounts)) return [server];
+    const {
+      accounts,
+      oauth: _oauth,
+      appPassword: _appPassword,
+      ownClient: _ownClient,
+      authRequired: _authRequired,
+      ...base
+    } = server;
+    return (accounts as Row[]).map((account) => {
+      const authRequired = account.authRequired === true;
+      const error = text(account.error);
+      const off = server.enabled === false;
+      const connected = server.connected === true && !authRequired && !error;
+      return {
+        ...base,
+        name: text(account.name),
+        server: server.name,
+        ...(account.oauth ? { oauth: account.oauth } : {}),
+        ...(account.appPassword ? { appPassword: account.appPassword } : {}),
+        ...(account.ownClient === true ? { ownClient: true } : {}),
+        connected,
+        status: off ? server.status : connected ? 'connected' : authRequired ? 'sign-in required' : error ? 'failed' : server.status,
+        error: authRequired ? null : error || server.error || null,
+        ...(authRequired && !off ? { authRequired: true } : {}),
+      };
+    });
+  });
+}
+
+/** The server an MCP row belongs to: its own name, or an account row's server. */
+export function serverNameOf(row: Row | null | undefined): string {
+  return text(row?.server) || text(row?.name);
+}
+
 /** Every MCP server and plugin in exactly one place. A catalog row is only
  *  ever backed by the server carrying its `connector` marker: an existing
- *  custom Notion/GitHub server stays custom. */
+ *  custom Notion/GitHub server stays custom. A multi-account connector's
+ *  accounts are its rows (connectorAccountRows). */
 export function groupConnectors(servers: readonly Row[], plugins: readonly Row[]): ConnectorGroups {
   const owned = (server: Row) => text((server.owner as Row | undefined)?.kind) === 'plugin';
-  const userServers = servers.filter((server) => !owned(server) && server.source !== 'plugin');
+  const userServers = connectorAccountRows(servers.filter((server) => !owned(server) && server.source !== 'plugin'));
   const catalog = [...CONNECTOR_CATALOG]
     .sort((a, b) => byName(a.name, b.name))
     .map((entry) => {

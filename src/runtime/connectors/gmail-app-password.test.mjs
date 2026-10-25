@@ -466,7 +466,7 @@ test('the app password is stored in the keychain only after Gmail accepted it, a
   assert.equal(store.values.size, 0);
 });
 
-test('two Gmail accounts side by side: each server uses its own password and names its account to the model', async () => {
+test('two Gmail accounts side by side: each account endpoint uses its own password and names only its account', async () => {
   const OTHER = 'work@gmail.com';
   const OTHER_PASSWORD = 'zyxwabcdzyxwabcd';
   const credentialStore = memoryStore([
@@ -484,10 +484,10 @@ test('two Gmail accounts side by side: each server uses its own password and nam
   };
   for (const email of [EMAIL, OTHER]) {
     const init = await rpc(email, 'initialize', {});
-    assert.match(init.instructions, new RegExp(`^Account: ${email.replace('.', '\\.')}\\. `));
-    assert.match(init.instructions, /ask which account/);
+    // Read back by the connector's accounts server (connector-accounts-mcp.mjs).
+    assert.equal(init.instructions, `Accounts: ${email}. \`account\` may be left out.`);
     const { tools } = await rpc(email, 'tools/list');
-    assert.ok(tools.every((tool) => tool.description.endsWith(`(Gmail account: ${email})`)));
+    assert.ok(tools.length > 0 && tools.every((tool) => !tool.description.includes(email)), 'no tool names an account');
   }
   await call('search_emails', {}, { [GMAIL_APP_PASSWORD.accountHeader]: EMAIL });
   await call('archive_emails', { ids: ['9001'] }, { [GMAIL_APP_PASSWORD.accountHeader]: OTHER });

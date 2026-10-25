@@ -51,3 +51,20 @@ export function gmailAddress(value: unknown): string;
 export function gmailAppPasswordValue(value: unknown): string;
 export function gmailAppPasswordAccount(cfg: unknown): string;
 export function gmailAppPasswordServerInput(name: string, email: string, password: string): Record<string, unknown>;
+
+/** One stored account of a multi-account connector server. */
+export interface ConnectorAccountEntry {
+  name: string;
+  url: string;
+  headers?: Record<string, string>;
+  oauthClientId?: string;
+}
+export function connectorAccountsUrl(id: string): string;
+export function connectorAccountsOf(cfg: unknown): ConnectorAccountEntry[];
+export function connectorAccountServer(cfg: Record<string, unknown>, account: ConnectorAccountEntry): Record<string, unknown>;
+export function connectorAccountServers(cfg: unknown): Record<string, unknown>[];
+export function connectorAccountEntry(name: string, cfg: Record<string, unknown>): ConnectorAccountEntry;
+export function mergeConnectorAccountServers(servers: Record<string, unknown>): {
+  servers: Record<string, unknown>;
+  merged: { connector: string; name: string; from: string[] }[];
+};

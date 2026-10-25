@@ -3,7 +3,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const { parseGoogleClientJson, applyGoogleOwnKey, revertGoogleOwnKey } = await import('./google-own-key.ts');
+const { parseGoogleClientJson, applyGoogleOwnKey, revertGoogleOwnKey, usesGoogleOwnKey } = await import(
+  './google-own-key.ts'
+);
 
 const ID = '123-abc.apps.googleusercontent.com';
 
@@ -95,4 +97,37 @@ test('apply sets the key on Calendar and Drive only; revert clears it and drops 
     ['google-calendar']
   );
   assert.equal(back.calls.filter(([c]) => c === 'signOutMcpServer').length, 1);
+});
+
+test('one Calendar server holding accounts: a new account and the key reach accounts by name', async () => {
+  const calendar = {
+    name: 'google-calendar',
+    connector: 'google-calendar',
+    connected: true,
+    accounts: [
+      { name: 'google-calendar', oauth: { signedIn: true } },
+      { name: 'google-calendar-2', oauth: { signedIn: true }, ownClient: true },
+    ],
+  };
+  const more = host([calendar]);
+  const added = await applyGoogleOwnKey(more.invoke, { clientId: ID, clientSecret: 'sec' }, 'google-calendar');
+  assert.equal(added, 'google-calendar-3', 'no account name is reused');
+  const [write] = more.calls.filter(([c]) => c !== 'mcpStatus');
+  assert.equal(write[1][0].url, 'https://calendar.mixdog.invalid/mcp?account=google-calendar-3');
+
+  const back = host([{ ...calendar, accounts: [calendar.accounts[0], { ...calendar.accounts[1], authRequired: true }] }]);
+  await revertGoogleOwnKey(back.invoke);
+  assert.deepEqual(
+    back.calls.filter(([c]) => c !== 'mcpStatus').map(([c, a]) => [c, a[0]?.name ?? a[0]]),
+    [
+      ['signOutMcpServer', 'google-calendar'],
+      ['saveMcpServer', 'google-calendar'],
+      ['removeMcpServer', 'google-calendar-2'],
+    ],
+    'a connected account is signed out and saved, one never signed in again is removed'
+  );
+
+  const config = (value) => async () => ({ config: value });
+  assert.equal(await usesGoogleOwnKey(config({ accounts: [{ name: 'a' }, { name: 'b', oauthClientId: ID }] }), 'x'), true);
+  assert.equal(await usesGoogleOwnKey(config({ accounts: [{ name: 'a' }] }), 'x'), false);
 });

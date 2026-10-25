@@ -11,9 +11,23 @@ import { resolveMcpOAuthUrl } from '../runtime/agent/orchestrator/mcp/client-con
 import { withAdoptedCopies, withPinnedCollisionNames, withPluginServerIntent } from './mcp-glue/plugin-servers.mjs';
 import { findRegisteredPlugin } from './resource-plugins-api.mjs';
 import { createMcpOAuthLogins } from './mcp-oauth-login.mjs';
-import { connectorById, gmailAppPasswordAccount, gmailAppPasswordValue } from '../runtime/shared/connector-catalog.mjs';
+import {
+  connectorAccountEntry,
+  connectorAccountServer,
+  connectorAccountServers,
+  connectorAccountsOf,
+  connectorAccountsUrl,
+  connectorById,
+  connectorMultiAccount,
+  connectorOfServer,
+  gmailAppPasswordAccount,
+  gmailAppPasswordValue,
+  mergeConnectorAccountServers,
+} from '../runtime/shared/connector-catalog.mjs';
 import { saveMcpOAuthClientSecret } from '../runtime/agent/orchestrator/mcp/oauth-client.mjs';
 import { forgetGmailAppPassword, saveGmailAppPassword } from '../runtime/connectors/gmail-app-password.mjs';
+import { forgetConnectorAccountHealth } from '../runtime/connectors/connector-accounts-mcp.mjs';
+import { extensionScopesFromConfig, withExtensionScope } from '../runtime/shared/extension-scopes.mjs';
 
 /** The URL a server's OAuth credentials are stored under, or null. */
 function oauthUrlOf(cfg) {
@@ -29,6 +43,33 @@ function oauthUrlOf(cfg) {
 function mcpServersOf(config) {
   return config.mcpServers && typeof config.mcpServers === 'object' ? { ...config.mcpServers } : {};
 }
+
+/** The multi-account connector account `name` names in `servers`:
+ *  `{ serverName, cfg, account, accountCfg }`, or null. */
+function accountTarget(servers, name) {
+  for (const [serverName, cfg] of Object.entries(servers || {})) {
+    const account = connectorAccountsOf(cfg).find((entry) => entry.name === name);
+    if (account) return { serverName, cfg, account, accountCfg: connectorAccountServer(cfg, account) };
+  }
+  return null;
+}
+
+/** The server of multi-account connector `connector` in `servers`, or ''. */
+function connectorServerName(servers, connector) {
+  return (
+    Object.keys(servers).find(
+      (name) => connectorOfServer(servers[name]) === connector && connectorAccountsOf(servers[name]).length > 0
+    ) || ''
+  );
+}
+
+/** Every config `servers` connects with, a multi-account server's accounts
+ *  as the one-account configs they are. */
+const expandedConfigs = (servers) =>
+  Object.values(servers || {}).flatMap((cfg) => {
+    const accounts = connectorAccountServers(cfg);
+    return accounts.length ? accounts : [cfg];
+  });
 
 function pluginOwnedError(name, owner) {
   return new Error(
@@ -110,20 +151,44 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     // 계정 바꾸기, transactionally: the working connection stays until the new
     // sign-in succeeded and connects; a cancel or failure changes nothing, and
     // a new sign-in that cannot connect is rolled back.
+    // An account of a multi-account connector signs in the same way, any
+    // mode: beside its stored sign-in (if any), then its server reconnects.
     async switchAccount(name, launch, attempt) {
-      const cfg = resolveMcpCatalog().servers[name];
+      const servers = resolveMcpCatalog().servers;
+      const target = accountTarget(servers, name);
+      const cfg = target ? target.accountCfg : servers[name];
+      const serverName = target ? target.serverName : name;
+      // 연결 / 다시 인증 of a signed-in account: its stored sign-in (refreshed
+      // as needed) is tried first; the browser opens only when that fails.
+      if (target && launch.accountMode !== 'switch' && getMcpServerOAuthState(cfg)?.signedIn === true) {
+        const repaired = await reconnectOne(serverName);
+        if (repaired.connected && !connectorAccountError(name)) return repaired;
+      }
       const switching = startMcpServerOAuthSwitch(cfg, launch, name);
       attempt.abort = () => switching.cancel();
       attempt.answer = (callbackUrl) => switching.answer(callbackUrl);
       const signIn = await switching.done;
+      // The same account twice would leave `account` ambiguous.
+      const address = String(signIn?.identity?.account || '').toLowerCase();
+      if (target && address) {
+        const twin = connectorAccountServers(target.cfg).find(
+          (other) =>
+            other.name !== name && String(getMcpServerOAuthState(other)?.account || '').toLowerCase() === address
+        );
+        if (twin) return { connected: false, error: `${signIn.identity.account} is already connected` };
+      }
       const rollback = await commitMcpServerOAuthSwitch(cfg, signIn);
-      const outcome = await reconnectOne(name);
-      if (outcome.connected) return outcome;
+      const outcome = await reconnectOne(serverName);
+      const accountError = target ? connectorAccountError(name) : '';
+      if (outcome.connected && !accountError) return outcome;
       await rollback();
-      await reconnectOne(name);
-      return { connected: false, error: outcome.error || 'The new sign-in could not connect' };
+      await reconnectOne(serverName);
+      return { connected: false, error: accountError || outcome.error || 'The new sign-in could not connect' };
     },
-    onComplete: (name) => sync.announce('mcp', { detail: { mcpChanges: [{ name, enabled: true }] } }),
+    onComplete: (name) =>
+      sync.announce('mcp', {
+        detail: { mcpChanges: [{ name: accountTarget(resolveMcpCatalog().servers, name)?.serverName || name, enabled: true }] },
+      }),
   });
   /** The effective config of a server that signs in with MCP OAuth (HTTP/SSE
    *  without configured authentication). */
@@ -136,6 +201,39 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     if (!cfg) throw new Error(`MCP server not configured: ${serverName}`);
     if (!getMcpServerOAuthState(cfg)) throw new Error(`MCP server "${serverName}" does not use OAuth sign-in`);
     return { serverName, cfg };
+  };
+
+  /** The sign-in account `name` addresses on a multi-account connector
+   *  server — an account's name, or the server's name when it has exactly one
+   *  sign-in account (`every`: all of them, for a sign-out) — as
+   *  `{ serverName, cfg, account, accountCfg, signOut: [accountCfg…] }`;
+   *  null for any other server. */
+  const signInAccount = async (name, { every = false } = {}) => {
+    const wanted = clean(name);
+    if (!wanted) throw new Error('MCP server name is required');
+    await awaitKeychainPrewarm();
+    reloadFullConfig();
+    const servers = resolveMcpCatalog().servers;
+    const target = accountTarget(servers, wanted);
+    if (target) {
+      if (!getMcpServerOAuthState(target.accountCfg)) {
+        throw new Error(`MCP server "${wanted}" does not use OAuth sign-in`);
+      }
+      return { ...target, signOut: [target.accountCfg] };
+    }
+    const cfg = servers[wanted];
+    if (!connectorAccountsOf(cfg).length) return null;
+    const signIns = connectorAccountServers(cfg).filter((accountCfg) => getMcpServerOAuthState(accountCfg));
+    if (every && signIns.length) return { serverName: wanted, cfg, account: null, accountCfg: null, signOut: signIns };
+    if (signIns.length === 1) {
+      const account = connectorAccountsOf(cfg).find((entry) => entry.name === signIns[0].name);
+      return { serverName: wanted, cfg, account, accountCfg: signIns[0], signOut: signIns };
+    }
+    throw new Error(
+      signIns.length
+        ? `MCP server "${wanted}" has several accounts; name the account to sign in`
+        : `MCP server "${wanted}" does not use OAuth sign-in`
+    );
   };
 
   /** The config with any adoptable plugin server copies already adopted, so
@@ -153,7 +251,25 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     const pinned = withPinnedCollisionNames(saved, resolveMcpCatalog());
     if (pinned !== saved) saveConfigAndAdopt(pinned);
   };
-  const userServers = () => mcpServersOf(adoptedConfig());
+  // Every write starts from the merged form: one server per multi-account connector.
+  const userServers = () => mergeConnectorAccountServers(mcpServersOf(adoptedConfig())).servers;
+  /** What account `name` of a multi-account connector currently fails with ('' when fine). */
+  function connectorAccountError(name) {
+    for (const row of mcpStatus()?.servers || []) {
+      const account = (Array.isArray(row.accounts) ? row.accounts : []).find((entry) => entry.name === name);
+      if (account) return account.error || (account.authRequired ? 'Sign-in required' : '');
+    }
+    return '';
+  }
+  /** A name no server, plugin server or account has yet: `base`, else `base-2`… */
+  const freeName = (servers, base) => {
+    const taken = new Set(
+      Object.entries(servers).flatMap(([name, cfg]) => [name, ...connectorAccountsOf(cfg).map((a) => a.name)])
+    );
+    const free = (name) => !taken.has(name) && !pluginMcpServer(name);
+    if (free(base)) return base;
+    for (let n = 2; ; n += 1) if (free(`${base}-${n}`)) return `${base}-${n}`;
+  };
   const refusePluginServer = (name) => {
     const owned = name ? pluginMcpServer(name) : null;
     if (owned) throw pluginOwnedError(name, owned.owner);
@@ -187,7 +303,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
   const releaseOAuth = async (cfg) => {
     const url = oauthUrlOf(cfg);
     if (!url) return null;
-    if (Object.values(resolveConfiguredMcpCatalog().servers).some((other) => oauthUrlOf(other) === url)) {
+    if (expandedConfigs(resolveConfiguredMcpCatalog().servers).some((other) => oauthUrlOf(other) === url)) {
       return { signIn: 'shared', revoked: false };
     }
     const { revoked = false } = (await clearMcpServerOAuth(cfg, { revoke: true })) || {};
@@ -196,7 +312,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
   // An app password is deleted once no configured server uses its account.
   const forgetUnusedGmailAppPassword = async (account) => {
     if (!account) return false;
-    const servers = Object.values(resolveConfiguredMcpCatalog().servers);
+    const servers = expandedConfigs(resolveConfiguredMcpCatalog().servers);
     if (servers.some((cfg) => gmailAppPasswordAccount(cfg) === account)) return false;
     await gmailAppPassword.forget(account);
     return true;
@@ -205,8 +321,132 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
   const persisted = async () => {
     await flushSkillsSave?.();
   };
+  // A removed account keeps no sign-in another configured server or account
+  // does not share: `{ signIn, revoked }` as removeMcpServer reports it.
+  const releaseAccount = async (accountCfg) => {
+    forgetConnectorAccountHealth(accountCfg.name);
+    const address = gmailAppPasswordAccount(accountCfg);
+    if (address) {
+      const forgotten = await forgetUnusedGmailAppPassword(address);
+      return { signIn: forgotten ? 'removed' : 'shared', revoked: false };
+    }
+    return releaseOAuth(accountCfg);
+  };
+
+  /** One more account of multi-account connector `connector` (one-account
+   *  config `accountCfg` as normalized from `input`): into its server, or a
+   *  new server named `name` holding it. The same Gmail address again takes
+   *  the new app password. Resolves `{ name, account, status }`. */
+  async function addConnectorAccount(servers, connector, name, accountCfg, input) {
+    const serverName = connectorServerName(servers, connector);
+    const address = gmailAppPasswordAccount(accountCfg);
+    const cfg = serverName ? servers[serverName] : null;
+    const same =
+      cfg && address
+        ? connectorAccountsOf(cfg).find((account) => gmailAppPasswordAccount(connectorAccountServer(cfg, account)) === address)
+        : null;
+    if (same) {
+      await storeGmailAppPassword(input, accountCfg, true);
+      const status = await sync.reconnectMcpAndAnnounce({ only: serverName, enabled: cfg.enabled !== false });
+      return { name: serverName, account: same.name, status };
+    }
+    if (!serverName && (Object.hasOwn(servers, name) || pluginMcpServer(name) || accountTarget(servers, name))) {
+      throw new Error(`MCP server already exists: ${name}`);
+    }
+    const accountName = serverName ? freeName(servers, name) : name;
+    const account = connectorAccountEntry(accountName, accountCfg);
+    // Sign-in tokens are stored per exact URL: another account needs its own.
+    const backendUrl = connectorById(connector)?.backend?.url;
+    if (
+      !address &&
+      cfg &&
+      connectorAccountServers(cfg).some((other) => oauthUrlOf(other) === oauthUrlOf({ type: 'http', url: account.url }))
+    ) {
+      account.url = `${backendUrl}?account=${encodeURIComponent(accountName)}`;
+    }
+    const storedCfg = connectorAccountServer({ connector }, account);
+    await storeOAuthClientSecret(input, storedCfg);
+    await storeGmailAppPassword(input, storedCfg, true);
+    forgetConnectorAccountHealth(accountName);
+    let target = serverName;
+    if (cfg) {
+      servers[serverName] = { ...cfg, accounts: [...connectorAccountsOf(cfg), account] };
+    } else {
+      // The server's own settings (timeouts, enabled) ride on the input.
+      const { type: _type, url: _url, headers: _headers, oauthClientId: _client, ...rest } = accountCfg;
+      target = name;
+      servers[name] = { ...rest, type: 'http', url: connectorAccountsUrl(connector), connector, accounts: [account] };
+    }
+    saveServers(servers);
+    const status = await sync.reconnectMcpAndAnnounce({ only: target, enabled: servers[target].enabled !== false });
+    return { name: target, account: accountName, status };
+  }
+
+  /** An edit of one account (`target` from accountTarget): its transport,
+   *  app password or own client, as an edit of its one-account server was. */
+  async function saveConnectorAccount(servers, target, input) {
+    const { serverName, cfg, account, accountCfg } = target;
+    const { config } = normalizeMcpServerInput(mergedServerInput({ ...input, name: account.name }, accountCfg, account.name));
+    const next = mergeMcpServerConfig(accountCfg, config);
+    next.connector = cfg.connector;
+    await storeOAuthClientSecret(input, next, accountCfg);
+    await storeGmailAppPassword(input, next, false);
+    // Settings that are not the account's transport (timeouts) are the server's.
+    const { type: _type, url: _url, headers: _headers, oauthClientId: _client, ...serverFields } = config;
+    const server = { ...cfg };
+    for (const group of MCP_TIMEOUT_FIELD_GROUPS) {
+      if (group.some((field) => Object.hasOwn(serverFields, field))) for (const field of group) delete server[field];
+    }
+    servers[serverName] = {
+      ...server,
+      ...serverFields,
+      accounts: connectorAccountsOf(cfg).map((entry) =>
+        entry.name === account.name ? connectorAccountEntry(account.name, next) : entry
+      ),
+    };
+    saveServers(servers);
+    forgetConnectorAccountHealth(account.name);
+    const previousAddress = gmailAppPasswordAccount(accountCfg);
+    const address = gmailAppPasswordAccount(next);
+    if (previousAddress !== address) await forgetUnusedGmailAppPassword(previousAddress);
+    // An account switched from the Google sign-in to an app password keeps no sign-in.
+    if (address && !previousAddress) await releaseOAuth(accountCfg);
+    const status = await sync.reconnectMcpAndAnnounce({ only: serverName, enabled: cfg.enabled !== false });
+    return { name: serverName, account: account.name, source: 'config', status };
+  }
+
+  /** Whether `input` edits the server `target` belongs to rather than the
+   *  account: the account carries the server's name and the input the
+   *  server's own address (its config editor). */
+  const editsServerItself = (target, input) => {
+    if (target.serverName !== target.account.name || !clean(input.url)) return false;
+    try {
+      return oauthUrlOf({ type: input.type || 'http', url: input.url }) === oauthUrlOf(target.cfg);
+    } catch {
+      return false;
+    }
+  };
 
   return {
+    /** One-time, idempotent: merge the one-account servers of a multi-account
+     *  connector (`gmail`, `gmail-2`…) into one server holding the accounts
+     *  (connector-catalog.mjs mergeConnectorAccountServers). Every account
+     *  keeps its address, so its stored sign-in and app password stay as
+     *  they are. Settings keyed by a merged-away server name (`gmail-2`'s
+     *  project scope) go with it: on/off and scopes are the server's.
+     *  Returns what was merged. */
+    migrateConnectorAccounts() {
+      const config = getConfig();
+      const { servers, merged } = mergeConnectorAccountServers(mcpServersOf(config));
+      if (!merged.length) return merged;
+      let next = { ...config, mcpServers: servers };
+      const scoped = extensionScopesFromConfig(config).mcp;
+      for (const { name, from } of merged) {
+        for (const gone of from) if (gone !== name && Object.hasOwn(scoped, gone)) next = withExtensionScope(next, 'mcp', gone, null);
+      }
+      saveConfigAndAdopt(next);
+      return merged;
+    },
     /** One-time, idempotent: move server copies an earlier plugin enable wrote
      *  into `mcpServers` to per-server plugin intent. Returns adopted names. */
     migratePluginMcpCopies() {
@@ -224,7 +464,8 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     async reconnectMcp(name) {
       await awaitKeychainPrewarm();
       reloadFullConfig();
-      const serverName = clean(name);
+      // An account reconnects with its server.
+      const serverName = accountTarget(resolveMcpCatalog().servers, clean(name))?.serverName || clean(name);
       if (!serverName) return sync.reconnectMcpAndAnnounce();
       const { enabled } = getMcpServerConfig(serverName);
       return sync.reconnectMcpAndAnnounce({ only: serverName, enabled });
@@ -233,6 +474,14 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
      *  (`options.openBrowser === false` leaves opening `url` to the caller), or
      *  `{ flowId, state: 'complete' }` when stored credentials sufficed. */
     async beginMcpOAuthLogin(name, options = {}) {
+      const account = await signInAccount(name);
+      if (account) {
+        if (account.cfg.enabled === false) throw new Error(`MCP server is disabled: ${account.serverName}`);
+        // Beside the stored sign-in, whatever the mode: the account's server keeps running meanwhile.
+        return oauthLogins.begin(account.account.name, { ...(options || {}), beside: true });
+      }
+      const { beside: _beside, ...ownOptions } = options || {};
+      options = ownOptions;
       const { serverName, cfg } = await oauthServerConfig(name);
       if (cfg.enabled === false) throw new Error(`MCP server is disabled: ${serverName}`);
       // `mode`: `connect` (a normal authorization), `reauth` (repair the same
@@ -261,6 +510,22 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
      *  with the same exact URL) and reconnect without a login, here and on
      *  peers, so it reports sign-in required. */
     async signOutMcpServer(name) {
+      const account = await signInAccount(name, { every: true });
+      if (account) {
+        const accountName = account.account?.name || clean(name);
+        return oauthLogins.cancelServer(accountName, async () => {
+          let revoked = true;
+          for (const accountCfg of account.signOut) {
+            forgetConnectorAccountHealth(accountCfg.name);
+            revoked = ((await clearMcpServerOAuth(accountCfg, { revoke: true })) || {}).revoked === true && revoked;
+          }
+          const status = await sync.reconnectMcpAndAnnounce({
+            only: account.serverName,
+            enabled: account.cfg.enabled !== false,
+          });
+          return { ...status, revoked };
+        });
+      }
       const { serverName, cfg } = await oauthServerConfig(name);
       // A begin issued meanwhile waits until the credentials are gone.
       return oauthLogins.cancelServer(serverName, async () => {
@@ -289,7 +554,14 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
         serverConfig.connector = connector;
       }
       const servers = userServers();
-      if (Object.hasOwn(servers, name)) throw new Error(`MCP server already exists: ${name}`);
+      // A multi-account connector's account (as its own server config) joins
+      // that connector's one server.
+      if (connector && connectorMultiAccount(connectorById(connector)) && !Array.isArray(input.accounts)) {
+        return addConnectorAccount(servers, connector, name, serverConfig, input);
+      }
+      if (Object.hasOwn(servers, name) || accountTarget(servers, name)) {
+        throw new Error(`MCP server already exists: ${name}`);
+      }
       const owned = pluginMcpServer(name);
       if (owned) throw new Error(`MCP server already exists: ${name} (provided by plugin "${owned.owner.id}")`);
       await storeOAuthClientSecret(input, serverConfig);
@@ -300,6 +572,9 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     },
     async saveMcpServer(input = {}) {
       const servers = userServers();
+      // A name of a multi-account connector's account edits that account.
+      const accountOf = accountTarget(servers, clean(input.originalName) || clean(input.name));
+      if (accountOf && !editsServerItself(accountOf, input)) return saveConnectorAccount(servers, accountOf, input);
       // An explicit originalName must exist; a bare name edits a matching
       // server and otherwise creates a new one. Plugin servers are never
       // edited, renamed or shadowed here.
@@ -314,7 +589,10 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       const existing = originalName ? servers[originalName] : {};
       const normalizedInput = normalizeMcpServerInput(mergedServerInput(input, existing, originalName));
       const name = originalName && clean(input.name) === originalName ? originalName : normalizedInput.name;
-      if (name !== originalName && (Object.hasOwn(servers, name) || pluginMcpServer(name))) {
+      if (
+        name !== originalName &&
+        (Object.hasOwn(servers, name) || pluginMcpServer(name) || accountTarget(servers, name))
+      ) {
         throw new Error(`MCP server already exists: ${name}`);
       }
       if (originalName && originalName !== name) delete servers[originalName];
@@ -338,6 +616,20 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
       const servers = userServers();
+      // A name of a multi-account connector's account removes that account;
+      // the server goes with its last one.
+      const target = accountTarget(servers, serverName);
+      if (target) {
+        const rest = connectorAccountsOf(target.cfg).filter((entry) => entry.name !== serverName);
+        if (rest.length) servers[target.serverName] = { ...target.cfg, accounts: rest };
+        else delete servers[target.serverName];
+        saveServers(servers);
+        const status = rest.length
+          ? await sync.reconnectMcpAndAnnounce({ only: target.serverName, enabled: target.cfg.enabled !== false })
+          : await sync.reconnectMcpAndAnnounce({ drop: [target.serverName] });
+        const released = await releaseAccount(target.accountCfg);
+        return released ? { ...status, ...released } : status;
+      }
       if (!Object.hasOwn(servers, serverName)) {
         refusePluginServer(serverName);
         throw new Error(`MCP server not configured: ${serverName}`);
@@ -346,6 +638,17 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       delete servers[serverName];
       saveServers(servers);
       const status = await sync.reconnectMcpAndAnnounce({ drop: [serverName] });
+      // The server of a multi-account connector takes every account's sign-in with it.
+      const accountCfgs = connectorAccountServers(removed);
+      if (accountCfgs.length) {
+        const released = (await Promise.all(accountCfgs.map(releaseAccount))).filter(Boolean);
+        if (!released.length) return status;
+        return {
+          ...status,
+          signIn: released.every((one) => one.signIn === 'removed') ? 'removed' : 'shared',
+          revoked: released.every((one) => one.revoked === true),
+        };
+      }
       // A removed server keeps no sign-in another server does not share: an
       // app password leaves the keychain (it is revoked at Google only).
       const account = gmailAppPasswordAccount(removed);
@@ -357,7 +660,8 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       return released ? { ...status, ...released } : status;
     },
     async setMcpServerEnabled(name, enabled) {
-      const serverName = clean(name);
+      // The accounts of a multi-account connector are switched on and off with their server.
+      const serverName = accountTarget(userServers(), clean(name))?.serverName || clean(name);
       if (!serverName) throw new Error('MCP server name is required');
       const want = enabled !== false;
       const owned = pluginMcpServer(serverName);

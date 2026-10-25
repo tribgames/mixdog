@@ -8,6 +8,13 @@ import { createMcpOAuth } from './oauth.mjs';
 import { mcpOAuthClientFor, mcpOAuthDisplayName } from './oauth-client.mjs';
 import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
 import { gmailAppPasswordService, withGmailAppPasswordMcp } from '../../../connectors/gmail-app-password.mjs';
+import { connectorAccountRequest, withConnectorAccountsMcp } from '../../../connectors/connector-accounts-mcp.mjs';
+import {
+  connectorAccountServers,
+  connectorAccountsOf,
+  gmailAppPasswordAccount,
+} from '../../../shared/connector-catalog.mjs';
+import { isMcpOAuthReauthenticationRequired } from './oauth.mjs';
 import {
   AUTO_DETECT_PORTS,
   expandEnvVars,
@@ -63,8 +70,61 @@ export function hasConfiguredMcpAuth(cfg) {
   return (
     Boolean(String(cfg.bearer_token_env_var || '').trim()) ||
     configured(cfg.headers) ||
-    configured(cfg.env_http_headers)
+    configured(cfg.env_http_headers) ||
+    // A multi-account connector's server: each account authenticates itself.
+    connectorAccountsOf(cfg).length > 0
   );
+}
+
+/** One account of a multi-account connector server (connector-catalog.mjs
+ *  connectorAccountServer) as connector-accounts-mcp.mjs calls it: through
+ *  the transport the account had as a server of its own — its app-password
+ *  header, or its own non-interactive OAuth sign-in (refreshed as needed; a
+ *  new sign-in goes through 계정 바꾸기, never through a tool call). */
+function connectorAccountClient(serverName, accountCfg, oauthOptions) {
+  const base = { name: accountCfg.name, email: '', appPassword: false, close() {} };
+  let url;
+  try {
+    url = resolveMcpOAuthUrl(accountCfg);
+    if (hasConfiguredMcpAuth(accountCfg)) {
+      const email = gmailAppPasswordAccount(accountCfg);
+      const fetchImpl = gmailAppPasswordService(url) ? withGmailAppPasswordMcp() : fetch;
+      return {
+        ...base,
+        email,
+        appPassword: Boolean(email),
+        request: connectorAccountRequest(url, fetchImpl, resolveMcpHttpHeaders(accountCfg)),
+      };
+    }
+    const oauth = createMcpOAuth({
+      url,
+      serverName: mcpOAuthDisplayName(accountCfg, serverName),
+      oauthClient: mcpOAuthClientFor(accountCfg, url),
+      ...(oauthOptions?.fetchImpl ? { fetchImpl: oauthOptions.fetchImpl } : {}),
+      ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp(oauthOptions?.fetchImpl) } : {}),
+    });
+    const send = connectorAccountRequest(url, (input, init) => oauth.fetch(input, init));
+    return {
+      ...base,
+      async request(message) {
+        try {
+          return await send(message);
+        } catch (error) {
+          const reason = scrubMcpConnectionMessage(error?.message || String(error), accountCfg);
+          const scrubbed = new Error(
+            isMcpOAuthReauthenticationRequired(error) ? 'Sign-in required; sign this account in again in Connectors.' : reason
+          );
+          if (isMcpOAuthReauthenticationRequired(error)) scrubbed.authRequired = true;
+          throw scrubbed;
+        }
+      },
+      close: () => oauth.close(),
+    };
+  } catch (error) {
+    // A broken account (no sign-in client, an invalid address) stays listed with why.
+    const failed = new Error(error?.message || String(error));
+    return { ...base, request: async () => Promise.reject(failed) };
+  }
 }
 
 // The SDK's WebSocket transport opens its socket without a way to set request
@@ -132,6 +192,21 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
   if (kind === 'http' || kind === 'sse') {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
     const url = resolveMcpOAuthUrl(cfg);
+    // A multi-account connector: one server, every account behind it.
+    const accountServers = connectorAccountServers(cfg);
+    if (accountServers.length) {
+      const accounts = accountServers.map((accountCfg) => connectorAccountClient(name, accountCfg, oauthOptions));
+      const transport = new Transport(new URL(url), {
+        fetch: withConnectorAccountsMcp({ connector: cfg.connector, accounts }),
+      });
+      const close = transport.close.bind(transport);
+      transport.close = async () => {
+        for (const account of accounts) account.close();
+        await close();
+      };
+      log(`[mcp-client] Connecting "${name}" with ${accounts.length} account(s)\n`);
+      return { transport, autoDetectAdvert: null, stderrTail: noStderrTail, warnings };
+    }
     const opts = requestInitFor(cfg);
     // Explicit authentication remains authoritative (including custom API-key
     // headers). Never forward those credentials to OAuth discovery endpoints.
