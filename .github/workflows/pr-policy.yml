@@ -1,11 +1,12 @@
 name: PR policy
 
-# Every outside pull request links an issue of this repository in its
-# description, and an author keeps at most three pull requests open.
+# An outside bug fix or feature pull request links an issue of this repository
+# in its description. Documentation-only pull requests, and those a maintainer
+# labels `small-change`, are exempt.
 # Runs on the base branch's copy and never checks out PR code.
 on:
   pull_request_target:
-    types: [opened, edited, reopened, synchronize]
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
 
 permissions:
   issues: write
@@ -32,6 +33,12 @@ jobs:
             } catch (error) {
               if (error.status !== 404) throw error;
             }
+            // Small changes need no issue: a maintainer marks one with the label (only
+            // collaborators can label), and a documentation-only change is one by its files.
+            if ((pr.labels || []).some((label) => label.name === 'small-change')) return;
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number, per_page: 100 });
+            const isDoc = (name) => /\.(?:md|mdx|txt)$/i.test(name) || name.startsWith('docs/');
+            if (files.length > 0 && files.every((file) => isDoc(file.filename) && (!file.previous_filename || isDoc(file.previous_filename)))) return;
             // Comments, code blocks (``` or ~~~, closed or not) and inline code do not count as links.
             const body = (pr.body || '')
               .replace(/<!--[\s\S]*?-->/g, '')
@@ -56,25 +63,13 @@ jobs:
                 if (error.status !== 404) throw error;
               }
             }
-            const MAX_OPEN = 3;
-            const open = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', per_page: 100 });
-            const mine = open.filter((other) => other.user?.login === pr.user.login).sort((a, b) => a.number - b.number);
-            // Only pull requests opened after the first three are over the limit.
-            const overLimit = mine.findIndex((other) => other.number === pr.number) >= MAX_OPEN;
             const guide = `See [CONTRIBUTING.md](https://github.com/${owner}/${repo}/blob/main/CONTRIBUTING.md).`;
             const problems = [];
             if (!linked) {
               problems.push({
                 marker: '<!-- pr-policy:issue -->',
-                text: 'Every pull request must link a confirmed issue in this repository: open or find the issue, then add `Fixes #123` to the description.',
+                text: 'A bug fix or feature must link a confirmed issue in this repository: open or find the issue, then add `Fixes #123` to the description. A small change needs no issue: a maintainer will label it `small-change`.',
                 error: 'The description does not link an issue of this repository (e.g. "Fixes #123").',
-              });
-            }
-            if (overLimit) {
-              problems.push({
-                marker: '<!-- pr-policy:limit -->',
-                text: `You have ${mine.length} open pull requests; the limit is ${MAX_OPEN} per person. Please wait until one is merged or closed.`,
-                error: `The author has more than ${MAX_OPEN} open pull requests.`,
               });
             }
             if (!problems.length) return;
