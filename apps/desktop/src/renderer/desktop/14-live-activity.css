@@ -242,7 +242,9 @@
   content: "\00B7";
   margin-right: 7px;
   color: var(--mx-text-faint);
-}/* The pinned bot overlay stands over the transcript's column (a narrow
+}
+
+/* The pinned bot overlay stands over the transcript's column (a narrow
    window): the token readout, which reaches the row's right end, gives way
    so the row ends before the bot. The verb and the clock stay. */
 html[data-pet-over-transcript] .live-activity-tokens {

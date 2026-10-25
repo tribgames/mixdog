@@ -16,6 +16,71 @@ const dependenciesOf = (value: unknown): Dependency[] =>
     ? value.map(record).map((entry) => ({ ...entry, type: String(entry.type || ''), value: String(entry.value || '') }))
     : [];
 
+function DependencyRows({
+  dependencies,
+  busy,
+  toolOptions,
+  onChange,
+}: {
+  dependencies: Dependency[];
+  busy: boolean;
+  toolOptions: { value: string; description: string }[];
+  onChange(next: Dependency[]): void;
+}) {
+  return (
+    <div className="extensions-mcp-list-rows">
+      {dependencies.map((entry, index) => {
+        const updateRow = (patch: Partial<Dependency>) =>
+          onChange(dependencies.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+        const updateValue = (value: string) => updateRow({ value });
+        const placeholder = entry.type === 'mcp' ? 'figma' : 'office';
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: dependency rows have no id, are edited by position and never reorder.
+          <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={index}>
+            <select
+              aria-label={t('Dependency type')}
+              value={entry.type}
+              disabled={busy}
+              onChange={(event) => updateRow({ type: event.target.value })}
+            >
+              <option value="tool">{t('Tool')}</option>
+              <option value="mcp">{t('MCP server')}</option>
+              {!['tool', 'mcp'].includes(entry.type) && <option value={entry.type}>{entry.type}</option>}
+            </select>
+            {entry.type === 'tool' ? (
+              <ToolNameInput
+                ariaLabel={t('Required tool')}
+                value={entry.value}
+                disabled={busy}
+                options={toolOptions}
+                placeholder="office"
+                onChange={updateValue}
+              />
+            ) : (
+              <input
+                aria-label={t('Required tool')}
+                value={entry.value}
+                disabled={busy}
+                spellCheck={false}
+                placeholder={placeholder}
+                onChange={(event) => updateValue(event.target.value)}
+              />
+            )}
+            <button
+              type="button"
+              aria-label={t('Remove')}
+              disabled={busy}
+              onClick={() => onChange(dependencies.filter((_, i) => i !== index))}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SkillEditorDialog({
   skill,
   instructions,
@@ -151,56 +216,12 @@ export function SkillEditorDialog({
         label={t('Required tools')}
         note={t('Load these tool schemas with this skill. Permissions and enabled settings stay unchanged.')}
       >
-        <div className="extensions-mcp-list-rows">
-          {dependencies.map((entry, index) => {
-            const updateRow = (patch: Partial<Dependency>) =>
-              changeDependencies(dependencies.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-            const updateValue = (value: string) => updateRow({ value });
-            const placeholder = entry.type === 'mcp' ? 'figma' : 'office';
-            return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: dependency rows have no id, are edited by position and never reorder.
-              <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={index}>
-                <select
-                  aria-label={t('Dependency type')}
-                  value={entry.type}
-                  disabled={busy}
-                  onChange={(event) => updateRow({ type: event.target.value })}
-                >
-                  <option value="tool">{t('Tool')}</option>
-                  <option value="mcp">{t('MCP server')}</option>
-                  {!['tool', 'mcp'].includes(entry.type) && <option value={entry.type}>{entry.type}</option>}
-                </select>
-                {entry.type === 'tool' ? (
-                  <ToolNameInput
-                    ariaLabel={t('Required tool')}
-                    value={entry.value}
-                    disabled={busy}
-                    options={toolOptions}
-                    placeholder="office"
-                    onChange={updateValue}
-                  />
-                ) : (
-                  <input
-                    aria-label={t('Required tool')}
-                    value={entry.value}
-                    disabled={busy}
-                    spellCheck={false}
-                    placeholder={placeholder}
-                    onChange={(event) => updateValue(event.target.value)}
-                  />
-                )}
-                <button
-                  type="button"
-                  aria-label={t('Remove')}
-                  disabled={busy}
-                  onClick={() => changeDependencies(dependencies.filter((_, i) => i !== index))}
-                >
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
+        <DependencyRows
+          dependencies={dependencies}
+          busy={busy}
+          toolOptions={toolOptions}
+          onChange={changeDependencies}
+        />
         <button
           type="button"
           className="extensions-mcp-list-add"

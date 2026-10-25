@@ -22,7 +22,7 @@ import { ActionButton, Group, SelectRow, ToggleRow } from './capability-controls
 
 const SCALE_OPTIONS = DESKTOP_PET_SCALES.map((scale) => ({ value: String(scale), label: `${scale}%` }));
 
-export function DesktopPetToggle() {
+function DesktopPetToggle() {
   const config = useDesktopPetConfig();
   // The same answer the Bots page and the overlay use (mixy-first.tsx).
   const created = useMixyCreated(window.mixdogDesktop);
@@ -35,7 +35,10 @@ export function DesktopPetToggle() {
   const missing = created === false;
   const off = !config.enabled || missing;
   const option = (name: DesktopPetOption) => (on: boolean) => void setDesktopPetOption(name, on).catch(() => {});
-  const position = config.pinned ? 'pinned' : config.pinnedHere ? 'pinnedHere' : config.onScreen ? 'onScreen' : 'free';
+  let position = 'free';
+  if (config.pinned) position = 'pinned';
+  else if (config.pinnedHere) position = 'pinnedHere';
+  else if (config.onScreen) position = 'onScreen';
   return (
     <Group
       title={t('Representative bot overlay')}

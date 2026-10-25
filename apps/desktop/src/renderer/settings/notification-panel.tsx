@@ -63,10 +63,10 @@ function SelectControl({
   );
 }
 
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
-  const value = `${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}`;
-  return value;
-});
+const TIME_OPTIONS = Array.from(
+  { length: 48 },
+  (_, index) => `${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}`
+);
 
 function deviceMeta(device: NotificationDeviceSummary): string {
   if (device.kind === 'pc') return t('This computer');
@@ -114,7 +114,6 @@ function DevicePicker({
   const option = (device: NotificationDeviceSummary) => {
     const muted = !device.canNotify && device.id !== currentDeviceId;
     return (
-      // biome-ignore lint/a11y/useKeyWithClickEvents: the listbox options are driven by the trigger button; Escape closes.
       <div
         key={device.id}
         role="option"
@@ -272,14 +271,19 @@ function TestNotificationRow({ api, deviceId }: { api: NotificationsApi; deviceI
     setMessage('');
     void Promise.resolve(api.sendTestNotification?.(deviceId))
       .then((result) =>
-        setMessage(result?.message || (result?.ok ? t('Test notification sent.') : t('Could not send the test notification.')))
+        setMessage(
+          result?.message || (result?.ok ? t('Test notification sent.') : t('Could not send the test notification.'))
+        )
       )
       .catch(() => setMessage(t('Could not send the test notification.')))
       .finally(() => setBusy(false));
   };
   return (
     <>
-      <Row title={t('Send test notification')} description={t('Sends one to this device now, using the current settings.')}>
+      <Row
+        title={t('Send test notification')}
+        description={t('Sends one to this device now, using the current settings.')}
+      >
         <ActionButton disabled={busy || !api.sendTestNotification} onClick={send}>
           {t('Send')}
         </ActionButton>

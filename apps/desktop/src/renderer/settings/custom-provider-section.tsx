@@ -377,6 +377,49 @@ function useCustomProviderConnection({
   };
 }
 
+/** What the form's last connection attempt came to: the wait notice, then the discovery, test and save results. */
+function CustomProviderOutcome({
+  working,
+  discoveryError,
+  testResult,
+  saveError,
+}: {
+  working: boolean;
+  discoveryError: string;
+  testResult: { ok: boolean; message: string } | null;
+  saveError: string;
+}) {
+  return (
+    <>
+      {working && (
+        <p role="status">
+          {t('Waiting for the service to list its models. This can take up to a minute; you can stop waiting.')}
+        </p>
+      )}
+      {discoveryError && (
+        <p className="settings-error" role="alert">
+          {discoveryError}
+        </p>
+      )}
+      <div aria-live="polite">
+        {testResult && (
+          <p
+            className={testResult.ok ? 'settings-success' : 'settings-error'}
+            role={testResult.ok ? 'status' : 'alert'}
+          >
+            {testResult.message}
+          </p>
+        )}
+        {saveError && (
+          <p className="settings-error" role="alert">
+            {saveError}
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 function CustomProviderForm({
   provider,
   run,
@@ -615,31 +658,12 @@ function CustomProviderForm({
             }}
             onRefresh={() => void refreshModels()}
           />
-          {working !== '' && (
-            <p role="status">
-              {t('Waiting for the service to list its models. This can take up to a minute; you can stop waiting.')}
-            </p>
-          )}
-          {discoveryError && (
-            <p className="settings-error" role="alert">
-              {discoveryError}
-            </p>
-          )}
-          <div aria-live="polite">
-            {testResult && (
-              <p
-                className={testResult.ok ? 'settings-success' : 'settings-error'}
-                role={testResult.ok ? 'status' : 'alert'}
-              >
-                {testResult.message}
-              </p>
-            )}
-            {saveError && (
-              <p className="settings-error" role="alert">
-                {saveError}
-              </p>
-            )}
-          </div>
+          <CustomProviderOutcome
+            working={working !== ''}
+            discoveryError={discoveryError}
+            testResult={testResult}
+            saveError={saveError}
+          />
         </form>
         <footer>
           <button type="button" disabled={disabled || !connectionReady} onClick={() => void test()}>

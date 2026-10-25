@@ -51,6 +51,152 @@ export function credentialNote(provider: RecordValue): string | undefined {
   return undefined;
 }
 
+/** Poll while mounted: the daemon re-checks the keyring (without prompting) on
+ *  every ready read, so the alert appears/disappears live, including when the
+ *  keyring locks or is unlocked while this page is open. */
+function useKeychainRefresh(run: PanelContext['run']) {
+  const runRef = useRef(run);
+  runRef.current = run;
+  useEffect(() => {
+    const refresh = (recheckKeychain: boolean) => () =>
+      void runRef.current(
+        'getProviderSetup',
+        [recheckKeychain ? { recheckKeychain } : {}],
+        'keychain-refresh',
+        true,
+        true
+      );
+    const poll = refresh(false);
+    const onFocus = refresh(true);
+    // Visible-only cadence; an unfocused window skips ticks (the focus event
+    // below refreshes as soon as it returns).
+    const stopCadence = startVisibleRefreshCadence({
+      win: window,
+      intervalMs: 7000,
+      refresh: (reason) => {
+        if (reason === 'interval' && !window.document.hasFocus()) return;
+        poll();
+      },
+    });
+    // Returning to the window re-snapshots the keyring right away instead of
+    // waiting for the daemon's TTL (secret-tool may have changed it meanwhile).
+    window.addEventListener('focus', onFocus);
+    return () => {
+      stopCadence();
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+}
+
+function KeychainAlert({ issue, busy, run }: { issue: RecordValue; busy: boolean; run: PanelContext['run'] }) {
+  const state = String(issue.state || '');
+  return (
+    <p className="settings-error" role="alert" data-keychain-state={state}>
+      {t(String(issue.message))}
+      {typeof issue.path === 'string' && issue.path !== '' && (
+        <>
+          {' '}
+          <code>{issue.path}</code>{' '}
+        </>
+      )}
+      {(state === 'locked' || state === 'error' || state === 'unreachable') && (
+        <ActionButton
+          disabled={busy}
+          onClick={() => void run('getProviderSetup', [{ force: true, unlockKeychain: true }])}
+        >
+          {t('Unlock keyring')}
+        </ActionButton>
+      )}
+    </p>
+  );
+}
+
+/** One card PER connected provider: sharing a single card ran "OpenAI's
+ *  accounts → Anthropic header" as one continuous list (user: 프로바이더별
+ *  분리된 느낌이 없다). Providers without an account share one compact card
+ *  after them. */
+function OAuthProvidersCard({
+  api,
+  providers,
+  withoutAccounts,
+  busy,
+  run,
+  confirm,
+}: Pick<PanelContext, 'api' | 'run' | 'confirm'> & {
+  providers: RecordValue[];
+  withoutAccounts: ReadonlySet<string>;
+  busy: boolean;
+}) {
+  return (
+    <section className="settings-group settings-provider-cards">
+      <header>
+        <h3>{t('OAuth providers')}</h3>
+      </header>
+      {providers
+        .filter((provider) => !withoutAccounts.has(String(provider.id)))
+        .map((provider) => (
+          <div className="settings-group-body" key={String(provider.id)}>
+            <ProviderAccountsList
+              api={api}
+              provider={String(provider.id)}
+              title={providerLabel(provider)}
+              onChange={() => void run('getProviderSetup', [{ force: true }])}
+              renderActions={(account) => (
+                <>
+                  {(!account.authenticated || account.reauthRequired) && (
+                    <OAuthControl api={api} provider={provider} disabled={busy} run={run} accountId={account.id} />
+                  )}
+                  <ActionButton
+                    danger
+                    disabled={busy}
+                    onClick={() => {
+                      confirm({
+                        title: t('Disconnect account?'),
+                        description: t('Remove the saved authentication for {{name}}.', { name: account.label }),
+                        confirmLabel: t('Disconnect'),
+                        danger: true,
+                        onConfirm: async () => {
+                          await run('forgetProviderAuth', [provider.id, account.id]);
+                          window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
+                        },
+                      });
+                    }}
+                  >
+                    {t('Disconnect')}
+                  </ActionButton>
+                </>
+              )}
+              headerAction={<OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />}
+            />
+          </div>
+        ))}
+      {withoutAccounts.size > 0 && (
+        <>
+          <p className="provider-accounts-sublabel">{t('Providers without a connected account')}</p>
+          <div className="settings-group-body provider-accounts-empty-card">
+            {providers
+              .filter((provider) => withoutAccounts.has(String(provider.id)))
+              .map((provider) => (
+                <div className="provider-accounts-empty-row" key={String(provider.id)}>
+                  <span className="provider-accounts-icon">
+                    <ProviderIcon provider={String(provider.id)} />
+                  </span>
+                  <b>{providerLabel(provider)}</b>
+                  <OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />
+                </div>
+              ))}
+          </div>
+        </>
+      )}
+      {providers.length === 0 && (
+        <div className="settings-group-body">
+          <ListEmpty text={t('No OAuth providers available.')} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContext) {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
@@ -90,10 +236,8 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     <ResourceRow
       key={String(provider.id)}
       title={providerLabel(provider)}
-      description={String(provider.detail || provider.envName || '')}
-      // ResourceRow drops `description`; where the effective key comes from (a private
-      // file when there is no OS keychain, or an environment variable) is shown as the
-      // row's secondary text.
+      // Where the effective key comes from (a private file when there is no OS
+      // keychain, or an environment variable) is shown as the row's secondary text.
       meta={credentialNote(provider)}
       status={providerStatus(provider)}
       actions={
@@ -168,41 +312,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   );
   const keychainIssue = record(setup.keychain);
   const keychainBlocked = typeof keychainIssue.message === 'string' && keychainIssue.message !== '';
-  const runRef = useRef(run);
-  runRef.current = run;
-  // Poll while mounted: the daemon re-checks the keyring (without prompting) on
-  // every ready read, so the alert appears/disappears live, including when the
-  // keyring locks or is unlocked while this page is open.
-  useEffect(() => {
-    const refresh = (recheckKeychain: boolean) => () =>
-      void runRef.current(
-        'getProviderSetup',
-        [recheckKeychain ? { recheckKeychain } : {}],
-        'keychain-refresh',
-        true,
-        true
-      );
-    const poll = refresh(false);
-    const onFocus = refresh(true);
-    // Visible-only cadence; an unfocused window skips ticks (the focus event
-    // below refreshes as soon as it returns).
-    const stopCadence = startVisibleRefreshCadence({
-      win: window,
-      intervalMs: 7000,
-      refresh: (reason) => {
-        if (reason === 'interval' && !window.document.hasFocus()) return;
-        poll();
-      },
-    });
-    // Returning to the window re-snapshots the keyring right away instead of
-    // waiting for the daemon's TTL (secret-tool may have changed it meanwhile).
-    window.addEventListener('focus', onFocus);
-    return () => {
-      stopCadence();
-      window.removeEventListener('focus', onFocus);
-    };
-  }, []);
-  const keychainState = String(keychainIssue.state || '');
+  useKeychainRefresh(run);
   // Cold open: one same-size block until the setup and every account roster
   // are in, then the whole page at once — nothing on screen has to move.
   const oauthIds = setup.managedByClient === true ? [] : oauthProviders.map((provider) => String(provider.id));
@@ -225,101 +335,18 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   }
   return (
     <>
-      {keychainBlocked && (
-        <p className="settings-error" role="alert" data-keychain-state={String(keychainIssue.state || '')}>
-          {t(String(keychainIssue.message))}
-          {typeof keychainIssue.path === 'string' && keychainIssue.path !== '' && (
-            <>
-              {' '}
-              <code>{keychainIssue.path}</code>{' '}
-            </>
-          )}
-          {(keychainState === 'locked' || keychainState === 'error' || keychainState === 'unreachable') && (
-            <ActionButton
-              disabled={busy}
-              onClick={() => void run('getProviderSetup', [{ force: true, unlockKeychain: true }])}
-            >
-              {t('Unlock keyring')}
-            </ActionButton>
-          )}
-        </p>
-      )}
-      {/* One card PER connected provider: sharing a single card ran "OpenAI's
-        accounts → Anthropic header" as one continuous list (user: 프로바이더별
-        분리된 느낌이 없다). Providers without an account share one compact card
-        after them. */}
-      <section className="settings-group settings-provider-cards">
-        <header>
-          <h3>{t('OAuth providers')}</h3>
-        </header>
-        {oauthProviders.length > 0 &&
-          oauthProviders
-            .filter((provider) => !withoutAccounts.has(String(provider.id)))
-            .map((provider) => (
-              <div className="settings-group-body" key={String(provider.id)}>
-                <ProviderAccountsList
-                  api={api}
-                  provider={String(provider.id)}
-                  title={providerLabel(provider)}
-                  onChange={() => void run('getProviderSetup', [{ force: true }])}
-                  renderActions={(account) => (
-                    <>
-                      {(!account.authenticated || account.reauthRequired) && (
-                        <OAuthControl api={api} provider={provider} disabled={busy} run={run} accountId={account.id} />
-                      )}
-                      <ActionButton
-                        danger
-                        disabled={busy}
-                        onClick={() => {
-                          confirm({
-                            title: t('Disconnect account?'),
-                            description: t('Remove the saved authentication for {{name}}.', { name: account.label }),
-                            confirmLabel: t('Disconnect'),
-                            danger: true,
-                            onConfirm: async () => {
-                              await run('forgetProviderAuth', [provider.id, account.id]);
-                              window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
-                            },
-                          });
-                        }}
-                      >
-                        {t('Disconnect')}
-                      </ActionButton>
-                    </>
-                  )}
-                  headerAction={<OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />}
-                />
-              </div>
-            ))}
-        {withoutAccounts.size > 0 && (
-          <>
-            <p className="provider-accounts-sublabel">{t('Providers without a connected account')}</p>
-            <div className="settings-group-body provider-accounts-empty-card">
-              {oauthProviders
-                .filter((provider) => withoutAccounts.has(String(provider.id)))
-                .map((provider) => (
-                  <div className="provider-accounts-empty-row" key={String(provider.id)}>
-                    <span className="provider-accounts-icon">
-                      <ProviderIcon provider={String(provider.id)} />
-                    </span>
-                    <b>{providerLabel(provider)}</b>
-                    <OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />
-                  </div>
-                ))}
-            </div>
-          </>
-        )}
-        {oauthProviders.length === 0 && (
-          <div className="settings-group-body">
-            <ListEmpty text={loading ? t('Loading providers…') : t('No OAuth providers available.')} />
-          </div>
-        )}
-      </section>
+      {keychainBlocked && <KeychainAlert issue={keychainIssue} busy={busy} run={run} />}
+      <OAuthProvidersCard
+        api={api}
+        providers={oauthProviders}
+        withoutAccounts={withoutAccounts}
+        busy={busy}
+        run={run}
+        confirm={confirm}
+      />
       <Group title={t('API-key providers')}>
-        {otherApiProviders.length > 0 && otherApiProviders.map(renderApiProvider)}
-        {otherApiProviders.length === 0 && (
-          <ListEmpty text={loading ? t('Loading providers…') : t('No API-key providers available.')} />
-        )}
+        {otherApiProviders.map(renderApiProvider)}
+        {otherApiProviders.length === 0 && <ListEmpty text={t('No API-key providers available.')} />}
       </Group>
       <CustomProvidersSection providers={customProviders} loading={loading} run={run} confirm={confirm} busy={busy} />
       <QuotaAutoResumeToggle />

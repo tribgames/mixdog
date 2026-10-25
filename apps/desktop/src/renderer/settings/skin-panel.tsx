@@ -149,6 +149,32 @@ function Segmented<T extends string>({
   );
 }
 
+function TransparencySlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange(value: number): void;
+}) {
+  return (
+    <div className="skin-slider">
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        aria-label={label}
+        aria-valuetext={`${value}%`}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+      />
+      <output className="skin-slider-value">{value}%</output>
+    </div>
+  );
+}
+
 export function SkinPanel(_props: Partial<PanelContext>) {
   const state = useSkinState();
   const [hover, setHover] = useState<string | null>(null);
@@ -188,37 +214,21 @@ export function SkinPanel(_props: Partial<PanelContext>) {
             title={t('Outer panels transparency')}
             description={t('How much of the picture shows through the window frame, sidebar and side dock.')}
           >
-            <div className="skin-slider">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={state.outerTransparency}
-                aria-label={t('Outer panels transparency')}
-                aria-valuetext={`${state.outerTransparency}%`}
-                onChange={(event) => setSkinOuterTransparency(Number(event.currentTarget.value))}
-              />
-              <output className="skin-slider-value">{state.outerTransparency}%</output>
-            </div>
+            <TransparencySlider
+              label={t('Outer panels transparency')}
+              value={state.outerTransparency}
+              onChange={setSkinOuterTransparency}
+            />
           </SkinRow>
           <SkinRow
             title={t('Main panel transparency')}
             description={t('How much of the picture shows through the conversation area and its cards.')}
           >
-            <div className="skin-slider">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={state.mainTransparency}
-                aria-label={t('Main panel transparency')}
-                aria-valuetext={`${state.mainTransparency}%`}
-                onChange={(event) => setSkinMainTransparency(Number(event.currentTarget.value))}
-              />
-              <output className="skin-slider-value">{state.mainTransparency}%</output>
-            </div>
+            <TransparencySlider
+              label={t('Main panel transparency')}
+              value={state.mainTransparency}
+              onChange={setSkinMainTransparency}
+            />
           </SkinRow>
           <SkinRow
             title={t('Accent color')}

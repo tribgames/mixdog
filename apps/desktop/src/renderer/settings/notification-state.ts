@@ -31,7 +31,7 @@ export function takeNotificationDeviceRequest(): string | null {
   return id;
 }
 
-export function applyPreferencesPatch(
+function applyPreferencesPatch(
   prefs: NotificationDevicePreferences,
   patch: NotificationPreferencesPatch
 ): NotificationDevicePreferences {
@@ -128,8 +128,11 @@ export function useNotificationPreferences(api: NotificationApi | undefined) {
   return { state, save };
 }
 
-export const scopeLabel = (scope: NotificationScope): string =>
-  scope === 'all' ? t('All conversations') : scope === 'bots' ? t('Bot chats only') : t('Off');
+export function scopeLabel(scope: NotificationScope): string {
+  if (scope === 'all') return t('All conversations');
+  if (scope === 'bots') return t('Bot chats only');
+  return t('Off');
+}
 
 /** 'HH:MM' in the UI language's clock (or the chosen time format). */
 export function quietTimeLabel(value: string): string {

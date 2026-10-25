@@ -409,7 +409,6 @@ export function settingsStatus(value: string): { label: string; tone: SettingsSt
 
 export function ResourceRow({
   title,
-  description: _description,
   meta,
   status,
   selected = false,

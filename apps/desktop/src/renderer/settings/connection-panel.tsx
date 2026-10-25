@@ -156,6 +156,395 @@ function dialogForRequest(requested: ConnectionDialogRequest): Dialog {
   return { kind: requested };
 }
 
+type OpenDialog = (dialog: Dialog) => void;
+
+function SmallButton({ disabled, onClick, children }: { disabled?: boolean; onClick(): void; children: ReactNode }) {
+  return (
+    <button type="button" className="conn-btn conn-btn--sm" disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+/** The devices connected to this PC, each with its notification summary and rename/disconnect actions. */
+function ConnectedDevicesGroup({
+  clients,
+  enabled,
+  rotating,
+  revokingClient,
+  confirmClient,
+  notifications,
+  canRename,
+  openCategory,
+  setConfirmClient,
+  revokeClient,
+  setDialog,
+}: {
+  clients: DesktopRemoteClientInfo[];
+  enabled: boolean;
+  rotating: boolean;
+  revokingClient: string;
+  confirmClient: string;
+  notifications: ReturnType<typeof useNotificationPreferences>['state'];
+  canRename: boolean;
+  openCategory?: (category: SettingsCategory) => void;
+  setConfirmClient(id: string): void;
+  revokeClient(id: string): void;
+  setDialog: OpenDialog;
+}) {
+  return (
+    <section className={`conn-group${enabled ? '' : ' is-dimmed'}`}>
+      <div className="conn-group-head">
+        <h4>
+          {t('Devices connected to this PC')}
+          <span>{clients.length}</span>
+        </h4>
+        {clients.length > 1 && (
+          <button
+            type="button"
+            className="conn-link conn-link--danger"
+            disabled={rotating}
+            onClick={() => setDialog({ kind: 'disconnect-all' })}
+          >
+            {t('Disconnect all')}
+          </button>
+        )}
+      </div>
+      {clients.length === 0 && <p className="conn-empty">{t('No connected devices.')}</p>}
+      {clients.length > 0 && (
+        <div className="conn-list">
+          {clients.map((client) => {
+            const kind = remoteClientKind(client.browser);
+            const lastSeen = client.lastSeenAt ? relativeWhen(client.lastSeenAt) : t('Not used yet');
+            let status = t('Off');
+            if (client.pendingRemoval) status = t('Removing…');
+            else if (enabled) status = client.online ? t('Online') : t('Offline');
+            const defaultTitle = deviceTitle(client, kind);
+            const baseMeta = `${deviceKindText(client, kind)} · ${lastSeen}`;
+            const device = notifications?.devices.find((entry) => entry.id === client.id);
+            const summary = device ? notificationSummary(device, notifications?.preferences[client.id]) : null;
+            return (
+              <ConnRow
+                key={client.id}
+                icon={<KindIcon kind={kind} />}
+                title={client.alias || defaultTitle}
+                status={status}
+                statusTone={enabled && client.online && !client.pendingRemoval ? 'on' : 'off'}
+                meta={client.alias ? `${defaultTitle} · ${baseMeta}` : baseMeta}
+                extra={
+                  summary &&
+                  (summary.muted ? (
+                    <div className="conn-notif conn-notif--off">{summary.text}</div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="conn-link conn-notif"
+                      onClick={() => {
+                        requestNotificationDevice(client.id);
+                        openCategory?.('notifications');
+                      }}
+                    >
+                      {summary.text}
+                    </button>
+                  ))
+                }
+                actions={
+                  <>
+                    {canRename && (
+                      <SmallButton
+                        disabled={Boolean(client.pendingRemoval)}
+                        onClick={() => setDialog({ kind: 'rename-client', client })}
+                      >
+                        {t('Rename')}
+                      </SmallButton>
+                    )}
+                    <SmallButton
+                      disabled={Boolean(revokingClient) || Boolean(client.pendingRemoval)}
+                      onClick={() =>
+                        confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id)
+                      }
+                    >
+                      {client.pendingRemoval
+                        ? t('Removing…')
+                        : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
+                    </SmallButton>
+                  </>
+                }
+              />
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The PCs this one has opened before. */
+function SavedHostsGroup({
+  hosts,
+  busy,
+  error,
+  onOpen,
+  setDialog,
+}: {
+  hosts: DesktopRemoteHost[];
+  busy: boolean;
+  error: string;
+  onOpen(host: DesktopRemoteHost): void;
+  setDialog: OpenDialog;
+}) {
+  return (
+    <section className="conn-group">
+      <div className="conn-group-head">
+        <h4>
+          {t('PCs I opened')}
+          <span>{hosts.length}</span>
+        </h4>
+      </div>
+      <div className="conn-list">
+        {hosts.map((host) => {
+          const online = savedHostOnline(host);
+          let status: string | undefined;
+          if (online !== undefined) status = online ? t('Online') : t('Offline');
+          return (
+            <ConnRow
+              key={host.id}
+              icon={<Monitor size={16} aria-hidden="true" />}
+              title={host.name}
+              status={status}
+              statusTone={online ? 'on' : 'off'}
+              meta={
+                host.lastConnectedAt
+                  ? t('Last connected {{lastSeen}}', { lastSeen: relativeWhen(host.lastConnectedAt) })
+                  : t('Not connected yet')
+              }
+              actions={
+                <>
+                  <SmallButton disabled={busy} onClick={() => onOpen(host)}>
+                    {t('Open')}
+                  </SmallButton>
+                  <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'rename-host', host })}>
+                    {t('Rename')}
+                  </SmallButton>
+                  <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'forget', host })}>
+                    {t('Forget')}
+                  </SmallButton>
+                </>
+              }
+            />
+          );
+        })}
+      </div>
+      {error && <ErrorNotice error={error} />}
+    </section>
+  );
+}
+
+/** The SSH servers this PC has connected to. `error` is the host failure shown here when no saved-PC group shows it. */
+function SshHostsGroup({
+  api,
+  hosts,
+  busy,
+  error,
+  setDialog,
+}: {
+  api: CapabilityApi;
+  hosts: DesktopSshHost[];
+  busy: boolean;
+  error: string;
+  setDialog: OpenDialog;
+}) {
+  return (
+    <section className="conn-group">
+      <div className="conn-group-head">
+        <h4>
+          {t('SSH servers')}
+          <span>{hosts.length}</span>
+        </h4>
+      </div>
+      <div className="conn-list">
+        {hosts.map((host) => (
+          <ConnRow
+            key={host.id}
+            icon={<Server size={16} aria-hidden="true" />}
+            title={host.name}
+            status={host.open ? t('Online') : undefined}
+            statusTone="on"
+            meta={`${host.target} · ${
+              host.lastConnectedAt
+                ? t('Last connected {{lastSeen}}', { lastSeen: relativeWhen(host.lastConnectedAt) })
+                : t('Not connected yet')
+            }`}
+            actions={
+              <>
+                <SmallButton
+                  disabled={busy}
+                  onClick={() =>
+                    void openSshHost(api, host, () =>
+                      setDialog({ kind: 'ssh', host: { id: host.id, name: host.name, target: host.target } })
+                    )
+                  }
+                >
+                  {t('Open')}
+                </SmallButton>
+                <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'rename-ssh', host })}>
+                  {t('Rename')}
+                </SmallButton>
+                <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'settings-ssh', host })}>
+                  {t('Settings')}
+                </SmallButton>
+                {api.sshCleanupHost && (
+                  <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'cleanup-ssh', host })}>
+                    {t('Clean up Mixdog on the server…')}
+                  </SmallButton>
+                )}
+                <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'forget-ssh', host })}>
+                  {t('Forget')}
+                </SmallButton>
+              </>
+            }
+          />
+        ))}
+      </div>
+      <ReopenServerWindowsToggle api={api} />
+      {error && <ErrorNotice error={error} />}
+    </section>
+  );
+}
+
+/** The one dialog the page has open, if any. */
+function ConnectionDialogs({
+  api,
+  dialog,
+  info,
+  settings,
+  clients,
+  setSettings,
+  applyInfo,
+  runHost,
+  refreshHosts,
+  refreshSshHosts,
+  setRotating,
+  closeDialog,
+}: {
+  api: CapabilityApi;
+  dialog: Dialog | null;
+  info: DesktopRemoteAccessInfo | null | undefined;
+  settings: ReturnType<typeof useRemoteAccessSettings>[0];
+  clients: DesktopRemoteClientInfo[];
+  setSettings: ReturnType<typeof useRemoteAccessSettings>[1];
+  applyInfo(next: DesktopRemoteAccessInfo | null): void;
+  runHost(key: string, action: () => Promise<unknown> | undefined): void;
+  refreshHosts: ReturnType<typeof useRemoteHosts>['refresh'];
+  refreshSshHosts: ReturnType<typeof useSshHosts>['refresh'];
+  setRotating(rotating: boolean): void;
+  closeDialog(): void;
+}) {
+  return (
+    <>
+      {dialog?.kind === 'connect' && <ConnectDeviceDialog api={api} info={info} onClose={closeDialog} />}
+      {dialog?.kind === 'ssh' && (
+        <SshConnectDialog api={api} host={dialog.host} onConnected={refreshSshHosts} onClose={closeDialog} />
+      )}
+      {dialog?.kind === 'rename-ssh' && (
+        <RenameDialog
+          title={t('Rename server')}
+          description={t('Only this computer shows the new name.')}
+          initial={dialog.host.name}
+          allowEmpty={false}
+          onSave={(name) => Promise.resolve(api.sshRenameHost?.(dialog.host.id, name)).then(refreshSshHosts)}
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'settings-ssh' && (
+        <SshHostSettingsDialog api={api} host={dialog.host} onSaved={refreshSshHosts} onClose={closeDialog} />
+      )}
+      {dialog?.kind === 'cleanup-ssh' && (
+        <SshCleanupDialog api={api} host={dialog.host} onDone={refreshSshHosts} onClose={closeDialog} />
+      )}
+      {dialog?.kind === 'forget-ssh' && (
+        <ConfirmDialog
+          title={t('Forget {{name}}', { name: dialog.host.name })}
+          description={t('Only the saved entry for {{name}} is removed. The server itself is not changed.', {
+            name: dialog.host.name,
+          })}
+          confirmLabel={t('Forget')}
+          onConfirm={() =>
+            runHost(`forget-ssh:${dialog.host.id}`, () => api.sshForgetHost?.(dialog.host.id).then(refreshSshHosts))
+          }
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'open-pc' && <OpenPcDialog api={api} onConnected={refreshHosts} onClose={closeDialog} />}
+      {dialog?.kind === 'rename-self' && settings && (
+        <RenameDialog
+          title={t('This PC’s name')}
+          description={t('Phones, browsers and other PCs show this name.')}
+          helper={t('Leave empty to go back to the default name ({{defaultName}}).', {
+            defaultName: settings.defaultName,
+          })}
+          initial={settings.name}
+          allowEmpty
+          onSave={(name) => Promise.resolve(api.setRemotePcName?.(name)).then((value) => value && setSettings(value))}
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'rename-host' && (
+        <RenameDialog
+          title={t('Rename PC')}
+          description={t('Only this computer shows the new name.')}
+          initial={dialog.host.name}
+          allowEmpty={false}
+          onSave={(name) => Promise.resolve(api.renameRemoteHost?.(dialog.host.id, name)).then(refreshHosts)}
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'rename-client' && (
+        <RenameDialog
+          title={t('Rename device')}
+          description={t('Only this computer shows the new name.')}
+          helper={t('Leave empty to go back to the device’s own name.')}
+          initial={dialog.client.alias || deviceTitle(dialog.client, remoteClientKind(dialog.client.browser))}
+          allowEmpty
+          onSave={(name) =>
+            Promise.resolve(api.setRemoteClientAlias?.(dialog.client.id, name))
+              .then(() => api.getRemoteAccessInfo?.())
+              .then((value) => value !== undefined && applyInfo(value ?? null))
+          }
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'disconnect-all' && (
+        <ConfirmDialog
+          title={t('Disconnect all devices')}
+          description={t(
+            'Phones, browsers and other PCs ({{total}} devices) will be disconnected. To use them again, connect them again.',
+            { total: clients.length }
+          )}
+          confirmLabel={t('Disconnect {{total}}', { total: clients.length })}
+          onConfirm={() => {
+            if (!api.rotateRemoteAccess) return;
+            setRotating(true);
+            applyConnectionResult(api.rotateRemoteAccess(), applyInfo, () => setRotating(false));
+          }}
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'forget' && (
+        <ConfirmDialog
+          title={t('Forget {{name}}', { name: dialog.host.name })}
+          description={t('The saved connection to {{name}} is removed. To open it again you need its code.', {
+            name: dialog.host.name,
+          })}
+          confirmLabel={t('Forget')}
+          onConfirm={() => runHost(`forget:${dialog.host.id}`, () => api.forgetRemoteHost?.(dialog.host.id))}
+          onClose={closeDialog}
+        />
+      )}
+    </>
+  );
+}
+
 export function ConnectionPanel({
   api,
   openCategory,
@@ -316,237 +705,23 @@ export function ConnectionPanel({
   let devices: ReactNode = null;
   if (ready) {
     devices = (
-      <section className={`conn-group${enabled ? '' : ' is-dimmed'}`}>
-        <div className="conn-group-head">
-          <h4>
-            {t('Devices connected to this PC')}
-            <span>{clients.length}</span>
-          </h4>
-          {clients.length > 1 && (
-            <button
-              type="button"
-              className="conn-link conn-link--danger"
-              disabled={rotating}
-              onClick={() => setDialog({ kind: 'disconnect-all' })}
-            >
-              {t('Disconnect all')}
-            </button>
-          )}
-        </div>
-        {clients.length === 0 && <p className="conn-empty">{t('No connected devices.')}</p>}
-        {clients.length > 0 && (
-          <div className="conn-list">
-            {clients.map((client) => {
-              const kind = remoteClientKind(client.browser);
-              const lastSeen = client.lastSeenAt ? relativeWhen(client.lastSeenAt) : t('Not used yet');
-              let status = t('Off');
-              if (client.pendingRemoval) status = t('Removing…');
-              else if (enabled) status = client.online ? t('Online') : t('Offline');
-              const defaultTitle = deviceTitle(client, kind);
-              const baseMeta = `${deviceKindText(client, kind)} · ${lastSeen}`;
-              const device = notifications?.devices.find((entry) => entry.id === client.id);
-              const summary = device ? notificationSummary(device, notifications?.preferences[client.id]) : null;
-              return (
-                <ConnRow
-                  key={client.id}
-                  icon={<KindIcon kind={kind} />}
-                  title={client.alias || defaultTitle}
-                  status={status}
-                  statusTone={enabled && client.online && !client.pendingRemoval ? 'on' : 'off'}
-                  meta={client.alias ? `${defaultTitle} · ${baseMeta}` : baseMeta}
-                  extra={
-                    summary &&
-                    (summary.muted ? (
-                      <div className="conn-notif conn-notif--off">{summary.text}</div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="conn-link conn-notif"
-                        onClick={() => {
-                          requestNotificationDevice(client.id);
-                          openCategory?.('notifications');
-                        }}
-                      >
-                        {summary.text}
-                      </button>
-                    ))
-                  }
-                  actions={
-                    <>
-                      {api.setRemoteClientAlias && (
-                        <button
-                          type="button"
-                          className="conn-btn conn-btn--sm"
-                          disabled={Boolean(client.pendingRemoval)}
-                          onClick={() => setDialog({ kind: 'rename-client', client })}
-                        >
-                          {t('Rename')}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="conn-btn conn-btn--sm"
-                        disabled={Boolean(revokingClient) || Boolean(client.pendingRemoval)}
-                        onClick={() =>
-                          confirmClient === client.id ? revokeClient(client.id) : setConfirmClient(client.id)
-                        }
-                      >
-                        {client.pendingRemoval
-                          ? t('Removing…')
-                          : disconnectLabel(revokingClient === client.id, confirmClient === client.id)}
-                      </button>
-                    </>
-                  }
-                />
-              );
-            })}
-          </div>
-        )}
-      </section>
+      <ConnectedDevicesGroup
+        clients={clients}
+        enabled={enabled}
+        rotating={rotating}
+        revokingClient={revokingClient}
+        confirmClient={confirmClient}
+        notifications={notifications}
+        canRename={Boolean(api.setRemoteClientAlias)}
+        openCategory={openCategory}
+        setConfirmClient={setConfirmClient}
+        revokeClient={revokeClient}
+        setDialog={setDialog}
+      />
     );
   } else if (enabled && stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) {
     devices = renderConnectionNote(t(RELAY_CONNECTING_MESSAGE));
   }
-
-  const savedHosts = hosts.length > 0 && (
-    <section className="conn-group">
-      <div className="conn-group-head">
-        <h4>
-          {t('PCs I opened')}
-          <span>{hosts.length}</span>
-        </h4>
-      </div>
-      <div className="conn-list">
-        {hosts.map((host) => {
-          const online = savedHostOnline(host);
-          let status: string | undefined;
-          if (online !== undefined) status = online ? t('Online') : t('Offline');
-          return (
-            <ConnRow
-              key={host.id}
-              icon={<Monitor size={16} aria-hidden="true" />}
-              title={host.name}
-              status={status}
-              statusTone={online ? 'on' : 'off'}
-              meta={
-                host.lastConnectedAt
-                  ? t('Last connected {{lastSeen}}', { lastSeen: relativeWhen(host.lastConnectedAt) })
-                  : t('Not connected yet')
-              }
-              actions={
-                <>
-                  <button
-                    type="button"
-                    className="conn-btn conn-btn--sm"
-                    disabled={Boolean(hostBusy)}
-                    onClick={() => runHost(`open:${host.id}`, () => api.openRemoteHost?.(host.id))}
-                  >
-                    {t('Open')}
-                  </button>
-                  <button
-                    type="button"
-                    className="conn-btn conn-btn--sm"
-                    disabled={Boolean(hostBusy)}
-                    onClick={() => setDialog({ kind: 'rename-host', host })}
-                  >
-                    {t('Rename')}
-                  </button>
-                  <button
-                    type="button"
-                    className="conn-btn conn-btn--sm"
-                    disabled={Boolean(hostBusy)}
-                    onClick={() => setDialog({ kind: 'forget', host })}
-                  >
-                    {t('Forget')}
-                  </button>
-                </>
-              }
-            />
-          );
-        })}
-      </div>
-      {hostError && <ErrorNotice error={hostError} />}
-    </section>
-  );
-
-  const sshGroup = sshHosts.length > 0 && (
-    <section className="conn-group">
-      <div className="conn-group-head">
-        <h4>
-          {t('SSH servers')}
-          <span>{sshHosts.length}</span>
-        </h4>
-      </div>
-      <div className="conn-list">
-        {sshHosts.map((host) => (
-          <ConnRow
-            key={host.id}
-            icon={<Server size={16} aria-hidden="true" />}
-            title={host.name}
-            status={host.open ? t('Online') : undefined}
-            statusTone="on"
-            meta={`${host.target} · ${
-              host.lastConnectedAt
-                ? t('Last connected {{lastSeen}}', { lastSeen: relativeWhen(host.lastConnectedAt) })
-                : t('Not connected yet')
-            }`}
-            actions={
-              <>
-                <button
-                  type="button"
-                  className="conn-btn conn-btn--sm"
-                  disabled={Boolean(hostBusy)}
-                  onClick={() =>
-                    void openSshHost(api, host, () =>
-                      setDialog({ kind: 'ssh', host: { id: host.id, name: host.name, target: host.target } })
-                    )
-                  }
-                >
-                  {t('Open')}
-                </button>
-                <button
-                  type="button"
-                  className="conn-btn conn-btn--sm"
-                  disabled={Boolean(hostBusy)}
-                  onClick={() => setDialog({ kind: 'rename-ssh', host })}
-                >
-                  {t('Rename')}
-                </button>
-                <button
-                  type="button"
-                  className="conn-btn conn-btn--sm"
-                  disabled={Boolean(hostBusy)}
-                  onClick={() => setDialog({ kind: 'settings-ssh', host })}
-                >
-                  {t('Settings')}
-                </button>
-                {api.sshCleanupHost && (
-                  <button
-                    type="button"
-                    className="conn-btn conn-btn--sm"
-                    disabled={Boolean(hostBusy)}
-                    onClick={() => setDialog({ kind: 'cleanup-ssh', host })}
-                  >
-                    {t('Clean up Mixdog on the server…')}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="conn-btn conn-btn--sm"
-                  disabled={Boolean(hostBusy)}
-                  onClick={() => setDialog({ kind: 'forget-ssh', host })}
-                >
-                  {t('Forget')}
-                </button>
-              </>
-            }
-          />
-        ))}
-      </div>
-      <ReopenServerWindowsToggle api={api} />
-      {!savedHosts && hostError && <ErrorNotice error={hostError} />}
-    </section>
-  );
 
   return (
     <div className="conn-page">
@@ -575,107 +750,38 @@ export function ConnectionPanel({
         </button>
       </div>
       {devices}
-      {savedHosts}
-      {sshGroup}
-      {dialog?.kind === 'connect' && <ConnectDeviceDialog api={api} info={info} onClose={closeDialog} />}
-      {dialog?.kind === 'ssh' && (
-        <SshConnectDialog api={api} host={dialog.host} onConnected={refreshSshHosts} onClose={closeDialog} />
-      )}
-      {dialog?.kind === 'rename-ssh' && (
-        <RenameDialog
-          title={t('Rename server')}
-          description={t('Only this computer shows the new name.')}
-          initial={dialog.host.name}
-          allowEmpty={false}
-          onSave={(name) => Promise.resolve(api.sshRenameHost?.(dialog.host.id, name)).then(refreshSshHosts)}
-          onClose={closeDialog}
+      {hosts.length > 0 && (
+        <SavedHostsGroup
+          hosts={hosts}
+          busy={Boolean(hostBusy)}
+          error={hostError}
+          onOpen={(host) => runHost(`open:${host.id}`, () => api.openRemoteHost?.(host.id))}
+          setDialog={setDialog}
         />
       )}
-      {dialog?.kind === 'settings-ssh' && (
-        <SshHostSettingsDialog api={api} host={dialog.host} onSaved={refreshSshHosts} onClose={closeDialog} />
-      )}
-      {dialog?.kind === 'cleanup-ssh' && (
-        <SshCleanupDialog api={api} host={dialog.host} onDone={refreshSshHosts} onClose={closeDialog} />
-      )}
-      {dialog?.kind === 'forget-ssh' && (
-        <ConfirmDialog
-          title={t('Forget {{name}}', { name: dialog.host.name })}
-          description={t('Only the saved entry for {{name}} is removed. The server itself is not changed.', {
-            name: dialog.host.name,
-          })}
-          confirmLabel={t('Forget')}
-          onConfirm={() =>
-            runHost(`forget-ssh:${dialog.host.id}`, () => api.sshForgetHost?.(dialog.host.id).then(refreshSshHosts))
-          }
-          onClose={closeDialog}
+      {sshHosts.length > 0 && (
+        <SshHostsGroup
+          api={api}
+          hosts={sshHosts}
+          busy={Boolean(hostBusy)}
+          error={hosts.length > 0 ? '' : hostError}
+          setDialog={setDialog}
         />
       )}
-      {dialog?.kind === 'open-pc' && <OpenPcDialog api={api} onConnected={refreshHosts} onClose={closeDialog} />}
-      {dialog?.kind === 'rename-self' && settings && (
-        <RenameDialog
-          title={t('This PC’s name')}
-          description={t('Phones, browsers and other PCs show this name.')}
-          helper={t('Leave empty to go back to the default name ({{defaultName}}).', {
-            defaultName: settings.defaultName,
-          })}
-          initial={settings.name}
-          allowEmpty
-          onSave={(name) => Promise.resolve(api.setRemotePcName?.(name)).then((value) => value && setSettings(value))}
-          onClose={closeDialog}
-        />
-      )}
-      {dialog?.kind === 'rename-host' && (
-        <RenameDialog
-          title={t('Rename PC')}
-          description={t('Only this computer shows the new name.')}
-          initial={dialog.host.name}
-          allowEmpty={false}
-          onSave={(name) => Promise.resolve(api.renameRemoteHost?.(dialog.host.id, name)).then(refreshHosts)}
-          onClose={closeDialog}
-        />
-      )}
-      {dialog?.kind === 'rename-client' && (
-        <RenameDialog
-          title={t('Rename device')}
-          description={t('Only this computer shows the new name.')}
-          helper={t('Leave empty to go back to the device’s own name.')}
-          initial={dialog.client.alias || deviceTitle(dialog.client, remoteClientKind(dialog.client.browser))}
-          allowEmpty
-          onSave={(name) =>
-            Promise.resolve(api.setRemoteClientAlias?.(dialog.client.id, name))
-              .then(() => api.getRemoteAccessInfo?.())
-              .then((value) => value !== undefined && applyInfo(value ?? null))
-          }
-          onClose={closeDialog}
-        />
-      )}
-      {dialog?.kind === 'disconnect-all' && (
-        <ConfirmDialog
-          title={t('Disconnect all devices')}
-          description={t(
-            'Phones, browsers and other PCs ({{total}} devices) will be disconnected. To use them again, connect them again.',
-            { total: clients.length }
-          )}
-          confirmLabel={t('Disconnect {{total}}', { total: clients.length })}
-          onConfirm={() => {
-            if (!api.rotateRemoteAccess) return;
-            setRotating(true);
-            applyConnectionResult(api.rotateRemoteAccess(), applyInfo, () => setRotating(false));
-          }}
-          onClose={closeDialog}
-        />
-      )}
-      {dialog?.kind === 'forget' && (
-        <ConfirmDialog
-          title={t('Forget {{name}}', { name: dialog.host.name })}
-          description={t('The saved connection to {{name}} is removed. To open it again you need its code.', {
-            name: dialog.host.name,
-          })}
-          confirmLabel={t('Forget')}
-          onConfirm={() => runHost(`forget:${dialog.host.id}`, () => api.forgetRemoteHost?.(dialog.host.id))}
-          onClose={closeDialog}
-        />
-      )}
+      <ConnectionDialogs
+        api={api}
+        dialog={dialog}
+        info={info}
+        settings={settings}
+        clients={clients}
+        setSettings={setSettings}
+        applyInfo={applyInfo}
+        runHost={runHost}
+        refreshHosts={refreshHosts}
+        refreshSshHosts={refreshSshHosts}
+        setRotating={setRotating}
+        closeDialog={closeDialog}
+      />
     </div>
   );
 }

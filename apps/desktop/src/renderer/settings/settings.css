@@ -202,33 +202,9 @@
     justify-content: flex-end;
     gap: 10px;
   }
-  .settings-status-stack,
   .core-memory-list,
   .core-memory-edit {
     display: grid;
-  }
-  .settings-metric-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  }
-  .settings-metric-grid > div {
-    min-width: 0;
-    display: grid;
-  }
-  .settings-context-meter {
-    position: relative;
-    overflow: hidden;
-  }
-  .settings-context-meter > span {
-    position: absolute;
-    inset: 0 auto 0 0;
-  }
-  .settings-context-meter > small {
-    position: relative;
-    z-index: 1;
-    height: 100%;
-    display: grid;
-    place-items: center;
   }
   .core-memory-edit input {
     min-width: 0;
