@@ -30,7 +30,7 @@ import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
 import { invalidateProviderRequestToolsScope } from '../runtime-core/provider-request-tools.mjs';
 import { bumpUsageMetricsEpoch } from './manager/usage-metrics.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
-import { scheduleCompactionArchive, stampCompactionMessageIds } from './compaction-archive-capture.mjs';
+import { prepareCompactionArchive, stampCompactionMessageIds } from './compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 import { isAgentModeSession } from './agent-mode.mjs';
 import { applyPendingWorkspaceReroot } from './manager/prompt-utils.mjs';
@@ -409,13 +409,21 @@ function adoptCompactedTranscript(ctx, run) {
   const { messages, sessionRef, sessionId, opts } = state;
   const replaced = messages.slice();
   if (sessionRef) backfillFallbackSessionTitle(sessionRef, replaced);
+  // Display-only archive of the dropped conversation, made durable (pending
+  // sidecar) BEFORE the shortened transcript is adopted and can be saved; a
+  // sidecar that cannot be written keeps the old transcript and fails this
+  // compaction. The publication runs off this synchronous adoption.
+  let prepared = null;
+  if (sessionRef) {
+    try {
+      prepared = prepareCompactionArchive({ session: sessionRef, sessionId, before: replaced, after: run.compacted });
+    } catch (archiveError) {
+      throwCompactFailure(ctx, run, archiveError);
+    }
+  }
   messages.length = 0;
   messages.push(...run.compacted);
-  // Display-only archive of the dropped conversation; the projection and the
-  // write run off this synchronous adoption.
-  const archived = sessionRef
-    ? scheduleCompactionArchive({ session: sessionRef, sessionId, before: replaced, after: messages })
-    : null;
+  const archived = prepared ? { ...prepared, written: prepared.start() } : null;
   ctx.droppedMessages = archived?.dropped ?? 0;
   ctx.droppedIdentities = archived?.identities ?? null;
   acknowledgeGoalReminder(sessionRef, run);

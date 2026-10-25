@@ -24,6 +24,8 @@ const { runSessionCompaction } = await import('./manager/compaction-runner.mjs')
 const { runPreSendCompactPass } = await import('./pre-send-compact.mjs');
 const {
   _setCompactionArchiveFsync,
+  _resetCompactionArchiveState,
+  recoverPendingCompactionArchives,
   _setCompactionArchivePublishHook,
   droppedByCompaction,
   flushCompactionArchiveWrites,
@@ -32,6 +34,9 @@ const {
   stampCompactionMessageIds,
 } = await import('./compaction-archive-capture.mjs');
 const { stampMessageIds } = await import('./message-ids.mjs');
+const { _savePending } = await import('./store/pending-saves.mjs');
+const { publishSessionPersistence } = await import('./store/session-persistence-events.mjs');
+const { rememberSensitiveValues } = await import('./sensitive-values.mjs');
 const { contextAckMessage, isProtectedContextAckMessage } = await import('./compact/messages.mjs');
 const { restoreTranscriptItems } = await import('./transcript-restore/restore.mjs');
 const { toAnthropicMessages } = await import('../providers/lib/anthropic-request-utils.mjs');
@@ -533,14 +538,26 @@ test('fsync failure fails the publication and leaves no temp file', async (t) =>
     throw Object.assign(new Error('EIO: i/o error, fsync'), { code: 'EIO' });
   });
   t.after(() => _setCompactionArchiveFsync(null));
+  let log = '';
   const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
-  assert.equal(await scheduled.written, null);
+  log = await captureStderr(async () => {
+    assert.equal(await scheduled.written, null);
+  });
   assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
   assert.deepEqual(
     readdirSync(sessionsDir).filter(
       (name) => name.includes(session.id) && (name.endsWith('.tmp') || name.includes('.mixdog-tmp-'))
     ),
     []
+  );
+  assert.match(log, new RegExp(`compaction archive write failed \\(sess=${session.id}, seq=1\\): .*kept for retry`));
+  // The failed segment is kept: the next write publishes it first, in order.
+  _setCompactionArchiveFsync(null);
+  scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
+  await flushCompactionArchiveWrites();
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1, 2]
   );
 });
 
@@ -786,4 +803,301 @@ test('a deleted session does not regrow its archive from a pending write', async
   scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
   await flushCompactionArchiveWrites();
   assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
+});
+
+/** Runs `fn`, returns what it wrote to stderr. */
+async function captureStderr(fn) {
+  const original = process.stderr.write;
+  let out = '';
+  process.stderr.write = (chunk) => {
+    out += String(chunk);
+    return true;
+  };
+  try {
+    await fn();
+  } finally {
+    process.stderr.write = original;
+  }
+  return out;
+}
+
+test('dropped messages that restore to no row claim no segment number', async () => {
+  const session = storedSession('invisible');
+  // Each is visible alone, but together (a pasted reference message and its
+  // "." ack) the transcript shows nothing.
+  const hidden = stamped(
+    [
+      { role: 'user', content: 'Reference files:\n\n### docs/a.md\nbody' },
+      { role: 'assistant', content: '.' },
+    ],
+    session.id
+  );
+  assert.deepEqual(restoreTranscriptItems(hidden, { sessionId: session.id }), []);
+  assert.equal(scheduleCompactionArchive({ session, before: hidden, after: [] }), null);
+  assert.equal(session.compaction.archive, undefined);
+  // The next real segment is number 1: no gap.
+  scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+  await flushCompactionArchiveWrites();
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1]
+  );
+  assert.equal(session.compaction.archive.nextSeq, 2);
+});
+
+/** A session whose record is missing while its save is pending: the first
+ *  publication is refused and parks on the session's persistence signal. */
+async function parkedSession(t, tag) {
+  const session = storedSession(tag);
+  const recordPath = join(sessionsDir, `${session.id}.json`);
+  _setCompactionArchivePublishHook(async () => {
+    _setCompactionArchivePublishHook(null);
+    rmSync(recordPath);
+    _savePending.set(session.id, {});
+  });
+  t.after(() => {
+    _setCompactionArchivePublishHook(null);
+    _savePending.delete(session.id);
+    _resetCompactionArchiveState();
+  });
+  const log = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk) => {
+    log.push(String(chunk));
+    return true;
+  };
+  t.after(() => {
+    process.stderr.write = original;
+  });
+  const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+  // Let the write reach its refusal and park.
+  while (!log.join('').includes('deferred')) await new Promise((resolve) => setTimeout(resolve, 5));
+  return { session, recordPath, scheduled, log };
+}
+
+test('a publication refused while the session is live waits for its save to land, without polling', async (t) => {
+  const { session, recordPath, scheduled, log } = await parkedSession(t, 'refused-live');
+  const second = scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
+  const original = globalThis.setImmediate;
+  let immediates = 0;
+  globalThis.setImmediate = (...args) => {
+    immediates += 1;
+    return original(...args);
+  };
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  } finally {
+    globalThis.setImmediate = original;
+  }
+  // Parked on the persistence signal: nothing re-checks on its own.
+  assert.equal(immediates, 0);
+  assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
+  // The save lands: both segments are written, in order, none lost.
+  writeFileSync(recordPath, JSON.stringify({ id: session.id }));
+  _savePending.delete(session.id);
+  publishSessionPersistence(session.id, 'landed');
+  assert.ok(await scheduled.written);
+  assert.ok(await second.written);
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1, 2]
+  );
+  assert.equal(session.compaction.archive.nextSeq, 3);
+  assert.match(
+    log.join(''),
+    new RegExp(`compaction archive write deferred \\(sess=${session.id}, seq=1\\): .*waiting`)
+  );
+});
+
+test('a delete wakes the parked write: final skip, no segment, number given back', async (t) => {
+  const { session, scheduled, log } = await parkedSession(t, 'parked-delete');
+  assert.equal(deleteSession(session.id), true);
+  assert.equal(await scheduled.written, null);
+  assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
+  assert.equal(session.compaction.archive.nextSeq, 1);
+  assert.match(log.join(''), new RegExp(`write skipped \\(sess=${session.id}, seq=1\\): session deleted`));
+});
+
+test('a close before the record exists keeps the segment; the next process publishes it', async (t) => {
+  const { session, recordPath, scheduled } = await parkedSession(t, 'parked-close');
+  publishSessionPersistence(session.id, 'closed');
+  assert.equal(await scheduled.written, null);
+  assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
+  const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
+  assert.equal(existsSync(pending), true);
+  // Restart: nothing in memory; the session is saved again.
+  _resetCompactionArchiveState();
+  _savePending.delete(session.id);
+  writeFileSync(recordPath, JSON.stringify({ id: session.id }));
+  publishSessionPersistence(session.id, 'landed');
+  await flushCompactionArchiveWrites();
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1]
+  );
+  assert.equal(existsSync(pending), false);
+});
+
+test('a failed write survives a restart through the pending sidecar', async (t) => {
+  const session = storedSession('restart');
+  _setCompactionArchiveFsync(async () => {
+    throw Object.assign(new Error('EIO: i/o error, fsync'), { code: 'EIO' });
+  });
+  t.after(() => {
+    _setCompactionArchiveFsync(null);
+    _resetCompactionArchiveState();
+  });
+  const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+  await captureStderr(async () => {
+    assert.equal(await scheduled.written, null);
+  });
+  // The sidecar is there as soon as the write failed (a kill now loses nothing).
+  const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
+  assert.equal(existsSync(pending), true);
+  _resetCompactionArchiveState();
+  _setCompactionArchiveFsync(null);
+  // The new process: the session's next save retries the kept segment.
+  publishSessionPersistence(session.id, 'landed');
+  await flushCompactionArchiveWrites();
+  const items = JSON.parse(archiveLines(session.id)[0]).items;
+  assert.match(items[0].text, /^s1 m0/);
+  assert.equal(existsSync(pending), false);
+});
+
+test('write-ahead: the pending sidecar exists before the shortened transcript is adopted, and is removed after publication', async () => {
+  const session = storedSession('write-ahead');
+  const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
+  let messages = session.messages;
+  let sidecarAtAdoption = null;
+  Object.defineProperty(session, 'messages', {
+    configurable: true,
+    enumerable: true,
+    get: () => messages,
+    set(next) {
+      sidecarAtAdoption = existsSync(pending);
+      messages = next;
+    },
+  });
+  const result = await compact(session, summaryProvider([]));
+  assert.equal(result.changed, true);
+  assert.equal(sidecarAtAdoption, true);
+  await flushCompactionArchiveWrites();
+  assert.equal(archiveLines(session.id).length, 1);
+  assert.equal(existsSync(pending), false);
+});
+
+test('a pending sidecar that cannot be written aborts the compaction and keeps the old transcript', async () => {
+  const session = storedSession('write-ahead-fail');
+  const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
+  // A directory in the way: the sidecar's rename cannot land.
+  mkdirSync(pending);
+  const before = session.messages;
+  const log = await captureStderr(async () => {
+    const result = await compact(session, summaryProvider([]));
+    assert.equal(result.changed, false);
+    assert.match(result.error, /pending sidecar/);
+  });
+  rmSync(pending, { recursive: true });
+  assert.equal(session.messages, before);
+  // The claimed number was given back.
+  assert.equal(session.compaction.archive.nextSeq, 1);
+  assert.match(log, /compaction not applied/);
+  assert.deepEqual(archiveLines(session.id), []);
+});
+
+/** Leaves a pending sidecar behind as a crashed process would: a failed write,
+ *  then every in-memory trace forgotten. */
+async function coldSidecar(t, tag) {
+  const session = storedSession(tag);
+  _setCompactionArchiveFsync(async () => {
+    throw Object.assign(new Error('EIO: i/o error, fsync'), { code: 'EIO' });
+  });
+  const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+  await captureStderr(async () => {
+    await scheduled.written;
+  });
+  _setCompactionArchiveFsync(null);
+  _resetCompactionArchiveState();
+  t.after(() => _resetCompactionArchiveState());
+  const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
+  assert.equal(existsSync(pending), true);
+  return { session, pending };
+}
+
+test('a delete removes a cold pending sidecar, so a recreated id imports no deleted history', async (t) => {
+  const { session, pending } = await coldSidecar(t, 'cold-delete');
+  rmSync(join(sessionsDir, `${session.id}.json`));
+  assert.equal(deleteSession(session.id), true);
+  assert.equal(existsSync(pending), false);
+  writeFileSync(join(sessionsDir, `${session.id}.json`), JSON.stringify({ id: session.id }));
+  publishSessionPersistence(session.id, 'landed');
+  assert.equal(await recoverPendingCompactionArchives(), 0);
+  await flushCompactionArchiveWrites();
+  assert.deepEqual(archiveLines(session.id), []);
+});
+
+test('the startup scan publishes the pending segments of a session nothing else touches', async (t) => {
+  const { session, pending } = await coldSidecar(t, 'cold-scan');
+  // A sidecar whose session record is gone is left alone.
+  const orphanId = `${session.id}-orphan`;
+  const orphan = join(sessionsDir, `${orphanId}.compaction-archive.pending`);
+  writeFileSync(orphan, readFileSync(pending));
+  t.after(() => rmSync(orphan, { force: true }));
+  assert.equal(await recoverPendingCompactionArchives(), 1);
+  await flushCompactionArchiveWrites();
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1]
+  );
+  assert.equal(existsSync(pending), false);
+  assert.equal(existsSync(compactionArchivePath(sessionsDir, orphanId)), false);
+});
+
+test('archive rows pass through the disk projection at publication, not at commit', async () => {
+  const session = storedSession('redact');
+  const secret = 'ZX-4821-secret';
+  const before = stamped(
+    [
+      { role: 'user', content: `my code is ${secret}` },
+      { role: 'assistant', content: 'noted' },
+    ],
+    session.id
+  );
+  scheduleCompactionArchive({ session, before, after: [] });
+  // Marked after the commit, before the write.
+  rememberSensitiveValues(session.id, [
+    { name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: secret } } },
+  ]);
+  await flushCompactionArchiveWrites();
+  const [line] = archiveLines(session.id);
+  assert.equal(line.includes(secret), false);
+  assert.ok(line.includes('[redacted]'));
+});
+
+test('a session deleted before its segment is written leaves no segment and no gap, and logs the skip', async (t) => {
+  const session = storedSession('deleted-gap');
+  _setCompactionArchivePublishHook(async () => {
+    rmSync(join(sessionsDir, `${session.id}.json`));
+    assert.equal(deleteSession(session.id), true);
+  });
+  t.after(() => _setCompactionArchivePublishHook(null));
+  const log = await captureStderr(async () => {
+    scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+    await flushCompactionArchiveWrites();
+  });
+  assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
+  assert.equal(session.compaction.archive.nextSeq, 1);
+  assert.match(log, new RegExp(`compaction archive write skipped \\(sess=${session.id}, seq=1\\): session deleted`));
+});
+
+test('a record that is gone with no save pending is a skip that gives its number back, and is logged', async () => {
+  const session = storedSession('record-gone');
+  rmSync(join(sessionsDir, `${session.id}.json`));
+  const log = await captureStderr(async () => {
+    scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+    await flushCompactionArchiveWrites();
+  });
+  assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
+  assert.equal(session.compaction.archive.nextSeq, 1);
+  assert.match(log, new RegExp(`compaction archive write skipped \\(sess=${session.id}, seq=1\\): session record missing`));
 });

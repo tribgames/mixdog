@@ -1041,6 +1041,11 @@ async function main() {
   // Agents' sends whose report an earlier process had not queued yet.
   agentTasks.recover().catch((error) => log(`agent task report recovery failed: ${error?.message || error}`));
   recoverRoutineDeliveries().catch((error) => log(`routine delivery recovery failed: ${error?.message || error}`));
+  // Compaction-archive segments an earlier process could not publish.
+  import('../runtime/agent/orchestrator/session/compaction-archive-capture.mjs')
+    .then(({ recoverPendingCompactionArchives }) => recoverPendingCompactionArchives())
+    .then((pending) => pending && log(`compaction archive: publishing pending segments of ${pending} session(s)`))
+    .catch((error) => log(`compaction archive recovery failed: ${error?.message || error}`));
   // Prompt-cache warms toward routine fires (session/cache-warm.mjs) lived in
   // the previous process: re-arm them from their durable cache touches (the
   // re-arm waits for the providers to be registered).

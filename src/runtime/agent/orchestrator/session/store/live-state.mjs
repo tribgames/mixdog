@@ -1,4 +1,5 @@
 import { contentCarriesLiveMedia } from '../../providers/media-normalization.mjs';
+import { publishSessionPersistence } from './session-persistence-events.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
 
@@ -287,9 +288,11 @@ export function _recordSaveDrop(id, epoch = null) {
 export function _clearSaveStateIfCurrent(id, epoch = null) {
   if (!id) return false;
   const marked = _failureEpochs.get(id);
-  if (marked !== undefined && Number.isFinite(epoch) && epoch < marked) return false;
-  _clearSessionSaveState(id);
-  return true;
+  const cleared = !(marked !== undefined && Number.isFinite(epoch) && epoch < marked);
+  if (cleared) _clearSessionSaveState(id);
+  // A landed write put the record on disk whether or not it clears the markers.
+  publishSessionPersistence(id, 'landed');
+  return cleared;
 }
 
 /** True while this process's last save attempt for `id` failed. */

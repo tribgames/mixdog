@@ -11,22 +11,29 @@
  * appended as ONE segment to the session's sidecar, followed by the
  * compaction divider.
  *
- * The commit only selects the dropped messages and allocates the segment
- * number (`session.compaction.archive.nextSeq`, saved with the commit); the
- * projection and the write run on a later event-loop turn, serialized per
- * session and fenced against a delete. Nothing here touches
- * `session.messages`.
+ * The commit selects the dropped messages, restores their rows (the one
+ * visibility decision: a segment number is claimed only for a non-empty row
+ * set) and allocates the segment number
+ * (`session.compaction.archive.nextSeq`, saved with the commit); the
+ * namespacing and the write run on a later event-loop turn, serialized per
+ * session and fenced against a delete. A write the fence refuses is kept
+ * (retried in place in the session's queue) while the session may still come
+ * back to be written; a session that is really gone releases its number.
+ * Nothing here touches `session.messages`.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, unlinkSync } from 'node:fs';
-import { open, readFile } from 'node:fs/promises';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { open, readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { renameWithRetrySync } from '../../../shared/atomic-file.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 
-import { sanitizeContentForStoredHistory } from '../providers/media-normalization.mjs';
 import { getStoreDir } from './store/session-paths.mjs';
 import { forgetSessionSaveBaseline } from './store/save-worker.mjs';
+import { _hasPendingPersistence } from './store/pending-saves.mjs';
+import { _messagesForDisk } from './store/serialize.mjs';
+import { subscribeSessionPersistence } from './store/session-persistence-events.mjs';
+import { registerSessionPurgeHook } from './store/session-observers.mjs';
 import { messageIdOf, stampMessageIds } from './message-ids.mjs';
 import { restoreTranscriptItems } from './transcript-restore/restore.mjs';
 import { isAgentModeSession } from './agent-mode.mjs';
@@ -155,17 +162,24 @@ export function stampCompactionMessageIds(messages, sessionId) {
 }
 // ── Segment projection and publication ───────────────────────────────────────
 
-function storedHistoryMessage(message) {
-  const content = sanitizeContentForStoredHistory(message.content);
-  return content === message.content ? message : { ...message, content };
+/** The rows what left the context (compactionArchiveProjection messages)
+ *  restores to as the session store would keep them on disk — media stripped
+ *  and the session's sensitive values redacted, by the store's own projection
+ *  (`_messagesForDisk`, sensitive-projection.mjs) — the single visibility
+ *  decision of the archive: a segment exists exactly when this is non-empty.
+ *  Evaluated again at publication, so the redaction is the one in force then. */
+function segmentRows(messages, sessionId) {
+  return restoreTranscriptItems(_messagesForDisk(messages, sessionId), { sessionId });
 }
 
-/** The display items of one segment: what left the context
- *  (compactionArchiveProjection messages) as stored history restores it,
- *  namespaced and marked archived, then the divider. Empty when nothing
- *  visible left. */
+/** The display items of one segment: what left the context as stored history
+ *  restores it, namespaced and marked archived, then the divider. Empty when
+ *  nothing visible left. */
 export function compactionSegmentItems(messages, { sessionId, seq, at, divider = true }) {
-  const restored = restoreTranscriptItems(messages.map(storedHistoryMessage), { sessionId });
+  return namespacedSegmentItems(segmentRows(messages, sessionId), { sessionId, seq, at, divider });
+}
+
+function namespacedSegmentItems(restored, { sessionId, seq, at, divider }) {
   if (!restored.length) return [];
   const prefix = `hist_${sessionId}_`;
   const items = restored.map((item) => {
@@ -220,11 +234,23 @@ export function _setCompactionArchiveFsync(sync) {
 
 const recordExists = (dir, sessionId) => existsSync(join(dir, `${sessionId}.json`));
 
+/** Why a segment cannot be published now, or null. A delete that bumped the
+ *  epoch since `epoch` was captured is final. A missing record is final too
+ *  unless a save of that session is still pending — that save is what creates
+ *  it, so the write is kept (`retry`). */
+function publicationRefusal(dir, sessionId, epoch) {
+  if (compactionArchiveDeleteEpoch(sessionId) !== epoch) return { reason: 'session deleted', retry: false };
+  if (recordExists(dir, sessionId)) return null;
+  return _hasPendingPersistence(sessionId)
+    ? { reason: 'session record missing while its save is pending', retry: true }
+    : { reason: 'session record missing', retry: false };
+}
+
 /** Write `text` to a private temp file and fsync it — a failed write or
  *  fsync fails the publication — then publish it with a synchronous fence
  *  check + rename: a delete that bumped the epoch (or removed the record)
  *  since `epoch` was captured wins. Any outcome but a rename removes the temp
- *  file. */
+ *  file. Returns null once published, else the fence's refusal. */
 async function publishArchive({ dir, path, sessionId, text, epoch }) {
   const tmp = join(dir, `${basename(path)}.mixdog-tmp-${randomBytes(4).toString('hex')}`);
   const removeTmp = () => {
@@ -248,9 +274,10 @@ async function publishArchive({ dir, path, sessionId, text, epoch }) {
     throw error;
   }
   // No await between the fence and the rename.
-  if (compactionArchiveDeleteEpoch(sessionId) !== epoch || !recordExists(dir, sessionId)) {
+  const refusal = publicationRefusal(dir, sessionId, epoch);
+  if (refusal) {
     removeTmp();
-    return false;
+    return refusal;
   }
   try {
     renameWithRetrySync(tmp, path);
@@ -258,14 +285,17 @@ async function publishArchive({ dir, path, sessionId, text, epoch }) {
     removeTmp();
     throw error;
   }
-  return true;
+  return null;
 }
 
+/** Appends one segment: `{ segments }` once published, else the fence's
+ *  refusal `{ reason, retry }`. */
 async function appendSegment({ sessionId, seq, at, items, clearedThrough, maxBytes, epoch }) {
   const dir = getStoreDir();
   const path = compactionArchivePath(dir, sessionId);
   // A deleted session must not regrow its archive.
-  if (!path || compactionArchiveDeleteEpoch(sessionId) !== epoch || !recordExists(dir, sessionId)) return null;
+  const early = publicationRefusal(dir, sessionId, epoch);
+  if (early) return early;
   let text = '';
   try {
     text = await readFile(path, 'utf8');
@@ -286,20 +316,308 @@ async function appendSegment({ sessionId, seq, at, items, clearedThrough, maxByt
     total -= Buffer.byteLength(existing.shift().line) + 1;
   }
   const lines = [...existing.map((entry) => entry.line), segment.line];
-  if (!(await publishArchive({ dir, path, sessionId, text: `${lines.join('\n')}\n`, epoch }))) return null;
-  return lines.map((line) => compactionSegmentHead(line)).filter(Boolean);
+  const refusal = await publishArchive({ dir, path, sessionId, text: `${lines.join('\n')}\n`, epoch });
+  if (refusal) return refusal;
+  return { segments: lines.map((line) => compactionSegmentHead(line)).filter(Boolean) };
+}
+
+function logArchiveSkip(sessionId, seq, what, reason) {
+  writeStderrBestEffort(`[session] compaction archive write ${what} (sess=${sessionId}, seq=${seq}): ${reason}\n`);
+}
+
+/** The session is really gone: give the claimed number back unless something
+ *  newer was claimed after it or a clear already covers it. */
+function releaseClaimedSeq(session, seq) {
+  const archive = session.compaction?.archive;
+  if (!archive || typeof archive !== 'object') return;
+  if (archive.nextSeq === seq + 1 && !(Number(archive.clearedThrough) >= seq)) archive.nextSeq = seq;
+}
+
+// ── Unpublished segments ─────────────────────────────────────────────────────
+// A segment's job lives in `unpublished[id]` (ascending seq) from the moment
+// its number is claimed until it is published or its session is really gone.
+// A failed write, or one that cannot be published yet, leaves the job there:
+// the next archive write or the next successful save of the session retries it
+// first. The moment a job is parked or has failed it is also written to a
+// pending sidecar `<id>.compaction-archive.pending` (removed once published or
+// when the session is deleted), which survives a crash or kill; the daemon's
+// startup scan (recoverPendingCompactionArchives) and the session's next
+// save/compaction pick it up. The sidecar holds the rows' source messages in their stored
+// (disk-projected) form.
+const COMPACTION_PENDING_SUFFIX = '.compaction-archive.pending';
+const unpublished = new Map();
+const recovered = new Set();
+const sidecarOnDisk = new Set();
+const waiters = new Map();
+
+const jobsOf = (id) => {
+  let list = unpublished.get(id);
+  if (!list) unpublished.set(id, (list = []));
+  return list;
+};
+
+const pendingSidecarPath = (dir, id) => join(dir, `${id}${COMPACTION_PENDING_SUFFIX}`);
+
+/** Rewrites the pending sidecar to the session's unpublished jobs (removes it
+ *  when none are left). Synchronous: it also runs at process exit. */
+function persistPending(id) {
+  const path = pendingSidecarPath(getStoreDir(), id);
+  // A job of a deleted incarnation (older delete epoch) is never kept.
+  const epoch = compactionArchiveDeleteEpoch(id);
+  const jobs = (unpublished.get(id) ?? []).filter((job) => job.epoch === epoch);
+  if (!jobs.length) {
+    if (sidecarOnDisk.delete(id)) {
+      try {
+        unlinkSync(path);
+      } catch {
+        /* already gone */
+      }
+    }
+    return true;
+  }
+  const tmp = `${path}.mixdog-tmp-${randomBytes(4).toString('hex')}`;
+  try {
+    const text = JSON.stringify({
+      v: 1,
+      jobs: jobs.map(({ seq, at, divider, clearedThrough, maxBytes, messages }) => ({
+        seq,
+        at,
+        divider,
+        clearedThrough,
+        maxBytes,
+        messages: _messagesForDisk(messages, id),
+      })),
+    });
+    const fd = openSync(tmp, 'wx', 0o600);
+    try {
+      writeFileSync(fd, text, 'utf8');
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameWithRetrySync(tmp, path);
+    sidecarOnDisk.add(id);
+    return true;
+  } catch (error) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* never created */
+    }
+    writeStderrBestEffort(`[session] compaction archive pending sidecar failed (sess=${id}): ${error?.message || error}\n`);
+    return false;
+  }
+}
+
+/** Loads the jobs a previous process left in the session's pending sidecar,
+ *  once per process. */
+function recoverPending(id) {
+  if (recovered.has(id)) return;
+  recovered.add(id);
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(pendingSidecarPath(getStoreDir(), id), 'utf8'));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      writeStderrBestEffort(`[session] compaction archive pending sidecar unreadable (sess=${id}): ${error?.message || error}\n`);
+    }
+    return;
+  }
+  const list = jobsOf(id);
+  const epoch = compactionArchiveDeleteEpoch(id);
+  for (const saved of Array.isArray(doc?.jobs) ? doc.jobs : []) {
+    if (!Number.isInteger(saved?.seq) || !Array.isArray(saved.messages) || list.some((job) => job.seq === saved.seq)) {
+      continue;
+    }
+    list.push({ ...saved, id, session: null, epoch, segments: null });
+  }
+  list.sort((a, b) => a.seq - b.seq);
+  sidecarOnDisk.add(id);
+}
+
+/** Removes the session's pending sidecar from disk, whatever is in memory. */
+function removePendingSidecar(id) {
+  sidecarOnDisk.delete(id);
+  try {
+    unlinkSync(pendingSidecarPath(getStoreDir(), id));
+  } catch {
+    /* none on disk */
+  }
 }
 
 /**
- * Archive what a committed compaction dropped. Synchronous part: select the
- * dropped messages, capture the delete fence and allocate the segment number
- * on `session.compaction.archive`; the rest runs later. Returns
- * `{ dropped, identities, written }` — the dropped message count, their
- * identities for a live view (droppedIdentitySummary) and the pending write
- * (resolves to the retained segment list) — or null when nothing visible was
- * dropped (a rewrite-only compaction).
+ * One-shot scan after daemon startup: every pending sidecar a previous process
+ * left whose session record still exists is loaded and its segments are
+ * published through the normal write queue (oldest first). Returns how many
+ * sessions had segments to publish.
  */
-export function scheduleCompactionArchive({
+export async function recoverPendingCompactionArchives() {
+  const dir = getStoreDir();
+  let names;
+  try {
+    names = await readdir(dir);
+  } catch {
+    return 0;
+  }
+  let count = 0;
+  for (const name of names) {
+    if (!name.endsWith(COMPACTION_PENDING_SUFFIX)) continue;
+    const id = name.slice(0, -COMPACTION_PENDING_SUFFIX.length);
+    if (!compactionArchivePath('', id) || !recordExists(dir, id)) continue;
+    recoverPending(id);
+    if (!unpublished.get(id)?.length) continue;
+    count += 1;
+    void enqueueFlush(id);
+  }
+  return count;
+}
+
+/** Settles with 'landed' | 'closed' | 'deleted' at the session's next such event. */
+function waitForSessionEvent(id) {
+  return new Promise((resolve) => {
+    let set = waiters.get(id);
+    if (!set) waiters.set(id, (set = new Set()));
+    set.add(resolve);
+  });
+}
+
+function wakeWaiters(id, event) {
+  const set = waiters.get(id);
+  if (!set) return;
+  waiters.delete(id);
+  for (const resolve of set) resolve(event);
+}
+
+/** Gives up on one job (or all of the session's) with a logged reason. */
+function dropJobs(id, reason, only = null) {
+  const list = unpublished.get(id);
+  if (!list) return;
+  const dropped = only ? list.filter((job) => job === only) : list.splice(0);
+  if (only) list.splice(list.indexOf(only), 1);
+  if (!list.length) unpublished.delete(id);
+  for (const job of [...dropped].reverse()) {
+    logArchiveSkip(id, job.seq, 'skipped', reason);
+    if (job.session) releaseClaimedSeq(job.session, job.seq);
+  }
+  if (sidecarOnDisk.has(id)) persistPending(id);
+}
+
+/** Appends one job's segment: `{ segments }` once published, else a refusal
+ *  `{ reason, retry, single }`. Rows are projected here, at publication. */
+async function publishJob(job) {
+  const items = namespacedSegmentItems(segmentRows(job.messages, job.id), {
+    sessionId: job.id,
+    seq: job.seq,
+    at: job.at,
+    divider: job.divider,
+  });
+  if (!items.length) return { reason: 'no visible rows at publication', retry: false, single: true };
+  return appendSegment({
+    sessionId: job.id,
+    seq: job.seq,
+    at: job.at,
+    items,
+    clearedThrough: job.clearedThrough,
+    maxBytes: job.maxBytes,
+    epoch: job.epoch,
+  });
+}
+
+/** Publishes the session's unpublished jobs oldest first, inside its write
+ *  queue. Stops at the first job that cannot be published yet; it stays. */
+async function flushUnpublished(id) {
+  await new Promise((resolve) => setImmediate(resolve));
+  for (;;) {
+    const list = unpublished.get(id);
+    const job = list?.[0];
+    if (!job) {
+      unpublished.delete(id);
+      return;
+    }
+    let outcome;
+    try {
+      outcome = await publishJob(job);
+    } catch (error) {
+      if (unpublished.get(id) !== list || list[0] !== job) return;
+      writeStderrBestEffort(
+        `[session] compaction archive write failed (sess=${id}, seq=${job.seq}): ${error?.message || error}; kept for retry\n`
+      );
+      return;
+    }
+    if (unpublished.get(id) !== list || list[0] !== job) return;
+    if (outcome.segments) {
+      list.shift();
+      job.segments = outcome.segments;
+      const archive = job.session?.compaction?.archive;
+      // Small metadata only; a later clear may have hidden this segment.
+      if (archive && typeof archive === 'object' && !(Number(archive.clearedThrough) >= job.seq)) {
+        archive.segments = outcome.segments;
+      }
+      if (sidecarOnDisk.has(id)) persistPending(id);
+      continue;
+    }
+    if (outcome.retry) {
+      // The session's own save is what creates its record: wait for that save
+      // to land (no polling). A delete ends the wait; a close keeps the jobs
+      // for the next process.
+      if (!job.deferred) logArchiveSkip(id, job.seq, 'deferred', `${outcome.reason}; waiting for it`);
+      job.deferred = true;
+      const event = await waitForSessionEvent(id);
+      if (event !== 'landed') return;
+      continue;
+    }
+    dropJobs(id, outcome.reason, outcome.single ? job : null);
+    if (outcome.single) continue;
+    return;
+  }
+}
+
+function enqueueFlush(id) {
+  const task = (pendingWrites.get(id) || Promise.resolve()).then(() => flushUnpublished(id)).catch((error) => {
+    writeStderrBestEffort(`[session] compaction archive write failed (sess=${id}): ${error?.message || error}\n`);
+  });
+  pendingWrites.set(id, task);
+  void task.finally(() => {
+    if (pendingWrites.get(id) === task) pendingWrites.delete(id);
+  });
+  return task;
+}
+
+subscribeSessionPersistence((id, event) => {
+  wakeWaiters(id, event);
+  if (event !== 'landed') return;
+  recoverPending(id);
+  if (unpublished.get(id)?.length) void enqueueFlush(id);
+});
+
+registerSessionPurgeHook((id) => {
+  wakeWaiters(id, 'deleted');
+  dropJobs(id, 'session deleted');
+  // A sidecar a previous process left is dropped too, in-memory jobs or not.
+  removePendingSidecar(id);
+  recovered.delete(id);
+});
+
+/** Test seam: forget all in-memory state (a restart); sidecars stay on disk. */
+export function _resetCompactionArchiveState() {
+  unpublished.clear();
+  recovered.clear();
+  sidecarOnDisk.clear();
+  waiters.clear();
+}
+
+/**
+ * Archive what a compaction drops, write-ahead. Synchronous part: select the
+ * dropped messages, capture the delete fence, allocate the segment number on
+ * `session.compaction.archive` and make the job durable in the pending
+ * sidecar — call it BEFORE the shortened transcript is adopted (and so can be
+ * saved). When the sidecar cannot be written the claim is given back and this
+ * throws: the caller must keep the old transcript. Returns `{ dropped,
+ * identities, start }` — `start()` queues the publication and returns the
+ * pending write (resolves to the retained segment list) — or null when
+ * nothing visible was dropped (a rewrite-only compaction).
+ */
+export function prepareCompactionArchive({
   session,
   sessionId = null,
   before,
@@ -312,40 +630,56 @@ export function scheduleCompactionArchive({
   const projection = compactionArchiveProjection(before, after);
   // Only what the transcript shows is archived; a pass that took out nothing
   // visible (a rewrite, control rows, hidden context) leaves the view live.
-  // Short-circuits on the first visible message.
-  if (!projection.messages.some((message) => restoreTranscriptItems([message], { sessionId: id }).length > 0)) {
-    return null;
-  }
+  // The rows are decided here, once, as the segment will hold them, so a
+  // number is claimed only for a segment that has items.
+  const rows = segmentRows(projection.messages, id);
+  if (!rows.length) return null;
   const dropped = droppedByCompaction(before, after);
   if (!session.compaction || typeof session.compaction !== 'object') session.compaction = {};
   const previous =
     session.compaction.archive && typeof session.compaction.archive === 'object' ? session.compaction.archive : {};
-  const seq = Math.max(1, Math.floor(Number(previous.nextSeq) || 1));
+  // Segments a previous run left unpublished (pending sidecar) hold their numbers.
+  recoverPending(id);
+  const held = unpublished.get(id)?.at(-1)?.seq ?? 0;
+  const seq = Math.max(1, held + 1, Math.floor(Number(previous.nextSeq) || 1));
   const clearedThrough = Math.max(0, Math.floor(Number(previous.clearedThrough) || 0));
   const epoch = compactionArchiveDeleteEpoch(id);
   session.compaction.archive = { ...previous, nextSeq: seq + 1 };
   const divider = !isAgentModeSession(session);
-  const run = async () => {
-    await new Promise((resolve) => setImmediate(resolve));
-    const items = compactionSegmentItems(projection.messages, { sessionId: id, seq, at, divider });
-    if (!items.length) return null;
-    const segments = await appendSegment({ sessionId: id, seq, at, items, clearedThrough, maxBytes, epoch });
-    const archive = session.compaction?.archive;
-    // Small metadata only; a later clear may have hidden this segment.
-    if (segments && archive && typeof archive === 'object' && !(Number(archive.clearedThrough) >= seq)) {
-      archive.segments = segments;
-    }
-    return segments;
+  const job = {
+    id,
+    session,
+    seq,
+    at,
+    divider,
+    messages: projection.messages,
+    clearedThrough,
+    maxBytes,
+    epoch,
+    segments: null,
   };
-  const task = (pendingWrites.get(id) || Promise.resolve()).then(run).catch((error) => {
-    writeStderrBestEffort(`[session] compaction archive write failed (sess=${id}): ${error?.message || error}\n`);
-    return null;
-  });
-  pendingWrites.set(id, task);
-  void task.finally(() => {
-    if (pendingWrites.get(id) === task) pendingWrites.delete(id);
-  });
-  return { dropped: dropped.length, identities: droppedIdentitySummary(projection), written: task };
+  const list = jobsOf(id);
+  list.push(job);
+  if (!persistPending(id)) {
+    list.pop();
+    if (!list.length) unpublished.delete(id);
+    releaseClaimedSeq(session, seq);
+    logArchiveSkip(id, seq, 'aborted', 'pending sidecar not written; compaction not applied');
+    throw new Error(`compaction archive: pending sidecar for ${id} could not be written`);
+  }
+  return {
+    dropped: dropped.length,
+    identities: droppedIdentitySummary(projection),
+    start: () => enqueueFlush(id).then(() => job.segments),
+  };
+}
+
+/** prepareCompactionArchive + start, for a caller that adopts the transcript
+ *  itself first. Resolves `written` as before. */
+export function scheduleCompactionArchive(args) {
+  const prepared = prepareCompactionArchive(args);
+  if (!prepared) return null;
+  return { dropped: prepared.dropped, identities: prepared.identities, written: prepared.start() };
 }
 
 /** Hide everything archived so far (a clear): later reads and the next write

@@ -24,6 +24,7 @@ import {
 } from './runtime-liveness.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
 import { forgetSessionSaveBaseline } from '../store/save-worker.mjs';
+import { publishSessionPersistence } from '../store/session-persistence-events.mjs';
 import { forgetSessionLoadCache } from '../store/load-cache.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 import { cancelOwnedShellTrees } from '../../tools/lib/owned-shell-trees.mjs';
@@ -142,6 +143,7 @@ function finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outc
   // above; committing it stops the turn's checkpoint writer. Only now is it
   // safe to remove the crash fallback.
   closeSnapshot?.commit();
+  publishSessionPersistence(id, 'closed');
   _stopToolActivityHeartbeat(id);
   cancelOwnedShellProcesses({ id, reason, tombstone });
   clearTurnCheckpoint(id);

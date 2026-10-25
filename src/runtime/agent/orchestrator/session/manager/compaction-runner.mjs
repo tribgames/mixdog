@@ -36,7 +36,7 @@ import {
   shouldCompactForRequestMedia,
 } from '../loop/compact-policy.mjs';
 import { snapshotProviderRequestTools } from '../../runtime-core/tool-catalog.mjs';
-import { scheduleCompactionArchive, stampCompactionMessageIds } from '../compaction-archive-capture.mjs';
+import { prepareCompactionArchive, stampCompactionMessageIds } from '../compaction-archive-capture.mjs';
 
 // 'compacting' is a transient in-flight stage written just before Compact
 // runs. If the process crashes or only partially
@@ -659,6 +659,30 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
   // Older titleless sessions: keep a name before the transcript that carries
   // the first prompt is replaced.
   if (changed) backfillFallbackSessionTitle(session, messages);
+  // Write-ahead: what this compaction drops is durable (pending sidecar)
+  // before the shortened transcript is adopted, since any later save persists
+  // it. A sidecar that cannot be written keeps the old transcript.
+  let archive = null;
+  if (changed && plan.archive) {
+    try {
+      archive = prepareCompactionArchive({
+        session,
+        sessionId: resolvedSessionId,
+        before: messages,
+        after: transcript,
+        at: now,
+      });
+    } catch (archiveError) {
+      writeStderrBestEffort(
+        `[session] compaction not applied (sess=${resolvedSessionId || 'unknown'}): ${archiveError?.message || archiveError}\n`
+      );
+      return recordFailedCompaction(
+        plan,
+        { compactError: archiveError, freshContextError: null },
+        compactStartedAt
+      );
+    }
+  }
   session.messages = transcript;
   // The compacted transcript breaks the cache anyway: a staged working-folder
   // change re-roots the system prompt now and needs no notice any more.
@@ -677,18 +701,8 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
     outcome: compactionOutcome(session, freshContextResult, changed, now),
   });
   // Display-only: the dropped conversation stays readable above the divider.
-  // Only the selection and the segment number happen here; the projection and
-  // the write run later, off this commit.
-  const archived =
-    changed && plan.archive
-      ? scheduleCompactionArchive({
-          session,
-          sessionId: resolvedSessionId,
-          before: messages,
-          after: transcript,
-          at: now,
-        })
-      : null;
+  // The publication runs later, off this commit.
+  const archived = archive ? { ...archive, written: archive.start() } : null;
   if (changed) {
     invalidateProviderContextBaseline(session);
     if (postCompactPolicy) {
