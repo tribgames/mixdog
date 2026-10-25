@@ -567,7 +567,11 @@
   /* Pretendard has no italic face. Allow slanted emphasis/preview labels,
      but keep variable-font weights real rather than synthesizing bold. */
   font-synthesis: style;
-  --mx-font-mono-base: "JetBrains Mono Variable", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+  /* The code fonts carry no Hangul: Korean in code falls to the prose font,
+     never the system's oversized monospace fallback. */
+  --mx-font-mono-base:
+    "JetBrains Mono Variable", "JetBrains Mono", Consolas, "SF Mono", Menlo, "Pretendard Variable", Pretendard,
+    "Malgun Gothic", "Apple SD Gothic Neo", monospace;
   --mx-font-mono: var(--mx-font-mono-user,) var(--mx-font-mono-base);
   --titlebar-height: 35px;
   /* ── Motion scale ── THREE clocks and THREE curves for the whole shell. The
