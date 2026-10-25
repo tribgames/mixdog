@@ -118,7 +118,7 @@ const _PS_UNIX_EQUIVALENTS = {
   head: 'Select-Object -First N',
   tail: 'Select-Object -Last N',
   wc: 'Measure-Object -Line',
-  grep: 'Select-String (or the grep tool)',
+  grep: 'the grep tool',
   sed: 'the edit tool',
   awk: 'ForEach-Object / the edit tool',
   pgrep: 'Get-Process -Name <name>',

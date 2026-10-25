@@ -19,6 +19,7 @@ import { applyBeforeToolHook, applyConnectorApproval, applyShellElevationGate } 
 import { dispatchToolCall } from './tool-exec/dispatch.mjs';
 import { applyAfterToolHook } from './tool-exec/after-hook.mjs';
 import { runReadOnlyIoWithDeadline } from './tool-exec/read-only-deadline.mjs';
+import { guardShellCall, requestedShellType } from '../../tools/builtin/bash-tool/misuse-guard.mjs';
 
 export { runReadOnlyIoWithDeadline as _runReadOnlyIoWithDeadlineForTest };
 export {
@@ -43,9 +44,23 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
   const prepared = prepareToolCall(name, args, cwd, callerSessionId, sessionRef, executeOpts);
   const { toolOpts, notifyFn, completionToolOpts } = prepared;
   const toolApprovalHook = hookFrom(executeOpts, sessionRef, 'toolApprovalHook');
+  // Shell misuse is judged before any hook or approval sees the call, so they
+  // read the command that will run and the directory it runs in.
+  let callArgs = prepared.args;
+  if (name === 'shell') {
+    const guarded = guardShellCall(callArgs, {
+      shellType: requestedShellType(callArgs),
+      agent: sessionRef?.agent || null,
+      sessionId: callerSessionId,
+      telemetry: executeOpts.resultTelemetry,
+    });
+    if (guarded.failure) return guarded.failure;
+    callArgs = guarded.args;
+    completionToolOpts.shellGuardNotes = guarded.notes;
+  }
   const hooked = await applyBeforeToolHook({
     name,
-    args: prepared.args,
+    args: callArgs,
     cwd: prepared.cwd,
     callerSessionId,
     executeOpts,

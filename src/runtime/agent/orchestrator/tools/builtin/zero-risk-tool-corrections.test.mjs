@@ -111,7 +111,7 @@ test('PowerShell bash-ism hint is locale-independent and needs the structural er
     "'grep' 용어는 cmdlet, 함수, 스크립트 파일 또는 실행할 수 있는 프로그램 이름으로 인식되지 않습니다."
   );
   const enTail = notFound('tail', "The term 'tail' is not recognized as the name of a cmdlet");
-  assert.match(_powershellBashismHint('x | grep a', koGrep), /no `grep` in PowerShell; use Select-String/);
+  assert.match(_powershellBashismHint('x | grep a', koGrep), /no `grep` in PowerShell; use the grep tool/);
   assert.match(_powershellBashismHint('x | tail -5', enTail), /Select-Object -Last N/);
   assert.match(
     _powershellBashismHint('pgrep node', notFound('pgrep', "'pgrep' 용어는 인식되지 않습니다.")),

@@ -631,6 +631,8 @@ function traceAgentTool({
       ...(toolBatchId ? { batch: { batch_id: toolBatchId, tool_call_id: toolCallId } } : {}),
       ...(Array.isArray(executionIntervals) ? { execution_intervals: executionIntervals } : {}),
       ...(resultTelemetry?.integrity ? { integrity: { ...resultTelemetry.integrity } } : {}),
+      // Shell-tool misuse the guards saw on this call (misuse-guard.mjs).
+      ...(Array.isArray(resultTelemetry?.shellMisuse) ? { shell_misuse: resultTelemetry.shellMisuse } : {}),
     },
     cwd: cwd || null,
   });

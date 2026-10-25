@@ -26,6 +26,7 @@ import { planShellInvocation } from './bash-tool/invocation-plan.mjs';
 import { renderBackgroundedResult } from './bash-tool/backgrounded-result.mjs';
 import { renderCompletedResult } from './bash-tool/completed-result.mjs';
 import { effectiveShellCwd, shellCwdError } from './bash-tool/shell-cwd.mjs';
+import { guardShellCall, requestedShellType } from './bash-tool/misuse-guard.mjs';
 
 export {
   SURVIVING_DESCENDANTS_WARNING,
@@ -65,6 +66,19 @@ function settleMutationCaches(shellEffects, backgroundJobId, runSettled = null) 
 }
 
 export async function executeBashTool(args, workDir, options = {}) {
+  // The tool-exec layer already guarded the call before its hooks ran and left
+  // its notes; a direct caller is guarded here.
+  const guarded = Array.isArray(options?.shellGuardNotes)
+    ? { args, notes: options.shellGuardNotes }
+    : guardShellCall(args, {
+        shellType: requestedShellType(args),
+        agent: options?.agent,
+        sessionId: options?.sessionId,
+        telemetry: options?.resultTelemetry,
+      });
+  if (guarded.failure) return guarded.failure;
+  args = guarded.args;
+  const guardNotes = guarded.notes;
   // A call starts from the current Project root unless it names a `cwd`. A
   // command-local `cd` never creates a second session cwd authority beside it.
   const bashWorkDir = effectiveShellCwd(args, workDir);
@@ -153,12 +167,12 @@ export async function executeBashTool(args, workDir, options = {}) {
       stdout,
       stderr,
     };
-    if (backgrounded) return renderBackgroundedResult(rendering);
+    if (backgrounded) return renderBackgroundedResult({ ...rendering, notes: guardNotes.join('\n') });
     return renderCompletedResult({
       ...rendering,
       analysisCommand,
       timeout: deadlines.timeout,
-      rewriteNote: [wmicRewrite?.note, bashismRewrite?.note].filter(Boolean).join('\n'),
+      rewriteNote: [wmicRewrite?.note, bashismRewrite?.note, ...guardNotes].filter(Boolean).join('\n'),
     });
   } finally {
     inputWake?.dispose();
