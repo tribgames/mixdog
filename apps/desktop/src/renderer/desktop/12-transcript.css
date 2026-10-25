@@ -778,12 +778,20 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
 .message-steer[data-touch] .message-steer-cancel {
   opacity: 1;
 }
+/* The ✕ sits at its tap box's inner end, next to Send now; the rest of the
+   box reaches out to the left, where nothing else is. */
 .message-steer[data-touch] .message-steer-cancel {
   width: 44px;
   height: 44px;
+  justify-items: end;
+  padding-right: 2px;
 }
+/* The 44px tap row reads as a 24px line 4px under the bubble: the extra
+   height hangs off negative margins instead of pushing the bubble and the
+   next row apart. */
 .message.user .message-steer[data-touch] {
   height: 44px;
+  margin: -6px 0 -10px;
 }
 .message-steer-action:hover:not(:disabled),
 .message-steer-action:focus-visible,
@@ -808,7 +816,7 @@ html[data-mixdog-mobile-tabs] .message.user .message-steer {
 }
 .message-steer[data-touch] .message-steer-action {
   min-height: 44px;
-  padding: 0 10px;
+  padding: 0 6px;
 }
 .message.user .message-source {
   margin: 0 6px 3px 0;

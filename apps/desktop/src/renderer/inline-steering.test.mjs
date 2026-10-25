@@ -216,6 +216,11 @@ test('✕ shows without hover on touch (coarse pointer, phone) as a 44px target;
   assert.equal(window.getComputedStyle(cancel()).height, '44px');
   assert.equal(window.getComputedStyle(line.querySelector('.message-steer-action')).minHeight, '44px');
   assert.equal(cancel().parentElement.nextElementSibling.textContent, 'Send now');
+  // The 44px targets take no extra room: the row occupies 4px gap + a 24px line.
+  const lineStyle = window.getComputedStyle(line);
+  assert.equal(lineStyle.marginTop, '-6px');
+  assert.equal(lineStyle.marginBottom, '-10px');
+  assert.equal(window.getComputedStyle(cancel()).justifyItems, 'end', 'the ✕ sits next to Send now');
 
   // The phone client (marked root), even without a coarse pointer report.
   coarse = false;
