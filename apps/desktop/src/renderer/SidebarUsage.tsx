@@ -1,6 +1,6 @@
 import { Info, Plus } from 'lucide-react';
 import { SidebarUsageMenu } from './SidebarUsageMenu';
-import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type RefObject } from 'react';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
 import { PaneSurfaceGate } from './PaneSurfaceGate';
@@ -202,6 +202,84 @@ function CreditLine({
   );
 }
 
+function ResetCreditPanel({
+  containerRef,
+  count,
+  rows,
+  keys,
+  infoOpen,
+  confirming,
+  resetting,
+  onToggleInfo,
+  onAsk,
+  onCancel,
+  onConfirm,
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  count: number;
+  rows: UsageRecord[];
+  keys: string[];
+  infoOpen: boolean;
+  confirming: boolean;
+  resetting: boolean;
+  onToggleInfo(): void;
+  onAsk(): void;
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  return (
+    <div className="sidebar-usage-reset-credit" ref={containerRef}>
+      <div className="sidebar-usage-reset-line">
+        <small>{t('Reset credits')}</small>
+        <span className="sidebar-usage-credit-value">
+          <b>{t('{{count}} left', { count })}</b>
+          <button
+            type="button"
+            className="sidebar-usage-reset-info"
+            aria-label={t('Reset credit details')}
+            aria-expanded={infoOpen}
+            onClick={onToggleInfo}
+          >
+            <Info size={14} aria-hidden="true" />
+          </button>
+        </span>
+        <button type="button" className="sidebar-usage-reset-use" disabled={resetting} onClick={onAsk}>
+          {t('Use')}
+        </button>
+      </div>
+      {infoOpen && (
+        <ul className="sidebar-usage-reset-popover" role="dialog" aria-label={t('Reset credits')}>
+          {rows.map((credit, index) => {
+            const expiresAt = timestamp(credit.expiresAt);
+            const soon = expiresAt !== null && expiresAt - Date.now() <= 7 * 24 * 3_600_000;
+            return (
+              <li key={keys[index]}>
+                <span>{t('Reset credit {{index}}', { index: index + 1 })}</span>
+                <small className={soon ? 'is-soon' : undefined}>
+                  {resetExpiryText(credit.expiresAt) || t('Expiry unavailable')}
+                </small>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {confirming && (
+        <div className="sidebar-usage-reset-confirmation">
+          <p>{t('This uses one available reset credit and immediately resets eligible Codex rate-limit windows.')}</p>
+          <div className="sidebar-usage-reset-actions">
+            <button type="button" disabled={resetting} onClick={onCancel}>
+              {t('Cancel')}
+            </button>
+            <button type="button" disabled={resetting} onClick={onConfirm}>
+              {resetting ? t('Using…') : t('Confirm')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SidebarUsage({
   api = window.mixdogDesktop,
   sidebarOpen = true,
@@ -353,9 +431,8 @@ export function SidebarUsage({
         .filter((window) => (usedPercent(window) ?? 0) >= 100)
         .map((window) => timestamp(window.resetAt)),
     ].filter((at): at is number => at !== null && at > now);
-    return pending.length
-      ? resetText(account.blockedUntil && account.blockedUntil > now ? account.blockedUntil : Math.min(...pending))
-      : '';
+    if (!pending.length) return '';
+    return resetText(account.blockedUntil && account.blockedUntil > now ? account.blockedUntil : Math.min(...pending));
   };
 
   // Opening revalidates a stale snapshot only (fresh data inside the TTL paints
@@ -643,64 +720,19 @@ export function SidebarUsage({
                     />
                   )}
                   {subscription.key === 'codex' && codexResetOffer && codexResetCount > 0 && (
-                    <div className="sidebar-usage-reset-credit" ref={resetRef}>
-                      <div className="sidebar-usage-reset-line">
-                        <small>{t('Reset credits')}</small>
-                        <span className="sidebar-usage-credit-value">
-                          <b>{t('{{count}} left', { count: codexResetCount })}</b>
-                          <button
-                            type="button"
-                            className="sidebar-usage-reset-info"
-                            aria-label={t('Reset credit details')}
-                            aria-expanded={resetInfoOpen}
-                            onClick={() => setResetInfoOpen((open) => !open)}
-                          >
-                            <Info size={14} aria-hidden="true" />
-                          </button>
-                        </span>
-                        <button
-                          type="button"
-                          className="sidebar-usage-reset-use"
-                          disabled={resetting}
-                          onClick={() => setResetConfirming(codexResetKeys[0] ?? null)}
-                        >
-                          {t('Use')}
-                        </button>
-                      </div>
-                      {resetInfoOpen && (
-                        <ul className="sidebar-usage-reset-popover" role="dialog" aria-label={t('Reset credits')}>
-                          {codexResetRows.map((credit, index) => {
-                            const expiresAt = timestamp(credit.expiresAt);
-                            const soon = expiresAt !== null && expiresAt - Date.now() <= 7 * 24 * 3_600_000;
-                            return (
-                              <li key={codexResetKeys[index]}>
-                                <span>{t('Reset credit {{index}}', { index: index + 1 })}</span>
-                                <small className={soon ? 'is-soon' : undefined}>
-                                  {resetExpiryText(credit.expiresAt) || t('Expiry unavailable')}
-                                </small>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                      {resetConfirming !== null && (
-                        <div className="sidebar-usage-reset-confirmation">
-                          <p>
-                            {t(
-                              'This uses one available reset credit and immediately resets eligible Codex rate-limit windows.'
-                            )}
-                          </p>
-                          <div className="sidebar-usage-reset-actions">
-                            <button type="button" disabled={resetting} onClick={() => setResetConfirming(null)}>
-                              {t('Cancel')}
-                            </button>
-                            <button type="button" disabled={resetting} onClick={() => void consumeCodexReset()}>
-                              {resetting ? t('Using…') : t('Confirm')}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    <ResetCreditPanel
+                      containerRef={resetRef}
+                      count={codexResetCount}
+                      rows={codexResetRows}
+                      keys={codexResetKeys}
+                      infoOpen={resetInfoOpen}
+                      confirming={resetConfirming !== null}
+                      resetting={resetting}
+                      onToggleInfo={() => setResetInfoOpen((open) => !open)}
+                      onAsk={() => setResetConfirming(codexResetKeys[0] ?? null)}
+                      onCancel={() => setResetConfirming(null)}
+                      onConfirm={() => void consumeCodexReset()}
+                    />
                   )}
                 </div>
               );

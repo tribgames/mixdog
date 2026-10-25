@@ -536,19 +536,21 @@ export function LiveActivity({
   // before the bot (html[data-pet-over-transcript], 14-live-activity.css).
   const beforeTokens = elapsed;
   const afterTokens = thinkingLabel;
-  const activityMeta =
-    beforeTokens || tokensLabel || afterTokens ? (
-      <span>
-        {beforeTokens}
-        {tokensLabel ? (
-          <span className="live-activity-tokens">
-            {beforeTokens ? ' · ' : ''}
-            {tokensLabel}
-          </span>
-        ) : null}
-        {afterTokens ? `${beforeTokens || tokensLabel ? ' · ' : ''}${afterTokens}` : ''}
-      </span>
-    ) : null;
+  const tokensSeparator = beforeTokens ? ' · ' : '';
+  const afterSeparator =beforeTokens || tokensLabel ? ' · ' : '';
+  const hasActivityMeta = Boolean(beforeTokens || tokensLabel || afterTokens);
+  const activityMeta = hasActivityMeta && (
+    <span>
+      {beforeTokens}
+      {tokensLabel ? (
+        <span className="live-activity-tokens">
+          {tokensSeparator}
+          {tokensLabel}
+        </span>
+      ) : null}
+      {afterTokens ? `${afterSeparator}${afterTokens}` : ''}
+    </span>
+  );
   const reasoning = publicThinkingSummary(snapshot.thinking);
   return (
     <div className="live-activity" data-mode={mode}>

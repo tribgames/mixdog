@@ -183,12 +183,10 @@ export function useComposerPalettes({
       return;
     }
     let current = true;
-    const mentioned = verifiedMentionedFiles(
-      mentionedFilePaths(userMessagesRef.current || [], projectScope),
-      (path) =>
-        Promise.resolve().then(
-          () => window.mixdogDesktop.statProjectFile?.(projectScope, path) ?? Promise.reject(new Error('no stat'))
-        )
+    const mentioned = verifiedMentionedFiles(mentionedFilePaths(userMessagesRef.current || [], projectScope), (path) =>
+      Promise.resolve().then(
+        () => window.mixdogDesktop.statProjectFile?.(projectScope, path) ?? Promise.reject(new Error('no stat'))
+      )
     );
     const changed = Promise.resolve()
       .then(() => window.mixdogDesktop.gitStatus?.(projectScope, { skipLineStats: true }))
@@ -197,7 +195,8 @@ export function useComposerPalettes({
         () => []
       );
     void Promise.all([mentioned, changed]).then(([mentionedPaths, changedPaths]) => {
-      if (current) setMentionRecent({ scope: projectScope, paths: { mentioned: mentionedPaths, changed: changedPaths } });
+      if (current)
+        setMentionRecent({ scope: projectScope, paths: { mentioned: mentionedPaths, changed: changedPaths } });
     });
     return () => {
       current = false;

@@ -3,6 +3,18 @@ import type { SessionAttention } from '../shared/session-attention';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 
+const ATTENTION_GLYPHS = { 'needs-you': AlertTriangle, asking: MessageCircleQuestion, failed: CircleX };
+
+function attentionLabel(status: 'needs-you' | 'asking' | 'failed', name: string, count: number): string {
+  if (status === 'needs-you') {
+    return count >= 2
+      ? t('{{name}} · Waiting for approval ({{count}})', { name, count })
+      : t('{{name}} · Waiting for approval', { name });
+  }
+  if (status === 'asking') return t('{{name}} · Waiting for your answer', { name });
+  return t('{{name}} has a failure', { name });
+}
+
 /** The glyph of a session that needs the user, failed, or waits on its
  *  background work, shared by tabs,
  *  sidebar rows and collapsed project groups; running keeps each surface's
@@ -37,15 +49,8 @@ export function SessionAttentionGlyph({
     );
   }
   const many = status === 'needs-you' && count >= 2;
-  const label =
-    status === 'needs-you'
-      ? many
-        ? t('{{name}} · Waiting for approval ({{count}})', { name, count })
-        : t('{{name}} · Waiting for approval', { name })
-      : status === 'asking'
-        ? t('{{name}} · Waiting for your answer', { name })
-        : t('{{name}} has a failure', { name });
-  const Glyph = status === 'needs-you' ? AlertTriangle : status === 'asking' ? MessageCircleQuestion : CircleX;
+  const label = attentionLabel(status, name, count);
+  const Glyph = ATTENTION_GLYPHS[status];
   return (
     <span className={`session-attention-glyph ${className}`} data-status={status} role="status" aria-label={label}>
       <Glyph size={size} aria-hidden="true" />

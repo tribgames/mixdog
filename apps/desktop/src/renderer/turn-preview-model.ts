@@ -40,7 +40,7 @@ const foldPath = (value: string) => normalizeChangePath(value.replace(/\\/g, '/'
 
 /** Whether one of `surfaced` (paths a reply linked or the panel opened,
  *  relative or absolute, a bare name allowed) is this file. Case-insensitive. */
-export function turnPreviewSurfaced(path: string, surfaced: readonly string[]): boolean {
+function turnPreviewSurfaced(path: string, surfaced: readonly string[]): boolean {
   const file = foldPath(path);
   const base = splitChangePath(file).base;
   return surfaced.some((entry) => {
@@ -114,7 +114,7 @@ export function turnPreviewOpenOrder(previews: readonly TurnPreviewFile[]): stri
   return [...confident.filter((preview) => preview !== shown), shown].map((preview) => preview.target);
 }
 
-export const TURN_PREVIEW_PAGE_SIZE = 6;
+const TURN_PREVIEW_PAGE_SIZE = 6;
 
 /** One page of a card's tiles; `page` is clamped into range. */
 export function turnPreviewPage<T>(

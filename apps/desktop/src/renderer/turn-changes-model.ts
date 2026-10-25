@@ -42,7 +42,7 @@ export type TurnChangesReply = {
  *  no visible prompt follows it (its turn may still be running). */
 export type TurnChangesRef = { checkpointId: string; boundary: string; trailing: boolean };
 
-export const TURN_CHANGES_CAPABILITY = 'getTurnChanges' satisfies DesktopCapability;
+const TURN_CHANGES_CAPABILITY = 'getTurnChanges' satisfies DesktopCapability;
 export const REVERT_TURN_CHANGES_CAPABILITY = 'revertTurnChanges' satisfies DesktopCapability;
 export const REAPPLY_TURN_CHANGES_CAPABILITY = 'reapplyTurnChanges' satisfies DesktopCapability;
 export type TurnChangesCapability =
@@ -50,7 +50,7 @@ export type TurnChangesCapability =
   | typeof REVERT_TURN_CHANGES_CAPABILITY
   | typeof REAPPLY_TURN_CHANGES_CAPABILITY;
 /** Bounded backoff while the runtime is still recording the turn. */
-export const TURN_CHANGES_PENDING_DELAYS_MS = [400, 800, 1600, 3200, 6400, 12800];
+const TURN_CHANGES_PENDING_DELAYS_MS = [400, 800, 1600, 3200, 6400, 12800];
 
 const STATUSES = new Set(['ready', 'pending', 'none', 'missing']);
 const FILE_STATUSES = new Set(['A', 'M', 'D', 'R']);
@@ -121,7 +121,7 @@ export async function invokeTurnChanges(capability: TurnChangesCapability, args:
 const epochs = new Map<string, number>();
 const epochListeners = new Set<() => void>();
 
-export function turnChangesEpoch(sessionId: string): number {
+function turnChangesEpoch(sessionId: string): number {
   return epochs.get(sessionId) ?? 0;
 }
 
@@ -167,7 +167,7 @@ registerIdleReclaim(() => {
   replyCache.trim(TURN_CHANGES_IDLE_RETAINED_CHARS);
 });
 
-export function turnChangesKey(sessionId: string, checkpointId: string): string {
+function turnChangesKey(sessionId: string, checkpointId: string): string {
   return `${sessionId}\u0000${checkpointId}`;
 }
 
@@ -191,7 +191,7 @@ function rememberTurnChanges(
  *  prefetch of the same card (a session about to open). */
 const readsInFlight = new Map<string, Promise<TurnChangesReply>>();
 
-export function readTurnChanges(sessionId: string, checkpointId: string, boundary: string, epoch: number) {
+function readTurnChanges(sessionId: string, checkpointId: string, boundary: string, epoch: number) {
   const key = `${turnChangesKey(sessionId, checkpointId)}\u0000${boundary}\u0000${epoch}`;
   const shared = readsInFlight.get(key);
   if (shared) return shared;
@@ -395,7 +395,7 @@ export function allChangesVisualized(
 }
 
 /** Whether the file exists on disk in its current state. */
-export function turnChangeFileExists(file: TurnChangesFile): boolean {
+function turnChangeFileExists(file: TurnChangesFile): boolean {
   if (file.status === 'D') return file.state === 'reverted';
   if (file.status === 'A') return file.state === 'applied';
   return true;

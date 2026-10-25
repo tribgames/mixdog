@@ -46,12 +46,17 @@ function readRailRoster(): UsagePinRosterEntry[] | null {
   try {
     const stored = JSON.parse(window.localStorage.getItem(USAGE_RAIL_ROSTER_KEY) || 'null');
     if (!Array.isArray(stored)) return null;
-    return stored.flatMap((entry) =>
-      typeof entry?.key === 'string' ? [{ key: entry.key, bars: entry.bars === 2 ? 2 : 1 }] : []
-    );
+    return stored
+      .filter((entry) => typeof entry?.key === 'string')
+      .map((entry): UsagePinRosterEntry => ({ key: entry.key, bars: entry.bars === 2 ? 2 : 1 }));
   } catch {
     return null;
   }
+}
+
+function railSlotsOf(settings: { usageRailSlotsAll?: unknown; usageRailSlotsThree?: unknown }) {
+  if (settings.usageRailSlotsAll) return 'all';
+  return settings.usageRailSlotsThree ? '3' : '5';
 }
 
 function writeRailRoster(roster: UsagePinRosterEntry[]): void {
@@ -147,7 +152,7 @@ export function useUsageRailPin(
             setAccountsExpandedState(settings.usageAccountsExpanded);
           }
           if (typeof settings?.usageRailSlotsAll === 'boolean' || typeof settings?.usageRailSlotsThree === 'boolean') {
-            setRailSlotsState(settings.usageRailSlotsAll ? 'all' : settings.usageRailSlotsThree ? '3' : '5');
+            setRailSlotsState(railSlotsOf(settings));
           }
         })
         .catch(() => {
@@ -242,13 +247,10 @@ export function useUsageRailPin(
     };
   }, [enabled, remembered]);
   const liveResult = snapshot.status === 'ready';
-  const providerRows = useMemo(
-    () =>
-      usagePinned
-        ? usagePinEntriesWithRoster(real, liveResult ? [] : (remembered ?? setupRoster ?? []), railBars)
-        : NO_ENTRIES,
-    [usagePinned, real, liveResult, remembered, setupRoster, railBars]
-  );
+  const providerRows = useMemo(() => {
+    if (!usagePinned) return NO_ENTRIES;
+    return usagePinEntriesWithRoster(real, liveResult ? [] : (remembered ?? setupRoster ?? []), railBars);
+  }, [usagePinned, real, liveResult, remembered, setupRoster, railBars]);
   const expanding = usagePinned && accountsExpanded;
   const accountPools = useUsageAccountPools(
     api,

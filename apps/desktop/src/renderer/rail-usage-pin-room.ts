@@ -23,7 +23,7 @@ export function usagePinStackHeight(rowCount: number, doubleBarCount = 0): numbe
 }
 
 /** Layout height of one scroll chevron above or below the slots. */
-export const PIN_CHEVRON_HEIGHT = 12;
+const PIN_CHEVRON_HEIGHT = 12;
 
 /** True when every rail part fits at its natural height with the stack shown. */
 export function usagePinStackFits(input: {

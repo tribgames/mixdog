@@ -382,11 +382,10 @@ export function BranchIslandSegment({
   // Modified files and commits ahead; a zero count is left out, none at all shows nothing.
   const modified = gitStatus?.repository ? gitStatus.files.length : 0;
   const ahead = gitStatus?.repository ? gitStatus.ahead : 0;
-  const meta = intent
-    ? ''
-    : [modified > 0 ? t('Modified {{count}}', { count: modified }) : '', ahead > 0 ? `↑${ahead}` : '']
-        .filter(Boolean)
-        .join(' · ');
+  const metaParts: string[] = [];
+  if (!intent && modified > 0) metaParts.push(t('Modified {{count}}', { count: modified }));
+  if (!intent && ahead > 0) metaParts.push(`↑${ahead}`);
+  const meta = metaParts.join(' · ');
 
   return (
     <>

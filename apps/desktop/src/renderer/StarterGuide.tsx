@@ -151,6 +151,108 @@ function toastPosition(pill: HTMLElement | null): CSSProperties {
   return { left: box.left - frame.left, width: box.width, bottom: frame.height - (box.top - frame.top) + 6 };
 }
 
+/** The coach-mark stops of each step's tour. */
+function starterTours(): Record<Exclude<StepId, 'mixy'>, TourStop[]> {
+  return {
+    // Which provider is the user's call: the tour explains how to choose and
+    // lights every option; any sign-in or key action hands over.
+    provider: [
+      {
+        target: ['.settings-provider-cards', '.mixdog-settings__body'],
+        title: t('Have a subscription? Sign in'),
+        body: t('Subscribed to ChatGPT, Claude or Grok? Press + and sign in.'),
+        action: true,
+      },
+      {
+        target: ['.settings-provider-cards ~ .settings-group:last-of-type', '.mixdog-settings__body'],
+        title: t('No subscription? Use an API key'),
+        body: t('Get a key, paste it here and save.'),
+        action: true,
+      },
+    ],
+    project: [
+      {
+        target: '.projects-common-instructions .projects-row',
+        title: t('Memories'),
+        body: t(
+          'Install Memory under Extensions → Built-in and turn on the Maintainer, and Mixdog remembers what matters.'
+        ),
+      },
+      {
+        target: '.session-panel-action.projects-add',
+        title: t('Add a project folder'),
+        body: t('Press + and pick a folder on this computer.'),
+        // The picker below needs a folder to offer, so the tour steps aside
+        // for the add form and carries on once it closes — added or not.
+        action: true,
+        resume: '.projects-add-dialog',
+      },
+      // Adding a folder is only half of it: each task then runs in the
+      // project picked here, and that choice is what loads its instructions.
+      {
+        target: '.composer-project-context',
+        title: t('Choose the task project'),
+        body: t('Pick the project for each task. Open a project to add memories it should keep.'),
+        action: true,
+      },
+    ],
+    workflow: [
+      {
+        target: '.workflows-packs .schedules-row',
+        title: t('Workflows'),
+        body: t('A workflow sets how a request gets done. Open one to edit it.'),
+      },
+      {
+        target: '.workflows-packs ~ section.workflows-models:last-of-type .schedules-row',
+        title: t('Agents'),
+        body: t('Agents start off. Open one, turn it on and pick a model.'),
+      },
+      {
+        target: '.orchestration-mode-select',
+        title: t('Delegation mode'),
+        body: t('Choose how much work goes to agents.'),
+      },
+      {
+        target: '[data-agent-id="maintainer"]',
+        title: t('Turn on the Maintainer'),
+        body: t('The Maintainer handles upkeep like memory and session titles. Open it, turn it on and pick a model.'),
+        tip: t('Recommended: the cheapest model at the lowest effort is enough.'),
+        action: true,
+      },
+    ],
+    remote: [
+      // Pairing starts from Connect a device (QR, browser or code), so the
+      // tour ends on that live control and hands over to its dialog.
+      {
+        target: ['.conn-connect-device', '.mixdog-settings__body'],
+        title: t('Connect a device'),
+        body: t('Choose the kind of device to connect.'),
+        action: true,
+      },
+    ],
+    extensions: [
+      {
+        target: '.extensions-pane[data-surface-active="true"] .sidebar-section-toolbar',
+        title: t('Extension type'),
+        body: t('Plugins add tools; skills teach agents how to work.'),
+      },
+      {
+        target: '.session-panel-action.extensions-add',
+        title: t('Add an extension'),
+        body: t('Press + to add one.'),
+      },
+      // The built-in list ships with the app: pointing at it (and letting
+      // the user open one) is the fastest way to useful tools.
+      {
+        target: '.extensions-pane[data-surface-active="true"] .settings-group',
+        title: t('Built-in plugins'),
+        body: t('Ready-made tools like Git, Memory, Browser and Office. Install the ones you need.'),
+        action: true,
+      },
+    ],
+  };
+}
+
 export function StarterGuide({
   descriptors,
   onboardingActive,
@@ -243,6 +345,7 @@ export function StarterGuide({
   // remote also by pairing a device.
   // The last stop of a tour whose control opens something is a live
   // "click it" stop, so the tour ends inside the real action.
+  const tours = starterTours();
   const steps: Array<{
     id: StepId;
     label: string;
@@ -261,22 +364,7 @@ export function StarterGuide({
       icon: KeyRound,
       done: providerConnected(values.providerSetup),
       open: () => onOpenSettings('providers'),
-      // Which provider is the user's call: the tour explains how to choose and
-      // lights every option; any sign-in or key action hands over.
-      tour: [
-        {
-          target: ['.settings-provider-cards', '.mixdog-settings__body'],
-          title: t('Have a subscription? Sign in'),
-          body: t('Subscribed to ChatGPT, Claude or Grok? Press + and sign in.'),
-          action: true,
-        },
-        {
-          target: ['.settings-provider-cards ~ .settings-group:last-of-type', '.mixdog-settings__body'],
-          title: t('No subscription? Use an API key'),
-          body: t('Get a key, paste it here and save.'),
-          action: true,
-        },
-      ],
+      tour: tours.provider,
     },
     {
       id: 'project',
@@ -288,32 +376,7 @@ export function StarterGuide({
       // counts just like adding it.
       done: values.projects.length > 0 || state.visited.includes('project'),
       open: () => openView('projects'),
-      tour: [
-        {
-          target: '.projects-common-instructions .projects-row',
-          title: t('Memories'),
-          body: t(
-            'Install Memory under Extensions → Built-in and turn on the Maintainer, and Mixdog remembers what matters.'
-          ),
-        },
-        {
-          target: '.session-panel-action.projects-add',
-          title: t('Add a project folder'),
-          body: t('Press + and pick a folder on this computer.'),
-          // The picker below needs a folder to offer, so the tour steps aside
-          // for the add form and carries on once it closes — added or not.
-          action: true,
-          resume: '.projects-add-dialog',
-        },
-        // Adding a folder is only half of it: each task then runs in the
-        // project picked here, and that choice is what loads its instructions.
-        {
-          target: '.composer-project-context',
-          title: t('Choose the task project'),
-          body: t('Pick the project for each task. Open a project to add memories it should keep.'),
-          action: true,
-        },
-      ],
+      tour: tours.project,
     },
     {
       id: 'workflow',
@@ -323,32 +386,7 @@ export function StarterGuide({
       icon: viewIcon('workflows', GraduationCap),
       done: state.visited.includes('workflow'),
       open: () => openView('workflows'),
-      tour: [
-        {
-          target: '.workflows-packs .schedules-row',
-          title: t('Workflows'),
-          body: t('A workflow sets how a request gets done. Open one to edit it.'),
-        },
-        {
-          target: '.workflows-packs ~ section.workflows-models:last-of-type .schedules-row',
-          title: t('Agents'),
-          body: t('Agents start off. Open one, turn it on and pick a model.'),
-        },
-        {
-          target: '.orchestration-mode-select',
-          title: t('Delegation mode'),
-          body: t('Choose how much work goes to agents.'),
-        },
-        {
-          target: '[data-agent-id="maintainer"]',
-          title: t('Turn on the Maintainer'),
-          body: t(
-            'The Maintainer handles upkeep like memory and session titles. Open it, turn it on and pick a model.'
-          ),
-          tip: t('Recommended: the cheapest model at the lowest effort is enough.'),
-          action: true,
-        },
-      ],
+      tour: tours.workflow,
     },
     {
       id: 'remote',
@@ -358,16 +396,7 @@ export function StarterGuide({
       icon: Smartphone,
       done: remotePaired || state.visited.includes('remote'),
       open: () => onOpenSettings('connection'),
-      tour: [
-        // Pairing starts from Connect a device (QR, browser or code), so the
-        // tour ends on that live control and hands over to its dialog.
-        {
-          target: ['.conn-connect-device', '.mixdog-settings__body'],
-          title: t('Connect a device'),
-          body: t('Choose the kind of device to connect.'),
-          action: true,
-        },
-      ],
+      tour: tours.remote,
     },
     {
       id: 'extensions',
@@ -377,26 +406,7 @@ export function StarterGuide({
       icon: viewIcon('extensions', GraduationCap),
       done: state.visited.includes('extensions'),
       open: () => openView('extensions'),
-      tour: [
-        {
-          target: '.extensions-pane[data-surface-active="true"] .sidebar-section-toolbar',
-          title: t('Extension type'),
-          body: t('Plugins add tools; skills teach agents how to work.'),
-        },
-        {
-          target: '.session-panel-action.extensions-add',
-          title: t('Add an extension'),
-          body: t('Press + to add one.'),
-        },
-        // The built-in list ships with the app: pointing at it (and letting
-        // the user open one) is the fastest way to useful tools.
-        {
-          target: '.extensions-pane[data-surface-active="true"] .settings-group',
-          title: t('Built-in plugins'),
-          body: t('Ready-made tools like Git, Memory, Browser and Office. Install the ones you need.'),
-          action: true,
-        },
-      ],
+      tour: tours.extensions,
     },
     {
       id: 'mixy',
@@ -493,7 +503,7 @@ export function StarterGuide({
     return () => setStarterGuideBlocking(false);
   }, [coversWindow]);
   const answerWelcome = () => update((current) => ({ ...current, welcomed: true }));
-  const pill = hidden ? null : (
+  const pill = !hidden && (
     <section
       ref={pillRef}
       className="starter-guide"

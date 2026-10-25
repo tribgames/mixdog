@@ -619,10 +619,10 @@ export type ReorderProps = ReturnType<ReturnType<typeof usePersistedListOrder>['
 
 /** The heading/folder row is the grip; the whole section/folder group is the
  *  drop target, so releasing over its rows still reorders. */
-export function reorderHandle(props?: ReorderProps) {
+function reorderHandle(props?: ReorderProps) {
   return props && { draggable: props.draggable, onDragStart: props.onDragStart, onDragEnd: props.onDragEnd };
 }
-export function reorderTarget(props?: ReorderProps) {
+function reorderTarget(props?: ReorderProps) {
   if (!props) return undefined;
   const { draggable: _grip, onDragStart: _start, onDragEnd: _end, ...target } = props;
   return target;

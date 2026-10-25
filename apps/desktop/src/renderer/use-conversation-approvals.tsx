@@ -197,6 +197,11 @@ export function useConversationApprovals(
   };
 }
 
+function retiredOutcomeIcon(outcome: { expired?: boolean; approved?: boolean }) {
+  if (outcome.expired) return 'clock';
+  return outcome.approved ? 'check' : 'close-small';
+}
+
 /** The island's one-shot notice: an approval settled on another device wins
  *  over this device's own refused answer. */
 export function conversationIslandFlash(
@@ -228,7 +233,7 @@ export function conversationIslandFlash(
     return {
       key: `retired:${approvalInstanceKey(approval.id)}`,
       text: `${approvalRecordLabel(approval)} · ${result}`,
-      icon: outcome.expired ? 'clock' : outcome.approved ? 'check' : 'close-small',
+      icon: retiredOutcomeIcon(outcome),
     };
   }
   if (answeredElsewhere) {

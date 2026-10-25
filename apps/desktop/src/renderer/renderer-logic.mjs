@@ -351,10 +351,11 @@ export function analyzePatchFiles(patch) {
 export function patchDigest(patch) {
   const parts = parseUnifiedDiff(patch);
   const first = parts[0];
+  const targetFile = first && (first.status === 'D' ? first.oldFile : first.newFile);
   return {
     counts: patchLineCounts(patch),
     statuses: parts.map((part) => part.status),
-    targetPath: first ? (first.status === 'D' ? first.oldFile.fileName : first.newFile.fileName) : '',
+    targetPath: targetFile ? targetFile.fileName : '',
     files: analyzePatchFiles(patch).map(({ part: _part, ...file }) => file),
   };
 }

@@ -85,6 +85,31 @@ function prefetchTabSurface(tab: WorkspaceTab): void {
 
 /** Tab-kind glyph for the phone title pill (the full strip keeps its inline
  *  chain untouched for the strip contract tests). */
+function TabStatusMark({
+  tab,
+  attention,
+  working,
+}: {
+  tab: WorkspaceTab;
+  attention: SessionAttention | '';
+  working: boolean;
+}) {
+  if (attention === 'needs-you' || attention === 'asking' || attention === 'failed' || attention === 'waiting') {
+    return <SessionAttentionGlyph status={attention} name={tab.title} size={14} className="workspace-tab-attention" />;
+  }
+  if (working) {
+    return (
+      <ProgressSpinner
+        size={14}
+        className="workspace-tab-status"
+        role="status"
+        aria-label={t('{{name}} is working', { name: tab.title })}
+      />
+    );
+  }
+  return tabGlyph(tab);
+}
+
 function tabGlyph(tab: WorkspaceTab, size = 14) {
   switch (tab.selection.kind) {
     case 'project':
@@ -412,18 +437,7 @@ function workspaceTabNode(
         {/* The tab GLYPH carries the strongest status: the needs-you or
               failure mark, else the progress spinner while the session works
               (user decision) — no extra dot. */}
-        {attention === 'needs-you' || attention === 'asking' || attention === 'failed' || attention === 'waiting' ? (
-          <SessionAttentionGlyph status={attention} name={tab.title} size={14} className="workspace-tab-attention" />
-        ) : working ? (
-          <ProgressSpinner
-            size={14}
-            className="workspace-tab-status"
-            role="status"
-            aria-label={t('{{name}} is working', { name: tab.title })}
-          />
-        ) : (
-          tabGlyph(tab)
-        )}
+        <TabStatusMark tab={tab} attention={attention} working={working} />
         <span className="workspace-tab-title">{tab.title}</span>
         {attention === 'unread' && (
           <i
@@ -511,16 +525,16 @@ function workspaceTabContextMenu({
               void navigator.clipboard?.writeText(fileTarget.rel)?.then(undefined, () => {});
             },
           },
-          ...(isRemoteHostRenderer()
-            ? []
-            : [
-                {
-                  label: t('Reveal in Explorer'),
-                  run: () => {
-                    void revealFileFromWindow(fileTarget.project, fileTarget.rel, fileTarget.accessToken);
-                  },
-                },
-              ]),
+        ]
+      : []),
+    ...(fileTarget && !isRemoteHostRenderer()
+      ? [
+          {
+            label: t('Reveal in Explorer'),
+            run: () => {
+              void revealFileFromWindow(fileTarget.project, fileTarget.rel, fileTarget.accessToken);
+            },
+          },
         ]
       : []),
   ];

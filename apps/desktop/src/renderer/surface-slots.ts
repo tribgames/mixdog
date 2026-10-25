@@ -133,7 +133,7 @@ function restoreDockHeader(header: HTMLElement): void {
  *  dock flips the panel from "cells draw the frame" back to "panel draws it",
  *  and a rect measured before that flip covered the border pixels. Fixed and
  *  native surfaces paint above the DOM, so they must stay inside the frame. */
-export const EXPANDED_FRAME_WIDTH = 1;
+const EXPANDED_FRAME_WIDTH = 1;
 export function expandedSheetBounds(panelNode: Element): { left: number; top: number; width: number; bottom: number } {
   const bounds = panelNode.getBoundingClientRect();
   const view = panelNode.ownerDocument.defaultView;

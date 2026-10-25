@@ -37,6 +37,87 @@ import { BOTTOM_SHEET_QUERY, NARROW_SHELL_QUERY, useResponsiveShellBands } from 
 
 const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
 
+/** The rail destinations' mount, chunk-load and failure bookkeeping. */
+function useSidebarPanelRegistry() {
+  // Rail destinations pre-mount hidden after boot and stay mounted while the
+  // sidebar remains open. Their shared reference cache coalesces hydration, so
+  // this constructs rows, route controls and overflow options without issuing
+  // duplicate provider/catalog requests.
+  const [mountedSidebarPanels, setMountedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
+  const mountSidebarPanel = useCallback((panel: string) => {
+    setMountedSidebarPanels((current) => {
+      if (current.has(panel)) return current;
+      return new Set([...current, panel]);
+    });
+  }, []);
+  // "Already visited" is not enough to present a destination instantly: the
+  // panel's lazy chunk must have RESOLVED, otherwise a fast swap would only
+  // reveal the Suspense fallback (null) as an empty panel. A rejected chunk
+  // never lands here, so that destination keeps the safe settle path.
+  const [loadedSidebarPanels, setLoadedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
+  const trackSidebarPanelModule = useCallback((panel: string, load: Promise<unknown>) => {
+    void load
+      .then(() => {
+        setLoadedSidebarPanels((current) => {
+          if (current.has(panel)) return current;
+          return new Set([...current, panel]);
+        });
+      })
+      .catch(() => {
+        /* an unresolved chunk simply stays cold */
+      });
+  }, []);
+  // A rejected chunk is reported by the panel-local boundary. The destination
+  // then presents a compact unavailable state (it has real content to show)
+  // but never counts as warm, so it keeps the safe settle path.
+  const [failedSidebarPanels, setFailedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
+  const [sidebarPanes, setSidebarPanes] = useState(() => ({
+    schedules: createSchedulesPane(),
+    webhooks: createWebhooksPane(),
+    projects: createProjectsPane(),
+    workflows: createWorkflowsPane(),
+    extensions: createExtensionsPane(),
+    skills: createSkillsPane(),
+  }));
+  const markSidebarPanelFailed = useCallback((panel: SidebarPanelKey) => {
+    setFailedSidebarPanels((current) => {
+      if (current.has(panel)) return current;
+      return new Set([...current, panel]);
+    });
+  }, []);
+  const retrySidebarPanel = useCallback(
+    (panel: SidebarPanelKey) => {
+      // A fresh lazy component is the only way back from a rejected loader.
+      setSidebarPanes((current) => {
+        if (panel === 'schedules') return { ...current, schedules: createSchedulesPane() };
+        if (panel === 'webhooks') return { ...current, webhooks: createWebhooksPane() };
+        if (panel === 'projects') return { ...current, projects: createProjectsPane() };
+        if (panel === 'workflows') return { ...current, workflows: createWorkflowsPane() };
+        if (panel === 'skills') return { ...current, skills: createSkillsPane() };
+        return { ...current, extensions: createExtensionsPane() };
+      });
+      setFailedSidebarPanels((current) => {
+        if (!current.has(panel)) return current;
+        const next = new Set(current);
+        next.delete(panel);
+        return next;
+      });
+      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+    },
+    [trackSidebarPanelModule]
+  );
+  return {
+    mountedSidebarPanels,
+    mountSidebarPanel,
+    loadedSidebarPanels,
+    trackSidebarPanelModule,
+    failedSidebarPanels,
+    sidebarPanes,
+    markSidebarPanelFailed,
+    retrySidebarPanel,
+  };
+}
+
 export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const preferredSidePanelMode = useSyncExternalStore(
     subscribeSidePanelMode,
@@ -278,73 +359,16 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
       bottomPanel.setOpen(desktopBottomPanelOpen.current, 'instant');
     }
   }, [bottomSheetBand, bottomPanel]);
-  // Rail destinations pre-mount hidden after boot and stay mounted while the
-  // sidebar remains open. Their shared reference cache coalesces hydration, so
-  // this constructs rows, route controls and overflow options without issuing
-  // duplicate provider/catalog requests.
-  const [mountedSidebarPanels, setMountedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
-  const mountSidebarPanel = useCallback((panel: string) => {
-    setMountedSidebarPanels((current) => {
-      if (current.has(panel)) return current;
-      return new Set([...current, panel]);
-    });
-  }, []);
-  // "Already visited" is not enough to present a destination instantly: the
-  // panel's lazy chunk must have RESOLVED, otherwise a fast swap would only
-  // reveal the Suspense fallback (null) as an empty panel. A rejected chunk
-  // never lands here, so that destination keeps the safe settle path.
-  const [loadedSidebarPanels, setLoadedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
-  const trackSidebarPanelModule = useCallback((panel: string, load: Promise<unknown>) => {
-    void load
-      .then(() => {
-        setLoadedSidebarPanels((current) => {
-          if (current.has(panel)) return current;
-          return new Set([...current, panel]);
-        });
-      })
-      .catch(() => {
-        /* an unresolved chunk simply stays cold */
-      });
-  }, []);
-  // A rejected chunk is reported by the panel-local boundary. The destination
-  // then presents a compact unavailable state (it has real content to show)
-  // but never counts as warm, so it keeps the safe settle path.
-  const [failedSidebarPanels, setFailedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
-  const [sidebarPanes, setSidebarPanes] = useState(() => ({
-    schedules: createSchedulesPane(),
-    webhooks: createWebhooksPane(),
-    projects: createProjectsPane(),
-    workflows: createWorkflowsPane(),
-    extensions: createExtensionsPane(),
-    skills: createSkillsPane(),
-  }));
-  const markSidebarPanelFailed = useCallback((panel: SidebarPanelKey) => {
-    setFailedSidebarPanels((current) => {
-      if (current.has(panel)) return current;
-      return new Set([...current, panel]);
-    });
-  }, []);
-  const retrySidebarPanel = useCallback(
-    (panel: SidebarPanelKey) => {
-      // A fresh lazy component is the only way back from a rejected loader.
-      setSidebarPanes((current) => {
-        if (panel === 'schedules') return { ...current, schedules: createSchedulesPane() };
-        if (panel === 'webhooks') return { ...current, webhooks: createWebhooksPane() };
-        if (panel === 'projects') return { ...current, projects: createProjectsPane() };
-        if (panel === 'workflows') return { ...current, workflows: createWorkflowsPane() };
-        if (panel === 'skills') return { ...current, skills: createSkillsPane() };
-        return { ...current, extensions: createExtensionsPane() };
-      });
-      setFailedSidebarPanels((current) => {
-        if (!current.has(panel)) return current;
-        const next = new Set(current);
-        next.delete(panel);
-        return next;
-      });
-      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
-    },
-    [trackSidebarPanelModule]
-  );
+  const {
+    mountedSidebarPanels,
+    mountSidebarPanel,
+    loadedSidebarPanels,
+    trackSidebarPanelModule,
+    failedSidebarPanels,
+    sidebarPanes,
+    markSidebarPanelFailed,
+    retrySidebarPanel,
+  } = useSidebarPanelRegistry();
   // Scheduled-tasks panel (rail → Schedules): lives in the session-panel
   // area, so navigation leaves it alone (user decision).
   const [schedulesOpen, setSchedulesOpen] = useState(false);

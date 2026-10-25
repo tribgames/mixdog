@@ -35,7 +35,7 @@ export function rowsMountedAtEnd(sessionId: string, rows: readonly TranscriptRow
  *  mounted rows use (keyed by session, turn and epoch, and de-duplicated while
  *  in flight), so the render finds them and never repeats them, and a failed
  *  or outdated one is asked again by the next intent. */
-export function prepareSessionRows(sessionId: string): void {
+function prepareSessionRows(sessionId: string): void {
   const lane = defaultSessionLaneStore.get(sessionId);
   const items = lane?.items;
   if (!lane || !Array.isArray(items) || items.length === 0) return;

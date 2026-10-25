@@ -46,7 +46,7 @@ const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
  *  "PowerShell" swap in the tab). */
 const DEFAULT_SHELL_LABEL_KEY = 'mixdog.desktop.terminal-default-shell-label.v1';
 
-export function rememberedDefaultShellLabel(): string {
+function rememberedDefaultShellLabel(): string {
   try {
     return window.localStorage.getItem(DEFAULT_SHELL_LABEL_KEY) || '';
   } catch {

@@ -272,11 +272,10 @@ export function usagePinAccountEntries(
     return accounts.map((account, index): UsagePinEntry => {
       const picked = pinWindows(account.windows, entry.provider);
       const windows = picked ? picked.pair : [];
-      const bars = picked
-        ? mode === 'short-long'
-          ? windows
-          : [picked.long]
-        : [{ label: '0', percent: 0, resetAt: null }];
+      let bars: typeof windows;
+      if (!picked) bars = [{ label: '0', percent: 0, resetAt: null }];
+      else if (mode === 'short-long') bars = windows;
+      else bars = [picked.long];
       const title = `${entry.label} · ${index + 1} ${usageAccountName(account)}`;
       return {
         key: `${entry.key}:${account.id}`,
