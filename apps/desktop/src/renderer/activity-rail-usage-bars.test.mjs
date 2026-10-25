@@ -88,7 +88,7 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
   const { root, props, stored } = await mountRail(t);
   assert.equal(meters('claude').length, 1);
   assert.equal(brand('claude').querySelector('small').textContent, '99%');
-  assert.ok(meters('claude')[0].classList.contains('is-thick'));
+  assert.equal(meters('claude')[0].classList.contains('is-cool'), false);
 
   await press(await openFlyout());
   await press(document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]'));
@@ -104,11 +104,8 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
     ['99%', '41%']
   );
   assert.deepEqual(
-    claudeBars.map((bar) => [bar.classList.contains('is-thick'), bar.classList.contains('tone-danger')]),
-    [
-      [true, true],
-      [false, false],
-    ]
+    claudeBars.map((bar) => bar.classList.contains('is-cool')),
+    [false, true]
   );
   assert.ok(brand('claude').className.includes('tone-danger'));
   assert.equal(brand('claude').querySelector('small').textContent, '99%');

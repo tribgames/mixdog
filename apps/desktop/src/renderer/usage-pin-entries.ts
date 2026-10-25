@@ -78,6 +78,8 @@ interface UsagePinEntry {
   bars: UsagePinWindow[];
   /** Every window the tooltip names (short window first when there is one). */
   windows: UsagePinWindow[];
+  /** Index in `bars` of the bar holding the figure (the tone follows it). */
+  hot: number;
   /** Rail hover text naming the provider and every window. */
   tooltip: string;
   /** Known-connected provider whose quota has not arrived: the row keeps its
@@ -113,7 +115,7 @@ export function usagePinRosterFromSetup(setup: unknown): UsagePinRosterEntry[] {
   );
   return SUBSCRIPTIONS.filter((subscription) => connected.has(subscription.provider)).map((subscription) => ({
     key: subscription.key,
-    bars: TWO_WINDOW_SUBSCRIPTIONS.has(subscription.key) ? 2 : 1,
+    bars: 1,
   }));
 }
 
@@ -143,6 +145,7 @@ export function usagePinEntriesWithRoster(
         percent: 0,
         bars,
         windows: bars,
+        hot: 0,
         tooltip: subscription.label,
         pending: true,
       },
@@ -216,15 +219,16 @@ function pinTooltipWindows(picked: NonNullable<ReturnType<typeof pinWindows>>): 
   return [...picked.pair, ...picked.all.filter((window) => !picked.pair.includes(window))];
 }
 
-/** Subscriptions known to report two quota windows, so a row whose quota has
- *  not arrived reserves both bars. */
-const TWO_WINDOW_SUBSCRIPTIONS = new Set(['codex', 'claude', 'cursor', 'antigravity']);
-
-/** Rail tone: warning from 50 %, danger from 90 %. */
-export function usagePinToneClass(percent: number | null): string {
-  if (percent === null) return '';
-  if (percent >= 90) return ' tone-danger';
-  return percent >= 50 ? ' tone-warning' : '';
+/** Index of the drawn bar holding the figure (the last one on a tie); when the
+ *  highest window is not drawn, the highest drawn bar. */
+function hotBar(bars: readonly UsagePinWindow[], peak: number): number {
+  let hot = 0;
+  let holder = -1;
+  bars.forEach((bar, index) => {
+    if (bar.percent >= bars[hot].percent) hot = index;
+    if (bar.percent === peak) holder = index;
+  });
+  return holder >= 0 ? holder : hot;
 }
 
 /** Rail pin mode: one entry per brand that has quota data —
@@ -247,6 +251,7 @@ export function usagePinEntries(dashboard: unknown, mode: UsageRailBars = 'long'
         percent: picked.peak,
         bars,
         windows,
+        hot: hotBar(bars, picked.peak),
         tooltip: usagePinTooltip(subscription.label, pinTooltipWindows(picked)),
       },
     ];
@@ -284,6 +289,7 @@ export function usagePinAccountEntries(
         percent: picked ? picked.peak : 0,
         bars,
         windows,
+        hot: picked ? hotBar(bars, picked.peak) : 0,
         tooltip: picked ? usagePinTooltip(title, pinTooltipWindows(picked)) : title,
         pending: picked ? undefined : true,
         accountIndex: index + 1,

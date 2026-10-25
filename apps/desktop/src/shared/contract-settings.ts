@@ -103,8 +103,8 @@ export interface DesktopSettings {
   notificationVolume: number;
   /** Activity-rail usage pin mode, shared by desktop and remote surfaces. */
   usagePinned: boolean;
-  /** Pinned rail bars: false = the longest period only, true = the shortest
-   *  plus the longest period as two bars (default). */
+  /** Pinned rail bars: false = the longest period only (default), true = the
+   *  shortest plus the longest period as two bars. */
   usageRailShortLong: boolean;
   /** Usage panel and rail show every account of a multi-account provider. */
   usageAccountsExpanded: boolean;

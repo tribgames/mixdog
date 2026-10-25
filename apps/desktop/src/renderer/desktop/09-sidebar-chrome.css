@@ -17,13 +17,13 @@
 }
 .rail-usage-pin-stack {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   justify-items: center;
   width: 100%;
 }
 .rail-usage-pin-brand {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   justify-items: center;
   width: 100%;
 }
@@ -36,14 +36,23 @@
   height: 16px;
   margin: 0 auto;
 }
+/* The sparkle/star marks carry far less ink than the knot/letterforms —
+   one step up keeps their optical size on the same line. */
+.rail-usage-pin-brand svg[data-provider-icon="synthetic"],
+.rail-usage-pin-brand svg[data-provider-icon="google"] {
+  width: var(--mx-icon-lg);
+  height: var(--mx-icon-lg);
+  /* Drawn larger, laid out at the row's 16px (rail-usage-pin-room.ts budgets 16). */
+  margin-block: calc((16px - var(--mx-icon-lg)) / 2);
+}
 /* Miniature of the flyout meter (user: 프로그래스라도 중간에): a 3px track
    between icon and number, filled in accent ink until the tone escalates. */
 .rail-usage-pin-brand > i {
   position: relative;
   display: block;
   overflow: hidden;
-  width: 24px;
-  height: 4px;
+  width: 26px;
+  height: 3px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-meter-track);
 }
@@ -55,28 +64,25 @@
      warning/danger tones below take over. */
   background: var(--mx-meter-fill);
 }
-/* Thick bar = short window (or the only one), thin bar = long window; each
-   bar carries its own tone. */
-.rail-usage-pin-brand > i.is-thin {
-  height: 2px;
-}
-.rail-usage-pin-brand > i.tone-warning > i {
+/* Short + long mode stacks two meters (the brand's 2px gap separates them);
+   the tone colors only the bar that drives the figure. */
+.rail-usage-pin-brand.tone-warning > i:not(.is-cool) > i {
   background: var(--mx-meter-warning);
 }
-.rail-usage-pin-brand > i.tone-danger > i {
+.rail-usage-pin-brand.tone-danger > i:not(.is-cool) > i {
   background: var(--mx-meter-danger);
 }
 .rail-usage-pin-brand > small {
-  color: var(--mx-text-muted);
+  color: var(--mx-text);
   display: block;
   width: 100%;
   text-align: left;
-  font-size: 10px;
+  font-size: var(--mx-font-micro);
   /* A gauge readout, not a heading: regular weight keeps the figures
      legible without out-weighing the rail icons (user: % 가 좀 굵다 →
      레일 % 폰트 굵기 조정; 500 still read bold under the 22px glyphs). */
   font-weight: var(--mx-weight-regular);
-  line-height: 12px;
+  line-height: 11px;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }

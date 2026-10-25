@@ -33,6 +33,7 @@ test('short + long mode picks the shortest and the longest window, short first',
     ]
   );
   assert.equal(entry.percent, 99);
+  assert.equal(entry.hot, 0);
   // The default mode keeps the single longest-window bar.
   const [longOnly] = usagePinEntries(claude(windows));
   assert.deepEqual(
@@ -52,6 +53,7 @@ test('the figure and the driving bar follow the higher of the two', () => {
     'short-long'
   );
   assert.equal(entry.percent, 75);
+  assert.equal(entry.hot, 1);
 });
 
 test('the tooltip names every window, including ones that are not drawn', () => {
@@ -114,6 +116,7 @@ test('Cursor keeps Basic as the long bar and API becomes the second bar', () => 
     ['Basic', 'API']
   );
   assert.equal(entry.percent, 70);
+  assert.equal(entry.hot, 1);
   const [longOnly] = usagePinEntries(cursor, 'long');
   assert.deepEqual(
     longOnly.bars.map((bar) => bar.label),
@@ -162,12 +165,12 @@ test('account slots show the highest window of the account in both modes', () =>
   }
 });
 
-test('the rail defaults to the 5-hour + longest period mode without a stored choice', async (t) => {
+test('the rail defaults to the longest period only without a stored choice', async (t) => {
   installTestDom(t, { expose: ['HTMLElement', 'Node'], rootId: 'root' });
   const { readRailPrefs } = await import('./use-usage-rail-pin.ts');
-  assert.equal(readRailPrefs().bars, 'short-long');
-  window.localStorage.setItem('mixdog.desktop.usage-rail-prefs.v2', JSON.stringify({ bars: 'long' }));
   assert.equal(readRailPrefs().bars, 'long');
+  window.localStorage.setItem('mixdog.desktop.usage-rail-prefs.v2', JSON.stringify({ bars: 'short-long' }));
+  assert.equal(readRailPrefs().bars, 'short-long');
 });
 
 test('the tooltip names the provider and both windows with percent and reset time', () => {
@@ -196,7 +199,7 @@ test('the tooltip names the provider and both windows with percent and reset tim
 });
 
 test('the taller two-bar stack counts toward rail room', () => {
-  assert.equal(usagePinStackHeight(3, 2), usagePinStackHeight(3) + 12);
+  assert.equal(usagePinStackHeight(3, 2), usagePinStackHeight(3) + 10);
   const base = { navHeight: 400, settingsHeight: 44, rowCount: 3 };
   const railHeight = 400 + 44 + usagePinStackHeight(3);
   assert.equal(usagePinStackFits({ ...base, railHeight }), true);

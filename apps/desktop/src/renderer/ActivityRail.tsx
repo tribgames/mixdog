@@ -28,8 +28,7 @@ import {
   subscribeUsageDashboard,
   type UsageApi,
 } from './usage-dashboard-store';
-import { usagePinToneClass } from './usage-pin-entries';
-import { displayUsagePercent } from './usage-percent';
+import { displayUsagePercent, usageToneClass } from './usage-percent';
 import { ActivityRailNavigation } from './activity-rail-navigation';
 import { RemotePcSwitcher } from './RemotePcSwitcher';
 import { usePlainBrowserChrome } from './titlebar';
@@ -51,10 +50,10 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
       <span className="rail-usage-pin-stack">
         {rows.map((entry) => {
           const percent = displayUsagePercent(entry.percent) ?? 0;
-          // Glanceable readout: icon, a thick bar for the short window, a thin
-          // one for the long window (one thick bar alone), each toned by its
-          // own value, then the number — the highest of all quota windows.
-          const tone = usagePinToneClass(entry.percent);
+          // Glanceable readout: icon, then the flyout's meter grammar in
+          // miniature, then the number — the highest of all quota windows;
+          // in short + long mode the bar holding it takes the tone.
+          const tone = usageToneClass(entry.percent);
           return (
             <span
               className={`rail-usage-pin-brand${tone}`}
@@ -72,10 +71,7 @@ function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'],
                 </span>
               )}
               {entry.bars.map((bar, index) => (
-                <i
-                  key={bar.label}
-                  className={`${index === 0 ? 'is-thick' : 'is-thin'}${usagePinToneClass(bar.percent)}`}
-                >
+                <i key={bar.label} className={entry.bars.length > 1 && index !== entry.hot ? 'is-cool' : undefined}>
                   <i style={{ width: `${displayUsagePercent(bar.percent) ?? 0}%` }} />
                 </i>
               ))}

@@ -31,12 +31,12 @@ export function readRailPrefs(): RailPrefs {
     const stored = JSON.parse(window.localStorage.getItem(USAGE_RAIL_PREFS_KEY) || 'null');
     return {
       pinned: typeof stored?.pinned === 'boolean' ? stored.pinned : true,
-      bars: stored?.bars === 'long' ? 'long' : 'short-long',
+      bars: stored?.bars === 'short-long' ? 'short-long' : 'long',
       expanded: stored?.expanded === true,
       slots: stored?.slots === '3' || stored?.slots === 'all' ? stored.slots : '5',
     };
   } catch {
-    return { pinned: true, bars: 'short-long', expanded: false, slots: '5' };
+    return { pinned: true, bars: 'long', expanded: false, slots: '5' };
   }
 }
 
