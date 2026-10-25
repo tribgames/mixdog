@@ -89,7 +89,7 @@ function storedPreferences(value: unknown): NotificationDevicePreferences {
 
 const TARGET_ID = /^[\w.:-]{1,200}$/u;
 
-export function isNotificationTarget(value: unknown): value is NotificationTarget {
+function isNotificationTarget(value: unknown): value is NotificationTarget {
   const target = record(value);
   return (
     (target.kind === 'session' || target.kind === 'agent' || target.kind === 'room') &&
@@ -125,7 +125,7 @@ function storedDoc(value: unknown): NotificationPreferencesDoc {
 }
 
 /** The file as it is on disk, or null when there is none yet. */
-export function readNotificationPreferencesFile(filePath: string): NotificationPreferencesDoc | null {
+function readNotificationPreferencesFile(filePath: string): NotificationPreferencesDoc | null {
   try {
     // A damaged file is kept aside and its last good copy read.
     return readJsonStateSync(filePath, { validate: storedDoc, fallback: null });
@@ -136,7 +136,7 @@ export function readNotificationPreferencesFile(filePath: string): NotificationP
 
 /** A device's preferences: its stored entry, else the default its kind and
  *  pairing time give it. */
-export function devicePreferencesIn(
+function devicePreferencesIn(
   doc: Pick<NotificationPreferencesDoc, 'devices' | 'migratedAt'> | null,
   deviceId: string,
   info: NotificationDeviceInfo = { kind: deviceId === NOTIFICATION_PC_DEVICE_ID ? 'pc' : 'browser' }
@@ -144,7 +144,9 @@ export function devicePreferencesIn(
   const stored = doc?.devices[deviceId];
   if (stored) return stored;
   const pairedAfter = doc && info.pairedAt !== undefined && info.pairedAt >= doc.migratedAt;
-  return info.kind === 'phone-app' && pairedAfter ? NEW_PHONE_NOTIFICATION_PREFERENCES : DEFAULT_NOTIFICATION_PREFERENCES;
+  return info.kind === 'phone-app' && pairedAfter
+    ? NEW_PHONE_NOTIFICATION_PREFERENCES
+    : DEFAULT_NOTIFICATION_PREFERENCES;
 }
 
 /** This PC's view, read from disk (the window process). */
@@ -157,7 +159,7 @@ export function readPcNotificationView(filePath: string, now = Date.now()): Noti
 }
 
 /** `current` with `patch` applied; a patch is validated before it gets here. */
-export function applyNotificationPreferencesPatch(
+function applyNotificationPreferencesPatch(
   current: NotificationDevicePreferences,
   patch: NotificationPreferencesPatch
 ): NotificationDevicePreferences {
@@ -186,10 +188,7 @@ export interface NotificationLegacySettings {
   mutedAgents: readonly string[];
 }
 
-export function migratedNotificationPreferences(
-  legacy: NotificationLegacySettings,
-  now: number
-): NotificationPreferencesDoc {
+function migratedNotificationPreferences(legacy: NotificationLegacySettings, now: number): NotificationPreferencesDoc {
   return {
     version: 1,
     migratedAt: now,
@@ -257,8 +256,7 @@ export function createNotificationPreferencesStore({
     await loading;
     return doc!;
   };
-  const prunedOverrides = (overrides: readonly ConversationNotificationOverride[]) =>
-    activeOverrides(overrides, now());
+  const prunedOverrides = (overrides: readonly ConversationNotificationOverride[]) => activeOverrides(overrides, now());
   /** `entries`' preferences; each one with none stored gets its default written. */
   const withDefaults = (entries: ReadonlyArray<{ id: string; info: NotificationDeviceInfo }>) =>
     mutate((value) => {
@@ -314,7 +312,8 @@ export function createNotificationPreferencesStore({
     /** A revoked device's preferences go with its push registrations. */
     removeDevice(deviceId: string): Promise<void> {
       return mutate((value) => {
-        if (!value.devices[deviceId] || deviceId === NOTIFICATION_PC_DEVICE_ID) return { next: null, result: undefined };
+        if (!value.devices[deviceId] || deviceId === NOTIFICATION_PC_DEVICE_ID)
+          return { next: null, result: undefined };
         const devices = { ...value.devices };
         delete devices[deviceId];
         return { next: { ...value, devices }, result: undefined };

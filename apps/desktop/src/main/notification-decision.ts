@@ -143,7 +143,10 @@ const skip = (reason: NotificationSkipReason): NotificationDecision => ({ notify
 
 export function decideNotification(input: NotificationDecisionInput): NotificationDecision {
   const { event, conversation, preferences, now } = input;
-  if (inQuietHours(preferences.quietHours, now) && !(preferences.quietHours.allowWaiting && WAITING_EVENTS.has(event))) {
+  if (
+    inQuietHours(preferences.quietHours, now) &&
+    !(preferences.quietHours.allowWaiting && WAITING_EVENTS.has(event))
+  ) {
     return skip('quiet-hours');
   }
   const override = conversationOverride(conversation, input.overrides, now);

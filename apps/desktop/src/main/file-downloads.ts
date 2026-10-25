@@ -945,17 +945,17 @@ export function requiredFileDownloadRequest(value: unknown): FileDownloadRequest
   throw new TypeError('download source is invalid.');
 }
 
-export function requiredFileDownloadId(value: unknown, name: string): string {
+function requiredFileDownloadId(value: unknown, name: string): string {
   if (typeof value !== 'string' || !DOWNLOAD_ID.test(value)) throw new TypeError(`${name} is invalid.`);
   return value;
 }
 
-export function requiredFileDownloadVersion(value: unknown): string {
+function requiredFileDownloadVersion(value: unknown): string {
   if (typeof value !== 'string' || !DOWNLOAD_VERSION.test(value)) throw new TypeError('version is invalid.');
   return value;
 }
 
-export function requiredFileDownloadRange(offset: unknown, length: unknown): { offset: number; length: number } {
+function requiredFileDownloadRange(offset: unknown, length: unknown): { offset: number; length: number } {
   if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > FILE_DOWNLOAD_MAX_BYTES) {
     throw new TypeError('offset is invalid.');
   }

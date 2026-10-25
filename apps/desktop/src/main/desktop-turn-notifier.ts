@@ -21,7 +21,7 @@ export const TURN_FAILED_TEXT = 'The turn stopped with an error.';
 export type SessionWait = 'approval' | 'question';
 
 /** A wait notification's words when the PC gives none of its own. */
-export const WAITING_TEXT: Readonly<Record<SessionWait, string>> = {
+const WAITING_TEXT: Readonly<Record<SessionWait, string>> = {
   approval: 'Waiting for your approval.',
   question: 'Waiting for your answer.',
 };

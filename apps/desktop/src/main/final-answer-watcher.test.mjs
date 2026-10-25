@@ -239,7 +239,9 @@ test('a session whose record is gone is cancelled after one read instead of re-r
   const { watcher, delivered, answers, reads, errors, diagnostics, tick } = harness(t);
   // The relayed service message and the desktop host's own wording.
   answers.read = async (id) => {
-    throw new Error(id === 'a' ? 'session a is not available' : 'Error invoking remote method: Session is not available.');
+    throw new Error(
+      id === 'a' ? 'session a is not available' : 'Error invoking remote method: Session is not available.'
+    );
   };
   watcher.onSessions([session('a', { working: true }), session('b', { working: true })]);
   // The catalog rows outlive the deleted records.
@@ -280,8 +282,8 @@ test('a session reported missing by error code is terminal whatever the message 
 
 test('the read gets an abort signal that fires when it overruns its deadline', async (t) => {
   const { watcher, answers, reads, errors, tick } = harness(t);
-  answers.read = (id, startedAt, signal) =>
-    new Promise((resolve, reject) => {
+  answers.read = (_id, _startedAt, signal) =>
+    new Promise((_resolve, reject) => {
       signal.addEventListener('abort', () => reject(signal.reason));
     });
   watcher.onSessions([session('a', { working: true })]);

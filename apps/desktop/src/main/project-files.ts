@@ -178,8 +178,8 @@ export async function listProjectDirIn(root: string, relDir: string): Promise<Ar
 }
 
 /** Editable text up to 1 MB; larger text up to 10 MB opens read-only. */
-export const PROJECT_TEXT_EDIT_MAX_BYTES = 1_048_576;
-export const PROJECT_TEXT_VIEW_MAX_BYTES = 10_485_760;
+const PROJECT_TEXT_EDIT_MAX_BYTES = 1_048_576;
+const PROJECT_TEXT_VIEW_MAX_BYTES = 10_485_760;
 
 /** Editor tab: read a project text file (1 MB edit cap, 10 MB read-only cap, binary sniff). */
 export async function readProjectTextFileIn(root: string, relPath: string): Promise<ProjectTextFile> {
@@ -323,7 +323,7 @@ async function expectedHandleText(
 }
 
 /** The identity of the file a handle holds: the same through every hard link. */
-export async function handleIdentity(handle: FileHandle): Promise<RecoveryIdentity> {
+async function handleIdentity(handle: FileHandle): Promise<RecoveryIdentity> {
   const info = await handle.stat({ bigint: true });
   return { dev: String(info.dev), ino: String(info.ino) };
 }
@@ -333,7 +333,7 @@ export const identityKey = ({ dev, ino }: RecoveryIdentity): string => `${dev}:$
 /** Called once a save holds its file's identity claim: waiting for another
  *  writer may have outlasted the path, so it must still name the file that was
  *  opened and claimed, not a replacement or a retargeted link. */
-export function assertPathNamesFile(file: string, identity: RecoveryIdentity): void {
+function assertPathNamesFile(file: string, identity: RecoveryIdentity): void {
   if (!sameRecoveryIdentity(recoveryIdentity(file), identity)) {
     throw new Error('Project path changed while waiting. Retry the operation.');
   }

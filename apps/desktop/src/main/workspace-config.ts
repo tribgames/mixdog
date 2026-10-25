@@ -68,14 +68,14 @@ export async function readWorkspaceFile(workspaceFile: string): Promise<DesktopW
 }
 
 /** The `.code-workspace` path a save names (the extension added when absent). */
-export function workspaceFilePath(workspaceFile: string): string {
+function workspaceFilePath(workspaceFile: string): string {
   const file = resolve(workspaceFile);
   return file.toLocaleLowerCase().endsWith('.code-workspace') ? file : `${file}.code-workspace`;
 }
 
 /** The saved text of workspace `file` listing `folders`, keeping the other
  *  keys of its `existing` configuration, and the workspace it describes. */
-export function workspaceFileText(
+function workspaceFileText(
   file: string,
   folders: readonly DesktopWorkspaceFolder[],
   existing: Record<string, unknown>

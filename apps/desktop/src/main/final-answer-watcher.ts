@@ -94,14 +94,10 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
         }
       );
     });
-    const gate: Promise<void> = read.then(
-      () => {
-        if (readInFlight === gate) readInFlight = null;
-      },
-      () => {
-        if (readInFlight === gate) readInFlight = null;
-      }
-    );
+    const freeSlot = (): void => {
+      if (readInFlight === gate) readInFlight = null;
+    };
+    const gate: Promise<void> = read.then(freeSlot, freeSlot);
     readInFlight = gate;
     return read;
   };

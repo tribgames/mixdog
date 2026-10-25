@@ -51,7 +51,7 @@ export { type AuthorizedFile, openAuthorizedFile } from './opened-file-authoriza
 export const remoteFilePreviewTestHooks = openedFileAuthorizationTestHooks;
 
 /** Largest file handed to a conversion or snapshot as a private copy. */
-export const AUTHORIZED_COPY_MAX_BYTES = 256 * 1024 * 1024;
+const AUTHORIZED_COPY_MAX_BYTES = 256 * 1024 * 1024;
 
 /** Private copies in use, by path: the same bytes requested twice at once
  *  share one copy, removed when its last user is done. */

@@ -23,7 +23,7 @@ export interface NotificationTestResult {
   message?: string;
 }
 
-export const NOTIFICATION_CENTER_OPERATIONS = [
+const NOTIFICATION_CENTER_OPERATIONS = [
   'notificationPreferencesState',
   'setNotificationPreferences',
   'listConversationNotifications',
@@ -98,7 +98,9 @@ export function createNotificationCenter(options: NotificationCenterOptions) {
   };
   const state = async (currentDeviceId: string, pcCanNotify: boolean | null): Promise<NotificationPreferencesState> => {
     const { summaries, infos } = await devices(pcCanNotify);
-    const preferences = await store.devices(summaries.map((device) => ({ id: device.id, info: infos.get(device.id)! })));
+    const preferences = await store.devices(
+      summaries.map((device) => ({ id: device.id, info: infos.get(device.id)! }))
+    );
     return { devices: summaries, preferences, currentDeviceId };
   };
   const setPreferences = async (

@@ -92,7 +92,10 @@ test('a device resolved by its pairing record keeps that default; an unknown rec
     (await prefs.resolveDevice('old', record({ kind: 'phone-app', pairedAt: MIGRATED_AT - 1 }))).scope,
     'all'
   );
-  assert.equal((await prefs.resolveDevice('new', record({ kind: 'phone-app', pairedAt: MIGRATED_AT + 1 }))).scope, 'bots');
+  assert.equal(
+    (await prefs.resolveDevice('new', record({ kind: 'phone-app', pairedAt: MIGRATED_AT + 1 }))).scope,
+    'bots'
+  );
   assert.equal(changes.length, 2);
   // Stored now: no further lookups.
   assert.equal((await prefs.resolveDevice('new', record(null))).scope, 'bots');
@@ -133,9 +136,18 @@ test('with notifications on and nobody muted, this PC starts at the defaults', a
 test('devices paired before the migration and browsers get the defaults; a new phone app gets bot chats only', async (t) => {
   const prefs = store(profile(t));
   await prefs.ready();
-  assert.deepEqual(await prefs.device('old-phone', { kind: 'phone-app', pairedAt: MIGRATED_AT - 1 }), DEFAULT_NOTIFICATION_PREFERENCES);
-  assert.deepEqual(await prefs.device('new-phone', { kind: 'phone-app', pairedAt: MIGRATED_AT }), NEW_PHONE_NOTIFICATION_PREFERENCES);
-  assert.deepEqual(await prefs.device('new-tab', { kind: 'browser', pairedAt: MIGRATED_AT + 1 }), DEFAULT_NOTIFICATION_PREFERENCES);
+  assert.deepEqual(
+    await prefs.device('old-phone', { kind: 'phone-app', pairedAt: MIGRATED_AT - 1 }),
+    DEFAULT_NOTIFICATION_PREFERENCES
+  );
+  assert.deepEqual(
+    await prefs.device('new-phone', { kind: 'phone-app', pairedAt: MIGRATED_AT }),
+    NEW_PHONE_NOTIFICATION_PREFERENCES
+  );
+  assert.deepEqual(
+    await prefs.device('new-tab', { kind: 'browser', pairedAt: MIGRATED_AT + 1 }),
+    DEFAULT_NOTIFICATION_PREFERENCES
+  );
   assert.deepEqual(await prefs.device('unknown', { kind: 'phone-app' }), DEFAULT_NOTIFICATION_PREFERENCES);
 });
 
@@ -172,12 +184,18 @@ test('conversation overrides: set, replace, inherit removes, an expired mute is 
   await prefs.setConversation({ kind: 'room', id: 'r1' }, { mode: 'always' });
   assert.equal((await prefs.overrides()).length, 2);
   await prefs.setConversation({ kind: 'room', id: 'r1' }, { mode: 'muted', until: null });
-  assert.deepEqual((await prefs.overrides()).map((entry) => [entry.target.id, entry.setting.mode]), [
-    ['s1', 'muted'],
-    ['r1', 'muted'],
-  ]);
+  assert.deepEqual(
+    (await prefs.overrides()).map((entry) => [entry.target.id, entry.setting.mode]),
+    [
+      ['s1', 'muted'],
+      ['r1', 'muted'],
+    ]
+  );
   now.value = MIGRATED_AT + 1_000;
-  assert.deepEqual((await prefs.overrides()).map((entry) => entry.target.id), ['r1']);
+  assert.deepEqual(
+    (await prefs.overrides()).map((entry) => entry.target.id),
+    ['r1']
+  );
   assert.deepEqual(readPcNotificationView(notificationPreferencesPath(dir), now.value).overrides.length, 1);
   assert.deepEqual(await prefs.setConversation({ kind: 'room', id: 'r1' }, { mode: 'inherit' }), []);
 });

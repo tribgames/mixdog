@@ -67,7 +67,7 @@ export function requestPhoneTranscriptPage(encoder: SnapshotDeltaEncoder | undef
 /** `snapshot` as this phone's encoder should send it: its window of rows,
  *  each as its phone copy (remoteTranscriptSnapshot), and `transcriptHasOlder`
  *  set when rows above the window are left out. */
-export function phoneTranscriptSnapshot(encoder: SnapshotDeltaEncoder, snapshot: unknown): unknown {
+function phoneTranscriptSnapshot(encoder: SnapshotDeltaEncoder, snapshot: unknown): unknown {
   const record = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : null;
   if (!record || !Array.isArray(record.items)) return remoteTranscriptSnapshot(snapshot);
   const items = record.items as unknown[];

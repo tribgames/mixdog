@@ -172,10 +172,7 @@ test('ties go to the shorter path, then to name order; a camelCase hump beats a 
     await writeFile(join(root, file), '');
   }
   assert.deepEqual(await searchProjectDirectory(root, 'ab', 10), ['abc.ts', 'abd.ts', 'abcdef.ts', 'z/abc.ts']);
-  assert.deepEqual(await searchProjectDirectory(root, 'composer', 10), [
-    'src/MainComposer.tsx',
-    'src/decomposer.ts',
-  ]);
+  assert.deepEqual(await searchProjectDirectory(root, 'composer', 10), ['src/MainComposer.tsx', 'src/decomposer.ts']);
 });
 
 test('a bare file name still lists its exact-basename files first and drops scattered hits', async (t) => {

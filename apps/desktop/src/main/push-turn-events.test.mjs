@@ -44,10 +44,16 @@ test('a completion carries what the notification decision reads: kind, origin, b
   for (const [extra, conversation] of [
     [{}, { kind: 'coding', origin: 'user', agentId: '', roomId: '' }],
     [{ sourceType: 'webhook' }, { kind: 'coding', origin: 'webhook', agentId: '', roomId: '' }],
-    [{ sourceType: 'schedule', sessionMode: 'agent' }, { kind: 'task', origin: 'schedule', agentId: '', roomId: '' }],
+    [
+      { sourceType: 'schedule', sessionMode: 'agent' },
+      { kind: 'task', origin: 'schedule', agentId: '', roomId: '' },
+    ],
     [{ agentHome: 'gh' }, { kind: 'bot', origin: 'user', agentId: 'gh', roomId: '' }],
     [{ agentRoom: { id: 'r1', name: 'Plan' } }, { kind: 'room', origin: 'user', agentId: '', roomId: 'r1' }],
-    [{ taskAgent: 'gh', taskFrom: 'home' }, { kind: 'task', origin: 'user', agentId: '', roomId: '' }],
+    [
+      { taskAgent: 'gh', taskFrom: 'home' },
+      { kind: 'task', origin: 'user', agentId: '', roomId: '' },
+    ],
   ]) {
     const tracker = createTurnCompletionTracker();
     tracker.observe([session('a', { ...extra, working: true })], 1_000);

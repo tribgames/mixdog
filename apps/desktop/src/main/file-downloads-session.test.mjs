@@ -73,7 +73,7 @@ function fixture(t) {
           tool('t1', 'shell', { result: `wrote ${slash(join(outside, 'shell-out.txt'))}` }),
           tool('t2', 'screenshot', { result: JSON.stringify({ ok: true, output: join(outside, 'shot.png') }) }),
           tool('t3', 'shell', { result: JSON.stringify({ ok: true, output: join(outside, 'spaced name.txt') }) }),
-          tool('t4', 'shell', { result: slash(join(outside, 'report')) + '/' }),
+          tool('t4', 'shell', { result: `${slash(join(outside, 'report'))}/` }),
           tool('t5', 'shell', { result: slash(join(outside, 'page.html')) }),
           tool('t6', 'shell', { result: slash(join(outside, 'alias.txt')) }),
           { id: 'a1', kind: 'assistant', text: 'done', streaming: false },

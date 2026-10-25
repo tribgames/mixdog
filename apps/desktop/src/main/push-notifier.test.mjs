@@ -210,7 +210,11 @@ function devices(t, { preferences = {}, desktopActive = false, foreground = [], 
       send: (message) => {
         relayed.push(message);
         const recipient = phones.find((phone) => phone.token === message.token).clientId;
-        native.push({ recipient, outer: message.reason, ...decryptNativePush(keys.get(recipient).getPrivateKey(), message.mx) });
+        native.push({
+          recipient,
+          outer: message.reason,
+          ...decryptNativePush(keys.get(recipient).getPrivateKey(), message.mx),
+        });
         return true;
       },
       removeByClient: async () => true,
@@ -222,7 +226,10 @@ function devices(t, { preferences = {}, desktopActive = false, foreground = [], 
 
 test('each paired device gets its own decision: scope and event switch', async (t) => {
   const f = devices(t, {
-    preferences: { 'phone-b': { scope: 'bots' }, 'tab-1': { events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, approval: false } } },
+    preferences: {
+      'phone-b': { scope: 'bots' },
+      'tab-1': { events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, approval: false } },
+    },
   });
   f.notifier.onSessions([{ id: 's1', title: 'Fix' }]);
   f.notifier.onSessionState(update({ id: 'a1' }));
@@ -265,7 +272,11 @@ test('a device holding pushes while this PC is in use waits, and this PC is aske
 });
 
 test('a held approval answered on this PC during the hold is never pushed', async (t) => {
-  const f = devices(t, { desktopActive: true, holdMs: 150, preferences: { 'phone-a': { holdWhileDesktopActive: true } } });
+  const f = devices(t, {
+    desktopActive: true,
+    holdMs: 150,
+    preferences: { 'phone-a': { holdWhileDesktopActive: true } },
+  });
   f.notifier.onSessionState(update({ id: 'a1' }));
   await settle();
   f.notifier.onSessionState(update(null));

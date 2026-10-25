@@ -202,9 +202,10 @@ test('noteUserInput is a desktop capability and a session configure action takin
   assert.equal(DESKTOP_CAPABILITIES.includes('noteUserInput'), true);
   assert.equal(DESKTOP_READ_CAPABILITIES.includes('noteUserInput'), false);
   assert.equal(SESSION_CONFIGURE_ACTIONS.includes('noteUserInput'), true);
-  assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'noteUserInput', args: [1_700_000_000_000] }).args, [
-    1_700_000_000_000,
-  ]);
+  assert.deepEqual(
+    requiredDesktopCapabilityRequest({ capability: 'noteUserInput', args: [1_700_000_000_000] }).args,
+    [1_700_000_000_000]
+  );
   for (const args of [[], ['1'], [0], [-1], [Number.NaN], [1, 2]]) {
     assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'noteUserInput', args }), TypeError);
   }

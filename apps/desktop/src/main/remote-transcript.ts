@@ -50,13 +50,13 @@ const HISTORY_WHOLE_OUTPUT =
 /** Set on a capped tool row: the length of its longest output before the cut. */
 export const REMOTE_OUTPUT_TRUNCATED_FIELD = 'remoteOutputTruncated';
 /** Set on a row whose `uiDiff` the phone's copy replaced with per-section digests. */
-export const REMOTE_DIFF_DIGEST_FIELD = 'uiDiffSummary';
+const REMOTE_DIFF_DIGEST_FIELD = 'uiDiffSummary';
 
 /** Set on a row whose phone copy changed a text field, naming each field and
  *  how: `{ kind: 'omitted', at, omitted }` — the field holds its first `at`
  *  characters and its end, `omitted` characters were left out between them.
  *  The words are the phone's to write, in its own language. */
-export const REMOTE_OUTPUT_NOTES_FIELD = 'remoteOutputNotes';
+const REMOTE_OUTPUT_NOTES_FIELD = 'remoteOutputNotes';
 export type RemoteOutputNote = { kind: 'omitted'; at: number; omitted: number };
 
 /** The first and last characters of an output over the cap joined, and where

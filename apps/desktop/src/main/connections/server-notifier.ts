@@ -169,7 +169,7 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
   let previous: DesktopConnectionLinkView['state']['status'] = 'connected';
   const noticeAllowed = (): boolean =>
     !options.isForeground() && allowsDeviceNotice(options.preferences().preferences, Date.now());
-  const onLink =(view: DesktopConnectionLinkView): void => {
+  const onLink = (view: DesktopConnectionLinkView): void => {
     const status = view.state.status;
     const was = previous;
     previous = status;

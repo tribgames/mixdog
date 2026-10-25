@@ -56,7 +56,7 @@ const EVENT_OF_REASON: Record<PushReason, NotificationEvent> = {
 };
 
 /** The words of a test notification (Settings › Notifications). */
-export const TEST_PUSH_TEXT = 'Notifications from this PC reach this device.';
+const TEST_PUSH_TEXT = 'Notifications from this PC reach this device.';
 const RELAY_UNAVAILABLE = 'The relay is not connected right now.';
 
 interface PendingInputSnapshot {

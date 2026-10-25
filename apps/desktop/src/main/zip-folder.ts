@@ -119,7 +119,11 @@ async function gitExclusion(root: string): Promise<Exclusion | null> {
   return {
     file: (rel) => files.has(comparable(rel)),
     // A listed folder is a nested repository, taken as it is.
-    directory: (rel) => (files.has(comparable(rel)) ? 'whole' : parents.has(comparable(rel)) ? 'walk' : 'out'),
+    directory: (rel) => {
+      const key = comparable(rel);
+      if (files.has(key)) return 'whole';
+      return parents.has(key) ? 'walk' : 'out';
+    },
     ignored,
     countLeftOut: false,
   };

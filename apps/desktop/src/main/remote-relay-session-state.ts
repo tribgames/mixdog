@@ -36,7 +36,7 @@ export function encodeRelayClientSessionState(
  *  the desktop transport's rule (state-delta.ts: shouldPublishSessionState).
  *  Dropping that answer left a phone's opened chat on its loading skeleton
  *  until a later visibility sync re-sent the baseline. */
-export function relayClientAwaitsSession(
+function relayClientAwaitsSession(
   state: Pick<RelayClientState, 'visibleSessionIds' | 'requestedReads'>,
   sessionId: string
 ): boolean {

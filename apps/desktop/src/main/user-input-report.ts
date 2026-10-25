@@ -18,7 +18,7 @@ const OPERATION_TYPES: ReadonlySet<string> = new Set([
 
 /** How often a newer input time is reported: bounds the runtime's staleness,
  *  far below the heartbeat's 30 minute idle rule. */
-export const USER_INPUT_REPORT_MS = 60_000;
+const USER_INPUT_REPORT_MS = 60_000;
 
 interface InputEventSource {
   on(event: 'input-event', listener: (event: unknown, input: { type?: string }) => void): unknown;

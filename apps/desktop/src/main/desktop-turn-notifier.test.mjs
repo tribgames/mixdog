@@ -202,7 +202,10 @@ test('a failed turn notifies only with errors on, in this PC’s words', async (
   await h.tick();
   assert.equal(h.notifications.length, 0, 'errors are off by default');
   assert.ok(h.events.some((row) => row.reason === 'event'));
-  h.state.preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, error: true } };
+  h.state.preferences = {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, error: true },
+  };
   h.finish();
   await h.tick();
   assert.deepEqual(h.notifications[0].content, { title: 'Task', body: '오류로 멈췄습니다.' });
@@ -314,7 +317,7 @@ test('notification text removes Markdown syntax without damaging paths, links or
   assert.equal(notificationPreview(`${sentence} ${'추가 설명이 계속 이어집니다 '.repeat(10)}`), sentence);
   assert.equal(notificationPreview('a_b_c & <https://example.com>'), 'a_b_c & https://example.com');
   assert.equal(notificationPreview('😀'.repeat(161)), `${'😀'.repeat(159)}…`);
-  assert.equal(notificationPreview('**' + 'a'.repeat(161) + '**'), `${'a'.repeat(159)}…`);
+  assert.equal(notificationPreview(`**${'a'.repeat(161)}**`), `${'a'.repeat(159)}…`);
 });
 
 for (const mode of ['hidden', 'minimized', 'visible']) {

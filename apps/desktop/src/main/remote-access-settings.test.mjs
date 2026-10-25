@@ -264,7 +264,10 @@ test('the paired-device list survives a restart while off, and a revoke made whi
 
     invoke = await start();
     assert.deepEqual(
-      (await invoke('remoteAccessInfo', true)).relay.clients.map((client) => [client.id, client.pendingRemoval === true]),
+      (await invoke('remoteAccessInfo', true)).relay.clients.map((client) => [
+        client.id,
+        client.pendingRemoval === true,
+      ]),
       [
         [phone.id, true],
         [tablet.id, false],

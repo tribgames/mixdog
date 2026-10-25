@@ -45,7 +45,13 @@ const quiet = (patch = {}) => prefs({ quietHours: { enabled: true, start: '23:00
 const override = (kind, id, setting) => ({ target: { kind, id }, setting });
 
 test('a session summary is classified as bot, room, task or coding, with its origin', () => {
-  assert.deepEqual(bot, { sessionId: 'sess_desktop_home', kind: 'bot', origin: 'user', agentId: 'secretary', roomId: '' });
+  assert.deepEqual(bot, {
+    sessionId: 'sess_desktop_home',
+    kind: 'bot',
+    origin: 'user',
+    agentId: 'secretary',
+    roomId: '',
+  });
   assert.equal(room.kind, 'room');
   assert.equal(room.roomId, 'r1');
   assert.equal(task.kind, 'task', 'a bot-created task session is not a bot chat');
@@ -104,7 +110,10 @@ test('the most specific override wins: session, then room, then the bot', () => 
   const muteSession = override('session', 's1', { mode: 'muted', until: null });
   assert.equal(conversationOverride(conversation, [muteBot], FRIDAY_NOON)?.target.kind, 'agent');
   assert.equal(conversationOverride(conversation, [muteBot, alwaysRoom], FRIDAY_NOON)?.target.kind, 'room');
-  assert.equal(conversationOverride(conversation, [alwaysRoom, muteSession, muteBot], FRIDAY_NOON)?.target.kind, 'session');
+  assert.equal(
+    conversationOverride(conversation, [alwaysRoom, muteSession, muteBot], FRIDAY_NOON)?.target.kind,
+    'session'
+  );
   assert.deepEqual(decide({ conversation, overrides: [muteBot] }), { notify: false, reason: 'muted' });
   assert.deepEqual(decide({ conversation, overrides: [muteBot, alwaysRoom] }), { notify: true });
 });
@@ -157,7 +166,8 @@ test('automatic runs: results of schedules and webhooks follow the switch, their
     for (const event of ['finished', 'error']) {
       assert.deepEqual(decide({ preferences: off, conversation, event }), { notify: false, reason: 'automatic-runs' });
     }
-    for (const event of ['question', 'approval']) assert.equal(decide({ preferences: off, conversation, event }).notify, true);
+    for (const event of ['question', 'approval'])
+      assert.equal(decide({ preferences: off, conversation, event }).notify, true);
   }
   assert.equal(decide({ preferences: off }).notify, true, 'the user’s own turn');
 });
@@ -192,8 +202,11 @@ test('the steps run in order: quiet hours before a mute, a mute before the scope
   );
   const auto = notificationConversationOf({ id: 'auto', sourceType: 'schedule' });
   assert.equal(
-    decide({ preferences: prefs({ automaticRuns: false, holdWhileDesktopActive: true }), conversation: auto, desktopActive: true })
-      .reason,
+    decide({
+      preferences: prefs({ automaticRuns: false, holdWhileDesktopActive: true }),
+      conversation: auto,
+      desktopActive: true,
+    }).reason,
     'automatic-runs'
   );
 });
@@ -205,7 +218,11 @@ test('taskbar flash: its own switch, quiet hours and a conversation mute', () =>
   assert.equal(allowsTaskbarFlash(view(quiet()), coding, at(23, 23, 30)), false);
   const mute = override('session', coding.sessionId, { mode: 'muted', until: null });
   assert.equal(allowsTaskbarFlash(view(prefs(), [mute]), coding, FRIDAY_NOON), false);
-  assert.equal(allowsTaskbarFlash(view(prefs({ scope: 'off' })), coding, FRIDAY_NOON), true, 'the scope is not its switch');
+  assert.equal(
+    allowsTaskbarFlash(view(prefs({ scope: 'off' })), coding, FRIDAY_NOON),
+    true,
+    'the scope is not its switch'
+  );
 });
 
 test('a notice of no conversation follows the scope and quiet hours', () => {
