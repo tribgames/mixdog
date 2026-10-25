@@ -28,6 +28,7 @@ import { createComputerFailureDiagnostics } from '../session/failure-diagnostics
 import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { CHROME_SETUP_SESSION_ID, mixdogDataDirectory } from '../shared/common';
 import { assertSavedLoginPixelsAllowed } from './saved-login';
+import type { ProcessFate } from './bridge-server-contract';
 import { HOST_WARMUP_SESSION_ID } from './action-sets';
 import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import { createWorkerPool } from '../backend/worker-pool';
@@ -171,6 +172,22 @@ export function createPowerShellComputerHost(
     readPermissions: readComputerPermissions,
     isObserveOnly: () => observeOnly,
   });
+  // Saved-login owners (Windows only, like saved logins): the OS's answer
+  // about one runtime process, read by the host's own worker. The bridge asks
+  // as owners attach and detach; a capture a detached owner's saved-login
+  // guard would withhold asks too.
+  const processFate = async ({ pid, created }: { pid: number; created: string }): Promise<ProcessFate> => {
+    if (process.platform !== 'win32') return { state: 'unknown', created: '' };
+    const response = await callPowerShell({
+      action: 'process_fate',
+      session_id: HOST_WARMUP_SESSION_ID,
+      pid: String(pid),
+      created,
+    });
+    const result = response.result as { state?: unknown; created?: unknown } | undefined;
+    const state = response.ok && (result?.state === 'running' || result?.state === 'ended') ? result.state : 'unknown';
+    return { state, created: typeof result?.created === 'string' ? result.created : '' };
+  };
   const captureEngine = createCaptureEngine({
     ...sessionState,
     callPowerShell,
@@ -186,11 +203,17 @@ export function createPowerShellComputerHost(
       // turn ends, however the capture was reached (explicit read,
       // capture-after, zoom). The target's process is read live; unreadable
       // refuses.
-      await assertSavedLoginPixelsAllowed(command, windowId, async (id) => {
-        const windows = await readComputerWindows(command);
-        const owner = windows?.find((window) => String(window.id).toLowerCase() === id.toLowerCase());
-        return owner?.pid ? String(owner.pid) : undefined;
-      });
+      await assertSavedLoginPixelsAllowed(
+        command,
+        windowId,
+        async (id) => {
+          const windows = await readComputerWindows(command);
+          const owner = windows?.find((window) => String(window.id).toLowerCase() === id.toLowerCase());
+          return owner?.pid ? String(owner.pid) : undefined;
+        },
+        undefined,
+        processFate
+      );
       if (!policy.restricted || sessionIdFor(command) === CHROME_SETUP_SESSION_ID) return;
       if (!windowId) throw new Error('computer_policy_denied: full-screen capture is not authorized');
       policy.assertWindow({ ...command, action: 'capture', window_id: windowId }, await readComputerWindows(command));
@@ -295,20 +318,7 @@ export function createPowerShellComputerHost(
     isBridgeWanted: () => bridgeWanted,
     isDisposed: () => disposed,
     diagnose,
-    // Saved-login owners (Windows only, like saved logins): the OS's answer
-    // about one runtime process, read by the host's own worker.
-    processFate: async ({ pid, created }) => {
-      if (process.platform !== 'win32') return { state: 'unknown', created: '' };
-      const response = await callPowerShell({
-        action: 'process_fate',
-        session_id: HOST_WARMUP_SESSION_ID,
-        pid: String(pid),
-        created,
-      });
-      const result = response.result as { state?: unknown; created?: unknown } | undefined;
-      const state = response.ok && (result?.state === 'running' || result?.state === 'ended') ? result.state : 'unknown';
-      return { state, created: typeof result?.created === 'string' ? result.created : '' };
-    },
+    processFate,
   });
 
   if (bridgeWanted) bridge.startBridge();

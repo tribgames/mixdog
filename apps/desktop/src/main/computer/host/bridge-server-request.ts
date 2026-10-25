@@ -206,7 +206,8 @@ export function createBridgeRequestHandler(
    *  answered and held open. Its close, whichever side ended it, only
    *  detaches; an owner's protection retires early only when the OS proves
    *  its process ended (reconcileSavedLoginOwners), checked here as its
-   *  connection detaches and whenever any owner attaches. */
+   *  connection detaches and whenever any owner attaches, and by a capture
+   *  its guard would withhold (saved-login.ts assertSavedLoginPixelsAllowed). */
   async function handleOwner(request: IncomingMessage, response: ServerResponse): Promise<void> {
     let ownerId = '';
     let pid = 0;

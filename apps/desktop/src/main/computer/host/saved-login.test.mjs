@@ -534,6 +534,131 @@ test('only an OS-proven end of its process retires an owner; closed connections 
   assert.equal(registry.redact('x', PASSWORD), PASSWORD);
 });
 
+/** Captures checked against a registry with the OS's answers (`fates`, per owner
+ *  process id; a `throws` answer is a worker failure) and the pids of the
+ *  windows; `asked` lists the process ids the OS was asked about. */
+function guardedCaptures(registry) {
+  const fates = new Map();
+  const asked = [];
+  const pids = { 'hwnd:0x1': '4242', 'hwnd:0x2': '4242', 'hwnd:0x3': '4242', 'hwnd:0x9': '777' };
+  const fate = async ({ pid }) => {
+    asked.push(pid);
+    const state = fates.get(pid) ?? 'unknown';
+    if (state === 'throws') throw new Error('worker unavailable');
+    return { state };
+  };
+  const capture = (extra = {}) => ({ action: 'capture', session_id: 'another-session', mode: 'state', ...extra });
+  const check = (windowId, cmd = capture()) =>
+    assertSavedLoginPixelsAllowed(cmd, windowId, async (id) => pids[id], registry, fate);
+  return { fates, asked, capture, check };
+}
+const WITHHELD = /capture_withheld: pixels of a browser a saved-login password was filled into are withheld/;
+const nextTick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('a detached owner\'s guard releases at the next capture it would withhold once the OS proves the process ended', async () => {
+  const registry = createSecretInputs();
+  const { fates, asked, capture, check } = guardedCaptures(registry);
+  const ownerPid = processOf(OWNER).pid;
+  const detach = registry.attachSavedLoginOwner(OWNER, processOf(OWNER));
+  await admittedFill(command(), savedLogins(), worker().call, { registry, attach: false });
+  // Connected: the guard holds and nothing is asked of the OS.
+  await assert.rejects(check('hwnd:0x1'), WITHHELD);
+  assert.deepEqual(asked, []);
+  // The connection drops while the process runs: the guard is correctly kept,
+  // and a running, unknown or failed OS answer keeps it at every capture.
+  detach();
+  for (const state of ['running', 'unknown', 'throws']) {
+    fates.set(ownerPid, state);
+    for (const windowId of ['hwnd:0x1', 'hwnd:0x2', '']) {
+      await assert.rejects(check(windowId), WITHHELD, `${state} ${windowId || 'full screen'}`);
+    }
+    assert.equal(registry.savedLoginPixelGuards().length, 1, state);
+    assert.equal(registry.redact('x', PASSWORD), '[saved login]', state);
+  }
+  // A capture the guard does not withhold asks nothing.
+  const questions = asked.length;
+  await check('hwnd:0x9');
+  await check('hwnd:0x1', capture({ mode: 'ax' }));
+  assert.equal(asked.length, questions);
+  // The process then ends without settling its turn: the next guarded capture
+  // (any session, any window of that browser, or the full screen) releases it.
+  fates.set(ownerPid, 'ended');
+  await check('hwnd:0x2');
+  assert.deepEqual(registry.savedLoginPixelGuards(), []);
+  assert.equal(registry.redact('x', PASSWORD), PASSWORD, 'its redaction retired with it');
+  await check('');
+  await check('hwnd:0x1');
+  assert.equal(registry.attachSavedLoginOwner(OWNER, processOf(OWNER)), null, 'an ended owner never comes back');
+});
+
+test('a capture asks the OS only about detached owners whose guards withhold it, and a running fill keeps its guard', async () => {
+  const registry = createSecretInputs();
+  const { fates, asked, check } = guardedCaptures(registry);
+  const arm = (ownerId, windowId, pid) =>
+    assert.equal(registry.armSavedLoginPixels({ sessionId: 'other', turnId: 1, ownerId, windowId, pid }), true);
+  // A: filled hwnd:0x1, detached, process ended. C: another browser, detached,
+  // also ended. B: same browser as A, still connected.
+  const detachA = registry.attachSavedLoginOwner(OWNER, processOf(OWNER));
+  await admittedFill(command(), savedLogins(), worker().call, { registry, attach: false });
+  const detachC = registry.attachSavedLoginOwner(BRIDGE_OWNER, processOf(BRIDGE_OWNER));
+  arm(BRIDGE_OWNER, 'hwnd:0x9', '777');
+  registry.attachSavedLoginOwner(OTHER_OWNER, processOf(OTHER_OWNER));
+  arm(OTHER_OWNER, 'hwnd:0x3', '4242');
+  // A still has a fill running (its connection is gone since): its guard may
+  // not be dropped before that fill finishes.
+  const finishRunning = registry.admitSavedLoginFill({ ...TURN, turnId: 8 });
+  assert.equal(typeof finishRunning, 'function');
+  detachA();
+  detachC();
+  fates.set(processOf(OWNER).pid, 'ended');
+  fates.set(processOf(BRIDGE_OWNER).pid, 'ended');
+  await assert.rejects(check('hwnd:0x1'), WITHHELD);
+  assert.deepEqual(asked, [processOf(OWNER).pid], 'only the owner whose guard withholds this capture is asked');
+  assert.equal(
+    registry.savedLoginPixelGuards().filter((guard) => guard.ownerId === OWNER).length,
+    1,
+    'the running fill is waited for'
+  );
+  finishRunning();
+  await nextTick();
+  // A is gone; B (connected) still withholds the browser; C was not asked.
+  assert.deepEqual(
+    registry.savedLoginPixelGuards().map((guard) => guard.ownerId),
+    [BRIDGE_OWNER, OTHER_OWNER]
+  );
+  await assert.rejects(check('hwnd:0x2'), WITHHELD);
+  assert.deepEqual(asked, [processOf(OWNER).pid], 'a connected owner is never asked');
+  // C's own browser: now C is the one asked, and its ended process releases it.
+  await check('hwnd:0x9');
+  assert.deepEqual(asked, [processOf(OWNER).pid, processOf(BRIDGE_OWNER).pid]);
+  assert.deepEqual(registry.savedLoginPixelGuards().map((guard) => guard.ownerId), [OTHER_OWNER]);
+});
+
+test('concurrent guarded captures share one OS question per detached owner', async () => {
+  const registry = createSecretInputs();
+  let asked = 0;
+  let answer = () => {};
+  const gate = new Promise((resolve) => (answer = resolve));
+  const fate = async () => {
+    asked++;
+    await gate;
+    return { state: 'ended' };
+  };
+  const detach = registry.attachSavedLoginOwner(OWNER, processOf(OWNER));
+  await admittedFill(command(), savedLogins(), worker().call, { registry, attach: false });
+  detach();
+  const captures = [1, 2, 3].map(() =>
+    assertSavedLoginPixelsAllowed({ action: 'capture', session_id: 's', mode: 'state' }, 'hwnd:0x1', async () => '4242', registry, fate)
+  );
+  await nextTick();
+  assert.equal(asked, 1, 'one question in flight');
+  assert.equal(registry.savedLoginPixelGuards().length, 1);
+  answer();
+  await Promise.all(captures);
+  assert.equal(asked, 1);
+  assert.deepEqual(registry.savedLoginPixelGuards(), []);
+});
+
 test('the vault answers Browser Use account rules for the exact page origin only', async () => {
   await upsertVaultLogin({ origin: ORIGIN, username: 'jane.doe@example.com', password: PASSWORD, source: 'manual' });
   await upsertVaultLogin({ origin: ORIGIN, username: 'second@example.com', password: 'other-pass', source: 'manual' });

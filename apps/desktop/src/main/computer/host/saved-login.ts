@@ -23,7 +23,7 @@
  * it, and other programs running as the same Windows user are outside this
  * protection.
  */
-import { type SavedLoginTurn, type SecretInputs, secretInputs } from '../../secret-input';
+import { type SavedLoginPixelGuard, type SavedLoginTurn, type SecretInputs, secretInputs } from '../../secret-input';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 
 export type SavedLoginField = 'username' | 'password';
@@ -110,49 +110,101 @@ export function assertSavedLoginAvailable(
  * filled window or of any window of the same browser process leave the host,
  * and no full-screen pixels at all. A window whose process cannot be read is
  * refused too (fail closed). Accessibility reads (`ax`) carry no pixels and
- * their text is redacted of the exact password, so they pass. Guards lift only
- * when the filling turn settles; nothing here releases one.
+ * their text is redacted of the exact password, so they pass. Guards lift when
+ * the filling turn settles, or when the OS proves its owner runtime's process
+ * ended: a capture about to be withheld by the guards of owners with no
+ * attached connection first reconciles those owners (`fate`, see
+ * reconcileSavedLoginOwners), so a runtime that died after its connection
+ * dropped never leaves a guard stuck. Only the guards that would withhold
+ * this capture are looked at, only detached owners are asked, and an unknown
+ * answer keeps the guard.
  */
 export async function assertSavedLoginPixelsAllowed(
   command: ComputerCommand,
   windowId: string,
   windowPid: (windowId: string) => Promise<string | undefined>,
-  registry: SecretInputs = secretInputs
+  registry: SecretInputs = secretInputs,
+  fate?: SavedLoginProcessFate
 ): Promise<void> {
-  const guards = registry.savedLoginPixelGuards();
-  if (!guards.length || String(command.mode || '') === 'ax') return;
-  const refuse = (): never => {
+  if (String(command.mode || '') === 'ax' || !registry.savedLoginPixelGuards().length) return;
+  const target = String(windowId || '').toLowerCase();
+  const sameWindow = (guard: SavedLoginPixelGuard): boolean => guard.windowId.toLowerCase() === target;
+  const readPid = async (): Promise<string | undefined> => {
+    try {
+      return await windowPid(windowId);
+    } catch {
+      return undefined;
+    }
+  };
+  // The live guards that withhold this capture: all of them for a full-screen
+  // capture or a window whose process cannot be read, else the ones of that
+  // window or of its browser process. The process is read at most once.
+  let pid: Promise<string | undefined> | undefined;
+  const withholding = async (): Promise<SavedLoginPixelGuard[]> => {
+    const guards = registry.savedLoginPixelGuards();
+    if (!target || guards.every(sameWindow)) return guards;
+    pid ??= readPid();
+    const processId = await pid;
+    return processId ? guards.filter((guard) => sameWindow(guard) || guard.pid === processId) : guards;
+  };
+  let held = await withholding();
+  if (held.length && fate) {
+    // Looked at again whoever retired the owner: a concurrent capture sharing
+    // the same OS answer may have.
+    await reconcileSavedLoginOwners(fate, registry, new Set(held.map((guard) => guard.ownerId)));
+    held = await withholding();
+  }
+  if (held.length) {
     throw new Error(
       'capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode "ax" or capture in a later turn'
     );
-  };
-  const target = String(windowId || '').toLowerCase();
-  if (!target || guards.some((guard) => guard.windowId.toLowerCase() === target)) refuse();
-  let pid: string | undefined;
-  try {
-    pid = await windowPid(windowId);
-  } catch {
-    pid = undefined;
   }
-  if (!pid || guards.some((guard) => guard.pid === pid)) refuse();
 }
 
-/** Retire the saved-login protection of every detached owner whose process
- *  the OS proves ended (secret-input.ts SavedLoginTurn); a running or unknown
- *  answer keeps it. Event-driven: the bridge calls it as an owner connection
- *  detaches and as any owner attaches. */
+/** The OS's answer about one runtime process: `ended` only when it proves the
+ *  process (that id and creation time) is gone (bridge-server-contract.ts). */
+export type SavedLoginProcessFate = (process: { pid: number; created: string }) => Promise<{ state: string }>;
+
+/** Owners' OS answers still pending, per registry: every reconcile that asks
+ *  about an owner meanwhile (concurrent captures, an owner event) shares the
+ *  one worker call instead of making its own. */
+const pendingFates = new WeakMap<SecretInputs, Map<string, Promise<string>>>();
+
+function readOwnerState(
+  fate: SavedLoginProcessFate,
+  registry: SecretInputs,
+  owner: { ownerId: string; pid: number; created: string }
+): Promise<string> {
+  const reads = pendingFates.get(registry) ?? new Map<string, Promise<string>>();
+  pendingFates.set(registry, reads);
+  const pending = reads.get(owner.ownerId);
+  if (pending) return pending;
+  const read = (async () => {
+    try {
+      return (await fate({ pid: owner.pid, created: owner.created })).state;
+    } catch {
+      return 'unknown'; // unknown keeps it
+    }
+  })().finally(() => reads.delete(owner.ownerId));
+  reads.set(owner.ownerId, read);
+  return read;
+}
+
+/** Retire the saved-login protection of every detached owner (only those in
+ *  `only` when given) whose process the OS proves ended (secret-input.ts
+ *  SavedLoginTurn); a running or unknown answer keeps it. Event-driven, never
+ *  polled: the bridge calls it as an owner connection detaches and as any
+ *  owner attaches, and a capture about to be withheld by a detached owner's
+ *  guard calls it (assertSavedLoginPixelsAllowed). One OS call per owner,
+ *  bounded by the worker's own limit. */
 export async function reconcileSavedLoginOwners(
-  fate: (process: { pid: number; created: string }) => Promise<{ state: string }>,
-  registry: SecretInputs = secretInputs
+  fate: SavedLoginProcessFate,
+  registry: SecretInputs = secretInputs,
+  only?: ReadonlySet<string>
 ): Promise<void> {
   for (const owner of registry.detachedSavedLoginOwners()) {
-    let state = 'unknown';
-    try {
-      state = (await fate({ pid: owner.pid, created: owner.created })).state;
-    } catch {
-      /* unknown keeps it */
-    }
-    if (state === 'ended') registry.retireEndedSavedLoginOwner(owner.ownerId);
+    if (only && !only.has(owner.ownerId)) continue;
+    if ((await readOwnerState(fate, registry, owner)) === 'ended') registry.retireEndedSavedLoginOwner(owner.ownerId);
   }
 }
 

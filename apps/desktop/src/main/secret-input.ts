@@ -78,8 +78,11 @@ export const SAVED_LOGIN_MARKER = '[saved login]';
  *  talks to changes). The owner's protection retires early only on an
  *  independent proof that its process ended (MixWin32.ProcessFate: the id is
  *  gone, names a process created at another time, or its process object is
- *  signaled), checked when its last connection detaches and whenever any
- *  owner attaches. An unknown answer keeps everything (fail closed). Without
+ *  signaled), checked when its last connection detaches, whenever any owner
+ *  attaches, and whenever a capture is about to be withheld by the pixel
+ *  guard of a detached owner (so a process that ends after its connection
+ *  dropped still releases the guard at the next capture; nothing polls). An
+ *  unknown answer keeps everything (fail closed). Without
  *  that proof the protection stays until its turns settle; a runtime that died
  *  while its process cannot be read keeps its guards until the desktop exits.
  *  The process id is the runtime's own claim, trusted like the rest of its
@@ -152,7 +155,9 @@ export function createSecretInputs(options: { timeoutMs?: number; bindingTimeout
   // have finished. Callers first make sure no new fill it covers can be
   // admitted (a settled turn, a gone owner), so the drain is complete.
   const drainThenRetire = async (covered: (entry: SavedLoginTurn) => boolean): Promise<void> => {
-    await Promise.all([...runningFills].filter(covered).map((fill) => fill.done));
+    // With none to wait for, the entries are gone before this returns.
+    const running = [...runningFills].filter(covered);
+    if (running.length) await Promise.all(running.map((fill) => fill.done));
     for (const list of [pixelGuards, savedLoginValues] as SavedLoginTurn[][]) {
       for (let index = list.length - 1; index >= 0; index--) if (covered(list[index])) list.splice(index, 1);
     }
