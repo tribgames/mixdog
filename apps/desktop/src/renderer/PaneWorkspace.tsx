@@ -109,6 +109,74 @@ function dropZoneStyle(preview: DropPreview): React.CSSProperties {
   }
 }
 
+type PaneSurfaceProps = Pick<
+  Parameters<typeof PaneWorkspace>[0],
+  'workspace' | 'onFocusSelection' | 'renderActive' | 'renderFileEditors' | 'renderUtilityTabs'
+>;
+
+/** One pane's surface layer: file editors and utility tabs, then the active surface or a click-to-focus placeholder. */
+function renderPaneSurface(
+  { workspace, onFocusSelection, renderActive, renderFileEditors, renderUtilityTabs }: PaneSurfaceProps,
+  surfaceLeaf: PaneLeaf,
+  focused: boolean,
+  handoff: boolean
+) {
+  if (workspace.restorePending) {
+    return (
+      <div className="pane-placeholder" data-restoring="true" role="status">
+        <span className="pane-placeholder-title">{t('Restoring layout…')}</span>
+      </div>
+    );
+  }
+  const active = paneActiveSelection(surfaceLeaf);
+  const interactive = focused && !handoff;
+  const focusPane = (): void => {
+    if (handoff) return;
+    workspace.focusLeaf(surfaceLeaf.id);
+    if (active) onFocusSelection(active);
+  };
+  const fileEditors = renderFileEditors?.(surfaceLeaf, interactive, focusPane);
+  // Utility portals stay mounted after first activation. Their slots live in
+  // the pane's one layer, so a handoff frame keeps the last composed utility
+  // frame in place and never duplicates a slot id.
+  const utilityTabs = renderUtilityTabs?.(surfaceLeaf, interactive, focusPane);
+  // Chat, editors and the utility tabs all render themselves: the mounted
+  // layers below ARE the pane, so it needs no chrome of its own. A file tab
+  // only qualifies while the host actually renders editors.
+  if (
+    isConversationSelection(active) ||
+    (parksConversationBehindSelection(active) && (active?.kind !== 'file' || renderFileEditors))
+  ) {
+    return (
+      <>
+        {fileEditors}
+        {utilityTabs}
+      </>
+    );
+  }
+  if (interactive) {
+    return (
+      <>
+        {fileEditors}
+        {utilityTabs}
+        {renderActive(surfaceLeaf)}
+      </>
+    );
+  }
+  return (
+    <>
+      {fileEditors}
+      {utilityTabs}
+      {!handoff && (
+        <button type="button" className="pane-placeholder" onClick={focusPane}>
+          <span className="pane-placeholder-title">{selectionLabel(active)}</span>
+          <span className="pane-placeholder-hint">{t('Click to work in this pane')}</span>
+        </button>
+      )}
+    </>
+  );
+}
+
 export function PaneWorkspace({
   workspace,
   observedSessionIds = [],
@@ -293,62 +361,7 @@ export function PaneWorkspace({
     const handoff = visualSurfaceHandoffFor(leaf.id);
     return handoff && handoff.key !== currentPaneSurfaces.get(leaf.id)!.key ? handoff : null;
   };
-  const renderPaneSurface = (surfaceLeaf: PaneLeaf, focused: boolean, handoff: boolean) => {
-    if (workspace.restorePending) {
-      return (
-        <div className="pane-placeholder" data-restoring="true" role="status">
-          <span className="pane-placeholder-title">{t('Restoring layout…')}</span>
-        </div>
-      );
-    }
-    const active = paneActiveSelection(surfaceLeaf);
-    const interactive = focused && !handoff;
-    const focusPane = (): void => {
-      if (handoff) return;
-      workspace.focusLeaf(surfaceLeaf.id);
-      if (active) onFocusSelection(active);
-    };
-    const fileEditors = renderFileEditors?.(surfaceLeaf, interactive, focusPane);
-    // Utility portals stay mounted after first activation. Their slots live in
-    // the pane's one layer, so a handoff frame keeps the last composed utility
-    // frame in place and never duplicates a slot id.
-    const utilityTabs = renderUtilityTabs?.(surfaceLeaf, interactive, focusPane);
-    // Chat, editors and the utility tabs all render themselves: the mounted
-    // layers below ARE the pane, so it needs no chrome of its own. A file tab
-    // only qualifies while the host actually renders editors.
-    if (
-      isConversationSelection(active) ||
-      (parksConversationBehindSelection(active) && (active?.kind !== 'file' || renderFileEditors))
-    ) {
-      return (
-        <>
-          {fileEditors}
-          {utilityTabs}
-        </>
-      );
-    }
-    if (interactive) {
-      return (
-        <>
-          {fileEditors}
-          {utilityTabs}
-          {renderActive(surfaceLeaf)}
-        </>
-      );
-    }
-    return (
-      <>
-        {fileEditors}
-        {utilityTabs}
-        {!handoff && (
-          <button type="button" className="pane-placeholder" onClick={focusPane}>
-            <span className="pane-placeholder-title">{selectionLabel(active)}</span>
-            <span className="pane-placeholder-hint">{t('Click to work in this pane')}</span>
-          </button>
-        )}
-      </>
-    );
-  };
+  const paneSurfaceProps = { workspace, onFocusSelection, renderActive, renderFileEditors, renderUtilityTabs };
   const renderPaneSurfaceStack = (leaf: PaneLeaf, focused: boolean) => {
     const conversationEntry = conversationEntryByLeaf.get(leaf.id);
     const outgoing = outgoingSurfaceFor(leaf);
@@ -361,7 +374,7 @@ export function PaneWorkspace({
           inert={outgoing ? true : undefined}
           aria-hidden={outgoing ? true : undefined}
         >
-          {renderPaneSurface(surface.leaf, focused, Boolean(outgoing))}
+          {renderPaneSurface(paneSurfaceProps, surface.leaf, focused, Boolean(outgoing))}
         </div>
         {conversationEntry && conversationSlot(leaf.id, conversationEntry.parked)}
       </div>
