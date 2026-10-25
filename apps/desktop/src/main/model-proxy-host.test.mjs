@@ -53,6 +53,112 @@ function fakeRuntime(providers, extra = {}) {
   };
 }
 
+test('quota requests use the PC policy with the selected provider and model, after provider guards', async (t) => {
+  const calls = [];
+  const provider = { send: () => assert.fail('a quota check must not send a model request') };
+  const providers = { 'openai-oauth': { enabled: true }, 'anthropic-oauth': { enabled: false } };
+  const runtime = createModelProxyRuntime({
+    loadConfig: () => ({ providers }),
+    initProviders: async () => {},
+    getProvider: () => provider,
+    getAllProviders: () => new Map(),
+    readApiKey: async () => null,
+    probeAuth: () => 'present',
+    finalizeProviderRequestTools: (tools) => tools,
+    measureProviderQuota: async (name, options) => {
+      calls.push({ name, provider: options.provider });
+      return { name };
+    },
+    quotaMeasurementServesModel: (measurement, model) => {
+      calls.push({ name: measurement.name, model });
+      return model === 'gpt-usable';
+    },
+  });
+  const { channel } = connect(t, runtime, { isProviderAllowed: (name) => name !== 'grok-oauth' });
+  for (const [model, expected] of [
+    ['gpt-usable', true],
+    ['gpt-exhausted', false],
+  ]) {
+    assert.equal(await channel.request({ provider: 'openai-oauth', method: 'quotaUsable', model }), expected);
+  }
+  assert.deepEqual(calls, [
+    { name: 'openai-oauth', provider },
+    { name: 'openai-oauth', model: 'gpt-usable' },
+    { name: 'openai-oauth', model: 'gpt-exhausted' },
+  ]);
+  for (const [name, code] of [
+    ['grok-oauth', 'MODEL_PROXY_PROVIDER_NOT_ALLOWED'],
+    ['anthropic-oauth', 'MODEL_PROXY_PROVIDER_UNAVAILABLE'],
+  ]) {
+    await assert.rejects(channel.request({ provider: name, method: 'quotaUsable', model: 'test' }), { code });
+  }
+  assert.equal(calls.length, 3, 'denied and disabled providers never reach the quota policy');
+});
+
+test('quota requests share one account-wide measurement per provider; models are judged against it, never retained', async (t) => {
+  let clock = 1_000;
+  let measurements = 0;
+  let failNext = false;
+  let gate = null;
+  const provider = { send: () => assert.fail('a quota check must not send a model request') };
+  const runtime = createModelProxyRuntime({
+    now: () => clock,
+    loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
+    initProviders: async () => {},
+    getProvider: () => provider,
+    getAllProviders: () => new Map(),
+    readApiKey: async () => null,
+    probeAuth: () => 'present',
+    finalizeProviderRequestTools: (tools) => tools,
+    measureProviderQuota: async () => {
+      measurements += 1;
+      await gate;
+      if (failNext) throw new Error('usage fetch failed');
+      return { servable: new Set(['gpt-a']) };
+    },
+    quotaMeasurementServesModel: (measurement, model) => measurement.servable.has(model),
+  });
+  // Two connections share the one runtime, as the desktop's connections do.
+  const first = connect(t, runtime).channel;
+  const second = connect(t, runtime).channel;
+  const ask = (channel, model) => channel.request({ provider: 'openai-oauth', method: 'quotaUsable', model });
+
+  // Concurrent requests on both connections join one in-flight measurement.
+  let release;
+  gate = new Promise((resolve) => (release = resolve));
+  const pending = [ask(first, 'gpt-a'), ask(second, 'junk-1'), ask(second, 'gpt-a'), ask(first, 'junk-2')];
+  await waitUntil(() => measurements === 1);
+  release();
+  assert.deepEqual(await Promise.all(pending), [true, false, true, false]);
+  gate = null;
+  assert.equal(measurements, 1);
+
+  // Any number of different models in the window: still that one measurement.
+  for (let i = 0; i < 50; i += 1) assert.equal(await ask(i % 2 ? first : second, `junk-${i}`), false);
+  assert.equal(await ask(second, 'gpt-a'), true);
+  assert.equal(measurements, 1);
+  clock += 59_999;
+  await ask(first, 'gpt-a');
+  assert.equal(measurements, 1);
+  clock += 1;
+  await ask(first, 'gpt-a');
+  assert.equal(measurements, 2, 'a new window measures again');
+
+  // An unreasonable model name is refused before any provider work.
+  await assert.rejects(ask(first, 'x'.repeat(257)), { code: 'MODEL_PROXY_BAD_REQUEST' });
+  assert.equal(measurements, 2);
+
+  // A failed measurement is not cached.
+  clock += 60_000;
+  failNext = true;
+  await assert.rejects(ask(first, 'gpt-a'), /usage fetch failed/);
+  await assert.rejects(ask(second, 'gpt-a'), /usage fetch failed/);
+  assert.equal(measurements, 4);
+  failNext = false;
+  assert.equal(await ask(first, 'gpt-a'), true);
+  assert.equal(measurements, 5);
+});
+
 test('the PC runs the call with its own provider and streams every callback back in order', async (t) => {
   const calls = [];
   const provider = {

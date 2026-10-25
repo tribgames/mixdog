@@ -44,6 +44,9 @@ async function resumeDueEntry(entry, { store, materializeSession, readQuotaUsabl
   try {
     usable = await readQuotaUsable(provider, model);
   } catch (error) {
+    // A disconnected PC supplies no quota reading. The scheduler's outer
+    // deferral keeps this reservation without spending an exhaustion attempt.
+    if (error?.code === 'MODEL_PROXY_UNAVAILABLE') throw error;
     log(`quota resume usage reading failed provider=${provider}: ${error?.message || error}`);
   }
   if (!isCurrent(store, entry)) return 'cancelled';

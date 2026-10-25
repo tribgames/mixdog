@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import * as quotaResumeStore from '../runtime/shared/quota-resume-store.mjs';
+import { ModelProxyUnavailableError } from '../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
 import { createQuotaResumeLane } from '../tui/session/quota-resume.mjs';
 import { createSessionService } from './session-service.mjs';
 import {
@@ -368,6 +369,53 @@ test('a still-exhausted reading retries once five minutes later, persisted, then
   assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null, 'the wait is cleared');
   assert.equal(retries.length, 0, 'nothing fired');
 });
+
+for (const attempts of [0, 1]) {
+  test(`a disconnected PC preserves a quota resume with ${attempts} spent attempts until reconnection`, async (t) => {
+    isolateDataDir(t);
+    let clock = PAST + 1000;
+    let connected = false;
+    const fired = [];
+    const scheduler = createQuotaResumeScheduler({
+      store: quotaResumeStore,
+      materializeSession: async () => ({
+        fireQuotaResume: (options) => {
+          fired.push(options);
+          return 'fired';
+        },
+      }),
+      readQuotaUsable: async () => {
+        if (!connected) throw new ModelProxyUnavailableError('PC disconnected');
+        return true;
+      },
+      now: () => clock,
+      setTimer: () => null,
+      clearTimer: () => {},
+    });
+    const entry = quotaResumeStore.scheduleQuotaResumeEntry({
+      sessionId: SESSION,
+      turnKey: 'turn:u1',
+      provider: 'openai-oauth',
+      model: 'gpt-x',
+      resetAt: clock,
+    });
+    quotaResumeStore.deferQuotaResumeEntry(SESSION, entry.generation, { resetAt: clock, attempts });
+    for (let check = 0; check < 3; check += 1) {
+      await scheduler.tick();
+      const pending = quotaResumeStore.quotaResumeEntry(SESSION);
+      assert.equal(pending?.generation, entry.generation);
+      assert.equal(pending.attempts, attempts);
+      assert.equal(pending.resetAt, clock + QUOTA_RESUME_RETRY_MS);
+      assert.deepEqual(fired, []);
+      quotaResumeStore.reloadQuotaResumeStore();
+      clock = pending.resetAt;
+    }
+    connected = true;
+    await scheduler.tick();
+    assert.deepEqual(fired, [{ generation: entry.generation }]);
+    assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
+  });
+}
 
 test('a usable re-check fires, and a busy session is re-checked without spending an attempt', async (t) => {
   isolateDataDir(t);

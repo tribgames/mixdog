@@ -64,6 +64,7 @@ export interface ModelProxyRuntime {
   /** `name` built with only its own credential, loaded on demand; undefined
    *  when it is not enabled on this PC. */
   provider(name: string): Promise<ModelProxyProviderInstance | undefined>;
+  quotaUsable(name: string, model: string, provider: ModelProxyProviderInstance): Promise<boolean>;
   finalizeTools(tools: unknown[], nativePrefixCount: number): unknown[];
 }
 
@@ -141,6 +142,7 @@ interface QueuedEvent {
 }
 
 const ALLOWED_METHODS = new Set<string>(MODEL_PROXY_METHODS);
+const MAX_QUOTA_MODEL_LENGTH = 256;
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -703,12 +705,19 @@ async function execute(
     const answer = await runtime.providerConfig();
     return { providers: publicProviderConfig(answer.providers, isProviderAllowed), ready: answer.ready !== false };
   }
+  // A quota check names a model only to be judged against a measurement; an
+  // unreasonable name is refused before any provider work.
+  const quotaModel = method === 'quotaUsable' ? String(call.model ?? '') : '';
+  if (quotaModel.length > MAX_QUOTA_MODEL_LENGTH) {
+    throw Object.assign(new Error('The model name is too long.'), { code: 'MODEL_PROXY_BAD_REQUEST' });
+  }
   // Restricted to the provider the daemon named; no other surface is reachable.
   const name = String(call.provider || '');
   if (name && !isProviderAllowed(name)) throw providerNotAllowed(name);
   const provider = name ? await runtime.provider(name) : undefined;
   signal.throwIfAborted();
   if (!provider || typeof provider.send !== 'function') throw providerUnavailable(name);
+  if (method === 'quotaUsable') return runtime.quotaUsable(name, quotaModel, provider);
   if (method === 'listModels') return catalog(provider, false);
   if (method === 'refreshModels') return catalog(provider, true);
   if (method === 'isAvailable') {
@@ -1122,6 +1131,9 @@ export interface ModelProxyRuntimeModules {
   initProviders(config: Record<string, unknown>): Promise<unknown>;
   getProvider(name: string): ModelProxyProviderInstance | undefined;
   getAllProviders(): Map<string, unknown>;
+  /** The account-wide quota measurement of one provider, model-independent. */
+  measureProviderQuota(name: string, options: { provider: ModelProxyProviderInstance }): Promise<unknown>;
+  quotaMeasurementServesModel(measurement: unknown, model: string): boolean;
   /** One provider's stored key (environment first), read on demand. */
   readApiKey(name: string): Promise<string | null>;
   probeAuth(name: string, config: Record<string, unknown>): 'present' | 'absent' | 'unreadable';
@@ -1131,6 +1143,8 @@ export interface ModelProxyRuntimeModules {
 
 /** A provider's key is re-read after this long, so a rotated key applies. */
 const API_KEY_TTL_MS = 60_000;
+/** The usage cache's own live window (oauth-usage.mjs LIVE_CACHE_TTL_MS). */
+const QUOTA_MEASUREMENT_TTL_MS = 60_000;
 /** The registry's "nothing enabled" refusal: a real state of this PC, not a failure. */
 const NO_ENABLED_PROVIDERS = 'PROVIDERS_NONE_ENABLED';
 
@@ -1140,6 +1154,7 @@ const NO_ENABLED_PROVIDERS = 'PROVIDERS_NONE_ENABLED';
 export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): ModelProxyRuntime {
   const now = modules.now ?? Date.now;
   const keys = new Map<string, { value: string | null; at: number }>();
+  const quotaMeasurements = new Map<string, { at: number; measurement: Promise<unknown> }>();
   let chain: Promise<unknown> = Promise.resolve();
   const keyEnvironment = (entry: Record<string, unknown>) =>
     entry.type === 'custom' && entry.auth !== 'none' && typeof entry.apiKeyEnv === 'string' ? entry.apiKeyEnv : '';
@@ -1225,6 +1240,24 @@ export function createModelProxyRuntime(modules: ModelProxyRuntimeModules): Mode
       await sync();
       return modules.getProvider(name);
     },
+    async quotaUsable(name, model, provider) {
+      // A forced reading is an account-wide fetch, so a server must not be
+      // able to repeat it. The model-independent measurement is shared per
+      // resolved provider (across connections: it is this PC's own account
+      // data) for one window, concurrent calls joining the in-flight one;
+      // each model is then judged against it and never retained.
+      let shared = quotaMeasurements.get(name);
+      if (!shared || now() - shared.at >= QUOTA_MEASUREMENT_TTL_MS) {
+        const measurement = modules.measureProviderQuota(name, { provider });
+        shared = { at: now(), measurement };
+        quotaMeasurements.set(name, shared);
+        const entry = shared;
+        measurement.catch(() => {
+          if (quotaMeasurements.get(name) === entry) quotaMeasurements.delete(name);
+        });
+      }
+      return modules.quotaMeasurementServesModel(await shared.measurement, model);
+    },
     finalizeTools: (tools, nativePrefixCount) => modules.finalizeProviderRequestTools(tools, nativePrefixCount),
   };
 }
@@ -1256,17 +1289,19 @@ export function modelProxyRuntimeLoader({
   const moduleUrl = (...parts: string[]) => pathToFileURL(join(sourceRoot, ...parts)).href;
   let pending: Promise<ModelProxyRuntime> | null = null;
   const load = async (): Promise<ModelProxyRuntime> => {
-    const [configModule, registryModule, requestToolsModule, apiKeyModule, oauthProbeModule] = await Promise.all([
-      import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'config.mjs')),
-      import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'registry.mjs')),
-      import(
-        /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'runtime-core', 'provider-request-tools.mjs')
-      ),
-      import(/* @vite-ignore */ moduleUrl('runtime', 'shared', 'provider-api-key.mjs')),
-      import(
-        /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'oauth-credential-probes.mjs')
-      ),
-    ]);
+    const [configModule, registryModule, requestToolsModule, apiKeyModule, oauthProbeModule, quotaReadingModule] =
+      await Promise.all([
+        import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'config.mjs')),
+        import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'registry.mjs')),
+        import(
+          /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'runtime-core', 'provider-request-tools.mjs')
+        ),
+        import(/* @vite-ignore */ moduleUrl('runtime', 'shared', 'provider-api-key.mjs')),
+        import(
+          /* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'oauth-credential-probes.mjs')
+        ),
+        import(/* @vite-ignore */ moduleUrl('runtime', 'agent', 'orchestrator', 'providers', 'quota-reading.mjs')),
+      ]);
     const config = configModule as unknown as Pick<ModelProxyRuntimeModules, 'loadConfig'>;
     const registry = registryModule as unknown as Pick<
       ModelProxyRuntimeModules,
@@ -1283,11 +1318,17 @@ export function modelProxyRuntimeLoader({
     const oauthProbes = oauthProbeModule as unknown as {
       oauthCredentialProbeState(name: string): 'present' | 'absent' | 'unreadable';
     };
+    const quotaReading = quotaReadingModule as unknown as Pick<
+      ModelProxyRuntimeModules,
+      'measureProviderQuota' | 'quotaMeasurementServesModel'
+    >;
     return createModelProxyRuntime({
       loadConfig: (options) => config.loadConfig(options),
       initProviders: (providers) => registry.initProviders(providers),
       getProvider: (name) => registry.getProvider(name),
       getAllProviders: () => registry.getAllProviders(),
+      measureProviderQuota: (name, options) => quotaReading.measureProviderQuota(name, options),
+      quotaMeasurementServesModel: (measurement, model) => quotaReading.quotaMeasurementServesModel(measurement, model),
       readApiKey: (name) => apiKeys.readAgentApiKeyAsync(name),
       probeAuth: modelProxyCredentialProbe({
         OAUTH_PROVIDER_NAMES: registry.OAUTH_PROVIDER_NAMES,

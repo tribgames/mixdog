@@ -13,6 +13,8 @@ import {
 } from '../../../shared/provider-accounts.mjs';
 import { fetchOAuthUsageSnapshot } from './oauth-usage.mjs';
 import { getProvider } from './registry.mjs';
+import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
+import { getModelProxyChannel } from './model-proxy-channel.mjs';
 
 const forcedReading = (routeInfo, providerObj) =>
   fetchOAuthUsageSnapshot(routeInfo, providerObj, () => {}, { force: true }).catch(() => null);
@@ -40,15 +42,15 @@ function readingServesModel(reading, model, useCredits) {
   return measured.length > 0 && measured.every((window) => window.usedPct < 100);
 }
 
-export async function providerQuotaUsable(providerName, model = '', { provider = getProvider(providerName) } = {}) {
+/** The model-independent, account-wide measurement: one forced usage reading
+ *  per roster account (or the single credential). Null for a provider that
+ *  reports no exhausted quota. */
+export async function measureProviderQuota(providerName, { provider } = {}) {
   // Only an account-pooled provider reports exhausted quota at all.
-  if (!ACCOUNT_PROVIDERS.includes(providerName)) return true;
+  if (!ACCOUNT_PROVIDERS.includes(providerName)) return null;
+  if (provider === undefined) provider = getProvider(providerName);
   const pool = readProviderAccountPool(providerName);
   const useCredits = pool.useCredits === true;
-  // Only this reading counts as evidence: an account whose forced reading
-  // failed or measured nothing for this model stays exhausted however its
-  // older record reads; the pool's own choice (selection, blocks) decides
-  // among the rest.
   if (pool.accounts.length > 0) {
     const readings = await Promise.all(
       pool.accounts.map((row) =>
@@ -58,13 +60,37 @@ export async function providerQuotaUsable(providerName, model = '', { provider =
         )
       )
     );
-    const unproven = new Set(
-      pool.accounts.filter((_, index) => !readingServesModel(readings[index], model, useCredits)).map((row) => row.id)
-    );
-    if (unproven.size === pool.accounts.length) return false;
-    return chooseProviderAccount(readProviderAccountPool(providerName), unproven, Date.now(), model) !== null;
+    return {
+      providerName,
+      useCredits,
+      accounts: pool.accounts.map((row, index) => ({ id: row.id, reading: readings[index] })),
+    };
   }
   // No roster: the single credential's fresh meter decides.
   const reading = await forcedReading({ provider: providerName, model: '' }, provider);
-  return readingServesModel(reading, model, useCredits);
+  return { providerName, useCredits, accounts: null, reading };
+}
+
+/** Whether `model` can be served per `measurement` (from measureProviderQuota).
+ *  Only the measurement counts as evidence: an account whose forced reading
+ *  failed or measured nothing for this model stays exhausted however its
+ *  older record reads; the pool's own choice (selection, blocks) decides
+ *  among the rest. */
+export function quotaMeasurementServesModel(measurement, model = '') {
+  if (!measurement) return true;
+  const { providerName, useCredits, accounts } = measurement;
+  if (!accounts) return readingServesModel(measurement.reading, model, useCredits);
+  const unproven = new Set(
+    accounts.filter((row) => !readingServesModel(row.reading, model, useCredits)).map((row) => row.id)
+  );
+  if (unproven.size === accounts.length) return false;
+  return chooseProviderAccount(readProviderAccountPool(providerName), unproven, Date.now(), model) !== null;
+}
+
+export async function providerQuotaUsable(providerName, model = '', { provider } = {}) {
+  // The PC owns the accounts in proxy mode; do not resolve a server provider.
+  if (modelProxyClientMode()) {
+    return (await getModelProxyChannel().request({ provider: providerName, method: 'quotaUsable', model })) === true;
+  }
+  return quotaMeasurementServesModel(await measureProviderQuota(providerName, { provider }), model);
 }

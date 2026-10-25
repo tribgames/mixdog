@@ -34,6 +34,7 @@ export const MODEL_PROXY_METHODS = Object.freeze([
   'listModels',
   'refreshModels',
   'isAvailable',
+  'quotaUsable',
   'resolveWireRoute',
   'providerConfig',
 ]);
