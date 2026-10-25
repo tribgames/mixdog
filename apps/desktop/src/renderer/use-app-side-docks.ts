@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
+import { useActivityRailPins } from './use-activity-rail-pins';
 import { useBrowserFeatureInstalled } from './browser-feature-install';
 import { isSshConnectionWindow } from './desktop-connection';
 import {
@@ -84,9 +85,25 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
         .filter((group) => group.length > 0),
     [workbenchSideLayout.layout]
   );
-  const [activeSideViews, setActiveSideViews] = useState<Record<WorkbenchSide, WorkbenchSideViewId | null>>(() =>
-    initialActiveWorkbenchSideViews(workbenchSideLayout.layout)
-  );
+  // The rail's order lives in the pins store, so the start view is read from
+  // the same pins the rail draws. It follows them (a host answer after boot,
+  // another window's reorder) until the user picks a view; from then on the
+  // pick holds. Every caller of setActiveSideViews is an explicit navigation
+  // (rail click, dock tab open, drag, settings route), so any call is a pick,
+  // including one that selects the view already showing.
+  const { pins: railPins } = useActivityRailPins();
+  type ActiveSideViews = Record<WorkbenchSide, WorkbenchSideViewId | null>;
+  const startSideViews = initialActiveWorkbenchSideViews(workbenchSideLayout.layout, railPins);
+  const startSideViewsRef = useRef(startSideViews);
+  startSideViewsRef.current = startSideViews;
+  const [pickedSideViews, setPickedSideViews] = useState<ActiveSideViews | null>(null);
+  const activeSideViews = pickedSideViews ?? startSideViews;
+  const setActiveSideViews = useCallback((action: SetStateAction<ActiveSideViews>) => {
+    setPickedSideViews((picked) => {
+      const current = picked ?? startSideViewsRef.current;
+      return typeof action === 'function' ? action(current) : action;
+    });
+  }, []);
   /** The session a pane shows ('' for a draft or a non-session tab). */
   const sessionOfLeaf = (leafId: string) => {
     const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);

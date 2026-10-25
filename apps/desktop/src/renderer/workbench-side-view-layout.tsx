@@ -33,6 +33,7 @@ export {
   moveWorkbenchSideGroup,
   moveWorkbenchSideView,
   normalizeWorkbenchSideViewLayout,
+  pinnedRailViews,
   useWorkbenchSideViewLayout,
 } from './workbench-side-view-model';
 export type {

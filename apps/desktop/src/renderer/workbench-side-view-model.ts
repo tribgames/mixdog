@@ -236,17 +236,36 @@ export function moveWorkbenchSideView(
 }
 
 /**
+ * The views the activity rail draws as buttons, top to bottom: the pinned ids,
+ * in pin order, that are shown on the left (so an unpinned, unavailable or
+ * feature-gated view never leads). The pins store owns this order; the rail
+ * and the start view both read it here.
+ */
+export function pinnedRailViews(
+  pins: readonly string[],
+  shown: readonly WorkbenchSideViewId[]
+): WorkbenchSideViewId[] {
+  const present = new Set<string>(shown);
+  return pins.filter((id): id is WorkbenchSideViewId => present.has(id));
+}
+
+/**
  * First active view per side. No last-visited view survives a reload — the dock tab and the bottom panel
  * drop their persisted selection for the same reason — so every reconnect
- * lands on one predictable entry point per edge: the group that leads it.
- * The user picks the left's by dragging a view to the top of the rail. A side
+ * lands on one predictable entry point per edge.
+ * The left's is the rail's first button, so the user picks it by dragging a
+ * rail item to the top (the activity rail pins own that order, never the
+ * layout's). With nothing pinned and shown, the rail holds only More and its
+ * menu's first entry leads. The right's is the group that leads it. A side
  * that holds nothing has no active view.
  */
 export function initialActiveWorkbenchSideViews(
-  layout: WorkbenchSideViewLayout
+  layout: WorkbenchSideViewLayout,
+  pins: readonly string[]
 ): Record<WorkbenchSide, WorkbenchSideViewId | null> {
+  const left = layout.left.flat();
   return {
-    left: layout.left[0]?.[0] ?? null,
+    left: pinnedRailViews(pins, left)[0] ?? left[0] ?? null,
     right: layout.right[0]?.[0] ?? null,
   };
 }

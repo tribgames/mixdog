@@ -4,6 +4,7 @@ import { ScmContextMenu } from './ScmContextMenu';
 import { t } from './i18n';
 import { useActivityRailPins } from './use-activity-rail-pins';
 import {
+  pinnedRailViews,
   setWorkbenchSideIconDragImage,
   workbenchSideBarDropTarget,
   type WorkbenchSideViewDescriptor,
@@ -69,8 +70,11 @@ export function ActivityRailNavigation({
         savePins(next);
       }}
     >
-      {pins.map((id) => {
-        const descriptor = descriptors.get(id as WorkbenchSideViewId);
+      {pinnedRailViews(
+        pins,
+        entries.map((entry) => entry.id)
+      ).map((id) => {
+        const descriptor = descriptors.get(id);
         if (!descriptor) return null;
         const Icon = descriptor.icon;
         const active = activeId === descriptor.id;

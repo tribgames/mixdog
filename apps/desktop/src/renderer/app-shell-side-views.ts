@@ -192,6 +192,8 @@ export function useSideViewSelection({
         return;
       }
       if (activeSideViews.left === id && sidebarOpen) {
+        // Clicking the shown view folds the drawer; it is still the user's pick.
+        setActiveSideViews((current) => current);
         applySidebarOpen(false);
         return;
       }

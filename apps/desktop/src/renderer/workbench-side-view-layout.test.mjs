@@ -12,6 +12,7 @@ import {
   moveWorkbenchSideView,
   nextRetainedWorkbenchSideRoots,
   normalizeWorkbenchSideViewLayout,
+  pinnedRailViews,
   normalizeSideSplitSizes,
   resizeSideSplitSizes,
   workbenchSideBarDropPlacement,
@@ -308,44 +309,69 @@ test('views missing from a stored side are restored in default order', () => {
   );
 });
 
-test('each side opens on its leading group, never a last-visited view', () => {
+test('each side opens on its leading view, never a last-visited view', () => {
   // Sessions sits on the right here, and neither side restores anything: the
-  // left starts on its own first group, the right on the group that leads it.
+  // left starts on the rail's first button, the right on the group that leads it.
   assert.deepEqual(
-    initialActiveWorkbenchSideViews({
-      left: [['projects'], ['search']],
-      right: [['sessions', 'agents']],
-    }),
+    initialActiveWorkbenchSideViews(
+      {
+        left: [['projects'], ['search']],
+        right: [['sessions', 'agents']],
+      },
+      ['projects', 'search']
+    ),
     { left: 'projects', right: 'sessions' }
   );
-  // A combined group selects its root.
-  assert.deepEqual(initialActiveWorkbenchSideViews({ left: [['projects', 'sessions']], right: [] }), {
-    left: 'projects',
+  // A combined group draws each member as its own rail button.
+  assert.deepEqual(initialActiveWorkbenchSideViews({ left: [['projects', 'sessions']], right: [] }, ['sessions']), {
+    left: 'sessions',
     right: null,
   });
 });
 
-test('the left rail opens on whatever the user put at its top, Agents included', () => {
-  // No view is a fixed home: the stored order decides, so moving a view to
-  // the top of the rail makes it the starting one.
-  assert.deepEqual(
-    initialActiveWorkbenchSideViews({
-      left: [['sessions'], ['schedules'], ['agents']],
-      right: [],
-    }),
-    { left: 'sessions', right: null }
-  );
-  assert.deepEqual(
-    initialActiveWorkbenchSideViews({
-      left: [['agents'], ['sessions'], ['schedules']],
-      right: [],
-    }),
-    { left: 'agents', right: null }
-  );
+test('the left rail opens on the first pinned view, whatever the layout order says', () => {
+  const layout = { left: [['sessions'], ['schedules'], ['agents'], ['projects']], right: [] };
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['sessions', 'agents']).left, 'sessions');
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['agents', 'sessions']).left, 'agents');
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['projects', 'sessions', 'agents']).left, 'projects');
+});
+
+test('the start view skips pins the rail does not show and falls back to the first menu entry', () => {
+  const layout = { left: [['sessions'], ['agents']], right: [] };
+  // 'search' is pinned first but not available (feature-gated / absent), so the rail draws Agents first.
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['search', 'agents', 'sessions']).left, 'agents');
+  // An unpinned view never leads, even when the layout puts it first.
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['agents']).left, 'agents');
+  // Nothing pinned and shown: the rail holds only More, whose menu leads with the layout's first view.
+  assert.equal(initialActiveWorkbenchSideViews(layout, []).left, 'sessions');
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['search']).left, 'sessions');
+});
+
+test('the start view is always the rail first button, for any pins and layout', () => {
+  const views = ['sessions', 'agents', 'schedules', 'projects', 'workflows', 'search'];
+  const layouts = [
+    { left: views.map((id) => [id]), right: [] },
+    { left: [...views].reverse().map((id) => [id]), right: [] },
+    { left: [['workflows', 'projects'], ['sessions'], ['agents']], right: [] },
+  ];
+  const pinLists = [[], ['projects'], ['projects', 'sessions'], ['search', 'workflows', 'agents'], [...views].reverse()];
+  for (const layout of layouts) {
+    for (const pins of pinLists) {
+      const rail = pinnedRailViews(pins, layout.left.flat());
+      assert.equal(
+        initialActiveWorkbenchSideViews(layout, pins).left,
+        rail[0] ?? layout.left.flat()[0],
+        JSON.stringify({ layout: layout.left, pins })
+      );
+    }
+  }
 });
 
 test('an empty side has no active view', () => {
-  assert.deepEqual(initialActiveWorkbenchSideViews({ left: [], right: [['agents']] }), { left: null, right: 'agents' });
+  assert.deepEqual(initialActiveWorkbenchSideViews({ left: [], right: [['agents']] }, ['agents']), {
+    left: null,
+    right: 'agents',
+  });
 });
 
 test('side view layout keeps every available category exactly once', () => {
