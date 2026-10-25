@@ -2297,6 +2297,8 @@
   "Images must total {{max}} MB or less.": "Die Bilder dürfen zusammen höchstens {{max}} MB groß sein.",
   "Images were left out.": "Bilder wurden ausgelassen.",
   "Imagining": "Vorstellen",
+  "Clear all saved logins": "Alle gespeicherten Logins löschen",
+  "No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).": "Noch keine Logins. Chrome-Logins lassen sich importieren, damit sich der Agent damit anmelden kann (einmalige Administratorfreigabe).",
   "Import": "Importieren",
   "Import {{count}}": "{{count}} importieren",
   "Import {{count}}_one": "{{count}} importieren",

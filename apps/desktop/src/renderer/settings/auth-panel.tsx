@@ -4,7 +4,7 @@
 // only: this page shows a site, a username and which secrets are stored, never
 // their values.
 import { Globe, KeyRound, MoreHorizontal, Search } from 'lucide-react';
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopBrowserSignedInSite, DesktopVaultLogin } from '../../shared/contract';
@@ -40,11 +40,11 @@ interface LoginDialogState {
   login: DesktopVaultLogin | null;
 }
 
-export function AuthPanel({ api = window.mixdogDesktop }: { api?: AuthApi } = {}) {
+export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?: AuthApi; active?: boolean } = {}) {
   const [logins, setLogins] = useState<DesktopVaultLogin[] | null>(null);
   const [sites, setSites] = useState<DesktopBrowserSignedInSite[]>([]);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<AuthFilter>('all');
+  const [filter, setFilter] = useState<AuthFilter>('password');
   const [visible, setVisible] = useState(INITIAL_ROWS);
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   const [dialog, setDialog] = useState<LoginDialogState | null>(null);
@@ -55,28 +55,41 @@ export function AuthPanel({ api = window.mixdogDesktop }: { api?: AuthApi } = {}
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Only the newest read lands: an older one answering late never restores
+  // a stale list or clears a newer error.
+  const listRead = useRef(0);
+  const settingsRead = useRef(0);
   const reload = useCallback(async () => {
+    const read = ++listRead.current;
     try {
       const [vaultLogins, signedIn] = await Promise.all([
         Promise.resolve(api.browserVaultLogins?.()).then((value) => value ?? []),
         Promise.resolve(api.browserSignedInSites?.()).then((value) => value ?? []),
       ]);
+      if (read !== listRead.current) return;
       setLogins(vaultLogins);
       setSites(signedIn);
+      setError('');
     } catch (reason) {
+      if (read !== listRead.current) return;
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }, [api]);
 
+  // Every time the page is shown it re-reads the vault: the panel stays
+  // mounted while hidden, so a mount-only load would keep a stale list.
   useEffect(() => {
+    if (!active) return;
     void reload();
+    const read = ++settingsRead.current;
     void Promise.resolve(api.readSettings?.())
       .then((settings) => {
+        if (read !== settingsRead.current) return;
         setAutoSignIn(settings ? settings.browserAutoSignIn !== false : null);
         setSaveChatLogins(settings ? settings.saveChatLogins !== false : null);
       })
       .catch(() => undefined);
-  }, [api, reload]);
+  }, [active, api, reload]);
 
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
@@ -106,12 +119,12 @@ export function AuthPanel({ api = window.mixdogDesktop }: { api?: AuthApi } = {}
 
   const rows = mergeAuthRows(logins ?? [], sites);
   const counts = authCounts(rows);
-  const shown = filterAuthRows(rows, filter, query);
-  const filters: Array<[AuthFilter, string, number]> = [
-    ['all', t('All'), counts.all],
-    ['password', t('Saved password'), counts.password],
-    ['cookies', t('Stay signed in only'), counts.cookies],
-  ];
+  // The cookie-only option disappears at zero; its filter then falls back.
+  const activeFilter: AuthFilter = filter === 'cookies' && counts.cookies === 0 ? 'password' : filter;
+  const shown = filterAuthRows(rows, activeFilter, query);
+  const filters: Array<[AuthFilter, string, number]> = [['password', t('Saved password'), counts.password]];
+  if (counts.cookies > 0) filters.push(['cookies', t('Stay signed in only'), counts.cookies]);
+  const noLogins = logins !== null && rows.length === 0;
 
   const openMenu = (row: AuthRow, point: { x: number; y: number }) => {
     const items = [];
@@ -146,6 +159,34 @@ export function AuthPanel({ api = window.mixdogDesktop }: { api?: AuthApi } = {}
         title={t('Logins')}
         actions={
           <div className="auth-tools">
+            <ActionButton
+              primary={noLogins}
+              disabled={!api.browserProfileImportSources}
+              onClick={() => setImportOpen(true)}
+            >
+              {t('Import')}
+            </ActionButton>
+            <ActionButton onClick={() => setDialog({ login: null })}>{t('Add')}</ActionButton>
+          </div>
+        }
+      >
+        {logins !== null && !noLogins && (
+          <>
+            <div className="auth-seg" role="group" aria-label={t('Logins')}>
+              {filters.map(([value, label, count]) => (
+                <button
+                  type="button"
+                  key={value}
+                  aria-pressed={activeFilter === value}
+                  onClick={() => {
+                    setFilter(value);
+                    setVisible(INITIAL_ROWS);
+                  }}
+                >
+                  {label} {count}
+                </button>
+              ))}
+            </div>
             <label className="auth-search">
               <Search size={13} aria-hidden="true" />
               <input
@@ -161,27 +202,14 @@ export function AuthPanel({ api = window.mixdogDesktop }: { api?: AuthApi } = {}
                 }}
               />
             </label>
-            <ActionButton onClick={() => setDialog({ login: null })}>{t('Add')}</ActionButton>
-          </div>
-        }
-      >
-        <fieldset className="auth-filters" aria-label={t('Logins')}>
-          {filters.map(([value, label, count]) => (
-            <button
-              type="button"
-              key={value}
-              aria-pressed={filter === value}
-              onClick={() => {
-                setFilter(value);
-                setVisible(INITIAL_ROWS);
-              }}
-            >
-              {label} {count}
-            </button>
-          ))}
-        </fieldset>
+          </>
+        )}
         {logins === null ? (
           <p className="settings-empty">{t('Loading…')}</p>
+        ) : noLogins ? (
+          <p className="settings-empty">
+            {t('No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).')}
+          </p>
         ) : shown.length === 0 ? (
           <p className="settings-empty">{t('No saved logins yet.')}</p>
         ) : (
@@ -232,21 +260,7 @@ export function AuthPanel({ api = window.mixdogDesktop }: { api?: AuthApi } = {}
         {error && <ErrorNotice error={error} />}
       </Group>
 
-      <Group title={t('Import from Chrome')} description={t('Import your saved Chrome logins.')}>
-        <div className="mixdog-settings__row">
-          <div className="mixdog-settings__copy">
-            <span className="mixdog-settings__row-title">{t('Import from Chrome now')}</span>
-            <span className="mixdog-settings__row-desc">{t('Administrator approval is required.')}</span>
-          </div>
-          <div className="settings-row-control">
-            <ActionButton disabled={!api.browserProfileImportSources} onClick={() => setImportOpen(true)}>
-              {t('Import now')}
-            </ActionButton>
-          </div>
-        </div>
-      </Group>
-
-      <Group title={t('Auto login, saving and reset')} description={t('Choose how saved logins are used and kept.')}>
+      <Group>
         {autoSignIn !== null && (
           <ToggleRow
             title={t('Auto login')}
@@ -265,18 +279,18 @@ export function AuthPanel({ api = window.mixdogDesktop }: { api?: AuthApi } = {}
             onChange={(next) => toggleSetting('saveChatLogins', next, setSaveChatLogins)}
           />
         )}
-        <div className="mixdog-settings__row">
-          <div className="mixdog-settings__copy">
-            <span className="mixdog-settings__row-title">{t('Clear all')}</span>
-            <span className="mixdog-settings__row-desc">{t('Clear all saved logins.')}</span>
-          </div>
-          <div className="settings-row-control">
-            <ActionButton danger disabled={busy || !api.browserClearSignIns} onClick={() => setConfirmClear(true)}>
-              {t('Clear all')}
-            </ActionButton>
-          </div>
-        </div>
       </Group>
+
+      {!noLogins && logins !== null && (
+        <button
+          type="button"
+          className="auth-clear-all"
+          disabled={busy || !api.browserClearSignIns}
+          onClick={() => setConfirmClear(true)}
+        >
+          {t('Clear all saved logins')}
+        </button>
+      )}
 
       <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
       {dialog && (

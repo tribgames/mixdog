@@ -2246,6 +2246,8 @@
   "Images must total {{max}} MB or less.": "圖片總大小不得超過 {{max}} MB。",
   "Images were left out.": "圖片已略過。",
   "Imagining": "想像",
+  "Clear all saved logins": "清除所有已儲存的登入",
+  "No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).": "尚無登入。可匯入 Chrome 中的登入，讓代理程式用它們登入網站（需管理員核准一次）。",
   "Import": "匯入",
   "Import {{count}}": "匯入 {{count}} 個",
   "Import {{count}}_other": "匯入 {{count}} 個",

@@ -2246,6 +2246,8 @@
   "Images must total {{max}} MB or less.": "Tổng dung lượng hình ảnh tối đa là {{max}} MB.",
   "Images were left out.": "Hình ảnh đã bị bỏ qua.",
   "Imagining": "Tưởng tượng",
+  "Clear all saved logins": "Xóa tất cả đăng nhập đã lưu",
+  "No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).": "Chưa có đăng nhập nào. Bạn có thể nhập đăng nhập từ Chrome để tác nhân dùng chúng (cần quản trị viên phê duyệt một lần).",
   "Import": "Nhập",
   "Import {{count}}": "Nhập {{count}}",
   "Import {{count}}_other": "Nhập {{count}}",

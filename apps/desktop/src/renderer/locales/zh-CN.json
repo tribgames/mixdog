@@ -2246,6 +2246,8 @@
   "Images must total {{max}} MB or less.": "图片总大小不得超过 {{max}} MB。",
   "Images were left out.": "图片已略过。",
   "Imagining": "想象",
+  "Clear all saved logins": "清除所有已保存的登录",
+  "No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).": "暂无登录。可以导入 Chrome 中的登录，让智能体用它们登录网站（需管理员批准一次）。",
   "Import": "导入",
   "Import {{count}}": "导入 {{count}} 个",
   "Import {{count}}_other": "导入 {{count}} 个",

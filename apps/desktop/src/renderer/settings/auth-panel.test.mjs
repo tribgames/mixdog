@@ -50,20 +50,20 @@ test('the page renders one row per site from the vault and cookies, with no secr
   assert.ok(text.includes('github.com'), 'github row');
   assert.ok(text.includes('tempest'), 'the username from the vault');
   assert.ok(text.includes('me@example.com'), 'the second vault login');
-  assert.ok(text.includes('naver.com'), 'the cookie-only site');
+  assert.ok(!text.includes('naver.com'), 'the cookie-only site sits behind the second option');
   const rows = main.querySelectorAll('.auth-row');
-  assert.equal(rows.length, 3, 'github (login+cookies), notion (login), naver (cookies)');
+  assert.equal(rows.length, 2, 'the default option lists github and notion (saved passwords)');
   // Pills: a password and an authenticator key on github, a cookie count, and
   // notion is signed out (password, no cookies).
   assert.ok(main.querySelector('.auth-pill-key'), 'a password pill');
   assert.ok(main.querySelector('.auth-pill-otp'), 'an authenticator-key pill');
   assert.ok(main.querySelector('.auth-pill-off'), 'a signed-out pill');
   assert.ok(text.includes('31'), 'the github cookie count');
-  // Filter tab counts: 3 total, 2 with a password, 1 cookie-only.
-  const filters = [...main.querySelectorAll('.auth-filters button')].map((button) => button.textContent.trim());
-  assert.ok(filters[0].endsWith('3'), filters[0]);
-  assert.ok(filters[1].endsWith('2'), filters[1]);
-  assert.ok(filters[2].endsWith('1'), filters[2]);
+  // Segmented switch counts: 2 with a password, 1 cookie-only.
+  const filters = [...main.querySelectorAll('.auth-seg button')].map((button) => button.textContent.trim());
+  assert.equal(filters.length, 2);
+  assert.ok(filters[0].endsWith('2'), filters[0]);
+  assert.ok(filters[1].endsWith('1'), filters[1]);
   // The summaries carry no password or key, so none can render.
   assert.doesNotMatch(main.innerHTML, /otpauth|S3NT1NEL/);
 });
@@ -97,4 +97,100 @@ test('editing a saved key: typing a replacement then emptying it never wipes the
   assert.equal(saved[0].id, 'a'.repeat(24));
   assert.equal(saved[0].origin, 'https://github.com');
   assert.ok(!('totpSecret' in saved[0]), 'an emptied field omits totpSecret, so the stored key survives');
+});
+
+const mount = async (t, api) => {
+  const dom = installTestDom(t, DOM);
+  await act(async () => dom.root.render(React.createElement(AuthPanel, { api })));
+  await settle();
+  return dom;
+};
+const rowHosts = (doc) => [...doc.querySelectorAll('.auth-row b')].map((node) => node.textContent);
+
+test('the segmented switch filters the list and hides "stay signed in only" at zero', async (t) => {
+  const dom = await mount(t, makeApi());
+  const doc = dom.window.document;
+  assert.deepEqual(rowHosts(doc), ['github.com', 'notion.so']);
+  const [passwordOption, cookiesOption] = doc.querySelectorAll('.auth-seg button');
+  assert.equal(passwordOption.getAttribute('aria-pressed'), 'true');
+  await act(async () => cookiesOption.click());
+  assert.deepEqual(rowHosts(doc), ['naver.com']);
+  assert.equal(doc.querySelectorAll('.auth-seg button')[1].getAttribute('aria-pressed'), 'true');
+});
+
+test('the "stay signed in only" option is hidden when its count is zero', async (t) => {
+  const second = await mount(t, { ...makeApi(), browserSignedInSites: async () => [] });
+  const options = second.window.document.querySelectorAll('.auth-seg button');
+  assert.equal(options.length, 1, 'no cookie-only logins: the second option is hidden');
+  assert.ok(options[0].textContent.endsWith('2'));
+});
+
+test('with no logins: primary Import, an import hint, no switch or search, settings kept', async (t) => {
+  const api = { ...makeApi(), browserVaultLogins: async () => [], browserSignedInSites: async () => [], browserProfileImportSources: async () => [] };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  const buttons = [...doc.querySelectorAll('.auth-tools button')];
+  assert.equal(buttons.length, 2);
+  assert.ok(buttons[0].classList.contains('primary'), 'Import is the primary button');
+  assert.ok(!buttons[1].classList.contains('primary'));
+  assert.equal(doc.querySelector('.auth-seg'), null);
+  assert.equal(doc.querySelector('.auth-search'), null);
+  assert.equal(doc.querySelector('.auth-clear-all'), null);
+  assert.match(doc.querySelector('.settings-empty').textContent, /Chrome/);
+  assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 2, 'both toggles remain');
+});
+
+test('with logins Import is not primary, and the text button opens the clear-all confirm', async (t) => {
+  const api = { ...makeApi(), browserClearSignIns: async () => undefined };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  assert.ok(!doc.querySelector('.auth-tools button').classList.contains('primary'));
+  assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 2);
+  await act(async () => doc.querySelector('.auth-clear-all').click());
+  await settle();
+  assert.ok(doc.body.textContent.includes('Clear all saved logins?'), 'the existing confirm opens');
+});
+
+test('reopening the page reloads the list and shows a vault error', async (t) => {
+  let broken = false;
+  const api = {
+    ...makeApi(),
+    browserVaultLogins: async () => {
+      if (broken) throw new Error('vault unreadable');
+      return makeApi().browserVaultLogins();
+    },
+  };
+  const dom = installTestDom(t, DOM);
+  const render = (active) => act(async () => dom.root.render(React.createElement(AuthPanel, { api, active })));
+  await render(true);
+  await settle();
+  assert.equal(dom.window.document.querySelectorAll('.auth-row').length, 2);
+  await render(false);
+  broken = true;
+  await render(true);
+  await settle();
+  assert.ok(dom.window.document.body.textContent.includes('vault unreadable'));
+});
+
+test('an older read answering after a newer one never restores its stale list over the newer error', async (t) => {
+  const reads = [];
+  const api = {
+    ...makeApi(),
+    browserVaultLogins: () =>
+      new Promise((resolve, reject) => {
+        reads.push({ resolve, reject });
+      }),
+  };
+  const dom = installTestDom(t, DOM);
+  const render = (active) => act(async () => dom.root.render(React.createElement(AuthPanel, { api, active })));
+  await render(true);
+  await render(false);
+  await render(true);
+  assert.equal(reads.length, 2);
+  await act(async () => reads[1].reject(new Error('vault unreadable')));
+  await act(async () => reads[0].resolve(await makeApi().browserVaultLogins()));
+  await settle();
+  const doc = dom.window.document;
+  assert.ok(doc.body.textContent.includes('vault unreadable'), 'the newer error stays');
+  assert.equal(doc.querySelectorAll('.auth-row').length, 0, 'the older list is dropped');
 });

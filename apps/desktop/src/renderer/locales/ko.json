@@ -2247,6 +2247,8 @@
   "Images must total {{max}} MB or less.": "이미지 총 용량은 {{max}}MB 이하여야 합니다.",
   "Images were left out.": "이미지는 제외되었습니다.",
   "Imagining": "상상하는 중",
+  "Clear all saved logins": "저장된 로그인 모두 지우기",
+  "No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).": "아직 저장된 로그인이 없습니다. 크롬에 저장된 로그인을 가져오면 에이전트가 그 로그인으로 사이트에 들어갈 수 있습니다(관리자 승인 한 번).",
   "Import": "가져오기",
   "Import {{count}}": "{{count}}개 가져오기",
   "Import {{count}}_other": "{{count}}개 가져오기",

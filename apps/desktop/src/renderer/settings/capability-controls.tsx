@@ -230,16 +230,23 @@ export function AutoSaveRow({
 export function ActionButton({
   children,
   danger,
+  primary,
   disabled,
   onClick,
 }: {
   children: ReactNode;
   danger?: boolean;
+  primary?: boolean;
   disabled?: boolean;
   onClick(): void;
 }) {
   return (
-    <button type="button" className={`settings-action ${danger ? 'danger' : ''}`} disabled={disabled} onClick={onClick}>
+    <button
+      type="button"
+      className={`settings-action ${danger ? 'danger' : ''} ${primary ? 'primary' : ''}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
       {children}
     </button>
   );

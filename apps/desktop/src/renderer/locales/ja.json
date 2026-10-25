@@ -2246,6 +2246,8 @@
   "Images must total {{max}} MB or less.": "画像の合計サイズは {{max}} MB 以下にしてください。",
   "Images were left out.": "画像は含まれませんでした。",
   "Imagining": "想像中",
+  "Clear all saved logins": "保存したログインをすべて削除",
+  "No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).": "ログインはまだありません。Chrome のログインをインポートすると、エージェントがそれでサインインできます(管理者の承認が 1 回必要です)。",
   "Import": "インポート",
   "Import {{count}}": "{{count}}件をインポート",
   "Import {{count}}_other": "{{count}}件をインポート",

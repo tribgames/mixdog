@@ -2399,6 +2399,8 @@
   "Images must total {{max}} MB or less.": "Общий размер изображений не должен превышать {{max}} МБ.",
   "Images were left out.": "Изображения пропущены.",
   "Imagining": "Воображение",
+  "Clear all saved logins": "Удалить все сохранённые логины",
+  "No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).": "Логинов пока нет. Логины из Chrome можно импортировать, и агент сможет входить с ними (одно подтверждение администратора).",
   "Import": "Импорт",
   "Import {{count}}": "Импортировать: {{count}}",
   "Import {{count}}_few": "Импортировать: {{count}}",
