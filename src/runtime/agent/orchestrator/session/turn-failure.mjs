@@ -3,6 +3,7 @@
 // session shows the same failure, reason and quota stop as the live one.
 import { errText } from '../../../shared/err-text.mjs';
 import { safeErrorDetails } from '../../../shared/error-presentation.mjs';
+import { providerDisplayName } from '../../../shared/provider-display-name.mjs';
 import { providerErrorKind } from '../providers/provider-error-kind.mjs';
 import { toolErrorDisplay } from './transcript-restore/tool-result-text.mjs';
 
@@ -39,7 +40,10 @@ export function turnFailureRecord(error, route = {}) {
     providerKind,
     errorKind,
     quota,
-    detail: toolErrorDisplay(error, 'turn').replace(/^Error:\s*/i, ''),
+    // The provider is named from the turn's own route, never from the error.
+    detail: toolErrorDisplay(error, 'turn', {
+      providerLabel: route.provider ? providerDisplayName(route.provider) : undefined,
+    }).replace(/^Error:\s*/i, ''),
     errorDetails: safeErrorDetails(errText(error)),
   };
 }

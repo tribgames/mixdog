@@ -9,6 +9,7 @@ import { theme } from '../theme.mjs';
 import { displayModelName, effortDisplayLabel } from '../../runtime/shared/model-display.mjs';
 import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
 import { describeError } from '../../runtime/shared/error-presentation.mjs';
+import { providerDisplayName } from '../../runtime/shared/provider-display-name.mjs';
 import { DAYBREAK_PROVIDER, daybreakBlueOn } from '../../runtime/shared/llm/openai-daybreak.mjs';
 
 export const parsedModelVersion = (id) => {
@@ -165,34 +166,8 @@ export const normalizeModelOptions = (models) => {
   return normalized;
 };
 
-const PROVIDER_DISPLAY_NAMES = new Map([
-  ['openai-oauth', 'OpenAI OAuth'],
-  ['anthropic-oauth', 'Anthropic OAuth'],
-  ['grok-oauth', 'Grok OAuth'],
-  ['muse-code-oauth', 'Muse Code'],
-  ['command-code-oauth', 'Command Code'],
-  ['mimo-oauth', 'MiMo'],
-  ['cursor-oauth', 'Cursor OAuth'],
-  ['devin-oauth', 'Devin'],
-  ['antigravity-oauth', 'Antigravity OAuth'],
-  ['openai', 'OpenAI API'],
-  ['openai-api', 'OpenAI API'],
-  ['anthropic', 'Anthropic API'],
-  ['anthropic-api', 'Anthropic API'],
-  ['gemini', 'Gemini API'],
-  ['gemini-api', 'Gemini API'],
-  ['xai', 'xAI API'],
-  ['xai-api', 'xAI API'],
-  ['deepseek', 'DeepSeek API'],
-  ['deepseek-api', 'DeepSeek API'],
-  ['opencode-go-oauth', 'OpenCode Go OAuth'],
-  ['openrouter', 'OpenRouter'],
-  ['mixdog-local', 'Local Provider'],
-  ['default', 'Default'],
-]);
-
-export const providerDisplayName = (provider) =>
-  PROVIDER_DISPLAY_NAMES.get(String(provider || '').toLowerCase()) ?? (provider || 'Provider');
+// Provider display names live in runtime/shared so error text can name the provider too.
+export { providerDisplayName };
 
 export const resolveProviderDisplayName = (provider, providerNames = null) =>
   (String(provider || '')

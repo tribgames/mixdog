@@ -8,7 +8,7 @@ import { _codexWsCompatibilityHeaders } from '../openai-codex-metadata.mjs';
 import { createWsSendAttempts } from '../openai-ws-send-attempts.mjs';
 import { createWsSendSpan } from '../openai-ws-send-span.mjs';
 import { emitProviderRetryStage } from '../retry-executor.mjs';
-import { retryReasonClass } from '../openai-ws-send-attempts/policy.mjs';
+import { retryReasonClass } from '../provider-error-kind.mjs';
 
 /** Stage callbacks are observers; a throwing one never fails the send. */
 export function notifyStage(onStageChange, stage, detail) {

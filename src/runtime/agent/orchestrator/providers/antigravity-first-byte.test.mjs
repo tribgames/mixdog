@@ -59,7 +59,6 @@ test('a header timeout on a thinking model is retried once at a doubled window, 
     assert.match(error.message, /first byte timed out after 70ms/);
     assert.equal(error.attempts, 2);
     assert.equal(error.waitedMs, 40 + 70);
-    assert.equal(error.providerLabel, 'Antigravity');
     assert.equal(isProviderRecoveryExhausted(error), true);
     return true;
   });

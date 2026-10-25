@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createStreamSafetyStamps } from './retry-classifier.mjs';
 import { createWsSendAttempts, MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT } from './openai-ws-send-attempts.mjs';
 import { createWsSendContext } from './openai-ws-send/send-context.mjs';
-import { safeRetryErrorCode } from './openai-ws-send-attempts/policy.mjs';
+import { retryReasonClass, safeRetryErrorCode } from './provider-error-kind.mjs';
+import { providerTimeoutError } from '../stall-policy.mjs';
 import { emitProviderRetryStage } from './retry-executor.mjs';
 
 function harness(overrides = {}) {
@@ -297,6 +298,67 @@ test('the retry stage takes a reason class, never caller text', () => {
   assert.equal(stages[0].reason, 'Connection interrupted');
   assert.equal(stages[0].reasonClass, 'other');
   assert.equal(stages[1].message, 'Provider overloaded · retry 1/5 in 1s');
+});
+
+function stageFor(lastErr, extra = {}) {
+  const stages = [];
+  emitProviderRetryStage((stage, detail) => stages.push(detail), {
+    attempt: 1,
+    maxAttempts: 5,
+    lastErr,
+    delayMs: 1_000,
+    ...extra,
+  });
+  return stages[0];
+}
+
+test('typed timeouts keep their own wording in the retry stage', () => {
+  // Cursor's unary timeout, stamped through the shared helper.
+  const cursor = stageFor(providerTimeoutError('Cursor request', 5_000));
+  assert.equal(cursor.reasonClass, 'first_response_timeout');
+  assert.equal(cursor.reason, 'No first response 5s');
+  // Anthropic first-message watchdog stamp.
+  const anthropic = stageFor(
+    Object.assign(new Error('Anthropic SSE stream produced no message_start within 45000ms'), {
+      code: 'EEMPTYSTREAM',
+      isEmptyStream: true,
+      firstByteTimeout: true,
+    })
+  );
+  assert.equal(anthropic.reasonClass, 'first_response_timeout');
+  assert.equal(anthropic.reason, 'No first response 45s');
+  // OpenAI WS pre-stream watchdog stamp.
+  const ws = stageFor(
+    Object.assign(new Error('WS stream: no first server event within 10000ms'), { firstByteTimeout: true })
+  );
+  assert.equal(ws.reason, 'No first response 10s');
+  // OpenAI WS inter-chunk / first-meaningful watchdog: a named stall.
+  const stall = stageFor(
+    Object.assign(new Error('Responses WS timed out after 60000ms of inactivity'), { name: 'StreamStalledError' })
+  );
+  assert.equal(stall.reasonClass, 'stalled');
+  assert.equal(stall.reason, 'No progress 1m');
+});
+
+test('a token-refresh timeout classifies as auth, not a model timeout', () => {
+  const refresh = Object.assign(new Error('OpenAI OAuth token refresh timed out after 30000ms'), {
+    timeoutPhase: 'auth',
+  });
+  assert.equal(retryReasonClass(refresh), 'auth');
+  assert.equal(stageFor(refresh).reason, 'Provider rejected the sign-in');
+});
+
+test('an injected provider label or unknown code never reaches the retry stage', () => {
+  const err = Object.assign(new Error('first byte timed out after 60000ms'), {
+    timeoutPhase: 'headers',
+    providerLabel: 'INJECTED_LABEL',
+    code: 'acct_INJECTED_CODE',
+  });
+  const detail = stageFor(err);
+  assert.equal(detail.reason, 'Model still thinking: no output in 1m; the provider sent nothing yet');
+  assert.equal(detail.classifier, null);
+  assert.ok(!JSON.stringify(detail).includes('INJECTED'));
+  assert.equal(stageFor(err, { providerLabel: 'Antigravity' }).reason.includes('Antigravity'), true);
 });
 
 test('streamFailed: relayed text latches the no-replay marker and surfaces the error', async () => {

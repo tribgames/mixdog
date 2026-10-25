@@ -8,10 +8,9 @@ import {
   _sleepWithAbort,
   MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT,
   midstreamBackoffFor,
-  retryReasonClass,
-  safeRetryErrorCode,
   tag,
 } from './policy.mjs';
+import { retryReasonClass, safeRetryErrorCode } from '../provider-error-kind.mjs';
 
 /** One row per WS retry: the server's typed verdict (status, close code, an
  *  identifier-shaped code, the reason class) and the wait it bought, so a

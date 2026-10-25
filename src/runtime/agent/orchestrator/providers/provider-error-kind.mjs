@@ -5,6 +5,7 @@
 // to the older fields (httpStatus, responseFailed, providerError, SDK error
 // bodies, RPC status strings). Message text is consulted only for untyped
 // errors and only for unambiguous wordings.
+import { TIMEOUT_PHASE, isFirstByteTimeout } from '../../../shared/provider-timeout-phase.mjs';
 
 export const PROVIDER_ERROR_KINDS = Object.freeze([
   'overloaded',
@@ -723,6 +724,62 @@ export function providerErrorKind(err, options = {}) {
   // not: rate-limit 429s carry window resets too (kept for display/cooldown).
   if (kind === 'rate_limited' && (scope === 'day' || scope === 'plan')) kind = 'quota_exhausted';
   return describe(kind, code || undefined);
+}
+
+// ── Retry reason, without server text ───────────────────────────────────────
+// A server error's free text can echo request content (prompt, tokens,
+// account ids), so neither the retry trace nor the reconnect status carries
+// it: only a fixed reason class derived from typed status/code, and a code
+// only when it is a known provider error code (an identifier-shaped value can
+// still be private, e.g. an account id in a `code` field).
+const SERVER_ERROR_CODES = new Set([
+  'server_error',
+  'api_error',
+  'internal',
+  'internal_error',
+  'unavailable',
+  'service_unavailable',
+]);
+// Responses failure codes the WS retry classifier acts on beyond the shared
+// provider vocabulary.
+const WS_RETRY_ERROR_CODES = new Set(['auth_context_expired', 'auth_expired']);
+
+/** The typed error code when it is a known provider error code; null otherwise. */
+export function safeRetryErrorCode(err) {
+  const code = providerErrorKind(err).code;
+  return isKnownProviderErrorCode(code) || WS_RETRY_ERROR_CODES.has(code) ? code : null;
+}
+
+const STALL_ERROR_NAMES = new Set(['StreamStalledError', 'StreamStalledAbortError']);
+
+/**
+ * One of rate_limited / overloaded / server_error / auth / first_response_timeout /
+ * stalled / other. The timeout classes read our own typed timeout stamps
+ * (name, code, timeoutPhase), never message text.
+ */
+export function retryReasonClass(err) {
+  const { kind, status } = providerErrorKind(err);
+  const code = safeRetryErrorCode(err);
+  if (kind === 'rate_limited' || kind === 'quota_exhausted' || status === 429) return 'rate_limited';
+  if (kind === 'overloaded' || status === 529) return 'overloaded';
+  if (kind === 'auth' || kind === 'permission' || status === 401 || status === 403) return 'auth';
+  // A token-refresh timeout is a sign-in problem, not a slow model.
+  if (err?.timeoutPhase === TIMEOUT_PHASE.AUTH) return 'auth';
+  if ((status >= 500 && status < 600) || (code && SERVER_ERROR_CODES.has(code))) return 'server_error';
+  if (err?.timeoutPhase === TIMEOUT_PHASE.IDLE || STALL_ERROR_NAMES.has(err?.name) || err?.code === 'ESTREAMSTALL') {
+    return 'stalled';
+  }
+  // `firstByteTimeout` is the stamp the Anthropic first-message and OpenAI
+  // WS/HTTP first-event watchdogs put on their errors.
+  if (
+    isFirstByteTimeout(err) ||
+    err?.firstByteTimeout === true ||
+    err?.name === 'ProviderTimeoutError' ||
+    err?.code === 'EPROVIDERTIMEOUT'
+  ) {
+    return 'first_response_timeout';
+  }
+  return 'other';
 }
 
 /** Kinds whose refusal no wait or replay can change: quota, plan and billing. */

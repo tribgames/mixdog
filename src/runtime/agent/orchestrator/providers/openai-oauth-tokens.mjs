@@ -18,6 +18,7 @@ import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { TIMEOUT_PHASE } from '../../../shared/provider-timeout-phase.mjs';
 import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
 import {
   accountIdentityFields,
@@ -254,7 +255,9 @@ async function exchangeRefreshToken(refreshToken, previousIdentity = null) {
     return tokens;
   } catch (err) {
     if (err?.name === 'AbortError')
-      throw new Error(`OpenAI OAuth token refresh timed out after ${TOKEN_REFRESH_TIMEOUT_MS}ms`);
+      throw Object.assign(new Error(`OpenAI OAuth token refresh timed out after ${TOKEN_REFRESH_TIMEOUT_MS}ms`), {
+        timeoutPhase: TIMEOUT_PHASE.AUTH,
+      });
     throw err;
   } finally {
     clearTimeout(timeout);

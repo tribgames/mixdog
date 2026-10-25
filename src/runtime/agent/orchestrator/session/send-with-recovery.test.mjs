@@ -239,6 +239,72 @@ test('loop retry diagnostics retain the WebSocket close code and current HTTP st
   assert.ok(writes.some((line) => line.includes('wsCloseCode=1006') && line.includes('httpStatus=503')));
 });
 
+test('loop reconnect status carries a fixed reason class, never the error text', async (t) => {
+  t.mock.method(process.stderr, 'write', () => true);
+  const details = [];
+  const opts = {
+    onStageChange: (stage, detail) => {
+      if (stage === 'reconnecting') details.push(detail);
+    },
+  };
+  const markers = ['PROMPT_MARKER_secret plan', 'sk-TOKEN_MARKER123', 'acct_ACCOUNT_MARKER42'];
+  const failure = Object.assign(new Error(`upstream said: ${markers.join(' / ')}`), {
+    httpStatus: 503,
+  });
+  const result = await sendWithRecovery({
+    ...baseCtx,
+    opts,
+    provider: {
+      send: async () => {
+        throw failure;
+      },
+    },
+  });
+  assert.equal(result.action, 'retry_transport');
+  assert.equal(details.length, 1);
+  assert.equal(details[0].reasonClass, 'server_error');
+  assert.equal(details[0].reason, 'Provider server error');
+  const shown = JSON.stringify(details[0]);
+  for (const marker of markers) assert.ok(!shown.includes(marker), marker);
+});
+
+test('a first-response timeout keeps its own wording on the loop reconnect status', async (t) => {
+  t.mock.method(process.stderr, 'write', () => true);
+  const details = [];
+  const opts = {
+    onStageChange: (stage, detail) => {
+      if (stage === 'reconnecting') details.push(detail);
+    },
+  };
+  const failure = Object.assign(new Error('Antigravity first byte timed out after 180000ms PROMPT_MARKER_secret'), {
+    name: 'ProviderTimeoutError',
+    code: 'EPROVIDERTIMEOUT',
+    timeoutPhase: 'headers',
+    attempts: 1,
+    waitedMs: 180_000,
+    providerLabel: 'INJECTED_LABEL',
+  });
+  const result = await sendWithRecovery({
+    ...baseCtx,
+    opts,
+    provider: {
+      send: async () => {
+        throw failure;
+      },
+    },
+  });
+  assert.equal(result.action, 'retry_transport');
+  assert.equal(details.length, 1);
+  assert.equal(details[0].reasonClass, 'first_response_timeout');
+  assert.equal(
+    details[0].reason,
+    'Model still thinking: no output in 3m; the provider sent nothing yet; attempts: 1'
+  );
+  const shown = JSON.stringify(details[0]);
+  assert.ok(!shown.includes('PROMPT_MARKER'));
+  assert.ok(!shown.includes('INJECTED_LABEL'));
+});
+
 test('a Cursor abort retries visible text only after the owner retracts it', async () => {
   const abort = cursorStreamAbort();
   abort.partialContent = 'partial answer';

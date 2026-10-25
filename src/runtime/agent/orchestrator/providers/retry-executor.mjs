@@ -4,7 +4,7 @@ import { PROVIDER_RETRY_JITTER_RATIO, createTimeoutSignal } from '../stall-polic
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { recycleLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
-import { retryReasonText, retryStatusLine } from '../../../shared/err-text.mjs';
+import { retryStatusLine, retryTimeoutText } from '../../../shared/err-text.mjs';
 import {
   TERMINAL_EDGE_STATUSES,
   boundedCauseChain,
@@ -13,7 +13,14 @@ import {
   isToolInputCut,
   retryAfterMsFromError,
 } from './retry-classification.mjs';
-import { DETERMINISTIC_KINDS, QUOTA_KINDS, errorHeaderValue, providerErrorKind } from './provider-error-kind.mjs';
+import {
+  DETERMINISTIC_KINDS,
+  QUOTA_KINDS,
+  errorHeaderValue,
+  providerErrorKind,
+  retryReasonClass,
+  safeRetryErrorCode,
+} from './provider-error-kind.mjs';
 import { adviceGatedRetry } from './retry-midstream.mjs';
 import {
   ModelFallbackTriggeredError,
@@ -322,6 +329,10 @@ const RETRY_REASON_TEXT = Object.freeze({
   other: 'Connection interrupted',
 });
 
+// Timeout classes read our own typed timeout stamps (retryTimeoutText), so
+// their phrases carry the wait window.
+const TIMEOUT_REASON_CLASSES = new Set(['first_response_timeout', 'stalled']);
+
 /**
  * Display-only 'reconnecting' stage for one retry wait, so it reads as a
  * reconnect instead of a silent spinner. `attempt` is the attempt about to run
@@ -330,25 +341,28 @@ const RETRY_REASON_TEXT = Object.freeze({
  */
 export function emitProviderRetryStage(
   onStageChange,
-  { attempt, maxAttempts, lastErr, delayMs, classifier = null, extra = null, reasonClass = null }
+  { attempt, maxAttempts, lastErr, delayMs, classifier = null, extra = null, reasonClass = null, providerLabel = null }
 ) {
   if (typeof onStageChange !== 'function') return;
   try {
-    // A caller-classified failure shows a fixed phrase (never the error's own
-    // text); an unrecognized class reads as `other`.
-    const fixedClass =
-      reasonClass == null ? null : Object.hasOwn(RETRY_REASON_TEXT, reasonClass) ? reasonClass : 'other';
-    const reason = fixedClass ? RETRY_REASON_TEXT[fixedClass] : retryReasonText(lastErr);
+    // The reason is a fixed phrase for a class (the caller's, else derived from
+    // the error's typed status/code), never the error's own text; an
+    // unrecognized class reads as `other`.
+    const cls = reasonClass == null ? retryReasonClass(lastErr) : reasonClass;
+    const fixedClass = Object.hasOwn(RETRY_REASON_TEXT, cls) || TIMEOUT_REASON_CLASSES.has(cls) ? cls : 'other';
+    const reason = TIMEOUT_REASON_CLASSES.has(fixedClass)
+      ? retryTimeoutText(lastErr, fixedClass, providerLabel)
+      : RETRY_REASON_TEXT[fixedClass];
     const waitMs = Math.max(0, Number(delayMs) || 0);
     onStageChange('reconnecting', {
       ...extra,
-      ...(fixedClass ? { reasonClass: fixedClass } : {}),
+      reasonClass: fixedClass,
       attempt,
       max: maxAttempts,
       waitMs,
       retryAt: Date.now() + waitMs,
       reason,
-      classifier: classifier || lastErr?.retryClassifier || lastErr?.code || null,
+      classifier: classifier || lastErr?.retryClassifier || safeRetryErrorCode(lastErr),
       message: retryStatusLine({ reason, attempt, maxAttempts, delayMs: waitMs }),
     });
   } catch {

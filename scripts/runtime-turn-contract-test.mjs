@@ -23,7 +23,6 @@ import { createTagRegistry } from '../src/standalone/agent-tool/tag-registry.mjs
 import { WORKER_INDEX_FILE } from '../src/standalone/agent-tool/tool-def.mjs';
 import {
   presentErrorText,
-  retryReasonText,
   retryStatusLine,
   isCancelLikeError,
 } from '../src/runtime/shared/err-text.mjs';
@@ -71,12 +70,12 @@ test('provider failures expose concise capacity, session-state, and retry reason
   );
   assert.equal(
     retryStatusLine({
-      reason: retryReasonText(new Error('first byte timed out after 60000ms')),
+      reason: 'Connection interrupted',
       attempt: 3,
       maxAttempts: 5,
       delayMs: 2_000,
     }),
-    'No first response 1m · retry 3/5 in 2s'
+    'Connection interrupted · retry 3/5 in 2s'
   );
 });
 

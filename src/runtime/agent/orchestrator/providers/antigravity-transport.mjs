@@ -142,6 +142,7 @@ export function createAntigravityRequest({
         : ANTIGRAVITY_RETRY.maxAttempts,
       lastErr,
       delayMs,
+      providerLabel: 'Antigravity',
     });
     process.stderr.write(`[antigravity] retry ${attempt + 1} after ${lastErr?.message || 'transient error'}\n`);
   };
@@ -157,7 +158,6 @@ export function createAntigravityRequest({
     send.firstByteTimeouts += 1;
     send.firstByteWaitedMs += windowMs;
     err.waitedMs = send.firstByteWaitedMs;
-    err.providerLabel = 'Antigravity';
     if (firstByte.retries != null && send.firstByteTimeouts > firstByte.retries) {
       markProviderRecoveryExhausted(err, { owner: 'antigravity-first-byte', attempts: send.attempts, terminal: true });
     }

@@ -15,6 +15,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { TIMEOUT_PHASE } from '../../../shared/provider-timeout-phase.mjs';
 import { claudeCliUserAgent, resolveCliVersion } from './anthropic-oauth-client-version.mjs';
 import {
   accountIdentityFields,
@@ -375,7 +376,9 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
     return refreshed;
   } catch (err) {
     if (err?.name === 'AbortError') {
-      throw new Error('Anthropic OAuth token refresh timed out after 30000ms');
+      throw Object.assign(new Error('Anthropic OAuth token refresh timed out after 30000ms'), {
+        timeoutPhase: TIMEOUT_PHASE.AUTH,
+      });
     }
     throw err;
   } finally {

@@ -8,6 +8,8 @@ export const TIMEOUT_PHASE = Object.freeze({
   FIRST_CHUNK: 'first-chunk',
   // A stream that already produced output went silent.
   IDLE: 'idle',
+  // A sign-in token refresh did not answer: an auth problem, not a slow model.
+  AUTH: 'auth',
 });
 
 /** A timeout before the model produced anything: headers or first chunk. */

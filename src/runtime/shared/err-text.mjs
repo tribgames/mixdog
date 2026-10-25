@@ -206,24 +206,25 @@ function hasTypedEvidence(error) {
   );
 }
 
-// The window a provider timeout names (providerTimeoutError's message), or 0.
-const timedOutMs = (text) => Number(/timed out after (\d+)ms/i.exec(text)?.[1]) || 0;
+// The window a provider timeout names (providerTimeoutError's message, or a
+// first-byte watchdog's "within Nms"), or 0.
+const timedOutMs = (text) => Number(/(?:timed out after|within) (\d+)ms/i.exec(text)?.[1]) || 0;
 
 // A provider timeout before the model produced anything (isFirstByteTimeout):
-// the model is slow, not the connection.
-function stillThinkingText(error, text) {
+// the model is slow, not the connection. The provider name comes from the
+// caller's own provider config, never from the error.
+function stillThinkingText(error, text, providerLabel) {
   const ms = Number(error.waitedMs) || timedOutMs(text);
-  const provider =
-    typeof error.providerLabel === 'string' && error.providerLabel ? error.providerLabel : 'the provider';
+  const provider = typeof providerLabel === 'string' && providerLabel ? providerLabel : 'the provider';
   const attempts = Number(error.attempts) > 0 ? `; attempts: ${Math.floor(Number(error.attempts))}` : '';
   return `Model still thinking: no output in ${formatDurationMs(ms)}; ${provider} sent nothing yet${attempts}.`;
 }
 
 // Stamped provider timeout phases and stream cuts. Null when the error names
 // neither, so the text rules below decide.
-function typedStreamFailureText(error, text) {
+function typedStreamFailureText(error, text, providerLabel) {
   if (!error || typeof error !== 'object') return null;
-  if (isFirstByteTimeout(error)) return stillThinkingText(error, text);
+  if (isFirstByteTimeout(error)) return stillThinkingText(error, text, providerLabel);
   if (error.timeoutPhase === TIMEOUT_PHASE.IDLE) {
     const ms = timedOutMs(text);
     return ms > 0 ? `No progress ${formatDurationMs(ms)}.` : 'No progress.';
@@ -267,7 +268,7 @@ export function presentErrorText(error, options = {}) {
   if (embeddedError) text = embeddedError;
   text = oneLine(stripErrorPrefix(text));
   if (!text) return 'Unknown error';
-  const streamFailure = typedStreamFailureText(error, text);
+  const streamFailure = typedStreamFailureText(error, text, options.providerLabel);
   if (streamFailure) return streamFailure;
 
   if (code === 'PROVIDER_PREFIX_MUTATION' || name === 'ProviderPrefixMutationError') {
@@ -369,12 +370,20 @@ export function presentErrorText(error, options = {}) {
   return capText(safeErrorDetails(text) || 'Unknown error', max);
 }
 
-/** Why a provider request is being retried, as one short status phrase. */
-export function retryReasonText(error, options = {}) {
-  return presentErrorText(error, {
-    surface: options.surface || 'request',
-    max: options.max ?? 120,
-  }).replace(/\.$/, '');
+/**
+ * Our own wording for a typed timeout retry (`first_response_timeout` /
+ * `stalled`), built only from the error's stamps and the window in its
+ * message; null for any other class. No error text is ever echoed.
+ */
+export function retryTimeoutText(error, reasonClass, providerLabel = null) {
+  const text = String(error?.message ?? '');
+  const ms = timedOutMs(text);
+  if (reasonClass === 'first_response_timeout') {
+    if (isFirstByteTimeout(error)) return stillThinkingText(error, text, providerLabel).replace(/\.$/, '');
+    return ms > 0 ? `No first response ${formatDurationMs(ms)}` : 'No first response';
+  }
+  if (reasonClass === 'stalled') return ms > 0 ? `No progress ${formatDurationMs(ms)}` : 'No progress';
+  return null;
 }
 
 /** The one retry status line every surface shows: `reason · retry n/max in 15s`. */

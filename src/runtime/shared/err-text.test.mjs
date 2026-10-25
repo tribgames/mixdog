@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backgroundTaskFailureStatusLabel, presentErrorText, retryReasonText } from './err-text.mjs';
+import { backgroundTaskFailureStatusLabel, presentErrorText, retryTimeoutText } from './err-text.mjs';
 
 function timeout(message, fields) {
   return Object.assign(new Error(message), { name: 'ProviderTimeoutError', code: 'EPROVIDERTIMEOUT', ...fields });
@@ -14,24 +14,39 @@ test('a first-byte timeout reads as a model still thinking, with the wait and th
     providerLabel: 'Antigravity',
   });
   const text = 'Model still thinking: no output in 465s; Antigravity sent nothing yet; attempts: 2.';
-  assert.equal(presentErrorText(error), text);
+  assert.equal(presentErrorText(error, { providerLabel: 'Antigravity' }), text);
+  // An error-carried label is never trusted as the provider name.
+  assert.match(presentErrorText(error), /; the provider sent nothing yet; /);
   // Persisted as text, it stays the same sentence.
   assert.equal(presentErrorText(text), text);
   assert.equal(
     backgroundTaskFailureStatusLabel('failed', text, { surface: 'agent' }),
     'Timeout · Model still thinking: no output in 465s; Antigravity sent nothing yet; attempts: 2'
   );
+});
+
+test('retry timeout wording takes the provider name from the caller, not the error', () => {
+  const error = timeout('x first byte timed out after 60000ms', {
+    timeoutPhase: 'headers',
+    providerLabel: 'INJECTED_LABEL',
+  });
   assert.equal(
-    retryReasonText(
-      timeout('Antigravity first byte timed out after 180000ms', {
-        timeoutPhase: 'headers',
-        attempts: 1,
-        waitedMs: 180_000,
-        providerLabel: 'Antigravity',
-      })
-    ),
-    'Model still thinking: no output in 3m; Antigravity sent nothing yet; attempts: 1'
+    retryTimeoutText(error, 'first_response_timeout', 'Antigravity'),
+    'Model still thinking: no output in 1m; Antigravity sent nothing yet'
   );
+  assert.ok(!retryTimeoutText(error, 'first_response_timeout').includes('INJECTED'));
+});
+
+test('retry timeout wording comes from typed stamps, other classes get none', () => {
+  assert.equal(
+    retryTimeoutText(timeout('provider first byte timed out after 60000ms'), 'first_response_timeout'),
+    'No first response 1m'
+  );
+  assert.equal(
+    retryTimeoutText(Object.assign(new Error('x timed out after 300000ms'), { timeoutPhase: 'idle' }), 'stalled'),
+    'No progress 5m'
+  );
+  assert.equal(retryTimeoutText(new Error('x'), 'other'), null);
 });
 
 test('a first-chunk timeout without a named provider still reads as thinking', () => {

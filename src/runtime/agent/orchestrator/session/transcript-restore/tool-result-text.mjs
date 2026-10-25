@@ -132,8 +132,8 @@ export function toolGroupedDisplayFallback(resultText, text, rawText) {
   return resultText;
 }
 
-export function toolErrorDisplay(value, surface = 'tool') {
-  const text = presentErrorText(value, { surface });
+export function toolErrorDisplay(value, surface = 'tool', { providerLabel } = {}) {
+  const text = presentErrorText(value, { surface, providerLabel });
   if (
     /^(?:Search failed|Fetch failed|No first response|No progress|Cancelled|The .+ went stale|(?:Web search agent|Agent|Tool|Request) (?:stopped|was cancelled))/i.test(
       text

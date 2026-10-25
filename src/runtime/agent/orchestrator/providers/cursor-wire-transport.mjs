@@ -5,6 +5,7 @@ import http2 from 'node:http2';
 import { MAX_CONNECT_FRAME_BYTES, createCursorByteQueue } from './cursor-wire-guards.mjs';
 import { cursorClientVersion, warmCursorClientVersion } from './cursor-client-version.mjs';
 import { retryAfterMsFromError } from './retry-classifier.mjs';
+import { providerTimeoutError } from '../stall-policy.mjs';
 
 export { warmCursorClientVersion };
 
@@ -243,7 +244,7 @@ export async function callCursorUnary({ accessToken, path, body, url = API_URL, 
     let status = 0;
     let responseHeaders = null;
     let settled = false;
-    const timeout = setTimeout(() => finish(new Error('Cursor request timed out')), timeoutMs);
+    const timeout = setTimeout(() => finish(providerTimeoutError('Cursor request', timeoutMs)), timeoutMs);
     const finish = (error = null) => {
       if (settled) return;
       settled = true;
