@@ -146,6 +146,20 @@ test('every decorative loop holds still wherever it cannot be seen, desktop and 
   assert.deepEqual(failures, []);
 });
 
+test('the typing dots animate normally and run no animation under reduced motion', async (t) => {
+  const page = await launch(t);
+  const dotAnimations = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('[data-context="visible"] .mx-chat-dots > i')].map(
+        (dot) => getComputedStyle(dot).animationName
+      )
+    );
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  assert.deepEqual(await dotAnimations(), ['mx-chat-typing', 'mx-chat-typing', 'mx-chat-typing']);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  assert.deepEqual(await dotAnimations(), ['none', 'none', 'none']);
+});
+
 test('the mark steps at 24 fps on one grid; the star holds its static pose', async (t) => {
   const page = await launch(t);
   const FRAME_MS = 1000 / 24;

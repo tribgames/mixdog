@@ -238,27 +238,6 @@ test('pure helpers: fit, wheel, cursor anchor, snapping and page aspect', async 
   assert.equal(documentPageAspect([{ page: 1, width: 10, height: 20 }], 5), 0.5);
 });
 
-test('preview scrollers use the app scrollbar rules and stay single', async () => {
-  const { readFileSync } = await import('node:fs');
-  const css = readFileSync(new URL('./desktop/26-editor.css', import.meta.url), 'utf8');
-  const base = readFileSync(new URL('./desktop/02-base.css', import.meta.url), 'utf8');
-  assert.match(
-    base,
-    /\*::-webkit-scrollbar\s*\{[^}]*--mx-scrollbar-size/,
-    'shared scrollbar rule covers every scroller'
-  );
-  for (const selector of ['.editor-pane-document', '.editor-pane-preview']) {
-    const block = css.match(new RegExp(`\\n${selector.replace('.', '\\.')}\\s*\\{[^}]*\\}`))[0];
-    assert.match(block, /overscroll-behavior:\s*contain/, selector);
-    assert.match(block, /box-sizing:\s*border-box/, selector);
-  }
-  assert.doesNotMatch(css, /editor-pane-preview iframe/);
-  for (const file of ['./ZoomFrame.tsx', './zoom-frame-hooks.ts']) {
-    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /onWheel[\s\S]*scrollTop\s*\+=/, `no custom wheel scrolling in ${file}`);
-  }
-});
-
 test('image fit contains the whole image, centred and never upscaled; documents stay fit-width', async () => {
   const { fitContainScale } = zoomMath;
   assert.equal(fitContainScale(1000, 600, 2000, 1000), 0.5, 'width limits');

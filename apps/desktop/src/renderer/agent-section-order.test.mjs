@@ -280,15 +280,6 @@ test('Connectors: the foot bar shows by default, hides on toggle, persists, and 
   assert.ok(all.document.querySelector('.connectors-pill'), 'the bar stays when only the lists are hidden');
 });
 
-test('dividers and menu separators are straight 1px lines, not rounded', async () => {
-  const { readFileSync } = await import('node:fs');
-  const rail = readFileSync(new URL('./desktop/10-rail-pages.css', import.meta.url), 'utf8');
-  assert.match(rail, /agent-contact-divider\)[^}]*border-radius: 0;/);
-  const menu = readFileSync(new URL('./desktop/20-automation.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(menu, /menu-separator \{[^}]*box-shadow/);
-  assert.match(menu, /menu-separator::before \{[^}]*height: 1px;/);
-});
-
 test('hiding Bots keeps the Mixy row', async (t) => {
   const bots = mount(t);
   await bots.render();

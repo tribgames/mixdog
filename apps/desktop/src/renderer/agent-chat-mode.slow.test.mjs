@@ -721,18 +721,6 @@ test('a room shows a typing bubble only while a member types, held until that me
   assert.equal(await typer([prompt.item, s1.item, s2.item, pass]), null, 'a pass ends the bubble');
 });
 
-test('the typing dots hold still under reduced motion', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./agent-chat.css', import.meta.url), 'utf8');
-  const animated = css.indexOf('animation: mx-chat-typing');
-  assert.ok(animated > 0);
-  const query = css.lastIndexOf('@media (prefers-reduced-motion: no-preference)', animated);
-  assert.ok(
-    query > 0 && !css.slice(query, animated).includes('\n}\n'),
-    'the dots animate only inside the motion query'
-  );
-});
-
 function composerProps(calls, overrides = {}) {
   return {
     turnBusy: false,

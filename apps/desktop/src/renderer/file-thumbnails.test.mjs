@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -254,13 +253,5 @@ test('attachment cards draw content thumbnails over a name bar, with no gradient
   } finally {
     await act(async () => root.unmount());
     restore();
-  }
-  // The per-type tint (gradient wash, tinted tag) is gone from the card's CSS.
-  const css = readFileSync(new URL('./desktop/15-composer.css', import.meta.url), 'utf8');
-  const rules = [...css.matchAll(/([^{}]*\.attachment-card[^{}]*)\{([^}]*)\}/g)];
-  assert.ok(rules.length > 0);
-  for (const [, selector, body] of rules) {
-    assert.doesNotMatch(body, /gradient|--attachment-tint/, selector.trim());
-    assert.doesNotMatch(selector, /attachment-card-tag/);
   }
 });

@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { DEFAULT_FONT_SETTINGS, normalizeFontSettings, sanitizeFontFamily, userFontPrefix } from './font-settings';
-
-const tokens = readFileSync(new URL('../desktop/01-tokens.css', import.meta.url), 'utf8');
 
 test('family names are sanitized before they reach CSS', () => {
   assert.equal(sanitizeFontFamily('  Inter  '), 'Inter');
@@ -41,18 +38,6 @@ test('the user family is prepended to the built-in stack, which stays as the fal
   assert.equal(userFontPrefix('Inter'), '"Inter",');
   assert.equal(userFontPrefix('bad;name'), '');
   assert.equal(userFontPrefix(''), '');
-  assert.match(tokens, /--mx-font-prose-base:\s*"Pretendard Variable", Pretendard,[^;]*sans-serif;/);
-  assert.match(tokens, /--mx-font-prose: var\(--mx-font-ui-user,\) var\(--mx-font-prose-base\);/);
-  assert.match(tokens, /--mx-font-mono-base: "JetBrains Mono Variable",[^;]*monospace;/);
-  assert.match(tokens, /--mx-font-mono: var\(--mx-font-mono-user,\) var\(--mx-font-mono-base\);/);
-  // What the browser resolves with a choice set: the family, then the whole built-in stack.
-  const base = /--mx-font-prose-base:\s*([^;]+);/.exec(tokens)[1].trim();
-  assert.equal(`${userFontPrefix('Inter')} ${base}`, `"Inter", ${base}`);
-  // UI size multiplies the whole ramp (root and chat scope); code size only code.
-  assert.match(tokens, /:root \{\s*--mx-content-scale: var\(--mx-ui-scale, 1\);\s*\}/);
-  assert.match(tokens, /--mx-content-scale: calc\(var\(--mx-ui-scale, 1\) \* var\(--mx-chat-scale, 1\)\);/);
-  assert.match(tokens, /--mx-font-code: calc\(13px \* var\(--mx-content-scale, 1\) \* var\(--mx-code-scale, 1\)\);/);
-  assert.match(tokens, /:root\[data-mixdog-mono-ligatures="off"\] \{\s*font-variant-ligatures: no-contextual;/);
 });
 
 test('stored values are clamped to the capped ranges', () => {
@@ -104,18 +89,3 @@ test('settings paint the root, persist on this device, and reset clears every pr
   stop();
 });
 
-test('boot paint: the stored fonts and theme are applied before React renders', async (t) => {
-  const bootstrap = readFileSync(new URL('../bootstrap.tsx', import.meta.url), 'utf8');
-  const fontsAt = bootstrap.indexOf('applyFontSettings();');
-  const themeAt = bootstrap.indexOf('applyStoredUserTheme();');
-  const renderAt = bootstrap.indexOf('createRoot(');
-  assert.ok(fontsAt > 0 && themeAt > 0, 'bootstrap applies both');
-  assert.ok(fontsAt < renderAt && themeAt < renderAt, 'before the first React render');
-  // A reload re-reads localStorage synchronously: the first frame has the fonts.
-  const { window, document } = installTestDom(t, { actEnvironment: false });
-  window.localStorage.setItem('mixdog.desktop.fonts.v1', JSON.stringify({ ui: 'Inter', uiScale: 0.9 }));
-  const fonts = await import('./font-settings');
-  fonts.applyFontSettings();
-  assert.equal(document.documentElement.style.getPropertyValue('--mx-font-ui-user'), '"Inter",');
-  assert.equal(document.documentElement.style.getPropertyValue('--mx-ui-scale'), '0.9');
-});

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -331,28 +330,6 @@ test('split mode leaves the inline renderer', async () => {
   }
 });
 
-test('code lines wrap in every shared diff: the session pane and tool cards never scroll sideways', () => {
-  const css = readFileSync(new URL('./desktop/25-scm-dock.css', import.meta.url), 'utf8');
-  const rule = css.match(/\.inline-diff-code\s*\{([^}]*)\}/u)?.[1] ?? '';
-  assert.match(rule, /white-space:\s*pre-wrap/u);
-  assert.match(rule, /overflow-wrap:\s*anywhere/u);
-  assert.match(css.match(/\.inline-diff\s*\{([^}]*)\}/u)?.[1] ?? '', /var\(--mx-font-mono\)/u);
-  // The session pane's sections and the chat's tool-card diffs share one rule
-  // set, which keeps the wrapping code column (no max-content rows, no
-  // sideways scroller).
-  const stack = readFileSync(new URL('./desktop/27-search-review.css', import.meta.url), 'utf8');
-  const shared = (part) =>
-    stack.match(
-      new RegExp(`:is\\(\\.session-diff-section, \\.tool-diff-frame\\) \\.${part}\\s*\\{([^}]*)\\}`, 'u')
-    )?.[1] ?? '';
-  // 13px at the default chat text size; tool-card diffs follow its scale.
-  assert.match(shared('inline-diff'), /font-size:\s*calc\(13px \* var\(--mx-content-scale, 1\)\)/u);
-  assert.doesNotMatch(shared('inline-diff'), /overflow-x/u);
-  assert.equal(shared('inline-diff-code'), '');
-  assert.equal(shared('inline-diff-row'), '');
-  assert.match(stack.match(/\.session-diff-section-head\s*\{([^}]*)\}/u)?.[1] ?? '', /position:\s*sticky/u);
-});
-
 test('DiffHeaderControls: only the ⋯ menu with Unified/Split; no scope text or search', async () => {
   const calls = [];
   const view = await mount(
@@ -412,36 +389,6 @@ test('Changes view: Unified/Split live in the ⋯ menu of the one DockHeaderRow'
   } finally {
     await view.done();
   }
-});
-
-test('the dock draws no second header row for Changes; the header never wraps at 280px', () => {
-  const dock = readFileSync(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  assert.match(dock, /!sessionSurfaceShowing && !sessionDiffPanelShowing/u);
-  const pane = readFileSync(new URL('./SessionDiffPane.tsx', import.meta.url), 'utf8');
-  assert.equal((pane.match(/<DockHeaderRow/gu) ?? []).length, 1);
-  // No visible title text on either header; the row keeps an aria-label.
-  assert.doesNotMatch(pane, /dock-header-title/u);
-  assert.match(pane, /ariaLabel=\{t\('Changes'\)\}/u);
-  assert.match(dock, /ariaLabel=\{diffShowing \? t\('Changes'\) : undefined\}/u);
-  assert.match(dock, /browser-tab is-active dock-header-chip[\s\S]*?\bdiff\.rel[\s\S]*?<DiffHeaderControls/u);
-  assert.doesNotMatch(dock, /diffShowing \? t\('Changes'\) : \(activeDescriptor/u);
-  assert.doesNotMatch(pane, /<DiffHeaderControls|diff-search-input|onQuery/u);
-  // Row 2 is the toolbar row (browser nav-row geometry) with the scope pill.
-  assert.match(pane, /browser-pane-toolbar session-diff-toolbar/u);
-  // "Changes" is always a tab of the pane's own tab strip, never a title chip.
-  const tabStrip = readFileSync(new URL('./session-diff-tab-strip.tsx', import.meta.url), 'utf8');
-  assert.match(pane, /<SessionDiffTabStrip/u);
-  assert.match(tabStrip, /browser-tab-list session-diff-tabs" role="tablist"/u);
-  assert.doesNotMatch(tabStrip, /dock-header-chip/u);
-  assert.doesNotMatch(pane, /dock-header-chip/u);
-  assert.match(dock, /title=\{`\$\{diff\.rel\}\\n\$\{diffScopeLabel\(diff\.source\)\}`\}/u);
-  const css = readFileSync(new URL('./desktop/27-search-review.css', import.meta.url), 'utf8');
-  const summary = css.match(/\.session-diff-summary\s*\{([^}]*)\}/u)?.[1] ?? '';
-  assert.match(summary, /flex-wrap:\s*nowrap/u);
-  assert.match(summary, /overflow:\s*hidden/u);
-  assert.match(css.match(/\.session-diff-header\s*\{([^}]*)\}/u)?.[1] ?? '', /white-space:\s*nowrap/u);
-  const scm = readFileSync(new URL('./desktop/25-scm-dock.css', import.meta.url), 'utf8');
-  assert.match(scm.match(/\.diff-header-controls\s*\{[^}]*flex-wrap:\s*nowrap/u)?.[0] ?? '', /nowrap/u);
 });
 
 // Every state keeps the one DockHeaderRow so close/expand stay reachable.

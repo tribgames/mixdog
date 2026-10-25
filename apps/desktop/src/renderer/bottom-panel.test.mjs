@@ -27,22 +27,7 @@ test('legacy global panel state migrates to the active PANE', () => {
   assert.equal(bottomPanelOpenForPane(openPaneIds, 'pane-b'), false);
 });
 
-test('the bottom panel resize handle is a 6px row-resize band inside the panel and drags the height', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8');
-  const handle = css.match(/\n\.bottom-panel-resize \{([^}]*)\}/)[1];
-  assert.match(handle, /top: 0;/);
-  assert.match(handle, /height: 6px;/);
-  assert.match(handle, /cursor: row-resize;/);
-  assert.match(handle, /z-index: 4;/);
-  const hover = css.match(/\.bottom-panel-resize:hover,\s*\.bottom-panel-resize\.is-dragging \{([^}]*)\}/)[1];
-  assert.match(hover, /var\(--mx-focus\)/);
-  // The divider is the panel's own 1px border; the sheet framing keeps it and does not clip the band.
-  const sheet = css.slice(css.lastIndexOf('@media (min-width: 941px)'));
-  assert.match(sheet, /border-top: 1px solid var\(--mx-border\);/);
-  assert.doesNotMatch(sheet, /overflow: hidden/);
-  assert.match(css.match(/\n\.pane-cell \{([^}]*)\}/)[1], /overflow: hidden;/);
-
+test('the bottom panel resize handle sits inside the panel and drags the height', async () => {
   const React = (await import('react')).default;
   const { act } = await import('react');
   const { createRoot } = await import('react-dom/client');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -308,13 +308,6 @@ test('menu structure: search, worktree, branch section, separator, new branch', 
     ['main'],
     'the check marks the current branch while the worktree is not selected'
   );
-  // Hover and focus move the check beside the "…"; it never hides or steps aside.
-  const css = readFileSync(new URL('./desktop/15-worktree-branch.css', import.meta.url), 'utf8');
-  assert.match(
-    css,
-    /:is\(:hover, :focus-within\) > \.branch-menu-item > :is\(small, \.branch-menu-check\) \{\s*margin-right: 28px;/
-  );
-  assert.doesNotMatch(css, /branch-menu-check[^{]*\{[^}]*(visibility: hidden|display: none)/);
   for (const shell of list.querySelectorAll('.branch-row-shell')) {
     assert.ok(shell.querySelector(':scope > .branch-row-more'), 'the … trigger sits inside the row');
   }

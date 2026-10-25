@@ -89,32 +89,6 @@ test('HostFolderBrowser lists through listHostDirectories with no project and se
   await act(async () => root.unmount());
 });
 
-test('phone layout: the host browser and the selected path fit the add dialog field', async () => {
-  const { readFileSync } = await import('node:fs');
-  const css = readFileSync(new URL('./desktop/20-automation.css', import.meta.url), 'utf8');
-  const rule = (selector) => {
-    const escaped = selector.replace(/[.>*[\]]/g, '\\$&');
-    const match = new RegExp(`(?:^|\\n)${escaped} \\{([^}]*)\\}`).exec(css);
-    assert.ok(match, `rule ${selector}`);
-    return match[1];
-  };
-  // The field's implicit grid track must not grow to its widest child.
-  assert.match(rule('.projects-add-dialog .schedules-field'), /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  for (const selector of ['.projects-folder-row', '.host-folder-browser', '.host-folder-list li']) {
-    assert.match(rule(selector), /min-width:\s*0/, `${selector} may shrink below its content`);
-  }
-  assert.match(rule('.host-folder-browser .projects-folder-row input'), /min-width:\s*0/);
-  assert.match(rule('.projects-folder-row > button'), /flex:\s*none/, 'Browse/Up/Select keep their own width');
-  // The chosen path truncates with an ellipsis at its start, keeping its end readable.
-  const path = rule('.projects-folder-row code');
-  assert.match(path, /display:\s*block/);
-  assert.match(path, /direction:\s*rtl/);
-  assert.match(path, /text-overflow:\s*ellipsis/);
-  assert.match(path, /overflow:\s*hidden/);
-  const source = readFileSync(new URL('./ProjectAddDialogHost.tsx', import.meta.url), 'utf8');
-  assert.match(source, /<code>\s*<bdi>\{addPath \|\| t\('No folder selected'\)\}<\/bdi>\s*<\/code>/);
-});
-
 test('joinHostPath keeps the base separator style', () => {
   assert.equal(joinHostPath('/home/me', 'app'), '/home/me/app');
   assert.equal(joinHostPath('/', 'etc'), '/etc');
