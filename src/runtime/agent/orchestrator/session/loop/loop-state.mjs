@@ -160,7 +160,11 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
 export function finishLoop(state) {
   const { response } = state;
   // A reaction-only turn is a successful completion, never an empty finish.
-  const terminationReason = classifyTerminationReason(response, { sessionAgent: state.sessionAgent });
+  // A step-limit stop carries text, but the turn never reached an answer: the
+  // Lead is told it was stopped (agent-tool/render.mjs), not that it completed.
+  const terminationReason = response.stepLimitStopped
+    ? 'step_limit'
+    : classifyTerminationReason(response, { sessionAgent: state.sessionAgent });
   const reactionCompleted = terminationReason === 'empty' && state.noToolTurn.reactionCompleted;
   return {
     ...response,

@@ -10,6 +10,9 @@
  */
 import { createHash } from 'node:crypto';
 import { crossTurnSignature } from './completion-guards.mjs';
+import { roomDataLines } from '../agent-room.mjs';
+
+const PARTIAL_LABEL = 'Partial reply before the stop:';
 
 const NOTICE =
   '[mixdog-runtime] This turn has reached its tool-call or time limit: no further tool call runs. Reply now with your final answer from what you already have.';
@@ -79,7 +82,8 @@ export function settleTurnLimits(state, overrun, now = Date.now()) {
 
 /** The turn's end after an overrun: no reply, or the step-limit stop. */
 export function endedWithoutReply(response, state) {
-  return { ...response, content: state?.stepLimitReached ? STEP_STOP(state.stepLimitReached) : '', toolCalls: [] };
+  if (state?.stepLimitReached) return stepLimitResponse(response, state);
+  return { ...response, content: '', toolCalls: [] };
 }
 
 // Told once to reply; a capped turn already told keeps its own notice.
@@ -102,9 +106,15 @@ export function stepLimitSpent(state) {
   return false;
 }
 
-/** The turn's end at the step limit: a visible stop, never a silent finish. */
+/** The turn's end at the step limit: a visible stop, never a silent finish.
+ *  The notice leads; whatever the model had said last follows it under a
+ *  label, as data (an echoed copy of the notice dropped, runtime-marked lines
+ *  defused), so the Lead keeps the partial answer without a second notice. */
 export function stepLimitResponse(response, state) {
-  return { ...response, content: STEP_STOP(state.stepLimitReached), toolCalls: [] };
+  const notice = STEP_STOP(state.stepLimitReached);
+  const said = typeof response?.content === 'string' ? response.content.split(notice).join('').trim() : '';
+  const partial = said ? `\n\n${PARTIAL_LABEL}\n${roomDataLines(said).join('\n')}` : '';
+  return { ...response, content: `${notice}${partial}`, toolCalls: [], stepLimitStopped: true };
 }
 
 // Waiting calls may return the same result while the awaited work runs:

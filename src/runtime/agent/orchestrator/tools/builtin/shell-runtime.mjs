@@ -17,6 +17,10 @@ export function setConfiguredShell(value = '') {
   _resolvedShellByKind.clear();
 }
 
+export function getConfiguredShell() {
+  return _configuredShell || '';
+}
+
 function shellTypeFor(shell) {
   const stem = basename(String(shell || ''))
     .toLowerCase()
