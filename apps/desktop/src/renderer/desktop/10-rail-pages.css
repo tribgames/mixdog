@@ -995,10 +995,30 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside[data-unread="true"] > .agent-chat-time {
   color: var(--mx-accent);
 }
-/* A pinned Lead's mark: a quiet pin under the time (and status). */
+/* A pinned Lead's mark: a quiet pin just before the time, on the name line;
+   the status stays under them. */
+.utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside:has(> .agent-lead-pin) {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 4px;
+  justify-items: end;
+  /* The pin and its gap come on top of the time column. */
+  max-width: calc(var(--agent-contact-side) + 14px);
+}
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-lead-pin {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
   display: inline-flex;
   color: var(--mx-text-faint);
+}
+.utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside:has(> .agent-lead-pin) > .agent-chat-time {
+  grid-column: 2;
+  grid-row: 1;
+}
+.utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside:has(> .agent-lead-pin) > .agent-chat-status {
+  grid-column: 1 / -1;
+  grid-row: 2;
 }
 /* The name is one line; the preview up to two (KakaoTalk), both inside the
    text column — never under the time/status column. The preview always holds

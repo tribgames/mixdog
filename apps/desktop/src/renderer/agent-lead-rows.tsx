@@ -4,7 +4,8 @@
 // right the time over the state mark. A divider sets the block apart; a
 // finished Lead stays listed (resting, no state mark) for the Agents pane
 // window after it settled, as in 1.2, then leaves.
-import { Bot, Pin } from 'lucide-react';
+import { Bot } from 'lucide-react';
+import { RailPinIcon } from './RailPinIcon';
 import type React from 'react';
 import { Fragment, useEffect } from 'react';
 import { AGENT_PANE_VISIBLE_MS } from '../../../../src/runtime/shared/agent-reap-state.mjs';
@@ -277,7 +278,7 @@ export function AgentLeadRows({
                       )}
                       {row.pinned && (
                         <span className="agent-lead-pin" data-lead-pin="true">
-                          <Pin size={10} aria-hidden="true" />
+                          <RailPinIcon pinned size={10} />
                           <span className="sr-only">{t('Pinned')}</span>
                         </span>
                       )}
