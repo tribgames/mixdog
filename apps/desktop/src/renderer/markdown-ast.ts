@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
+import { ensureKatexTextMetrics } from './katex-text-metrics';
 import { safeMarkdownUrl } from './markdown-url';
 
 import {
@@ -56,6 +57,34 @@ function preserveRawHtmlAsText() {
   };
 }
 
+const MATH_CLASS = /^(?:language-math|math-inline|math-display)$/;
+
+function isMathNode(node: SyntaxNode): boolean {
+  const className = (node.properties as { className?: unknown } | undefined)?.className;
+  return Array.isArray(className) && className.some((name) => MATH_CLASS.test(String(name)));
+}
+
+function mathSource(node: SyntaxNode): string {
+  if (node.type === 'text') return String(node.value ?? '');
+  return Array.isArray(node.children) ? node.children.map(mathSource).join('') : '';
+}
+
+// KaTeX lends characters it has no metrics for (CJK, …) the metrics of 'M',
+// which lets their ink cross a fraction bar. Hand it the measured metrics of
+// the math sources' characters before rehype-katex lays them out.
+function measureKatexTextGlyphs() {
+  return (tree: SyntaxNode) => {
+    const visit = (parent: SyntaxNode) => {
+      if (!Array.isArray(parent.children)) return;
+      for (const child of parent.children) {
+        if (isMathNode(child)) ensureKatexTextMetrics(mathSource(child));
+        else visit(child);
+      }
+    };
+    visit(tree);
+  };
+}
+
 function normalizedProperties(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const properties = { ...(value as Record<string, unknown>) };
@@ -100,6 +129,7 @@ const markdownProcessor = unified()
   .use(htmlLineBreaksToBreaks)
   .use(preserveRawHtmlAsText)
   .use(remarkRehype)
+  .use(measureKatexTextGlyphs)
   .use(rehypeKatex)
   // Explicit-language fences only (no auto-detection); unknown languages
   // simply stay unhighlighted, matching the previous plain rendering.

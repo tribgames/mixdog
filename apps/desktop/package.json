@@ -142,6 +142,12 @@
   },
   "overrides": {
     "dompurify": "^3.4.12",
-    "nanoid": "^3.3.18"
+    "nanoid": "^3.3.18",
+    "rehype-katex": {
+      "katex": "$katex"
+    },
+    "micromark-extension-math": {
+      "katex": "$katex"
+    }
   }
 }
