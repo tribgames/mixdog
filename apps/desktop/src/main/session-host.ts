@@ -850,7 +850,7 @@ export class SessionHost implements DesktopService {
     return this.lifecycle.forgetSessionMetadata(sessionId);
   }
 
-  async sessionSidebarState(): Promise<{ archived: Record<string, number> }> {
+  async sessionSidebarState(): Promise<{ archived: Record<string, number>; favorites: Record<string, number> }> {
     return this.lifecycle.sessionSidebarState();
   }
 

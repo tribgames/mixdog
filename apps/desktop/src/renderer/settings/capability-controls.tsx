@@ -83,6 +83,41 @@ export function ToggleRow({
   );
 }
 
+/** One option of a multi-select: a ToggleRow's layout with a check box,
+ *  the whole row its label. */
+export function CheckRow({
+  title,
+  description,
+  checked,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  description?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange(value: boolean): void;
+}) {
+  return (
+    <label className="mixdog-settings__row settings-check-row">
+      <span className="mixdog-settings__copy">
+        <span className="mixdog-settings__row-title">{title}</span>
+        {description && <span className="mixdog-settings__row-desc">{description}</span>}
+      </span>
+      <span className="settings-row-control">
+        <input
+          type="checkbox"
+          className="settings-check"
+          aria-label={title}
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.currentTarget.checked)}
+        />
+      </span>
+    </label>
+  );
+}
+
 export function CompactSwitch({
   label,
   checked,

@@ -9,6 +9,7 @@ import {
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { featureEnvOverride, moduleEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { normalizeAgentAvatar } from '../runtime/shared/agent-avatar.mjs';
+import { CACHE_WARM_TARGETS, normalizeCacheWarmTargets } from '../runtime/shared/cache-warm-targets.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 import { INSTRUCTION_FILES_MODES, normalizeInstructionFilesMode } from '../runtime/shared/instruction-files-mode.mjs';
 import { AUTO_EFFORT_BASES, autoEffortBase } from '../runtime/agent/orchestrator/providers/auto-effort.mjs';
@@ -96,14 +97,19 @@ export function createBuiltinToolSettings(
       saveConfigAndAdopt({ ...getConfig(), aiSessionTitles: enabled !== false });
       return this.getSessionTitleSettings();
     },
-    // Prompt-cache warms before a bot's scheduled run (orchestrator
-    // session/cache-warm.mjs): 'routine' (default) or 'off'. The warmer reads
-    // the saved value at each warm, so a change applies without a restart.
+    // The conversations prompt-cache warms serve (orchestrator
+    // session/cache-warm.mjs, shared/cache-warm-targets.mjs): a target list,
+    // default ['scheduled'], [] = off; the old 'routine' / 'off' values read
+    // as ['scheduled'] / []. The warmer reads the saved value at each warm,
+    // so a change applies without a restart.
     getCacheWarmingSettings() {
-      return { cacheWarming: getConfig()?.cacheWarming === 'off' ? 'off' : 'routine' };
+      return { cacheWarming: normalizeCacheWarmTargets(getConfig()?.cacheWarming) };
     },
-    setCacheWarmingEnabled(enabled) {
-      saveConfigAndAdopt({ ...getConfig(), cacheWarming: enabled === false ? 'off' : 'routine' });
+    setCacheWarmingTargets(targets) {
+      if (!Array.isArray(targets) || !targets.every((name) => CACHE_WARM_TARGETS.includes(name))) {
+        throw new TypeError(`cache warming targets must be a list of: ${CACHE_WARM_TARGETS.join(', ')}`);
+      }
+      saveConfigAndAdopt({ ...getConfig(), cacheWarming: normalizeCacheWarmTargets(targets) });
       return this.getCacheWarmingSettings();
     },
     // The one pixel face every Lead row on the bot page wears, shared by every

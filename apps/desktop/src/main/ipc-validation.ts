@@ -66,6 +66,7 @@ import {
   type DesktopPetState,
   type DesktopPetTheme,
 } from '../shared/desktop-pet';
+import { CACHE_WARM_TARGETS } from '../../../../src/runtime/shared/cache-warm-targets.mjs';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
@@ -309,7 +310,6 @@ const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
   'setAutoUpdate',
   'setRecapEnabled',
   'setAiSessionTitles',
-  'setCacheWarmingEnabled',
   'setHeartbeatEnabled',
   'setReactionsEnabled',
   'setWebSearchEnabled',
@@ -406,7 +406,7 @@ const CAPABILITY_ARITY = {
   getSessionTitleSettings: [0, 0],
   setAiSessionTitles: [1, 1],
   getCacheWarmingSettings: [0, 0],
-  setCacheWarmingEnabled: [1, 1],
+  setCacheWarmingTargets: [1, 1],
   getHeartbeatSettings: [0, 0],
   setHeartbeatEnabled: [1, 1],
   noteUserInput: [1, 1],
@@ -1312,6 +1312,14 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
   }
   if (capability === 'setInstructionFiles' && !['all', 'agents', 'claude', 'off'].includes(args[0] as string)) {
     throw new TypeError('setInstructionFiles requires all, agents, claude, or off.');
+  }
+  if (
+    capability === 'setCacheWarmingTargets' &&
+    (!Array.isArray(args[0]) ||
+      args[0].length > CACHE_WARM_TARGETS.length ||
+      !args[0].every((name) => (CACHE_WARM_TARGETS as readonly unknown[]).includes(name)))
+  ) {
+    throw new TypeError(`setCacheWarmingTargets requires a list of: ${CACHE_WARM_TARGETS.join(', ')}.`);
   }
   if (capability === 'setAutoEffortBase' && !['low', 'medium', 'high'].includes(args[0] as string)) {
     throw new TypeError('setAutoEffortBase requires low, medium, or high.');

@@ -56,6 +56,10 @@ export function createPromptCacheTouchStore(path = () => join(resolvePluginData(
       const touch = load().get(String(sessionId || ''));
       return touch ? { ...touch } : null;
     },
+    /** The sessions holding a touch. */
+    ids() {
+      return [...load().keys()];
+    },
     /** Record a confirmed touch `{ touchAt, ttlMs, accountId, promptTokens }`. */
     record(sessionId, touch) {
       if (!sessionId || !validTouch(touch)) return;

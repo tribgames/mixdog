@@ -84,3 +84,16 @@ export function idleAutoClearDue({ cfg, activityAt, at, runtime }) {
   if (!cfg?.enabled || !activityAt || at - activityAt < cfg.idleMs) return false;
   return !contextUsageBelowThreshold(runtime, Number(cfg.minContextPercent ?? 10));
 }
+
+/**
+ * From when the idle gate clears the thread before a submit (epoch ms), with
+ * the same arguments as idleAutoClearDue less `at`; null when it never does
+ * while the thread stays idle (auto-clear off, no activity yet, or a context
+ * below the minimum share — idling moves neither). An unlimited window
+ * resolves to a deadline no clock reaches.
+ */
+export function idleAutoClearDeadline({ cfg, activityAt, runtime }) {
+  if (!cfg?.enabled || !activityAt) return null;
+  const at = activityAt + Number(cfg.idleMs);
+  return idleAutoClearDue({ cfg, activityAt, at, runtime }) ? at : null;
+}

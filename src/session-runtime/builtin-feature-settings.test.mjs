@@ -108,13 +108,25 @@ test('AI session titles default on, persist the top-level key and report the sam
   assert.equal(state.config().aiSessionTitles, true);
 });
 
-test('cache warming defaults to routine, persists off|routine at the top level and reports the same shape', () => {
+test('cache warming defaults to scheduled runs, persists a target list and reads the old off|routine values', () => {
   const state = fixture();
-  assert.deepEqual(state.api.getCacheWarmingSettings(), { cacheWarming: 'routine' });
-  assert.deepEqual(state.api.setCacheWarmingEnabled(false), { cacheWarming: 'off' });
-  assert.equal(state.config().cacheWarming, 'off');
-  assert.deepEqual(state.api.setCacheWarmingEnabled(true), { cacheWarming: 'routine' });
-  assert.equal(state.config().cacheWarming, 'routine');
+  assert.deepEqual(state.api.getCacheWarmingSettings(), { cacheWarming: ['scheduled'] });
+  assert.deepEqual(state.api.setCacheWarmingTargets([]), { cacheWarming: [] });
+  assert.deepEqual(state.config().cacheWarming, []);
+  assert.deepEqual(state.api.setCacheWarmingTargets(['favorites', 'scheduled', 'bot-chats']), {
+    cacheWarming: ['scheduled', 'bot-chats', 'favorites'],
+  });
+  assert.deepEqual(state.config().cacheWarming, ['scheduled', 'bot-chats', 'favorites']);
+  assert.throws(() => state.api.setCacheWarmingTargets(['everything']), /cache warming targets/);
+  assert.throws(() => state.api.setCacheWarmingTargets('scheduled'), /cache warming targets/);
+  for (const [old, migrated] of [
+    ['off', []],
+    ['routine', ['scheduled']],
+  ]) {
+    state.api.setCacheWarmingTargets([]);
+    state.config().cacheWarming = old;
+    assert.deepEqual(state.api.getCacheWarmingSettings(), { cacheWarming: migrated });
+  }
 });
 
 test('the shared Lead appearance is host-stored: missing → none, a valid mascot persists, junk is refused', () => {

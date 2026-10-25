@@ -94,14 +94,23 @@ test('auto-clear idle windows name a custom provider by its registered name, bui
     assert.equal(text.includes('idle window'), false);
     assert.deepEqual(
       [...document.querySelectorAll('.settings-group > header h3')].map((h) => h.textContent),
-      ['Session names', 'Compaction', 'Prompt cache', 'Idle session cleanup']
+      ['Session names', 'Compaction', 'Cache warming', 'Idle session cleanup']
     );
   } finally {
     await view.cleanup();
   }
 });
 
-test('cache warming is on by default, shows a saved off, and saves the switch', async () => {
+const WARM_ROWS = [
+  'Before scheduled runs',
+  'Bot chats (idle)',
+  'Bot rooms (idle)',
+  'Favorite conversations (idle)',
+  'Other conversations (idle)',
+];
+const warmBoxes = () => WARM_ROWS.map((name) => document.querySelector(`input[type="checkbox"][aria-label="${name}"]`));
+
+test('cache warming: one check box per target, only scheduled runs by default, saves the chosen list', async () => {
   const calls = [];
   const run = async (capability, args) => {
     calls.push([capability, args]);
@@ -109,18 +118,73 @@ test('cache warming is on by default, shows a saved off, and saves the switch', 
   };
   let view = await renderContext({}, run);
   try {
-    const toggle = document.querySelector('input[aria-label="Cache warming"]');
-    assert.ok(toggle);
-    assert.equal(toggle.checked, true, 'absent setting: on (routine)');
-    assert.match(document.body.textContent, /keeps the prompt cache alive before scheduled runs/i);
-    await act(async () => toggle.click());
-    assert.deepEqual(calls, [['setCacheWarmingEnabled', [false]]]);
+    const boxes = warmBoxes();
+    assert.ok(boxes.every(Boolean), 'a row per target');
+    assert.deepEqual(
+      boxes.map((box) => box.checked),
+      [true, false, false, false, false],
+      'absent setting: before scheduled runs only'
+    );
+    assert.match(document.body.textContent, /only while the next turn is likely enough to pay for it/);
+    assert.match(document.body.textContent, /only when auto-clear is off or longer than the cache lifetime/);
+    // A burst: each click builds on the last intended list.
+    await act(async () => boxes[3].click());
+    await act(async () => boxes[0].click());
+    assert.deepEqual(calls, [
+      ['setCacheWarmingTargets', [['scheduled', 'favorites']]],
+      ['setCacheWarmingTargets', [['favorites']]],
+    ]);
+    assert.deepEqual(
+      warmBoxes().map((box) => box.checked),
+      [false, false, false, true, false]
+    );
   } finally {
     await view.cleanup();
   }
-  view = await renderContext({}, run, { cacheWarming: { cacheWarming: 'off' } });
+  for (const [saved, checked] of [
+    ['off', [false, false, false, false, false]],
+    ['routine', [true, false, false, false, false]],
+    [[], [false, false, false, false, false]],
+    [['bot-rooms', 'conversations'], [false, false, true, false, true]],
+  ]) {
+    view = await renderContext({}, run, { cacheWarming: { cacheWarming: saved } });
+    try {
+      assert.deepEqual(
+        warmBoxes().map((box) => box.checked),
+        checked,
+        `saved ${JSON.stringify(saved)}`
+      );
+    } finally {
+      await view.cleanup();
+    }
+  }
+});
+
+test('cache warming: a failed save falls back to the saved list; a newer queued edit keeps its own', async () => {
+  // `run` resolves undefined when the save failed (it already showed the
+  // page's error) and the settings value when it succeeded.
+  const pending = [];
+  const run = (capability, args) =>
+    new Promise((resolve) => pending.push({ capability, args, resolve }));
+  const view = await renderContext({}, run, { cacheWarming: { cacheWarming: ['scheduled'] } });
+  const checked = () => warmBoxes().map((box) => box.checked);
   try {
-    assert.equal(document.querySelector('input[aria-label="Cache warming"]').checked, false);
+    await act(async () => warmBoxes()[0].click());
+    assert.deepEqual(checked(), [false, false, false, false, false], 'optimistic while saving');
+    await act(async () => pending[0].resolve(undefined));
+    assert.deepEqual(checked(), [true, false, false, false, false], 'failed: the persisted list shows again');
+
+    // Two queued edits: the older one failing leaves the newer intent alone.
+    await act(async () => warmBoxes()[1].click());
+    await act(async () => warmBoxes()[2].click());
+    assert.deepEqual(pending.slice(1).map((call) => call.args[0]), [
+      ['scheduled', 'bot-chats'],
+      ['scheduled', 'bot-chats', 'bot-rooms'],
+    ]);
+    await act(async () => pending[1].resolve(undefined));
+    assert.deepEqual(checked(), [true, true, true, false, false], 'the newer edit still shows');
+    await act(async () => pending[2].resolve(undefined));
+    assert.deepEqual(checked(), [true, false, false, false, false], 'the newest failing reconciles');
   } finally {
     await view.cleanup();
   }

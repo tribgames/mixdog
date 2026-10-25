@@ -41,11 +41,15 @@ export async function applySessionSidebarChange(sessionId, change) {
   await active.host(sessionId, change);
 }
 
-/** The active desktop's flags, `{ archived }` (session id → epoch-ms stamp);
- *  null when no desktop (or one without a state reader) is attached. */
+/** The active desktop's flags, `{ archived, favorites? }` (session id →
+ *  epoch-ms stamp; `favorites` only from a desktop that reports them); null
+ *  when no desktop (or one without a state reader) is attached. */
 export async function readSessionSidebarState() {
   const active = hosts().at(-1);
   if (!active?.state) return null;
   const state = await active.state();
-  return { archived: { ...state?.archived } };
+  return {
+    archived: { ...state?.archived },
+    ...(state?.favorites && typeof state.favorites === 'object' ? { favorites: { ...state.favorites } } : {}),
+  };
 }

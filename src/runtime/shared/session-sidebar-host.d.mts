@@ -4,7 +4,7 @@ export type SessionSidebarChange =
   | { archived: true; cascade: false }
   | { forgotten: true };
 export type SessionSidebarHost = (sessionId: unknown, change: unknown) => unknown;
-export type SessionSidebarState = { archived: Record<string, number> };
+export type SessionSidebarState = { archived: Record<string, number>; favorites?: Record<string, number> };
 export function registerSessionSidebarHost(
   host: SessionSidebarHost,
   options?: { state?: (() => SessionSidebarState | Promise<SessionSidebarState>) | null }

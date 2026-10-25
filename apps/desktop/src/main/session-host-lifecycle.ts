@@ -456,11 +456,15 @@ export class SessionHostLifecycle {
     await this.republishSessionCatalog();
   }
 
-  /** The archive flags (the runtime's session list and sub-agent retention
-   *  read them through the session-sidebar host). */
-  async sessionSidebarState(): Promise<{ archived: Record<string, number> }> {
+  /** The archive and favorite flags (the runtime's session list, sub-agent
+   *  retention and the prompt-cache warmer's favorites target read them
+   *  through the session-sidebar host). */
+  async sessionSidebarState(): Promise<{ archived: Record<string, number>; favorites: Record<string, number> }> {
     await this.owner.sessionMetadata.load();
-    return { archived: { ...this.owner.sessionMetadata.archived } };
+    return {
+      archived: { ...this.owner.sessionMetadata.archived },
+      favorites: { ...this.owner.sessionMetadata.favorites },
+    };
   }
 
   async deleteSession(sessionId: string): Promise<SessionSnapshot> {

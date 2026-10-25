@@ -70,6 +70,11 @@ export class DesktopSessionMetadata {
     return this.archivedMap;
   }
 
+  /** Favorite stamps keyed by session id. */
+  get favorites(): Record<string, number> {
+    return this.favoriteMap || {};
+  }
+
   /** Cross-surface read cursors keyed by session id. */
   get reads(): Record<string, SessionReadCursor> {
     return this.readMap || {};

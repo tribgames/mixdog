@@ -888,6 +888,14 @@ html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
 .model-mgmt-row:last-child {
   border-bottom: 0;
 }
+.settings-check-row {
+  cursor: pointer;
+}
+.settings-row-control > .settings-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
 .model-mgmt-row > input[type="checkbox"] {
   justify-self: center;
   width: 16px;

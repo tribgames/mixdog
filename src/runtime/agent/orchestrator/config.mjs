@@ -2,6 +2,7 @@ import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { readSection, updateSection, updateSectionAsync, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
 import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
+import { normalizeCacheWarmTargets } from '../../shared/cache-warm-targets.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
 import { AUTO_EFFORT_BASE, autoEffortBase } from './providers/auto-effort.mjs';
@@ -297,9 +298,10 @@ export function loadConfig(options = {}) {
         aiSessionTitles: raw.aiSessionTitles !== false,
         // Mixy's 2-hourly heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
         heartbeat: raw.heartbeat !== false,
-        // Prompt-cache warms toward a bot's next routine fire
-        // (session/cache-warm.mjs): 'routine' (default) or 'off'.
-        cacheWarming: raw.cacheWarming === 'off' ? 'off' : 'routine',
+        // The conversations prompt-cache warms serve (session/cache-warm.mjs,
+        // shared/cache-warm-targets.mjs): a target list, default
+        // ['scheduled']; the old 'routine' / 'off' read as ['scheduled'] / [].
+        cacheWarming: normalizeCacheWarmTargets(raw.cacheWarming),
         // Bots may leave an emoji reaction on the user's message (react tool); default on.
         reactions: raw.reactions !== false,
         // Bots page layout (order, hidden groups, pins, retention) and the shared
@@ -354,7 +356,7 @@ export function loadConfig(options = {}) {
     shell: {},
     update: {},
     recap: { enabled: true },
-    cacheWarming: 'routine',
+    cacheWarming: normalizeCacheWarmTargets(undefined),
     worktree: normalizeWorktreeSettings(null),
     developer: {},
     modules: {},
