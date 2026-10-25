@@ -102,6 +102,8 @@ function routeSelection(value: unknown, leaf = false): DesktopModelSelection {
     ...(typeof route.effort === 'string' && route.effort ? { effort: route.effort } : {}),
     ...(typeof route.fast === 'boolean' ? { fast: route.fast } : {}),
     ...(route.autoEffort === false ? { autoEffort: false } : {}),
+    ...(typeof route.contextPercent === 'number' ? { contextPercent: route.contextPercent } : {}),
+    ...(typeof route.contextTokens === 'number' ? { contextTokens: route.contextTokens } : {}),
     ...(route.modelParameters && typeof route.modelParameters === 'object'
       ? { modelParameters: route.modelParameters as Record<string, string> }
       : {}),
