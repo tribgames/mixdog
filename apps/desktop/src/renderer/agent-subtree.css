@@ -57,13 +57,14 @@ html[data-mixdog-mobile-tabs] .agent-chat-row[data-kind="contact"] {
   --agent-contact-gap: 8px;
   --subtree-inset: 10px;
   --subtree-inset-end: 8px;
-  --subtree-mark: 20px;
+  /* A step under the parent's face (user: 하위 아이콘이 부모처럼 클 필요는 없다). */
+  --subtree-mark: 17px;
 }
 html[data-mixdog-mobile-tabs] .agent-subtree {
   --agent-contact-gap: 10px;
   --subtree-inset: var(--mx-drawer-bleed);
   --subtree-inset-end: var(--mx-drawer-bleed);
-  --subtree-mark: 24px;
+  --subtree-mark: 21px;
 }
 @container (max-width: 280px) {
   .agent-subtree {
@@ -113,7 +114,7 @@ html[data-mixdog-mobile-tabs] .agent-subtree {
   width: var(--agent-contact-avatar-size);
   height: var(--agent-contact-avatar-size);
   flex: 0 0 var(--agent-contact-avatar-size);
-  max-height: 40px;
+  max-height: 34px;
 }
 .agent-activity-page .agent-subtree.agent-subtree .agent-pool-row.agent-pool-row > .sidebar-resource-icon > svg {
   width: var(--subtree-mark);
