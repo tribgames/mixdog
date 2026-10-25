@@ -26,6 +26,10 @@ const { CategoryPanel } = await import('./capability-panels.tsx');
 const { mcpStatus, mcpErrorSummary } = await import('./mcp-editor-dialog.tsx');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Wait on the condition instead of a fixed delay (debounce and poll timers are real).
+async function waitFor(condition, limitMs = 5000) {
+  for (let waited = 0; !condition() && waited < limitMs; waited += 20) await act(async () => sleep(20));
+}
 
 function server(overrides = {}) {
   return {
@@ -163,9 +167,7 @@ test('a sign-in required server connects through the login wait dialog and refre
     });
     assert.deepEqual(written, ['https://auth.test/x']);
     assert.ok(dialog.querySelector('[aria-label="Copied"]'), 'copy feedback');
-    await act(async () => {
-      await sleep(650);
-    });
+    await waitFor(() => document.querySelector('.settings-oauth-dialog') === null);
     assert.equal(polls, 1);
     assert.equal(refreshed, 1, 'MCP data re-reads once the login completed');
     assert.equal(document.querySelector('.settings-oauth-dialog'), null);
@@ -214,9 +216,7 @@ test('a failed login shows its error in the wait dialog', async () => {
     await act(async () => {
       document.querySelector('.extensions-mcp-dialog .extensions-action').click();
     });
-    await act(async () => {
-      await sleep(650);
-    });
+    await waitFor(() => /Failed/.test(document.querySelector('.settings-oauth-dialog .settings-oauth-wait')?.textContent ?? ''));
     const dialog = document.querySelector('.settings-oauth-dialog');
     assert.ok(dialog, 'the dialog stays open on failure');
     assert.match(dialog.querySelector('.settings-oauth-wait').textContent, /Failed/);
@@ -341,9 +341,7 @@ for (const [variant, enter] of Object.entries(awayVariants)) {
         'Paste the final redirect URL or code'
       );
       assert.ok(dialog.querySelector('[aria-label="Open again"]'));
-      await act(async () => {
-        await sleep(1250);
-      });
+      await waitFor(() => polls >= 2);
       assert.ok(polls >= 2);
       assert.equal(
         dialog.querySelector('.settings-oauth-host').textContent,
@@ -430,9 +428,7 @@ for (const [variant, enter] of Object.entries(awayVariants)) {
     try {
       await chooseHttp();
       await act(async () => setInput(document.querySelector('[name="mcp-url"]'), 'https://mcp.cloudflare.com/mcp'));
-      await act(async () => {
-        await sleep(650);
-      });
+      await waitFor(() => document.querySelector('[data-mcp-oauth-probe]'));
       assert.equal(document.querySelector('[data-mcp-oauth-probe] .extensions-action').textContent, 'Connect');
     } finally {
       await addView.cleanup();
@@ -512,9 +508,7 @@ test('the add dialog probes the URL, offers Connect for OAuth servers and saves 
     const url = document.querySelector('[name="mcp-url"]');
     await act(async () => setInput(url, 'https://mcp.cloudflare.com/mcp'));
     assert.equal(document.querySelector('[data-mcp-oauth-probe]'), null, 'waits for typing to stop');
-    await act(async () => {
-      await sleep(650);
-    });
+    await waitFor(() => calls.length > 0 && document.querySelector('[data-mcp-oauth-probe]'));
     assert.deepEqual(calls[0], ['probeMcpServerAuth', [{ type: 'http', url: 'https://mcp.cloudflare.com/mcp' }]]);
     const card = document.querySelector('[data-mcp-oauth-probe]');
     assert.ok(card);

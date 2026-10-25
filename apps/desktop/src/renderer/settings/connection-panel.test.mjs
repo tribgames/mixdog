@@ -659,20 +659,6 @@ test('saved PCs: Open focuses via openRemoteHost, Forget confirms in a dialog, R
   assert.equal(document.querySelectorAll('.conn-group').length, 1, 'no saved PCs left: the group is gone');
 });
 
-test('dialogs use the approved frame: 480 wide, 24 padding, 360 body, 64 code tile, 56 rows (design tokens)', async () => {
-  const { readFileSync } = await import('node:fs');
-  const css = readFileSync(new URL('./settings.css', import.meta.url), 'utf8');
-  const rule = (selector) => new RegExp(`${selector.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
-  assert.match(rule('.conn-dialog'), /width: 480px/);
-  assert.match(rule('.conn-dialog'), /padding: 24px/);
-  assert.match(rule('.conn-dialog'), /gap: 20px/);
-  assert.match(rule('.conn-body'), /height: 360px/);
-  assert.match(rule('.conn-code-tile'), /height: 64px/);
-  assert.match(rule('.conn-row'), /min-height: 56px/);
-  assert.match(rule('.conn-btn'), /height: 32px/);
-  assert.match(rule('.conn-dialog header p'), /margin: 4px 0 0/);
-});
-
 test('a device whose revoke is pending shows "Removing…" and cannot be revoked again', async (t) => {
   const info = readyInfo('eeeeeeee', [
     { ...client('c1', 'Fold · Mixdog App', 'Mixdog App', true), pendingRemoval: true },

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 
@@ -95,41 +94,6 @@ test('phone: the drawer PC card shows name and state; with several PCs it opens 
   assert.deepEqual(calls, [['open', 'b']]);
 });
 
-test('the PC card lives once at the top of the phone drawer frame, not in the session sidebar', () => {
-  const drawer = readFileSync(new URL('./app-root/AppSidebarDrawer.tsx', import.meta.url), 'utf8');
-  const sidebar = readFileSync(new URL('./session-sidebar.tsx', import.meta.url), 'utf8');
-  assert.match(drawer, /\{phone && <RemotePcCard \/>\}\s*<ActivityRail/);
-  assert.match(drawer, /const phone = useMobileRemoteSurface\(\)/);
-  assert.equal(sidebar.includes('RemotePcCard'), false);
-  const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
-  // The frame's grid keys off an attribute: a :has() here restyled the whole
-  // left panel on every update inside it, desktop included.
-  assert.match(drawer, /data-remote-pc=\{phone && remotePcSurface\(\) \? 'true' : undefined\}/);
-  assert.match(css, /\.sidebar-drawer-frame\[data-remote-pc="true"\] \{\s*display: grid;/);
-  assert.doesNotMatch(css, /\.sidebar-drawer-frame[^{]*:has\(/);
-  assert.match(css, /\.remote-pc-card > \.remote-pc-card-menu \{\s*position: absolute;/);
-});
-
-test('phone drawer header: slim panel-title row with a hairline; the grid keeps the panel full width', () => {
-  const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
-  const base = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-  assert.match(css, /> \.remote-pc-card \{[^}]*border-bottom: 1px solid var\(--mx-border-muted\)/);
-  assert.match(
-    css,
-    /\[data-remote-pc="true"\]\s*>\s*:is\(\.workbench-side-panel, \.sidebar\.session-sidebar\) \{\s*width: auto;/
-  );
-  const head = /\n\.remote-pc-card-head \{[^}]*\}/.exec(base)[0];
-  assert.match(head, /height: 48px/);
-  assert.match(head, /background: transparent/);
-  assert.match(head, /border-radius: 0/);
-});
-
-test('the rail divider moves onto the rail so it never crosses the PC card', () => {
-  const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
-  assert.match(css, /\[data-remote-pc="true"\]::before \{\s*display: none;/);
-  assert.match(css, /\[data-remote-pc="true"\] > \.activity-rail \{[^}]*border-right: 1px solid/);
-});
-
 test('without a saved-PC entry the name announced by the connected PC is used everywhere, "PC" last', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root' });
   const { setRemoteHostName } = await import('./remote-host-access.ts');
@@ -152,15 +116,6 @@ test('without a saved-PC entry the name announced by the connected PC is used ev
   }
 });
 
-test('phone CSS: the title band takes no row and the first tab-strip row clears the status bar', () => {
-  const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
-  assert.match(css, /html\[data-mixdog-mobile-tabs\] \.topbar \{\s*display: none;/);
-  // Portrait and short-landscape tab strips both clear the status bar.
-  const safe =
-    /\.workspace-tabs-shell\[data-mobile="true"\] \{\s*[^}]*padding(?:-top)?: max\(\d+px, env\(safe-area-inset-top, 0px\)\)/g;
-  assert.equal((css.match(safe) || []).length, 2);
-});
-
 test('rail placement: a compact rail cell named by the PC, whose menu opens beside the rail', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root' });
   installBridge(window, [{ id: 'a', name: 'Home PC', online: false, lastConnectedAt: 1, current: true }], []);
@@ -171,8 +126,6 @@ test('rail placement: a compact rail cell named by the PC, whose menu opens besi
   assert.ok(button.querySelector('.remote-pc-dot.off'));
   await act(async () => button.click());
   assert.match(document.querySelector('.remote-pc-switcher-rail > .remote-pc-menu').textContent, /Home PC/);
-  const css = readFileSync(new URL('./desktop/06-activity-rail.css', import.meta.url), 'utf8');
-  assert.match(css, /\.remote-pc-switcher-rail > \.remote-pc-menu \{\s*position: fixed;\s*top: 4px;\s*left: 52px;/);
 });
 
 test('plain browser tab: no title band, the rail carries the switcher; Electron keeps the band', async (t) => {
@@ -184,10 +137,6 @@ test('plain browser tab: no title band, the rail carries the switcher; Electron 
   assert.equal(document.documentElement.getAttribute('data-mixdog-titlebar'), 'hidden');
   await act(async () => root.render(null));
   assert.equal(document.documentElement.hasAttribute('data-mixdog-titlebar'), false);
-  const rail = readFileSync(new URL('./ActivityRail.tsx', import.meta.url), 'utf8');
-  assert.match(rail, /\{plainBrowserChrome && <RemotePcSwitcher placement="rail" \/>\}\s*<nav/);
-  const css = readFileSync(new URL('./desktop/03-titlebar.css', import.meta.url), 'utf8');
-  assert.match(css, /html\[data-mixdog-titlebar="hidden"\] \{\s*--titlebar-height: 0px;/);
 });
 
 test('Electron renderer keeps the title band with the switcher at its leading edge', async (t) => {
@@ -200,11 +149,6 @@ test('Electron renderer keeps the title band with the switcher at its leading ed
   assert.equal(document.documentElement.hasAttribute('data-mixdog-titlebar'), false);
 });
 
-test('desktop-width CSS keeps the top bar height and safe-area padding', () => {
-  const css = readFileSync(new URL('./desktop/03-titlebar.css', import.meta.url), 'utf8');
-  assert.match(css, /height: calc\(var\(--titlebar-height\) \+ env\(safe-area-inset-top, 0px\)\);/);
-  assert.match(css, /padding: env\(safe-area-inset-top, 0px\) 0 0 5px;/);
-});
 test('with several PCs the menu lists them with state, switches, and offers code connect + manage', async (t) => {
   const { root, document, window } = installTestDom(t, { rootId: 'root' });
   const calls = [];

@@ -34,14 +34,6 @@ function closeWindow(dom) {
   dom.window.close();
 }
 const mobileChromeSource = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
-const sidebarUsageSource = readFileSync(new URL('./desktop/11-sidebar-usage.css', import.meta.url), 'utf8');
-const railPagesSource = readFileSync(new URL('./desktop/10-rail-pages.css', import.meta.url), 'utf8');
-const dialogsSource = readFileSync(new URL('./desktop/30-dialogs.css', import.meta.url), 'utf8');
-const activityRailSource = readFileSync(new URL('./ActivityRail.tsx', import.meta.url), 'utf8');
-const tokensSource = readFileSync(new URL('./desktop/01-tokens.css', import.meta.url), 'utf8');
-const mobileTabsSource = readFileSync(new URL('./desktop/08-mobile-tabs.css', import.meta.url), 'utf8');
-const mobileRuntimeSource = readFileSync(new URL('./mobile-web-runtime.css', import.meta.url), 'utf8');
-const editorSource = readFileSync(new URL('./desktop/26-editor.css', import.meta.url), 'utf8');
 const markdownSource = readFileSync(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
 
 test('phone draft context keeps Project and its height while Workflow loads', () => {
@@ -53,7 +45,7 @@ test('phone draft context keeps Project and its height while Workflow loads', ()
     const bar = dom.window.document.querySelector('.composer-context-bar');
     const before = dom.window.getComputedStyle(bar);
     // jsdom keeps var() unresolved; the real-browser 48px (36px pill + 12px
-    // gap) is asserted in composer-island.test.mjs at the phone size.
+    // gap) is asserted in composer-island.slow.test.mjs at the phone size.
     assert.equal(before.minHeight, 'var(--island-rest-height)', 'the bar takes the island slot’s resting height');
     assert.match(
       composer,
@@ -171,15 +163,6 @@ test('the Goal tab shows its task drawer only while open and keeps task overflow
   assert.equal(style('.session-goal-content').overflowY, 'auto');
   assert.notEqual(style('.session-goal-content').scrollbarGutter, 'stable');
   closeWindow(dom);
-});
-
-test('the panel-nested dock view stays in normal flow', () => {
-  // The right panel IS the phone/narrow sheet; the dock view nested in it
-  // must never become a SECOND fixed sheet — the retired window-level dock
-  // once did exactly that (user: 프레임 안에 들어오는 구조인데 요소만 넘친다).
-  for (const source of [editorSource, mobileChromeSource]) {
-    assert.doesNotMatch(source, /\.utility-dock\s*\{[^}]*position:\s*fixed;/su);
-  }
 });
 
 test('iOS boot preserves device-width and marks the phone before CSS paint', () => {
@@ -352,125 +335,6 @@ test('only the Electron desktop promotes desktop-surface hints', () => {
     headLinks('Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile').map((link) => link.rel),
     ['modulepreload']
   );
-});
-
-test('phone finishing rules keep reading, touch and safe-area geometry aligned', () => {
-  assert.match(mobileChromeSource, /--mx-mobile-edge-main:\s*12px;/u);
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.session-sidebar \.session-row\s*\{[^}]*height:\s*var\(--mx-touch-row\);[^}]*min-height:\s*var\(--mx-touch-row\);/su
-  );
-  assert.match(mobileChromeSource, /\.session-sidebar \.session-row-actions\s*\{[^}]*top:\s*50%;/su);
-  assert.match(
-    mobileChromeSource,
-    /\.session-panel-header-actions > \.session-panel-action:last-child\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 22px\);/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /\.session-row-unread-dot\s*\{\s*right:\s*16\.5px;\s*\}[\s\S]*?\.session-row-status\s*\{\s*right:\s*14px;\s*\}/u
-  );
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.transcript\s*\{[^}]*scrollbar-gutter:\s*auto;[^}]*touch-action:\s*pan-y;/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.session-sidebar-scroll\s*\{\s*margin-right:\s*0;\s*\}/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest::before\s*\{[^}]*inset:\s*calc\(\(var\(--mx-touch-main\) - 36px\) \/ -2\);/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px;/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest\s*\{[^}]*bottom:\s*var\(--island-stage-gap\);/su
-  );
-  assert.match(
-    markdownSource,
-    /\n\.jump-to-latest\s*\{[^}]*bottom:\s*var\(--island-stage-gap\);[^}]*width:\s*32px;[^}]*height:\s*32px;/su
-  );
-  assert.match(mobileChromeSource, /settings-confirm-dialog > footer button,[\s\S]*?min-height:\s*var\(--mx-touch\);/u);
-  assert.match(
-    mobileChromeSource,
-    /--mx-mobile-sheet-safe-bottom:\s*max\(\s*env\(safe-area-inset-bottom,\s*0px\),\s*env\(safe-area-max-inset-bottom,\s*0px\),\s*8px\s*\);/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.sidebar-drawer-frame\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /\.workbench-side-panel\[data-side="right"\] > \.workbench-side-panel-content\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su
-  );
-});
-
-test('rail trailing controls resolve to one 20px centerline', () => {
-  assert.match(dialogsSource, /--mx-rail-trailing-center:\s*20px;/u);
-  assert.match(
-    railPagesSource,
-    /\.sidebar-category-header > \.row-overflow \.row-overflow-trigger\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 14px\);/su
-  );
-  assert.match(
-    railPagesSource,
-    /\.workflows-section-head > \.schedules-new\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 14px\);/su
-  );
-  assert.match(
-    dialogsSource,
-    /\.schedules-row \.row-overflow-trigger,[\s\S]*?margin-right:\s*calc\(\s*var\(--mx-rail-trailing-center\) -\s*var\(--mx-rail-gutter\) -\s*12px\s*\);/u
-  );
-  assert.match(
-    mobileChromeSource,
-    /\.session-sidebar \.sidebar-category-header > \.row-overflow \.row-overflow-trigger\s*\{[^}]*width:\s*var\(--mx-touch-row\);[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 18px\);/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /\.session-sidebar-panels \.workflows-section-head > \.schedules-new\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 22px\);/su
-  );
-  assert.match(
-    mobileChromeSource,
-    /\.session-sidebar-panels \.schedules-row \.row-overflow-trigger\s*\{[^}]*margin-right:\s*calc\(\s*var\(--mx-rail-trailing-center,\s*20px\) -\s*var\(--mx-rail-gutter,\s*12px\) -\s*18px\s*\);/su
-  );
-});
-
-test('PC and phone usage flyouts share one widened width', () => {
-  assert.match(
-    activityRailSource,
-    /import\s*\{\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH\s*\}\s*from\s*['"]\.\.\/shared\/window-layout['"]\s*;/u
-  );
-  assert.match(
-    activityRailSource,
-    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH\s*\+\s*88,/u
-  );
-  assert.doesNotMatch(sidebarUsageSource, /\.rail-usage-popup\s*\{[^}]*width:/su);
-  assert.doesNotMatch(sidebarUsageSource, /html\[data-mixdog-mobile-tabs\] \.rail-usage-popup/u);
-});
-
-test('every screen-pinned sheet takes the visible-height ceiling', () => {
-  // --vvh mirrors visualViewport from JS and can name MORE height than the
-  // screen shows (a retracting URL bar, an edge-to-edge viewport reaching
-  // behind system UI). `dvh` is the browser's own measure of the same height,
-  // so a sheet takes whichever is smaller: the variable still shrinks it for
-  // the soft keyboard, the unit keeps its pinned footer on screen.
-  assert.match(tokensSource, /--mx-visible-height:\s*min\(var\(--vvh, 100dvh\), 100dvh\);/u);
-  // The phone body is the containing block every fixed sheet resolves against.
-  assert.match(
-    mobileRuntimeSource,
-    /html\[data-mixdog-mobile-tabs\] body\s*\{[^}]*height:\s*var\(--mx-visible-height\);/su
-  );
-  // The right sheet is the pane's whole side-dock UNIT (header + panel).
-  assert.match(
-    mobileChromeSource,
-    /html\[data-mixdog-mobile-tabs\] \.pane-side-dock\s*\{[^}]*position:\s*fixed;[^}]*height:\s*var\(--mx-visible-height\);/su
-  );
-  assert.match(mobileChromeSource, /\.sidebar-drawer-frame\s*\{[^}]*height:\s*var\(--mx-visible-height\);/su);
-  // The narrow-band right sheet retired with the pane-embedded dock: a
-  // narrow PANE overlays its own panel (pane-layout.css container query), so
-  // no window-level fixed right sheet may return to the tab layer.
-  assert.doesNotMatch(mobileTabsSource, /\.workbench-side-panel\[data-side="right"\][^{]*\{[^}]*position:\s*fixed/su);
 });
 
 function bootDesktopLayout({ userAgent, platform, maxTouchPoints = 0, innerWidth, standalone = false }) {

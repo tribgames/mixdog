@@ -20,7 +20,7 @@
 //
 // Loaded by sw.js through importScripts('/sw-media.js'); everything is behind
 // the one global below so it cannot collide with sibling scripts.
-// biome-ignore lint/correctness/noUnusedVariables: read by sw.js and sw-media.test.mjs as a worker global.
+// biome-ignore lint/correctness/noUnusedVariables: read by sw.js and sw-media.slow.test.mjs as a worker global.
 const mixdogMediaLane = (() => {
   const ROUTE = /^\/media\/([0-9a-fA-F-]{8,64})$/;
   const DOWNLOAD_ROUTE = /^\/__mixdog-download__\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;

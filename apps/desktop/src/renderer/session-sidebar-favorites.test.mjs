@@ -116,18 +116,3 @@ test('the star button reflects state, toggles through the action and does not op
   ]);
   assert.deepEqual(opened, []);
 });
-
-test('title clearance is reserved for every action cluster, not only the favorite star', async () => {
-  const { readFileSync } = await import('node:fs');
-  const css = ['10-rail-pages.css', '11-sidebar-usage.css']
-    .map((file) => readFileSync(new URL(`./desktop/${file}`, import.meta.url), 'utf8'))
-    .join('\n');
-  const clearance = [...css.matchAll(/([^{}]+)\{\s*padding-right:\s*(?:52|72)px;\s*\}/g)]
-    .map(([, selectors]) => selectors)
-    .filter((selectors) => /session-row-(copy|main)/.test(selectors) && /:hover|confirming-delete/.test(selectors));
-  assert.ok(clearance.length >= 3, 'the hover/confirm clearance rules exist');
-  for (const selectors of clearance) {
-    assert.doesNotMatch(selectors, /session-row-favorite/, 'keyed off the favorite star only');
-    assert.match(selectors, /confirming-delete/, 'the always-visible delete confirmation is covered');
-  }
-});

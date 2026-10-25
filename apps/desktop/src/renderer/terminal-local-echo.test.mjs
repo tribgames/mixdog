@@ -108,10 +108,7 @@ test('cursor-moving output is a mismatch, never consumed', () => {
   echo.reset();
 });
 
-test('remote reconnect re-ensures mounted terminals without duplicate attempts', async () => {
-  const pane = await readFile(new URL('./TerminalPane.tsx', import.meta.url), 'utf8');
-  // The shim announces a completed REconnection to mounted terminal panes —
-  // and only a reconnection, never the first connect.
+test('the shim announces a completed reconnection to mounted terminal panes, never the first connect', async () => {
   await withShim({ secure: true }, async (h) => {
     const reconnected = () => h.events.filter((event) => event.type === 'mixdog:remote-reconnected').length;
     const first = await h.dial();
@@ -121,8 +118,11 @@ test('remote reconnect re-ensures mounted terminals without duplicate attempts',
     await h.dial();
     await until(() => reconnected() === 1, 'the reconnect announcement');
   });
-  // Every (re)connect goes through the pane's connect gate, which starts none
-  // while one is in flight (terminal-connect-gate.test.mjs).
+});
+
+test('a mounted terminal pane re-ensures on reconnect through its connect gate and cleans up on unmount', async () => {
+  const pane = await readFile(new URL('./TerminalPane.tsx', import.meta.url), 'utf8');
+  // Every (re)connect goes through the gate, which starts none while one is in flight (terminal-connect-gate.test.mjs).
   assert.match(pane, /const attemptEnsure = \(\) => \{\s*if \(disposed[^}]*connectGate\.connect\(\);/);
   assert.match(pane, /addEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);
   assert.match(pane, /removeEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);

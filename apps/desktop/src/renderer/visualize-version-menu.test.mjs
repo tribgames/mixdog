@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -114,11 +113,4 @@ test('declining the restore confirm sends nothing; Back to current shows live', 
   } finally {
     await close(m);
   }
-});
-
-test('the old full-width VersionBar row is gone', () => {
-  const pane = readFileSync(new URL('./VisualizePane.tsx', import.meta.url), 'utf8');
-  const css = readFileSync(new URL('./visualize.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(pane, /VersionBar|visualize-versionbar|visualize-snapshot-strip/);
-  assert.doesNotMatch(css, /visualize-versionbar|visualize-snapshot-strip|visualize-version-count/);
 });

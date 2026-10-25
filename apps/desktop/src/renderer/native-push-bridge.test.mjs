@@ -156,7 +156,7 @@ test('an approval whose call is cut off by the reconnect is sent again, and an a
   });
   assert.equal(await drainNativeNotificationActions({ native, host, retryDelayMs: 1 }), 1);
   await done;
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 3);
   assert.equal(await drainNativeNotificationActions({ native, host, retryDelayMs: 1 }), 0);
 });
@@ -207,7 +207,7 @@ test('an approval nobody answered stays parked and is retried by the next drain'
   });
   await drainNativeNotificationActions({ native, host, hostId: 'hostA', retryDelayMs: 1 });
   await until(() => calls === 4);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(items.length, 1);
   fail = false;
   await drainNativeNotificationActions({ native, host, hostId: 'hostA', retryDelayMs: 1 });

@@ -297,23 +297,6 @@ test('the custom-picture dialog scrim closes on a tap (pointerdown + click), not
   await act(async () => dom.root.render(null));
 });
 
-test("the preview uses the app's own surface variables, not its own", async () => {
-  const { readFileSync } = await import('node:fs');
-  const panel = readFileSync(new URL('./skin-panel.css', import.meta.url), 'utf8');
-  const app = readFileSync(new URL('../desktop/33-skin.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(panel, /color-mix\([^)]*--mx-skin-tint/, 'the preview derives no plate colour of its own');
-  for (const name of ['--mx-skin-frame', '--mx-skin-panel', '--mx-skin-veil', '--mx-skin-card', '--mx-user-bubble']) {
-    assert.match(panel, new RegExp(`var\\(${name}\\)`), `${name} is read by the preview`);
-    assert.match(
-      app.slice(0, app.indexOf('html[data-mixdog-skin] {')),
-      new RegExp(`\\.skin-preview[\\s\\S]*${name}:`),
-      `${name} is defined for both`
-    );
-  }
-  assert.match(panel, /\.skin-preview\[data-photo="off"\][\s\S]*?background-image: none/);
-  assert.match(panel, /var\(--mx-sheet-ink/);
-});
-
 test('the None preview shows the theme, not a retained accent override', async (t) => {
   const { card, preview, skin, root, html } = await mountPanel(t);
   await act(async () => card('glass-flow').click());

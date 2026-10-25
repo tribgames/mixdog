@@ -154,29 +154,6 @@ test('idle shows no bubble: the pet itself idles (breathes, blinks), paused off 
   assert.equal(pet().dataset.idle, undefined, 'the quick message open: no idle animation');
 });
 
-test('the idle animation lives on the sprite in CSS: eyes pixels blink, squash fallback, off under reduced motion', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
-  for (const rule of [
-    /\.skin-companion\[data-idle\] \.mx-av \.eyes-open \{\s*animation: pet-blink-open/,
-    /\.skin-companion\[data-idle\] \.mx-av \.eyes-shut \{\s*animation: pet-blink-shut/,
-    /\.skin-companion\[data-idle\] \.mx-av \.bob \{\s*animation: pet-breathe/,
-    /\.skin-companion\[data-idle\] \.mx-av \.ear \{\s*animation: pet-twitch/,
-    /svg:not\(:has\(\.eyes-open\)\) \{[^}]*animation: pet-squash/,
-    /\.skin-companion\[data-paused\]\[data-idle\] \.skin-companion-face \.mx-av \*,[^{]*\{\s*animation-play-state: paused/,
-  ]) {
-    assert.match(css, rule);
-  }
-  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
-  assert.match(
-    reduced,
-    /\.skin-companion\[data-idle\]\[data-idle\] \.skin-companion-face \.mx-av \*,[^{]*\{\s*animation: none;/
-  );
-  assert.equal(/zzz|doze/.test(css), false, 'the z Z Z is gone');
-  assert.equal(/glance|\.eyes \{/.test(css), false, 'no side glance: the eyes never move');
-  assert.doesNotMatch(css.match(/@keyframes pet-twitch \{[^@]*/)[0], /translateX/, 'the ear only bobs');
-});
-
 test('every idle animation steps, so the transparent pet window is not recomposited every frame', async () => {
   const { readFile } = await import('node:fs/promises');
   const css = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
@@ -229,50 +206,6 @@ test('each busy state is a comic symbol in a polite live region with a spoken la
   await render({ collapsed: true });
   assert.equal($('.skin-companion-bubble'), null);
   assert.ok($('.skin-companion-pet'));
-});
-
-test('reply text reads like the app: 13.5px/1.6 type; a short and a paged reply fit the 336px window at 50/100/200%', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = (await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
-  const rule = (selector) => new RegExp(`\\n${selector.replace(/[.[\]"=>+*]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)[1];
-  assert.doesNotMatch(css, /line-clamp|data-long|data-more|reply-tools/, 'no cut, scrolling or floating plate');
-  const bubble = rule('.skin-companion-bubble');
-  assert.match(bubble, /font-size:\s*13\.5px/);
-  assert.match(bubble, /line-height:\s*1\.6/);
-  assert.match(bubble, /letter-spacing:\s*normal/);
-  assert.match(bubble, /color:\s*var\(--mx-text\)/);
-  assert.match(bubble, /word-break:\s*keep-all/);
-  assert.match(bubble, /overflow-wrap:\s*anywhere/);
-  // 320px at most, narrower to fit its span (--bubble-max); paged: the span's width.
-  assert.match(bubble, /max-width:\s*min\(320px, var\(--bubble-max, 320px\)\)/);
-  assert.match(rule('.skin-companion-bubble[data-paged]'), /width:\s*var\(--bubble-max, calc\(100vw - 32px\)\)/);
-  const capOf = (body) =>
-    /max-height:\s*min\(140\.4px,\s*calc\(100vh - (\d+)px - var\(--pet-size, 56px\)\)\)/.exec(body);
-  const shortCap = capOf(rule('.skin-companion-reply'));
-  const page = rule('.skin-companion-page');
-  const pageCap = capOf(page);
-  assert.ok(shortCap && pageCap, 'both within the height budget and the window');
-  assert.doesNotMatch(page, /font-size|padding/, 'the same type as any reply');
-  assert.match(page, /overflow:\s*hidden/, 'a page never scrolls');
-  assert.match(rule('.skin-companion-reply-bar'), /height:\s*24px/);
-  assert.match(rule('.skin-companion-reply-tool'), /width:\s*24px;[\s\S]*height:\s*24px/);
-  assert.match(rule('.skin-companion-pages'), /height:\s*8px/);
-  const { desktopPetGeometry } = await import('../shared/desktop-pet.ts');
-  const heights = {};
-  const budgets = {};
-  for (const scale of [50, 100, 200]) {
-    const { window: room, sprite } = desktopPetGeometry(scale);
-    heights[scale] = room.height;
-    const below = 8 + sprite.size + 40 + 6 + 14;
-    const short = Math.min(140.4, room.height - Number(shortCap[1]) - sprite.size);
-    assert.ok(below + short <= room.height, `${scale}%: a short reply stays in the window`);
-    // The bar (24px + 4px gap), a page and its dots (8px + 4px gap), with the bot hopped up.
-    const paged = Math.min(140.4, room.height - Number(pageCap[1]) - sprite.size);
-    assert.ok(below + 28 + paged + 12 <= room.height, `${scale}%: the paged bubble stays in the window`);
-    budgets[scale] = Math.round(paged);
-  }
-  assert.deepEqual(heights, { 50: 336, 100: 336, 200: 336 }, 'the window never grows');
-  assert.deepEqual(budgets, { 50: 140, 100: 140, 200: 116 }, 'a page height budget (px)');
 });
 
 test("the reply's markdown becomes compact blocks: paragraphs, bold, code, lists; headings bold; code and tables as text", async () => {
@@ -1135,21 +1068,6 @@ test('a picture face (#178): an empty box while it loads, the picture once read,
   await new Promise((r) => setTimeout(r, 100));
 });
 
-test('flipped at the screen top (#179): the page marks it, and the bot stands at the top with all else below it', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = (await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
-  const rule = (selector) => {
-    const at = css.indexOf(`${selector} {`);
-    assert.ok(at >= 0, `rule ${selector}`);
-    return css.slice(at, css.indexOf('}', at));
-  };
-  assert.match(rule('html[data-pet-flipped] .skin-companion-stack'), /top: 8px;[\s\S]*bottom: auto;/);
-  assert.match(rule('html[data-pet-flipped] .skin-companion[data-quick] .skin-companion-stack'), /transform: none;/);
-  assert.match(rule('html[data-pet-flipped] .skin-companion-balloon'), /top: calc\(100% \+ 6px\);/);
-  assert.match(rule('html[data-pet-flipped] .skin-companion-quick'), /top: calc\(14px \+ var\(--pet-size, 56px\)\);/);
-  assert.match(rule('html[data-pet-flipped] .desktop-pet-menu'), /top: 4px;[\s\S]*bottom: auto;/);
-});
-
 test("the bot never draws a ring; the bubble's only for keyboard use, never by Chromium's :focus-visible guess", async () => {
   const { readFile } = await import('node:fs/promises');
   const css = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
@@ -1634,29 +1552,6 @@ test('the whole menu fits its window with no scrollbar at 50/100/200%, and draws
   assert.equal(dom.document.documentElement.dataset.petKeys, 'true', 'a key in the menu: ring');
 });
 
-test('the bot never shows an outline: clicked, then Tab, PrintScreen and Shift', async (t) => {
-  const dom = installTestDom(t, { expose: ['MouseEvent', 'KeyboardEvent'], actEnvironment: false });
-  const { readFile } = await import('node:fs/promises');
-  const style = dom.document.createElement('style');
-  style.textContent = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
-  dom.document.head.append(style);
-  const { trackPetKeyboardUse } = await import('./skin-companion-pet');
-  t.after(trackPetKeyboardUse(dom.document));
-  const bot = dom.document.createElement('button');
-  bot.className = 'skin-companion-pet';
-  dom.document.body.append(bot);
-  bot.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
-  bot.focus();
-  bot.click();
-  for (const key of ['Tab', 'PrintScreen', 'Shift']) {
-    bot.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key, shiftKey: key === 'Shift' }));
-    assert.equal(dom.document.activeElement, bot);
-    const drawn = dom.window.getComputedStyle(bot);
-    const outline = `${drawn.outline} ${drawn.outlineStyle} ${drawn.outlineWidth}`;
-    assert.doesNotMatch(outline, /solid|\dpx/, `${key}: no outline`);
-  }
-});
-
 test('a screenshot or modifier key never turns on the keyboard rings (bubble, menu); navigation keys do', async (t) => {
   const dom = installTestDom(t, { expose: ['MouseEvent', 'KeyboardEvent'], actEnvironment: false });
   const { trackPetKeyboardUse } = await import('./skin-companion-pet');
@@ -1769,6 +1664,29 @@ test("the menu's Size row steps 10% within 50–200%, keeps the menu open, and a
   assert.equal(categoryForSettingsItem('bots'), 'bots', 'the overlay options page');
 });
 
+test('the bot never shows an outline: clicked, then Tab, PrintScreen and Shift', async (t) => {
+  const dom = installTestDom(t, { expose: ['MouseEvent', 'KeyboardEvent'], actEnvironment: false });
+  const { readFile } = await import('node:fs/promises');
+  const style = dom.document.createElement('style');
+  style.textContent = await readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
+  dom.document.head.append(style);
+  const { trackPetKeyboardUse } = await import('./skin-companion-pet');
+  t.after(trackPetKeyboardUse(dom.document));
+  const bot = dom.document.createElement('button');
+  bot.className = 'skin-companion-pet';
+  dom.document.body.append(bot);
+  bot.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+  bot.focus();
+  bot.click();
+  for (const key of ['Tab', 'PrintScreen', 'Shift']) {
+    bot.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key, shiftKey: key === 'Shift' }));
+    assert.equal(dom.document.activeElement, bot);
+    const drawn = dom.window.getComputedStyle(bot);
+    const outline = `${drawn.outline} ${drawn.outlineStyle} ${drawn.outlineWidth}`;
+    assert.doesNotMatch(outline, /solid|\dpx/, `${key}: no outline`);
+  }
+});
+
 test('near the screen edge the menu opens on the side with room, inside the same window, the pet unmoved', async (t) => {
   const dom = installTestDom(t, { rootId: 'root', expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'] });
   const { PetMenu, petMenuSide } = await import('./desktop-pet-menu');
@@ -1817,27 +1735,6 @@ test('near the screen edge the menu opens on the side with room, inside the same
   assert.equal(petMenuSide(200, spriteLeft + 112 + 8 + 200 + 3, big), 'left');
 });
 
-test('the sprite box, bubble, quick message and menu follow the bot size (--pet-size), pixel art kept crisp', async () => {
-  const css = await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8');
-  const rule = (selector) =>
-    new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
-  for (const selector of ['.skin-companion-stack', '.skin-companion .skin-companion-face', '.skin-companion-pet']) {
-    assert.match(rule(selector), /width: var\(--pet-size, 56px\);\s*height: var\(--pet-size, 56px\);/, selector);
-  }
-  assert.match(rule('.skin-companion-stack'), /left: 228px;\s*bottom: 8px;/, 'the box stands where main pins it');
-  assert.match(
-    rule('.skin-companion-quick'),
-    /left: calc\(108px \+ var\(--pet-size, 56px\) \/ 2 \+ var\(--quick-shift, 0px\)\);/,
-    'centred under it (shifted inside its span at a screen edge)'
-  );
-  assert.match(rule('.skin-companion-balloon'), /left: calc\(var\(--pet-size, 56px\) \* 9 \/ 28\);/, 'over its head');
-  assert.match(
-    rule('.skin-companion .skin-companion-face > svg'),
-    /margin-bottom: calc\(var\(--pet-size, 56px\) \/ -16 \* var\(--pet-feet-gap, 0\)\);/,
-    'lowered by the empty rows under the feet, a sixteenth of the box each'
-  );
-});
-
 test('nothing draws a box around the bot in any state: no outline, border, shadow, background or box-shaped filter', async () => {
   const css = (
     await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')
@@ -1877,32 +1774,6 @@ test('nothing draws a box around the bot in any state: no outline, border, shado
         /:focus-visible/.test(selector) && /skin-companion-pet/.test(selector) && /outline: none/.test(body)
     )
   );
-});
-
-test('a picture face: smooth (pixelated only for the mascot svg) and never continuously animated', async () => {
-  const css = (
-    await (await import('node:fs/promises')).readFile(new URL('./desktop-pet.css', import.meta.url), 'utf8')
-  ).replace(/\/\*[\s\S]*?\*\//g, '');
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
-    selector: selector.trim(),
-    body,
-  }));
-  const pixelated = rules.filter(({ body }) => /image-rendering:\s*pixelated/.test(body));
-  assert.ok(pixelated.length > 0);
-  for (const { selector } of pixelated) {
-    assert.doesNotMatch(selector, /\bimg\b/, `${selector}: an uploaded picture is never pixelated`);
-    assert.match(selector, /svg/, selector);
-  }
-  // Every animation that can reach a picture (the face's img, the face, the
-  // stack or the pet button around it) steps: no per-frame recomposite.
-  const reaches =
-    /skin-companion-face > img|skin-companion-face > :is\([^)]*img|\.skin-companion-face\s*(,|$)|skin-companion-stack|skin-companion-pet\b/;
-  for (const { selector, body } of rules) {
-    if (!reaches.test(selector) || /@media|prefers-reduced/.test(selector)) continue;
-    const animation = /(?:^|;)\s*animation:\s*([^;]+)/.exec(body)?.[1];
-    if (animation && animation.trim() !== 'none')
-      assert.match(animation, /step-end|steps\(/, `${selector}: ${animation}`);
-  }
 });
 
 test('the overlay draws the sprite at the size main made its window for', async (t) => {

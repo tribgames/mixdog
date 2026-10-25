@@ -5,7 +5,7 @@
 // AGENT.md), the Main route and the created flag, then it greets once with
 // the welcome guide. Every surface uses the name the user chose.
 import assert from 'node:assert/strict';
-import test, { after } from 'node:test';
+import test, { after, mock } from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
@@ -19,9 +19,27 @@ const MODELS = [{ provider: 'openai', model: 'test-model', display: 'Test model'
 
 async function settle() {
   await act(async () => {
-    for (let index = 0; index < 8; index += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    // setImmediate, not setTimeout: this must also flush while timers are faked.
+    for (let index = 0; index < 8; index += 1) await new Promise((resolve) => setImmediate(resolve));
   });
 }
+
+/** Fake timers installed BEFORE the pane renders, so any delayed auto-open the
+ *  product schedules lands on this clock. `advance` moves it inside act();
+ *  `release` restores real timers before a step that waits on them. */
+function fakeTimers(t) {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  t.after(() => mock.timers.reset());
+  return {
+    advance: (ms) =>
+      act(async () => {
+        mock.timers.tick(ms);
+      }),
+    release: () => mock.timers.reset(),
+  };
+}
+
+const PAST_ANY_AUTO_OPEN_MS = 5_000;
 
 /** The dialog is lazy: its first import takes longer than a few ticks. */
 async function waitFor(find) {
@@ -141,11 +159,14 @@ async function openFromEmptyState(document) {
 
 test('no Mixy: the pane is empty, the dialog does not auto-open, and on request it opens with "Mixy" and its pup prefilled, both editable', async (t) => {
   const { document, calls, render } = mount(t, { created: false });
+  const clock = fakeTimers(t);
   await render();
   assert.equal(document.querySelector('[data-agent-contact="lead"]'), null, 'no Mixy row');
   assert.match(document.querySelector('.mixy-empty').textContent, /No bots\./);
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 700)));
+  await clock.advance(PAST_ANY_AUTO_OPEN_MS);
+  await settle();
   assert.equal(dialog(document), null, 'the dialog does not open on its own');
+  clock.release();
   const shown = await openFromEmptyState(document);
   assert.ok(shown, 'the dialog opened on request');
   assert.equal(shown.querySelector('h2').textContent, 'Create representative bot');
@@ -166,15 +187,18 @@ test('no Mixy: the pane is empty, the dialog does not auto-open, and on request 
 
 test('the dialog does not auto-open behind another dialog, nor after it closes', async (t) => {
   const { document, render } = mount(t, { created: false });
+  const clock = fakeTimers(t);
   const onboarding = document.createElement('section');
   onboarding.setAttribute('role', 'dialog');
   onboarding.setAttribute('aria-modal', 'true');
   document.body.append(onboarding);
   await render();
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 700)));
+  await clock.advance(PAST_ANY_AUTO_OPEN_MS);
+  await settle();
   assert.equal(dialog(document), null);
   onboarding.remove();
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 700)));
+  await clock.advance(PAST_ANY_AUTO_OPEN_MS);
+  await settle();
   assert.equal(dialog(document), null, 'closing the other dialog does not open it');
 });
 
@@ -290,14 +314,17 @@ test('a profile with a renamed representative never sees the empty state and lis
 test('showing the Bots page opens no tab: with Mixy created, only a row click opens its thread', async (t) => {
   // User: going from Sessions to Bots jumped the main area to a bot chat.
   const { document, calls, opened, render } = mount(t, { created: true, name: 'Momo' });
+  const clock = fakeTimers(t);
   await render();
   await render();
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+  await clock.advance(PAST_ANY_AUTO_OPEN_MS);
+  await settle();
   assert.deepEqual(opened, [], 'no tab opened or activated by showing the page');
   assert.equal(
     calls.some(([call]) => call === 'openAgentHome'),
     false
   );
+  clock.release();
   const row = await waitFor(() => document.querySelector('[data-agent-contact="lead"]'));
   await act(async () => row.querySelector('button, [role="button"]').click());
   await settle();

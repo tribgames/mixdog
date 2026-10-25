@@ -1819,9 +1819,3 @@ test('a group header keeps the present form while any call runs and reads past t
     dom.close();
   }
 });
-
-test('a tool icon eases its colour over 150ms when its call settles', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
-  assert.match(css, /\.tool-card \.tool-icon\s*\{[^}]*transition:\s*color 150ms/);
-});

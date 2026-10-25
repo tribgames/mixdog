@@ -914,7 +914,7 @@ test('a lane revision on the publication envelope refreshes the session diff alt
   assert.equal(reads, 1);
   // A tool completes before the last transcript item: only the envelope revision moves.
   await publish(2);
-  await wait(400);
+  for (let waited = 0; reads < 2 && waited < 5_000; waited += 20) await wait(20);
   assert.equal(reads, 2);
   await publish(2);
   await wait(400);
@@ -956,7 +956,7 @@ test('without a publication revision, a tool completing before the last transcri
   assert.equal(reads, 1, 'an identical frame reads nothing');
   // The edit tool (not the last item) completes.
   await publish('completed');
-  await wait(400);
+  for (let waited = 0; reads < 2 && waited < 5_000; waited += 20) await wait(20);
   assert.equal(reads, 2);
 });
 

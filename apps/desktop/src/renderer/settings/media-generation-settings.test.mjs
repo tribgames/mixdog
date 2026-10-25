@@ -262,7 +262,7 @@ test('a slow gateway catalog lists as loading, re-polls until its models land, a
     assert.equal(loading.disabled, true);
 
     nanoState = loaded;
-    await wait(1_200);
+    for (let waited = 0; laneCalls.length < 2 && waited < 10_000; waited += 50) await wait(50);
     assert.ok(laneCalls.length >= 2, 'a pending catalog is polled again');
     rows = await imageRows();
     assert.ok(

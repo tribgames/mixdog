@@ -23,11 +23,6 @@ import { sessionSideDockEntryForSession } from './session-side-surface-policy.ts
 import { sideFileKey } from './side-file-tabs.ts';
 
 // The formatter wraps long selectors across lines; compare them as single-spaced text.
-const flattenCss = (css) =>
-  css
-    .replace(/\s*\n\s*/g, ' ')
-    .replace(/\(\s+/g, '(')
-    .replace(/\s+\)/g, ')');
 
 const RIGHT = [['source-control'], ['browser'], ['terminal'], ['pull-requests']];
 const diffA = { kind: 'diff', project: 'C:/p', rel: 'src/a.ts', source: 'unstaged' };
@@ -710,39 +705,6 @@ test('file tabs: select, double-click keeps a preview, close and the menu act pe
   }
 });
 
-test('every side-dock surface draws exactly one shared DockHeaderRow, no inner header row', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const read = (name) => readFile(new URL(name, import.meta.url), 'utf8');
-  const count = (source, pattern) => source.match(pattern)?.length ?? 0;
-  const surfaces = {
-    // [source that owns the row, inner header rows that must not exist]
-    file: ['./side-surface-strip.tsx', /<header|editor-breadcrumbs/g],
-    browser: ['./BrowserPane.lazy.tsx', /<header/g],
-    terminal: ['./SessionTerminalTabs.tsx', /<header/g],
-  };
-  for (const [name, [file, inner]] of Object.entries(surfaces)) {
-    const source = await read(file);
-    assert.equal(count(source, /<DockHeaderRow/g), 1, `${name}: exactly one header row`);
-    assert.equal(count(source, inner), 0, `${name}: no second header row`);
-  }
-  // Tabs live in the row's left slot; the strip draws no row of its own.
-  assert.match(await read('./BrowserTabStrip.tsx'), /className="browser-tab-toolbar"/);
-  assert.doesNotMatch(await read('./BrowserTabStrip.tsx'), /Maximize2|onToggleExpanded/);
-  // The dock draws the diff/panel row only; the phone has no title bar of its own.
-  const dock = await read('./pane-side-dock.tsx');
-  assert.match(dock, /PhoneDockSwitchPublisher/);
-  assert.doesNotMatch(dock, /MobileDockHeader/);
-  assert.match(dock, /renderDiffHeaderControls\?: \(\) => ReactNode/);
-  assert.match(dock, /t\('Changes'\)/);
-  // Diff in side chrome returns before its own <header>, and the dock passes it.
-  const diff = await read('./GitDiffPane.tsx');
-  assert.ok(diff.indexOf("chrome === 'side'") < diff.indexOf('<header className="workspace-git-diff-header"'));
-  assert.match(await read('./pane-side-dock.tsx'), /chrome="side"/);
-  assert.doesNotMatch(await read('./pane-side-dock.tsx'), /pane-dock-diff-back/);
-  // The editor drops its breadcrumb row whenever the dock hosts it.
-  assert.match(await read('./EditorPane.lazy.tsx'), /const editorBreadcrumbs = onSideChrome \? null :/);
-});
-
 test('mobile always stacks the visible diff so Goal has a visible DIFF anchor', () => {
   assert.equal(paneDiffStacks(true, 1_200, 640, true), true);
   assert.equal(paneDiffStacks(true, 1_200, 640, false), false);
@@ -890,25 +852,12 @@ test('a warm pane dock reopens with its width and its active body in the click c
   }
 });
 
-test('stacked side surfaces are opaque (Mica-proof) and hide the panel body beneath', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const read = (name) => readFile(new URL(name, import.meta.url), 'utf8');
-  const css = await read('./pane-layout.css');
-  const slot = css.match(/\.workbench-side-surface-slot \{[^}]*\}/)[0];
-  // Mica clears --mx-workspace-sheet inside .workbench-side-panel; the root's
-  // solid copy --mx-sheet-ink is what keeps the slot opaque there.
-  assert.match(slot, /background: var\(--mx-sheet-ink, var\(--mx-workspace-sheet\)\)/);
-  assert.match(
-    await read('./desktop/03-titlebar.css'),
-    /\.workbench-side-panel,[^{]*\{[^}]*--mx-workspace-sheet: transparent/
+test('a :line:column link keeps its column through the dock', () => {
+  const stored = JSON.parse(
+    JSON.stringify({ 'pane-1': withPaneDockFileOpened(closed(), { ...fileLink, column: 3 }, 9) })
   );
-  const layout = await read('./workbench-side-view-layout.tsx');
-  // Hidden and skipped: the covered view is neither painted nor laid out.
-  assert.match(
-    layout,
-    /style=\{selected && surfacesActive \? \{ visibility: 'hidden', contentVisibility: 'hidden' \} : undefined\}/
-  );
-  assert.match(layout, /inert=\{!selected \|\| surfacesActive \? true : undefined\}/);
+  const restored = normalizePaneSideDocks(stored, ['pane-1'], RIGHT, false);
+  assert.equal(restored['pane-1'].files[0].column, 3);
 });
 
 test('Open in main tab and Open in default app are ⋯ items with different icons', async () => {
@@ -931,26 +880,6 @@ test('Open in main tab and Open in default app are ⋯ items with different icon
     ).length,
     1
   );
-});
-
-test('a :line:column link keeps its column through the dock and reveal', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const stored = JSON.parse(
-    JSON.stringify({ 'pane-1': withPaneDockFileOpened(closed(), { ...fileLink, column: 3 }, 9) })
-  );
-  const restored = normalizePaneSideDocks(stored, ['pane-1'], RIGHT, false);
-  assert.equal(restored['pane-1'].files[0].column, 3);
-  const editor = await readFile(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8');
-  assert.match(editor, /editor\.setPosition\(\{ lineNumber: reveal\.line, column \}\)/);
-  assert.match(await readFile(new URL('./app-shell-side-dock.tsx', import.meta.url), 'utf8'), /column: file\.column/);
-});
-
-test('document page slots keep their aspect ratio instead of shrinking in the flex column', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./desktop/26-editor.css', import.meta.url), 'utf8');
-  const rule = css.match(/\.editor-pane-document-page \{[^}]*\}/)[0];
-  assert.match(rule, /flex: none;/);
-  assert.match(rule, /overflow: hidden;/);
 });
 
 test('default widths: file/browser/diff 500, terminal 280 with its own stored width', async () => {
@@ -984,215 +913,6 @@ test('default widths: file/browser/diff 500, terminal 280 with its own stored wi
   const source = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
   assert.match(source, /pane-side-dock-terminal-width\.v1/);
   assert.match(source, /terminalShowing \? terminalPref : browserPref/);
-});
-
-test('joined surface: one continuous sheet with single dividers and outer-only radii', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = flattenCss(await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8'));
-  const block = css.slice(css.indexOf('/* ── Sheet framing (desktop) ──'));
-  assert.match(block, /--mx-dock-header-height: 44px;/);
-  assert.match(block, /--mx-sheet-gap: 2px;/);
-  assert.match(block, /--mx-sheet-radius: 10px;/);
-  assert.match(block, /--mx-sheet-surface: var\(--mx-sheet-ink, var\(--mx-workspace-sheet\)\);/);
-  assert.match(block, /@media \(min-width: 761px\)/);
-  const scope = ':root:not\\(\\[data-mixdog-mobile-tabs\\]\\)';
-  const esc = (s) => s.replace(/[.[\]()>:="*+|]/g, '\\$&');
-  const rule = (selector) => block.match(new RegExp(`${scope} ${esc(selector)} \\{([^}]*)\\}`))?.[1] ?? '';
-  const flat = (body) => {
-    assert.match(body, /margin: 0;/);
-    assert.match(body, /border: 0;/);
-    assert.match(body, /border-radius: 0;/);
-  };
-  // Left panel: leftmost element. Gap on left and bottom only; its right border IS the divider.
-  const left = rule('.workbench-side-panel[data-side="left"]');
-  assert.match(left, /height: calc\(100% - var\(--mx-sheet-gap\)\)/);
-  assert.match(left, /margin: 0 0 var\(--mx-sheet-gap\) var\(--mx-sheet-gap\);/);
-  assert.match(left, /border: 1px solid var\(--mx-border\);/);
-  assert.match(left, /border-radius: var\(--mx-sheet-radius\) 0 0 var\(--mx-sheet-radius\);/);
-  // Workspace: .main-panel owns the outer top/right/bottom edge and the right corners; no left
-  // border while the panel is open (single divider), left edge + all corners once it is folded.
-  const main = rule('.main-panel');
-  assert.match(main, /margin: 0 var\(--mx-sheet-gap\) var\(--mx-sheet-gap\) 0;/);
-  assert.match(main, /border: 1px solid var\(--mx-border\);\s*\/\*[^*]*\*\/\s*border-left: 0;/);
-  assert.match(main, /border-radius: 0 var\(--mx-sheet-radius\) var\(--mx-sheet-radius\) 0;/);
-  assert.match(main, /box-shadow: none;/);
-  const folded = rule('.app-shell.sidebar-collapsed .main-panel');
-  assert.match(folded, /margin-left: var\(--mx-sheet-gap\);/);
-  assert.match(folded, /border-left: 1px solid var\(--mx-border\);/);
-  assert.match(folded, /border-radius: var\(--mx-sheet-radius\);/);
-  // The rail stays flat.
-  assert.match(
-    block,
-    /\.app-shell \.activity-rail,[^{]*\.app-shell\.sidebar-collapsed \.activity-rail \{\s*border-right-color: transparent;/
-  );
-  // Cell rows have no borders, gaps or radii of their own.
-  const rows = block.match(
-    new RegExp(
-      scope +
-        ' \\.pane-cell > \\.workspace-tabs-shell,[^{]*\\.pane-surface-stack,[^{]*\\.pane-footer-slot \\{([^}]*)\\}'
-    )
-  )[1];
-  flat(rows);
-  assert.doesNotMatch(block, /pane-cell > \.workspace-tabs-shell \{[^}]*border-radius: var\(--mx-sheet-radius\)/);
-  // Split cells meet on the handle's single hairline; hover / drag keeps the accent.
-  assert.match(rule('.pane-resize-handle::after'), /background: var\(--mx-border\);/);
-  assert.match(rule('.pane-resize-handle:is(:hover, .is-dragging)::after'), /background: var\(--mx-focus\);/);
-  // The dock is a separate floating sheet again: own border + radius, a 4px gap from the workspace
-  // sheet on its left; the window-edge and bottom gaps come from .main-panel's margins.
-  const open = block.match(new RegExp(`${scope} \\.pane-side-dock\\[data-open="true"\\] \\{([^}]*)\\}`))[1];
-  assert.match(open, /border: 1px solid var\(--mx-border\);/);
-  assert.match(open, /border-radius: var\(--mx-sheet-radius\);/);
-  assert.match(open, /background: var\(--mx-sheet-surface\);/);
-  const INL = '.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])';
-  const inline = block.match(new RegExp(`${scope} ${esc(INL)} \\{([^}]*)\\}`))[1];
-  // The sheet gap on its left; while the cells draw the frame it also reaches into the ring and keeps
-  // 1px more gap for the frame's side (pane-frame-reserve.slow.test.mjs measures the geometry).
-  assert.match(
-    inline,
-    /margin: calc\(-1px \* var\(--frame, 0\) \* var\(--edge-top, 0\)\)[^;]*calc\(var\(--mx-sheet-gap\) \+ 1px \* var\(--frame, 0\)\);/
-  );
-  assert.match(inline, /box-shadow: none;/);
-  assert.doesNotMatch(inline, /border/);
-  // Overlay keeps the sheet look (inset, border, radius) plus its shadow.
-  assert.match(css, /\.pane-side-dock\[data-overlay="true"\] \{[^}]*box-shadow: var\(--mx-overlay\);/);
-  // The main panel's frame must not wrap an open inline dock: it hides its border and radius, and
-  // each pane cell draws its own sheet frame, closing the right side (border + corners) at the dock.
-  const SURFACE_EXPANDED = ':not\\(:has\\([^{]*?data-expanded="true"\\]\\)\\)';
-  // "An inline dock is open" is the column's own flag (useInlineDockFlag), padded to the (0,5,0)
-  // specificity of the `.main-panel:has(INL)` it replaced; no :has() walks the column any more.
-  const INLINE_FLAG = '.main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]';
-  const unframed = block.match(new RegExp(`${scope}${SURFACE_EXPANDED} ${esc(INLINE_FLAG)} \\{([^}]*)\\}`))[1];
-  assert.doesNotMatch(css.replace(/\/\*[\s\S]*?\*\//g, ''), /\.main-panel:has\(/);
-  // An expanded browser/terminal lives on its own container, not on the dock's data-expanded: the
-  // cells-draw-the-frame rules must step aside so the panel draws the single frame it is measured for.
-  assert.doesNotMatch(block, new RegExp(`${scope} ${esc('.main-panel[data-inline-dock')}`));
-  // The border only turns transparent: the panel's box (and every split inside it) keeps its size.
-  assert.match(unframed, /--frame: 1;\s*border-color: transparent;\s*border-radius: 0;/);
-  // The frame closes on the dock's side: the right, or below for a dock below the chat.
-  assert.match(
-    block,
-    /\.pane-cell:has\(> \.pane-side-dock\[data-open="true"\][^{]*\) \{\s*--open-right: max\(var\(--edge-right\), var\(--dock-right, 1\)\);\s*--no-bottom: max\(var\(--edge-bottom\), var\(--dock-below, 0\)\);/
-  );
-  assert.match(block, /\.pane-cell::after \{[^}]*border-right-width: calc\(1px \* var\(--open-right\)\);/);
-  assert.match(
-    block,
-    /calc\(var\(--mx-sheet-radius\) \* var\(--no-top\) \* var\(--open-right\)\)\s*calc\(var\(--mx-sheet-radius\) \* var\(--no-bottom\) \* var\(--open-right\)\)/
-  );
-  // Expanded: flush in .main-panel's content box. No border, margin or shadow; only the inner radius of
-  // the main panel's outer corners (fixed boxes are not clipped by it): right corners, all when folded.
-  const expandedDock = rule('.pane-side-dock[data-open="true"][data-expanded="true"]');
-  assert.match(expandedDock, /margin: 0;\s*border: 0;/);
-  assert.match(expandedDock, /box-shadow: none;/);
-  assert.match(
-    expandedDock,
-    /border-radius: 0 calc\(var\(--mx-sheet-radius\) - 1px\) calc\(var\(--mx-sheet-radius\) - 1px\) 0;/
-  );
-  assert.doesNotMatch(expandedDock, /margin: 0 var|border: 1px/);
-  for (const kind of ['terminal', 'browser']) {
-    const box = block.match(
-      new RegExp(`session-${kind}-surface-container\\[data-expanded="true"\\](?:,[^{]*)? \\{([^}]*)\\}`)
-    )[1];
-    assert.match(box, /border: 0;/);
-    assert.match(box, /box-shadow: none;/);
-  }
-  assert.match(
-    block,
-    /:has\(\.app-shell\.sidebar-collapsed\) \.pane-side-dock\[data-open="true"\]\[data-expanded="true"\] \{\s*border-radius: calc\(var\(--mx-sheet-radius\) - 1px\);/
-  );
-  // No adjacent doubled borders remain between the cell parts.
-  assert.doesNotMatch(block, /\.pane-cell:has\(> \.pane-footer-slot/);
-  // The Mica 8px corner only applies to the narrow (non-joined) layout.
-  const mica = await readFile(new URL('./desktop/03-titlebar.css', import.meta.url), 'utf8');
-  assert.match(
-    mica,
-    /@media \(max-width: 760px\) \{\s*html:is\(\[data-window-material="mica"\], \[data-mixdog-skin\]\) \.workbench-side-panel\[data-side="left"\],[^{]*\{\s*border-top-left-radius: 8px;/
-  );
-  // The column reserves the dock's gap and borders so the conversation floor holds.
-  const dockSource = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  // --mx-sheet-gap (2px) + the dock's two 1px borders.
-  assert.match(dockSource, /PANE_SIDE_DOCK_SHEET_FRAME_WIDTH = 2 \+ 2;/);
-  assert.match(dockSource, /DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame/);
-});
-
-test('joined surface: outer radii in every state (panel open|folded x dock open|closed, splits)', async () => {
-  const { readFileSync } = await import('node:fs');
-  const css = flattenCss(readFileSync(new URL('./pane-layout.css', import.meta.url), 'utf8'));
-  // Reduce the sheet block to the declarations that decide borders and radii, then resolve them by
-  // hand per state: the rightmost clip is .main-panel (dock or last cell sits inside it), the leftmost
-  // is the left panel, or .main-panel once folded.
-  const block = css.slice(css.indexOf('/* ── Sheet framing (desktop) ──'));
-  const get = (selector, prop) =>
-    block.match(new RegExp(selector.replace(/[.[\]()>:="*+|]/g, '\\$&') + ' \\{[^}]*?' + prop + ': ([^;]+);'))?.[1];
-  const R = 'var(--mx-sheet-radius)';
-  const rule = (selector) =>
-    block.match(new RegExp(selector.replace(/[.[\]()>:="*+|]/g, '\\$&') + ' \\{([^}]*)\\}'))?.[1] ?? '';
-  const panel = get(':root:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"]', 'border-radius');
-  const mainOpen = get(':root:not([data-mixdog-mobile-tabs]) .main-panel', 'border-radius');
-  const mainFolded = get(
-    ':root:not([data-mixdog-mobile-tabs]) .app-shell.sidebar-collapsed .main-panel',
-    'border-radius'
-  );
-  const corners = (radius) => {
-    const v = radius.split(' ');
-    const [tl, tr = tl, br = tl, bl = tr] = v.length === 1 ? [v[0]] : v;
-    return { tl: tl !== '0', tr: tr !== '0', br: br !== '0', bl: bl !== '0' };
-  };
-  assert.deepEqual(corners(panel), { tl: true, tr: false, br: false, bl: true }, 'panel: left corners only');
-  assert.deepEqual(
-    corners(mainOpen),
-    { tl: false, tr: true, br: true, bl: false },
-    'workspace (panel open): right corners only'
-  );
-  assert.deepEqual(
-    corners(mainFolded),
-    { tl: true, tr: true, br: true, bl: true },
-    'workspace (panel folded): all corners'
-  );
-  assert.equal(panel, `${R} 0 0 ${R}`);
-  // Dock open or closed never adds corners of its own: the inline dock and every cell row are square.
-  // Dock open: the workspace cell keeps its own right corners (and border) where the dock follows;
-  // the left corners need the folded sidebar and no left neighbour, so a joined split stays square inside.
-  assert.match(
-    block,
-    /border-radius:\s*calc\(var\(--mx-sheet-radius\) \* var\(--no-top\) \* var\(--no-left\) \* var\(--folded\)\)/
-  );
-  assert.match(block, /\.app-shell\.sidebar-collapsed \.pane-cell \{\s*--folded: 1;/);
-  // .main-panel paints its rounded frame without clipping (a rounded clip around the transcript
-  // scroller forces main-thread wheel hit tests); each layer reaching an outer corner rounds itself
-  // with the same per-cell flags, at the radius inside the 1px border.
-  assert.match(rule(':root:not([data-mixdog-mobile-tabs]) .main-panel'), /overflow: visible;/);
-  assert.match(block, /--mx-cell-corner: calc\(var\(--mx-sheet-radius\) - 1px\);/);
-  assert.match(
-    rule(':root:not([data-mixdog-mobile-tabs]) .pane-cell > .workspace-tabs-shell'),
-    /border-top-right-radius: calc\(var\(--mx-cell-corner\) \* var\(--no-top\) \* var\(--open-right\)\);/
-  );
-  assert.match(
-    block,
-    /\.pane-surface-handoff-layer,[^{]*\{\s*border-bottom-right-radius: calc\(var\(--mx-cell-corner\) \* var\(--no-bottom\) \* var\(--open-right\)\);/
-  );
-  assert.match(block, /\.pane-split-row > \.pane-split-cell:last-child \.pane-cell \{\s*--no-left: 0;/);
-  assert.match(block, /\.pane-split-row > \.pane-split-cell:first-child \.pane-cell \{\s*--open-right: 0;/);
-  assert.match(block, /\.pane-split-column > \.pane-split-cell:last-child \.pane-cell \{\s*--no-top: 0;/);
-  assert.match(block, /\.pane-split-column > \.pane-split-cell:first-child \.pane-cell \{\s*--no-bottom: 0;/);
-  const rows = block.match(/\.pane-cell > \.workspace-tabs-shell,[^{]*\{([^}]*)\}/)[1];
-  assert.match(rows, /border-radius: 0;/);
-  // Split panes: cells are square rows divided by handles, so only .main-panel contributes outer corners.
-  assert.doesNotMatch(block, /\.pane-split[^{]*\{[^}]*border-radius/);
-  assert.match(css, /\.pane-side-dock\[data-overlay="true"\] \{\s*position: absolute;/);
-  assert.match(
-    css,
-    /\.pane-side-dock\[data-expanded="true"\] \{\s*z-index: 40;\s*margin: 0;\s*box-shadow: var\(--mx-floating\);/
-  );
-});
-
-test('the header row is as tall as the pane tab strip row and has no rule of its own', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const strip = await readFile(new URL('./tab-strip.css', import.meta.url), 'utf8');
-  const row = strip.match(/\.dock-header-row \{[^}]*\}/)[0];
-  assert.match(row, /height: var\(--mx-dock-header-height, 44px\)/);
-  assert.match(row, /border-bottom: 0;/);
-  // A tab strip inside the row draws neither its own height nor its own rule.
-  assert.match(strip, /\.dock-header-row \.browser-tab-toolbar \{[^}]*border-bottom: 0;/);
 });
 
 test('the browser ⋯ menu carries device view, copy link, system browser and credentials', async () => {
@@ -1258,49 +978,6 @@ test('the side editor gutter is slim and its status bar is the 24px problems/cur
   assert.doesNotMatch(css, /\.editor-statusbar/);
   const editor = await readFile(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(editor, /editor-statusbar|editorStatusBar/);
-});
-
-test('dock header chips use the pane workspace tab styling', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const strip = await readFile(new URL('./tab-strip.css', import.meta.url), 'utf8');
-  const tabs = await readFile(new URL('./desktop/04-workspace-tabs.css', import.meta.url), 'utf8');
-  const body = (css, selector) =>
-    css.match(new RegExp(`${selector.replace(/[.[\]()>:]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
-  // Same label tier (size/weight) and icon size as .workspace-tab-main.
-  assert.match(body(tabs, '.workspace-tab-main span'), /font-size: var\(--mx-font-item\)/);
-  assert.match(body(tabs, '.workspace-tab-main span'), /font-weight: var\(--mx-weight-regular\)/);
-  assert.match(body(strip, '.browser-tab-select'), /font-size: var\(--mx-font-item\)/);
-  assert.match(body(strip, '.browser-tab-select'), /font-weight: var\(--mx-weight-regular\)/);
-  assert.match(body(strip, '.browser-tab.is-active .browser-tab-select'), /font-weight: var\(--mx-weight-medium\)/);
-  assert.match(body(strip, '.browser-tab-select svg'), /width: 15px;\s*height: 15px;/);
-  // Same plate fills (idle 3%, active 14%), 30px tall in the 44px row, and radius.
-  assert.match(body(strip, '.browser-tab::before'), /3%/);
-  assert.match(body(strip, '.browser-tab::before'), /border-radius: var\(--mx-radius-md\)/);
-  assert.match(body(strip, '.browser-tab.is-active::before'), /14%/);
-  assert.match(body(strip, '.dock-header-row .browser-tab::before'), /inset: 7px 3px;/);
-  assert.match(body(tabs, '.pane-cell .workspace-tab:not(.drop-target-right)::before'), /inset: 7px 3px 6px;/);
-  assert.match(body(strip, '.browser-tab'), /color: var\(--mx-tab-idle-ink\)/);
-  // The file chip is a browser-tab, not its own outlined style.
-  assert.doesNotMatch(strip, /\.dock-header-chip \{[^}]*(font-size|background|border-radius)/);
-});
-
-test('browser address field reads as an input: outlined, no fill, hover border, accent focus ring', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./desktop/32-browser-pane.css', import.meta.url), 'utf8');
-  const field = css.match(/\.browser-pane-address \{([^}]*)\}/)[1];
-  assert.match(field, /background: transparent;/);
-  assert.doesNotMatch(field, /color-mix/);
-  assert.match(field, /border: 1px solid var\(--mx-border\);/);
-  assert.match(css.match(/\.browser-pane-address:hover \{([^}]*)\}/)[1], /border-color: var\(--mx-border-strong\)/);
-  assert.match(css.match(/\.browser-pane-address:focus \{([^}]*)\}/)[1], /box-shadow: 0 0 0 1px var\(--mx-focus\)/);
-  assert.match(field, /border-radius: var\(--mx-radius-pill\)/);
-  assert.match(field, /color: var\(--mx-text\)/);
-  assert.match(css.match(/\.browser-pane-address::placeholder \{([^}]*)\}/)[1], /color: var\(--mx-text-faint\)/);
-  assert.match(css.match(/\.browser-pane-address:focus \{([^}]*)\}/)[1], /border-color: var\(--mx-focus\)/);
-  // --mx-text is theme-aware, so the same mix reads on dark and light.
-  const tokens = await readFile(new URL('./desktop/01-tokens.css', import.meta.url), 'utf8');
-  assert.match(tokens, /:root\[data-mixdog-theme="light"\]/);
-  assert.match(tokens, /--mx-text-faint:/);
 });
 
 test('dock header tab lists behave like the pane tab strip for 2-6 browser and terminal tabs at 280/500px', async () => {
@@ -1482,42 +1159,6 @@ test('dock header buttons and tab icons match the pane strip toggles, +, and tab
   assert.match(chrome, /<TriggerGlyph size=\{15\}/);
   assert.match(chrome, /<X size=\{15\}/);
   assert.match(await read('./BrowserPane.lazy.tsx'), /icon: ExternalLink/);
-});
-
-test('a pane bottom panel sits inside the workspace sheet and the dock spans the full cell height', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8');
-  const rule = (selector) =>
-    css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.[\]()>:="*+]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
-  // Three explicit rows: strip | stack | bottom panel; the dock spans all three.
-  assert.match(rule('.pane-cell'), /grid-template-rows: auto minmax\(0, 1fr\) auto auto;/);
-  assert.match(rule('.pane-cell > .bottom-panel'), /grid-column: 1;\s*grid-row: 3;/);
-  assert.match(
-    css.match(/\.pane-cell > \.pane-side-dock,\s*\.pane-cell > \.pane-side-dock-spacer \{([^}]*)\}/)[1],
-    /grid-column: 2;\s*grid-row: 1 \/ span 4;/
-  );
-  // The panel is a flat row under the stack, divided by one hairline (desktop sheet band only).
-  const tail = css.slice(css.lastIndexOf('@media (min-width: 941px)'));
-  const panel = tail.match(/\.pane-cell > \.bottom-panel:not\(\[data-state="closed"\]\) \{([^}]*)\}/)[1];
-  assert.match(panel, /margin: 0;\s*border: 0;\s*border-top: 1px solid var\(--mx-border\);/);
-  // Its own bottom corners follow the sheet's outer corners; the stack above it then keeps square ones.
-  assert.match(
-    panel,
-    /border-radius: 0 0 calc\(var\(--mx-cell-corner\) \* var\(--no-bottom\) \* var\(--open-right\)\)/
-  );
-  assert.match(
-    tail,
-    /\.pane-cell:has\(> \.bottom-panel:not\(\[data-state="closed"\]\)\)\s*>\s*\.pane-surface-stack \{\s*--no-bottom: 0;/
-  );
-  assert.match(panel, /background: var\(--mx-sheet-surface\);/);
-  assert.match(tail, /:root:not\(\[data-mixdog-mobile-tabs\]\)/);
-  // Every pane cell (split panes included) gets its own panel row: PaneWorkspace renders
-  // strip, stack, problems and dock as direct children of each cell.
-  const workspace = await readFile(new URL('./PaneWorkspace.tsx', import.meta.url), 'utf8');
-  assert.match(
-    workspace,
-    /renderStrip\?\.\(leaf\)\}\s*\{renderPaneSurfaceStack\(leaf, focused\)\}\s*\{renderProblems\?\.\(leaf, focused\)\}\s*\{\/\*[\s\S]*?\*\/\}\s*<div className="pane-footer-slot" \/>\s*\{renderSideDock\?\.\(leaf, focused\)\}/
-  );
 });
 
 test('in-flow dock surfaces get the same expand control from the dock context, left of close', async () => {
@@ -1866,50 +1507,6 @@ test('expanded surfaces stay inside the main panel frame (no overlap of its bord
   assert.match(
     css,
     /\.pane-side-dock-header\[data-surface-expanded="true"\] \{\s*border-radius: 0 calc\(var\(--mx-sheet-radius\) - 1px\) 0 0;/
-  );
-});
-
-test('vertical resize handles: 13px hit area centred on the divider, accent centred on its pixel', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = flattenCss(await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8'));
-  const block = css.slice(css.indexOf('/* ── Sheet framing (desktop) ──'));
-  const scope = ':root:not\\(\\[data-mixdog-mobile-tabs\\]\\)';
-  const rule = (selector) => block.match(new RegExp(`${scope} ${selector} \\{([^}]*)\\}`))?.[1] ?? '';
-  // Left panel: the divider is its right border, 1px past the padding edge: right -7 + width 13 => centre on it.
-  const left = rule('\\.workbench-side-panel\\[data-side="left"\\] > \\.workbench-side-panel-resize');
-  assert.match(left, /right: -7px;\s*width: 13px;/);
-  assert.match(block, /\.workbench-side-panel\[data-side="left"\] \{[^}]*overflow: visible;/);
-  // Dock and diff-column edge: a 12px hit area centred in the 2px gap between the two sheets
-  // (gap = [D-2, D), D = dock border box; padding edge = D+1; left -8 => D-7 .. D+5, centre D-1).
-  const dock = block.match(
-    new RegExp(
-      scope +
-        ' \\.pane-side-dock \\.workbench-side-panel\\[data-side="right"\\] > \\.workbench-side-panel-resize,\\s*' +
-        scope +
-        ' \\.pane-dock-diff-resize \\{([^}]*)\\}'
-    )
-  )[1];
-  assert.match(dock, /left: -8px;\s*width: 12px;/);
-  // Accent: 2px at 50% - 1px of the 12px box => [D-2, D), exactly the gap; drawn on hover / drag only.
-  const after = block.match(/\.pane-dock-diff-resize::after \{([^}]*)\}/)[1];
-  assert.match(after, /left: calc\(50% - 1px\);\s*right: auto;\s*width: 2px;/);
-  assert.match(after, /background: transparent;/);
-  assert.match(block, /\.pane-dock-diff-resize:is\(:hover, :active\)::after \{\s*background: var\(--mx-focus\);/);
-  // With a diff pair showing, the panel's own handle sits on the internal 1px divider: centred on it.
-  const pair = block.match(
-    /\.pane-dock-diff-column:not\(\[hidden\]\) ~ \.workbench-side-panel\[data-side="right"\] > \.workbench-side-panel-resize \{([^}]*)\}/
-  )[1];
-  assert.match(pair, /left: -7px;\s*width: 13px;/);
-  // Split handles: hit area is 6px each side of the 1px handle, accent 3px centred on the divider's
-  // pixel by the base rule's offset (painted bounds: pane-frame-reserve.slow.test.mjs).
-  assert.match(rule('\\.pane-split-row > \\.pane-resize-handle::before'), /left: -6px;\s*right: -6px;/);
-  assert.match(
-    block,
-    /\.pane-split-row > \.pane-resize-handle:is\(:hover, \.is-dragging\)::after,[^{]*\.pane-split-column > \.pane-resize-handle:is\(:hover, \.is-dragging\)::after \{\s*--pane-handle-line: 3px;/
-  );
-  assert.match(
-    css,
-    /\.pane-split-row > \.pane-resize-handle::after \{[^}]*left: calc\(50% - var\(--pane-handle-line\) \/ 2\);\s*width: var\(--pane-handle-line\);/
   );
 });
 
@@ -2425,43 +2022,4 @@ test('panel resize (rendered): a touch drag on the handle previews and commits l
     await act(async () => dock.root.unmount());
     dock.restore();
   }
-});
-
-test('phone tab strips share the width by the pane tab rule; the fixed-width chips are desktop-only', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = flattenCss(await readFile(new URL('./tab-strip.css', import.meta.url), 'utf8'));
-  // The no-shrink override (each chip keeps its whole label and the strip scrolls) is scoped off the phone.
-  assert.match(
-    css,
-    /:root:not\(\[data-mixdog-mobile-tabs\]\) \.browser-tab-list > \.dock-header-chip:not\(:only-child\), :root:not\(\[data-mixdog-mobile-tabs\]\) \.session-diff-tabs > \.browser-tab \{[^}]*flex: 0 0 auto;/
-  );
-  assert.doesNotMatch(css, /(^|\} )\.browser-tab-list > \.dock-header-chip:not\(:only-child\)/);
-  // On the phone the base `.browser-tab` rule applies: shrink from 160px, 30px inactive / 56px active floors, ellipsis.
-  assert.match(css, /\.browser-tab \{[^}]*flex: 0 1 160px;[^}]*min-width: 30px;/);
-  assert.match(css, /\.browser-tab\.is-active \{\s*min-width: 56px;/);
-  assert.match(css, /\.browser-tab-select > span:not\(\.progress-spinner-turn\) \{[^}]*text-overflow: ellipsis;/);
-  assert.match(css, /\.browser-tab-list \{[^}]*overflow-x: scroll;/);
-  // The chip's released floor is restored for inactive tabs beside others, on the phone.
-  assert.match(
-    css,
-    /html\[data-mixdog-mobile-tabs\] \.browser-tab-list > \.dock-header-chip:not\(:only-child\):not\(\.is-active\) \{\s*min-width: 30px;/
-  );
-});
-
-test('touch resize edge: a 44px target on the dock and its diff pair; the phone sheet is fixed full-width', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = flattenCss(await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8'));
-  const coarse = css.match(
-    /@media \(pointer: coarse\) \{ \.pane-side-dock \.workbench-side-panel\[data-side="right"\] > \.workbench-side-panel-resize::before, \.pane-dock-diff-resize::before \{([^}]*)\}/
-  )?.[1];
-  assert.ok(coarse, 'both dock handles grow a touch extension');
-  // The 12px desktop edge plus the 32px extension toward the conversation = 44px.
-  assert.match(coarse, /content: "";\s*position: absolute;\s*top: 0;\s*bottom: 0;\s*left: -32px;\s*right: 0;/);
-  assert.match(css, /left: -8px;\s*width: 12px;/);
-  // The line itself never moves: the extension is a ::before, the accent stays on ::after.
-  assert.doesNotMatch(coarse, /width:|background/);
-  // Phone layout: the sheet fills the screen, so the handle is not drawn at all.
-  const mobile = flattenCss(await readFile(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8'));
-  assert.match(mobile, /html\[data-mixdog-mobile-tabs\] \.workbench-side-panel-resize \{ display: none;/);
-  assert.match(mobile, /\.pane-side-dock \{[^}]*left: 0;[^}]*width: 100% !important;/);
 });

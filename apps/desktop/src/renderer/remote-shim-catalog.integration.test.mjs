@@ -103,12 +103,18 @@ test('a synchronized phone answers catalog reads from the synchronized roster, n
       return listSessions(...args);
     };
     const barrier = api.invokeCapability({ capability: 'getOnboardingStatus' });
-    void barrier.catch(() => undefined);
+    let barrierSettled = false;
+    void barrier.then(
+      () => {
+        barrierSettled = true;
+      },
+      () => {
+        barrierSettled = true;
+      }
+    );
     await delay(50);
-    const startedAt = Date.now();
     const [sessions, agents] = await Promise.all([api.listSessions(), api.listAgentPool()]);
-    const elapsed = Date.now() - startedAt;
-    assert.ok(elapsed < 1_000, `catalog reads waited ${elapsed}ms behind an unrelated capability call`);
+    assert.equal(barrierSettled, false, 'catalog reads did not wait behind an unrelated capability call');
     // Rows cross from the page realm; compare their content.
     const plain = (value) => JSON.parse(JSON.stringify(value));
     assert.deepEqual(

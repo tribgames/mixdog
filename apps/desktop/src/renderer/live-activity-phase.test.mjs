@@ -4,7 +4,7 @@
  * plays its entrance once per turn, not again on a remount.
  */
 import assert from 'node:assert/strict';
-import test, { after } from 'node:test';
+import test, { after, mock } from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
@@ -13,7 +13,12 @@ after(restore);
 const { createRoot } = await import('react-dom/client');
 const { ENTERED_ACTIVITY_TURN_LIMIT, LiveActivity } = await import('./transcript-status.tsx');
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Fake setTimeout and Date so the phase pacing is driven by ticks, not real sleeps.
+const sleep = async (ms) => mock.timers.tick(ms);
+const fakeClock = (t) => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  t.after(() => mock.timers.reset());
+};
 
 function mount(t) {
   const host = document.createElement('div');
@@ -27,6 +32,7 @@ function mount(t) {
 const spinner = (fields) => ({ spinner: { active: true, startedAt: Date.now() - 2_000, ...fields } });
 
 test('a new phase paints after 150 ms, once the painted one stood 650 ms', async (t) => {
+  fakeClock(t);
   const { host, render } = mount(t);
   const mode = () => host.querySelector('.live-activity')?.getAttribute('data-mode') ?? null;
   await render({ snapshot: spinner({ mode: 'compacting' }) });
@@ -52,6 +58,7 @@ test('a new phase paints after 150 ms, once the painted one stood 650 ms', async
 });
 
 test('a phase withdrawn before it paints never paints later; the painted phase stays', async (t) => {
+  fakeClock(t);
   const { host, render } = mount(t);
   const mode = () => host.querySelector('.live-activity')?.getAttribute('data-mode') ?? null;
   await render({ snapshot: spinner({ mode: 'compacting' }) });
@@ -66,6 +73,7 @@ test('a phase withdrawn before it paints never paints later; the painted phase s
 });
 
 test('with no phase published, the last painted phase holds while the turn works', async (t) => {
+  fakeClock(t);
   const { host, render } = mount(t);
   const mode = () => host.querySelector('.live-activity')?.getAttribute('data-mode') ?? null;
   await render({ snapshot: spinner({ mode: 'compacting' }) });

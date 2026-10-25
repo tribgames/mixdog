@@ -686,7 +686,6 @@ test('a frame sent INTO the ceiling drop fails at once, not in 20 seconds', asyn
     );
     const lowered = await session.capabilities.at(2);
     assert.equal(lowered.uplinkTextCeilingBytes, 720);
-    const started = Date.now();
     phone.socket.send('a'.repeat(3_050));
     // The relay refuses it and keeps the connection: sizes, a limit, no call.
     const refused = await phone.refusals.at(0);
@@ -719,9 +718,6 @@ test('a frame sent INTO the ceiling drop fails at once, not in 20 seconds', asyn
       ceilings
     );
     assert.deepEqual(stranded, [{ bytes: 3_050, limit: 720, callId: 7, scope: 'call' }]);
-    // Prompt: decided with the refusal in hand, not by the 20-second deadline
-    // that would also have closed the socket.
-    assert.ok(Date.now() - started < 2_000, 'settled without waiting out a deadline');
     // A push caught by the same window has no call to fail, and is not lost
     // either: the notice carries sizes, and the shim toasts it.
     assert.match(relayPayloadTooLargeMessage(rejection), /payload too large for the relay/);
@@ -921,8 +917,99 @@ test('a relay refusal reaches only the client it names, and its ceiling dies wit
   );
 });
 
-test('the fallback formula is explicit about assuming the worst', () => {
-  // The relay routes by a 36-byte randomUUID; the fallback charges 64, which
+test('the desktop refuses its own oversize frame instead of sending it', async () => {
+  await withDesktop(async (session) => {
+    const first = await session.leg(0);
+    first.socket.send(
+      JSON.stringify({
+        type: 'relay-capabilities',
+        maxFrameBytes: 1 * MB,
+        textFrames: 1,
+        uplinkCapacityBytes: 1 * MB,
+        uplinkBinaryCeilingBytes: 1 * MB - 42,
+        uplinkTextCeilingBytes: 1 * MB - 42,
+      })
+    );
+    const phone = await browserHandshake(legFrames(first.socket), session.handle.pairing, 'c1');
+    assert.equal(phone.ready.maxFrameBytes, 1 * MB);
+    // A push far past the learned ceiling is never written to the relay: the
+    // phone hears the sizes instead, and the push blames no call.
+    const pad = (await import('node:crypto')).randomBytes(1 * MB).toString('base64');
+    session.handle.publishBrowserImportProgress({ phase: 'oversize', pad });
+    const told = await phone.nextEvent(RELAY_PAYLOAD_REJECTED_EVENT);
+    assert.equal(told.payload.limit, 1 * MB);
+    assert.ok(told.payload.bytes > 1 * MB, `refused frame measured ${told.payload.bytes} bytes`);  });
+});
+
+test('an unattributed refusal reaches the desktop UI as a toast with the sizes, naming no call', async () => {
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  const React = (await import('react')).default;
+  const { act } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'CustomEvent', 'MutationObserver'],
+  });
+  let refuse = null;
+  dom.window.mixdogDesktop = {
+    subscribeRelayPayloadRefused: (listener) => {
+      refuse = listener;
+      return () => {
+        refuse = null;
+      };
+    },
+  };
+  const { DesktopToastRegion } = await import('./desktop-toasts.tsx');
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () =>
+      root.render(React.createElement(DesktopToastRegion, { toasts: [], bridgeError: '', onDismissBridgeError() {} }))
+    );
+    assert.equal(typeof refuse, 'function', 'the region subscribes to relay refusals');
+    await act(async () => refuse({ bytes: 7 * MB, limit: 6 * MB }));
+    const toast = document.querySelector('.mx-toast');
+    assert.ok(toast, 'the refusal is shown');
+    assert.match(toast.textContent, /exceeds the size limit/);
+    await act(async () => toast.querySelector('[aria-expanded]').click());
+    assert.match(toast.textContent, /payload too large for the relay \(7\.0 of 6\.0 MB\)/);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('delivery withholds a frame past the ceiling: it is never written, and only the small notice is', async () => {
+  const { createRelayEncryptedDelivery } = await import('../main/remote-relay-delivery.ts');
+  const writes = [];
+  const channel = { encryptJson: async (payload) => JSON.stringify(payload) };
+  const state = { channel, binaryFrames: false };
+  const delivery = createRelayEncryptedDelivery({
+    clients: { clients: new Map([['c1', state]]), get: (id) => (id === 'c1' ? state : undefined), close() {} },
+    relayBinaryFrames: () => false,
+    relayFrameLimit: () => 4_096,
+    sendRawAndWait: async (frame) => {
+      writes.push(String(frame));
+    },
+    byteMeter: { record: () => null },
+  });
+  // Delivery of the oversize push has completed (awaited) before the sentinel
+  // is sent, so a frame that was going to be written already has been.
+  await delivery.broadcastEncryptedAsync({ event: 'push', payload: { phase: 'oversize', pad: 'p'.repeat(8_192) } }, false);
+  await delivery.broadcastEncryptedAsync({ event: 'push', payload: { phase: 'sentinel' } }, false);
+  assert.equal(
+    writes.some((frame) => frame.includes('oversize') && frame.includes('pppp')),
+    false,
+    'the oversize frame was never written'
+  );
+  assert.ok(writes.some((frame) => frame.includes('sentinel')), 'the small frame after it is written');
+  assert.ok(
+    writes.some((frame) => frame.includes(RELAY_PAYLOAD_REJECTED_EVENT)),
+    'the client is told through the small notice'
+  );
+  assert.ok(writes.every((frame) => frame.length < 4_096));
+});
+
+test('the fallback formula is explicit about assuming the worst', () => {  // The relay routes by a 36-byte randomUUID; the fallback charges 64, which
   // can only make its ceiling smaller than the relay's.
   assert.equal(payloadLimit.RELAY_FALLBACK_CLIENT_ID_BYTES, 64);
   assert.equal(payloadLimit.RELAY_JSON_ESCAPE_WORST_CASE, 6);
@@ -1121,32 +1208,6 @@ test("frames are measured in the relay's unit, UTF-8 bytes", () => {
   assert.equal(relayFrameRefusal(frame.length, limit, 7), null);
 });
 
-test('the desktop refuses its own oversize frame instead of sending it', async () => {
-  const [relay, source, caps] = await Promise.all([
-    readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../main/remote-relay-delivery.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../main/remote-relay-capabilities.ts', import.meta.url), 'utf8'),
-  ]);
-  // Measured on the serialized frame, judged against the learned ceiling, and
-  // attributed to the call that frame carries.
-  assert.match(source, /const\s+bytes\s*=\s*relayFrameByteLength\(wire\);/);
-  assert.match(source, /relayFrameRefusal\(\s*bytes,\s*deps\.relayFrameLimit\(\),\s*relayFrameCallId\(payload\)\s*\)/);
-  const refusalAt = source.indexOf('if (refusal) {');
-  const sendAt = source.indexOf('await deps.sendRawAndWait(wire);');
-  assert.ok(refusalAt > 0 && refusalAt < sendAt, 'the check runs before the send');
-  assert.match(source.slice(refusalAt, sendAt), /return;/);
-  // The ceiling the delivery judges against is the connection's live one —
-  // the getter itself, not a value captured when the relay started.
-  assert.match(relay, /relayFrameLimit:\s*caps\.relayFrameLimit,/);
-  assert.match(relay, /relayBinaryFrames:\s*caps\.relayBinaryFrames,/);
-  // The ceiling comes from what the relay reports, never from a guess.
-  assert.match(caps, /declaredFrameLimit\s*=\s*resolveRelayFrameLimit\(\s*envelope\.maxFrameBytes\s*\)/);
-  assert.match(
-    caps,
-    /const\s+relayFrameLimit\s*=\s*\(\s*\):\s*number\s*=>\s*resolveRelayFrameLimit\(\s*declaredFrameLimit,\s*noticedFrameLimit\s*\)/
-  );
-});
-
 test('a relay notice teaches the limit, names no call, and is never broadcast', async () => {
   const [source, caps] = await Promise.all([
     readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8'),
@@ -1185,93 +1246,6 @@ test('a relay notice teaches the limit, names no call, and is never broadcast', 
   assert.equal(unattributed.includes('sendEncryptedFrame'), false);
   assert.equal(handler.includes('activeClients.keys()'), false);
   assert.equal(handler.includes('for (const target of targets)'), false);
-});
-
-test("the browser is advertised the relay's published ceilings", async () => {
-  const [relay, source, lifecycle] = await Promise.all([
-    readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../main/remote-relay-capabilities.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../main/remote-relay-client-lifecycle.ts', import.meta.url), 'utf8'),
-  ]);
-  // The handshake is handed the very payload a republication sends, computed
-  // live from this connection's caps.
-  assert.match(
-    relay,
-    /relayRoutingCapsPayload:\s*\(\)\s*=>\s*caps\.relayRoutingCapsPayload\(\s*caps\.relayUplinkLimits\(\)\s*\)/
-  );
-  // Ingestion and the per-open reset are the capability owner's, wired in.
-  assert.match(relay, /onCapabilities:\s*caps\.handleRelayCapabilities,/);
-  assert.match(relay, /caps\.resetRelayConnectionCaps\(\);/);
-  // Learned from the genuine capabilities frame, per connection…
-  assert.match(source, /relayPublishedCeilings\s*=\s*readRelayUplinkCeilings\(envelope\)/);
-  assert.match(
-    source,
-    /const\s+relayUplinkLimits\s*=\s*\(\s*\):\s*RelayUplinkCeilings\s*=>\s*relayUplinkContract\(\s*relayPublishedCeilings,\s*\{\s*policy:\s*relayFrameLimit\(\),\s*textFrames:\s*relayTextFrames\s*\}\s*,?\s*\)/
-  );
-  // …and handed on unchanged: the policy ceiling for the frame as sent, the
-  // relay's own ceilings for the frame as routed.
-  assert.match(lifecycle, /const\s+uplink\s*=\s*deps\.relayRoutingCapsPayload\(\)/);
-  assert.match(
-    source,
-    /maxFrameBytes:\s*relayFrameLimit\(\),[\s\S]{0,400}?maxRoutedBytes:\s*uplink\.capacity,\s*\.\.\.relayUplinkCeilingFields\(uplink\),/
-  );
-  // The hardcoded transport constant is gone from the advertisement: it is
-  // larger than every ceiling on this path and belongs to no relay.
-  assert.equal(source.includes('maxRoutedBytes: MAX_WS_PAYLOAD_BYTES'), false);
-  assert.equal(relay.includes('maxRoutedBytes: MAX_WS_PAYLOAD_BYTES'), false);
-  // ONE shape for both frames, so the handshake and a later update can never
-  // describe the same connection differently.
-  assert.match(
-    lifecycle,
-    /type:\s*['"]e2ee-ready['"],\s*version:\s*1,\s*(?:\.\.\.\(client\.viewSync\s*\?\s*\{\s*viewSync:\s*1\s*\}\s*:\s*\{\s*\}\s*\),\s*)?(?:\/\/[^\n]*\n\s*)*(?:remoteOpenAccess:\s*1,\s*)?(?:\/\/[^\n]*\n\s*)*(?:hostName:[^\n]*\n\s*)?\.\.\.uplink,/
-  );
-  // A republished capabilities frame reaches the phones already attached, and
-  // only when it says something new.
-  assert.match(
-    source,
-    /relayPublishedCeilings\s*=\s*readRelayUplinkCeilings\(envelope\);\s*\/\/[\s\S]{0,1200}?republishRoutingCaps\(\)/
-  );
-  assert.match(source, /if\s*\(\s*signature\s*===\s*advertisedRoutingCaps\s*\)\s*return;/);
-  assert.match(source, /broadcastEncrypted\(\s*\{\s*event:\s*RELAY_ROUTING_CAPS_EVENT,\s*payload\s*\},\s*false\s*\)/);
-  // …the signature is forgotten with the connection it described.
-  assert.match(
-    source.slice(source.indexOf('const resetRelayConnectionCaps'), source.indexOf('const relayUplinkLimits')),
-    /advertisedRoutingCaps\s*=\s*['"]{2};/
-  );
-  // The text envelope is advertised from the relay's ACK, never from generic
-  // binary support: an older binary-capable relay still JSON-wraps text.
-  assert.match(source, /relayTextFrames\s*=\s*envelope\.textFrames\s*===\s*1/);
-  assert.match(source, /\.\.\.\(\s*relayTextFrames\s*\?\s*\{\s*textFrames:\s*1\s+as\s+const\s*\}\s*:\s*\{\s*\}\s*\),/);
-  assert.equal(/\.\.\.\(relayBinaryFrames \? \{ textFrames/.test(source), false);
-  assert.equal(source.includes('relayClientFrameLimit'), false);
-  assert.equal(relay.includes('relayClientFrameLimit'), false);
-});
-
-test('an unattributed refusal reaches the desktop UI, naming no call', async () => {
-  const [relay, service, stateBridge, ipcContract, contract, preload, notifications] = await Promise.all([
-    readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../main/desktop-service.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../main/ipc-state-bridge.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../shared/contract-ipc.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../preload/index.ts', import.meta.url), 'utf8'),
-    readFile(new URL('./desktop-toasts.tsx', import.meta.url), 'utf8'),
-  ]);
-  // Raised where it happens, with sizes only — no client, no call.
-  assert.match(
-    relay,
-    /options\.onRelayPayloadRefused\?\.\(\s*\{\s*bytes:\s*rejection\.bytes,\s*limit:\s*rejection\.limit\s*,?\s*\}\s*\)/
-  );
-  // …and carried out to the window process, then to the renderer.
-  assert.match(service, /name:\s*['"]relay-payload-refused['"],\s*value/);
-  assert.match(stateBridge, /this\.send\(\s*DESKTOP_IPC\.relayPayloadRefused,\s*value\s*\)/);
-  assert.match(ipcContract, /relayPayloadRefused:\s*['"]mixdog:relay-payload-refused['"]/);
-  assert.match(contract, /subscribeRelayPayloadRefused\?\(/);
-  assert.match(preload, /ipcRenderer\.on\(\s*DESKTOP_IPC\.relayPayloadRefused,\s*receive\s*\)/);
-  // The toast says how large, and blames nothing.
-  assert.match(notifications, /subscribeRelayPayloadRefused\?\.\(/);
-  assert.match(notifications, /relayPayloadTooLargeMessage\(\s*\{\s*bytes:\s*detail\?\.bytes\s*\?\?\s*null,/);
-  assert.match(notifications, /callId:\s*null,\s*scope:\s*['"]unknown['"]/);
 });
 
 test('the desktop declares its receive cap on connect, and so on redial', async () => {

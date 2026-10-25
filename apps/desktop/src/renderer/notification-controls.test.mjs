@@ -388,7 +388,9 @@ test('a muted row shows the mark; an expired mute removes it; a settings change 
   assert.match(mark().dataset.tooltip, /^Notifications off until /);
   assert.equal(mark().getAttribute('aria-label'), mark().dataset.tooltip);
   // The mute runs out with no refresh from the PC.
-  await act(async () => new Promise((resolve) => window.setTimeout(resolve, 260)));
+  for (let waited = 0; mark() && waited < 100; waited += 1) {
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 20)));
+  }
   assert.equal(mark(), null, 'expired mute disappears');
 });
 

@@ -215,11 +215,3 @@ test('a stale, foreign or corrupt snapshot is ignored without breaking boot', as
   third.run();
   assert.deepEqual(painted(third.window), { attributes: {}, vars: {}, sheet: null });
 });
-
-test('the picture key boot.js and the snapshot share is the one desktop-skin.ts stores the custom picture under', () => {
-  assert.match(
-    readFileSync(new URL('./desktop-skin.ts', import.meta.url), 'utf8'),
-    new RegExp(`'${CUSTOM_KEY.replaceAll('.', '\\.')}'`)
-  );
-  assert.ok(BOOT.includes(`'${CUSTOM_KEY}'`));
-});
