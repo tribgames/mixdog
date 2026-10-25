@@ -777,6 +777,7 @@ export function createRunTurn(bag) {
         submissionIds: turn.submittedIds,
         submittedAt: options.submittedAt,
         promptSource: options.promptSource,
+        ...(options.promptOrigin ? { promptOrigin: options.promptOrigin } : {}),
         retryFailedTurn: options.retryFailedTurn === true,
         retryTurnId: options.retryTurnId,
         retryAttemptId: options.retryAttemptId,

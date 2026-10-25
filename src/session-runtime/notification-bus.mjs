@@ -102,10 +102,15 @@ export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi,
   };
 }
 
-function emitToListeners(source, content, meta = {}) {
+function emitToListeners(source, content, meta = {}, origin = null) {
   const text = String(content || '').trim();
   if (!text) return { handled: false, modelVisibleDelivered: false };
-  const event = { content: text, meta: meta && typeof meta === 'object' ? meta : {} };
+  const event = {
+    content: text,
+    meta: meta && typeof meta === 'object' ? meta : {},
+    // The notification's provenance apart from its meta (PROMPT_ORIGIN_CHANNEL).
+    ...(origin ? { origin } : {}),
+  };
   let handled = false;
   for (const listener of [...source]) {
     try {
@@ -137,12 +142,14 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued, getO
     return emitToListeners(listeners, content, meta);
   }
 
-  function notifySession(sessionId, content, meta = {}) {
+  // `origin`: the notification's provenance (PROMPT_ORIGIN_CHANNEL for an
+  // inbound channel message), carried to the queue beside its mode.
+  function notifySession(sessionId, content, meta = {}, { origin = null } = {}) {
     const targetSessionId = cleanSessionId(sessionId);
     if (!targetSessionId) return false;
     const targetListeners = sessionNotificationListeners.get(targetSessionId) || [];
     const open = ownerOpen(targetSessionId);
-    const { handled } = emitToListeners(targetListeners, content, open ? meta : closedMeta(meta));
+    const { handled } = emitToListeners(targetListeners, content, open ? meta : closedMeta(meta), origin);
     if (handled) return true;
     if (!open) return false;
     if (typeof mgr.enqueuePendingMessage !== 'function') return false;
@@ -151,7 +158,13 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued, getO
       // is the runtime reporting, exactly as an attached TUI queues it: a
       // task notification, so text inside it — fenced external webhook values
       // included — never drives explicit skill selection.
-      return mgr.enqueuePendingMessage(targetSessionId, { content, mode: PENDING_MODE_TASK_NOTIFICATION }) > 0;
+      return (
+        mgr.enqueuePendingMessage(targetSessionId, {
+          content,
+          mode: PENDING_MODE_TASK_NOTIFICATION,
+          ...(origin ? { origin } : {}),
+        }) > 0
+      );
     } catch {
       return false;
     }

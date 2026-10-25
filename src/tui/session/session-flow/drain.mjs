@@ -15,6 +15,7 @@ import {
 import { appendTuiSteeringPersist, dropTuiSteeringPersist } from '../tui-steering-persist.mjs';
 import { parseModelVisibleCompletionWrapper } from '../agent-envelope.mjs';
 import { rewoundFailedTurnItems } from './failed-turn-rewind.mjs';
+import { PROMPT_ORIGIN_AGENT_REPORT, PROMPT_ORIGIN_CHANNEL } from '../../../runtime/shared/prompt-origin.mjs';
 
 // Re-check cadence for a drain that found a gate closed. A gate is state, not
 // an event: the queue re-reads it instead of trusting that whoever closes it
@@ -89,6 +90,18 @@ function batchPromptSource(batch) {
   return undefined;
 }
 
+// The batch's provenance for the prompt-cache warmer (cache-warm.mjs
+// cacheWarmTurnKind): one inbound channel message makes it real external
+// activity whatever its presentation; it is an agent report only when every
+// entry is one (a user prompt merged into it is the user speaking).
+function batchPromptOrigin(batch) {
+  if (batch.some((entry) => entry?.origin === PROMPT_ORIGIN_CHANNEL)) return { promptOrigin: PROMPT_ORIGIN_CHANNEL };
+  if (batch.length > 0 && batch.every((entry) => entry?.origin === PROMPT_ORIGIN_AGENT_REPORT)) {
+    return { promptOrigin: PROMPT_ORIGIN_AGENT_REPORT };
+  }
+  return {};
+}
+
 /** The batch's transcript metadata; a batch of completion wakes also records
  *  the execution ids it delivers (`consumedExecutionIds`, from each entry's
  *  execution or resume keys; null for one with neither), the structured
@@ -117,6 +130,7 @@ export function turnOptionsForBatch(batch, steering) {
   );
   return {
     promptSource: batchPromptSource(batch),
+    ...batchPromptOrigin(batch),
     retryFailedTurn: batch[0]?.retryFailedTurn === true,
     retryTurnId: batch[0]?.retryTurnId || null,
     retryAttemptId: batch[0]?.retryAttemptId || null,

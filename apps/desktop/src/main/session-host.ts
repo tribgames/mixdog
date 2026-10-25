@@ -299,6 +299,8 @@ export class SessionHost implements DesktopService {
           ...(options?.id ? { id: options.id } : {}),
           ...(options?.hop ? { hop: options.hop } : {}),
           ...(options?.roomRow ? { roomRow: options.roomRow } : {}),
+          // A relay turn's provenance (agent-room-turn.ts): system-caused.
+          ...(options?.origin ? { origin: options.origin } : {}),
         }),
       readSnapshot: (sessionId) => this.readSession(sessionId, false, false),
       decideTurn: async (input) =>

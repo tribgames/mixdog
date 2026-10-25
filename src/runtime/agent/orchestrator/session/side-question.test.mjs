@@ -12,6 +12,16 @@ import { forgetSideQuestion, sideQuestionRequest } from './side-question-store.m
 import { _withRegisteredProviderForTestAsync } from '../providers/registry.mjs';
 import { loadSession } from './store.mjs';
 import { _clearLiveSession, setLiveSession } from './store/live-state.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  _setCacheWarmDepsForTest,
+  cacheWarmDelayMs,
+  IDLE_RETURN_LOOKBACK_MS,
+  IDLE_RETURN_MEASURED_WINDOW_MS,
+} from './cache-warm.mjs';
+import { createIdleGapStore } from './prompt-cache-idle-gaps.mjs';
 
 const TOOLS = Object.freeze([{ name: 'read', description: 'Read a file', inputSchema: { type: 'object' } }]);
 
@@ -336,6 +346,30 @@ test('agent sessions capture nothing', async () => {
   const provider = scriptedProvider(MAIN_REPLY);
   await sendMain('btw-agent', provider, { owner: 'agent' });
   assert.equal(sideQuestionRequest('btw-agent'), null);
+});
+
+test('a side question neither closes nor moves the idle gap the cache warmer learns', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'btw-gaps-'));
+  const gaps = createIdleGapStore({
+    path: join(dir, 'gaps.json'),
+    lookbackMs: IDLE_RETURN_LOOKBACK_MS,
+    windowMs: IDLE_RETURN_MEASURED_WINDOW_MS,
+    minMs: cacheWarmDelayMs(5 * 60_000),
+  });
+  _setCacheWarmDepsForTest({ gaps: () => gaps });
+  t.after(async () => {
+    _setCacheWarmDepsForTest();
+    forgetSideQuestion('btw-gap');
+    await gaps.flush();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const provider = scriptedProvider(MAIN_REPLY, { content: 'In parser.mjs.', usage: null });
+  await sendMain('btw-gap', provider);
+  const anchor = gaps.openAt('btw-gap');
+  assert.ok(anchor > 0, 'the main request anchored the idle clock');
+  assert.deepEqual(await askSideQuestion('btw-gap', 'Where is the parser?'), { text: 'In parser.mjs.' });
+  assert.equal(gaps.openAt('btw-gap'), anchor);
+  assert.deepEqual(gaps.gaps('btw-gap'), []);
 });
 
 test('the fork inherits the wire route the main request was pinned to', async () => {

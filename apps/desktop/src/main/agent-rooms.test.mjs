@@ -132,6 +132,7 @@ function harness({
         ...(options.id ? { id: options.id } : {}),
         ...(options.hop ? { hop: options.hop } : {}),
         ...(options.roomRow ? { roomRow: options.roomRow } : {}),
+        ...(options.origin ? { origin: options.origin } : {}),
       });
       const text = await script(agentId, prompt);
       answers.set(id, { text, at: clock + 1 });
@@ -1642,6 +1643,7 @@ test("a member relays its own reported work in one turn of its room, with no row
   assert.match(h.prompts[0].prompt, /Relay them to the room now/);
   assert.match(h.prompts[0].prompt, /REPORT: tests passed$/);
   assert.doesNotMatch(h.prompts[0].prompt, /reply exactly "\(pass\)"/);
+  assert.equal(h.prompts[0].origin, 'agent-report', 'the relay turn is system-caused');
   assert.deepEqual(
     h.log.map((row) => [row.kind, row.speaker]),
     [['speech', 'bench']],
@@ -1649,6 +1651,14 @@ test("a member relays its own reported work in one turn of its room, with no row
   );
   assert.equal(h.decisions.length, 0);
   assert.ok(sessionId);
+  // The user's own message into the room, and "Continue", are the user's turns.
+  h.prompts.length = 0;
+  await h.rooms.send(sessionId, '@Bench how far along?');
+  await h.idle(roomId);
+  await h.rooms.proceed(roomId);
+  await h.idle(roomId);
+  assert.ok(h.prompts.length >= 2);
+  for (const prompt of h.prompts) assert.equal(prompt.origin, undefined, prompt.agentId);
 });
 
 /** A script whose `agentId` turns wait for `release()`; others answer at once. */

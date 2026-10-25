@@ -1017,6 +1017,9 @@ async function main() {
         options: {
           mode: 'prompt',
           kickoff: true,
+          // Another bot or agent reported back: the runtime's turn, which the
+          // prompt-cache warmer does not learn from (shared/prompt-origin.mjs).
+          origin: 'agent-report',
           ...(id ? { id } : {}),
           ...(hop > 0 ? { transcriptMeta: { hop } } : {}),
           onSettled: (detail) => settle(String(detail?.status || 'failed')),

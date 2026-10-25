@@ -104,7 +104,7 @@ export interface AgentRoomDeps {
   submit(
     sessionId: string,
     prompt: ReturnType<typeof roomTurnPrompt>,
-    options?: { id?: string; hop?: number; roomRow?: string }
+    options?: { id?: string; hop?: number; roomRow?: string; origin?: 'agent-report' }
   ): Promise<boolean>;
   /** One supervisor step on the Maintainer model (the daemon's
    *  `decideRoomTurn`): the next speaker, finish, null for no usable answer, or

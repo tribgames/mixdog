@@ -56,7 +56,7 @@ export function captureSideQuestionRequest({ sessionId, sessionRef, provider, mo
   if (kept) requests.set(sessionId, request);
   // A real request is session activity: it closes the session's idle gap and
   // replaces any cache warm (cache-warm.mjs); a settled one arms the next.
-  noteCacheWarmActivity(sessionId);
+  noteCacheWarmActivity(sessionId, request);
   return {
     settle(response) {
       request.response = response || null;

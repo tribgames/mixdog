@@ -103,7 +103,18 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
           explicitPrefetch: input.explicitPrefetch,
           turnSignal,
           transcriptMeta,
-          turnPromptSource: input.promptSource,
+          // The stored message keeps an inbound channel's provenance and, for
+          // a rebuilt retry (the resubmitted prompt or a continuation prompt),
+          // the failed turn's, which a later retry reads back
+          // (cache-warm.mjs failedTurnProvenance).
+          turnPromptSource:
+            input.promptOrigin || input.retryProvenance
+              ? {
+                  ...(input.promptSource || {}),
+                  ...(input.promptOrigin ? { origin: input.promptOrigin } : {}),
+                  ...(input.retryProvenance ? { provenance: input.retryProvenance } : {}),
+                }
+              : input.promptSource,
           effortConfiguration: null,
           currentAgents,
         }),

@@ -4,6 +4,7 @@ import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions
 import { promptContentText } from './prompt-utils.mjs';
 import { parseTaskNotification, taskNotificationId } from '../../../../shared/task-notification-envelope.mjs';
 import { hopOf } from '../../../../shared/bot-hops.mjs';
+import { PROMPT_ORIGIN_CHANNEL } from '../../../../shared/prompt-origin.mjs';
 
 const STALE_USER_INJECTION_TTL_MS = 30 * 60 * 1000;
 const PENDING_PROCESS_START_MS = Date.now();
@@ -12,6 +13,8 @@ const LIFECYCLE_TOKEN = Symbol('pendingLifecycleToken');
 export const COMPLETION_NOTIFICATION_KIND = 'completion_notification';
 export const PENDING_MODE_PROMPT = 'prompt';
 export const PENDING_MODE_TASK_NOTIFICATION = 'task-notification';
+// Prompt provenance apart from the presentation mode (shared/prompt-origin.mjs).
+export { PROMPT_ORIGIN_AGENT_REPORT, PROMPT_ORIGIN_CHANNEL } from '../../../../shared/prompt-origin.mjs';
 
 export function stampLifecycleToken(entry, token) {
   if (!entry || typeof entry !== 'object' || !token) return entry;
@@ -169,9 +172,14 @@ export function lateDeliveryText(text, entry, now = Date.now()) {
 // A non-completion entry may be queued explicitly as a task notification (a
 // runtime/channel notice, never the user typing): the mode survives
 // normalization and the durable spool so the drain stores it as one and it
-// never drives explicit skill selection.
+// never drives explicit skill selection. A channel's inbound message keeps
+// its provenance beside the mode (PROMPT_ORIGIN_CHANNEL).
 function explicitModeField(entry) {
-  return entry?.mode === PENDING_MODE_TASK_NOTIFICATION ? { mode: PENDING_MODE_TASK_NOTIFICATION } : {};
+  if (entry?.mode !== PENDING_MODE_TASK_NOTIFICATION) return {};
+  return {
+    mode: PENDING_MODE_TASK_NOTIFICATION,
+    ...(entry.origin === PROMPT_ORIGIN_CHANNEL ? { origin: PROMPT_ORIGIN_CHANNEL } : {}),
+  };
 }
 
 function normalizePendingMessageEntry(entry) {
@@ -343,6 +351,7 @@ export function _groupPendingMessageEntries(entries) {
       mode: PENDING_MODE_TASK_NOTIFICATION,
       ...(normalized.execution ? { execution: normalized.execution } : {}),
       ...(normalized.hop ? { hop: normalized.hop } : {}),
+      ...(normalized.origin ? { origin: normalized.origin } : {}),
       ids: idsOf([entry]),
       entries: [entry],
     });

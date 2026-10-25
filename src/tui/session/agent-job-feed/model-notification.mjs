@@ -1,4 +1,5 @@
 import { readImageAttachmentFromPath } from '../../paste-attachments.mjs';
+import { PROMPT_ORIGIN_CHANNEL } from '../../../runtime/agent/orchestrator/session/manager/pending-message-entry.mjs';
 
 // Channel inbound images arrive as a JSON-array-of-paths meta value (stringified
 // across the notify IPC boundary). Parse defensively; a malformed value simply
@@ -44,6 +45,8 @@ export function createModelNotificationEnqueue({ chain, enqueue, getState, getDi
       priority: 'later',
       key: notificationKey || undefined,
       displayText: delivery.displayText || text,
+      // Its provenance (an inbound channel message) rides beside the mode.
+      ...(event?.origin === PROMPT_ORIGIN_CHANNEL ? { origin: PROMPT_ORIGIN_CHANNEL } : {}),
     };
     // Image load failed or overran its budget: still deliver the text body so
     // the notification is never silently lost.

@@ -80,6 +80,7 @@ export function createAskCallbacks({ transcript, notifyFnForSession, scheduleSea
       beforeToolExecution: () => turn.snapshot.promise || Promise.resolve(),
       transcriptMeta: stampCheckpoint(options),
       promptSource: options.promptSource,
+      ...(options.promptOrigin ? { promptOrigin: options.promptOrigin } : {}),
       // A routine turn's trusted selection text (its instructions only).
       ...(typeof options.skillSelection === 'string' ? { skillSelection: options.skillSelection } : {}),
       retryFailedTurn: options.retryFailedTurn === true,

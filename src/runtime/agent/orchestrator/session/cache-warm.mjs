@@ -42,17 +42,20 @@
 // delete; the auto-clear then runs from the last real or successful warm
 // use.
 //
-// Idle gaps, across turn boundaries only: every settled real request of the
-// session (any provider) moves its idle anchor to that request's send; the
-// first request of the next turn (the user's, a scheduled fire's, a
-// webhook's, a sub-agent dispatch) closes the gap as a return
-// (noteCacheWarmActivity). Requests inside a running turn are no return.
-// Warms are not activity (they never pass through side-question-store's
-// capture), and each session learns from its own gaps only. A gap still open at the idle window is recorded as
+// Idle gaps, across turn boundaries only and from real activity only: every
+// settled main-loop request of a real turn (any provider) moves the session's
+// idle anchor to that request's send; a returning turn (the user's, a
+// scheduled fire's, a webhook's, a heartbeat's, a sub-agent dispatch) closes
+// the gap at its start once its first request goes out (noteCacheWarmTurn,
+// noteCacheWarmActivity). Requests inside a running turn and a retried
+// (continued) turn are no return. System-caused requests are neither return
+// nor activity: turns the runtime starts itself (cacheWarmTurnKind), and
+// every call outside the main loop's capture (compaction summaries, titles,
+// /btw side questions, memory recap, prewarms, warms). The planner counts
+// idle time from the same anchor. Each session learns from its own gaps. A gap still open at the idle window is recorded as
 // censored there.
 import { ACCOUNT_PROVIDERS } from '../../../shared/provider-accounts.mjs';
 import { setCacheWarmUseSource } from '../../../shared/idle-auto-clear-gate.mjs';
-import { onSessionTurnStart } from '../../../shared/session-activity-signal.mjs';
 import {
   ANTHROPIC_TAIL_LIFETIME_MS,
   cacheCapabilityForProvider,
@@ -64,6 +67,11 @@ import { withTailReminder } from './tail-reminder-rules.mjs';
 import { promptCacheTouchStore } from './prompt-cache-touch-store.mjs';
 import { createIdleGapStore } from './prompt-cache-idle-gaps.mjs';
 import { registerSessionPurgeHook } from './store/session-observers.mjs';
+import {
+  PROMPT_ORIGIN_AGENT_REPORT,
+  PROMPT_ORIGIN_CHANNEL,
+  promptOriginOf,
+} from '../../../shared/prompt-origin.mjs';
 
 export const CACHE_WARM_SOURCE = 'cache-warm';
 
@@ -338,6 +346,7 @@ setCacheWarmUseSource((sessionId) => (sessionId ? deps.touches().lastWarmUse(ses
 // A session deleted for good drops everything it learned and touched.
 registerSessionPurgeHook((sessionId) => {
   cancelCacheWarm(sessionId);
+  turns.delete(sessionId);
   deps.touches().forget(sessionId);
   deps.touches().forgetWarmUse(sessionId);
   deps.gaps().forget(sessionId);
@@ -363,7 +372,10 @@ async function planFor(sessionId, chain, at) {
     now: at,
     touchAt: chain.touchAt,
     ttlMs: chain.ttlMs,
-    lastCallAt: Number(chain.request.sentAt),
+    // Idle time counts from the last real activity (the gap store's anchor),
+    // the clock the gaps were learned on; a system-caused request since then
+    // refreshed the cache (touchAt) but not the idle clock.
+    lastCallAt: deps.gaps().openAt(sessionId),
     gaps: deps.gaps().gaps(sessionId),
     promptTokens: chain.promptTokens,
     prices: await deps.prices(chain.request, chain.ttlMs),
@@ -386,21 +398,136 @@ export function cacheWarmChain(sessionId) {
   return chains.get(sessionId) || null;
 }
 
-// Sessions whose turn started (any turn: the user's, a scheduled fire's, a
-// webhook's, a sub-agent dispatch — runtime-liveness.mjs emits it for every
-// one) and whose first request has not gone out yet.
-const turnsStarting = new Set();
-onSessionTurnStart((sessionId) => {
-  if (sessionId) turnsStarting.add(sessionId);
-});
+// Turns the runtime starts itself, by their prompt provenance
+// (manager/ask-queue.mjs `promptSource`): a Goal's automatic continuation and
+// close-out (runtime-synthetic), and a task notification (a finished
+// background task or a pending resume reported back). Neither the user nor a
+// routine caused them — unless the notification is an inbound channel
+// message (`origin` PROMPT_ORIGIN_CHANNEL), which is presented the same way.
+// The other way round, a prompt whose origin is PROMPT_ORIGIN_AGENT_REPORT (a
+// bot-home wake, a room member's relay) is the runtime's though presented as
+// a prompt.
+const SYSTEM_TURN_SOURCES = new Set(['goal-continuation', 'goal-closeout', 'task-notification']);
 
-/** A real request of the session is going out: the chain stops, and when it
- *  is its turn's first request the open idle gap closes as a return. A
- *  request inside a running turn (a tool loop) is no return. Warms never
- *  come through here. */
-export function noteCacheWarmActivity(sessionId) {
+// What a turn of the provenance `source` / `origin` is: 'system' or 'return'.
+function provenanceKind(source, origin) {
+  if (origin === PROMPT_ORIGIN_CHANNEL) return 'return';
+  if (origin === PROMPT_ORIGIN_AGENT_REPORT) return 'system';
+  return SYSTEM_TURN_SOURCES.has(source) ? 'system' : 'return';
+}
+
+// The input message of the failed turn a retry reruns, by the turn's durable
+// identity. The failure's completion sits on the session's last message
+// (ask-turn-settle.mjs attachFailedTurnCompletion: the prompt itself, or the
+// turn's last reply / tool result); its owner is the user message of the same
+// attempt (`attemptId`, else the turn start `at` the settle path matches on),
+// searched back to the previous turn's recorded end. A retained retry
+// (`retryTurnId`) names the failed prompt itself (retainedFailedTurnInput).
+function failedTurnMessage(messages, input) {
+  const list = Array.isArray(messages) ? messages : [];
+  const endIndex = list.findLastIndex((item) => item?.role !== 'system');
+  const end = list[endIndex];
+  const completion = end?.meta?.transcript?.completion;
+  if (completion?.status !== 'failed') return null;
+  if (input.retryTurnId && end.meta.transcript.messageId !== input.retryTurnId) return null;
+  if (end.role === 'user') return end;
+  const attemptId = typeof completion.attemptId === 'string' ? completion.attemptId : '';
+  const at = Number(completion.at) || 0;
+  for (let index = endIndex - 1; index >= 0; index -= 1) {
+    const transcript = list[index]?.meta?.transcript;
+    if (transcript?.completion) return null;
+    if (list[index].role !== 'user' || !transcript) continue;
+    if (transcript.attemptId ? transcript.attemptId === attemptId : at > 0 && Number(transcript.at) === at) {
+      return list[index];
+    }
+  }
+  return null;
+}
+
+/** The provenance `{ source, origin }` of the failed turn a retry input
+ *  reruns (failedTurnMessage), or null when it cannot be resolved. A rebuilt
+ *  retry message records it (`meta.provenance`, ask-turn-execute.mjs), so a
+ *  turn retried again keeps it. */
+export function failedTurnProvenance(messages, input) {
+  if (input?.retryFailedTurn !== true && !input?.retryTurnId) return null;
+  const meta = failedTurnMessage(messages, input)?.meta;
+  if (!meta) return null;
+  if (meta.provenance && typeof meta.provenance === 'object') return { ...meta.provenance };
+  const origin = promptOriginOf(meta.origin);
+  return {
+    ...(typeof meta.source === 'string' && meta.source ? { source: meta.source } : {}),
+    ...(origin ? { origin } : {}),
+  };
+}
+
+/**
+ * What a turn of askSession is for the idle learning, from its input (and,
+ * for a retry, the session's `messages` as the turn found them):
+ * - a retry of a failed turn (`retryFailedTurn` / `retryTurnId`: the failed
+ *   turn's own user message runs again — a quota auto-resume, the Retry
+ *   action) continues that turn: 'system' when the failed turn was system-
+ *   caused (its stored meta.source / meta.origin / meta.provenance), else
+ *   'continuation';
+ * - 'system' for a SYSTEM_TURN_SOURCES prompt not from a channel, and for an
+ *   agent report (a bot-home wake, a room relay);
+ * - 'return' for everything else (the user, a scheduled fire, a webhook, a
+ *   heartbeat, a channel message, a sub-agent dispatch).
+ */
+export function cacheWarmTurnKind(input, messages = null) {
+  if (input?.retryFailedTurn === true || input?.retryTurnId) {
+    const failed = failedTurnProvenance(messages, input);
+    return failed && provenanceKind(failed.source, failed.origin) === 'system' ? 'system' : 'continuation';
+  }
+  const source = typeof input?.promptSource === 'string' ? input.promptSource : input?.promptSource?.source;
+  return provenanceKind(source, input?.promptOrigin);
+}
+
+// sessionId -> its running turn: { kind, startedAt, returning }.
+const turns = new Map();
+
+/** A turn of the session opened (manager/ask-session.mjs), of `kind`
+ *  (cacheWarmTurnKind). A 'return' closes the session's idle gap at its
+ *  start, once its first request goes out. Returns the turn's entry, which
+ *  endCacheWarmTurn takes. */
+export function noteCacheWarmTurn(sessionId, kind) {
+  if (!sessionId) return null;
+  const turn = { kind, startedAt: deps.now(), returning: kind === 'return' };
+  turns.set(sessionId, turn);
+  return turn;
+}
+
+/** The turn noteCacheWarmTurn returned ended (completed, failed or
+ *  cancelled): its entry goes unless a later turn already replaced it. The
+ *  durable idle anchor stays. */
+export function endCacheWarmTurn(sessionId, turn) {
+  if (turn && turns.get(sessionId) === turn) turns.delete(sessionId);
+}
+
+/** The running turn the warmer holds for `sessionId`, or null (tests). */
+export function cacheWarmTurn(sessionId) {
+  return turns.get(sessionId) || null;
+}
+
+// Whether a captured request is the session's real activity: one of a turn
+// that is not system-caused, sent by the main loop itself (no `requestKind`,
+// or the wire's 'turn'; a compaction summary or a prewarm names its own).
+function realActivity(sessionId, request) {
+  if (turns.get(sessionId)?.kind === 'system') return false;
+  const kind = request?.opts?.requestKind;
+  return !kind || kind === 'turn';
+}
+
+/** A request of the main loop is going out: the chain stops; when it is the
+ *  first request of a returning turn, the open idle gap closes at the turn's
+ *  start. Requests inside a running turn, of a continued turn or of a
+ *  system-caused turn are no return. Warms never come through here. */
+export function noteCacheWarmActivity(sessionId, request = null) {
   if (!sessionId) return;
-  if (turnsStarting.delete(sessionId)) deps.gaps().close(sessionId, deps.now());
+  const turn = turns.get(sessionId);
+  if (turn?.returning && realActivity(sessionId, request)) {
+    turn.returning = false;
+    deps.gaps().close(sessionId, turn.startedAt);
+  }
   cancelCacheWarm(sessionId);
 }
 
@@ -476,10 +603,13 @@ export function armCacheWarm(sessionId, request, response) {
   cancelCacheWarm(sessionId);
   // A real request settled: the session's own activity is the latest use.
   if (sessionId) deps.touches().forgetWarmUse(sessionId);
-  // Whatever its provider: the session's idle clock now runs from this
-  // request's send (the clock the planner reads). A later request of the same
-  // turn only moves it; the next turn's first request closes it.
-  if (sessionId && request) deps.gaps().open(sessionId, Number(request.sentAt));
+  // Whatever its provider: after real activity the session's idle clock runs
+  // from this request's send (the clock the planner reads). A later request
+  // of the same turn only moves it; the next returning turn closes it. A
+  // system-caused request leaves it alone.
+  if (sessionId && request && realActivity(sessionId, request)) {
+    deps.gaps().open(sessionId, Number(request.sentAt));
+  }
   if (!sessionId || !request || cacheWarmIneligibility(request)) return;
   const usage = response?.usage || {};
   const touchAt = Number(request.sentAt);

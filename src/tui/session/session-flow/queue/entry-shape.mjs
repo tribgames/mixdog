@@ -9,6 +9,7 @@ import {
   promptDisplayText,
   promptContentImageMeta,
 } from '../../queue-helpers.mjs';
+import { promptOriginOf } from '../../../../runtime/shared/prompt-origin.mjs';
 
 export function makeQueueEntry(text, options = {}, nextId) {
   const mode = options.mode || 'prompt';
@@ -33,6 +34,10 @@ export function makeQueueEntry(text, options = {}, nextId) {
     ...(options.execution && typeof options.execution === 'object' ? { execution: { ...options.execution } } : {}),
     priority,
     key: options.key || null,
+    // Provenance apart from the mode (shared/prompt-origin.mjs): an inbound
+    // channel message queued as a task notification is real external
+    // activity; an agent report queued as a prompt is the runtime's.
+    origin: promptOriginOf(options.origin),
     skipSlashCommands: options.skipSlashCommands === true,
     displayText: mode === 'task-notification' ? notificationDisplayText(displayText) : String(displayText || ''),
     suppressDisplay: options.suppressDisplay === true,

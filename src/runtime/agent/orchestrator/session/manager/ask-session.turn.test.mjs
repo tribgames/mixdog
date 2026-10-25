@@ -627,6 +627,101 @@ test('a close refused by its lifecycle barrier leaves the turn running and check
   });
 });
 
+test('the cache warmer forgets each turn when it completes, fails or is cancelled', async (t) => {
+  const { cacheWarmTurn } = await import('../cache-warm.mjs');
+  await withAskHarness(t, async ({ session, askSession, SessionClosedError, setReply }) => {
+    const seen = [];
+    const during = (reply) => async (...args) => {
+      seen.push(cacheWarmTurn(session.id)?.kind ?? null);
+      return reply(...args);
+    };
+    setReply(during(async () => ({ content: 'ok', usage: { inputTokens: 1, outputTokens: 1 } })));
+    await askSession(session.id, 'completes', null, null, null, null, {});
+    assert.equal(cacheWarmTurn(session.id), null, 'after completion');
+    setReply(
+      during(async () => {
+        throw Object.assign(new Error('provider exploded'), { httpStatus: 400 });
+      })
+    );
+    await assert.rejects(askSession(session.id, 'fails', null, null, null, null, {}), /provider exploded/);
+    assert.equal(cacheWarmTurn(session.id), null, 'after failure');
+    const controller = new AbortController();
+    setReply(
+      during(
+        (_messages, sendOpts) =>
+          new Promise((_, reject) => {
+            controller.abort(new Error('user stop'));
+            sendOpts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          })
+      )
+    );
+    await assert.rejects(
+      askSession(session.id, 'cancelled', null, null, null, null, { signal: controller.signal }),
+      (err) => err instanceof SessionClosedError
+    );
+    assert.equal(cacheWarmTurn(session.id), null, 'after cancel');
+    assert.deepEqual(seen, ['return', 'return', 'return'], 'each turn was held while it ran');
+  });
+});
+
+// A turn that fails, then is retried twice as quota resume / Retry rebuild
+// it: a plain prompt with `retryFailedTurn` (the resubmitted prompt, which
+// rewinds and rebuilds the failed message, or a continuation prompt). The
+// last retry succeeds. Returns the warmer's kind of each turn.
+async function retriedTwice({ session, askSession, setReply }, prompt, askOpts, retryPrompts) {
+  const { cacheWarmTurn } = await import('../cache-warm.mjs');
+  const quota = { provider: session.provider, model: session.model, resetAt: null };
+  const kinds = [];
+  let failures = 2;
+  setReply(async () => {
+    kinds.push(cacheWarmTurn(session.id)?.kind);
+    if (failures-- > 0) throw Object.assign(new Error('quota exhausted'), { httpStatus: 400, quotaExhausted: quota });
+    return { content: 'resumed', usage: { inputTokens: 1, outputTokens: 1 } };
+  });
+  await assert.rejects(askSession(session.id, prompt, null, null, null, null, askOpts), /quota exhausted/);
+  await assert.rejects(
+    askSession(session.id, retryPrompts[0], null, null, null, null, { retryFailedTurn: true }),
+    /quota exhausted/
+  );
+  await askSession(session.id, retryPrompts[1], null, null, null, null, { retryFailedTurn: true });
+  return kinds;
+}
+
+const CONTINUE_PROMPT = 'Continue from where you left off.';
+
+test('a system turn failing and retried twice stays system-caused for the cache warmer', async (t) => {
+  // The resubmitted notification (rebuilt twice), and a continuation prompt then the same again.
+  for (const retries of [['same', 'same'], [CONTINUE_PROMPT, CONTINUE_PROMPT]]) {
+    await withAskHarness(t, async (harness) => {
+      const notification = islandNotification();
+      const prompts = retries.map((value) => (value === 'same' ? notification : value));
+      const kinds = await retriedTwice(harness, notification, { promptSource: 'task-notification' }, prompts);
+      assert.deepEqual(kinds, ['system', 'system', 'system'], retries[0]);
+      const users = harness.loadSession(harness.session.id).messages.filter((m) => m.role === 'user');
+      assert.deepEqual(users.at(-1).meta.provenance, { source: 'task-notification' }, 'the rebuilt retry records it');
+    });
+  }
+});
+
+test('a bot-home wake failing and retried twice stays system-caused', async (t) => {
+  await withAskHarness(t, async (harness) => {
+    const wake = 'REPORT: tests passed';
+    const kinds = await retriedTwice(harness, wake, { promptOrigin: 'agent-report' }, [wake, CONTINUE_PROMPT]);
+    assert.deepEqual(kinds, ['system', 'system', 'system']);
+    const users = harness.loadSession(harness.session.id).messages.filter((m) => m.role === 'user');
+    assert.deepEqual(users.at(-1).meta.provenance, { origin: 'agent-report' });
+  });
+});
+
+test('a real turn failing and retried twice is a continuation each time', async (t) => {
+  for (const retries of [['do it', 'do it'], [CONTINUE_PROMPT, CONTINUE_PROMPT]]) {
+    await withAskHarness(t, async (harness) => {
+      const kinds = await retriedTwice(harness, 'do it', {}, retries);
+      assert.deepEqual(kinds, ['return', 'continuation', 'continuation'], retries[0]);
+    });
+  }
+});
+
 test('a provider failure rejects, keeps the session usable, and an abort surfaces as a closed-session error', async (t) => {
   await withAskHarness(t, async ({ session, askSession, loadSession, SessionClosedError, sends, setReply }) => {
     // A 400 is terminal for the loop's retry classifier: no transport retries.

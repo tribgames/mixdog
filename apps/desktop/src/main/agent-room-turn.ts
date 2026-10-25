@@ -12,6 +12,7 @@ import {
   withoutPassMarker,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { AgentRoomTurnDetail } from '../../../../src/runtime/shared/agent-room-host.mjs';
+import { PROMPT_ORIGIN_AGENT_REPORT as AGENT_REPORT_ORIGIN } from '../../../../src/runtime/shared/prompt-origin.mjs';
 import type { SessionSnapshot } from '../shared/contract';
 import type { AgentRoomRecord } from './agent-rooms';
 import { sessionFinalAnswer } from './session-final-answer';
@@ -58,6 +59,8 @@ export interface RoomCall {
   hop?: number;
   askedBy?: string;
   relay?: string;
+  /** A combined call (combinedCall) whose every call is a relay. */
+  relayOnly?: boolean;
   onSettled?(detail: AgentRoomTurnDetail): void;
   follow?(submissionId: string): unknown;
 }
@@ -98,7 +101,7 @@ export interface RoomTurnHost {
   submit(
     sessionId: string,
     prompt: ReturnType<typeof roomTurnPrompt>,
-    options?: { id?: string; hop?: number; roomRow?: string }
+    options?: { id?: string; hop?: number; roomRow?: string; origin?: typeof AGENT_REPORT_ORIGIN }
   ): Promise<boolean>;
   readSnapshot(sessionId: string): Promise<SessionSnapshot>;
   abort(sessionId: string): Promise<void>;
@@ -210,7 +213,10 @@ function combinedCall(host: RoomTurnHost, agentId: string, calls: RoomCall[]): R
       each.followed = each.id !== turnId;
     }
   };
-  return { agentId, ...(id ? { id } : {}), ...(hop > 0 ? { hop } : {}), askedBy, relay, follow };
+  // Every call is a relay of the member's own reported work: a turn the
+  // runtime starts, not the user or a peer asking.
+  const relayOnly = calls.length > 0 && calls.every((call) => Boolean(call.relay));
+  return { agentId, ...(id ? { id } : {}), ...(hop > 0 ? { hop } : {}), askedBy, relay, relayOnly, follow };
 }
 
 async function memberTurn(
@@ -345,6 +351,10 @@ async function memberTurn(
       ...(call?.id ? { id: call.id } : {}),
       ...(call?.hop ? { hop: call.hop } : {}),
       ...(shownUser?.id ? { roomRow: shownUser.id } : {}),
+      // A relay turn that hands the member no new user row is system-caused
+      // (pending-message-entry.mjs PROMPT_ORIGIN_AGENT_REPORT): the prompt-
+      // cache warmer does not learn from it.
+      ...(call?.relayOnly && !shownUser ? { origin: AGENT_REPORT_ORIGIN } : {}),
     };
     if (!(await host.submit(sessionId, prompt, options))) throw new Error('the turn was not accepted');
     // The member's session now holds every row up to the newest: a cut

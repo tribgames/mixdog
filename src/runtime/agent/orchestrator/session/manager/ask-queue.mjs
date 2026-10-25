@@ -9,6 +9,7 @@ import {
   drainPendingMessages,
   releasePendingMessages,
 } from './pending-messages.mjs';
+import { promptOriginOf } from '../../../../shared/prompt-origin.mjs';
 
 const SYNTHETIC_PROMPT_SOURCES = ['goal-continuation', 'goal-closeout'];
 
@@ -35,6 +36,7 @@ const tailTurnFor = (group) => ({
   content: group.content,
   entries: group.entries,
   ...(group.hop ? { hop: group.hop } : {}),
+  ...(group.origin ? { origin: group.origin } : {}),
   ...(group.mode === PENDING_MODE_TASK_NOTIFICATION
     ? promptSourceFields(PENDING_MODE_TASK_NOTIFICATION, group.execution)
     : {}),
@@ -49,13 +51,19 @@ const queuedTurnInput = (tailTurn) => ({
   pendingEntries: tailTurn.entries,
   ...(tailTurn.hop ? { hop: tailTurn.hop } : {}),
   promptSource: promptSourceFields(tailTurn.source, tailTurn.execution),
+  ...(tailTurn.origin ? { promptOrigin: tailTurn.origin } : {}),
 });
 
-export function createAskPromptQueue({ sessionId, promptSource }) {
+// The caller's provenance of its initial prompt, apart from its presentation
+// source: an inbound channel message or an agent report (shared/prompt-origin.mjs).
+const initialPromptOriginFor = (promptOrigin) => promptOriginOf(promptOrigin);
+
+export function createAskPromptQueue({ sessionId, promptSource, promptOrigin }) {
   // Local FIFO of follow-up prompts drained from the pending-message queue
   // after each turn — keeps queued `agent type=send` messages in order.
   const tail = [];
   let initialPromptSource = initialPromptSourceFor(promptSource);
+  let initialPromptOrigin = initialPromptOriginFor(promptOrigin);
   // Queue entries of the input nextTurn handed out that no turn owns yet.
   // Once a turn starts, its failure path acks or releases them instead.
   let unstartedEntries = [];
@@ -67,13 +75,15 @@ export function createAskPromptQueue({ sessionId, promptSource }) {
    *  and provenance — or null when nothing model-visible is left to run. */
   const nextTurn = (original) => {
     const source = initialPromptSource;
+    const origin = initialPromptOrigin;
     initialPromptSource = null;
+    initialPromptOrigin = null;
     let input;
     if (tail.length > 0) {
       // After the first turn, the next prompt comes from the drained queue.
       input = queuedTurnInput(tail.shift());
     } else if (hasModelVisiblePromptContent(original.prompt)) {
-      input = { ...original, pendingEntries: [], promptSource: source };
+      input = { ...original, pendingEntries: [], promptSource: source, ...(origin ? { promptOrigin: origin } : {}) };
     } else {
       // Idle resume: TUI kicks an empty ask() after execution completions
       // mirror model-visible bodies into session pending. Drain that queue

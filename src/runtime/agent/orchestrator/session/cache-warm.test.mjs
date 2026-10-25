@@ -1,3 +1,4 @@
+import './loop/test-isolation.mjs';
 // Cache warms (cache-warm.mjs): the warm re-sends the last real request with
 // a byte-identical cacheable prefix through the provider's warm mode, never
 // touches the transcript or session activity, is billed in the ledger
@@ -13,11 +14,21 @@ import test from 'node:test';
 import { _buildRequestBodyForCacheSmoke } from '../providers/anthropic-oauth.mjs';
 import { _initProvidersCallCountForTest, _withRegisteredProviderForTestAsync } from '../providers/registry.mjs';
 import { readCacheWarmStream } from '../providers/anthropic-cache-warm.mjs';
+import { onSessionActivityChange, onSessionTurnStart } from '../../../shared/session-activity-signal.mjs';
+import { runFreshContextCompact } from './loop/fresh-context.mjs';
+import { createTitleCompletion } from '../agent-runtime/title-completion.mjs';
 import {
-  emitSessionTurnStart,
-  onSessionActivityChange,
-  onSessionTurnStart,
-} from '../../../shared/session-activity-signal.mjs';
+  _groupPendingMessageEntries,
+  pendingMessageQueueEntry,
+  PROMPT_ORIGIN_AGENT_REPORT,
+  PROMPT_ORIGIN_CHANNEL,
+} from './manager/pending-message-entry.mjs';
+import { makeQueueEntry as buildQueueEntry } from '../../../../tui/session/session-flow/queue/entry-shape.mjs';
+import { turnOptionsForBatch } from '../../../../tui/session/session-flow/drain.mjs';
+import { attachFailedTurnCompletion } from './manager/ask-turn-settle.mjs';
+
+let queueIds = 0;
+const makeQueueEntry = (text, options) => buildQueueEntry(text, options, () => `q${(queueIds += 1)}`);
 import { routineTriggerHeader } from '../../../shared/routine-trigger.mjs';
 import { idleAutoClearDue, sessionActivityTimestamp } from '../../../shared/idle-auto-clear-gate.mjs';
 import {
@@ -32,7 +43,9 @@ import {
   cacheWarmSend,
   IDLE_RETURN_LOOKBACK_MS,
   IDLE_RETURN_MEASURED_WINDOW_MS,
+  cacheWarmTurnKind,
   noteCacheWarmActivity,
+  noteCacheWarmTurn,
   planCacheWarm,
   rearmCacheWarmsAfterRestart,
   sessionReturnChance,
@@ -59,7 +72,12 @@ const HIT = {
 };
 const TMP = mkdtempSync(join(tmpdir(), 'cache-warm-test-'));
 let stores = 0;
-test.after(() => rmSync(TMP, { recursive: true, force: true }));
+// Every gap store the tests made: their pending writes land before cleanup.
+const gapStores = [];
+test.after(async () => {
+  await Promise.allSettled(gapStores.map((store) => store.flush()));
+  rmSync(TMP, { recursive: true, force: true });
+});
 
 function homeSession(id = 'sess_home_lead') {
   return {
@@ -387,6 +405,7 @@ function gapStore({ sessionId = 'sess_home_lead', minutes = [], now = () => Date
     minMs: cacheWarmDelayMs(5 * MINUTE),
     now,
   });
+  gapStores.push(store);
   let at = now() - IDLE_RETURN_LOOKBACK_MS / 2;
   for (const m of minutes) {
     store.open(sessionId, at);
@@ -438,10 +457,10 @@ function harness({
   state.session = homeSession(sessionId);
   state.session.messages = [...PREFIX];
   state.session.lastUsedAt = 0;
-  // A real request; `newTurn`: the first of a new turn (the runtime emits the
-  // turn start before it).
+  // A main-loop request; `newTurn`: the first of a new returning turn (the
+  // ask notes the turn before it).
   state.capture = (session = state.session, { newTurn = true } = {}) => {
-    if (newTurn) emitSessionTurnStart(session.id);
+    if (newTurn) noteCacheWarmTurn(session.id, 'return');
     return captureSideQuestionRequest({
       sessionId: session.id,
       sessionRef: session,
@@ -581,12 +600,13 @@ test('activity: any real request closes the idle gap (a routine fire’s too); w
 });
 
 // The session's request at the harness clock, as the loop sends it: the
-// turn start (when it opens a turn), the capture, then the settle.
-function requestAt(h, { newTurn, prov = h.prov } = {}) {
+// turn opening (`kind`, when it opens one), the capture, then the settle.
+function requestAt(h, { newTurn, kind = newTurn ? 'return' : null, prov = h.prov, opts = {} } = {}) {
   const id = h.session.id;
-  if (newTurn) emitSessionTurnStart(id);
-  noteCacheWarmActivity(id);
-  armCacheWarm(id, { ...request({ session: h.session, prov }), sentAt: h.clock }, HIT);
+  if (kind) noteCacheWarmTurn(id, kind);
+  const req = { ...request({ session: h.session, prov, opts }), sentAt: h.clock };
+  noteCacheWarmActivity(id, req);
+  armCacheWarm(id, req, HIT);
 }
 
 test('gaps run across turn boundaries only: a 10-minute tool run inside a turn is no gap', () => {
@@ -621,6 +641,287 @@ test('history is learned on every provider: Anthropic → OpenAI → Anthropic k
     { at: t0 + 3 * HOUR, ms: 3 * HOUR },
   ]);
   assert.ok(cacheWarmChain(id), 'back on Anthropic: armed again');
+});
+
+test('turn kinds: retries continue their turn; Goal and task-notification turns are the runtime’s', () => {
+  assert.equal(cacheWarmTurnKind({ prompt: 'hi', promptSource: null }), 'return', 'the user');
+  assert.equal(cacheWarmTurnKind({ prompt: '[Routine trigger] …' }), 'return', 'a schedule, webhook or heartbeat');
+  assert.equal(cacheWarmTurnKind({ promptSource: null, pendingEntries: [{}] }), 'return', 'a queued agent send');
+  assert.equal(cacheWarmTurnKind({ retryFailedTurn: true }), 'continuation', 'a quota resume or retry');
+  assert.equal(cacheWarmTurnKind({ retryTurnId: 'm1' }), 'continuation');
+  assert.equal(cacheWarmTurnKind({ promptSource: { source: 'task-notification' } }), 'system');
+  assert.equal(cacheWarmTurnKind({ promptSource: { source: 'goal-continuation', synthetic: true } }), 'system');
+  assert.equal(cacheWarmTurnKind({ promptSource: { source: 'goal-closeout', synthetic: true } }), 'system');
+});
+
+test('a channel inbound message, presented as a task notification, closes the gap', () => {
+  // Carried from the router through the queues (drain batch, pending group).
+  const batch = [makeQueueEntry('[Discord] hi', { source: 'channel', mode: 'task-notification', origin: 'channel' })];
+  const options = turnOptionsForBatch(batch, { commitSteeringQueueEntries() {}, releaseSteeringQueueEntries() {} });
+  assert.equal(options.promptSource, 'task-notification', 'presented as a task notification');
+  assert.equal(options.promptOrigin, PROMPT_ORIGIN_CHANNEL);
+  const [group] = _groupPendingMessageEntries([
+    pendingMessageQueueEntry({ content: '[Telegram] hi', mode: 'task-notification', origin: 'channel' }),
+  ]);
+  assert.equal(group.origin, PROMPT_ORIGIN_CHANNEL, 'the headless fallback keeps it too');
+  const kind = cacheWarmTurnKind({ promptSource: { source: 'task-notification' }, promptOrigin: options.promptOrigin });
+  assert.equal(kind, 'return');
+  assert.equal(cacheWarmTurnKind({ promptSource: { source: 'task-notification' } }), 'system', 'a completion notice');
+  const h = harness({ minutes: [] });
+  const t0 = h.clock;
+  requestAt(h, { kind: 'return' });
+  h.clock = t0 + 2 * HOUR;
+  requestAt(h, { kind });
+  assert.deepEqual(h.gaps.gaps(h.session.id), [{ at: t0, ms: 2 * HOUR }]);
+});
+
+test('a bot-home wake and a room relay neither close nor move the gap; a user room message after them does', () => {
+  const steering = { commitSteeringQueueEntries() {}, releaseSteeringQueueEntries() {} };
+  const origin = (entries) => turnOptionsForBatch(entries, steering).promptOrigin;
+  // The wake (daemon.mjs, a kickoff) and the relay (agent-room-turn.ts) as the queue takes them.
+  const wake = makeQueueEntry('REPORT: done', { mode: 'prompt', kickoff: true, origin: 'agent-report' });
+  const relay = makeQueueEntry('Relay them to the room now', { mode: 'prompt', origin: 'agent-report' });
+  const user = makeQueueEntry('how far along?', { mode: 'prompt' });
+  assert.equal(origin([wake]), PROMPT_ORIGIN_AGENT_REPORT);
+  assert.equal(origin([relay]), PROMPT_ORIGIN_AGENT_REPORT);
+  assert.equal(origin([relay, user]), undefined, 'a user prompt merged into it is the user speaking');
+  assert.equal(origin([user]), undefined);
+  // The core's queued fallback keeps it too (ask-queue: promptOriginOf).
+  const kinds = [wake, relay, user].map((entry) =>
+    cacheWarmTurnKind({ promptSource: turnOptionsForBatch([entry], steering).promptSource, promptOrigin: origin([entry]) })
+  );
+  assert.deepEqual(kinds, ['system', 'system', 'return']);
+  const h = harness({ minutes: [] });
+  const id = h.session.id;
+  const t0 = h.clock;
+  requestAt(h, { kind: 'return' });
+  h.clock = t0 + HOUR;
+  requestAt(h, { kind: kinds[0] });
+  assert.equal(h.gaps.openAt(id), t0, 'the wake did not move the anchor');
+  h.clock = t0 + 2 * HOUR;
+  requestAt(h, { kind: kinds[1] });
+  assert.equal(h.gaps.openAt(id), t0, 'nor did the relay');
+  assert.deepEqual(h.gaps.gaps(id), [], 'neither closed the gap');
+  h.clock = t0 + 3 * HOUR;
+  requestAt(h, { kind: kinds[2] });
+  assert.deepEqual(h.gaps.gaps(id), [{ at: t0, ms: 3 * HOUR }], 'measured from the last real activity');
+});
+
+test('a retry keeps the failed turn’s provenance: system stays system, real is a continuation', () => {
+  // One turn as the runtime stores it: its prompt (meta.source / origin and
+  // the transcript identity of its attempt), optionally partial output, and
+  // on failure the settle path's completion on the last message.
+  let attempts = 0;
+  const turn = (messages, meta, { output = false, fail = true } = {}) => {
+    attempts += 1;
+    const transcript = { messageId: `m${attempts}`, attemptId: `a${attempts}`, at: attempts * 1000 };
+    messages.push({ role: 'user', content: `prompt ${attempts}`, meta: { ...meta, transcript } });
+    if (output) {
+      messages.push({ role: 'assistant', content: 'half an answer', tool_calls: [{ id: `c${attempts}` }] });
+      messages.push({ role: 'tool', tool_call_id: `c${attempts}`, content: 'tool output' });
+    }
+    if (fail) {
+      assert.equal(
+        attachFailedTurnCompletion(messages, { status: 'failed', attemptId: transcript.attemptId, at: transcript.at }),
+        true
+      );
+    }
+    return transcript;
+  };
+  const session = () => [{ role: 'system', content: 'You are the Lead.' }];
+  const CONTINUE = { retryFailedTurn: true, prompt: 'Continue from where you left off.' };
+  for (const source of ['goal-continuation', 'goal-closeout', 'task-notification']) {
+    // No output: the failure sits on the prompt (retained retry by id, or the resubmitted prompt).
+    const bare = session();
+    const { messageId } = turn(bare, { source });
+    assert.equal(cacheWarmTurnKind({ retryTurnId: messageId }, bare), 'system', `${source} by id`);
+    assert.equal(cacheWarmTurnKind({ retryFailedTurn: true, prompt: 'prompt' }, bare), 'system', `${source} rebuilt`);
+    // Partial output: the failure sits on the tool result; the prompt is found by its attempt.
+    const sampled = session();
+    turn(sampled, { source }, { output: true });
+    assert.equal(cacheWarmTurnKind(CONTINUE, sampled), 'system', `${source} with partial output`);
+  }
+  // A real turn with partial output after an older failed Goal turn.
+  const mixed = session();
+  turn(mixed, { source: 'goal-continuation' }, { output: true });
+  turn(mixed, {}, { output: true });
+  assert.equal(cacheWarmTurnKind(CONTINUE, mixed), 'continuation', 'the older Goal failure is not this turn');
+  // The turn start identifies the prompt when the attempt carries no id.
+  const byStart = session();
+  byStart.push({ role: 'user', content: 'goal', meta: { source: 'goal-continuation', transcript: { at: 5 } } });
+  byStart.push({ role: 'assistant', content: 'half' });
+  attachFailedTurnCompletion(byStart, { status: 'failed', attemptId: 'x', at: 5 });
+  assert.equal(cacheWarmTurnKind(CONTINUE, byStart), 'system');
+  // A rebuilt retry message records the provenance it continued.
+  const rebuilt = session();
+  turn(rebuilt, { provenance: { source: 'task-notification' } }, { output: true });
+  assert.equal(cacheWarmTurnKind(CONTINUE, rebuilt), 'system');
+  const real = session();
+  const { messageId } = turn(real, {});
+  assert.equal(cacheWarmTurnKind({ retryTurnId: messageId }, real), 'continuation', 'a user turn');
+  const channel = session();
+  turn(channel, { source: 'task-notification', origin: 'channel' }, { output: true });
+  assert.equal(cacheWarmTurnKind(CONTINUE, channel), 'continuation', 'a channel message');
+  // An agent report (wake / relay) stays the runtime's through retries.
+  const report = session();
+  turn(report, { origin: 'agent-report' }, { output: true });
+  assert.equal(cacheWarmTurnKind(CONTINUE, report), 'system', 'a failed wake');
+  const reportRebuilt = session();
+  turn(reportRebuilt, { provenance: { origin: 'agent-report' } });
+  assert.equal(cacheWarmTurnKind({ retryFailedTurn: true, prompt: 'x' }, reportRebuilt), 'system', 'retried again');
+  const settled = session();
+  turn(settled, { source: 'task-notification' }, { fail: false });
+  assert.equal(cacheWarmTurnKind(CONTINUE, settled), 'continuation', 'no failed turn to continue');
+});
+
+test('a system-caused turn neither closes nor moves the gap; the planner counts from the real anchor', async () => {
+  const h = harness({ minutes: [179, 179, 179] });
+  const id = h.session.id;
+  const t0 = h.clock;
+  requestAt(h, { kind: 'return' });
+  for (const source of ['task-notification', 'goal-continuation']) {
+    h.clock += 30 * MINUTE;
+    requestAt(h, { kind: cacheWarmTurnKind({ promptSource: { source } }) });
+    assert.equal(h.gaps.openAt(id), t0, `${source}: the anchor stays at the last real request`);
+  }
+  assert.equal(h.gaps.gaps(id).length, 3, 'no gap closed');
+  // The chain armed from the last (system) request refreshes from its cache
+  // use, but its idle time counts from the real anchor: 60 + 59 min at the
+  // first refresh, past the 2 h 59 min rhythm's second interval.
+  const chain = cacheWarmChain(id);
+  assert.equal(chain.touchAt, t0 + HOUR);
+  await h.fire();
+  assert.equal(h.prov.calls.length, 1, 'the return is still ahead: warm');
+  // A real turn closes the gap at its start, measured from the real anchor.
+  h.clock = t0 + 3 * HOUR;
+  requestAt(h, { kind: 'return' });
+  assert.deepEqual(h.gaps.gaps(id).at(-1), { at: t0, ms: 3 * HOUR });
+});
+
+// A summary in the compaction format the runner accepts.
+const SUMMARY = [
+  '## Goal',
+  '- continue the parser refactor',
+  '## Constraints & Preferences',
+  '- (none)',
+  '## Progress',
+  '### Done',
+  '- read the parser',
+  '### In Progress',
+  '- refactor',
+  '### Blocked',
+  '- (none)',
+  '## Key Decisions',
+  '- (none)',
+  '## Next Steps',
+  '- continue',
+  '## Critical Context',
+  '- (none)',
+  '## Relevant Files',
+  '- parser.mjs',
+].join('\n');
+
+test('a compaction (summary + resend) between two user turns neither closes nor shortens the gap', async () => {
+  const h = harness({ minutes: [] });
+  const id = h.session.id;
+  h.session.messages = [
+    { role: 'system', content: 'You are the Lead.' },
+    ...Array.from({ length: 40 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `TURN_${i} `.padEnd(1_600, '.'),
+    })),
+    { role: 'user', content: 'Refactor the parser.' },
+  ];
+  let summaries = 0;
+  h.prov.send = async () => {
+    summaries += 1;
+    return { content: SUMMARY, usage: { inputTokens: 900, cachedTokens: 30_000, outputTokens: 400 } };
+  };
+  h.settle();
+  const anchor = h.gaps.openAt(id);
+  const compact = () =>
+    runFreshContextCompact({
+      sessionRef: {
+        id,
+        provider: h.prov.name,
+        model: MODEL,
+        contextWindow: 200_000,
+        compaction: { conversationThresholdTokens: 1 },
+      },
+      messages: h.session.messages,
+      provider: h.prov,
+      model: MODEL,
+      compactBudgetTokens: 50_000,
+      compactPolicy: { contextWindow: 200_000 },
+      config: {},
+      initProvidersFn: async () => {},
+      getProviderFn: () => h.prov,
+      sendOpts: {},
+    });
+  // An idle compaction an hour in: its summary request is the runtime's.
+  h.clock = anchor + HOUR;
+  const result = await compact();
+  assert.equal(summaries, 1, 'the summary request went out');
+  assert.ok(result.messages.some((m) => String(m.content).includes('continue the parser refactor')));
+  assert.equal(h.gaps.openAt(id), anchor, 'the summary did not move the anchor');
+  assert.deepEqual(h.gaps.gaps(id), [], 'nor close the gap');
+  // The next user turn 3 h in compacts before it sends; its resend goes out
+  // 2 min later and closes the gap at the turn's start.
+  h.clock = anchor + 3 * HOUR;
+  noteCacheWarmTurn(id, 'return');
+  h.clock += 2 * MINUTE;
+  requestAt(h, {});
+  assert.deepEqual(h.gaps.gaps(id), [{ at: anchor, ms: 3 * HOUR }]);
+});
+
+test('title generation never reaches the idle learning', async () => {
+  const h = harness({ minutes: [] });
+  const id = h.session.id;
+  requestAt(h, { kind: 'return' });
+  const anchor = h.gaps.openAt(id);
+  const titleCalls = [];
+  const generate = createTitleCompletion({
+    loadConfig: () => ({ providers: {} }),
+    resolveMaintenanceRoute: () => ({ provider: 'anthropic-oauth', model: MODEL }),
+    initProviders: async () => {},
+    getProvider: () => ({ send: async (...args) => (titleCalls.push(args), { content: 'Parser refactor' }) }),
+  });
+  h.clock += HOUR;
+  assert.equal(await generate('Refactor the parser.'), 'Parser refactor');
+  assert.equal(titleCalls.length, 1);
+  assert.equal(h.gaps.openAt(id), anchor);
+  assert.deepEqual(h.gaps.gaps(id), []);
+});
+
+test('a quota resume continues its turn: no new return; the next real turn is measured from it', () => {
+  const h = harness({ minutes: [] });
+  const id = h.session.id;
+  const t0 = h.clock;
+  requestAt(h, { kind: 'return' });
+  // The turn failed on quota; the scheduler resumes it 3 h later.
+  h.clock = t0 + 3 * HOUR;
+  requestAt(h, { kind: cacheWarmTurnKind({ retryFailedTurn: true, retryTurnId: 'm1' }) });
+  assert.deepEqual(h.gaps.gaps(id), [], 'the resume is not a return');
+  assert.equal(h.gaps.openAt(id), t0 + 3 * HOUR, 'its requests are the real turn’s');
+  h.clock = t0 + 5 * HOUR;
+  requestAt(h, { kind: 'return' });
+  assert.deepEqual(h.gaps.gaps(id), [{ at: t0 + 3 * HOUR, ms: 2 * HOUR }]);
+});
+
+test('a heartbeat or scheduled turn still closes the gap', () => {
+  const h = harness({ minutes: [] });
+  const id = h.session.id;
+  const t0 = h.clock;
+  requestAt(h, { kind: 'return' });
+  // A heartbeat runs as a routine turn (routine-home-turn.mjs): no promptSource.
+  h.clock = t0 + 2 * HOUR;
+  requestAt(h, { kind: cacheWarmTurnKind({ prompt: '[Routine trigger] Heartbeat: …', promptSource: null }) });
+  h.clock = t0 + 5 * HOUR;
+  requestAt(h, { kind: cacheWarmTurnKind({ prompt: '[Routine trigger] Your schedule "monitor" fired.' }) });
+  assert.deepEqual(h.gaps.gaps(id), [
+    { at: t0, ms: 2 * HOUR },
+    { at: t0 + 2 * HOUR, ms: 3 * HOUR },
+  ]);
 });
 
 test('gap store: censored at the window, short gaps dropped, persisted across a restart, pruned, deleted', async () => {

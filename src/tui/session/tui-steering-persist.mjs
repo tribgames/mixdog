@@ -70,7 +70,7 @@ function persistedQueuePayload(entry) {
     const value = entry[field];
     if (value && typeof value === 'object' && !Array.isArray(value)) out[field] = value;
   }
-  for (const field of ['mode', 'priority', 'context']) {
+  for (const field of ['mode', 'priority', 'context', 'origin']) {
     if (typeof entry[field] === 'string' && entry[field]) out[field] = entry[field];
   }
   if (entry.skipSlashCommands === true) out.skipSlashCommands = true;

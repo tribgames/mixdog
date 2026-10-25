@@ -9,6 +9,7 @@ import {
   channelNotificationSessionId,
 } from '../../runtime/shared/channel-notification-routing.mjs';
 import { CHANNEL_NOTIFICATION_METHOD } from '../services/channel-session-router.mjs';
+import { PROMPT_ORIGIN_CHANNEL } from '../../runtime/agent/orchestrator/session/manager/pending-message-entry.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
 // Desktop-app bridges: tiny fs/fetch clients, so a static import adds no
 // meaningful boot cost. The tools themselves are gated per session by the
@@ -144,7 +145,9 @@ function wireChannels(boot) {
       const meta = p.meta && typeof p.meta === 'object' ? p.meta : {};
       const content = channelNotificationModelContent(p);
       if (!content) return;
-      notifySession(channelNotificationSessionId(rt.session, rt.reservedSessionId), content, meta);
+      notifySession(channelNotificationSessionId(rt.session, rt.reservedSessionId), content, meta, {
+        origin: PROMPT_ORIGIN_CHANNEL,
+      });
     },
   });
   bootProfile('channels:worker-ready', { ms: (performance.now() - channelsStartedAt).toFixed(1) });

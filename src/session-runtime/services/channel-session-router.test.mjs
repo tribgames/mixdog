@@ -26,7 +26,7 @@ test('channel inbound submits directly to its pinned session without a UI client
     {
       sessionId: 'sess_linked',
       prompt: 'answer channel inbound',
-      options: { source: 'channel', mode: 'task-notification' },
+      options: { source: 'channel', mode: 'task-notification', origin: 'channel' },
     },
   ]);
 });

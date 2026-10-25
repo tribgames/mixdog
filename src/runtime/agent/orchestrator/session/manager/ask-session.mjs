@@ -19,6 +19,7 @@ import { armTurnDurability, claimTurnRuntime } from './ask-turn-open.mjs';
 import { prepareAskTurn, runAskAgentLoop } from './ask-turn-execute.mjs';
 import { commitAskTurn, publishAskTurn } from './ask-turn-settle.mjs';
 import { finalizeAskTurnFailure } from './ask-turn-failure.mjs';
+import { cacheWarmTurnKind, endCacheWarmTurn, failedTurnProvenance, noteCacheWarmTurn } from '../cache-warm.mjs';
 
 export { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
 export {
@@ -168,7 +169,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
   // return value (the queued tail turns supersede the original prompt's
   // result, mirroring how a live chat returns the latest turn).
   let result;
-  const queue = createAskPromptQueue({ sessionId, promptSource: askOpts.promptSource });
+  const queue = createAskPromptQueue({
+    sessionId,
+    promptSource: askOpts.promptSource,
+    promptOrigin: askOpts.promptOrigin,
+  });
+  // The turn the prompt-cache warmer is told about last; it forgets it when
+  // the turn ends (endCacheWarmTurn), whatever way the ask unwinds.
+  let warmTurn = null;
   // Hoisted so the outer finally (which runs once after the whole turn loop)
   // can compare against the last turn's generation.
   let askGeneration = 0;
@@ -213,6 +221,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         recoverCheckpoint: !crashRecoveryChecked,
         emitStart: !sessionStartEmitted,
       });
+      // The prompt-cache warmer learns idle gaps from real turns only; a
+      // retry is classified by the failed turn's stored provenance.
+      // The rebuilt retry message keeps that provenance (ask-turn-execute.mjs).
+      const retryProvenance = failedTurnProvenance(claimed.preSession?.messages, input);
+      if (retryProvenance) input.retryProvenance = retryProvenance;
+      warmTurn = noteCacheWarmTurn(sessionId, cacheWarmTurnKind(input, claimed.preSession?.messages));
       crashRecoveryChecked = true;
       sessionStartEmitted = true;
       askGeneration = claimed.askGeneration;
@@ -234,6 +248,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         askStartedAt,
       });
       result = turn.result;
+      endCacheWarmTurn(sessionId, warmTurn);
       // Turn complete. Drain the pending-message queue: any `agent type=send`
       // that arrived while this turn was in flight runs next, in order, as a
       // follow-up user turn. The mutex is still held, so a send racing this
@@ -264,6 +279,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       return result;
     }
   } finally {
+    // A failed/cancelled turn ends here too: its warmer turn entry goes (a
+    // later ask's own turn is never removed by this one).
+    endCacheWarmTurn(sessionId, warmTurn);
     // A failed/cancelled turn ends the ask: the follow-up turns drained
     // behind it never ran, so their entries go back to the pending queue.
     queue.releaseUnstarted();

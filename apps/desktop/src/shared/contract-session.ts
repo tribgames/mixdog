@@ -543,6 +543,10 @@ export interface DesktopSubmitOptions {
   /** Host-only: the newest user row of the room log a group-room member turn's
    *  prompt shows. Request validation rejects it from a caller. */
   roomRow?: string;
+  /** Host-only: a group-room member's relay turn of its reported work is
+   *  system-caused (src/runtime/shared/prompt-origin.mjs). Request validation
+   *  rejects it from a caller. */
+  origin?: 'agent-report';
 }
 
 export interface DesktopAbortOptions {

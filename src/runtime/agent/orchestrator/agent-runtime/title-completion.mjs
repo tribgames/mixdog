@@ -14,7 +14,9 @@ function titleSystemPrompt(locale = '') {
     : TITLE_SYSTEM_PROMPT;
 }
 
-function createTitleCompletion(deps = {}) {
+/** The title generator over injectable `deps` (tests); generateSessionTitle
+ *  is it over the real config and provider registry. */
+export function createTitleCompletion(deps = {}) {
   const load = deps.loadConfig || loadConfig;
   const resolveRoute = deps.resolveMaintenanceRoute || resolveMaintenanceRoute;
   const initialize = deps.initProviders || initProviders;
