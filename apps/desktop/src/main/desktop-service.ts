@@ -704,7 +704,7 @@ export async function createDesktopService({
     // Open settings pages and lists here and on paired devices re-read.
     onChange: () => publishDesktopEvent(SETTINGS_CHANGED_EVENT, { scope: 'notifications' }),
   });
-  void notificationPreferences
+  const notificationPreferencesLoaded = notificationPreferences
     .ready()
     .catch((error: unknown) =>
       console.error(`[mixdog-notifications] load failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -935,6 +935,8 @@ export async function createDesktopService({
       browserRemoteRequests.rejectAll('Desktop service is closing.');
       detachModelProxy?.();
       stopUploadSweeps();
+      // The first load's migration may still be writing the preferences file.
+      await notificationPreferencesLoaded;
       await remote.close();
       await operations.dispose();
       await host.dispose();
