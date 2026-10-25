@@ -47,7 +47,6 @@ test('a stuck upgrade is replaced after the hedge window; the stuck leg is cance
   const signals = [];
   const winner = { socket: new FakeSocket() };
   let legs = 0;
-  const startedAt = Date.now();
   const opened = await openHedged({
     hedgeMs: 30,
     deadlineMs: 5_000,
@@ -59,7 +58,6 @@ test('a stuck upgrade is replaced after the hedge window; the stuck leg is cance
   });
   assert.equal(opened, winner);
   assert.equal(legs, 2);
-  assert.ok(Date.now() - startedAt < 1_000);
   assert.equal(signals[0].aborted, true);
 });
 

@@ -283,7 +283,7 @@ test('isMcpLoginPending reports only a pending connect whose interactive login s
   const quiet = reconnectSingleMcpServer(scopeId, 'quiet', cfg);
   await waitUntil(() => transports.filter((transport) => transport.oauth).length === 2);
   assert.equal(isMcpLoginPending('login', { scopeId }), false);
-  // The browser login of the first connect starts (oauth.test.mjs pins when
+  // The browser login of the first connect starts (oauth.slow.test.mjs pins when
   // the real flag flips).
   Object.defineProperty(transports[0].oauth, 'loginStarted', { get: () => true });
   assert.equal(isMcpLoginPending('login', { scopeId }), true);

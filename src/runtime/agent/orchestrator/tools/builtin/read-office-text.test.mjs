@@ -547,7 +547,8 @@ for (const [label, build] of Object.entries(HOSTILE)) {
     const text = extractOoxmlTextFromBuffer(buffer, name);
     const elapsed = performance.now() - started;
     assert.equal(typeof text, 'string');
-    assert.ok(elapsed < 1000, `${label}: ${Math.round(elapsed)} ms for a ~4 MiB part`);
+    // Catastrophic (quadratic) backtracking takes minutes; the bound only has to beat load.
+    assert.ok(elapsed < 10_000, `${label}:${Math.round(elapsed)} ms for a ~4 MiB part`);
   });
 }
 
@@ -576,7 +577,7 @@ test('a ~100 KB workbook of far-right cells on thousands of rows stops at the ou
   const started = performance.now();
   const text = extractOoxmlTextFromBuffer(buffer, 'wide.xlsx', { maxOutputBytes: 100 * 1024 });
   const elapsed = performance.now() - started;
-  assert.ok(elapsed < 1000, `${Math.round(elapsed)} ms`);
+  assert.ok(elapsed < 10_000, `${Math.round(elapsed)} ms`);
   assert.ok(Buffer.byteLength(text) <= 100 * 1024 + 80, 'output is capped');
   assert.match(text, /^--- sheet S ---\n\t+v0\n/);
   assert.match(text, /\[office text truncated at 102400 bytes\]$/);

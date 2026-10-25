@@ -4,15 +4,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import childProcess, { spawnSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
-import {
+// The product bounds each startup git probe at 1.5 s and answers "unknown" past
+// it. These tests assert the probe answers, not that git is fast, so lift the
+// bound (sync probes via spawnSync, off-thread probes via the git runner) and a
+// loaded machine cannot turn a slow git into a missing answer.
+const gitRunner = await import('../../../../shared/git-runner.mjs');
+mock.module(new URL('../../../../shared/git-runner.mjs', import.meta.url).href, {
+  namedExports: {
+    ...gitRunner,
+    runGitOffThread: (args, options) => gitRunner.runGitOffThread(args, { ...options, timeoutMs: 120_000 }),
+  },
+});
+const realSpawnSync = childProcess.spawnSync;
+childProcess.spawnSync = (command, args, options) =>
+  realSpawnSync(command, args, command === 'git' && options ? { ...options, timeout: 120_000 } : options);
+syncBuiltinESMExports();
+
+const {
   describeCwdStartupEntries,
   describeGitStartupState,
   describeShellToolsStartupState,
   prewarmGitStartupProbes,
   settleGitStartupProbes,
-} from './runtime-capabilities.mjs';
+} = await import('./runtime-capabilities.mjs');
 
 test('Shell tools startup line reads a POSIX login shell and renders present/absent names', () => {
   const calls = [];

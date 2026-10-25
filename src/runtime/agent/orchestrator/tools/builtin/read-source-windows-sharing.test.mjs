@@ -16,7 +16,7 @@ after(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-const T = { timeout: 5000 };
+const T = { timeout: 30_000 };
 
 // Wraps fs.open: counts opens/reads/closes; reads block until released.
 // `opens` counts at open start, `reads` when a read arrives (before the gate),

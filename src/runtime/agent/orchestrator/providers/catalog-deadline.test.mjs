@@ -26,10 +26,28 @@ function stubbornList() {
 const list = (name, provider, run, extra = {}) =>
   boundedProviderCatalogOp({ name, provider, kind: 'list', run, timeoutMs: 20, ...extra });
 
-test('a list that ignores its abort is not invoked again, across generations and epochs, until it settles', async () => {
+// Real-timer references: the watchdog must still fire while mock timers are installed.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+function within(promise, label, ms = 3_000) {
+  let timer;
+  const watchdog = new Promise((_, reject) => {
+    timer = realSetTimeout(() => reject(new Error(`${label}: not settled within ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, watchdog]).finally(() => realClearTimeout(timer));
+}
+
+test('a list that ignores its abort is not invoked again, across generations and epochs, until it settles', async (t) => {
   const provider = {};
   const stubborn = stubbornList();
-  const first = await list('stubborn-a', provider, stubborn.run, { epoch: 'r1' });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const firstCall = list('stubborn-a', provider, stubborn.run, { epoch: 'r1' });
+  await setImmediate();
+  t.mock.timers.tick(19);
+  await setImmediate();
+  assert.equal(stubborn.calls[0].signal.aborted, false, 'the deadline has not fired one millisecond early');
+  t.mock.timers.tick(1);
+  const first = await within(firstCall, 'the first list times out at its deadline');
   assert.equal(first.timedOut, true);
   assert.equal(stubborn.calls[0].signal.aborted, true, 'the deadline still aborts it');
   assert.deepEqual(stalledProviderCatalogOps(), [{ name: 'stubborn-a', kind: 'list' }]);
@@ -37,12 +55,14 @@ test('a list that ignores its abort is not invoked again, across generations and
   // An account change and a new catalog revision would each have started a
   // fresh list beside the stuck one.
   bumpProviderCatalogGeneration();
-  const startedAt = performance.now();
-  const second = await list('stubborn-a', provider, stubborn.run, { epoch: 'r2' });
+  // Time stays frozen: the stalled answer must not wait for any deadline.
+  const second = await within(
+    list('stubborn-a', provider, stubborn.run, { epoch: 'r2' }),
+    'the second call settles at once without time advancing'
+  );
   assert.equal(second.timedOut, true);
   assert.equal(second.stalled, true);
   assert.equal(second.error.code, 'ETIMEDOUT');
-  assert.ok(performance.now() - startedAt < 15, 'answered at once, without a deadline wait');
   assert.equal(stubborn.calls.length, 1);
   assert.equal(pendingProviderCatalogOps().filter((name) => name === 'stubborn-a').length, 1);
 

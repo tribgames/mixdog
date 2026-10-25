@@ -6,14 +6,36 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { lstatPathsForMtime, statPathsForMtime } from './cache-layers.mjs';
 
-test('statPathsForMtime: a hung stat resolves to a null-stat entry at the deadline', async () => {
+// Real-timer references: the watchdog must still fire while mock timers are installed.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+test('statPathsForMtime: a hung stat resolves to a null-stat entry at the deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const hung = () => new Promise(() => {});
-  const started = Date.now();
-  const [entry] = await statPathsForMtime(['never.txt'], process.cwd(), 4, { deadlineMs: 50, _statImpl: hung });
+  let settled = false;
+  const pending = statPathsForMtime(['never.txt'], process.cwd(), 4, { deadlineMs: 50, _statImpl: hung }).then(
+    (entries) => {
+      settled = true;
+      return entries;
+    }
+  );
+  await turn();
+  t.mock.timers.tick(49);
+  await turn();
+  assert.equal(settled, false, 'still pending one millisecond before the deadline');
+  t.mock.timers.tick(1);
+  let watchdog;
+  const [entry] = await Promise.race([
+    pending,
+    new Promise((_, reject) => {
+      watchdog = realSetTimeout(() => reject(new Error('not resolved at the deadline')), 3_000);
+    }),
+  ]).finally(() => realClearTimeout(watchdog));
   assert.equal(entry.stat, null);
   assert.equal(entry.size, 0);
   assert.equal(entry.mtimeMs, 0);
-  assert.ok(Date.now() - started < 5000);
 });
 
 test('lstatPathsForMtime: real, duplicate and missing paths keep their index', async () => {

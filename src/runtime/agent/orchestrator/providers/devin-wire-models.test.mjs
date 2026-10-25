@@ -224,27 +224,28 @@ test('a caller abort stops discovery without falling back', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('discovery shares one 5 s deadline and reports it as a retryable timeout', async () => {
+test('discovery shares one 5 s deadline and reports it as a retryable timeout', async (t) => {
   let calls = 0;
+  // Fire the deadline on the next turn instead of waiting it out; the requested span is recorded.
+  const spans = [];
+  t.mock.method(AbortSignal, 'timeout', (ms) => {
+    spans.push(ms);
+    const controller = new AbortController();
+    setImmediate(() => controller.abort(new DOMException('timed out', 'TimeoutError')));
+    return controller.signal;
+  });
   const hang = (_url, init) =>
     new Promise((_resolve, reject) => {
       calls++;
       if (init.signal.aborted) return reject(new DOMException('timed out', 'TimeoutError'));
       init.signal.addEventListener('abort', () => reject(new DOMException('timed out', 'TimeoutError')));
     });
-  const started = Date.now();
-  // AbortSignal.timeout does not hold the event loop; a real socket would.
-  const keepAlive = setTimeout(() => {}, 10_000);
-  try {
-    await assert.rejects(fetchDevinModels({ sessionToken: 't', fetchFn: hang }), {
-      code: 'unavailable',
-      retryable: true,
-      message: /timed out after 5000 ms/,
-    });
-  } finally {
-    clearTimeout(keepAlive);
-  }
-  assert.ok(Date.now() - started < 8_000);
+  await assert.rejects(fetchDevinModels({ sessionToken: 't', fetchFn: hang }), {
+    code: 'unavailable',
+    retryable: true,
+    message: /timed out after 5000 ms/,
+  });
+  assert.deepEqual(spans, [5000]);
   // The legacy attempt runs on the already-expired deadline and never reaches fetch.
   assert.equal(calls, 1);
 });

@@ -8,7 +8,7 @@ import { _registerMcpServerForTest, executeMcpTool, getMcpAdmissionSnapshot, rac
 
 const never = () => new Promise(() => {});
 
-async function waitFor(predicate, label, timeoutMs = 2_000) {
+async function waitFor(predicate, label, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;

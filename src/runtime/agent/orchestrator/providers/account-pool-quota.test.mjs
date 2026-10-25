@@ -397,35 +397,78 @@ test('a roster that is only cooling down reports a rate limit advising the earli
 
 const cooling = (policy, send) => createAccountPoolProvider(provider, () => ({ accountCooldownPolicy: policy, send }));
 
-test('waitForCooldownMs waits out a cooldown-only roster inside the bound, then sends', async () => {
+test('waitForCooldownMs waits out a cooldown-only roster inside the bound, then sends', async (t) => {
   const ids = await setup();
-  const until = Date.now() + 150;
+  const until = Date.now() + 150_000;
   for (const id of ids) await blockProviderAccount(provider, id, until, 'm', 'retry-after');
   const stages = [];
-  const gateway = cooling({ waitForCooldownMs: 10_000 }, async () => ({ content: 'ok' }));
-  const result = await gateway.send([], 'm', [], {
-    onStageChange: (stage, detail) => stages.push([stage, detail]),
+  let sends = 0;
+  const gateway = cooling({ waitForCooldownMs: 300_000 }, async () => {
+    sends += 1;
+    return { content: 'ok' };
   });
-  assert.equal(result.content, 'ok');
-  assert.ok(Date.now() >= until, 'the send waited for the earliest cooldown');
-  const wait = stages.find(([stage, detail]) => stage === 'reconnecting' && detail?.waitMs > 0);
-  assert.ok(wait && wait[1].waitMs <= 150, 'the wait is reported as reconnect progress');
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  let waitMs = 0;
+  let settled = false;
+  const sending = gateway
+    .send([], 'm', [], {
+      onStageChange: (stage, detail) => {
+        stages.push([stage, detail]);
+        if (stage === 'reconnecting' && detail?.waitMs > 0) waitMs = detail.waitMs;
+      },
+    })
+    .finally(() => {
+      settled = true;
+    });
+  const turn = () => new Promise((resolve) => setImmediate(resolve));
+  for (let i = 0; i < 200 && waitMs === 0; i += 1) await turn();
+  assert.ok(waitMs > 0 && waitMs <= 150_000, 'the wait is reported as reconnect progress');
+  await turn();
+  assert.equal(sends, 0, 'nothing is sent while every account is cooling down');
+  assert.equal(settled, false);
+  t.mock.timers.tick(waitMs - 1);
+  await turn();
+  assert.equal(sends, 0, 'still waiting one millisecond before the earliest cooldown ends');
+  assert.equal(settled, false);
+  t.mock.timers.tick(1);
+  assert.equal((await sending).content, 'ok');
+  assert.equal(sends, 1, 'sent once, after the cooldown expired');
 });
 
-test('waitForCooldownMs: beyond the bound, or with quota evidence, the send throws without waiting', async () => {
+test('waitForCooldownMs: beyond the bound, or with quota evidence, the send throws without waiting', async (t) => {
   const ids = await setup();
   for (const id of ids) await blockProviderAccount(provider, id, Date.now() + 600_000, 'm', 'retry-after');
-  const gateway = cooling({ waitForCooldownMs: 1_000 }, async () => ({ content: 'ok' }));
-  const started = Date.now();
-  await assert.rejects(gateway.send([], 'm', [], {}), (error) => error.code === 'rate_limited');
+  const waits = [];
+  const onStageChange = (_stage, detail) => {
+    if (detail?.waitMs > 0) waits.push(detail.waitMs);
+  };
+  // A wait would arm a timer of at least the bound; record every delay scheduled from here on.
+  const scheduled = [];
+  const realSetTimeout = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (fn, ms, ...args) => {
+    scheduled.push(ms);
+    return realSetTimeout(fn, ms, ...args);
+  });
+  let sends = 0;
+  const gateway = cooling({ waitForCooldownMs: 1_000 }, async () => {
+    sends += 1;
+    return { content: 'ok' };
+  });
+  await assert.rejects(gateway.send([], 'm', [], { onStageChange }), (error) => error.code === 'rate_limited');
+  assert.equal(sends, 0, 'a cooldown past the bound is never waited out or sent through');
   await setup();
   await assert.rejects(
     cooling({ waitForCooldownMs: 600_000 }, async () => {
       throw quotaError();
-    }).send([], 'other', [], {}),
+    }).send([], 'other', [], { onStageChange }),
     (error) => Boolean(error.quotaExhausted)
   );
-  assert.ok(Date.now() - started < 5_000);
+  assert.deepEqual(waits, []);
+  assert.deepEqual(
+    scheduled.filter((ms) => ms >= 1_000),
+    [],
+    'no cooldown wait timer was scheduled'
+  );
 });
 
 test('accountBlocked: a policy blockedMs cools that account and rotates; without it the error surfaces', async () => {
@@ -471,7 +514,7 @@ test('accountBlocked: a policy blockedMs cools that account and rotates; without
 });
 
 test('rotateOnRateLimit rotates an advised rate limit and the wait retries the account after its advice', async () => {
-  const ids = await setup({ auto: false });
+  await setup({ auto: false });
   let calls = 0;
   const gateway = cooling({ rotateOnRateLimit: true, waitForCooldownMs: 10_000 }, async () => {
     calls += 1;
@@ -482,7 +525,6 @@ test('rotateOnRateLimit rotates an advised rate limit and the wait retries the a
   const result = await gateway.send([], 'm', [], {});
   assert.equal(result.content, 'ok');
   assert.equal(calls, 2);
-  assert.ok(ids.length > 0);
 });
 
 const shortRateLimit = () =>

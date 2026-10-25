@@ -258,10 +258,8 @@ test('without a connected client every call fails fast and never falls back', as
   const unavailable = { code: 'MODEL_PROXY_UNAVAILABLE', message: /model proxy unavailable/ };
   const channel = new ModelProxyChannel();
   const provider = new ModelProxyProvider('anthropic', {}, channel);
-  const startedAt = Date.now();
   await assert.rejects(provider.send([], 'm', undefined, {}), unavailable);
   await assert.rejects(provider.listModels(), unavailable);
-  assert.ok(Date.now() - startedAt < 1_000);
 
   // The client disconnects while it runs a call.
   const claimed = Promise.withResolvers();

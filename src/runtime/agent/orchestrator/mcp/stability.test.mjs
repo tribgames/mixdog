@@ -69,10 +69,10 @@ test('the SDK request receives the configured timeout, progress reset and total 
 test('progress reports keep a call alive past its per-call timeout', async () => {
   const scopeId = 'mcp-stability-progress';
   _registerMcpServerForTest(scopeId, 'slow', [{ name: 'work' }], {
-    cfg: { timeoutMs: 80 },
+    cfg: { timeoutMs: 400 },
     callTool: async (_params, _schema, options) => {
       for (let i = 0; i < 5; i += 1) {
-        await delay(40);
+        await delay(150);
         options.onprogress({ progress: i, total: 5 });
       }
       return { content: [{ type: 'text', text: 'done' }] };

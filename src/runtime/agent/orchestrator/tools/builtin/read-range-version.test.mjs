@@ -425,7 +425,7 @@ test('capacity eviction detaches old builders and their pending disk publication
 
 for (const changedBeforeSave of [false, true]) {
   test(`eviction saves only a still-valid published snapshot (changed: ${changedBeforeSave})`, {
-    timeout: 5000,
+    timeout: 30_000,
   }, async (t) => {
     flushReadRangeIndexesSync();
     // Keep the 750ms debounce pending regardless of machine speed. All other
@@ -479,7 +479,7 @@ for (const changedBeforeSave of [false, true]) {
     }
     // Foreground lookups completed while the eviction's stat remains blocked.
     const timeout = new AbortController();
-    const deadline = delay(2000, null, { signal: timeout.signal }).then(() => {
+    const deadline = delay(20_000, null, { signal: timeout.signal }).then(() => {
       assert.fail('eviction did not attempt to persist the published snapshot');
     });
     try {

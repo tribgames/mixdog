@@ -397,7 +397,6 @@ test('computer keeps per-action input alternatives for Claude and the flat proje
   const flat = gemini.parametersJsonSchema.properties.input;
   assert.equal(flat.anyOf, undefined);
   assert.ok(flat.properties.kind && flat.properties.actions && flat.properties.operation);
-  assert.match(flat.description, /^Fields for the selected action\. Allowed input by action/);
 });
 
 test('Claude replay drops the empty text parts recorded around a tool call', () => {

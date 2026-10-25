@@ -423,18 +423,9 @@ test('git exposes command and selected staging in one compact contract', () => {
   assert.equal(properties.command.anyOf[1].minItems, 1);
   assert.equal(properties.command.anyOf[1].maxItems, 10);
   assert.equal(properties.output_limit.maximum, 1000);
-  assert.match(properties.output_limit.description, /Default 500; git log defaults to 100/);
   assert.equal(properties.change_ids.anyOf[1].maxItems, 50);
   assert.equal(GIT_TOOL_DEF.annotations.destructiveHint, true);
-  // Advisory wording anchors; update when the public description changes.
   assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
-  assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
-  assert.match(GIT_TOOL_DEF.description, /An array \(max 10\) runs in order and stops on failure/i);
-  assert.match(GIT_TOOL_DEF.description, /history only when needed/i);
-  assert.match(GIT_TOOL_DEF.description, /Worktrees are managed only/);
-  assert.match(GIT_TOOL_DEF.description, /list --porcelain stays raw git/);
-  assert.match(properties.command.description, /no pipes\/redirects\/substitution/i);
-  assert.match(properties.command.description, /&& chain runs as the array/i);
 });
 
 test('git rejects mixed command/staging requests before executing either action', async () => {

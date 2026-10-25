@@ -17,7 +17,6 @@ const trusted = await import('./trusted-roots.mjs');
 const cacheDir = join(process.env.MIXDOG_DATA_DIR, 'code-graph-cache');
 const manifest = () => JSON.parse(readFileSync(join(cacheDir, 'manifest.json'), 'utf8'));
 const graph = (cwd) => ({ cwd, nodes: new Map(), reverse: new Map(), signature: 'sig', builtAt: Date.now() });
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const rootA = join(base, 'worktrees', 'a');
 const rootB = join(base, 'worktrees', 'b');
@@ -66,7 +65,6 @@ test('forgetDiskCodeGraphRoot removes manifest row, files and delayed writes of 
   assert.ok(result.removed.some((item) => item.endsWith(`${hashA}.json`)));
   assert.ok(result.removed.some((item) => item.endsWith(`${hashA}.calls.json`)));
 
-  await sleep(500);
   disk.drainCodeGraphCache();
   assert.deepEqual(Object.keys(manifest()), [keyB]);
   assert.equal(existsSync(join(cacheDir, `${hashA}.json`)), false);

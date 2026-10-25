@@ -58,6 +58,20 @@ function attachPc(channel, onRequest, snapshots = []) {
   });
 }
 
+// Real-timer references, so a watchdog still fires while node:test mock timers
+// are installed.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+
+/** Fails in `ms` of real time instead of hanging until the runner's timeout. */
+function within(promise, label, ms = 3_000) {
+  let timer;
+  const watchdog = new Promise((_, reject) => {
+    timer = realSetTimeout(() => reject(new Error(`${label}: not settled within ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, watchdog]).finally(() => realClearTimeout(timer));
+}
+
 const op = (channel, name, ...args) => channel.handleOperation(MODEL_PROXY_OPERATIONS[name], args);
 
 async function startBridge(t, { channel = new ModelProxyChannel(), ...options } = {}) {
@@ -370,12 +384,10 @@ test('provider config relays through the bridge, cached per generation; a state 
 test('without a usable PC client a bridged call fails with MODEL_PROXY_UNAVAILABLE', async (t) => {
   const { endpoint } = await startBridge(t);
   const client = bridgeClient(t, endpoint);
-  const startedAt = Date.now();
   assert.equal(await client.whenConnected(300), false);
   await assert.rejects(client.request({ provider: 'openai', method: 'isAvailable' }), {
     code: 'MODEL_PROXY_UNAVAILABLE',
   });
-  assert.ok(Date.now() - startedAt < 2_000);
 
   // No daemon at all: whenConnected times out, a call fails unavailable.
   const probe = net.createServer();
@@ -453,6 +465,30 @@ test('a child abort cancels the PC-side call; a closed bridge socket aborts ever
   assert.deepEqual([...new Set(work)].sort(), [0, 1], 'trackWork hears the running count');
 });
 
+test('a connection that never says hello is closed exactly at the hello deadline', async (t) => {
+  const { server, endpoint } = await startBridge(t, { limits: { helloTimeoutMs: 5_000 } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const silent = await rawClient(t, endpoint.port);
+  let closed = false;
+  silent.closed.then(() => {
+    closed = true;
+  });
+  // The server arms the deadline when it accepts the socket; wait for the accept itself.
+  await within(
+    (async () => {
+      while (server.connectionCount === 0) await new Promise((resolve) => setImmediate(resolve));
+    })(),
+    'the bridge accepted the socket'
+  );
+  t.mock.timers.tick(4_999);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closed, false, 'still open one millisecond before the deadline');
+  assert.equal(server.connectionCount, 1);
+  t.mock.timers.tick(1);
+  await within(silent.closed, 'closed at the hello deadline');
+  assert.deepEqual(silent.frames, []);
+});
+
 test('the bridge rejects a bad token, a missing hello and an oversized frame', async (t) => {
   const { endpoint } = await startBridge(t, {
     limits: { helloTimeoutMs: 150, controlFrameMaxBytes: 2048, requestFrameMaxBytes: 8192 },
@@ -472,9 +508,7 @@ test('the bridge rejects a bad token, a missing hello and an oversized frame', a
   await malformed.closed;
 
   const silent = await rawClient(t, endpoint.port);
-  const startedAt = Date.now();
-  await silent.closed;
-  assert.ok(Date.now() - startedAt < 2_000);
+  await within(silent.closed, 'a connection that never says hello is closed');
   assert.deepEqual(silent.frames, []);
 
   const hugeHello = await rawClient(t, endpoint.port);
@@ -656,7 +690,6 @@ test('unrelated control frames never extend a silent grant', async (t) => {
   const queued = await authenticated(t, endpoint);
   const sent = reserveAndSend(queued, paddedReq('m0'));
   // Every 100 ms: a cancel for an unknown id and a stray result.
-  const startedAt = Date.now();
   const noise = setInterval(() => {
     holder.send({ type: 'cancel', id: 'other' });
     holder.send({ type: 'result', id: 'other', seq: 1, ok: true, value: null });
@@ -664,7 +697,6 @@ test('unrelated control frames never extend a silent grant', async (t) => {
   t.after(() => clearInterval(noise));
   assert.equal((await holder.next((frame) => frame.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_STALLED');
   clearInterval(noise);
-  assert.ok(Date.now() - startedAt < 1_000, 'expired on its own stall timeout');
   await sent;
   assert.ok(await waitFor(() => claimed.length === 1), 'the next queued reservation is granted');
   release.get('m0')();
@@ -700,12 +732,10 @@ test('a slowly but steadily arriving request frame is not expired, up to the gra
   slow.send({ type: 'reserve', id: 'm0', bytes: Buffer.byteLength(frame) });
   await slow.next((f) => f.type === 'grant' && f.id === 'm0');
   // ~1.6 s of delivery in 100 ms steps, far past the 300 ms stall timeout.
-  const startedAt = Date.now();
   for (let offset = 0; offset < frame.length; offset += 40) {
     slow.socket.write(frame.slice(offset, offset + 40));
     await delay(100);
   }
-  assert.ok(Date.now() - startedAt > 1_000);
   assert.ok(await waitFor(() => claimed.length === 1), 'served, not expired');
   assert.equal(
     slow.frames.some((f) => f.type === 'error'),
@@ -743,12 +773,19 @@ test('with a request queued behind the cap, an active request’s callback ackno
   await delay(50);
   assert.deepEqual(claimed, ['m0', 'm1']);
 
-  const startedAt = Date.now();
   const event = streaming.next((frame) => frame.type === 'event' && frame.id === 'm0');
   const reply = op(channel, 'event', ids.get('m0'), encodeModelProxyWire([{ name: 'onTextDelta', args: ['hi'] }]));
-  streaming.send({ type: 'result', id: 'm0', seq: (await event).seq, ok: true, value: 'ack' });
-  assert.deepEqual(decodeModelProxyWire((await reply).results), [{ ok: true, value: 'ack' }]);
-  assert.ok(Date.now() - startedAt < 1_000, 'acknowledged without waiting for budget');
+  streaming.send({
+    type: 'result',
+    id: 'm0',
+    seq: (await within(event, 'the callback event reaches the streaming client')).seq,
+    ok: true,
+    value: 'ack',
+  });
+  // Handled at once, not after the queued request's turn: a regression waits out callbackAckMs (3 s).
+  assert.deepEqual(decodeModelProxyWire((await within(reply, 'the callback ack', 1_500)).results), [
+    { ok: true, value: 'ack' },
+  ]);
   release.get('m0')();
   assert.deepEqual((await streaming.next((frame) => frame.type === 'done' && frame.id === 'm0')).value, {
     content: 'm0',
