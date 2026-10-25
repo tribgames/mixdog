@@ -19,6 +19,9 @@ const attributionOf = (entry) =>
     entry?.transcriptMeta?.hop || 0
   }`;
 
+/** A retry of a failed turn runs alone: its options belong to its own turn. */
+const isRetryEntry = (entry) => entry.retryFailedTurn === true || Boolean(entry.retryTurnId);
+
 export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQueuedEntries, leadSessionId }) {
   function dequeueQueueBatch(maxPriority = 'later', options = {}) {
     if (pending.length === 0) return [];
@@ -45,14 +48,14 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
         (entry.mode || 'prompt') === targetMode &&
         queuePriorityValue(entry.priority) === bestPriority
       ) {
-        if (batch.length > 0 && entry.retryTurnId) break;
+        if (batch.length > 0 && isRetryEntry(entry)) break;
         // One turn records one sender: a bot's message never merges with the user's.
         if (batch.length > 0 && attributionOf(entry) !== attributionOf(batch[0])) break;
         batch.push(entry);
         pending.splice(i, 1);
         if (entry.mode === 'task-notification' && entry.key) pendingNotificationKeys.delete(entry.key);
         // A routine fire is a turn of its own, never merged with another.
-        if (entry.retryTurnId || entry.mode === 'routine' || batch.length >= limit) break;
+        if (isRetryEntry(entry) || entry.mode === 'routine' || batch.length >= limit) break;
       } else {
         i += 1;
       }

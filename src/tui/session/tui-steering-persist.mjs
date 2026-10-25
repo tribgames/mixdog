@@ -74,6 +74,13 @@ function persistedQueuePayload(entry) {
     if (typeof entry[field] === 'string' && entry[field]) out[field] = entry[field];
   }
   if (entry.skipSlashCommands === true) out.skipSlashCommands = true;
+  // Retry of a failed turn: the drain rewinds the failed prompt by these.
+  if (typeof entry.skillSelection === 'string') out.skillSelection = entry.skillSelection;
+  if (entry.suppressDisplay === true) out.suppressDisplay = true;
+  if (entry.retryFailedTurn === true) out.retryFailedTurn = true;
+  for (const field of ['retryTurnId', 'retryAttemptId']) {
+    if (typeof entry[field] === 'string' && entry[field]) out[field] = entry[field];
+  }
   return out;
 }
 

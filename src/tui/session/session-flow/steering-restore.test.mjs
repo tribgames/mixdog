@@ -15,6 +15,7 @@ const { createQueueOps, createSubmissionMemory } = await import('./queue.mjs');
 const { createSteeringOps } = await import('./steering.mjs');
 const { persistedUserTranscriptMetadata } = await import('../../../runtime/shared/transcript-metadata.mjs');
 const { nextId } = await import('../transcript-spill.mjs');
+const { turnOptionsForBatch } = await import('./drain.mjs');
 
 test.after(() => rmSync(dataDir, { recursive: true, force: true }));
 
@@ -33,7 +34,7 @@ function boot(sessionId, messages = []) {
   };
   const queue = createQueueOps(bag, { kickDrain() {} });
   const steering = createSteeringOps(bag, { queue, submissions: createSubmissionMemory() });
-  return { pending, state, steering };
+  return { pending, state, steering, queue };
 }
 
 const accept = (sessionId, entry) => appendTuiSteeringPersist(sessionId, { submittedAt: Date.now(), ...entry });
@@ -108,6 +109,73 @@ test('a restored prompt keeps its executable content and attachment links', asyn
   assert.deepEqual(entry.pastedImages, pastedImages);
   assert.deepEqual(entry.transcriptMeta, { device: 'Laptop' });
   assert.equal(entry.priority, 'now');
+});
+
+test('a restored retry of a failed turn keeps its retry options', async () => {
+  const sid = 'restoreretry';
+  await accept(sid, {
+    id: 'sub-retry',
+    text: 'retry me',
+    retryFailedTurn: true,
+    retryTurnId: 'turn-failed',
+    retryAttemptId: 'attempt-failed',
+    suppressDisplay: true,
+  });
+  // A text retry whose failed turn kept no ids.
+  await accept(sid, { id: 'sub-text-retry', text: 'retry by text', retryFailedTurn: true });
+  await accept(sid, { id: 'sub-plain', text: 'plain input' });
+  const { pending, steering } = boot(sid);
+  await steering.restoreLeadSteeringFromDisk();
+  const [retry, textRetry, plain] = pending;
+  assert.equal(retry.id, 'sub-retry');
+  assert.equal(retry.retryFailedTurn, true);
+  assert.equal(retry.retryTurnId, 'turn-failed');
+  assert.equal(retry.retryAttemptId, 'attempt-failed');
+  assert.equal(retry.suppressDisplay, true);
+  assert.equal(textRetry.retryFailedTurn, true);
+  assert.equal(textRetry.retryTurnId, null);
+  assert.equal(textRetry.retryAttemptId, null);
+  assert.equal(textRetry.suppressDisplay, false);
+  assert.equal(plain.retryFailedTurn, false);
+  assert.equal(plain.suppressDisplay, false);
+});
+
+for (const order of ['retry-first', 'plain-first']) {
+  test(`a restored id-less retry runs as its own batch (${order})`, async () => {
+    const sid = `restoreisolate${order}`;
+    const rows = {
+      retry: { id: 'sub-retry', text: 'retry by text', retryFailedTurn: true },
+      plain: { id: 'sub-plain', text: 'plain input' },
+    };
+    for (const key of order === 'retry-first' ? ['retry', 'plain'] : ['plain', 'retry']) {
+      await accept(sid, rows[key]);
+    }
+    const { pending, steering, queue } = boot(sid);
+    await steering.restoreLeadSteeringFromDisk();
+    assert.equal(pending.length, 2);
+    const steeringStub = { commitSteeringQueueEntries() {}, releaseSteeringQueueEntries() {} };
+    const first = queue.dequeueQueueBatch('later');
+    const second = queue.dequeueQueueBatch('later');
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 1);
+    for (const batch of [first, second]) {
+      const isRetry = batch[0].id === 'sub-retry';
+      const options = turnOptionsForBatch(batch, steeringStub);
+      assert.equal(options.retryFailedTurn, isRetry);
+      assert.equal(options.retryTurnId, null);
+      assert.equal(options.retryAttemptId, null);
+    }
+  });
+}
+
+test('a restored routine entry keeps its skill selection', async () => {
+  const sid = 'restoreroutine';
+  await accept(sid, { id: 'sub-routine', text: 'nightly', mode: 'routine', skillSelection: 'review-skill' });
+  const { pending, steering } = boot(sid);
+  await steering.restoreLeadSteeringFromDisk();
+  assert.equal(pending[0].mode, 'routine');
+  assert.equal(pending[0].skillSelection, 'review-skill');
+  assert.equal(turnOptionsForBatch(pending, { commitSteeringQueueEntries() {} }).skillSelection, 'review-skill');
 });
 
 test('a restored prompt survives another restart until the queue commits it', async () => {
