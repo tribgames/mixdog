@@ -9,6 +9,7 @@ import { toUSVString } from 'node:util';
 
 import { isFileFsyncUnsupported } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { codeGraphModuleUrl } from './desktop-support';
+import { comparablePath } from './opened-file-authorization';
 import { ProjectRecoveryError } from '../shared/project-recovery';
 import { withFileIdentities, withProjectMutationPaths } from './project-mutation-queue';
 import {
@@ -110,10 +111,6 @@ function requireLosslessText(decoded: DecodedProjectText): void {
   if (!decoded.lossless) {
     throw new Error('File has invalid text encoding. Convert or repair it in an external editor before saving.');
   }
-}
-
-function comparablePath(path: string): string {
-  return process.platform === 'win32' ? path.toLocaleLowerCase() : path;
 }
 
 function canonicalPathThroughExistingAncestor(path: string): string {

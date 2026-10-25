@@ -18,9 +18,10 @@
 import { deflateRawSync } from 'node:zlib';
 import { type BigIntStats, constants } from 'node:fs';
 import { type FileHandle, lstat, open, readdir, realpath } from 'node:fs/promises';
-import { basename, join, sep } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { streamNulRecords } from './git-runner';
+import { comparablePath, insideRoot } from './opened-file-authorization';
 import { openedFilePath } from './opened-file-path';
 
 // O_NOFOLLOW refuses a final component swapped to a symlink after the walk and
@@ -103,7 +104,7 @@ async function gitExclusion(root: string): Promise<Exclusion | null> {
   try {
     await streamNulRecords(root, ['ls-files', '-z', '-c', '-o', '--exclude-standard'], (record) => {
       // A nested repository is listed as `name/`.
-      const rel = comparable(record.endsWith('/') ? record.slice(0, -1) : record);
+      const rel = comparablePath(record.endsWith('/') ? record.slice(0, -1) : record);
       files.add(rel);
       for (let slash = rel.lastIndexOf('/'); slash > 0; slash = rel.lastIndexOf('/', slash - 1)) {
         if (parents.has(rel.slice(0, slash))) break;
@@ -117,10 +118,10 @@ async function gitExclusion(root: string): Promise<Exclusion | null> {
     return null;
   }
   return {
-    file: (rel) => files.has(comparable(rel)),
+    file: (rel) => files.has(comparablePath(rel)),
     // A listed folder is a nested repository, taken as it is.
     directory: (rel) => {
-      const key = comparable(rel);
+      const key = comparablePath(rel);
       if (files.has(key)) return 'whole';
       return parents.has(key) ? 'walk' : 'out';
     },
@@ -150,13 +151,11 @@ export class FolderMovedError extends Error {
  *  before the walk descends into it. */
 export const zipFolderTestHooks: { beforeDescend?: (directory: string) => Promise<void> | void } = {};
 
-const comparable = (path: string): string => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
-
 /** Whether `path` is itself the canonical path it names: no link anywhere on
  *  it leads elsewhere. */
 async function isCanonical(path: string): Promise<boolean> {
   const real = await realpath(path).catch(() => null);
-  return real !== null && comparable(real) === comparable(path);
+  return real !== null && comparablePath(real) === comparablePath(path);
 }
 
 const CRC_TABLE = (() => {
@@ -188,20 +187,13 @@ interface Packed {
 const DOS_TIME = 0;
 const DOS_DATE = ((2020 - 1980) << 9) | (1 << 5) | 1;
 
-/** Whether `path` is `root` or inside it (both canonical). */
-function within(root: string, path: string): boolean {
-  const base = comparable(root);
-  const target = comparable(path);
-  return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep);
-}
-
 /** Where a folder entry really is: itself, or — for a link — its canonical
  *  target when that lies inside `root`. Null when the entry is left out. */
 async function entryLocation(root: string, child: string): Promise<{ at: string; info: BigIntStats } | null> {
   const info = await lstat(child, { bigint: true });
   if (!info.isSymbolicLink()) return { at: child, info };
   const target = await realpath(child).catch(() => null);
-  if (target === null || !within(root, target)) return null;
+  if (target === null || !insideRoot(root, target)) return null;
   const targetInfo = await lstat(target, { bigint: true }).catch(() => null);
   return targetInfo && !targetInfo.isSymbolicLink() ? { at: target, info: targetInfo } : null;
 }
@@ -262,7 +254,7 @@ export async function scanFolder(root: string, limits: { maxBytes: number; maxFi
       if (!location) continue;
       const { at, info } = location;
       if (info.isDirectory()) {
-        if (ancestors.has(comparable(at))) continue;
+        if (ancestors.has(comparablePath(at))) continue;
         await zipFolderTestHooks.beforeDescend?.(at);
         let insideRel = childExclRel;
         if (fresh) {
@@ -270,7 +262,7 @@ export async function scanFolder(root: string, limits: { maxBytes: number; maxFi
           insideRel = '';
           ignored += inside?.ignored ?? 0;
         }
-        await walk(at, childRel, new Set([...ancestors, comparable(at)]), inside, insideRel);
+        await walk(at, childRel, new Set([...ancestors, comparablePath(at)]), inside, insideRel);
       } else if (info.isFile()) {
         const size = Number(info.size);
         count += 1;
@@ -282,7 +274,7 @@ export async function scanFolder(root: string, limits: { maxBytes: number; maxFi
       }
     }
   };
-  await walk(root, '', new Set([comparable(root)]), rule, '');
+  await walk(root, '', new Set([comparablePath(root)]), rule, '');
   if (count > limits.maxFiles || bytes > limits.maxBytes) throw new FolderTooLargeError(count, bytes);
   return { files, ignored };
 }
@@ -312,7 +304,7 @@ async function readListedFile(file: FolderFile, budget: number): Promise<Buffer 
     // The open file itself must live at the walked path: a directory above it
     // swapped for a link since the walk redirects the open, not the path.
     const at = await openedFilePath(handle, file.absolute, { dev: info.dev, ino: info.ino }).catch(() => null);
-    if (at === null || comparable(at) !== comparable(file.absolute)) return null;
+    if (at === null || comparablePath(at) !== comparablePath(file.absolute)) return null;
     const chunks: Buffer[] = [];
     let total = 0;
     for (;;) {

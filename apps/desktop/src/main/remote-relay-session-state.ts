@@ -60,6 +60,102 @@ export interface RelaySessionStateFanout {
   clear(): void;
 }
 
+/** One attached phone's copy of a session update: its own delta baseline
+ *  (or nothing, when it already holds the snapshot), in the plain or the
+ *  compact envelope. */
+function sendSessionStateToClient(
+  deps: RelaySessionStateFanoutDeps,
+  clientId: string,
+  state: RelayClientState,
+  sessionId: string,
+  update: DesktopSessionStateUpdate,
+  critical: boolean,
+  perfProbe: ReturnType<ReturnType<typeof createRemotePaintProbeTracker>['issue']>
+): Promise<void> {
+  if (!state.channel || state.syncing || !relayClientAwaitsSession(state, sessionId)) {
+    return Promise.resolve();
+  }
+  // A marked read is answered by a replay frame: a live frame racing it
+  // leaves the mark, and frames to the asker are never dropped while it
+  // waits. The mark goes once the answer is sent (or already held);
+  // later frames follow the visible set.
+  const awaitingRead = state.requestedReads?.has(sessionId) === true;
+  const answersRead = awaitingRead && Boolean(update.snapshot) && update.frameSource !== 'live';
+  const consume = (): void => {
+    if (answersRead) state.requestedReads?.delete(sessionId);
+  };
+  const droppable = !critical && !awaitingRead;
+  const wire = encodeRelayClientSessionState(
+    state.sessionStateEncoders,
+    sessionId,
+    update.snapshot,
+    state.compactWire,
+    state.transcriptPrepend,
+    state.promptHistoryPatch,
+    state.transcriptPaging === true
+  );
+  // This client's baseline already matches the snapshot: the frame would
+  // carry a revision number and nothing else.
+  if (isNoDelta(wire)) {
+    consume();
+    return Promise.resolve();
+  }
+  if (!state.firstTranscriptReported) {
+    state.firstTranscriptReported = true;
+    // Sized once, on the frame that ends the wait — never on the stream
+    // behind it.
+    const bytes = Buffer.byteLength(JSON.stringify(wire) ?? '', 'utf8');
+    reportRemoteFirstTranscript(Date.now() - state.openedAt, bytes);
+  }
+  if (!state.compactWire) {
+    return deps
+      .sendEncryptedFrame(
+        clientId,
+        {
+          event: 'sessionState',
+          payload: {
+            sessionId,
+            wire,
+            frameSource: update.frameSource,
+            ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
+            ...(perfProbe ? { perfProbe } : {}),
+            ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
+          },
+        },
+        droppable
+      )
+      .then(consume);
+  }
+  // Compact envelope. The nested event/payload/sessionId trio costs
+  // ~110 bytes on a frame whose new content is often ~30, so the keys
+  // shrink to single letters and the session travels as a handle whose
+  // name is sent once (`n`).
+  let handle = state.sessionHandles.get(sessionId);
+  const firstUse = handle === undefined;
+  if (handle === undefined) {
+    handle = state.sessionHandles.size + 1;
+    state.sessionHandles.set(sessionId, handle);
+  }
+  return deps
+    .sendEncryptedFrame(
+      clientId,
+      {
+        e: 'T',
+        s: handle,
+        ...(firstUse ? { n: sessionId } : {}),
+        w: wire,
+        // 'live' is the overwhelming default; only a replay announces itself.
+        ...(update.frameSource && update.frameSource !== 'live' ? { f: update.frameSource } : {}),
+        // Only a null frame carries it, so the key never rides a streaming one.
+        ...(update.laneEnd ? { le: update.laneEnd } : {}),
+        ...(perfProbe ? { pp: perfProbe } : {}),
+        ...(typeof update.contentRevision === 'number' ? { cr: update.contentRevision } : {}),
+      },
+      droppable
+    )
+    .then(consume);
+}
+
 export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps): RelaySessionStateFanout {
   const mailboxes = new Map<string, LatestStateMailbox<DesktopSessionStateUpdate>>();
   const latestUpdates = new Map<string, DesktopSessionStateUpdate>();
@@ -73,90 +169,9 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
     mailbox = createRemoteStreamingMailbox((sequence, update, critical) => {
       const perfProbe = paintProbes.issue(sessionId);
       void Promise.all(
-        [...deps.clients].map(([clientId, state]) => {
-          if (!state.channel || state.syncing || !relayClientAwaitsSession(state, sessionId)) {
-            return Promise.resolve();
-          }
-          // A marked read is answered by a replay frame: a live frame racing it
-          // leaves the mark, and frames to the asker are never dropped while it
-          // waits. The mark goes once the answer is sent (or already held);
-          // later frames follow the visible set.
-          const awaitingRead = state.requestedReads?.has(sessionId) === true;
-          const answersRead = awaitingRead && Boolean(update.snapshot) && update.frameSource !== 'live';
-          const consume = (): void => {
-            if (answersRead) state.requestedReads?.delete(sessionId);
-          };
-          const droppable = !critical && !awaitingRead;
-          const wire = encodeRelayClientSessionState(
-            state.sessionStateEncoders,
-            sessionId,
-            update.snapshot,
-            state.compactWire,
-            state.transcriptPrepend,
-            state.promptHistoryPatch,
-            state.transcriptPaging === true
-          );
-          // This client's baseline already matches the snapshot: the frame would
-          // carry a revision number and nothing else.
-          if (isNoDelta(wire)) {
-            consume();
-            return Promise.resolve();
-          }
-          if (!state.firstTranscriptReported) {
-            state.firstTranscriptReported = true;
-            // Sized once, on the frame that ends the wait — never on the stream
-            // behind it.
-            const bytes = Buffer.byteLength(JSON.stringify(wire) ?? '', 'utf8');
-            reportRemoteFirstTranscript(Date.now() - state.openedAt, bytes);
-          }
-          if (!state.compactWire) {
-            return deps
-              .sendEncryptedFrame(
-                clientId,
-                {
-                  event: 'sessionState',
-                  payload: {
-                    sessionId,
-                    wire,
-                    frameSource: update.frameSource,
-                    ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
-                    ...(perfProbe ? { perfProbe } : {}),
-                    ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
-                  },
-                },
-                droppable
-              )
-              .then(consume);
-          }
-          // Compact envelope. The nested event/payload/sessionId trio costs
-          // ~110 bytes on a frame whose new content is often ~30, so the keys
-          // shrink to single letters and the session travels as a handle whose
-          // name is sent once (`n`).
-          let handle = state.sessionHandles.get(sessionId);
-          const firstUse = handle === undefined;
-          if (handle === undefined) {
-            handle = state.sessionHandles.size + 1;
-            state.sessionHandles.set(sessionId, handle);
-          }
-          return deps
-            .sendEncryptedFrame(
-              clientId,
-              {
-                e: 'T',
-                s: handle,
-                ...(firstUse ? { n: sessionId } : {}),
-                w: wire,
-                // 'live' is the overwhelming default; only a replay announces itself.
-                ...(update.frameSource && update.frameSource !== 'live' ? { f: update.frameSource } : {}),
-                // Only a null frame carries it, so the key never rides a streaming one.
-                ...(update.laneEnd ? { le: update.laneEnd } : {}),
-                ...(perfProbe ? { pp: perfProbe } : {}),
-                ...(typeof update.contentRevision === 'number' ? { cr: update.contentRevision } : {}),
-              },
-              droppable
-            )
-            .then(consume);
-        })
+        [...deps.clients].map(([clientId, state]) =>
+          sendSessionStateToClient(deps, clientId, state, sessionId, update, critical, perfProbe)
+        )
       ).finally(() => mailbox.acknowledge(sequence));
     });
     mailboxes.set(sessionId, mailbox);

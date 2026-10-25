@@ -26,7 +26,7 @@ export const comparablePath = (path: string): string =>
   process.platform === 'win32' ? path.toLocaleLowerCase() : path;
 
 /** Whether `path` is `root` or inside it (both canonical). */
-function inside(root: string, path: string): boolean {
+export function insideRoot(root: string, path: string): boolean {
   const base = comparablePath(root);
   const target = comparablePath(path);
   return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep);
@@ -76,7 +76,7 @@ async function authorizeOpened(handle: FileHandle, absolute: string, root: strin
   const location = await openedFilePath(handle, absolute, identity).catch(() => {
     throw new Error('The file changed while it was opened.');
   });
-  if (!inside(root, location)) throw new LocalAccessDeniedError('The file resolves outside the project.');
+  if (!insideRoot(root, location)) throw new LocalAccessDeniedError('The file resolves outside the project.');
   const info = await handle.stat();
   return {
     handle,

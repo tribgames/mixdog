@@ -10,7 +10,8 @@ import { parseLocalFileLocation } from '../shared/local-files';
 import { isLocalMarkdownLink, localMarkdownPath } from '../renderer/markdown-url';
 
 const TRAILING_PUNCTUATION = /[.,;:!?'")\]}>]+$/u;
-const NETWORK_PATH = /^[\\/]{2}/;
+/** A UNC / network path: never a local file. */
+export const NETWORK_PATH = /^[\\/]{2}/;
 
 /** One href decoded the way MarkdownLink decodes a local href, without its
  *  `:line`/`#L` location; null for web links and empty targets. */

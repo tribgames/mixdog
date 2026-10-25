@@ -12,6 +12,17 @@ type TerminalService = Pick<DesktopService, 'invokeDesktopOperation' | 'subscrib
   notifyDesktopOperation(method: string, args?: unknown[]): void;
 };
 
+function terminalSessionOf(value: object) {
+  const result = value as Record<string, unknown>;
+  // The window is never a size owner: a phone's grid is followed, not claimed.
+  const owner = result.sizeOwner as { cols?: unknown; rows?: unknown } | undefined;
+  return {
+    id: String(result.id || ''),
+    replay: String(result.replay || ''),
+    ...(owner ? { sizeOwner: { cols: Number(owner.cols) || 0, rows: Number(owner.rows) || 0, own: false } } : {}),
+  };
+}
+
 /** PTYs are owned by the connection's daemon; the window forwards control and
  *  receives output events from that daemon only. */
 export function createServiceTerminalHost(service: TerminalService): DesktopTerminalHost {
@@ -23,25 +34,12 @@ export function createServiceTerminalHost(service: TerminalService): DesktopTerm
       if (!value || typeof value !== 'object') {
         throw new Error('The service terminal did not return a session.');
       }
-      const result = value as Record<string, unknown>;
-      // The window is never a size owner: a phone's grid is followed, not claimed.
-      const owner = result.sizeOwner as { cols?: unknown; rows?: unknown } | undefined;
-      return {
-        id: String(result.id || ''),
-        replay: String(result.replay || ''),
-        ...(owner ? { sizeOwner: { cols: Number(owner.cols) || 0, rows: Number(owner.rows) || 0, own: false } } : {}),
-      };
+      return terminalSessionOf(value);
     },
     async attach(id: string) {
       const value = await service.invokeDesktopOperation('termAttach', [id]);
       if (!value || typeof value !== 'object') return null;
-      const result = value as Record<string, unknown>;
-      const owner = result.sizeOwner as { cols?: unknown; rows?: unknown } | undefined;
-      return {
-        id: String(result.id || ''),
-        replay: String(result.replay || ''),
-        ...(owner ? { sizeOwner: { cols: Number(owner.cols) || 0, rows: Number(owner.rows) || 0, own: false } } : {}),
-      };
+      return terminalSessionOf(value);
     },
     write(id: string, data: string): void {
       // Keystrokes take the fire-and-forget lane: a response frame per keypress

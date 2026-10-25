@@ -221,44 +221,211 @@ interface SendOutcome {
   failures: string[];
 }
 
-export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
-  // One decision per device and notification (notification-decision.ts). The
-  // overrides and this PC's activity are read once per notification, and the
-  // activity only when a device holds pushes while this PC is in use. A device
-  // held that way joins `held`; without `held` (the second look after the
-  // hold) this PC's activity is not asked again.
-  const deliveryGate = (
-    completion: TurnCompletion,
-    event: NotificationEvent,
-    held: Set<string> | null
-  ): DeliveryGate => {
-    let overrides: Promise<readonly ConversationNotificationOverride[]> | undefined;
-    let desktopActive: Promise<boolean> | undefined;
-    return async (deviceId, foreground, target) => {
-      const prefs = options.preferences;
-      const preferences = prefs ? await prefs.device(deviceId) : DEFAULT_NOTIFICATION_PREFERENCES;
-      const decision = decideNotification({
-        preferences,
-        overrides: prefs ? await (overrides ??= prefs.overrides()) : [],
-        event,
-        conversation: completion.conversation,
-        now: Date.now(),
-        foreground,
-        desktopActive:
-          held && prefs && preferences.holdWhileDesktopActive ? await (desktopActive ??= prefs.desktopActive()) : false,
-      });
-      if (decision.notify) return true;
-      if (decision.reason === 'desktop-active') {
-        held?.add(deviceId);
-        options.onDiagnostic?.('held', target);
-      } else {
-        options.onDiagnostic?.('suppressed', { ...target, reason: decision.reason });
-      }
-      return false;
-    };
+// One decision per device and notification (notification-decision.ts). The
+// overrides and this PC's activity are read once per notification, and the
+// activity only when a device holds pushes while this PC is in use. A device
+// held that way joins `held`; without `held` (the second look after the
+// hold) this PC's activity is not asked again.
+const deliveryGate = (
+  options: PushNotifierOptions,
+  completion: TurnCompletion,
+  event: NotificationEvent,
+  held: Set<string> | null
+): DeliveryGate => {
+  let overrides: Promise<readonly ConversationNotificationOverride[]> | undefined;
+  let desktopActive: Promise<boolean> | undefined;
+  return async (deviceId, foreground, target) => {
+    const prefs = options.preferences;
+    const preferences = prefs ? await prefs.device(deviceId) : DEFAULT_NOTIFICATION_PREFERENCES;
+    const decision = decideNotification({
+      preferences,
+      overrides: prefs ? await (overrides ??= prefs.overrides()) : [],
+      event,
+      conversation: completion.conversation,
+      now: Date.now(),
+      foreground,
+      desktopActive:
+        held && prefs && preferences.holdWhileDesktopActive ? await (desktopActive ??= prefs.desktopActive()) : false,
+    });
+    if (decision.notify) return true;
+    if (decision.reason === 'desktop-active') {
+      held?.add(deviceId);
+      options.onDiagnostic?.('held', target);
+    } else {
+      options.onDiagnostic?.('suppressed', { ...target, reason: decision.reason });
+    }
+    return false;
   };
-  const passGate: DeliveryGate = async () => true;
+};
+const passGate: DeliveryGate = async () => true;
 
+async function sendPush(
+  options: PushNotifierOptions,
+  turn: TurnCompletion,
+  reason: PushReason,
+  allow: DeliveryGate,
+  approval?: PushApproval,
+  onlyClientId?: string
+): Promise<SendOutcome> {
+  // An attachment-only title (`[Image]` …) goes out as its kind's label.
+  // This process has no UI language (see the body below): English.
+  const completion = { ...turn, title: sessionTitleLabel(turn.title) };
+  const outcome: SendOutcome = { targets: 0, sent: 0, failures: [] };
+  const only = <T extends { clientId: string }>(rows: readonly T[]): T[] =>
+    onlyClientId === undefined ? [...rows] : rows.filter((row) => row.clientId === onlyClientId);
+  const nativeDelivery = deliverNative(options, completion, reason, allow, outcome, only, approval);
+  const hostId = options.hostId ? options.hostId.slice(0, 64) : '';
+  // `hostId` names the PC that sent it: one browser hears from every PC it
+  // is paired with, and a tap has to open the session on THAT PC.
+  const payload = JSON.stringify({
+    ...(hostId ? { hostId } : {}),
+    sessionId: completion.sessionId,
+    title: completion.title,
+    // The session's own last words travel as they are; the sentence used
+    // when there are none does NOT come from here. This process has no UI
+    // language, and the phone showing the notification has one of its own,
+    // so an empty body is the worker's cue to say it in that language.
+    body: completion.preview || '',
+    reason,
+    data: { sessionId: completion.sessionId, reason, ...(hostId ? { hostId } : {}) },
+  });
+  const relayWeb = options.relayWebPush?.available() ? options.relayWebPush : null;
+  const [allRelayTargets, stored] = await Promise.all([relayWeb ? relayWeb.list() : [], options.store.list()]);
+  const relayTargets = only(allRelayTargets);
+  // Per browser, not per relay: a browser moves to the relay's key on its
+  // next launch, and until then its legacy subscription (this PC's own key)
+  // is the only way to reach it. It is dropped from the direct path only
+  // once that same paired browser holds a relay association.
+  const relayBrowsers = new Set(allRelayTargets.map((target) => target.clientId));
+  const relayEndpoints = new Set(allRelayTargets.map((target) => target.endpoint));
+  const subscriptions = only(stored).filter(
+    (subscription) =>
+      !relayEndpoints.has(subscription.endpoint) && !(subscription.clientId && relayBrowsers.has(subscription.clientId))
+  );
+  outcome.targets += relayTargets.length + subscriptions.length;
+  const relayDelivery = relayWeb
+    ? deliverRelayWeb(options, relayWeb, relayTargets, completion, payload, allow, outcome)
+    : Promise.resolve();
+  const keys = subscriptions.length > 0 ? await options.store.keys() : null;
+  await Promise.allSettled(
+    subscriptions.map(async (subscription) => {
+      if (!keys) return;
+      const foreground = Boolean(
+        subscription.clientId && options.isClientForeground(subscription.clientId, completion.sessionId)
+      );
+      const target = { sessionId: completion.sessionId, browser: subscription.clientId.slice(0, 8) };
+      // The legacy subscription names the browser by the id it paired with.
+      if (!(await allow(subscription.clientId, foreground, target))) return;
+      const result = await sendWebPush({
+        subscription,
+        payload,
+        keys,
+        subject: VAPID_SUBJECT,
+        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      });
+      if (result.expired) {
+        options.onDiagnostic?.('expired', { ...target, status: result.statusCode });
+        outcome.failures.push('The push service no longer accepts this browser’s subscription.');
+        await options.store.remove(subscription.endpoint).catch(() => false);
+        return;
+      }
+      if (result.statusCode >= 400 || result.error) {
+        options.onError?.(`push ${result.statusCode}${result.error ? `: ${result.error}` : ''}`);
+        outcome.failures.push(`The push service refused it (${result.error || result.statusCode}).`);
+        return;
+      }
+      outcome.sent += 1;
+      options.onDiagnostic?.('sent', { ...target, status: result.statusCode });
+    })
+  );
+  await Promise.all([relayDelivery, nativeDelivery]);
+  return outcome;
+}
+
+// Relay-owned Web Push: the same gates, the payload encrypted HERE for each
+// subscription (RFC 8291), the relay signing and posting the ciphertext.
+async function deliverRelayWeb(
+  options: PushNotifierOptions,
+  relayWeb: NonNullable<PushNotifierOptions['relayWebPush']>,
+  targets: readonly RelayWebPushTarget[],
+  completion: TurnCompletion,
+  payload: string,
+  allow: DeliveryGate,
+  outcome: SendOutcome
+): Promise<void> {
+  for (const subscription of targets) {
+    const foreground = relayWeb.isClientForeground(subscription.clientId, completion.sessionId);
+    const target = { sessionId: completion.sessionId, browser: subscription.clientId.slice(0, 8) };
+    if (!(await allow(subscription.clientId, foreground, target))) continue;
+    let body: Buffer;
+    try {
+      body = encryptWebPushPayload(subscription, payload);
+    } catch (error) {
+      options.onError?.(`push: ${error instanceof Error ? error.message : String(error)}`);
+      outcome.failures.push('The browser’s subscription keys are invalid.');
+      continue;
+    }
+    const sent = relayWeb.send(subscription, body);
+    if (sent) outcome.sent += 1;
+    else outcome.failures.push(RELAY_UNAVAILABLE);
+    options.onDiagnostic?.(sent ? 'sent' : 'suppressed', {
+      ...target,
+      ...(sent ? { status: 'relay' } : { reason: 'relay-unavailable' }),
+    });
+  }
+}
+
+// Native app push: the same gates as web push, but the content is encrypted
+// for each phone and handed to the relay, which only holds the credentials.
+async function deliverNative(
+  options: PushNotifierOptions,
+  completion: TurnCompletion,
+  reason: PushReason,
+  allow: DeliveryGate,
+  outcome: SendOutcome,
+  only: <T extends { clientId: string }>(rows: readonly T[]) => T[],
+  approval?: PushApproval
+): Promise<void> {
+  const native = options.native;
+  if (!native) return;
+  const subscriptions = only(await native.list());
+  outcome.targets += subscriptions.length;
+  await Promise.allSettled(
+    subscriptions.map(async (subscription) => {
+      const foreground = native.isClientForeground(subscription.clientId, completion.sessionId);
+      const target = { sessionId: completion.sessionId, native: subscription.clientId.slice(0, 8) };
+      if (!(await allow(subscription.clientId, foreground, target))) return;
+      // The phone shows the body as it is: a failed turn says so here.
+      const body = reason === 'turn-failed' ? completion.preview || TURN_FAILED_TEXT : completion.preview || '';
+      const content: NativePushContent = {
+        title: completion.title.slice(0, NATIVE_TITLE_CHARS),
+        body: body.slice(0, NATIVE_BODY_CHARS),
+        sessionId: completion.sessionId,
+        reason,
+        ...(approval ? { approvalId: approval.id.slice(0, 120) } : {}),
+        // Inside the encryption: the relay never learns whether Allow is offered.
+        ...(approval?.allowOnce ? { allowOnce: true } : {}),
+        ...(options.hostId ? { hostId: options.hostId.slice(0, 64) } : {}),
+      };
+      const sent = native.send({
+        platform: subscription.platform,
+        token: subscription.token,
+        sandbox: subscription.sandbox,
+        mx: encryptNativePush(subscription.publicKey, content),
+        reason: reason === 'turn-failed' ? 'turn-finished' : reason,
+        collapseKey: nativeCollapseKey(completion.sessionId, reason),
+      });
+      if (sent) outcome.sent += 1;
+      else outcome.failures.push(RELAY_UNAVAILABLE);
+      options.onDiagnostic?.(sent ? 'sent' : 'suppressed', {
+        ...target,
+        ...(sent ? { status: 'native' } : { reason: 'relay-unavailable' }),
+      });
+    })
+  );
+}
+
+export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   const holdTimers = new Set<ReturnType<typeof setTimeout>>();
   const holdFor = (ms: number): Promise<void> =>
     new Promise((resolve) => {
@@ -280,7 +447,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   ): Promise<void> => {
     const event = EVENT_OF_REASON[reason];
     const held = new Set<string>();
-    const outcome = await send(turn, reason, deliveryGate(turn, event, held), approval);
+    const outcome = await sendPush(options, turn, reason, deliveryGate(options, turn, event, held), approval);
     if (outcome.targets === 0) {
       options.onDiagnostic?.('suppressed', { sessionId: turn.sessionId, reason: 'no-subscription' });
     }
@@ -290,174 +457,10 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
       options.onDiagnostic?.('suppressed', { sessionId: turn.sessionId, reason: 'seen-on-desktop' });
       return;
     }
-    const gate = deliveryGate(turn, event, null);
+    const gate = deliveryGate(options, turn, event, null);
     const heldOnly: DeliveryGate = async (deviceId, foreground, target) =>
       held.has(deviceId) && (await gate(deviceId, foreground, target));
-    await send(turn, reason, heldOnly, approval);
-  };
-
-  const send = async (
-    turn: TurnCompletion,
-    reason: PushReason,
-    allow: DeliveryGate,
-    approval?: PushApproval,
-    onlyClientId?: string
-  ): Promise<SendOutcome> => {
-    // An attachment-only title (`[Image]` …) goes out as its kind's label.
-    // This process has no UI language (see the body below): English.
-    const completion = { ...turn, title: sessionTitleLabel(turn.title) };
-    const outcome: SendOutcome = { targets: 0, sent: 0, failures: [] };
-    const only = <T extends { clientId: string }>(rows: readonly T[]): T[] =>
-      onlyClientId === undefined ? [...rows] : rows.filter((row) => row.clientId === onlyClientId);
-    const nativeDelivery = deliverNative(completion, reason, allow, outcome, only, approval);
-    const hostId = options.hostId ? options.hostId.slice(0, 64) : '';
-    // `hostId` names the PC that sent it: one browser hears from every PC it
-    // is paired with, and a tap has to open the session on THAT PC.
-    const payload = JSON.stringify({
-      ...(hostId ? { hostId } : {}),
-      sessionId: completion.sessionId,
-      title: completion.title,
-      // The session's own last words travel as they are; the sentence used
-      // when there are none does NOT come from here. This process has no UI
-      // language, and the phone showing the notification has one of its own,
-      // so an empty body is the worker's cue to say it in that language.
-      body: completion.preview || '',
-      reason,
-      data: { sessionId: completion.sessionId, reason, ...(hostId ? { hostId } : {}) },
-    });
-    const relayWeb = options.relayWebPush?.available() ? options.relayWebPush : null;
-    const [allRelayTargets, stored] = await Promise.all([relayWeb ? relayWeb.list() : [], options.store.list()]);
-    const relayTargets = only(allRelayTargets);
-    // Per browser, not per relay: a browser moves to the relay's key on its
-    // next launch, and until then its legacy subscription (this PC's own key)
-    // is the only way to reach it. It is dropped from the direct path only
-    // once that same paired browser holds a relay association.
-    const relayBrowsers = new Set(allRelayTargets.map((target) => target.clientId));
-    const relayEndpoints = new Set(allRelayTargets.map((target) => target.endpoint));
-    const subscriptions = only(stored).filter(
-      (subscription) =>
-        !relayEndpoints.has(subscription.endpoint) &&
-        !(subscription.clientId && relayBrowsers.has(subscription.clientId))
-    );
-    outcome.targets += relayTargets.length + subscriptions.length;
-    const relayDelivery = relayWeb
-      ? deliverRelayWeb(relayWeb, relayTargets, completion, payload, allow, outcome)
-      : Promise.resolve();
-    const keys = subscriptions.length > 0 ? await options.store.keys() : null;
-    await Promise.allSettled(
-      subscriptions.map(async (subscription) => {
-        if (!keys) return;
-        const foreground = Boolean(
-          subscription.clientId && options.isClientForeground(subscription.clientId, completion.sessionId)
-        );
-        const target = { sessionId: completion.sessionId, browser: subscription.clientId.slice(0, 8) };
-        // The legacy subscription names the browser by the id it paired with.
-        if (!(await allow(subscription.clientId, foreground, target))) return;
-        const result = await sendWebPush({
-          subscription,
-          payload,
-          keys,
-          subject: VAPID_SUBJECT,
-          ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-        });
-        if (result.expired) {
-          options.onDiagnostic?.('expired', { ...target, status: result.statusCode });
-          outcome.failures.push('The push service no longer accepts this browser’s subscription.');
-          await options.store.remove(subscription.endpoint).catch(() => false);
-          return;
-        }
-        if (result.statusCode >= 400 || result.error) {
-          options.onError?.(`push ${result.statusCode}${result.error ? `: ${result.error}` : ''}`);
-          outcome.failures.push(`The push service refused it (${result.error || result.statusCode}).`);
-          return;
-        }
-        outcome.sent += 1;
-        options.onDiagnostic?.('sent', { ...target, status: result.statusCode });
-      })
-    );
-    await Promise.all([relayDelivery, nativeDelivery]);
-    return outcome;
-  };
-
-  // Relay-owned Web Push: the same gates, the payload encrypted HERE for each
-  // subscription (RFC 8291), the relay signing and posting the ciphertext.
-  const deliverRelayWeb = async (
-    relayWeb: NonNullable<PushNotifierOptions['relayWebPush']>,
-    targets: readonly RelayWebPushTarget[],
-    completion: TurnCompletion,
-    payload: string,
-    allow: DeliveryGate,
-    outcome: SendOutcome
-  ): Promise<void> => {
-    for (const subscription of targets) {
-      const foreground = relayWeb.isClientForeground(subscription.clientId, completion.sessionId);
-      const target = { sessionId: completion.sessionId, browser: subscription.clientId.slice(0, 8) };
-      if (!(await allow(subscription.clientId, foreground, target))) continue;
-      let body: Buffer;
-      try {
-        body = encryptWebPushPayload(subscription, payload);
-      } catch (error) {
-        options.onError?.(`push: ${error instanceof Error ? error.message : String(error)}`);
-        outcome.failures.push('The browser’s subscription keys are invalid.');
-        continue;
-      }
-      const sent = relayWeb.send(subscription, body);
-      if (sent) outcome.sent += 1;
-      else outcome.failures.push(RELAY_UNAVAILABLE);
-      options.onDiagnostic?.(sent ? 'sent' : 'suppressed', {
-        ...target,
-        ...(sent ? { status: 'relay' } : { reason: 'relay-unavailable' }),
-      });
-    }
-  };
-
-  // Native app push: the same gates as web push, but the content is encrypted
-  // for each phone and handed to the relay, which only holds the credentials.
-  const deliverNative = async (
-    completion: TurnCompletion,
-    reason: PushReason,
-    allow: DeliveryGate,
-    outcome: SendOutcome,
-    only: <T extends { clientId: string }>(rows: readonly T[]) => T[],
-    approval?: PushApproval
-  ): Promise<void> => {
-    const native = options.native;
-    if (!native) return;
-    const subscriptions = only(await native.list());
-    outcome.targets += subscriptions.length;
-    await Promise.allSettled(
-      subscriptions.map(async (subscription) => {
-        const foreground = native.isClientForeground(subscription.clientId, completion.sessionId);
-        const target = { sessionId: completion.sessionId, native: subscription.clientId.slice(0, 8) };
-        if (!(await allow(subscription.clientId, foreground, target))) return;
-        // The phone shows the body as it is: a failed turn says so here.
-        const body = reason === 'turn-failed' ? completion.preview || TURN_FAILED_TEXT : completion.preview || '';
-        const content: NativePushContent = {
-          title: completion.title.slice(0, NATIVE_TITLE_CHARS),
-          body: body.slice(0, NATIVE_BODY_CHARS),
-          sessionId: completion.sessionId,
-          reason,
-          ...(approval ? { approvalId: approval.id.slice(0, 120) } : {}),
-          // Inside the encryption: the relay never learns whether Allow is offered.
-          ...(approval?.allowOnce ? { allowOnce: true } : {}),
-          ...(options.hostId ? { hostId: options.hostId.slice(0, 64) } : {}),
-        };
-        const sent = native.send({
-          platform: subscription.platform,
-          token: subscription.token,
-          sandbox: subscription.sandbox,
-          mx: encryptNativePush(subscription.publicKey, content),
-          reason: reason === 'turn-failed' ? 'turn-finished' : reason,
-          collapseKey: nativeCollapseKey(completion.sessionId, reason),
-        });
-        if (sent) outcome.sent += 1;
-        else outcome.failures.push(RELAY_UNAVAILABLE);
-        options.onDiagnostic?.(sent ? 'sent' : 'suppressed', {
-          ...target,
-          ...(sent ? { status: 'native' } : { reason: 'relay-unavailable' }),
-        });
-      })
-    );
+    await sendPush(options, turn, reason, heldOnly, approval);
   };
 
   const watcher = createFinalAnswerWatcher({
@@ -567,7 +570,8 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
 
   const sendTest = async (clientId: string): Promise<NotificationTestResult> => {
     const now = Date.now();
-    const outcome = await send(
+    const outcome = await sendPush(
+      options,
       {
         sessionId: '',
         conversation: notificationConversationOf({ id: '' }),

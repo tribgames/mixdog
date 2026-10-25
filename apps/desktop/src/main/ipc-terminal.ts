@@ -52,12 +52,11 @@ export function registerTerminalIpc({
 }: TerminalIpcOptions): () => void {
   const validSender = (event: IpcMainEvent): boolean =>
     event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
+  const sendToWindow = (channel: string, event: unknown): void => {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, event);
+  };
   const dataBuffer = new TerminalDataBufferer(
-    (event) => {
-      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send(DESKTOP_IPC.termData, event);
-      }
-    },
+    (event) => sendToWindow(DESKTOP_IPC.termData, event),
     5,
     256 * 1024,
     terminals
@@ -115,17 +114,9 @@ export function registerTerminalIpc({
   ipcMain.on(DESKTOP_IPC.termFocus, onFocus);
   const unsubscribe = terminals?.subscribe((event) => dataBuffer.push(event)) ?? (() => {});
   const unsubscribeSizeOwner =
-    terminals?.subscribeSizeOwner?.((event) => {
-      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send(DESKTOP_IPC.termSizeOwner, event);
-      }
-    }) ?? (() => {});
+    terminals?.subscribeSizeOwner?.((event) => sendToWindow(DESKTOP_IPC.termSizeOwner, event)) ?? (() => {});
   const unsubscribeActivity =
-    terminals?.subscribeActivity?.((event) => {
-      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send(DESKTOP_IPC.termActivityChanged, event);
-      }
-    }) ?? (() => {});
+    terminals?.subscribeActivity?.((event) => sendToWindow(DESKTOP_IPC.termActivityChanged, event)) ?? (() => {});
 
   return () => {
     unsubscribe();

@@ -146,6 +146,60 @@ const TERMINAL_METHODS = new Set([
 
 type CallLane = ReturnType<typeof createCallLane>;
 
+const supersedeWaiting = (waitingByKey: Map<string, Set<() => void>>, key: string): void => {
+  const waiting = waitingByKey.get(key);
+  waitingByKey.delete(key);
+  for (const supersede of waiting || []) supersede();
+};
+
+// Withdrawn while it waits, either for a lane slot or for the mutations
+// queued before it (`general`'s writes); a newer call under its key (or a
+// cancel) supersedes it.
+const runLatest = (
+  general: CallLane,
+  lane: CallLane,
+  waitingByKey: Map<string, Set<() => void>>,
+  key: string,
+  method: string,
+  task: () => Promise<void>,
+  superseded: (() => Promise<void>) | undefined
+): Promise<void> => {
+  supersedeWaiting(waitingByKey, key);
+  const writes = general.writesSettled();
+  return new Promise<void>((resolve, reject) => {
+    let state: 'waiting' | 'started' | 'superseded' = 'waiting';
+    const supersede = (): void => {
+      if (state !== 'waiting') return;
+      state = 'superseded';
+      Promise.resolve()
+        .then(superseded)
+        .then(() => resolve(), reject);
+    };
+    const waiting = waitingByKey.get(key) || new Set<() => void>();
+    waiting.add(supersede);
+    waitingByKey.set(key, waiting);
+    lane
+      .run(method, async () => {
+        await writes;
+        if (state !== 'waiting') return;
+        state = 'started';
+        waiting.delete(supersede);
+        if (!waiting.size && waitingByKey.get(key) === waiting) waitingByKey.delete(key);
+        await task();
+      })
+      .then(
+        () => {
+          if (state === 'started') resolve();
+        },
+        (error: unknown) => {
+          if (state === 'superseded') return;
+          waiting.delete(supersede);
+          reject(error);
+        }
+      );
+  });
+};
+
 export function createRemoteCallQueue(
   concurrency = 4,
   slowConcurrency = 2,
@@ -163,66 +217,16 @@ export function createRemoteCallQueue(
   // session's side questions, or one search scope's queries.
   const waitingSide = new Map<string, Set<() => void>>();
   const waitingSearch = new Map<string, Set<() => void>>();
-  const supersedeWaiting = (waitingByKey: Map<string, Set<() => void>>, key: string): void => {
-    const waiting = waitingByKey.get(key);
-    waitingByKey.delete(key);
-    for (const supersede of waiting || []) supersede();
-  };
-  // Withdrawn while it waits, either for a lane slot or for the mutations
-  // queued before it; a newer call under its key (or a cancel) supersedes it.
-  const runLatest = (
-    lane: CallLane,
-    waitingByKey: Map<string, Set<() => void>>,
-    key: string,
-    method: string,
-    task: () => Promise<void>,
-    superseded: (() => Promise<void>) | undefined
-  ): Promise<void> => {
-    supersedeWaiting(waitingByKey, key);
-    const writes = general.writesSettled();
-    return new Promise<void>((resolve, reject) => {
-      let state: 'waiting' | 'started' | 'superseded' = 'waiting';
-      const supersede = (): void => {
-        if (state !== 'waiting') return;
-        state = 'superseded';
-        Promise.resolve()
-          .then(superseded)
-          .then(() => resolve(), reject);
-      };
-      const waiting = waitingByKey.get(key) || new Set<() => void>();
-      waiting.add(supersede);
-      waitingByKey.set(key, waiting);
-      lane
-        .run(method, async () => {
-          await writes;
-          if (state !== 'waiting') return;
-          state = 'started';
-          waiting.delete(supersede);
-          if (!waiting.size && waitingByKey.get(key) === waiting) waitingByKey.delete(key);
-          await task();
-        })
-        .then(
-          () => {
-            if (state === 'started') resolve();
-          },
-          (error: unknown) => {
-            if (state === 'superseded') return;
-            waiting.delete(supersede);
-            reject(error);
-          }
-        );
-    });
-  };
   return {
     run(method: string, task: () => Promise<void>, call?: SideQuestionCall | LatestCall): Promise<void> {
       if (TERMINAL_METHODS.has(method)) return terminal.run(method, task);
       if (call && 'sessionId' in call && call.sessionId) {
         if (method === SIDE_QUESTION_CANCEL_CALL) supersedeWaiting(waitingSide, call.sessionId);
         else if (SIDE_QUESTION_CALLS.has(method))
-          return runLatest(side, waitingSide, call.sessionId, method, task, call.superseded);
+          return runLatest(general, side, waitingSide, call.sessionId, method, task, call.superseded);
       }
       if (call && 'latest' in call && SEARCH_READS.has(method)) {
-        return runLatest(search, waitingSearch, call.latest, method, task, call.superseded);
+        return runLatest(general, search, waitingSearch, call.latest, method, task, call.superseded);
       }
       let lane: CallLane | null = null;
       if (SLOW_READS.has(method)) lane = slow;

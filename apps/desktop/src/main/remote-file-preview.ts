@@ -281,7 +281,7 @@ export function createRemoteFilePreviewMethods(deps: {
       return hostRequest('captureFileSnapshot', [root, rel, granted]);
     },
     previewProjectFileRange: async ([projectPath, relPath, accessToken, rawOffset, rawLength]) => {
-      // Arguments are checked before any path work, as before.
+      // Arguments are checked before any path work.
       integer(rawOffset, 'offset', 0, Number.MAX_SAFE_INTEGER);
       integer(rawLength, 'length', 1, REMOTE_PREVIEW_MAX_READ_BYTES);
       const { root, absolute } = await target(projectPath, relPath, accessToken);

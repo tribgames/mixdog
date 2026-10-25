@@ -259,8 +259,17 @@ export class TerminalManager {
     if (inFlight) await inFlight.catch(() => undefined);
     const existing = this.terminals.get(id);
     if (!existing || existing.disposed) return null;
+    return this.reattachment(id, existing);
+  }
+
+  /** What a view attaching to a running PTY gets: its replay, and the size a
+   *  phone owns, which the view must follow. */
+  private reattachment(
+    id: string,
+    entry: ManagedTerminal
+  ): { id: string; replay: string; sizeOwner?: TerminalSizeOwner } {
     const sizeOwner = this.sizeOwner(id);
-    return { id, replay: existing.buffer.read(), ...(sizeOwner ? { sizeOwner } : {}) };
+    return { id, replay: entry.buffer.read(), ...(sizeOwner ? { sizeOwner } : {}) };
   }
 
   /** Create (or reuse) a PTY; returns id + replay buffer for reattach. */
@@ -272,11 +281,7 @@ export class TerminalManager {
     if (this.disposed) throw new Error('Terminal manager is disposed.');
     if (id) {
       const existing = this.terminals.get(id);
-      if (existing && !existing.disposed) {
-        // A view attaching while a phone owns the size must follow it.
-        const sizeOwner = this.sizeOwner(id);
-        return { id, replay: existing.buffer.read(), ...(sizeOwner ? { sizeOwner } : {}) };
-      }
+      if (existing && !existing.disposed) return this.reattachment(id, existing);
       // Concurrent ensures for one id (remount, retry timer, second surface)
       // must share a single spawn; each extra spawn printed another banner
       // through the same id and orphaned the earlier PTY.
@@ -306,7 +311,7 @@ export class TerminalManager {
     const requestedId = id && (/^term_[A-Za-z0-9_-]{1,120}$/.test(id) || SESSION_TERMINAL_ID.test(id)) ? id : '';
     const nextId = requestedId || `term_${process.pid}_${++this.sequence}`;
     // A resolved shell profile (user picked one in the terminal strip) wins;
-    // otherwise the platform default stands as before.
+    // otherwise the platform default stands.
     const shell = profile?.path || (process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash');
     const plan = planShellIntegration(
       { path: shell, args: profile?.args, env: profile?.env },
@@ -517,17 +522,21 @@ export class TerminalManager {
     }
   }
 
+  /** Resumes a paused PTY before it is killed. */
+  private unpauseForKill(entry: ManagedTerminal): void {
+    if (!entry.outputPaused) return;
+    try {
+      (entry.pty as IPty & { resume?(): void }).resume?.();
+    } catch {
+      /* racing exit */
+    }
+    entry.outputPaused = false;
+  }
+
   dispose(id: string): void {
     const entry = this.terminals.get(id);
     if (!entry) return;
-    if (entry.outputPaused) {
-      try {
-        (entry.pty as IPty & { resume?(): void }).resume?.();
-      } catch {
-        /* racing exit */
-      }
-      entry.outputPaused = false;
-    }
+    this.unpauseForKill(entry);
     entry.disposed = true;
     entry.activity.exit();
     try {
@@ -559,14 +568,7 @@ export class TerminalManager {
   disposeAll(): void {
     this.disposed = true;
     for (const entry of this.terminals.values()) {
-      if (entry.outputPaused) {
-        try {
-          (entry.pty as IPty & { resume?(): void }).resume?.();
-        } catch {
-          /* racing exit */
-        }
-        entry.outputPaused = false;
-      }
+      this.unpauseForKill(entry);
       entry.disposed = true;
       entry.activity.dispose();
       try {

@@ -8,7 +8,7 @@
 //    and REMOTE_TRANSCRIPT_TAIL_BYTES serialized bytes, and always its newest
 //    row: an oversized tool row goes with its outputs cut to fit
 //    (remote-transcript.ts), but a message row is sent whole, so one over the
-//    budget alone makes a first page over it, as before;
+//    budget alone makes a first page over it;
 //  - later frames keep every row from the first one the phone holds, and
 //    reveal rows above it only up to the window the phone asked for
 //    (`prefetchSession`'s limit, requestPhoneTranscriptPage), within

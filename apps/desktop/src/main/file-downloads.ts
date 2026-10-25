@@ -23,7 +23,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { type BigIntStats, constants } from 'node:fs';
 import { type FileHandle, mkdtemp, open, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import {
@@ -53,9 +53,10 @@ import { localFileMimeTypeForPath } from '../shared/local-files';
 import type { DesktopService } from './desktop-service-contract';
 import { requiredSessionId } from './desktop-state';
 import { requiredString, sanitizedFileName } from './ipc-validation';
+import { comparablePath, insideRoot } from './opened-file-authorization';
 import { openedFilePath } from './opened-file-path';
 import { projectEntryPathIn } from './project-files';
-import { requestedLinkPath, resolveLinkedPath } from './transcript-file-links';
+import { NETWORK_PATH, requestedLinkPath, resolveLinkedPath } from './transcript-file-links';
 import { FolderMovedError, FolderTooLargeError, zipFolder } from './zip-folder';
 import { attachmentViewName, readSessionAttachment, requiredAttachmentId } from './session-attachments';
 
@@ -64,7 +65,6 @@ const MAX_GRANTS_PER_DEVICE = 8;
 /** Concurrent transfers per device; more is refused as `busy`. */
 const MAX_LEASES_PER_DEVICE = 4;
 const SWEEP_INTERVAL_MS = 15_000;
-const NETWORK_PATH = /^[\\/]{2}/;
 // O_NONBLOCK keeps a FIFO swapped in after the type check from blocking the
 // open; O_NOFOLLOW refuses a final component swapped to a symlink. Neither
 // exists on Windows, where the identity check after opening covers both.
@@ -208,15 +208,6 @@ function versionOf(identity: FileIdentity): string {
     .digest('base64url');
 }
 
-const comparable = (path: string): string => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
-
-/** Whether `path` is `root` or inside it (both already resolved). */
-function inside(root: string, path: string): boolean {
-  const base = comparable(root);
-  const target = comparable(path);
-  return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep);
-}
-
 const changed = (): FileDownloadError => new FileDownloadError('changed', 'The file changed on the host.');
 const expired = (): FileDownloadError => new FileDownloadError('expired', 'This download is no longer available.');
 const tooLarge = (): FileDownloadError =>
@@ -244,7 +235,7 @@ function release(file: OpenedFile): void {
 /** Rejects `changed` unless the open file itself lives at its `location`. */
 async function verifyLocation(file: OpenedFile): Promise<void> {
   const at = await openedFilePath(file.handle, file.location, file.identity).catch(() => null);
-  if (at === null || comparable(at) !== comparable(file.location)) throw changed();
+  if (at === null || comparablePath(at) !== comparablePath(file.location)) throw changed();
 }
 
 /** Opens a regular file by its canonical path and proves, from the open file,
@@ -337,7 +328,7 @@ async function authorizeProjectFile(
   }
   const { canonical, file } = await openRegularFile(lexical);
   return guarded(file, async () => {
-    if (!inside(root, canonical)) throw outside();
+    if (!insideRoot(root, canonical)) throw outside();
     const name = basename(lexical);
     return { file, name, mime: localFileMimeTypeForPath(name) };
   });
@@ -379,11 +370,11 @@ async function openSessionPath(
 ): Promise<{ file: OpenedFile; name: string; mime: string }> {
   const root = await projectRoot(host, row);
   const lexicalInProject =
-    root !== null && (inside(root, requested) || inside(resolve(String(row.projectPath)), requested));
+    root !== null && (insideRoot(root, requested) || insideRoot(resolve(String(row.projectPath)), requested));
   const { canonical, file } = await openRegularFile(requested);
   return guarded(file, async () => {
     // A project path may not leave the project through a symlink/junction.
-    if (lexicalInProject && !(root !== null && inside(root, canonical))) {
+    if (lexicalInProject && !(root !== null && insideRoot(root, canonical))) {
       throw new FileDownloadError('outside-project', "The link resolves outside the conversation's project.");
     }
     const name = basename(requested);
@@ -472,7 +463,7 @@ export function createFileDownloadService({
     void rm(dirname(record.path), { recursive: true, force: true, maxRetries: 5 }).catch(() => undefined);
   };
   const readsRecord = (entry: Authorized, record: ExportRecord): boolean =>
-    !entry.file.released && comparable(entry.file.location) === comparable(record.path);
+    !entry.file.released && comparablePath(entry.file.location) === comparablePath(record.path);
   /** An export some grant or lease still reads (or one still being staged). */
   const exportHeld = (record: ExportRecord): boolean =>
     record.staging === true || [...grants.values(), ...leases.values()].some((entry) => readsRecord(entry, record));
@@ -571,8 +562,8 @@ export function createFileDownloadService({
     // not leave it.
     const root = await projectRoot(host, row);
     const lexicalInProject =
-      root !== null && (inside(root, requested) || inside(resolve(String(row.projectPath)), requested));
-    if (lexicalInProject && !(root !== null && inside(root, canonical))) {
+      root !== null && (insideRoot(root, requested) || insideRoot(resolve(String(row.projectPath)), requested));
+    if (lexicalInProject && !(root !== null && insideRoot(root, canonical))) {
       throw new FileDownloadError('outside-project', "The link resolves outside the conversation's project.");
     }
     let zipped: Awaited<ReturnType<typeof zipFolder>>;
@@ -656,7 +647,7 @@ export function createFileDownloadService({
     // A record kept alive only by a grant or lease must not be renewed past its deadline.
     if (record.expiresAt <= now()) throw expired();
     const { canonical, file } = await openRegularFile(record.path);
-    if (comparable(canonical) !== comparable(record.path)) {
+    if (comparablePath(canonical) !== comparablePath(record.path)) {
       release(file);
       throw changed();
     }

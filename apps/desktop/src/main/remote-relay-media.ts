@@ -117,55 +117,57 @@ async function openLeasedFile(lease: NonNullable<ReturnType<typeof leasedMediaFi
   return file.handle;
 }
 
+async function gallerySource(deps: RelayMediaLaneDeps, media: RelayMediaRequest): Promise<MediaByteSource | null> {
+  const leased = leasedMediaFile(media.assetId);
+  const target = leased ?? (await resolveMediaFileTarget(deps.host, media.assetId, media.variant));
+  if (!target) return null;
+  let handle: FileHandle;
+  try {
+    // A gallery file gets the same opened-file check, within its own folder.
+    handle = leased
+      ? await openLeasedFile(leased)
+      : (await openAuthorizedFile(target.path, dirname(target.path))).handle;
+  } catch {
+    return null;
+  }
+  try {
+    const { size } = await handle.stat();
+    return {
+      size,
+      mime: target.mime,
+      read: async (offset, length) => {
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, offset);
+        return bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
+      },
+      close: () => handle.close().catch(() => undefined),
+    };
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+// A lease answers only the device it was minted for; the device comes from
+// the authenticated session the request names, never from the request.
+function downloadSource(deps: RelayMediaLaneDeps, media: RelayMediaRequest): MediaByteSource | null {
+  const deviceId = deps.mediaDevice?.(media.sid);
+  const target = deviceId ? deps.downloads?.resolveMedia(media.assetId, FILE_DOWNLOAD_MEDIA_VARIANT, deviceId) : null;
+  if (!target) return null;
+  return {
+    size: target.size,
+    mime: target.mime,
+    version: target.version,
+    read: (offset, length) => target.read(offset, length),
+    // The handle is the lease's; it closes when the lease ends.
+    close: async () => undefined,
+  };
+}
+
 export function createRelayMediaLane(deps: RelayMediaLaneDeps): RelayMediaLane {
   const pumps = new Map<string, MediaPump>();
   const sendChunk = (id: string, frame: Uint8Array): void =>
     deps.sendEnvelope({ type: 'media-chunk', id, data: Buffer.from(frame).toString('base64') });
-  const gallerySource = async (media: RelayMediaRequest): Promise<MediaByteSource | null> => {
-    const leased = leasedMediaFile(media.assetId);
-    const target = leased ?? (await resolveMediaFileTarget(deps.host, media.assetId, media.variant));
-    if (!target) return null;
-    let handle: FileHandle;
-    try {
-      // A gallery file gets the same opened-file check, within its own folder.
-      handle = leased
-        ? await openLeasedFile(leased)
-        : (await openAuthorizedFile(target.path, dirname(target.path))).handle;
-    } catch {
-      return null;
-    }
-    try {
-      const { size } = await handle.stat();
-      return {
-        size,
-        mime: target.mime,
-        read: async (offset, length) => {
-          const buffer = Buffer.alloc(length);
-          const { bytesRead } = await handle.read(buffer, 0, length, offset);
-          return bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
-        },
-        close: () => handle.close().catch(() => undefined),
-      };
-    } catch (error) {
-      await handle.close().catch(() => undefined);
-      throw error;
-    }
-  };
-  // A lease answers only the device it was minted for; the device comes from
-  // the authenticated session the request names, never from the request.
-  const downloadSource = (media: RelayMediaRequest): MediaByteSource | null => {
-    const deviceId = deps.mediaDevice?.(media.sid);
-    const target = deviceId ? deps.downloads?.resolveMedia(media.assetId, FILE_DOWNLOAD_MEDIA_VARIANT, deviceId) : null;
-    if (!target) return null;
-    return {
-      size: target.size,
-      mime: target.mime,
-      version: target.version,
-      read: (offset, length) => target.read(offset, length),
-      // The handle is the lease's; it closes when the lease ends.
-      close: async () => undefined,
-    };
-  };
   const serve = async (media: RelayMediaRequest): Promise<void> => {
     const { id } = media;
     const fail = (status: number): void => {
@@ -192,7 +194,7 @@ export function createRelayMediaLane(deps: RelayMediaLaneDeps): RelayMediaLane {
     let source: MediaByteSource | null;
     try {
       // A download id never falls through to the gallery's own resolution.
-      source = download ? downloadSource(media) : await gallerySource(media);
+      source = download ? downloadSource(deps, media) : await gallerySource(deps, media);
     } catch {
       fail(500);
       return;
