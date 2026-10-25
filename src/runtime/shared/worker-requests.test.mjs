@@ -14,7 +14,7 @@ test('a request that cannot be posted leaves no pending entry and still lets the
   // Functions cannot be structured-cloned: postMessage throws synchronously.
   await assert.rejects(request({ fn: () => {} }), { name: 'DataCloneError' });
   assert.equal(await request('after'), 'after');
-  await delay(200);
+  for (let i = 0; i < 200 && request.running(); i++) await delay(25);
   assert.equal(request.running(), false);
 });
 
@@ -24,6 +24,6 @@ test('a failed post as the only request retires the worker once idle', async () 
     request(() => {}),
     { name: 'DataCloneError' }
   );
-  await delay(200);
+  for (let i = 0; i < 200 && request.running(); i++) await delay(25);
   assert.equal(request.running(), false);
 });

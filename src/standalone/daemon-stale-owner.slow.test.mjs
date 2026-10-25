@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
-import { discoveryPid, probeDaemonPid, startOwnerLivenessListener } from './daemon-owner.mjs';
+import { discoveryPid, probeDaemonPid, proveDaemonOwnerRecord, startOwnerLivenessListener } from './daemon-owner.mjs';
 import { ensureDaemon, spawnDaemonCandidate } from './session-client.mjs';
 
 // The real daemon in an isolated home, data dir and runtime root, on a 6 s
@@ -382,10 +382,24 @@ test('ensureDaemon bounds every probe by its deadline, even against a trickling 
   );
   fx.writeOwner({ claimedAt: fx.iso(-3_600_000), heartbeatAt: fx.iso(-3_600_000), livenessPort: port });
 
-  const startedAt = Date.now();
-  await assert.rejects(ensureDaemon({ cwd: fx.root, attempts: 0, readyTimeoutMs: 400 }), (error) =>
-    error.message.startsWith('daemon session endpoint is unavailable')
+  // The endpoint trickles forever, so rejecting at all proves the deadline cut the probe off.
+  const budgets = [];
+  await assert.rejects(
+    ensureDaemon({
+      cwd: fx.root,
+      attempts: 0,
+      readyTimeoutMs: 400,
+      proveOwner: (ownerPath, options) => {
+        budgets.push(options.budgetMs);
+        return proveDaemonOwnerRecord(ownerPath, options);
+      },
+    }),
+    (error) => error.message.startsWith('daemon session endpoint is unavailable')
   );
-  const elapsed = Date.now() - startedAt;
-  assert.ok(elapsed < 1500, `gave up after ${elapsed}ms against a 400ms deadline`);
+  // The owner proof receives what is left of the 400 ms deadline, not a fresh default.
+  assert.ok(budgets.length >= 1);
+  assert.ok(
+    budgets.every((budget) => budget >= 1 && budget <= 400),
+    `forwarded budgets ${budgets}`
+  );
 });

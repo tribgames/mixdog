@@ -81,7 +81,7 @@ test('transient HTTP failures retry within budget and respect Retry-After', asyn
   });
   assert.equal(result.content, page.content);
   assert.equal(attempts, 2);
-  assert.ok(Date.now() - start >= 450);
+  assert.ok(Date.now() - start >= 440, 'the retry waited out Retry-After (timer granularity allowed)');
   let count = 0;
   await assert.rejects(
     runFetchPipeline(url, {

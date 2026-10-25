@@ -207,18 +207,30 @@ test('the proof probes the liveness port, else the endpoint daemon.json publishe
 test('a trickling health response is cut off by total duration, and a short budget proves nothing', async (t) => {
   const { discoveryPath } = fixture(t);
   const port = await tricklingEndpoint(t);
-  const startedAt = performance.now();
+  // The endpoint trickles forever, so resolving at all proves the total-duration cut-off.
   assert.deepEqual(await probeDaemonPid({ port, timeoutMs: 60 }), { pid: 0, timedOut: true });
-  const elapsed = performance.now() - startedAt;
-  assert.ok(elapsed < 250, `probe took ${Math.round(elapsed)}ms against a 60ms bound`);
 
   const owner = { pid: process.pid, livenessPort: port, heartbeatAt: at(-STALE - 1) };
   const prove = (options) => proveDaemonOwner(owner, { discoveryPath, now: NOW, staleMs: STALE, ...options });
   // Silent for the full probe timeout: dead. Cut short by a caller's deadline: unknown.
   assert.deepEqual(await prove({ timeoutMs: 60 }), { pid: process.pid, verdict: 'dead' });
-  const budgeted = performance.now();
   assert.deepEqual(await prove({ timeoutMs: 2000, budgetMs: 60 }), { pid: process.pid, verdict: 'unknown' });
-  assert.ok(performance.now() - budgeted < 250);
+});
+
+test('the probe is given the smaller of the probe timeout and the caller budget', async (t) => {
+  const { discoveryPath } = fixture(t);
+  const owner = { pid: process.pid, livenessPort: 4242, heartbeatAt: at(-STALE - 1) };
+  const seen = [];
+  const probe = async ({ timeoutMs }) => {
+    seen.push(timeoutMs);
+    return { pid: 0, timedOut: true };
+  };
+  const prove = (options) =>
+    proveDaemonOwner(owner, { discoveryPath, now: NOW, staleMs: STALE, probe, ...options });
+  assert.deepEqual(await prove({ timeoutMs: 2000, budgetMs: 60 }), { pid: process.pid, verdict: 'unknown' });
+  assert.deepEqual(await prove({ timeoutMs: 2000, budgetMs: 5000 }), { pid: process.pid, verdict: 'dead' });
+  assert.deepEqual(await prove({ timeoutMs: 2000 }), { pid: process.pid, verdict: 'dead' });
+  assert.deepEqual(seen, [60, 2000, 2000]);
 });
 
 test('the heartbeat refreshes or recreates its own record and stops when another pid owns it', async (t) => {

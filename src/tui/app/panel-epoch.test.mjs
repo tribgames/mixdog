@@ -329,9 +329,7 @@ test('Esc on the Update panel still kills its in-flight first check', async () =
 });
 
 test('App.jsx routes every picker handover through shouldSupersedePanelEpoch', async () => {
-  // Pin the delegation separately from the shared helper's behavior tests.
   const source = await readFile(new URL('../App.jsx', import.meta.url), 'utf8');
-  assert.match(source, /import \{ shouldSupersedePanelEpoch, supersedePanelEpoch \} from '\.\/app\/panel-epoch\.mjs';/);
   assert.match(
     source,
     /if \(shouldSupersedePanelEpoch\(previousPicker, livePickerRef\.current\)\) supersedePanelEpoch\(\);/

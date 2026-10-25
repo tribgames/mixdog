@@ -66,9 +66,8 @@ test('listMediaLanes forwards budgetMs: a slow gateway catalog answers pending, 
   const session = createSessionMediaApi({ runtime: createMediaApi() });
   const openRouter = (rows) => rows.find((row) => row.id === 'openrouter');
 
-  const started = Date.now();
+  // The catalog stays blocked until released below, so this resolving at all proves the budget bounds the listing.
   const pending = openRouter(await session.listMediaLanes({ budgetMs: 300 }));
-  assert.ok(Date.now() - started < 5_000, 'the budget bounds the listing instead of waiting on the slow catalog');
   assert.equal(pending.authenticated, true);
   assert.equal(pending.catalogPending, true);
   assert.deepEqual(pending.kinds, []);

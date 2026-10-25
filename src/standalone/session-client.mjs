@@ -376,7 +376,8 @@ export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = dae
 }
 
 /** Spawn-or-attach discovery for the machine-global daemon.
- *  `entry` is a test seam; production always forks the real daemon. */
+ *  `entry` and `proveOwner` are test seams; production always forks the real
+ *  daemon and probes the real owner. */
 export async function ensureDaemon({
   cwd = process.cwd(),
   log = () => {},
@@ -384,6 +385,7 @@ export async function ensureDaemon({
   readyTimeoutMs = null,
   onUpgradeWait = null,
   entry = daemonEntry(),
+  proveOwner = proveDaemonOwnerRecord,
 } = {}) {
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS);
   let requestedTimeoutMs = DEFAULT_DAEMON_READY_TIMEOUT_MS;
@@ -460,7 +462,7 @@ export async function ensureDaemon({
     // answer with its pid — a crashed daemon leaves its files behind, naming a
     // pid the OS may have reused. A probe cut short by this deadline proves
     // nothing either way.
-    const proof = await proveDaemonOwnerRecord(daemonOwnerPath(), {
+    const proof = await proveOwner(daemonOwnerPath(), {
       discoveryPath: sessionDiscoveryPath(),
       budgetMs: Math.max(1, deadline - Date.now()),
     });

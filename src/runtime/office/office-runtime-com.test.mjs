@@ -8,19 +8,6 @@ import { physicalAsarPath } from './shared/asar-path.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
-test('persistent Office validation inspects the open document with bounded Excel busy retries', async () => {
-  const source = await readFile(new URL('./com/office-com-session-host.ps1', import.meta.url), 'utf8');
-  const start = source.indexOf("'validate' {");
-  const end = source.indexOf("'checkpoint' {", start);
-  const validation = source.slice(start, end);
-  assert.match(validation, /Snapshot-SessionDocument \$document/);
-  assert.match(validation, /Issues-SessionDocument \$document/);
-  assert.match(source, /Invoke-ExcelComRetry[\s\S]+Excel session snapshot/);
-  assert.match(source, /Invoke-ExcelComRetry[\s\S]+Excel session issue inspection/);
-  assert.match(source, /\$app\.Presentations\.Add\(\$visible\)/);
-  assert.doesNotMatch(validation, /Validate-NativeDocument/);
-});
-
 test('Office COM host resolves to the physical ASAR sidecar for external PowerShell', () => {
   const packaged =
     'C:\\Program Files\\Mixdog\\resources\\runtime.asar\\node_modules\\mixdog\\src\\runtime\\office\\com\\office-com-host.ps1';

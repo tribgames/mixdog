@@ -24,6 +24,6 @@ test('data dropped after repeated flush failures is recorded', async (t) => {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, 'missing-dir', 'log.txt');
   appendBuffered(path, 'hello');
-  await wait(600);
+  for (let i = 0; i < 200 && !(getBufferedAppenderStats(path).droppedBytes >= 5); i++) await wait(25);
   assert.ok(getBufferedAppenderStats(path).droppedBytes >= 5);
 });

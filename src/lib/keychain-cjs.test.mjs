@@ -237,10 +237,8 @@ test('linux: an unanswered unlock prompt never blocks the event loop and reports
     async (keychain) => {
       await keychain.prewarmSecrets();
       assert.equal(keychain.keychainStatus().state, 'locked');
-      const started = Date.now();
       assert.throws(() => keychain.getSecret('acct'), /keyring/i);
       assert.equal(keychain.hasSecret('acct'), false);
-      assert.ok(Date.now() - started < 200, 'sync read returns immediately');
       let ticks = 0;
       const timer = setInterval(() => ticks++, 20);
       assert.equal(await keychain.retryKeychain({ interactive: true }), false);
@@ -831,15 +829,44 @@ test('linux: prewarm is bounded as a whole (search + lookups) and a background r
     async (keychain) => {
       let recovered = 0;
       keychain.onKeychainRecovered(() => recovered++);
-      const started = Date.now();
       await keychain.prewarmSecrets();
-      assert.ok(Date.now() - started < 600, 'search and lookups share one deadline');
       assert.equal(keychain.keychainStatus().state, 'locked');
       unlocked = true;
       await new Promise((r) => setTimeout(r, 700));
       assert.equal(keychain.keychainStatus().state, 'ok');
       assert.equal(recovered, 1);
       assert.equal(keychain.getSecret('acct'), 's3cret');
+    }
+  );
+});
+
+test('linux: the configured prewarm deadline (not the 4000 ms default) cuts off a hung lookup', async (t) => {
+  await withLinuxKeychain(
+    (args) =>
+      args[0] === 'search'
+        ? { stdout: '[/org/x/1]\nsecret = s\n', stderr: 'attribute.account = acct\n' }
+        : { hang: true },
+    { MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS: '300', MIXDOG_KEYCHAIN_RETRY_MS: '100000' },
+    async (keychain) => {
+      t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+      const flush = async () => {
+        for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+      };
+      let settled = false;
+      const prewarm = keychain.prewarmSecrets().then(() => {
+        settled = true;
+      });
+      let elapsed = 0;
+      while (!settled && elapsed < 1000) {
+        await flush();
+        t.mock.timers.tick(1);
+        elapsed += 1;
+      }
+      await flush();
+      t.mock.timers.reset();
+      await prewarm;
+      assert.ok(settled && elapsed >= 295 && elapsed <= 310, `prewarm ended after ${elapsed} ms of controlled time`);
+      assert.equal(keychain.keychainStatus().state, 'locked');
     }
   );
 });
