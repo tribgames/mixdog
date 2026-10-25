@@ -630,7 +630,8 @@ test('implicit test traces are isolated while ship failures remain queryable', (
         resultKind: 'error',
         resultText: 'Error: production failure probe',
       });
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const failuresPath = join(process.env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
+      for (let i = 0; i < 200 && !existsSync(failuresPath); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
       process.stdout.write(JSON.stringify({
         trace: existsSync(join(process.env.MIXDOG_DATA_DIR, 'history', 'agent-trace.jsonl')),
         failures: existsSync(join(process.env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl')),

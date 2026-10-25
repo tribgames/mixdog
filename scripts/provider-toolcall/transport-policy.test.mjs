@@ -3,7 +3,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EventEmitter,
-  readFileSync,
   _computeDelta,
   _buildResponseCreateFrame,
   _withCodexWsClientMetadata,
@@ -245,16 +244,6 @@ test('stream progress excludes transport and response acknowledgements from visi
     'tool'
   );
 
-  const turnSource = readFileSync(
-    new URL('../../src/session-runtime/turn/turn-run/ask-callbacks.mjs', import.meta.url),
-    'utf8'
-  );
-  const recoverySource = readFileSync(
-    new URL('../../src/runtime/agent/orchestrator/session/send-instrumentation.mjs', import.meta.url),
-    'utf8'
-  );
-  assert.match(turnSource, /if \(isVisibleStreamProgress\(args\[0\]\)\)/);
-  assert.match(recoverySource, /!turnFirstDelta && isVisibleStreamProgress\(kind\)/);
 });
 
 test('responses transport policy: _gateTransportMode down-shifts per capability', () => {

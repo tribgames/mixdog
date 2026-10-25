@@ -203,8 +203,12 @@ test('relay: a redial gets a fresh code and the old leg code dies with its socke
     assert.ok(issued.expiresInMs > 0);
     desktop.socket.close();
     await new Promise((resolve) => desktop.socket.once('close', resolve));
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal((await post(origin, '/pair-code/resolve', { code: issued.code })).status, 404);
+    let status = 0;
+    for (let i = 0; i < 100 && status !== 404; i += 1) {
+      status = (await post(origin, '/pair-code/resolve', { code: issued.code })).status;
+      if (status !== 404) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(status, 404);
   });
 });
 

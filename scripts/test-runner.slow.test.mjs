@@ -114,18 +114,17 @@ test('lane names are suffix-based, case-sensitive, and default to fast', () => {
   assert.equal(laneOf('src/slow/a.test.mjs'), 'fast');
 });
 
-test('the electron lane rides the default lane and is dropped only by an explicit exclusion', () => {
-  // Electron and window-capture tests cannot run twice at once, so they own a
-  // lane — but a plain run must keep covering them.
-  assert.equal(laneSelected('fast', 'electron'), true);
+test('the electron lane stays out of the default lane and is selected by name or by all', () => {
+  // Electron and window-capture tests need a real desktop and cannot run twice
+  // at once, so a plain run never starts them.
+  assert.equal(laneSelected('fast', 'electron'), false);
   assert.equal(laneSelected('fast', 'slow'), false);
   assert.equal(laneSelected('fast', 'live'), false);
   assert.equal(laneSelected('electron', 'electron'), true);
   assert.equal(laneSelected('electron', 'fast'), false);
   assert.equal(laneSelected('all', 'electron'), true);
   const files = ['src/a.test.mjs', 'src/overlay.electron.test.mjs', 'src/z.slow.test.mjs'];
-  assert.deepEqual(selectTestFiles(files, parseArgs([])), ['src/a.test.mjs', 'src/overlay.electron.test.mjs']);
-  assert.deepEqual(selectTestFiles(files, parseArgs(['--exclude-lane', 'electron'])), ['src/a.test.mjs']);
+  assert.deepEqual(selectTestFiles(files, parseArgs([])), ['src/a.test.mjs']);
   assert.deepEqual(selectTestFiles(files, parseArgs(['--lane=electron'])), ['src/overlay.electron.test.mjs']);
   assert.deepEqual(
     selectTestFiles(files, parseArgs(['--lane=all', '--exclude-lane=electron', '--exclude-lane=slow'])),
@@ -339,16 +338,15 @@ test('CLI listing uses its working directory, sorted lanes, filters, and an empt
   });
   const fast = runNode(cwd, [runnerPath, '--list']);
   assert.equal(fast.status, 0);
-  // The default lane keeps covering the electron files, labelled as their own
-  // lane so a concurrent run knows what to exclude.
-  assert.equal(
-    fast.stdout,
-    'fast  scripts/zeta-test.mjs\nfast  src/alpha.test.mjs\nelectron src/overlay.electron.test.mjs\n'
-  );
+  // The default lane leaves the electron files to their own lane.
+  assert.equal(fast.stdout, 'fast  scripts/zeta-test.mjs\nfast  src/alpha.test.mjs\n');
   assert.equal(fast.stderr, '');
-  const withoutElectron = runNode(cwd, [runnerPath, '--exclude-lane', 'electron', '--list']);
+  const withoutElectron = runNode(cwd, [runnerPath, '--lane=all', '--exclude-lane', 'electron', '--list']);
   assert.equal(withoutElectron.status, 0);
-  assert.equal(withoutElectron.stdout, 'fast  scripts/zeta-test.mjs\nfast  src/alpha.test.mjs\n');
+  assert.equal(
+    withoutElectron.stdout,
+    'fast  scripts/zeta-test.mjs\nfast  src/alpha.test.mjs\nlive  src/beta.live.test.mjs\nslow  src/omega.slow.test.mjs\n'
+  );
   const electronOnly = runNode(cwd, [runnerPath, '--lane=electron', '--list']);
   assert.equal(electronOnly.status, 0);
   assert.equal(electronOnly.stdout, 'electron src/overlay.electron.test.mjs\n');

@@ -626,6 +626,7 @@ jobs:
         run: |
           npm test --prefix apps/desktop -- src/main/computer/
           npm run test:slow --prefix apps/desktop -- src/main/computer/
+          npm run test:electron --prefix apps/desktop -- src/main/computer/
           # Headless Linux Chrome has no hover pointer, so the hover-gated
           # reveal in this suite is only asserted here.
           npm run test:slow --prefix apps/desktop -- src/renderer/compact-chrome-layout.slow.test.mjs

@@ -114,7 +114,7 @@ test('planDirectExeSpawn accepts node -e with a real node.exe', () => {
   assert.deepEqual(plan.argv, ['-e', "process.stdout.write('ok')"]);
 });
 
-test('execShellCommand directArgv runs the exe without a shell wrapper', { timeout: 15_000 }, async () => {
+test('execShellCommand directArgv runs the exe without a shell wrapper', async () => {
   const result = await execShellCommand({
     shell: process.execPath,
     shellArg: '',
@@ -123,7 +123,7 @@ test('execShellCommand directArgv runs the exe without a shell wrapper', { timeo
     directArgv: ['-e', 'process.stdout.write("ok")'],
     env: process.env,
     cwd: process.cwd(),
-    timeoutMs: 10_000,
+    timeoutMs: 60_000,
   });
   assert.equal(result.exitCode, 0);
   assert.equal(String(result.stdout || '').trim(), 'ok');

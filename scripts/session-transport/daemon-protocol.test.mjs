@@ -358,6 +358,7 @@ test('a lost registration response replays one client token instead of leaking l
 });
 
 test('health and registration bypass a burst of synchronous session call starts', async () => {
+  let themeCalls = 0;
   await withDaemon(
     async ({ discovery }) => {
       const client = await attachSession({ discovery, cwd: process.cwd() });
@@ -379,10 +380,8 @@ test('health and registration bypass a burst of synchronous session call starts'
 
       let newcomer = null;
       try {
-        const started = performance.now();
         newcomer = await attachSession({ discovery, cwd: process.cwd() });
-        const elapsed = performance.now() - started;
-        assert.ok(elapsed < 100, `registration waited ${elapsed.toFixed(1)}ms behind session calls`);
+        assert.ok(themeCalls < 64, `registration waited behind all ${themeCalls} session calls`);
       } finally {
         await newcomer?.close('control-plane test');
         await work;
@@ -397,6 +396,7 @@ test('health and registration bypass a burst of synchronous session call starts'
           while (performance.now() < deadline) {
             /* deliberate synchronous slice */
           }
+          themeCalls += 1;
           return index;
         },
       }),

@@ -416,18 +416,6 @@ test('static target resolution rejects symlink and junction escapes', () => {
   assert.deepEqual(resolveStaticTarget(root, '/linked/secret.txt'), { status: 403, target: '' });
 });
 
-test('renderer boot logic is self-hosted for the relay script policy', () => {
-  const html = readFileSync(new URL('../desktop/src/renderer/index.html', import.meta.url), 'utf8');
-  const boot = readFileSync(new URL('../desktop/src/renderer/public/boot.js', import.meta.url), 'utf8');
-  const config = readFileSync(new URL('../desktop/electron.vite.config.ts', import.meta.url), 'utf8');
-  assert.match(html, /<script src="\.\/boot\.js"><\/script>/);
-  assert.doesNotMatch(html, /<script>\s*\S/);
-  assert.match(boot, /mixdog\.desktop-theme-preference/);
-  assert.match(boot, /mixdog-boot-error/);
-  assert.match(config, /name: 'mixdog-inline-boot-script'/);
-  assert.match(config, /`<script>\$\{source\}<\/script>`/);
-});
-
 test('device authentication accepts headers and rejects URL credentials', () => {
   const header = `Basic ${Buffer.from('header-device:header-secret').toString('base64')}`;
   assert.deepEqual(

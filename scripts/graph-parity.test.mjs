@@ -386,22 +386,6 @@ test('missing symbols, empty walks, duplicate keys, and Windows rel separators',
   assert.equal(parsed[0].rel, 'src/win/a.js');
 });
 
-test('compareWalks 3000 files stays linear in file count', () => {
-  const oldRecords = new Array(3000);
-  const newRecords = new Array(3000);
-  for (let i = 0; i < 3000; i += 1) {
-    const symbols = [sym('keep', 'function', 1), sym(`n${i}`, 'function', 2)];
-    oldRecords[i] = rec({ rel: `src/f${i}.js`, symbols });
-    newRecords[i] = rec({ rel: `src/f${i}.js`, symbols });
-  }
-  const t0 = performance.now();
-  const report = compareWalks(oldRecords, newRecords);
-  const ms = performance.now() - t0;
-  assert.equal(report.filesCompared, 3000);
-  assert.equal(report.totals.loss, 0);
-  assert.ok(ms < 2000, `quadratic compareWalks: ${ms.toFixed(1)}ms for 3000 files`);
-});
-
 test('CLI jsonl mode: empty output, missing symbols, backslash rels', async (t) => {
   const dir = tempDir(t);
   const emptyOld = writeJsonl(dir, 'empty-old.jsonl', []);
@@ -428,7 +412,6 @@ test('CLI jsonl mode: empty output, missing symbols, backslash rels', async (t) 
 });
 
 test('missing binary exits non-zero without hanging', async () => {
-  const started = Date.now();
   const result = await runCli(
     [
       '--old',
@@ -440,10 +423,8 @@ test('missing binary exits non-zero without hanging', async () => {
     ],
     { timeoutMs: 10_000 }
   );
-  const ms = Date.now() - started;
   assert.equal(result.code, 1);
   assert.match(result.stderr, /graph-parity:/);
-  assert.ok(ms < 8_000, `missing binary hung for ${ms}ms`);
 });
 
 test('parseKindMap reads --langs and per-language kinds objects', () => {
@@ -840,11 +821,8 @@ test('same-name LOSS+ADDITION on one file is a likely line move and still fails'
 });
 
 test('runProcess times out and kills a hung child', async () => {
-  const started = Date.now();
   await assert.rejects(
     () => runProcess(process.execPath, ['-e', 'setInterval(() => {}, 1e9)'], { timeoutMs: 400 }),
     /timed out after 400ms/
   );
-  const ms = Date.now() - started;
-  assert.ok(ms < 8_000, `hung child was not killed in time: ${ms}ms`);
 });

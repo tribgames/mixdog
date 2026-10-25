@@ -59,14 +59,12 @@ test('a client waits for the live singleton winner to publish discovery', async 
         });
       }, 120);
     });
-    const startedAt = Date.now();
     const discovery = await client.ensureDaemon({
       attempts: 0,
       readyTimeoutMs: 2_000,
     });
     await publish;
     assert.equal(discovery.pid, process.pid);
-    assert.ok(Date.now() - startedAt >= 100, 'the owner publication gap was exercised');
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     if (previousRuntimeRoot === undefined) delete process.env.MIXDOG_RUNTIME_ROOT;

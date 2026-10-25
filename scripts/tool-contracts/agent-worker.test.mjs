@@ -141,9 +141,8 @@ test('channel worker daemon spawn env advertises host identity', async () => {
     if (prevSupervisorPid == null) delete process.env.MIXDOG_SUPERVISOR_PID;
     else process.env.MIXDOG_SUPERVISOR_PID = prevSupervisorPid;
     // Detach only ends OUR attachment; the stub daemon self-shuts after its
-    // client-grace window. Give it that window before deleting its tmp root.
-    await new Promise((resolveWait) => setTimeout(resolveWait, 700));
-    rmSync(channelWorkerTmp, { recursive: true, force: true });
+    // client-grace window, so retry the delete while it still holds files.
+    rmSync(channelWorkerTmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 });
 

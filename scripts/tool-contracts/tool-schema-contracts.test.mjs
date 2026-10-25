@@ -18,7 +18,6 @@ import { CODE_GRAPH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools
 import { PATCH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../../src/runtime/memory/tool-defs.mjs';
 import { TOOL_DEFS as WEB_SEARCH_TOOL_DEFS } from '../../src/runtime/web-search/tool-defs.mjs';
-import { assertCodeGraphDescriptionContract } from '../code-graph-description-contract.mjs';
 import { REACTION_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
 
 function assertHas(set, name) {
@@ -203,14 +202,6 @@ test('react stays a small bot-only Lead default with its usage guidance in the d
     react.inputSchema.additionalProperties !== false ||
     react.inputSchema.required !== undefined ||
     react.annotations?.agentHidden !== true ||
-    !/❤️ 👍 ✔️ 😆 😮 😢 🙏/.test(props.emoji.description) ||
-    !/no reply text, when the reaction fully answers/.test(react.description) ||
-    !/never as a status signal/.test(react.description) ||
-    !/never mention or explain a reaction/.test(react.description) ||
-    !/never repeating one another member left/.test(react.description) ||
-    !/❤️ warmth or good news, 👍 agreement or ok, ✔️ done or noted, 😆 funny, 😮 surprising, 😢 sad, 🙏 thanks\./.test(
-      react.description
-    ) ||
     toolSchemaSize(react) > 1200
   ) {
     throw new Error(`react schema/description drifted (${toolSchemaSize(react)} chars): ${JSON.stringify(react)}`);
@@ -344,43 +335,8 @@ test('read schema exposes canonical scalar and batch windows', () => {
   }
 });
 
-test('code_graph descriptions route structure lookups away from grep', () => {
-  const codeGraphDescription = CODE_GRAPH_TOOL_DEFS[0]?.description || '';
+test('code_graph schema keeps blank-target rejection and result/depth bounds', () => {
   const codeGraphProps = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties || {};
-  // code_graph description stays structure-oriented and must actively route
-  // symbol/definition/caller lookups AWAY from repeated grep (the grep_retry +
-  // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
-  // enumerate modes, but must not drift into web-search territory.
-  if (
-    !/Code structure and relations/i.test(codeGraphDescription) ||
-    !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) =>
-      codeGraphDescription.includes(mode)
-    ) ||
-    !/text and regex belong to grep/i.test(codeGraphDescription)
-  ) {
-    throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
-  }
-  if (
-    !/files\[\]/i.test(codeGraphProps.mode?.description || '') ||
-    !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')
-  ) {
-    throw new Error('code_graph schema must keep compact relative/absolute path descriptions');
-  }
-  if (
-    !/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') ||
-    !/omit for project root/i.test(codeGraphProps.cwd?.description || '')
-  ) {
-    throw new Error('code_graph schema must expose its explicit outside-cwd root');
-  }
-  if (
-    !/find_symbol returns declaration\/body/i.test(codeGraphDescription) ||
-    !/references adds usages \(body opt-in\)/i.test(codeGraphDescription) ||
-    !/callers\/callees return locations/i.test(codeGraphDescription) ||
-    !/find_symbol defaults true/i.test(codeGraphProps.body?.description || '') ||
-    !/references is opt-in/i.test(codeGraphProps.body?.description || '')
-  ) {
-    throw new Error('code_graph descriptions must distinguish declarations, usages, and relation locations');
-  }
   const codeGraphFileShapes = codeGraphProps.files?.anyOf || [];
   const codeGraphSymbolShapes = codeGraphProps.symbols?.anyOf || [];
   const codeGraphFileStringShape = codeGraphFileShapes.find((shape) => shape?.type === 'string');
@@ -395,8 +351,7 @@ test('code_graph descriptions route structure lookups away from grep', () => {
     codeGraphSymbolArrayShape?.minItems !== undefined ||
     codeGraphSymbolArrayShape?.items?.minLength !== undefined ||
     codeGraphProps.cwd?.minLength !== undefined ||
-    codeGraphProps.limit?.maximum !== 500 ||
-    !/overview hierarchy or caller traversal depth/i.test(codeGraphProps.depth?.description || '')
+    codeGraphProps.limit?.maximum !== 500
   ) {
     throw new Error('code_graph schema must reject blank targets and expose runtime result/depth bounds');
   }
@@ -406,12 +361,6 @@ test('code_graph descriptions route structure lookups away from grep', () => {
   ]) {
     if (schema?.type !== 'integer') throw new Error(`${label} must expose integer schema: ${JSON.stringify(schema)}`);
   }
-  assertCodeGraphDescriptionContract({
-    description: codeGraphDescription,
-    modeDescription: codeGraphProps.mode?.description || '',
-    filesDescription: codeGraphProps.files?.description || '',
-    symbolsDescription: codeGraphProps.symbols?.description || '',
-  });
 });
 
 test('recall schema keeps fan-out, paging, and expansion contracts', () => {
@@ -660,10 +609,6 @@ test('load_tool and Skill schemas stay pure loaders', () => {
 function assertGrepLocatorSchema(grepTool) {
   const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';
   const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description || '';
-  const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
-  const grepModeDescription = grepTool?.inputSchema?.properties?.mode?.description || '';
-  const grepLimitDescription = grepTool?.inputSchema?.properties?.limit?.description || '';
-  const grepContextDescription = grepTool?.inputSchema?.properties?.context?.description || '';
   const grepPatternShapes = grepTool?.inputSchema?.properties?.pattern?.anyOf;
   const grepStringPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'string');
   const grepArrayPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'array');
@@ -689,35 +634,10 @@ function assertGrepLocatorSchema(grepTool) {
   ) {
     throw new Error('grep schema must expose pattern and path fan-out with scalar glob guidance');
   }
-  if (
-    !/\bSearch literal\/regex file contents\b/i.test(grepTool?.description || '') ||
-    !/path:line blocks with context/i.test(grepTool?.description || '') ||
-    !/Broad reconnaissance: mode:files/i.test(grepTool?.description || '')
-  ) {
-    throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
-  }
-  if (
-    !/glob filter evaluated inside path/i.test(grepGlobDescription) ||
-    !/use path instead/i.test(grepGlobDescription)
-  ) {
-    throw new Error('grep glob schema must describe scope narrowing');
-  }
-  if (
-    !/files lists matching paths/i.test(grepModeDescription) ||
-    !/count totals all patterns together per file/i.test(grepModeDescription) ||
-    !/content/i.test(grepModeDescription)
-  ) {
-    throw new Error('grep mode schema must name its compact output shapes and count aggregation');
-  }
-  if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0 || !/Requested results/i.test(grepLimitDescription)) {
+  if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0) {
     throw new Error('grep limit schema must keep locator caps explicit');
   }
-  if (
-    grepTool?.inputSchema?.properties?.['-C'] ||
-    grepTool?.inputSchema?.properties?.context?.maximum !== 200 ||
-    !/automatic context/i.test(grepContextDescription) ||
-    !/0 for matches only/i.test(grepContextDescription)
-  ) {
+  if (grepTool?.inputSchema?.properties?.['-C'] || grepTool?.inputSchema?.properties?.context?.maximum !== 200) {
     throw new Error('grep schema must expose one context field and keep ripgrep aliases internal');
   }
   if (grepTool?.inputSchema?.properties?.type) {

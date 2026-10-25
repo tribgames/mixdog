@@ -16,6 +16,7 @@ invoking package. A file joins the suite by existing; nothing in
 | `*.test.mjs` | fast | `npm test`; every push in `release-gate.yml` |
 | `*.slow.test.mjs` | slow | `npm run test:slow`; its own gate job beside the fast one |
 | `*.live.test.mjs` | live | `npm run test:live`; needs a built artifact or live system |
+| `*.electron.test.mjs` | electron | `npm run test:electron` (apps/desktop); needs a real Electron and window-capture surface, never two runs at once; the Windows Computer Use leg of `release-gate.yml` |
 
 `npm test -- src/runtime/memory` narrows to a path substring; `--test-*`
 flags forward to `node --test`. Every run ends with the slowest files so a

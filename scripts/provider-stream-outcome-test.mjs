@@ -14,6 +14,7 @@
 //     toolCallEmitted / partialToolCall / emittedThinking / pendingToolUse /
 //     unsafeToRetry) keep working, INCLUDING the provider-specific legacy-flag
 //     gap class (Anthropic errors that carry only partialContent).
+import './lib/isolated-test-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

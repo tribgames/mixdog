@@ -8,9 +8,9 @@
 //   *.electron.test.mjs  electron need a real Electron or window-capture
 //                                 surface, so two runs of them cannot overlap
 //
-// The electron lane rides the default lane (a plain run still covers it) and
-// `--exclude-lane electron` is the explicit opt-out that lets a second run
-// proceed concurrently; `--lane electron` runs those files alone.
+// The electron lane is not part of the default lane: `--lane electron` runs
+// those files alone, and `--lane all` includes them unless `--exclude-lane
+// electron` lets a second run proceed concurrently.
 //
 // Usage — see USAGE below (`node scripts/test.mjs --help`).
 //
@@ -35,11 +35,11 @@ export const USAGE = `Usage: node scripts/test.mjs [--lane ${LANES.join('|')}] [
                   that differs from HEAD (edits and untracked files). A changed
                   file no test references (a path joined at run time) is listed,
                   so a path filter can add its tests.
-  --lane          fast (default) also covers the electron lane, so a plain run
-                  keeps testing it; --lane electron runs those files alone.
+  --lane          fast is the default; electron needs a real desktop and only
+                  runs with --lane electron or --lane all.
   --exclude-lane  drop one lane from the selection, repeatable. Electron and
                   window-capture tests cannot run twice at once, so a second
-                  concurrent run uses --exclude-lane electron.
+                  concurrent --lane all run uses --exclude-lane electron.
   --rerun-failed <n>  re-run the failed files up to n times. Default: 1 for a
                   local run, 0 (off) when CI is set; MIXDOG_TEST_RERUN_FAILED
                   overrides the default. A test that passes on a re-run is
@@ -154,12 +154,8 @@ export async function discoverTestFiles(cwd = process.cwd()) {
   return [...files].sort();
 }
 
-// The electron lane rides the default lane so a plain `npm test` keeps
-// covering an Electron/window-capture surface that no other lane owns;
-// `--exclude-lane electron` is the explicit way to drop it.
 export function laneSelected(lane, fileLane) {
-  if (lane === 'all' || lane === fileLane) return true;
-  return lane === 'fast' && fileLane === 'electron';
+  return lane === 'all' || lane === fileLane;
 }
 
 export function selectTestFiles(files, { lane, filters, excludeLanes = [] }) {
