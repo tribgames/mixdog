@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -372,9 +374,10 @@ test('Ajv resolves from the root package dependency', async () => {
   const require = createRequire(import.meta.url);
   const rootManifest = JSON.parse(await readFile(new URL('../../../../../package.json', import.meta.url), 'utf8'));
   assert.match(rootManifest.dependencies.ajv, /^\^8\./);
-  const resolved = require.resolve('ajv/dist/2020.js');
-  const rootAjv = fileURLToPath(new URL('../../../../../node_modules/ajv/', import.meta.url));
-  assert.ok(resolved.startsWith(rootAjv), resolved);
+  // Compare canonical real paths so a linked (junction/symlink) node_modules still matches.
+  const resolved = realpathSync.native(require.resolve('ajv/dist/2020.js'));
+  const rootAjv = realpathSync.native(fileURLToPath(new URL('../../../../../node_modules/ajv', import.meta.url)));
+  assert.ok(resolved.startsWith(rootAjv + sep), resolved);
 });
 
 test('computer keeps per-action input alternatives for Claude and the flat projection for Gemini', () => {
