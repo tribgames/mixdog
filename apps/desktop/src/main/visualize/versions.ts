@@ -198,7 +198,8 @@ export async function writeFileInside(
   path: string,
   data: Buffer,
   hooks: {
-    beforeOpen?(): unknown /** Fail with EEXIST instead of writing over an existing file. */;
+    beforeOpen?(): unknown;
+    /** Fail with EEXIST instead of writing over an existing file. */
     exclusive?: boolean;
   } = {}
 ): Promise<void> {
@@ -364,6 +365,12 @@ export function createVisualizeVersionStore(
 
   const snapshotEnv: SnapshotEnv = { sessions, root, sessionFloor, evict, maxSessionBytes, maxSnapshotBytes };
 
+  const versionOf = (sessionId: string, tabId: string, n: number): VisualizeVersion | undefined =>
+    sessions
+      .get(sessionId)
+      ?.get(tabId)
+      ?.versions.find((version) => version.n === n);
+
   return {
     /** Keep the tab's current files as a new version unless they match the
      *  newest one (or a pane is too large). Resolves to the new version;
@@ -385,10 +392,7 @@ export function createVisualizeVersionStore(
       return [...(sessions.get(sessionId)?.get(tabId)?.versions ?? [])];
     },
     get(sessionId: string, tabId: string, n: number): VisualizeVersion | undefined {
-      return sessions
-        .get(sessionId)
-        ?.get(tabId)
-        ?.versions.find((version) => version.n === n);
+      return versionOf(sessionId, tabId, n);
     },
     /** Keep `thumbnail` (a PNG data URL) as kept version `n`'s card picture:
      *  in memory at once, and best effort beside its folder as part of the
@@ -414,10 +418,7 @@ export function createVisualizeVersionStore(
     /** Remember that the turn `turn` ended on kept version `n` (it lives and
      *  goes with the version). False without that version. */
     keepTurn(sessionId: string, tabId: string, n: number, turn: VisualizeVersionTurn): boolean {
-      const version = sessions
-        .get(sessionId)
-        ?.get(tabId)
-        ?.versions.find((candidate) => candidate.n === n);
+      const version = versionOf(sessionId, tabId, n);
       if (!version) return false;
       version.turns = [...(version.turns ?? []).filter((one) => one.since !== turn.since), turn].slice(
         -MAX_VERSION_TURNS

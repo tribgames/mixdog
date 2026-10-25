@@ -68,9 +68,8 @@ function takeoverCodeIn(result: ComputerCommandResult): { code: string; message:
   }
   if (!reply || typeof reply !== 'object') return undefined;
   const { code, message } = reply as { code?: unknown; message?: unknown };
-  return typeof code === 'string' && TAKEOVER_CODES.includes(code)
-    ? { code, message: typeof message === 'string' ? message : 'reported by the native result' }
-    : undefined;
+  if (typeof code !== 'string' || !TAKEOVER_CODES.includes(code)) return undefined;
+  return { code, message: typeof message === 'string' ? message : 'reported by the native result' };
 }
 
 export function createCommandAttempt(deps: CommandAttemptDeps) {
@@ -113,7 +112,8 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       // A takeover code in a returned reply is classified like a thrown one,
       // unless the reply's own path already took the desktop over.
       const returned = takeoverCodeIn(result);
-      if (returned && !coordinator.snapshot().userControlActive) throw new Error(`${returned.code}: ${returned.message}`);
+      if (returned && !coordinator.snapshot().userControlActive)
+        throw new Error(`${returned.code}: ${returned.message}`);
       return result;
     });
   }
@@ -181,11 +181,7 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       deps.recordDiagnostic?.(state.sessionId, { ...record, stage: 'execution' });
       return {
         text: JSON.stringify(
-          userInputRefusalPayload(
-            String(command.action || ''),
-            command.window_id,
-            !observesOnly(command)
-          )
+          userInputRefusalPayload(String(command.action || ''), command.window_id, !observesOnly(command))
         ),
       };
     }

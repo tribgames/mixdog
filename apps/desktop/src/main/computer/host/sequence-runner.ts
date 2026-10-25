@@ -368,8 +368,7 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
       capture.metadata
     );
     const resultCode =
-      stoppedReason ||
-      (observationUnavailable ? String(capture.metadata.code || 'observation_unavailable') : '');
+      stoppedReason || (observationUnavailable ? String(capture.metadata.code || 'observation_unavailable') : '');
     let escalation = 'inspect_failed_step';
     if (stoppedReason === 'target_transition') escalation = 'switch_target';
     else if (observationUnavailable) escalation = 'recapture';
