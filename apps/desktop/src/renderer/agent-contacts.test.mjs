@@ -418,6 +418,8 @@ test('a question wait (asking) is not counted as an approval', () => {
   assert.equal(watcher.asking, true);
   assert.equal(translator.approvals, 1);
   assert.equal(translator.asking, false);
+  assert.equal(watcher.preview, 'Answer needed');
+  assert.equal(translator.preview, 'Waiting for approval');
 });
 
 test('a contact whose own home turn waits on the user reads attention over running', () => {

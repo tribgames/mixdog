@@ -268,6 +268,16 @@ const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 export function invalidateCapabilitySettings(api: CapabilityApi, capability?: DesktopCapability): void {
   if (capability && READ_CAPABILITY_SET.has(capability)) return;
   settingsCacheEntry(api).epoch += 1;
+  if (capability === 'setHeartbeatEnabled') for (const listener of [...heartbeatListeners]) listener();
+}
+
+const heartbeatListeners = new Set<() => void>();
+
+/** Runs `listener` after Settings writes the regular check-ins switch, so
+ *  another surface showing it re-reads the live value. Returns the unsubscribe. */
+export function subscribeHeartbeatSetting(listener: () => void): () => void {
+  heartbeatListeners.add(listener);
+  return () => void heartbeatListeners.delete(listener);
 }
 
 export function getCachedCapabilitySettings(api: CapabilityApi): CachedCapabilitySettings | undefined {

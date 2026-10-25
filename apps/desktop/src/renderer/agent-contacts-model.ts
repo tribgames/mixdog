@@ -70,10 +70,11 @@ function contactPreview(
   session: DesktopSessionSummary | null,
   fallback: string,
   mixy: boolean,
-  disabled: boolean
+  disabled: boolean,
+  asking: boolean
 ) {
   if (disabled) return t('Off');
-  if (indicator?.kind === 'attention') return t('Waiting for approval');
+  if (indicator?.kind === 'attention') return asking ? t('Answer needed') : t('Waiting for approval');
   if (indicator?.kind === 'running') return t('Working');
   // The thread's latest message; a catalog row from before that field (or a
   // cold-scanned one) falls back to its first prompt. Mixy is the default
@@ -142,7 +143,7 @@ export function agentContacts(
       approvals: indicator?.kind === 'attention' && !questionOnly ? Math.max(1, approvalRows) : 0,
       avatar: agentAvatar(agentId, storedAvatar),
       session,
-      preview: contactPreview(indicator, session, description, mixy, disabled),
+      preview: contactPreview(indicator, session, description, mixy, disabled, questionOnly),
       at: session ? Number(session.activityAt) || session.updatedAt : 0,
       indicator,
       unread: session ? unreadSessionIds?.has(session.id) === true : false,
