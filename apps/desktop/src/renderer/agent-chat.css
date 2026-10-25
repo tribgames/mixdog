@@ -301,6 +301,7 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   line-height: 18px;
 }
 .mx-handoff-when > .mx-chat-time {
+  align-self: center;
   margin: 0 0 0 2px;
   line-height: 18px;
 }

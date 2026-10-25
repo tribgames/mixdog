@@ -1154,6 +1154,14 @@ html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
+/* A long username ends in an ellipsis instead of running under the menu. */
+.auth-user {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .auth-pill {
   display: inline-flex;
   align-items: center;

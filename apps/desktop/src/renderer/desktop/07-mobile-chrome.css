@@ -1589,12 +1589,16 @@ html[data-mixdog-mobile-tabs] .turn-review-action-slot {
 }
 /* Turn changes header: on a phone the two labelled buttons took the title's
    whole width, so they collapse to compact icon marks and the title stays. */
-html[data-mixdog-mobile-tabs] .turn-changes-action,
-html[data-mixdog-mobile-tabs] .turn-changes-view {
+html[data-mixdog-mobile-tabs] :is(.turn-changes-action, .turn-changes-view):not(.question-btn) {
   width: var(--mx-touch-fixed-main);
   height: var(--mx-touch-fixed-main);
   justify-content: center;
   padding: 0;
+}
+/* The question card borrows these classes for text buttons (Skip, Previous,
+   Send): they keep their words and only take the touch height. */
+html[data-mixdog-mobile-tabs] .question-btn {
+  min-height: var(--mx-touch-fixed-main);
 }
 html[data-mixdog-mobile-tabs] .turn-changes-label {
   display: none;
