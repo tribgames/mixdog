@@ -85,6 +85,25 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
       'process.env.NODE_ENV': '"production"',
       'import.meta.url': '"http://mixdog.test/assets/index.js"',
     },
+    plugins: [
+      {
+        // The project list reaches transcript rows (through the session-open intent)
+        // and so MarkdownLink, whose lazy pane chunks pull in Monaco and its
+        // `?worker` imports; the fixture renders no pane, so the chunks are stubbed.
+        name: 'isolated-lazy-widgets',
+        setup(builder) {
+          builder.onResolve({ filter: /^\.\/lazy-widgets$/ }, () => ({ path: 'lazy-widgets', namespace: 'fixture' }));
+          builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
+            contents: [
+              'const pane = () => null;',
+              'const prefetch = async () => {};',
+              'export const DiffView = pane, prefetchEditorPane = prefetch;',
+              'export const scheduleEditorPanePrefetch = () => {};',
+            ].join('\n'),
+          }));
+        },
+      },
+    ],
   });
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),

@@ -34,7 +34,9 @@ test('tab creation keeps fitting runs anchored and still reveals genuine overflo
       jsx: 'automatic',
       define: { 'process.env.NODE_ENV': '"production"' },
       // Surface prefetch is unrelated to tab layout. Keep this isolated
-      // fixture from loading editors or connecting to the user's daemon.
+      // fixture from loading editors or connecting to the user's daemon. The
+      // tab strip reaches the pane chunks through the session-open intent's
+      // transcript rows (MarkdownLink, ReviewPane), so every pane export is stubbed.
       plugins: [
         {
           name: 'isolated-surface-prefetch',
@@ -44,7 +46,13 @@ test('tab creation keeps fitting runs anchored and still reveals genuine overflo
               namespace: 'fixture',
             }));
             builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
-              contents: 'export const prefetchSurfaceForSelection = () => {};',
+              contents: [
+                'const pane = () => null;',
+                'const prefetch = async () => {};',
+                'export const DiffView = pane;',
+                'export const prefetchEditorPane = prefetch;',
+                'export const prefetchSurfaceForSelection = () => {}, scheduleEditorPanePrefetch = () => {};',
+              ].join('\n'),
             }));
           },
         },

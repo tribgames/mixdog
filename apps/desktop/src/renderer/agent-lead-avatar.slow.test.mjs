@@ -219,12 +219,13 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
     assert.equal(m.lead.preview.webkitLineClamp, '2');
     assert.deepEqual(m.lead.time, m.bot.time, `${tag}: time place and type`);
     assert.deepEqual(m.lead.status, m.bot.status, `${tag}: spinner place and size`);
-    // The "!" pill is drawn at the spinner glyph's size inside the same slot (0c651fbcc).
+    // An approval wait shows the shared amber triangle (2aba1580c; the "!" pill
+    // is gone) in the same status slot the spinner sits in, so the slot is the same size.
     assert.equal(m.lead.spinner, 14, `${tag}: spinner glyph`);
     assert.deepEqual(
       { w: m.attention.status.w, h: m.attention.status.h },
-      { w: m.lead.spinner, h: m.lead.spinner },
-      `${tag}: "!" mark is the spinner's size`
+      { w: m.lead.status.w, h: m.lead.status.h },
+      `${tag}: the approval triangle's slot is the spinner's slot`
     );
     assert.equal(m.attention.rowH, m.oneLineBot.rowH, `${tag}: a one-line Lead is as tall as a one-line bot`);
   }
