@@ -403,7 +403,14 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const before = initial.now;
     const first: Phase | null = before.password ? 'password' : before.username ? 'username' : null;
     if (!first || before.challenge) return null;
-    const saved = await deps.suggestions(startUrl, before.identifier);
+    // An unreadable vault only means no saved login can be used: the page the
+    // command opened stays as it is, and the sign-in is left to the user.
+    let saved: Array<{ id: string; label: string }>;
+    try {
+      saved = await deps.suggestions(startUrl, before.identifier);
+    } catch {
+      return null;
+    }
     if (!saved.length) return null;
     attempted.add(key);
     if (attempted.size > ATTEMPT_MEMORY) attempted.delete(attempted.values().next().value as string);

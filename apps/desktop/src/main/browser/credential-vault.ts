@@ -189,10 +189,12 @@ export class CredentialVault {
     } catch {
       throw new Error('The stored browser credential vault could not be opened.');
     }
-    const entries =
-      parsed && typeof parsed === 'object' && Array.isArray((parsed as { credentials?: unknown }).credentials)
-        ? (parsed as { credentials: unknown[] }).credentials
-        : [];
+    // A document that is not the vault's shape must not read as an empty
+    // vault: the next save would replace it.
+    if (parsed !== null && !(typeof parsed === 'object' && Array.isArray((parsed as { credentials?: unknown }).credentials))) {
+      throw new Error('The stored browser credential vault could not be opened.');
+    }
+    const entries = parsed ? (parsed as { credentials: unknown[] }).credentials : [];
     if (entries.length > MAX_LOGINS) throw new Error('Stored browser credential vault is too large.');
     return entries.flatMap((entry) => {
       if (!entry || typeof entry !== 'object') return [];
