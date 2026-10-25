@@ -687,17 +687,31 @@ test('visualize pushes reach only the clients reading the lane; web URLs use the
   assert.deepEqual(browser, [{ event: REMOTE_BROWSER_OPEN_EVENT, payload: { sessionId: 's1', reveal: true } }, false]);
 });
 
-test('a remote viewer is a live foreground client showing the session with the lane registered', () => {
-  const viewer = {
+test('a remote visualize viewer is a live foreground client whose panel of the session is on screen', () => {
+  // The lane is registered and the session delivered, but the panel is closed.
+  const subscribed = {
     channel: {},
     background: false,
     lanes: new Set([REMOTE_VISUALIZE_LANE]),
     visibleSessionIds: new Set(['s1']),
   };
+  assert.equal(
+    clientViewsSessionLane(subscribed, 's1', REMOTE_VISUALIZE_LANE),
+    false,
+    'lane registration is not viewing'
+  );
+  const viewer = { ...subscribed, visualizePanelSessionIds: new Set(['s1']) };
   assert.equal(clientViewsSessionLane(viewer, 's1', REMOTE_VISUALIZE_LANE), true);
   assert.equal(clientViewsSessionLane(viewer, 's2', REMOTE_VISUALIZE_LANE), false);
   assert.equal(clientViewsSessionLane({ ...viewer, background: true }, 's1', REMOTE_VISUALIZE_LANE), false);
   assert.equal(clientViewsSessionLane({ ...viewer, channel: null }, 's1', REMOTE_VISUALIZE_LANE), false);
-  assert.equal(clientViewsSessionLane({ ...viewer, lanes: null }, 's1', REMOTE_VISUALIZE_LANE), false);
-  assert.equal(clientViewsSessionLane({ ...viewer, lanes: new Set() }, 's1', REMOTE_VISUALIZE_LANE), false);
+  assert.equal(
+    clientViewsSessionLane({ ...viewer, visualizePanelSessionIds: new Set() }, 's1', REMOTE_VISUALIZE_LANE),
+    false,
+    'its panel closed again'
+  );
+  // Other lanes keep reading the registration and the delivery set.
+  const terminal = { ...subscribed, lanes: new Set(['terminal']) };
+  assert.equal(clientViewsSessionLane(terminal, 's1', 'terminal'), true);
+  assert.equal(clientViewsSessionLane({ ...terminal, lanes: null }, 's1', 'terminal'), false);
 });

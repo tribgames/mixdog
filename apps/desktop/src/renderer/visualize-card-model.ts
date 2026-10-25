@@ -12,8 +12,13 @@ import {
   versionProducedAt,
   visualizeThumbnail,
 } from '../shared/visualize';
+import {
+  VISUALIZE_OWNER_META_CODE,
+  visualizeOwnerMetaSessionId,
+} from '../../../../src/runtime/visualize-bridge/tool-meta.mjs';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
+import { type SurfaceOwnerSources, surfaceOwnerChain } from './session-browser-policy';
 import { asRecord } from './text-format';
 import {
   desktopToolActivitySurface,
@@ -92,6 +97,33 @@ export interface VisualizeCardCall {
   preview?: true;
   /** The thumbnail's top-left mark (turn-preview-model.ts). */
   badge?: 'new';
+  /** The conversation whose panel the host put the tab in, as it stamped the
+   *  result (its `toolMeta`, never its text): a sub-agent's or room member's
+   *  open lands in its owner's panel. Absent for a session's own opens. */
+  ownerSessionId?: string;
+}
+
+/** The owner the host stamped on a visualize result's `toolMeta`; '' when none. */
+function stampedOwner(item: TranscriptItem): string {
+  const meta = item.toolMeta;
+  return meta?.code === VISUALIZE_OWNER_META_CODE ? visualizeOwnerMetaSessionId(meta.ownerSessionId) : '';
+}
+
+/** The conversation whose panel holds a session's visualize tabs, by the
+ *  host's rules (main `ownerSessionId`, the approval surface): a sub-agent's
+ *  owner, a room member's room log, else the session itself. What the host
+ *  stamped on the transcript's own results (`calls`) wins: it is stored with
+ *  them, so it outlives the sub-agent's pool row and a reload. Without one
+ *  (a turn with previews only), the session's live records: the agent pool
+ *  and the room id. Never tool output text. A bot's task session keeps its
+ *  tabs itself, so the catalog's task → bot home step is not taken. */
+export function visualizeOwnerSessionId(
+  sessionId: string,
+  pool: SurfaceOwnerSources['pool'],
+  calls: readonly VisualizeCardCall[] = []
+): string {
+  const stamped = calls.find((call) => call.ownerSessionId)?.ownerSessionId;
+  return stamped || surfaceOwnerChain(sessionId, { sessions: [], pool }).at(-1) || sessionId;
 }
 
 /** When a turn's tool rounds last ran (ms): the time of its preview tiles. */
@@ -134,6 +166,7 @@ export function visualizeCardCalls(items: readonly TranscriptItem[]): VisualizeC
     const tabId = pending ? '' : visualizeResultTabId(item);
     if (!pending && !tabId) continue;
     const version = pending ? 0 : visualizeResultVersion(item);
+    const owner = pending ? '' : stampedOwner(item);
     const call: VisualizeCardCall = {
       id: String(item.id ?? `visualize:${index}`),
       pending,
@@ -143,6 +176,7 @@ export function visualizeCardCalls(items: readonly TranscriptItem[]): VisualizeC
       tabId,
       ...(version ? { version } : {}),
       at: Number(item.startedAt ?? item.at ?? item.completedAt) || 0,
+      ...(owner ? { ownerSessionId: owner } : {}),
     };
     const same = tabId ? calls.findIndex((earlier) => earlier.tabId === tabId) : -1;
     if (same >= 0) calls.splice(same, 1);
@@ -341,23 +375,42 @@ export function visualizedTargets(items: readonly TranscriptItem[]): string[] {
   return visualizeCardCalls(items).flatMap((call) => (call.pending ? [] : call.targets));
 }
 
-/** The live panel tab a card stands for: its id, showing the same files.
- *  Null once that tab was closed (or its id now names other files). */
-export function visualizeCardTab(state: VisualizeSessionState, call: VisualizeCardCall): VisualizeTabView | null {
-  if (!call.tabId) return null;
-  const tab = state.tabs.find((candidate) => candidate.id === call.tabId);
-  if (!tab) return null;
+/** Whether `tab` shows what `call` opened: the same files, or inline content
+ *  of the same kind and title (re-opening it is a new version of that tab). */
+function showsCall(tab: VisualizeTabView, call: VisualizeCardCall): boolean {
   // The live panes; a tab stepped back to a kept version shows only that
   // version's panes, and is still the same tab.
   const current = tab.panes.filter((pane) => pane.version === undefined);
   const live = current.length ? current : tab.panes;
   if (call.content) {
-    // Inline tabs are identified by their title (re-opening it is a new
-    // version of the same tab) and kind.
     const shown = live[0]?.inline;
-    return live.length === 1 && shown?.kind === call.content.kind && shown.title === call.content.title ? tab : null;
+    return live.length === 1 && shown?.kind === call.content.kind && shown.title === call.content.title;
   }
-  return showsTargets(live, call.targets) ? tab : null;
+  return showsTargets(live, call.targets);
+}
+
+/** The live panel tab a card stands for: its id, showing the same files;
+ *  once that tab was closed, the tab that shows them now (opening it again
+ *  makes a new id). Null when no tab shows them. */
+export function visualizeCardTab(state: VisualizeSessionState, call: VisualizeCardCall): VisualizeTabView | null {
+  if (!call.tabId) return null;
+  const own = state.tabs.find((candidate) => candidate.id === call.tabId);
+  if (own && showsCall(own, call)) return own;
+  return state.tabs.find((candidate) => candidate.id !== call.tabId && showsCall(candidate, call)) ?? null;
+}
+
+/** The kept version a card click shows on `tab` (null = live): an earlier
+ *  card's own version on its own tab (the host says when it is gone); live
+ *  for the newest card, and on a tab opened again (its versions start over:
+ *  the closed tab's were discarded with it). */
+export function visualizeCardVersionTarget(
+  call: VisualizeCardCall,
+  tab: VisualizeTabView,
+  version: number,
+  newest: boolean
+): number | null {
+  if (newest || !version || tab.id !== call.tabId || version === tab.versions?.at(-1)?.n) return null;
+  return version;
 }
 
 function showsTargets(live: VisualizeTabView['panes'], targets: readonly string[]): boolean {

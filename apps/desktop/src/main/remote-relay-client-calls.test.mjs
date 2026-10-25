@@ -50,6 +50,31 @@ test('setScreenSessions records the sessions a leg paints, apart from its delive
   assert.deepEqual(sent, [], 'a fire-and-forget report is not answered');
 });
 
+test('setVisualizePanels records the sessions whose visualize panel a leg has on screen', async () => {
+  const sent = [];
+  const client = {
+    pendingFrames: 0,
+    visibleSessionIds: new Set(['s1', 's2']),
+    callQueue: { run: (_method, task) => task() },
+  };
+  const dispatch = createRelayClientCallDispatch({
+    host: {},
+    methods: {},
+    attached: () => true,
+    live: () => true,
+    sendEncryptedFrame: async (_clientId, frame) => sent.push(frame),
+    acknowledgePaintProbe: () => null,
+    resyncClient() {},
+    recordCall() {},
+  });
+  await dispatch('client-1', client, { method: 'setVisualizePanels', params: [['s2', 'not a session id!']] }, 10);
+  assert.deepEqual([...client.visualizePanelSessionIds], ['s2']);
+  await dispatch('client-1', client, { method: 'setVisualizePanels', params: [[]] }, 10);
+  assert.deepEqual([...client.visualizePanelSessionIds], [], 'the panel left the screen');
+  assert.deepEqual([...client.visibleSessionIds], ['s1', 's2'], 'the delivery set is untouched');
+  assert.deepEqual(sent, [], 'a fire-and-forget report is not answered');
+});
+
 test('the per-minute call record carries the capability name', async () => {
   const recorded = [];
   const client = { pendingFrames: 0, callQueue: { run: (_method, task) => task() } };

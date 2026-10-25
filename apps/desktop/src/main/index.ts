@@ -764,6 +764,9 @@ const visualize = createDesktopVisualize({
   // A chat card reopening a closed tab: the session's own working directory.
   sessionCwd: async (sessionId) =>
     (await localService.listSessions()).find((session) => session.id === sessionId)?.cwd || null,
+  // A sub-agent's or room member's opens show in the conversation it works
+  // for, by the same rules as its approvals.
+  ownerSessionId: (sessionId) => approvalSurfaceSessionId(sessionId, approvalSources),
 });
 const visualizeBridge = new VisualizeBridgeServer<object>({
   dataDirectory: bridgeDiscoveryDirectory,

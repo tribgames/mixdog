@@ -14,7 +14,13 @@ import {
 import { browserProfile, newBrowserId } from './remote-browser-identity';
 import { LEGACY_HOST_FALLBACKS, REMOTE_BROWSER_FALLBACKS } from './remote-browser-fallbacks';
 import { recoverableCreation } from './recoverable-creation';
-import { REMOTE_VISUALIZE_LANE, type VisualizeCommandResult, type VisualizeSessionState } from '../shared/visualize';
+import {
+  REMOTE_VISUALIZE_LANE,
+  VISUALIZE_PANELS_EVENT,
+  type VisualizeCommandResult,
+  type VisualizeSessionState,
+} from '../shared/visualize';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { createRemotePreviewApi, readRemoteVisualizePane, readRemoteVisualizePaneText } from './remote-file-preview';
 import { storedGrantSources, withFileGrantRefresh } from './remote-file-grant-refresh';
 import { openRemoteExternalLink } from './remote-external-link';
@@ -121,6 +127,24 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     finish: (transferId) => downloadCall<FileDownloadFinished>(FILE_DOWNLOAD_REMOTE_METHODS.finish, [transferId]),
     abort: (id) => downloadCall<boolean>(FILE_DOWNLOAD_REMOTE_METHODS.abort, [id]),
   };
+  // The sessions whose visualize panel this page has on screen (the store's
+  // VISUALIZE_PANELS_EVENT, visualize-store.ts): the desktop counts this
+  // device as viewing a session's visualize tabs only for these. Each new leg
+  // is told again; an older desktop ignores the call.
+  let visualizePanels: string[] = [];
+  const reportVisualizePanels = (): void => {
+    if (ctx.socket?.readyState === WebSocket.OPEN) fire('setVisualizePanels', [visualizePanels]);
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener(VISUALIZE_PANELS_EVENT, (event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      visualizePanels = Array.isArray(detail) ? detail.filter((id): id is string => typeof id === 'string') : [];
+      reportVisualizePanels();
+    });
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, () => {
+      if (visualizePanels.length) reportVisualizePanels();
+    });
+  }
   const api: Omit<DesktopApi, GatedKey> = {
     // Desktop-only OS integrations become inert or degrade to browser
     // equivalents (remote-browser-fallbacks.ts); everything below forwards over

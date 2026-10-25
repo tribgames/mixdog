@@ -46,7 +46,17 @@ export type { RequesterFrame } from './lease-guard';
 export type { VisualizeResult, VisualizeTabSummary } from './tab-state';
 
 /** How far the user can see a displayed tab (see `VisualizeServiceDeps.onScreen`). */
-export type VisualizeScreenState = 'visible' | 'background' | 'covered' | 'hidden';
+export type VisualizeScreenState = 'visible' | 'background' | 'covered' | 'other-tab' | 'hidden';
+
+/** Whether the user can reach a session's conversation right now (see
+ *  `VisualizeServiceDeps.sessionReach`). */
+export type VisualizeSessionReach = 'shown' | 'background' | 'hidden' | 'not-open';
+
+/** The line a result run for another session's work ends with: chat cards
+ *  of that work read the owner session from it. */
+export function visualizeOwnerNote(ownerSessionId: string): string {
+  return `Shown in the side panel of session ${ownerSessionId} (the conversation this agent works for).`;
+}
 
 export interface VisualizeServiceDeps {
   /** False while no desktop window can show the panel. */
@@ -104,9 +114,19 @@ export interface VisualizeServiceDeps {
    *  desktop window is in front with the tab's panel uncovered, or a paired
    *  remote device is viewing it), `background` (drawn uncovered, but another
    *  app has the focus), `covered` (drawn, but an overlay in the window hides
-   *  it) or `hidden` (window minimized or hidden, panel closed, session not
+   *  it), `other-tab` (the session's panel is on screen showing another tab)
+   *  or `hidden` (window minimized or hidden, panel closed, session not
    *  shown). Absent = assumed visible. */
   onScreen?(sessionId: string, tab: VisualizeTabView): Promise<VisualizeScreenState>;
+  /** Whether the user can reach the session now (an open held by a running
+   *  turn shows when the turn ends): `shown` (a pane of the window in front,
+   *  or a paired device, shows the session), `background` (another app has
+   *  the focus), `hidden` (window minimized or hidden) or `not-open` (no pane
+   *  shows the session). Absent = assumed shown. */
+  sessionReach?(sessionId: string): Promise<VisualizeSessionReach>;
+  /** The listed conversation a session's work shows in: a sub-agent's owner,
+   *  a room member's room (the approval rules); the session itself otherwise. */
+  ownerSessionId?(sessionId: string): string;
   /** Keep version history in this folder (the app's data folder, never a
    *  project); absent = no history. */
   versions?: { directory: string } & VisualizeVersionLimits;
@@ -326,6 +346,16 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
   const commands = createPanelCommands(ctx);
   const turns = createTurnHolds(ctx);
 
+  const run = (request: ReturnType<typeof parseVisualizeRequest>): Promise<VisualizeResult> | VisualizeResult => {
+    if (request.action === 'open') return opens.open(request);
+    if (request.action === 'close') return tabs.close(request);
+    if (request.action === 'annotate') return reads.annotate(request);
+    if (request.action === 'export') return exports.exportToFile(request);
+    if (request.action === 'check') return reads.check(request);
+    if (request.action === 'inspect') return reads.inspect(request);
+    return reads.capture(request);
+  };
+
   return {
     /** See `createTurnHolds`: the session roster tells when agent turns run. */
     observeTurns: turns.observeTurns,
@@ -338,14 +368,14 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     },
     /** Bridge entry point: one validated request → result or thrown error. */
     async execute(raw: unknown): Promise<VisualizeResult> {
-      const request = parseVisualizeRequest(raw);
-      if (request.action === 'open') return opens.open(request);
-      if (request.action === 'close') return tabs.close(request);
-      if (request.action === 'annotate') return reads.annotate(request);
-      if (request.action === 'export') return exports.exportToFile(request);
-      if (request.action === 'check') return reads.check(request);
-      if (request.action === 'inspect') return reads.inspect(request);
-      return reads.capture(request);
+      const parsed = parseVisualizeRequest(raw);
+      // A sub-agent's or room member's session is never listed: its tabs
+      // live in the conversation it works for, where the user sees them.
+      const owner = deps.ownerSessionId?.(parsed.sessionId) || parsed.sessionId;
+      if (owner === parsed.sessionId) return run(parsed);
+      const result = await run({ ...parsed, sessionId: owner });
+      // The note is for the model; the field is what chat cards read.
+      return { ...result, text: `${result.text}\n${visualizeOwnerNote(owner)}`, ownerSessionId: owner };
     },
     /** See `createProblemTracker`. */
     reportConsole: problems.reportConsole,

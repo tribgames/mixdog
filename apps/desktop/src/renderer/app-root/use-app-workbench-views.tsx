@@ -365,7 +365,12 @@ export function useAppWorkbenchViews({
     if (id === 'visualize') {
       if (!pane) return null;
       return (
-        <VisualizePane sessionId={pane.sessionId} active={active} onClose={() => requestPaneDockClose('visualize')} />
+        <VisualizePane
+          key={pane.sessionId}
+          sessionId={pane.sessionId}
+          active={active}
+          onClose={() => requestPaneDockClose('visualize')}
+        />
       );
     }
     // Session-owned surfaces render in the pane dock's persistent stack.

@@ -5,6 +5,7 @@ import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contr
 import type { createKeyedListDeltaEncoder } from '../shared/list-delta';
 import type { RelayE2EEChannel, RelayE2EEChallenge } from '../shared/remote-e2ee';
 import { REMOTE_CLIENT_PENDING_FRAMES } from '../shared/remote-frame-budget';
+import { REMOTE_VISUALIZE_LANE } from '../shared/visualize';
 import type { DesktopService } from './desktop-service-contract';
 import { createRemoteCallQueue } from './remote-call-queue';
 import type { createRemoteStateLane } from './remote-state-lane';
@@ -55,6 +56,10 @@ export interface RelayClientState {
    *  Notification presence reads only this; a leg that never reported it (an
    *  older build) shows no conversation. */
   screenSessionIds?: Set<string>;
+  /** The sessions whose visualize panel this leg reports on screen
+   *  (`setVisualizePanels`): only these count as a device viewing their
+   *  visualize tabs. A leg that never reported it views none. */
+  visualizePanelSessionIds?: Set<string>;
   /** Sessions this client asked to read and has not yet been sent a frame
    *  for: an open reads before its visible set names the session, and the
    *  answer must still reach it (remote-relay-session-state.ts). */
@@ -114,15 +119,17 @@ export function clientReadsLane(lanes: ReadonlySet<string> | null, lane: string)
 
 /** A live, foreground client that explicitly registered `lane` and shows
  *  `sessionId`: a device actually displaying that session's surface. Unlike
- *  clientReadsLane, a client that predates lanes does not count. */
+ *  clientReadsLane, a client that predates lanes does not count. The
+ *  visualize lane is registered by every page that has the store loaded, so
+ *  there the device's own report of its panel on screen decides. */
 export function clientViewsSessionLane(
-  state: Pick<RelayClientState, 'channel' | 'background' | 'lanes' | 'visibleSessionIds'>,
+  state: Pick<RelayClientState, 'channel' | 'background' | 'lanes' | 'visibleSessionIds' | 'visualizePanelSessionIds'>,
   sessionId: string,
   lane: string
 ): boolean {
-  return Boolean(
-    state.channel && !state.background && state.lanes?.has(lane) && state.visibleSessionIds.has(sessionId)
-  );
+  if (!state.channel || state.background) return false;
+  if (lane === REMOTE_VISUALIZE_LANE) return state.visualizePanelSessionIds?.has(sessionId) === true;
+  return Boolean(state.lanes?.has(lane) && state.visibleSessionIds.has(sessionId));
 }
 
 /** Sends one payload inside a client's encrypted channel. */

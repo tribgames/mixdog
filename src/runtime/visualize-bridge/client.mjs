@@ -6,6 +6,7 @@
  * Response: { ok:true, text, tabs?, path? } | { ok:false, error }.
  */
 import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
+import { visualizeOwnerToolMeta } from './tool-meta.mjs';
 
 const DISCOVERY_FILE = 'visualize-bridge.json';
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -177,5 +178,8 @@ export async function executeVisualizeTool(args, options = {}) {
   if (!body?.ok) {
     return toolError(String(body?.error || `visualize bridge request failed (HTTP ${status})`).replace(/^Error:\s*/, ''));
   }
-  return { content: [{ type: 'text', text: formatSuccess(body) }] };
+  // The host ran it for another session's panel: the owner rides as a field
+  // (toolMeta, kept with the stored result), never only as prose.
+  const toolMeta = visualizeOwnerToolMeta(body.ownerSessionId);
+  return { content: [{ type: 'text', text: formatSuccess(body) }], ...(toolMeta ? { toolMeta } : {}) };
 }

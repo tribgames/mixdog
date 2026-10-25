@@ -287,6 +287,90 @@ test('off-screen inspect / check lay out at the remembered side panel size, else
   }
 });
 
+test('a held open says whether the user can reach the session when the turn ends', async () => {
+  let reach = 'shown';
+  const asked = [];
+  const t = setup({
+    async sessionReach(sessionId) {
+      asked.push(sessionId);
+      return reach;
+    },
+  });
+  try {
+    await t.service.setTurnActive(SESSION, true);
+    const open = async () => (await t.run('open', { targets: ['chart.png'] })).text;
+    const shown = await open();
+    assert.match(shown, /^Prepared chart\.png \(image\) as tab v1; the side panel shows it when this turn ends \(/);
+    reach = 'not-open';
+    const absent = await open();
+    assert.match(absent, /as tab v1, but this session is not open in the Mixdog window/);
+    assert.match(absent, /tell the user/);
+    assert.doesNotMatch(absent, /the side panel shows it when this turn ends/);
+    reach = 'background';
+    assert.match(await open(), /when this turn ends, but the Mixdog window is in the background.*tell the user/);
+    reach = 'hidden';
+    assert.match(await open(), /when this turn ends, but the Mixdog window is minimized or hidden; tell the user/);
+    assert.deepEqual(asked, [SESSION, SESSION, SESSION, SESSION]);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('a held open is checked off screen: its load and render problems ride the result', async () => {
+  const t = setup({
+    async exportBytes() {
+      throw new Error('bad mermaid');
+    },
+  });
+  try {
+    await t.service.setTurnActive(SESSION, true);
+    const page = await t.run('open', { targets: ['site/a.html'] });
+    assert.match(page.text, /Page problems while it loaded off screen:\n- error: boom \(line 3\)/);
+    assert.equal(t.calls.offscreen.length, 1, 'the page loaded once in a hidden window');
+    const inline = await t.run('open', { content: { kind: 'mermaid', source: 'graph TD; A-->', title: 'Flow' } });
+    assert.match(inline.text, /- render failed: bad mermaid/);
+    const image = await t.run('open', { targets: ['chart.png'] });
+    assert.doesNotMatch(image.text, /off screen:/, 'an image has nothing to check');
+    assert.equal(t.shown().length, 0, 'the panel is still left alone');
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('a failed turn-end step still publishes the final state, then reports the failure', async () => {
+  const { createTurnHolds } = await import('./turn-hold.ts');
+  const tab = { id: 'v1', url: undefined, targets: [] };
+  const sessions = new Map([[SESSION, { tabs: [tab], active: null, counter: 1, history: [] }]]);
+  const published = [];
+  const holds = new Map();
+  const turns = createTurnHolds({
+    holds,
+    sessions,
+    publish: (sessionId, reveal) => published.push([sessionId, reveal]),
+    reloads: { reload: async () => {} },
+    thumbnails: {
+      async takeAtTurnEnd() {
+        throw new Error('thumbnail failed');
+      },
+    },
+    versions: null,
+  });
+  const warn = console.warn;
+  const warned = [];
+  console.warn = (...args) => warned.push(args.join(' '));
+  try {
+    await turns.setTurnActive(SESSION, true);
+    holds.get(SESSION).reveal.push('v1');
+    await turns.setTurnActive(SESSION, false);
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(published, [[SESSION, 'v1']], 'the turn end reveals its tab (and its cards) anyway');
+  assert.equal(sessions.get(SESSION).active, 'v1');
+  assert.equal(holds.has(SESSION), false);
+  assert.ok(warned.some((line) => line.includes('thumbnail failed')), 'the failure is still reported');
+});
+
 test("the user's own panel commands apply at once during a turn", async () => {
   const t = setup();
   try {

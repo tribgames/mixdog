@@ -8,6 +8,7 @@ import { basename, dirname } from 'node:path';
 import type { BrowserWindow, NativeImage, WebContents } from 'electron';
 
 import { DESKTOP_IPC } from '../../shared/contract';
+import { isSessionOnScreen } from '../screen-sessions';
 import {
   type DesktopVisualizeEvent,
   VISUALIZE_THUMBNAIL_MAX_BYTES,
@@ -214,6 +215,9 @@ export function createDesktopVisualize(options: {
   versionsDirectory?: string;
   /** A session's working directory (reopening a closed tab from its card). */
   sessionCwd?(sessionId: string): Promise<string | null>;
+  /** The listed conversation a session's work shows in (sub-agents, room
+   *  members: the approval surface rules). */
+  ownerSessionId?(sessionId: string): string;
 }) {
   const { live: liveWindow, require: requireWindow } = windowAccess(options.window);
   // Only when a remote device is the sole viewer does an error say so.
@@ -277,6 +281,7 @@ export function createDesktopVisualize(options: {
       return fitVisualizeThumbnail(nativeImage.createFromBuffer(png));
     },
     ...(options.sessionCwd ? { sessionCwd: options.sessionCwd } : {}),
+    ...(options.ownerSessionId ? { ownerSessionId: options.ownerSessionId } : {}),
     windowAvailable: () => liveWindow() !== null,
     browserAvailable: options.browserAvailable,
     watchBrowserTab: options.watchBrowserTab,
@@ -333,6 +338,16 @@ export function createDesktopVisualize(options: {
       const desktop = window ? await desktopScreenState(window, sessionId, tab) : 'hidden';
       if (desktop === 'visible' || (await viewer.remoteViewing(sessionId))) return 'visible';
       return desktop;
+    },
+    // The window's own state, then the sessions its renderer reports painting
+    // (one per pane, read only while the window is in front), else a paired
+    // device showing the session.
+    async sessionReach(sessionId) {
+      if (await viewer.remoteViewing(sessionId)) return 'shown';
+      const window = liveWindow();
+      if (!window || window.isMinimized() || !window.isVisible()) return 'hidden';
+      if (!window.isFocused()) return 'background';
+      return isSessionOnScreen(window, sessionId) ? 'shown' : 'not-open';
     },
     capture: captureBody,
     chooseExportPath: (request) => chooseExportPath(requireWindow, request),

@@ -13,6 +13,7 @@ import { formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '
 import { normalizeToolName } from '../../../../shared/tool-primitives.mjs';
 import { gitResultError, gitResultExitCode } from '../../../../shared/tool-card-model/git-result.mjs';
 import { readRowsForDisplay } from '../../../../shared/read-row-numbers.mjs';
+import { visualizeOwnerMetaSessionId } from '../../../../visualize-bridge/tool-meta.mjs';
 
 const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
@@ -292,15 +293,18 @@ export function assignUiDiffFromMessage(target, source) {
 }
 
 /** Structured side channel a tool result may carry next to its text (the
- * Computer Use capability refusal): a stable code plus the capability names.
- * Anything else is dropped so stored history stays small and predictable. */
+ * Computer Use capability refusal): a stable code plus the capability names,
+ * and the owner conversation of a `visualize` call run for another session's
+ * work (visualize-bridge/tool-meta.mjs). Anything else is dropped so stored
+ * history stays small and predictable. */
 export function toolMetaFromMessage(source) {
   const meta = source?.toolMeta ?? source?.content?.toolMeta;
   if (!meta || typeof meta !== 'object' || typeof meta.code !== 'string' || !meta.code) return undefined;
   const missing = Array.isArray(meta.missing)
     ? meta.missing.filter((name) => typeof name === 'string' && name)
     : [];
-  return { code: meta.code, missing };
+  const ownerSessionId = visualizeOwnerMetaSessionId(meta.ownerSessionId);
+  return { code: meta.code, missing, ...(ownerSessionId ? { ownerSessionId } : {}) };
 }
 
 export function toolMetaPatchFromMessage(source) {

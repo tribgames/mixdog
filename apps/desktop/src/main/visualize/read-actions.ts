@@ -87,7 +87,7 @@ async function annotateTab(
 /** Every HTML page of the tab read in a hidden window (an agent turn
  *  leaves the panel alone): the pages' inspections and load problems. */
 async function readPagesOffscreen(
-  { deps }: ReadContext,
+  { deps }: Pick<ReadContext, 'deps'>,
   cwd: string,
   tab: TabState,
   options: { viewport?: { width: number; height: number }; selector?: string }
@@ -105,6 +105,39 @@ async function readPagesOffscreen(
     problems.push(...read.problems.map((line) => (pages.length > 1 ? `${pane.label}: ${line}` : line)));
   }
   return { answers, problems };
+}
+
+/** A tab checked without the panel (an agent turn leaves it alone): pages
+ *  load in a hidden window (their load problems and layout findings), inline
+ *  content renders off screen (a failed render is the problem). */
+export async function checkTabOffscreen(
+  ctx: Pick<ReadContext, 'deps' | 'panelSize'>,
+  sessionId: string,
+  cwd: string,
+  tab: TabState
+): Promise<{
+  problems: string[];
+  findings: number;
+  size: { width: number; height: number };
+  panel: boolean;
+}> {
+  const { deps } = ctx;
+  const { size, panel } = offscreenSize(ctx, undefined);
+  const read = await readPagesOffscreen(ctx, cwd, tab, { viewport: size });
+  const problems = [...read.problems];
+  const findings = read.answers.reduce((sum, { result }) => {
+    const parsed = visualizePageInspection(result);
+    return parsed && !('error' in parsed) ? sum + parsed.findingCount : sum;
+  }, 0);
+  for (const pane of displayedPanes(tab)) {
+    if (pane.kind !== 'inline' || !deps.exportBytes) continue;
+    try {
+      await deps.exportBytes(sessionId, { ...view(tab), panes: [pane] }, 'png', 0, ['']);
+    } catch (error) {
+      problems.push(`render failed: ${(error as Error).message}`);
+    }
+  }
+  return { problems, findings, size, panel };
 }
 
 /** Reads a displayed HTML tab's elements and layout findings. */
@@ -176,28 +209,12 @@ export function createReadActions(ctx: ReadContext) {
     }
   }
 
-  /** `check` during an agent turn: pages load in a hidden window (their load
-   *  problems and layout findings), inline content renders off screen (a
-   *  failed render is the problem); the panel is not touched. */
+  /** `check` during an agent turn (see `checkTabOffscreen`). */
   async function checkOffscreen(
     request: Extract<VisualizeRequest, { action: 'check' }>,
     tab: TabState
   ): Promise<VisualizeResult> {
-    const { size, panel } = offscreenSize(ctx, undefined);
-    const read = await readPagesOffscreen(ctx, request.cwd, tab, { viewport: size });
-    const problems = [...read.problems];
-    const findings = read.answers.reduce((sum, { result }) => {
-      const parsed = visualizePageInspection(result);
-      return parsed && !('error' in parsed) ? sum + parsed.findingCount : sum;
-    }, 0);
-    for (const pane of displayedPanes(tab)) {
-      if (pane.kind !== 'inline' || !deps.exportBytes) continue;
-      try {
-        await deps.exportBytes(request.sessionId, { ...view(tab), panes: [pane] }, 'png', 0, ['']);
-      } catch (error) {
-        problems.push(`render failed: ${(error as Error).message}`);
-      }
-    }
+    const { problems, findings, size, panel } = await checkTabOffscreen(ctx, request.sessionId, request.cwd, tab);
     const where = `checked off screen${panel ? ` at the side panel's width ${size.width}×${size.height}` : ''}; the side panel shows the tab when this turn ends`;
     const summaryLine = inspectFindingsSummary(findings);
     return {

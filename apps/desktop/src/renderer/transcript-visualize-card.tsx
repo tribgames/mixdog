@@ -36,6 +36,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 
+import { agentPoolStore } from './agent-activity-model';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { usePersistedThumbnail } from './persisted-thumbnail';
@@ -56,7 +57,9 @@ import {
   visualizeCardTab,
   visualizeCardThumbnailLine,
   visualizeCardVersion,
+  visualizeCardVersionTarget,
   visualizeInlineKindLabel,
+  visualizeOwnerSessionId,
   visualizeTabForTargets,
   visualizeTurnEndAt,
   visualizedTargets,
@@ -81,8 +84,8 @@ import {
   readVisualizeVersionThumbnail,
   reopenVisualizeContent,
   reopenVisualizeTargets,
+  requestVisualizeVersion,
   revealVisualizeTab,
-  showVisualizeVersion,
   useVisualizeState,
   useVisualizeHeldSince,
   useVisualizePanelOnScreen,
@@ -120,17 +123,16 @@ function cardVersion(
 }
 
 /** Show the call's tab on the card's version in the side panel, or open it
- *  again when it was closed (no agent turn). */
+ *  again when it was closed (no agent turn). Rejects when the card's version
+ *  cannot be shown (the card then says why). */
 function openCall(sessionId: string, call: VisualizeCardCall): Promise<void> {
   const tab = visualizeCardTab(visualizeStateFor(sessionId), call);
   if (tab) {
     const newest = visualizeCardNewest(sessionId, call);
     const version = cardVersion(sessionId, call, tab, newest);
     revealVisualizeTab(sessionId, tab.id);
-    const live = tab.versions?.at(-1)?.n;
-    const target = !newest && version && version !== live ? version : null;
-    if ((tab.version ?? null) !== target) showVisualizeVersion(sessionId, tab.id, target);
-    return Promise.resolve();
+    const target = visualizeCardVersionTarget(call, tab, version, newest);
+    return (tab.version ?? null) !== target ? requestVisualizeVersion(sessionId, tab.id, target) : Promise.resolve();
   }
   // A preview never opened has no tab id yet; main's reopen does not use it.
   const tabId = call.tabId || 'preview';
@@ -328,10 +330,19 @@ function VisualizeTurnCard({
     </section>
   );
 }
+/** The conversation whose panel holds `sessionId`'s visualize tabs (see
+ *  `visualizeOwnerSessionId`): the owner the host stamped on `calls`, else
+ *  the agent pool, followed as it changes. */
+function useVisualizeOwnerSession(sessionId: string, calls: readonly VisualizeCardCall[]): string {
+  const pool = agentPoolStore(globalThis.window?.mixdogDesktop);
+  const rows = useSyncExternalStore(pool.subscribe, pool.getSnapshot, pool.getSnapshot);
+  return useMemo(() => visualizeOwnerSessionId(sessionId, rows ?? [], calls), [sessionId, rows, calls]);
+}
+
 /** Under a tool group: one card per panel tab its `visualize` opens showed. */
 export function ToolVisualizeCards({
   items,
-  sessionId,
+  sessionId: transcriptSessionId,
   compact = false,
   frame,
   turnKey = '',
@@ -365,17 +376,22 @@ export function ToolVisualizeCards({
    *  ran no tool round. */
   endedAt?: number;
 }) {
+  const all = useMemo(() => visualizeCardCalls(items), [items]);
+  // A sub-agent's or room member's opens and previews live in the panel of
+  // the conversation it works for: its cards read their tabs (and its turn)
+  // there, and open its previews there.
+  const scope = useVisualizeOwnerSession(transcriptSessionId, all);
   // A card appears once, when the turn's end reveals its tab, already on the
   // final version: none is drawn (or redrawn per edit) while the turn runs,
   // and an open still running is not a card yet.
-  const heldSince = useVisualizeHeldSince(sessionId);
-  const all = useMemo(() => visualizeCardCalls(items), [items]);
+  const heldSince = useVisualizeHeldSince(scope);
   const opened = useMemo(() => visualizedTargets(items), [items]);
   const agentCalls = useMemo(() => visualizeCardsShown(all, heldSince), [all, heldSince]);
   const previews = useTurnPreviews({
-    sessionId,
+    sessionId: scope,
     items,
     opened,
+    agentOpens: agentCalls.length > 0,
     turnChanges,
     replyText,
     surfacedBefore,
@@ -383,6 +399,7 @@ export function ToolVisualizeCards({
     endTurnKey,
     endedAt,
   });
+  const sessionId = scope;
   const calls = useMemo(
     () => (previews.calls.length ? [...agentCalls, ...previews.calls] : agentCalls),
     [agentCalls, previews.calls]
@@ -430,6 +447,7 @@ function useTurnPreviews({
   sessionId,
   items,
   opened,
+  agentOpens,
   turnChanges,
   replyText,
   surfacedBefore,
@@ -440,6 +458,9 @@ function useTurnPreviews({
   sessionId: string;
   items: readonly TranscriptItem[];
   opened: readonly string[];
+  /** The agent opened tabs this turn: its previews open without being
+   *  shown, so the panel ends on the agent's own last open. */
+  agentOpens: boolean;
   turnChanges?: TurnChangesRef;
   replyText: string;
   surfacedBefore: readonly string[];
@@ -515,8 +536,8 @@ function useTurnPreviews({
     if (!settled || !turnPreviewOpenPending(changesSession, checkpointId)) return;
     takeTurnPreviewOpen(changesSession, checkpointId);
     const order = turnPreviewOpenOrder(found);
-    if (order.length) void openTurnPreviews(sessionId, order);
-  }, [settled, changesSession, checkpointId, found, sessionId]);
+    if (order.length) void openTurnPreviews(sessionId, order, { reveal: !agentOpens });
+  }, [settled, changesSession, checkpointId, found, sessionId, agentOpens]);
   return { calls, marked, visualized };
 }
 

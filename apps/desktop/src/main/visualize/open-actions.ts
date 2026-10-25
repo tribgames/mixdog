@@ -29,6 +29,7 @@ import {
   type VisualizeRequest,
   type VisualizeTarget,
 } from './targets';
+import { checkTabOffscreen } from './read-actions';
 import { heldTurn } from './turn-hold';
 import { shownVersionOf } from './version-thumbnails';
 
@@ -50,6 +51,7 @@ type OpenContext = Pick<
   | 'problems'
   | 'reloads'
   | 'holds'
+  | 'panelSize'
 >;
 
 /** A reopened tab goes to the end of the session's tabs, like a fresh open. */
@@ -58,8 +60,8 @@ function moveToEnd(tabs: TabState[], tab: TabState): void {
   tabs.push(tab);
 }
 
-/** Show the kept `version` a request asks for; the error is reported only
- *  after the tab was published live. */
+/** Show the kept `version` a request asks for; a failure is only a note of
+ *  the result, since the tab was already opened (and published) live. */
 async function selectRequested(
   ctx: Pick<OpenContext, 'tabVersions'>,
   sessionId: string,
@@ -99,13 +101,63 @@ async function placement(
   if (state === 'covered') {
     return `Opened ${what} in the side panel as tab ${tabRef(tab)}, but something in the Mixdog window covers the panel (a dialog, Settings or another overlay); the user must close it to see the tab.`;
   }
+  if (state === 'other-tab') {
+    return `Opened ${what} in the side panel as tab ${tabRef(tab)}, but the panel keeps showing another tab the user picked; the new tab is only marked updated in the panel's tab strip, so tell the user it is there.`;
+  }
   return `Opened ${what} as tab ${tabRef(tab)}, but it is not on screen (the window is minimized or hidden, or the session is not shown); the user must bring the Mixdog window and this session's visualize panel up to see it.`;
 }
 
 /** An open during an agent turn (turn-hold.ts): kept, shown when the turn
- *  ends. Keeps the literal "as tab vN" (chat cards read the tab id from it). */
-function heldPlacement(tab: TabState, what: string): string {
-  return `Prepared ${what} as tab ${tabRef(tab)}; the side panel shows it when this turn ends (it is left alone until then, so open again freely after edits). check, inspect and capture work on the tab now, off screen.`;
+ *  ends, and whether the user can reach the session to see it then. Keeps
+ *  the literal "as tab vN" (chat cards read the tab id from it). */
+async function heldPlacement(
+  deps: Pick<OpenContext['deps'], 'sessionReach'>,
+  sessionId: string,
+  tab: TabState,
+  what: string
+): Promise<string> {
+  const reach = (await deps.sessionReach?.(sessionId)) ?? 'shown';
+  const prepared = `Prepared ${what} as tab ${tabRef(tab)}`;
+  const offscreen = 'check, inspect and capture work on the tab now, off screen.';
+  if (reach === 'not-open') {
+    return `${prepared}, but this session is not open in the Mixdog window, so the user will not see it when this turn ends; tell the user to open this conversation to see it. ${offscreen}`;
+  }
+  const ends = `${prepared}; the side panel shows it when this turn ends`;
+  if (reach === 'background') {
+    return `${ends}, but the Mixdog window is in the background (another app has the focus); tell the user it is waiting in the Mixdog window. ${offscreen}`;
+  }
+  if (reach === 'hidden') {
+    return `${ends}, but the Mixdog window is minimized or hidden; tell the user to bring the Mixdog window up to see it. ${offscreen}`;
+  }
+  return `${ends} (it is left alone until then, so open again freely after edits). ${offscreen}`;
+}
+
+/** A held open's load check (nothing renders the tab until the turn ends):
+ *  the problems its pages or inline content show off screen, as a section of
+ *  the result; '' when there are none or nothing here can check them. */
+async function heldLoadCheck(
+  ctx: Pick<OpenContext, 'deps' | 'panelSize'>,
+  sessionId: string,
+  cwd: string,
+  tab: TabState
+): Promise<string> {
+  const panes = displayedPanes(tab);
+  const pages = panes.some((pane) => pane.kind === 'html');
+  const inline = panes.some((pane) => pane.kind === 'inline');
+  if (pages ? !ctx.deps.inspectOffscreen : !(inline && ctx.deps.exportBytes)) return '';
+  try {
+    const { problems } = await checkTabOffscreen(ctx, sessionId, cwd, tab);
+    return problems.length
+      ? `\nPage problems while it loaded off screen:\n${problems.map((line) => `- ${line}`).join('\n')}`
+      : '';
+  } catch (error) {
+    return `\nThe off-screen load check failed: ${(error as Error).message}`;
+  }
+}
+
+/** The result's note on a requested version that could not be shown. */
+function versionErrorNote(error: Error | null, tab: TabState, live: string): string {
+  return error ? ` Version not shown: ${error.message}; tab ${tab.id} shows the ${live}.` : '';
 }
 
 /** `open` with `input.content`: a direct-renderer tab, no files. Reopening
@@ -125,6 +177,7 @@ async function openInline(
     | 'publish'
     | 'problems'
     | 'holds'
+    | 'panelSize'
   >,
   request: OpenRequest,
   content: VisualizeInlineContent
@@ -181,11 +234,14 @@ async function openInline(
   if (!held) state.active = tab.id;
   ctx.views.rememberTab(sessionId, tab, true);
   ctx.publish(sessionId, tab.id);
-  if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live content`);
   const what = `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`;
-  const placed = held ? heldPlacement(tab, what) : await placement(ctx.deps, sessionId, tab, what);
-  // Nothing renders a held tab, so there is nothing to wait for.
-  if (!held) {
+  const placed = held
+    ? await heldPlacement(ctx.deps, sessionId, tab, what)
+    : await placement(ctx.deps, sessionId, tab, what);
+  // Nothing renders a held tab: it is checked off screen instead.
+  let loaded = '';
+  if (held) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
+  else {
     await ctx.problems.awaitInlineRender(tab);
     // A scripted page gets a moment to load, so its first errors ride this result.
     if (displayedPanes(tab).some((candidate) => candidate.kind === 'html')) await ctx.problems.settle(tab, 1);
@@ -193,7 +249,10 @@ async function openInline(
   sessionCwds.set(sessionId, cwd);
   ctx.thumbnails.refresh(sessionId, tab);
   return {
-    text: withProblems(tab, `${placed} Open again with the same title to add a version.${versionNote(tab)}`),
+    text: withProblems(
+      tab,
+      `${placed} Open again with the same title to add a version.${versionNote(tab)}${versionErrorNote(versionError, tab, 'live content')}${loaded}`
+    ),
     tabs: [summary(tab)],
     ...problemsOf(tab),
   };
@@ -331,7 +390,6 @@ export function createOpenActions(ctx: OpenContext) {
     if (!held) state.active = tab.id;
     ctx.views.rememberTab(sessionId, tab, true);
     ctx.publish(sessionId, tab.id);
-    if (versionError) throw new Error(`${versionError.message}; tab ${tab.id} shows the live files`);
     const shown = files
       .map((target) => {
         // A file outside the working directory is named by its full path.
@@ -339,10 +397,14 @@ export function createOpenActions(ctx: OpenContext) {
         return `${shown || target.label} (${target.kind})`;
       })
       .join(', ');
-    const placed = held ? heldPlacement(tab, shown) : await placement(deps, sessionId, tab, shown);
+    const placed = held
+      ? await heldPlacement(deps, sessionId, tab, shown)
+      : await placement(deps, sessionId, tab, shown);
     // Give a fresh page a moment to load, so its first errors ride this result
-    // (a held tab loads nowhere yet).
-    if (!held && panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(tab, 1);
+    // (a held tab loads nowhere yet: it is checked off screen instead).
+    let loaded = '';
+    if (held) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
+    else if (panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(tab, 1);
     // A dropped open's cwd is as stale as its files: the session keeps the
     // cwd of the load that committed. A later open that overtook this one
     // during settle owns the tab's cwd now, and records its own.
@@ -351,7 +413,7 @@ export function createOpenActions(ctx: OpenContext) {
     return {
       text: withProblems(
         tab,
-        `${placed} The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.${versionNote(tab)}`
+        `${placed} The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.${versionNote(tab)}${versionErrorNote(versionError, tab, 'live files')}${loaded}`
       ),
       tabs: [summary(tab)],
       ...problemsOf(tab),

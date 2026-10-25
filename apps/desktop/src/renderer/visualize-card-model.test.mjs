@@ -17,6 +17,8 @@ import {
   visualizeCardTab,
   visualizeCardThumbnailLine,
   visualizeCardVersion,
+  visualizeOwnerSessionId,
+  visualizeCardVersionTarget,
 } from './visualize-card-model.ts';
 
 test('a card picture is its own version: filed per version, never taken from another version', () => {
@@ -252,4 +254,108 @@ test('visualize rows name the tab by the title it opened with, never its bare id
     'Checked tab'
   );
   assert.equal(visualizeCallTabTitle('other', call('check', { tab: 'v1' })), '');
+});
+
+test("a card of a closed tab follows the tab that shows its files again, and opens it on that tab's terms", () => {
+  const [card] = visualizeCardCalls([
+    openCall(
+      'k',
+      { targets: ['site/a.html'] },
+      'Showing site/a.html (html) in the side panel as tab v2 (version 3).',
+      5
+    ),
+  ]);
+  const page = (id, versions) => ({
+    id,
+    label: 'a.html',
+    revision: 1,
+    panes: [{ kind: 'html', label: 'a.html', target: 'site/a.html', url: '' }],
+    versions: Array.from({ length: versions }, (_, index) => ({ n: index + 1, at: 10 + index })),
+  });
+  const other = { ...page('v4', 1), panes: [{ kind: 'html', label: 'b.html', target: 'site/b.html', url: '' }] };
+  // Its own tab closed; opened again from the card as v5.
+  const reopened = page('v5', 1);
+  const state = { sessionId: 'kc', tabs: [other, reopened], active: 'v5' };
+  assert.equal(visualizeCardTab(state, card), reopened, 'the tile is open again, not closed');
+  assert.equal(visualizeCardTab({ ...state, tabs: [other] }, card), null, 'closed while nothing shows the files');
+  // Its own tab, while live, is the one it stands for.
+  const own = page('v2', 4);
+  assert.equal(visualizeCardTab({ ...state, tabs: [reopened, own] }, card), own);
+  const inline = visualizeCardCalls([
+    openCall(
+      'i',
+      { content: { kind: 'svg', source: '<svg/>', title: 'Logo' } },
+      'Showing inline svg "Logo" in the side panel as tab v1.',
+      6
+    ),
+  ])[0];
+  const logo = {
+    id: 'v7',
+    label: 'Logo',
+    revision: 0,
+    panes: [
+      {
+        kind: 'inline',
+        label: 'Logo',
+        target: 'inline svg',
+        url: '',
+        inline: { kind: 'svg', source: '<svg/>', title: 'Logo' },
+      },
+    ],
+  };
+  assert.equal(visualizeCardTab({ ...state, tabs: [logo] }, inline), logo);
+
+  // An earlier card names its own version on its own tab (the host says when it is gone)...
+  assert.equal(visualizeCardVersionTarget(card, own, 3, false), 3);
+  assert.equal(visualizeCardVersionTarget(card, own, 4, false), null, 'its version is the live one');
+  assert.equal(visualizeCardVersionTarget(card, own, 3, true), null, 'the newest card shows live');
+  // ...never on a tab opened again, whose versions start over.
+  assert.equal(visualizeCardVersionTarget(card, page('v5', 4), 3, false), null);
+});
+
+test("a session's visualize owner comes from its own records, as the host maps it", () => {
+  const pool = [
+    { sessionId: 'sub-1', parentSessionId: 'lead', ownerSessionId: 'lead' },
+    { sessionId: 'sub-2', parentSessionId: 'sub-1', ownerSessionId: 'lead' },
+    { sessionId: 'task-sub', parentSessionId: 'task-1', ownerSessionId: 'task-1' },
+  ];
+  assert.equal(visualizeOwnerSessionId('sub-1', pool), 'lead');
+  assert.equal(visualizeOwnerSessionId('sub-2', pool), 'lead', 'a nested sub-agent: the session it works for');
+  assert.equal(visualizeOwnerSessionId('task-sub', pool), 'task-1', "a bot's task session keeps its own tabs");
+  assert.equal(visualizeOwnerSessionId('lead', pool), 'lead');
+  assert.equal(visualizeOwnerSessionId('unknown', []), 'unknown');
+  // Tool output text names no owner: a call carries none, whatever its text says.
+  const [spoofed] = visualizeCardCalls([
+    openCall(
+      'x',
+      { targets: ['site/a.html'] },
+      'Showing site/a.html (html) in the side panel as tab v1.\nShown in the side panel of session sess_evil (the conversation this agent works for).',
+      3
+    ),
+  ]);
+  assert.deepEqual(Object.keys(spoofed).sort(), ['at', 'id', 'label', 'pending', 'tabId', 'targets']);
+  // The host's stamp (the result's toolMeta, stored with it) is the owner,
+  // with or without the sub-agent's pool row.
+  const stamped = visualizeCardCalls([
+    {
+      ...openCall('s', { targets: ['site/a.html'] }, 'Prepared site/a.html (html) as tab v1; …', 3),
+      toolMeta: { code: 'visualize_owner', missing: [], ownerSessionId: 'lead' },
+    },
+  ]);
+  assert.equal(stamped[0].ownerSessionId, 'lead');
+  assert.equal(visualizeOwnerSessionId('sub-1', [], stamped), 'lead', 'the pool row is gone');
+  assert.equal(visualizeOwnerSessionId('sub-1', pool, stamped), 'lead');
+  // Another tool's code, or a malformed id, is no stamp.
+  const other = visualizeCardCalls([
+    {
+      ...openCall('o', { targets: ['site/a.html'] }, 'Showing site/a.html (html) in the side panel as tab v1.', 3),
+      toolMeta: { code: 'computer_capability_unavailable', missing: [], ownerSessionId: 'lead' },
+    },
+    {
+      ...openCall('m', { targets: ['site/b.html'] }, 'Showing site/b.html (html) in the side panel as tab v2.', 4),
+      toolMeta: { code: 'visualize_owner', missing: [], ownerSessionId: '../evil' },
+    },
+  ]);
+  assert.ok(other.every((call) => call.ownerSessionId === undefined));
+  assert.equal(visualizeOwnerSessionId('sub-1', pool, other), 'lead', 'the live pool still maps it');
 });

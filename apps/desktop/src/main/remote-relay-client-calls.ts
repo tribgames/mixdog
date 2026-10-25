@@ -269,6 +269,12 @@ export function createRelayClientCallDispatch(
       client.screenSessionIds = new Set(filterSessionIds(call.params[0]));
       return {};
     }
+    // And the sessions whose visualize panel THIS browser has on screen: an
+    // agent open there is "visible" only for these.
+    if (call?.method === 'setVisualizePanels' && Array.isArray(call.params)) {
+      client.visualizePanelSessionIds = new Set(filterSessionIds(call.params[0]));
+      return {};
+    }
     if (call?.method === 'setVisibleSessions' && Array.isArray(call.params)) {
       await client.viewRecovery;
       const requested = filterSessionIds(call.params[0]);

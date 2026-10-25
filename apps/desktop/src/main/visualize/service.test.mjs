@@ -222,6 +222,71 @@ test('open says so when the panel is not on screen, keeping "as tab vN"', async 
   }
 });
 
+test("a sub-agent's or room member's open lands in its owner conversation's panel", async () => {
+  const { cwd, cleanup } = workspace();
+  const { deps, events } = fakeDeps({
+    ownerSessionId: (sessionId) => ({ sess_child: 'sess_lead', sess_member: 'sess_room' })[sessionId] ?? sessionId,
+  });
+  const service = createVisualizeService(deps);
+  try {
+    const opened = await service.execute({
+      sessionId: 'sess_child',
+      cwd,
+      action: 'open',
+      input: { targets: ['site/index.html'] },
+    });
+    assert.match(opened.text, /\bas tab v1\b/);
+    assert.match(
+      opened.text,
+      /\nShown in the side panel of session sess_lead \(the conversation this agent works for\)\.$/
+    );
+    assert.equal(events.at(-1).sessionId, 'sess_lead', 'published to the listed owner');
+    assert.equal(events.at(-1).reveal, true);
+    assert.deepEqual(
+      service.snapshot().map((state) => [state.sessionId, state.tabs.map((tab) => tab.id)]),
+      [['sess_lead', ['v1']]],
+      'no tab under the unlisted child session'
+    );
+    assert.equal(opened.ownerSessionId, 'sess_lead', 'the owner rides as a field for the chat cards');
+    // Its later actions find the tab under the owner too.
+    const closed = await service.execute({ sessionId: 'sess_child', cwd, action: 'close', input: { tab: 'v1' } });
+    assert.match(closed.text, /^Closed visualize tab v1\./);
+    // A room member's opens go to the room's own conversation.
+    await service.execute({ sessionId: 'sess_member', cwd, action: 'open', input: { targets: ['chart.png'] } });
+    assert.equal(events.at(-1).sessionId, 'sess_room');
+    // A top-level session is its own owner: no note.
+    const own = await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['chart.png'] } });
+    assert.doesNotMatch(own.text, /Shown in the side panel of session/);
+    assert.equal(own.ownerSessionId, undefined);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
+test('open says so when the panel keeps showing another tab the user picked', async () => {
+  const { cwd, cleanup } = workspace();
+  const { deps } = fakeDeps({ onScreen: async () => 'other-tab' });
+  const service = createVisualizeService(deps);
+  try {
+    const result = await service.execute({
+      sessionId: 's1',
+      cwd,
+      action: 'open',
+      input: { targets: ['site/index.html'] },
+    });
+    assert.match(
+      result.text,
+      /^Opened site\/index\.html \(html\) in the side panel as tab v1, but the panel keeps showing another tab the user picked/
+    );
+    assert.match(result.text, /marked updated .*tell the user it is there/);
+    assert.doesNotMatch(result.text, /not on screen/);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
 test('open reuses tabs, splits panes, reloads on change, and closes', async () => {
   const { cwd, cleanup } = workspace();
   const { deps, events, watched } = fakeDeps();
@@ -1071,7 +1136,14 @@ test('version history: kept on change, shown read-only, compared, restored, path
     result = await open({ version: 2 });
     assert.match(result.text, /Showing kept version v2 of 4 \(v1–v4\), read-only/);
     assert.equal(latest().version, 2);
-    await assert.rejects(open({ version: 9 }), /no version 9; kept versions: 1, 2, 3, 4; tab v1 shows the live files/);
+    // The tab was already opened (and published) live: a version it does not
+    // keep is a note of the result, never an error after the fact.
+    result = await open({ version: 9 });
+    assert.match(result.text, /\bas tab v1\b/);
+    assert.match(
+      result.text,
+      /Version not shown: tab v1 has no version 9; kept versions: 1, 2, 3, 4; tab v1 shows the live files\./
+    );
     assert.equal(latest().version, null);
 
     // Remote clients: the versions and kept-version panes, never a host path.

@@ -12,6 +12,7 @@ import test from 'node:test';
 
 import { JSDOM } from 'jsdom';
 
+import { clearScreenSessions, reportScreenSessions } from '../screen-sessions.ts';
 import { desktopScreenState } from './host-frames.ts';
 import { createDesktopVisualize } from './host.ts';
 import { createVisualizeService } from './service.ts';
@@ -89,6 +90,61 @@ test('desktopScreenState tells focused from unfocused, covered, and hidden windo
   state.bodyAbsent = false;
   state.vanishes = true;
   assert.equal(await screen(), 'hidden');
+});
+
+test("desktopScreenState tells a panel on screen showing another tab from one that is not shown", async (t) => {
+  const { window, state } = fakeWindow();
+  // v1 is the panel's displayed tab; the open was of v2. The wait for v2 to
+  // appear runs on fake time.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let found;
+  void desktopScreenState(window, 's1', { id: 'v2' }).then((value) => {
+    found = value;
+  });
+  for (let step = 0; found === undefined && step < 100; step += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(150);
+  }
+  t.mock.timers.reset();
+  assert.equal(found, 'other-tab');
+  state.minimized = true;
+  assert.equal(await desktopScreenState(window, 's1', { id: 'v2' }), 'hidden', 'a minimized window shows nothing');
+});
+
+test('a held open asks the window and the sessions its renderer paints whether the user can reach it', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-visualize-screen-'));
+  const cwd = join(root, 'project');
+  mkdirSync(join(cwd, 'site'), { recursive: true });
+  writeFileSync(join(cwd, 'site', 'index.html'), '<h1>hi</h1>');
+  const { window, state } = fakeWindow();
+  let remote = false;
+  const service = createDesktopVisualize({
+    window: () => window,
+    invokeDesktopOperation: async () => {
+      throw new Error('unused');
+    },
+    browserAvailable: () => true,
+    remoteViewing: async () => remote,
+  });
+  const open = async () =>
+    (await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } })).text;
+  try {
+    await service.setTurnActive('s1', true);
+    reportScreenSessions(window, ['other']);
+    assert.match(await open(), /but this session is not open in the Mixdog window/);
+    reportScreenSessions(window, ['other', 's1']);
+    assert.match(await open(), /as tab v1; the side panel shows it when this turn ends \(/);
+    state.focused = false;
+    assert.match(await open(), /the Mixdog window is in the background/);
+    state.minimized = true;
+    assert.match(await open(), /the Mixdog window is minimized or hidden/);
+    remote = true;
+    assert.match(await open(), /the side panel shows it when this turn ends \(/, 'a paired device shows it');
+  } finally {
+    clearScreenSessions(window);
+    service.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('open names what stands between the tab and the user, per screen state', async () => {

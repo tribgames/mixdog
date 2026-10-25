@@ -26,6 +26,9 @@ import {
   toggleVisualizeCompare,
   visualizeVersionPosition,
   openVisualizeHistory,
+  onVisualizeEmptied,
+  openTurnPreviews,
+  requestVisualizeVersion,
   exportVisualizeTab,
   visualizeExportPane,
   visualizeHistoryTime,
@@ -861,3 +864,133 @@ test('phone: two untitled diagrams are told apart by their source, like the host
     assert.equal(visualizeStateFor('in').active, 'v1');
     assert.ok(!sent.some((command) => command.action === 'reopen'));
   }));
+
+/** Runs `body` on the desktop with a host that records commands in `sent`. */
+async function onDesktop(body, command = async () => ({})) {
+  const restore = withLocalStorage();
+  const sent = [];
+  const reveals = [];
+  const previous = globalThis.window;
+  globalThis.window = {
+    mixdogDesktop: {
+      visualizeCommand: async (request) => {
+        sent.push(request);
+        return command(request);
+      },
+    },
+  };
+  const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+  try {
+    await body({ sent, reveals });
+  } finally {
+    stop();
+    globalThis.window = previous;
+    restore();
+  }
+}
+
+test("a user's pick does not outlast a turn: the turn's own open shows at its end", () =>
+  onDesktop(({ reveals }) => {
+    const tabs = (n) => [versioned('v1', 1), versioned('v2', n)];
+    applyVisualizeEvent({ sessionId: 'pk', state: { sessionId: 'pk', tabs: tabs(1), active: 'v2' } });
+    setVisualizePanelOnScreen('pk', true);
+    activateVisualizeTab('pk', 'v1');
+    // A turn starts and opens v2 again; its end reveals it over the pick.
+    applyVisualizeEvent({ sessionId: 'pk', state: { sessionId: 'pk', tabs: tabs(2), active: 'v1' }, held: true });
+    applyVisualizeEvent({
+      sessionId: 'pk',
+      state: { sessionId: 'pk', tabs: tabs(2), active: 'v2' },
+      reveal: true,
+      tab: 'v2',
+    });
+    assert.deepEqual(reveals, ['pk']);
+    assert.equal(visualizeStateFor('pk').active, 'v2');
+    assert.equal(visualizeUpdatedTabs('pk').has('v2'), false);
+    // A pick made during a turn ends with that turn too.
+    applyVisualizeEvent({ sessionId: 'pk', state: { sessionId: 'pk', tabs: tabs(3), active: 'v2' }, held: true });
+    activateVisualizeTab('pk', 'v1');
+    applyVisualizeEvent({
+      sessionId: 'pk',
+      state: { sessionId: 'pk', tabs: tabs(3), active: 'v2' },
+      reveal: true,
+      tab: 'v2',
+    });
+    assert.deepEqual(reveals, ['pk', 'pk']);
+    assert.equal(visualizeStateFor('pk').active, 'v2');
+    setVisualizePanelOnScreen('pk', false);
+  }));
+
+test("a turn's previews open behind the agent's own opens without taking the panel", () =>
+  onDesktop(async ({ sent, reveals }) => {
+    const page = (id, target) => ({ ...versioned(id, 1), panes: [{ kind: 'html', label: target, target, url: '' }] });
+    // The turn's end showed the agent's own open, v1.
+    applyVisualizeEvent({
+      sessionId: 'tp',
+      state: { sessionId: 'tp', tabs: [page('v1', 'a.html')], active: 'v1' },
+      reveal: true,
+      tab: 'v1',
+    });
+    assert.deepEqual(reveals, ['tp']);
+    setVisualizePanelOnScreen('tp', true);
+    await openTurnPreviews('tp', ['b.html'], { reveal: false });
+    assert.deepEqual(sent.at(-1), { sessionId: 'tp', tabId: 'preview', action: 'reopen', targets: ['b.html'] });
+    // Main's open of the preview made it active and asks to reveal it.
+    applyVisualizeEvent({
+      sessionId: 'tp',
+      state: { sessionId: 'tp', tabs: [page('v1', 'a.html'), page('v2', 'b.html')], active: 'v2' },
+      reveal: true,
+      tab: 'v2',
+    });
+    assert.deepEqual(reveals, ['tp'], 'no reveal for the preview');
+    assert.equal(visualizeStateFor('tp').active, 'v1', "the panel stays on the agent's tab");
+    assert.deepEqual(sent.at(-1), { sessionId: 'tp', tabId: 'v1', action: 'activate' }, 'main is told');
+    assert.deepEqual([...visualizeUpdatedTabs('tp')], ['v2'], 'the preview wears the dot');
+    // A turn with no agent opens still shows its previews.
+    await openTurnPreviews('tp', ['c.html']);
+    applyVisualizeEvent({
+      sessionId: 'tp',
+      state: {
+        sessionId: 'tp',
+        tabs: [page('v1', 'a.html'), page('v2', 'b.html'), page('v3', 'c.html')],
+        active: 'v3',
+      },
+      reveal: true,
+      tab: 'v3',
+    });
+    assert.deepEqual(reveals, ['tp', 'tp']);
+    assert.equal(visualizeStateFor('tp').active, 'v3');
+    setVisualizePanelOnScreen('tp', false);
+  }));
+
+test('the shell hears when a session loses its last tab, wherever its panel is', () => {
+  const emptied = [];
+  const stop = onVisualizeEmptied((sessionId) => emptied.push(sessionId));
+  try {
+    applyVisualizeEvent({ sessionId: 'em', state: { sessionId: 'em', tabs: [tab], active: 'v1' } });
+    applyVisualizeEvent({ sessionId: 'em', state: { sessionId: 'em', tabs: [{ ...tab, revision: 2 }], active: 'v1' } });
+    assert.deepEqual(emptied, []);
+    // Closed while the panel is off screen, the history kept.
+    const history = [{ id: 'h1', label: 'index.html', kind: 'html', versions: 1, at: 1, open: false }];
+    applyVisualizeEvent({ sessionId: 'em', state: { sessionId: 'em', tabs: [], active: null, history } });
+    assert.deepEqual(emptied, ['em']);
+    applyVisualizeEvent({ sessionId: 'em', state: { sessionId: 'em', tabs: [], active: null } });
+    assert.deepEqual(emptied, ['em'], 'once per emptying');
+  } finally {
+    stop();
+  }
+});
+
+test("a version the host cannot show is the caller's to report", () =>
+  onDesktop(
+    async ({ sent }) => {
+      await assert.rejects(requestVisualizeVersion('vr', 'v1', 3), /no version 3/);
+      assert.deepEqual(sent.at(-1), { sessionId: 'vr', tabId: 'v1', action: 'version', version: 3 });
+      // The stepper's fire-and-forget form stays quiet.
+      showVisualizeVersion('vr', 'v1', 3);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    async (request) => {
+      if (request.action === 'version') throw new Error('tab v1 has no version 3');
+      return {};
+    }
+  ));

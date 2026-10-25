@@ -408,6 +408,10 @@ export const VISUALIZE_REMOTE_DESKTOP_EVENT = 'visualize-remote-changed';
 export const REMOTE_VISUALIZE_CHANGED_EVENT = 'visualizeChanged';
 /** The push lane a remote client registers to receive visualize changes. */
 export const REMOTE_VISUALIZE_LANE = 'visualize';
+/** Page (window) event the visualize store raises whenever a session's panel
+ *  comes on or leaves the screen; `detail`: every session whose panel is on
+ *  screen. A paired device's shim reports it to the desktop. */
+export const VISUALIZE_PANELS_EVENT = 'mixdog:visualize-panels';
 
 /** Largest page file a remote client builds into a document; the host gives
  *  no content identity (no client cache) to a larger one. */

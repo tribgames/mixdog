@@ -91,6 +91,9 @@ export function createTurnHolds(
     const keep = (tab: TabState): void => {
       if (!tab.url && ctx.sessions.get(sessionId)?.tabs.includes(tab)) keepVersionTurn(ctx, sessionId, tab, turn);
     };
+    // A failed step still ends the hold with the final publish below (the
+    // panel and the turn's cards wait for it); the failure is raised after.
+    let failure: unknown = null;
     try {
       // The version each tab the turn opened ends it on is the turn's own: its
       // card reads it from the state, on any device, after any reload. (A tab
@@ -113,21 +116,24 @@ export function createTurnHolds(
         for (const tab of hold.reloads) if (!tab.url && tabs.includes(tab) && !opened.includes(tab)) opened.push(tab);
         await ctx.thumbnails.takeAtTurnEnd(sessionId, opened);
       }
+    } catch (error) {
+      failure = error;
     } finally {
       if (holds.get(sessionId) === hold) holds.delete(sessionId);
     }
     // A turn that started meanwhile holds this one's result until it ends too.
-    if (hold.again) {
-      start(sessionId, hold);
-      return;
+    if (hold.again) start(sessionId, hold);
+    else {
+      const state = ctx.sessions.get(sessionId);
+      const shown = state
+        ? hold.reveal.filter((id) => state.tabs.some((tab) => tab.id === id && !tab.url)).at(-1)
+        : undefined;
+      if (state && shown) {
+        state.active = shown;
+        ctx.publish(sessionId, shown);
+      } else if (state && hold.dirty) ctx.publish(sessionId);
     }
-    const state = ctx.sessions.get(sessionId);
-    if (!state) return;
-    const shown = hold.reveal.filter((id) => state.tabs.some((tab) => tab.id === id && !tab.url)).at(-1);
-    if (shown) {
-      state.active = shown;
-      ctx.publish(sessionId, shown);
-    } else if (hold.dirty) ctx.publish(sessionId);
+    if (failure) throw failure;
   };
 
   /** The session's turn started (true) or ended; the end applies what the

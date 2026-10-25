@@ -167,6 +167,28 @@ test('executeVisualizeTool posts { sessionId, cwd, action, input } with bearer a
   );
 });
 
+test("executeVisualizeTool stamps the host's owner session as a structured field, not only prose", async () => {
+  const note = 'Shown in the side panel of session sess_lead (the conversation this agent works for).';
+  await withBridge(
+    (body) =>
+      body.sessionId === 'sess_child'
+        ? { ok: true, text: `Opened.\n${note}`, ownerSessionId: 'sess_lead' }
+        : body.sessionId === 'sess_odd'
+          ? { ok: true, text: 'Opened.', ownerSessionId: '../x' }
+          : { ok: true, text: `Opened. ${note}` },
+    async () => {
+      const open = (sessionId) =>
+        executeVisualizeTool({ action: 'open', input: { targets: ['a.html'] } }, { sessionId, cwd: '/proj' });
+      const child = await open('sess_child');
+      assert.deepEqual(child.toolMeta, { code: 'visualize_owner', missing: [], ownerSessionId: 'sess_lead' });
+      assert.match(child.content[0].text, /Shown in the side panel of session sess_lead/, 'the note stays for the model');
+      const own = await open('s1');
+      assert.equal(own.toolMeta, undefined, 'prose naming a session is no stamp');
+      assert.equal((await open('sess_odd')).toolMeta, undefined, 'a malformed id is no stamp');
+    }
+  );
+});
+
 test('executeVisualizeTool surfaces capture path and bridge errors', async () => {
   await withBridge(
     (body) => (body.action === 'capture' ? { ok: true, text: 'Captured', path: 'out.png' } : { ok: false, error: 'Error: no such tab' }),

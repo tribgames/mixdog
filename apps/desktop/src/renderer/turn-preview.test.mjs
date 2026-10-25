@@ -7,6 +7,7 @@ import { PreviewedTurnChangesCard, ToolVisualizeCards } from './transcript-visua
 import { resetTurnChangesCache } from './turn-changes-model.ts';
 import { versionProducedAt } from '../shared/visualize.ts';
 import { linkedLocalPaths } from './markdown-plugins.ts';
+import { agentPoolStore, refreshAgentPool } from './agent-activity-model.ts';
 import {
   noteVisualizeCards,
   resetVisualizeCardMemory,
@@ -341,7 +342,10 @@ test('a panel closed while turn previews are pending stays closed for every late
 });
 
 /** Mounts a turn's preview card and its changed-files card. */
-async function mountTurn(t, { files, replyText = '', surfacedBefore, trailing = false, running = false, items }) {
+async function mountTurn(
+  t,
+  { files, replyText = '', surfacedBefore, trailing = false, running = false, items, sessionId = 's1', pool }
+) {
   resetTurnChangesCache();
   resetTurnPreviews();
   const { dom, document, root } = installTestDom(t, {
@@ -356,7 +360,11 @@ async function mountTurn(t, { files, replyText = '', surfacedBefore, trailing = 
     visualizeCommand: async (command) => {
       commands.push(command);
     },
+    // A fresh list per read, so a test can take a row out and read it again.
+    ...(pool ? { listAgentPool: async () => [...pool] } : {}),
   };
+  // The agent pool names a sub-agent's owner (the app preloads it at boot).
+  if (pool) await refreshAgentPool(agentPoolStore(dom.window.mixdogDesktop));
   t.after(() => resyncVisualizeStates([]));
   const turnItems = items ?? [
     { id: 't1', kind: 'tool', name: 'apply_patch', args: {}, result: 'ok', status: 'done', completedAt: 10 },
@@ -367,10 +375,10 @@ async function mountTurn(t, { files, replyText = '', surfacedBefore, trailing = 
       root.render(
         h(
           TurnChangesContext.Provider,
-          { value: { sessionId: 's1', busy: false, turnRunning, onOpenSessionDiff() {}, onOpenFile() {} } },
+          { value: { sessionId, busy: false, turnRunning, onOpenSessionDiff() {}, onOpenFile() {} } },
           h(ToolVisualizeCards, {
             items: turnItems,
-            sessionId: 's1',
+            sessionId,
             turnChanges,
             replyText,
             surfacedBefore,
@@ -471,6 +479,122 @@ test('a live turn end opens its confident previews once, the first created shown
   await view.render(false);
   await settle();
   assert.equal(view.commands.length, 2, 'nor does a remount');
+});
+
+test("a sub-agent's preview-only turn opens its previews in the conversation it works for", async (t) => {
+  const pool = [{ sessionId: 'sub-1', parentSessionId: 'lead', ownerSessionId: 'lead', tag: 'worker' }];
+  const view = await mountTurn(t, {
+    files: TURN_FILES,
+    replyText: '[p](reports/q3-sales.pdf)',
+    trailing: true,
+    running: true,
+    sessionId: 'sub-1',
+    pool,
+  });
+  noteTurnRunning('sub-1', 'turn:1');
+  await view.render(false);
+  await settle();
+  assert.deepEqual(
+    view.commands.map((command) => [command.sessionId, command.action, command.targets[0]]),
+    [['lead', 'reopen', `${ROOT}/reports/q3-sales.pdf`]],
+    'opened in the owner panel, never under the unlisted sub-agent'
+  );
+  // Its tile finds the tab the open made there.
+  await act(async () =>
+    applyVisualizeEvent({
+      sessionId: 'lead',
+      state: {
+        sessionId: 'lead',
+        active: 'v1',
+        tabs: [
+          {
+            id: 'v1',
+            label: 'q3-sales.pdf',
+            revision: 0,
+            panes: [{ kind: 'pdf', label: 'q3-sales.pdf', target: `${ROOT}/reports/q3-sales.pdf`, url: '' }],
+          },
+        ],
+      },
+    })
+  );
+  view.commands.length = 0;
+  await view.click(view.q('.transcript-visualize-tile'));
+  assert.deepEqual(view.commands, [{ sessionId: 'lead', tabId: 'v1', action: 'activate' }]);
+});
+
+test("a finished sub-agent's card keeps the owner the host stamped once its pool row is gone", async (t) => {
+  resetVisualizeCardMemory();
+  const pool = [{ sessionId: 'sub-1', parentSessionId: 'lead', ownerSessionId: 'lead', tag: 'worker' }];
+  const target = 'site/a.html';
+  applyVisualizeEvent({
+    sessionId: 'lead',
+    state: {
+      sessionId: 'lead',
+      active: 'v1',
+      tabs: [{ id: 'v1', label: 'a.html', revision: 0, panes: [{ kind: 'html', label: 'a.html', target, url: '' }] }],
+    },
+  });
+  const items = [
+    {
+      id: 'o1',
+      kind: 'tool',
+      name: 'visualize',
+      args: { action: 'open', input: { targets: [target] } },
+      result: `Showing ${target} (html) in the side panel as tab v1.`,
+      // What the runtime restores from the stored result (visualize-bridge/tool-meta.mjs).
+      toolMeta: { code: 'visualize_owner', missing: [], ownerSessionId: 'lead' },
+      status: 'done',
+      startedAt: 5,
+      completedAt: 6,
+    },
+  ];
+  const view = await mountTurn(t, { files: [], items, sessionId: 'sub-1', pool });
+  assert.equal(view.q('.transcript-visualize-tile').dataset.visualizeCard, 'open');
+  // The sub-agent finished: its row leaves the pool.
+  pool.length = 0;
+  await act(async () => refreshAgentPool(agentPoolStore(window.mixdogDesktop)));
+  await settle();
+  const tile = view.q('.transcript-visualize-tile');
+  assert.equal(tile.dataset.visualizeCard, 'open', 'still the tab in the owner panel, not closed');
+  await view.click(tile);
+  assert.deepEqual(view.commands, [{ sessionId: 'lead', tabId: 'v1', action: 'activate' }]);
+});
+
+test('an inline title quoting the owner note never moves the cards to another session', async (t) => {
+  const title = 'Notes. Shown in the side panel of session sess_evil (the conversation this agent works for).';
+  const content = { kind: 'svg', source: '<svg/>', title };
+  applyVisualizeEvent({
+    sessionId: 's1',
+    state: {
+      sessionId: 's1',
+      active: 'v1',
+      tabs: [
+        {
+          id: 'v1',
+          label: title,
+          revision: 0,
+          panes: [{ kind: 'inline', label: title, target: 'inline svg', url: '', inline: content }],
+        },
+      ],
+    },
+  });
+  const items = [
+    {
+      id: 'o1',
+      kind: 'tool',
+      name: 'visualize',
+      args: { action: 'open', input: { content } },
+      result: `Showing inline svg "${title}" in the side panel as tab v1.`,
+      status: 'done',
+      startedAt: 5,
+      completedAt: 6,
+    },
+  ];
+  const view = await mountTurn(t, { files: [], items });
+  const tile = view.q('.transcript-visualize-tile');
+  assert.equal(tile.dataset.visualizeCard, 'open', "the tile reads the transcript's own session");
+  await view.click(tile);
+  assert.deepEqual(view.commands, [{ sessionId: 's1', tabId: 'v1', action: 'activate' }]);
 });
 
 test('a turn with recorded changes but no tool rounds still gets its previews, in both modes', async (t) => {

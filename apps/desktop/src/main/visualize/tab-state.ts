@@ -46,6 +46,9 @@ export interface VisualizeResult {
   path?: string;
   /** The tab's page problems, when it has any (the text already lists them). */
   problems?: VisualizeProblem[];
+  /** The conversation whose panel the call acted on, when it ran for another
+   *  session's work (a sub-agent, a room member); its chat cards read it. */
+  ownerSessionId?: string;
 }
 
 export interface TabState {

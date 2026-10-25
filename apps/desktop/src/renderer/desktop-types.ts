@@ -37,8 +37,9 @@ export type TranscriptItem = RecordValue & {
   args?: unknown;
   result?: unknown;
   rawResult?: unknown;
-  /** Structured twin of a tool result's text (e.g. the Computer Use capability refusal). */
-  toolMeta?: { code: string; missing: string[] };
+  /** Structured twin of a tool result's text (e.g. the Computer Use capability
+   *  refusal; a `visualize` call's owner conversation, `ownerSessionId`). */
+  toolMeta?: { code: string; missing: string[]; ownerSessionId?: string };
   isError?: boolean;
   streaming?: boolean;
   expanded?: boolean;

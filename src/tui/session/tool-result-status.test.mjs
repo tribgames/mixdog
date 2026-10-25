@@ -378,3 +378,14 @@ test('toolMeta carries only a stable code and capability names from a tool resul
   assert.deepEqual(toolMetaPatchFromMessage({ content: 'text' }), {});
   assert.deepEqual(toolMetaPatchFromMessage(null), {});
 });
+
+test("toolMeta keeps a visualize result's owner session (stored, restored), never a malformed id", () => {
+  const owner = { code: 'visualize_owner', missing: [], ownerSessionId: 'sess_lead-1' };
+  assert.deepEqual(toolMetaPatchFromMessage({ toolMeta: owner }), { toolMeta: owner });
+  assert.deepEqual(toolMetaPatchFromMessage({ toolMeta: { ...owner, ownerSessionId: '../x y' } }), {
+    toolMeta: { code: 'visualize_owner', missing: [] },
+  });
+  assert.deepEqual(toolMetaPatchFromMessage({ toolMeta: { ...owner, ownerSessionId: 7 } }), {
+    toolMeta: { code: 'visualize_owner', missing: [] },
+  });
+});

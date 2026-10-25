@@ -45,6 +45,20 @@ export async function bodyRectNow(window: BrowserWindow, sessionId: string, tabI
   return (await window.webContents.executeJavaScript(query)) as BodyRect | null;
 }
 
+/** Whether any tab body of the session's panel is displayed right now. */
+async function sessionBodyShownNow(window: BrowserWindow, sessionId: string): Promise<boolean> {
+  const query = `(() => {
+    for (const node of document.querySelectorAll('[data-visualize-body]')) {
+      if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;
+      if (node.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width >= 1 && rect.height >= 1) return true;
+    }
+    return false;
+  })()`;
+  return (await window.webContents.executeJavaScript(query)) === true;
+}
+
 /** Whether the user can see the displayed tab body: the topmost element at
  *  one of a few points across it (inside the viewport) is the body or within
  *  it. False when a dialog, Settings or another overlay covers it, or a
@@ -134,12 +148,16 @@ export async function desktopScreenState(
   window: BrowserWindow,
   sessionId: string,
   tab: VisualizeTabView
-): Promise<'visible' | 'background' | 'covered' | 'hidden'> {
+): Promise<'visible' | 'background' | 'covered' | 'other-tab' | 'hidden'> {
   const shown = await shownBody(window, sessionId, tab).then(
     () => true,
     () => false
   );
-  if (!shown) return 'hidden';
+  if (!shown) {
+    if (window.isMinimized() || !window.isVisible()) return 'hidden';
+    // The session's panel is up, on another tab (the user's pick holds it).
+    return (await sessionBodyShownNow(window, sessionId)) ? 'other-tab' : 'hidden';
+  }
   const uncovered = await bodyUncoveredNow(window, sessionId, tab.id);
   if (uncovered === null) return 'hidden';
   if (!uncovered) return 'covered';

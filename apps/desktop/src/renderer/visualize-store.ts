@@ -10,6 +10,7 @@ import {
   type VisualizeInlineContent,
   type VisualizeSessionState,
   type VisualizeTabView,
+  VISUALIZE_PANELS_EVENT,
   visualizeThumbnail,
 } from '../shared/visualize';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
@@ -70,6 +71,9 @@ const userPicks = new Map<string, string>();
 interface UserOpen {
   matches: (tab: VisualizeTabView) => boolean;
   expires: number;
+  /** A turn preview opened behind the agent's own opens: made or updated,
+   *  never shown over them. */
+  silent?: boolean;
 }
 const userOpens = new Map<string, UserOpen>();
 const USER_OPEN_TTL_MS = 15_000;
@@ -255,6 +259,9 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
     // Mid-turn: nothing in the panel opens, activates or reloads; a tab whose
     // files the turn changed wears the "updated" dot.
     if (!state) return;
+    // A new turn: a tab the user picked before it no longer holds the panel
+    // against what this turn opens.
+    if (!heldStates.has(sessionId)) userPicks.delete(sessionId);
     heldStates = new Map(heldStates);
     heldStates.set(sessionId, state);
     if (Number.isFinite(event.heldSince)) heldSince.set(sessionId, Number(event.heldSince));
@@ -273,6 +280,8 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
     heldStates = new Map(heldStates);
     heldStates.delete(sessionId);
     heldSince.delete(sessionId);
+    // The turn's own opens show now, over a pick made before or during it.
+    userPicks.delete(sessionId);
   }
   // An agent open or a content update carries `reveal` (and, from current
   // hosts, the tab it was for): the open policy decides what shows.
@@ -346,15 +355,15 @@ function takeUserOpen(sessionId: string, tab: VisualizeTabView | undefined): boo
 }
 
 /** Consumes the session's pending preview open of exactly `tab` (expired
- *  ones are dropped). */
-function takePreviewOpen(sessionId: string, tab: VisualizeTabView | undefined): boolean {
+ *  ones are dropped); null when there is none. */
+function takePreviewOpen(sessionId: string, tab: VisualizeTabView | undefined): UserOpen | null {
   const now = Date.now();
   const pending = (previewOpens.get(sessionId) ?? []).filter((open) => open.expires > now);
   const at = tab ? pending.findIndex((open) => open.matches(tab)) : -1;
-  if (at >= 0) pending.splice(at, 1);
+  const [taken] = at >= 0 ? pending.splice(at, 1) : [];
   if (pending.length) previewOpens.set(sessionId, pending);
   else previewOpens.delete(sessionId);
-  return at >= 0;
+  return taken ?? null;
 }
 
 /** The user keeps the session's panel closed right now. */
@@ -374,7 +383,17 @@ function showUpdatedTab(sessionId: string, tabId: string, incoming?: VisualizeSe
   const user = takeUserOpen(sessionId, opened);
   // A turn preview's open: whether the user keeps the panel closed is asked
   // now, at its reveal, so a close made while it was pending holds.
-  const preview = !user && takePreviewOpen(sessionId, opened);
+  const preview = user ? null : takePreviewOpen(sessionId, opened);
+  if (preview?.silent) {
+    // A preview behind the turn's own opens: the panel stays on what it
+    // shows (the agent's tab); the preview's tab only wears the dot.
+    const local = states.get(sessionId)?.active;
+    const active = local && base.tabs.some((tab) => tab.id === local) ? local : base.active;
+    setState(base.active === active ? base : { ...base, active });
+    if (active && base.active !== active) sendActivate(sessionId, active);
+    if (tabId && tabId !== active && base.tabs.some((tab) => tab.id === tabId)) setUpdated(sessionId, tabId, true);
+    return;
+  }
   if (!user && (phonePanelClosed(sessionId) || (preview && panelClosedByUser(sessionId)))) {
     // Phone: an agent open or update never brings the panel up or moves its
     // selection; the tab is only made or updated (the turn card's tile opens
@@ -426,8 +445,13 @@ export function setVisualizePanelOnScreen(sessionId: string, shown: boolean): vo
     onScreen.delete(sessionId);
     userPicks.delete(sessionId);
   }
+  if (was === shown) return;
   // Chat card tiles outline the shown tab only while the panel is on screen.
-  if (was !== shown) emit();
+  emit();
+  // A paired device tells the desktop (remote-shim-api.ts): an agent open
+  // counts as seen on it only while its panel is on screen.
+  const view = globalThis.window;
+  if (view?.dispatchEvent) view.dispatchEvent(new view.CustomEvent(VISUALIZE_PANELS_EVENT, { detail: [...onScreen] }));
 }
 
 /** Whether the session's visualize panel is on screen right now. */
@@ -710,8 +734,14 @@ export function reopenVisualizeTargets(sessionId: string, tabId: string, targets
  *  reveal arrives (showUpdatedTab), so a close made at any point while the
  *  opens are pending holds; those opens only make or update their tabs
  *  (their tiles still open them). A file that fails to open is reported and
- *  the rest still open. */
-export async function openTurnPreviews(sessionId: string, targets: readonly string[]): Promise<void> {
+ *  the rest still open. `reveal: false` (a turn the agent opened tabs in):
+ *  the previews are only made or updated, so the panel stays on the agent's
+ *  own last open. */
+export async function openTurnPreviews(
+  sessionId: string,
+  targets: readonly string[],
+  { reveal = true }: { reveal?: boolean } = {}
+): Promise<void> {
   for (const target of targets) {
     const request: UserOpen = {
       matches: (tab) => {
@@ -719,6 +749,7 @@ export async function openTurnPreviews(sessionId: string, targets: readonly stri
         return live.length === 1 && sameTarget(live[0].target, target);
       },
       expires: Date.now() + USER_OPEN_TTL_MS,
+      ...(reveal ? {} : { silent: true }),
     };
     previewOpens.set(sessionId, [...(previewOpens.get(sessionId) ?? []), request]);
     try {
@@ -891,11 +922,26 @@ export function visualizeVersionStep(
 }
 
 /** Show kept version `version` (null = back to live), beside live when
- *  `compare`. */
+ *  `compare`; rejects when the host cannot (an evicted version). */
+export async function requestVisualizeVersion(
+  sessionId: string,
+  tabId: string,
+  version: number | null,
+  compare = false
+): Promise<void> {
+  await window.mixdogDesktop?.visualizeCommand?.({
+    sessionId,
+    tabId,
+    action: 'version',
+    version,
+    ...(compare ? { compare: true } : {}),
+  });
+}
+
+/** `requestVisualizeVersion` from a control that shows the outcome itself
+ *  (the version stepper: the tab state it gets back). */
 export function showVisualizeVersion(sessionId: string, tabId: string, version: number | null, compare = false): void {
-  void window.mixdogDesktop
-    ?.visualizeCommand?.({ sessionId, tabId, action: 'version', version, ...(compare ? { compare: true } : {}) })
-    ?.catch(() => {});
+  void requestVisualizeVersion(sessionId, tabId, version, compare).catch(() => {});
 }
 
 /** The card picture kept of the tab's version `version` (taken when its turn

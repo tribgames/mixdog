@@ -142,6 +142,14 @@ test('useAppWorkbenchViews resolves pane project path and renders workbench side
   assert.equal(hookResult.renderWorkbenchSideView('left', 'browser', true, {}), null);
   assert.equal(hookResult.renderWorkbenchSideView('left', 'terminal', true, {}), null);
 
+  // The visualize panel is one instance per session: switching the pane to
+  // another session remounts it, so no pane cell (same tab id, another
+  // session) keeps the previous session's content.
+  const visualizeOf = (sessionId) =>
+    hookResult.renderWorkbenchSideView('right', 'visualize', true, {}, { sessionId, leafId: 'leaf-1' });
+  assert.equal(visualizeOf('s1').key, 's1');
+  assert.notEqual(visualizeOf('s1').key, visualizeOf('s2').key);
+
   await act(async () => {
     root.unmount();
   });
