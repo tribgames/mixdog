@@ -592,6 +592,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // once each in pick order (sent on the room's `/ask` path). A 1:1 thread's
   // `@` opens nothing yet.
   const [tagged, setTagged] = useState<string[]>(() => takeStashedComposerTags(identityScope));
+  const addTagged = (agentId: string) =>
+    setTagged((current) => (current.includes(agentId) ? current : [...current, agentId]));
   const taggedRef = useRef(tagged);
   taggedRef.current = tagged;
   const taggedScope = useRef(identityScope);
@@ -1155,11 +1157,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           setGoalDialogOpen={setGoalDialogOpen}
           addMenuRequest={addMenuRequest}
           roomMembers={roomMembers}
-          onAskMember={
-            agentMode
-              ? (agentId) => setTagged((current) => (current.includes(agentId) ? current : [...current, agentId]))
-              : askMember
-          }
+          onAskMember={agentMode ? addTagged : askMember}
           agentMode={agentMode}
           goalDisabled={goalDisabled}
           executeSlash={executeSlash}

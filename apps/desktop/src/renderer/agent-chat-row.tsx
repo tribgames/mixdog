@@ -160,6 +160,34 @@ export function AgentRoutineCard({ runs, sessionId }: { runs: readonly Transcrip
   const at = (item: TranscriptItem) => timeText(routineAt(item));
   const summaryOf = (item: TranscriptItem) => (chatRoutineOf(item)?.summary || '').trim();
   const latestSummary = summaryOf(latest);
+  const renderBody = () => {
+    if (status === 'running') {
+      return (
+        <div className="mx-routine-body" role="status" aria-label={t('Running…')}>
+          <span className="mx-routine-running">{t('Running…')}</span>
+          <span className="mx-chat-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      );
+    }
+    if (status === 'delivery') {
+      return (
+        <div className="mx-routine-body mx-routine-note">
+          {t('Delivery failed')}
+          <span aria-hidden="true"> · </span>
+          <button type="button" className="mx-routine-more" onClick={retryDelivery}>
+            {t('Retry')}
+          </button>
+        </div>
+      );
+    }
+    if (status === 'failed' || status === 'login') return <RoutineFailure routine={routine} />;
+    if (latestSummary) return <RoutineSummary text={latestSummary} />;
+    return <div className="mx-routine-body mx-routine-note">{t('Nothing to report')}</div>;
+  };
   return (
     // biome-ignore lint/a11y/useSemanticElements: an <article> keeps its tag; role="group" names the card
     <article
@@ -203,30 +231,7 @@ export function AgentRoutineCard({ runs, sessionId }: { runs: readonly Transcrip
           })}
         </ul>
       )}
-      {status === 'running' ? (
-        <div className="mx-routine-body" role="status" aria-label={t('Running…')}>
-          <span className="mx-routine-running">{t('Running…')}</span>
-          <span className="mx-chat-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-        </div>
-      ) : status === 'delivery' ? (
-        <div className="mx-routine-body mx-routine-note">
-          {t('Delivery failed')}
-          <span aria-hidden="true"> · </span>
-          <button type="button" className="mx-routine-more" onClick={retryDelivery}>
-            {t('Retry')}
-          </button>
-        </div>
-      ) : status === 'failed' || status === 'login' ? (
-        <RoutineFailure routine={routine} />
-      ) : latestSummary ? (
-        <RoutineSummary text={latestSummary} />
-      ) : (
-        <div className="mx-routine-body mx-routine-note">{t('Nothing to report')}</div>
-      )}
+      {renderBody()}
       <div className="question-foot mx-routine-foot" hidden={status === 'running' || undefined}>
         {status === 'failed' && (
           <button type="button" className="mx-routine-action" onClick={runAgain}>

@@ -977,6 +977,53 @@ function useContactAgents(active: boolean, sessions: readonly DesktopSessionSumm
   return values.agents;
 }
 
+/** The context menu of a Lead row: sub-agent toggle, pin, rename, look, hide, clear. */
+function leadMenuState(
+  row: AgentLeadRow,
+  point: { x: number; y: number },
+  clearable: ReturnType<typeof clearableAgentTreeRows>,
+  actions: {
+    expandedSessionIds: ReadonlySet<string>;
+    setSessionExpanded(sessionId: string, expanded: boolean): void;
+    onRenameSession?(sessionId: string, title: string): Promise<unknown> | void;
+    openLook(): void;
+    hideGroup(ownerId: string): void;
+  }
+): ScmContextMenuState {
+  const { expandedSessionIds, setSessionExpanded, onRenameSession, openLook, hideGroup } = actions;
+  return {
+    label: t('Actions for {{title}}', { title: row.title }),
+    ...point,
+    items: [
+      ...(row.hasSubAgents
+        ? [subtreeMenuItem(expandedSessionIds.has(row.sessionId), (next) => setSessionExpanded(row.sessionId, next))]
+        : []),
+      {
+        id: row.pinned ? 'unpin-lead' : 'pin-lead',
+        label: row.pinned ? t('Unpin') : t('Pin'),
+        onSelect: () => setLeadPinned(row.sessionId, !row.pinned),
+      },
+      ...(onRenameSession
+        ? [
+            {
+              id: 'rename-lead',
+              label: t('Rename'),
+              onSelect: afterMenuClose(() => void renameLeadSession(onRenameSession, row.sessionId, row.title)),
+            },
+          ]
+        : []),
+      { id: 'lead-appearance', label: t('Appearance'), onSelect: openLook },
+      { id: 'hide-agent-group', label: t('Hide this group'), onSelect: () => hideGroup(row.sessionId) },
+      {
+        id: 'clear-finished-agents',
+        label: t('Clear finished'),
+        disabled: clearable.length === 0,
+        onSelect: () => dismissFinishedAgentRows(clearable),
+      },
+    ],
+  };
+}
+
 export function AgentActivityPane({
   active,
   sessions,
@@ -1132,37 +1179,15 @@ export function AgentActivityPane({
   const openLeadMenu = (row: AgentLeadRow, point: { x: number; y: number }): void => {
     const group = groups.find((entry) => entry.ownerId === row.sessionId);
     const clearable = group ? clearableAgentTreeRows(group.nodes) : [];
-    setMenu({
-      label: t('Actions for {{title}}', { title: row.title }),
-      ...point,
-      items: [
-        ...(row.hasSubAgents
-          ? [subtreeMenuItem(expandedSessionIds.has(row.sessionId), (next) => setSessionExpanded(row.sessionId, next))]
-          : []),
-        {
-          id: row.pinned ? 'unpin-lead' : 'pin-lead',
-          label: row.pinned ? t('Unpin') : t('Pin'),
-          onSelect: () => setLeadPinned(row.sessionId, !row.pinned),
-        },
-        ...(onRenameSession
-          ? [
-              {
-                id: 'rename-lead',
-                label: t('Rename'),
-                onSelect: afterMenuClose(() => void renameLeadSession(onRenameSession, row.sessionId, row.title)),
-              },
-            ]
-          : []),
-        { id: 'lead-appearance', label: t('Appearance'), onSelect: () => setLeadLookOpen(true) },
-        { id: 'hide-agent-group', label: t('Hide this group'), onSelect: () => hideGroup(row.sessionId) },
-        {
-          id: 'clear-finished-agents',
-          label: t('Clear finished'),
-          disabled: clearable.length === 0,
-          onSelect: () => dismissFinishedAgentRows(clearable),
-        },
-      ],
-    });
+    setMenu(
+      leadMenuState(row, point, clearable, {
+        expandedSessionIds,
+        setSessionExpanded,
+        onRenameSession,
+        openLook: () => setLeadLookOpen(true),
+        hideGroup,
+      })
+    );
   };
   // Without a representative bot the page shows only its create prompt: no Leads.
   const shownLeadRows = mixyFirst.empty ? [] : leadRows;

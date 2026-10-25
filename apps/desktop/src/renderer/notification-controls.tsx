@@ -58,9 +58,11 @@ function mutedTooltip(state: Extract<ConversationNotificationState, { kind: 'mut
 function targetName(target: NotificationTarget): string {
   if (target.kind === 'room') return agentRoomName(target.id) || target.id;
   const agents = readSidebarReference('agents');
-  return agentContacts(agents, [], new Map(), undefined, { includeDisabled: true }).find(
-    (contact) => contact.agentId === target.id
-  )?.name || target.id;
+  return (
+    agentContacts(agents, [], new Map(), undefined, { includeDisabled: true }).find(
+      (contact) => contact.agentId === target.id
+    )?.name || target.id
+  );
 }
 
 /** The target a conversation header writes: its own (the bot, the room, the
@@ -172,11 +174,9 @@ export function ConversationBell({ sessionId }: { sessionId: string }) {
   const label = t('Notifications for this conversation');
   const muted = state.kind === 'muted';
   const until = muted ? notificationUntilLabel(state.until) : '';
-  const tooltip = muted
-    ? mutedTooltip(state)
-    : state.kind === 'outside'
-      ? t('Not notified by notification settings')
-      : label;
+  let tooltip = label;
+  if (muted) tooltip = mutedTooltip(state);
+  else if (state.kind === 'outside') tooltip = t('Not notified by notification settings');
   return (
     <>
       <button

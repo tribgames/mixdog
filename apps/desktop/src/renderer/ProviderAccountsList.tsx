@@ -418,6 +418,131 @@ type DragState = {
   moved: boolean;
 };
 const DRAG_THRESHOLD_PX = 4;
+type PointerReorderState = {
+  drag: DragState | null;
+  setDrag: (next: DragState | null) => void;
+  listRef: React.RefObject<HTMLOListElement | null>;
+};
+
+function usePointerReorder(
+  pool: Pool | null,
+  pending: boolean,
+  reorder: (from: number, to: number) => void,
+  { drag, setDrag, listRef }: PointerReorderState
+) {
+  // ── Pointer reorder ──────────────────────────────────────────────────
+  // The gesture lives in a ref and writes the lifted row's transform straight
+  // to the DOM inside one animation frame per pointer sample. React state only
+  // changes when the TARGET SLOT changes (once per row crossed) — re-rendering
+  // every row on every pointermove is what made this list drag sluggishly
+  // while the rest of the app felt fine (user: 프로바이더창만 유독 드래그가 느리네).
+  const gesture = useRef<DragState | null>(null);
+  const liftedRow = useRef<HTMLElement | null>(null);
+  const frame = useRef(0);
+  const paintLift = () => {
+    frame.current = 0;
+    const state = gesture.current;
+    if (state?.moved && liftedRow.current)
+      liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
+  };
+  const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>, index: number, id: string) => {
+    if (pending || event.button !== 0 || !pool) return;
+    const row = event.currentTarget.closest<HTMLElement>('li');
+    if (!row) return;
+    const rect = row.getBoundingClientRect();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    liftedRow.current = row;
+    gesture.current = {
+      id,
+      from: index,
+      to: index,
+      offset: event.clientY - rect.top,
+      startY: event.clientY,
+      rowHeight: rect.height,
+      y: event.clientY,
+      moved: false,
+    };
+  };
+  const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const state = gesture.current;
+    if (!state || !pool || !listRef.current) return;
+    const moved = state.moved || Math.abs(event.clientY - state.startY) > DRAG_THRESHOLD_PX;
+    if (!moved) return;
+    // Target slot from the lifted row's CENTER against the list's row grid.
+    const listTop = listRef.current.getBoundingClientRect().top;
+    const center = event.clientY - state.offset + state.rowHeight / 2 - listTop;
+    const to = Math.max(0, Math.min(pool.accounts.length - 1, Math.floor(center / state.rowHeight)));
+    const slotChanged = !state.moved || to !== state.to;
+    state.y = event.clientY;
+    state.to = to;
+    state.moved = true;
+    if (slotChanged) {
+      // Paint the lift synchronously with the slot change so the row never
+      // shows one frame in place while its neighbours already shifted.
+      if (frame.current) {
+        cancelAnimationFrame(frame.current);
+        frame.current = 0;
+      }
+      if (liftedRow.current) liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
+      setDrag({ ...state });
+    } else if (typeof requestAnimationFrame !== 'function') {
+      paintLift();
+    } else if (!frame.current) {
+      frame.current = requestAnimationFrame(paintLift);
+    }
+  };
+  const clearGesture = () => {
+    if (frame.current) {
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+    }
+    if (liftedRow.current) liftedRow.current.style.transform = '';
+    liftedRow.current = null;
+    gesture.current = null;
+    setDrag(null);
+  };
+  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const state = gesture.current;
+    if (!state) return;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* already released */
+    }
+    const { from, to, moved } = state;
+    clearGesture();
+    if (moved) reorder(from, to);
+  };
+  const dragging = drag !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clearGesture is recreated every render but only touches refs and a state setter; the listener must follow `dragging` only.
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearGesture();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dragging]);
+  useEffect(
+    () => () => {
+      if (frame.current) cancelAnimationFrame(frame.current);
+    },
+    []
+  );
+  // Displaced rows between the origin and target slot shift one row height.
+  // The lifted row's own transform is written to the DOM by the gesture, so
+  // React must NOT set `style.transform` on it — a value here would overwrite
+  // the pointer-tracked one on every slot change.
+  const rowStyle = (index: number): React.CSSProperties | undefined => {
+    if (!drag?.moved || index === drag.from) return undefined;
+    if (drag.from < drag.to && index > drag.from && index <= drag.to)
+      return { transform: `translateY(-${drag.rowHeight}px)` };
+    if (drag.from > drag.to && index >= drag.to && index < drag.from)
+      return { transform: `translateY(${drag.rowHeight}px)` };
+    return undefined;
+  };
+  return { beginDrag, moveDrag, endDrag, clearGesture, rowStyle };
+}
 
 export function ProviderAccountsList({
   api,
@@ -554,117 +679,11 @@ export function ProviderAccountsList({
     setEditing(null);
   };
 
-  // ── Pointer reorder ──────────────────────────────────────────────────
-  // The gesture lives in a ref and writes the lifted row's transform straight
-  // to the DOM inside one animation frame per pointer sample. React state only
-  // changes when the TARGET SLOT changes (once per row crossed) — re-rendering
-  // every row on every pointermove is what made this list drag sluggishly
-  // while the rest of the app felt fine (user: 프로바이더창만 유독 드래그가 느리네).
-  const gesture = useRef<DragState | null>(null);
-  const liftedRow = useRef<HTMLElement | null>(null);
-  const frame = useRef(0);
-  const paintLift = () => {
-    frame.current = 0;
-    const state = gesture.current;
-    if (state?.moved && liftedRow.current)
-      liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
-  };
-  const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>, index: number, id: string) => {
-    if (pending || event.button !== 0 || !pool) return;
-    const row = event.currentTarget.closest<HTMLElement>('li');
-    if (!row) return;
-    const rect = row.getBoundingClientRect();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    liftedRow.current = row;
-    gesture.current = {
-      id,
-      from: index,
-      to: index,
-      offset: event.clientY - rect.top,
-      startY: event.clientY,
-      rowHeight: rect.height,
-      y: event.clientY,
-      moved: false,
-    };
-  };
-  const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const state = gesture.current;
-    if (!state || !pool || !listRef.current) return;
-    const moved = state.moved || Math.abs(event.clientY - state.startY) > DRAG_THRESHOLD_PX;
-    if (!moved) return;
-    // Target slot from the lifted row's CENTER against the list's row grid.
-    const listTop = listRef.current.getBoundingClientRect().top;
-    const center = event.clientY - state.offset + state.rowHeight / 2 - listTop;
-    const to = Math.max(0, Math.min(pool.accounts.length - 1, Math.floor(center / state.rowHeight)));
-    const slotChanged = !state.moved || to !== state.to;
-    state.y = event.clientY;
-    state.to = to;
-    state.moved = true;
-    if (slotChanged) {
-      // Paint the lift synchronously with the slot change so the row never
-      // shows one frame in place while its neighbours already shifted.
-      if (frame.current) {
-        cancelAnimationFrame(frame.current);
-        frame.current = 0;
-      }
-      if (liftedRow.current) liftedRow.current.style.transform = `translateY(${state.y - state.startY}px)`;
-      setDrag({ ...state });
-    } else if (typeof requestAnimationFrame !== 'function') {
-      paintLift();
-    } else if (!frame.current) {
-      frame.current = requestAnimationFrame(paintLift);
-    }
-  };
-  const clearGesture = () => {
-    if (frame.current) {
-      cancelAnimationFrame(frame.current);
-      frame.current = 0;
-    }
-    if (liftedRow.current) liftedRow.current.style.transform = '';
-    liftedRow.current = null;
-    gesture.current = null;
-    setDrag(null);
-  };
-  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const state = gesture.current;
-    if (!state) return;
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      /* already released */
-    }
-    const { from, to, moved } = state;
-    clearGesture();
-    if (moved) reorder(from, to);
-  };
-  const dragging = drag !== null;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: clearGesture is recreated every render but only touches refs and a state setter; the listener must follow `dragging` only.
-  useEffect(() => {
-    if (!dragging) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') clearGesture();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [dragging]);
-  useEffect(
-    () => () => {
-      if (frame.current) cancelAnimationFrame(frame.current);
-    },
-    []
-  );
-  // Displaced rows between the origin and target slot shift one row height.
-  // The lifted row's own transform is written to the DOM by the gesture, so
-  // React must NOT set `style.transform` on it — a value here would overwrite
-  // the pointer-tracked one on every slot change.
-  const rowStyle = (index: number): React.CSSProperties | undefined => {
-    if (!drag?.moved || index === drag.from) return undefined;
-    if (drag.from < drag.to && index > drag.from && index <= drag.to)
-      return { transform: `translateY(-${drag.rowHeight}px)` };
-    if (drag.from > drag.to && index >= drag.to && index < drag.from)
-      return { transform: `translateY(${drag.rowHeight}px)` };
-    return undefined;
-  };
+  const { beginDrag, moveDrag, endDrag, clearGesture, rowStyle } = usePointerReorder(pool, pending, reorder, {
+    drag,
+    setDrag,
+    listRef,
+  });
 
   return (
     <section

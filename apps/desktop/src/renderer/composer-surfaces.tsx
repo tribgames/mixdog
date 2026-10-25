@@ -291,11 +291,7 @@ export function SkillMentionPalette({
           <span className="skill-mention-description">{skill.description}</span>
         </button>
       ))}
-      {results.length === 0 && available && (
-        <p role="status">
-          {t('No matching skills.')}
-        </p>
-      )}
+      {results.length === 0 && available && <p role="status">{t('No matching skills.')}</p>}
       {!available && (
         <p role="status">
           {t('No skills are on.')}{' '}

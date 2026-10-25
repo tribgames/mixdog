@@ -4,7 +4,10 @@
 // snapshot when they open; rows and the header bell subscribe.
 import { useSyncExternalStore } from 'react';
 import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomIdOfSession, roomMemberOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import {
+  roomIdOfSession,
+  roomMemberOfSession,
+} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type {
   ConversationNotificationOverride,
   ConversationNotificationSetting,

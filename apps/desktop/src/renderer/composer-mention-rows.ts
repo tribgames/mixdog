@@ -69,7 +69,12 @@ export async function verifiedMentionedFiles(
   stat: (path: string) => Promise<{ directory?: boolean } | null | undefined>
 ): Promise<string[]> {
   const checked = await Promise.all(
-    candidates.map((path) => stat(path).then((info) => (info?.directory === true ? null : path), () => null))
+    candidates.map((path) =>
+      stat(path).then(
+        (info) => (info?.directory === true ? null : path),
+        () => null
+      )
+    )
   );
   return checked.filter((path): path is string => path !== null);
 }
