@@ -57,6 +57,8 @@ test('list rows carry the owning bot, last activity, latest line and working sta
   assert.deepEqual(result.sessions[0], {
     id: 'sess_home_mailer',
     title: 'Mailer',
+    // Its turn is in flight.
+    status: 'running',
     bot: 'mailer',
     lastUsedAt: '2026-01-01T12:00:00.000Z',
     preview: 'Sent the digest',
@@ -103,6 +105,26 @@ test("a bot's list never titles another's untitled session with its preview", ()
     cwd: '/own',
     bot: 'mailer',
   });
+});
+
+test('a working row reads running for any caller; a budget cut continues from cursorOf', () => {
+  const rows = [
+    { id: 'sess_agent', status: 'idle', working: true, lastUsedAt: 1, liveAt: 5 },
+    { id: 'sess_lead', status: 'idle', agentWorking: true },
+  ];
+  for (const rich of [true, false]) {
+    const { sessions } = sessionListOutput({ sessions: rows, nextCursor: null }, 25, { rich });
+    assert.deepEqual(
+      sessions.map((row) => [row.status, row.working]),
+      [
+        ['running', true],
+        ['idle', true],
+      ]
+    );
+    if (rich) assert.equal(sessions[0].lastUsedAt, new Date(5).toISOString(), 'its latest sign of work');
+  }
+  const cut = sessionListOutput({ sessions: rows, nextCursor: null }, 1, { cursorOf: (row) => `after:${row.id}` });
+  assert.equal(cut.nextCursor, 'after:sess_agent');
 });
 
 test('uncut and empty catalog pages retain the service cursor', () => {

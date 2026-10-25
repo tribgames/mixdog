@@ -92,8 +92,11 @@ test('metadata of an unchanged record is served from its stamp; a change or a fo
   const again = await reader.readStoredSessionTranscript(id, { metadataOnly: true });
   assert.equal(again.model, 'model-a', 'callers cannot edit the cached value');
   assert.equal(reads(id), 1, 'no read while the stamp is unchanged');
-  replace(id, record(id, { model: 'model-b' }));
-  assert.equal((await reader.readStoredSessionTranscript(id, { metadataOnly: true })).model, 'model-b');
+  assert.equal(first.title, null);
+  replace(id, record(id, { model: 'model-b', title: 'Stored title' }));
+  const changed = await reader.readStoredSessionTranscript(id, { metadataOnly: true });
+  assert.equal(changed.model, 'model-b');
+  assert.equal(changed.title, 'Stored title', 'the record title is part of its metadata');
   assert.equal(reads(id), 2);
   replace(id, record(`${id}_other`));
   assert.equal(await reader.readStoredSessionTranscript(id, { metadataOnly: true }), null);
@@ -118,6 +121,18 @@ test('catalog rows of never-indexed records are parsed once per stamp', async (t
   replace(id, record(`${id}_other`));
   await reader.verifyStoredSessionCatalog();
   assert.equal(row(), undefined, 'a foreign record yields no row');
+});
+
+test('one catalog row is read by id, only for a session the catalog lists', () => {
+  const id = 'sess_stamp_row';
+  replace(id, record(id, { title: 'Row title', lastUsedAt: 7 }));
+  const row = reader.readStoredSessionCatalogRow(id);
+  assert.deepEqual([row.id, row.title, row.preview, row.lastUsedAt], [id, 'Row title', `hello from ${id}`, 7]);
+  replace(id, record(id, { sourceType: 'exec' }));
+  assert.equal(reader.readStoredSessionCatalogRow(id), null, 'an exec run is never listed');
+  replace(id, record(`${id}_other`));
+  assert.equal(reader.readStoredSessionCatalogRow(id), null, 'a foreign record yields no row');
+  assert.equal(reader.readStoredSessionCatalogRow('sess_stamp_absent'), null);
 });
 
 test('the cold-view projection of an unchanged record is not re-read', async (t) => {

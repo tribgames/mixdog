@@ -22,6 +22,7 @@ import {
   scanSessionFiles,
   scanSessionFilesAsync,
   stampedDerivation,
+  storedSessionCatalogRow,
 } from './store-summary-catalog.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
 import {
@@ -249,6 +250,12 @@ export async function listStoredSessionSummaryPage(options = {}) {
   };
 }
 
+/** One session's catalog row by id, read off its record (not the paged
+ *  listing): null when the catalog would not list it. */
+export function readStoredSessionCatalogRow(id) {
+  return storedSessionCatalogRow(join(dataDir(), 'sessions'), String(id || '').trim());
+}
+
 /** Exact, fail-closed existence check for a durable session address.
  * Summary indexes and desktop metadata are presentation caches; neither may
  * make a missing sessions/<id>.json record addressable again. */
@@ -286,6 +293,7 @@ function storedSessionMetadata(sessionId, session) {
     ownerSessionId: session.ownerSessionId || session.parentSessionId || null,
     visibility: sessionVisibility(session),
     agentTag: session.agentTag || null,
+    title: session.title || null,
     cwd: session.cwd || '',
     ...(workspaceSummary(session.workspace) ? { workspace: workspaceSummary(session.workspace) } : {}),
     provider: session.provider || null,

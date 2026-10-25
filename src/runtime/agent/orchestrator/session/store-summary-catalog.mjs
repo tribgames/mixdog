@@ -283,6 +283,15 @@ function rowFromSession(session) {
   });
 }
 
+/** The catalog row of one session read off `<directory>/<sessionId>.json` by
+ *  id — the same strict, stamp-cached derivation a listing uses — or null
+ *  when it is absent, unreadable, foreign or not one the catalog lists. */
+export function storedSessionCatalogRow(directory, sessionId) {
+  if (!isStoredSessionId(sessionId)) return null;
+  const entry = reconcileSessionFile(directory, sessionId, null, false);
+  return entry?.kind === 'row' && isLeadVisibleRow(entry.row) ? entry.row : null;
+}
+
 // ── Session file reconcile ──────────────────────────────────────────────────
 // What one `sessions/<id>.json` name contributes to the catalog, with the full
 // stamp { dev, ino, size, mtimeNs, ctimeNs } it was judged at (and the

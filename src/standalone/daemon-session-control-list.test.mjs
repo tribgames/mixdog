@@ -134,6 +134,90 @@ test('include_agents and include_archived bring the left-out rows back, archived
   assert.equal(new Set(everything.map((row) => row.id)).size, everything.length, 'no row twice');
 });
 
+/** A list over `list` whose live sessions are `live`, each row read by id. */
+function liveControl(list, live) {
+  const byId = new Map(list.map((row) => [row.id, row]));
+  return createSessionControl({
+    getSessionService: () => catalogService(list),
+    liveWork: async () => live,
+    readRow: async (id) => byId.get(id) ?? null,
+  });
+}
+
+test('a live session past any catalog scan cap still leads the first page', async (t) => {
+  withDesktop(t);
+  const list = [];
+  for (let i = 0; i < 10_002; i++) list.push({ id: `sess_row${i}`, lastUsedAt: 100_000 - i, status: 'idle' });
+  const execute = liveControl(list, { own: new Map([['sess_row10001', 500_000]]), agents: new Set() });
+  const page = await execute({ action: 'list', limit: 1 }, CONTEXT);
+  assert.deepEqual(page.sessions, [
+    { id: 'sess_row10001', status: 'running', lastUsedAt: new Date(500_000).toISOString(), working: true },
+  ]);
+});
+
+test('more live sessions than limit: the newest work leads, filtered like the list', async (t) => {
+  withDesktop(t);
+  const list = rows();
+  const own = new Map([
+    ['sess_o3', 10],
+    ['sess_sub5', 3_000_000],
+    ['sess_o9', 2_000_000],
+    ['sess_arch1', 4_000_000],
+    ['sess_gone', 5_000_000],
+  ]);
+  const execute = liveControl(list, { own, agents: new Set() });
+  const page = (await execute({ action: 'list', limit: 2 }, CONTEXT)).sessions;
+  // The archived and sub-agent rows are left out as the list leaves them out;
+  // a live id with no listed session has no row.
+  assert.deepEqual(
+    page.map((row) => row.id),
+    ['sess_o9', 'sess_o3']
+  );
+  const withAgents = (await execute({ action: 'list', limit: 2, include_agents: true }, CONTEXT)).sessions;
+  assert.deepEqual(
+    withAgents.map((row) => row.id),
+    ['sess_sub5', 'sess_o9']
+  );
+});
+
+test('live work leads the first page and reads running for every caller, and paging still reaches every row', async (t) => {
+  withDesktop(t);
+  // An agent deep in the catalog (its last settled activity is its first
+  // prompt) still running per the pool, and a Lead whose agent works for it.
+  const live = { own: new Map([['sess_sub2000', 2_000_000]]), agents: new Set(['sess_o11']) };
+  const execute = liveControl(rows(), live);
+  const human = (await execute({ action: 'list', limit: 5, include_agents: true }, CONTEXT)).sessions;
+  assert.deepEqual(
+    human.map((row) => row.id),
+    ['sess_sub2000', 'sess_o11', 'sess_o0', 'sess_o1', 'sess_o2']
+  );
+  assert.deepEqual(
+    [human[0].status, human[0].working, human[0].lastUsedAt],
+    ['running', true, new Date(2_000_000).toISOString()]
+  );
+  assert.deepEqual([human[1].status, human[1].working], [undefined, true], 'its agents work; its own turn does not');
+  assert.equal(human[2].working, undefined);
+
+  const bot = { callerSessionId: 'caller', callerScope: { kind: 'agent', agentId: 'mailer' } };
+  const asBot = (await execute({ action: 'list', limit: 5, include_agents: true }, bot)).sessions;
+  assert.deepEqual(asBot[0], { id: 'sess_sub2000', status: 'running', working: true }, 'not only for its own rows');
+
+  const walked = (await pages(execute, { limit: 5, include_agents: true, include_archived: true })).flat();
+  assert.equal(new Set(walked.map((row) => row.id)).size, rows().length, 'no row skipped');
+
+  // A first page of live rows only continues at the top of the catalog order.
+  const first = await execute({ action: 'list', limit: 1, include_agents: true }, CONTEXT);
+  assert.deepEqual(
+    first.sessions.map((row) => row.id),
+    ['sess_sub2000']
+  );
+  const second = await execute({ action: 'list', limit: 1, include_agents: true, cursor: first.nextCursor }, CONTEXT);
+  assert.deepEqual(
+    second.sessions.map((row) => row.id),
+    ['sess_o0']
+  );
+});
+
 test("a bot's list selects the same rows as the human's, by the same filters", async (t) => {
   withDesktop(t);
   const execute = createSessionControl({ getSessionService: () => catalogService() });

@@ -15,24 +15,30 @@ const outputBytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
  *  `rich` adds the owning bot, last activity, latest line and working state
  *  (never for a background caller: bot-status.mjs scopedBot). `rich` may be a
  *  per-row predicate: a bot gets them only for its own sessions. */
-export function sessionListOutput(page, limit, { rich = true } = {}) {
+export function sessionListOutput(page, limit, { rich = true, cursorOf = encodeCatalogCursor } = {}) {
   const raw = page.sessions;
   const sessions = raw.slice(0, limit).map((row) => {
     // Decided first: a session that is not the caller's carries its real
     // title only, never a preview standing in for it.
     const own = typeof rich === 'function' ? rich(row) : rich;
     const title = own ? row.title || row.preview : row.title;
+    // Live work, for every caller: its own turn or pool row (`working`)
+    // reads `running` whatever the settled catalog status; an Agent session
+    // working for it (`agentWorking`) marks it working too.
+    const status = row.working === true ? 'running' : row.status;
+    const working = row.working === true || row.agentWorking === true ? { working: true } : {};
     const base = {
       id: row.id,
       ...(title ? { title: escapeHarnessTags(truncateToolText(title, 160)) } : {}),
-      ...(row.status ? { status: row.status } : {}),
+      ...(status ? { status } : {}),
       ...(row.cwd ? { cwd: row.cwd } : {}),
       ...(row.archived === true ? { archived: true } : {}),
     };
-    if (!own) return base;
+    if (!own) return { ...base, ...working };
     // The bot it belongs to: its chat, room seat or the task's creator.
     const bot = sessionBotOf(row);
-    const lastUsedAt = Number(row.lastUsedAt) || 0;
+    // A live row's latest sign of work (`liveAt`) is newer than its last settled turn.
+    const lastUsedAt = Math.max(Number(row.lastUsedAt) || 0, Number(row.liveAt) || 0);
     const preview = String(row.lastMessagePreview || '').replace(/\s+/g, ' ');
     return {
       ...base,
@@ -40,7 +46,7 @@ export function sessionListOutput(page, limit, { rich = true } = {}) {
       ...(lastUsedAt ? { lastUsedAt: new Date(lastUsedAt).toISOString() } : {}),
       // The latest user or assistant line, quoted data.
       ...(preview.trim() ? { preview: escapeHarnessTags(truncateToolText(preview, LIST_PREVIEW_LIMIT)) } : {}),
-      ...(row.working === true || row.agentWorking === true ? { working: true } : {}),
+      ...working,
     };
   });
   const result = {
@@ -50,7 +56,7 @@ export function sessionListOutput(page, limit, { rich = true } = {}) {
   };
   for (;;) {
     if (sessions.length < raw.length && sessions.length) {
-      result.nextCursor = encodeCatalogCursor(raw[sessions.length - 1]);
+      result.nextCursor = cursorOf(raw[sessions.length - 1]);
     }
     if (outputBytes(result) <= TOOL_OUTPUT_PAGE_BYTES) return result;
     if (sessions.length <= 1) throw new Error('session: one catalog row exceeds the output budget');

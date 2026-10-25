@@ -1,6 +1,6 @@
 import { SESSION_ID_PATTERN } from '../runtime/agent/orchestrator/runtime-core/session-id.mjs';
 import { sessionListOutput, sessionReadOutput, SESSION_TOOL_OUTPUT_BYTES } from './session-tool-output.mjs';
-import { createAgentTaskSessions } from '../session-runtime/agent-task-sessions.mjs';
+import { createAgentTaskSessions, taskSessionPendingWork } from '../session-runtime/agent-task-sessions.mjs';
 import { assertWorktreeMutationAllowed } from '../session-runtime/services/worktree-access.mjs';
 import { createBotStatus, scanCatalog, scopedBot, sessionBotOf } from '../session-runtime/bot-status.mjs';
 import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
@@ -22,6 +22,49 @@ import {
   roomMemberOfSession,
   roomSessionId,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { activityOf, encodeCatalogCursor } from '../runtime/agent/orchestrator/session/catalog-db/schema.mjs';
+import { escapeHarnessTags } from '../runtime/shared/shell-output-summary.mjs';
+import { truncateToolText } from '../runtime/shared/tool-primitives.mjs';
+
+// The keyset position before every catalog row: a page continuing from a
+// pinned live row starts over at the top of the catalog order.
+const TOP_CURSOR = encodeCatalogCursor({ id: '', lastUsedAt: Number.MAX_SAFE_INTEGER });
+
+/** Sessions with live work now, from the sources the Agents pool reads:
+ *  `own` (id → its latest sign of work, epoch ms) — a turn in flight in this
+ *  process, or a pool row still running or queued (worker index
+ *  status/stage); `agents` — the Leads such an Agent session works for. */
+async function storedLiveWork() {
+  const [{ inFlightSessionActivity }, { listStoredAgentWorkersAsync }, { hasPendingAgentWork, sessionsWithPendingWork }] =
+    await Promise.all([
+      import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
+      import('../runtime/agent/orchestrator/session/store-agent-worker-rows.mjs'),
+      import('../runtime/shared/pending-agent-work.mjs'),
+    ]);
+  const { working, agentWorking } = inFlightSessionActivity();
+  const pool = await listStoredAgentWorkersAsync({ runningSessionIds: working });
+  const now = Date.now();
+  const own = new Map([...working].map((id) => [id, now]));
+  for (const row of pool) {
+    const id = String(row?.sessionId || '');
+    if (id && !own.has(id) && hasPendingAgentWork(row)) own.set(id, Date.parse(row.updatedAt) || 0);
+  }
+  return { own, agents: new Set([...agentWorking, ...sessionsWithPendingWork(pool)]) };
+}
+
+/** The catalog row of `sessionId` read by id, or null when the catalog would not list it. */
+async function storedCatalogRow(sessionId) {
+  const { readStoredSessionCatalogRow } = await import(
+    '../runtime/agent/orchestrator/session/store-summary-reader.mjs'
+  );
+  return readStoredSessionCatalogRow(sessionId);
+}
+
+/** The stored title of `sessionId` (its session record), or null. */
+async function storedTitle(sessionId) {
+  const { readStoredSessionTranscript } = await import('../runtime/agent/orchestrator/session/store-summary-reader.mjs');
+  return (await readStoredSessionTranscript(sessionId, { metadataOnly: true }))?.title || null;
+}
 
 const TARGET_ACTIONS = new Set(['status', 'read', 'send', 'cancel', 'delete']);
 const MUTATING_ACTIONS = new Set(['send', 'cancel', 'delete']);
@@ -58,6 +101,11 @@ export function createSessionControl({
   getSessionService,
   agentTasks = createAgentTaskSessions({ getSessionService }),
   botStatus = createBotStatus({ getSessionService }),
+  // Agent work a session handed off and still waits on (agent-task-sessions.mjs).
+  pendingWork = taskSessionPendingWork,
+  liveWork = storedLiveWork,
+  readRow = storedCatalogRow,
+  readTitle = storedTitle,
 }) {
   /**
    * Another session's workspace for the git tool's worktree operations
@@ -146,12 +194,52 @@ export function createSessionControl({
       const keep = (row) =>
         (args.include_agents === true || !isAgentOnlySession(row)) &&
         (args.include_archived === true || !Object.hasOwn(archived, row.id));
+      // Live work is overlaid on every row: a catalog row keeps the status and
+      // recency of its last settled turn, so a long-running agent read `idle`
+      // and sorted by its first prompt. The first page lists the live rows
+      // first (newest sign of work first); a later page keeps catalog order,
+      // where such a row may show again (never skipped).
+      const live = await liveWork();
+      const withLive = (row) => {
+        const working = row.working === true || live.own.has(row.id);
+        const agentWorking = row.agentWorking === true || live.agents.has(row.id);
+        if (!working && !agentWorking) return row;
+        return {
+          ...row,
+          ...(working ? { working: true, liveAt: live.own.get(row.id) || 0 } : {}),
+          ...(agentWorking ? { agentWorking: true } : {}),
+        };
+      };
+      const liveActivity = (row) => Math.max(row.liveAt || 0, activityOf(row), Number(row.updatedAt) || 0);
+      // Each live session's row is read by id (wherever it sits in the
+      // catalog), filtered like the listing, and the newest `limit` lead.
+      const candidates = [...new Set([...live.own.keys(), ...live.agents])];
+      let pinned = [];
+      if (!args.cursor && candidates.length) {
+        pinned = (await Promise.all(candidates.map((id) => readRow(id))))
+          .filter((row) => row && keep(row))
+          .map(withLive)
+          .sort((left, right) => liveActivity(right) - liveActivity(left) || (left.id < right.id ? -1 : 1))
+          .slice(0, limit);
+      }
+      const pinnedIds = new Set(pinned.map((row) => row.id));
+      const want = limit - pinned.length;
       // Bounded: past 10000 rows scanned with fewer than `limit` matching, the
       // page ends (possibly empty) with a nextCursor to continue from.
-      const scan = await scanCatalog(service, keep, { cursor: args.cursor || null, want: limit, maxRows: 10_000 });
-      const sessions = scan.rows.map((row) => (Object.hasOwn(archived, row.id) ? { ...row, archived: true } : row));
+      const scan =
+        want > 0
+          ? await scanCatalog(service, (row) => !pinnedIds.has(row.id) && keep(row), {
+              cursor: args.cursor || null,
+              want,
+              maxRows: 10_000,
+            })
+          : { rows: [], nextCursor: TOP_CURSOR };
+      const sessions = [...pinned, ...scan.rows.map(withLive)].map((row) =>
+        Object.hasOwn(archived, row.id) ? { ...row, archived: true } : row
+      );
       return sessionListOutput({ sessions, nextCursor: scan.nextCursor }, limit, {
         rich: own ? (row) => sessionBotOf(row) === own : own !== null,
+        cursorOf: (row) => (pinnedIds.has(row.id) ? TOP_CURSOR : encodeCatalogCursor(row)),
       });
     }
     if (action === 'send') {
@@ -315,9 +403,12 @@ export function createSessionControl({
     });
     const snapshot = result.full;
     if (!snapshot) throw new Error(`session: ${sessionId} is unavailable`);
+    // The snapshot carries no title: it lives on the session record. Quoted
+    // like a listed title.
+    const title = await readTitle(sessionId);
     return {
       sessionId,
-      title: snapshot.title ?? null,
+      title: title ? escapeHarnessTags(truncateToolText(title, 160)) : null,
       cwd: snapshot.cwd ?? null,
       provider: snapshot.provider ?? null,
       model: snapshot.model ?? null,
@@ -325,6 +416,9 @@ export function createSessionControl({
       autoEffort: snapshot.autoEffort ?? null,
       fast: snapshot.fast ?? null,
       busy: snapshot.busy === true,
+      // A Lead idle between turns while its agents run is still working:
+      // their results wake it, so `busy` alone would read as stalled.
+      agentsWorking: (await pendingWork(sessionId)) === true,
       quotaResume: snapshot.quotaResume ?? null,
     };
   };

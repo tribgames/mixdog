@@ -338,6 +338,8 @@ test("Mixy sees every bot; a bot's own chat sees only itself; a background run s
 
 test('session list: a bot lists every session but only its own carry bot/preview details, a background run gets no previews', async () => {
   const ids = (result) => result.sessions.map((row) => row.id);
+  // Live work (`working`) is shown to every caller, beside the plain fields.
+  const PLAIN = ['id', 'title', 'status', 'cwd', 'working'];
   const mixy = sessionTool({ id: 'sess_home_lead', owner: 'cli', agent: 'lead', sourceType: 'lead' });
   const all = await mixy({ action: 'list' });
   assert.equal(all.sessions.length, 8);
@@ -350,7 +352,7 @@ test('session list: a bot lists every session but only its own carry bot/preview
   for (const row of seen.sessions) {
     if (row.bot === 'mailer') continue;
     assert.deepEqual(
-      Object.keys(row).filter((key) => !['id', 'title', 'status', 'cwd'].includes(key)),
+      Object.keys(row).filter((key) => !PLAIN.includes(key)),
       [],
       JSON.stringify(row)
     );
@@ -365,7 +367,7 @@ test('session list: a bot lists every session but only its own carry bot/preview
   assert.equal(plain.sessions.length, 8);
   for (const row of plain.sessions) {
     assert.deepEqual(
-      Object.keys(row).filter((key) => !['id', 'title', 'status', 'cwd'].includes(key)),
+      Object.keys(row).filter((key) => !PLAIN.includes(key)),
       [],
       JSON.stringify(row)
     );

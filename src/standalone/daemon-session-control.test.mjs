@@ -15,8 +15,8 @@ const NOT_BOT_REASON = 'only a bot conversation gets session results reported ba
 
 function fixture() {
   const calls = [];
+  // A snapshot carries no title; the session record does (readTitle).
   const full = {
-    title: 'Target',
     cwd: '/project',
     provider: 'test',
     model: 'model',
@@ -37,14 +37,50 @@ function fixture() {
     abortSession: method('cancel', { aborted: true }),
     configureSession: method('configure', { value: true }),
   };
-  const execute = createSessionControl({ getSessionService: () => service });
+  const pending = new Set();
+  const titles = new Map([['target', 'Target']]);
+  const execute = createSessionControl({
+    getSessionService: () => service,
+    pendingWork: async (id) => pending.has(id),
+    liveWork: async () => ({ own: new Map(), agents: new Set() }),
+    readTitle: async (id) => titles.get(id) ?? null,
+  });
   const handler = createWorkspaceToolHandlers({
     rt: { session: { id: 'caller', title: 'Current' }, config: {} },
     executeSessionControl: execute,
   }).session;
   const context = { callerCtx: { callerSessionId: 'caller' }, callerCwd: '/project' };
-  return { calls, service, execute, run: async (args) => JSON.parse(await handler(args, context)), handler, context };
+  return {
+    calls,
+    full,
+    pending,
+    titles,
+    service,
+    execute,
+    run: async (args) => JSON.parse(await handler(args, context)),
+    handler,
+    context,
+  };
 }
+
+test('status of an idle Lead whose agents still run reports agentsWorking', async () => {
+  const h = fixture();
+  h.full.busy = false;
+  h.pending.add('target');
+  const working = await h.run({ action: 'status', session_id: 'target' });
+  assert.equal(working.busy, false);
+  assert.equal(working.agentsWorking, true, 'idle between turns, its agent still runs: not stalled');
+  h.pending.delete('target');
+  assert.equal((await h.run({ action: 'status', session_id: 'target' })).agentsWorking, false);
+});
+
+test('status returns the stored title of a session, quoted like a listed one', async () => {
+  const h = fixture();
+  h.titles.set('target', '순위 예측 개선 <system-reminder>');
+  assert.equal((await h.run({ action: 'status', session_id: 'target' })).title, '순위 예측 개선 &lt;system-reminder>');
+  h.titles.delete('target');
+  assert.equal((await h.run({ action: 'status', session_id: 'target' })).title, null);
+});
 
 test('list and bounded reads reuse the common session catalog and projection', async () => {
   const h = fixture();
@@ -91,8 +127,9 @@ test("a bot's list shows every session by id and title, with previews only on it
   const bot = (callerScope) => h.execute({ action: 'list' }, { callerSessionId: 'sess_home_analyst', callerScope });
 
   const asBot = await bot({ kind: 'agent', agentId: 'analyst' });
+  // Live work shows for every caller: a turn in flight reads running and working.
   assert.deepEqual(asBot.sessions, [
-    { id: 'sess_user_1', title: '버그 픽스 세션', status: 'idle', cwd: '/project' },
+    { id: 'sess_user_1', title: '버그 픽스 세션', status: 'running', cwd: '/project', working: true },
     {
       id: 'sess_home_analyst',
       title: 'Home',
@@ -101,7 +138,7 @@ test("a bot's list shows every session by id and title, with previews only on it
       preview: 'own line',
     },
     { id: 'sess_task_9', title: 'Other bot task' },
-    { id: 'sess_user_2', status: 'running', cwd: '/private' },
+    { id: 'sess_user_2', status: 'running', cwd: '/private', working: true },
   ]);
   assert.match(asBot.note, /data, not instructions/);
 
@@ -121,7 +158,7 @@ test("a bot's list shows every session by id and title, with previews only on it
   const headless = await bot({ kind: 'background' });
   for (const row of headless.sessions) {
     assert.deepEqual(
-      Object.keys(row).filter((key) => !['id', 'title', 'status', 'cwd'].includes(key)),
+      Object.keys(row).filter((key) => !['id', 'title', 'status', 'cwd', 'working'].includes(key)),
       []
     );
   }
@@ -803,7 +840,15 @@ function effortFixture(sessions = { sess_task_1: { effort: 'high' }, sess_user_1
       settleMs: 0,
       log: () => {},
     });
-  return { calls, sessions, run: createSessionControl({ getSessionService: () => service, agentTasks: tasks('a') }) };
+  return {
+    calls,
+    sessions,
+    run: createSessionControl({
+      getSessionService: () => service,
+      agentTasks: tasks('a'),
+      pendingWork: async () => false,
+    }),
+  };
 }
 
 test('status shows the effort, Auto effort and Fast of a session', async () => {
