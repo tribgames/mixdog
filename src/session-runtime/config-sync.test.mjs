@@ -57,7 +57,7 @@ const aNext = {
 };
 a.lifecycle.saveConfigAndAdopt(aNext);
 await a.lifecycle.flushAllConfigSavesAsync();
-await sleep(500);
+for (let i = 0; i < 200 && b.config().profile.title !== 'Alice'; i += 1) await sleep(25);
 
 assert.equal(b.config().profile.title, 'Alice');
 assert.equal(b.config().autoClear.enabled, false);

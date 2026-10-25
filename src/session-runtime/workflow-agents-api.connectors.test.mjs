@@ -12,6 +12,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import test from 'node:test';
@@ -173,15 +176,30 @@ test('a policy save into a read-only agent.json fails at once, off the event loo
   const file = join(dir, 'agent.json');
   const before = readFileSync(file, 'utf8');
   chmodSync(file, 0o444);
-  const started = Date.now();
+  // The atomic write's rename onto a read-only file used to be retried for ~5 s,
+  // blocking the loop: count rename attempts (each retry is one) instead of timing.
+  let renames = 0;
+  const renameSync = fs.renameSync;
+  const renameAsync = fsPromises.rename;
+  fs.renameSync = (...args) => {
+    renames += 1;
+    return renameSync(...args);
+  };
+  fsPromises.rename = (...args) => {
+    renames += 1;
+    return renameAsync(...args);
+  };
+  syncBuiltinESMExports();
   try {
-    // The atomic write's rename onto a read-only file used to be retried for ~5 s, blocking the loop.
     await assert.rejects(api.setAgentConnectorToolPermission(id, 'github', 'create_issue', 'auto'), /not writable/);
     await assert.rejects(api.setAgentConnectorEnabled(id, 'notion', false), /not writable/);
   } finally {
+    fs.renameSync = renameSync;
+    fsPromises.rename = renameAsync;
+    syncBuiltinESMExports();
     chmodSync(file, 0o666);
   }
-  assert.ok(Date.now() - started < 1500, `the failed save took ${Date.now() - started} ms`);
+  assert.equal(renames, 0, 'an unwritable target is refused before any rename, so nothing is retried');
   assert.equal(readFileSync(file, 'utf8'), before);
   assert.deepEqual(
     readdirSync(dir).filter((name) => name.includes('mixdog-tmp')),

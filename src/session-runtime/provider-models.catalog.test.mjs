@@ -221,9 +221,7 @@ test('a hanging provider yields a timely partial catalog that is reused, then fi
   });
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
 
-  const startedAt = performance.now();
   const partial = await api.collectProviderModels();
-  assert.ok(performance.now() - startedAt < 2_000, 'the hanging provider is bounded by its timeout');
   assert.deepEqual(
     partial.map((row) => row.id),
     ['chat-model', 'plain-model']
@@ -310,20 +308,39 @@ test('a forced read asks every healthy provider while a partial catalog is cache
   slow.answer();
 });
 
-test('repeated timed-out reads leave at most one pending list per provider, and the timeout aborts it', async () => {
+test('repeated timed-out reads leave at most one pending list per provider, and the timeout aborts it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const slow = hangingProvider();
   const { api } = fixture({ extraProviders: [['slow', slow]], revision: 8103, providerCatalogTimeoutMs: 200 });
-  for (let i = 0; i < 4; i += 1) await api.collectProviderModels({ force: true });
+  // Drive a read: yield to the loop (the list starts after real I/O hops) and,
+  // when `advance`, move the mocked clock past the deadline each turn.
+  const drive = async (advance) => {
+    let done = false;
+    const read = api.collectProviderModels({ force: true }).then(() => {
+      done = true;
+    });
+    for (let i = 0; i < 500 && !done; i += 1) {
+      await setImmediate();
+      if (advance) t.mock.timers.tick(200);
+    }
+    return { done, read };
+  };
+  // The first read waits out its deadline; the clock is ours to advance.
+  const first = await drive(true);
+  assert.equal(first.done, true);
+  assert.equal(slow.calls, 1);
+  // Later reads fail fast on the overdue list: they finish with the clock frozen,
+  // so none of them armed another deadline.
+  for (let i = 0; i < 3; i += 1) {
+    const later = await drive(false);
+    assert.equal(later.done, true, 'the overdue list is not waited out again');
+  }
   assert.equal(slow.calls, 1, 'no second list starts while the first is pending');
-  // Later reads fail fast on the overdue list instead of each waiting it out.
-  const startedAt = performance.now();
-  await api.collectProviderModels({ force: true });
-  assert.ok(performance.now() - startedAt < 100, 'well under the 200ms deadline');
   assert.equal(pendingProviderCatalogOps().filter((name) => name === 'slow').length, 1);
   assert.equal(slow.signals[0]?.aborted, true, 'the deadline cancels a list that honors its signal');
   slow.answer();
   await setImmediate();
   assert.equal(pendingProviderCatalogOps().includes('slow'), false);
-  await api.collectProviderModels({ force: true });
+  assert.equal((await drive(true)).done, true);
   assert.equal(slow.calls, 2, 'a settled list frees the provider for the next read');
 });

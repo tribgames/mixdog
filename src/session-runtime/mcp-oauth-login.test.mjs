@@ -339,7 +339,7 @@ test('a reconnect that needs no login completes immediately and a failure before
   await assert.rejects(down.begin('remote'), /fetch failed/);
 });
 
-test('a status read with `since` follows each step as it happens: browser → connecting → tools → complete', async () => {
+test('a status read with `since` follows each step as it happens: browser → connecting → tools → complete', { timeout: 5_000 }, async () => {
   let launch;
   let finish;
   const peers = [];
@@ -359,26 +359,35 @@ test('a status read with `since` follows each step as it happens: browser → co
   assert.equal(launch.accountMode, 'connect');
   const seen = [];
   const watch = async (since) => {
-    const next = await logins.status(begun.flowId, { since, waitMs: 5_000 });
+    const next = await logins.status(begun.flowId, { since, waitMs: 600_000 });
     seen.push(next.step ? `${next.state}:${next.step}` : next.state);
     return next.state === 'pending' ? watch(`${next.state}:${next.step}`) : next;
   };
-  const started = Date.now();
-  const watching = watch('pending:browser');
+  const flush = async () => {
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  };
+  // An unchanged status keeps the read waiting; a changed one wakes it at once.
+  let woke = null;
+  const held = logins.status(begun.flowId, { since: 'pending:browser', waitMs: 600_000 }).then((next) => {
+    woke = next;
+  });
+  await flush();
+  assert.equal(woke, null, 'unchanged status keeps waiting');
   launch.onCallback();
-  await new Promise((resolve) => setImmediate(resolve));
+  await held;
+  assert.equal(woke.step, 'connecting', 'a changed status wakes the read immediately');
+  seen.push(`${woke.state}:${woke.step}`);
+  const watching = watch('pending:connecting');
+  await flush();
   launch.onAuthorized();
   await new Promise((resolve) => setImmediate(resolve));
   finish({ connected: true });
   assert.deepEqual(await watching, { flowId: begun.flowId, state: 'complete' });
   assert.deepEqual(seen, ['pending:connecting', 'pending:tools', 'complete']);
-  assert.ok(Date.now() - started < 1_000, 'each step arrives without waiting out the read');
   assert.equal(peers.length, 1, 'the peers reconnect after the flow already reports complete');
   // An unchanged flow answers after at most waitMs.
   const next = await logins.begin('other', { openBrowser: false });
-  const before = Date.now();
   assert.equal((await logins.status(next.flowId, { since: 'pending:browser', waitMs: 30 })).step, 'browser');
-  assert.ok(Date.now() - before >= 25);
   assert.throws(() => logins.status(next.flowId, { since: 1, waitMs: 1 }), /since must be a string/);
 });
 
