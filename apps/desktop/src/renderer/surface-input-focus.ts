@@ -92,8 +92,7 @@ export function isTextNavigationTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
   return (
-    target instanceof HTMLInputElement &&
-    ['text', 'search', 'url', 'tel', 'email', 'password'].includes(target.type)
+    target instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password'].includes(target.type)
   );
 }
 

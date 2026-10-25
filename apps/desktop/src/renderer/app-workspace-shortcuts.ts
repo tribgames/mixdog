@@ -20,7 +20,6 @@
 import { useEffect, useRef } from 'react';
 
 import type { WorkspaceTab } from './navigation';
-import { isNativeMacDesktopWindow } from './remote-ui-projection';
 import { openSessionSearch } from './session-search';
 import { isTextNavigationTarget, modalDialogPresented } from './surface-input-focus';
 import { toggleToolActivityExpandAll } from './tool-activity-expansion';
@@ -83,9 +82,9 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
         (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
         !target?.closest?.('.browser-pane, .browser-isolated-view, .xterm')
       ) {
-        if (isNativeMacDesktopWindow() && (isTextNavigationTarget(event.target) || inEditor)) {
-          return null;
-        }
+        // On a Mac, Option+Left/Right is word motion inside text (the app and
+        // a paired browser alike).
+        if (/Mac/i.test(navigator.platform) && (isTextNavigationTarget(event.target) || inEditor)) return null;
         return event.key === 'ArrowLeft'
           ? () => actionsRef.current.navigateBack()
           : () => actionsRef.current.navigateForward();

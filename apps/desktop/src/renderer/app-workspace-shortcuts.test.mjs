@@ -232,7 +232,7 @@ test('a focused code editor keeps Ctrl+Arrow for word jumps and line scrolling',
   assert.deepEqual(vertical, ['down']);
 });
 
-test('Alt+Left/Right preserves history except for owned surfaces and native mac text fields', async (t) => {
+test('Alt+Left/Right walks history except in the browser page, the terminal and text on a Mac', async (t) => {
   const host = document.createElement('main');
   const plain = document.createElement('textarea');
   const terminal = document.createElement('div');
@@ -242,7 +242,7 @@ test('Alt+Left/Right preserves history except for owned surfaces and native mac 
   document.body.append(host, plain, terminal, browser);
   const root = createRoot(host);
   t.after(async () => {
-    delete window.mixdogDesktop;
+    delete navigator.platform;
     await act(async () => root.unmount());
     host.remove();
     plain.remove();
@@ -299,18 +299,21 @@ test('Alt+Left/Right preserves history except for owned surfaces and native mac 
   Object.defineProperty(editable, 'isContentEditable', { value: true });
   host.append(input, checkbox, editor, editable);
 
-  for (const [platform, nativeMac] of [
-    ['darwin', true],
-    ['win32', false],
-    ['linux', false],
+  for (const [platform, mac] of [
+    ['MacIntel', true],
+    ['Win32', false],
+    ['Linux x86_64', false],
   ]) {
-    window.mixdogDesktop = { platform, bootContext: { bootId: 'option-navigation-test' } };
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: platform });
     for (const [name, target, textTarget] of [
-      ['textarea', plain, true], ['input', input, true],
-      ['contenteditable', editable, true], ['Monaco', editorInput, true],
-      ['workspace', host, false], ['checkbox', checkbox, false],
+      ['textarea', plain, true],
+      ['input', input, true],
+      ['contenteditable', editable, true],
+      ['Monaco', editorInput, true],
+      ['workspace', host, false],
+      ['checkbox', checkbox, false],
     ]) {
-      const yields = nativeMac && textTarget;
+      const yields = mac && textTarget;
       const label = `${platform}/${name}`;
       let delivered = 0;
       const onKey = () => delivered++;

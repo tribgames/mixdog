@@ -185,8 +185,6 @@ export interface DesktopAgentMemoryEntry {
 /** Small, last-writer-wins UI projection shared by Electron and paired web
  * clients. Pane geometry remains local; `selection` is the first visual pane. */
 export interface DesktopApi {
-  /** Local Electron runtime platform; absent on paired web clients. */
-  readonly platform?: string;
   projectRecovery?(projectPath: string, request: ProjectRecoveryRequest): Promise<ProjectRecoveryResponse>;
   /** Immutable process timeline identity injected before renderer modules run. */
   readonly bootContext?: DesktopBootContext;
