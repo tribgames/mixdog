@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -185,6 +187,219 @@ test('a bare file name still lists its exact-basename files first and drops scat
     'a/b/c/app.ts',
     'xapp.ts',
   ]);
+});
+
+test('a typed query finds files the scan cap left out of the index', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'deep', 'a', 'b'), { recursive: true });
+  const names = Array.from({ length: 10 }, (_, index) => `note-${index}.txt`);
+  for (const name of names) await writeFile(join(root, name), '');
+  await writeFile(join(root, 'deep', 'a', 'b', 'target-file.txt'), '');
+  const capped = { maxScannedEntries: 5, includeDirectories: true };
+  for (const name of names) assert.deepEqual(await searchProjectDirectory(root, name, 10, capped), [name]);
+  assert.deepEqual(await searchProjectDirectory(root, 'target-file', 10, capped), ['deep/a/b/target-file.txt']);
+  assert.deepEqual(await searchProjectDirectory(root, 'b', 10, capped), ['deep/a/b/', 'deep/a/b/target-file.txt']);
+});
+
+test('a linked folder is listed but never walked: its files are listed under their real paths', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'real'));
+  await writeFile(join(root, '.gitignore'), 'secret.txt\n');
+  await writeFile(join(root, 'real', 'linked-note.md'), '');
+  await writeFile(join(root, 'real', 'secret.txt'), '');
+  await symlink(join(root, 'real'), join(root, 'shared'), 'junction');
+  await symlink(root, join(root, 'real', 'back'), 'junction');
+  assert.deepEqual(await searchProjectDirectory(root, 'shared', 10, { includeDirectories: true }), ['shared/']);
+  // No `shared/linked-note.md`, and the ignored file does not appear through the link.
+  assert.deepEqual(await searchProjectDirectory(root, 'linked-note', 10), ['real/linked-note.md']);
+  assert.deepEqual(await searchProjectDirectory(root, 'secret', 10), []);
+  // A link to the project itself is not listed.
+  assert.deepEqual(await searchProjectDirectory(root, 'back', 10, { includeDirectories: true }), []);
+});
+
+test('a link leading outside the project is neither listed nor walked', async (t) => {
+  const root = await tempRoot(t);
+  const outside = await tempRoot(t);
+  await writeFile(join(outside, 'private.txt'), '');
+  await writeFile(join(root, 'inside.txt'), '');
+  await symlink(outside, join(root, 'shared'), 'junction');
+  assert.deepEqual(await searchProjectDirectory(root, 'private', 10, { includeDirectories: true }), []);
+  assert.deepEqual(await searchProjectDirectory(root, 'shared', 10, { includeDirectories: true }), []);
+  assert.deepEqual(await searchProjectDirectory(root, '', 10, { includeDirectories: true }), ['inside.txt']);
+});
+
+test('a link to an excluded folder does not bypass the exclusion', async (t) => {
+  const root = await tempRoot(t);
+  await writeFile(join(root, '.gitignore'), 'build/\n');
+  await mkdir(join(root, 'node_modules', 'pkg'), { recursive: true });
+  await mkdir(join(root, 'build'));
+  await writeFile(join(root, 'node_modules', 'pkg', 'vendored.txt'), '');
+  await writeFile(join(root, 'build', 'output.txt'), '');
+  await symlink(join(root, 'node_modules'), join(root, 'alias'), 'junction');
+  await symlink(join(root, 'build'), join(root, 'latest'), 'junction');
+  for (const query of ['vendored', 'output', 'alias', 'latest']) {
+    assert.deepEqual(await searchProjectDirectory(root, query, 10, { includeDirectories: true }), []);
+  }
+  // Ignored files are wanted: only the default exclusions still apply.
+  assert.deepEqual(await searchProjectDirectory(root, 'output', 10, { includeIgnored: true }), ['build/output.txt']);
+  assert.deepEqual(await searchProjectDirectory(root, 'latest', 10, { includeIgnored: true, includeDirectories: true }), [
+    'latest/',
+  ]);
+  assert.deepEqual(await searchProjectDirectory(root, 'vendored', 10, { includeIgnored: true }), []);
+});
+
+test('an inaccessible descendant, or one whose ignore rules cannot be read, is skipped', async (t) => {
+  const root = await tempRoot(t);
+  for (const folder of ['locked', 'hidden-rules', 'open']) await mkdir(join(root, folder));
+  for (const file of ['locked/a.txt', 'hidden-rules/b.txt', 'open/c.txt']) await writeFile(join(root, file), '');
+  const denied = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+  const { opendir, readFile } = fsPromises;
+  t.mock.method(fsPromises, 'opendir', (path, ...rest) =>
+    String(path).endsWith('locked') ? Promise.reject(denied) : opendir(path, ...rest)
+  );
+  t.mock.method(fsPromises, 'readFile', (path, ...rest) =>
+    String(path).includes('hidden-rules') ? Promise.reject(denied) : readFile(path, ...rest)
+  );
+  syncBuiltinESMExports();
+  try {
+    // `hidden-rules` is not searched with incomplete rules; `locked` cannot be opened.
+    assert.deepEqual(await searchProjectDirectory(root, 'txt', 10), ['open/c.txt']);
+    // The project root itself must stay readable.
+    await assert.rejects(searchProjectDirectory(join(root, 'locked'), 'txt', 10), { code: 'EACCES' });
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+async function chainRoot(t) {
+  const root = await tempRoot(t);
+  const chain = join(root, ...Array.from({ length: 40 }, () => 'd'));
+  await mkdir(chain, { recursive: true });
+  await writeFile(join(chain, 'needle-end.txt'), '');
+  return root;
+}
+
+test("a consumer's next search supersedes its previous one; other consumers and an aborted signal behave alone", async (t) => {
+  const root = await chainRoot(t);
+  const slow = { maxScannedEntries: 1, yieldEvery: 1, includeDirectories: true };
+  const deep = `${Array(40).fill('d').join('/')}/needle-end.txt`;
+  const first = searchProjectDirectory(root, 'needle', 10, { ...slow, consumer: 'window-1' });
+  const other = searchProjectDirectory(root, 'needle-end', 10, { ...slow, consumer: 'window-2' });
+  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  // An empty query supersedes too.
+  const empty = searchProjectDirectory(root, '', 10, { ...slow, consumer: 'window-1' });
+  assert.deepEqual(await first, []);
+  assert.deepEqual(await empty, ['d/']);
+  // The other window on the same root keeps walking.
+  assert.deepEqual(await other, [deep]);
+  const second = searchProjectDirectory(root, 'needle-end', 10, { ...slow, consumer: 'window-1' });
+  assert.deepEqual(await second, [deep]);
+  const controller = new AbortController();
+  controller.abort();
+  assert.deepEqual(await searchProjectDirectory(root, 'needle', 10, { ...slow, signal: controller.signal }), []);
+});
+
+test('the answer is due at the budget even while a directory read is held, and the walk then stops', async (t) => {
+  const root = await chainRoot(t);
+  const { opendir } = fsPromises;
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  const opened = t.mock.method(fsPromises, 'opendir', async (path, ...rest) => {
+    if (path === join(root, 'd')) await held;
+    return opendir(path, ...rest);
+  });
+  syncBuiltinESMExports();
+  try {
+    const options = { maxScannedEntries: 1, beyondBudgetMs: 30 };
+    assert.deepEqual(await searchProjectDirectory(root, 'needle', 10, options), []);
+    const calls = opened.mock.callCount();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The released read starts no further work…
+    assert.equal(opened.mock.callCount(), calls);
+    // …and kept nothing: the next query still walks and finds the file.
+    assert.deepEqual(await searchProjectDirectory(root, 'needle-end', 10, options), [
+      `${Array(40).fill('d').join('/')}/needle-end.txt`,
+    ]);
+  } finally {
+    release();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test('a walk stopped while an ignore file is read opens no further folder', async (t) => {
+  const root = await chainRoot(t);
+  const { opendir, readFile } = fsPromises;
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  const opened = t.mock.method(fsPromises, 'opendir', (path, ...rest) => opendir(path, ...rest));
+  t.mock.method(fsPromises, 'readFile', async (path, ...rest) => {
+    if (path === join(root, 'd', '.gitignore')) await held;
+    return readFile(path, ...rest);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(await searchProjectDirectory(root, 'needle', 10, { maxScannedEntries: 1, beyondBudgetMs: 30 }), []);
+    const calls = opened.mock.callCount();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(opened.mock.callCount(), calls);
+  } finally {
+    release();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test("a link whose target's ignore rules cannot be read is not listed", async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'real', 'sub'), { recursive: true });
+  await symlink(join(root, 'real', 'sub'), join(root, 'alias'), 'junction');
+  const denied = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+  const { readFile } = fsPromises;
+  t.mock.method(fsPromises, 'readFile', (path, ...rest) =>
+    String(path).endsWith(join('real', '.gitignore')) ? Promise.reject(denied) : readFile(path, ...rest)
+  );
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(await searchProjectDirectory(root, 'alias', 10, { includeDirectories: true }), []);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test('the walk past the cap has a time budget and answers with what it has', async (t) => {
+  const root = await chainRoot(t);
+  await writeFile(join(root, 'needle-top.txt'), '');
+  assert.deepEqual(
+    await searchProjectDirectory(root, 'needle', 10, { maxScannedEntries: 3, yieldEvery: 1, beyondBudgetMs: 0 }),
+    ['needle-top.txt']
+  );
+});
+
+test('a finished walk past the cap answers the queries that extend it without walking again', async (t) => {
+  const root = await chainRoot(t);
+  const opened = t.mock.method(fsPromises, 'opendir');
+  syncBuiltinESMExports();
+  try {
+    const options = { maxScannedEntries: 1 };
+    // A cached index is what carries the finished walk from one query to the next.
+    const first = await searchProjectDirectory(root, 'needle', 10, options);
+    assert.equal(first.length, 1);
+    const walks = opened.mock.callCount();
+    assert.deepEqual(await searchProjectDirectory(root, 'needle-end', 10, options), first);
+    assert.equal(opened.mock.callCount(), walks);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });
 
 test('gitignored files are found only when asked for, never inside node_modules', async (t) => {

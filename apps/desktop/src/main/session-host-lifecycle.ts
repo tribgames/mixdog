@@ -644,10 +644,11 @@ export class SessionHostLifecycle {
     query: string,
     limit = 50,
     includeIgnored = false,
-    includeDirectories = false
+    includeDirectories = false,
+    consumer?: string
   ): Promise<string[]> {
     const root = await this.owner.projectDirectory(projectIdOrWorkspaceId);
-    return searchProjectDirectory(root, query, limit, { includeIgnored, includeDirectories });
+    return searchProjectDirectory(root, query, limit, { includeIgnored, includeDirectories, consumer });
   }
 
   async submitNewTask(

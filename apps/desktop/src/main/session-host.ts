@@ -905,9 +905,17 @@ export class SessionHost implements DesktopService {
     query: string,
     limit = 50,
     includeIgnored = false,
-    includeDirectories = false
+    includeDirectories = false,
+    consumer?: string
   ): Promise<string[]> {
-    return this.lifecycle.searchProjectFiles(projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories);
+    return this.lifecycle.searchProjectFiles(
+      projectIdOrWorkspaceId,
+      query,
+      limit,
+      includeIgnored,
+      includeDirectories,
+      consumer
+    );
   }
 
   async submitNewTask(

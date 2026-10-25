@@ -908,7 +908,8 @@ export class DesktopServiceClient implements DesktopService {
     query: string,
     limit = 50,
     includeIgnored = false,
-    includeDirectories = false
+    includeDirectories = false,
+    consumer?: string
   ): Promise<string[]> {
     return this.invokeRead('searchProjectFiles', [
       projectIdOrWorkspaceId,
@@ -916,6 +917,7 @@ export class DesktopServiceClient implements DesktopService {
       limit,
       includeIgnored,
       includeDirectories,
+      consumer,
     ]);
   }
   submitNewTask(

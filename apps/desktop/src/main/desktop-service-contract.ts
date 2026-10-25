@@ -105,7 +105,8 @@ export interface DesktopService {
     query: string,
     limit?: number,
     includeIgnored?: boolean,
-    includeDirectories?: boolean
+    includeDirectories?: boolean,
+    consumer?: string
   ): Promise<string[]>;
   submitNewTask(
     prompt: DesktopPromptContent,

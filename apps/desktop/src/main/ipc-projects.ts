@@ -93,7 +93,7 @@ export function registerProjectIpc({
   );
   handle(
     DESKTOP_IPC.searchProjectFiles,
-    (_event, projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) => {
+    (event, projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) => {
       if (typeof query !== 'string' || query.length > 1_024) {
         throw new TypeError('query is invalid.');
       }
@@ -102,7 +102,10 @@ export function registerProjectIpc({
         query,
         requiredFileSearchLimit(limit),
         includeIgnored === true,
-        includeDirectories === true
+        includeDirectories === true,
+        // The @ palette (the only caller listing folders) is one search at a
+        // time per window: its next keystroke supersedes the previous search.
+        includeDirectories === true ? `mention:${event.sender.id}` : undefined
       );
     }
   );
