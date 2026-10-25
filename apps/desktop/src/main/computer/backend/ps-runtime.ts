@@ -13,6 +13,7 @@ export const PS_WINDOW_CAPTURE = loadComputerSource('window-capture.ps1').replac
 export const PS_RUNTIME = [
   loadComputerSource('runtime-recovery.ps1'),
   loadComputerSource('runtime-typing.ps1'),
+  loadComputerSource('runtime-saved-login.ps1'),
   loadComputerSource('runtime-ocr-clipboard.ps1'),
   loadComputerSource('runtime-window.ps1'),
   loadComputerSource('runtime.ps1'),

@@ -775,6 +775,7 @@ test('computer runtime manifest stays in parity with host command handlers', asy
     { action: 'launch', input: { app: 'notepad.exe' } },
     { action: 'menu', input: { window_id: 'hwnd:0x1', path: ['File', 'Save As'] } },
     { action: 'verify', input: { window_id: 'hwnd:0x1', expect: [{ present: 'Saved' }] } },
+    { action: 'saved_login', input: { window_id: 'hwnd:0x1', savedAccount: 'a@b.c', field: 'password' } },
   ];
   const hostActions = new Set();
   for (const args of calls) {
@@ -887,6 +888,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     'menu',
     'clipboard',
     'launch',
+    'saved_login',
   ]);
   // verify waits on state without pixels; menu resolves an exact label path.
   assert.deepEqual(Object.keys(inputFor('verify').properties.expect.items.properties), [

@@ -132,4 +132,180 @@ public partial class MixWin32
             if (parentProcess != IntPtr.Zero) CloseHandle(parentProcess);
         }
     }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool QueryFullProcessImageNameW(IntPtr process, uint flags, StringBuilder name, ref uint size);
+    [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+    [StructLayout(LayoutKind.Sequential)]
+    struct WINTRUST_FILE_INFO
+    {
+        public uint cbStruct;
+        [MarshalAs(UnmanagedType.LPWStr)] public string pcwszFilePath;
+        public IntPtr hFile;
+        public IntPtr pgKnownSubject;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WINTRUST_DATA
+    {
+        public uint cbStruct;
+        public IntPtr pPolicyCallbackData;
+        public IntPtr pSIPClientData;
+        public uint dwUIChoice;
+        public uint fdwRevocationChecks;
+        public uint dwUnionChoice;
+        public IntPtr pFile;
+        public uint dwStateAction;
+        public IntPtr hWVTStateData;
+        public IntPtr pwszURLReference;
+        public uint dwProvFlags;
+        public uint dwUIContext;
+        public IntPtr pSignatureSettings;
+    }
+    [DllImport("wintrust.dll", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = false)]
+    static extern uint WinVerifyTrust(IntPtr hwnd, ref Guid actionId, IntPtr data);
+    static readonly Guid WINTRUST_ACTION_GENERIC_VERIFY_V2 =
+      new Guid("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+    /// The WinVerifyTrust provider flags a saved-login browser check uses: no
+    /// revocation pass and no network retrieval at all (cache only), so the check
+    /// never waits on the network; a chain that cannot be built offline fails.
+    public const uint SavedLoginTrustFlags = 0x00000010 | 0x00001000; // WTD_REVOCATION_CHECK_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL
+    /// WinVerifyTrust over the open file's embedded Authenticode signature: the
+    /// hash must match and the signer chain to a trusted root. Done in C#
+    /// because the resident worker's runspace cannot load the
+    /// Microsoft.PowerShell.Security module. Anything but ERROR_SUCCESS is false.
+    static bool VerifyAuthenticode(string path, IntPtr file)
+    {
+        WINTRUST_FILE_INFO fileInfo = new WINTRUST_FILE_INFO();
+        fileInfo.cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_FILE_INFO));
+        fileInfo.pcwszFilePath = path;
+        fileInfo.hFile = file;
+        IntPtr fileInfoPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WINTRUST_FILE_INFO)));
+        IntPtr dataPtr = IntPtr.Zero;
+        bool fileInfoMarshaled = false;
+        bool dataMarshaled = false;
+        try
+        {
+            Marshal.StructureToPtr(fileInfo, fileInfoPtr, false);
+            fileInfoMarshaled = true;
+            WINTRUST_DATA data = new WINTRUST_DATA();
+            data.cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_DATA));
+            data.dwUIChoice = 2;           // WTD_UI_NONE
+            data.fdwRevocationChecks = 0;  // WTD_REVOKE_NONE
+            data.dwUnionChoice = 1;        // WTD_CHOICE_FILE
+            data.pFile = fileInfoPtr;
+            data.dwStateAction = 1;        // WTD_STATEACTION_VERIFY
+            data.dwProvFlags = SavedLoginTrustFlags;
+            dataPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WINTRUST_DATA)));
+            Marshal.StructureToPtr(data, dataPtr, false);
+            dataMarshaled = true;
+            Guid action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+            uint result = WinVerifyTrust(IntPtr.Zero, ref action, dataPtr);
+            // Release the verification state whatever the outcome.
+            data = (WINTRUST_DATA)Marshal.PtrToStructure(dataPtr, typeof(WINTRUST_DATA));
+            data.dwStateAction = 2;        // WTD_STATEACTION_CLOSE
+            Marshal.StructureToPtr(data, dataPtr, false);
+            WinVerifyTrust(IntPtr.Zero, ref action, dataPtr);
+            return result == 0;            // ERROR_SUCCESS: signed, hash matched, chain trusted
+        }
+        catch { return false; }
+        finally
+        {
+            // Free what StructureToPtr allocated inside each block (the path
+            // string) before the blocks themselves.
+            if (dataMarshaled) Marshal.DestroyStructure(dataPtr, typeof(WINTRUST_DATA));
+            if (dataPtr != IntPtr.Zero) Marshal.FreeHGlobal(dataPtr);
+            if (fileInfoMarshaled) Marshal.DestroyStructure(fileInfoPtr, typeof(WINTRUST_FILE_INFO));
+            Marshal.FreeHGlobal(fileInfoPtr);
+        }
+    }
+    /// The result of VerifiedProcessImage: the signer subject of the live
+    /// process's own image and that process's creation time; both empty/0 when
+    /// anything could not be proven.
+    public sealed class VerifiedImage
+    {
+        public string Publisher = "";
+        public string Path = "";
+        public long StartTime;
+    }
+    /// Verifies the image of the live process `pid`, bound to that process: the
+    /// process handle stays open throughout (its id cannot be reused meanwhile),
+    /// the path is the kernel's for that handle, the file is held open with
+    /// writes denied while WinVerifyTrust checks it through that handle, and the
+    /// process must still be running afterwards. Nothing is cached: every call
+    /// verifies afresh. The caller binds later reads to the same process by its
+    /// creation time (ProcessStartTime).
+    public static VerifiedImage VerifiedProcessImage(uint pid)
+    {
+        VerifiedImage verified = new VerifiedImage();
+        if (pid == 0) return verified;
+        IntPtr process = OpenProcess(0x1000, false, pid);
+        if (process == IntPtr.Zero) return verified;
+        try
+        {
+            long created, exited, kernel, user;
+            if (!GetProcessTimes(process, out created, out exited, out kernel, out user) || created == 0) return verified;
+            StringBuilder buffer = new StringBuilder(1024);
+            uint size = (uint)buffer.Capacity;
+            if (!QueryFullProcessImageNameW(process, 0, buffer, ref size)) return verified;
+            string path = buffer.ToString();
+            using (FileStream file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                if (!VerifyAuthenticode(path, file.SafeFileHandle.DangerousGetHandle())) return verified;
+                string subject = System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(path).Subject;
+                uint code;
+                if (String.IsNullOrEmpty(subject) || !GetExitCodeProcess(process, out code) || code != 259) return verified; // STILL_ACTIVE
+                verified.Publisher = subject;
+                verified.Path = path;
+                verified.StartTime = created;
+            }
+        }
+        catch { return new VerifiedImage(); }
+        finally { CloseHandle(process); }
+        return verified;
+    }
+    [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    /// Whether the process `pid` created at `expectedCreated` (0: whichever
+    /// process has that id now) has ended, proven by the OS: 2 = ended, 1 =
+    /// running, 0 = unknown (never read as ended). Ended means: no process has
+    /// that id (OpenProcess fails with ERROR_INVALID_PARAMETER, measured for an
+    /// exited process), the id now names a process created at another time
+    /// (an id is unique among live processes), or the process object is
+    /// signaled (WaitForSingleObject: a process handle signals on exit).
+    /// `created` is the creation time read, or 0.
+    public static int ProcessFate(uint pid, long expectedCreated, out long created)
+    {
+        created = 0;
+        if (pid == 0) return 0;
+        IntPtr process = OpenProcess(0x1000 | 0x00100000, false, pid); // QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+        if (process == IntPtr.Zero) return Marshal.GetLastWin32Error() == 87 ? 2 : 0;
+        try
+        {
+            long exited, kernel, user;
+            if (!GetProcessTimes(process, out created, out exited, out kernel, out user) || created == 0)
+            {
+                created = 0;
+                return 0;
+            }
+            if (expectedCreated != 0 && created != expectedCreated) return 2;
+            uint wait = WaitForSingleObject(process, 0);
+            if (wait == 0) return 2; // WAIT_OBJECT_0
+            return wait == 258 ? 1 : 0; // WAIT_TIMEOUT
+        }
+        finally { CloseHandle(process); }
+    }
+    /// The creation time of the live process `pid`, or 0: the same id with
+    /// another creation time is another process.
+    public static long ProcessStartTime(uint pid)
+    {
+        if (pid == 0) return 0;
+        IntPtr process = OpenProcess(0x1000, false, pid);
+        if (process == IntPtr.Zero) return 0;
+        try
+        {
+            long created, exited, kernel, user;
+            uint code;
+            if (!GetProcessTimes(process, out created, out exited, out kernel, out user)) return 0;
+            return GetExitCodeProcess(process, out code) && code == 259 ? created : 0;
+        }
+        finally { CloseHandle(process); }
+    }
 }

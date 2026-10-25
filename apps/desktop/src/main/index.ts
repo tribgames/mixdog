@@ -2086,6 +2086,8 @@ function installLocalWindowFeatures(
       bridgeEnabled: false,
       observeOnly: computerObserveOnly,
       onDiagnostic: (event, data) => diagnostics?.write(event, data),
+      // Saved logins in the user's browser follow Browser Use's Auto login.
+      savedLoginEnabled: () => browserAutoSignIn,
     });
   }
   if (computerHost && !computerUseOverlay) {

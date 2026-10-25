@@ -27,6 +27,7 @@ import { emitSessionActivityChange, emitSessionTurnStart } from '../../../../sha
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
 import { MODEL_THINKING_STAGE, awaitingModelResponse, lastProgressAt } from '../../../../shared/quiet-progress.mjs';
 import { beginBrowserTurn, finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
+import { finishComputerTurn } from '../../../../computer-bridge/client.mjs';
 import { configureUsageMetricsRuntime, dropMetricSeenState, bumpUsageMetricsTurnId } from './usage-metrics.mjs';
 import { runtimeState as _runtimeState, isTurnInFlight } from './runtime-state.mjs';
 
@@ -58,6 +59,11 @@ function finishBrowserWork(id, entry, aborted = false) {
   const turnId = Number(entry.browserTurnId ?? entry.session?.usageMetricsTurnId) || 0;
   void finishBrowserTurn(id, turnId, { aborted }).catch((error) => {
     process.stderr.write(`[browser] Task cleanup failed: ${error?.message || error}\n`);
+  });
+  // The same terminal state settles the turn's Computer Use saved-login fills
+  // (lead and sub-agent sessions alike).
+  void finishComputerTurn(id, turnId).catch((error) => {
+    process.stderr.write(`[computer] Turn settlement failed: ${error?.message || error}\n`);
   });
 }
 

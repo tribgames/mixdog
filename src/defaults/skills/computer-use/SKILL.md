@@ -41,8 +41,11 @@ GNOME with Mixdog's own shell extension, which the app sets up); prefer accessib
 - Mixdog browser pages → Browser Use (`browser`). A refused or unfinished
   page action stays on that route for recovery or user handoff; never retry
   it through `computer` or move it to another browser.
-- On either route, permission denials, CAPTCHA/2FA, identity checks, and user
-  stops are not fallback signals: report or hand off, never bypass them.
+- On either route, permission denials, CAPTCHA/2FA (authenticator, SMS,
+  passkey), identity checks, and user stops are not fallback signals: report
+  or hand off, never bypass them. A "check your e-mail" step of a sign-up or
+  sign-in Mixdog started is not one: finish it from a connected mailbox
+  (browser-use skill, E-mail verification).
 - Use the screen when a UI itself is the subject: checking a desktop app's GUI
   after a change, a GUI-only bug, UI-only settings, a cross-app flow.
 - Service CLIs and deterministic file, process, or config work → `shell`/`edit`;
@@ -226,6 +229,22 @@ refs still work.
 **Type into a native field** — fresh observation → `act`: click the field ref,
 `type` text, optional `key` Enter → inspect the returned value. Use `verify`
 only if the result does not establish the required value or completion state.
+
+**Sign in inside the user's browser window** — prefer the session or SSO the
+browser already has, or Browser Use's saved sign-in. As a fallback, focus the
+login field (`act` click), then `saved_login` with `savedAccount` (username or
+masked label) and `field` (`username` or `password`). The host writes it only
+into that field of a verified Chrome/Edge HTTPS page whose origin has
+the login (separate checks, then one write: not atomic inside the browser).
+The site receives it. The password is the protected value: it is kept out of
+your results and that browser's pixels are withheld until this turn ends
+(`ax` reads still work), but a page that redisplays it can expose it, and other
+programs of the same Windows user are outside this protection. A username is
+an identifier and is not hidden. Continue with keys (`act` key Enter). On a
+refusal, hand the secret to the user (`ask_user` kind `secret`,
+surface `computer`); one-time codes, passkeys, security keys and app approvals
+are the user's step (`ask_user` kind `takeover`). Never type a password or
+code with `type`/`set_value`, even one shown on screen.
 
 **Keyboard-driven navigation** — `act` with `key` steps such as `ctrl+s`
 and a trailing short `wait`; verify with `verify` rather than another capture.

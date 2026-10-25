@@ -88,6 +88,16 @@ export interface ComputerCommand {
   /** inline keeps the frame in the reply; file writes it beside the run. */
   image_output?: string;
   capture_after_image_output?: string;
+  /** fill_saved_login: the saved login (username or masked label) and which
+   *  of its values goes into the focused field. */
+  saved_account?: string;
+  field?: string;
+  /** fill_saved_login and turn_settle: the runtime's agent turn number for the
+   *  session, which scopes a password fill's protection. */
+  turn_id?: number;
+  /** fill_saved_login and turn_settle: the sending runtime process's owner id
+   *  (secret-input.ts SavedLoginTurn). */
+  runtime_id?: string;
 }
 
 /** One response line from the resident PowerShell host. */

@@ -25,6 +25,8 @@ import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerRep
 import { computerActionHas } from './actions.mjs';
 import { linuxCaptureFallback, linuxComputerPreflight } from './linux-readiness.mjs';
 import { continuePendingComputerWork, isPendingComputerWork } from './pending-continuation.mjs';
+import { randomUUID } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
 
 export { canonicalComputerResultText };
 
@@ -53,6 +55,18 @@ const pendingComputerSessionReleases = new Map();
 // explicit release, so shutdown needs the full set.
 const hostBoundComputerSessions = new Set();
 const activeComputerExecutions = new Set();
+// Per session, the newest agent turn that sent a saved-login fill whose
+// settlement the desktop has not yet accepted. Aborts never clear it.
+const savedLoginTurns = new Map();
+/** This runtime process as the owner of its saved-login fills: the desktop
+ *  keeps a fill's protection until its turn settles or this owner is gone
+ *  (apps/desktop/src/main/secret-input.ts SavedLoginTurn). */
+export const SAVED_LOGIN_OWNER_ID = randomUUID();
+// The owner connection: one held POST /owner (owner id and this process id)
+// to the bridge it was opened on. A close only detaches it on the desktop;
+// the desktop retires this owner early only when the OS proves this process
+// ended. The socket never keeps the process alive.
+let savedLoginOwner = null;
 const BRIDGE_UNAVAILABLE_MESSAGE =
   'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
@@ -269,7 +283,15 @@ async function executeComputerToolInner(rawArgs, context, note) {
     command = fallback.command;
     note.text = fallback.note;
   }
-  const encoded = JSON.stringify({ ...command, ...(sessionId ? { session_id: sessionId } : {}) });
+  // A saved-login fill names its agent turn: the desktop keeps the fill's
+  // protection until that turn's settlement (settleSavedLoginTurn).
+  const turnId = Number(context?.turnId) || 0;
+  const savedLoginTurn = command.action === 'fill_saved_login' && sessionId && turnId > 0 ? turnId : 0;
+  const encoded = JSON.stringify({
+    ...command,
+    ...(sessionId ? { session_id: sessionId } : {}),
+    ...(savedLoginTurn ? { turn_id: savedLoginTurn, runtime_id: SAVED_LOGIN_OWNER_ID } : {}),
+  });
   if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
     return computerErrorResult('Error: computer request exceeds byte limit; no input was dispatched');
   }
@@ -286,7 +308,18 @@ async function executeComputerToolInner(rawArgs, context, note) {
   }
   const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
   if (releaseError) return releaseError;
+  if (savedLoginTurn && !(await attachSavedLoginOwner(discovery))) {
+    return computerErrorResult(
+      formatComputerToolError(
+        'saved_login_unavailable: the desktop did not accept this runtime as the owner of its saved-login fills; no input was sent',
+        args
+      )
+    );
+  }
   trackComputerSession(sessionId, command);
+  // Recorded before the request leaves: the fill may arm its protection even
+  // when its reply is lost, so the turn's settlement is owed regardless.
+  if (savedLoginTurn) savedLoginTurns.set(sessionId, Math.max(savedLoginTurns.get(sessionId) || 0, savedLoginTurn));
   const posted = await postWithBridgeRecovery(discovery, command, encoded, sessionId, context);
   if (!posted.response) return posted;
   const { bridge, response } = posted;
@@ -362,7 +395,7 @@ async function settlePendingComputerWork(value, command, bridge, sessionId, cont
   }
 }
 
-async function sendComputerSessionControl(sessionId, action, timeoutMs) {
+async function sendComputerSessionControl(sessionId, action, timeoutMs, extra = {}) {
   const discovery = readBridgeDiscovery(DISCOVERY_FILE);
   if (!discovery) return false;
   try {
@@ -371,6 +404,7 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs) {
       {
         action,
         session_id: sessionId,
+        ...extra,
       },
       { timeoutMs }
     );
@@ -452,10 +486,81 @@ async function abortComputerSession(sessionId) {
  * desktop back, keeping the warm worker and observation refs for a possible follow-up. */
 export async function endComputerExecution(sessionId) {
   const id = String(sessionId || '').trim();
-  if (!id || !activeComputerExecutions.has(id)) return false;
+  if (!id) return false;
+  await settleSavedLoginTurn(id);
+  if (!activeComputerExecutions.has(id)) return false;
   const ended = await sendComputerSessionControl(id, 'execution_end', EXECUTION_END_TIMEOUT_MS);
   if (ended) activeComputerExecutions.delete(id);
   return ended;
+}
+
+/** Agent-turn settlement for a session that filled a saved login: tell the
+ *  desktop the turn is over so that fill's protection can retire. Separate
+ *  from input cleanup and independent of any abort; a settlement the desktop
+ *  did not accept stays owed and is sent again at the session's next one.
+ *  `endedTurnId` is the turn that ended when the caller knows it (the
+ *  session's terminal state); otherwise the newest owed turn is the one
+ *  ending (the lead's turn settlement). */
+async function settleSavedLoginTurn(sessionId, endedTurnId = 0) {
+  const owed = savedLoginTurns.get(sessionId);
+  if (!owed) return;
+  if (endedTurnId > 0 && owed > endedTurnId) return;
+  const accepted = await sendComputerSessionControl(sessionId, 'turn_settle', EXECUTION_END_TIMEOUT_MS, {
+    turn_id: owed,
+    runtime_id: SAVED_LOGIN_OWNER_ID,
+  });
+  if (accepted && savedLoginTurns.get(sessionId) === owed) savedLoginTurns.delete(sessionId);
+}
+
+/** A session's agent turn reached its terminal state (done, error or
+ *  cancelled; manager/runtime-liveness.mjs, for lead and sub-agent sessions
+ *  alike): settle its saved-login fills. */
+export async function finishComputerTurn(sessionId, turnId) {
+  const id = String(sessionId || '').trim();
+  if (!id || !(Number(turnId) > 0)) return;
+  await settleSavedLoginTurn(id, Number(turnId));
+}
+
+/** Open (or reuse) this runtime's owner connection to `discovery`'s bridge:
+ *  true once the desktop answered it, false when it refused or is unreachable. */
+function attachSavedLoginOwner(discovery) {
+  const current = savedLoginOwner;
+  if (current && current.port === discovery.port && current.token === discovery.token) return current.attached;
+  current?.request.destroy();
+  const owner = { port: discovery.port, token: discovery.token, request: null, attached: null };
+  owner.attached = new Promise((resolve) => {
+    const body = JSON.stringify({ runtime_id: SAVED_LOGIN_OWNER_ID, pid: process.pid });
+    const forget = () => {
+      if (savedLoginOwner === owner) savedLoginOwner = null;
+      resolve(false);
+    };
+    owner.request = httpRequest(
+      {
+        host: '127.0.0.1',
+        port: discovery.port,
+        path: '/owner',
+        method: 'POST',
+        agent: false,
+        headers: { ...computerCommandHeaders(discovery), 'content-length': Buffer.byteLength(body) },
+      },
+      (response) => {
+        response.once('close', forget);
+        response.once('error', forget);
+        if (response.statusCode !== 200) {
+          response.resume();
+          forget();
+          return;
+        }
+        response.once('data', () => resolve(true));
+      }
+    );
+    owner.request.once('socket', (socket) => socket.unref());
+    owner.request.once('error', forget);
+    owner.request.once('close', forget);
+    owner.request.end(body);
+  });
+  savedLoginOwner = owner;
+  return owner.attached;
 }
 
 function cancelDeferredComputerSessionRelease(sessionId) {

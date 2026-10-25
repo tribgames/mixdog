@@ -29,6 +29,8 @@ action('input_recovery_state', nativeRead);
 action('input_idle_state', nativeRead);
 action('ocr_image', nativeRead);
 action('ocr_status', nativeRead);
+// Host-internal: whether a saved-login owner's runtime process has ended.
+action('process_fate', nativeRead);
 action('release_session', { retainNativeRefs: true });
 action('release_cursor_theme', { retainNativeRefs: true });
 // Handing held input, focus and pointer back changes no target's content, so a
@@ -98,8 +100,14 @@ for (const name of [
   });
 }
 action('clipboard_write', { foreground: true });
+// A saved login written into the focused field of the user's browser window:
+// an input bound to a fresh observation, always on the foreground lane, with no
+// automatic capture (the reply never carries the field it filled).
+action('fill_saved_login', { observationBound: true, foreground: true, policy: 'act' });
 action('sequence', { policy: 'act' });
-for (const name of ['execution_end', 'session_release', 'session_abort']) {
+// turn_settle: the runtime's settlement of one agent turn (turn_id), which
+// alone retires a saved-login fill's protection (desktop secret-input.ts).
+for (const name of ['execution_end', 'session_release', 'session_abort', 'turn_settle']) {
   action(name, { lifecycle: true, observeOnly: true });
 }
 export const COMPUTER_ACTIONS = Object.freeze(catalogue);

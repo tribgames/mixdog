@@ -22,6 +22,7 @@ import { createInputDispatch, type SequenceRefScope } from './input-dispatch';
 import type { InputResolution } from './input-resolution';
 import { prepareInputRun, type InputRunContext, type PreparedInputRun } from './input-run-prepare';
 import { settleInputRun } from './input-run-settle';
+import { assertSavedLoginAvailable, type SavedLogins } from './saved-login';
 import { isSequenceStep, isTrustedSequenceContinuation, retainsSequenceRefs } from './sequence-runner';
 import type { SessionLifecycle } from './session-lifecycle';
 import type { WindowReads } from './window-reads';
@@ -88,6 +89,8 @@ export interface CommandRouterHost
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
   policy?: ComputerExecutionPolicy;
   runBoundedSequence(command: ComputerCommand): Promise<ComputerCommandResult>;
+  /** Saved-login typing (saved-login.ts); absent, fill_saved_login is refused. */
+  savedLogins?: SavedLogins;
 }
 
 export function createCommandRouter(host: CommandRouterHost) {
@@ -140,6 +143,8 @@ export function createCommandRouter(host: CommandRouterHost) {
     const admission = await admitCommand(host, policy, initial);
     if ('reply' in admission) return admission.reply;
     const { command, action, isMutation, semanticTargetIdentity } = admission.admitted;
+    // Refused before the target is prepared, so nothing is read or activated.
+    if (action === 'fill_saved_login') assertSavedLoginAvailable(command, host.savedLogins);
     const observed = await observationRoute(host, replies, command, action);
     if (observed) return observed;
     const run: InputRunContext = {

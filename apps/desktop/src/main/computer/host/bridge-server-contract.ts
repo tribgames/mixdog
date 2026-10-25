@@ -17,6 +17,17 @@ export interface BridgeServerHost
   diagnose(event: string, data?: Record<string, unknown>): void;
   waitForCleanup?(): Promise<boolean>;
   waitForUser?(command: ComputerCommand, signal: AbortSignal): Promise<ComputerCommandResult>;
+  /** Saved-login owners: whether the process `pid` created at `created`
+   *  (empty: whichever process has the id now) has ended, as the OS proves it
+   *  (worker process_fate); absent, no owner is accepted. */
+  processFate?(process: { pid: number; created: string }): Promise<ProcessFate>;
+}
+
+/** The OS's answer about one process: `unknown` is never read as ended. */
+export interface ProcessFate {
+  state: 'running' | 'ended' | 'unknown';
+  /** Its creation time (a FILETIME as decimal text) when it could be read. */
+  created: string;
 }
 
 export interface BridgeServerState {

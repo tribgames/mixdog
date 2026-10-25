@@ -74,13 +74,13 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
     text: {
       type: 'string',
       maxLength: 30_000,
-      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action.`,
+      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action. Never a password or one-time code, even one shown on screen: saved_login or ask_user.`,
     },
     value: {
       type: 'string',
       maxLength: 30_000,
       description:
-        'set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes.',
+        'set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes. Never a password or one-time code, even one shown on screen: saved_login or ask_user.',
     },
     keys: {
       type: 'string',

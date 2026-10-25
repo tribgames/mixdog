@@ -210,6 +210,7 @@ test('every computer action keeps its usable input fields through provider flatt
     { action: 'menu', input: { window_id, path: ['File'] } },
     { action: 'clipboard', input: { operation: 'read' } },
     { action: 'launch', input: { app: 'notepad.exe' } },
+    { action: 'saved_login', input: { window_id, savedAccount: 'a@b.c', field: 'password' } },
   ];
   assert.deepEqual(cases.map((args) => args.action).sort(), [...tool.inputSchema.properties.action.enum].sort());
   for (const args of cases) {

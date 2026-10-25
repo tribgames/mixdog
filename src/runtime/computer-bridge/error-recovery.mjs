@@ -29,6 +29,10 @@ const CLEANUP_CODES = new Set([
   'privileged_worker_cleanup_unconfirmed',
 ]);
 const PIXEL_CODES = new Set(['pixel_unavailable', 'observation_unavailable']);
+// Saved-login refusals made before anything was written (host/saved-login.ts).
+const SAVED_LOGIN_REFUSAL_CODES = new Set(['saved_login_refused', 'saved_login_changed', 'saved_login_unavailable']);
+const SECRET_HANDOFF = 'hand the secret to the user with ask_user (kind "secret", surface "computer")';
+const STEP_HANDOFF = 'hand the step to the user with ask_user (kind "takeover", surface "computer", need "sign_in")';
 // Reads send no input, so their timeout is a provider budget, not an uncertain
 // mutation: the caller needs another read route, not a cleanup investigation.
 const READ_ONLY_ACTIONS = new Set(['capture', 'list', 'diagnose', 'verify']);
@@ -148,6 +152,20 @@ function recoveryForCode(code, args) {
       code,
       next: 'capture',
       guidance: `No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture ${target} again, or send this action through background delivery when it supports one.`,
+    };
+  }
+  if (SAVED_LOGIN_REFUSAL_CODES.has(code)) {
+    return {
+      code,
+      next: 'ask_user',
+      guidance: `Nothing was written. If the refusal lists stored masked labels and the user's account is one of them, use that label; otherwise ${SECRET_HANDOFF}. Never type the secret yourself or try another window or field to get past the check.`,
+    };
+  }
+  if (code === 'saved_login_unconfirmed') {
+    return {
+      code,
+      next: 'ask_user',
+      guidance: `The saved value may have been written. Do not call saved_login again for this field and do not type it yourself; ${STEP_HANDOFF} to check the field and finish signing in.`,
     };
   }
   if (code === 'computer_command_timeout') return timeoutRecovery(code, args, target);

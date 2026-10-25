@@ -240,6 +240,8 @@ async function semanticActionReply(
       : {}),
     ...(Number.isInteger(Number(result.pid)) ? { pid: Number(result.pid) } : {}),
     ...(result.app_hint ? { app_hint: String(result.app_hint) } : {}),
+    // A saved-login fill names the login by its masked label only (saved-login.ts).
+    ...(result.saved_login && typeof result.saved_login === 'object' ? { saved_login: result.saved_login } : {}),
     ...(code ? { code } : {}),
     ...(windowTransition ? { window_transition: windowTransition } : {}),
     ...(inputRecoveryVerification ? { input_recovery: inputRecoveryVerification } : {}),

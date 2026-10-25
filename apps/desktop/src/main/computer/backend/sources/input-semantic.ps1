@@ -390,11 +390,15 @@ function ConvertTo-TypedLineBreaks($value) {
     return ([string]$value).Replace("`r`n", "`n").Replace("`r", "`n")
 }
 
-function Read-ValueUntil($pattern, $expected) {
+# A UIA provider may publish a written value after the write returns (Chromium
+# updates its accessibility tree asynchronously), so the readback waits out the
+# same short settle window. $Compare judges the readback; the default is the
+# exact value.
+function Read-ValueUntil($pattern, $expected, [scriptblock]$Compare = { param($actual) Test-SameValue $actual $expected }) {
     $actual = ''
     for ($attempt = 0; $attempt -lt 8; $attempt++) {
         $actual = [string]$pattern.Current.Value
-        if (Test-SameValue $actual $expected) { return @{ Value = $actual; Equal = $true } }
+        if (& $Compare $actual) { return @{ Value = $actual; Equal = $true } }
         Start-Sleep -Milliseconds 25
     }
     return @{ Value = $actual; Equal = $false }

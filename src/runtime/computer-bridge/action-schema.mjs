@@ -35,7 +35,12 @@ const ACTIONS = [
   'menu',
   'clipboard',
   'launch',
+  'saved_login',
 ];
+
+// Which value of a saved login saved_login types (the host checks the focused
+// field's kind before typing it).
+const SAVED_LOGIN_FIELDS = ['username', 'password'];
 
 const windowTarget = {
   window_id: {
@@ -347,6 +352,29 @@ export const COMPUTER_ACTION_CONTRACTS = [
       ['app']
     )
   ),
+  branch(
+    'saved_login',
+    input(
+      {
+        ...windowTarget,
+        ...appTarget,
+        savedAccount: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 320,
+          description:
+            "Fallback sign-in in the user's own browser; prefer its existing session/SSO or Browser Use's saved sign-in. Saved login (username or masked label; a miss lists the site's labels) written after host checks into the focused field of a Chrome/Edge HTTPS page. The site receives it. A password is kept from you and its browser's pixels are withheld this turn, but a page that redisplays it can expose it, and other programs of the same Windows user are outside this protection; a username is not hidden. On refusal hand the secret to the user (ask_user secret, surface computer).",
+        },
+        field: {
+          type: 'string',
+          enum: SAVED_LOGIN_FIELDS,
+          description:
+            'username (text field) or password (password field). One-time codes, passkeys, security keys and app approvals are the user\'s step: ask_user takeover.',
+        },
+      },
+      ['savedAccount', 'field']
+    )
+  ),
 ];
 
 // A JSON Schema 2020-12 object root with no root combinator (Anthropic
@@ -396,7 +424,7 @@ for (const actionBranch of COMPUTER_ACTION_CONTRACTS) {
 // Actions that drive one exact window. They carry exactly one window target:
 // the exact window_id, or an app label the host resolves to one window and
 // refuses when it matches more than one.
-const WINDOW_TARGET_ACTIONS = new Set(['act', 'window', 'menu', 'verify']);
+const WINDOW_TARGET_ACTIONS = new Set(['act', 'window', 'menu', 'verify', 'saved_login']);
 // The host command each window operation becomes; every other operation is a
 // window_state change carrying the operation as its state.
 const WINDOW_OPERATION_ACTIONS = Object.freeze({
@@ -564,6 +592,11 @@ function launchError(input) {
   return null;
 }
 
+function savedLoginError(input) {
+  if (!String(input.savedAccount || '').trim()) return 'Computer Use saved_login savedAccount must not be empty';
+  return null;
+}
+
 function listError(input) {
   if (hasOwn(input, 'limit') && input.kind !== 'history') {
     return 'Computer Use list limit applies to kind="history"';
@@ -584,6 +617,7 @@ const ACTION_RULES = {
   window: windowError,
   clipboard: clipboardError,
   launch: launchError,
+  saved_login: savedLoginError,
 };
 
 export function validateComputerToolArgs(rawArgs) {
@@ -685,6 +719,14 @@ export function toComputerHostCommand(rawArgs) {
     case 'clipboard':
       command.action = inputValue.operation === 'write' ? 'clipboard_write' : 'clipboard_read';
       delete command.operation;
+      break;
+    case 'saved_login':
+      // Always foreground: the value goes to the field focused in the
+      // browser window the host verified, never through window messages.
+      command.action = 'fill_saved_login';
+      command.saved_account = inputValue.savedAccount;
+      command.delivery = 'foreground';
+      delete command.savedAccount;
       break;
     default:
       command.action = args.action;

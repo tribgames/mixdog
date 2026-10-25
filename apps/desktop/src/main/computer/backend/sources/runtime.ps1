@@ -155,6 +155,9 @@ function Handle($req) {
             'key_down' { return Do-KeyHold $req 'down' }
             'key_up' { return Do-KeyHold $req 'up' }
             'type' { return Do-Type $req }
+            'saved_login_check' { return Do-SavedLoginCheck $req }
+            'saved_login_type' { return Do-SavedLoginType $req }
+            'process_fate' { return Do-ProcessFate $req }
             'window_state' { return Do-WindowState $req }
             'close_window' { return Do-CloseWindow $req }
             'terminate_process' { return Do-TerminateProcess $req }

@@ -18,6 +18,8 @@ export function createComputerHost(
     bridgeEnabled?: boolean;
     observeOnly?: boolean;
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
+    /** The desktop's Auto login setting (browserAutoSignIn), read per command. */
+    savedLoginEnabled?: () => boolean;
   } = {}
 ): ComputerHost {
   return createPowerShellComputerHost(options);

@@ -10,6 +10,7 @@ import { powerShellInputRequest, type InputObservation } from './input-dispatch-
 import { canUseAppOwnedTextInput } from './input-preflight';
 import type { ResolvedInputTarget } from './input-resolution';
 import { assertObservationInputAllowed } from './observation-policy';
+import { fillSavedLogin } from './saved-login';
 import { sequenceStepRequest } from './sequence-dispatch';
 import { UNKNOWN_WINDOW_INTEGRITY } from './window-reads';
 
@@ -22,6 +23,7 @@ type DispatchHost = Pick<
   | 'readComputerWindows'
   | 'assertExecutionNotAborted'
   | 'isObserveOnly'
+  | 'savedLogins'
 >;
 type WindowIntegrity = Awaited<ReturnType<DispatchHost['readWindowIntegrity']>>;
 
@@ -132,6 +134,24 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     const integrity = await readForegroundIntegrity(command, targetWindowId);
     const usePrivilegedWorker = integrity.known && integrity.higher;
     assertExecutionNotAborted();
+    if (action === 'fill_saved_login') {
+      // Never through a UAC one-shot worker; each worker request is authorized
+      // again, so a policy change or Stop between them sends nothing more. The
+      // fill's own last check (Auto login) runs after that authorization with
+      // no await before the request is written; past it nothing is recalled.
+      if (usePrivilegedWorker) throw new Error('saved_login_refused: the browser runs elevated; no input was sent');
+      return await fillSavedLogin(
+        command,
+        host.savedLogins,
+        async (request, beforeSend) => {
+          const authority = await authorizeDispatch();
+          assertObservationInputAllowed(command, host.isObserveOnly());
+          beforeSend?.();
+          return await callPowerShell({ ...powerShellRequest, ...authority, ...request });
+        },
+        { assertRunnable: assertExecutionNotAborted }
+      );
+    }
     if (usePrivilegedWorker) {
       policy.assertElevated();
       if (command.ref || command.to) {

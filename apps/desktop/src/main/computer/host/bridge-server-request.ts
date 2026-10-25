@@ -8,6 +8,7 @@ import { isComputerLifecycleControl, READ_ACTIONS } from './action-sets';
 import { bindComputerSecret, secretInputs, typeComputerSecret } from '../../secret-input';
 import type { BridgeServerHost, BridgeServerState } from './bridge-server-contract';
 import { assertPublicComputerRequest } from './request-policy';
+import { reconcileSavedLoginOwners } from './saved-login';
 import {
   MAX_COMPUTER_REQUEST_BYTES,
   MAX_COMPUTER_RESPONSE_BYTES,
@@ -17,7 +18,10 @@ import {
 type Respond = (response: ServerResponse, status: number, body: Record<string, unknown>) => void;
 
 export interface BridgeRequestContext {
-  host: Pick<BridgeServerHost, 'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers' | 'waitForUser'>;
+  host: Pick<
+    BridgeServerHost,
+    'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers' | 'waitForUser' | 'processFate'
+  >;
   state: BridgeServerState;
   respond: Respond;
 }
@@ -107,6 +111,23 @@ export function createBridgeRequestHandler(
       }
       if (!isComputerLifecycleControl(command)) secretInputs.clearFocus(sessionId);
     }
+    // The runtime's authoritative settlement of one agent turn: no fill of that
+    // turn (or an older one of the session) is admitted from here on, and the
+    // saved-login protection they set up retires once those still running
+    // have finished. Input cleanup (execution_end, session_abort,
+    // session_release) never retires it, and a late settlement never reaches
+    // a newer turn (secret-input.ts).
+    if (command.action === 'turn_settle') {
+      const turnId = Number(command.turn_id);
+      const ownerId = typeof command.runtime_id === 'string' ? command.runtime_id : '';
+      if (!sessionId || !Number.isSafeInteger(turnId) || turnId < 1 || !ownerId) {
+        return Promise.reject(
+          new Error('invalid_request: turn_settle needs a session_id, a positive turn_id and a runtime_id')
+        );
+      }
+      void secretInputs.settleSavedLoginTurn({ sessionId, turnId, ownerId });
+      return Promise.resolve({ text: 'turn settlement accepted' });
+    }
     if (command.action === 'session_abort') {
       // The caller aborts when its turn is cancelled; that turn never sends
       // execution_end, so its visible execution and any pause it held end here.
@@ -132,6 +153,22 @@ export function createBridgeRequestHandler(
       respond(response, 429, { ok: false, error: 'computer_capacity_exhausted: too many active requests' });
       return;
     }
+    // A saved-login fill counts as running from the moment it is accepted,
+    // before any queueing or target preparation, so its turn's settlement
+    // waits for it; one of a settled turn or an absent owner is refused here.
+    let finishFill: (() => void) | null = null;
+    if (command.action === 'fill_saved_login') {
+      const admitted = secretInputs.admitSavedLoginFill({
+        sessionId: String(command.session_id || ''),
+        turnId: Number(command.turn_id),
+        ownerId: typeof command.runtime_id === 'string' ? command.runtime_id : '',
+      });
+      if (typeof admitted === 'string') {
+        respond(response, 200, { ok: false, error: `saved_login_unavailable: ${admitted}; no input was sent` });
+        return;
+      }
+      finishFill = admitted;
+    }
     state.activeRequests++;
     // The heartbeat alone reclaims too late: a burst of short sessions can
     // exhaust the worker limit between two beats, and the caller owns none
@@ -143,6 +180,9 @@ export function createBridgeRequestHandler(
       // A secret typed in this session never comes back in a reply.
       if (typeof value?.text === 'string')
         value.text = secretInputs.redact(String(command.session_id || ''), value.text);
+      // Nor do the pixels of a field a saved login was typed into, whatever
+      // recovery observation a failed fill came back with.
+      if (command.action === 'fill_saved_login') delete value.image;
       validateComputerReply(value);
       if (Buffer.byteLength(JSON.stringify(value)) > MAX_COMPUTER_RESPONSE_BYTES) {
         throw new Error('computer response exceeds byte limit; input may have executed and was not replayed');
@@ -150,12 +190,58 @@ export function createBridgeRequestHandler(
       if (!disconnect.clientGone()) respond(response, 200, { ok: true, value });
     } catch (error) {
       if (!disconnect.clientGone()) {
-        respond(response, 200, { ok: false, error: (error as Error).message || String(error) });
+        // Errors are model-bound too: a remembered secret never comes back in one.
+        const message = (error as Error).message || String(error);
+        respond(response, 200, { ok: false, error: secretInputs.redact(String(command.session_id || ''), message) });
       }
     } finally {
       state.activeRequests--;
       disconnect.release();
+      finishFill?.();
     }
+  }
+
+  /** A runtime's saved-login owner connection (secret-input.ts SavedLoginTurn):
+   *  its process is bound by id and OS creation time, then the connection is
+   *  answered and held open. Its close, whichever side ended it, only
+   *  detaches; an owner's protection retires early only when the OS proves
+   *  its process ended (reconcileSavedLoginOwners), checked here as its
+   *  connection detaches and whenever any owner attaches. */
+  async function handleOwner(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    let ownerId = '';
+    let pid = 0;
+    const fate = host.processFate;
+    // Watched before the first await: a connection that closes while its
+    // body or its process is read is never attached, and one attached later
+    // detaches exactly once.
+    let closed = false;
+    let detach: (() => void) | null = null;
+    response.once('close', () => {
+      closed = true;
+      const release = detach;
+      detach = null;
+      if (!release) return;
+      release();
+      if (fate) void reconcileSavedLoginOwners(fate);
+    });
+    try {
+      const value = JSON.parse(await readRequestBody(request)) as { runtime_id?: unknown; pid?: unknown };
+      ownerId = typeof value?.runtime_id === 'string' ? value.runtime_id : '';
+      pid = Number(value?.pid);
+    } catch {
+      /* answered below */
+    }
+    const identity = fate && Number.isSafeInteger(pid) && pid > 0 ? await fate({ pid, created: '' }).catch(() => null) : null;
+    if (closed) return;
+    detach =
+      identity?.state === 'running' ? secretInputs.attachSavedLoginOwner(ownerId, { pid, created: identity.created }) : null;
+    if (!detach || !fate) {
+      respond(response, 400, { ok: false, error: 'invalid request: unknown or ended runtime owner' });
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    response.write('{"ok":true}\n');
+    void reconcileSavedLoginOwners(fate);
   }
 
   return (request, response) => {
@@ -168,7 +254,7 @@ export function createBridgeRequestHandler(
         handleHealth(response);
         return;
       }
-      if (request.method !== 'POST' || request.url !== '/command') {
+      if (request.method !== 'POST' || (request.url !== '/command' && request.url !== '/owner')) {
         respond(response, 404, { ok: false, error: 'not found' });
         return;
       }
@@ -176,7 +262,8 @@ export function createBridgeRequestHandler(
         respond(response, 401, { ok: false, error: 'unauthorized' });
         return;
       }
-      await handleCommand(request, response);
+      if (request.url === '/owner') await handleOwner(request, response);
+      else await handleCommand(request, response);
     })().catch(() => {
       try {
         response.destroy();

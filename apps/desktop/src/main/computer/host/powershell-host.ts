@@ -27,6 +27,8 @@ import { createComputerAuthorizationSettings } from './authorization-settings';
 import { createComputerFailureDiagnostics } from '../session/failure-diagnostics';
 import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { CHROME_SETUP_SESSION_ID, mixdogDataDirectory } from '../shared/common';
+import { assertSavedLoginPixelsAllowed } from './saved-login';
+import { HOST_WARMUP_SESSION_ID } from './action-sets';
 import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import { createWorkerPool } from '../backend/worker-pool';
 import { createCaptureEngine } from '../observation/capture';
@@ -54,6 +56,7 @@ import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
 import { loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
+import { createSavedLoginVault } from './saved-login-vault';
 import { configureCursorDiagnostics } from '../overlay/cursor-diagnostics';
 
 export type { ChromeRemoteDebuggingSetup, ChromeRemoteDebuggingTarget };
@@ -105,6 +108,8 @@ export function createPowerShellComputerHost(
     policyFile?: string;
     maxWorkers?: number;
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
+    /** The desktop's Auto login setting; saved logins are refused without it. */
+    savedLoginEnabled?: () => boolean;
   } = {}
 ): PowerShellComputerHost {
   let bridgeWanted = options.bridgeEnabled !== false;
@@ -176,6 +181,16 @@ export function createPowerShellComputerHost(
     resolveAppWindowId: targeting.resolveAppWindowId,
     resolveForegroundWindowId: targeting.resolveForegroundWindowId,
     authorizeCapture: async (command, windowId) => {
+      // Before any policy decision, for every session: no pixels of a browser a
+      // saved-login password was filled into leave the host until the filling
+      // turn ends, however the capture was reached (explicit read,
+      // capture-after, zoom). The target's process is read live; unreadable
+      // refuses.
+      await assertSavedLoginPixelsAllowed(command, windowId, async (id) => {
+        const windows = await readComputerWindows(command);
+        const owner = windows?.find((window) => String(window.id).toLowerCase() === id.toLowerCase());
+        return owner?.pid ? String(owner.pid) : undefined;
+      });
       if (!policy.restricted || sessionIdFor(command) === CHROME_SETUP_SESSION_ID) return;
       if (!windowId) throw new Error('computer_policy_denied: full-screen capture is not authorized');
       policy.assertWindow({ ...command, action: 'capture', window_id: windowId }, await readComputerWindows(command));
@@ -242,6 +257,10 @@ export function createPowerShellComputerHost(
     ...inputResolution,
     isObserveOnly: () => observeOnly,
     runBoundedSequence: sequenceRunner.runBoundedSequence,
+    savedLogins: {
+      enabled: () => options.savedLoginEnabled?.() === true,
+      vault: createSavedLoginVault(),
+    },
   });
 
   const chromeSetup = createChromeRemoteDebuggingSetup({
@@ -276,6 +295,20 @@ export function createPowerShellComputerHost(
     isBridgeWanted: () => bridgeWanted,
     isDisposed: () => disposed,
     diagnose,
+    // Saved-login owners (Windows only, like saved logins): the OS's answer
+    // about one runtime process, read by the host's own worker.
+    processFate: async ({ pid, created }) => {
+      if (process.platform !== 'win32') return { state: 'unknown', created: '' };
+      const response = await callPowerShell({
+        action: 'process_fate',
+        session_id: HOST_WARMUP_SESSION_ID,
+        pid: String(pid),
+        created,
+      });
+      const result = response.result as { state?: unknown; created?: unknown } | undefined;
+      const state = response.ok && (result?.state === 'running' || result?.state === 'ended') ? result.state : 'unknown';
+      return { state, created: typeof result?.created === 'string' ? result.created : '' };
+    },
   });
 
   if (bridgeWanted) bridge.startBridge();

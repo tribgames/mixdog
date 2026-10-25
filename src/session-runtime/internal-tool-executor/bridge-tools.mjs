@@ -45,6 +45,8 @@ export function createBridgeToolHandlers({ rt }) {
       cwd: callerCwd,
       requestApproval: callerCtx?.toolApprovalHook,
       toolCallId: callerCtx?.toolCallId || null,
+      // The agent turn, as for the browser: it scopes a saved-login fill's protection.
+      turnId: callerCtx?.turnId || rt.session?.usageMetricsTurnId,
       signal: signalFor(callerCtx),
     });
   };
