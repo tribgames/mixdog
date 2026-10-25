@@ -78,7 +78,9 @@ export function exportProblemLine(kind: string, message: string, line = 0, roots
 
 /** The problem line of a finished or failed subresource request, or null when
  *  it is fine, was one this export blocked itself (`blockedIds`), was cancelled
- *  (`net::ERR_ABORTED`) or is the main page (reported by `did-fail-load`). */
+ *  (`net::ERR_ABORTED`) or is the main page (reported by `did-fail-load`).
+ *  Electron's `onCompleted` details carry `error: 'net::OK'` for a request
+ *  that finished: that is no error, only its HTTP status can still be one. */
 export function failedRequestLine(
   details: { id: number; url: string; resourceType?: string; statusCode?: number; error?: string },
   blockedIds: ReadonlySet<number>,
@@ -86,7 +88,7 @@ export function failedRequestLine(
 ): string | null {
   if (blockedIds.has(details.id)) return null;
   const url = details.url.replace(/[?#].*/, '').slice(0, 160);
-  if (typeof details.error === 'string') {
+  if (typeof details.error === 'string' && details.error !== 'net::OK') {
     if (details.resourceType === 'mainFrame' || details.error === 'net::ERR_ABORTED') return null;
     return exportProblemLine('failed request', `${details.error} ${url}`, 0, roots);
   }

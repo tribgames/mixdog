@@ -53,14 +53,18 @@ function agentRowChain(sessionId: string, pool: readonly DesktopAgentPoolRow[]):
 }
 
 /** The listed session a session's work belongs to: itself, or a sub-agent's
- *  owner; with the sub-agent's pool rows (nearest first, [] for itself). */
+ *  owner; with the sub-agent's pool rows (nearest first, [] for itself). The
+ *  roster also lists sub-agent sessions (`agentSession`): those are no top
+ *  level, their pool rows name the session they work for. */
 function topSessionOf(sessionId: string, sources: RequesterSources) {
   const sessions = sources.sessions();
   const own = sessions.find((entry) => entry.id === sessionId);
-  if (own) return { top: own, chain: [] as DesktopAgentPoolRow[] };
+  if (own && !own.agentSession) return { top: own, chain: [] as DesktopAgentPoolRow[] };
   const chain = agentRowChain(sessionId, sources.agentPool?.() ?? []);
   const top = sessions.find((entry) => entry.id === text(chain.at(-1)?.ownerSessionId));
-  return top ? { top, chain } : null;
+  if (top) return { top, chain };
+  // A listed sub-agent with no pool row stands for itself, title and cwd kept.
+  return own && chain.length === 0 ? { top: own, chain } : null;
 }
 
 /** A group-room member session (unlisted: the catalog leaves members out) a

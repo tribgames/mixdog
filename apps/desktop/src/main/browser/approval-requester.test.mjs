@@ -233,6 +233,53 @@ test('only a bot own session asks; a coding Lead, any sub-agent and a task sessi
   }
 });
 
+test('a sub-agent session the roster lists surfaces in its owner, not itself (live roster shape)', async () => {
+  const lead = 'sess_desktop_f44a';
+  const worker = 'sess_daemon_1792946754220_0d74';
+  // The roster as the desktop builds it: the agent tool's worker is a listed row flagged agentSession.
+  const roster = desktopSessionSummaries([
+    { id: lead, owner: 'cli', agent: 'lead', title: 'Visual check', preview: 'Spawn a worker', cwd: 'C:\\work' },
+    {
+      id: worker,
+      owner: 'agent',
+      agent: 'worker',
+      visibility: 'agent-only',
+      parentSessionId: lead,
+      ownerSessionId: lead,
+      preview: 'Run the diagnostic',
+    },
+  ]);
+  assert.equal(roster.find((row) => row.id === worker)?.agentSession, true);
+  const live = {
+    sessions: () => roster,
+    agentPool: () => [{ sessionId: worker, ownerSessionId: lead, parentSessionId: lead, agent: 'worker', cwd: 'C:\\work' }],
+    listAgents: delegation.listAgents,
+  };
+  assert.equal(approvalSurfaceSessionId(worker, live), lead);
+  assert.equal(approvalSurfaceSessionId(lead, live), lead);
+  assert.deepEqual(await createApprovalRequesterResolver(live)(worker), { name: 'Lead › Worker', cwd: 'C:\\work' });
+  // Its pool row gone, nothing names an owner: the session stays its own
+  // surface and keeps its own name.
+  const orphaned = { ...live, agentPool: () => [] };
+  assert.equal(approvalSurfaceSessionId(worker, orphaned), worker);
+  const orphanName = (await createApprovalRequesterResolver(orphaned)(worker)).name;
+  assert.ok(orphanName, 'a listed sub-agent without a pool row keeps a requester name');
+  assert.equal(orphanName, roster.find((row) => row.id === worker)?.title);
+  // A room member's listed sub-agent still lands in the room log.
+  const roomId = 'abc123';
+  const member = roomMemberSessionId(roomId, 'agent-12c3dee5bf');
+  const inRoom = {
+    sessions: () => [
+      ...roster,
+      { id: roomSessionId(roomId), title: 'Standup', preview: '' },
+      { id: 'sess_rm', agentSession: true, title: 'sub', preview: '' },
+    ],
+    agentPool: () => [{ sessionId: 'sess_rm', ownerSessionId: member, parentSessionId: member, agent: 'worker' }],
+    listAgents: delegation.listAgents,
+  };
+  assert.equal(approvalSurfaceSessionId('sess_rm', inRoom), roomSessionId(roomId));
+});
+
 test('a task origin is read only from a host-made task session row, never an agent session', () => {
   const rows = desktopSessionSummaries([
     {

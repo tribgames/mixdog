@@ -686,6 +686,15 @@ test('failed subresource loads become problem lines, except ones the export bloc
     'blocked by the export itself'
   );
   assert.equal(failedRequestLine({ id: 7, url: `${base}/a.js`, error: 'net::ERR_ABORTED' }, none), null);
+  // Electron's onCompleted details name a finished request `net::OK`.
+  assert.equal(
+    failedRequestLine({ id: 10, url: `${base}/pic.svg`, resourceType: 'image', statusCode: 200, error: 'net::OK' }, none),
+    null
+  );
+  assert.equal(
+    failedRequestLine({ id: 11, url: `${base}/gone.svg`, resourceType: 'image', statusCode: 404, error: 'net::OK' }, none),
+    'failed request: HTTP 404 gone.svg'
+  );
   assert.equal(
     failedRequestLine({ id: 8, url: `${base}/`, resourceType: 'mainFrame', error: 'net::ERR_FAILED' }, none),
     null
