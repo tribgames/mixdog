@@ -93,7 +93,8 @@ test('a completion-wake report linking the worker’s mockup shows it as a tile,
   const root = await workerAfterTurnEnded();
   t.after(() => removeRoot(root));
   const view = await mountWakeCard(t, `The worker built the mockup: [mockup](${MOCKUP}).`);
-  assert.deepEqual(view.tiles, ['index.html']);
+  // An index page's tile is named by its folder (design/mockups/x/index.html → "x").
+  assert.deepEqual(view.tiles, ['x']);
   assert.equal(view.changedFiles, '1', 'the changes card keeps only src/app.ts');
 });
 

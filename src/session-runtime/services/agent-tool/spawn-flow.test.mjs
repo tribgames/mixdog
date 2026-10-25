@@ -232,6 +232,7 @@ async function closeRunningWorker(partial) {
       tagForSession: () => 'close-worker',
       forgetTerminalSession() {},
       removeWorkerRow() {},
+      markReleased() {},
     },
     views: {},
   });

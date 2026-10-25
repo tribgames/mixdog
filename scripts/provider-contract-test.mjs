@@ -93,6 +93,7 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
       'menu',
       'clipboard',
       'launch',
+      'saved_login',
     ]);
     // Core input actions survive every provider transform: a path that drops
     // one would silently offer a narrower `computer` than the host accepts.

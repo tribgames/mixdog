@@ -321,7 +321,9 @@ test('the answer is due at the budget even while a directory read is held, and t
     // The released read starts no further work…
     assert.equal(opened.mock.callCount(), calls);
     // …and kept nothing: the next query still walks and finds the file.
-    assert.deepEqual(await searchProjectDirectory(root, 'needle-end', 10, options), [
+    // (A generous budget: this assertion is about the walk result, not the deadline, so it
+    // must not depend on 40 nested reads finishing within the 30 ms used above.)
+    assert.deepEqual(await searchProjectDirectory(root, 'needle-end', 10, { ...options, beyondBudgetMs: 10_000 }), [
       `${Array(40).fill('d').join('/')}/needle-end.txt`,
     ]);
   } finally {

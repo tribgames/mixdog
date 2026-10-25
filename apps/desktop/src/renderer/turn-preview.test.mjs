@@ -665,7 +665,9 @@ test('a turn with recorded changes but no tool rounds still gets its previews, i
         ['a.pdf']
       );
       assert.equal(document.querySelector('.transcript-visualize-turn').classList.contains('is-compact'), agentMode);
-      assert.equal(document.querySelector('.turn-changes-card').dataset.fileCount, '1', 'the rest stays a diff');
+      const changesCard = document.querySelector('.turn-changes-card');
+      if (agentMode) assert.equal(changesCard, null, 'a bot chat shows no changed-files card');
+      else assert.equal(changesCard.dataset.fileCount, '1', 'the rest stays a diff');
       assert.deepEqual(
         commands.map((command) => command.targets[0]),
         [`${ROOT}/reports/a.pdf`],
