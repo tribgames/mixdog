@@ -46,18 +46,16 @@ test('a session waiting on the user shows "!" whether it works, rests or settled
     session('sess_working_approval', { working: true }),
     session('sess_old_approval', { activityAt: NOW - 30 * 24 * 60 * MINUTE, updatedAt: NOW - 30 * 24 * 60 * MINUTE }),
     session('sess_idle'),
-    session('sess_working'),
+    session('sess_working', { working: true }),
   ];
-  sessions[3].working = true;
   const rows = agentLeadRows([], new Set(['sess_working_approval', 'sess_old_approval']), { now: NOW, sessions });
   assert.deepEqual(kinds(rows), {
     sess_working_approval: 'attention',
     sess_old_approval: 'attention',
     sess_idle: 'idle',
   });
-  assert.equal(
+  assert.ok(
     rows.every((row) => row.kind !== 'attention' || row.expiresAt === Number.POSITIVE_INFINITY),
-    true,
     'a waiting session never expires out of the list'
   );
 });

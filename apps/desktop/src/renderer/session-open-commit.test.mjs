@@ -47,6 +47,24 @@ function mount(t) {
   return { root, commits, handle, Harness, read: () => document.getElementById('state').dataset };
 }
 
+/** A host whose session read stays pending until the returned function lands the lane. */
+function coldRead(t, sessionId) {
+  let resolveRead;
+  window.mixdogDesktop = {
+    prefetchSession: () =>
+      new Promise((resolve) => {
+        resolveRead = resolve;
+      }),
+  };
+  t.after(() => {
+    delete window.mixdogDesktop;
+  });
+  return () => {
+    defaultSessionLaneStore.apply(lane(sessionId));
+    resolveRead(true);
+  };
+}
+
 test('a warm sidebar click selects the session in its own synchronous commit, never holding a requested id', async (t) => {
   const view = mount(t);
   await act(async () => view.root.render(React.createElement(view.Harness)));
@@ -70,19 +88,7 @@ test('a warm sidebar click selects the session in its own synchronous commit, ne
 test('a cold sidebar click selects at once and drops its requested id after the read', async (t) => {
   const view = mount(t);
   await act(async () => view.root.render(React.createElement(view.Harness)));
-  let finishRead;
-  window.mixdogDesktop = {
-    prefetchSession: () =>
-      new Promise((resolve) => {
-        finishRead = () => {
-          defaultSessionLaneStore.apply(lane('cold-c'));
-          resolve(true);
-        };
-      }),
-  };
-  t.after(() => {
-    delete window.mixdogDesktop;
-  });
+  const finishRead = coldRead(t, 'cold-c');
   await act(async () => {
     flushSync(() => {
       void view.handle.openSession('cold-c');
@@ -98,19 +104,7 @@ test('a cold sidebar click selects at once and drops its requested id after the 
 test('entering a project while a cold open is in flight drops its requested id; the late read does not restore it', async (t) => {
   const view = mount(t);
   await act(async () => view.root.render(React.createElement(view.Harness)));
-  let finishRead;
-  window.mixdogDesktop = {
-    prefetchSession: () =>
-      new Promise((resolve) => {
-        finishRead = () => {
-          defaultSessionLaneStore.apply(lane('cold-d'));
-          resolve(true);
-        };
-      }),
-  };
-  t.after(() => {
-    delete window.mixdogDesktop;
-  });
+  const finishRead = coldRead(t, 'cold-d');
   await act(async () => {
     flushSync(() => {
       void view.handle.openSession('cold-d');

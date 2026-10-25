@@ -110,5 +110,5 @@ test('a handed-back prompt lands only in the composer of the device that sent it
   assert.equal(applyPromptRestore(restore, 'half typed', applied), draftWithRestoredPrompt('half typed', 'my prompt'));
   assert.ok(applyPromptRestore(restore, 'half typed', new Set()), 'ownership, not the draft, decides');
   assert.equal(applyPromptRestore(restore, 'half typed', applied), null, 'applied once');
-  assert.equal(draftWithRestoredPrompt('half typed', 'my prompt').includes('half typed'), true);
+  assert.ok(draftWithRestoredPrompt('half typed', 'my prompt').includes('half typed'));
 });
