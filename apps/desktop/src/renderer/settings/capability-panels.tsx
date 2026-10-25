@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { ErrorNotice } from '../ErrorNotice';
 
 import type { DesktopApi } from '../../shared/contract';
@@ -26,15 +26,8 @@ import { BotsPanel } from './desktop-pet-toggle';
 import { NotificationsPanel } from './notification-panel';
 
 import {
-  CACHE_WARM_IDLE_TARGETS,
-  CACHE_WARM_TARGETS,
-  normalizeCacheWarmTargets,
-  type CacheWarmTarget,
-} from '../../../../../src/runtime/shared/cache-warm-targets.mjs';
-import {
   ActionButton,
   AutoSaveRow,
-  CheckRow,
   Group,
   ListEmpty,
   ResourceRow,
@@ -379,63 +372,24 @@ function autoClearSource(autoClear: ReturnType<typeof record>): string {
   return t('{{value0}} default', { value0: String(autoClear.provider || 'default') });
 }
 
-// The cache-warming targets (shared/cache-warm-targets.mjs), in its order.
-const CACHE_WARMING_ROWS: Readonly<Record<CacheWarmTarget, { title: string; description: string }>> = {
-  scheduled: { title: 'Before scheduled runs', description: 'Until a bot’s next scheduled run.' },
-  'bot-chats': { title: 'Bot chats (idle)', description: 'A bot’s chat while you are away.' },
-  'bot-rooms': { title: 'Bot rooms (idle)', description: 'Bots’ group-room conversations while quiet.' },
-  favorites: { title: 'Favorite conversations (idle)', description: 'Conversations you favorited or pinned.' },
-  conversations: { title: 'Other conversations (idle)', description: 'Every other conversation of yours.' },
-};
-
-function CacheWarmingGroup({ saved, busy, run }: { saved: unknown; busy: boolean; run: PanelContext['run'] }) {
-  const stored = normalizeCacheWarmTargets(saved);
-  // Each click edits the LAST intended list, so a burst of clicks is not
-  // computed against a snapshot that has not refreshed yet; the override drops
-  // once the saved list agrees.
-  const [override, setOverride] = useState<CacheWarmTarget[] | null>(null);
-  // The newest edit sent; an older edit's outcome never touches a newer list.
-  const latestEdit = useRef(0);
-  const storedKey = stored.join(',');
-  useEffect(() => {
-    setOverride((current) => (current && current.join(',') === storedKey ? null : current));
-  }, [storedKey]);
-  const selected = override ?? stored;
-  const choose = (target: CacheWarmTarget, on: boolean) => {
-    const next = CACHE_WARM_TARGETS.filter((name) => (name === target ? on : selected.includes(name)));
-    const edit = ++latestEdit.current;
-    setOverride(next);
-    // A failed save resolves undefined after `run` showed the page's settings
-    // error: the list falls back to the saved value, unless a newer edit is
-    // queued — it carries its own full list and settles it.
-    void run('setCacheWarmingTargets', [next]).then((result) => {
-      if (result === undefined && edit === latestEdit.current) setOverride(null);
-    });
-  };
-  const row = (target: CacheWarmTarget) => (
-    <CheckRow
-      key={target}
-      title={t(CACHE_WARMING_ROWS[target].title)}
-      description={t(CACHE_WARMING_ROWS[target].description)}
-      checked={selected.includes(target)}
-      disabled={busy && override === null}
-      onChange={(on) => choose(target, on)}
-    />
-  );
+function CacheWarmingGroup({ enabled, busy, run }: { enabled: boolean; busy: boolean; run: PanelContext['run'] }) {
   return (
     <Group
-      title={t('Cache warming')}
+      title={t('Anthropic cache warming')}
       description={t(
         'On models whose cache expires (currently Claude), keeps the prompt cache only while the next turn is likely enough to pay for it. Adds a small usage charge.'
       )}
     >
-      {CACHE_WARM_TARGETS.filter((target) => !CACHE_WARM_IDLE_TARGETS.includes(target)).map(row)}
-      {CACHE_WARM_IDLE_TARGETS.map(row)}
-      <p className="settings-connection-note">
-        {t(
-          'Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.'
+      <ToggleRow
+        title={t('Keep the Anthropic prompt cache warm')}
+        showDescription
+        description={t(
+          'Learns from each conversation’s own return times: at first it doesn’t warm, and starts once a conversation’s history shows warming pays off.'
         )}
-      </p>
+        checked={enabled}
+        disabled={busy}
+        onChange={(on) => void run('setCacheWarmingEnabled', [on])}
+      />
     </Group>
   );
 }
@@ -494,7 +448,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
           onChange={(summaryMode) => void run('setCompactionSettings', [{ summaryMode }])}
         />
       </Group>
-      <CacheWarmingGroup saved={cacheWarming.cacheWarming} busy={busy} run={run} />
+      <CacheWarmingGroup enabled={cacheWarming.enabled !== false} busy={busy} run={run} />
       <Group
         title={t('Idle session cleanup')}
         description={t(

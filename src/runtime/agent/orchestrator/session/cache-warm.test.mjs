@@ -1,9 +1,9 @@
 // Cache warms (cache-warm.mjs): the warm re-sends the last real request with
 // a byte-identical cacheable prefix through the provider's warm mode, never
 // touches the transcript or session activity, is billed in the ledger
-// whatever happens, and only runs toward a known turn when the expected miss
-// outweighs the warms. The provider's warm mode and its account gate are
-// covered in providers/cache-warm-admission.test.mjs.
+// whatever happens, and goes out only when the session's own history of idle
+// gaps says the expected miss outweighs the warms. The provider's warm mode
+// and its account gate are covered in providers/cache-warm-admission.test.mjs.
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,9 +13,13 @@ import test from 'node:test';
 import { _buildRequestBodyForCacheSmoke } from '../providers/anthropic-oauth.mjs';
 import { _initProvidersCallCountForTest, _withRegisteredProviderForTestAsync } from '../providers/registry.mjs';
 import { readCacheWarmStream } from '../providers/anthropic-cache-warm.mjs';
-import { onSessionActivityChange, onSessionTurnStart } from '../../../shared/session-activity-signal.mjs';
+import {
+  emitSessionTurnStart,
+  onSessionActivityChange,
+  onSessionTurnStart,
+} from '../../../shared/session-activity-signal.mjs';
 import { routineTriggerHeader } from '../../../shared/routine-trigger.mjs';
-import { autoClearGateSettings } from '../runtime-core/config-helpers.mjs';
+import { idleAutoClearDue, sessionActivityTimestamp } from '../../../shared/idle-auto-clear-gate.mjs';
 import {
   _setCacheWarmDepsForTest,
   armCacheWarm,
@@ -24,28 +28,27 @@ import {
   cacheWarmDelayMs,
   cacheWarmEconomics,
   cacheWarmIneligibility,
-  cacheWarmRemainingWarms,
+  cacheWarmingEnabled,
   cacheWarmSend,
-  cacheWarmSessionKinds,
+  IDLE_RETURN_LOOKBACK_MS,
   IDLE_RETURN_MEASURED_WINDOW_MS,
-  IDLE_RETURN_PROBABILITY,
-  idleReturnProbability,
-  nextRoutineFireFor,
+  noteCacheWarmActivity,
   planCacheWarm,
-  planIdleCacheWarm,
   rearmCacheWarmsAfterRestart,
-  resolveCacheWarmTargets,
-  revalidateCacheWarms,
-  ROUTINE_TURN_HIT_PROBABILITY,
+  sessionReturnChance,
+  wilsonLowerBound,
   writtenCacheTtlMs,
 } from './cache-warm.mjs';
-import { normalizeCacheWarmTargets, parseCacheWarmTargetsEnv } from '../../../shared/cache-warm-targets.mjs';
+import { promptCacheWarmingSetting } from '../config.mjs';
+import { createIdleGapStore } from './prompt-cache-idle-gaps.mjs';
 import { createPromptCacheTouchStore } from './prompt-cache-touch-store.mjs';
 import { captureSideQuestionRequest, forgetSideQuestion, retireCompactionFork } from './side-question-store.mjs';
+import { _runSessionPurgeHooks } from './store/session-observers.mjs';
 import { withTailReminder } from './tail-reminder-rules.mjs';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
+const I = 59 * MINUTE;
 const MODEL = 'claude-opus-4-7';
 const ACCOUNT = 'acct-1';
 const TOOLS = [{ name: 'read', description: 'Read a file', inputSchema: { type: 'object', properties: {} } }];
@@ -54,6 +57,9 @@ const HIT = {
   usage: { cachedTokens: 69_000, cacheWriteTokens: 1_000, cacheWrite1hTokens: 1_000 },
   providerMetadata: { accountRouting: { provider: 'anthropic-oauth', accountId: ACCOUNT } },
 };
+const TMP = mkdtempSync(join(tmpdir(), 'cache-warm-test-'));
+let stores = 0;
+test.after(() => rmSync(TMP, { recursive: true, force: true }));
 
 function homeSession(id = 'sess_home_lead') {
   return {
@@ -144,8 +150,6 @@ test('the warm body is the real body but for max_tokens 1, and its cached prefix
   assert.equal(warm.thinking?.type, 'adaptive', 'thinking stays adaptive: no budget derived from max_tokens');
   assert.deepEqual({ ...warm, max_tokens: 0 }, { ...real, max_tokens: 0 }, 'everything else is byte-identical');
 
-  // The next production routine turn: the reply, then the next fire's prompt
-  // with its own trigger header, after the tail breakpoint.
   const nextMessages = withTailReminder(
     [...req.messages, { role: 'assistant', content: 'ROUTINE_QUIET' }, { role: 'user', content: fire(Date.UTC(2026, 9, 26)) }],
     { session, provider: req.provider, model: MODEL }
@@ -211,9 +215,6 @@ test('warm stream: an error frame on a still-open stream cancels it and keeps th
     (error) => error.usage?.cachedTokens === 70_000 && error.status === 529
   );
   assert.equal(failing.cancelled(), true, 'the body is not left open');
-
-  // An error type outside the documented set gets no invented status: the
-  // providers' shared SSE error contract marks it a wire error.
   const unknown = sseResponse([{ type: 'error', error: { type: 'brand_new_error', message: '?' } }], { open: true });
   await assert.rejects(
     readCacheWarmStream(unknown.response),
@@ -264,12 +265,6 @@ const tier = (model, ttl) => ({
   output: model.output,
 });
 
-// The largest number of remaining warms the rule allows.
-function maxWarms(model, ttl, promptTokens = 70_000) {
-  const { warmCost, missCost } = cacheWarmEconomics(promptTokens, tier(model, ttl));
-  return Math.ceil((ROUTINE_TURN_HIT_PROBABILITY * missCost) / warmCost) - 1;
-}
-
 test('economics: a read plus one output token per warm against a tier write minus the read', () => {
   const { warmCost, missCost } = cacheWarmEconomics(70_000, tier(OPUS_55, HOUR));
   assert.ok(Math.abs(warmCost - (0.014 + 20 / M)) < 1e-12);
@@ -279,206 +274,146 @@ test('economics: a read plus one output token per warm against a tier write minu
   assert.equal(cacheWarmEconomics(70_000, { ...tier(OPUS_55, HOUR), read: null }), null);
   assert.equal(cacheWarmEconomics(70_000, { ...tier(OPUS_55, HOUR), write: null }), null);
   assert.equal(cacheWarmEconomics(70_000, { ...tier(OPUS_55, HOUR), output: undefined }), null);
-  assert.equal(maxWarms(OPUS_55, HOUR), 21);
-  assert.equal(maxWarms(OPUS_55, 5 * MINUTE), 13);
-  assert.equal(maxWarms(OPUS_47, HOUR), 10);
-  assert.equal(maxWarms(OPUS_47, 5 * MINUTE), 6);
 });
 
-test('remaining warms: this one plus one per further interval to the due turn', () => {
-  const now = 59 * MINUTE;
-  assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: now + 59 * MINUTE }), 1);
-  assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: now + 59 * MINUTE + 1 }), 2);
-  assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: 3 * HOUR }), 3);
+test('Wilson lower bound: the standard 95% score interval, 0 without data', () => {
+  assert.equal(wilsonLowerBound(0, 0), 0);
+  assert.equal(wilsonLowerBound(0, 25), 0);
+  // Published 95% Wilson intervals: 5/10 → [0.2366, 0.7634]; 10/10 → [0.7225, 1].
+  assert.equal(wilsonLowerBound(5, 10).toFixed(4), '0.2366');
+  assert.equal(wilsonLowerBound(10, 10).toFixed(4), '0.7225');
 });
 
-test('plan: warm iff P · missCost > remainingWarms · warmCost, failing closed on any unknown', () => {
-  const base = {
-    touchAt: 0,
+// Gaps as the store keeps them.
+const gap = (ms) => (ms >= IDLE_RETURN_MEASURED_WINDOW_MS ? { ms: IDLE_RETURN_MEASURED_WINDOW_MS, censored: true } : { ms });
+const gapsOf = (...minutes) => minutes.map((m) => gap(m * MINUTE));
+
+test('return chance: returns in (e, e + w] among the gaps still idle at e; a censored gap is idle, never a return', () => {
+  const gaps = gapsOf(30, 100, 180, 180, 13 * 60);
+  assert.deepEqual(sessionReturnChance(gaps, 59 * MINUTE, 59 * MINUTE), {
+    idle: 4,
+    returns: 1,
+    p: wilsonLowerBound(1, 4),
+  });
+  assert.deepEqual(sessionReturnChance(gaps, 118 * MINUTE, 118 * MINUTE).returns, 2);
+  assert.deepEqual(sessionReturnChance(gaps, 11 * HOUR, HOUR), { idle: 1, returns: 0, p: 0 }, 'censored at 12 h');
+});
+
+// The plan at refresh point k of a 1h entry (touch = the previous refresh).
+const planAt = (k, gaps, prices = tier(OPUS_55, HOUR)) =>
+  planCacheWarm({
+    now: k * I,
+    touchAt: (k - 1) * I,
     ttlMs: HOUR,
-    promptTokens: 70_000,
-    prices: tier(OPUS_55, HOUR),
-    probability: ROUTINE_TURN_HIT_PROBABILITY,
-    autoClearAtDue: false,
-  };
-  const now = 59 * MINUTE;
-  const interval = 59 * MINUTE;
-  assert.deepEqual(planCacheWarm({ ...base, now, dueAt: 3 * HOUR }), { warm: true, warms: 3 });
-  assert.deepEqual(planCacheWarm({ ...base, now, dueAt: 3_590_000 }), { warm: true, warms: 1 }, 'the 1h edge');
-  // 21 warms pay, 22 do not (Opus 5.5, 1h).
-  assert.equal(planCacheWarm({ ...base, now, dueAt: now + 21 * interval }).warm, true);
-  assert.match(planCacheWarm({ ...base, now, dueAt: now + 21 * interval + 1 }).stop, /cost more/);
-  // 5m entries: 13 warms of 4.5 min pay for Opus 5.5, 6 for Opus 4.7.
-  const five = { ...base, ttlMs: 5 * MINUTE, now: 270_000 };
-  assert.equal(planCacheWarm({ ...five, prices: tier(OPUS_55, 5 * MINUTE), dueAt: 270_000 * 14 }).warm, true);
-  assert.match(planCacheWarm({ ...five, prices: tier(OPUS_55, 5 * MINUTE), dueAt: 270_000 * 14 + 1 }).stop, /cost more/);
-  assert.equal(planCacheWarm({ ...five, prices: tier(OPUS_47, 5 * MINUTE), dueAt: 270_000 * 7 }).warm, true);
-  assert.match(planCacheWarm({ ...five, prices: tier(OPUS_47, 5 * MINUTE), dueAt: 270_000 * 7 + 1 }).stop, /cost more/);
-
-  assert.match(planCacheWarm({ ...base, now: 0, dueAt: 50 * MINUTE }).stop, /before the refresh/);
-  assert.match(planCacheWarm({ ...base, now, dueAt: null }).stop, /no known turn/);
-  assert.match(planCacheWarm({ ...base, now, dueAt: 3 * HOUR, autoClearAtDue: true }).stop, /auto-clear compacts/);
-  assert.match(planCacheWarm({ ...base, now, dueAt: 3 * HOUR, autoClearAtDue: null }).stop, /auto-clear state unknown/);
-  assert.match(planCacheWarm({ ...base, now, dueAt: 3 * HOUR, probability: undefined }).stop, /probability/);
-  assert.match(planCacheWarm({ ...base, now, dueAt: 3 * HOUR, prices: null }).stop, /prices unknown/);
-  assert.match(planCacheWarm({ ...base, now, dueAt: 3 * HOUR, promptTokens: 0 }).stop, /prompt size/);
-  // Late timer: the entry's remaining life must cover the warm's landing —
-  // the expiry margin, or the chain's measured latency when longer.
-  assert.match(planCacheWarm({ ...base, now: HOUR - 5_000, dueAt: 3 * HOUR }).stop, /late/);
-  assert.equal(planCacheWarm({ ...base, now: HOUR - 20_000, dueAt: 3 * HOUR }).warm, true);
-  assert.match(planCacheWarm({ ...base, now: HOUR - 20_000, dueAt: 3 * HOUR, latencyMs: 25_000 }).stop, /late/);
-  assert.match(planCacheWarm({ ...five, prices: tier(OPUS_55, 5 * MINUTE), dueAt: HOUR, latencyMs: 31_000 }).stop, /late/);
-});
-
-test('the next routine fire is read from the bot’s schedules, skipping off, done and skipped ones', () => {
-  const rows = [
-    { name: 'a', ownerAgentId: 'bot-a', nextFireAt: new Date(5 * HOUR) },
-    { name: 'b', ownerAgentId: 'bot-a', nextFireAt: new Date(2 * HOUR), enabled: false },
-    { name: 'c', ownerAgentId: 'bot-a', nextFireAt: new Date(3 * HOUR), skippedUntil: new Date(4 * HOUR) },
-    { name: 'd', ownerAgentId: 'bot-a', nextFireAt: new Date(HOUR), status: 'done' },
-    { name: 'e', ownerAgentId: 'bot-b', nextFireAt: new Date(HOUR) },
-    { name: 'f', ownerAgentId: '', nextFireAt: new Date(4 * HOUR) },
-  ];
-  assert.equal(nextRoutineFireFor('sess_home_bot-a', rows, 0), 5 * HOUR);
-  assert.equal(nextRoutineFireFor('sess_home_lead', rows, 0), 4 * HOUR, 'an ownerless row is Mixy’s');
-  assert.equal(nextRoutineFireFor('sess_home_bot-c', rows, 0), null);
-});
-
-test('setting: a target list, old routine/off migrated, the env comma list wins when it parses', () => {
-  assert.deepEqual(resolveCacheWarmTargets({}, {}), ['scheduled'], 'default: before scheduled runs only');
-  assert.deepEqual(normalizeCacheWarmTargets('routine'), ['scheduled']);
-  assert.deepEqual(normalizeCacheWarmTargets('off'), []);
-  assert.deepEqual(normalizeCacheWarmTargets([]), [], 'an empty list is off');
-  assert.deepEqual(
-    normalizeCacheWarmTargets(['favorites', 'bogus', 'scheduled', 'favorites']),
-    ['scheduled', 'favorites'],
-    'known names once, canonical order'
-  );
-  assert.deepEqual(normalizeCacheWarmTargets({}), ['scheduled']);
-  assert.deepEqual(resolveCacheWarmTargets({ cacheWarming: 'off' }, {}), []);
-  assert.deepEqual(resolveCacheWarmTargets({ cacheWarming: [] }, { MIXDOG_CACHE_WARMING: 'routine' }), ['scheduled']);
-  assert.deepEqual(resolveCacheWarmTargets({}, { MIXDOG_CACHE_WARMING: 'OFF' }), []);
-  assert.deepEqual(
-    resolveCacheWarmTargets({}, { MIXDOG_CACHE_WARMING: ' Bot-Chats, conversations ,scheduled' }),
-    ['scheduled', 'bot-chats', 'conversations']
-  );
-  assert.deepEqual(parseCacheWarmTargetsEnv('routine,favorites'), ['scheduled', 'favorites']);
-  assert.equal(parseCacheWarmTargetsEnv(''), null);
-  assert.equal(parseCacheWarmTargetsEnv('scheduled,nope'), null, 'an unknown word: the env value is ignored');
-  assert.deepEqual(resolveCacheWarmTargets({ cacheWarming: ['bot-rooms'] }, { MIXDOG_CACHE_WARMING: 'x' }), [
-    'bot-rooms',
-  ]);
-});
-
-test('idle kinds: bot chats, bot rooms, favorites, other conversations; never sub-agents', () => {
-  const lead = (id, extra = {}) => ({ id, agent: 'lead', ...extra });
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_home_lead'), { favorite: false }), ['bot-chats']);
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_home_lead'), { favorite: null }), ['bot-chats']);
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_home_lead'), { favorite: true }), ['bot-chats', 'favorites']);
-  assert.deepEqual(cacheWarmSessionKinds({ id: 'sess_home_bot-a', agent: 'bot-a' }), ['bot-chats']);
-  assert.deepEqual(cacheWarmSessionKinds({ id: 'sess_rmem_abc123_bot-a', agent: 'bot-a' }), ['bot-rooms']);
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_task'), { favorite: false }), ['conversations']);
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_task'), { favorite: true }), ['favorites']);
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_task'), { favorite: null }), [], 'favorite state unknown');
-  // Sub-agents and agent-only workers are never a target.
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_sub', { owner: 'agent' }), { favorite: true }), []);
-  assert.deepEqual(cacheWarmSessionKinds({ id: 'sess_w', agent: 'worker', owner: 'agent' }, { favorite: false }), []);
-  assert.deepEqual(cacheWarmSessionKinds(lead('sess_v', { visibility: 'agent-only' }), { favorite: false }), []);
-});
-
-test('idle probability: the measured constant of a selected kind at the written tier, none when unmeasured', () => {
-  assert.equal(IDLE_RETURN_PROBABILITY['bot-chats']['1h'], 0.0934);
-  assert.equal(idleReturnProbability(['bot-chats'], ['bot-chats'], HOUR), 0.0934);
-  assert.equal(idleReturnProbability(['bot-chats'], ['bot-chats'], 5 * MINUTE), 0.0133);
-  assert.equal(idleReturnProbability(['bot-chats'], ['scheduled', 'conversations'], HOUR), null, 'kind not selected');
-  assert.equal(idleReturnProbability(['bot-rooms'], ['bot-rooms'], 5 * MINUTE), null, 'unmeasured 5m tier');
-  assert.equal(idleReturnProbability(['conversations'], ['conversations'], 5 * MINUTE), null);
-  assert.equal(
-    idleReturnProbability(['bot-chats', 'favorites'], ['bot-chats', 'favorites'], HOUR),
-    0.0934,
-    'a warm serves every selected kind the session is'
-  );
-  assert.equal(idleReturnProbability(['bot-chats', 'favorites'], ['favorites'], HOUR), 0.0521);
-});
-
-test('idle plan: before the auto-clear deadline, iff P · missCost > warmCost', () => {
-  const base = {
-    now: 59 * MINUTE,
-    touchAt: 0,
-    ttlMs: HOUR,
-    promptTokens: 70_000,
-    prices: tier(OPUS_55, HOUR),
     lastCallAt: 1,
-    probability: IDLE_RETURN_PROBABILITY['bot-chats']['1h'],
-    autoClearDeadline: null,
-  };
-  assert.deepEqual(planIdleCacheWarm(base), { warm: true, warms: 1 }, 'auto-clear off: no deadline');
-  assert.equal(IDLE_RETURN_MEASURED_WINDOW_MS, 12 * HOUR);
-  // Beyond the measured idle window P is unknown: the entry already serves
-  // returns up to it.
+    gaps,
+    promptTokens: 70_000,
+    prices,
+  });
+
+test('plan: no history → no warm', () => {
+  assert.match(planAt(1, []).stop, /no idle history/);
+  assert.match(planAt(1, gapsOf(20, 40)).stop, /no idle history/, 'every gap ended before the refresh point');
+});
+
+test('plan: a 3-hourly routine warms from its first recorded gap, through the gap', () => {
+  // Opus 5.5 1h, 70k prompt: missCost 0.546, warmCost 0.01402. At the first
+  // refresh (e = 59 min) the next return is two intervals off: the
+  // per-interval chance is 0, the return within three warms is certain so far.
+  const one = gapsOf(179);
+  assert.equal(sessionReturnChance(one, I, I).returns, 0, 'no return in the next interval');
+  // One gap: P = 1/(1 + z²) = 0.2065 > 3 · 0.01402 / 0.546 = 0.0770.
+  assert.deepEqual(planAt(1, one), { warm: true, warms: 3, p: wilsonLowerBound(1, 1) });
+  assert.equal(planAt(2, one).warms, 2);
+  assert.equal(planAt(3, one).warms, 1);
+  assert.match(planAt(4, one).stop, /no idle history/, 'past the rhythm: stop');
+});
+
+test('plan: random long gaps never pay', () => {
+  const gaps = gapsOf(13 * 60, 14 * 60, 20 * 60, 30 * 60, 16 * 60, 25 * 60, 18 * 60, 22 * 60, 5 * 60, 9 * 60, 11 * 60);
+  for (let k = 1; k <= 11; k += 1) {
+    assert.equal(planAt(k, gaps).warm, undefined, `refresh point ${k}`);
+  }
+});
+
+test('plan: fails closed on an unknown fact, a late timer, or the learned window', () => {
+  const gaps = gapsOf(179);
+  assert.equal(planAt(1, gaps, null).stop, 'prompt size or cache prices unknown');
   assert.match(
-    planIdleCacheWarm({ ...base, touchAt: 11 * HOUR + 1, now: 11 * HOUR + 1 + 59 * MINUTE }).stop,
-    /measured window/
+    planCacheWarm({ now: 59 * MINUTE, touchAt: 0, ttlMs: HOUR, lastCallAt: 0, gaps, promptTokens: 70_000, prices: tier(OPUS_55, HOUR) })
+      .stop,
+    /last real call unknown/
   );
-  assert.equal(planIdleCacheWarm({ ...base, touchAt: 11 * HOUR, now: 11 * HOUR + 59 * MINUTE }).warm, true);
-  assert.match(planIdleCacheWarm({ ...base, lastCallAt: 0 }).stop, /last real call unknown/);
-  assert.deepEqual(planIdleCacheWarm({ ...base, autoClearDeadline: 12 * HOUR }), { warm: true, warms: 1 });
-  // The default 1h auto-clear on a 1h entry: a return after expiry is compacted.
-  assert.match(planIdleCacheWarm({ ...base, autoClearDeadline: HOUR }).stop, /auto-clear compacts/);
-  assert.match(planIdleCacheWarm({ ...base, autoClearDeadline: undefined }).stop, /auto-clear state unknown/);
-  assert.match(planIdleCacheWarm({ ...base, probability: null }).stop, /not measured/);
-  // Conversations (0.0321) pay on Opus 5.5 1h (break-even 0.0257) but not on
-  // Opus 4.7 1h (break-even 0.0527); bot chats at 5m never pay.
-  const conversations = { ...base, probability: IDLE_RETURN_PROBABILITY.conversations['1h'] };
-  assert.equal(planIdleCacheWarm(conversations).warm, true);
-  assert.match(planIdleCacheWarm({ ...conversations, prices: tier(OPUS_47, HOUR) }).stop, /cost more/);
-  assert.match(
-    planIdleCacheWarm({
-      ...base,
-      ttlMs: 5 * MINUTE,
-      now: 270_000,
-      prices: tier(OPUS_55, 5 * MINUTE),
-      probability: IDLE_RETURN_PROBABILITY['bot-chats']['5m'],
-    }).stop,
-    /cost more/
-  );
-  assert.match(planIdleCacheWarm({ ...base, now: HOUR - 5_000 }).stop, /late/);
+  const base = { ttlMs: HOUR, lastCallAt: 1, gaps, promptTokens: 70_000, prices: tier(OPUS_55, HOUR) };
+  assert.match(planCacheWarm({ ...base, now: HOUR - 5_000, touchAt: 0 }).stop, /late/);
+  assert.match(planCacheWarm({ ...base, now: HOUR - 20_000, touchAt: 0, latencyMs: 25_000 }).stop, /late/);
+  assert.match(planCacheWarm({ ...base, touchAt: 11 * HOUR + 1, now: 11 * HOUR + 1 + I }).stop, /learned window/);
+});
+
+test('the switch: on by default; the earlier target list migrates (non-empty → on, empty or off → off)', () => {
+  assert.equal(cacheWarmingEnabled({}), true);
+  assert.equal(cacheWarmingEnabled({ promptCacheWarming: false }), false);
+  assert.equal(promptCacheWarmingSetting({}), true);
+  assert.equal(promptCacheWarmingSetting({ cacheWarming: ['scheduled'] }), true);
+  assert.equal(promptCacheWarmingSetting({ cacheWarming: [] }), false);
+  assert.equal(promptCacheWarmingSetting({ cacheWarming: 'off' }), false);
+  assert.equal(promptCacheWarmingSetting({ cacheWarming: 'routine' }), true);
+  assert.equal(promptCacheWarmingSetting({ promptCacheWarming: false, cacheWarming: ['scheduled'] }), false);
 });
 
 // An in-memory touch store (prompt-cache-touch-store.mjs shape).
 function memoryTouches() {
   const map = new Map();
+  const uses = new Map();
   return {
     map,
     get: (id) => (map.has(id) ? { ...map.get(id) } : null),
     record: (id, touch) => map.set(id, { ...touch }),
     forget: (id) => map.delete(id),
     ids: () => [...map.keys()],
+    lastWarmUse: (id) => uses.get(id) || 0,
+    recordWarmUse: (id, at) => uses.set(id, at),
+    forgetWarmUse: (id) => uses.delete(id),
   };
 }
 
-// Auto-clear settings / context of the gate (idle-auto-clear-gate.mjs).
-const AUTO_CLEAR_OFF = { enabled: false, idleMs: HOUR, minContextPercent: 10 };
+// A real idle-gap store on its own file, `gaps` (minutes) recorded for
+// `sessionId` before `now`.
+function gapStore({ sessionId = 'sess_home_lead', minutes = [], now = () => Date.now(), path } = {}) {
+  const store = createIdleGapStore({
+    path: path || join(TMP, `gaps-${(stores += 1)}.json`),
+    lookbackMs: IDLE_RETURN_LOOKBACK_MS,
+    windowMs: IDLE_RETURN_MEASURED_WINDOW_MS,
+    minMs: cacheWarmDelayMs(5 * MINUTE),
+    now,
+  });
+  let at = now() - IDLE_RETURN_LOOKBACK_MS / 2;
+  for (const m of minutes) {
+    store.open(sessionId, at);
+    store.close(sessionId, at + m * MINUTE);
+    at += m * MINUTE + MINUTE;
+  }
+  return store;
+}
+
+const AUTO_CLEAR_1H = { enabled: true, idleMs: HOUR, minContextPercent: 10 };
 const contextAt = (pct) => ({ usedTokens: pct * 1_000, compaction: { triggerTokens: 100_000 } });
 
-// A driven clock and timer list for chains.
+// A driven clock and timer list for chains; the session has learned
+// `minutes` gaps (default: a regular 3-hourly rhythm).
 function harness({
-  nextFireAt = 3 * HOUR,
   inFlight = false,
   reply,
-  autoClear = AUTO_CLEAR_OFF,
-  context = contextAt(70),
   prices = tier(OPUS_55, HOUR),
   realRegistry = false,
-  targets = ['scheduled'],
-  favorite = false,
+  enabled = true,
   sessionId = 'sess_home_lead',
+  minutes = [179, 179, 179],
 } = {}) {
   const touches = memoryTouches();
-  const state = { clock: 0, timers: [], usage: [], logs: [], nextFireAt, touches, targets, favorite };
+  const state = { clock: Date.now(), timers: [], usage: [], logs: [], touches, enabled };
+  state.gaps = gapStore({ sessionId, minutes, now: () => state.clock });
   _setCacheWarmDepsForTest({
-    // The captured instance is the registered one unless a test uses the
-    // real registry lookup.
     ...(realRegistry ? {} : { registeredProvider: async () => state.prov }),
     now: () => state.clock,
     timers: {
@@ -491,37 +426,33 @@ function harness({
         state.timers = state.timers.filter((t) => t !== timer);
       },
     },
-    targets: async () => state.targets,
-    favoriteState: async () => state.favorite,
+    enabled: async () => state.enabled,
     turnInFlight: () => inFlight,
-    // Relative to the first real request's send time.
-    nextRoutineFire: async () => (state.nextFireAt === null ? null : state.sentAt + state.nextFireAt),
     prices: async () => prices,
-    autoClearSettings: async () => autoClear,
-    contextStatus: async () => context,
     recordUsage: async (req, usage, startedAt, accountId) => state.usage.push({ req, usage, startedAt, accountId }),
     touches: () => touches,
+    gaps: () => state.gaps,
     log: (line) => state.logs.push(line),
   });
   state.prov = provider('anthropic-oauth', reply);
   state.session = homeSession(sessionId);
   state.session.messages = [...PREFIX];
   state.session.lastUsedAt = 0;
-  state.sentAt = 0;
-  state.capture = () => {
-    const handle = captureSideQuestionRequest({
-      sessionId: state.session.id,
-      sessionRef: state.session,
+  // A real request; `newTurn`: the first of a new turn (the runtime emits the
+  // turn start before it).
+  state.capture = (session = state.session, { newTurn = true } = {}) => {
+    if (newTurn) emitSessionTurnStart(session.id);
+    return captureSideQuestionRequest({
+      sessionId: session.id,
+      sessionRef: session,
       provider: state.prov,
       model: MODEL,
-      messages: state.session.messages,
+      messages: session.messages,
       tools: TOOLS,
-      opts: { session: state.session, cacheStrategy: CACHE_STRATEGY, effort: 'high' },
+      opts: { session, cacheStrategy: CACHE_STRATEGY, effort: 'high' },
     });
-    return handle;
   };
-  // A real request settling with `response`; due turns count from its send
-  // time (the snapshot's).
+  // A real request settling with `response`.
   state.settle = (response = HIT) => {
     state.capture().settle(response);
     state.sentAt = cacheWarmChain(state.session.id)?.touchAt ?? 0;
@@ -540,110 +471,196 @@ const flush = async () => {
 };
 
 test.afterEach(() => {
-  for (const id of ['sess_home_lead', 'sess_task', 'sess_rmem_abc123_lead', 'sess_sub']) forgetSideQuestion(id);
+  for (const id of ['sess_home_lead', 'sess_task', 'sess_sub']) forgetSideQuestion(id);
   _setCacheWarmDepsForTest();
 });
 
-// Drive the chain's timers until it stops (or `limit` refreshes).
 async function runChain(h, limit = 100) {
   for (let i = 0; i < limit && h.timers.length; i += 1) await h.fire();
 }
 
-test('idle trigger: a selected kind warms per interval until the entry outlives the auto-clear deadline', async () => {
-  const autoClear6h = { enabled: true, idleMs: 6 * HOUR, minContextPercent: 10 };
-  const h = harness({ targets: ['bot-chats'], nextFireAt: null, autoClear: autoClear6h });
+// Whether the idle auto-clear compacts the harness thread before a submit at
+// `at` (the submit gate's own predicate and activity timestamp).
+const autoClearsAt = (h, cfg, at) =>
+  idleAutoClearDue({
+    cfg,
+    activityAt: sessionActivityTimestamp(h.session),
+    at,
+    runtime: { contextStatus: () => contextAt(70), session: h.session },
+  });
+
+test('no history: the chain sends nothing and plain auto-clear runs from the last real use', async () => {
+  const h = harness({ minutes: [] });
+  h.settle();
+  const start = cacheWarmChain(h.session.id).touchAt;
+  h.session.lastUsedAt = start;
+  await h.fire();
+  assert.equal(h.prov.calls.length, 0);
+  assert.equal(cacheWarmChain(h.session.id), null);
+  assert.match(h.logs.at(-1), /no idle history/);
+  assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, start + HOUR), true);
+});
+
+test('a 3-hourly routine with a 1h auto-clear is warmed at each refresh and not auto-cleared at its run', async () => {
+  const h = harness();
   h.settle();
   const start = cacheWarmChain(h.session.id).touchAt;
   h.session.lastUsedAt = start;
   await runChain(h);
-  // Refresh k goes out at start + k·59 min while the entry (touch + 60 min)
-  // still expires before the 6 h deadline: k = 1…6.
-  assert.equal(h.prov.calls.length, 6);
-  assert.equal(cacheWarmChain(h.session.id), null);
-  assert.match(h.logs.at(-1), /idle: auto-clear compacts the thread before the cache expires/);
+  // Refreshes at 59, 118 and 177 min; the run at 179 min reads the cache.
+  assert.equal(h.prov.calls.length, 3);
+  assert.equal(h.touches.lastWarmUse(h.session.id), start + 177 * MINUTE);
+  assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, start + 179 * MINUTE), false, 'the run is not auto-cleared');
+  assert.equal(h.session.lastUsedAt, start, 'warms never move the session’s own timestamps');
+  h.touches.forgetWarmUse(h.session.id);
+  assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, start + 179 * MINUTE), true, 'without the warm use it would be');
 });
 
-test('idle trigger: the default 1h auto-clear on a 1h entry never warms; auto-clear off stops at 12 h idle', async () => {
-  let h = harness({
-    targets: ['bot-chats'],
-    nextFireAt: null,
-    autoClear: { enabled: true, idleMs: HOUR, minContextPercent: 10 },
+test('a missed warm stops the chain and auto-clear runs from the last successful use', async () => {
+  let sent = 0;
+  const h = harness({
+    reply: () => (++sent === 1 ? { cachedTokens: 70_000, cacheWriteTokens: 0 } : { cachedTokens: 0, cacheWriteTokens: 70_000 }),
   });
-  h.settle();
-  h.session.lastUsedAt = cacheWarmChain(h.session.id).touchAt;
-  await h.fire();
-  assert.equal(h.prov.calls.length, 0);
-  assert.match(h.logs.at(-1), /auto-clear compacts/);
-
-  // Auto-clear off: no deadline, but P was measured only over 12 h of idle
-  // time after the last real call. Refresh k (start + k·59 min) goes out
-  // while the entry (touch + 60 min) expires inside it: k = 1…12.
-  h = harness({ targets: ['bot-chats'], nextFireAt: null });
   h.settle();
   const start = cacheWarmChain(h.session.id).touchAt;
+  h.session.lastUsedAt = start;
   await runChain(h);
-  assert.equal(h.prov.calls.length, 12);
-  assert.equal(cacheWarmChain(h.session.id), null);
-  assert.equal(h.clock, start + 13 * 59 * MINUTE, 'stopped at the 13th refresh point');
-  assert.match(h.logs.at(-1), /idle: idle time reaches the measured window/);
+  assert.equal(h.prov.calls.length, 2);
+  assert.equal(cacheWarmChain(h.session.id), null, 'the miss stopped the chain');
+  const lastUse = start + 59 * MINUTE;
+  assert.equal(h.touches.lastWarmUse(h.session.id), lastUse, 'the miss is no use');
+  assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, lastUse + HOUR - 1), false);
+  assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, lastUse + HOUR), true);
+  h.settle();
+  assert.equal(h.touches.lastWarmUse(h.session.id), 0, 'a settled real request is the latest use');
 });
 
-test('idle trigger: ineligible or unselected kinds, unknown favorites and P below the threshold never warm', async () => {
-  // A bot chat with only rooms selected; with only scheduled and no fire due.
-  for (const targets of [['bot-rooms'], ['scheduled'], ['favorites', 'conversations']]) {
-    const h = harness({ targets, nextFireAt: null });
-    h.settle();
+test('warms keep a session uncleared up to the learned window, then auto-clear runs normally', async () => {
+  // Returns after ~11 h 40 min: worth warming through (11 warms ≤ 0.154 <
+  // P · 0.546 with three such gaps); the window ends the chain.
+  const h = harness({ minutes: [700, 700, 700] });
+  h.settle();
+  const start = cacheWarmChain(h.session.id).touchAt;
+  h.session.lastUsedAt = start;
+  for (let k = 1; k <= 11; k += 1) {
     await h.fire();
-    assert.equal(h.prov.calls.length, 0, `targets ${targets}`);
+    assert.equal(h.prov.calls.length, k);
+    assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, h.clock + 59 * MINUTE), false, `kept after warm ${k}`);
   }
-  // Other conversations: warmed when selected and known not to be a favorite.
-  let h = harness({ targets: ['conversations'], nextFireAt: null, sessionId: 'sess_task' });
+  await runChain(h);
+  assert.equal(h.prov.calls.length, 11);
+  assert.equal(cacheWarmChain(h.session.id), null);
+  const lastWarm = start + 11 * I;
+  assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, lastWarm + HOUR - 1), false);
+  assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, lastWarm + HOUR), true);
+});
+
+test('activity: any real request closes the idle gap (a routine fire’s too); warms record none', async () => {
+  const h = harness({ minutes: [] });
   h.settle();
+  const start = h.gaps.openAt(h.session.id);
+  assert.ok(start > 0, 'a settled request opens the gap');
+  // No history: no warm. A warm, when it goes out, records nothing either.
   await h.fire();
-  assert.equal(h.prov.calls.length, 1);
-  h = harness({ targets: ['conversations'], nextFireAt: null, sessionId: 'sess_task', favorite: true });
-  h.settle();
-  await h.fire();
-  assert.equal(h.prov.calls.length, 0, 'a favorite is not an "other" conversation');
-  h = harness({ targets: ['favorites'], nextFireAt: null, sessionId: 'sess_task', favorite: true });
-  h.settle();
-  await h.fire();
-  assert.equal(h.prov.calls.length, 1, 'favorites selected');
-  h = harness({ targets: ['favorites', 'conversations'], nextFireAt: null, sessionId: 'sess_task', favorite: null });
-  h.settle();
-  await h.fire();
-  assert.equal(h.prov.calls.length, 0, 'favorite state unknown: no warm');
-  // Room members.
-  h = harness({ targets: ['bot-rooms'], nextFireAt: null, sessionId: 'sess_rmem_abc123_lead' });
-  h.settle();
-  await h.fire();
-  assert.equal(h.prov.calls.length, 1);
-  // P below the threshold: conversations on Opus 4.7 1h.
-  h = harness({ targets: ['conversations'], nextFireAt: null, sessionId: 'sess_task', prices: tier(OPUS_47, HOUR) });
+  assert.equal(h.gaps.openAt(h.session.id), start);
+  // The next fire arrives 3 h later: its prompt is the routine header, and
+  // it is a return all the same.
+  h.clock = start + 3 * HOUR;
+  h.session.messages = [...PREFIX, { role: 'assistant', content: 'ROUTINE_QUIET' }, { role: 'user', content: fire(h.clock) }];
+  h.capture();
+  assert.deepEqual(h.gaps.gaps(h.session.id), [{ at: start, ms: 3 * HOUR }]);
+  assert.equal(h.gaps.openAt(h.session.id), 0);
+
+  const warmed = harness({ minutes: [179, 179] });
+  warmed.settle();
+  const opened = warmed.gaps.openAt(warmed.session.id);
+  await warmed.fire();
+  assert.equal(warmed.prov.calls.length, 1, 'a warm went out');
+  assert.equal(warmed.gaps.openAt(warmed.session.id), opened, 'and is not activity');
+  assert.equal(warmed.gaps.gaps(warmed.session.id).length, 2);
+});
+
+// The session's request at the harness clock, as the loop sends it: the
+// turn start (when it opens a turn), the capture, then the settle.
+function requestAt(h, { newTurn, prov = h.prov } = {}) {
+  const id = h.session.id;
+  if (newTurn) emitSessionTurnStart(id);
+  noteCacheWarmActivity(id);
+  armCacheWarm(id, { ...request({ session: h.session, prov }), sentAt: h.clock }, HIT);
+}
+
+test('gaps run across turn boundaries only: a 10-minute tool run inside a turn is no gap', () => {
+  const h = harness({ minutes: [] });
+  const id = h.session.id;
+  const t0 = h.clock;
+  requestAt(h, { newTurn: true });
+  // A 10-minute tool run, then the same turn's next model call.
+  h.clock = t0 + 10 * MINUTE;
+  requestAt(h, { newTurn: false });
+  assert.deepEqual(h.gaps.gaps(id), [], 'no gap, no return inside the turn');
+  assert.equal(h.gaps.openAt(id), t0 + 10 * MINUTE, 'the anchor moved to the turn’s last request');
+  // The next turn, 3 h after that request.
+  h.clock = t0 + 10 * MINUTE + 3 * HOUR;
+  requestAt(h, { newTurn: true });
+  assert.deepEqual(h.gaps.gaps(id), [{ at: t0 + 10 * MINUTE, ms: 3 * HOUR }]);
+});
+
+test('history is learned on every provider: Anthropic → OpenAI → Anthropic keeps learning', () => {
+  const h = harness({ minutes: [] });
+  const id = h.session.id;
+  const t0 = h.clock;
+  requestAt(h, { newTurn: true });
+  h.clock = t0 + 3 * HOUR;
+  requestAt(h, { newTurn: true, prov: provider('openai') });
+  assert.equal(cacheWarmChain(id), null, 'no warm armed on a provider without breakpoints');
+  assert.equal(h.gaps.openAt(id), t0 + 3 * HOUR, 'but its request anchors the idle clock');
+  h.clock = t0 + 6 * HOUR;
+  requestAt(h, { newTurn: true });
+  assert.deepEqual(h.gaps.gaps(id), [
+    { at: t0, ms: 3 * HOUR },
+    { at: t0 + 3 * HOUR, ms: 3 * HOUR },
+  ]);
+  assert.ok(cacheWarmChain(id), 'back on Anthropic: armed again');
+});
+
+test('gap store: censored at the window, short gaps dropped, persisted across a restart, pruned, deleted', async () => {
+  const path = join(TMP, 'gap-persist.json');
+  let clock = Date.UTC(2026, 9, 20);
+  const store = gapStore({ path, now: () => clock });
+  store.open('s', clock);
+  assert.equal(store.close('s', clock + 13 * HOUR).censored, true, 'a 13 h gap is censored at 12 h');
+  store.open('s', clock + 14 * HOUR);
+  assert.equal(store.close('s', clock + 14 * HOUR + 60_000), null, 'shorter than any refresh interval');
+  store.open('s', clock + 15 * HOUR);
+  await store.flush();
+  const reloaded = gapStore({ path, now: () => clock });
+  assert.deepEqual(reloaded.gaps('s'), [{ at: clock, ms: IDLE_RETURN_MEASURED_WINDOW_MS, censored: true }]);
+  assert.equal(reloaded.openAt('s'), clock + 15 * HOUR, 'the open gap survives the restart');
+  // Eight days on, the old gap ages out of the lookback.
+  clock += 8 * 24 * HOUR;
+  assert.deepEqual(reloaded.gaps('s'), []);
+  await reloaded.flush();
+  assert.deepEqual(gapStore({ path, now: () => clock }).gaps('s'), []);
+
+  // A deleted session drops what it learned (the purge hook).
+  const h = harness({ minutes: [179] });
+  assert.equal(h.gaps.gaps(h.session.id).length, 1);
+  _runSessionPurgeHooks(h.session.id);
+  assert.deepEqual(h.gaps.gaps(h.session.id), []);
+});
+
+test('the switch off: no warm; sub-agent sessions are captured for the warmer but not for /btw', async () => {
+  let h = harness({ enabled: false });
   h.settle();
   await h.fire();
   assert.equal(h.prov.calls.length, 0);
-  assert.match(h.logs.at(-1), /idle: warms cost more than the expected miss/);
-});
+  assert.match(h.logs.at(-1), /cache warming off/);
 
-test('idle trigger: a real send cancels the chain; sub-agents are never armed', async () => {
-  let h = harness({ targets: ['bot-chats'], nextFireAt: null });
-  h.settle();
-  await h.fire();
-  assert.equal(h.prov.calls.length, 1);
-  h.capture();
-  assert.equal(cacheWarmChain(h.session.id), null, 'a real send stops the idle chain');
-  assert.equal(h.timers.length, 0);
-
-  h = harness({
-    targets: ['scheduled', 'bot-chats', 'bot-rooms', 'favorites', 'conversations'],
-    nextFireAt: null,
-    sessionId: 'sess_sub',
-    favorite: true,
-  });
+  h = harness({ sessionId: 'sess_sub' });
   h.session.owner = 'agent';
-  assert.equal(h.capture(), null, 'a sub-agent request is never captured');
-  assert.equal(cacheWarmChain('sess_sub'), null);
+  assert.ok(h.capture(), 'a sub-agent request reaches the warmer');
+  h.capture().settle(HIT);
+  assert.ok(cacheWarmChain('sess_sub'), 'and arms like any session');
 });
 
 test('a warm adds nothing to the transcript and is no session activity, and re-arms on a hit', async () => {
@@ -652,12 +669,11 @@ test('a warm adds nothing to the transcript and is no session activity, and re-a
   const offActivity = onSessionActivityChange((id) => activity.push(['activity', id]));
   const offTurn = onSessionTurnStart((id) => activity.push(['turn', id]));
   try {
-    const handle = h.capture();
+    const handle = h.capture(h.session, { newTurn: false });
     assert.equal(cacheWarmChain(h.session.id), null, 'nothing is armed while the request is in flight');
     handle.settle(HIT);
     const chain = cacheWarmChain(h.session.id);
     assert.ok(chain, 'armed');
-    h.sentAt = chain.touchAt;
     assert.equal(chain.ttlMs, HOUR);
     assert.equal(chain.accountId, ACCOUNT, 'the account that served the request');
     const firstTouch = chain.touchAt;
@@ -666,7 +682,8 @@ test('a warm adds nothing to the transcript and is no session activity, and re-a
 
     assert.equal(h.prov.calls.length, 1);
     assert.equal(h.prov.calls[0].opts.maxOutputTokensOverride, 1);
-    assert.equal(h.prov.calls[0].hooks.accountId, ACCOUNT);    assert.deepEqual(h.prov.accounts, [ACCOUNT], 'sent on the account holding the entry');
+    assert.equal(h.prov.calls[0].hooks.accountId, ACCOUNT);
+    assert.deepEqual(h.prov.accounts, [ACCOUNT], 'sent on the account holding the entry');
     assert.deepEqual(h.prov.calls[0].messages.slice(0, PREFIX.length), PREFIX);
     assert.equal(h.prov.sends, 0, 'never the admission/quota send path');
     assert.equal(JSON.stringify(h.session), before, 'transcript, lastProviderSendAt, lastUsedAt and usage untouched');
@@ -704,7 +721,7 @@ test('arming needs a send time, a proven tier, the prompt size and (on a roster)
   assert.match(h.logs.at(-1), /account holding the cache unknown/);
 });
 
-test('a failed or canceled warm is still billed; a chain stop aborts the warm in flight', async () => {
+test('a failed or canceled warm is still billed; a new real request aborts the warm in flight', async () => {
   let h = harness({
     reply: () => {
       throw Object.assign(new Error('stream lost'), { usage: { cachedTokens: 70_000, cacheWriteTokens: 0 } });
@@ -730,15 +747,14 @@ test('a failed or canceled warm is still billed; a chain stop aborts the warm in
   chain = cacheWarmChain(h.session.id);
   await h.fire(chain.touchAt + 54 * MINUTE);
   assert.ok(signal && !signal.aborted, 'the warm is in flight');
-  h.nextFireAt = null;
-  await revalidateCacheWarms();
+  h.capture();
   await flush();
-  assert.equal(signal.aborted, true, 'stopping the chain aborts the warm in flight');
+  assert.equal(signal.aborted, true, 'a real request aborts the warm in flight');
   assert.equal(cacheWarmChain(h.session.id), null);
   assert.equal(h.usage.length, 1, 'the aborted warm is billed');
 });
 
-test('the chain stops on a miss, a late timer, a turn in flight, a new request, a compaction or no known turn', async () => {
+test('the chain stops on a miss, a late timer, a turn in flight, a new request or a compaction', async () => {
   let h = harness({ reply: { cachedTokens: 0, cacheWriteTokens: 70_000 } });
   h.settle();
   let chain = cacheWarmChain(h.session.id);
@@ -759,25 +775,11 @@ test('the chain stops on a miss, a late timer, a turn in flight, a new request, 
   await h.fire(chain.touchAt + 54 * MINUTE);
   assert.equal(h.prov.calls.length, 0, 'a turn in flight sends nothing');
 
-  h = harness({ nextFireAt: 50 * MINUTE });
+  h = harness({ prices: tier(OPUS_55, HOUR), minutes: [13 * 60, 14 * 60, 9 * 60] });
   h.settle();
   chain = cacheWarmChain(h.session.id);
   await h.fire(chain.touchAt + 54 * MINUTE);
-  assert.equal(h.prov.calls.length, 0, 'a turn due before the refresh reads the cache itself');
-
-  h = harness({ nextFireAt: 3_590_000 });
-  h.settle();
-  chain = cacheWarmChain(h.session.id);
-  await h.fire(chain.touchAt + 54 * MINUTE);
-  assert.equal(h.prov.calls.length, 1, 'a turn due in the last 10% of the lifetime gets one refresh');
-  await h.fire();
-  assert.equal(h.prov.calls.length, 1, 'only one refresh before that turn');
-
-  h = harness({ nextFireAt: 30 * HOUR });
-  h.settle();
-  chain = cacheWarmChain(h.session.id);
-  await h.fire(chain.touchAt + 54 * MINUTE);
-  assert.equal(h.prov.calls.length, 0, 'a turn too far out: the warms cost more than the expected miss');
+  assert.equal(h.prov.calls.length, 0, 'returns too rare: the warms cost more than the expected miss');
 
   h = harness();
   h.settle();
@@ -789,23 +791,15 @@ test('the chain stops on a miss, a late timer, a turn in flight, a new request, 
   h.settle();
   retireCompactionFork(h.session.id);
   assert.equal(cacheWarmChain(h.session.id), null, 'a compaction cancels the chain');
-
-  h = harness({ nextFireAt: null });
-  h.settle();
-  chain = cacheWarmChain(h.session.id);
-  await h.fire(chain.touchAt + 54 * MINUTE);
-  assert.equal(h.prov.calls.length, 0, 'no known due turn: never a speculative warm');
 });
 
 test('a provider instance replaced in the registry stops the chain instead of replaying on the old one', async () => {
-  // Still the registered instance: the warm goes out.
   let h = harness({ realRegistry: true });
   h.settle();
   let chain = cacheWarmChain(h.session.id);
   await _withRegisteredProviderForTestAsync('anthropic-oauth', h.prov, () => h.fire(chain.touchAt + 54 * MINUTE));
   assert.equal(h.prov.calls.length, 1);
 
-  // A re-initialization registered a new instance under the same name.
   h = harness({ realRegistry: true });
   h.settle();
   chain = cacheWarmChain(h.session.id);
@@ -819,65 +813,6 @@ test('a provider instance replaced in the registry stops the chain instead of re
   assert.match(h.logs.at(-1), /provider instance replaced/);
 });
 
-test('a 3-hourly routine whose thread the idle auto-clear will compact gets no warms', async () => {
-  const autoClear1h = { enabled: true, idleMs: HOUR, minContextPercent: 10 };
-  // Above the context threshold with a 1h auto-clear: the due turn compacts.
-  let h = harness({ nextFireAt: 3 * HOUR, autoClear: autoClear1h, context: contextAt(70) });
-  h.session.lastUsedAt = 1;
-  h.settle(HIT, 1);
-  let chain = cacheWarmChain(h.session.id);
-  await h.fire(chain.touchAt + 54 * MINUTE);
-  assert.equal(h.prov.calls.length, 0);
-  assert.match(h.logs.at(-1), /auto-clear compacts/);
-
-  // Auto-clear off: warms.
-  h = harness({ nextFireAt: 3 * HOUR, autoClear: { ...autoClear1h, enabled: false } });
-  h.session.lastUsedAt = 1;
-  h.settle(HIT, 1);
-  chain = cacheWarmChain(h.session.id);
-  await h.fire(chain.touchAt + 54 * MINUTE);
-  assert.equal(h.prov.calls.length, 1);
-
-  // Context below the threshold: the gate leaves the thread alone, warms.
-  h = harness({ nextFireAt: 3 * HOUR, autoClear: autoClear1h, context: contextAt(5) });
-  h.session.lastUsedAt = 1;
-  h.settle(HIT, 1);
-  chain = cacheWarmChain(h.session.id);
-  await h.fire(chain.touchAt + 54 * MINUTE);
-  assert.equal(h.prov.calls.length, 1);
-
-  // Warms are not activity: the next warm sees the same idle time.
-  assert.equal(h.session.lastUsedAt, 1);
-});
-
-test('the gate settings come from the same auto-clear config the submit gate reads', () => {
-  assert.deepEqual(autoClearGateSettings({ autoClear: { enabled: false } }, 'anthropic-oauth').enabled, false);
-  const custom = autoClearGateSettings({ autoClear: { idleMs: 2 * HOUR, minContextPercent: 25 } }, 'anthropic-oauth');
-  assert.equal(custom.idleMs, 2 * HOUR);
-  assert.equal(custom.minContextPercent, 25);
-});
-
-test('a paused, deleted or rescheduled routine stops the pending warm at once', async () => {
-  const h = harness();
-  h.settle();
-  await revalidateCacheWarms();
-  assert.ok(cacheWarmChain(h.session.id), 'an unchanged routine keeps the chain');
-  h.nextFireAt = 50 * MINUTE;
-  await revalidateCacheWarms();
-  assert.equal(cacheWarmChain(h.session.id), null, 'rescheduled before the refresh is due');
-  assert.equal(h.timers.length, 0);
-
-  h.settle();
-  h.nextFireAt = null;
-  await revalidateCacheWarms();
-  assert.equal(cacheWarmChain(h.session.id), null, 'paused or deleted');
-
-  h.settle();
-  h.nextFireAt = 30 * HOUR;
-  await revalidateCacheWarms();
-  assert.equal(cacheWarmChain(h.session.id), null, 'rescheduled beyond what the warms are worth');
-});
-
 test('after a restart, re-arm uses the durable touch and drops one inside the expiry margin', async () => {
   const h = harness();
   const now = Date.UTC(2026, 9, 26, 0, 30);
@@ -887,22 +822,18 @@ test('after a restart, re-arm uses the durable touch and drops one inside the ex
     sess_home_lead: rebuilt(),
     'sess_home_bot-a': rebuilt(homeSession('sess_home_bot-a')),
     'sess_home_bot-b': { ...rebuilt(homeSession('sess_home_bot-b')), provider: provider('openai') },
-    'sess_home_bot-c': rebuilt(homeSession('sess_home_bot-c')),
     'sess_home_bot-d': rebuilt(homeSession('sess_home_bot-d')),
   };
   const touches = memoryTouches();
   touches.record('sess_home_lead', { touchAt: now - 20 * MINUTE, ttlMs: HOUR, promptTokens: 71_000, accountId: 'acct-2' });
-  // bot-a: a 5m entry written 20 min ago: expired.
   touches.record('sess_home_bot-a', { touchAt: now - 20 * MINUTE, ttlMs: 5 * MINUTE, promptTokens: 70_000 });
   touches.record('sess_home_bot-b', { touchAt: now - 5 * MINUTE, ttlMs: HOUR, promptTokens: 70_000 });
-  // bot-d: inside the last 10 s of its lifetime.
   touches.record('sess_home_bot-d', { touchAt: now - HOUR + 5_000, ttlMs: HOUR, promptTokens: 70_000 });
   let providersReady = 0;
   _setCacheWarmDepsForTest({
     now: () => h.clock,
     timers: { setTimeout: () => ({}), clearTimeout() {} },
-    targets: async () => ['scheduled'],
-    routineSessions: async () => Object.keys(records),
+    enabled: async () => true,
     lastSentRequest: async (id) => records[id] || null,
     providersReady: async () => {
       providersReady += 1;
@@ -917,32 +848,27 @@ test('after a restart, re-arm uses the durable touch and drops one inside the ex
   assert.equal(chain.ttlMs, HOUR, 'the tier the provider wrote');
   assert.equal(chain.promptTokens, 71_000);
   assert.equal(chain.accountId, 'acct-2', 'on the account holding the entry');
-  assert.equal(cacheWarmChain('sess_home_bot-a'), null);
   assert.equal(touches.get('sess_home_bot-a'), null, 'an expired touch is dropped');
   assert.equal(cacheWarmChain('sess_home_bot-b'), null, 'an ineligible provider is not re-armed');
-  assert.equal(cacheWarmChain('sess_home_bot-c'), null, 'no recorded touch: skipped');
   assert.equal(touches.get('sess_home_bot-d'), null, 'a touch inside the expiry margin is dropped');
 });
 
-test('after a restart, idle targets re-arm every touched session; scheduled alone only routine threads', async () => {
+test('after a restart, nothing is re-armed while warming is off', async () => {
   const now = Date.UTC(2026, 9, 26, 0, 30);
   const touches = memoryTouches();
   touches.record('sess_task', { touchAt: now - 20 * MINUTE, ttlMs: HOUR, promptTokens: 70_000, accountId: ACCOUNT });
-  let targets = ['scheduled'];
+  let enabled = false;
   _setCacheWarmDepsForTest({
     now: () => now,
     timers: { setTimeout: () => ({}), clearTimeout() {} },
-    targets: async () => targets,
-    routineSessions: async () => [],
+    enabled: async () => enabled,
     lastSentRequest: async () => ({ ...request({ session: homeSession('sess_task') }), sentAt: now - 50 * MINUTE }),
     providersReady: async () => {},
     touches: () => touches,
     log() {},
   });
   assert.equal(await rearmCacheWarmsAfterRestart(), 0);
-  targets = [];
-  assert.equal(await rearmCacheWarmsAfterRestart(), 0, 'off');
-  targets = ['conversations'];
+  enabled = true;
   assert.equal(await rearmCacheWarmsAfterRestart(), 1);
   assert.equal(cacheWarmChain('sess_task').touchAt, now - 20 * MINUTE);
 });
@@ -952,12 +878,10 @@ test('restart re-arm waits for the owning runtime’s provider init and never in
   const touches = memoryTouches();
   touches.record('sess_home_lead', { touchAt: now - 20 * MINUTE, ttlMs: HOUR, promptTokens: 70_000, accountId: ACCOUNT });
   let rebuilt = 0;
-  // The default readiness dependency (registry.providersInitialized).
   _setCacheWarmDepsForTest({
     now: () => now,
     timers: { setTimeout: () => ({}), clearTimeout() {} },
-    targets: async () => ['scheduled'],
-    routineSessions: async () => ['sess_home_lead'],
+    enabled: async () => true,
     lastSentRequest: async () => {
       rebuilt += 1;
       return { ...request(), sentAt: now - 50 * MINUTE };
@@ -977,7 +901,7 @@ test('restart re-arm waits for the owning runtime’s provider init and never in
   assert.equal(cacheWarmChain('sess_home_lead'), null);
 });
 
-test('the touch store survives a reload and drops expired entries', async () => {
+test('the touch store survives a reload, drops expired entries and keeps a warm use beyond its touch', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cache-touch-'));
   try {
     const path = join(dir, 'touches.json');
@@ -985,11 +909,16 @@ test('the touch store survives a reload and drops expired entries', async () => 
     store.record('alive', { touchAt: Date.now(), ttlMs: HOUR, promptTokens: 5, accountId: 'a' });
     store.record('expired', { touchAt: Date.now() - 2 * HOUR, ttlMs: HOUR, promptTokens: 5 });
     store.record('invalid', { touchAt: Date.now(), ttlMs: 0, promptTokens: 5 });
+    store.recordWarmUse('expired', Date.now() - 2 * HOUR);
     await store.flush();
     const reloaded = createPromptCacheTouchStore(path);
     assert.equal(reloaded.get('alive').accountId, 'a');
     assert.equal(reloaded.get('expired'), null);
     assert.equal(reloaded.get('invalid'), null);
+    assert.ok(reloaded.lastWarmUse('expired') > 0, 'the warm use outlives its touch');
+    reloaded.forgetWarmUse('expired');
+    await reloaded.flush();
+    assert.equal(createPromptCacheTouchStore(path).lastWarmUse('expired'), 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

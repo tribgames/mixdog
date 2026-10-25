@@ -2,7 +2,6 @@ import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { readSection, updateSection, updateSectionAsync, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
 import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
-import { normalizeCacheWarmTargets } from '../../shared/cache-warm-targets.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
 import { AUTO_EFFORT_BASE, autoEffortBase } from './providers/auto-effort.mjs';
@@ -298,10 +297,8 @@ export function loadConfig(options = {}) {
         aiSessionTitles: raw.aiSessionTitles !== false,
         // Mixy's 2-hourly heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
         heartbeat: raw.heartbeat !== false,
-        // The conversations prompt-cache warms serve (session/cache-warm.mjs,
-        // shared/cache-warm-targets.mjs): a target list, default
-        // ['scheduled']; the old 'routine' / 'off' read as ['scheduled'] / [].
-        cacheWarming: normalizeCacheWarmTargets(raw.cacheWarming),
+        // Prompt-cache warming (session/cache-warm.mjs); default on.
+        promptCacheWarming: promptCacheWarmingSetting(raw),
         // Bots may leave an emoji reaction on the user's message (react tool); default on.
         reactions: raw.reactions !== false,
         // Bots page layout (order, hidden groups, pins, retention) and the shared
@@ -356,7 +353,7 @@ export function loadConfig(options = {}) {
     shell: {},
     update: {},
     recap: { enabled: true },
-    cacheWarming: normalizeCacheWarmTargets(undefined),
+    promptCacheWarming: true,
     worktree: normalizeWorktreeSettings(null),
     developer: {},
     modules: {},
@@ -490,6 +487,11 @@ function buildAgentSaveBuilder(config) {
     else delete next.heartbeat;
     if (config.reactions === false) next.reactions = false;
     else delete next.reactions;
+    // The earlier target list is migrated on load (promptCacheWarmingSetting)
+    // and no longer stored.
+    delete next.cacheWarming;
+    if (config.promptCacheWarming === false) next.promptCacheWarming = false;
+    else delete next.promptCacheWarming;
     if (Array.isArray(config.botOrder) && config.botOrder.length) next.botOrder = [...config.botOrder];
     else delete next.botOrder;
     if (config.leadAvatar && typeof config.leadAvatar === 'object') next.leadAvatar = { ...config.leadAvatar };
@@ -502,6 +504,15 @@ function buildAgentSaveBuilder(config) {
     // Defaults live in code: values equal to the current default are not stored.
     return storedAgentForm(removeRetiredAgentFields(next));
   };
+}
+
+/** Whether prompt-cache warming is on from a stored agent section: the
+ *  `promptCacheWarming` switch, else the earlier `cacheWarming` target list
+ *  migrated (a non-empty list → on, an empty list or 'off' → off), else on. */
+export function promptCacheWarmingSetting(raw) {
+  if (typeof raw?.promptCacheWarming === 'boolean') return raw.promptCacheWarming;
+  if (Array.isArray(raw?.cacheWarming)) return raw.cacheWarming.length > 0;
+  return raw?.cacheWarming !== 'off';
 }
 
 /** A numeric `default` is a preset index; store the preset id it points at (index into the effective list). */

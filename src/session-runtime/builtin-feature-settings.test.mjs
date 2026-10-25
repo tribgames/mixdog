@@ -108,25 +108,25 @@ test('AI session titles default on, persist the top-level key and report the sam
   assert.equal(state.config().aiSessionTitles, true);
 });
 
-test('cache warming defaults to scheduled runs, persists a target list and reads the old off|routine values', () => {
+test('cache warming is one switch, default on; the earlier target list migrates and is dropped', () => {
   const state = fixture();
-  assert.deepEqual(state.api.getCacheWarmingSettings(), { cacheWarming: ['scheduled'] });
-  assert.deepEqual(state.api.setCacheWarmingTargets([]), { cacheWarming: [] });
-  assert.deepEqual(state.config().cacheWarming, []);
-  assert.deepEqual(state.api.setCacheWarmingTargets(['favorites', 'scheduled', 'bot-chats']), {
-    cacheWarming: ['scheduled', 'bot-chats', 'favorites'],
-  });
-  assert.deepEqual(state.config().cacheWarming, ['scheduled', 'bot-chats', 'favorites']);
-  assert.throws(() => state.api.setCacheWarmingTargets(['everything']), /cache warming targets/);
-  assert.throws(() => state.api.setCacheWarmingTargets('scheduled'), /cache warming targets/);
-  for (const [old, migrated] of [
-    ['off', []],
-    ['routine', ['scheduled']],
+  assert.deepEqual(state.api.getCacheWarmingSettings(), { enabled: true });
+  assert.deepEqual(state.api.setCacheWarmingEnabled(false), { enabled: false });
+  assert.equal(state.config().promptCacheWarming, false);
+  assert.deepEqual(state.api.setCacheWarmingEnabled(true), { enabled: true });
+  assert.throws(() => state.api.setCacheWarmingEnabled(['scheduled']), /on or off/);
+  for (const [old, enabled] of [
+    [['scheduled', 'favorites'], true],
+    [[], false],
+    ['off', false],
+    ['routine', true],
   ]) {
-    state.api.setCacheWarmingTargets([]);
+    delete state.config().promptCacheWarming;
     state.config().cacheWarming = old;
-    assert.deepEqual(state.api.getCacheWarmingSettings(), { cacheWarming: migrated });
+    assert.deepEqual(state.api.getCacheWarmingSettings(), { enabled }, `stored ${JSON.stringify(old)}`);
   }
+  state.api.setCacheWarmingEnabled(true);
+  assert.equal(Object.hasOwn(state.config(), 'cacheWarming'), false, 'a save drops the old key');
 });
 
 test('the shared Lead appearance is host-stored: missing → none, a valid mascot persists, junk is refused', () => {

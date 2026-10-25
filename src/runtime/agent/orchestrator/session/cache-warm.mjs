@@ -1,9 +1,8 @@
 // cache-warm.mjs — keeps a session's prompt cache readable for its next turn
-// in the conversations the user chose (`cacheWarming`,
-// shared/cache-warm-targets.mjs): toward a known turn (a scheduled fire) that
-// comes after the cached entry's refresh point, and, for the idle targets
-// (bot chats, bot rooms, favorites, other conversations), one interval at a
-// time while the session idles. A warm re-sends the session's last real request
+// — every session, Lead, bot or sub-agent, while warming is on
+// (`promptCacheWarming`, default on) — one interval at a time while the
+// session idles, as far as the session's own history of returns says it
+// pays. A warm re-sends the session's last real request
 // (side-question-store.mjs) through the provider's cache-warm mode
 // (providers/anthropic-cache-warm.mjs: the provider's own request builder,
 // max_tokens 1, one POST with no retry, fallback or account rotation, cut at
@@ -16,57 +15,55 @@
 // Scope: explicit-breakpoint providers (cache-strategy.mjs) with a warm mode —
 // a miss costs a write premium there; automatic-caching providers are left
 // alone. A request whose thinking budget derives from max_tokens is never
-// replayed (a different budget changes the message cache key). Sub-agent
-// requests are never captured (side-question-store.mjs) and never classified
-// as a target (cacheWarmSessionKinds): over a 7-day ledger sample, warming
-// them would have cost $343/week net (and they compact after 5 min idle);
-// omp task/executor.ts likewise never schedules warms for subagents.
+// replayed (a different budget changes the message cache key). A session
+// that never idles long enough to return within a refresh interval (a
+// sub-agent, closed when its task ends) learns no return and gets no warm.
 //
-// Rule, at each refresh point (one interval min(0.9·T, T−10s) after the last
-// confirmed cache use; T is the tier the provider reported writing): warm
-// iff P · missCost > remainingWarms · warmCost, where missCost is a write of
-// the prompt at that tier minus the read the turn makes anyway, warmCost a
-// read of it plus the one output token, remainingWarms the refreshes still
-// needed before the due turn, and P the measured chance the due turn arrives
-// and still matches the cached prefix. A turn due before the refresh point
-// reads the cache itself; a turn the idle auto-clear will compact gets none.
+// Rule (planCacheWarm), one for every warm, at each refresh point (one
+// interval I = min(0.9·T, T−10s) after the last confirmed cache use; T is
+// the tier the provider reported writing), e the session's idle time since
+// its last real call: warm iff, for some j ≥ 1
+// further warms, P(e, j) · missCost > j · warmCost — missCost a write of the
+// prompt at that tier minus the read the turn makes anyway, warmCost a read
+// of it plus the one output token, and P(e, j) the lower bound of the 95%
+// Wilson interval of this session's own recorded idle gaps (idle-gap store:
+// the last 7 days) that ended in a return within (e, e + j·I] among those
+// still idle at e. j = 1 is the per-interval break-even; a larger j is the
+// same break-even over the warms a return further out needs (a 3-hourly
+// routine is idle through two refresh points before it returns). No history
+// → no warm → plain auto-clear. Returns count up to the idle window
+// (IDLE_RETURN_MEASURED_WINDOW_MS after the last real call). A successful
+// warm counts as cache use for the idle auto-clear (sessionActivityTimestamp
+// in idle-auto-clear-gate.mjs), so its deadline moves with each one.
 // Any fact the rule needs that is not known (written tier, prices, prompt
-// size, the account holding the entry, the auto-clear state) means no warm.
-// The chain stops on a miss, a failure, a late timer, a turn in flight, a new
-// real request (side-question-store.mjs cancels), a compaction, a clear, a
-// close, or a schedule change that removes the due turn
-// (revalidateCacheWarms).
+// size, the account holding the entry) means no warm. The chain stops on a
+// miss, a failure, a late timer, a turn in flight, a new real request
+// (side-question-store.mjs cancels), a compaction, a clear, a close, or a
+// delete; the auto-clear then runs from the last real or successful warm
+// use.
 //
-// Idle rule (planIdleCacheWarm), at each refresh point of a session whose
-// kind the user selected: warm one more interval iff P_kind · missCost >
-// warmCost (remainingWarms = 1), P_kind the measured chance the session's
-// next call comes before the following refresh point (IDLE_RETURN_PROBABILITY,
-// per kind and tier; an unmeasured tier gets none). A warm pays only for a
-// return after the entry's current expiry that still precedes the idle
-// auto-clear deadline (none when auto-clear is off or never clears the
-// context) and lies inside the idle window P was measured over
-// (IDLE_RETURN_MEASURED_WINDOW_MS after the last real call), so it needs
-// touchAt + T before both.
+// Idle gaps, across turn boundaries only: every settled real request of the
+// session (any provider) moves its idle anchor to that request's send; the
+// first request of the next turn (the user's, a scheduled fire's, a
+// webhook's, a sub-agent dispatch) closes the gap as a return
+// (noteCacheWarmActivity). Requests inside a running turn are no return.
+// Warms are not activity (they never pass through side-question-store's
+// capture), and each session learns from its own gaps only. A gap still open at the idle window is recorded as
+// censored there.
 import { ACCOUNT_PROVIDERS } from '../../../shared/provider-accounts.mjs';
-import {
-  idleAutoClearDeadline,
-  idleAutoClearDue,
-  sessionActivityTimestamp,
-} from '../../../shared/idle-auto-clear-gate.mjs';
-import { CACHE_WARM_IDLE_TARGETS, resolveCacheWarmTargets } from '../../../shared/cache-warm-targets.mjs';
-import { readSessionSidebarState } from '../../../shared/session-sidebar-host.mjs';
+import { setCacheWarmUseSource } from '../../../shared/idle-auto-clear-gate.mjs';
+import { onSessionTurnStart } from '../../../shared/session-activity-signal.mjs';
 import {
   ANTHROPIC_TAIL_LIFETIME_MS,
   cacheCapabilityForProvider,
-  isLeadCacheClass,
   providerTailCacheLifetimeMs,
 } from '../agent-runtime/cache-strategy.mjs';
 import { anthropicEffortLevelsFor } from '../../../shared/llm/anthropic-effort.mjs';
-import { MIXY_AGENT_ID, agentHomeSessionId, isAgentHomeSessionId } from './agent-home.mjs';
-import { roomMemberOfSession } from './agent-room.mjs';
 import { isTurnInFlight, runtimeState } from './manager/runtime-state.mjs';
 import { withTailReminder } from './tail-reminder-rules.mjs';
 import { promptCacheTouchStore } from './prompt-cache-touch-store.mjs';
+import { createIdleGapStore } from './prompt-cache-idle-gaps.mjs';
+import { registerSessionPurgeHook } from './store/session-observers.mjs';
 
 export const CACHE_WARM_SOURCE = 'cache-warm';
 
@@ -80,68 +77,54 @@ export const CACHE_WARM_REFRESH_SHARE = 0.9;
 // hourly routine fires, cache misses inside the 1h lifetime appeared only at
 // 3588–3597 s after the previous call, so 60 s ahead stays clear of them.
 export const CACHE_WARM_LEAD_MS = 60_000;
-// Chance a scheduled routine turn arrives and still matches the previous
-// call's cached prefix: the measured share over a 7-day sample of routine
-// fires on bot home threads (Anthropic), 93 of 170 (0.547); the lower bound,
-// counting fires whose entry had already expired as misses.
-export const ROUTINE_TURN_HIT_PROBABILITY = 0.547;
-// Chance an idle session's next call comes before the following refresh
-// point, per kind and written tier: the share of idle refresh points
-// followed by the session's next call before the next point, over a 7-day
-// ledger sample (Anthropic) with the auto-clear window lifted to 12 h — the
-// only regime where idle warms can matter. A tier with no measurement is
-// absent: no warm.
-export const IDLE_RETURN_PROBABILITY = Object.freeze({
-  // Bot home threads: 1h 27 of 289 points (0.0934); 5m 11 of 825 (0.0133).
-  'bot-chats': Object.freeze({ '1h': 0.0934, '5m': 0.0133 }),
-  // Bot room member sessions: 1h 6 of 120 (0.050).
-  'bot-rooms': Object.freeze({ '1h': 0.05 }),
-  // Favorite or pinned conversations: 1h 16 of 307 (0.0521).
-  favorites: Object.freeze({ '1h': 0.0521 }),
-  // Other Lead conversations: 1h 15 of 467 (0.0321).
-  conversations: Object.freeze({ '1h': 0.0321 }),
-});
-// The idle stretch IDLE_RETURN_PROBABILITY was measured over: the 7-day
-// ledger measurement covered idle returns within 12 h of the session's last
-// real call; outside it P is not measured, so no idle warm serves a return
-// beyond it.
+// The idle stretch returns are learned over: 12 h after the session's last
+// real call — the window the maintainer's 7-day audit of idle returns
+// validated. A longer gap is recorded as censored there, and no warm serves
+// a return beyond it.
 export const IDLE_RETURN_MEASURED_WINDOW_MS = 12 * 60 * 60 * 1000;
+// The period a session's idle gaps are kept and learned from: the last 7
+// days, the measurement period the maintainer validated.
+export const IDLE_RETURN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+// z of a two-sided 95% normal interval (the 0.975 standard normal quantile),
+// for the Wilson score bound.
+export const WILSON_Z_95 = 1.959963984540054;
 
-/** The targets the user chose (shared/cache-warm-targets.mjs); the
- *  MIXDOG_CACHE_WARMING env list wins when it parses. */
-export { resolveCacheWarmTargets };
-
-/**
- * The idle targets session `session` belongs to: 'bot-chats' (a bot's home
- * thread), 'bot-rooms' (a room member session), 'favorites' (`favorite`
- * true: a favorite or pinned conversation) and 'conversations' (any other
- * Lead conversation, known not to be a favorite). A sub-agent or hidden role
- * belongs to none; a plain conversation whose favorite state is unknown
- * (`favorite` null) to none either.
- */
-export function cacheWarmSessionKinds(session, { favorite = null } = {}) {
-  if (!session?.id || session.visibility === 'agent-only' || !isLeadCacheClass(session.agent, session)) return [];
-  const kinds = [];
-  if (isAgentHomeSessionId(session.id)) kinds.push('bot-chats');
-  else if (roomMemberOfSession(session.id)) kinds.push('bot-rooms');
-  if (favorite === true) kinds.push('favorites');
-  else if (favorite === false && !kinds.length) kinds.push('conversations');
-  return kinds;
+/** Whether prompt-cache warming is on (config `promptCacheWarming`, default
+ *  on; config.mjs migrates the earlier target list). */
+export function cacheWarmingEnabled(config) {
+  return config?.promptCacheWarming !== false;
 }
 
-/** The measured idle-return probability for a session of `kinds` under the
- *  selected `targets` with an entry living `ttlMs`: the highest among the
- *  selected kinds measured at that tier (a warm serves every kind the session
- *  is), or null when none is. */
-export function idleReturnProbability(kinds, targets, ttlMs) {
-  const tier = TIERS.find((name) => ANTHROPIC_TAIL_LIFETIME_MS[name] === ttlMs);
-  let best = null;
-  for (const kind of kinds) {
-    if (!targets.includes(kind)) continue;
-    const p = tier ? IDLE_RETURN_PROBABILITY[kind]?.[tier] : undefined;
-    if (p > 0 && (best === null || p > best)) best = p;
+/** The lower bound of the 95% Wilson score interval of `hits` in `n`
+ *  (0 for no trials): small samples get no invented confidence. */
+export function wilsonLowerBound(hits, n, z = WILSON_Z_95) {
+  // No trials or no hits: the bound is exactly 0 (the formula's float
+  // rounding would leave ~1e-17).
+  if (!(n > 0) || !(hits > 0)) return 0;
+  const p = hits / n;
+  const z2 = z * z;
+  const centre = p + z2 / (2 * n);
+  const spread = z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n));
+  return Math.max(0, (centre - spread) / (1 + z2 / n));
+}
+
+/**
+ * The chance, learned from a session's own idle `gaps` (`{ ms, censored? }`),
+ * that a session idle for `elapsedMs` returns within `withinMs` more: the
+ * Wilson lower bound of the gaps that ended in a return in
+ * (elapsedMs, elapsedMs + withinMs] among the gaps still idle at elapsedMs
+ * (a censored gap is idle up to its cut and never a return).
+ * `{ idle, returns, p }`.
+ */
+export function sessionReturnChance(gaps, elapsedMs, withinMs) {
+  let idle = 0;
+  let returns = 0;
+  for (const gap of gaps || []) {
+    if (!(gap.ms > elapsedMs)) continue;
+    idle += 1;
+    if (!gap.censored && gap.ms <= elapsedMs + withinMs) returns += 1;
   }
-  return best;
+  return { idle, returns, p: wilsonLowerBound(returns, idle) };
 }
 
 /** When a warm goes out after the last cache use of an entry living `ttlMs`. */
@@ -200,40 +183,6 @@ export function cacheWarmSend(request, { signal } = {}) {
   };
 }
 
-/** The next fire (epoch ms) of a routine that runs in home thread `sessionId`,
- *  from schedule rows (schedules-db.mjs); null when none is known. A fire
- *  the row's defer/skip would skip counts as unknown. */
-export function nextRoutineFireFor(sessionId, schedules, now = Date.now()) {
-  let next = null;
-  for (const schedule of schedules || []) {
-    if (!schedule || schedule.enabled === false || schedule.status === 'done') continue;
-    if (routineHomeSessionId(schedule) !== sessionId) continue;
-    const at = schedule.nextFireAt ? new Date(schedule.nextFireAt).getTime() : NaN;
-    if (!(at > now)) continue;
-    const skipUntil = Math.max(
-      schedule.deferredUntil ? new Date(schedule.deferredUntil).getTime() || 0 : 0,
-      schedule.skippedUntil ? new Date(schedule.skippedUntil).getTime() || 0 : 0
-    );
-    if (skipUntil >= at) continue;
-    if (next === null || at < next) next = at;
-  }
-  return next;
-}
-
-// The home thread a schedule's turns run in; ownerless rows belong to Mixy.
-function routineHomeSessionId(schedule) {
-  const owner = typeof schedule?.ownerAgentId === 'string' ? schedule.ownerAgentId.trim() : '';
-  return agentHomeSessionId(owner) || agentHomeSessionId(MIXY_AGENT_ID);
-}
-
-/** Refreshes still needed when one goes out at `now` for a turn due at
- *  `dueAt`, the entry living `ttlMs`: this one, and one more for every
- *  further interval the turn lies beyond the next refresh point. */
-export function cacheWarmRemainingWarms({ now, ttlMs, dueAt }) {
-  const interval = cacheWarmDelayMs(ttlMs);
-  return 1 + Math.max(0, Math.ceil((dueAt - now - interval) / interval));
-}
-
 /** `{ warmCost, missCost }` in dollars for a prompt of `promptTokens` at
  *  per-token `prices` ({ read, write, output } of the entry's tier), or null
  *  when the prompt size or any price is unknown. */
@@ -247,127 +196,43 @@ export function cacheWarmEconomics(promptTokens, prices) {
 }
 
 /**
- * Whether a warm sent at `now` pays off. The entry was last used at `touchAt`
- * and lives `ttlMs`; the known turn is due at `dueAt` with hit probability
- * `probability`; `autoClearAtDue` is whether the idle auto-clear compacts the
- * thread before that turn (null: unknown); `latencyMs` the measured time a
- * warm of this chain took to reach the provider (null: not measured yet).
- * `{ warm: true, warms }` or `{ stop }`.
+ * Whether a warm sent at `now` pays off for the session: the entry was last
+ * used at `touchAt` and lives `ttlMs`; the session's last real call went out
+ * at `lastCallAt`; `gaps` are its own recorded idle gaps; `latencyMs` the
+ * measured time a warm of this chain took to reach the provider (null: not
+ * measured yet). With e = now − lastCallAt and I the refresh interval, warm
+ * iff some j ≥ 1 has P(e, j·I) · missCost > j · warmCost (P:
+ * sessionReturnChance), returns counted inside the idle window. The idle
+ * auto-clear is no bound: a successful warm is cache use, so its deadline
+ * moves with each one. `{ warm: true, warms: j, p }` or `{ stop }`.
  */
-export function planCacheWarm({
-  now,
-  touchAt,
-  ttlMs,
-  dueAt,
-  probability,
-  promptTokens,
-  prices,
-  autoClearAtDue,
-  latencyMs = null,
-}) {
-  if (!(dueAt > now)) return { stop: 'no known turn due' };
-  if (dueAt <= touchAt + cacheWarmDelayMs(ttlMs)) return { stop: 'turn due before the refresh' };
-  if (autoClearAtDue !== false) {
-    return { stop: autoClearAtDue ? 'auto-clear compacts the thread before the due turn' : 'auto-clear state unknown' };
+export function planCacheWarm({ now, touchAt, ttlMs, lastCallAt, gaps, promptTokens, prices, latencyMs = null }) {
+  if (!(lastCallAt > 0)) return { stop: 'last real call unknown' };
+  // The warm serves only a return after the current entry's expiry, inside
+  // the idle window returns are learned over.
+  if (!(touchAt + ttlMs < lastCallAt + IDLE_RETURN_MEASURED_WINDOW_MS)) {
+    return { stop: 'idle time reaches the learned window' };
   }
-  return warmPays({ now, touchAt, ttlMs, probability, promptTokens, prices, latencyMs, warms: () =>
-    cacheWarmRemainingWarms({ now, ttlMs, dueAt }) });
-}
-
-// The checks both rules share: the warm lands while the entry lives, P is
-// known, and P · missCost > warms · warmCost.
-function warmPays({ now, touchAt, ttlMs, probability, promptTokens, prices, latencyMs, warms: remaining }) {
   // The warm must reach the provider while the entry still lives.
   const landing = Math.max(CACHE_WARM_EXPIRY_MARGIN_MS, Number(latencyMs) || 0);
   if (touchAt + ttlMs - now <= landing) return { stop: 'late timer' };
-  if (!(probability > 0 && probability <= 1)) return { stop: 'hit probability unknown' };
   const economics = cacheWarmEconomics(promptTokens, prices);
   if (!economics) return { stop: 'prompt size or cache prices unknown' };
-  const warms = remaining();
-  if (!(probability * economics.missCost > warms * economics.warmCost)) {
-    return { stop: 'warms cost more than the expected miss' };
+  const interval = cacheWarmDelayMs(ttlMs);
+  const elapsed = now - lastCallAt;
+  if (!sessionReturnChance(gaps, elapsed, 0).idle) return { stop: 'no idle history this long' };
+  for (let j = 1; elapsed + j * interval <= IDLE_RETURN_MEASURED_WINDOW_MS; j += 1) {
+    const { p } = sessionReturnChance(gaps, elapsed, j * interval);
+    if (p * economics.missCost > j * economics.warmCost) return { warm: true, warms: j, p };
   }
-  return { warm: true, warms };
-}
-
-/**
- * Whether one idle warm sent at `now` pays off: the entry was last used at
- * `touchAt` and lives `ttlMs`; the session's last real call went out at
- * `lastCallAt`; `probability` is the measured idle-return chance (null: not
- * measured for this kind and tier); `autoClearDeadline` when the idle
- * auto-clear starts compacting the thread (null: never; undefined: unknown).
- * `{ warm: true, warms: 1 }` or `{ stop }`.
- */
-export function planIdleCacheWarm({
-  now,
-  touchAt,
-  ttlMs,
-  lastCallAt,
-  probability,
-  promptTokens,
-  prices,
-  autoClearDeadline,
-  latencyMs = null,
-}) {
-  if (autoClearDeadline === undefined) return { stop: 'auto-clear state unknown' };
-  if (!(lastCallAt > 0)) return { stop: 'last real call unknown' };
-  // The warm serves only a return after the current entry's expiry; that
-  // return must still precede the auto-clear deadline (after it the thread
-  // is compacted and the cache is moot) and lie inside the idle window P was
-  // measured over (beyond it P is unknown).
-  if (autoClearDeadline !== null && !(touchAt + ttlMs < autoClearDeadline)) {
-    return { stop: 'auto-clear compacts the thread before the cache expires' };
-  }
-  if (!(touchAt + ttlMs < lastCallAt + IDLE_RETURN_MEASURED_WINDOW_MS)) {
-    return { stop: 'idle time reaches the measured window' };
-  }
-  if (probability === null) return { stop: 'idle return probability not measured for this tier' };
-  return warmPays({ now, touchAt, ttlMs, probability, promptTokens, prices, latencyMs, warms: () => 1 });
+  return { stop: 'warms cost more than the expected miss' };
 }
 
 // Defaults of the injectable dependencies.
 
-async function defaultTargets() {
+async function defaultEnabled() {
   const { loadConfig } = await import('../config.mjs');
-  return resolveCacheWarmTargets(loadConfig({ secrets: false }));
-}
-
-const PIN_PREFIX = 'pin:';
-
-// Whether the session is a favorite: pinned on the Bots page (the host-stored
-// bot order's `pin:<sessionId>` entries, config `botOrder`) or marked a
-// favorite in the desktop's session metadata (read through the
-// session-sidebar host). null when no pin says so and no desktop reports its
-// favorites.
-async function defaultFavoriteState(sessionId) {
-  const { loadConfig } = await import('../config.mjs');
-  const order = loadConfig({ secrets: false })?.botOrder;
-  if (Array.isArray(order) && order.includes(`${PIN_PREFIX}${sessionId}`)) return true;
-  const state = await readSessionSidebarState();
-  return state?.favorites ? Object.hasOwn(state.favorites, sessionId) : null;
-}
-
-async function routineSchedules() {
-  const [{ pgClusterExists }, { resolvePluginData }] = await Promise.all([
-    import('../../../memory/lib/pg/adapter.mjs'),
-    import('../../../shared/plugin-paths.mjs'),
-  ]);
-  if (!pgClusterExists(resolvePluginData())) return [];
-  const { listSchedules } = await import('../../../channels/lib/schedules-db.mjs');
-  return listSchedules();
-}
-
-async function defaultNextRoutineFire(sessionId, now) {
-  return nextRoutineFireFor(sessionId, await routineSchedules(), now);
-}
-
-// Home threads an enabled routine runs in (the restart re-arm's candidates).
-async function defaultRoutineSessions() {
-  const ids = new Set();
-  for (const schedule of await routineSchedules()) {
-    if (schedule && schedule.enabled !== false && schedule.status !== 'done') ids.add(routineHomeSessionId(schedule));
-  }
-  return [...ids];
+  return cacheWarmingEnabled(loadConfig({ secrets: false }));
 }
 
 // Per-token dollars of a cache read, a cache write of `ttlMs`'s tier and an
@@ -387,50 +252,6 @@ async function defaultPrices(request, ttlMs) {
     write: per({ cacheWriteTokens: MILLION, ...(oneHour ? { cacheWrite1hTokens: MILLION } : {}) }),
     output: per({ outputTokens: MILLION }),
   };
-}
-
-// The idle auto-clear settings of a thread on `provider`.
-async function defaultAutoClearSettings(provider) {
-  const [{ loadConfig }, { autoClearGateSettings }] = await Promise.all([
-    import('../config.mjs'),
-    import('../runtime-core/config-helpers.mjs'),
-  ]);
-  return autoClearGateSettings(loadConfig({ secrets: false }), provider);
-}
-
-// The thread's context gauge, computed as /context does for a listed session.
-async function defaultContextStatus(session) {
-  const { contextStatusForSession } = await import('../runtime-core/context-status.mjs');
-  return contextStatusForSession(session, { getMode: () => 'full' });
-}
-
-/** Whether the idle auto-clear (idle-auto-clear-gate.mjs) compacts the
- *  thread of `request` before a submit at `at`, from the same settings,
- *  activity timestamp and context threshold the submit gate reads. Warms
- *  never move the activity timestamp. */
-export async function cacheWarmAutoClearsAt(request, at) {
-  const session = request.opts.session;
-  const cfg = await deps.autoClearSettings(session.provider || request.provider.name);
-  const status = await deps.contextStatus(session);
-  return idleAutoClearDue({
-    cfg,
-    activityAt: sessionActivityTimestamp(session),
-    at,
-    runtime: { contextStatus: () => status, session },
-  });
-}
-
-/** From when the idle auto-clear compacts the thread of `request` before a
- *  submit (idleAutoClearDeadline), null when it never does while idle. */
-export async function cacheWarmAutoClearDeadline(request) {
-  const session = request.opts.session;
-  const cfg = await deps.autoClearSettings(session.provider || request.provider.name);
-  const status = await deps.contextStatus(session);
-  return idleAutoClearDeadline({
-    cfg,
-    activityAt: sessionActivityTimestamp(session),
-    runtime: { contextStatus: () => status, session },
-  });
 }
 
 // The registered providers a re-armed request needs: waits for the owning
@@ -496,90 +317,59 @@ async function defaultLastSentRequest(sessionId) {
 const DEFAULT_DEPS = Object.freeze({
   now: () => Date.now(),
   timers: globalThis,
-  targets: defaultTargets,
-  favoriteState: defaultFavoriteState,
+  enabled: defaultEnabled,
   turnInFlight: (sessionId) => isTurnInFlight(runtimeState.get(sessionId)),
-  nextRoutineFire: defaultNextRoutineFire,
-  routineSessions: defaultRoutineSessions,
   lastSentRequest: defaultLastSentRequest,
   providersReady: defaultProvidersReady,
   registeredProvider: defaultRegisteredProvider,
   prices: defaultPrices,
-  autoClearSettings: defaultAutoClearSettings,
-  contextStatus: defaultContextStatus,
   send: defaultSend,
   recordUsage: defaultRecordUsage,
   touches: () => promptCacheTouchStore(),
+  gaps: () => promptCacheIdleGapStore(),
   log: (line) => process.stderr.write(`[cache-warm] ${line}\n`),
 });
 let deps = DEFAULT_DEPS;
 
-// A routine fire due in the session's home thread (planCacheWarm).
-async function planRoutineWarm(sessionId, chain, at) {
-  const fireAt = await deps.nextRoutineFire(sessionId, at);
-  const dueAt = fireAt > at ? fireAt : null;
-  const prices = await deps.prices(chain.request, chain.ttlMs);
-  let autoClearAtDue = null;
-  if (dueAt) {
-    try {
-      autoClearAtDue = Boolean(await cacheWarmAutoClearsAt(chain.request, dueAt));
-    } catch {
-      autoClearAtDue = null;
-    }
-  }
+// The idle auto-clear measures idleness from the last cache use, a
+// successful warm included (durable in the touch store).
+setCacheWarmUseSource((sessionId) => (sessionId ? deps.touches().lastWarmUse(sessionId) : 0));
+
+// A session deleted for good drops everything it learned and touched.
+registerSessionPurgeHook((sessionId) => {
+  cancelCacheWarm(sessionId);
+  deps.touches().forget(sessionId);
+  deps.touches().forgetWarmUse(sessionId);
+  deps.gaps().forget(sessionId);
+});
+
+let defaultGapStore = null;
+/** The idle-gap store the warmer learns from (prompt-cache-idle-gaps.mjs). */
+export function promptCacheIdleGapStore() {
+  defaultGapStore ??= createIdleGapStore({
+    lookbackMs: IDLE_RETURN_LOOKBACK_MS,
+    windowMs: IDLE_RETURN_MEASURED_WINDOW_MS,
+    // No refresh point lies inside a gap shorter than the shortest interval.
+    minMs: cacheWarmDelayMs(ANTHROPIC_TAIL_LIFETIME_MS['5m']),
+  });
+  return defaultGapStore;
+}
+
+// The plan of `chain` at its refresh point `at` (planCacheWarm), from the
+// session's own idle history. Unknown facts fail closed.
+async function planFor(sessionId, chain, at) {
+  if (!(await deps.enabled())) return { stop: 'cache warming off' };
   return planCacheWarm({
     now: at,
     touchAt: chain.touchAt,
     ttlMs: chain.ttlMs,
-    dueAt,
-    probability: ROUTINE_TURN_HIT_PROBABILITY,
-    promptTokens: chain.promptTokens,
-    prices,
-    autoClearAtDue,
-    latencyMs: chain.latencyMs,
-  });
-}
-
-// The idle session's own return (planIdleCacheWarm), for the selected kinds
-// it belongs to.
-async function planIdleWarm(sessionId, chain, at, targets) {
-  let favorite = null;
-  try {
-    favorite = await deps.favoriteState(sessionId);
-  } catch {
-    favorite = null;
-  }
-  const kinds = cacheWarmSessionKinds(chain.request.opts.session, { favorite });
-  if (!kinds.some((kind) => targets.includes(kind))) return { stop: 'not a selected idle target' };
-  let autoClearDeadline;
-  try {
-    autoClearDeadline = await cacheWarmAutoClearDeadline(chain.request);
-  } catch {
-    autoClearDeadline = undefined;
-  }
-  return planIdleCacheWarm({
-    now: at,
-    touchAt: chain.touchAt,
-    ttlMs: chain.ttlMs,
     lastCallAt: Number(chain.request.sentAt),
-    probability: idleReturnProbability(kinds, targets, chain.ttlMs),
+    gaps: deps.gaps().gaps(sessionId),
     promptTokens: chain.promptTokens,
     prices: await deps.prices(chain.request, chain.ttlMs),
-    autoClearDeadline,
     latencyMs: chain.latencyMs,
   });
 }
-
-/**
- * What tells a session's next turn, each serving some of the targets:
- * `plan(sessionId, chain, at, targets)` answers `{ warm, warms }` or
- * `{ stop }`. The routine trigger knows a due fire; the idle trigger bets on
- * the session's own return one interval at a time.
- */
-export const CACHE_WARM_TRIGGERS = Object.freeze([
-  Object.freeze({ name: 'routine', targets: Object.freeze(['scheduled']), plan: planRoutineWarm }),
-  Object.freeze({ name: 'idle', targets: CACHE_WARM_IDLE_TARGETS, plan: planIdleWarm }),
-]);
 
 /** Test seam: replace some dependencies; call with no argument to restore. */
 export function _setCacheWarmDepsForTest(overrides = null) {
@@ -596,18 +386,38 @@ export function cacheWarmChain(sessionId) {
   return chains.get(sessionId) || null;
 }
 
+// Sessions whose turn started (any turn: the user's, a scheduled fire's, a
+// webhook's, a sub-agent dispatch — runtime-liveness.mjs emits it for every
+// one) and whose first request has not gone out yet.
+const turnsStarting = new Set();
+onSessionTurnStart((sessionId) => {
+  if (sessionId) turnsStarting.add(sessionId);
+});
+
+/** A real request of the session is going out: the chain stops, and when it
+ *  is its turn's first request the open idle gap closes as a return. A
+ *  request inside a running turn (a tool loop) is no return. Warms never
+ *  come through here. */
+export function noteCacheWarmActivity(sessionId) {
+  if (!sessionId) return;
+  if (turnsStarting.delete(sessionId)) deps.gaps().close(sessionId, deps.now());
+  cancelCacheWarm(sessionId);
+}
+
 /** Drop the session's chain: clear its timer and abort a warm in flight
- *  (its usage is still accounted). A new real request does this. */
+ *  (its usage is still accounted). */
 export function cancelCacheWarm(sessionId) {
   const chain = sessionId ? chains.get(sessionId) : null;
   if (chain) stopChain(sessionId, chain, 'canceled', { quiet: true });
 }
 
-/** The session's cached prefix is gone or unproven (compaction, clear,
- *  rewind, miss): drop the chain and its durable touch. */
+/** The session's cached prefix is gone (compaction, clear, rewind): drop
+ *  the chain, its durable touch and its warm use. */
 export function forgetCacheWarm(sessionId) {
   cancelCacheWarm(sessionId);
-  if (sessionId) deps.touches().forget(sessionId);
+  if (!sessionId) return;
+  deps.touches().forget(sessionId);
+  deps.touches().forgetWarmUse(sessionId);
 }
 
 function recordTouch(sessionId, chain) {
@@ -664,6 +474,12 @@ function warmTarget(chain) {
  */
 export function armCacheWarm(sessionId, request, response) {
   cancelCacheWarm(sessionId);
+  // A real request settled: the session's own activity is the latest use.
+  if (sessionId) deps.touches().forgetWarmUse(sessionId);
+  // Whatever its provider: the session's idle clock now runs from this
+  // request's send (the clock the planner reads). A later request of the same
+  // turn only moves it; the next turn's first request closes it.
+  if (sessionId && request) deps.gaps().open(sessionId, Number(request.sentAt));
   if (!sessionId || !request || cacheWarmIneligibility(request)) return;
   const usage = response?.usage || {};
   const touchAt = Number(request.sentAt);
@@ -688,9 +504,7 @@ export function armCacheWarm(sessionId, request, response) {
 
 /**
  * Daemon start: the in-memory chains died with the previous process. Re-arm
- * every candidate session — one an enabled routine runs in (`scheduled`
- * selected), and any touched session when an idle target is selected — from
- * its durable touch (prompt-cache-touch-store.mjs: the last confirmed cache
+ * every touched session while warming is on from its durable touch (prompt-cache-touch-store.mjs: the last confirmed cache
  * use, the tier the provider wrote, the account and prompt size) while the
  * entry still has more than the expiry margin left, replaying the request its
  * next turn rebuilds without the last reply. A candidate's expired touch is
@@ -698,14 +512,9 @@ export function armCacheWarm(sessionId, request, response) {
  * many chains were armed.
  */
 export async function rearmCacheWarmsAfterRestart() {
-  const targets = await deps.targets();
-  const ids = new Set();
-  if (targets.includes('scheduled')) for (const id of await deps.routineSessions()) ids.add(id);
-  if (CACHE_WARM_IDLE_TARGETS.some((target) => targets.includes(target))) {
-    for (const id of deps.touches().ids()) ids.add(id);
-  }
+  if (!(await deps.enabled())) return 0;
   const candidates = [];
-  for (const sessionId of ids) {
+  for (const sessionId of deps.touches().ids()) {
     if (chains.has(sessionId)) continue;
     const touch = deps.touches().get(sessionId);
     if (!touch) continue;
@@ -736,37 +545,6 @@ export async function rearmCacheWarmsAfterRestart() {
     armed += 1;
   }
   return armed;
-}
-
-// The plan of `chain` at its refresh point `at`: the first selected trigger
-// whose rule warms, else every trigger's stop. Unknown facts fail closed.
-async function planFor(sessionId, chain, at) {
-  const targets = await deps.targets();
-  const stops = [];
-  for (const trigger of CACHE_WARM_TRIGGERS) {
-    if (!trigger.targets.some((target) => targets.includes(target))) continue;
-    const plan = await trigger.plan(sessionId, chain, at, targets);
-    if (plan.warm) return plan;
-    stops.push(`${trigger.name}: ${plan.stop}`);
-  }
-  return { stop: stops.join('; ') || 'cache warming off' };
-}
-
-/**
- * Re-check every armed chain at its pending refresh point now (a routine was
- * paused, deleted or rescheduled): a chain whose plan no longer warms stops
- * at once, aborting a warm in flight.
- */
-export async function revalidateCacheWarms() {
-  for (const [sessionId, chain] of [...chains]) {
-    let plan;
-    try {
-      plan = await planFor(sessionId, chain, Math.max(deps.now(), chain.refreshAt));
-    } catch (error) {
-      plan = { stop: `schedule check failed: ${error?.message || error}` };
-    }
-    if (plan.stop) stopChain(sessionId, chain, plan.stop);
-  }
 }
 
 function scheduleWarm(sessionId, chain) {
@@ -822,5 +600,7 @@ async function fireWarm(sessionId, chain) {
   chain.touchAt = sentAt;
   chain.latencyMs = (reportedAt ?? deps.now()) - sentAt;
   recordTouch(sessionId, chain);
+  // A read without a write is cache use: the idle auto-clear counts from it.
+  deps.touches().recordWarmUse(sessionId, sentAt);
   scheduleWarm(sessionId, chain);
 }

@@ -3,7 +3,7 @@
 // side question or a compaction summary forks) and the side question in flight. It holds live
 // provider/tool objects, so it never reaches the session record or disk.
 import { isAgentOwner } from '../agent-owner.mjs';
-import { armCacheWarm, cancelCacheWarm, forgetCacheWarm } from './cache-warm.mjs';
+import { armCacheWarm, cancelCacheWarm, forgetCacheWarm, noteCacheWarmActivity } from './cache-warm.mjs';
 
 // sessionId -> { provider, model, messages, tools, opts, response }
 const requests = new Map();
@@ -43,25 +43,27 @@ export function sideQuestionRequestSnapshot({ provider, model, messages, tools, 
 
 /**
  * Record a provider request the main loop is sending as the session's latest
- * one. Agent sessions record nothing (/btw is a Lead command). The handle
- * attaches the reply once the send proceeds, or puts the previous request
- * back when this one fails, so only a successfully sent request is kept.
+ * one. Agent sessions keep nothing here (/btw is a Lead command); their
+ * request only reaches the cache warmer. The handle attaches the reply once
+ * the send proceeds, or puts the previous request back when this one fails,
+ * so only a successfully sent request is kept.
  */
 export function captureSideQuestionRequest({ sessionId, sessionRef, provider, model, messages, tools, opts }) {
-  if (!sessionId || !provider || isAgentOwner(sessionRef)) return null;
+  if (!sessionId || !provider) return null;
+  const kept = !isAgentOwner(sessionRef);
   const previous = requests.get(sessionId);
   const request = sideQuestionRequestSnapshot({ provider, model, messages, tools, opts });
-  requests.set(sessionId, request);
-  // A real request replaces any cache warm (cache-warm.mjs); a settled one
-  // arms the next.
-  cancelCacheWarm(sessionId);
+  if (kept) requests.set(sessionId, request);
+  // A real request is session activity: it closes the session's idle gap and
+  // replaces any cache warm (cache-warm.mjs); a settled one arms the next.
+  noteCacheWarmActivity(sessionId);
   return {
     settle(response) {
       request.response = response || null;
       armCacheWarm(sessionId, request, response);
     },
     discard() {
-      if (requests.get(sessionId) !== request) return;
+      if (!kept || requests.get(sessionId) !== request) return;
       if (previous) requests.set(sessionId, previous);
       else requests.delete(sessionId);
     },

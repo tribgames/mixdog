@@ -33,13 +33,6 @@ import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tunnel.mjs';
 import { WEBHOOK_TEST_FIELD, WEBHOOK_TEST_HEADER } from '../../runtime/channels/lib/webhook/request-handler.mjs';
 import { MIXY_AGENT_ID, agentHomeSessionId } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
-import { revalidateCacheWarms } from '../../runtime/agent/orchestrator/session/cache-warm.mjs';
-
-// A saved, deleted, paused or rescheduled routine re-checks the prompt-cache
-// warms toward it at once (a warm toward a fire that moved stops).
-function scheduleChanged() {
-  revalidateCacheWarms().catch(() => {});
-}
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -377,7 +370,6 @@ export async function saveSchedule(
     saved = await upsertSchedule(def);
   }
   automationProbe.invalidate();
-  scheduleChanged();
   return scheduleToDisplay(saved);
 }
 
@@ -385,7 +377,6 @@ export async function deleteSchedule(name) {
   const id = assertScheduleName(name);
   await dbDeleteSchedule(id);
   automationProbe.invalidate();
-  scheduleChanged();
   return { name: id, deleted: true };
 }
 
@@ -393,7 +384,6 @@ export async function setScheduleEnabled(name, enabled) {
   const id = assertScheduleName(name);
   const updated = await dbSetEnabled(id, enabled !== false);
   automationProbe.invalidate();
-  scheduleChanged();
   if (!updated) throw new Error(`schedule "${id}" does not exist`);
   return { name: id, enabled: enabled !== false };
 }

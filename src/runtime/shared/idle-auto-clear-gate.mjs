@@ -1,7 +1,7 @@
 // idle-auto-clear-gate.mjs — the idle auto-clear predicate, shared by the
-// submit gate (tui/session/session-flow/auto-clear.mjs) and the cache warmer
-// (agent/orchestrator/session/cache-warm.mjs), which must not keep a prefix
-// warm that the gate will compact at the due turn. A thread is cleared before
+// submit gate (tui/session/session-flow/auto-clear.mjs); the cache warmer
+// (agent/orchestrator/session/cache-warm.mjs) registers its successful warms,
+// which count as cache use (sessionActivityTimestamp). A thread is cleared before
 // a submit when auto-clear is on, it has been idle for at least the window
 // since its activity timestamp, and its context is not below the minimum
 // share of the compaction trigger.
@@ -44,10 +44,28 @@ function hasModelVisibleConversation(session) {
   });
 }
 
-/** When the session was last active (0: no model-visible conversation). */
+// When a session's prompt cache was last used by a successful cache warm (a
+// read with no write), registered by the warmer (cache-warm.mjs, from its
+// durable touch store); 0 when none.
+let lastCacheWarmUse = () => 0;
+
+/** Register the source of a session's last successful cache-warm use
+ *  (`(sessionId) => epoch ms | 0`); null restores none. */
+export function setCacheWarmUseSource(source) {
+  lastCacheWarmUse = typeof source === 'function' ? source : () => 0;
+}
+
+/**
+ * When the session was last active (0: no model-visible conversation): the
+ * latest of its own activity and the last successful cache warm. Idleness is
+ * measured from the last time the cached prompt was actually used, and a warm
+ * that read the cache without writing used it; the session's own timestamps
+ * are never moved.
+ */
 export function sessionActivityTimestamp(session, fallback = 0) {
   if (!hasModelVisibleConversation(session)) return 0;
-  return timestampMs(session?.lastUsedAt) || timestampMs(session?.updatedAt) || timestampMs(fallback);
+  const own = timestampMs(session?.lastUsedAt) || timestampMs(session?.updatedAt) || timestampMs(fallback);
+  return Math.max(own, timestampMs(lastCacheWarmUse(session?.id)));
 }
 
 // A zero is often an unavailable/stale meter field, not an authoritative
@@ -85,15 +103,3 @@ export function idleAutoClearDue({ cfg, activityAt, at, runtime }) {
   return !contextUsageBelowThreshold(runtime, Number(cfg.minContextPercent ?? 10));
 }
 
-/**
- * From when the idle gate clears the thread before a submit (epoch ms), with
- * the same arguments as idleAutoClearDue less `at`; null when it never does
- * while the thread stays idle (auto-clear off, no activity yet, or a context
- * below the minimum share — idling moves neither). An unlimited window
- * resolves to a deadline no clock reaches.
- */
-export function idleAutoClearDeadline({ cfg, activityAt, runtime }) {
-  if (!cfg?.enabled || !activityAt) return null;
-  const at = activityAt + Number(cfg.idleMs);
-  return idleAutoClearDue({ cfg, activityAt, at, runtime }) ? at : null;
-}

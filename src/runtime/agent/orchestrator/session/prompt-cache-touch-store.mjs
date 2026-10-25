@@ -5,6 +5,11 @@
 // the prompt size. Kept beside the session records, never in them: a warm's
 // touch must not move a session's own timestamps (activity, autoClear).
 // Expired entries are dropped on write.
+//
+// Beside the touches: per session, when a warm last used the cache
+// successfully (a read with no write). The idle auto-clear measures idleness
+// from it (idle-auto-clear-gate.mjs) until a real request settles, so it
+// outlives the touch: a later miss or an expiry drops the touch, not the use.
 import { join } from 'node:path';
 import { readJsonStateSync, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
@@ -24,16 +29,25 @@ function validTouch(value) {
 /** A touch store backed by `path` (default: the data dir's file). */
 export function createPromptCacheTouchStore(path = () => join(resolvePluginData(), PROMPT_CACHE_TOUCH_FILE)) {
   let touches = null;
+  let warmUses = null;
   let writing = Promise.resolve();
   const filePath = () => (typeof path === 'function' ? path() : path);
   const load = () => {
     if (touches) return touches;
     touches = new Map();
+    warmUses = new Map();
     const stored = readJsonStateSync(filePath(), { fallback: null });
     for (const [sessionId, touch] of Object.entries(stored?.touches || {})) {
       if (validTouch(touch)) touches.set(sessionId, { ...touch });
     }
+    for (const [sessionId, at] of Object.entries(stored?.warmUses || {})) {
+      if (Number(at) > 0) warmUses.set(sessionId, Number(at));
+    }
     return touches;
+  };
+  const uses = () => {
+    load();
+    return warmUses;
   };
   // Touches change once per real request or warm: each change is written at
   // once, the writes serialized.
@@ -46,7 +60,13 @@ export function createPromptCacheTouchStore(path = () => join(resolvePluginData(
     }
     writing = writing
       .catch(() => {})
-      .then(() => writeJsonAtomicAsync(filePath(), { version: 1, touches: out }, { compact: true }));
+      .then(() =>
+        writeJsonAtomicAsync(
+          filePath(),
+          { version: 1, touches: out, warmUses: Object.fromEntries(uses()) },
+          { compact: true }
+        )
+      );
     return writing;
   };
   const scheduleFlush = () => void flush().catch(() => {});
@@ -74,6 +94,21 @@ export function createPromptCacheTouchStore(path = () => join(resolvePluginData(
     /** The session's cached prefix is gone (compaction, clear, close, miss). */
     forget(sessionId) {
       if (load().delete(String(sessionId || ''))) scheduleFlush();
+    },
+    /** When a warm last used the session's cache successfully, or 0. */
+    lastWarmUse(sessionId) {
+      return uses().get(String(sessionId || '')) || 0;
+    },
+    /** A warm read the session's cache without writing at `at`. */
+    recordWarmUse(sessionId, at) {
+      if (!sessionId || !(Number(at) > 0)) return;
+      uses().set(String(sessionId), Number(at));
+      scheduleFlush();
+    },
+    /** The session's own activity supersedes its warm use (a real request
+     *  settled) or its cached conversation is gone (compaction, clear). */
+    forgetWarmUse(sessionId) {
+      if (uses().delete(String(sessionId || ''))) scheduleFlush();
     },
     /** Write pending changes now (tests, shutdown). */
     flush,

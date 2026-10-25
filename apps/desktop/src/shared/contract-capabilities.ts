@@ -30,9 +30,8 @@ export const DESKTOP_CAPABILITIES = [
   'getSessionTitleSettings',
   'setAiSessionTitles',
   'getCacheWarmingSettings',
-  // setCacheWarmingTargets(targets): the conversations prompt-cache warms
-  // serve, a list of shared/cache-warm-targets.mjs names ([] = off).
-  'setCacheWarmingTargets',
+  // setCacheWarmingEnabled(enabled): prompt-cache warming on or off.
+  'setCacheWarmingEnabled',
   'getHeartbeatSettings',
   'setHeartbeatEnabled',
   'noteUserInput',
