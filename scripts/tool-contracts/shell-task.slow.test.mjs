@@ -164,8 +164,13 @@ test('shell command-local cd never leaks out of one invocation', async () => {
     root,
     { sessionId: shellProjectCwdSession }
   );
-  const shellLocalCdPath = stripShellExitHeader(String(normalizeToolEnvelope(shellLocalCdOut).result)).trim();
-  if (resolve(shellLocalCdPath) !== resolve(root, 'scripts')) {
+  // The shell guard may add a note line (a leading cd moved into cwd); the
+  // printed path is one line of the output.
+  const shellLocalCdLines = stripShellExitHeader(String(normalizeToolEnvelope(shellLocalCdOut).result))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!shellLocalCdLines.some((line) => resolve(line) === resolve(root, 'scripts'))) {
     throw new Error(`shell command-local cd did not enter scripts: ${shellLocalCdOut}`);
   }
   const shellProjectResetOut = await executeBuiltinTool(
