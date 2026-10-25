@@ -519,6 +519,50 @@ interface WorkbenchSidePanelProps {
   footer?: ReactNode;
 }
 
+type PaneDrop = {
+  targetRoot: WorkbenchSideViewId;
+  placement: 'inside-before' | 'inside-after';
+  slot: number;
+  top: number;
+  height: number;
+  boundary: number;
+};
+
+/** Where a dragged view or group would land among the body's panes, or null
+ *  when the drop changes nothing. */
+function measurePaneDrop(
+  body: HTMLElement,
+  group: readonly WorkbenchSideViewId[],
+  payload: WorkbenchSideDragPayload,
+  event: ReactDragEvent<HTMLElement>
+): PaneDrop | null {
+  const panes = Array.from(body.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains('workbench-side-section')
+  );
+  if (panes.length !== group.length) return null;
+  const bodyBounds = body.getBoundingClientRect();
+  const paneBounds = panes.map((pane) => pane.getBoundingClientRect());
+  const centers = paneBounds.map((bounds) => (bounds.top + bounds.bottom) / 2);
+  const slot = workbenchSidePaneDropSlot(centers, event.clientY);
+  if (workbenchSidePaneDropIsNoop(group, payload.type, payload.id, slot)) return null;
+  const edges = [bodyBounds.top, ...centers, bodyBounds.bottom];
+  const boundaries = [
+    paneBounds[0].top,
+    ...paneBounds.slice(0, -1).map((bounds, index) => (bounds.bottom + paneBounds[index + 1].top) / 2),
+    paneBounds[paneBounds.length - 1].bottom,
+  ];
+  const top = Math.max(0, edges[slot] - bodyBounds.top);
+  const height = Math.max(1, edges[slot + 1] - edges[slot]);
+  return {
+    targetRoot: slot === 0 ? group[0] : group[slot - 1],
+    placement: slot === 0 ? 'inside-before' : 'inside-after',
+    slot,
+    top,
+    height,
+    boundary: Math.max(0, Math.min(Math.max(0, height - 2), boundaries[slot] - bodyBounds.top - top)),
+  };
+}
+
 export function WorkbenchSidePanel({
   side,
   open,
@@ -610,14 +654,7 @@ export function WorkbenchSidePanel({
     }
   });
   const panelBodyRef = useRef<HTMLDivElement | null>(null);
-  const [paneDrop, setPaneDrop] = useState<{
-    targetRoot: WorkbenchSideViewId;
-    placement: 'inside-before' | 'inside-after';
-    slot: number;
-    top: number;
-    height: number;
-    boundary: number;
-  } | null>(null);
+  const [paneDrop, setPaneDrop] = useState<PaneDrop | null>(null);
   const splitCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => splitCleanupRef.current?.(), []);
   // A panel inside the phone drawer frame closes semantically at once
@@ -783,38 +820,7 @@ export function WorkbenchSidePanel({
                   setPaneDrop(null);
                   return;
                 }
-                const panes = Array.from(body.children).filter(
-                  (child): child is HTMLElement =>
-                    child instanceof HTMLElement && child.classList.contains('workbench-side-section')
-                );
-                if (panes.length !== selectedGroup.length) {
-                  setPaneDrop(null);
-                  return;
-                }
-                const bodyBounds = body.getBoundingClientRect();
-                const paneBounds = panes.map((pane) => pane.getBoundingClientRect());
-                const centers = paneBounds.map((bounds) => (bounds.top + bounds.bottom) / 2);
-                const slot = workbenchSidePaneDropSlot(centers, event.clientY);
-                if (workbenchSidePaneDropIsNoop(selectedGroup, payload.type, payload.id, slot)) {
-                  setPaneDrop(null);
-                  return;
-                }
-                const edges = [bodyBounds.top, ...centers, bodyBounds.bottom];
-                const boundaries = [
-                  paneBounds[0].top,
-                  ...paneBounds.slice(0, -1).map((bounds, index) => (bounds.bottom + paneBounds[index + 1].top) / 2),
-                  paneBounds[paneBounds.length - 1].bottom,
-                ];
-                const top = Math.max(0, edges[slot] - bodyBounds.top);
-                const height = Math.max(1, edges[slot + 1] - edges[slot]);
-                setPaneDrop({
-                  targetRoot: slot === 0 ? selectedGroup[0] : selectedGroup[slot - 1],
-                  placement: slot === 0 ? 'inside-before' : 'inside-after',
-                  slot,
-                  top,
-                  height,
-                  boundary: Math.max(0, Math.min(Math.max(0, height - 2), boundaries[slot] - bodyBounds.top - top)),
-                });
+                setPaneDrop(measurePaneDrop(body, selectedGroup, payload, event));
               }}
               onDragLeave={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {

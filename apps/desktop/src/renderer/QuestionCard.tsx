@@ -25,6 +25,71 @@ import {
 export type QuestionDecision = { approved: boolean; reason?: string; answers?: QuestionAnswer[] };
 
 /** The pending ask_user question, shown in the transcript where its call sits. */
+interface CardKeyContext {
+  live: MutableRefObject<{
+    advance(): void;
+    choose(option: number): void;
+    close(): unknown;
+    questions: Question[];
+  }>;
+  stateRef: MutableRefObject<QuestionState>;
+  rowRefs: MutableRefObject<Array<HTMLElement | null>>;
+  inputRef: MutableRefObject<HTMLInputElement | null>;
+  apply(action: QuestionAction): void;
+}
+
+/** The card's keyboard shortcuts: Esc, Enter, number picks, arrows and Space. */
+function routeCardKey(event: globalThis.KeyboardEvent, { live, stateRef, rowRefs, inputRef, apply }: CardKeyContext) {
+  const { advance: advanceCard, choose: chooseOption, close: closeCard, questions: all } = live.current;
+  const { index: at, multi: multiFlags } = stateRef.current;
+  const target = event.target;
+  if (isTypingTarget(target)) return;
+  // Option rows are buttons too, but Enter on them confirms the question
+  // (Space or a click toggles); only other buttons keep native Enter.
+  const onOption = target instanceof HTMLElement && target.classList.contains('question-option');
+  const onButton = target instanceof HTMLButtonElement && !onOption;
+  const optionCount = all[at].options.length;
+  const multiSelect = multiFlags[at];
+  const total = all.length;
+  const handled = () => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  if (event.key === 'Escape') {
+    handled();
+    void closeCard();
+  } else if (event.key === 'Enter') {
+    if (onButton) return;
+    handled();
+    advanceCard();
+  } else if (/^[1-9]$/.test(event.key)) {
+    const number = Number(event.key);
+    if (number <= optionCount) {
+      handled();
+      chooseOption(number - 1);
+    } else if (number === optionCount + 1) {
+      handled();
+      inputRef.current?.focus();
+    }
+  } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    handled();
+    const active = rowRefs.current.findIndex((row) => row === document.activeElement);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    const entry = step > 0 ? 0 : optionCount;
+    const next = active < 0 ? entry : Math.min(optionCount, Math.max(0, active + step));
+    rowRefs.current[next]?.focus();
+  } else if (event.key === ' ' && multiSelect && !onButton) {
+    const active = rowRefs.current.findIndex((row) => row === document.activeElement);
+    if (active >= 0 && active < optionCount) {
+      handled();
+      apply({ type: 'pick', option: active });
+    }
+  } else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && total > 1) {
+    handled();
+    apply({ type: 'step', delta: event.key === 'ArrowRight' ? 1 : -1 });
+  }
+}
+
 export function QuestionCard({
   questions,
   resolve,
@@ -123,56 +188,7 @@ export function QuestionCard({
   useEffect(() => {
     const card = cardRef.current;
     if (!card) return;
-    return bindCardKeys(card, (event) => {
-      const { advance: advanceCard, choose: chooseOption, close: closeCard, questions: all } = live.current;
-      const { index: at, multi: multiFlags } = stateRef.current;
-      const target = event.target;
-      if (isTypingTarget(target)) return;
-      // Option rows are buttons too, but Enter on them confirms the question
-      // (Space or a click toggles); only other buttons keep native Enter.
-      const onOption = target instanceof HTMLElement && target.classList.contains('question-option');
-      const onButton = target instanceof HTMLButtonElement && !onOption;
-      const optionCount = all[at].options.length;
-      const multiSelect = multiFlags[at];
-      const total = all.length;
-      const handled = () => {
-        event.preventDefault();
-        event.stopPropagation();
-      };
-      if (event.key === 'Escape') {
-        handled();
-        void closeCard();
-      } else if (event.key === 'Enter') {
-        if (onButton) return;
-        handled();
-        advanceCard();
-      } else if (/^[1-9]$/.test(event.key)) {
-        const number = Number(event.key);
-        if (number <= optionCount) {
-          handled();
-          chooseOption(number - 1);
-        } else if (number === optionCount + 1) {
-          handled();
-          inputRef.current?.focus();
-        }
-      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        handled();
-        const active = rowRefs.current.findIndex((row) => row === document.activeElement);
-        const step = event.key === 'ArrowDown' ? 1 : -1;
-        const entry = step > 0 ? 0 : optionCount;
-        const next = active < 0 ? entry : Math.min(optionCount, Math.max(0, active + step));
-        rowRefs.current[next]?.focus();
-      } else if (event.key === ' ' && multiSelect && !onButton) {
-        const active = rowRefs.current.findIndex((row) => row === document.activeElement);
-        if (active >= 0 && active < optionCount) {
-          handled();
-          apply({ type: 'pick', option: active });
-        }
-      } else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && total > 1) {
-        handled();
-        apply({ type: 'step', delta: event.key === 'ArrowRight' ? 1 : -1 });
-      }
-    });
+    return bindCardKeys(card, (event) => routeCardKey(event, { live, stateRef, rowRefs, inputRef, apply }));
   }, [apply]);
 
   const moveFromInput = (event: ReactKeyboardEvent<HTMLInputElement>) => {

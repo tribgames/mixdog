@@ -359,6 +359,33 @@ const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradie
   );
 });
 
+/** Lands a pending phase switch once the painted phase has stood long enough;
+ *  returns the wait in ms left before it may land (0 when none is pending). */
+function settlePhase(
+  known: { target: string; targetSince: number; shown: string; shownAt: number },
+  nowMs: number
+): number {
+  if (known.target === known.shown) return 0;
+  const wait = known.shown
+    ? Math.max(PHASE_SWITCH_DELAY_MS - (nowMs - known.targetSince), PHASE_MIN_DWELL_MS - (nowMs - known.shownAt))
+    : 0;
+  if (wait > 0) return wait;
+  known.shown = known.target;
+  known.shownAt = nowMs;
+  return 0;
+}
+
+function thinkingPartsLabel(
+  parts: { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null,
+  language: Parameters<typeof thinkingEffortLabel>[1]
+): string {
+  if (!parts) return '';
+  if (parts.kind === 'thought') return t('Thought for {{seconds}}s', { seconds: parts.seconds });
+  // The effort word is an untranslated name, spelled like the model chip's.
+  const effortWord = modelRouteDisplayParts('', parts.effort).effort;
+  return thinkingEffortLabel(effortWord, language);
+}
+
 export function LiveActivity({
   snapshot,
   optimisticStartedAt = 0,
@@ -429,17 +456,7 @@ export function LiveActivity({
     // A withdrawn phase never paints: drop a pending switch, keep the painted one.
     known.target = known.shown;
   }
-  let switchIn = 0;
-  if (known.target !== known.shown) {
-    const wait = known.shown
-      ? Math.max(PHASE_SWITCH_DELAY_MS - (nowMs - known.targetSince), PHASE_MIN_DWELL_MS - (nowMs - known.shownAt))
-      : 0;
-    if (wait > 0) switchIn = wait;
-    else {
-      known.shown = known.target;
-      known.shownAt = nowMs;
-    }
-  }
+  const switchIn = settlePhase(known, nowMs);
   const [, wake] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
     if (switchIn <= 0) return;
@@ -519,17 +536,10 @@ export function LiveActivity({
   });
   const quietParts = meta.quietParts as QuietProgressParts | null;
   // The TUI formats these parts as lowercase English; the desktop translates them.
-  const thinkingLabel = (() => {
-    const parts = meta.thinkingParts as
-      | { kind: 'thinking'; effort: string }
-      | { kind: 'thought'; seconds: number }
-      | null;
-    if (!parts) return '';
-    if (parts.kind === 'thought') return t('Thought for {{seconds}}s', { seconds: parts.seconds });
-    // The effort word is an untranslated name, spelled like the model chip's.
-    const effortWord = modelRouteDisplayParts('', parts.effort).effort;
-    return thinkingEffortLabel(effortWord, language);
-  })();
+  const thinkingLabel = thinkingPartsLabel(
+    meta.thinkingParts as { kind: 'thinking'; effort: string } | { kind: 'thought'; seconds: number } | null,
+    language
+  );
   const tokensLabel = meta.showTokens ? t('{{tokens}} tokens', { tokens: meta.tokensCount }) : '';
   // The token readout is its own span: where the pinned bot overlay stands
   // over the transcript's column (a narrow window) it hides, so the row ends
@@ -537,7 +547,7 @@ export function LiveActivity({
   const beforeTokens = elapsed;
   const afterTokens = thinkingLabel;
   const tokensSeparator = beforeTokens ? ' · ' : '';
-  const afterSeparator =beforeTokens || tokensLabel ? ' · ' : '';
+  const afterSeparator = beforeTokens || tokensLabel ? ' · ' : '';
   const hasActivityMeta = Boolean(beforeTokens || tokensLabel || afterTokens);
   const activityMeta = hasActivityMeta && (
     <span>
@@ -679,6 +689,43 @@ function backgroundWaitingLabel({ shell, agent }: BackgroundWorkCounts): string 
  *  consume the turn on commit, not during a render React may discard.
  *  `backgroundWork` is passed only to the latest completion: while it holds
  *  work the line shows a waiting state in the same row, then settles in place. */
+function AnimatedCompletionMark() {
+  return (
+    <span className="turn-status-mark" aria-hidden="true">
+      {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative; the wrapping mark is aria-hidden. */}
+      <svg className="turn-status-logo" viewBox="0 0 24 24">
+        <g>
+          {[-120, 0, 120].map((rot) => (
+            <circle
+              key={rot}
+              className="arc"
+              cx="12"
+              cy="12"
+              r="8.5"
+              pathLength="360"
+              transform={`rotate(${rot} 12 12)`}
+            />
+          ))}
+        </g>
+        <path className="star" d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z" />
+      </svg>
+      {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative; the wrapping mark is aria-hidden. */}
+      <svg
+        className="turn-status-icon turn-status-check mx-icon lucide-check"
+        viewBox="0 0 24 24"
+        width="16"
+        height="16"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M20 6 9 17l-5-5" pathLength="1" />
+      </svg>
+    </span>
+  );
+}
+
 export function CompletionStatus({
   item,
   animateComplete: animate = false,
@@ -805,42 +852,7 @@ export function CompletionStatus({
   const displayDetail = translateStatusDetail(item.detail);
   return (
     <div className="turn-status complete" role="status" data-animate={animateComplete ? 'true' : undefined}>
-      {animateComplete ? (
-        <span className="turn-status-mark" aria-hidden="true">
-          {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative; the wrapping mark is aria-hidden. */}
-          <svg className="turn-status-logo" viewBox="0 0 24 24">
-            <g>
-              {[-120, 0, 120].map((rot) => (
-                <circle
-                  key={rot}
-                  className="arc"
-                  cx="12"
-                  cy="12"
-                  r="8.5"
-                  pathLength="360"
-                  transform={`rotate(${rot} 12 12)`}
-                />
-              ))}
-            </g>
-            <path className="star" d="M12 8.4Q12.6 11.4 15.6 12 12.6 12.6 12 15.6 11.4 12.6 8.4 12 11.4 11.4 12 8.4Z" />
-          </svg>
-          {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative; the wrapping mark is aria-hidden. */}
-          <svg
-            className="turn-status-icon turn-status-check mx-icon lucide-check"
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M20 6 9 17l-5-5" pathLength="1" />
-          </svg>
-        </span>
-      ) : (
-        <MxIcon name="check" className="turn-status-icon" size={16} />
-      )}
+      {animateComplete ? <AnimatedCompletionMark /> : <MxIcon name="check" className="turn-status-icon" size={16} />}
       <span>{completionLabel}</span>
       {item.kind === 'statusdone' && displayDetail && <small>· {displayDetail}</small>}
     </div>

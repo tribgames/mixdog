@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import type { DesktopSettingKey } from '../shared/contract-settings';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { usagePinVisibleCount } from './rail-usage-pin-room';
@@ -57,6 +58,12 @@ function readRailRoster(): UsagePinRosterEntry[] | null {
 function railSlotsOf(settings: { usageRailSlotsAll?: unknown; usageRailSlotsThree?: unknown }) {
   if (settings.usageRailSlotsAll) return 'all';
   return settings.usageRailSlotsThree ? '3' : '5';
+}
+
+function saveSetting(key: DesktopSettingKey, value: boolean): void {
+  void window.mixdogDesktop?.updateSetting?.(key, value)?.catch(() => {
+    /* local state still applies */
+  });
 }
 
 function writeRailRoster(roster: UsagePinRosterEntry[]): void {
@@ -185,26 +192,20 @@ export function useUsageRailPin(
     pinnedRef.current = next;
     setSettingsReady(true);
     setUsagePinned(next);
-    void window.mixdogDesktop?.updateSetting?.('usagePinned', next)?.catch(() => {
-      /* local state still applies */
-    });
+    saveSetting('usagePinned', next);
   };
   // The bar mode is persisted beside the pin choice and applies at once.
   const setRailBars = (next: UsageRailBars) => {
     revision.current += 1;
     setSettingsReady(true);
     setRailBarsState(next);
-    void window.mixdogDesktop?.updateSetting?.('usageRailShortLong', next === 'short-long')?.catch(() => {
-      /* local state still applies */
-    });
+    saveSetting('usageRailShortLong', next === 'short-long');
   };
   const setAccountsExpanded = (next: boolean) => {
     revision.current += 1;
     setSettingsReady(true);
     setAccountsExpandedState(next);
-    void window.mixdogDesktop?.updateSetting?.('usageAccountsExpanded', next)?.catch(() => {
-      /* local state still applies */
-    });
+    saveSetting('usageAccountsExpanded', next);
   };
   // Stored as two flags: 3 and All; neither means the default 5.
   const setRailSlots = (next: UsageRailSlots) => {
@@ -215,9 +216,7 @@ export function useUsageRailPin(
       ['usageRailSlotsThree', next === '3'],
       ['usageRailSlotsAll', next === 'all'],
     ] as const) {
-      void window.mixdogDesktop?.updateSetting?.(key, value)?.catch(() => {
-        /* local state still applies */
-      });
+      saveSetting(key, value);
     }
   };
   // Computed from the cached snapshot in the first render: the stack's space is
