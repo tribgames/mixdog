@@ -110,12 +110,7 @@ export async function reloadPageAfterSignIn(
   const document = record?.network
     .list({ resourceTypes: ['document'], limit: 200 })
     .requests.find((request) => request.sessionId === undefined && request.url.split('#', 1)[0] === address);
-  const editedFields = await guest
-    .executeJavaScriptInIsolatedWorld(EDITED_FIELDS_WORLD, [{ code: EDITED_FIELDS_SCRIPT }])
-    .then(
-      (edited) => edited !== false,
-      () => true
-    );
+  const editedFields = await pageHasEditedFields(guest);
   if (
     !safeToReloadAfterSignIn({
       userInput: record?.userInput === true,
@@ -127,6 +122,15 @@ export async function reloadPageAfterSignIn(
   }
   guest.reload();
   return true;
+}
+
+/** Whether any form field of the page differs from what it loaded with; an
+ *  unreadable page counts as edited. */
+export function pageHasEditedFields(guest: WebContents): Promise<boolean> {
+  return guest.executeJavaScriptInIsolatedWorld(EDITED_FIELDS_WORLD, [{ code: EDITED_FIELDS_SCRIPT }]).then(
+    (edited) => edited !== false,
+    () => true
+  );
 }
 
 const EDITED_FIELDS_WORLD = 1_197;

@@ -4,6 +4,9 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
   close(page: Page): void;
   canClose(page: Page): boolean;
   preserve?(page: Page): void;
+  /** Turn boundaries, for whoever reclaims a finished turn's pages later. */
+  turnFinished?(sessionId: string, turnId: number): void;
+  turnForgotten?(sessionId: string): void;
 }) {
   const owned = new Map<Page, { sessionId: string; turnId: number }>();
   const finished = new Map<string, number>();
@@ -27,6 +30,7 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
   function finish(sessionId: string, turnId: number, options: { aborted?: boolean } = {}): number {
     if (!Number.isSafeInteger(turnId) || turnId <= 0) throw new Error('Browser cleanup requires a valid turn id.');
     finished.set(sessionId, Math.max(finished.get(sessionId) ?? 0, turnId));
+    host.turnFinished?.(sessionId, turnId);
     const pages = [...owned].filter(([, owner]) => owner.sessionId === sessionId && owner.turnId === turnId);
     // Dialogs requiring a human response are a handoff, never disposable.
     for (const [page] of pages) if (!page.isDestroyed() && !host.canClose(page)) retain(page);
@@ -52,6 +56,7 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
   }
   function forget(sessionId: string): void {
     finished.delete(sessionId);
+    host.turnForgotten?.(sessionId);
     for (const [page, owner] of owned) if (owner.sessionId === sessionId) owned.delete(page);
   }
   return { begin, use, retain, inherit, finish, forget };

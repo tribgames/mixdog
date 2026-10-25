@@ -28,6 +28,30 @@ const MAX_IMAGE_BASE64_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4;
 const MAX_FILE_BASE64_CHARS = Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4;
 const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
 const browserTurns = new Map();
+/** Sessions that have issued a browser command; only they have turn
+ *  boundaries worth telling the desktop. */
+const browserSessions = new Set();
+
+/** A turn's start, sent before it reasons or runs any tool: the desktop keeps
+ *  the session's pages out of reclaim while a turn is live, even one that never
+ *  issues a browser command. Remembers the bridge so the turn's end reaches it.
+ *  A session that never used the browser has nothing to tell the desktop (its
+ *  first command marks it live there). */
+export async function beginBrowserTurn(sessionId, turnId) {
+  if (!browserSessions.has(sessionId)) return;
+  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  if (!discovery || !(turnId > 0)) return;
+  rememberBrowserTurn(sessionId, turnId, discovery);
+  const result = await requestBridgeWithin(
+    discovery,
+    JSON.stringify({ action: 'begin_turn', session_id: sessionId, turn_id: turnId }),
+    undefined,
+    { sessionId, turnId, action: 'begin_turn' }
+  );
+  if (result.status !== 200 || result.body?.ok === false || result.body?.error) {
+    throw new Error(`Browser turn start failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected start'}`);
+  }
+}
 
 /** Terminal lifecycle cleanup uses the exact bridge that owned this turn.
  * It is never retried after dispatch and never inherits the cancelled tool signal. */
@@ -316,6 +340,7 @@ export async function executeBrowserTool(args, options = {}) {
   }
   let discovery = readBridgeDiscovery(DISCOVERY_FILE);
   if (!discovery) return browserToolError(unavailableMessage());
+  browserSessions.add(sessionId);
   rememberBrowserTurn(sessionId, payload.turn_id, discovery);
   // An observation can be reported as a plain failure; a state-changing action
   // that may already have run must say so instead.

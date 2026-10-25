@@ -50,6 +50,9 @@ export function createBrowserAgentBridge(options: {
   execute: (command: BrowserCommand, signal: AbortSignal) => Promise<unknown>;
   /** Close a finished turn's temporary pages; returns how many closed. */
   finishTurn: (sessionId: string, turnId: number, options: { aborted: boolean }) => number;
+  /** The session ran a turn or command: its pages belong to a live turn
+   *  (`turnId` 0: a command with no turn id). */
+  beginTurn: (sessionId: string, turnId: number) => void;
   secretInput: (sessionId: string, requestId: string, signal: AbortSignal) => Promise<{ text: string }>;
   /** Runtime-only ask_user handoff facts (host-agent.ts HANDOFF_PAGE_ACTIONS). */
   handoffPage: (
@@ -81,7 +84,14 @@ export function createBrowserAgentBridge(options: {
     execute: (command, signal) => guarded(command, signal, (command, signal) => {
       const { session_id, turn_id, internalStep, unattended_run, unattended_agent, ...input } = command;
       if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
-      // Runtime-only lifecycle message: deliberately absent from tool schemas.
+      // Runtime-only lifecycle messages: deliberately absent from tool schemas.
+      if (command.action === 'begin_turn') {
+        assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
+        options.beginTurn(browserSessionId(session_id), Number(turn_id));
+        return { text: 'Browser turn started.' };
+      }
+      // Every other command, list_tabs and status included, is activity.
+      if (command.action !== 'finish_turn') options.beginTurn(browserSessionId(session_id), Number(turn_id) || 0);
       if (command.action === 'finish_turn') {
         const owner = browserSessionId(session_id);
         assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);

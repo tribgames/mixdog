@@ -48,6 +48,12 @@ test('success, failure and cancellation request cleanup for the exact turn witho
   ]) {
     sessions.set(id, { usageMetricsTurnId: 6 });
     markSessionAskStart(id);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(
+      requests.filter((request) => request.session_id === id),
+      [],
+      'a session that never used the browser sends the desktop nothing'
+    );
     const controller = new AbortController();
     if (id === 'cancel') controller.abort();
     const result = await executeBrowserTool(
@@ -69,6 +75,24 @@ test('success, failure and cancellation request cleanup for the exact turn witho
     await finishBrowserTurn(id, 7);
     assert.equal(requests.filter((request) => request.session_id === id && request.action === 'finish_turn').length, 1);
   }
+  // Once a session has issued a browser command, its next turn announces itself first.
+  const seen = requests.length;
+  markSessionAskStart('success');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    requests.slice(seen).map(({ action, session_id, turn_id }) => ({ action, session_id, turn_id })),
+    [{ action: 'begin_turn', session_id: 'success', turn_id: 8 }]
+  );
+  markSessionDone('success');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.at(-1).action, 'finish_turn');
+  assert.equal(requests.at(-1).turn_id, 8);
+  const beforeChat = requests.length;
+  sessions.set('chat-only', { usageMetricsTurnId: 0 });
+  markSessionAskStart('chat-only');
+  markSessionDone('chat-only');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, beforeChat, 'a never-browser session produces zero bridge requests');
   const count = requests.length;
   markSessionDone('no-browser');
   assert.equal(requests.length, count, 'a non-browser turn does not contact the desktop');

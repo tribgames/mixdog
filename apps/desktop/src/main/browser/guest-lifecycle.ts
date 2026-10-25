@@ -19,7 +19,9 @@ import { adoptBrowserPageWindow, browserPageWindow, createBrowserPageWindow } fr
 import { setBrowserPageZoom } from './page-zoom';
 import { builtPreloadPath } from './preload-path';
 import { type PopupOpeningHost, handleWindowOpens } from './popup-opening';
-import { assertBackgroundTabCapacity, backgroundPageIdle, normalizeBackgroundTabName } from './tab-policy';
+import { createBackgroundReclaimer } from './background-reclaim';
+import { pageHasEditedFields } from './login-takeover';
+import { normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs-contract';
 import { type BrowserOpenDetail, browserOpenRequest, revealBrowserPage } from './page-reveal';
 import { restorablePages } from './restore-pages';
@@ -213,30 +215,6 @@ function closeAllBackgroundPages(sessions: BrowserSessionRegistry): void {
   sessions.clearBackgroundPages();
 }
 
-/** Agent pages nobody selected, kept alive or is driving expire on their own;
- *  user and popup pages never do. */
-function reclaimIdleBackgroundPages(
-  sessions: BrowserSessionRegistry,
-  isBackgroundBusy: BrowserGuestLifecycleHost['isBackgroundBusy'],
-  now = Date.now()
-): void {
-  for (const [sessionId, name, entry] of sessions.allBackgroundEntries()) {
-    if (entry.window.isDestroyed()) {
-      sessions.deleteBackgroundPage(sessionId, name, entry);
-      continue;
-    }
-    if (
-      entry.kind === 'agent' &&
-      !entry.keepAlive &&
-      sessions.currentGuest(sessionId) !== entry.guest &&
-      backgroundPageIdle(entry.lastUsedAt, now) &&
-      !isBackgroundBusy(sessionId, name)
-    ) {
-      closeBackgroundPage(sessions, sessionId, name, entry);
-    }
-  }
-}
-
 /** The session's next popup name, never colliding with a page it still holds. */
 function nextPopupTabName(sessions: BrowserSessionRegistry, counters: Map<string, number>, sessionId: string): string {
   let nextPopupId = counters.get(sessionId) ?? 0;
@@ -254,11 +232,23 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   const nextPopupIdsBySession = new Map<string, number>();
   const suspendedSessions = new Map<string, SavedPage[]>();
   const restoringSessions = new Map<string, Promise<void>>();
+  const reclaimer = createBackgroundReclaimer({
+    sessions,
+    isBackgroundBusy,
+    holdsUnfinishedWork: (guest) => {
+      const record = state.peek(guest);
+      return Boolean(
+        record && (record.userInput || record.pendingDialog || record.pendingFileChooser || record.sensitiveValues?.size)
+      );
+    },
+    documentGeneration: (guest) => state.peek(guest)?.documentGeneration ?? 0,
+    hasEditedFields: pageHasEditedFields,
+    close: (sessionId, name, entry) => closeBackgroundPage(sessions, sessionId, name, entry),
+  });
   const popupOpening: PopupOpeningHost = {
     state,
     urlPolicy,
-    backgroundCount: () => sessions.backgroundCount(),
-    reclaimIdle: () => reclaimIdleBackgroundPages(sessions, isBackgroundBusy),
+    admit: (opener) => reclaimer.admit(sessions.sessionIdForGuest(opener) ?? DEFAULT_BROWSER_SESSION_ID),
     nativeView: () => Boolean(host.nativeView),
     popupWindowOptions,
     createPage: createBrowserPageWindow,
@@ -304,9 +294,9 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
    *  behind and is reported to the agent. */
   function adoptPopup(opener: WebContents, popup: { window: BaseWindow; guest: WebContents }, select: boolean): void {
     if (popup.window.isDestroyed()) return;
-    reclaimIdleBackgroundPages(sessions, isBackgroundBusy);
+    const ownerSessionId = sessions.sessionIdForGuest(opener) ?? DEFAULT_BROWSER_SESSION_ID;
     try {
-      assertBackgroundTabCapacity(sessions.backgroundCount());
+      reclaimer.admit(ownerSessionId);
     } catch (error) {
       pushBounded(state.for(opener).networkFailures, `Blocked popup creation: ${(error as Error).message}`);
       try {
@@ -316,7 +306,6 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       }
       return;
     }
-    const ownerSessionId = sessions.sessionIdForGuest(opener) ?? DEFAULT_BROWSER_SESSION_ID;
     const popupName = nextPopupTabName(sessions, nextPopupIdsBySession, ownerSessionId);
     trackBackgroundPage(ownerSessionId, popupName, popup, 'popup', opener);
     // The opener's next reply has to mention it: a click that opened a tab
@@ -391,9 +380,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
         const restorable = restorablePages(saved, urlPolicy);
         const urls = new Map(restorable.map(({ page, url }) => [page, url]));
         const backgrounds = restorable.map(({ page }) => page).filter((page) => page.kind !== 'primary');
-        if (backgrounds.length) {
-          assertBackgroundTabCapacity(sessions.backgroundCount() + backgrounds.length - 1);
-        }
+        if (backgrounds.length) reclaimer.admit(sessionId, backgrounds.length);
         const primaryState = restorable.find(({ page }) => page.kind === 'primary')?.page;
         const primary = primaryState ? await primaryPages.ensure(sessionId) : null;
         assertStillRestoring();
@@ -473,8 +460,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       existing.lastUsedAt = Date.now();
       return existing;
     }
-    reclaimIdleBackgroundPages(sessions, isBackgroundBusy);
-    assertBackgroundTabCapacity(sessions.backgroundCount());
+    reclaimer.admit(sessionId);
     // Never shown: the page runs fully (navigate/click/snapshot are JS, not
     // frames). Screenshots go through CDP Page.captureScreenshot, which renders
     // server-side in the Blink compositor and does not need an on-screen
@@ -590,7 +576,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     destroyAllBackgroundPages: () => closeAllBackgroundPages(sessions),
     releaseSession,
     restoreSession,
-    reclaimIdleBackgroundPages: (now?: number) => reclaimIdleBackgroundPages(sessions, isBackgroundBusy, now),
+    reclaimIdleBackgroundPages: (now?: number) => reclaimer.sweep(now),
     ensureOffscreen,
     requestBrowserSurface,
     revealPage,

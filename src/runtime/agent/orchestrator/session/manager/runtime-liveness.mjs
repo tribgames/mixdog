@@ -26,7 +26,7 @@ import { emitSessionApprovalWaitChange } from '../../../../shared/session-approv
 import { emitSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
 import { MODEL_THINKING_STAGE, awaitingModelResponse, lastProgressAt } from '../../../../shared/quiet-progress.mjs';
-import { finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
+import { beginBrowserTurn, finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
 import { configureUsageMetricsRuntime, dropMetricSeenState, bumpUsageMetricsTurnId } from './usage-metrics.mjs';
 import { runtimeState as _runtimeState, isTurnInFlight } from './runtime-state.mjs';
 
@@ -47,6 +47,12 @@ const VALID_STAGES = new Set([
   'cancelling',
 ]);
 const TERMINAL_STAGES = new Set(['done', 'error']);
+
+function beginBrowserWork(id, entry) {
+  void beginBrowserTurn(id, entry.browserTurnId).catch((error) => {
+    process.stderr.write(`[browser] Task start failed: ${error?.message || error}\n`);
+  });
+}
 
 function finishBrowserWork(id, entry, aborted = false) {
   const turnId = Number(entry.browserTurnId ?? entry.session?.usageMetricsTurnId) || 0;
@@ -149,6 +155,7 @@ export function markSessionAskStart(id) {
   const sessionForTurn = entry.session ?? _deps.loadSession(id);
   if (sessionForTurn) bumpUsageMetricsTurnId(sessionForTurn);
   entry.browserTurnId = Number(sessionForTurn?.usageMetricsTurnId) || 0;
+  beginBrowserWork(id, entry);
   entry.stage = 'connecting';
   entry.lastStreamDeltaAt = null;
   entry.lastTransportAt = null;

@@ -60,6 +60,8 @@ function createBrowserHostTaskLifecycle(sessions: BrowserSessionRegistry, state:
   return createBrowserTaskLifecycle<WebContents>({
     close: (guest) => browserPageWindow(guest)?.destroy(),
     canClose: (guest) => !state.for(guest).pendingDialog,
+    turnFinished: (sessionId, turnId) => sessions.finishTurn(sessionId, turnId),
+    turnForgotten: (sessionId) => sessions.forgetTurn(sessionId),
     preserve: (guest) => {
       const owner = sessions.sessionIdForGuest(guest);
       const page = owner ? sessions.backgroundPageForGuest(owner, guest) : undefined;

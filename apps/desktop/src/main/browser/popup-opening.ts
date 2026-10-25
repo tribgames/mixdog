@@ -1,5 +1,5 @@
 /**
- * A page's window.open: admission (URL policy and tab capacity), whether the
+ * A page's window.open: admission (URL policy and tab admission), whether the
  * window comes forward (decided when Electron asks, from this window's gesture
  * evidence), and handing the created window to the lifecycle as a popup.
  */
@@ -9,15 +9,14 @@ import type { BrowserGuestStateStore } from './guest-state';
 import { pushBounded } from './guest-state';
 import type { adoptBrowserPageWindow, createBrowserPageWindow } from './page-window';
 import { popupTakesSelection, takeWindowOpenGesture } from './popup-focus';
-import { assertBackgroundTabCapacity } from './tab-policy';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 
 export interface PopupOpeningHost {
   state: BrowserGuestStateStore;
   urlPolicy: BrowserUrlPolicy;
-  backgroundCount(): number;
-  /** Close idle agent pages before capacity is checked. */
-  reclaimIdle(): void;
+  /** Make room for one more page of the opener's session (reclaiming or
+   *  evicting), or throw why there is none. */
+  admit(opener: WebContents): void;
   /** Native presentation: a popup is a hosted page of its own. */
   nativeView(): boolean;
   popupWindowOptions(nativeView: boolean): Electron.BrowserWindowConstructorOptions;
@@ -47,8 +46,7 @@ export function handleWindowOpens(guest: WebContents, host: PopupOpeningHost): v
   guest.setWindowOpenHandler(({ url, disposition }) => {
     try {
       if (url !== 'about:blank') normalizePageUrl(url, urlPolicy);
-      host.reclaimIdle();
-      assertBackgroundTabCapacity(host.backgroundCount());
+      host.admit(guest);
       const select = decideSelection(url, disposition);
       if (host.nativeView()) {
         // A native page's popup is a hosted page of its own, so the pane can

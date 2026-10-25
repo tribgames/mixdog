@@ -35,6 +35,52 @@ export class BrowserSessionRegistry {
   /** The turn whose agent page the user stopped the panels from following. */
   private readonly followPausedTurn = new Map<string, number>();
   private readonly backgroundsBySession = new Map<string, Map<string, BackgroundPage>>();
+  /** The newest agent turn a session ran, and when it finished (unset while live). */
+  private readonly turnBySession = new Map<string, { turn: number; finishedAt?: number }>();
+  private readonly turnFinishedListeners = new Set<(sessionId: string) => void>();
+
+  /** Bumped by every turn start, command and turn end of the session, so
+   *  evidence gathered before any of them can be told from current evidence. */
+  private readonly activityBySession = new Map<string, number>();
+
+  private noteActivity(sessionId: string): void {
+    this.activityBySession.set(sessionId, (this.activityBySession.get(sessionId) ?? 0) + 1);
+  }
+
+  activityGeneration(sessionId: string): number {
+    return this.activityBySession.get(sessionId) ?? 0;
+  }
+
+  /** A turn started, or (`turn` 0) a command with no turn id ran: the session
+   *  is live. A turn older than the newest known one changes nothing. */
+  beginTurn(sessionId: string, turn: number): void {
+    this.noteActivity(sessionId);
+    const current = this.turnBySession.get(sessionId);
+    if (turn > 0 && (!current || turn > current.turn)) this.turnBySession.set(sessionId, { turn });
+    else if (turn <= 0 && current?.finishedAt !== undefined) this.turnBySession.set(sessionId, { turn: current.turn });
+  }
+
+  finishTurn(sessionId: string, turn: number, now = Date.now()): void {
+    this.noteActivity(sessionId);
+    const current = this.turnBySession.get(sessionId);
+    if (current && current.turn > turn) return;
+    this.turnBySession.set(sessionId, { turn, finishedAt: now });
+    for (const listener of this.turnFinishedListeners) listener(sessionId);
+  }
+
+  forgetTurn(sessionId: string): void {
+    this.noteActivity(sessionId);
+    this.turnBySession.delete(sessionId);
+  }
+
+  /** When the session's latest turn finished; undefined while one is live or none is known. */
+  turnFinishedAt(sessionId: string): number | undefined {
+    return this.turnBySession.get(sessionId)?.finishedAt;
+  }
+
+  onTurnFinished(listener: (sessionId: string) => void): void {
+    this.turnFinishedListeners.add(listener);
+  }
 
   registerVisibleGuest(guest: WebContents): void {
     if (!this.visibleOrder.includes(guest)) this.visibleOrder.push(guest);

@@ -588,6 +588,7 @@ export function createBrowserHostAgent(options: {
     execute: (command, signal) => queue.executeSerialized(command, signal),
     finishTurn: (sessionId, turnId, finish) =>
       finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turnId, finish),
+    beginTurn: (sessionId, turnId) => sessions.beginTurn(sessionId, turnId),
     secretInput: (sessionId, requestId, signal) =>
       fillSecretInput({ pageById, fill: tools.credentialFill.fillSecretField }, sessionId, requestId, signal),
     handoffPage: (sessionId, action, input, signal) =>

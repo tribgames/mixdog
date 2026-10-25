@@ -109,8 +109,7 @@ const openingHost = (state, overrides = {}) => {
     host: {
       state,
       urlPolicy: {},
-      backgroundCount: () => 0,
-      reclaimIdle: () => {},
+      admit: () => {},
       nativeView: () => false,
       popupWindowOptions: (native) => ({ native }),
       createPage: () => assert.fail('a non-native popup is created by Electron'),
@@ -138,7 +137,11 @@ test('window.open is allowed with popup options and the created window is adopte
 test('window.open is denied and recorded once tab capacity is gone', () => {
   const state = new BrowserGuestStateStore();
   const guest = fakeGuest();
-  const { host } = openingHost(state, { backgroundCount: () => 10_000 });
+  const { host } = openingHost(state, {
+    admit: () => {
+      throw new Error('no capacity');
+    },
+  });
   handleWindowOpens(guest, host);
   assert.deepEqual(guest.openHandler({ url: 'about:blank', disposition: 'new-window' }), { action: 'deny' });
   assert.match(state.for(guest).networkFailures.at(-1), /^Blocked popup navigation: /);
