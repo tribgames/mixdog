@@ -849,14 +849,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A command reads at the code size and the name weight: bold mono at the UI
+   size outweighed the agent rows beside it. */
 .composer-island-row .composer-island-shell-command {
   font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-medium);
 }
 .composer-island-row .schedules-row-copy > small.composer-island-row-error {
   color: var(--mx-danger);
 }
+/* Running rows show only the clock, like the Agents pane: one stable right
+   column for clocks and end states, then the row's button. */
 .composer-island-row .agent-activity-status {
   flex: none;
+  min-width: 42px;
   text-align: right;
 }
 /* A finished background shell: muted until the user dismisses it (or, after

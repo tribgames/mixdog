@@ -79,13 +79,6 @@ export function ShellJobContent({ row, clock, stop }: { row: JobRow; clock: numb
         {row.terminationUnconfirmed ? t("Couldn't release") : t("Island: Couldn't stop")}
       </small>
     );
-  } else if (!row.finished) {
-    detail = (
-      <small title={row.cwd || undefined}>
-        {folder ? `${folder} · ` : ''}
-        <time className="composer-island-row-elapsed">{elapsed}</time>
-      </small>
-    );
   } else if (folder) {
     detail = <small title={row.cwd}>{folder}</small>;
   }
@@ -116,9 +109,9 @@ export function ShellJobContent({ row, clock, stop }: { row: JobRow; clock: numb
             {t('Termination unconfirmed')}
           </span>
         ) : (
-          <span className="agent-activity-elapsed" data-state="running">
-            {t('Island: Running')}
-          </span>
+          <time className="agent-activity-elapsed" data-state="running" title={t('Island: Running')}>
+            {elapsed}
+          </time>
         )}
       </span>
     </>
