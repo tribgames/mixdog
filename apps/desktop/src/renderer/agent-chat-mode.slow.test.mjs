@@ -1945,6 +1945,19 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   const order = (selector) => nodes.findIndex((n) => n.matches(selector));
   assert.ok(order('.mx-chat-line') < order('.mx-handoff-block'), 'after the bubble');
   assert.equal(main().querySelectorAll('.mx-handoff-line').length, 1);
+  // The reply's time and the hand-off share one row: the time first, then the line.
+  const block = group.querySelector('.mx-handoff-block');
+  const time = block.querySelector('time.mx-chat-time');
+  assert.ok(time, 'the time sits in the hand-off block');
+  assert.equal(group.querySelectorAll('.mx-chat-time').length, 1, 'one time');
+  assert.equal(time.closest('.mx-handoff-block'), block);
+  assert.equal(time.parentElement.parentElement, block, 'same row parent as the line');
+  assert.equal(block.querySelector('.mx-handoff-line').parentElement, block);
+  assert.ok(time.compareDocumentPosition(block.querySelector('.mx-handoff-line')) & 4, 'time before the line');
+  assert.equal(block.querySelector('.mx-handoff-when > [aria-hidden]').textContent, '·', 'the separator');
+  assert.ok(block.querySelector('.mx-handoff-line .mx-handoff-name'), 'the name ellipsizes on its own span');
+  assert.ok(block.querySelector('.mx-handoff-line > button'), 'Open stays a sibling after the name');
+  assert.equal(time.tabIndex, -1, 'the time is not focusable');
 
   // Not a send: no line.
   await show([round([send('s3', { action: 'read' })])]);
@@ -2253,7 +2266,11 @@ test('work handed to a session: one block of lines under the turn’s reply, its
   const column = [...run.querySelector('.mx-chat-column').children];
   const at = (selector) => column.findIndex((node) => node.matches(selector));
   assert.match(run.querySelector('.mx-chat-line').textContent, /Handed it over/);
-  assert.ok(at('.mx-chat-time') < at('.mx-handoff-block'), 'below the bubble and its time');
+  assert.ok(at('.mx-chat-line') < at('.mx-handoff-block'), 'below the bubble');
+  assert.equal(at('.mx-chat-time'), -1, 'the time is not its own block: it leads the hand-off line');
+  const timed = run.querySelector('.mx-handoff-block');
+  assert.ok(timed.querySelector(':scope > .mx-handoff-when > time.mx-chat-time'), 'time in the hand-off row');
+  assert.equal(timed.dataset.timed, 'true');
   assert.equal(main().querySelector('.mx-bot-sent, .mx-routine-more'), null, 'no pill, no message disclosure');
   await act(async () => main().querySelector('.mx-handoff-line button').click());
   assert.equal(opened.at(-1), DEV);
@@ -2286,6 +2303,21 @@ test('work handed to a session: one block of lines under the turn’s reply, its
   await show([user('u1', DAY1), sent, round('r3', [create('c1')]), replied]);
   assert.deepEqual(lines(), [SENT, 'Fence fix · Working·Open']);
   assert.equal(main().querySelectorAll('.mx-handoff-block').length, 1);
+  {
+    // The first hand-off shares the time's row; the second is its own line below, in the line column.
+    const multi = main().querySelector('.mx-handoff-block');
+    const children = [...multi.children];
+    assert.ok(children[0].matches('.mx-handoff-when') && children[0].querySelector('time.mx-chat-time'));
+    assert.ok(children[1].matches('.mx-handoff-line') && children[2].matches('.mx-handoff-line'));
+    assert.equal(multi.querySelectorAll('time').length, 1, 'one time for the block');
+    assert.match(children[1].textContent, /Sent to Dev session/);
+    assert.match(children[2].textContent, /Fence fix/);
+  }
+  // No time (typing bubble): the line alone, no time, no separator.
+  await show([user('u1', DAY1), sent, thinking]);
+  assert.equal(main().querySelector('.mx-handoff-block').dataset.timed, undefined);
+  assert.equal(main().querySelector('.mx-handoff-block time'), null);
+  assert.equal(main().querySelector('.mx-handoff-when'), null);
   // The title is the session's current one.
   await act(async () => publishSessionGlances([{ id: DEV, title: 'Renamed', preview: '', working: true }]));
   await show([user('u1', DAY1), sent, replied]);

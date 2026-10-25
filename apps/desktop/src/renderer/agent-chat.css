@@ -278,9 +278,59 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
    line per piece under the turn's reply, a bot target with its face, the dot
    amber while that session waits for the user's approval. */
 .mx-handoff-block {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
+}
+/* With the reply's time: the time and its dot take the first column of the
+   first row, the first line sits beside it, the rest below under that line. */
+.mx-handoff-block[data-timed] {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.mx-handoff-block[data-timed] > .mx-handoff-line {
+  grid-column: 2;
+}
+.mx-handoff-when {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-time);
+  font-size: var(--mx-font-micro);
+  line-height: 18px;
+}
+.mx-handoff-when > .mx-chat-time {
+  margin: 0 0 0 2px;
+  line-height: 18px;
+}
+.mx-handoff-line {
+  min-width: 0;
+}
+.mx-handoff-what {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.mx-handoff-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-handoff-state {
+  flex: none;
+  white-space: pre;
+}
+.mx-handoff-line > button {
+  flex: none;
+}
+/* The phone's Open keeps a full touch target in the row's own height, so
+   stacked hand-offs and the bubble above never share a tap area. */
+html[data-mixdog-mobile-tabs] .mx-handoff-line > button {
+  min-height: var(--mx-touch-min, 40px);
+  min-width: var(--mx-touch-min, 40px);
+  padding: 0 8px;
 }
 .mx-handoff-line:is([data-state="approval"], [data-state="question"]) > .mx-bot-sent-dot {
   background: var(--mx-warning, #e0b34a);

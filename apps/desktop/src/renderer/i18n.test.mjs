@@ -350,7 +350,7 @@ test('Korean sent line: a session target takes 에, a bot keeps 에게', async (
     const line = (handoff) =>
       renderToStaticMarkup(
         React.createElement(AgentHandoffLine, { handoff: { name: '', agentId: '', created: false, ...handoff } })
-      );
+      ).replace(/<[^>]+>/g, '');
     const toSession = line({ sessionId: 'sess_x' });
     assert.match(toSession, /세션에 보냄 · 작업 중/);
     assert.doesNotMatch(toSession, /에게 보냄/);

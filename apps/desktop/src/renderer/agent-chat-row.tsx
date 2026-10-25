@@ -4,7 +4,8 @@
 // the run's last bubble, a date pill where the day changes. Tool rounds and
 // notices stay compact rows in the bubble column.
 import { Link2, Timer } from 'lucide-react';
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { cloneElement, isValidElement, type ReactElement, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { AgentHandoffBlock } from './agent-task-line';
 import type { RoomMemberLabel } from './agent-room-parts';
 import { RoomMemberFace } from './agent-room-parts';
 import type { AvatarMotionState } from './avatar-motion';
@@ -412,6 +413,9 @@ export function AgentChatRow({
   const side = place?.side ?? 'aside';
   const lead = side === 'agent' && place?.first && member;
   const time = !card && place?.last && (side === 'agent' || side === 'user') ? timeText(place.at) : '';
+  // The hand-off block takes the time onto its first line.
+  const sharesTime = Boolean(time) && isValidElement(after) && after.type === AgentHandoffBlock;
+  const timedAfter = sharesTime ? cloneElement(after as ReactElement<{ time?: string }>, { time }) : null;
   return (
     <>
       {place?.newDay && (
@@ -435,8 +439,8 @@ export function AgentChatRow({
             </div>
           )}
           <div className="mx-chat-line">{children}</div>
-          {time && <time className="mx-chat-time">{time}</time>}
-          {after}
+          {timedAfter ?? (time && <time className="mx-chat-time">{time}</time>)}
+          {sharesTime ? null : after}
         </div>
       </div>
     </>

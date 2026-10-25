@@ -58,7 +58,10 @@ function HandoffLineView({
     <div className="mx-chat-routine-failed mx-handoff-line" role="status" data-state={state}>
       <span className="mx-bot-sent-dot" aria-hidden="true" />
       {member && <RoomMemberFace member={member} className="mx-bot-sent-face" />}
-      <span>{`${what} · ${label}`}</span>
+      <span className="mx-handoff-what">
+        <span className="mx-handoff-name">{what}</span>
+        <span className="mx-handoff-state">{` · ${label}`}</span>
+      </span>
       <span aria-hidden="true">·</span>
       <button type="button" onClick={() => openTaskSession(sessionId)}>
         {t('Open')}
@@ -82,10 +85,18 @@ export function AgentHandoffLine({ handoff }: { handoff: Omit<Handoff, 'id' | 's
   );
 }
 
-/** A turn's hand-off lines, one block in call order. */
-export function AgentHandoffBlock({ handoffs }: { handoffs: readonly Handoff[] }) {
+/** A turn's hand-off lines, one block in call order. With the reply's `time`,
+ *  the time and the first line share one row (time, a dot, the line); the
+ *  rest stand below, aligned with the first line's start. */
+export function AgentHandoffBlock({ handoffs, time }: { handoffs: readonly Handoff[]; time?: string }) {
   return (
-    <div className="mx-handoff-block">
+    <div className="mx-handoff-block" data-timed={time ? 'true' : undefined}>
+      {time && (
+        <span className="mx-handoff-when">
+          <time className="mx-chat-time">{time}</time>
+          <span aria-hidden="true">·</span>
+        </span>
+      )}
       {handoffs.map((handoff) => (
         <AgentHandoffLine key={handoff.id} handoff={handoff} />
       ))}
