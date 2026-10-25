@@ -206,6 +206,34 @@ test('the changes card is handed the files the turn visualized, on reply and err
   assert.equal(errorCard.props.visualized, visualized);
 });
 
+test('a sign-in-expired failure offers Sign in again and a retry for after signing in', () => {
+  const items = [
+    { kind: 'user', id: 'u1', text: 'one' },
+    { kind: 'turndone', id: 'd1', status: 'failed', message: 'Sign-in expired.', errorKind: 'reauth' },
+  ];
+  const row = project(items, ['turn:u1']).find((candidate) => candidate._tag === 'Error');
+  const retried = [];
+  const node = transcriptRowNode(row, {
+    disclosureScope: 's',
+    optimisticActivityStartedAt: 0,
+    readOnly: false,
+    renderAssistantRow: () => 'assistant',
+    retryDisabled: false,
+    settledItems: items,
+    settledTurnKeys: items.map(() => 'turn:u1'),
+    snapshot: { sessionId: 's' },
+    onRetryTurn(key) {
+      retried.push(key);
+    },
+    onOpenSettings() {},
+  });
+  const notice = row.turnChanges ? node.props.children[0] : node;
+  assert.ok(notice.props.action, 'Sign in again stays');
+  assert.equal(typeof notice.props.onRetry, 'function');
+  notice.props.onRetry();
+  assert.deepEqual(retried, ['turn:u1']);
+});
+
 test('coding order on an error row: notice, then the visualize cards, then the changes card', () => {
   const rows = project(
     [

@@ -375,8 +375,9 @@ function errorRowNode(
   );
   const failureKind = describeError(errors.at(-1)).kind;
   const reauth = failureKind === 'reauth' || failureKind === 'authentication';
-  // A retry of these would only repeat the same refusal.
-  const retryable = !reauth && !['policy', 'entitlement', 'billing', 'service-tier'].includes(failureKind);
+  // A retry of these would only repeat the same refusal. A sign-in failure
+  // keeps its retry: after signing in again the same turn can run.
+  const retryable = !['policy', 'entitlement', 'billing', 'service-tier'].includes(failureKind);
   const notice = (
     <ErrorNotice
       className="transcript-error-notice"
