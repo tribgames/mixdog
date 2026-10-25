@@ -47,6 +47,26 @@ export function sessionAttention({
   return '';
 }
 
+/** THE rule for a group/category header (sidebar sections, project folders,
+ *  automation groups): it shows a status only when it adds information its
+ *  rows do not, i.e. while COLLAPSED (an open group's rows speak for
+ *  themselves). The status is derived live from the children's current
+ *  statuses, never latched: strongest of needs-you/asking > failed > waiting >
+ *  running, and an unseen finished turn (the unread dot) only when nothing
+ *  stronger is going on. A group whose children are all idle or finished
+ *  shows nothing: finished is the absence of a status, never a "Completed"
+ *  label. */
+export function groupSessionAttention(
+  collapsed: boolean,
+  sessionIds: Iterable<string>,
+  attentionOf: (sessionId: string) => SessionAttention | ''
+): SessionAttention | '' {
+  if (!collapsed) return '';
+  const statuses: Array<SessionAttention | ''> = [];
+  for (const id of sessionIds) statuses.push(attentionOf(id));
+  return strongestSessionAttention(statuses);
+}
+
 /** The strongest status of a group of sessions ('' when none has one). */
 export function strongestSessionAttention(values: Iterable<SessionAttention | ''>): SessionAttention | '' {
   let best = SESSION_ATTENTION_ORDER.length;

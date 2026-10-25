@@ -404,8 +404,9 @@ test('the Recent actions menu archives recent sessions and confirms archived del
     });
     assert.ok(automationSection.querySelector('.sidebar-heading-dot'));
     assert.ok(recentSection.querySelector('.sidebar-heading-dot'));
-    assert.equal(automationSection.querySelector('.row-overflow-trigger'), null);
-    assert.equal(recentSection.querySelector('.row-overflow-trigger'), null);
+    // A collapsed section's status never takes its actions away.
+    assert.ok(automationSection.querySelector('.row-overflow-trigger'));
+    assert.ok(recentSection.querySelector('.row-overflow-trigger'));
     assert.ok(archivedSection.querySelector('.row-overflow-trigger'));
 
     const archivedHeader = archivedSection.querySelector('.sidebar-category-header');

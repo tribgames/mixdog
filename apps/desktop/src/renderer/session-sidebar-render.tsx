@@ -2,7 +2,7 @@ import { Search, Sparkles, SquarePen } from 'lucide-react';
 import type React from 'react';
 import { Fragment } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
-import type { SessionAttention } from '../shared/session-attention';
+import { groupSessionAttention, type SessionAttention } from '../shared/session-attention';
 import { t } from './i18n';
 import type { NavigationSelection } from './nav-types';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -501,7 +501,7 @@ export interface SidebarSectionContext {
  *  drag handle for the persisted category order. */
 function renderSidebarSection(section: string, ctx: SidebarSectionContext): React.ReactNode {
   const { openState, folders, rows, automationRows, archivedRows, bulkAction } = ctx;
-  const { onAddProject, onNewProjectTask, onNewTask, unreadSessionIds } = ctx;
+  const { onAddProject, onNewProjectTask, onNewTask } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
   const renderUnorderedRows: RenderForkRows = (list, limit, sentinelRef) =>
     renderForkRows(ctx, list, limit, undefined, section, sentinelRef);
@@ -517,6 +517,7 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
           open: openState.favoritesOpen,
           onToggleOpen: () => openState.toggleSection('favorites'),
           headerProps,
+          attentionOf: ctx.attentionOf,
           renderRows: (list, limit) => renderForkRows(ctx, list, limit, 'favorites'),
         })
       );
@@ -549,16 +550,18 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
           groups: openState.automationGroups,
           open: openState.automationsOpen,
           onToggleOpen: () => openState.toggleSection('automations'),
-          hasHeadingDot:
-            !openState.automationsOpen && automationRows.some((session) => unreadSessionIds?.has(session.id)),
+          headingStatus: groupSessionAttention(
+            !openState.automationsOpen,
+            automationRows.map((session) => session.id),
+            ctx.attentionOf
+          ),
           archiveAllDisabled: Boolean(bulkAction) || automationRows.length === 0,
           onArchiveAll: () => {
             void ctx.updateSessionArchives('archive-automations', automationRows, true);
           },
           collapsedGroups: openState.collapsedAutomations,
           onToggleGroup: openState.toggleAutomationGroup,
-          workingSessionIds: ctx.workingSessionIds,
-          unreadSessionIds,
+          attentionOf: ctx.attentionOf,
           headerProps,
           renderRuns: (runs) =>
             renderSessionItems(
@@ -578,7 +581,11 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
         sentinelRef: ctx.recentSentinelRef,
         open: openState.recentOpen,
         onToggleOpen: () => openState.toggleSection('recent'),
-        hasHeadingDot: !openState.recentOpen && rows.some((session) => unreadSessionIds?.has(session.id)),
+        headingStatus: groupSessionAttention(
+          !openState.recentOpen,
+          rows.map((session) => session.id),
+          ctx.attentionOf
+        ),
         archiveAllDisabled: Boolean(bulkAction) || rows.length === 0,
         onArchiveAll: () => {
           void ctx.updateSessionArchives('archive-recent', rows, true);
@@ -607,6 +614,7 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
             void ctx.deleteAllArchived();
           },
           headerProps,
+          attentionOf: ctx.attentionOf,
           allRows: archivedRows,
           renderRows: renderUnorderedRows,
         })

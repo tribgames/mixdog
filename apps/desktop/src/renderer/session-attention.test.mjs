@@ -690,3 +690,123 @@ test('sidebar rows and collapsed project groups use the same status set', async 
     await folders.unmount();
   }
 });
+
+const { groupSessionAttention } = await import('../shared/session-attention.ts');
+const { recentSection, automationsSection } = await import('./session-sidebar-sections.tsx');
+
+test('group status: priority attention > failed > running > unread, and finished shows nothing', () => {
+  const states = { a: 'unread', b: 'running', c: 'failed', d: 'needs-you', e: '' };
+  const of = (id) => states[id] || '';
+  assert.equal(groupSessionAttention(true, ['a', 'b', 'c', 'd', 'e'], of), 'needs-you');
+  assert.equal(groupSessionAttention(true, ['a', 'b', 'c', 'e'], of), 'failed');
+  assert.equal(groupSessionAttention(true, ['a', 'b', 'e'], of), 'running');
+  assert.equal(groupSessionAttention(true, ['a', 'e'], of), 'unread');
+  assert.equal(groupSessionAttention(true, ['e'], of), '', 'all finished and seen: no status');
+  assert.equal(groupSessionAttention(true, [], of), '');
+  assert.equal(groupSessionAttention(false, ['d'], of), '', 'an open group adds nothing over its rows');
+});
+
+test('a collapsed section shows running (not the finished dot) when a child runs again', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const rows = [{ id: 'one', title: 'one', preview: '', updatedAt: 1, messageCount: 2 }];
+  const section = (status) =>
+    recentSection({
+      sessionsReady: true,
+      rowCount: rows.length,
+      visibleRows: rows,
+      hasMoreRows: false,
+      sentinelRef: { current: null },
+      open: false,
+      onToggleOpen: noop,
+      headingStatus: groupSessionAttention(true, ['one'], () => status),
+      archiveAllDisabled: false,
+      onArchiveAll: noop,
+      allRows: rows,
+      renderRows: () => null,
+    });
+  const heading = () => host.querySelector('.sidebar-category-header');
+  try {
+    await act(async () => root.render(section('unread')));
+    assert.ok(heading().querySelector('.sidebar-heading-dot'), 'finished and unseen: the dot');
+    await act(async () => root.render(section('running')));
+    assert.equal(heading().querySelector('.sidebar-heading-dot'), null, 'no stale finished dot');
+    assert.ok(heading().querySelector('.sidebar-heading-status .session-row-spinner'), 'running spinner');
+    await act(async () => root.render(section('failed')));
+    assert.equal(heading().querySelector('.session-row-spinner'), null);
+    assert.ok(heading().querySelector('[data-status="failed"]'));
+    await act(async () => root.render(section('')));
+    assert.equal(heading().querySelector('.sidebar-heading-dot, .sidebar-heading-status'), null, 'nothing');
+    assert.ok(heading().querySelector('.row-overflow-trigger'), 'actions return with no status');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('a collapsed automation group and project section header follow the same rule', async () => {
+  const runs = [{ id: 'r1', title: 'r1', preview: '', updatedAt: 1, messageCount: 2 }];
+  const states = { r1: 'unread' };
+  const automations = await render(
+    automationsSection({
+      groups: [{ key: 'g', name: 'job', runs }],
+      open: true,
+      onToggleOpen: noop,
+      headingStatus: '',
+      archiveAllDisabled: false,
+      onArchiveAll: noop,
+      collapsedGroups: new Set(['g']),
+      onToggleGroup: noop,
+      attentionOf: (id) => states[id] || '',
+      renderRuns: () => null,
+    })
+  );
+  try {
+    assert.ok(automations.host.querySelector('.automation-group-header .session-row-unread-dot'));
+  } finally {
+    await automations.unmount();
+  }
+  states.r1 = 'running';
+  const running = await render(
+    automationsSection({
+      groups: [{ key: 'g', name: 'job', runs }],
+      open: true,
+      onToggleOpen: noop,
+      headingStatus: '',
+      archiveAllDisabled: false,
+      onArchiveAll: noop,
+      collapsedGroups: new Set(['g']),
+      onToggleGroup: noop,
+      attentionOf: (id) => states[id] || '',
+      renderRuns: () => null,
+    })
+  );
+  try {
+    const header = running.host.querySelector('.automation-group-header');
+    assert.ok(header.querySelector('.session-row-spinner'));
+    assert.equal(header.querySelector('.session-row-unread-dot'), null);
+  } finally {
+    await running.unmount();
+  }
+  const projects = await render(
+    projectsSection({
+      groups: [{ key: 'p', name: 'p', path: '/p', rows: runs }],
+      open: false,
+      onToggleOpen: noop,
+      projectOpen: {},
+      onToggleProject: noop,
+      rowLimits: new Map(),
+      onShowMore: noop,
+      onNewTask: noop,
+      folderReorderProps: () => ({}),
+      attentionOf: (id) => states[id] || '',
+      renderRows: () => null,
+    })
+  );
+  try {
+    assert.ok(projects.host.querySelector('.sidebar-category-header .sidebar-heading-status .session-row-spinner'));
+  } finally {
+    await projects.unmount();
+  }
+});

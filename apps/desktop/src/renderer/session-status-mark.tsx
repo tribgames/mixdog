@@ -90,6 +90,27 @@ export function SessionRowStatusIcon({
   );
 }
 
+/** The status a collapsed section heading shows in its trailing slot
+ *  (see groupSessionAttention): the unread dot, or the running / needs-you /
+ *  failure mark; nothing for ''. */
+export function SectionHeadingStatus({
+  status,
+  name,
+  unreadLabel,
+}: {
+  status: SessionAttention | '';
+  name: string;
+  unreadLabel: string;
+}) {
+  if (!status) return null;
+  if (status === 'unread') return <span className="sidebar-heading-dot" role="status" aria-label={unreadLabel} />;
+  return (
+    <span className="sidebar-heading-status" data-status={status}>
+      <SessionRowStatusIcon status={status} name={name} />
+    </span>
+  );
+}
+
 /** The finished-unread dot of a sidebar row or a collapsed project folder. */
 export function SessionRowUnreadDot({ name }: { name: string }) {
   return (

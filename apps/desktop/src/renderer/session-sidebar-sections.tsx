@@ -13,14 +13,13 @@ import React, { useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { InitialSurface } from './InitialSurface';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
-import { strongestSessionAttention, type SessionAttention } from '../shared/session-attention';
-import { SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';
+import { groupSessionAttention, strongestSessionAttention, type SessionAttention } from '../shared/session-attention';
+import { SectionHeadingStatus, SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';
 import {
   clampDesktopPanelWidth,
   DESKTOP_SIDEBAR_DEFAULT_WIDTH,
   DESKTOP_SIDEBAR_MIN_WIDTH,
 } from '../shared/window-layout';
-import { ProgressSpinner } from './ProgressSpinner';
 import { t, uiFormatLocale } from './i18n';
 import { timeFormatOptions } from './time-format-preference';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
@@ -164,13 +163,12 @@ export function automationsSection({
   groups,
   open,
   onToggleOpen,
-  hasHeadingDot,
+  headingStatus,
   archiveAllDisabled,
   onArchiveAll,
   collapsedGroups,
   onToggleGroup,
-  workingSessionIds,
-  unreadSessionIds,
+  attentionOf,
   headerProps,
   renderRuns,
 }: {
@@ -178,13 +176,13 @@ export function automationsSection({
   groups: AutomationGroup[];
   open: boolean;
   onToggleOpen(): void;
-  hasHeadingDot: boolean;
+  /** The collapsed heading's status (groupSessionAttention). */
+  headingStatus: SessionAttention | '';
   archiveAllDisabled: boolean;
   onArchiveAll(): void;
   collapsedGroups: ReadonlySet<string>;
   onToggleGroup(key: string): void;
-  workingSessionIds?: ReadonlySet<string>;
-  unreadSessionIds?: ReadonlySet<string>;
+  attentionOf(sessionId: string): SessionAttention | '';
   renderRuns(runs: readonly DesktopSessionSummary[]): React.ReactNode;
 }) {
   return (
@@ -193,11 +191,7 @@ export function automationsSection({
       aria-label={t('Automations')}
       {...reorderTarget(headerProps)}
     >
-      <div
-        className="sidebar-category-header"
-        {...reorderHandle(headerProps)}
-        {...(hasHeadingDot ? undefined : rowOverflowHostProps())}
-      >
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -206,51 +200,50 @@ export function automationsSection({
         >
           <span>{t('Automations')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {/* Collapsed sections still have to announce new activity. */}
-          {hasHeadingDot && (
-            <span className="sidebar-heading-dot" role="status" aria-label={t('Automations have new activity')} />
-          )}
-        </button>
-        {!hasHeadingDot && (
-          <RowOverflowMenu
-            label={t('Actions')}
-            items={[
-              {
-                id: 'archive-all',
-                label: t('Archive all'),
-                disabled: archiveAllDisabled,
-                onSelect: onArchiveAll,
-              },
-            ]}
+          {/* Collapsed sections still have to announce their runs' status. */}
+          <SectionHeadingStatus
+            status={headingStatus}
+            name={t('Automations')}
+            unreadLabel={t('Automations have new activity')}
           />
-        )}
+        </button>
+        <RowOverflowMenu
+          label={t('Actions')}
+          items={[
+            {
+              id: 'archive-all',
+              label: t('Archive all'),
+              disabled: archiveAllDisabled,
+              onSelect: onArchiveAll,
+            },
+          ]}
+        />
       </div>
       {open && (
         <nav className="session-list automation-session-list" aria-label={t('Automations')}>
           {groups.map(({ key, name, runs }) => {
             const expanded = !collapsedGroups.has(key);
-            const working = runs.some((run) => workingSessionIds?.has(run.id));
-            const unread = runs.some((run) => unreadSessionIds?.has(run.id));
+            const attention = groupSessionAttention(
+              !expanded,
+              runs.map((run) => run.id),
+              attentionOf
+            );
+            const working = attention !== '' && attention !== 'unread';
             const ExpandGlyph = expanded ? ChevronDown : ChevronRight;
             return (
               <div className="automation-group" key={key}>
                 {/* The chevron LEADS in the fixed status cell (one aligned
-                    column); the working spinner takes that cell over while a
-                    run is live. */}
+                    column); a collapsed group's live status (running, needs
+                    you, failure) takes that cell over. */}
                 <button
                   type="button"
                   className="session-row automation-group-header"
                   aria-expanded={expanded}
                   onClick={() => onToggleGroup(key)}
                 >
-                  <span className="session-row-status" data-working={working || undefined}>
+                  <span className="session-row-status" data-working={attention === 'running' || undefined}>
                     {working ? (
-                      <ProgressSpinner
-                        size={12}
-                        className="session-row-spinner"
-                        role="status"
-                        aria-label={t('{{name}} is working', { name })}
-                      />
+                      <SessionRowStatusIcon status={attention} name={name} />
                     ) : (
                       <ExpandGlyph size={14} aria-hidden="true" />
                     )}
@@ -258,13 +251,7 @@ export function automationsSection({
                   <span className="session-row-copy">
                     <b>{name}</b>
                   </span>
-                  {unread && !working && (
-                    <span
-                      className="session-row-unread-dot"
-                      role="status"
-                      aria-label={t('{{name}} has new activity', { name })}
-                    />
-                  )}
+                  {attention === 'unread' && <SessionRowUnreadDot name={name} />}
                 </button>
                 {expanded && <div className="automation-group-past">{renderRuns(runs)}</div>}
               </div>
@@ -486,6 +473,7 @@ export function favoritesSection({
   onToggleOpen,
   headerProps,
   renderRows,
+  attentionOf,
 }: {
   rows: DesktopSessionSummary[];
   sessionDrop?: FavoriteSessionDrop;
@@ -493,8 +481,14 @@ export function favoritesSection({
   onToggleOpen(): void;
   headerProps?: ReorderProps;
   renderRows: RenderForkRows;
+  attentionOf(sessionId: string): SessionAttention | '';
 }) {
   const reorder = reorderTarget(headerProps);
+  const headingStatus = groupSessionAttention(
+    !open,
+    rows.map((session) => session.id),
+    attentionOf
+  );
   return (
     <section
       className="sidebar-recent sidebar-favorites"
@@ -519,6 +513,11 @@ export function favoritesSection({
         >
           <span>{t('Favorites')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <SectionHeadingStatus
+            status={headingStatus}
+            name={t('Favorites')}
+            unreadLabel={t('{{name}} has new activity', { name: t('Favorites') })}
+          />
         </button>
       </div>
       {open && (
@@ -541,7 +540,7 @@ export function recentSection({
   sentinelRef,
   open,
   onToggleOpen,
-  hasHeadingDot,
+  headingStatus,
   archiveAllDisabled,
   onArchiveAll,
   headerProps,
@@ -556,7 +555,8 @@ export function recentSection({
   sentinelRef: React.RefObject<HTMLDivElement | null>;
   open: boolean;
   onToggleOpen(): void;
-  hasHeadingDot: boolean;
+  /** The collapsed heading's status (groupSessionAttention). */
+  headingStatus: SessionAttention | '';
   archiveAllDisabled: boolean;
   onArchiveAll(): void;
   /** Renders the full list's fork groups, covering `visibleRows.length` rows. */
@@ -565,11 +565,7 @@ export function recentSection({
 }) {
   return (
     <section className="sidebar-recent" aria-label={t('Recent sessions')} {...reorderTarget(headerProps)}>
-      <div
-        className="sidebar-category-header"
-        {...reorderHandle(headerProps)}
-        {...(hasHeadingDot ? undefined : rowOverflowHostProps())}
-      >
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -578,23 +574,19 @@ export function recentSection({
         >
           <span>{t('Recent')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {hasHeadingDot && (
-            <span className="sidebar-heading-dot" role="status" aria-label={t('Recent has new activity')} />
-          )}
+          <SectionHeadingStatus status={headingStatus} name={t('Recent')} unreadLabel={t('Recent has new activity')} />
         </button>
-        {!hasHeadingDot && (
-          <RowOverflowMenu
-            label={t('Actions')}
-            items={[
-              {
-                id: 'archive-all',
-                label: t('Archive all'),
-                disabled: archiveAllDisabled,
-                onSelect: onArchiveAll,
-              },
-            ]}
-          />
-        )}
+        <RowOverflowMenu
+          label={t('Actions')}
+          items={[
+            {
+              id: 'archive-all',
+              label: t('Archive all'),
+              disabled: archiveAllDisabled,
+              onSelect: onArchiveAll,
+            },
+          ]}
+        />
       </div>
       {open && (
         <nav id="recent-session-list" className="session-list recent-session-list" aria-label={t('Recent sessions')}>
@@ -715,7 +707,11 @@ function projectFolderGroup(
   const reorder = folderReorderProps(group.key);
   const limit = rowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
   // A collapsed folder speaks for its hidden sessions with their strongest status.
-  const attention = expanded ? '' : strongestSessionAttention(group.rows.map((session) => attentionOf(session.id)));
+  const attention = groupSessionAttention(
+    !expanded,
+    group.rows.map((session) => session.id),
+    attentionOf
+  );
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop target; the keyboard path is the session menu's Move to project
     <div
@@ -830,7 +826,12 @@ function projectFolderGroup(
  *  folder opens onto its newest sessions; the folder row is the drag handle
  *  for reordering and its hover + starts a task in that project. */
 export function projectsSection(props: ProjectsSectionProps) {
-  const { groups, open, onToggleOpen, headerProps, onAddProject } = props;
+  const { groups, open, onToggleOpen, headerProps, onAddProject, attentionOf } = props;
+  const headingStatus = groupSessionAttention(
+    !open,
+    groups.flatMap((group) => group.rows.map((session) => session.id)),
+    attentionOf
+  );
   return (
     <section className="sidebar-recent sidebar-projects" aria-label={t('Projects')} {...reorderTarget(headerProps)}>
       <div
@@ -846,6 +847,11 @@ export function projectsSection(props: ProjectsSectionProps) {
         >
           <span>{t('Projects')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <SectionHeadingStatus
+            status={headingStatus}
+            name={t('Projects')}
+            unreadLabel={t('{{name}} has new activity', { name: t('Projects') })}
+          />
         </button>
         {onAddProject && (
           <RowOverflowMenu
@@ -878,6 +884,7 @@ export function archivedSection({
   headerProps,
   renderRows,
   allRows,
+  attentionOf,
 }: {
   headerProps?: ReorderProps;
   allRows: readonly DesktopSessionSummary[];
@@ -890,14 +897,24 @@ export function archivedSection({
   onRestoreAll(): void;
   onDeleteAll(): void;
   renderRows: RenderForkRows;
+  attentionOf(sessionId: string): SessionAttention | '';
 }) {
+  const headingStatus = groupSessionAttention(
+    !open,
+    allRows.map((session) => session.id),
+    attentionOf
+  );
   return (
     <section
       className="sidebar-recent sidebar-archived"
       aria-label={t('Archived sessions')}
       {...reorderTarget(headerProps)}
     >
-      <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
+      <div
+        className="sidebar-category-header"
+        {...reorderHandle(headerProps)}
+        {...rowOverflowHostProps()}
+      >
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
@@ -906,7 +923,13 @@ export function archivedSection({
         >
           <span>{t('Archived')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <SectionHeadingStatus
+            status={headingStatus}
+            name={t('Archived')}
+            unreadLabel={t('{{name}} has new activity', { name: t('Archived') })}
+          />
         </button>
+        {(
         <RowOverflowMenu
           label={t('Actions')}
           items={[
@@ -933,6 +956,7 @@ export function archivedSection({
             },
           ]}
         />
+        )}
       </div>
       {open && (
         <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>
