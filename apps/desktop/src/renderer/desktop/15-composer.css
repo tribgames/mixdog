@@ -819,8 +819,11 @@
   gap: 10px;
   padding-block: 6px;
 }
+/* The divider is painted, not a border: a half-pixel border pushes every later
+   row's centered content onto a fractional pixel, where the icon, status word
+   and button label round to different device pixels. */
 .composer-island-row + .composer-island-row {
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+  box-shadow: inset 0 var(--mx-hairline) 0 0 var(--composer-island-rule);
 }
 .composer-island-row > .composer-island-row-open,
 .composer-island-row > .schedules-row-copy {
@@ -865,6 +868,15 @@
   flex: none;
   min-width: 42px;
   text-align: right;
+  /* The status word sits in a box built like the row's button: the button's
+     height, and the button label's line height, centered. A free-height box
+     (its own 21px line) put the word's baseline on a different device pixel
+     than the label's, 1-2px apart at 100%-150% display scaling. */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--island-row-button-height, 26px);
+  line-height: var(--island-row-button-line, 20px);
 }
 /* A finished background shell: muted until the user dismisses it (or, after
    a clean exit, until it is dismissed on its own). Ended reads muted, failed
@@ -880,6 +892,7 @@
 }
 .composer-island-row-dismiss {
   flex: none;
+  line-height: var(--island-row-button-line, 20px);
 }
 .composer-island-pill > .composer-island-seg.composer-island-seg-shell[data-finished="true"] {
   color: var(--mx-text-muted);
@@ -1682,6 +1695,8 @@ html[data-mixdog-mobile-tabs] .composer-island-pfoot {
 html[data-mixdog-mobile-tabs] .composer-island-row {
   min-height: var(--mx-touch-row-main);
   gap: 10px;
+  --island-row-button-height: 32px;
+  --island-row-button-line: 18px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-ptitle {
   gap: 8px;
