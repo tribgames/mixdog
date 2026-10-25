@@ -265,27 +265,31 @@ function exactTemporaryJob(root: string, jobId: string): string {
   return target;
 }
 
-async function readEncryptedChildJson(executable: string, args: string[], expectedSha256: string): Promise<unknown> {
-  if ((await sha256File(executable)) !== expectedSha256) {
-    throw new Error('Native browser importer changed after signature verification.');
-  }
-  const transportKey = randomBytes(32);
+/** Runs the child with `input` on stdin. Settles on the child's `close` (the
+ *  process has exited and its stdio is drained), never on `exit`, which can
+ *  fire while stdout still holds unread data. A spawn that throws synchronously
+ *  rejects this promise like any other failure. */
+async function runNativeChild(
+  executable: string,
+  args: string[],
+  input: string
+): Promise<{ exitCode: number; stdout: Buffer; stderr: Buffer; stdoutBytes: number }> {
   const child = spawn(executable, args, {
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const exitCodePromise = new Promise<number>((resolveExit, rejectExit) => {
+  const closed = new Promise<number>((resolveClose, rejectClose) => {
     const timer = setTimeout(() => {
       child.kill();
-      rejectExit(new Error('Native browser importer timed out.'));
+      rejectClose(new Error('Native browser importer timed out.'));
     }, NATIVE_IMPORT_TIMEOUT_MS);
     child.once('error', (error) => {
       clearTimeout(timer);
-      rejectExit(error);
+      rejectClose(error);
     });
-    child.once('exit', (code) => {
+    child.once('close', (code) => {
       clearTimeout(timer);
-      resolveExit(code ?? 1);
+      resolveClose(code ?? 1);
     });
   });
   const stdout: Buffer[] = [];
@@ -304,16 +308,31 @@ async function readEncryptedChildJson(executable: string, args: string[], expect
     stderrBytes += chunk.length;
     if (stderrBytes <= 16_384) stderr.push(chunk);
   });
-  child.stdin?.end(transportKey.toString('base64'));
+  child.stdin?.end(input);
+  const exitCode = await closed;
+  return { exitCode, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), stdoutBytes };
+}
+
+/** `createTransportKey` is a test seam: the default is the production key. */
+export async function readEncryptedChildJson(
+  executable: string,
+  args: string[],
+  expectedSha256: string,
+  createTransportKey: () => Buffer = () => randomBytes(32)
+): Promise<unknown> {
+  if ((await sha256File(executable)) !== expectedSha256) {
+    throw new Error('Native browser importer changed after signature verification.');
+  }
+  const transportKey = createTransportKey();
   try {
-    const exitCode = await exitCodePromise;
-    if (stdoutBytes > NATIVE_OUTPUT_LIMIT) throw new Error('Native browser importer returned too much data.');
-    if (exitCode !== 0) {
+    const child = await runNativeChild(executable, args, transportKey.toString('base64'));
+    if (child.stdoutBytes > NATIVE_OUTPUT_LIMIT) throw new Error('Native browser importer returned too much data.');
+    if (child.exitCode !== 0) {
       throw new Error(
-        Buffer.concat(stderr).toString('utf8').trim() || `Native browser importer exited with code ${exitCode}.`
+        child.stderr.toString('utf8').trim() || `Native browser importer exited with code ${child.exitCode}.`
       );
     }
-    const envelope = JSON.parse(Buffer.concat(stdout).toString('utf8')) as Record<string, unknown>;
+    const envelope = JSON.parse(child.stdout.toString('utf8')) as Record<string, unknown>;
     if (envelope.version !== 1) throw new Error('Native password importer returned an invalid envelope.');
     const nonce = Buffer.from(String(envelope.nonce || ''), 'base64');
     const sealed = Buffer.from(String(envelope.ciphertext || ''), 'base64');

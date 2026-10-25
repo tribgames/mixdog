@@ -59,6 +59,7 @@ jobs:
       computer: ${{ steps.paths.outputs.computer }}
       desktop: ${{ steps.paths.outputs.desktop }}
       desktop_css_only: ${{ steps.paths.outputs.desktop_css_only }}
+      browser_import: ${{ steps.paths.outputs.browser_import }}
       graph: ${{ steps.paths.outputs.graph }}
       history: ${{ steps.paths.outputs.history }}
       mobile: ${{ steps.paths.outputs.mobile }}
@@ -83,6 +84,7 @@ jobs:
           set -euo pipefail
           if [[ "$EVENT_NAME" == push && "$ACTOR" == github-actions\[bot\] && "$HEAD_MESSAGE" =~ ^mixdog\ v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release workflow owns validation for this generated version commit."
+            echo "browser_import=false" >> "$GITHUB_OUTPUT"
             echo "computer=false" >> "$GITHUB_OUTPUT"
             echo "desktop=false" >> "$GITHUB_OUTPUT"
             echo "desktop_css_only=false" >> "$GITHUB_OUTPUT"
@@ -128,6 +130,13 @@ jobs:
             echo "graph=true" >> "$GITHUB_OUTPUT"
           else
             echo "graph=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The importer's own tests follow its sources; a change to this
+          # workflow re-proves the job it defines.
+          if grep -Eq '^native/mixdog-browser-import/|^\.github/workflows/release-gate\.yml$' /tmp/changed; then
+            echo "browser_import=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "browser_import=false" >> "$GITHUB_OUTPUT"
           fi
           if grep -Eq "$PATCH_RE" /tmp/changed; then
             echo "patch=true" >> "$GITHUB_OUTPUT"
@@ -716,6 +725,45 @@ jobs:
           restore-keys: graph-test-cargo-1.95.0-
       - run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
 
+  # The Chrome login importer's Rust tests (cookie decryption and schema
+  # binding, App-Bound key handling, snapshots, failure classification) guard
+  # the credential path and ran in no job. The crate links the pinned upstream
+  # chromium_importer and Windows-only APIs, so it runs here, on Windows, after
+  # fetching only the sparse upstream source build.ps1 itself would check out.
+  # native/mixdog-browser-import/test.mjs stages the wrapper against that
+  # checkout (and seeds its lockfile) before it runs cargo test.
+  browser-import:
+    needs: changes
+    if: needs.changes.outputs.browser_import == 'true'
+    timeout-minutes: 20
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.95.0"
+      # The commit is read from build.ps1 so the tests and the shipped binary
+      # can never be built from different upstream sources.
+      - name: Fetch the pinned upstream importer source
+        shell: bash
+        run: |
+          commit=$(grep -oE "UpstreamCommit = '[0-9a-f]{40}'" native/mixdog-browser-import/build.ps1 | grep -oE '[0-9a-f]{40}')
+          [[ -n "$commit" ]]
+          dir="$RUNNER_TEMP/bitwarden-clients"
+          git clone --filter=blob:none --no-checkout https://github.com/bitwarden/clients.git "$dir"
+          # Cone mode on purpose: a leading-slash no-cone pattern is rewritten
+          # to a Windows path by Git Bash's argument conversion.
+          git -C "$dir" sparse-checkout set apps/desktop/desktop_native
+          git -C "$dir" fetch --depth 1 origin "$commit"
+          git -C "$dir" checkout --detach --force "$commit"
+      # A cold debug build took 93s locally, so the job carries no cargo cache.
+      - name: Run the importer's Rust tests
+        shell: bash
+        run: node native/mixdog-browser-import/test.mjs "$RUNNER_TEMP/bitwarden-clients/apps/desktop/desktop_native"
+
   # release.yml re-checks the committed shipped-definition history against the
   # git history of the definitions; a stale file used to surface only after the
   # whole deploy had started. build-shipped-history keeps the committed file
@@ -757,7 +805,7 @@ jobs:
 
   complete:
     if: always()
-    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, shipped-history, mobile-scripts]
+    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, shipped-history, mobile-scripts]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -773,6 +821,7 @@ jobs:
           RELAY: ${{ needs.relay.result }}
           PATCH: ${{ needs.patch.result }}
           GRAPH: ${{ needs.graph.result }}
+          BROWSER_IMPORT: ${{ needs.browser-import.result }}
           SHIPPED_HISTORY: ${{ needs.shipped-history.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
         run: |
@@ -786,5 +835,6 @@ jobs:
           [[ "$RELAY" == success || "$RELAY" == skipped ]]
           [[ "$PATCH" == success || "$PATCH" == skipped ]]
           [[ "$GRAPH" == success || "$GRAPH" == skipped ]]
+          [[ "$BROWSER_IMPORT" == success || "$BROWSER_IMPORT" == skipped ]]
           [[ "$SHIPPED_HISTORY" == success || "$SHIPPED_HISTORY" == skipped ]]
           [[ "$MOBILE_SCRIPTS" == success || "$MOBILE_SCRIPTS" == skipped ]]

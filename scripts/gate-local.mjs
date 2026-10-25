@@ -10,7 +10,9 @@
 // Not covered locally: runtime-macos, computer-backend (cargo + Linux X11),
 // desktop-tests `computer` lane (windows-latest, src/main/computer/ only),
 // relay (apps/relay tests), graph (cargo test), patch (cargo test of the
-// checked-out engine), mobile-scripts (Python unittest). The gate's path
+// checked-out engine), browser-import (windows-latest cargo test of the Chrome
+// importer against a fetched upstream checkout), mobile-scripts (Python
+// unittest). The gate's path
 // filtering is not applied: every check and leg always runs. Run `npm ci`
 // (root and apps/desktop) first.
 import { spawn, spawnSync } from 'node:child_process';
@@ -112,7 +114,7 @@ for (const leg of legs) {
   }
 }
 console.log(
-  'Not covered locally: runtime-macos, computer-backend, desktop-tests computer lane (Windows-only), relay, graph, patch, mobile-scripts'
+  'Not covered locally: runtime-macos, computer-backend, desktop-tests computer lane (Windows-only), relay, graph, patch, browser-import, mobile-scripts'
 );
 console.log(`Total: ${((Date.now() - started) / 1000).toFixed(1)}s`);
 process.exit(legs.every((l) => l.ok) ? 0 : 1);
