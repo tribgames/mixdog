@@ -597,6 +597,12 @@ export function providerAccountExhaustedForModelOnly(row, now = Date.now(), mode
 // enough that yesterday's number cannot send every fallback to one account.
 const USAGE_EVIDENCE_MAX_AGE_MS = 60 * 60_000;
 
+/** Whether a usage reading taken at `checkedAt` may still steer a decision. */
+export function quotaReadingFresh(checkedAt, now = Date.now()) {
+  const at = Number(checkedAt);
+  return at > 0 && now - at <= USAGE_EVIDENCE_MAX_AGE_MS;
+}
+
 // Remaining headroom across every window that applies to this model, or null
 // when nothing recent measured the account. The fullest window decides: an
 // account with 4% of its burst window left cannot serve now, however untouched

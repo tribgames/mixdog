@@ -1041,6 +1041,13 @@ async function main() {
   // Agents' sends whose report an earlier process had not queued yet.
   agentTasks.recover().catch((error) => log(`agent task report recovery failed: ${error?.message || error}`));
   recoverRoutineDeliveries().catch((error) => log(`routine delivery recovery failed: ${error?.message || error}`));
+  // Prompt-cache warms toward routine fires (session/cache-warm.mjs) lived in
+  // the previous process: re-arm them from their durable cache touches (the
+  // re-arm waits for the providers to be registered).
+  import('../runtime/agent/orchestrator/session/cache-warm.mjs')
+    .then(({ rearmCacheWarmsAfterRestart }) => rearmCacheWarmsAfterRestart())
+    .then((armed) => armed && log(`cache warm: re-armed ${armed} session(s)`))
+    .catch((error) => log(`cache warm re-arm failed: ${error?.message || error}`));
   sessionTransport = createSessionTransport({
     // ctx carries the CLIENT token: the session service refcounts views across
     // processes with it, so a terminal exiting cannot destroy the session a

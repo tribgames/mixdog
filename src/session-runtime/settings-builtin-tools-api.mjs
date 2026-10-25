@@ -96,6 +96,16 @@ export function createBuiltinToolSettings(
       saveConfigAndAdopt({ ...getConfig(), aiSessionTitles: enabled !== false });
       return this.getSessionTitleSettings();
     },
+    // Prompt-cache warms before a bot's scheduled run (orchestrator
+    // session/cache-warm.mjs): 'routine' (default) or 'off'. The warmer reads
+    // the saved value at each warm, so a change applies without a restart.
+    getCacheWarmingSettings() {
+      return { cacheWarming: getConfig()?.cacheWarming === 'off' ? 'off' : 'routine' };
+    },
+    setCacheWarmingEnabled(enabled) {
+      saveConfigAndAdopt({ ...getConfig(), cacheWarming: enabled === false ? 'off' : 'routine' });
+      return this.getCacheWarmingSettings();
+    },
     // The one pixel face every Lead row on the bot page wears, shared by every
     // device that follows this host. Only a mascot look counts; null (the
     // default grey pup) is stored as no key.

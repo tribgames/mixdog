@@ -22,7 +22,7 @@ export function usageRollupDayKey(ts) {
 // background runners. An unknown source counts as conversation on purpose: a
 // new runner showing up in the user's totals is visible and correctable, while
 // silently dropping the user's own turns is neither.
-const BACKGROUND_SOURCES = new Set(['memory-cycle', 'schedule', 'webhook', 'native-web-search']);
+const BACKGROUND_SOURCES = new Set(['memory-cycle', 'schedule', 'webhook', 'native-web-search', 'cache-warm']);
 
 export function isConversationUsageSource(sourceType) {
   const id = typeof sourceType === 'string' ? sourceType.trim().toLowerCase() : '';

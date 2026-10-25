@@ -196,7 +196,7 @@ export function resolveCacheStrategy(agent, { autoClear, session = null } = {}) 
 // breakpoint (header: break-even). Earlier models' typical retention is
 // ~30 min as well.
 export const OPENAI_LEAD_PREFIX_CACHE_TTL = '12h';
-const ANTHROPIC_TAIL_LIFETIME_MS = Object.freeze({ '5m': 5 * 60_000, '1h': 60 * 60_000 });
+export const ANTHROPIC_TAIL_LIFETIME_MS = Object.freeze({ '5m': 5 * 60_000, '1h': 60 * 60_000 });
 const OPENAI_TAIL_LIFETIME_MS = 30 * 60_000;
 
 /** The OpenAI (API key) stable-prefix TTL for a session: '12h' for the Lead

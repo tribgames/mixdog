@@ -50,6 +50,8 @@ import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable, fastModeDowngraded, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import { ANTHROPIC_VERSION, anthropicQuotaError, createAnthropicOAuthRequest } from './anthropic-oauth-request.mjs';
 import { isRefreshableAuthRejection } from './anthropic-oauth-request/initial-status.mjs';
+import { postMessages } from './anthropic-oauth-request/gzip-post.mjs';
+import { sendAnthropicCacheWarm } from './anthropic-cache-warm.mjs';
 import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
 import { adjustMaxTokensForContextOverflow } from './anthropic-max-tokens-recovery.mjs';
 import { announceAnthropicModelFallback, createAnthropicOverloadTracker } from './anthropic-overload-fallback.mjs';
@@ -464,6 +466,41 @@ export class AnthropicOAuthProvider {
       (opts) => this._sendOnce(messages, model, tools, opts),
       { levels: ANTHROPIC_EFFORT_LEVELS }
     );
+  }
+
+  /**
+   * Cache-warm mode (anthropic-cache-warm.mjs): the body `send` would build
+   * for these arguments, POSTed once — no retry, credential replay, fallback
+   * model or re-send — and cut at the first content block. `onUsage` receives
+   * the reported usage as it arrives; resolves the final usage.
+   */
+  async sendCacheWarm(messages, model, tools, sendOpts = {}, { onUsage, accountId = '' } = {}) {
+    await warmCliVersion();
+    const opts = sendOpts || {};
+    const creds = await this.ensureAuth();
+    const body = buildRequestBody(sanitizeToolPairs(messages), model, tools, opts);
+    body.messages = await prepareAnthropicImages(body.messages, { signal: opts.signal });
+    return sendAnthropicCacheWarm({
+      providerName: this.name,
+      instance: this,
+      accountId,
+      model,
+      opts,
+      onUsage,
+      post: (signal) =>
+        postMessages({
+          accessToken: creds.accessToken,
+          requestBody: body,
+          betaHeaders: buildOAuthBetaHeaders(body, {
+            fastMode: this.fastModeBetaHeaderLatched,
+            toolSearch: Array.isArray(body.tools) && body.tools.some((t) => t?.defer_loading === true),
+            model,
+            opts,
+          }),
+          signal,
+          plain: true,
+        }),
+    });
   }
 
   async _sendOnce(messages, model, tools, sendOpts) {

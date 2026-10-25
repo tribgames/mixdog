@@ -361,6 +361,32 @@ async function accountQuotaExhausted(providerName, row, model, error, account) {
   return { exhausted, delay, evidence, ...(exhausted ? blockUntil(evidence, evidence ? 'quota' : 'unknown') : {}) };
 }
 
+// Record an exhausted verdict on the roster. An account-level block holds
+// every model, so it carries no model or limit scope.
+function blockRefusedAccount(providerName, accountId, model, error, verdict) {
+  const { evidence, until, source, reset, accountBlocked } = verdict;
+  return blockProviderAccount(providerName, accountId, until, accountBlocked ? '' : model, source, {
+    quota: evidence === true,
+    reset: reset === true,
+    limit: accountBlocked ? '' : quotaLimitOf(error),
+  });
+}
+
+/**
+ * A refusal `error` that account `accountId` gave outside the pool's send (a
+ * cache warm, which never rotates): judged and recorded on the roster exactly
+ * as the send would, with `instance` as that account's provider. Resolves
+ * whether the account was blocked.
+ */
+export async function recordAccountRefusal(providerName, accountId, model, error, instance) {
+  const row = readProviderAccountPool(providerName).accounts.find((entry) => entry.id === accountId);
+  if (!row) return false;
+  const verdict = await accountQuotaExhausted(providerName, row, model, error, () => instance);
+  if (!verdict.exhausted) return false;
+  await blockRefusedAccount(providerName, row.id, model, error, verdict);
+  return true;
+}
+
 // The pool's send: walks the eligible accounts until one answers, blocking
 // the ones whose quota window is exhausted along the way.
 function poolSend(providerName, account) {
@@ -522,23 +548,12 @@ function poolSend(providerName, account) {
           options.onStageChange?.('reconnecting', { message: 'Sign-in expired — switching to the next account' });
           continue;
         }
-        const { exhausted, evidence, until, source, reset, accountBlocked } = await accountQuotaExhausted(
-          providerName,
-          row,
-          model,
-          error,
-          account
-        );
+        const verdict = await accountQuotaExhausted(providerName, row, model, error, account);
+        const { exhausted, evidence, accountBlocked } = verdict;
         if (options.signal?.aborted || !exhausted) throw error;
         if (evidence) evidenced.add(row.id);
         else cooled.add(row.id);
-        // An account-level block holds every model, so it carries no model or
-        // limit scope.
-        await blockProviderAccount(providerName, row.id, until, accountBlocked ? '' : model, source, {
-          quota: evidence === true,
-          reset: reset === true,
-          limit: accountBlocked ? '' : quotaLimitOf(error),
-        });
+        await blockRefusedAccount(providerName, row.id, model, error, verdict);
         // An account block is unsafe to re-issue on THAT account only; with no
         // output emitted, the next account may serve the same request.
         if (

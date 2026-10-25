@@ -312,6 +312,32 @@ export class ProviderAdmissionScheduler {
     if (this._canDeleteLane(lane)) this._deleteLane(key, lane);
   }
 
+  /**
+   * Why a request that must not wait (a cache warm) cannot start on lane
+   * `key` now, or null: the lane's rate-limit cooldown, or a lane throttled
+   * after a 429 that would queue it.
+   */
+  immediateBlock(key) {
+    if (this.closedReason) return 'provider scheduler closed';
+    const lane = this.lanes.get(String(key || ''));
+    if (!lane) return null;
+    if (lane.adaptive && lane.cooldownUntil > this.now()) return 'rate-limit cooldown';
+    if (lane.queue.length > 0 || lane.active >= lane.limit) return 'account throttled';
+    return null;
+  }
+
+  /** Record a rate limit a request outside `run` (a cache warm) received on
+   *  lane `key`, into the same cooldown state (and broadcast) as a send's. */
+  recordRateLimit(key, error) {
+    const laneKey = String(key || '');
+    if (!laneKey || this.closedReason) return false;
+    const lane = this.lanes.get(laneKey) || createAdmissionLane(laneKey, this.concurrency);
+    this.lanes.set(laneKey, lane);
+    const recorded = this._recordFailure(laneKey, lane, error);
+    if (this._canDeleteLane(lane)) this._deleteLane(laneKey, lane);
+    return recorded;
+  }
+
   snapshot() {
     const now = this.now();
     return {
@@ -476,7 +502,7 @@ function digest(value) {
     .digest('hex');
 }
 
-function providerAdmissionKey(providerName, provider) {
+export function providerAdmissionKey(providerName, provider) {
   const name = String(providerName || provider?.name || 'provider');
   const stableAnthropicOAuthPath =
     name.toLowerCase() === 'anthropic-oauth'

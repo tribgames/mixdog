@@ -4,7 +4,8 @@
  * flattening, session activity timestamps, and batch merging.
  */
 import { agentJobResultText, parseAgentJob, parseSyntheticAgentMessage } from './agent-envelope.mjs';
-import { attachmentTextForPart, isAttachmentReference } from '../../runtime/attachments/store.mjs';
+import { isAttachmentReference } from '../../runtime/attachments/store.mjs';
+import { promptContentText, sessionActivityTimestamp } from '../../runtime/shared/idle-auto-clear-gate.mjs';
 import { recognisedSlashToken } from '../app/slash-commands.mjs';
 
 const QUEUE_PRIORITY = { now: 0, next: 1, later: 2 };
@@ -82,47 +83,7 @@ export function notificationDisplayText(text) {
   return firstQueueLine(synthetic?.result || result || text) || 'agent notification';
 }
 
-export function promptContentText(content) {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === 'string') return part;
-        if (part?.type === 'text') return isAttachmentReference(part) ? attachmentTextForPart(part) : part.text || '';
-        if (part?.type === 'image') return '[Image]';
-        if (part?.type === 'file') return '[File]';
-        return part?.text || '';
-      })
-      .filter(Boolean)
-      .join('\n');
-  }
-  return String(content ?? '');
-}
-
-function timestampMs(value) {
-  if (value == null || value === '') return 0;
-  const n = Number(value);
-  if (Number.isFinite(n) && n > 0) return n;
-  const parsed = Date.parse(String(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-function hasModelVisibleConversation(session) {
-  const messages = Array.isArray(session?.messages) ? session.messages : [];
-  return messages.some((message) => {
-    const role = message?.role;
-    if (role !== 'user' && role !== 'assistant' && role !== 'tool') return false;
-    const text = promptContentText(message.content).trim();
-    if (role === 'user' && text.startsWith('<system-reminder>')) return false;
-    if (role === 'assistant' && text === '.' && !Array.isArray(message.toolCalls)) return false;
-    return !!text || role === 'assistant' || role === 'tool';
-  });
-}
-
-export function sessionActivityTimestamp(session, fallback = 0) {
-  if (!hasModelVisibleConversation(session)) return 0;
-  return timestampMs(session?.lastUsedAt) || timestampMs(session?.updatedAt) || timestampMs(fallback);
-}
+export { promptContentText, sessionActivityTimestamp };
 
 export function promptDisplayText(content, options = {}) {
   if (typeof options.displayText === 'string' && options.displayText.trim()) return options.displayText;

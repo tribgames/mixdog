@@ -94,8 +94,33 @@ test('auto-clear idle windows name a custom provider by its registered name, bui
     assert.equal(text.includes('idle window'), false);
     assert.deepEqual(
       [...document.querySelectorAll('.settings-group > header h3')].map((h) => h.textContent),
-      ['Session names', 'Compaction', 'Idle session cleanup']
+      ['Session names', 'Compaction', 'Prompt cache', 'Idle session cleanup']
     );
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('cache warming is on by default, shows a saved off, and saves the switch', async () => {
+  const calls = [];
+  const run = async (capability, args) => {
+    calls.push([capability, args]);
+    return {};
+  };
+  let view = await renderContext({}, run);
+  try {
+    const toggle = document.querySelector('input[aria-label="Cache warming"]');
+    assert.ok(toggle);
+    assert.equal(toggle.checked, true, 'absent setting: on (routine)');
+    assert.match(document.body.textContent, /keeps the prompt cache alive before scheduled runs/i);
+    await act(async () => toggle.click());
+    assert.deepEqual(calls, [['setCacheWarmingEnabled', [false]]]);
+  } finally {
+    await view.cleanup();
+  }
+  view = await renderContext({}, run, { cacheWarming: { cacheWarming: 'off' } });
+  try {
+    assert.equal(document.querySelector('input[aria-label="Cache warming"]').checked, false);
   } finally {
     await view.cleanup();
   }

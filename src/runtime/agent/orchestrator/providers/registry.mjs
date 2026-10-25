@@ -70,6 +70,17 @@ let _initChain = Promise.resolve();
 let _inFlightPromise = null;
 let _inFlightSig = null;
 let _lastAppliedSig = null;
+// Settles when an initialization by the owning runtime first applies.
+let _markProvidersInitialized;
+const _providersInitialized = new Promise((resolve) => {
+  _markProvidersInitialized = resolve;
+});
+
+/** Read-only readiness: resolves once the owning runtime's provider
+ *  initialization has applied a config (never starts one). */
+export function providersInitialized() {
+  return _providersInitialized;
+}
 // Provider instances are process-global inside the daemon. Catalog
 // readers use this revision to share one raw model snapshot while still
 // rebuilding their cheap route/config projection after auth/config changes.
@@ -223,7 +234,14 @@ async function instantiateProvider(name, Ctor, cfg, proxyChannel = null) {
   return createAccountPoolProvider(name, () => wrapProviderAdmission(new Ctor(cfg), name));
 }
 
+let _initProvidersCalls = 0;
+/** Test seam: how many times initProviders was called in this process. */
+export function _initProvidersCallCountForTest() {
+  return _initProvidersCalls;
+}
+
 export async function initProviders(config, { signal = null } = {}) {
+  _initProvidersCalls += 1;
   throwIfAborted(signal);
   // Remote mode: provider availability and config are the PC's, never this
   // server's credential probes. No connected client fails here, clearly.
@@ -263,6 +281,7 @@ export async function initProviders(config, { signal = null } = {}) {
       if (_lastAppliedSig !== sig) _providerCatalogRevision += 1;
       _lastAppliedSig = sig;
       settle();
+      _markProvidersInitialized();
       return v;
     },
     (err) => {
@@ -452,6 +471,13 @@ function _scheduleOAuthSelfHeal(name) {
 // by its replacement account. When that account is not connected the lookup
 // misses like any other unconnected provider.
 const RETIRED_PROVIDER_ALIASES = Object.freeze({ 'opencode-go': 'opencode-go-oauth' });
+
+/** The instance registered under `name` right now, or null — a read-only
+ *  lookup (no lazy registration, unlike getProvider). */
+export function registeredProvider(name) {
+  return providers.get(name) || null;
+}
+
 export function getProvider(requestedName) {
   const name = Object.hasOwn(RETIRED_PROVIDER_ALIASES, requestedName)
     ? RETIRED_PROVIDER_ALIASES[requestedName]

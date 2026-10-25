@@ -108,6 +108,15 @@ test('AI session titles default on, persist the top-level key and report the sam
   assert.equal(state.config().aiSessionTitles, true);
 });
 
+test('cache warming defaults to routine, persists off|routine at the top level and reports the same shape', () => {
+  const state = fixture();
+  assert.deepEqual(state.api.getCacheWarmingSettings(), { cacheWarming: 'routine' });
+  assert.deepEqual(state.api.setCacheWarmingEnabled(false), { cacheWarming: 'off' });
+  assert.equal(state.config().cacheWarming, 'off');
+  assert.deepEqual(state.api.setCacheWarmingEnabled(true), { cacheWarming: 'routine' });
+  assert.equal(state.config().cacheWarming, 'routine');
+});
+
 test('the shared Lead appearance is host-stored: missing → none, a valid mascot persists, junk is refused', () => {
   const state = fixture();
   assert.deepEqual(state.api.getLeadAppearance(), { avatar: null });

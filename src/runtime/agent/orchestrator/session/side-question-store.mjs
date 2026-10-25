@@ -3,6 +3,7 @@
 // side question or a compaction summary forks) and the side question in flight. It holds live
 // provider/tool objects, so it never reaches the session record or disk.
 import { isAgentOwner } from '../agent-owner.mjs';
+import { armCacheWarm, cancelCacheWarm, forgetCacheWarm } from './cache-warm.mjs';
 
 // sessionId -> { provider, model, messages, tools, opts, response }
 const requests = new Map();
@@ -51,9 +52,13 @@ export function captureSideQuestionRequest({ sessionId, sessionRef, provider, mo
   const previous = requests.get(sessionId);
   const request = sideQuestionRequestSnapshot({ provider, model, messages, tools, opts });
   requests.set(sessionId, request);
+  // A real request replaces any cache warm (cache-warm.mjs); a settled one
+  // arms the next.
+  cancelCacheWarm(sessionId);
   return {
     settle(response) {
       request.response = response || null;
+      armCacheWarm(sessionId, request, response);
     },
     discard() {
       if (requests.get(sessionId) !== request) return;
@@ -80,6 +85,7 @@ export function compactionForkRequest(sessionId) {
 export function retireCompactionFork(sessionId) {
   const request = sideQuestionRequest(sessionId);
   if (request) request.compacted = true;
+  forgetCacheWarm(sessionId);
 }
 
 /** Start the session's side question, aborting the one still in flight. */
@@ -109,5 +115,10 @@ export function cancelSideQuestion(sessionId) {
 export function forgetSideQuestion(sessionId, { cancel = false } = {}) {
   if (!sessionId) return;
   requests.delete(sessionId);
-  if (cancel) cancelSideQuestion(sessionId);
+  // Clear / rewind drop the cached prefix; a close or runtime unload (daemon
+  // shutdown) keeps its durable touch for the restart re-arm.
+  if (cancel) {
+    cancelCacheWarm(sessionId);
+    cancelSideQuestion(sessionId);
+  } else forgetCacheWarm(sessionId);
 }

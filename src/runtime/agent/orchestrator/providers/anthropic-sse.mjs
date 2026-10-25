@@ -97,7 +97,7 @@ function _statusForAnthropicSseError(event, payload) {
   return 0;
 }
 
-function _anthropicSseError(event, labels) {
+export function _anthropicSseError(event, labels) {
   const payload = event?.error && typeof event.error === 'object' ? event.error : event;
   const type = payload?.type || event?.type || 'error';
   const message = payload?.message || 'Anthropic SSE error';

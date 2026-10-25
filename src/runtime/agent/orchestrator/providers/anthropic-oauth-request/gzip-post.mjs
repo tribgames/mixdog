@@ -12,7 +12,9 @@ import { sendGzipCompressed } from '../lib/request-compression.mjs';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 export { ANTHROPIC_VERSION };
 
-export async function postMessages({ accessToken, requestBody, betaHeaders, signal, compress }) {
+// `plain`: exactly one uncompressed POST (a cache warm), so no compression
+// rejection resend can follow.
+export async function postMessages({ accessToken, requestBody, betaHeaders, signal, compress, plain = false }) {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
     'anthropic-version': ANTHROPIC_VERSION,
@@ -22,17 +24,15 @@ export async function postMessages({ accessToken, requestBody, betaHeaders, sign
     'x-app': 'cli',
     'Content-Type': 'application/json',
   };
-  return sendGzipCompressed({
-    raw: Buffer.from(JSON.stringify(requestBody)),
-    headers,
-    compress,
-    send: (body, sendHeaders) =>
-      fetch(API_URL, {
-        method: 'POST',
-        headers: sendHeaders,
-        body,
-        signal,
-        dispatcher: getLlmDispatcher(),
-      }),
-  });
+  const raw = Buffer.from(JSON.stringify(requestBody));
+  const send = (body, sendHeaders) =>
+    fetch(API_URL, {
+      method: 'POST',
+      headers: sendHeaders,
+      body,
+      signal,
+      dispatcher: getLlmDispatcher(),
+    });
+  if (plain) return send(raw, headers);
+  return sendGzipCompressed({ raw, headers, compress, send });
 }

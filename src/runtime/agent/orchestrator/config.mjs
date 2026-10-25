@@ -297,6 +297,9 @@ export function loadConfig(options = {}) {
         aiSessionTitles: raw.aiSessionTitles !== false,
         // Mixy's 2-hourly heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
         heartbeat: raw.heartbeat !== false,
+        // Prompt-cache warms toward a bot's next routine fire
+        // (session/cache-warm.mjs): 'routine' (default) or 'off'.
+        cacheWarming: raw.cacheWarming === 'off' ? 'off' : 'routine',
         // Bots may leave an emoji reaction on the user's message (react tool); default on.
         reactions: raw.reactions !== false,
         // Bots page layout (order, hidden groups, pins, retention) and the shared
@@ -351,6 +354,7 @@ export function loadConfig(options = {}) {
     shell: {},
     update: {},
     recap: { enabled: true },
+    cacheWarming: 'routine',
     worktree: normalizeWorktreeSettings(null),
     developer: {},
     modules: {},

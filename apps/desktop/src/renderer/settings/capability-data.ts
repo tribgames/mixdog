@@ -162,6 +162,7 @@ export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, u
   ['providerSetup', 'getProviderSetup'],
   ['recap', 'getRecapSettings'],
   ['sessionTitles', 'getSessionTitleSettings'],
+  ['cacheWarming', 'getCacheWarmingSettings'],
   ['heartbeat', 'getHeartbeatSettings'],
   ['reactions', 'getReactionSettings'],
   ['toolModules', 'getToolModuleSettings'],

@@ -98,6 +98,24 @@ function nextMainRequest(sessionId) {
   });
 }
 
+/**
+ * The session's last provider request as its next turn would rebuild it from
+ * the record (a runtime restart lost the in-memory one): the next request
+ * without the reply that last request produced, stamped with the session's
+ * last send time. Null when the transcript does not end in that reply or the
+ * session has no rebuildable request (nextMainRequest).
+ */
+export function lastSentMainRequest(sessionId) {
+  const request = nextMainRequest(sessionId);
+  if (!request) return null;
+  let end = request.messages.length;
+  while (end > 0 && request.messages[end - 1]?.role === 'assistant') end -= 1;
+  if (end === 0 || end === request.messages.length) return null;
+  const sentAt = Number(request.opts.session?.lastProviderSendAt);
+  if (!(sentAt > 0)) return null;
+  return { ...request, messages: request.messages.slice(0, end), sentAt };
+}
+
 function answerText(response) {
   if (response?.toolCalls?.length) return SIDE_QUESTION_TOOL_ATTEMPT;
   const text = typeof response?.content === 'string' ? response.content.trim() : '';

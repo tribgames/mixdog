@@ -338,6 +338,17 @@ export function resolveAutoClearIdleMs(config, provider) {
   return autoClearIdleMsForProvider(provider, raw.providerIdleMs);
 }
 
+/** The idle auto-clear gate's settings for a thread on `provider`
+ *  (idle-auto-clear-gate.mjs): `{ enabled, idleMs, minContextPercent }`. */
+export function autoClearGateSettings(config, provider) {
+  const normalized = normalizeAutoClearConfig(config?.autoClear);
+  return {
+    enabled: normalized.enabled,
+    idleMs: resolveAutoClearIdleMs(config, provider),
+    minContextPercent: normalized.minContextPercent,
+  };
+}
+
 export function normalizeSystemShellConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const command = clean(raw.command);

@@ -370,6 +370,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
   const sessionTitles = record(data.sessionTitles);
+  const cacheWarming = record(data.cacheWarming);
   const providerDefaults = rows(autoClear.providerDefaults);
   // A custom provider's idle window is named by what the user registered.
   const providerNames = customProviderDisplayNames(data.providerSetup);
@@ -415,6 +416,18 @@ function ContextPanel({ data, pending, run }: PanelContext) {
             { value: 'self', label: t('Conversation model') },
           ]}
           onChange={(summaryMode) => void run('setCompactionSettings', [{ summaryMode }])}
+        />
+      </Group>
+      <Group title={t('Prompt cache')}>
+        <ToggleRow
+          title={t('Cache warming')}
+          description={t(
+            'Keeps the prompt cache alive before scheduled runs on models whose cache expires (currently Claude). Adds a small usage charge.'
+          )}
+          showDescription
+          checked={cacheWarming.cacheWarming !== 'off'}
+          disabled={busy}
+          onChange={(enabled) => void run('setCacheWarmingEnabled', [enabled])}
         />
       </Group>
       <Group

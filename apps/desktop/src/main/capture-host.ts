@@ -53,6 +53,7 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getCompactionSettings: { auto: true },
   getRecapSettings: { enabled: true },
   getSessionTitleSettings: { aiSessionTitles: true },
+  getCacheWarmingSettings: { cacheWarming: 'routine' },
   getHeartbeatSettings: { heartbeat: true },
   getReactionSettings: { reactions: true },
   getChannelSetup: {

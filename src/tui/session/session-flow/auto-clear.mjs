@@ -4,7 +4,7 @@
  * cleared-session UI once the active turn settles.
  */
 import { presentErrorText } from '../../../runtime/shared/err-text.mjs';
-import { sessionActivityTimestamp } from '../queue-helpers.mjs';
+import { idleAutoClearDue, sessionActivityTimestamp } from '../../../runtime/shared/idle-auto-clear-gate.mjs';
 import { archiveItemsForCompaction, compactionArchivedRows } from '../compaction-view.mjs';
 
 // Upper bound on the awaited idle compaction. Without a bound a stalled
@@ -16,29 +16,6 @@ import { archiveItemsForCompaction, compactionArchivedRows } from '../compaction
 // when it settles. Do NOT raise this to cover compaction worst cases.
 const AUTO_CLEAR_COMPACT_TIMEOUT_MS = 60_000;
 const LATE_COMPLETION_NOTICE = 'auto-clear completed late; compacted conversation retained';
-
-// A zero is often an unavailable/stale meter field, not an authoritative
-// measurement. Do not let it mask the sibling live estimate.
-function contextUsageBelowThreshold(runtime, minContextPercent) {
-  if (!(minContextPercent > 0)) return false;
-  const status = runtime.contextStatus?.() || null;
-  const usedTokens = Math.max(
-    0,
-    Number(status?.usedTokens) || 0,
-    Number(status?.currentEstimatedTokens) || 0,
-    Number(status?.compaction?.currentEstimatedTokens) || 0
-  );
-  const triggerTokens = Number(
-    status?.compaction?.triggerTokens ||
-      status?.compaction?.autoCompactTokenLimit ||
-      runtime.session?.autoCompactTokenLimit ||
-      0
-  );
-  if (!Number.isFinite(usedTokens) || !Number.isFinite(triggerTokens) || !(usedTokens > 0 && triggerTokens > 0)) {
-    return true;
-  }
-  return (usedTokens / triggerTokens) * 100 < minContextPercent;
-}
 
 export function createAutoClearOps(bag, { reset, kickDrain }) {
   const {
@@ -140,15 +117,9 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     const cfg = autoClearState();
     const now = Date.now();
     const activityAt = sessionActivityTimestamp(runtime.session, flags.lastUserActivityAt);
-    const idleMs = activityAt ? now - activityAt : 0;
-    const notIdle =
-      !cfg.enabled ||
-      getState().busy ||
-      (!ignorePending && pending.length > 0) ||
-      flags.autoClearRunning ||
-      flags.autoClearInFlight ||
-      idleMs < cfg.idleMs;
-    if (notIdle || contextUsageBelowThreshold(runtime, Number(cfg.minContextPercent ?? 10))) {
+    const blocked =
+      getState().busy || (!ignorePending && pending.length > 0) || flags.autoClearRunning || flags.autoClearInFlight;
+    if (blocked || !idleAutoClearDue({ cfg, activityAt, at: now, runtime })) {
       if (!activityAt) flags.lastUserActivityAt = now;
       return false;
     }

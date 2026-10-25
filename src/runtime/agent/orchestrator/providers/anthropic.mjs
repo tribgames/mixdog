@@ -18,6 +18,7 @@ import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-r
 import { armFirstByteWatchdog, createAnthropicApiTransport } from './anthropic-api-transport.mjs';
 import { createAnthropicApiRecovery } from './anthropic-api-recovery.mjs';
 import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
+import { sendAnthropicCacheWarm } from './anthropic-cache-warm.mjs';
 import {
   assertAnthropicStreamNotEmpty,
   createAnthropicMidState,
@@ -142,6 +143,38 @@ export class AnthropicProvider {
       }
       throw err;
     }
+  }
+  /**
+   * Cache-warm mode (anthropic-cache-warm.mjs): the request `send` would
+   * build for these arguments, sent once on the retry-free client — no
+   * key reload, fallback model or re-send — and cut at the first content
+   * block. `onUsage` receives the reported usage as it arrives.
+   */
+  async sendCacheWarm(messages, model, tools, opts = {}, { onUsage, accountId = '' } = {}) {
+    const prepared = await preparePdfTextForProvider(sanitizeToolPairs(messages), this);
+    const { params, requestHeaders } = await buildAnthropicApiRequest({
+      name: this.name,
+      config: this.config,
+      messages: prepared,
+      useModel: model,
+      tools,
+      opts,
+      fastModeLatched: this.fastModeBetaHeaderLatched,
+      modelInfo: isCustomProviderName(this.name) ? this.getCachedModelInfo?.(model) || null : null,
+      capabilityModel: this._capabilityModel(model),
+    });
+    return sendAnthropicCacheWarm({
+      providerName: this.name,
+      instance: this,
+      accountId,
+      model,
+      opts,
+      onUsage,
+      post: (signal) =>
+        this._currentClient()
+          .messages.create(params, { signal, ...(requestHeaders ? { headers: requestHeaders } : {}) })
+          .asResponse(),
+    });
   }
   // The `anthropic` API-key provider and every custom `anthropic`-protocol
   // provider (a subclass of this one) share this send path.
