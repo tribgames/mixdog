@@ -2232,7 +2232,7 @@
   "Ideating": "発想中",
   "Idle": "待機中",
   "Idle auto-clear disabled. Enter for options.": "アイドル自動クリアが無効です。Enterキーでオプションを表示します。",
-  "Idle choices take effect only when auto-clear is off or longer than the cache lifetime.": "待機中の項目は、自動クリアがオフか、キャッシュの有効期間より長い場合にのみ効果があります。",
+  "Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.": "待機中の項目は、1時間キャッシュを59分ごとに更新します。最後のやり取りから最大12時間、自動クリアで会話が整理されるまでに限るため、既定の自動クリア(1時間)では何も行いません。現在のモデルで採算が合わない項目はスキップされます。",
   "Idle session cleanup": "アイドルセッションの整理",
   "If Google shows a checkbox for the access, check it before Continue — it starts unchecked.": "Google にアクセス権のチェックボックスが表示されたら、［続行］を押す前にオンにしてください。最初はオフになっています。",
   "If the browser shows “can’t connect”, paste the address from its address bar below.": "ブラウザーに「接続できません」と表示されたら、アドレスバーのアドレスを下に貼り付けてください。",

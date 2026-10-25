@@ -2233,7 +2233,7 @@
   "Ideating": "빈틈 메우는 중…",
   "Idle": "대기 중",
   "Idle auto-clear disabled. Enter for options.": "유휴 세션 자동 정리가 꺼져 있습니다. 선택하여 설정을 변경하세요.",
-  "Idle choices take effect only when auto-clear is off or longer than the cache lifetime.": "쉬는 중 항목은 유휴 세션 자동 정리가 꺼져 있거나 캐시 수명보다 길 때만 적용됩니다.",
+  "Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.": "쉬는 중 항목은 1시간 캐시를 59분마다 데웁니다. 마지막 대화 후 최대 12시간, 자동 정리가 대화를 정리하기 전까지만이라 기본 자동 정리(1시간)에서는 작동하지 않습니다. 지금 모델에서 비용이 더 드는 항목은 건너뜁니다.",
   "Idle session cleanup": "유휴 세션 정리",
   "If Google shows a checkbox for the access, check it before Continue — it starts unchecked.": "Google에서 접근 권한 체크박스가 보이면 '계속'을 누르기 전에 체크하세요. 처음에는 체크되어 있지 않습니다.",
   "If the browser shows “can’t connect”, paste the address from its address bar below.": "브라우저가 \"연결할 수 없음\"을 보이면 주소창의 주소를 아래에 붙여 넣으세요.",

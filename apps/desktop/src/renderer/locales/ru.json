@@ -2385,7 +2385,7 @@
   "Ideating": "Придумывает",
   "Idle": "Ожидание",
   "Idle auto-clear disabled. Enter for options.": "Автоматическая очистка в режиме ожидания отключена. Введите параметры.",
-  "Idle choices take effect only when auto-clear is off or longer than the cache lifetime.": "Варианты для простоя действуют, только если автоочистка выключена или дольше времени жизни кэша.",
+  "Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.": "Варианты для простоя обновляют часовой кэш каждые 59 минут — не дольше 12 часов после последнего хода и только до того, как автоочистка очистит разговор; поэтому при стандартной автоочистке через 1 час они ничего не делают. Вариант, который не окупается для текущей модели, пропускается.",
   "Idle session cleanup": "Очистка неактивных сессий",
   "If Google shows a checkbox for the access, check it before Continue — it starts unchecked.": "Если Google показывает флажок доступа, отметьте его, прежде чем нажать «Продолжить»: по умолчанию он не отмечен.",
   "If the browser shows “can’t connect”, paste the address from its address bar below.": "Если браузер покажет «не удаётся подключиться», вставьте ниже адрес из адресной строки.",

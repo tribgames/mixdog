@@ -2333,7 +2333,7 @@
   "Ideating": "Ideando",
   "Idle": "En espera",
   "Idle auto-clear disabled. Enter for options.": "Borrado automático inactivo deshabilitado. Ingrese para opciones.",
-  "Idle choices take effect only when auto-clear is off or longer than the cache lifetime.": "Las opciones de inactividad solo surten efecto cuando la limpieza automática está desactivada o dura más que la vida de la caché.",
+  "Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.": "Las opciones de inactividad renuevan una caché de 1 hora cada 59 minutos, hasta 12 horas después del último turno y solo hasta que la limpieza automática borraría la conversación; con la limpieza automática predeterminada de 1 hora no hacen nada. Si una opción no compensa con el modelo actual, se omite.",
   "Idle session cleanup": "Limpieza de sesiones inactivas",
   "If Google shows a checkbox for the access, check it before Continue — it starts unchecked.": "Si Google muestra una casilla para el acceso, márcala antes de pulsar Continuar; empieza sin marcar.",
   "If the browser shows “can’t connect”, paste the address from its address bar below.": "Si el navegador muestra «no se puede conectar», pega abajo la dirección de la barra de direcciones.",

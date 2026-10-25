@@ -2232,7 +2232,7 @@
   "Ideating": "构思中",
   "Idle": "等待中",
   "Idle auto-clear disabled. Enter for options.": "空闲自动清除已禁用。输入选项。",
-  "Idle choices take effect only when auto-clear is off or longer than the cache lifetime.": "空闲选项仅在自动清理关闭或长于缓存有效期时生效。",
+  "Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.": "空闲选项每 59 分钟刷新一次 1 小时缓存，最长到最后一轮后 12 小时，且只在自动清理清理对话之前；因此在默认 1 小时自动清理下不起作用。对当前模型不划算的选项会被跳过。",
   "Idle session cleanup": "空闲会话清理",
   "If Google shows a checkbox for the access, check it before Continue — it starts unchecked.": "如果 Google 显示访问权限的勾选框，请先勾选再点击“继续”——它默认未勾选。",
   "If the browser shows “can’t connect”, paste the address from its address bar below.": "如果浏览器显示“无法连接”，请将地址栏中的地址粘贴到下方。",

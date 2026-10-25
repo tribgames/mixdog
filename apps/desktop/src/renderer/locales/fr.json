@@ -2334,7 +2334,7 @@
   "Ideating": "Idéation",
   "Idle": "En attente",
   "Idle auto-clear disabled. Enter for options.": "Effacement automatique en veille désactivé. Entrez pour les options.",
-  "Idle choices take effect only when auto-clear is off or longer than the cache lifetime.": "Les options d’inactivité ne s’appliquent que si le nettoyage automatique est désactivé ou plus long que la durée de vie du cache.",
+  "Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.": "Les options d’inactivité renouvellent un cache d’une heure toutes les 59 minutes, jusqu’à 12 heures après le dernier tour et seulement tant que le nettoyage automatique n’a pas vidé la conversation ; avec le nettoyage automatique par défaut d’une heure, elles n’ont donc aucun effet. Une option non rentable pour le modèle actuel est ignorée.",
   "Idle session cleanup": "Nettoyage des sessions inactives",
   "If Google shows a checkbox for the access, check it before Continue — it starts unchecked.": "Si Google affiche une case pour l’accès, cochez-la avant de cliquer sur Continuer ; elle est décochée par défaut.",
   "If the browser shows “can’t connect”, paste the address from its address bar below.": "Si le navigateur affiche « connexion impossible », collez ci-dessous l’adresse de la barre d’adresse.",

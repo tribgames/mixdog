@@ -2232,7 +2232,7 @@
   "Ideating": "Đang lên ý tưởng",
   "Idle": "Đang chờ",
   "Idle auto-clear disabled. Enter for options.": "Tắt tính năng tự động xóa khi không hoạt động. Nhập để có các tùy chọn.",
-  "Idle choices take effect only when auto-clear is off or longer than the cache lifetime.": "Các lựa chọn khi rảnh chỉ có hiệu lực khi tự động dọn đang tắt hoặc dài hơn thời gian sống của bộ nhớ đệm.",
+  "Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.": "Các lựa chọn khi rảnh làm mới bộ nhớ đệm 1 giờ mỗi 59 phút, tối đa 12 giờ sau lượt cuối và chỉ đến khi tự động dọn sẽ dọn cuộc trò chuyện; vì vậy với tự động dọn mặc định 1 giờ, chúng không làm gì. Lựa chọn không có lợi với mô hình hiện tại sẽ được bỏ qua.",
   "Idle session cleanup": "Dọn phiên không hoạt động",
   "If Google shows a checkbox for the access, check it before Continue — it starts unchecked.": "Nếu Google hiện hộp chọn cho quyền truy cập, hãy chọn hộp đó trước khi nhấn Tiếp tục — ban đầu hộp chưa được chọn.",
   "If the browser shows “can’t connect”, paste the address from its address bar below.": "Nếu trình duyệt báo “không thể kết nối”, hãy dán địa chỉ trên thanh địa chỉ vào bên dưới.",

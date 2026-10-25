@@ -126,7 +126,10 @@ test('cache warming: one check box per target, only scheduled runs by default, s
       'absent setting: before scheduled runs only'
     );
     assert.match(document.body.textContent, /only while the next turn is likely enough to pay for it/);
-    assert.match(document.body.textContent, /only when auto-clear is off or longer than the cache lifetime/);
+    assert.match(
+      document.body.textContent,
+      /refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear/
+    );
     // A burst: each click builds on the last intended list.
     await act(async () => boxes[3].click());
     await act(async () => boxes[0].click());

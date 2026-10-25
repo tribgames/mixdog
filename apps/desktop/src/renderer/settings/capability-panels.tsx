@@ -432,7 +432,9 @@ function CacheWarmingGroup({ saved, busy, run }: { saved: unknown; busy: boolean
       {CACHE_WARM_TARGETS.filter((target) => !CACHE_WARM_IDLE_TARGETS.includes(target)).map(row)}
       {CACHE_WARM_IDLE_TARGETS.map(row)}
       <p className="settings-connection-note">
-        {t('Idle choices take effect only when auto-clear is off or longer than the cache lifetime.')}
+        {t(
+          'Idle choices refresh a 1-hour cache every 59 minutes, up to 12 hours after the last turn and only until auto-clear would clear the conversation, so with the default 1-hour auto-clear they do nothing. A choice that can’t pay for itself on the current model is skipped.'
+        )}
       </p>
     </Group>
   );
