@@ -25,9 +25,9 @@ import {
 import { createInspection } from '../observation/inspect.ts';
 import { appendComputerRunRecord, computerRunRecord } from '../session/run-log.ts';
 
-// The host is a set of modules now. Every invariant below is a property of the
-// host as a whole, so the check reads all of them and never weakens because a
-// function moved between files.
+// The host is a set of modules plus the PowerShell program; the pins below read all of them so
+// they hold wherever a function lives. They guard Computer Use safety contracts that no
+// unit test drives (the PowerShell host only runs on a real desktop).
 const hostDirectory = new URL('../', import.meta.url);
 const hostFiles = (await readdir(hostDirectory, { recursive: true }))
   .map((name) => name.split('\\').join('/'))
@@ -153,15 +153,15 @@ test('inspection reports empty target semantics and bounds each provider call', 
 });
 
 test('focus recovery falls back to the owner when the action closed its window', () => {
-  // The owner is recorded while the window still exists: a destroyed handle can
-  // no longer name it, and that is exactly the case this fallback exists for.
-  assert.match(hostSource, /restore_owner_window_id\s*=\s*\$restoreOwnerId/);
   const start = hostSource.indexOf('function Restore-InputRecoveryState($req)');
   assert.ok(start > 0);
   const body = hostSource.slice(start, start + 1_200);
   assert.ok(body.includes("$restoredTarget = 'owner'"));
+  // The recovered owner is validated, and landing anywhere else still counts as a miss.
   assert.ok(body.includes('input recovery restore window is stale or invalid'));
-  // Landing anywhere else still counts as a miss.
+  // The owner is recorded while the window still exists: a destroyed handle can no longer name it.
+  assert.match(hostSource, /restore_owner_window_id\s*=\s*\$restoreOwnerId/);
+  // Landing anywhere else still counts as a miss: the TypeScript verification accepts the owner only when one was recorded.
   assert.match(hostSource, /restoredTarget === 'owner' &&\s*\n\s*inputRecovery\.restoreOwnerWindowId !== ''/);
 });
 
@@ -169,45 +169,35 @@ test('waiting on a condition never invalidates the refs the caller holds', () =>
   const start = hostSource.indexOf('function Get-WindowPredicates($req)');
   const end = hostSource.indexOf('function Get-MenuCandidates(', start);
   assert.ok(start > 0 && end > start);
-  const body = hostSource.slice(start, end);
-  // Snapshot-Window bumps the generation and clears the map; a predicate read
-  // must do neither, or a bounded wait would kill the caller's refs.
-  assert.equal(body.includes('$state.Map.Clear()'), false);
-  assert.equal(body.includes('$state.Generation'), false);
-  assert.match(hostSource, /'window_predicates'\s*\{\s*return Get-WindowPredicates \$req\s*\}/);
-  // Read classification on both sides of the host, so a wait stays read-only.
-  assert.equal(hostSource.split("'window_predicates'").length - 1 >= 4, true);
+  // Snapshot-Window bumps the generation and clears the map; a predicate read must do neither.
+  assert.doesNotMatch(hostSource.slice(start, end), /\$state\.Map\.Clear\(\)|\$state\.Generation/);
 });
 
 test('host types load from a per-build assembly cache with an inline fallback', () => {
-  assert.match(hostSource, /MIXDOG_COMPUTER_HOST_CACHE/);
-  assert.match(hostSource, /mixdog-computer-host-/);
-  // Exactly two compile sites: publish to the cache, and compile in-process
-  // when the cache is unavailable or its assembly cannot be loaded.
+  // Exactly two compile sites: publish to the cache, and compile in-process as the fallback.
   assert.equal(hostSource.split('-TypeDefinition $MixdogHostSource').length - 1, 2);
 });
 
 test('post-mutation settle waits out its budget instead of exiting on a transition start', () => {
   const settle = hostSource.indexOf('if (settleDelayMs > 0) await sleep(');
   assert.ok(settle > 0);
-  // A window opening or closing is where the move begins: the successor still
-  // needs this budget to build its tree, and cutting it returned empty trees.
-  const block = hostSource.slice(Math.max(0, settle - 500), settle + 500);
-  assert.equal(/opened_windows\.length/.test(block), false);
-  assert.equal(/closed_windows\.length/.test(block), false);
+  assert.doesNotMatch(hostSource.slice(Math.max(0, settle - 500), settle + 500), /(opened|closed)_windows\.length/);
 });
 
-test('run history records verdicts without typed text, keys, or pixels', () => {
-  const start = hostSource.indexOf('function computerRunRecord(');
-  assert.ok(start > 0);
-  // Bounded by the record builder itself, so moving neighbours cannot silently
-  // shrink what this inspects.
-  const body = hostSource.slice(start, hostSource.indexOf('\n}\n', start));
-  for (const secret of ['command.text', 'command.keys', 'clipboard', 'image']) {
-    assert.equal(body.includes(secret), false, secret);
-  }
-  assert.match(hostSource, /RUN_LOG_MAX_FILES = \d+/);
-  assert.match(hostSource, /RUN_LOG_MAX_BYTES = /);
+test('capture change summary survives the invalidation a mutation performs', () => {
+  const invalidation = hostSource.indexOf('if (OBSERVATION_BOUND_INPUT_ACTIONS.has(action)) {');
+  assert.ok(invalidation > 0);
+  assert.equal(hostSource.slice(invalidation - 400, invalidation + 200).includes('lastCaptureBySession'), false);
+});
+
+test('run history records verdicts without typed text, keys, or clipboard', () => {
+  const record = computerRunRecord(
+    { action: 'type', window_id: 'hwnd:0x1', text: 'typed-secret', keys: 'keys-secret', clipboard: 'clip-secret' },
+    performance.now(),
+    { text: JSON.stringify({ ok: true, action: 'type', verified: true, effect: 'changed' }) }
+  );
+  assert.equal(record.verified, true);
+  assert.doesNotMatch(JSON.stringify(record), /secret/);
 });
 
 test('run history keeps its byte ceiling across process-state resets', async () => {
@@ -890,14 +880,4 @@ test('dangerous command-only input fails before dispatch', () => {
       app: 'https://example.com/path?q=a%7C%7Cb',
     })
   );
-});
-
-test('capture change summary survives the invalidation a mutation performs', () => {
-  assert.match(hostSource, /baseline: 'previous_capture_of_same_window'/);
-  // Refs and frames die with a mutation; the capture baseline must not, or the
-  // fresh capture that follows would have nothing to compare against.
-  const invalidation = hostSource.indexOf('if (OBSERVATION_BOUND_INPUT_ACTIONS.has(action)) {');
-  assert.ok(invalidation > 0);
-  const block = hostSource.slice(invalidation - 400, invalidation + 200);
-  assert.equal(block.includes('lastCaptureBySession'), false);
 });

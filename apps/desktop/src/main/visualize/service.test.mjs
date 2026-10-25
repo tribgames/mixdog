@@ -555,17 +555,24 @@ test('two concurrent URL opens that both get tabs each name their own page', asy
 
 test('a web URL open without a browser host answers at once with the list_tabs fallback', async () => {
   const { cwd, cleanup } = workspace();
-  const { deps } = fakeDeps();
+  // Every wait the service could make never elapses: the answer must not depend on one.
+  const { deps } = fakeDeps({ delay: () => new Promise(() => {}) });
   const service = createVisualizeService(deps);
   try {
-    const started = Date.now();
-    const opened = await service.execute({
-      sessionId: 's1',
-      cwd,
-      action: 'open',
-      input: { targets: ['http://127.0.0.1:8765/index.html'] },
-    });
-    assert.ok(Date.now() - started < 500, 'no wait for a page that nothing will create');
+    const outcome = await Promise.race([
+      service.execute({
+        sessionId: 's1',
+        cwd,
+        action: 'open',
+        input: { targets: ['http://127.0.0.1:8765/index.html'] },
+      }),
+      (async () => {
+        for (let turn = 0; turn < 50; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+        return null;
+      })(),
+    ]);
+    assert.notEqual(outcome, null, 'the open waited for a page that nothing will create');
+    const opened = outcome;
     assert.match(opened.text, /list_tabs/);
     assert.doesNotMatch(opened.text, /as page/);
   } finally {

@@ -213,7 +213,7 @@ test('a reply or lane frame repeating the projection revision never re-reads the
       baseRevision: 2,
       patch: { set: { fast: false } },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setImmediate(resolve));
     assert.equal(reads.length, 0, 'a lane frame repeating the applied revision is not a crossed baseline');
     assert.equal(updates.length, applied);
     assert.equal(updates.at(-1).snapshot.fast, false);

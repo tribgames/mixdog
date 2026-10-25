@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { createBrowserRemoteTabs } from './remote-tabs.ts';
 
@@ -53,15 +53,21 @@ test('lists only live main-workspace pages in the order first seen', () => {
   );
 });
 
-test('a watch publishes changed lists only, and stops when unwatched', async () => {
+test('a watch publishes changed lists only, and stops when unwatched', async (t) => {
+  mock.timers.enable({ apis: ['setInterval'] });
+  t.after(() => mock.timers.reset());
+  const pass = async () => {
+    mock.timers.tick(50);
+    await new Promise((resolve) => setImmediate(resolve));
+  };
   const { pages, published, page, tabs } = fixture();
   pages.set('main-browser-a', page('A', 'https://a.test/'));
   assert.equal(tabs.watch(true).length, 1);
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await pass();
   assert.equal(published.length, 0, 'an unchanged list is not pushed');
 
   pages.get('main-browser-a').title = 'A2';
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await pass();
   assert.equal(published.length, 1);
   assert.equal(published[0][0].title, 'A2');
 
@@ -73,7 +79,7 @@ test('a watch publishes changed lists only, and stops when unwatched', async () 
   const count = published.length;
   pages.set('main-browser-c', page('C', 'https://c.test/'));
   tabs.changed();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await pass();
   assert.equal(published.length, count);
   tabs.dispose();
 });

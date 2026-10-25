@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import {
   MEDIA_SEGMENT_BYTES,
@@ -21,6 +21,7 @@ import {
   decryptMediaSegment,
 } from '../shared/remote-media-crypto.ts';
 import { FileDownloadError } from '../shared/file-downloads.ts';
+import { waitUntil } from './bounded-wait.mjs';
 import { createFileDownloadService } from './file-downloads.ts';
 import { leaseMediaFile } from './media-leases.ts';
 import { DOWNLOAD_WINDOW_MAX_BYTES, MEDIA_WINDOW_MAX_BYTES, createRelayMediaLane } from './remote-relay-media.ts';
@@ -255,7 +256,10 @@ test('a request that did not opt into the encrypted scheme is answered like no m
   }
 });
 
-test('a backlogged socket holds the stream back and an abort ends it quietly', async () => {
+test('a backlogged socket holds the stream back and an abort ends it quietly', async (t) => {
+  // The pump's 50 ms backpressure poll is a fake timer, advanced by hand below.
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
   const { assetId } = file('slow.mp4', 300_000);
   const { lane, sent } = await makeLane({ backlog: 1e9 });
   const serving = lane.serve({
@@ -267,9 +271,17 @@ test('a backlogged socket holds the stream back and an abort ends it quietly', a
     sid: SID,
     enc: ENC,
   });
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  assert.equal(sent.filter((envelope) => envelope.type === 'media-chunk').length, 1);
+  const chunks = () => sent.filter((envelope) => envelope.type === 'media-chunk').length;
+  await waitUntil(() => chunks() === 1, 'the first chunk before the backlog holds the stream');
+  // Several backpressure polls pass with the socket still backlogged: no further chunk.
+  for (let poll = 0; poll < 5; poll += 1) {
+    mock.timers.tick(50);
+    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(chunks(), 1);
   lane.abort('slow');
+  // The pump notices the abort when its current poll interval ends.
+  mock.timers.tick(50);
   await serving;
   assert.equal(
     sent.some((envelope) => envelope.type === 'media-end' || envelope.type === 'media-error'),

@@ -35,7 +35,7 @@ test("a person's address on a fresh tab loads only once the page's debugger and 
     assertUrl: async () => {},
   });
   const navigating = surface.control('owner', { documentId: 'p1:1', type: 'navigate', url: 'https://pay.example/' });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(loads, [], 'not dispatched while the debugger is still attaching');
   attached.resolve({});
   await navigating;

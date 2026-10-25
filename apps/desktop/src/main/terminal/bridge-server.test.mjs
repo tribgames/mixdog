@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { waitUntil } from '../bounded-wait.mjs';
 import { TerminalBridgeServer } from './bridge-server.ts';
 import { createTerminalCommandExecutor } from './commands.ts';
 
@@ -204,7 +205,7 @@ test('an explicit stop during a lost-endpoint restart is not undone', async () =
     // Kill only the listener: the discovery file stays ours but points nowhere.
     server.server.close();
     server.server.closeAllConnections();
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitUntil(() => stopping, 'the lost-endpoint restart to stop the server', { pollMs: 5 });
     assert.ok(stopping, 'the lost-endpoint restart must have run');
     await stopping;
     assert.equal(server.server, null);

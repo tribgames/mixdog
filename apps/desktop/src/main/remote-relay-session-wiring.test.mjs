@@ -36,6 +36,9 @@ function wiring(t, { pairedAt = MIGRATED_AT + 1, registeredAt = MIGRATED_AT + 2 
   ];
   const removed = [];
   const sent = [];
+  // Final-answer reads in the order the watcher issued them; a read precedes the push-or-suppress decision.
+  const reads = [];
+  const roster = new Map();
   const listeners = { sessions: null, states: null };
   // The phone's relay leg: what it reports itself showing.
   const leg = { credentialId: 'c1', background: false, visibleSessionIds: new Set() };
@@ -52,7 +55,10 @@ function wiring(t, { pairedAt = MIGRATED_AT + 1, registeredAt = MIGRATED_AT + 2 
         listeners.states = listener;
         return () => {};
       },
-      readSessionFinalAnswer: async () => ({ id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'done', text: 'Done.' }),
+      readSessionFinalAnswer: async (sessionId) => {
+        reads.push(sessionId);
+        return { id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'done', text: 'Done.' };
+      },
       invokeDesktopOperation: async () => [],
     },
     clients: { clients, size: clients.size },
@@ -83,21 +89,36 @@ function wiring(t, { pairedAt = MIGRATED_AT + 1, registeredAt = MIGRATED_AT + 2 
     broadcastEncrypted: () => {},
   }).start();
   t.after(() => subscriptions.dispose());
-  const finish = async (sessionId) => {
-    listeners.sessions([{ id: sessionId, title: sessionId, working: true }]);
-    listeners.sessions([{ id: sessionId, title: sessionId }]);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  // Finishes the given replies together and waits until `count` pushes were sent in total. Every
+  // roster update keeps all known sessions (a session missing from the roster would cancel its
+  // pending notification). The watcher reads finished turns one at a time in roster order, so
+  // once every listed reply was read and the last one's push arrived, the earlier ones' decisions
+  // (push or suppress) are already made.
+  const finish = async (sessionIds, count) => {
+    const ids = [sessionIds].flat();
+    const publish = (working) => {
+      for (const id of ids) roster.set(id, { id, title: id, ...(working ? { working: true } : {}) });
+      listeners.sessions([...roster.values()]);
+    };
+    const readsBefore = reads.length;
+    publish(true);
+    publish(false);
+    await until(() => reads.length - readsBefore >= ids.length && sent.length >= count);
   };
-  return { subscriptions, preferences, removed, sent, changes, listeners, leg, finish };
+  return { subscriptions, preferences, removed, sent, reads, changes, listeners, leg, finish };
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const turn = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
+const until = async (condition) => {
+  for (let i = 0; i < 1_000 && !condition(); i += 1) await turn();
+  assert.ok(condition(), 'condition never became true');
+};
 
 test('a phone paired before the migration that re-registers its push after it keeps the defaults', async (t) => {
   const w = wiring(t, { pairedAt: MIGRATED_AT - 1, registeredAt: MIGRATED_AT + 10 });
   // A coding session: a bots-only phone would not hear it.
   w.listeners.states({ sessionId: 'code', frameSource: 'live', snapshot: { toolApproval: { id: 'a1' } } });
-  await settle();
+  await until(() => w.sent.length >= 1);
   assert.equal(w.sent.length, 1);
   assert.equal((await w.preferences.device('c1')).scope, 'all');
 });
@@ -105,30 +126,31 @@ test('a phone paired before the migration that re-registers its push after it ke
 test('a phone app paired after the migration starts with bot chats only, before settings are opened', async (t) => {
   const w = wiring(t, { pairedAt: MIGRATED_AT + 1 });
   w.listeners.states({ sessionId: 'code', frameSource: 'live', snapshot: { toolApproval: { id: 'a1' } } });
-  await settle();
-  assert.equal(w.sent.length, 0);
+  // The approval is judged against the device's first-use default, which settles to bots.
+  for (let i = 0; i < 1_000 && (await w.preferences.device('c1')).scope !== 'bots'; i += 1) await turn();
   assert.equal((await w.preferences.device('c1')).scope, 'bots');
+  assert.equal(w.sent.length, 0);
 });
 
 test('a phone showing chat A still hears a reply that finished in chat B', async (t) => {
   const w = wiring(t, { pairedAt: MIGRATED_AT - 1 });
   w.leg.visibleSessionIds = new Set(['A']);
   w.leg.screenSessionIds = new Set(['A']);
-  await w.finish('B');
+  await w.finish(['A', 'B'], 1);
+  assert.deepEqual(w.reads, ['A', 'B'], 'A was read and decided before B');
   assert.deepEqual(
     w.sent.map((push) => push.sessionId),
-    ['B']
+    ['B'],
+    'the conversation on its screen is not pushed'
   );
-  await w.finish('A');
-  assert.equal(w.sent.length, 1, 'the conversation on its screen is not pushed');
   // A leg that reports no session is not showing that conversation.
   w.leg.screenSessionIds = new Set();
-  await w.finish('A');
+  await w.finish('A', 2);
   assert.equal(w.sent.length, 2);
   // In the background it shows nothing.
   w.leg.screenSessionIds = new Set(['A']);
   w.leg.background = true;
-  await w.finish('A');
+  await w.finish('A', 3);
   assert.equal(w.sent.length, 3);
 });
 
@@ -137,19 +159,19 @@ test('a wide client subscribed to B in the background while showing A is notifie
   // The delivery subscription carries the observed background session B.
   w.leg.visibleSessionIds = new Set(['A', 'B']);
   w.leg.screenSessionIds = new Set(['A']);
-  await w.finish('B');
+  await w.finish(['A', 'B'], 1);
+  assert.deepEqual(w.reads, ['A', 'B'], 'A was read and decided before B');
   assert.deepEqual(
     w.sent.map((push) => push.sessionId),
-    ['B']
+    ['B'],
+    'A is on its screen'
   );
-  await w.finish('A');
-  assert.equal(w.sent.length, 1, 'A is on its screen');
 });
 
 test('a client that never reports its screen (an older build) shows no conversation', async (t) => {
   const w = wiring(t, { pairedAt: MIGRATED_AT - 1 });
   w.leg.visibleSessionIds = new Set(['A']);
-  await w.finish('A');
+  await w.finish('A', 1);
   assert.equal(w.sent.length, 1);
 });
 
@@ -159,7 +181,7 @@ test('revoking a paired client drops its push registrations and its notification
   await w.preferences.setDevice('c2', { scope: 'bots' });
   w.changes.length = 0;
   w.subscriptions.forgetClient('c1');
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await until(() => w.removed.length >= 2 && w.changes.length >= 1);
   assert.deepEqual(w.changes, ['notifications'], 'open settings pages are told');
   assert.deepEqual(w.removed.sort(), [
     ['native', 'c1'],

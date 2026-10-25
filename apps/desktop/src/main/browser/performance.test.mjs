@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { BrowserPerformanceTrace, createBrowserPerformanceCommands, formatPerformanceMetrics } from './performance.ts';
 import { createBrowserSettle } from './settle.ts';
@@ -144,7 +144,20 @@ function settleHarness() {
   });
 }
 
-test('browser load settle closes completion and cancellation registration races', async () => {
+test('browser load settle closes completion and cancellation registration races', async (t) => {
+  // The 1 s load timeout is a fake timer that is never advanced: only the recheck can end the wait.
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+  const settlesUnadvanced = async (promise) => {
+    const outcome = await Promise.race([
+      promise.then(() => 'settled'),
+      (async () => {
+        for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+        return 'waiting for the timeout';
+      })(),
+    ]);
+    assert.equal(outcome, 'settled');
+  };
   const settle = settleHarness();
   let loadingChecks = 0;
   const completedDuringRegistration = {
@@ -152,9 +165,7 @@ test('browser load settle closes completion and cancellation registration races'
     on() {},
     removeListener() {},
   };
-  const completedAt = performance.now();
-  await settle.waitForLoadSettle(completedDuringRegistration, 1_000);
-  assert.ok(performance.now() - completedAt < 100);
+  await settlesUnadvanced(settle.waitForLoadSettle(completedDuringRegistration, 1_000));
 
   const controller = new AbortController();
   const cancelledDuringRegistration = {
@@ -162,9 +173,8 @@ test('browser load settle closes completion and cancellation registration races'
     on: () => controller.abort(new Error('cancelled')),
     removeListener() {},
   };
-  const cancelledAt = performance.now();
-  await settle.waitForLoadSettle(cancelledDuringRegistration, 1_000, controller.signal);
-  assert.ok(performance.now() - cancelledAt < 100);
+  await settlesUnadvanced(settle.waitForLoadSettle(cancelledDuringRegistration, 1_000, controller.signal));
+  assert.equal(controller.signal.aborted, true);
 });
 
 test('browser sequence step settling propagates cancellation instead of absorbing it', async () => {

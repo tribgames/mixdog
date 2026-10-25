@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 
+import { waitUntil } from '../bounded-wait.mjs';
 import { callbackPortOf, createServerLoginHandlers } from './ssh-ipc-server-logins.ts';
 
 const HOST = { id: 'h1', name: 'build-box', target: 'dev@build-box', lastConnectedAt: 1 };
@@ -226,8 +227,18 @@ test('cancel, a failed browser open, the time cap and dispose all close the forw
   assert.equal(noBrowser.forwards[0].closed, 1);
 
   const capped = setup({ answers: { beginOAuthProviderLogin: pending() }, maxForwardMs: 20 });
-  await capped.handlers.begin('h1', 'openai-oauth');
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  // The cap is a fake timer: still open just before it, closed once it is reached.
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    await capped.handlers.begin('h1', 'openai-oauth');
+    mock.timers.tick(19);
+    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(capped.forwards[0].closed, 0, 'the forward is kept until the cap');
+    mock.timers.tick(1);
+    await waitUntil(() => capped.forwards[0].closed === 1, 'the capped login to lose its forward');
+  } finally {
+    mock.timers.reset();
+  }
   assert.equal(capped.forwards[0].closed, 1, 'a login left pending loses its forward after the cap');
 
   const disposed = setup({ answers: { beginOAuthProviderLogin: pending() } });

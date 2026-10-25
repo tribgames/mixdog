@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
+import { DEFAULT_CAPTURE_AFTER_DELAY_MS } from '../shared/common.ts';
 import { dialogSuccessorWatch, dialogWatchSettled, settleWindowTransition } from './window-settle.ts';
 
 const windowRecord = (id, extra = {}) => ({
@@ -91,7 +92,12 @@ test('a dialog created after the settle scan is still reported as the successor'
   assert.equal(outcome.transition.next_target_reason, 'owned_window_opened');
 });
 
-test('a promised dialog that never appears ends on its own budget', async () => {
+test('a promised dialog that never appears ends on its own budget', async (t) => {
+  // Virtual clock: timers and performance.now advance together, 10 ms at a time.
+  let clock = 0;
+  t.mock.method(performance, 'now', () => clock);
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
   let scans = 0;
   const host = {
     assertExecutionNotAborted() {},
@@ -100,8 +106,8 @@ test('a promised dialog that never appears ends on its own budget', async () => 
       return [main];
     },
   };
-  const startedAt = performance.now();
-  const outcome = await settleWindowTransition(host, {
+  let done = false;
+  const settling = settleWindowTransition(host, {
     command: { action: 'invoke_menu', path: ['파일', '설정...'] },
     action: 'invoke_menu',
     windowsBefore: [main],
@@ -109,8 +115,17 @@ test('a promised dialog that never appears ends on its own budget', async () => 
     pid: 10,
     appHint: 'notepad',
     timings: {},
+  }).finally(() => {
+    done = true;
   });
+  const budget = DEFAULT_CAPTURE_AFTER_DELAY_MS + 1_200;
+  while (!done && clock <= budget + 500) {
+    clock += 10;
+    mock.timers.tick(10);
+    for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  }
+  const outcome = await settling;
+  assert.equal(clock, budget, 'the watch ends exactly at the settle delay plus the expected-dialog budget');
   assert.deepEqual(outcome.transition.opened_windows, []);
-  assert.ok(performance.now() - startedAt < 4_000, 'the dialog watch is bounded');
   assert.ok(scans > 1);
 });

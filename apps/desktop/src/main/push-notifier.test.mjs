@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createECDH, generateKeyPairSync, randomBytes } from 'node:crypto';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import { createPushNotifier } from './push-notifier.ts';
 import { decryptNativePush } from '../shared/native-push-crypto.ts';
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '../shared/contract-notifications.ts';
@@ -40,7 +40,21 @@ function fixture({ foreground = false, enabled = true } = {}) {
   return { notifier, sent };
 }
 const update = (toolApproval, frameSource = 'live') => ({ sessionId: 's1', frameSource, snapshot: { toolApproval } });
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+// final-answer-watcher confirms a finished lead turn after this delay.
+const LEAD_FINISHED_MS = 300;
+// The notifier's collaborators are in-memory, so draining the event loop settles it.
+const settle = async () => {
+  for (let i = 0; i < 25; i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+// Holds use the global setTimeout; fake it so a hold is advanced, not waited out.
+const fakeHoldTimers = (t) => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+};
+const advance = async (ms) => {
+  mock.timers.tick(ms);
+  await settle();
+};
 
 test('a session titled by attachments alone is pushed with its kind’s label, never [Image]', async (t) => {
   const device = createECDH('prime256v1');
@@ -243,6 +257,7 @@ test('each paired device gets its own decision: scope and event switch', async (
 });
 
 test('a device holding pushes while this PC is in use waits, and this PC is asked only for it', async (t) => {
+  fakeHoldTimers(t);
   const quiet = devices(t, { desktopActive: true });
   quiet.notifier.onSessionState(update({ id: 'a1' }));
   await settle();
@@ -261,7 +276,7 @@ test('a device holding pushes while this PC is in use waits, and this PC is aske
     'the device that does not hold hears it at once'
   );
   assert.equal(held.checks(), 1, 'asked once per notification');
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await advance(250);
   assert.deepEqual(
     held.native.map((push) => push.recipient),
     ['phone-b', 'phone-a'],
@@ -272,6 +287,7 @@ test('a device holding pushes while this PC is in use waits, and this PC is aske
 });
 
 test('a held approval answered on this PC during the hold is never pushed', async (t) => {
+  fakeHoldTimers(t);
   const f = devices(t, {
     desktopActive: true,
     holdMs: 150,
@@ -280,7 +296,7 @@ test('a held approval answered on this PC during the hold is never pushed', asyn
   f.notifier.onSessionState(update({ id: 'a1' }));
   await settle();
   f.notifier.onSessionState(update(null));
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await advance(250);
   assert.deepEqual(
     f.native.map((push) => push.recipient),
     ['phone-b']
@@ -288,6 +304,7 @@ test('a held approval answered on this PC during the hold is never pushed', asyn
 });
 
 test('a held finished turn goes out after the hold only while it is still unread', async (t) => {
+  fakeHoldTimers(t);
   const answer = { id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'done', text: 'Done.' };
   const hold = { holdWhileDesktopActive: true };
   const preferences = { 'phone-a': hold, 'phone-b': hold, 'tab-1': hold };
@@ -295,10 +312,10 @@ test('a held finished turn goes out after the hold only while it is still unread
     const f = devices(t, { desktopActive: true, holdMs: 400, answer, preferences });
     f.notifier.onSessions([{ id: 's1', title: 'Fix', working: true, messageCount: 2, readMessageCount: 2 }]);
     f.notifier.onSessions([{ id: 's1', title: 'Fix', messageCount: 4, readMessageCount: 2 }]);
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await advance(LEAD_FINISHED_MS);
     assert.equal(f.native.length, 0, 'held while this PC is in use');
     if (readDuringHold) f.notifier.onSessions([{ id: 's1', title: 'Fix', messageCount: 4, readMessageCount: 4 }]);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await advance(400);
     return f;
   };
   const unread = await run(false);
@@ -311,13 +328,14 @@ test('a held finished turn goes out after the hold only while it is still unread
 
 test('a failed turn pushes reason turn-failed, travelling to the relay as turn-finished', async (t) => {
   const errors = { ...DEFAULT_NOTIFICATION_PREFERENCES.events, error: true };
+  fakeHoldTimers(t);
   const f = devices(t, {
     preferences: { 'phone-a': { events: errors } },
     answer: { id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'failed', text: '' },
   });
   f.notifier.onSessions([{ id: 's1', title: 'Deploy', working: true }]);
   f.notifier.onSessions([{ id: 's1', title: 'Deploy' }]);
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await advance(LEAD_FINISHED_MS);
   assert.deepEqual(
     f.native.map((push) => [push.recipient, push.outer, push.reason, push.body]),
     [['phone-a', 'turn-finished', 'turn-failed', 'The turn stopped with an error.']]
@@ -326,13 +344,14 @@ test('a failed turn pushes reason turn-failed, travelling to the relay as turn-f
 });
 
 test('a webhook result reaches a device that is watching, like a schedule’s', async (t) => {
+  fakeHoldTimers(t);
   const f = devices(t, {
     foreground: ['phone-a:hook', 'phone-b:hook', 'tab-1:hook'],
     answer: { id: 'turn', at: Number.MAX_SAFE_INTEGER, status: 'done', text: 'Deployed.' },
   });
   f.notifier.onSessions([{ id: 'hook', title: 'Hook', sourceType: 'webhook', working: true }]);
   f.notifier.onSessions([{ id: 'hook', title: 'Hook', sourceType: 'webhook' }]);
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await advance(LEAD_FINISHED_MS);
   assert.equal(f.native.length, 2);
   assert.deepEqual(f.posted, ['tab-1']);
 });

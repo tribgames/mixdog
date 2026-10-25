@@ -169,7 +169,9 @@ function notifierFixture({ foreground = false, enabled = true, accept = true } =
   });
   return { notifier, sent, phone, removed };
 }
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const settle = async () => {
+  for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+};
 const approval = (id) => ({ sessionId: 's1', frameSource: 'live', snapshot: { toolApproval: id ? { id } : null } });
 
 test('native approval push: encrypted content only, same gates as web push', async (t) => {

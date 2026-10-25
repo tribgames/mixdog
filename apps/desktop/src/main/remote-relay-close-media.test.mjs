@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { WebSocketServer } from 'ws';
+import { waitUntil } from './bounded-wait.mjs';
 import { startRemoteRelay } from './remote-relay.ts';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,7 +49,7 @@ test('explicit close() destroys in-flight media streams', async () => {
     });
     while (connected < 1) await wait(10);
     await handle.close();
-    await wait(100);
+    await waitUntil(() => destroyed >= 1, 'mediaLane.destroyAll after the explicit close');
     assert.ok(destroyed >= 1, 'mediaLane.destroyAll ran on explicit close');
   } finally {
     for (const client of server.clients) client.terminate();

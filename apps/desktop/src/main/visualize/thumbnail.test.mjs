@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { settledBodyImage } from './host.ts';
 import { createVisualizeService } from './service.ts';
@@ -489,7 +489,13 @@ test('an animated page costs a few downscaled comparisons and still yields a rea
   assert.equal(settled.frame, 7);
 });
 
-test('an aborted thumbnail job stops between capture rounds', async () => {
+test('an aborted thumbnail job stops between capture rounds', async (t) => {
+  // Fake the quiet interval's timer: it is never advanced, so only the abort can end the wait.
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+  const drain = async () => {
+    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  };
   const controller = new AbortController();
   // The job is superseded while its second capture is taken.
   const { window, log } = captureWindow(
@@ -506,10 +512,14 @@ test('an aborted thumbnail job stops between capture rounds', async () => {
 
   // The default wait ends as soon as the job is aborted.
   const slow = new AbortController();
-  const started = Date.now();
-  const pending = settledBodyImage(captureWindow((n) => n).window, 's1', imageTab, slow.signal);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  const waiting = captureWindow((n) => n);
+  const pending = settledBodyImage(waiting.window, 's1', imageTab, slow.signal);
+  let finished = false;
+  pending.then(() => (finished = true));
+  await drain();
+  assert.equal(waiting.log.captures, 1, 'the first round captured and is now in its quiet wait');
+  assert.equal(finished, false, 'the quiet interval has not elapsed');
   slow.abort();
-  assert.equal(await pending, null);
-  assert.ok(Date.now() - started < 300, 'the quiet interval is cut short');
+  const outcome = await Promise.race([pending, drain().then(() => 'still waiting')]);
+  assert.equal(outcome, null, 'the abort ended the wait without advancing its deadline');
 });

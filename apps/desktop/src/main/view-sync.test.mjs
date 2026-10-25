@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import { synchronizeViewSnapshot } from './view-synchronizer.ts';
 import { SessionHost } from './session-host.ts';
 import { SessionViewRegistry } from './session-view-registry.ts';
@@ -154,7 +154,10 @@ test('an unavailable record is excluded without removing another visible session
   registry.close();
 });
 
-test('a failed catalog watcher rearms and reconciles without remounting consumers', async () => {
+test('a failed catalog watcher rearms and reconciles without remounting consumers', async (t) => {
+  // The watcher's retry is a 250 ms timer; advance it instead of waiting.
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
   let current,
     creations = 0,
     reconciles = 0,
@@ -178,7 +181,8 @@ test('a failed catalog watcher rearms and reconciles without remounting consumer
   try {
     watcher.start();
     current.emit('error', new Error('lost watcher'));
-    await delay(300);
+    assert.equal(creations, 1, 'not rearmed before the retry delay');
+    mock.timers.tick(250);
     assert.equal(creations, 2);
     assert.equal(reconciles, 1);
     assert.equal(warnings, 1);

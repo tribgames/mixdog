@@ -358,7 +358,9 @@ test('a takeover whose first cleanup fails on timing clears its own barrier', as
     recaptureRequiredReply: async () => null,
   });
   host.takeOverComputer('user_input_active');
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  for (let attempt = 0; attempt < 400 && coordinator.snapshot().cleanupState !== 'ready'; attempt += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
   assert.equal(coordinator.snapshot().cleanupState, 'ready', 'the host clears a timing-only cleanup failure itself');
   assert.equal(
     coordinator.snapshot().takeoverReason,

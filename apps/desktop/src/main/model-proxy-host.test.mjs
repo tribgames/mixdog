@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { waitUntil } from './bounded-wait.mjs';
 import { createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe } from './model-proxy-host.ts';
 import { OAUTH_PROVIDER_NAMES } from '../../../../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { hasProviderApiKey, resolveProviderApiKey } from '../../../../src/runtime/shared/provider-api-key.mjs';
@@ -211,7 +212,7 @@ test('a daemon-side abort aborts the PC provider call', async (t) => {
   await assert.rejects(sending, /user stop/);
   const reason = await stopped.promise;
   assert.equal(reason.name, 'AbortError');
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await waitUntil(() => host.running === 0, 'the aborted call to be released');
   assert.equal(host.running, 0);
   // The PC acknowledged, so the daemon holds nothing for the call.
   assert.deepEqual(channel.snapshot(), { requests: [], cancelled: [] });
@@ -466,7 +467,7 @@ test('a proxied side request gets its own transport scope on the PC, disposed wh
   assert.equal(closed.length, 2, 'still held while the request runs');
   controller.abort(new Error('user stop'));
   await assert.rejects(hanging, /user stop/);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await waitUntil(() => closed.length === 3, 'the cancelled request to close its transport scope');
   assert.equal(closed.length, 3);
   assert.equal(closed[2], sends[2].transportScope);
   assert.deepEqual(released, closed);

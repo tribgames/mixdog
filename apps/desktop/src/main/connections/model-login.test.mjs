@@ -59,7 +59,9 @@ function serverConnection(t, modelLogin) {
   return { connection, operations, loads };
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+const settle = async () => {
+  for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+};
 
 test("a server on its own logins is served nothing from this PC; one on this PC's logins is served as before", async (t) => {
   const own = serverConnection(t, 'server');

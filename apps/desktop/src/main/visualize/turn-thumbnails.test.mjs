@@ -6,13 +6,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { remoteVisualizeState, versionProducedAt } from '../../shared/visualize.ts';
+import { TURN_END_THUMBNAIL_MS } from './thumbnails.ts';
 import { VISIBLE_PASSWORD_SCRIPT } from './export-render.ts';
 import { exportTabBytes, thumbnailRenderers } from './host-export-path.ts';
 import { createVisualizeService } from './service.ts';
-import { TURN_END_THUMBNAIL_MS } from './thumbnails.ts';
 
 const SESSION = 's1';
 const png = (text) => Buffer.from(text);
@@ -251,9 +251,11 @@ test('a turn starting while the previous turn flushes keeps its own span; versio
 
 test('a picture not ready in time (or refused) leaves the card its placeholder, never an older picture', async () => {
   let refuse = false;
+  let started = 0;
   const t = setup({
     async thumbnailOffscreen(_sessionId, _tab, _files, signal) {
       if (refuse) throw new Error('the page shows a password field');
+      started += 1;
       // Never ready: only the deadline ends it.
       await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
       assert.equal(signal.aborted, true);
@@ -268,10 +270,21 @@ test('a picture not ready in time (or refused) leaves the card its placeholder, 
     await t.service.setTurnActive(SESSION, true);
     writeFileSync(join(t.cwd, 'site', 'a.html'), '<h1>two</h1>');
     await t.run('open', { targets: ['site/a.html'] });
-    const started = Date.now();
-    await t.service.setTurnActive(SESSION, false);
-    const waited = Date.now() - started;
-    assert.ok(waited >= TURN_END_THUMBNAIL_MS - 50 && waited < TURN_END_THUMBNAIL_MS + 1000, `waited ${waited} ms`);
+    // The turn-end deadline is a fake timer: pending until advanced, complete exactly at it.
+    mock.timers.enable({ apis: ['setTimeout'] });
+    let ended = false;
+    const ending = t.service.setTurnActive(SESSION, false).then(() => (ended = true));
+    for (let turn = 0; turn < 5_000 && started === 0; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(started, 1, 'the picture was requested');
+    const drain = async () => {
+      for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+    };
+    mock.timers.tick(TURN_END_THUMBNAIL_MS - 1);
+    await drain();
+    assert.equal(ended, false, 'still waiting one millisecond before the deadline');
+    mock.timers.tick(1);
+    await ending;
+    mock.timers.reset();
     const tab = t.shownTabs()[0];
     assert.equal(tab.versions.at(-1).n, 2);
     assert.equal(tab.thumbnail, undefined, 'version 1 picture is not shown as version 2');
@@ -284,6 +297,7 @@ test('a picture not ready in time (or refused) leaves the card its placeholder, 
     await t.service.setTurnActive(SESSION, false);
     assert.equal(t.shownTabs()[0].thumbnail, undefined);
   } finally {
+    mock.timers.reset();
     t.cleanup();
   }
 });

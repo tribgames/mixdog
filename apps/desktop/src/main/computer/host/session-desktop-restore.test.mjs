@@ -270,7 +270,7 @@ test('the end of a turn hands the desktop back at once and keeps the worker for 
   execution.sessionDesktopAnchor.set('s', { recovery: recovery(), targetWindowId: 'hwnd:0x1', userOwned: false });
   const reply = lifecycle.endComputerExecution({ action: 'execution_end', session_id: 's' });
   assert.equal(reply.text, 'computer execution ended');
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await settled(() => calls.length >= 2);
   assert.deepEqual(calls, ['release_held_input', 'restore_input_state'], 'held input goes up before focus goes home');
   assert.equal(workers.has('s'), true, 'the worker and its refs stay for a follow-up turn');
   assert.equal(execution.sessionDesktopAnchor.has('s'), false);
@@ -315,7 +315,7 @@ test('an idle worker reclaim restores the desktop once before retiring', async (
   });
   execution.sessionDesktopAnchor.set('s', { recovery: recovery(), targetWindowId: 'hwnd:0x1', userOwned: false });
   lifecycle.reapIdleSessionWorkers(300_001);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await settled(() => calls.length >= 1 && !workers.has('s'));
   assert.deepEqual(calls, ['restore_input_state']);
   assert.equal(workers.has('s'), false);
   coordinator.reset();
@@ -323,6 +323,11 @@ test('an idle worker reclaim restores the desktop once before retiring', async (
 
 async function settled(check) {
   for (let attempt = 0; attempt < 100 && !check(); attempt++) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
+// The fakes are in-memory: draining the event loop is enough to show nothing else happens.
+async function drain() {
+  for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
 test('the end of a turn lets go of held keys and buttons even when the desktop stays as the user left it', async () => {
@@ -359,7 +364,7 @@ test('the last agent session to finish its turn hands the desktop back', async (
   });
   lifecycle.endComputerExecution({ action: 'execution_end', session_id: 's' });
   await settled(() => calls.length > 0);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await drain();
   assert.deepEqual(
     calls.map((call) => call.action),
     ['release_held_input'],

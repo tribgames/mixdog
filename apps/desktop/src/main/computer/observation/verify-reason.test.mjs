@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import { verifyUnknownReason } from './verify-predicate.ts';
 import { verifyWindowState } from './verify-window.ts';
 
@@ -53,7 +53,10 @@ test('incomplete provider coverage is not misreported as pagination on an exact 
   assert.doesNotMatch(reason.hint, /more text|narrow the target/);
 });
 
-test('a closed exact window ends an unmet wait at once instead of spending the budget', async () => {
+test('a closed exact window ends an unmet wait at once instead of spending the budget', async (t) => {
+  // Poll sleeps are fake timers that are never advanced: spending any of the 30 s budget would hang.
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
   let reads = 0;
   const host = {
     assertExecutionNotAborted() {},
@@ -63,19 +66,22 @@ test('a closed exact window ends an unmet wait at once instead of spending the b
       return { ok: true, result: { exists: false, title: '', elements: [] } };
     },
   };
-  const startedAt = Date.now();
-  const payload = JSON.parse(
-    (
-      await verifyWindowState(host, {
-        action: 'verify',
-        window_id: 'hwnd:0x1',
-        expect: [{ present: 'Saved' }],
-        timeout_ms: 30_000,
-      })
-    ).text
-  );
-  assert.equal(reads, 1);
-  assert.ok(Date.now() - startedAt < 5_000);
+  const verifying = verifyWindowState(host, {
+    action: 'verify',
+    window_id: 'hwnd:0x1',
+    expect: [{ present: 'Saved' }],
+    timeout_ms: 30_000,
+  });
+  const outcome = await Promise.race([
+    verifying,
+    (async () => {
+      for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+      return 'still waiting on the budget';
+    })(),
+  ]);
+  assert.notEqual(outcome, 'still waiting on the budget');
+  const payload = JSON.parse(outcome.text);
+  assert.equal(reads, 1, 'one read, not the 30 s budget');
   assert.equal(payload.decision, 'unknown');
   assert.equal(payload.target_closed, true);
   assert.match(payload.unknown_hint, /list windows/);
