@@ -202,14 +202,17 @@ export function listProcesses() {
         '-NoLogo',
         '-NoProfile',
         '-Command',
-        'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress',
+        'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,@{n="Created";e={if ($_.CreationDate) { [DateTimeOffset]::new($_.CreationDate).ToUnixTimeMilliseconds() }}} | ConvertTo-Json -Compress',
       ],
       { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true }
     );
+    // Windows never rewrites a dead parent's pid in ParentProcessId, so `created` lets a
+    // reused parent pid be told apart from the real parent (see instanceProcessIds).
     return [JSON.parse(raw || '[]')].flat().map((row) => ({
       pid: row.ProcessId,
       ppid: row.ParentProcessId,
       cmd: row.CommandLine ?? '',
+      created: Number.isFinite(row.Created) ? row.Created : undefined,
     }));
   }
   const raw = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -220,19 +223,36 @@ export function listProcesses() {
 }
 
 /** Root pids, every process naming the instance directory, and all their descendants. */
-// `ancestorPids` (already killed) only adopt their orphaned children; a reused
-// pid of theirs is never a target itself.
-export function instanceProcessIds(processes, { rootPids = [], ancestorPids = [], needle, self = process.pid }) {
+// `ancestors` (already killed: pid → creation time) only adopt their orphaned children;
+// a reused pid of theirs is never a target itself. A child counts only when it started
+// after its parent did: Windows keeps a dead parent's pid in ParentProcessId, so an
+// unrelated process (an editor the user left open) can name a pid this tree reused.
+export function instanceProcessIds(processes, { rootPids = [], ancestors = new Map(), needle, self = process.pid }) {
   const fold = (text) => (process.platform === 'win32' ? text.toLowerCase() : text);
   const marker = needle ? fold(needle) : null;
   const ids = new Set(rootPids.filter(Number.isInteger));
   for (const row of processes) if (marker && fold(row.cmd).includes(marker)) ids.add(row.pid);
-  const parents = new Set([...ids, ...ancestorPids]);
+  const createdOf = new Map(processes.map((row) => [row.pid, row.created]));
+  const parents = new Map([...ancestors, ...[...ids].map((pid) => [pid, createdOf.get(pid)])]);
+  // A killed ancestor's pid that is live again with another creation time now belongs
+  // to an unrelated process; only children started before that reuse are orphans of ours.
+  const reusedAt = (pid) => {
+    if (!ancestors.has(pid)) return undefined;
+    const recorded = ancestors.get(pid);
+    const live = createdOf.get(pid);
+    return recorded !== undefined && live !== undefined && live !== recorded ? live : undefined;
+  };
+  const startedAfter = (row) => {
+    const parentCreated = parents.get(row.ppid);
+    if (parentCreated === undefined || row.created === undefined) return true;
+    const reuse = reusedAt(row.ppid);
+    return row.created >= parentCreated && (reuse === undefined || row.created < reuse);
+  };
   for (let size = -1; size !== parents.size; ) {
     size = parents.size;
     for (const row of processes) {
-      if (parents.has(row.ppid) && !parents.has(row.pid)) {
-        parents.add(row.pid);
+      if (parents.has(row.ppid) && !parents.has(row.pid) && startedAfter(row)) {
+        parents.set(row.pid, row.created);
         ids.add(row.pid);
       }
     }
@@ -265,7 +285,7 @@ const DAEMON_COMMAND = /standalone[\\/]daemon\.mjs/;
 /** Kill the whole tree until nothing survives (a dying main can still spawn a daemon). */
 export async function killInstanceProcesses(lease, { list = listProcesses } = {}) {
   const recorded = await instanceRootPids(lease);
-  const killed = new Set();
+  const killed = new Map(); // pid → creation time
   let remaining = [];
   for (let round = 0; round < 20; round += 1) {
     const processes = list();
@@ -274,21 +294,22 @@ export async function killInstanceProcesses(lease, { list = listProcesses } = {}
     const rootPids = recorded.filter((pid) => daemons.has(pid) && !killed.has(pid));
     remaining = instanceProcessIds(processes, {
       rootPids,
-      ancestorPids: [...killed],
+      ancestors: killed,
       needle: lease.instanceDir && join(lease.instanceDir, sep),
     });
     if (remaining.length === 0) break;
+    const createdOf = new Map(processes.map((row) => [row.pid, row.created]));
     for (const pid of remaining) {
       try {
         process.kill(pid, 'SIGKILL');
-        killed.add(pid);
+        killed.set(pid, createdOf.get(pid));
       } catch {
         // Already gone.
       }
     }
     await sleep(500);
   }
-  return { killed: [...killed], remaining };
+  return { killed: [...killed.keys()], remaining };
 }
 
 /** Stop an instance: processes, instance directory, port reservation, then the lease. */

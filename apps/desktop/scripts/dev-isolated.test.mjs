@@ -410,8 +410,34 @@ test('process matching: the instance tree and its daemon, never a reused or unre
   ];
   const needle = `${instanceDir}\\`;
   assert.deepEqual(instanceProcessIds(processes, { needle }).sort(), [10, 11, 12, 13]);
-  assert.deepEqual(instanceProcessIds(processes, { needle, ancestorPids: [99] }).sort(), [10, 11, 12, 13, 40]);
-  assert.deepEqual(instanceProcessIds(processes, { needle: 'nothing', ancestorPids: [30] }), []);
+  assert.deepEqual(instanceProcessIds(processes, { needle, ancestors: new Map([[99, undefined]]) }).sort(), [10, 11, 12, 13, 40]);
+  assert.deepEqual(instanceProcessIds(processes, { needle: 'nothing', ancestors: new Map([[30, undefined]]) }), []);
+});
+
+test('process matching: a process naming a reused parent pid is not adopted (Windows keeps dead parents in ppid)', () => {
+  const instanceDir = 'C:\\iso\\instances\\a-123456';
+  const processes = [
+    { pid: 10, ppid: 1, cmd: `electron.exe ${instanceDir}\\app\\desktop`, created: 5_000 },
+    { pid: 11, ppid: 10, cmd: 'electron.exe --type=renderer', created: 5_100 },
+    // Opened by the user long before; its real parent (pid 10 back then) died and the pid was reused.
+    { pid: 50, ppid: 10, cmd: 'Notepad.exe', created: 1_000 },
+    // Same story through an already killed ancestor (pid 77 started at 4_000).
+    { pid: 51, ppid: 77, cmd: 'Notepad.exe', created: 2_000 },
+    { pid: 52, ppid: 77, cmd: 'orphan child of the killed main', created: 4_500 },
+  ];
+  const ids = instanceProcessIds(processes, { needle: `${instanceDir}\\`, ancestors: new Map([[77, 4_000]]) }).sort();
+  assert.deepEqual(ids, [10, 11, 52]);
+});
+
+test('process matching: a killed ancestor pid reused by another process does not adopt that process children', () => {
+  const processes = [
+    // pid 77 was our main (started 4_000, killed); an unrelated program now holds pid 77.
+    { pid: 77, ppid: 1, cmd: 'unrelated.exe', created: 6_000 },
+    { pid: 78, ppid: 77, cmd: 'child of the unrelated program', created: 6_100 },
+    { pid: 79, ppid: 77, cmd: 'orphan child of the killed main', created: 4_500 },
+  ];
+  const ids = instanceProcessIds(processes, { needle: 'nothing', ancestors: new Map([[77, 4_000]]) }).sort();
+  assert.deepEqual(ids, [79]);
 });
 
 test('stop kills the whole tree, an orphaned daemon included, and deletes the instance', async (t) => {
