@@ -115,8 +115,12 @@
   isolation: isolate;
 }
 .sidebar-usage > .pane-surface-gate {
-  min-height: 180px;
   background: transparent;
+}
+/* The loading cover holds a calm height; once revealed, the flyout hugs its
+   roster so a single provider leaves no empty band below it. */
+.sidebar-usage > .pane-surface-gate[data-ready="false"] {
+  min-height: 180px;
 }
 .sidebar-usage > .pane-surface-gate > .pane-surface-gate-content {
   display: block;

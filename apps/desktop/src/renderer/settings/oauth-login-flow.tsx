@@ -332,7 +332,8 @@ export function OAuthLoginDialog({
           <ErrorNotice errors={[flow.error, error]} />
         </div>
         <footer>
-          <button type="button" disabled={disabled} onClick={onClose}>
+          {/* Dismissal writes nothing, so a settings mutation or provider refresh in flight (`disabled`) must never lock it. */}
+          <button type="button" onClick={onClose}>
             {flow.state === 'pending' ? t('Cancel') : t('Close')}
           </button>
         </footer>
