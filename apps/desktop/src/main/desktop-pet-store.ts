@@ -49,6 +49,9 @@ export interface PetHereAnchor {
   bottom: boolean;
   dx: number;
   dy: number;
+  /** Measured against the composer card instead of the window's content
+   *  bounds, so the bot keeps its place beside the box as the card moves. */
+  composer?: true;
 }
 
 /** The anchor of a window at `point` (sprite box `sprite` inside it, both
@@ -74,7 +77,7 @@ export function petHerePosition(anchor: PetHereAnchor, content: PetRect): { x: n
 
 function readHereAnchor(value: unknown): PetHereAnchor | null {
   if (!value || typeof value !== 'object') return null;
-  const { right, bottom, dx, dy } = value as Record<string, unknown>;
+  const { right, bottom, dx, dy, composer } = value as Record<string, unknown>;
   if (typeof right !== 'boolean' || typeof bottom !== 'boolean') return null;
   if (
     !Number.isFinite(dx) ||
@@ -84,7 +87,8 @@ function readHereAnchor(value: unknown): PetHereAnchor | null {
   ) {
     return null;
   }
-  return { right, bottom, dx: Math.round(dx as number), dy: Math.round(dy as number) };
+  const anchor = { right, bottom, dx: Math.round(dx as number), dy: Math.round(dy as number) };
+  return composer === true ? { ...anchor, composer } : anchor;
 }
 
 /** On unless explicitly turned off: only a stored `enabled: false` keeps it

@@ -34,6 +34,96 @@ function manualFrames() {
   };
 }
 
+test('the published composer follows the card when its box moves without a window resize (side dock, sidebar, dock drag)', async (t) => {
+  const frames = manualFrames();
+  const observers = [];
+  class RecordingResizeObserver {
+    targets = new Set();
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    observe(target) {
+      this.targets.add(target);
+    }
+    unobserve(target) {
+      this.targets.delete(target);
+    }
+    disconnect() {
+      this.targets.clear();
+    }
+  }
+  const { window, document, root } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
+    globals: {
+      ResizeObserver: RecordingResizeObserver,
+      requestAnimationFrame: frames.request,
+      cancelAnimationFrame: frames.cancel,
+    },
+  });
+  const composers = [];
+  window.mixdogDesktop = {
+    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
+    subscribeDesktopPetConfig: () => () => {},
+    publishDesktopPet: () => {},
+    publishDesktopPetComposer: (value) => composers.push(value),
+    publishDesktopPetTheme: () => {},
+    publishDesktopPetLayers: () => {},
+  };
+  // The conversation column and its card, in a pane.
+  const pane = document.createElement('div');
+  pane.className = 'pane-cell is-focused';
+  const column = document.createElement('div');
+  const card = document.createElement('form');
+  card.className = 'composer';
+  let box = { left: 300, top: 600, width: 700, height: 120 };
+  card.getBoundingClientRect = () => box;
+  column.append(card);
+  pane.append(column);
+  document.body.append(pane);
+
+  const publisher = await import('./desktop-pet-publisher');
+  publisher.resetDesktopPetConfigForTests();
+  t.after(() => publisher.resetDesktopPetConfigForTests());
+  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (frames.size) frames.run();
+    });
+  await settle();
+  assert.deepEqual(composers.at(-1), { x: 300, y: 600, width: 700, height: 120, island: null }, 'first measure');
+  assert.ok(
+    observers.some((observer) => observer.targets.has(column)),
+    'the column around the card is observed, not only the card'
+  );
+
+  // A column resize (no window resize): the card's left moves, its size is the same.
+  box = { left: 140, top: 600, width: 700, height: 120 };
+  await act(async () => observers.forEach((observer) => observer.callback([])));
+  assert.equal(composers.at(-1).x, 140, 'follows the column');
+
+  // A side dock opens without resizing anything the observers watch: its
+  // mount and the end of its transition measure the card again.
+  const dock = document.createElement('aside');
+  dock.className = 'pane-side-dock';
+  box = { left: 60, top: 600, width: 700, height: 120 };
+  document.body.append(dock);
+  await settle();
+  assert.equal(composers.at(-1).x, 60, 'dock opened');
+  box = { left: 90, top: 600, width: 700, height: 120 };
+  dock.dispatchEvent(new window.Event('transitionend', { bubbles: true }));
+  await settle();
+  assert.equal(composers.at(-1).x, 90, 'dock transition settled');
+
+  // Unchanged: nothing is resent.
+  const sent = composers.length;
+  dock.dispatchEvent(new window.Event('transitionend', { bubbles: true }));
+  await settle();
+  assert.equal(composers.length, sent, 'same box, no publish');
+});
+
 test('scroll and animationend move a layer: one publish, coalesced into one frame however many events arrive', async (t) => {
   const frames = manualFrames();
   const { window, document, root } = installTestDom(t, {

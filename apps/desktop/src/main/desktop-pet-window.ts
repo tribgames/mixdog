@@ -467,7 +467,25 @@ function spriteBox(s: PetContext, point: { x: number; y: number }): DesktopPetRe
  *  attaches). */
 function anchorHere(s: PetContext, point: { x: number; y: number }) {
   const owner = appWindow(s);
-  if (owner) save(s, { hereAnchor: petHereAnchor(point, spriteBox(s, point), owner.getContentBounds()) });
+  if (!owner) return;
+  const box = composerBox(s, owner);
+  const hereAnchor = petHereAnchor(point, spriteBox(s, point), box ?? owner.getContentBounds());
+  save(s, { hereAnchor: box ? { ...hereAnchor, composer: true } : hereAnchor });
+}
+
+/** The composer card in screen px (the app's content bounds, its CSS px at
+ *  the zoom): what a pinned-here spot is held against, so it follows the
+ *  card when the side dock or the sidebar moves it. Null without a card. */
+function composerBox(s: PetContext, owner: PetAppWindow): DesktopPetRect | null {
+  if (!s.composer) return null;
+  const content = owner.getContentBounds();
+  const zoom = owner.webContents.getZoomFactor();
+  return {
+    x: content.x + s.composer.x * zoom,
+    y: content.y + s.composer.y * zoom,
+    width: s.composer.width * zoom,
+    height: s.composer.height * zoom,
+  };
 }
 
 /** The pinned-here spot: its anchor against the app window's content
@@ -479,11 +497,18 @@ function hereSpot(s: PetContext): { x: number; y: number } | null {
   if (!owner || !appShowing(s)) return null;
   if (!s.prefs.hereAnchor)
     anchorHere(s, live(s.pet) ? currentPosition(s) : petPositionOn(homeDisplay(s), s.prefs, geometry(s)));
+  const content = owner.getContentBounds();
+  // An anchor against the window (an older one, or made before the card
+  // showed) moves onto the card as soon as there is one, where it stands.
+  const older = s.prefs.hereAnchor;
+  if (older && !older.composer && s.composer) anchorHere(s, petHerePosition(older, content));
   const anchor = s.prefs.hereAnchor;
   if (!anchor) return null;
-  const content = owner.getContentBounds();
+  // Held against the card: none showing, nothing to follow.
+  const box = anchor.composer ? composerBox(s, owner) : content;
+  if (!box) return null;
   const shape = geometry(s);
-  const target = petHerePosition(anchor, content);
+  const target = petHerePosition(anchor, box);
   const above = shape.window.height - shape.sprite.bottom - shape.sprite.size;
   const clamp = (value: number, min: number, max: number) => Math.min(Math.max(min, max), Math.max(min, value));
   const inside = {

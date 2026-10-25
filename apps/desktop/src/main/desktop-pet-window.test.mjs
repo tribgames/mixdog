@@ -1176,28 +1176,32 @@ test('"Pin here" locks the bot where it stands: no drag or nudge, kept across a 
   await assert.rejects(async () => again.app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'here', true), /option/);
 });
 
-test('"Pin here" is held against the app window: moves with it, keeps its nearest-corner offset, hides with it, survives a restart', async () => {
-  // Near the app content's bottom-right corner (content 100..1300 x 100..900).
+test('"Pin here" is held against the app window\'s composer card: moves with it, keeps its nearest-corner offset, hides with it, survives a restart', async () => {
+  // Near the composer card's bottom-right corner (card 400..1100 x 700..820 on the screen).
   const spot = { x: 900, y: 520 };
   const { pet, window, app, stored } = await started({ prefs: { ...FREE, positions: { 1: spot } } });
   assert.deepEqual(position(window), [900, 520]);
   command(window, 'pin-here');
-  assert.deepEqual(stored().hereAnchor, { right: true, bottom: true, dx: 400, dy: 380 }, 'from the right/bottom');
+  assert.deepEqual(
+    stored().hereAnchor,
+    { right: true, bottom: true, dx: 200, dy: 300, composer: true },
+    'from the right/bottom'
+  );
   // Moved: by the same delta.
   app.fire('move', { content: { ...APP_CONTENT, x: 160, y: 80 } });
   assert.deepEqual(position(window), [960, 500]);
-  // Resized: the right/bottom offsets are kept.
-  app.fire('resize', { content: { x: 160, y: 80, width: 1000, height: 700 } });
-  assert.deepEqual(position(window), [160 + 1000 - 400, 80 + 700 - 380]);
+  // Resized (the card keeps its CSS box): the right/bottom offsets are kept.
+  app.fire('resize', { content: { x: 160, y: 80, width: 1400, height: 900 } });
+  assert.deepEqual(position(window), [160 + 300 + 700 - 200, 80 + 600 + 120 - 300]);
   // Maximised to the work area: the same corner offsets.
   app.fire('maximize', { content: { x: 0, y: 0, width: 1920, height: 1040 } });
-  assert.deepEqual(position(window), [1520, 660]);
+  assert.deepEqual(position(window), [800, 420]);
   // Minimised: hidden; restored: back, at its spot.
   app.fire('minimize', { minimized: true });
   assert.equal(window.shown, false);
   app.fire('restore', { minimized: false });
   assert.equal(window.shown, true);
-  assert.deepEqual(position(window), [1520, 660]);
+  assert.deepEqual(position(window), [800, 420]);
   app.fire('hide', { visible: false });
   assert.equal(window.shown, false);
   app.fire('show', { visible: true });
@@ -1214,16 +1218,16 @@ test('"Pin here" is held against the app window: moves with it, keeps its neares
   // Restart with the window back at its first place: the same anchored spot.
   pet.dispose();
   const again = await started({ prefs: stored() });
-  assert.deepEqual(again.stored().hereAnchor, { right: true, bottom: true, dx: 400, dy: 380 });
+  assert.deepEqual(again.stored().hereAnchor, { right: true, bottom: true, dx: 200, dy: 300, composer: true });
   assert.deepEqual(position(again.window), [900, 520]);
   again.app.fire('move', { content: { ...APP_CONTENT, x: 0 } });
   assert.deepEqual(position(again.window), [800, 520]);
   // Reset position clears it.
   command(again.window, 'reset');
   assert.equal(again.stored().hereAnchor, null);
-  // An older absolute "Pin here" spot: anchored to the window it first meets.
+  // An older absolute "Pin here" spot: anchored to the card it first meets.
   const older = await started({ prefs: { ...FREE, pinnedHere: true, positions: { 1: { x: 40, y: 40 } } } });
-  assert.deepEqual(older.stored().hereAnchor, { right: false, bottom: false, dx: -60, dy: -60 });
+  assert.deepEqual(older.stored().hereAnchor, { right: false, bottom: false, dx: -360, dy: -660, composer: true });
   assert.deepEqual(position(older.window), [40, 40]);
   older.app.fire('move', { content: { ...APP_CONTENT, x: 300 } });
   assert.deepEqual(position(older.window), [240, 40]);
@@ -1234,6 +1238,33 @@ test('"Pin here" is held against the app window: moves with it, keeps its neares
     normalizeDesktopPetPrefs({ pinned: false, pinnedHere: true, hereAnchor: { right: 1 } }).hereAnchor,
     null
   );
+});
+
+test('"Pin here" is held against the composer card: it follows the card when the side dock moves it, with no window move', async () => {
+  const spot = { x: 900, y: 520 };
+  const { window, app, stored } = await started({ prefs: { ...FREE, positions: { 1: spot } }, composer: COMPOSER });
+  command(window, 'pin-here');
+  assert.equal(stored().hereAnchor.composer, true, 'anchored to the card');
+  assert.deepEqual(position(window), [900, 520]);
+  const send = (change) => app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, ...change });
+  // The card slides left (a dock opened) and right again: the bot goes with it.
+  send({ x: COMPOSER.x - 150 });
+  assert.deepEqual(position(window), [750, 520]);
+  send({ x: COMPOSER.x + 50 });
+  assert.deepEqual(position(window), [950, 520]);
+  send({});
+  assert.deepEqual(position(window), [900, 520]);
+  // A spot saved against the window (an older one) moves onto the card where it stands.
+  const older = await started({
+    prefs: { ...FREE, pinnedHere: true, positions: { 1: spot } },
+    composer: null,
+  });
+  assert.equal(older.stored().hereAnchor?.composer, undefined, 'no card yet: against the window');
+  older.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  assert.equal(older.stored().hereAnchor.composer, true);
+  assert.deepEqual(position(older.window), [900, 520], 'where it stood');
+  older.app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, x: COMPOSER.x - 150 });
+  assert.deepEqual(position(older.window), [750, 520], 'then follows the card');
 });
 
 test('the over-transcript flag follows the pinned bot over the transcript column, sent once per change', async () => {

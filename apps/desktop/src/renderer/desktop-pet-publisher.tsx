@@ -385,10 +385,12 @@ function watchComposerCard(
     island = null;
     onCard(card);
     if (!card) return;
-    // The card, the dock around it (an approval card, the footer) and the pane.
-    for (const target of [card, card.closest('.composer-region'), card.closest('.pane-cell')]) {
-      if (target) resize.observe(target);
-    }
+    // The card, the dock around it (an approval card, the footer) and the
+    // pane — and every ancestor up to the page: a box that only slides
+    // (the side dock or the sidebar opening or closing beside a centred
+    // column) changes no size of its own, but the columns around it do.
+    resize.observe(card);
+    for (let ancestor = card.parentElement; ancestor; ancestor = ancestor.parentElement) resize.observe(ancestor);
   };
   function measure() {
     if (!card?.isConnected) track();
@@ -512,7 +514,12 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     // width (a resize drag) and `hidden` in place.
     const layersWatch = watchLayers(
       onChange((layers) => api.publishDesktopPetLayers?.(layers)),
-      () => sidePanels.track()
+      () => {
+        sidePanels.track();
+        // A side panel opening, closing or resizing (or settling after its
+        // transition) can slide the card without resizing any column.
+        measure();
+      }
     );
     const { schedule: scheduleLayers, publishNow: publishLayers } = layersWatch;
     // A backdrop modal opening or closing (some flip in place, no mutation
