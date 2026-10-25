@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -241,6 +241,145 @@ test('--copy-auth copies each provider account credential the pool file names', 
   ]);
   assert.equal(readFileSync(join(dataDir, 'provider-accounts', 'anthropic-oauth', 'acct-1.json'), 'utf8'), '{"token":"t"}');
   assert.equal(existsSync(join(dataDir, 'provider-accounts', 'anthropic-oauth', 'notes.txt')), false);
+});
+
+const DAY_MS = 24 * 3600_000;
+const GPT_ACCOUNT = '62c398ce-834f-4b32-bfab-03d9c95cd018';
+const jwt = (claims) => ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.');
+
+/** The kept dev profile's layout: the pool file plus one GPT account credential beside it. */
+async function gptProfile(root, overrides = {}) {
+  const { profile, dataDir } = await devProfile(root);
+  const accounts = join(profile, 'data', 'provider-accounts', 'openai-oauth');
+  await mkdir(accounts, { recursive: true });
+  const credential = {
+    access_token: 'access-1',
+    refresh_token: 'refresh-secret-1',
+    expires_at: Date.now() + 10 * DAY_MS,
+    account_id: 'acct',
+    identity: { id: 'user:acct', email: 'dev@example.com' },
+    ...overrides,
+  };
+  await writeFile(join(accounts, `${GPT_ACCOUNT}.json`), JSON.stringify(credential));
+  return { profile, dataDir, credential, copiedPath: `provider-accounts/openai-oauth/${GPT_ACCOUNT}.json` };
+}
+
+/** Every file below `dir` with its bytes and mtime. */
+async function snapshot(dir) {
+  const rows = {};
+  for (const entry of await readdir(dir)) {
+    const path = join(dir, entry);
+    const info = await stat(path);
+    if (info.isDirectory()) {
+      for (const [name, row] of Object.entries(await snapshot(path))) rows[join(entry, name)] = row;
+    } else {
+      rows[entry] = { bytes: (await readFile(path)).toString('hex'), mtimeMs: info.mtimeMs };
+    }
+  }
+  return rows;
+}
+
+test('--copy-auth copies sign-ins without refresh tokens and leaves the kept profile byte-identical', async (t) => {
+  const root = await tempRoot(t);
+  const { profile, dataDir, credential, copiedPath } = await gptProfile(root);
+  const data = join(profile, 'data');
+  await writeFile(
+    join(data, 'openai-oauth.json'),
+    JSON.stringify({ access_token: 'access-0', refresh_token: 'refresh-secret-0', expires_at: credential.expires_at })
+  );
+  await writeFile(
+    join(data, 'anthropic-oauth-credentials.json'),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: 'claude-access', refreshToken: 'refresh-secret-2', expiresAt: 1, scopes: [] },
+    })
+  );
+  const before = await snapshot(profile);
+
+  const copied = await copyDevAuth(dataDir, { devProfileDir: profile });
+  assert.deepEqual(copied.sort(), [
+    'anthropic-oauth-credentials.json',
+    'openai-oauth.json',
+    'provider-accounts.json',
+    copiedPath,
+    'secrets/a.dpapi',
+  ]);
+  assert.deepEqual(await snapshot(profile), before, 'the kept profile is byte-identical after the copy');
+
+  for (const name of ['anthropic-oauth-credentials.json', 'openai-oauth.json', copiedPath]) {
+    assert.doesNotMatch(await readFile(join(dataDir, name), 'utf8'), /refresh/i, `${name} carries no refresh token`);
+  }
+  const { refresh_token: _kept, ...coasting } = credential;
+  assert.deepEqual(JSON.parse(await readFile(join(dataDir, copiedPath), 'utf8')), coasting);
+  assert.equal(
+    JSON.parse(await readFile(join(dataDir, 'anthropic-oauth-credentials.json'), 'utf8')).claudeAiOauth.accessToken,
+    'claude-access'
+  );
+  assert.equal(await readFile(join(dataDir, 'provider-accounts.json'), 'utf8'), '{}');
+  // The source still holds every refresh token it had.
+  assert.match(await readFile(join(profile, 'data', copiedPath), 'utf8'), /refresh-secret-1/);
+});
+
+test('--copy-auth refuses a GPT access token that cannot last the lease and says how to refresh it', async (t) => {
+  const root = await tempRoot(t);
+  const cases = [
+    ['expired', { expires_at: Date.now() - 60_000 }, /is expired/],
+    ['inside-lease', { expires_at: Date.now() + 3600_000 }, /valid for only \d+ more minutes, less than this 120-minute lease/],
+    ['unreadable', { expires_at: undefined, access_token: 'opaque' }, /no readable access-token expiry/],
+  ];
+  const openKeptApp = /Open the kept dev app once \(npm run dev in apps\/desktop\)/;
+  for (const [name, overrides, problem] of cases) {
+    const caseRoot = join(root, name);
+    await mkdir(caseRoot);
+    const { profile, dataDir, copiedPath } = await gptProfile(caseRoot, overrides);
+    let message = '';
+    await assert.rejects(copyDevAuth(dataDir, { devProfileDir: profile }), (error) => {
+      message = error.message;
+      assert.match(message, problem, name);
+      assert.doesNotMatch(message, /access-1|opaque|refresh-secret/);
+      return true;
+    });
+    assert.equal(existsSync(join(dataDir, copiedPath)), false, `${name}: nothing is copied for the refused sign-in`);
+    if (name === 'inside-lease') {
+      // Opening the kept app would not refresh it yet: the message offers a shorter lease instead.
+      assert.doesNotMatch(message, openKeptApp);
+      const suggested = Number(/--ttl-minutes (\d+) or less/.exec(message)?.[1]);
+      assert.ok(suggested > 0 && suggested < 60, `suggested lease ${suggested}`);
+      const retryDir = join(caseRoot, 'retry');
+      await mkdir(retryDir);
+      await copyDevAuth(retryDir, { devProfileDir: profile, ttlMs: suggested * 60_000 });
+      assert.equal(existsSync(join(retryDir, copiedPath)), true, 'the suggested lease is accepted');
+    } else {
+      assert.match(message, openKeptApp, name);
+    }
+  }
+
+  // A token that clears a shorter lease is accepted, and the expiry may come from the JWT itself.
+  const shortRoot = join(root, 'short');
+  await mkdir(shortRoot);
+  const short = await gptProfile(shortRoot, { expires_at: Date.now() + 3600_000 });
+  await copyDevAuth(short.dataDir, { devProfileDir: short.profile, ttlMs: 30 * 60_000 });
+  const jwtRoot = join(root, 'jwt');
+  await mkdir(jwtRoot);
+  const fromJwt = await gptProfile(jwtRoot, {
+    expires_at: undefined,
+    access_token: jwt({ exp: Math.floor((Date.now() + 10 * DAY_MS) / 1000) }),
+  });
+  await copyDevAuth(fromJwt.dataDir, { devProfileDir: fromJwt.profile });
+  assert.equal(existsSync(join(fromJwt.dataDir, fromJwt.copiedPath)), true);
+});
+
+test('a start with --copy-auth is refused, and cleaned up, when the GPT access token is expired', async (t) => {
+  const root = await tempRoot(t);
+  const kept = join(root, 'kept');
+  await mkdir(kept);
+  const { profile } = await gptProfile(kept, { expires_at: Date.now() - 60_000 });
+  const isolated = join(root, 'isolated');
+  await assert.rejects(
+    startInstance({ name: 'expired', copyAuth: true, root: isolated, devProfileDir: profile, timeoutMs: 1000 }),
+    /GPT sign-in .* is expired.*Open the kept dev app once/
+  );
+  assert.deepEqual(await readdir(join(isolated, 'instances')), []);
+  assert.deepEqual(await readdir(join(isolated, 'leases')), []);
 });
 
 test('--copy-auth fails clearly when the dev profile is missing, unreadable or holds no sign-ins', async (t) => {

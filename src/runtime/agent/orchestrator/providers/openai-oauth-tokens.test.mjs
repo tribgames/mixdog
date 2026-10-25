@@ -73,6 +73,7 @@ const {
   refreshStoredTokens,
 } = modules.tokens;
 const { OpenAIOAuthProvider } = modules.provider;
+const { isSignedInTokenDocument } = await import('./lib/oauth-token-utils.mjs');
 
 test.after(restoreEnvironment);
 
@@ -134,6 +135,47 @@ test('credential description reports store state without a refresh', (t) => {
   assert.deepEqual(forgetOpenAIOAuthCredentials(), { removed: true });
   assert.equal(hasOpenAIOAuthCredentials(), false);
   assert.deepEqual(forgetOpenAIOAuthCredentials(), { removed: false });
+});
+
+test('a sign-in copied without a refresh token works until its access token expires, never reaching the network', async (t) => {
+  denyNetwork(t);
+  writeStoredTokens({ access_token: 'a', expires_at: Date.now() + 60 * 60_000 });
+  assert.equal(hasOpenAIOAuthCredentials(), true);
+  const described = describeOpenAIOAuthCredentials();
+  assert.equal(described.status, 'Access Only');
+  assert.equal(described.refreshable, false);
+
+  // Inside the refresh skew it coasts on the access token instead of refreshing.
+  writeStoredTokens({ access_token: 'a', expires_at: Date.now() + 60_000 });
+  const coasting = await refreshStoredTokens({ current: null });
+  assert.equal(coasting.tokens.access_token, 'a');
+  assert.equal(coasting.coastOnCurrent, true);
+
+  // Expired, it is signed out and asks for a new sign-in.
+  writeStoredTokens({ access_token: 'a', expires_at: Date.now() - 60_000 });
+  assert.equal(hasOpenAIOAuthCredentials(), false);
+  await assert.rejects(() => refreshStoredTokens({ current: null }), /refresh token not available/);
+  clearStoredTokens();
+});
+
+test('number, numeric string and ISO expiry mean the same to the store and the sign-in predicate', (t) => {
+  denyNetwork(t);
+  const future = Date.now() + 60 * 60_000;
+  const forms = [future, String(future), Math.floor(future / 1000), String(Math.floor(future / 1000)), new Date(future).toISOString()];
+  for (const form of forms) {
+    writeStoredTokens({ access_token: 'a', expires_at: form });
+    assert.equal(isSignedInTokenDocument({ access_token: 'a', expires_at: form }), true, String(form));
+    assert.equal(hasOpenAIOAuthCredentials(), true, String(form));
+    const { expiresAt } = describeOpenAIOAuthCredentials();
+    assert.ok(Math.abs(expiresAt - future) < 1000, `${form} read as ${expiresAt}`);
+  }
+  const past = Date.now() - 60_000;
+  for (const form of [past, String(past), new Date(past).toISOString()]) {
+    writeStoredTokens({ access_token: 'a', expires_at: form });
+    assert.equal(isSignedInTokenDocument({ access_token: 'a', expires_at: form }), false, String(form));
+    assert.equal(hasOpenAIOAuthCredentials(), false, String(form));
+  }
+  clearStoredTokens();
 });
 
 test('a refresh adopts tokens another writer already stored instead of spending one', async (t) => {

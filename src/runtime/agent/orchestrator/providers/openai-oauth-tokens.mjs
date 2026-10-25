@@ -23,7 +23,9 @@ import {
   accountIdentityFields,
   decodeJwtPayload,
   expiryFromAccessToken,
+  isSignedInTokenDocument,
   normalizeAccountIdentity,
+  normalizeExpiresAtMs,
   oauthCredentialStatus,
 } from './lib/oauth-token-utils.mjs';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
@@ -60,11 +62,8 @@ function getRefreshLockPath() {
   return `${getOwnTokenPath()}.refresh.lock`;
 }
 
-function _normalizeExpiresAt(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return n < 1e12 ? n * 1000 : n;
-}
+// One normalizer for the store and the sign-in predicate (isSignedInTokenDocument).
+const _normalizeExpiresAt = normalizeExpiresAtMs;
 
 export function extractAccountId(token) {
   return decodeJwtPayload(token)?.['https://api.openai.com/auth']?.chatgpt_account_id;
@@ -117,7 +116,7 @@ export function loadTokens() {
   try {
     const stat = statSync(ownPath);
     const own = JSON.parse(readFileSync(ownPath, 'utf-8'));
-    if (own.access_token && own.refresh_token) {
+    if (isSignedInTokenDocument(own)) {
       const identity = identityFromTokens(own.id_token, own.access_token);
       return {
         ...own,
@@ -144,8 +143,7 @@ export function saveTokens(tokens) {
 // same loader the runtime uses (loadTokens), no parallel hard-coded path probe.
 export function hasOpenAIOAuthCredentials() {
   try {
-    const tokens = loadTokens();
-    return !!(tokens?.access_token && tokens?.refresh_token);
+    return !!loadTokens()?.access_token;
   } catch {
     return false;
   }

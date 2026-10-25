@@ -67,16 +67,30 @@ export function sameAccountIdentity(a, b) {
   return Boolean(left.email && right.email && left.email.toLowerCase() === right.email.toLowerCase());
 }
 
-// expires_at may arrive as a unix number (seconds or milliseconds) or an
-// ISO-8601 string. Normalize to epoch milliseconds; 0 means unknown.
+// expires_at may arrive as a unix number (seconds or milliseconds), a numeric
+// string, or an ISO-8601 string. Normalize to epoch milliseconds; 0 means unknown.
 export function normalizeExpiresAtMs(value) {
-  if (typeof value === 'string') {
+  if (typeof value === 'string' && !Number.isFinite(Number(value.trim() || NaN))) {
     const ms = Date.parse(value);
     return Number.isFinite(ms) ? ms : 0;
   }
   const n = Number(value || 0);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return n < 1e12 ? n * 1000 : n;
+}
+
+/**
+ * Whether a stored `{ access_token, refresh_token?, expires_at }` document is a
+ * sign-in: it can refresh, or its access token is known to be unexpired. A copy
+ * made without a refresh token (an isolated dev instance, so it cannot rotate
+ * the original's) coasts on the access token until then; one with no known
+ * expiry and no refresh token is incomplete, not a sign-in.
+ */
+export function isSignedInTokenDocument(raw) {
+  if (!raw?.access_token) return false;
+  if (raw.refresh_token) return true;
+  const expiresAt = normalizeExpiresAtMs(raw.expires_at ?? raw.expiresAt) || expiryFromAccessToken(raw.access_token);
+  return expiresAt > Date.now();
 }
 
 /**

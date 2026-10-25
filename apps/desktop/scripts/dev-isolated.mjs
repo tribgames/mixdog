@@ -8,7 +8,10 @@
 //
 // An instance starts with onboarding and the getting-started guide marked
 // done; --onboarding keeps the first-run screens instead. --copy-auth also
-// copies the kept dev profile's sign-ins and model routes.
+// copies the kept dev profile's sign-ins and model routes, WITHOUT their refresh
+// tokens: those rotate, so an instance that refreshed one would sign the kept
+// profile out. A copy coasts on its access token, and the start is refused when
+// a GPT access token would expire before the lease ends.
 //   npm run dev:isolated:stop -- --name <tag>
 //   npm run dev:isolated:sweep [-- --all]
 //   npm run dev:isolated:list
@@ -22,6 +25,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { refreshStaleLocalBinaries } from '../../../scripts/native-release-status.mjs';
+import {
+  expiryFromAccessToken,
+  normalizeExpiresAtMs,
+} from '../../../src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs';
 import { ONBOARDING_VERSION } from '../../../src/session-runtime/quick-web-search-models.mjs';
 
 import {
@@ -385,8 +392,47 @@ export async function sweep(root, { all = false, now = Date.now(), alive = isPid
 
 // ── start ────────────────────────────────────────────────────────────────────
 
+const POOL_FILE = 'provider-accounts.json';
 const CREDENTIAL_FILE = /^(provider-accounts\.json|[a-z0-9-]+-oauth(-credentials)?\.json)$/;
 const ACCOUNT_PROVIDER_DIR = /^[a-z0-9-]+$/;
+/** The GPT subscription's credential, as named in the copied list. */
+const GPT_CREDENTIAL = /^(openai-oauth\.json|provider-accounts\/openai-oauth\/[^/]+\.json)$/;
+const REFRESH_TOKEN_KEYS = new Set(['refresh_token', 'refreshToken']);
+
+/** The credential without any refresh token, however deeply nested. */
+function withoutRefreshTokens(value) {
+  if (Array.isArray(value)) return value.map(withoutRefreshTokens);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !REFRESH_TOKEN_KEYS.has(key))
+      .map(([key, item]) => [key, withoutRefreshTokens(item)])
+  );
+}
+
+/** A copy cannot refresh, so its GPT access token must outlive the lease. */
+function assertAccessTokenOutlivesLease(credential, label, ttlMs) {
+  const expiresAt =
+    normalizeExpiresAtMs(credential?.expires_at ?? credential?.expiresAt) ||
+    expiryFromAccessToken(credential?.access_token);
+  const now = Date.now();
+  if (expiresAt > now + ttlMs) return;
+  const prefix = `--copy-auth: the kept dev profile's GPT sign-in (${label})`;
+  const never = 'A refresh token is never copied (refreshing it in an isolated instance would sign the kept profile out).';
+  if (expiresAt <= now) {
+    const problem = expiresAt ? 'is expired' : 'has no readable access-token expiry';
+    throw new Error(
+      `${prefix} ${problem}. ${never} Open the kept dev app once (npm run dev in apps/desktop) so it refreshes, then start again.`
+    );
+  }
+  // The kept app refreshes only within minutes of expiry, so opening it now would not help.
+  const minutes = Math.floor((expiresAt - now) / 60_000);
+  throw new Error(
+    `${prefix} is valid for only ${minutes} more minutes, less than this ${Math.round(ttlMs / 60_000)}-minute lease. ` +
+      `${never} ${minutes >= 2 ? `Start with --ttl-minutes ${minutes - 1} or less, or try` : 'Try'} again once it is ` +
+      'near expiry (the kept dev app refreshes it then).'
+  );
+}
 
 /** Runs an fs lookup that names the dev-profile path in its failure; a missing path yields null when optional. */
 async function readDevSource(lookup, path, { optional = false } = {}) {
@@ -453,12 +499,32 @@ async function assertDevFile(trustedRoot, path, { optional = false } = {}) {
   if (!stat.isFile()) throw new Error(`--copy-auth: ${path} is not a regular file.`);
 }
 
-/** Opt-in: copy provider sign-ins from the kept dev profile (never ~/.mixdog). Source is only read.
- *  A missing or unreadable profile, or any link from the trusted root down to a source, fails
- *  instead of copying nothing or copying from outside the kept dev tree. */
+/** Writes one sign-in without its refresh tokens: OAuth refresh tokens rotate, so a copy that
+ *  refreshed would invalidate the kept profile's own. The parse error is not chained or quoted:
+ *  it can echo file content. */
+async function copyCredential(source, destination, label, ttlMs) {
+  const text = await readDevSource((path) => readFile(path, 'utf8'), source);
+  let credential;
+  try {
+    credential = JSON.parse(text);
+  } catch {
+    throw new Error(`--copy-auth: ${label} in the kept dev profile is not valid JSON.`);
+  }
+  if (GPT_CREDENTIAL.test(label)) assertAccessTokenOutlivesLease(credential, label, ttlMs);
+  await writeFile(destination, JSON.stringify(withoutRefreshTokens(credential)), { mode: 0o600 });
+}
+
+/** Opt-in: copy provider sign-ins from the kept dev profile (never ~/.mixdog), without their
+ *  refresh tokens, and refuse a GPT sign-in whose access token expires within `ttlMs`.
+ *  Source is only read. A missing or unreadable profile, or any link from the trusted root down
+ *  to a source, fails instead of copying nothing or copying from outside the kept dev tree. */
 export async function copyDevAuth(
   dataDir,
-  { devProfileDir = persistentDevProfileDir('default'), trustedRoot = devTrustedRoot(devProfileDir) } = {}
+  {
+    devProfileDir = persistentDevProfileDir('default'),
+    trustedRoot = devTrustedRoot(devProfileDir),
+    ttlMs = DEFAULT_TTL_MS,
+  } = {}
 ) {
   const source = join(devProfileDir, 'data');
   for (const dir of [devProfileDir, source]) {
@@ -468,7 +534,8 @@ export async function copyDevAuth(
   const copied = [];
   for (const entry of (await readDevDir(source)).filter((name) => CREDENTIAL_FILE.test(name))) {
     await assertDevFile(trustedRoot, join(source, entry));
-    await copyFile(join(source, entry), join(dataDir, entry));
+    if (entry === POOL_FILE) await copyFile(join(source, entry), join(dataDir, entry));
+    else await copyCredential(join(source, entry), join(dataDir, entry), entry, ttlMs);
     copied.push(entry);
   }
   // Every account but a provider's default keeps its credential in
@@ -484,8 +551,10 @@ export async function copyDevAuth(
       if (accounts.length) await mkdir(join(dataDir, 'provider-accounts', provider), { recursive: true });
       for (const entry of accounts) {
         await assertDevFile(trustedRoot, join(providerDir, entry));
-        await copyFile(join(providerDir, entry), join(dataDir, 'provider-accounts', provider, entry));
-        copied.push(`provider-accounts/${provider}/${entry}`);
+        const label = `provider-accounts/${provider}/${entry}`;
+        const destination = join(dataDir, 'provider-accounts', provider, entry);
+        await copyCredential(join(providerDir, entry), destination, label, ttlMs);
+        copied.push(label);
       }
     }
   }
@@ -638,7 +707,7 @@ export async function startInstance({
     await mkdir(instanceDir, { recursive: true });
     const appDir = await prepareAppDir(instanceDir);
     const env = await instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, relay });
-    const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir }) : [];
+    const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs }) : [];
     if (copyAuth || skipOnboarding) {
       await seedReadyConfig(env.MIXDOG_DATA_DIR, {
         withRoutes: copyAuth,

@@ -34,6 +34,20 @@ test('a Grok login stored in an account pool file counts as signed in', () => {
   );
 });
 
+test('an OpenAI sign-in copied without a refresh token counts only while its access token is unexpired', () => {
+  const accountId = 'cab7f9f6-5de5-44ef-a036-42a18f7da281';
+  const accountDir = join(dataDir, 'provider-accounts', 'openai-oauth');
+  mkdirSync(accountDir, { recursive: true });
+  const path = join(accountDir, `${accountId}.json`);
+  const probe = () => withProviderAccount('openai-oauth', accountId, () => oauthCredentialProbeState('openai-oauth'));
+  writeFileSync(path, JSON.stringify({ access_token: 'access', expires_at: Date.now() + 3_600_000 }));
+  assert.equal(probe(), 'present');
+  writeFileSync(path, JSON.stringify({ access_token: 'access-expired', expires_at: Date.now() - 1_000, note: 'x' }));
+  assert.equal(probe(), 'absent');
+  writeFileSync(path, JSON.stringify({ access_token: 'access-expired', refresh_token: 'refresh', expires_at: 1 }));
+  assert.equal(probe(), 'present', 'a refresh token keeps an expired access token refreshable');
+});
+
 for (const provider of ['cursor-oauth', 'anthropic-oauth']) {
   test(`${provider} probes the selected account exclusively, matching its model adapter`, async (t) => {
     if (provider === 'cursor-oauth') {

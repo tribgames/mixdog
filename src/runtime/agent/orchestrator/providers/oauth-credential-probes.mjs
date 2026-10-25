@@ -5,6 +5,7 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { cursorTokenExpiry } from './cursor-auth.mjs';
 import { describeDevinOAuthCredentials } from './devin-auth.mjs';
+import { isSignedInTokenDocument } from './lib/oauth-token-utils.mjs';
 import { isValidMuseCredentialDocument } from './muse-code-oauth-tokens.mjs';
 import { isValidOpenCodeGoCredentialDocument } from './opencode-go-oauth-tokens.mjs';
 import { developerOptionEnabled, developerOptionForProvider } from '../../../shared/developer-options.mjs';
@@ -152,7 +153,7 @@ function openAIOAuthState() {
       join(resolvePluginData(), 'openai-oauth.json'),
   ];
   return memoProbe('openai-oauth', paths, () =>
-    resolveProbeState(paths, (docs) => docs.some((raw) => !!(raw?.access_token && raw?.refresh_token)))
+    resolveProbeState(paths, (docs) => docs.some((raw) => isSignedInTokenDocument(raw)))
   );
 }
 
