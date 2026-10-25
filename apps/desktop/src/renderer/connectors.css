@@ -408,6 +408,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The representative bot's check-ins switch: a title over its description. */
+.agent-profile-heartbeat .connector-switch-name {
+  white-space: normal;
+}
+.agent-profile-heartbeat .connector-switch-name > b {
+  display: block;
+  font-weight: var(--mx-weight-semibold);
+}
+.agent-profile-heartbeat .connector-switch-name > small {
+  display: block;
+  margin-top: 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 .connector-switches-empty {
   margin: 0;
   display: flex;

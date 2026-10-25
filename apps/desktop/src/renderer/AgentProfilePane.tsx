@@ -41,6 +41,7 @@ import { useDeletedBotSession } from './agent-chat-mode';
 import { AgentInstructionEditors } from './agent-instruction-editors';
 import { ConnectorSwitchList, prefetchConnectorSwitches } from './connector-switches';
 import { AlwaysAllowedList, prefetchAlwaysAllowed } from './agent-always-allowed';
+import { HeartbeatSwitch } from './agent-heartbeat-switch';
 import { createKeyedReadCache } from './keyed-read-cache';
 import { type AgentActionsApi, deleteAgent, resetConversation, setAgentOn } from './agent-profile-actions';
 import { subscribeAgentRouteChange } from './agent-chat-route';
@@ -602,6 +603,7 @@ export function AgentProfilePane({
         onReload={reload}
         onSave={(changes) => void save(changes)}
       />
+      {agentId === MIXY_AGENT_ID && <HeartbeatSwitch api={api} active={active} />}
       <section className="agent-create-section agent-profile-connectors">
         <h3>{t('Connectors')}</h3>
         <ConnectorSwitchList api={api} kind="agent" target={agentId} active={active} />
