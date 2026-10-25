@@ -6,26 +6,3 @@
   margin-inline-start: 4px;
   color: var(--mx-text-faint);
 }
-.conversation-bell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  min-width: 28px;
-  gap: 4px;
-  padding-inline: 6px;
-}
-.conversation-bell[data-state="on"],
-.conversation-bell[data-state="always"] {
-  opacity: 0.55;
-}
-.conversation-bell[data-state="on"]:hover,
-.conversation-bell[data-state="on"]:focus-visible,
-.conversation-bell[data-state="always"]:hover,
-.conversation-bell[data-state="always"]:focus-visible {
-  opacity: 1;
-}
-.conversation-bell-time {
-  font-size: 12px;
-  white-space: nowrap;
-}

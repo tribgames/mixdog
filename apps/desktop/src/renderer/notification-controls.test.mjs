@@ -1,5 +1,5 @@
 // Per-conversation notification controls (issue #221): menu wording and writes,
-// the header bell, the list-row mark, expiry and refresh on a settings change.
+// the list-row mark, expiry and refresh on a settings change.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { act } from 'react';
@@ -185,50 +185,6 @@ test("scope 'off' leaves every kind outside; an override still wins", async (t) 
   assert.equal(store.resolveNotificationState(snap, targets[1]).kind, 'muted');
 });
 
-test('the header shows the whole chain but writes the conversation target (or where the override lives)', async (t) => {
-  const { api, controls, document, root, store } = await setup(t, {
-    overrides: [
-      muted('agent', 'marketer', null),
-      { target: { kind: 'session', id: HOME }, setting: { mode: 'always' } },
-    ],
-  });
-  const { createElement } = await import('react');
-  await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: HOME })));
-  const bell = () => document.querySelector('.conversation-bell');
-  const item = (text) =>
-    [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
-  // The session override (always) beats the bot's mute: the bell is on.
-  assert.equal(bell().dataset.state, 'always');
-  await act(async () => bell().click());
-  await act(async () => item('Use notification settings').click());
-  assert.deepEqual(api.writes, [[{ kind: 'session', id: HOME }, { mode: 'inherit' }]]);
-  // Without the session override the bot's mute shows, and Unmute clears the bot's.
-  assert.equal(bell().dataset.state, 'muted');
-  await act(async () => bell().click());
-  await act(async () => item('Unmute notifications').click());
-  assert.deepEqual(api.writes[1], [{ kind: 'agent', id: 'marketer' }, { mode: 'inherit' }]);
-  // Nothing set: a bot chat writes the agent, a room log the room, a coding session itself.
-  const mute = async (sessionId) => {
-    await act(async () => root.render(createElement(controls.ConversationBell, { sessionId })));
-    await act(async () => bell().click());
-    await act(async () => item('Mute notifications').click());
-    await act(async () => item('Until I turn it back on').click());
-    api.overrides = [];
-    await act(async () => store.refreshConversationNotifications());
-  };
-  await mute(HOME);
-  await mute(ROOM);
-  await mute('sess_code');
-  assert.deepEqual(
-    api.writes.slice(2).map(([target]) => target),
-    [
-      { kind: 'agent', id: 'marketer' },
-      { kind: 'room', id: ROOM_ID },
-      { kind: 'session', id: 'sess_code' },
-    ]
-  );
-});
-
 test('a shown timed mute wakes at the next local midnight, DST days included', async (t) => {
   const { store } = await setup(t, {});
   const until = new Date(2026, 9, 27, 8, 0).getTime();
@@ -273,15 +229,18 @@ test('the store arms one timer to the nearer of expiry and midnight, and re-rend
     delays.push(delay);
     return realSetTimeout(fn, delay, ...rest);
   };
-  await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: HOME })));
+  await act(async () =>
+    root.render(createElement(controls.NotificationMuteMark, { target: { kind: 'agent', id: 'marketer' } }))
+  );
   const midnight = new Date(2026, 9, 26, 0, 0).getTime();
   assert.ok(delays.includes(midnight - NOW), `armed for midnight: ${delays.join(',')}`);
   // Crossing midnight re-renders "until tomorrow" as "until 8:00" of that day.
-  const bell = () => document.querySelector('.conversation-bell');
-  assert.match(bell().textContent, /^until tomorrow /);
+  const mark = () => document.querySelector('.session-row-muted');
+  assert.match(mark().dataset.tooltip, /^Notifications off until tomorrow /);
   clock.now = midnight + 1;
   await act(async () => store.refreshConversationNotifications());
-  assert.match(bell().textContent, /^until [^t]/);
+  assert.match(mark().dataset.tooltip, /^Notifications off until [^t]/);
+  assert.equal(mark().getAttribute('aria-label'), mark().dataset.tooltip);
 });
 
 test('each item writes the right target and setting', async (t) => {
@@ -302,6 +261,7 @@ test('each item writes the right target and setting', async (t) => {
   await run(session, 'notify-get');
   await run(agent, 'notify-unmute', undefined, [muted('agent', 'marketer', null)]);
   await run(session, 'notify-use-settings', undefined, [{ target: session, setting: { mode: 'always' } }]);
+  await run(room, 'notify-unmute', undefined, [muted('room', ROOM_ID, null)]);
   await run(room, 'notify-mute', 'notify-mute-forever');
   assert.deepEqual(api.writes, [
     [agent, { mode: 'muted', until: NOW + HOUR }],
@@ -313,56 +273,11 @@ test('each item writes the right target and setting', async (t) => {
     [session, { mode: 'always' }],
     [agent, { mode: 'inherit' }],
     [session, { mode: 'inherit' }],
+    [room, { mode: 'inherit' }],
     [room, { mode: 'muted', until: null }],
   ]);
   // The store took the returned list.
   assert.equal(store.resolveNotificationState(store.notificationSnapshot(), room).kind, 'muted');
-});
-
-test('the header bell: faint when on, bell-off with the time when muted, menu writes', async (t) => {
-  const { api, controls, document, root, store } = await setup(t, {});
-  const { createElement } = await import('react');
-  const render = () => act(async () => root.render(createElement(controls.ConversationBell, { sessionId: HOME })));
-  await render();
-  const bell = () => document.querySelector('.conversation-bell');
-  assert.equal(bell().dataset.state, 'on');
-  assert.equal(bell().textContent, '');
-  assert.ok(bell().querySelector('.lucide-bell'));
-
-  await act(async () => bell().click());
-  const menu = document.querySelector('[role="menu"]');
-  assert.ok(menu);
-  const item = (text) =>
-    [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
-  await act(async () => item('Mute notifications').click());
-  await act(async () => item('For 8 hours').click());
-  assert.deepEqual(api.writes, [
-    [
-      { kind: 'agent', id: 'marketer' },
-      { mode: 'muted', until: NOW + 8 * HOUR },
-    ],
-  ]);
-  // 00:44 + 8h = 8:44 the same day.
-  assert.equal(bell().dataset.state, 'muted');
-  assert.match(bell().textContent, /^until /);
-  assert.ok(bell().querySelector('.lucide-bell-off'));
-  assert.ok(bell().dataset.tooltip.startsWith('Notifications off until '));
-
-  // Tomorrow, and indefinite (no time).
-  api.overrides = [muted('agent', 'marketer', new Date(2026, 9, 26, 8, 0).getTime())];
-  await act(async () => store.refreshConversationNotifications());
-  assert.match(bell().textContent, /^until tomorrow /);
-  api.overrides = [muted('agent', 'marketer', null)];
-  await act(async () => store.refreshConversationNotifications());
-  assert.equal(bell().textContent, '');
-  assert.equal(bell().dataset.tooltip, 'Notifications off');
-  assert.equal(bell().dataset.state, 'muted');
-
-  // A room and a coding session get their own targets.
-  await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: ROOM })));
-  assert.equal(bell().dataset.state, 'on');
-  await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: '' })));
-  assert.equal(bell(), null);
 });
 
 test('a muted row shows the mark; an expired mute removes it; a settings change refreshes', async (t) => {
@@ -472,31 +387,4 @@ test('an inherited "always" is notified: Mute writes the own target', async (t) 
   assert.equal(mute.label, 'Mute notifications');
   await act(async () => mute.children[0].onSelect());
   assert.deepEqual(api.writes, [[seat, { mode: 'muted', until: NOW + HOUR }]]);
-});
-
-test('the header of a seat in a muted room offers the same two items and writes accordingly', async (t) => {
-  const { api, controls, document, root } = await setup(t, { overrides: [muted('room', ROOM_ID, null)] });
-  await nameRoomAndBot();
-  const { createElement } = await import('react');
-  const seatId = await seatOf('marketer');
-  await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: seatId })));
-  const bell = () => document.querySelector('.conversation-bell');
-  const menuItems = () => [...document.querySelectorAll('[role="menuitem"]')];
-  await act(async () => bell().click());
-  assert.deepEqual(
-    menuItems().map((el) => el.textContent.trim()),
-    ['Get notifications here', 'Unmute Launch room']
-  );
-  await act(async () => menuItems()[0].click());
-  assert.deepEqual(api.writes, [[{ kind: 'session', id: seatId }, { mode: 'always' }]]);
-  assert.equal(bell().dataset.state, 'always');
-  // The room's own header owns the room target and unmutes just it.
-  await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: ROOM })));
-  await act(async () => bell().click());
-  assert.deepEqual(
-    menuItems().map((el) => el.textContent.trim()),
-    ['Unmute notifications']
-  );
-  await act(async () => menuItems()[0].click());
-  assert.deepEqual(api.writes[1], [{ kind: 'room', id: ROOM_ID }, { mode: 'inherit' }]);
 });

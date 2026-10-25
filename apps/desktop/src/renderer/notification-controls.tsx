@@ -1,26 +1,22 @@
 // The per-conversation notification controls (issue #221): the list-menu
-// item, the muted mark of a list row, and the conversation header's bell.
-import { Bell, BellOff } from 'lucide-react';
-import { useRef, useState } from 'react';
+// item, and the muted mark of a list row. Menus are the only way to change them.
+import { BellOff } from 'lucide-react';
 import type { NotificationTarget } from '../shared/contract-notifications';
 import { t, uiFormatLocale } from './i18n';
 import {
   type ConversationNotificationState,
   conversationNotificationsAvailable,
-  conversationTarget,
-  type NotificationSnapshot,
   notificationSnapshot,
   ownNotificationOverride,
   refreshConversationNotifications,
   resolveNotificationState,
   setConversationNotification,
-  useNotificationSnapshot,
   useNotificationState,
 } from './notification-overrides';
 import { agentContacts } from './agent-contacts-model';
 import { agentRoomName } from './agent-room-store';
 import { readSidebarReference } from './sidebar-reference-cache';
-import { ScmContextMenu, type ScmContextMenuItem, type ScmContextMenuState } from './ScmContextMenu';
+import type { ScmContextMenuItem } from './ScmContextMenu';
 import { timeFormatOptions } from './time-format-preference';
 import './notification-controls.css';
 
@@ -65,35 +61,20 @@ function targetName(target: NotificationTarget): string {
   );
 }
 
-/** The target a conversation header writes: its own (the bot, the room, the
- *  coding session), or the session itself once it has an override of its own. */
-export function headerNotificationTarget(
-  snap: NotificationSnapshot,
-  sessionId: string,
-  now: number = snap.now
-): NotificationTarget {
-  const own = conversationTarget(sessionId);
-  const session: NotificationTarget = { kind: 'session', id: sessionId };
-  return own.kind !== 'session' && ownNotificationOverride(snap, session, now) ? session : own;
-}
-
-/** THE notification actions of every menu (list rows, bot and room rows, the
- *  header bell), worded by the state. Each item writes `target` — the displayed
+/** THE notification actions of every menu (list rows, bot and room rows), worded by the state. Each item writes `target` — the displayed
  *  conversation's own — unless its label names the parent ("Unmute {{name}}").
- *  `stateOf` is where the state is read from when it differs from `target`.
  *  None when the host has no per-conversation controls. */
 export function notificationMenuItems(
   target: NotificationTarget,
   {
     separated = false,
     now = Date.now(),
-    stateOf = target,
-  }: { separated?: boolean; now?: number; stateOf?: NotificationTarget } = {}
+  }: { separated?: boolean; now?: number } = {}
 ): ScmContextMenuItem[] {
   if (!conversationNotificationsAvailable()) return [];
   void refreshConversationNotifications();
   const snap = notificationSnapshot();
-  const state = resolveNotificationState(snap, stateOf, now);
+  const state = resolveNotificationState(snap, target, now);
   const own = ownNotificationOverride(snap, target, now);
   const write = (to: NotificationTarget, setting: Parameters<typeof setConversationNotification>[1]) => () =>
     void setConversationNotification(to, setting);
@@ -156,59 +137,5 @@ export function NotificationMuteMark({ target }: { target: NotificationTarget })
     <span className="session-row-muted" role="img" aria-label={tooltip} data-tooltip={tooltip}>
       <BellOff size={12} aria-hidden="true" />
     </span>
-  );
-}
-
-/** The conversation header's bell: faint while notifications are on, a bell-off
- *  with the remaining time while muted; a click opens the list menu's items. */
-export function ConversationBell({ sessionId }: { sessionId: string }) {
-  // The state shows the whole chain (session → room → bot); the items write
-  // the conversation's own target (headerNotificationTarget).
-  const sessionTarget: NotificationTarget = { kind: 'session', id: sessionId };
-  const snap = useNotificationSnapshot();
-  const state = sessionId ? resolveNotificationState(snap, sessionTarget) : null;
-  const target = headerNotificationTarget(snap, sessionId);
-  const button = useRef<HTMLButtonElement>(null);
-  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
-  if (!sessionId || !state || !conversationNotificationsAvailable()) return null;
-  const label = t('Notifications for this conversation');
-  const muted = state.kind === 'muted';
-  const until = muted ? notificationUntilLabel(state.until) : '';
-  let tooltip = label;
-  if (muted) tooltip = mutedTooltip(state);
-  else if (state.kind === 'outside') tooltip = t('Not notified by notification settings');
-  return (
-    <>
-      <button
-        ref={button}
-        type="button"
-        className="pane-dock-toggle conversation-bell"
-        data-state={state.kind}
-        aria-label={label}
-        data-tooltip={tooltip}
-        aria-haspopup="menu"
-        aria-expanded={menu !== null}
-        onClick={() => {
-          const rect = button.current?.getBoundingClientRect();
-          setMenu({
-            label,
-            heading: label,
-            x: rect?.right ?? 0,
-            y: rect?.bottom ?? 0,
-            alignEnd: true,
-            flipY: rect?.top,
-            items: notificationMenuItems(target, { stateOf: sessionTarget }),
-          });
-        }}
-      >
-        {muted || state.kind === 'outside' ? (
-          <BellOff size={15} aria-hidden="true" />
-        ) : (
-          <Bell size={15} aria-hidden="true" />
-        )}
-        {until && <span className="conversation-bell-time">{until}</span>}
-      </button>
-      <ScmContextMenu state={menu} onClose={() => setMenu(null)} anchorRef={button} />
-    </>
   );
 }
