@@ -403,8 +403,10 @@ test('waitForCooldownMs waits out a cooldown-only roster inside the bound, then 
   for (const id of ids) await blockProviderAccount(provider, id, until, 'm', 'retry-after');
   const stages = [];
   let sends = 0;
+  let sentAt = 0;
   const gateway = cooling({ waitForCooldownMs: 300_000 }, async () => {
     sends += 1;
+    sentAt = Date.now();
     return { content: 'ok' };
   });
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
@@ -430,9 +432,16 @@ test('waitForCooldownMs waits out a cooldown-only roster inside the bound, then 
   await turn();
   assert.equal(sends, 0, 'still waiting one millisecond before the earliest cooldown ends');
   assert.equal(settled, false);
-  t.mock.timers.tick(1);
+  // The wait timer may be armed a few turns after the report (store reads);
+  // advance one millisecond per turn until the send lands, never all at once.
+  for (let i = 0; i < 1_000 && !settled; i += 1) {
+    t.mock.timers.tick(1);
+    await turn();
+  }
+  assert.equal(settled, true, 'the send landed within a second of the cooldown ending');
   assert.equal((await sending).content, 'ok');
-  assert.equal(sends, 1, 'sent once, after the cooldown expired');
+  assert.equal(sends, 1, 'sent once');
+  assert.ok(sentAt >= until, 'the send waited for the earliest cooldown to end');
 });
 
 test('waitForCooldownMs: beyond the bound, or with quota evidence, the send throws without waiting', async (t) => {
