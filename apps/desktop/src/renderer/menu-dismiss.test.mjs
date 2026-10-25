@@ -284,6 +284,75 @@ test('usage menu: after a pointer open, Tab closes it and Escape returns focus t
   await view.cleanup();
 });
 
+// A popup whose anchor sits inside a transcript that a streaming turn keeps
+// appending to, pinning to its end and re-rendering. Real dismissals still work.
+function StreamingTranscript({ lines, popup }) {
+  return React.createElement(
+    'section',
+    { id: 'transcript', style: { overflow: 'auto' } },
+    popup,
+    Array.from({ length: lines }, (_, index) => React.createElement('p', { key: index }, `token ${index}`))
+  );
+}
+const streamTick = async (view, transcript, lines, popup) => {
+  await act(async () => view.render(React.createElement(StreamingTranscript, { lines, popup })));
+  await act(async () => {
+    transcript.scrollTop = transcript.scrollHeight;
+    transcript.dispatchEvent(new window.Event('scroll', { bubbles: false }));
+    document.dispatchEvent(new window.Event('scroll'));
+    window.dispatchEvent(new window.Event('scroll'));
+  });
+};
+
+test('usage menu stays open through streaming scrolls and re-renders, and closes on the user wheel', async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const popup = React.createElement(SidebarUsageMenu, {
+    pinned: false,
+    onTogglePin() {},
+    railBars: 'long',
+    onRailBarsChange() {},
+  });
+  await act(async () => root.render(React.createElement(StreamingTranscript, { lines: 1, popup })));
+  const transcript = document.getElementById('transcript');
+  await pointerOpen(host.querySelector('.sidebar-usage-menu'));
+  assert.ok(document.querySelector('.usage-menu'));
+  for (let lines = 2; lines < 8; lines += 1) {
+    await streamTick(root, transcript, lines, popup);
+    assert.ok(document.querySelector('.usage-menu'), `a streaming scroll closed the menu at ${lines} lines`);
+  }
+  await act(async () => transcript.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true })));
+  assert.equal(document.querySelector('.usage-menu'), null, 'a user wheel outside left the menu open');
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+test('tab context menu: streaming scrolls keep it open; outside pointer, Escape and a user wheel close it', async () => {
+  const { useTabMenuDismiss } = await import('./workspace-tab-strip-state.ts');
+  function TabMenu() {
+    const [menu, setMenu] = React.useState({ x: 1, y: 1 });
+    const node = React.useRef(null);
+    useTabMenuDismiss(menu, node, setMenu);
+    return menu ? React.createElement('div', { ref: node, id: 'tab-menu' }, 'menu') : null;
+  }
+  for (const dismiss of [
+    () => pointerDown(document.body),
+    () => press('Escape'),
+    () => act(async () => document.body.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true }))),
+  ]) {
+    const view = await mount(React.createElement(TabMenu));
+    await act(async () => {
+      document.body.dispatchEvent(new window.Event('scroll'));
+      window.dispatchEvent(new window.Event('scroll'));
+    });
+    assert.ok(document.getElementById('tab-menu'), 'a streaming scroll closed the tab menu');
+    await dismiss();
+    assert.equal(document.getElementById('tab-menu'), null);
+    await view.cleanup();
+  }
+});
+
 function RouteHarness({ calls, pane = null }) {
   const trigger = React.useRef(null);
   const sheet = React.useRef(null);

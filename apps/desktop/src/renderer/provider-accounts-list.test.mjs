@@ -633,6 +633,10 @@ test('account rows show every usage window, the limit holding them and the switc
     ]
   );
   assert.match(menu.querySelector('[role="menuitem"]').textContent, /^Refresh usage/);
+  // A streaming turn pins the transcript on every token: a programmatic scroll
+  // elsewhere must not close the open menu.
+  await act(async () => document.body.dispatchEvent(new window.Event('scroll')));
+  assert.ok(document.querySelector('[role="menu"]'), 'a programmatic scroll closed the policy menu');
   await act(async () => menu.querySelector('[data-account-policy="headroom"]').click());
   assert.deepEqual(writes.at(-1), { policy: 'headroom' });
   assert.equal(document.querySelector('[role="menu"]'), null);

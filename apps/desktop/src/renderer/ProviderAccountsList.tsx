@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import type { DesktopCapability } from '../shared/contract';
 import { ErrorNotice } from './ErrorNotice';
 import { t, uiFormatLocale } from './i18n';
+import { closeOnUserScroll } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { record } from './record-utils';
 import { captureRowMenuAnchor, positionRowMenu, useRowMenuClamp } from './row-menu-geometry';
@@ -197,12 +198,12 @@ function AccountPolicyMenu({
     document.addEventListener('pointerdown', dismiss, true);
     document.addEventListener('keydown', keydown, true);
     window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true);
+    const stopScrollDismiss = closeOnUserScroll(close, (target) => Boolean(panel.current?.contains(target)));
     return () => {
       document.removeEventListener('pointerdown', dismiss, true);
       document.removeEventListener('keydown', keydown, true);
       window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
+      stopScrollDismiss();
     };
   }, [open]);
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {

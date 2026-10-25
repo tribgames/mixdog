@@ -16,6 +16,7 @@ import {
 } from 'react';
 import { flushSync } from 'react-dom';
 import { clampOverlayIntoView } from './anchored-panel';
+import { closeOnUserScroll } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import type { WorkspaceTab } from './nav-types';
 import {
@@ -105,12 +106,12 @@ export function useTabMenuDismiss(
     document.addEventListener('pointerdown', closeOutside);
     document.addEventListener('keydown', closeOnEscape);
     window.addEventListener('resize', closeMenu);
-    window.addEventListener('scroll', closeMenu, true);
+    const stopScrollDismiss = closeOnUserScroll(closeMenu, (target) => Boolean(tabMenuNode.current?.contains(target)));
     return () => {
       document.removeEventListener('pointerdown', closeOutside);
       document.removeEventListener('keydown', closeOnEscape);
       window.removeEventListener('resize', closeMenu);
-      window.removeEventListener('scroll', closeMenu, true);
+      stopScrollDismiss();
     };
   }, [tabMenu, tabMenuNode, setTabMenu]);
   // ABB: the context menu closes on hardware back like every other layer.

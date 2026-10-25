@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { t } from './i18n';
-import { useMenuDismiss } from './menu-dismiss';
+import { closeOnUserScroll, useMenuDismiss } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { captureRowMenuAnchor, positionRowMenu, useRowMenuClamp } from './row-menu-geometry';
 import type { UsageRailBars, UsageRailSlots } from './SidebarUsage';
@@ -49,10 +49,10 @@ export function SidebarUsageMenu({
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_ITEM)?.focus());
     const close = () => setOpen(false);
     window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true);
+    const stopScrollDismiss = closeOnUserScroll(close, (target) => Boolean(panel.current?.contains(target)));
     return () => {
       window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
+      stopScrollDismiss();
     };
   }, [open]);
 
