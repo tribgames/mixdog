@@ -163,7 +163,7 @@ async function mountPhoneSelection(module, waits = () => true, dockOpenGate = un
   return {
     docked,
     navigate,
-    select: (id) => act(async () => select(id, 'leaf-1')),
+    select: (id, leafId = 'leaf-1') => act(async () => select(id, leafId)),
     settle: (finish) =>
       act(async () => {
         finish();
@@ -229,6 +229,31 @@ test('a pending phone Visualize open drops on another side view, a drawer dismis
     } finally {
       await view.unmount();
     }
+  }
+});
+
+test("a pending open in an unfocused pane survives the focus move its own tap makes; later navigation still drops it", async () => {
+  const own = slowVisualizeModule();
+  const view = await mountPhoneSelection(own);
+  try {
+    // The pane's toggle focuses its pane, then asks for the view there.
+    await view.select('visualize', 'leaf-2');
+    await view.navigate({ focus: 'leaf-2' });
+    await view.settle(own.finish);
+    assert.deepEqual(view.docked, ['leaf-2:visualize'], 'the tap that focused the pane still opens its view');
+  } finally {
+    await view.unmount();
+  }
+  const later = slowVisualizeModule();
+  const moved = await mountPhoneSelection(later);
+  try {
+    await moved.select('visualize', 'leaf-2');
+    await moved.navigate({ focus: 'leaf-2' });
+    await moved.navigate({ focus: 'leaf-1' });
+    await moved.settle(later.finish);
+    assert.deepEqual(moved.docked, [], 'a navigation after the tap drops the open');
+  } finally {
+    await moved.unmount();
   }
 });
 

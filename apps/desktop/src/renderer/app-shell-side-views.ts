@@ -227,12 +227,17 @@ export function useSideViewSelection({
   });
   // Every committed navigation drops it, at that navigation: a pane showing
   // something else (even one that comes back before the chunk is in), a pane
-  // added or removed, or focus moving to another pane.
+  // added or removed, or focus moving to another pane. The one exception is
+  // the request's own focus move: a pane's toggle focuses its pane as it asks.
   const navigation = paneNavigationKey(paneLeaves, focusedLeafId);
   const committedNavigation = useRef(navigation);
+  const requestNavigation = useRef<string | null>(null);
   useLayoutEffect(() => {
     if (committedNavigation.current === navigation) return;
     committedNavigation.current = navigation;
+    const own = requestNavigation.current === navigation;
+    requestNavigation.current = null;
+    if (own) return;
     cancelVisualizeOpen();
     cancelDockOpen();
     cancelSearchOpen();
@@ -250,6 +255,7 @@ export function useSideViewSelection({
         return;
       }
       const leafId = paneLeafId ?? focusedLeafIdRef.current;
+      requestNavigation.current = paneNavigationKey(paneLeavesRef.current, leafId);
       const request = { visualize: requestVisualizeOpen, dock: requestDockOpen, search: requestSearchOpen }[gated];
       request(() => selectNow(id, leafId));
     },
@@ -258,6 +264,7 @@ export function useSideViewSelection({
       cancelSearchOpen,
       cancelVisualizeOpen,
       focusedLeafIdRef,
+      paneLeavesRef,
       requestDockOpen,
       requestSearchOpen,
       requestVisualizeOpen,
