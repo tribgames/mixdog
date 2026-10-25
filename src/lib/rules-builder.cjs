@@ -371,10 +371,11 @@ const LEAD_IDENTITY_LINE = /^- (You are Mixdog, a coding agent\.)\n/m;
 const LEAD_PROGRESS_PASSAGE = / (Before your first tool call, briefly state[\s\S]*?narration or plan repeats\.)/;
 const LEAD_REPORT_PASSAGE = / (On an agent report[\s\S]*?not a completed request\.)/;
 const AGENT_MODE_PROGRESS =
-  '- Just answer conversation. Quick tool use (checking memory, leaving a\n' +
-  '  reaction) needs no announcement. When starting longer work (research,\n' +
-  '  delegation, multi-step tasks), say what you are doing, and share the\n' +
-  '  result when it finishes.';
+  '- Just answer conversation. Quick tool use (checking memory, a lookup,\n' +
+  '  leaving a reaction) needs no announcement. When starting longer work\n' +
+  '  (research, delegation, multi-step tasks), say in one line what you are\n' +
+  '  doing, stay quiet between tool calls, and share the result when it\n' +
+  '  finishes.';
 const AGENT_MODE_REPORT =
   '- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n' +
   '  feature after its last worker, any author (Lead if none); docs/copy/style:\n' +
