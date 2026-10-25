@@ -32,6 +32,19 @@ export function isPhoneSurfaceMarked(): boolean {
   return document.documentElement.hasAttribute('data-mixdog-mobile-tabs');
 }
 
+function subscribePhoneMarker(listener: () => void): () => void {
+  // The document's own realm: the observer must come from the window that owns the root.
+  const Observer = (document.defaultView as Window & typeof globalThis).MutationObserver;
+  const observer = new Observer(listener);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mixdog-mobile-tabs'] });
+  return () => observer.disconnect();
+}
+
+/** Reactive `isPhoneSurfaceMarked()`: follows the marker as the layout flips. */
+export function usePhoneSurfaceMarked(): boolean {
+  return useSyncExternalStore(subscribePhoneMarker, isPhoneSurfaceMarked, () => false);
+}
+
 /** Phone layout predicate (layout only; see `isRemoteHostRenderer` for the host role). */
 export function isMobileRemoteSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;

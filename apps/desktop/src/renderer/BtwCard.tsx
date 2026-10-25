@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type BtwCardState, createBtwController } from './btw-side-question';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
+import { usePhoneSurfaceMarked } from './mobile-surface';
 import { ProgressSpinner } from './ProgressSpinner';
 import { copyTextToClipboard } from './text-format';
 import MarkdownBody from './MarkdownBody';
@@ -137,6 +138,7 @@ function CopyAnswerButton({ text }: { text: string }) {
 }
 
 export function BtwCard({ card, onClose, onRetry }: { card: BtwCardState; onClose(): void; onRetry(): void }) {
+  const phone = usePhoneSurfaceMarked();
   const pending = card.status === 'pending';
   const failed = card.status === 'failed';
   const answer = card.status === 'answered' ? sideMessage(card.text) : null;
@@ -179,7 +181,7 @@ export function BtwCard({ card, onClose, onRetry }: { card: BtwCardState; onClos
         {(pending || (answer !== null && !answerReady)) && (
           <span className="btw-pending">
             <ProgressSpinner size={12} />
-            {t('Answering… · Esc to cancel')}
+            {phone ? t('Answering…') : t('Answering… · Esc to cancel')}
           </span>
         )}
         {failed && <FailureNotice error={card.error} />}

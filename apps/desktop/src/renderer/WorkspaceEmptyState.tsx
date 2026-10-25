@@ -4,6 +4,7 @@
 import type React from 'react';
 
 import { t } from './i18n';
+import { usePhoneSurfaceMarked } from './mobile-surface';
 
 // 23-A is the high-contrast in-app mark. Watermarks crop to the glyph bounds
 // so the visible mark fills the box like a letterpress.
@@ -21,6 +22,7 @@ export function BrandTile({ crop = false }: { crop?: boolean } = {}): React.JSX.
 }
 
 export function WorkspaceEmptyState(): React.JSX.Element {
+  const phone = usePhoneSurfaceMarked();
   return (
     <div className="workspace-empty" data-testid="workspace-empty">
       <div className="thread-welcome">
@@ -30,43 +32,46 @@ export function WorkspaceEmptyState(): React.JSX.Element {
         {/* Product vocabulary has ONE Project concept (user decision) — no
             "workspace" wording anywhere, including assistive labels. */}
         <h1 className="sr-only">Mixdog</h1>
-        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain shortcuts container for assistive tech; adding a role would change semantics */}
-        <div className="welcome-shortcuts" aria-label={t('Keyboard shortcuts')}>
-          <div>
-            <span>{t('New task')}</span>
-            <span className="welcome-keys">
-              <kbd>Ctrl</kbd>
-              <i>+</i>
-              <kbd>N</kbd>
-            </span>
+        {/* The phone has no keyboard: the key list would be orphan labels. */}
+        {!phone && (
+          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: labels the plain shortcuts container for assistive tech; adding a role would change semantics
+          <div className="welcome-shortcuts" aria-label={t('Keyboard shortcuts')}>
+            <div>
+              <span>{t('New task')}</span>
+              <span className="welcome-keys">
+                <kbd>Ctrl</kbd>
+                <i>+</i>
+                <kbd>N</kbd>
+              </span>
+            </div>
+            <div>
+              <span>{t('Switch tab')}</span>
+              <span className="welcome-keys">
+                <kbd>Ctrl</kbd>
+                <i>+</i>
+                <kbd>←</kbd>
+                <i>/</i>
+                <kbd>→</kbd>
+              </span>
+            </div>
+            <div>
+              <span>{t('Sidebar')}</span>
+              <span className="welcome-keys">
+                <kbd>Ctrl</kbd>
+                <i>+</i>
+                <kbd>B</kbd>
+              </span>
+            </div>
+            <div>
+              <span>{t('Settings')}</span>
+              <span className="welcome-keys">
+                <kbd>Ctrl</kbd>
+                <i>+</i>
+                <kbd>,</kbd>
+              </span>
+            </div>
           </div>
-          <div>
-            <span>{t('Switch tab')}</span>
-            <span className="welcome-keys">
-              <kbd>Ctrl</kbd>
-              <i>+</i>
-              <kbd>←</kbd>
-              <i>/</i>
-              <kbd>→</kbd>
-            </span>
-          </div>
-          <div>
-            <span>{t('Sidebar')}</span>
-            <span className="welcome-keys">
-              <kbd>Ctrl</kbd>
-              <i>+</i>
-              <kbd>B</kbd>
-            </span>
-          </div>
-          <div>
-            <span>{t('Settings')}</span>
-            <span className="welcome-keys">
-              <kbd>Ctrl</kbd>
-              <i>+</i>
-              <kbd>,</kbd>
-            </span>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

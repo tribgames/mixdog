@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
+import { usePhoneSurfaceMarked } from './mobile-surface';
 import { bindCardKeys, focusCardWhenIdle, isImeKey, isTypingTarget } from './question-card-keys';
 import {
   buildAnswers,
@@ -115,6 +116,8 @@ export function QuestionCard({
   // The ref is advanced with the same transition as the state, so a second
   // click or key before React re-renders still builds on the first one.
   const stateRef = useRef(state);
+  // Enter / ← are keyboard hints; a touch-only phone has the buttons instead.
+  const phone = usePhoneSurfaceMarked();
   if (draftsRef) draftsRef.current = stateRef.current.drafts;
   const apply = useCallback(
     (action: QuestionAction) => {
@@ -218,8 +221,8 @@ export function QuestionCard({
   const meta = [total > 1 ? `${index + 1}/${total}` : '', multi ? t('Multiple') : ''].filter(Boolean).join(' · ');
   const hint = [
     draft.selected.length > 0 ? t('{{count}} selected', { count: draft.selected.length }) : '',
-    `Enter ${primaryLabel}`,
-    index > 0 ? `← ${t('Previous question')}` : '',
+    phone ? '' : `Enter ${primaryLabel}`,
+    !phone && index > 0 ? `← ${t('Previous question')}` : '',
   ]
     .filter(Boolean)
     .join(' · ');

@@ -73,7 +73,7 @@ export function GithubDeviceCodeText({ state, className = '' }: { state: GithubD
       {state.copy === 'failed' && (
         <span className="github-device-code-error">{t('Could not copy the code — type it on GitHub instead.')}</span>
       )}
-      <span>{t('Paste the code on the GitHub page (Ctrl+V), then click Continue → Authorize.')}</span>
+      <span>{t('Paste the code on the GitHub page, then click Continue → Authorize.')}</span>
       {state.opened && (
         <span className="github-device-code-waiting">
           <span className="github-device-code-spinner" aria-hidden="true" />
