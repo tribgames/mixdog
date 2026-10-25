@@ -24,7 +24,7 @@ import { bindShellKind, buildShellRoutingRules } from '../../src/runtime/agent/o
 test('shell execution policy matches sync-first background-task parity', () => {
   assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 60_000);
   const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-  assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms', 'wait_ms', 'background']);
+  assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'cwd', 'timeout_ms', 'wait_ms', 'background']);
   assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
   assert.match(
     shellTool.description,
@@ -132,7 +132,7 @@ test('C: shell surface keeps execution contract separate from the platform comma
   assert.doesNotMatch(shellTool.description, /Tool names are not shell commands|Use read, NOT cat/);
   assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
   assert.equal(shellTool.inputSchema?.properties?.shell, undefined);
-  assert.equal(shellTool.inputSchema?.properties?.cwd, undefined);
+  assert.match(shellTool.inputSchema?.properties?.cwd?.description, /Use it instead of cd\/Set-Location\./);
   assert.equal(shellTool.inputSchema?.properties?.mode, undefined);
   assert.equal(shellTool.inputSchema?.properties?.commands, undefined);
   assert.deepEqual(shellTool.inputSchema?.required, ['command']);

@@ -4,6 +4,7 @@
 // consumes.
 import { resolve as resolvePath, isAbsolute } from 'node:path';
 import { normalizeToolEnvelope } from '../tool-envelope.mjs';
+import { effectiveToolCwd } from '../../tools/builtin/bash-tool/shell-cwd.mjs';
 import {
   invalidatePathForSession,
   clearReadDedupSession,
@@ -85,7 +86,7 @@ async function fireToolFailureHook(batch, call, result) {
     await hook({
       name: call.name,
       args: call.arguments,
-      cwd: batch.cwd,
+      cwd: effectiveToolCwd(call.name, call.arguments, batch.cwd),
       sessionId: batch.sessionId,
       toolCallId: call.id,
       result: typeof result === 'string' ? result : String(result ?? ''),

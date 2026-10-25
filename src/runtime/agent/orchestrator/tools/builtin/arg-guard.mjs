@@ -780,10 +780,13 @@ function guardRead(a) {
 }
 
 function guardShell(a) {
-  const allowed = new Set(['command', 'timeout_ms', 'wait_ms', 'background']);
+  const allowed = new Set(['command', 'cwd', 'timeout_ms', 'wait_ms', 'background']);
   const unsupported = Object.keys(a).find((key) => !allowed.has(key));
   if (unsupported) {
-    return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, wait_ms, and background`;
+    return `Error: shell arg "${unsupported}" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background`;
+  }
+  if (hasOwn(a, 'cwd') && (typeof a.cwd !== 'string' || a.cwd.trim().length === 0)) {
+    return `Error: shell arg "cwd" must be a non-empty string (got ${describeType(a.cwd)})`;
   }
   if (hasOwn(a, 'background') && typeof a.background !== 'boolean') {
     return `Error: shell arg "background" must be a boolean (got ${describeType(a.background)})`;

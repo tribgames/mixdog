@@ -207,6 +207,7 @@ export const BUILTIN_TOOLS = [
       type: 'object',
       properties: {
         command: { type: 'string', description: buildShellCommandDescription(_defaultShellKind) },
+        cwd: { type: 'string', description: 'Working directory; default the Project. Use it instead of cd/Set-Location.' },
         timeout_ms: {
           type: 'integer',
           minimum: 0,

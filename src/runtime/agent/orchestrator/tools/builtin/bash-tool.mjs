@@ -25,6 +25,7 @@ import { planShellDeadlines } from './bash-tool/deadline-plan.mjs';
 import { planShellInvocation } from './bash-tool/invocation-plan.mjs';
 import { renderBackgroundedResult } from './bash-tool/backgrounded-result.mjs';
 import { renderCompletedResult } from './bash-tool/completed-result.mjs';
+import { effectiveShellCwd, shellCwdError } from './bash-tool/shell-cwd.mjs';
 
 export {
   SURVIVING_DESCENDANTS_WARNING,
@@ -64,9 +65,13 @@ function settleMutationCaches(shellEffects, backgroundJobId, runSettled = null) 
 }
 
 export async function executeBashTool(args, workDir, options = {}) {
-  // Every call starts from the current Project root. A command-local `cd`
-  // never creates a second session cwd authority beside the dedicated cwd tool.
-  const bashWorkDir = workDir;
+  // A call starts from the current Project root unless it names a `cwd`. A
+  // command-local `cd` never creates a second session cwd authority beside it.
+  const bashWorkDir = effectiveShellCwd(args, workDir);
+  if (bashWorkDir !== workDir) {
+    const cwdError = await shellCwdError(bashWorkDir);
+    if (cwdError) return formatShellToolFailure(cwdError);
+  }
   // Approval comes from the runtime's options, never from model-supplied args.
   const elevationApproved = options?.elevationApproved === true;
   const prepared = prepareShellCommand(args, { elevationApproved });

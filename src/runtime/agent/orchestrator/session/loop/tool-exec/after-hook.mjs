@@ -4,6 +4,7 @@
  */
 import { normalizeToolEnvelope, makeToolEnvelope } from '../../tool-envelope.mjs';
 import { resolveToolResultAfterHook } from '../tool-helpers.mjs';
+import { effectiveToolCwd } from '../../../tools/builtin/bash-tool/shell-cwd.mjs';
 
 export async function applyAfterToolHook(result, afterToolHook, { name, args, cwd, callerSessionId, toolCallId }) {
   if (typeof afterToolHook !== 'function') return result;
@@ -15,7 +16,7 @@ export async function applyAfterToolHook(result, afterToolHook, { name, args, cw
     const hookResult = await afterToolHook({
       name,
       args,
-      cwd,
+      cwd: effectiveToolCwd(name, args, cwd),
       sessionId: callerSessionId,
       toolCallId,
       result: visible,

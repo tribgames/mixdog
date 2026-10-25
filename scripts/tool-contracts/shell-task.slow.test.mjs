@@ -71,7 +71,7 @@ async function withAutoBackgroundMs(ms, run) {
 
 test('shell names its supported args for an unsupported one and absorbs timeout edge values', () => {
   const unsupportedErr = validateBuiltinArgs('shell', { command: 'node --version', verbose: true });
-  if (!/unsupported.*command, timeout_ms, wait_ms, and background/i.test(unsupportedErr || '')) {
+  if (!/unsupported.*command, cwd, timeout_ms, wait_ms, and background/i.test(unsupportedErr || '')) {
     throw new Error(`shell must reject an unsupported arg with the supported list: ${unsupportedErr}`);
   }
   const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: 0 });

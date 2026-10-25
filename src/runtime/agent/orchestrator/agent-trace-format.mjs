@@ -137,7 +137,7 @@ const TOOL_ARG_KEYS = {
   recall: ['query', 'limit', 'session_id', 'cwd'],
   search: ['query', 'limit', 'cwd'],
   code_graph: ['mode', 'file', 'files', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
-  shell: ['command', 'timeout_ms'],
+  shell: ['command', 'cwd', 'timeout_ms'],
   task: ['action', 'task_id'],
   edit: ['file_path', 'replace_all'],
   edit_many: ['edits'],

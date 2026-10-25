@@ -15,6 +15,7 @@ import {
   recordHumanDecision,
 } from '../../human-gate/gate.mjs';
 import { applyEditedArgs } from '../../human-gate/requests.mjs';
+import { effectiveToolCwd } from '../../../tools/builtin/bash-tool/shell-cwd.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
@@ -31,7 +32,7 @@ async function askApproval(
       resolvePreToolAskApproval({
         toolName: call.name,
         args: call.args,
-        cwd: call.cwd,
+        cwd: effectiveToolCwd(call.name, call.args, call.cwd),
         sessionId: callerSessionId,
         toolCallId: executeOpts.toolCallId || null,
         askReason,
@@ -140,7 +141,7 @@ export async function applyBeforeToolHook({
             {
               name,
               args,
-              cwd,
+              cwd: effectiveToolCwd(name, args, cwd),
               sessionId: callerSessionId,
               toolCallId: executeOpts.toolCallId || null,
             },

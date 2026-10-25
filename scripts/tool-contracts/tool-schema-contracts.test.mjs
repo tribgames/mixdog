@@ -72,11 +72,11 @@ test('shell, edit, and task keep their execution contracts', () => {
   }
   const shellProps = shellTool?.inputSchema?.properties || {};
   if (
-    JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'wait_ms', 'background']) ||
+    JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'cwd', 'timeout_ms', 'wait_ms', 'background']) ||
     shellProps.command?.minLength !== undefined
   ) {
     throw new Error(
-      `shell schema must expose only command, optional timeout_ms, wait_ms and background: ${JSON.stringify(shellProps)}`
+      `shell schema must expose only command, optional cwd, timeout_ms, wait_ms and background: ${JSON.stringify(shellProps)}`
     );
   }
   // timeout_ms is DECLARED in the model-facing schema (the schema states the
