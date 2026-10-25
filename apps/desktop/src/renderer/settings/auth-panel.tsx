@@ -44,7 +44,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
   const [logins, setLogins] = useState<DesktopVaultLogin[] | null>(null);
   const [sites, setSites] = useState<DesktopBrowserSignedInSite[]>([]);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<AuthFilter>('password');
+  const [filter, setFilter] = useState<AuthFilter | null>(null);
   const [visible, setVisible] = useState(INITIAL_ROWS);
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   const [dialog, setDialog] = useState<LoginDialogState | null>(null);
@@ -119,8 +119,10 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
 
   const rows = mergeAuthRows(logins ?? [], sites);
   const counts = authCounts(rows);
+  // Until the user picks one, the switch opens on the side that has logins.
   // The cookie-only option disappears at zero; its filter then falls back.
-  const activeFilter: AuthFilter = filter === 'cookies' && counts.cookies === 0 ? 'password' : filter;
+  const preferred: AuthFilter = filter ?? (counts.password === 0 && counts.cookies > 0 ? 'cookies' : 'password');
+  const activeFilter: AuthFilter = preferred === 'cookies' && counts.cookies === 0 ? 'password' : preferred;
   const shown = filterAuthRows(rows, activeFilter, query);
   const filters: Array<[AuthFilter, string, number]> = [['password', t('Saved password'), counts.password]];
   if (counts.cookies > 0) filters.push(['cookies', t('Stay signed in only'), counts.cookies]);

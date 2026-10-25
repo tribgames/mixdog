@@ -1080,6 +1080,15 @@ html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
 .auth-search > input:focus {
   outline-color: var(--mx-focus);
 }
+/* The switch, search and list sit inside the group's frame: the frame's own
+   rows bring their padding, these controls need the inset spelled out. */
+.settings-group-body:has(> .auth-seg) {
+  padding-block: 12px 4px;
+}
+.settings-group-body:has(> .auth-seg) > .settings-empty {
+  margin: 0;
+  padding: 10px 2px 8px;
+}
 .auth-seg {
   display: flex;
   gap: 4px;
