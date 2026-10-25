@@ -110,6 +110,18 @@ test('all selectable languages render source control and slash labels without a 
   }
 });
 
+test('a disambiguated key never shows its "Island:" context in any language', () => {
+  const locales = ['de', 'es', 'fr', 'it', 'ja', 'ko', 'pt-BR', 'ru', 'vi', 'zh-CN', 'zh-TW'];
+  const leaked = [];
+  for (const locale of locales) {
+    const catalog = JSON.parse(readFileSync(new URL(`./locales/${locale}.json`, import.meta.url), 'utf8'));
+    for (const [key, value] of Object.entries(catalog)) {
+      if (key.startsWith('Island: ') && /^(Island|島|アイランド|아일랜드)\s*[:：]/.test(value)) leaked.push(`${locale}: ${key}`);
+    }
+  }
+  assert.deepEqual(leaked, []);
+});
+
 test('the bundled workflow description is translated in every supported UI language', async () => {
   const { name, description } = parseMarkdownFrontmatter(
     readFileSync(new URL('../../../../src/workflows/default/WORKFLOW.md', import.meta.url), 'utf8')
