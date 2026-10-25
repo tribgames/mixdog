@@ -44,6 +44,7 @@ import {
   monogramHue,
   noteVisualizeCards,
   noteVisualizeTurnCards,
+  previewFileLabel,
   subscribeVisualizeCards,
   type VisualizeCardCall,
   type VisualizeCardKind,
@@ -65,7 +66,7 @@ import {
   visualizedTargets,
 } from './visualize-card-model';
 import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard';
-import { splitChangePath, type TurnChangesFile, type TurnChangesRef, useTurnChanges } from './turn-changes-model';
+import { type TurnChangesFile, type TurnChangesRef, useTurnChanges } from './turn-changes-model';
 import {
   claimTurnPreviewEnd,
   noteTurnPreviewTargets,
@@ -501,7 +502,7 @@ function useTurnPreviews({
         id: `preview:${checkpointId}:${file.path}`,
         pending: false,
         targets: [file.target],
-        label: splitChangePath(file.path).base,
+        label: previewFileLabel(file.path),
         tabId: visualizeTabForTargets(state, [file.target])?.id ?? '',
         at,
         preview: true,

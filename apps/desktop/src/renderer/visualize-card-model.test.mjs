@@ -4,6 +4,7 @@ import test from 'node:test';
 import { desktopToolActivityItemPresentation } from './transcript-tool-model.ts';
 import {
   noteVisualizeCards,
+  previewFileLabel,
   rememberVisualizeTabTitles,
   subscribeVisualizeCards,
   visualizeCallTabTitle,
@@ -254,6 +255,14 @@ test('visualize rows name the tab by the title it opened with, never its bare id
     'Checked tab'
   );
   assert.equal(visualizeCallTabTitle('other', call('check', { tab: 'v1' })), '');
+});
+
+test('a preview tile is named by its file, or by its folder when the file is an index page', () => {
+  assert.equal(previewFileLabel('design/mockups/login/index.html'), 'login');
+  assert.equal(previewFileLabel('C:\\work\\site\\INDEX.htm'), 'site');
+  assert.equal(previewFileLabel('index.html'), 'index.html', 'no folder to name it by');
+  assert.equal(previewFileLabel('reports/q3.pdf'), 'q3.pdf');
+  assert.equal(previewFileLabel('site/index.test.html'), 'index.test.html');
 });
 
 test("a card of a closed tab follows the tab that shows its files again, and opens it on that tab's terms", () => {

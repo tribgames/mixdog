@@ -378,15 +378,24 @@ export function visualizedTargets(items: readonly TranscriptItem[]): string[] {
 /** Whether `tab` shows what `call` opened: the same files, or inline content
  *  of the same kind and title (re-opening it is a new version of that tab). */
 function showsCall(tab: VisualizeTabView, call: VisualizeCardCall): boolean {
-  // The live panes; a tab stepped back to a kept version shows only that
-  // version's panes, and is still the same tab.
-  const current = tab.panes.filter((pane) => pane.version === undefined);
-  const live = current.length ? current : tab.panes;
+  const live = livePanes(tab);
   if (call.content) {
     const shown = live[0]?.inline;
     return live.length === 1 && shown?.kind === call.content.kind && shown.title === call.content.title;
   }
-  return showsTargets(live, call.targets);
+  // A preview's one file may be one pane of a side-by-side tab.
+  return showsTargets(live, call.targets) || Boolean(call.preview && holdsTarget(live, call.targets));
+}
+
+/** The live panes; a tab stepped back to a kept version shows only that
+ *  version's panes, and is still the same tab. */
+function livePanes(tab: VisualizeTabView): VisualizeTabView['panes'] {
+  const current = tab.panes.filter((pane) => pane.version === undefined);
+  return current.length ? current : tab.panes;
+}
+
+function holdsTarget(live: VisualizeTabView['panes'], targets: readonly string[]): boolean {
+  return targets.length === 1 && live.some((pane) => sameTarget(pane.target, targets[0]));
 }
 
 /** The live panel tab a card stands for: its id, showing the same files;
@@ -418,18 +427,26 @@ function showsTargets(live: VisualizeTabView['panes'], targets: readonly string[
 }
 
 /** The live panel tab showing exactly the files `targets` (a preview tile's
- *  tab, whoever opened it); null when none does. */
+ *  tab, whoever opened it), else one showing its one file beside others;
+ *  null when none does. */
 export function visualizeTabForTargets(
   state: VisualizeSessionState,
   targets: readonly string[]
 ): VisualizeTabView | null {
   if (!targets.length) return null;
   return (
-    state.tabs.find((tab) => {
-      const current = tab.panes.filter((pane) => pane.version === undefined);
-      return showsTargets(current.length ? current : tab.panes, targets);
-    }) ?? null
+    state.tabs.find((tab) => showsTargets(livePanes(tab), targets)) ??
+    state.tabs.find((tab) => holdsTarget(livePanes(tab), targets)) ??
+    null
   );
+}
+
+/** A preview tile's name for a file: its own name, or its folder's when the
+ *  name says nothing (`design/mockups/login/index.html` is "login"). */
+export function previewFileLabel(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+  const base = parts.at(-1) ?? path;
+  return /^index\.[^.]+$/i.test(base) && parts.length > 1 ? (parts.at(-2) ?? base) : base;
 }
 
 /** The version the tab shows (the newest when live); 0 without versions. */

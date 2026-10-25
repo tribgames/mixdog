@@ -418,7 +418,7 @@ test('a loaded turn: its previews fill the card, its changes card keeps the rest
   const tiles = view.qa('.transcript-visualize-tile');
   assert.deepEqual(
     tiles.map((tile) => tile.querySelector('b').textContent),
-    ['q3-sales.pdf', 'dashboard.html', 'chart.png', 'index.html', 'bundle.html']
+    ['q3-sales.pdf', 'dashboard.html', 'chart.png', 'settings', 'bundle.html']
   );
   assert.equal(view.q('.transcript-visualize-title').textContent, 'Previews 5');
   assert.deepEqual(
@@ -817,6 +817,21 @@ test('a turn that only changed an open tab (no visualize open, file ignored by G
   assert.deepEqual(tilesOf(view), [['a.html', '2']]);
   assert.equal(view.q('.transcript-visualize-tile').dataset.visualizeTab, 'v1');
   assert.equal(view.q('.transcript-visualize-turn').dataset.visualizeCount, '1');
+});
+
+test('a changed file shown beside another in one tab takes that tab: its title and picture, never a blank tile', async (t) => {
+  showTabs([
+    {
+      id: 'v6',
+      label: 'Mockups',
+      revision: 0,
+      panes: [{ target: `${ROOT}/design/mockups/a.html` }, { target: `${ROOT}/design/mockups/b.html` }],
+    },
+  ]);
+  const view = await mountTurn(t, { files: [file('design/mockups/b.html', 'M', { ignored: true })] });
+  assert.deepEqual(tilesOf(view), [['Mockups', undefined]]);
+  assert.equal(view.q('.transcript-visualize-tile').dataset.visualizeTab, 'v6');
+  assert.ok(!view.q('.transcript-visualize-tile').classList.contains('is-closed'));
 });
 
 test('a turn that added one artifact and changed another has one card with both', async (t) => {
