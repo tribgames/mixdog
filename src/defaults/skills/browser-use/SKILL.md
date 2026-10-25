@@ -240,13 +240,13 @@ bypass it.
 
 **Linked sign-in** — when the site offers "Continue with Google / GitHub /
 Apple" and this browser is already signed in to that provider, prefer it to
-typing a password. Pick the account in this order: the reply's `Linked
-sign-in:` line (the account the site used last time); the provider's own list
-of linked apps, read only and matched on the site's name (Google
-`myaccount.google.com/connections`, `/u/N/connections` per account; GitHub
-`settings/applications` and `settings/apps/authorizations`); otherwise ask
-the user once with the chooser's accounts as options. A chooser with one
-account is picked directly. Never type a provider password: a provider
+typing a password. A chooser with one account is picked directly. With
+several, use the reply's `Linked sign-in:` line (the account the site used
+last time); without one, read the provider's own list of linked apps and
+match the site's name (Google `myaccount.google.com/connections`,
+`/u/N/connections` per account; GitHub `settings/applications` and
+`settings/apps/authorizations`); otherwise ask the user once with the
+chooser's accounts as options. Never type a provider password: a provider
 password or 2FA step, or a first-time consent screen for an app the user did
 not name, goes to the user.
 
