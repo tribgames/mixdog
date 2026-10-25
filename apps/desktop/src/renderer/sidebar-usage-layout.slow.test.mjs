@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-test('quota windows are two lines: label, reset and percent over a full-width 6px track', async (t) => {
+test('quota windows are two lines: label, reset and percent over a full-width 3px track', async (t) => {
   const bundle = await build({
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
@@ -137,7 +137,7 @@ test('quota windows are two lines: label, reset and percent over a full-width 6p
       const context = `${row.label} at viewport ${width}`;
       assert.equal(row.trackLeft, row.meterLeft, `full-width track start: ${context}`);
       assert.equal(row.trackWidth, row.meterRight - row.meterLeft, `full-width track: ${context}`);
-      assert.ok(Math.abs(row.trackHeight - 6) < 0.5, `6px track: ${context}`);
+      assert.ok(Math.abs(row.trackHeight - 3) < 0.5, `3px track: ${context}`);
       assert.ok(Math.abs(row.trackGap - 5) <= 1, `5px between the two lines: ${context}`);
       assert.ok(
         Math.abs(row.fill - (row.trackWidth * row.percent) / 100) < 1,

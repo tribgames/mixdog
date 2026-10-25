@@ -148,9 +148,9 @@
   z-index: -1;
   inset: 0 -8px;
   border-radius: var(--mx-radius-md);
-  /* The shared item container: a hairline frame, no plate. */
-  background: var(--mx-item-surface);
-  box-shadow: var(--mx-item-outline);
+  /* A faint plate, no frame (user: 옅은 판이 낫다 — the hairline frames and
+     thick tracks read heavy). */
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
   pointer-events: none;
 }
 .sidebar-usage-provider-icon {
@@ -247,7 +247,8 @@
 }
 .sidebar-usage-meter > small {
   white-space: nowrap;
-  color: var(--mx-text);
+  /* The window label (7D, 5H) steps back so the percent leads. */
+  color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-meta);
@@ -259,7 +260,7 @@
   grid-column: 1 / -1;
   width: 100%;
   min-width: 0;
-  height: 6px;
+  height: 3px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-meter-track);
 }
