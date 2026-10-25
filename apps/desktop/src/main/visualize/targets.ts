@@ -318,7 +318,16 @@ async function resolveFile(
       `unsupported file type: ${raw} (supported: HTML, PDF, Word/Excel/PowerPoint/OpenDocument, images, audio, video, or an http(s) URL)`
     );
   }
-  return { kind, target: raw, path: real, label: basename(real), root: await rootOf(real) };
+  return { kind, target: raw, path: real, label: fileTabLabel(real), root: await rootOf(real) };
+}
+
+/** A file tab's name: the file's own, or its folder's when the file is an
+ *  index page (`mockups/login/index.html` is "login"), matching its preview
+ *  tile in the transcript. */
+function fileTabLabel(path: string): string {
+  const name = basename(path);
+  const folder = basename(dirname(path));
+  return /^index\.[^.]+$/i.test(name) && folder && folder !== dirname(path) ? folder : name;
 }
 
 /** Resolve one target of the agent tool's `open` (the only caller that may

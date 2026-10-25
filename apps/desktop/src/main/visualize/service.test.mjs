@@ -298,7 +298,7 @@ test('open reuses tabs, splits panes, reloads on change, and closes', async () =
       action: 'open',
       input: { targets: ['site/index.html'] },
     });
-    assert.deepEqual(first.tabs, [{ id: 'v1', label: 'index.html', kind: 'html', target: 'site/index.html' }]);
+    assert.deepEqual(first.tabs, [{ id: 'v1', label: 'site', kind: 'html', target: 'site/index.html' }]);
     assert.match(first.text, /site\/index\.html \(html\)/);
     const opened = events.at(-1);
     assert.equal(opened.reveal, true);
@@ -1468,7 +1468,7 @@ test('an absolute-path open puts no host path anywhere in the remote state', asy
     assert.deepEqual(
       tabs.map((tab) => [tab.label, tab.panes.map((pane) => pane.target)]),
       [
-        ['index.html', ['site/index.html']],
+        ['site', ['site/index.html']],
         ['chart.png · paper.pdf', ['chart.png', 'paper.pdf']],
         ['report.docx', ['report.docx']],
         ['Chart', ['chart.png']],
@@ -2156,8 +2156,8 @@ test('page problems follow the displayed panes: kept versions, compare layout, s
     );
     assert.equal(remoteVisualizeState(service.hostSnapshot()[0]).tabs[0].problems[1].version, 1);
     const section = (await service.execute({ sessionId: 's1', cwd, action: 'check', input: { tab: 'v1' } })).text;
-    assert.match(section, /- \[index\.html\] console-error: live in compare/);
-    assert.match(section, /- \[index\.html kept v1\] console-error: kept in compare/);
+    assert.match(section, /- \[site\] console-error: live in compare/);
+    assert.match(section, /- \[site kept v1\] console-error: kept in compare/);
 
     // A page navigation clears only its displayed pane's problems.
     service.reportNavigation(tab().panes[0].url, 200);
@@ -2310,7 +2310,7 @@ test('inspect lays the pane frames out at the requested viewport, reads only the
   try {
     await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
     const result = await inspect({ viewport: { width: 375, height: 812 }, selector: 'main' });
-    assert.match(result.text, /^Inspection of tab v1 at 375×812:\nindex\.html: the selector matched nothing/);
+    assert.match(result.text, /^Inspection of tab v1 at 375×812:\nsite: the selector matched nothing/);
     // Resize, read the pane frame only (not the page nested inside it), restore.
     assert.deepEqual(log, [
       ['main', 'resize', true],
