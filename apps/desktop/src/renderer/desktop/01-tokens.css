@@ -489,10 +489,9 @@
      elevation. Theme-neutral because every value resolves through a themed
      token. Dialog cards take the one-notch-larger card radius; everything
      that hangs off a control keeps the compact radius. */
-  /* One step above the dialog plate with the cards' hairline, so a popup
-     reads over a dialog (same #222225 plate) and over the sheet alike
-     (design/mockups/popup-material, B). */
-  --mx-popup-bg: var(--mx-bg-layer-1);
+  /* The page's base plate: the border and the shadow lift a popup, never a
+     brighter fill (user: 팝업 바탕이 너무 튄다; design/mockups/popup-tone, 1). */
+  --mx-popup-bg: var(--mx-bg-base);
   --mx-popup-border: var(--mx-hairline) solid var(--mx-border);
   /* The border owns the edge; elevation must not draw a second bright ring. */
   /* Same reach as before (the toast lane's padding holds 0 12px 28px), only

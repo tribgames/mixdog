@@ -419,19 +419,17 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         };
       }, theme);
       const [usage, selected, bubble] = items.cards;
-      for (const frame of [usage]) {
-        assert.equal(frame.background, 'rgba(0, 0, 0, 0)', theme);
-        assert.match(frame.shadow, /0px 0px 0px 1px inset/, theme);
-      }
+      // Usage groups sit on a faint plate with no frame.
+      assert.notEqual(usage.background, 'rgba(0, 0, 0, 0)', theme);
+      assert.equal(usage.shadow, 'none', theme);
       assert.notEqual(selected.background, 'rgba(0, 0, 0, 0)', theme);
       assert.notEqual(bubble.background, 'rgba(0, 0, 0, 0)', theme);
       assert.deepEqual([selected.shadow, bubble.shadow], ['none', 'none'], theme);
       if (theme === 'light') {
         assert.deepEqual([selected.background, bubble.background], ['rgb(230, 230, 230)', 'rgb(238, 238, 238)']);
       }
-      // Dark popups sit one step above the dialog plate so they read over a
-      // dialog; white popups keep the base plate.
-      assert.equal(items.popup, theme === 'dark' ? items.layer1 : items.base, 'popup plate');
+      // Popups keep the base plate in both themes; border and shadow lift them.
+      assert.equal(items.popup, items.base, 'popup plate');
     }
   });
   await t.test('windows share one grammar in both themes: framed cards, unbanded tables, filled controls', async () => {
