@@ -1283,14 +1283,11 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), answer]);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   const rows = [...host().querySelectorAll('.mx-chat-row')];
-  const changes = host().querySelector('.turn-changes-card');
-  assert.ok(changes, 'coding mode’s changed-files card');
-  assert.ok(changes.closest('.mx-chat-row[data-side="aside"]'), 'in the bubble column, out of the bubble');
-  assert.ok(changes.querySelector('.turn-changes-view'), 'with its own actions');
-  assert.ok(rows.at(-1).contains(changes), 'the changed-files card closes the turn');
-  assert.ok(rows.at(-2).contains(cards()[1]), 'the visualize card sits right above it');
+  // A bot chat shows no changed-files card; the visualize card closes the turn.
+  assert.equal(host().querySelector('.turn-changes-card'), null, 'no changed-files card in a bot chat');
+  assert.ok(rows.at(-1).contains(cards()[1]), 'the visualize card closes the turn');
   assert.equal(turnCards().length, 2, 'one card per turn');
-  assert.equal(rows.at(-3)?.dataset.side, 'agent', 'both under the reply');
+  assert.equal(rows.at(-2)?.dataset.side, 'agent', 'under the reply');
   assert.equal(cards()[0].querySelector('.transcript-visualize-badge.is-version').textContent, 'Version 1');
   assert.equal(cards()[0].querySelector('.transcript-visualize-status'), null, 'no status words, only the version');
   assert.equal(cards()[0].getAttribute('aria-label'), `${cards()[0].querySelector('b').textContent}, Version 1`);
@@ -1366,8 +1363,12 @@ test('a visualize open leaves one card at turn end, above the changed-files line
     await show([user('u1', DAY1), open('f', 200), failed], agentMode);
     assert.equal(cards().length, 1, `one card (agentMode ${agentMode})`);
     const errorChanges = host().querySelector('.turn-changes-card');
-    assert.ok(errorChanges, `changes card (agentMode ${agentMode})`);
-    assert.ok(follows(cards()[0], errorChanges), `card above the changes (agentMode ${agentMode})`);
+    if (agentMode) {
+      assert.equal(errorChanges, null, 'a bot chat shows no changes card');
+      continue;
+    }
+    assert.ok(errorChanges, 'coding mode keeps its changes card');
+    assert.ok(follows(cards()[0], errorChanges), 'card above the changes');
   }
 
   // The changed file is the one the turn visualized: its card stands in for

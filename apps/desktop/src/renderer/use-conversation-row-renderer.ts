@@ -48,7 +48,7 @@ import type { ConversationProps } from './conversation-pane-props';
 import { type TurnCardsSeat, transcriptRowNode } from './conversation-support';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
-import { PreviewedTurnChangesCard, ToolVisualizeCards } from './transcript-visualize-card';
+import { ToolVisualizeCards } from './transcript-visualize-card';
 import { linkedLocalPaths } from './markdown-plugins';
 import { runningTurnKeyOf } from './turn-preview-model';
 import { visualizeCardCalls, visualizedTargets, visualizeTurnEndAt } from './visualize-card-model';
@@ -595,25 +595,14 @@ function agentChatRow(
   // The turn's last reply carries its hand-off lines, under the bubble and its time.
   const after = row._tag === 'ToolActivity' ? undefined : block;
   const bubble = createElement(AgentChatRow, { place: cardPlace, member: named, card: Boolean(routine), after }, body);
-  // The turn's changed files: coding mode's own card under its reply (or the
-  // error that ended it), in the bubble column, below the turn's visualize cards.
+  // The turn's end seats its visualize cards under its reply (or the error
+  // that ended it). A bot chat shows no changed-files card: the conversation
+  // is about the result, not the diff (user: 봇 세션에서 변경은 안 나와도 된다).
   const changes = row._tag === 'AssistantPart' || row._tag === 'Error' ? row.turnChanges : undefined;
   // A turn status row ("Response complete", compaction) shows nothing.
   if (place?.side === 'hidden' && !changes) return null;
   if (changes) seat.placed = true;
-  const line = changes
-    ? createElement(
-        Fragment,
-        null,
-        bubble,
-        seat.cards,
-        createElement(PreviewedTurnChangesCard, {
-          turnChanges: changes,
-          frame: asideRow,
-          visualized: seat.visualized,
-        })
-      )
-    : bubble;
+  const line = changes ? createElement(Fragment, null, bubble, seat.cards) : bubble;
   // A round that held an answered question: its connect card goes under the
   // question summary (a card-only round returned it above).
   return withLines(connectorCards ? createElement(Fragment, null, line, asideRow(connectorCards)) : line);
