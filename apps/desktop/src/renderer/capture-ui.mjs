@@ -224,7 +224,7 @@ if (typeof hardExitWatchdog.unref === 'function') hardExitWatchdog.unref();
 // ~/.mixdog home or the machine-shared runtime root (%TMP%/mixdog). A capture
 // session that registers itself there is discovered by the live channel
 // worker, which rebinds its transcript forwarder to the capture session and
-// silently stops Discord forwarding for the user's real session.
+// silently diverts the user's real session.
 const isolatedHome = join(userData, 'mixdog-home');
 const isolatedRuntimeRoot = join(userData, 'mixdog-runtime');
 const captureId = randomUUID();

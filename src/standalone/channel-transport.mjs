@@ -10,7 +10,7 @@
 // This module owns ONLY the transport (sockets, client registry, notify
 // routing and lifecycle). The channels runtime is injected via `handleCall`
 // so the same transport is exercised by the real daemon entry AND the smoke
-// harness (stub runtime, no Discord token).
+// harness (stub runtime).
 //
 // Composition root: the shared transport state below is read and written by
 // the sub-services in channel-transport/ (remote binding, client registry,

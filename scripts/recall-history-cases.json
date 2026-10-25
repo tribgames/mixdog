@@ -289,7 +289,7 @@
     "id": "history-network-3",
     "label": "network interruption natural paraphrase 3",
     "args": {
-      "query": "Discord 게이트웨이 재연결 때문에 실패 화면이 나온 사건 결론은?",
+      "query": "웹소켓 게이트웨이 재연결 때문에 실패 화면이 나온 사건 결론은?",
       "period": "2026-08-02 17:35~18:15",
       "projectScope": "mixdog",
       "limit": 10

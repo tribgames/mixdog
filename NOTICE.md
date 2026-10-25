@@ -186,9 +186,9 @@ attributions.
 
 The connector brand marks in
 `apps/desktop/src/renderer/connectors-brand-icons.ts` carry Simple Icons path
-data and brand colours unmodified (Airtable, Blender, Confluence, Discord,
+data and brand colours unmodified (Airtable, Blender, Confluence,
 Dropbox, Figma, GitHub, Gmail, Google Calendar, Google Drive, Hugging Face,
-Jira, Linear, Notion, PostgreSQL, Sentry, Stripe, Supabase, Telegram, Trello,
+Jira, Linear, Notion, PostgreSQL, Sentry, Stripe, Supabase, Trello,
 Unity, Vercel); Unity's mark is drawn in black, as its listed colour is white.
 Simple Icons is dedicated to the public domain under CC0 1.0; each
 mark remains the trademark of its owner and is shown only to name that

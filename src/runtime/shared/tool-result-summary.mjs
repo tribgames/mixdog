@@ -526,20 +526,7 @@ function summarizeCodeGraphResult({ text, translate }) {
   return null;
 }
 
-function summarizeFetchResult({ text, trimmed, args, normalized, translate }) {
-  // Channel `fetch` (Discord message fetch — args carry channel/messageId/limit,
-  // never url/uri) is not a WEB fetch: the status/size probes would miss and
-  // the result fall to raw JSON, so it takes the generic JSON/text summarizer.
-  if (normalized === 'fetch') {
-    const a = parseToolArgs(args);
-    const isChannelFetch =
-      !firstText(a.url, a.uri) && Boolean(firstText(a.channel, a.channelId, a.chatId, a.messageId) || a.limit != null);
-    if (isChannelFetch) {
-      const n = countNonEmptyLines(text);
-      if (trimmed && looksLineOriented(text) && n > 0) return countLabel(translate, n, 'message');
-      return summarizeGenericResult(text, translate);
-    }
-  }
+function summarizeFetchResult({ text }) {
   // Status: require a status-like context (HTTP NNN, "Status: NNN",
   // or "NNN OK"/"NNN Not Found") rather than any bare 3-digit number.
   const status =

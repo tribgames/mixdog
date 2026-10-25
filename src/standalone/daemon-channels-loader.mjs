@@ -26,16 +26,16 @@ export function createChannelsRuntimeLoader({ log, onLoaded = () => {}, setOwner
     return channelsReady;
   }
 
-  // Channels bring automation with them (schedules, webhook listener + tunnel,
-  // optional messaging service). A daemon spawned by a TUI starts them exactly
-  // as before; a daemon spawned for session views stays dormant until a channels
-  // client actually registers, so an app-only service runs no tunnels.
+  // Channels bring automation with them (schedules, webhook listener + tunnel).
+  // A daemon spawned by a TUI starts them exactly as before; a daemon spawned
+  // for session views stays dormant until a channels client actually registers,
+  // so an app-only service runs no tunnels. The channel bridge is activated
+  // separately, by the activate_channel_bridge call.
   let channelsStartPromise = null;
-  function start(options = {}) {
+  function start() {
     if (channelsStartPromise) return channelsStartPromise;
-    const messaging = options.messaging === true;
     channelsStartPromise = ensure()
-      .then((module) => module.start({ messaging }))
+      .then((module) => module.start({ bridge: false }))
       .catch((e) => {
         channelsStartPromise = null;
         log(`channels.start failed (non-fatal): ${e?.message || e}`);

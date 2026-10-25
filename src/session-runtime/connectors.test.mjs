@@ -88,8 +88,8 @@ test('the catalog uses the curated deferred-tool ids and declares every backend'
       connector: 'postgres',
     }
   );
-  // Retired connectors (Figma, Unity, Slack, Discord, Blender) are gone from the catalog.
-  for (const id of ['figma', 'unity', 'slack', 'discord', 'blender']) {
+  // Retired connectors (Figma, Unity, Slack, Blender) are gone from the catalog.
+  for (const id of ['figma', 'unity', 'slack', 'blender']) {
     assert.equal(CONNECTOR_IDS.includes(id), false, id);
   }
   // A server saved with a retired marker, or one running a retired package or

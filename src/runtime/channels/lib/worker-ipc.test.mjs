@@ -33,10 +33,6 @@ test('worker IPC preserves dependency reads, readiness, and tool result/error en
       reads.push('statusState');
       return {};
     },
-    get getProvider() {
-      reads.push('getProvider');
-      return () => ({});
-    },
     get getConfig() {
       reads.push('getConfig');
       return () => ({});
@@ -50,7 +46,7 @@ test('worker IPC preserves dependency reads, readiness, and tool result/error en
     bootProfile() {},
   });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(reads, ['statusState', 'getProvider', 'getConfig']);
+  assert.deepEqual(reads, ['statusState', 'getConfig']);
   assert.deepEqual(calls, ['start']);
   assert.deepEqual(sent, [{ type: 'ready' }]);
 

@@ -53,7 +53,6 @@ test('separation removes old defaults, keeps hand-edited and foreign sections, b
     const original = {
       outputStyle: 'simple',
       channels: {
-        access: { dmPolicy: 'allowlist', allowFrom: [], channels: {} },
         webhook: { enabled: true, port: 3333 },
       },
       desktop: { keepAwake: true, usagePinned: true },
@@ -189,7 +188,6 @@ test('version 2 on an already separated file: shipped presets, maintenance and w
     const changedOpus = { ...DEFAULT_PRESETS[4], effort: 'xhigh' };
     write({
       defaultsVersion: 1,
-      channels: { access: { channels: { c1: { requireMention: false, allowFrom: ['u'] } } } },
       agent: {
         presets: [...DEFAULT_PRESETS.slice(0, 4), changedOpus, custom],
         maintenance: { ...DEFAULT_MAINTENANCE },
@@ -209,7 +207,6 @@ test('version 2 on an already separated file: shipped presets, maintenance and w
     assert.deepEqual(after.agent.presets, [changedOpus, custom]);
     for (const key of ['maintenance', 'workflow']) assert.equal(Object.hasOwn(after.agent, key), false, key);
     assert.deepEqual(after.agent.builtins, { browser: { installed: false } });
-    assert.deepEqual(after.channels, { access: { channels: { c1: { allowFrom: ['u'] } } } });
     // A retired built-in's route goes unless the user defines that agent.
     assert.deepEqual(Object.keys(after.agent.agents).sort(), ['explore', 'worker']);
     // The v1 delta stays a delta: defaults stay off, the user's extra stays off.

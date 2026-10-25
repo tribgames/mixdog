@@ -3,7 +3,6 @@ import { releaseOwnedChannelLocks, clearActiveInstance } from '../runtime-paths.
 
 export function createOwnedStopper({
   state,
-  getProvider,
   getBridgeRuntimeConnected,
   setBridgeRuntimeConnected,
   instanceId,
@@ -11,19 +10,9 @@ export function createOwnedStopper({
   logOwnership,
   services,
 }) {
-  // Only disconnect when connect() actually completed; disconnecting
-  // mid-connect races the connect promise. In-flight outbound sends are
-  // drained first (bounded inside drainPendingSends) so a handoff never cuts
-  // off a reply mid-delivery.
-  async function disconnectConnectedProvider() {
-    try {
-      await getProvider().drainPendingSends?.();
-    } catch {}
-    await getProvider().disconnect();
-  }
   return async function stopOwnedRuntime(reason) {
     // A start advertises owner metadata and claims channel locks before
-    // awaiting connect(); a stop landing in that window (starting=true,
+    // it finishes; a stop landing in that window (starting=true,
     // connected=false) still has partial state to tear down.
     if (
       !getBridgeRuntimeConnected() &&
@@ -33,27 +22,21 @@ export function createOwnedStopper({
     ) {
       return;
     }
-    // Signal an in-flight start to abort right after its connect() resolves;
-    // otherwise it would re-mark connected and re-launch scheduler/webhook
-    // after the teardown below.
+    // Signal an in-flight start to abort at its next checkpoint; otherwise it
+    // would re-launch scheduler/webhook after the teardown below.
     if (state.bridgeRuntimeStarting || state.automationStartPromise) state.stopRequested = true;
     if (state.automationStartPromise) {
       try {
         await state.automationStartPromise;
       } catch {}
     }
-    const wasConnected = getBridgeRuntimeConnected();
     scheduler.stop();
     stopSnapshotWriter();
     await services.stopWebhookAndEventRuntime();
     state.automationRunning = false;
     releaseOwnedChannelLocks(instanceId);
     clearActiveInstance(instanceId);
-    try {
-      if (wasConnected) await disconnectConnectedProvider();
-    } finally {
-      setBridgeRuntimeConnected(false);
-      logOwnership(`standby: ${reason}`);
-    }
+    setBridgeRuntimeConnected(false);
+    logOwnership(`standby: ${reason}`);
   };
 }

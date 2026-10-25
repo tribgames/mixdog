@@ -90,7 +90,7 @@ test('channel worker daemon spawn env advertises host identity', async () => {
   const prevSupervisorPid = process.env.MIXDOG_SUPERVISOR_PID;
   try {
     // Daemon-mode worker env coverage: start() spawn-or-attaches the machine
-    // -global daemon (the stub daemon entry — no Discord token).
+    // -global daemon (the stub daemon entry).
     // Assert the flags on the spawned daemon's environment.
     const stubEntry = join(root, 'scripts', 'daemon-stub.mjs');
     const dataDir = join(channelWorkerTmp, 'data');

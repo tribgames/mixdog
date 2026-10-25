@@ -151,7 +151,6 @@ test('historical retirement runs once per history version; current-version clean
   });
   writeAt(join(rootDir, 'agents', 'worker', 'AGENT.md'), agentMd('Current text.'));
   writeHistory(rootDir, { agents: { worker: [hashDefinition(agentDef('Old text.'))] } });
-  writeAt(join(dataDir, '.retired-channel-secrets-cleaned'), 'x');
   const oldCopy = () => writeAt(join(dataDir, 'agents', 'worker', 'AGENT.md'), agentMd('Old text.'));
   const exists = () => existsSync(join(dataDir, 'agents', 'worker'));
 

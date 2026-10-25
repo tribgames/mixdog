@@ -11,7 +11,6 @@ export function runWorkerIpc({
   clearServerPid,
   instanceId,
   statusState: _statusState,
-  getProvider: _getProvider,
   getConfig: _getConfig,
   handleMemoryCallResponse,
   handleToolCall,

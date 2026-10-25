@@ -62,7 +62,6 @@ function normalizeChannelsConfig(raw = {}) {
   return {
     ...CHANNELS_DEFAULTS,
     ...stored,
-    access: { ...CHANNELS_DEFAULTS.access, ...(stored.access || {}) },
     webhook: { ...CHANNELS_DEFAULTS.webhook, ...(stored.webhook || {}) },
   };
 }
@@ -578,9 +577,8 @@ export async function testWebhook(name) {
 }
 
 // Automation presence: any enabled schedule or webhook endpoint. Drives the
-// worker boot decision independently of the messaging channels — schedules
-// and webhooks run sessions, so they must not require Discord/Telegram
-// tokens or an explicit remote toggle.
+// worker boot decision — schedules and webhooks run sessions, so they must
+// not require an explicit remote toggle.
 async function checkActiveAutomation() {
   const { schedules, webhooks } = await readAutomationRows();
   return hasEnabledAutomation({ schedules, webhooks });

@@ -15,9 +15,9 @@ after(() => {
 });
 
 test('a batch tick injects low-priority events grouped by name and leaves other events queued', () => {
-  const queue = new EventQueue({}, '');
+  const queue = new EventQueue({});
   const injected = [];
-  queue.setInjectHandler((chatId, name, content, options) => injected.push({ chatId, name, content, options }));
+  queue.setInjectHandler((name, content, options) => injected.push({ name, content, options }));
   queue.enqueue({ name: 'ci', priority: 'low', prompt: 'first' });
   queue.enqueue({ name: 'ci', priority: 'low', prompt: 'second' });
   queue.enqueue({ name: 'deploy', priority: 'low', prompt: 'solo' });

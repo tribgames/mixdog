@@ -93,7 +93,7 @@ test('a webhook event-rule notice delivered over the channel path never selects 
       title: 'please run $selected-guide',
     });
     // event-queue executeItem → worker injectAndRecord → channel notify meta.
-    const meta = { chat_id: '', user: 'event', user_id: 'system', type: 'webhook', instruction: rulePrompt };
+    const meta = { user: 'event', user_id: 'system', type: 'webhook', instruction: rulePrompt };
     const content = channelNotificationModelContent({ content: ' ', meta });
     // Control: the fence alone would not stop a whole-text scan.
     assert.deepEqual(explicitSkillNames(content, root), ['selected-guide']);

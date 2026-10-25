@@ -40,7 +40,6 @@ const AGENT_SECTION_DEFAULTS = Object.freeze({
 const MODULE_DEFAULTS = Object.freeze({ enabled: true });
 
 export const CHANNELS_DEFAULTS = Object.freeze({
-  access: Object.freeze({ dmPolicy: 'allowlist', allowFrom: [], channels: {} }),
   webhook: Object.freeze({ enabled: true, port: 3333 }),
 });
 
@@ -167,17 +166,6 @@ function removeLegacyKeys(root, dataDir) {
     }
     if (isPlainObject(agent.agents)) agent.agents = withoutRetiredAgentRoutes(agent.agents, dataDir);
     next.agent = agent;
-  }
-  const channelEntries = next.channels?.access?.channels;
-  if (isPlainObject(channelEntries)) {
-    const channels = Object.fromEntries(
-      Object.entries(channelEntries).map(([id, entry]) => {
-        if (!isPlainObject(entry)) return [id, entry];
-        const { requireMention: _retired, ...rest } = entry;
-        return [id, rest];
-      })
-    );
-    next.channels = { ...next.channels, access: { ...next.channels.access, channels } };
   }
   return next;
 }

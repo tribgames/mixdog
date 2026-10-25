@@ -159,14 +159,6 @@ export function canonicalizeStoredChannelsConfig(value = {}) {
   delete next.schedules;
   delete next.nonInteractive;
   delete next.interactive;
-
-  // Messaging (Discord/Telegram) is retired: scrub the provider selector and
-  // per-provider routing sections from stored config.
-  delete next.backend;
-  delete next.provider;
-  delete next.discord;
-  delete next.telegram;
-  delete next.channel;
   return next;
 }
 

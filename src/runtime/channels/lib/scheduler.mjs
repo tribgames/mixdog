@@ -766,7 +766,7 @@ ${prompt}`;
     if (!this.injectFn || !this.injectReady()) return false;
     try {
       const wrapped = this.wrapPrompt(schedule.name, prompt, type);
-      this.injectFn('', `schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
+      this.injectFn(`schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
       logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
       return true;
     } catch (err) {

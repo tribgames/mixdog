@@ -168,8 +168,8 @@ export function createClientRegistry({
     grace.resetBackoff();
     grace.startSweep();
     log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}`);
-    // The unified daemon starts the channels runtime (automation, webhooks,
-    // messaging provider) only once a CHANNELS client is actually present — a
+    // The unified daemon starts the channels runtime (automation, webhooks)
+    // only once a CHANNELS client is actually present — a
     // session runtime-only daemon must not run tunnels nobody asked for.
     if (typeof onClientRegistered === 'function') {
       try {

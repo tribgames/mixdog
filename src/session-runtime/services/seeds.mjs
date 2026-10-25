@@ -49,34 +49,6 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
       /* marker only; the sweep simply repeats */
     }
   }
-  cleanupRetiredChannelSecrets(dataDir);
-}
-
-// One-shot keychain cleanup: Discord/Telegram messaging is retired, so any
-// stored bot tokens are orphans. Marker-gated so the (potentially slow) OS
-// keychain roundtrip runs once per install; lazy import so shared config
-// resolves its paths only after the env above is established.
-function cleanupRetiredChannelSecrets(dataDir) {
-  const marker = join(dataDir, '.retired-channel-secrets-cleaned');
-  if (existsSync(marker)) return;
-  void import('../../runtime/shared/config.mjs')
-    .then(async ({ deleteSecretAsync }) => {
-      for (const account of ['discord.token', 'telegram.token']) {
-        try {
-          await deleteSecretAsync(account);
-        } catch {
-          /* best-effort */
-        }
-      }
-      try {
-        writeFileAtomicSync(marker, `${new Date().toISOString()}\n`);
-      } catch {
-        /* marker only */
-      }
-    })
-    .catch(() => {
-      /* cleanup is best-effort */
-    });
 }
 
 // Shipped definitions live in code (read in place from the package); the data

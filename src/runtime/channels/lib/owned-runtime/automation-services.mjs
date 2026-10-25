@@ -21,7 +21,7 @@ export function createAutomationServices({
   }
   function ensureEventPipeline() {
     if (!getEventPipeline()) {
-      setEventPipeline(new EventPipeline(getConfig().events, getConfig().channelId));
+      setEventPipeline(new EventPipeline(getConfig().events));
       wireEventQueueHandlers(getEventPipeline().getQueue());
     }
     return getEventPipeline();
@@ -53,7 +53,7 @@ export function createAutomationServices({
     }
     const pipeline = ensureEventPipeline();
     if (reload) {
-      pipeline.reloadConfig(getConfig().events, getConfig().channelId);
+      pipeline.reloadConfig(getConfig().events);
       wireEventQueueHandlers(pipeline.getQueue());
     }
     pipeline.start();

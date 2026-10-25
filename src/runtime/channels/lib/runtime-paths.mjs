@@ -81,9 +81,9 @@ function activeInstanceStaleReason(state) {
   // NOTE: ownership is no longer decided here — the machine-global channels
   // daemon (singleton-owner lock in src/standalone) is the authority. This
   // PID-death check only marks a metadata advert whose owning process is gone so
-  // refreshActiveInstance can avoid preserving its owner fields. The former
-  // ui_heartbeat_at staleness branch was removed: its false-stale eviction was
-  // the Discord-flapping root cause.
+  // refreshActiveInstance can avoid preserving its owner fields. There is no
+  // ui_heartbeat_at staleness branch: its false-stale eviction wrongly dropped
+  // live owners.
   return null;
 }
 function buildRuntimeIdentity() {
@@ -126,12 +126,9 @@ function readActiveInstance() {
 /** Caller-supplied advert fields, in the order every writer publishes them. */
 function metaFields(meta) {
   return {
-    ...(meta?.channelId ? { channelId: meta.channelId } : {}),
     ...(meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {}),
     ...(meta?.httpPort ? { httpPort: meta.httpPort } : {}),
-    ...Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_'))),
-    ...(typeof meta?.providerReady === 'boolean' ? { providerReady: meta.providerReady } : {}),
-  };
+    ...Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_'))),  };
 }
 function buildActiveInstanceState(instanceId, meta) {
   return {
@@ -354,7 +351,7 @@ function cleanupInstanceRuntimeFiles(instanceId) {
   for (const target of targets) {
     removeFileIfExists(target);
   }
-  // Remove artifacts left by pre-standalone Discord approval builds.
+  // Remove per-instance permission artifacts left by pre-standalone builds.
   forEachFile(RUNTIME_ROOT, (fullPath, file) => {
     if (file.startsWith(`perm-${sanitize(instanceId)}-`)) {
       removeFileIfExists(fullPath);

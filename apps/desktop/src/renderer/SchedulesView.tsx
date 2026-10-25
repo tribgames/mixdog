@@ -172,8 +172,7 @@ function cadenceTime(schedule: RecordValue): string {
 }
 
 // Map the engine's schedule display shape (channel-admin scheduleToDisplay)
-// onto editable form state. Results always deliver to the app session; the
-// messaging-channel delivery target is retired.
+// onto editable form state. Results always deliver to the app session.
 function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string): ScheduleDraft {
   const source = record(schedule);
   const parsedAt = source.whenAt ? new Date(String(source.whenAt)) : null;

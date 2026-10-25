@@ -1,6 +1,5 @@
 // Worker/HTTP runtime-lifecycle dispatch (activate_channel_bridge /
-// reload_config). Channel messaging — forwarder, transcript binding, typing —
-// is deleted with Discord/Telegram; only the automation lifecycle remains.
+// reload_config). Only the automation lifecycle is dispatched here.
 // Lifecycle functions are threaded in as a bag of lazy getters so the module
 // reads the live file-level references at call time.
 import { scheduleErrorFields } from './schedule-errors.mjs';

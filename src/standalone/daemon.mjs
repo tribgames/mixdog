@@ -1108,7 +1108,7 @@ async function main() {
 
   // A pinned channel session outlives the daemon that pinned it. Reactivate the
   // durable intent AFTER the ready handshake (activation itself brings the
-  // messaging bridge up); with no intent on disk this is a no-op and the
+  // channel bridge up); with no intent on disk this is a no-op and the
   // channels graph stays dormant.
   if (transport.remoteIntentSessionId) {
     void transport

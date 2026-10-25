@@ -39,9 +39,7 @@ export function createChannelStart({
   async function onChannelStartTimer() {
     timers.channelStartTimer = null;
     if (isCloseRequested()) return;
-    // Channels-module and remote toggles gate MESSAGING; automation
-    // (enabled schedules/webhooks) keeps the worker boot alive — its
-    // channel worker runs headless: only active automation boots it.
+    // Only active automation (enabled schedules/webhooks) boots the worker.
     const automation = await hasActiveAutomation().catch(() => false);
     if (!automation) {
       bootProfile('channels:start-disabled');
@@ -69,10 +67,8 @@ export function createChannelStart({
     timers.channelStartTimer.unref?.();
   }
 
-  // Boot-time automation autostart. Automation decoupling (user decision):
-  // enabled schedules/webhooks boot the worker on their own — no messaging
-  // provider. The worker runs headless (scheduler/webhooks/voice only).
-  // Unlike scheduleChannelStart this probes once at the boot delay and never
+  // Boot-time automation autostart: enabled schedules/webhooks boot the worker
+  // on their own (scheduler/webhooks/voice only). Unlike scheduleChannelStart this probes once at the boot delay and never
   // re-arms. The probe itself is shared process-wide (channel-admin
   // hasActiveAutomation), so N runtimes booting together check once.
   function scheduleAutomationAutostart(delayMs) {

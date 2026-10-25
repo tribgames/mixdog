@@ -1,7 +1,7 @@
 // Stub channel service for the flip smoke: same lifecycle contract as
 // src/standalone/daemon.mjs (pid-verified singleton claim, HTTP+SSE
 // transport, discovery file, ready handshake, client-grace self-shutdown) but
-// with a STUB runtime instead of worker-main — no Discord token needed. The
+// with a STUB runtime instead of worker-main. The
 // real channel-worker.mjs spawn-or-attach path forks THIS via
 // MIXDOG_DAEMON_ENTRY, so the flip is exercised end to end.
 process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';

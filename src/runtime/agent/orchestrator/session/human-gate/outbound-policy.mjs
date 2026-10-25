@@ -74,8 +74,6 @@ const MCP_OUTBOUND = new Map([
     'slack_post_message',
     'slack_reply_to_thread',
     'chat_post_message',
-    'discord_send_message',
-    'telegram_send_message',
   ].map((name) => [name, 'message']),
   ...['create_post', 'publish_post', 'create_tweet', 'post_tweet', 'send_tweet'].map((name) => [name, 'publish']),
   ['submit_form', 'form'],

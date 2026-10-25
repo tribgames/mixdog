@@ -858,8 +858,8 @@ async function prepareRuntime(manifest, fingerprint) {
     // entry it collected. On Windows a real-time AV scan can hold a freshly
     // installed dependency file across that gap, so the lstat reports ENOENT for
     // a path that exists before and after the pack — two consecutive runs died
-    // on different random files (hono/dist/types.js, discord-api-types
-    // /payloads/v9/oauth2.js.map). Bounded retries absorb the same race the
+    // on different random files (hono/dist/types.js and
+    // other dependency map files). Bounded retries absorb the same race the
     // embedding prune already retries around, and only for transient
     // filesystem codes: a missing input the crawl never saw still fails loudly.
     // Each attempt discards the partial archive and sidecar so a retry never

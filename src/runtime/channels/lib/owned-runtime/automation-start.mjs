@@ -14,9 +14,8 @@ export async function initAgentProviders() {
   }
 }
 
-// Automation-only start: scheduler + snapshot writer + webhook/event runtime
-// without a messaging provider. Used for installs with no provider and as the
-// degraded fallback when the provider connect fails.
+// Automation-only start: scheduler + snapshot writer + webhook/event runtime,
+// without activating the channel bridge.
 export function createAutomationStarter({ state, scheduler, services }) {
   return async function startAutomationRuntime() {
     if (state.automationRunning) {
@@ -32,7 +31,7 @@ export function createAutomationStarter({ state, scheduler, services }) {
       startSnapshotWriter(scheduler);
       services.syncWebhookAndEventRuntime();
       state.automationRunning = true;
-      process.stderr.write('mixdog: automation runtime up without messaging provider\n');
+      process.stderr.write('mixdog: automation runtime up\n');
     })();
     state.automationStartPromise = run;
     try {

@@ -58,8 +58,8 @@ test('an interactive fire enqueues into the Lead session when a seat is attached
   const fired = await scheduler.fireTimedPrompt({ name: 'standup', model: 'm' }, 'interactive', 'prompt');
   assert.equal(fired, true);
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].slice(0, 3), ['', 'schedule:standup', ' ']);
-  assert.deepEqual(calls[0][3], { type: 'schedule', instruction: '[standup] prompt' });
+  assert.deepEqual(calls[0].slice(0, 2), ['schedule:standup', ' ']);
+  assert.deepEqual(calls[0][2], { type: 'schedule', instruction: '[standup] prompt' });
   assert.equal(scheduler.running.has('standup'), false, 'an enqueue counts as the fire; nothing runs');
 });
 

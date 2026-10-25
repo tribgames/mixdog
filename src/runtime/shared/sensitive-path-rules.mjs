@@ -154,7 +154,6 @@ const MIXDOG_SECRET_DIRECTORIES = new Set([
   'secrets',
   'mcp-oauth',
   'provider-accounts',
-  'telegram',
   'relay-data',
   'dev-profile',
 ]);

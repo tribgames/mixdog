@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
-import { loadConfig, createProvider, DATA_DIR } from './config.mjs';
+import { loadConfig, DATA_DIR } from './config.mjs';
 import { resolveVoiceRuntime } from './voice-runtime-fetcher.mjs';
 import { whisperThreadCount } from './voice-transcription.mjs';
 import { ensureReady, stopVoiceWhisperServer } from './whisper-server.mjs';
@@ -94,7 +94,6 @@ if (isMixdogDebug()) {
   );
 }
 let config = await loadConfig();
-let provider = createProvider(config);
 const INSTANCE_ID = makeInstanceId();
 const TERMINAL_LEAD_PID = getTerminalLeadPid();
 runWorkerBootstrap({
@@ -158,10 +157,6 @@ const { startAutomationRuntime, startOwnedRuntime, stopOwnedRuntime, reloadRunti
     setConfig: (v) => {
       config = v;
     },
-    getProvider: () => provider,
-    setProvider: (v) => {
-      provider = v;
-    },
     getBridgeRuntimeConnected: () => bridgeRuntimeConnected,
     setBridgeRuntimeConnected: (v) => {
       bridgeRuntimeConnected = v;
@@ -185,7 +180,7 @@ const { startAutomationRuntime, startOwnedRuntime, stopOwnedRuntime, reloadRunti
     wireWebhookHandlers,
     wireEventQueueHandlers,
   });
-function injectAndRecord(channelId, _name, content, options) {
+function injectAndRecord(content, options) {
   // Strip soft-warn marker blocks (Tool-loop / Repeated-input / legacy
   // Repeated-tool / Mixed-tool / Tool-budget / Same-file multi-chunk /
   // Bash file-lookup / Iteration / 0-match advisory) from anywhere in the
@@ -199,17 +194,16 @@ function injectAndRecord(channelId, _name, content, options) {
   const now = new Date();
   const timeLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} `;
   const sourceLabel = options?.type ? `${timeLabel}: ${options.type}` : timeLabel;
-  const meta = { chat_id: channelId, user: sourceLabel, user_id: 'system', ts };
+  const meta = { user: sourceLabel, user_id: 'system', ts };
   if (options?.instruction) meta.instruction = options.instruction;
   if (options?.type) meta.type = options.type;
   // `silent_to_agent` — lifecycle status pings (worker/iter/started echoes)
-  // must NOT land in Lead's context window. The channel relay that used to
-  // surface them is retired, so silent pings are dropped entirely.
+  // must NOT land in Lead's context window, so silent pings are dropped.
   if (options?.silent_to_agent === true) return;
   sendNotifyToParent('notifications/claude/channel', { content, meta });
 }
-scheduler.setInjectHandler((channelId, name, content, options) => {
-  injectAndRecord(channelId, name, content, options);
+scheduler.setInjectHandler((_name, content, options) => {
+  injectAndRecord(content, options);
 });
 // Interactive schedule fires may only inject while this process
 // actually holds the live bridge seat; otherwise the scheduler falls back to
@@ -237,8 +231,8 @@ function wireWebhookHandlers() {
 }
 function wireEventQueueHandlers(eventQueue) {
   if (!eventQueue) return;
-  eventQueue.setInjectHandler((channelId, name, content, options) => {
-    injectAndRecord(channelId, name, content, options);
+  eventQueue.setInjectHandler((_name, content, options) => {
+    injectAndRecord(content, options);
   });
   // Defensive ownership probe: the queue tick should only run in the active
   // owner process. Non-owner instances see bridgeRuntimeConnected=false and
@@ -262,7 +256,7 @@ const { handleToolCall } = createToolDispatch({
     },
     writeBridgeState,
     notifyRemoteAcquired,
-    startChannelBridge: () => start({ messaging: true }),
+    startChannelBridge: () => start({ bridge: true }),
     stopOwnedRuntime,
     reloadRuntimeConfig,
     // Rename and re-arm under one reservation: the scheduler is reloaded from
@@ -288,7 +282,7 @@ function ensureConfigWatcher() {
   } catch {}
 }
 async function start(options = {}) {
-  if (options?.messaging === false) {
+  if (options?.bridge === false) {
     channelBridgeActive = false;
     writeBridgeState(false);
     await startAutomationRuntime();
@@ -308,7 +302,7 @@ async function start(options = {}) {
   }
   // Hot-reload config on file change (schedules/webhooks/events).
   // Cross-process edits invalidate the raw config cache before the debounced
-  // reload so both messaging and automation-only daemon modes stay current.
+  // reload so both bridge and automation-only daemon modes stay current.
   ensureConfigWatcher();
   // Pre-warm the whisper-server manager once at owner startup so the first
   // voice transcription does not pay cold-start cost. Non-blocking: failures
@@ -361,7 +355,6 @@ if (_isWorkerMode && process.send && process.env.MIXDOG_DAEMON_HOST !== '1') {
     clearServerPid,
     instanceId: INSTANCE_ID,
     statusState,
-    getProvider: () => provider,
     getConfig: () => config,
     handleMemoryCallResponse,
     handleToolCall,

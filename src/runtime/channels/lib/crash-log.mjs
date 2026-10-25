@@ -104,7 +104,7 @@ const BENIGN_CRASH_CODES = new Set([
   'EBUSY',
   // Transient transport blips: a raw http/https ClientRequest (or an
   // undici socket) can emit these when a keep-alive connection is torn
-  // down mid-flight (Discord gateway flapping, proxy resets). One blip
+  // down mid-flight (proxy resets). One blip
   // must NOT kill the worker — it is benign; only a repeat storm within
   // the streak window force-exits (see _fatalCrash).
   'ECONNRESET',

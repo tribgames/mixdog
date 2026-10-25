@@ -65,7 +65,6 @@ function ownerTickAllowed(queue, what) {
 }
 class EventQueue {
   config;
-  channelId;
   tickTimer = null;
   batchTimer = null;
   initialTickTimer = null;
@@ -81,9 +80,8 @@ class EventQueue {
   // from being decided by Math.random() (lex sort on the random suffix).
   // Counter is 8-digit zero-padded so lex sort matches numeric order.
   enqueueSeq = 0;
-  constructor(config, channelId) {
+  constructor(config) {
     this.config = config ?? {};
-    this.channelId = channelId ?? '';
   }
   setInjectHandler(fn) {
     this.injectFn = fn;
@@ -128,10 +126,9 @@ class EventQueue {
       this.initialTickTimer = null;
     }
   }
-  reloadConfig(config, channelId) {
+  reloadConfig(config) {
     this.stop();
     this.config = config ?? {};
-    this.channelId = channelId ?? '';
     this.start();
   }
   // ── Enqueue ───────────────────────────────────────────────────────
@@ -231,7 +228,6 @@ ${p.item.prompt}`
   executeItem(item, file) {
     if (this.injectFn) {
       const opts = { type: 'webhook' };
-      const chatId = this.resolveChannel(item.channel) || '';
       if (item.instruction) {
         opts.instruction = `${item.instruction}\n\n${item.prompt}`;
       } else {
@@ -243,7 +239,7 @@ ${p.item.prompt}`
       // at-least-once semantics are preserved (a crash between inject and
       // moveToProcessed still requeues via requeueStrandedInProgress()).
       try {
-        this.injectFn(chatId, `event:${item.name}`, ' ', opts);
+        this.injectFn(`event:${item.name}`, ' ', opts);
       } catch (err) {
         logEvent(`${item.name}: inject failed — requeueing: ${err?.message ?? err}`);
         if (file) this.requeueClaimed(file, item);
@@ -405,17 +401,6 @@ ${p.item.prompt}`
     } catch {
       return false;
     }
-  }
-  // The frontmatter `channel` key is a boolean-ish flag: any non-empty value
-  // except "false" means post to the single main channel; absent → inject.
-  // A pure-digit / snowflake value is honored verbatim as an explicit id
-  // override (matches resolveWebhookChannelId in index.mjs).
-  resolveChannel(flag) {
-    if (flag == null) return '';
-    const v = String(flag).trim();
-    if (v === '' || v.toLowerCase() === 'false') return '';
-    if (/^-?\d+$/.test(v)) return v;
-    return this.channelId ?? '';
   }
   /** Remove items from queue — after processing, dismissal, or any resolution */
   resolveItems(name, status = 'done') {

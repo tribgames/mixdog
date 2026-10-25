@@ -1,15 +1,13 @@
-// Owned-runtime lifecycle: provider connect/disconnect, automation runtime
-// (scheduler + webhook/event runtime), ownership refresh and config
-// hot-reload. The phases live under owned-runtime/ and share one explicit
-// state object; config / provider / bridgeRuntimeConnected / webhookServer /
-// eventPipeline stay on the worker (get/set) so file-level reference
-// semantics are preserved.
+// Owned-runtime lifecycle: bridge activation, automation runtime (scheduler +
+// webhook/event runtime) and config hot-reload. The phases live under
+// owned-runtime/ and share one explicit state object; config /
+// bridgeRuntimeConnected / webhookServer / eventPipeline stay on the worker
+// (get/set) so file-level reference semantics are preserved.
 import { createOwnedRuntimeState } from './owned-runtime/state.mjs';
 import { createAutomationServices } from './owned-runtime/automation-services.mjs';
 import { createAutomationStarter } from './owned-runtime/automation-start.mjs';
 import { createOwnedStarter } from './owned-runtime/owned-start.mjs';
 import { createOwnedStopper } from './owned-runtime/owned-stop.mjs';
-import { createOwnershipRefresh } from './owned-runtime/ownership-refresh.mjs';
 import { createConfigReloader } from './owned-runtime/config-reload.mjs';
 
 export function createOwnedRuntime(deps) {
@@ -26,29 +24,14 @@ export function createOwnedRuntime(deps) {
     ...deps,
     state,
     services,
-    startAutomationRuntime,
     notifyRemoteAcquired,
   });
   const stopOwnedRuntime = createOwnedStopper({ ...deps, state, services });
-  const { refreshBridgeOwnership, refreshBridgeOwnershipSafe } = createOwnershipRefresh({
-    ...deps,
-    state,
-    startOwnedRuntime,
-    stopOwnedRuntime,
-  });
-  const reloadRuntimeConfig = createConfigReloader({
-    ...deps,
-    state,
-    services,
-    stopOwnedRuntime,
-    refreshBridgeOwnershipSafe,
-  });
+  const reloadRuntimeConfig = createConfigReloader({ ...deps, state, services });
   return {
     startAutomationRuntime,
     startOwnedRuntime,
     stopOwnedRuntime,
-    refreshBridgeOwnership,
-    refreshBridgeOwnershipSafe,
     reloadRuntimeConfig,
     notifyRemoteAcquired,
   };

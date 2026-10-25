@@ -2,15 +2,7 @@ import { readSection } from '../../shared/config.mjs';
 import { listSchedules } from './schedules-db.mjs';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 const DATA_DIR = resolvePluginData();
-const DEFAULT_ACCESS = {
-  dmPolicy: 'allowlist',
-  allowFrom: [],
-  channels: {},
-};
-const DEFAULT_CONFIG = {
-  access: DEFAULT_ACCESS,
-  channel: {},
-};
+const DEFAULT_CONFIG = {};
 // Shared defaults layer. Merge semantics: user values win; defaults
 // only fill missing fields. Helper is exported so the setup UI and
 // runtime both produce the same shape when the file has missing sections.
@@ -33,12 +25,10 @@ async function loadConfig() {
     // are no longer read. Done one-shots are dropped so they never re-arm.
     const scheduleEntries = (await listSchedules()).filter((s) => s.enabled !== false && s.status !== 'done');
     // Every schedule fires as a visible session run (runScheduleSession)
-    // through the non-interactive dispatch path; `target` only decides
-    // whether the RESULT is relayed to the schedule's channel. The legacy
-    // interactive bucket (Lead-session inject) is retired.
+    // through the non-interactive dispatch path. The legacy interactive
+    // bucket (Lead-session inject) is retired.
     raw.nonInteractive = scheduleEntries;
     raw.interactive = [];
-    const accessChannels = { ...(raw.access?.channels ?? {}) };
     // voice config lives at the top level of mixdog-config.json (peer of
     // channels), so readSection("channels") never sees it. Pull it explicitly.
     let voice = {};
@@ -48,15 +38,9 @@ async function loadConfig() {
     } catch {
       /* missing section is fine */
     }
-    // Messaging is retired: no provider select, no tokens, no channel id.
     return applyDefaults({
       ...DEFAULT_CONFIG,
       ...raw,
-      access: {
-        ...DEFAULT_ACCESS,
-        ...(raw.access || {}),
-        channels: accessChannels,
-      },
       voice: { ...(raw.voice || {}), ...voice },
     });
   } catch (err) {
@@ -65,38 +49,4 @@ async function loadConfig() {
     throw err;
   }
 }
-const HEADLESS_PROVIDER = {
-  name: 'headless',
-  MAX_MESSAGE_LENGTH: 2000,
-  formatOutgoing(t) {
-    return t;
-  },
-  async connect() {},
-  async disconnect() {},
-  async sendMessage() {
-    return { sentIds: [] };
-  },
-  async fetchMessages() {
-    return [];
-  },
-  async react() {},
-  async removeReaction() {},
-  async editMessage() {
-    return '';
-  },
-  async deleteMessage() {},
-  async downloadAttachment() {
-    return Buffer.alloc(0);
-  },
-  on() {},
-  startTyping() {},
-  stopTyping() {},
-};
-function createProvider() {
-  // Discord/Telegram messaging is retired (user decision: the PWA replaces
-  // it). The channel runtime always runs headless: automation
-  // (scheduler/webhooks) and voice transcription keep the worker alive while
-  // every messaging call is a no-op.
-  return HEADLESS_PROVIDER;
-}
-export { DATA_DIR, createProvider, loadConfig };
+export { DATA_DIR, loadConfig };
