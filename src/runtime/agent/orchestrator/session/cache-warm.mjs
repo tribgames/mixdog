@@ -48,8 +48,13 @@ export const CACHE_WARM_SOURCE = 'cache-warm';
 // The refresh keeps at least this much of the entry's lifetime unused, for
 // the warm to land before it expires.
 export const CACHE_WARM_EXPIRY_MARGIN_MS = 10_000;
-// Share of the lifetime after which the refresh goes out.
+// Share of the lifetime after which the refresh goes out at the latest
+// unless the lead below allows later.
 export const CACHE_WARM_REFRESH_SHARE = 0.9;
+// A refresh may wait until this long before expiry: in a 7-day sample of
+// hourly routine fires, cache misses inside the 1h lifetime appeared only at
+// 3588–3597 s after the previous call, so 60 s ahead stays clear of them.
+export const CACHE_WARM_LEAD_MS = 60_000;
 // Chance a scheduled routine turn arrives and still matches the previous
 // call's cached prefix: the measured share over a 7-day sample of routine
 // fires on bot home threads (Anthropic), 93 of 170 (0.547); the lower bound,
@@ -68,7 +73,8 @@ export function resolveCacheWarmingMode(config, env = process.env) {
 
 /** When a warm goes out after the last cache use of an entry living `ttlMs`. */
 export function cacheWarmDelayMs(ttlMs) {
-  return Math.max(1, Math.floor(Math.min(ttlMs * CACHE_WARM_REFRESH_SHARE, ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS)));
+  const refreshAt = Math.max(ttlMs * CACHE_WARM_REFRESH_SHARE, ttlMs - CACHE_WARM_LEAD_MS);
+  return Math.max(1, Math.floor(Math.min(refreshAt, ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS)));
 }
 
 const TIERS = Object.freeze(['5m', '1h']);

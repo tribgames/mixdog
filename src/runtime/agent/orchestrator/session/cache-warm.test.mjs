@@ -227,8 +227,8 @@ test('eligibility: explicit-breakpoint providers with a warm mode, no budget thi
   assert.match(cacheWarmIneligibility(request({ opts: { cacheStrategy: { messages: 'none' } } })), /message-tail/);
 });
 
-test('timing: the warm goes out at min(0.9·T, T−10s)', () => {
-  assert.equal(cacheWarmDelayMs(HOUR), 54 * MINUTE);
+test('timing: the warm goes out at max(0.9·T, T−60s), within T−10s', () => {
+  assert.equal(cacheWarmDelayMs(HOUR), 59 * MINUTE);
   assert.equal(cacheWarmDelayMs(5 * MINUTE), 270_000);
   assert.equal(CACHE_WARM_EXPIRY_MARGIN_MS, 10_000);
 });
@@ -280,9 +280,9 @@ test('economics: a read plus one output token per warm against a tier write minu
 });
 
 test('remaining warms: this one plus one per further interval to the due turn', () => {
-  const now = 54 * MINUTE;
-  assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: now + 54 * MINUTE }), 1);
-  assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: now + 54 * MINUTE + 1 }), 2);
+  const now = 59 * MINUTE;
+  assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: now + 59 * MINUTE }), 1);
+  assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: now + 59 * MINUTE + 1 }), 2);
   assert.equal(cacheWarmRemainingWarms({ now, ttlMs: HOUR, dueAt: 3 * HOUR }), 3);
 });
 
@@ -295,8 +295,8 @@ test('plan: warm iff P · missCost > remainingWarms · warmCost, failing closed 
     probability: ROUTINE_TURN_HIT_PROBABILITY,
     autoClearAtDue: false,
   };
-  const now = 54 * MINUTE;
-  const interval = 54 * MINUTE;
+  const now = 59 * MINUTE;
+  const interval = 59 * MINUTE;
   assert.deepEqual(planCacheWarm({ ...base, now, dueAt: 3 * HOUR }), { warm: true, warms: 3 });
   assert.deepEqual(planCacheWarm({ ...base, now, dueAt: 3_590_000 }), { warm: true, warms: 1 }, 'the 1h edge');
   // 21 warms pay, 22 do not (Opus 5.5, 1h).
