@@ -286,7 +286,9 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
     // Navigation and a blocked page dialog must not trap the user on that tab.
     signal?.throwIfAborted();
     if (isSessionTabControl(input)) return controlSessionTab(host.tabs, sessionId, input);
-    const guest = await host.ensureGuest(sessionId, { reveal: false });
+    // An address the person entered is theirs to open, even into a panel
+    // that just lost its last page.
+    const guest = await host.ensureGuest(sessionId, { reveal: false, user: input.type === 'navigate' });
     const assertCurrent = () => {
       signal?.throwIfAborted();
       if (!presenting(sessionId, guest, input.documentId)) {

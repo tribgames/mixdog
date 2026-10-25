@@ -38,6 +38,7 @@ export class BrowserSessionRegistry {
   /** The newest agent turn a session ran, and when it finished (unset while live). */
   private readonly turnBySession = new Map<string, { turn: number; finishedAt?: number }>();
   private readonly turnFinishedListeners = new Set<(sessionId: string) => void>();
+  private readonly lastPageGoneListeners = new Set<(sessionId: string) => void>();
 
   /** Bumped by every turn start, command and turn end of the session, so
    *  evidence gathered before any of them can be told from current evidence. */
@@ -82,6 +83,20 @@ export class BrowserSessionRegistry {
     this.turnFinishedListeners.add(listener);
   }
 
+  /** A page left the session (closed by anyone, or its window went away) and
+   *  none is left: visible or background. */
+  onLastPageGone(listener: (sessionId: string) => void): void {
+    this.lastPageGoneListeners.add(listener);
+  }
+
+  private notifyIfLastPageGone(sessionId: string): void {
+    if (this.visibleGuests(sessionId).length) return;
+    for (const page of this.backgroundPages(sessionId).values()) {
+      if (!page.window.isDestroyed() && !page.guest.isDestroyed()) return;
+    }
+    for (const listener of this.lastPageGoneListeners) listener(sessionId);
+  }
+
   registerVisibleGuest(guest: WebContents): void {
     if (!this.visibleOrder.includes(guest)) this.visibleOrder.push(guest);
   }
@@ -92,12 +107,15 @@ export class BrowserSessionRegistry {
     const sessionId = this.sessionByGuest.get(guest);
     this.sessionByGuest.delete(guest);
     this.forgetAgentPage(guest);
-    if (!sessionId || this.activeBySession.get(sessionId) !== guest) return;
-    const fallback =
-      this.visibleGuests(sessionId)[0] ??
-      [...this.backgroundPages(sessionId).values()].find((page) => !page.guest.isDestroyed())?.guest;
-    if (fallback) this.activeBySession.set(sessionId, fallback);
-    else this.activeBySession.delete(sessionId);
+    if (!sessionId) return;
+    if (this.activeBySession.get(sessionId) === guest) {
+      const fallback =
+        this.visibleGuests(sessionId)[0] ??
+        [...this.backgroundPages(sessionId).values()].find((page) => !page.guest.isDestroyed())?.guest;
+      if (fallback) this.activeBySession.set(sessionId, fallback);
+      else this.activeBySession.delete(sessionId);
+    }
+    this.notifyIfLastPageGone(sessionId);
   }
 
   bindVisibleGuest(sessionId: string, webContentsId: number, active: boolean): WebContents | null {
@@ -288,6 +306,7 @@ export class BrowserSessionRegistry {
       else this.activeBySession.delete(sessionId);
     }
     if (!pages.size) this.backgroundsBySession.delete(sessionId);
+    if (removed) this.notifyIfLastPageGone(sessionId);
   }
 
   backgroundCount(): number {

@@ -17,7 +17,7 @@ import { createPageSurfaceFrame } from './page-surface-frame';
 import { createPageSurfaceControl, zoomGuest } from './page-surface-control';
 
 export interface BrowserPageSurfaceHost {
-  ensureGuest(sessionId: string, options: { reveal: false }): Promise<WebContents>;
+  ensureGuest(sessionId: string, options: { reveal: false; user?: boolean }): Promise<WebContents>;
   state: BrowserGuestStateStore;
   cdp: BrowserGuestCdp;
   dispatchInput?: ReturnType<typeof createBrowserInputDispatch>;

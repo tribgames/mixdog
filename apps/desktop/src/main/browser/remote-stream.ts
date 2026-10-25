@@ -18,7 +18,7 @@ export interface BrowserRemoteControlHost {
   state: BrowserGuestStateStore;
   cdp: Pick<BrowserGuestCdp, 'call' | 'guestDebugger' | 'waitForInitialDocument'>;
   urlPolicy: BrowserUrlPolicy;
-  ensureGuest(sessionId: string, options?: { reveal?: boolean }): Promise<WebContents>;
+  ensureGuest(sessionId: string, options?: { reveal?: boolean; user?: boolean }): Promise<WebContents>;
   /** The page the session currently shows, or null when it has none. */
   currentGuest(sessionId: string): WebContents | null;
   /** A paired client started or stopped streaming this session; the display

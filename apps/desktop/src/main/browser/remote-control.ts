@@ -115,7 +115,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
   ): Promise<DesktopBrowserTabControlResult | void> {
     if (control.type === 'viewport') return applyViewport(sessionId, control);
     if (isSessionTabControl(control)) return controlSessionTab(host.tabs, sessionId, control);
-    const guest = await ensureGuest(sessionId, { reveal: false });
+    const guest = await ensureGuest(sessionId, { reveal: false, user: control.type === 'navigate' });
     host.onUserControl?.(guest);
     if (isPageInputControl(control)) {
       const assertCurrent = pageInputGuard(state, host, sessionId, guest, control.documentId);

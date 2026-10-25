@@ -984,6 +984,9 @@ export interface DesktopApi {
   onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */
   browserSetActiveGuest?(sessionId: string, webContentsId: number, active: boolean): Promise<void>;
+  /** Pane `pane` (unique per activation) started (`true`) or stopped reading
+   *  the session's pages. */
+  browserPanelShown?(sessionId: string, shown: boolean, pane: string): Promise<void>;
   /** Free the page behind a closed main-workspace browser tab. */
   browserReleasePage?(pageId: string): Promise<void>;
   browserPageFrame?(

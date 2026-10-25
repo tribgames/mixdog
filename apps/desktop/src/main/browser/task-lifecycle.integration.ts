@@ -1,8 +1,9 @@
 /**
- * Task-owned tab lifecycle over the live bridge: no agent work opens the
- * dock, finishing a turn leaves its page hidden instead of creating an empty
- * foreground one, and an explicit open keeps the page for the user. Every
- * command here carries its own session and turn id.
+ * Task-owned tab lifecycle over the live bridge: no agent work but `open`
+ * opens the dock, finishing a turn leaves its page hidden instead of creating
+ * an empty foreground one, an explicit open keeps the page for the user, and
+ * closing the session's last page folds the panel. Every command here carries
+ * its own session and turn id.
  */
 import assert from 'node:assert/strict';
 import type { WebContents } from 'electron';
@@ -72,14 +73,28 @@ export async function runBrowserTaskLifecycleScenarios(options: {
   await command({ action: 'open', tab: 'result', session_id: taskSession, turn_id: 3 });
   await command({ action: 'finish_turn', session_id: taskSession, turn_id: 3 });
   assert.match((await command({ action: 'list_tabs', session_id: taskSession })).text, /task=handoff/);
-  assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [], 'open keeps the page; the user opens the panel');
+  // Only `open` asks for the panel, naming the page it shows; the turn's end
+  // keeps that page and asks for nothing more.
+  const reveals = browserSurfaceRequests.splice(hiddenStart);
+  assert.deepEqual(
+    reveals.map(({ sessionId, reveal, tabId }) => ({ sessionId, reveal, page: /^p\d+$/.test(String(tabId)) })),
+    [{ sessionId: taskSession, reveal: true, page: true }],
+    'open reveals its page; finishing the turn keeps it'
+  );
   assert.equal(visibleGuest.isDestroyed(), false, 'pre-existing user page remains alive');
   await command({ action: 'close_tab', tab: 'result', session_id: taskSession });
+  assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [], 'a page is left, so the panel stays');
   // The page kept across turns stays a closable background tab, and the shared
   // background-tab budget goes back to the later scenarios.
   assert.equal(
     (await command({ action: 'close_tab', tab: 'scratch', session_id: taskSession })).text,
     'Closed background tab "scratch".'
+  );
+  // With the session's last page gone its panel folds instead of showing a blank page.
+  assert.deepEqual(
+    browserSurfaceRequests.splice(hiddenStart),
+    [{ sessionId: taskSession, hide: true }],
+    'closing the last page folds the panel'
   );
   progress('task background isolation, cleanup, closed panel and user handoff complete');
 }

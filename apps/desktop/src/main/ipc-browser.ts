@@ -20,6 +20,7 @@ interface BrowserIpcOptions {
     | 'browserImport'
     | 'browserHistorySearch'
     | 'setGuestActive'
+    | 'browserPanelShown'
     | 'releaseSession'
     | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
@@ -158,6 +159,12 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
     const guestId = requiredGuestId(webContentsId);
     if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
     browserHost.setGuestActive(ownerSessionId, guestId, active);
+  });
+  handle(DESKTOP_IPC.browserPanelShown, (event, sessionId, shown, pane) => {
+    if (!browserHost) return;
+    if (typeof shown !== 'boolean') throw new TypeError('Browser panel visibility is invalid.');
+    if (typeof pane !== 'string' || !pane || pane.length > 64) throw new TypeError('Browser pane id is invalid.');
+    browserHost.browserPanelShown(requiredSessionId(sessionId), shown, event.sender, pane);
   });
   // The renderer may only release pages it owns: main-workspace browser tabs.
   // A conversation's own page belongs to the agent's session lifecycle.

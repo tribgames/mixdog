@@ -24,6 +24,7 @@ import { pageHasEditedFields } from './login-takeover';
 import { normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs-contract';
 import { type BrowserOpenDetail, browserOpenRequest, revealBrowserPage } from './page-reveal';
+import { createBrowserPanelFold } from './panel-fold';
 import { restorablePages } from './restore-pages';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 
@@ -328,6 +329,17 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     );
   }
 
+  const panelFold = createBrowserPanelFold({
+    sessions,
+    hide: (sessionId) => {
+      try {
+        requestBrowserSurface(sessionId, 'hide');
+      } catch {
+        /* the window is gone: no panel is left to fold */
+      }
+    },
+  });
+
   // A legacy/misconfigured renderer must not reintroduce the shared input tree.
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   const primaryPages = createBrowserPageOwner({
@@ -357,10 +369,14 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     }
     restoringSessions.delete(sessionId);
     sessions.clearAgentPage(sessionId);
-    primaryPages.release(sessionId);
-    for (const [name, entry] of [...sessions.backgroundPages(sessionId)]) {
-      closeBackgroundPage(sessions, sessionId, name, entry);
-    }
+    // The shell hears of a release on its own (browserSessionReleased); an
+    // unloaded session's panel stays for its restore.
+    panelFold.quietly(() => {
+      primaryPages.release(sessionId);
+      for (const [name, entry] of [...sessions.backgroundPages(sessionId)]) {
+        closeBackgroundPage(sessions, sessionId, name, entry);
+      }
+    });
     nextPopupIdsBySession.delete(sessionId);
   }
 
@@ -489,7 +505,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
    * or OS focus. Creation works even when the owning session is not mounted. */
   async function ensureGuest(
     sessionId: string,
-    options: { reveal?: boolean; adopt?: boolean } = {}
+    options: { reveal?: boolean; adopt?: boolean; user?: boolean } = {}
   ): Promise<WebContents> {
     await restoreSession(sessionId);
     // A page another caller is still creating is registered before its
@@ -497,8 +513,12 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     await primaryPages.settled(sessionId);
     // `adopt: false` (an agent command with no tab) wants a visible page of
     // its own; a pane shows whichever page the session already has.
-    const existing = options.adopt === false ? sessions.liveGuest(sessionId) : sessions.paneGuest(sessionId);
-    const guest = existing ?? (await primaryPages.ensure(sessionId));
+    // A pane's frame read never makes a page while the panel folds for a lost
+    // last page; the person's own request (`user`) does.
+    const guest =
+      options.adopt === false
+        ? (sessions.liveGuest(sessionId) ?? (await primaryPages.ensure(sessionId)))
+        : await panelFold.panePage(sessionId, () => primaryPages.ensure(sessionId), { user: options.user });
     if (options.reveal !== false) requestBrowserSurface(sessionId, true);
     return guest;
   }
@@ -573,7 +593,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       backgroundEntryForPageId(sessions, state, sessionId, pageId),
     destroyBackgroundPage: (sessionId: string, name: string, entry: BackgroundPage) =>
       closeBackgroundPage(sessions, sessionId, name, entry),
-    destroyAllBackgroundPages: () => closeAllBackgroundPages(sessions),
+    destroyAllBackgroundPages: () => panelFold.quietly(() => closeAllBackgroundPages(sessions)),
     releaseSession,
     restoreSession,
     reclaimIdleBackgroundPages: (now?: number) => reclaimer.sweep(now),
@@ -583,6 +603,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     reportOpenFailure,
     discardCreatedPage,
     ensureGuest,
+    panelShown: panelFold.panelShown,
     replacementPage: (sessionId: string) => primaryPages.replacement(sessionId),
     claimPage: (sessionId: string, guest: WebContents) => primaryPages.claim(sessionId, guest),
     discardUntouchedBlank: (sessionId: string, keep: WebContents) =>
@@ -591,7 +612,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     destroyAllPrimaryPages: () => {
       suspendedSessions.clear();
       restoringSessions.clear();
-      primaryPages.dispose();
+      panelFold.quietly(() => primaryPages.dispose());
     },
   };
 }

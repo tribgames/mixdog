@@ -180,6 +180,7 @@ export const DESKTOP_IPC = {
   terminalRunClaim: 'mixdog:terminal-run-claim',
   browserSessionReleased: 'mixdog:browser-session-released',
   browserSetActiveGuest: 'mixdog:browser-set-active-guest',
+  browserPanelShown: 'mixdog:browser-panel-shown',
   browserReleasePage: 'mixdog:browser-release-page',
   browserPageFrame: 'mixdog:browser-page-frame',
   browserPageControl: 'mixdog:browser-page-control',

@@ -153,6 +153,7 @@ interface DesktopIpcDependencies {
     | 'browserHistorySearch'
     | 'releaseSession'
     | 'setGuestActive'
+    | 'browserPanelShown'
     | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'

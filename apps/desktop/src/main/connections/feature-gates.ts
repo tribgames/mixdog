@@ -22,6 +22,7 @@ const FEATURE_CHANNELS: ReadonlyArray<readonly [string, readonly string[]]> = [
       DESKTOP_IPC.browserPageMetadata,
       DESKTOP_IPC.browserPresentNative,
       DESKTOP_IPC.browserSetActiveGuest,
+      DESKTOP_IPC.browserPanelShown,
       DESKTOP_IPC.browserReleasePage,
       DESKTOP_IPC.browserConfigureGuestViewport,
       DESKTOP_IPC.browserApprovalDecide,

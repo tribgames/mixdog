@@ -17,6 +17,8 @@ import './desktop/browser-isolated-view.css';
 const NATIVE_METADATA_INTERVAL_MS = 100;
 /** Overlap re-check for shell UI that moves without a DOM change. */
 const NATIVE_OVERLAP_FALLBACK_MS = 250;
+/** Each activation's id in the panel reports to the host (panel-fold). */
+let nextPaneActivation = 0;
 
 /** Pixel display: guest events have no DOM path to the shell. When the host
  * presents pages natively (and `native` allows it), the page's own view is
@@ -90,6 +92,19 @@ export const IsolatedBrowserView = forwardRef<
     };
   }, [client, sessionId]);
   const input = useBrowserPageInput(client, image, keyboard);
+
+  // The host hears when this pane starts and stops reading the session's
+  // pages, ahead of the reads below: opening asks for its page (the blank
+  // start page if it has none), and closing confirms a fold of a panel whose
+  // last page went away.
+  useEffect(() => {
+    if (!active) return undefined;
+    const pane = String(++nextPaneActivation);
+    void window.mixdogDesktop?.browserPanelShown?.(sessionId, true, pane).catch(() => {});
+    return () => {
+      void window.mixdogDesktop?.browserPanelShown?.(sessionId, false, pane).catch(() => {});
+    };
+  }, [active, sessionId]);
 
   useEffect(() => {
     if (!active) return undefined;

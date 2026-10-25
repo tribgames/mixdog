@@ -105,6 +105,10 @@ export interface BrowserHost {
    *  (login-takeover.ts); true when it did. */
   reloadAfterSignIn(sessionId: string, id: string): Promise<boolean>;
   setGuestActive(sessionId: string, webContentsId: number, active: boolean): void;
+  /** Pane `pane` of shell `sender` started (`true`) or stopped reading the
+   *  session's pages: opening asks for its page (the blank start page if it
+   *  has none), and the last one closing confirms a fold (panel-fold). */
+  browserPanelShown(sessionId: string, shown: boolean, sender: Pick<WebContents, 'id' | 'on'>, pane: string): void;
   configureGuestViewport(sessionId: string, webContentsId: number, config: DesktopBrowserViewportConfig): Promise<void>;
   browserImportSources(): Promise<BrowserImportSource[]>;
   browserImport(request: BrowserImportRequest): Promise<BrowserImportResult>;
@@ -296,6 +300,7 @@ export function createBrowserHost(
       remoteTabs: shown.remoteTabs,
     }),
     watchNewTab: newTabs.watch,
+    browserPanelShown: (sessionId, shown, sender, pane) => lifecycle.panelShown(sessionId, shown, sender, pane),
     captureTakeoverPage: (sessionId, id, tab) => {
       handedOver.capture(sessionId, id, tab);
     },
