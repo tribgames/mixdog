@@ -2021,7 +2021,10 @@ function createDesktopPetController(): DesktopPet {
 /** This PC's window carries the machine's single instances: Computer Use and
  *  its overlay, the Browser Use pane host, taskbar attention, idle reclaim and
  *  the close-to-background behavior. Returns its Browser Use host. */
-function installLocalWindowFeatures(window: BrowserWindow, onGuest: (guest: Electron.WebContents) => void): BrowserHost {
+function installLocalWindowFeatures(
+  window: BrowserWindow,
+  onGuest: (guest: Electron.WebContents) => void
+): BrowserHost {
   mainWindow = window;
   desktopPet?.attachAppWindow(window);
   if (!computerHost) {

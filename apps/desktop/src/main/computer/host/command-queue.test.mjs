@@ -506,7 +506,10 @@ test('user input mid-dispatch refuses the action as possibly executed, without p
   assert.equal(JSON.stringify(refused).includes('secret'), false);
   assert.equal(f.coordinator.snapshot().userControlActive, false);
   assert.equal(inputCalls, 1, 'the interrupted input is never replayed');
-  assert.equal((await f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1' })).text, 'click');
+  assert.equal(
+    (await f.host.executeSerialized({ action: 'click', session_id: 'a', window_id: 'hwnd:0x1' })).text,
+    'click'
+  );
 });
 
 test('background commands run through user input while only the touched action is refused', {

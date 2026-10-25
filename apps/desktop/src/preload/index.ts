@@ -629,8 +629,7 @@ const api: DesktopApi = {
   setNotificationPreferences: (deviceId, patch) => invokeIpc(DESKTOP_IPC.setNotificationPreferences, deviceId, patch),
   sendTestNotification: (deviceId) => invokeIpc(DESKTOP_IPC.sendTestNotification, deviceId),
   listConversationNotifications: () => invokeIpc(DESKTOP_IPC.listConversationNotifications),
-  setConversationNotification: (target, setting) =>
-    invokeIpc(DESKTOP_IPC.setConversationNotification, target, setting),
+  setConversationNotification: (target, setting) => invokeIpc(DESKTOP_IPC.setConversationNotification, target, setting),
   resyncSessionState: (sessionId) => ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId),
   subscribeSessionState: (listener) => {
     const decoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();

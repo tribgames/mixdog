@@ -272,7 +272,8 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     sidePanelPosition: {
       type: 'string',
       enum: ['right', 'bottom', 'auto'],
-      description: 'Where the side dock sits on desktop: beside the chat, below it, or by window shape (default right).',
+      description:
+        'Where the side dock sits on desktop: beside the chat, below it, or by window shape (default right).',
     },
     timeFormat: {
       type: 'string',

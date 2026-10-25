@@ -362,7 +362,10 @@ test('a stored delegation with a task step (a task session sub-agent from before
     assert.equal(unattendedApprovalPort().runOf(sessionId), null, sessionId);
     assert.equal(approvalSurface(sessionId).sessionId, 'sess_dlg_task1', sessionId);
     assert.equal(loadSession(sessionId).delegation.via, 'coding', `${sessionId}: re-derived`);
-    assert.ok(loadSession(sessionId).delegation.path.every((step) => step.kind === 'agent'), sessionId);
+    assert.ok(
+      loadSession(sessionId).delegation.path.every((step) => step.kind === 'agent'),
+      sessionId
+    );
   }
   assert.deepEqual(approvalSurface('sess_dlg_stale_nested').chain, ['Lead', 'Worker', 'Reviewer']);
 
@@ -428,7 +431,10 @@ test('a delegated session records its root at creation; reading it never walks t
   assert.deepEqual(loadSession('sess_dlg_tsub2').delegation, {
     rootSessionId: 'sess_dlg_task1',
     via: 'coding',
-    path: [{ kind: 'agent', agent: 'worker' }, { kind: 'agent', agent: 'reviewer' }],
+    path: [
+      { kind: 'agent', agent: 'worker' },
+      { kind: 'agent', agent: 'reviewer' },
+    ],
   });
   assert.deepEqual(loadSession('sess_dlg_lsub1').delegation, {
     rootSessionId: 'sess_dlg_lead1',
@@ -672,11 +678,7 @@ test('pre-upgrade records (no delegation) are backfilled once from the parent, n
     const lead = `sess_bf_src${from.slice(1) || 'old'}`;
     legacy({ id: lead, owner: 'cli', agent: 'lead', sourceType: 'lead', sourceName: `agent:mailer${from}` });
     legacy(childRecord(`${lead}_w`, 'worker', lead));
-    const out = await humanGateDecision(
-      email,
-      { action: 'allow' },
-      { sessionId: `${lead}_w`, store, annotations: {} }
-    );
+    const out = await humanGateDecision(email, { action: 'allow' }, { sessionId: `${lead}_w`, store, annotations: {} });
     assert.deepEqual(out, { decision: { action: 'allow' }, request: null, gate: null }, lead);
     assert.equal(unattendedApprovalPort().runOf(`${lead}_w`), null, lead);
   }
@@ -700,7 +702,11 @@ test('pre-upgrade records (no delegation) are backfilled once from the parent, n
   assert.equal(loadSession('sess_bf_srcrun_w2').run.kind, 'schedule', 'the run stays stamped with its delegation');
   // A missing parent has no root: no bot's session, no ask, nothing persisted.
   legacy(childRecord('sess_bf_gone', 'worker', 'sess_bf_missing_parent'));
-  const out = await humanGateDecision(email, { action: 'allow' }, { sessionId: 'sess_bf_gone', store, annotations: {} });
+  const out = await humanGateDecision(
+    email,
+    { action: 'allow' },
+    { sessionId: 'sess_bf_gone', store, annotations: {} }
+  );
   assert.deepEqual(out, { decision: { action: 'allow' }, request: null, gate: null });
   assert.equal(approvalSurface('sess_bf_gone'), null);
   assert.equal(loadSession('sess_bf_gone').delegation, undefined, 'nothing persisted');
@@ -725,7 +731,11 @@ test('legacy work of a webhook that has ended: only what recorded the run is the
   unmark();
   // Read for the first time after the webhook ended.
   const runOf = unattendedApprovalPort().runOf;
-  const child = await humanGateDecision(email, { action: 'allow' }, { sessionId: 'sess_wh_child', store, annotations: {} });
+  const child = await humanGateDecision(
+    email,
+    { action: 'allow' },
+    { sessionId: 'sess_wh_child', store, annotations: {} }
+  );
   assert.deepEqual(child, NO_ASK, 'a bot sub-agent with no recorded run asks nothing');
   assert.equal(runOf('sess_wh_child'), null);
   for (const sessionId of ['sess_wh_task', 'sess_wh_tsub']) {

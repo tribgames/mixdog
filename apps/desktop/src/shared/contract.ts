@@ -883,7 +883,10 @@ export interface DesktopApi {
    *  preferences, read and written on the PC; a paired device reaches them
    *  through the remote shim. A write broadcasts a settings change. */
   getNotificationPreferences?(): Promise<NotificationPreferencesState>;
-  setNotificationPreferences?(deviceId: string, patch: NotificationPreferencesPatch): Promise<NotificationPreferencesState>;
+  setNotificationPreferences?(
+    deviceId: string,
+    patch: NotificationPreferencesPatch
+  ): Promise<NotificationPreferencesState>;
   /** One notification to that device now, through the same channel and gates a real one uses (except quiet hours). */
   sendTestNotification?(deviceId: string): Promise<{ ok: boolean; message?: string }>;
   /** Conversation overrides (list right-click, conversation header bell). Expired mutes are not listed. */

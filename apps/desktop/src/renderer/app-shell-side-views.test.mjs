@@ -232,7 +232,7 @@ test('a pending phone Visualize open drops on another side view, a drawer dismis
   }
 });
 
-test("a pending open in an unfocused pane survives the focus move its own tap makes; later navigation still drops it", async () => {
+test('a pending open in an unfocused pane survives the focus move its own tap makes; later navigation still drops it', async () => {
   const own = slowVisualizeModule();
   const view = await mountPhoneSelection(own);
   try {

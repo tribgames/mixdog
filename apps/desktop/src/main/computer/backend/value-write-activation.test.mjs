@@ -208,8 +208,11 @@ function Attempt($text, [scriptblock]$arrange, [bool]$recorded = $true) {
 }
 `;
 
-test('a window is remembered only when its own value write call raised it, and forgotten with it', windows, async () => {
-  const rows = await runFixture(`${VALUE_FIXTURE}
+test(
+  'a window is remembered only when its own value write call raised it, and forgotten with it',
+  windows,
+  async () => {
+    const rows = await runFixture(`${VALUE_FIXTURE}
 $rows = [ordered]@{}
 $rows.steal = Attempt 'abc' { [MixWin32]::Element.Value.Activation = 'steal' } $false
 $rows.quiet = Attempt 'abc' $null $false
@@ -244,40 +247,44 @@ $rows.dead = Test-ValueWriteActivates ([IntPtr]1)
 $rows.after = $script:CurrentSession.ValueWriteActivators.Count
 $rows | ConvertTo-Json -Compress -Depth 4
 `);
-  assert.equal(rows.steal.recorded, true);
-  assert.equal(rows.steal.path, 'uia_value');
-  // The observer brackets the foreground reads on both sides of the call.
-  assert.deepEqual(rows.steal.order, ['observe', 'foreground', 'setvalue', 'foreground', 'observe']);
-  assert.equal(rows.quiet.recorded, false);
-  for (const name of ['recordedQuiet', 'recordedSteal', 'recordedUser']) {
-    assert.equal(rows[name].path, 'uia_value', name);
-    assert.equal(rows[name].setValue, 1, name);
-    assert.deepEqual(rows[name].sent, ['hold', 'select', 'release'], name);
+    assert.equal(rows.steal.recorded, true);
+    assert.equal(rows.steal.path, 'uia_value');
+    // The observer brackets the foreground reads on both sides of the call.
+    assert.deepEqual(rows.steal.order, ['observe', 'foreground', 'setvalue', 'foreground', 'observe']);
+    assert.equal(rows.quiet.recorded, false);
+    for (const name of ['recordedQuiet', 'recordedSteal', 'recordedUser']) {
+      assert.equal(rows[name].path, 'uia_value', name);
+      assert.equal(rows[name].setValue, 1, name);
+      assert.deepEqual(rows[name].sent, ['hold', 'select', 'release'], name);
+    }
+    assert.equal(rows.recordedQuiet.recorded, false, 'a call that did not raise the window forgets it');
+    assert.equal(rows.recordedSteal.recorded, true);
+    assert.equal(rows.recordedUser.recorded, true, 'a call the user acted during proves nothing either way');
+    for (const name of ['noHandleQuiet', 'noHandleSteal', 'rejectedQuiet', 'rejectedSteal']) {
+      assert.equal(rows[name].path, 'uia_value', name);
+      assert.equal(rows[name].verified, true, name);
+      assert.equal(rows[name].setValue, 1, name);
+      assert.deepEqual(rows[name].sent, [], `${name}: no keyboard message`);
+    }
+    assert.equal(rows.noHandleQuiet.recorded, false);
+    assert.equal(rows.noHandleSteal.recorded, true);
+    assert.equal(rows.rejectedQuiet.recorded, false);
+    assert.equal(rows.rejectedSteal.recorded, true);
+    assert.equal(rows.userInput.recorded, false);
+    assert.equal(rows.userInTarget.recorded, false);
+    assert.equal(rows.later.recorded, false);
+    assert.equal(rows.later.restored, true, 'the watch still gives the user their window back');
+    assert.equal(rows.reused, false);
+    assert.equal(rows.dead, false);
+    assert.equal(rows.after, 0, 'entries for gone or reused windows are dropped');
   }
-  assert.equal(rows.recordedQuiet.recorded, false, 'a call that did not raise the window forgets it');
-  assert.equal(rows.recordedSteal.recorded, true);
-  assert.equal(rows.recordedUser.recorded, true, 'a call the user acted during proves nothing either way');
-  for (const name of ['noHandleQuiet', 'noHandleSteal', 'rejectedQuiet', 'rejectedSteal']) {
-    assert.equal(rows[name].path, 'uia_value', name);
-    assert.equal(rows[name].verified, true, name);
-    assert.equal(rows[name].setValue, 1, name);
-    assert.deepEqual(rows[name].sent, [], `${name}: no keyboard message`);
-  }
-  assert.equal(rows.noHandleQuiet.recorded, false);
-  assert.equal(rows.noHandleSteal.recorded, true);
-  assert.equal(rows.rejectedQuiet.recorded, false);
-  assert.equal(rows.rejectedSteal.recorded, true);
-  assert.equal(rows.userInput.recorded, false);
-  assert.equal(rows.userInTarget.recorded, false);
-  assert.equal(rows.later.recorded, false);
-  assert.equal(rows.later.restored, true, 'the watch still gives the user their window back');
-  assert.equal(rows.reused, false);
-  assert.equal(rows.dead, false);
-  assert.equal(rows.after, 0, 'entries for gone or reused windows are dropped');
-});
+);
 
-test('a remembered window takes set_value through its keyboard, refusing first and never writing twice', windows, async () => {
-  const rows = await runFixture(`${VALUE_FIXTURE}
+test(
+  'a remembered window takes set_value through its keyboard, refusing first and never writing twice',
+  windows,
+  async () => {
+    const rows = await runFixture(`${VALUE_FIXTURE}
 $rows = [ordered]@{}
 $rows.keys = Attempt "Hello\`nWorld"
 $rows.readOnly = Attempt 'x' { [MixWin32]::Element.Value.ReadOnly = $true }
@@ -295,54 +302,58 @@ $msaa = Do-SetValue 'msaa' 'ABC'
 $rows.caseMsaa = @{ verified = $msaa.verified }
 $rows | ConvertTo-Json -Compress -Depth 4
 `);
-  // Remembered window: selection proven, cleared through the keyboard, typed, read back once.
-  assert.equal(rows.keys.path, 'win32_message');
-  assert.equal(rows.keys.verified, true);
-  assert.equal(rows.keys.effect, 'confirmed');
-  assert.equal(rows.keys.setValue, 0, 'the accessibility value write is never made');
-  assert.deepEqual(rows.keys.sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'text:Hello\nWorld', 'release']);
-  assert.equal(rows.keys.value, 'Hello\rWorld');
-  // Refusals come before anything is sent.
-  for (const [name, code] of [['readOnly', 'element_read_only'], ['disabled', 'element_disabled']]) {
-    assert.equal(rows[name].code, code, name);
-    assert.deepEqual(rows[name].sent, [], name);
-    assert.equal(rows[name].setValue, 0, name);
-    assert.equal(rows[name].value, 'old', name);
+    // Remembered window: selection proven, cleared through the keyboard, typed, read back once.
+    assert.equal(rows.keys.path, 'win32_message');
+    assert.equal(rows.keys.verified, true);
+    assert.equal(rows.keys.effect, 'confirmed');
+    assert.equal(rows.keys.setValue, 0, 'the accessibility value write is never made');
+    assert.deepEqual(rows.keys.sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'text:Hello\nWorld', 'release']);
+    assert.equal(rows.keys.value, 'Hello\rWorld');
+    // Refusals come before anything is sent.
+    for (const [name, code] of [
+      ['readOnly', 'element_read_only'],
+      ['disabled', 'element_disabled'],
+    ]) {
+      assert.equal(rows[name].code, code, name);
+      assert.deepEqual(rows[name].sent, [], name);
+      assert.equal(rows[name].setValue, 0, name);
+      assert.equal(rows[name].value, 'old', name);
+    }
+    // Any readback other than the requested text is unverified and not written again.
+    for (const name of ['limit', 'caseKeys', 'unreadable']) {
+      assert.equal(rows[name].path, 'win32_message', name);
+      assert.equal(rows[name].verified, false, name);
+      assert.equal(rows[name].effect, 'unverifiable', name);
+      assert.equal(rows[name].setValue, 0, name);
+      assert.equal(rows[name].sent.filter((entry) => entry.startsWith('text:')).length, 1, name);
+    }
+    assert.equal(rows.caseKeys.value, 'abc');
+    // A proven selection whose Delete the control refused: nothing is typed into
+    // what is left, the result is unverified and the Delete may have acted.
+    assert.equal(rows.deleteRejected.path, 'win32_message');
+    assert.equal(rows.deleteRejected.verified, false);
+    assert.equal(rows.deleteRejected.mayHaveExecuted, true);
+    assert.deepEqual(rows.deleteRejected.sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'release']);
+    assert.equal(rows.deleteRejected.value, 'old');
+    assert.equal(rows.deleteRejected.setValue, 0, 'no fallback after a destructive key');
+    assert.equal(rows.empty.verified, true);
+    assert.deepEqual(rows.empty.sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'release']);
+    // Line breaks are sent as the Enter they stand for, so a bare CR is not lost.
+    for (const name of ['bareCr', 'crLf']) {
+      assert.deepEqual(rows[name].sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'text:a\nb', 'release'], name);
+      assert.equal(rows[name].value, 'a\rb', name);
+      assert.equal(rows[name].verified, true, name);
+    }
+    // A window never seen raising itself keeps the accessibility route, exactly once.
+    assert.equal(rows.uia.path, 'uia_value');
+    assert.equal(rows.uia.verified, true);
+    assert.equal(rows.uia.setValue, 1);
+    assert.deepEqual(rows.uia.sent, []);
+    // Letter case is part of the value on every route.
+    assert.equal(rows.caseUia.verified, false);
+    assert.equal(rows.caseMsaa.verified, false);
   }
-  // Any readback other than the requested text is unverified and not written again.
-  for (const name of ['limit', 'caseKeys', 'unreadable']) {
-    assert.equal(rows[name].path, 'win32_message', name);
-    assert.equal(rows[name].verified, false, name);
-    assert.equal(rows[name].effect, 'unverifiable', name);
-    assert.equal(rows[name].setValue, 0, name);
-    assert.equal(rows[name].sent.filter((entry) => entry.startsWith('text:')).length, 1, name);
-  }
-  assert.equal(rows.caseKeys.value, 'abc');
-  // A proven selection whose Delete the control refused: nothing is typed into
-  // what is left, the result is unverified and the Delete may have acted.
-  assert.equal(rows.deleteRejected.path, 'win32_message');
-  assert.equal(rows.deleteRejected.verified, false);
-  assert.equal(rows.deleteRejected.mayHaveExecuted, true);
-  assert.deepEqual(rows.deleteRejected.sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'release']);
-  assert.equal(rows.deleteRejected.value, 'old');
-  assert.equal(rows.deleteRejected.setValue, 0, 'no fallback after a destructive key');
-  assert.equal(rows.empty.verified, true);
-  assert.deepEqual(rows.empty.sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'release']);
-  // Line breaks are sent as the Enter they stand for, so a bare CR is not lost.
-  for (const name of ['bareCr', 'crLf']) {
-    assert.deepEqual(rows[name].sent, ['hold', 'select', 'keys:{DELETE}', 'end', 'text:a\nb', 'release'], name);
-    assert.equal(rows[name].value, 'a\rb', name);
-    assert.equal(rows[name].verified, true, name);
-  }
-  // A window never seen raising itself keeps the accessibility route, exactly once.
-  assert.equal(rows.uia.path, 'uia_value');
-  assert.equal(rows.uia.verified, true);
-  assert.equal(rows.uia.setValue, 1);
-  assert.deepEqual(rows.uia.sent, []);
-  // Letter case is part of the value on every route.
-  assert.equal(rows.caseUia.verified, false);
-  assert.equal(rows.caseMsaa.verified, false);
-});
+);
 
 test('an MSAA value write refuses a read-only or disabled field before writing', windows, async () => {
   const rows = await runFixture(`
@@ -396,8 +407,11 @@ $rows | ConvertTo-Json -Compress
   assert.equal(rows.disabled.text, 'disabled-before');
 });
 
-test('the keyboard route proves the selection natively and leaves a control that ignores it untouched', windows, async () => {
-  const rows = await runFixture(`
+test(
+  'the keyboard route proves the selection natively and leaves a control that ignores it untouched',
+  windows,
+  async () => {
+    const rows = await runFixture(`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName Accessibility
@@ -515,33 +529,34 @@ try {
 finally { $form.Dispose() }
 $rows | ConvertTo-Json -Compress
 `);
-  assert.equal(rows.labelKeys.fallback, true);
-  assert.equal(rows.labelKeys.text, 'label-before', 'nothing was deleted or typed');
-  assert.equal(rows.label.path, 'uia_value');
-  assert.equal(rows.label.setValue, 1);
-  assert.equal(rows.label.verified, true);
-  assert.equal(rows.label.text, 'written');
-  assert.deepEqual(rows.partial, { fallback: true, text: 'first\r\nsecond', start: 2, end: 4, chars: 0 });
-  assert.equal(rows.protected.path, 'win32_message');
-  assert.equal(rows.protected.verified, false);
-  assert.equal(rows.protected.may, true);
-  assert.equal(rows.protected.text, 'first\r\nsecond');
-  assert.equal(rows.protected.chars, 0, 'nothing typed');
-  for (const name of ['bareCr', 'crLf']) {
-    assert.equal(rows[name].path, 'win32_message', name);
-    assert.equal(rows[name].verified, true, name);
-    assert.equal(rows[name].text, 'a\r\nb', name);
+    assert.equal(rows.labelKeys.fallback, true);
+    assert.equal(rows.labelKeys.text, 'label-before', 'nothing was deleted or typed');
+    assert.equal(rows.label.path, 'uia_value');
+    assert.equal(rows.label.setValue, 1);
+    assert.equal(rows.label.verified, true);
+    assert.equal(rows.label.text, 'written');
+    assert.deepEqual(rows.partial, { fallback: true, text: 'first\r\nsecond', start: 2, end: 4, chars: 0 });
+    assert.equal(rows.protected.path, 'win32_message');
+    assert.equal(rows.protected.verified, false);
+    assert.equal(rows.protected.may, true);
+    assert.equal(rows.protected.text, 'first\r\nsecond');
+    assert.equal(rows.protected.chars, 0, 'nothing typed');
+    for (const name of ['bareCr', 'crLf']) {
+      assert.equal(rows[name].path, 'win32_message', name);
+      assert.equal(rows[name].verified, true, name);
+      assert.equal(rows[name].text, 'a\r\nb', name);
+    }
+    // A real RichEdit with several lines: the proof holds in its selection units.
+    assert.equal(rows.rich.code, null, JSON.stringify(rows.rich));
+    assert.equal(rows.rich.verified, true, JSON.stringify(rows.rich));
+    assert.equal(rows.rich.text, 'new one\nnew two');
+    // Text length and selection count line breaks differently: the proof uses
+    // only selection positions, so it passes and never asks for the length.
+    assert.equal(rows.units.verified, true, JSON.stringify(rows.units));
+    assert.equal(rows.units.text, 'x\r\ny');
+    assert.equal(rows.units.lengthReplies, 0);
   }
-  // A real RichEdit with several lines: the proof holds in its selection units.
-  assert.equal(rows.rich.code, null, JSON.stringify(rows.rich));
-  assert.equal(rows.rich.verified, true, JSON.stringify(rows.rich));
-  assert.equal(rows.rich.text, 'new one\nnew two');
-  // Text length and selection count line breaks differently: the proof uses
-  // only selection positions, so it passes and never asks for the length.
-  assert.equal(rows.units.verified, true, JSON.stringify(rows.units));
-  assert.equal(rows.units.text, 'x\r\ny');
-  assert.equal(rows.units.lengthReplies, 0);
-});
+);
 
 test('foreground type into a remembered window is unchanged', windows, async () => {
   const row = await runFixture(`${VALUE_FIXTURE}
