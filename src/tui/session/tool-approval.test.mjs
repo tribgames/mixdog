@@ -5,7 +5,7 @@ import { createToolApproval, resolveToolApprovalTimeoutMs } from './tool-approva
 // The observable contract of the approval FIFO: what lands in state.toolApproval,
 // what each waiter resolves with, and which id settles which entry.
 function harness({ timeoutMs = 60_000 } = {}) {
-  let state = { toolApproval: null };
+  let state = { toolApproval: null, toolApprovalResult: null };
   let disposed = false;
   let seq = 0;
   const api = createToolApproval({
@@ -20,6 +20,7 @@ function harness({ timeoutMs = 60_000 } = {}) {
   return {
     api,
     current: () => state.toolApproval,
+    result: () => state.toolApprovalResult,
     waiting: () => state.toolApprovalsWaiting,
     dispose: () => {
       disposed = true;
@@ -109,61 +110,37 @@ test('a disposed runtime refuses new requests and presents nothing', async () =>
 });
 
 test('an answer from a known device is recorded on the state; a timeout names nobody', async () => {
-  let state = { toolApproval: null, toolApprovalResult: null };
-  const api = createToolApproval({
-    getState: () => state,
-    set: (patch) => {
-      state = { ...state, ...patch };
-    },
-    nextId: (() => {
-      let seq = 0;
-      return () => `req-${++seq}`;
-    })(),
-    getDisposed: () => false,
-    timeoutMs: 60_000,
-  });
+  const { api, result } = harness();
   const first = api.requestToolApproval({ name: 'shell' });
   assert.equal(api.finishToolApproval('req-1', true, 'approved by user', 'Pixel'), true);
   await first;
-  assert.equal(state.toolApprovalResult.id, 'req-1');
-  assert.equal(state.toolApprovalResult.approved, true);
-  assert.equal(state.toolApprovalResult.device, 'Pixel');
+  assert.equal(result().id, 'req-1');
+  assert.equal(result().approved, true);
+  assert.equal(result().device, 'Pixel');
 
   const second = api.requestToolApproval({ name: 'shell' });
   assert.equal(api.finishToolApproval('req-2', false, 'approval timed out'), true);
   await second;
-  assert.equal(state.toolApprovalResult, null);
+  assert.equal(result(), null);
 });
 
 test('a real timeout is published as expired; an abort as interrupted; a bare unanswered denial names nothing', async () => {
-  let state = { toolApproval: null, toolApprovalResult: null };
-  const api = createToolApproval({
-    getState: () => state,
-    set: (patch) => {
-      state = { ...state, ...patch };
-    },
-    nextId: (() => {
-      let seq = 0;
-      return () => `req-${++seq}`;
-    })(),
-    getDisposed: () => false,
-    timeoutMs: 20,
-  });
+  const { api, current, result } = harness({ timeoutMs: 20 });
   const keepAlive = setTimeout(() => {}, 1000);
   const timed = await api.requestToolApproval({ name: 'shell' });
   clearTimeout(keepAlive);
   assert.equal(timed.timedOut, true);
-  assert.equal(state.toolApproval, null);
-  assert.equal(state.toolApprovalResult.id, 'req-1');
-  assert.equal(state.toolApprovalResult.expired, true);
-  assert.equal(state.toolApprovalResult.device, '');
+  assert.equal(current(), null);
+  assert.equal(result().id, 'req-1');
+  assert.equal(result().expired, true);
+  assert.equal(result().device, '');
 
   const aborted = api.requestToolApproval({ name: 'shell', timeoutMs: null });
   api.denyAllToolApprovals('turn aborted');
   await aborted;
-  assert.equal(state.toolApprovalResult.id, 'req-2');
-  assert.equal(state.toolApprovalResult.interrupted, true);
-  assert.equal(state.toolApprovalResult.expired, undefined);
+  assert.equal(result().id, 'req-2');
+  assert.equal(result().interrupted, true);
+  assert.equal(result().expired, undefined);
 });
 
 test('answers pass through to the waiter and kind/timeoutMs are honored per request', async () => {
