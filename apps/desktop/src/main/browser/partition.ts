@@ -4,14 +4,16 @@
  * both. Three session-wide guards live here: a site holds a permission only
  * when a person granted it in the pane, every request passes the URL policy (including its resolved
  * address), and downloads land in the user's folder through a ledger the
- * `downloads` action can report.
+ * `downloads` action can report. Every page keeps a zoom of its own, never
+ * the one Chromium shares across a site's pages (page-zoom.ts).
  */
 import type { Session, WebContents } from 'electron';
-import { app, session } from 'electron';
+import { app, ipcMain, session } from 'electron';
 
 import { rememberBrowserIdentity } from './browser-identity';
 import { BROWSER_PARTITION } from './command';
 import { createBrowserDownloadLedger } from './downloads';
+import { installBrowserPageZoom } from './page-zoom';
 import { clearBrowserPermissionHandlers, createBrowserPermissions } from './permissions';
 import { redactBrowserText } from './redaction';
 import { browserRequestDisposition } from './request-scheme';
@@ -43,6 +45,9 @@ interface BrowserPartitionHost {
   /** Called before a refused request is cancelled, so the page's failure
    *  record can say which rule refused it; Chromium reports only a code. */
   onRequestRefused?(webContentsId: number | undefined, url: string, reason: string): void;
+  /** A page's main-frame POST navigation with its body (linked sign-in's
+   *  form_post callbacks); read in memory, never kept here. */
+  onNavigationPost?(webContentsId: number, url: string, chunks: Buffer[]): void;
 }
 
 export function createBrowserPartition(host: BrowserPartitionHost) {
@@ -74,6 +79,10 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
   keepAppUserAgent(session.defaultSession);
   keepAppUserAgent(host.windowSession);
   partitionSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+    if (details.resourceType === 'mainFrame' && details.method === 'POST' && details.webContentsId !== undefined) {
+      const chunks = (details.uploadData ?? []).flatMap((part) => (part.bytes ? [part.bytes] : []));
+      host.onNavigationPost?.(details.webContentsId, details.url, chunks);
+    }
     const disposition = browserRequestDisposition(details.url, details.resourceType);
     if (disposition !== 'web') {
       callback({ cancel: disposition === 'deny' });
@@ -97,12 +106,14 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
     defaultSessionId: host.defaultSessionId,
   });
   partitionSession.on('will-download', downloadLedger.onWillDownload);
+  const uninstallPageZoom = installBrowserPageZoom(ipcMain, partitionSession);
 
   return {
     session: partitionSession,
     downloadLedger,
     permissions,
     dispose(): void {
+      uninstallPageZoom();
       partitionSession.removeListener('will-download', downloadLedger.onWillDownload);
       clearBrowserPermissionHandlers(partitionSession);
       partitionSession.webRequest.onBeforeRequest(null);

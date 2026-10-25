@@ -50,7 +50,11 @@ const fakeSessions = {
     return sessions.get(name);
   },
 };
-globalThis.partitionIdentityFixture = { app: fakeApp, session: fakeSessions };
+globalThis.partitionIdentityFixture = {
+  app: fakeApp,
+  session: fakeSessions,
+  ipcMain: { on() {}, removeListener() {} },
+};
 
 registerHooks({
   resolve(specifier, context, next) {
@@ -59,7 +63,7 @@ registerHooks({
           url:
             'data:text/javascript,' +
             encodeURIComponent(
-              'export const { app, session } = globalThis.partitionIdentityFixture;'
+              'export const { app, session, ipcMain } = globalThis.partitionIdentityFixture;'
             ),
           shortCircuit: true,
         }

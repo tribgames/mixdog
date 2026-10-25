@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import electron from 'electron';
@@ -81,6 +81,19 @@ export async function bundleElectronEntry({
     target: 'node22',
     external,
     sourcemap,
+    logLevel: 'warning',
+  });
+  // Every Browser Use page window loads the page preload from the app path
+  // (the entry's own directory) under out/preload, as the built app does
+  // (src/main/browser/preload-path.ts).
+  await build({
+    entryPoints: [fileURLToPath(new URL('../src/preload/browser-page.ts', import.meta.url))],
+    outfile: join(dirname(outfile), 'out', 'preload', 'browser-page.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['electron'],
     logLevel: 'warning',
   });
 }

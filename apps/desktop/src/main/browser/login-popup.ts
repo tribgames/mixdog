@@ -15,9 +15,7 @@
  * with an explicit trusted rule (LOGIN_AUTO_CLOSE_RULES) may end it as done by
  * itself; a provider that refuses embedded sign-in ends it as refused.
  */
-import { join } from 'node:path';
-
-import { app, BrowserWindow, nativeTheme, screen, type Session, type WebContents, WebContentsView } from 'electron';
+import { BrowserWindow, nativeTheme, screen, type Session, type WebContents, WebContentsView } from 'electron';
 
 import { nativeT } from '../native-i18n';
 import {
@@ -29,6 +27,7 @@ import {
   loginPopupBounds,
   loginRefusal,
 } from './login-takeover';
+import { builtPreloadPath } from './preload-path';
 import type { BrowserUrlPolicy } from './url-policy';
 
 const BAR_HEIGHT = 56;
@@ -72,12 +71,9 @@ interface Entry {
   settling: boolean;
 }
 
-/** The shell preload. The built main process is CommonJS (`__dirname` is its
- *  output); sources loaded as ESM have none, so the app path stands in. */
+/** The shell preload. */
 function shellPreloadPath(): string {
-  const directory =
-    typeof __dirname === 'string' ? join(__dirname, '../preload') : join(app.getAppPath(), 'out/preload');
-  return join(directory, 'browser-login.js');
+  return builtPreloadPath('browser-login.js');
 }
 
 const escapeHtml = (text: string): string => text.replace(/[&<>"']/gu, (char) => `&#${char.charCodeAt(0)};`);

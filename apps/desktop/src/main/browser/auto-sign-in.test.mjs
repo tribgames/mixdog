@@ -21,15 +21,16 @@ function fixture({
   after = 'signed-in',
   collect,
   resetTokenOnCredential = false,
-  humanCheck = { waitMs: 150, graceMs: 30, pollMs: 5 },
+  humanCheck = { waitMs: 150, graceMs: 30, pollMs: 5, submitMs: 60 },
   onProbe,
   onFill,
   onSubmit,
   approveSubmit,
+  onObserve,
 } = {}) {
   const page = { url, password: true, challenge: false, wording: false, check: 'none' };
-  const calls = { suggestions: [], fills: 0, submits: 0, sent: 0, credentials: [], probes: 0, approvals: 0 };
-  const guest = { isDestroyed: () => false, getURL: () => page.url };
+  const calls = { suggestions: [], fills: 0, submits: 0, sent: 0, credentials: [], probes: 0, approvals: 0, observed: 0 };
+  const guest = { isDestroyed: () => false, getURL: () => page.url, isLoading: () => false };
   const signIn = createBrowserAutoSignIn({
     enabled: () => enabled,
     // profile-import.ts credentialSuggestions: exactly the HTTPS origin, masked labels.
@@ -85,7 +86,12 @@ function fixture({
       sessionId: 'sess-1',
       turnId,
       signal,
-      observe: async () => ({ text: `URL: ${page.url}\n- heading "Page"` }),
+      observe: async () => {
+        calls.observed += 1;
+        // The page may move while the snapshot is taken.
+        onObserve?.(calls.observed, page);
+        return { text: `URL: ${page.url}\n- heading "Page"` };
+      },
     });
   return { page, calls, run };
 }
@@ -441,7 +447,7 @@ const ACCOUNT_B = 'b'.repeat(24);
 const CODE = '482910';
 
 /** A scripted site: `pages[i]` is what the probe sees; each submit moves to the next page. */
-function flow({ pages, suggestions, code, approveSubmit, afterLast = {} }) {
+function flow({ pages, suggestions, code, approveSubmit, afterLast = {}, onObserve }) {
   let index = 0;
   const log = { fills: [], codes: [], submits: 0, used: [], prefilled: [], credentialIds: [], codeValueCalls: 0 };
   const defaults = {
@@ -449,7 +455,11 @@ function flow({ pages, suggestions, code, approveSubmit, afterLast = {} }) {
     username: false, identifier: '', sent: false,
   };
   const at = () => pages[Math.min(index, pages.length - 1)];
-  const guest = { isDestroyed: () => false, getURL: () => at().url ?? 'https://shop.example.com/login' };
+  const guest = {
+    isDestroyed: () => false,
+    getURL: () => at().url ?? 'https://shop.example.com/login',
+    isLoading: () => false,
+  };
   const signIn = createBrowserAutoSignIn({
     enabled: () => true,
     suggestions: async (_url, prefilled) => {
@@ -491,14 +501,20 @@ function flow({ pages, suggestions, code, approveSubmit, afterLast = {} }) {
       : {}),
     collect: async () => [{ ...defaults, ...afterLast, ...at().state }],
     invalidate: () => {},
-    humanCheck: { waitMs: 100, graceMs: 20, pollMs: 5, stepMs: 60 },
+    humanCheck: { waitMs: 100, graceMs: 20, pollMs: 5, stepMs: 60, submitMs: 60 },
   });
   const run = () =>
     signIn.afterCommand({
       guest,
       sessionId: 'sess-1',
       turnId: 1,
-      observe: async () => ({ text: `URL: ${guest.getURL()}\n- heading "Page"` }),
+      observe: async () => {
+        log.observed = (log.observed ?? 0) + 1;
+        // The site may move on while the snapshot is taken.
+        const moved = onObserve?.(log.observed);
+        if (moved !== undefined) index = moved;
+        return { text: `URL: ${guest.getURL()}\n- heading "Page"` };
+      },
     });
   return { run, log };
 }
@@ -692,9 +708,9 @@ test('every automatic step is bound to the main-frame document its state was rea
       submit: async () => {},
       collect: async () => [{ password: true, challenge: false, wording: false, check: 'none' }],
       invalidate: () => {},
-      humanCheck: { waitMs: 20, graceMs: 5, pollMs: 2, stepMs: 10 },
+      humanCheck: { waitMs: 20, graceMs: 5, pollMs: 2, stepMs: 10, submitMs: 10 },
     });
-  const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login' };
+  const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login', isLoading: () => false };
   const run = (signIn, turnId) => signIn.afterCommand({ guest, sessionId: 's', turnId, observe: async () => ({ text: 'page' }) });
   // The same document before and after the probe: the fill is bound to it.
   await run(make(() => 'main:L1'), 1);
@@ -733,4 +749,190 @@ test('a sign-up or subscribe form never qualifies, even with autocomplete="usern
   const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login' };
   assert.equal(await signIn.afterCommand({ guest, sessionId: 's', turnId: 1, observe: async () => ({ text: 'page' }) }), null);
   assert.deepEqual(calls, { fills: 0, submits: 0 });
+});
+
+// ---- The site's answer: a script that submits late, a redirect chain, a refusal ----
+
+const NAVER_LOGIN = 'https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fnid.naver.com%2Fuser2%2Fhelp%2FmyInfoV2';
+const NAVER_FORM =
+  '<form id="frmNIDLogin"><input type="text" name="id" value="me"><input type="password" name="pw"><button>로그인</button></form>';
+
+/** A site of real probe documents: `answer(site)` is the page's own script
+ *  after Enter, which moves the site on its own clock. */
+function site({ url = NAVER_LOGIN, html = NAVER_FORM, answer, submitMs = 5_000 }) {
+  const page = { dom: domAt(url, html), document: 'doc-1', loading: false };
+  const timers = [];
+  const log = { submits: 0, used: [], observed: [], collects: 0 };
+  const go = (next, body, document, loading) => Object.assign(page, { dom: domAt(next, body), document, loading });
+  const later = (ms, move) => timers.push(setTimeout(move, ms));
+  const guest = {
+    isDestroyed: () => false,
+    getURL: () => page.dom.window.location.href,
+    isLoading: () => page.loading,
+  };
+  const signIn = createBrowserAutoSignIn({
+    enabled: () => true,
+    suggestions: async () => [{ id: ACCOUNT_A, label: 'm•••e' }],
+    withCredential: async (_url, _id, use) => use({ username: 'me', password: PASSWORD }),
+    document: async () => page.document,
+    fill: async () => ({ usernameFilled: true, passwordFilled: true }),
+    submit: async (_guest, _signal, beforeDispatch) => {
+      beforeDispatch?.();
+      log.submits += 1;
+      answer({ page, go, later });
+    },
+    recordUsed: async (_url, id) => {
+      log.used.push(id);
+    },
+    collect: async () => {
+      log.collects += 1;
+      if (page.throwOnce) {
+        page.throwOnce = false;
+        throw new Error('Execution context was destroyed.');
+      }
+      return [page.dom.window.eval(SIGN_IN_STATE)];
+    },
+    invalidate: () => {},
+    humanCheck: { waitMs: 50, graceMs: 5, pollMs: 20, stepMs: 200, submitMs },
+  });
+  const run = async (turnId = 1) => {
+    try {
+      return await signIn.afterCommand({
+        guest,
+        sessionId: 's',
+        turnId,
+        observe: async () => {
+          log.observed.push(guest.getURL());
+          return { text: `URL: ${guest.getURL()}\n- ${page.dom.window.document.body.textContent.trim()}` };
+        },
+      });
+    } finally {
+      for (const timer of timers) clearTimeout(timer);
+    }
+  };
+  return { run, log, page };
+}
+
+test('a site that submits by its own script and redirects seconds later is reported signed in, on the page it ended on', async () => {
+  const MY_INFO = 'https://nid.naver.com/user2/help/myInfoV2?lang=ko_KR';
+  const f = site({
+    // nid.naver.com: Enter runs the page's script (it encrypts the form) and
+    // posts it a moment later; the answer is a redirect chain that ends on
+    // the account page, which itself names 2-step verification.
+    answer: ({ page, go, later }) => {
+      later(300, () => go('https://nid.naver.com/nidlogin.login', '<p>로그인 중</p>', 'doc-2', true));
+      later(350, () => (page.throwOnce = true));
+      later(500, () => go('https://nid.naver.com/login/sso/finalize.nhn?url=x', '', 'doc-3', true));
+      later(800, () =>
+        go(MY_INFO, '<h1>내정보</h1><p>[보안기능] 새로운 환경에서 로그인 되었습니다</p><p>2단계 인증 사용 중</p>', 'doc-4', false)
+      );
+    },
+  });
+  const reply = await f.run();
+  assert.ok(reply.text.startsWith(`${SAVED_SIGN_IN_DONE}nid.naver.com`), reply.text);
+  assert.deepEqual(f.log.observed, [MY_INFO], 'the reply shows the page the sign-in ended on, not the filled form');
+  assert.match(reply.text, /새로운 환경에서 로그인/);
+  assert.equal(f.log.submits, 1);
+  assert.deepEqual(f.log.used, [ACCOUNT_A]);
+  assert.doesNotMatch(JSON.stringify(reply), new RegExp(PASSWORD));
+  assert.equal(await f.run(), null, 'still one try per site per turn');
+});
+
+test('a refused password ends the wait at once and hands the sign-in to the user, never a retry', async () => {
+  const f = site({
+    submitMs: 20_000,
+    answer: ({ page, later }) =>
+      later(150, () => {
+        const document = page.dom.window.document;
+        document.querySelector('input[name=pw]').setAttribute('aria-invalid', 'true');
+        document.body.insertAdjacentHTML('beforeend', '<p role="alert">아이디 또는 비밀번호를 잘못 입력했습니다.</p>');
+      }),
+  });
+  const started = Date.now();
+  const reply = await f.run();
+  assert.ok(Date.now() - started < 5_000, 'the error ended the wait, not its 20 s bound');
+  assert.ok(reply.text.startsWith(`${SAVED_SIGN_IN_NEEDS_USER}nid.naver.com:`), reply.text);
+  assert.match(reply.text, /Do not retry/);
+  assert.deepEqual(f.log.used, []);
+  assert.equal(await f.run(), null);
+  assert.equal(f.log.submits, 1);
+});
+
+test('the form sent back as a new document is the answer: a hand-off without waiting out the bound', async () => {
+  const f = site({
+    submitMs: 20_000,
+    answer: ({ go, later }) => {
+      later(100, () => go('https://nid.naver.com/nidlogin.login', '', 'doc-2', true));
+      later(250, () => go('https://nid.naver.com/nidlogin.login', NAVER_FORM, 'doc-3', false));
+    },
+  });
+  const started = Date.now();
+  assert.ok((await f.run()).text.startsWith(`${SAVED_SIGN_IN_NEEDS_USER}nid.naver.com:`));
+  assert.ok(Date.now() - started < 5_000);
+  assert.equal(f.log.submits, 1);
+});
+
+test('a site that never answers is handed off once the bound ends', async () => {
+  const f = site({ submitMs: 200, answer: () => {} });
+  assert.ok((await f.run()).text.startsWith(`${SAVED_SIGN_IN_NEEDS_USER}nid.naver.com:`));
+  assert.ok(f.log.collects > 3, 'the page was read again during the wait');
+});
+
+test('challenge wording counts where the address still says sign-in, not on an account page', async () => {
+  const at = (url) => ({ state: { wording: true }, url });
+  const approve = flow({ pages: [{ state: { password: true } }, at('https://shop.example.com/login/approve')] });
+  assert.ok(handedOff(await approve.run()), 'a 2-step approval page without a field');
+  const account = flow({ pages: [{ state: { password: true } }, at('https://shop.example.com/account/security')] });
+  assert.ok(signedIn(await account.run()), 'an account page that mentions 2-step');
+});
+
+test('a code challenge that renders while the page is observed is a hand-off, not "signed in"', async () => {
+  const f = fixture({
+    onObserve: (count, page) => {
+      // "Enter your verification code" appears during the first snapshot.
+      if (count === 1) Object.assign(page, { challenge: true, wording: true });
+    },
+  });
+  const reply = await f.run();
+  assert.ok(handedOff(reply), reply.text);
+  assert.ok(f.calls.observed >= 2, 'the reply shows the page as it ended, after the change');
+  assert.equal(f.calls.submits, 1, 'never a second try');
+});
+
+test('a redirect while the page is observed: back to the sign-in form hands off, on to another signed-in page stays signed in', async () => {
+  const back = fixture({
+    onObserve: (count, page) => {
+      if (count === 1) Object.assign(page, { password: true, url: 'https://shop.example.com/login?error=1' });
+    },
+  });
+  assert.ok(handedOff(await back.run()));
+  assert.equal(back.calls.submits, 1);
+  const onward = fixture({
+    onObserve: (count, page) => {
+      if (count === 1) page.url = 'https://shop.example.com/home';
+    },
+  });
+  assert.ok(signedIn(await onward.run()));
+});
+
+test('a code page that renders while observed goes on with the code step, within the step bound', async () => {
+  const f = flow({
+    pages: [{ state: { password: true } }, SIGNED_IN, CODE_PAGE, SIGNED_IN],
+    code: { value: CODE },
+    onObserve: (count) => (count === 1 ? 2 : undefined),
+  });
+  const reply = await f.run();
+  assert.ok(signedIn(reply), reply.text);
+  assert.deepEqual(f.log.codes, [CODE]);
+  assert.equal(f.log.submits, 2, 'password and code, nothing more');
+  assert.deepEqual(f.log.used, [ACCOUNT_A]);
+});
+
+test('probe: a field marked invalid or the words of a refused password are a sign-in error', () => {
+  const url = 'https://shop.example.com/login';
+  assert.equal(state(url, '<input type="password">').error, false);
+  assert.equal(state(url, '<input type="password" aria-invalid="true">').error, true);
+  assert.equal(state(url, '<input type="password"><p>The password you entered is incorrect.</p>').error, true);
+  assert.equal(state(url, '<input type="password"><p>Wrong password. Try again.</p>').error, true);
+  assert.equal(state(url, '<input type="password"><p>비밀번호를 잘못 입력했습니다.</p>').error, true);
 });

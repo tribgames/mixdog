@@ -16,6 +16,8 @@ import { watchPageFaults } from './page-faults';
 import { injectPageScrollbarCss } from './page-scrollbar-css';
 import { injectJsonViewerTweaks } from './page-json-viewer';
 import { adoptBrowserPageWindow, browserPageWindow, createBrowserPageWindow } from './page-window';
+import { setBrowserPageZoom } from './page-zoom';
+import { builtPreloadPath } from './preload-path';
 import { type PopupOpeningHost, handleWindowOpens } from './popup-opening';
 import { assertBackgroundTabCapacity, backgroundPageIdle, normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage } from './tabs-contract';
@@ -64,7 +66,7 @@ export function browserSharedTextureRendering(): boolean {
 /** Every page owner runs on the shared partition, so its window options are
  *  fixed: hidden, unfocusable, offscreen-composited (unless natively presented)
  *  and throttled unless displayed or driven (see page-power). */
-function offscreenWindowOptions(nativeView = false): Electron.BrowserWindowConstructorOptions {
+export function offscreenWindowOptions(nativeView = false): Electron.BrowserWindowConstructorOptions {
   let offscreen: boolean | { useSharedTexture: true } = true;
   if (nativeView) offscreen = false;
   else if (browserSharedTextureRendering()) offscreen = { useSharedTexture: true };
@@ -105,6 +107,9 @@ function offscreenWindowOptions(nativeView = false): Electron.BrowserWindowConst
       // the pane and nobody's to answer. Dialogs reach the pane through the
       // dialog bridge; anything that slips past it is dismissed instead.
       disableDialogs: true,
+      // Only its own zoom, never the one Chromium shares across a site's
+      // pages (page-zoom.ts); nothing of it reaches the page's world.
+      preload: builtPreloadPath('browser-page.js'),
     },
   };
 }
@@ -395,7 +400,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
         let selected: WebContents | null = primary;
         const apply = (guest: WebContents, page: SavedPage) => {
           browserPageWindow(guest)?.setContentSize(page.size[0], page.size[1]);
-          guest.setZoomFactor(page.zoom);
+          setBrowserPageZoom(guest, page.zoom);
           if (page.active) selected = guest;
           // Restoration is a normal reload, not form/JS/opener resurrection.
           // Admission still runs through the partition and navigation handlers.

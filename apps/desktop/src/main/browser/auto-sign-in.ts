@@ -36,6 +36,18 @@
  * it is one attempt of at most three steps (username, password, code); the
  * code is a secret like the password and never reaches the model.
  *
+ * The answer: many sites submit through their own script (an encrypted form,
+ * a key fetch) and answer with a redirect chain, so a page right after Enter
+ * still shows the filled form. After the password (and after the code) the
+ * host waits for the site's answer, up to ~15 s, polling: it ends at once on
+ * a challenge or the next step's field, on a sign-in error the page did not
+ * show before the submit, or on the form sent back as a new document, and
+ * once the page has left the sign-in form (at a new address, or the same
+ * formless page on two readings), nothing loading. Signed in means that page
+ * holds no sign-in form, code field or challenge, and no challenge wording
+ * where its address still says sign-in (an account page may well mention
+ * 2-step or passkeys). The reply's snapshot is taken of that page.
+ *
  * Accounts: with several saved logins for the site the host uses the one whose
  * username is the identifier already prefilled on the page, else the one last
  * used for the site, else the most recently saved. The agent's explicit
@@ -89,6 +101,7 @@ export const SIGN_IN_STATE = `(() => {
   let editable = 0;
   const candidates = [];
   let digitBoxes = 0;
+  let invalid = false;
   for (const root of (${BROWSER_DOCUMENT_ROOTS})()) {
     for (const field of root.querySelectorAll(TOKEN_FIELDS)) {
       if (field.closest(BADGE)) continue;
@@ -107,6 +120,7 @@ export const SIGN_IN_STATE = `(() => {
       const type = String(input.type || '').toLowerCase();
       const complete = String(input.autocomplete || '').toLowerCase();
       if (type === 'password' && !complete.includes('new-password')) password = true;
+      if (String(input.getAttribute('aria-invalid') || '').toLowerCase() === 'true') invalid = true;
       const identity = String(input.name || '') + ' ' + String(input.id || '');
       if (complete.includes('one-time-code') || /otp|totp|2fa|mfa|one.?time|verif\\w*.?code|auth\\w*.?code/i.test(identity)) {
         challenge = true;
@@ -163,7 +177,11 @@ export const SIGN_IN_STATE = `(() => {
   // A code the site sends by SMS or email is no authenticator code.
   const sent = /sms|text message|texted|emailed|sent (?:a|the|you)[^.]{0,40}code|문자|이메일로/i.test(text)
     && !/authenticator|authentication app|인증 ?앱/i.test(text);
-  return { password, challenge, wording, check, code, captcha, username, identifier, sent };
+  // A refused sign-in: a field the page marks invalid, or the words of a
+  // refused password. The host compares it with the page before the submit.
+  const error = invalid
+    || /incorrect|invalid (?:password|user|e-?mail|credential|login)|wrong (?:password|user|e-?mail)|(?:does not|doesn.t|did not|didn.t) match|(?:could not|couldn.t|cannot|can.t|unable to) (?:sign|log) (?:you )?in|try again|잘못 입력|일치하지 않|올바르지 않|다시 (?:입력|시도)|正しくありません|错误|錯誤/i.test(text);
+  return { password, challenge, wording, check, code, captcha, username, identifier, sent, error };
 })()`;
 
 type HumanCheck = 'none' | 'pending' | 'solved';
@@ -183,8 +201,11 @@ type SignInState = {
   identifier: string;
   /** The page says the code comes by SMS or email. */
   sent: boolean;
+  /** A field marked invalid, or the words of a refused sign-in. */
+  error: boolean;
 };
 type Phase = 'username' | 'password' | 'code';
+type Reading = { now: SignInState; document: string };
 
 /** How long a sign-in waits for a human check to solve itself, how long it
  *  looks for a late-rendered widget on a page with none, and how often it
@@ -194,6 +215,27 @@ const HUMAN_CHECK_GRACE_MS = 1_500;
 const HUMAN_CHECK_POLL_MS = 500;
 /** How long the next step's page gets to show its field after a submit. */
 const STEP_WAIT_MS = 8_000;
+/** How long a submitted password or code gets for the site's answer: its own
+ *  script and redirect chain take seconds before the next page shows. */
+const SUBMIT_WAIT_MS = 15_000;
+/** Readings in a row of the same formless page, at the address the step was
+ *  submitted on, before that page counts as the answer. */
+const SETTLED_READINGS = 2;
+/** An address that still says sign-in, verification or a challenge. */
+const SIGN_IN_ADDRESS = /log[-_.]?[io]n|sign[-_.]?[io]n|auth|sso|session|challenge|verif|two[-_]?factor|2fa|mfa|passkey|webauthn/i;
+
+function signInAddress(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return SIGN_IN_ADDRESS.test(parsed.hostname + parsed.pathname);
+  } catch {
+    return true;
+  }
+}
+
+/** Whether `now`, read at `url` after the last submit, shows the sign-in done. */
+const signedInOn = (now: SignInState, url: string): boolean =>
+  !now.password && !now.username && !now.challenge && !(now.wording && signInAddress(url));
 
 export interface BrowserAutoSignInDeps {
   /** The `browserAutoSignIn` setting. */
@@ -248,9 +290,10 @@ export interface BrowserAutoSignInDeps {
   collect: <T>(guest: WebContents, expression: string, signal?: AbortSignal) => Promise<T[]>;
   invalidate: (guest: WebContents) => void;
   /** Bounds for the human-check wait (defaults: 20 s wait, 1.5 s grace for a
-   *  late widget, polled every 500 ms) and for the next step's page to show
-   *  its field after a submit (default 8 s). */
-  humanCheck?: { waitMs?: number; graceMs?: number; pollMs?: number; stepMs?: number };
+   *  late widget, polled every 500 ms), for the next step's page to show its
+   *  field after a submit (default 8 s) and for the site's answer to a
+   *  submitted password or code (default 15 s). */
+  humanCheck?: { waitMs?: number; graceMs?: number; pollMs?: number; stepMs?: number; submitMs?: number };
 }
 
 /** The reply line of a sign-in made with a saved login; the transcript shows
@@ -283,7 +326,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
   const attempted = new Set<string>();
   const state = async (guest: WebContents, signal?: AbortSignal): Promise<SignInState> => {
     const frames = await deps.collect<SignInState>(guest, SIGN_IN_STATE, signal);
-    const any = (key: 'password' | 'challenge' | 'wording' | 'code' | 'captcha' | 'username' | 'sent') =>
+    const any = (key: 'password' | 'challenge' | 'wording' | 'code' | 'captcha' | 'username' | 'sent' | 'error') =>
       frames.some((frame) => frame?.[key] === true);
     return {
       password: any('password'),
@@ -293,6 +336,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       captcha: any('captcha'),
       username: any('username'),
       sent: any('sent'),
+      error: any('error'),
       identifier: String(frames.find((frame) => typeof frame?.identifier === 'string' && frame.identifier)?.identifier || ''),
       // Any unsolved widget in any frame holds the whole page.
       check: frames.some((frame) => frame?.check === 'pending')
@@ -310,12 +354,24 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
   /** The page state together with the document it was read on: the document
    *  is read before and after, and a page that moved in between is no reading
    *  (null), as is one whose document the browser does not report. */
-  const read = async (guest: WebContents, signal?: AbortSignal): Promise<{ now: SignInState; document: string } | null> => {
+  const read = async (guest: WebContents, signal?: AbortSignal): Promise<Reading | null> => {
     const first = await documentOf(guest, signal);
     const now = await state(guest, signal);
     const second = await documentOf(guest, signal);
     if (first !== second || (deps.document && !first)) return null;
     return { now, document: first };
+  };
+
+  /** A reading while the page may be moving: a probe whose document went
+   *  away mid-read (a redirect) is no reading this time. A cancelled command
+   *  still throws. */
+  const readMoving = async (guest: WebContents, signal?: AbortSignal): Promise<Reading | null> => {
+    try {
+      return await read(guest, signal);
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
+      return null;
+    }
   };
 
   /** Whether the sign-in may go on after this probe: the step's form is still
@@ -361,18 +417,57 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
   }
 
   /** Waits for the sign-in's next page to show its password field. */
-  async function passwordShown(
-    guest: WebContents,
-    signal: AbortSignal | undefined
-  ): Promise<{ now: SignInState; document: string } | null> {
+  async function passwordShown(guest: WebContents, signal: AbortSignal | undefined): Promise<Reading | null> {
     const pollMs = deps.humanCheck?.pollMs ?? HUMAN_CHECK_POLL_MS;
     const deadline = Date.now() + (deps.humanCheck?.stepMs ?? STEP_WAIT_MS);
     for (;;) {
       if (guest.isDestroyed()) return null;
-      const reading = await read(guest, signal);
+      const reading = await readMoving(guest, signal);
       if (reading?.now.challenge) return null;
       if (reading?.now.password) return reading;
       if (Date.now() >= deadline) return null;
+      await pause(pollMs, signal);
+    }
+  }
+
+  /** Waits for the site's answer to a submitted password or code, up to the
+   *  bound while the step's own form stands unanswered. It ends at once on a
+   *  challenge or another step's field, on an error the page did not show
+   *  before the submit, or on the form sent back as a new document; and once
+   *  the page has left the form with nothing loading: at a new address at
+   *  once, at the submitted one after the same formless document reads so
+   *  again. The last reading, or null without any. */
+  async function submitAnswered(
+    guest: WebContents,
+    signal: AbortSignal | undefined,
+    phase: Phase,
+    submitted: { url: string; document: string; error: boolean }
+  ): Promise<Reading | null> {
+    const pollMs = deps.humanCheck?.pollMs ?? HUMAN_CHECK_POLL_MS;
+    const deadline = Date.now() + (deps.humanCheck?.submitMs ?? SUBMIT_WAIT_MS);
+    let last: Reading | null = null;
+    let quiet = { document: '', count: 0 };
+    for (;;) {
+      if (guest.isDestroyed()) return null;
+      const reading = await readMoving(guest, signal);
+      if (reading) {
+        last = reading;
+        const { now, document } = reading;
+        const loading = guest.isLoading();
+        if (formThere(now, phase)) {
+          quiet = { document: '', count: 0 };
+          if (challenged(now, phase) || (now.error && !submitted.error)) return reading;
+          if (document !== submitted.document && !loading) return reading;
+        } else if (now.password || now.username || now.challenge) {
+          return reading;
+        } else if (loading) {
+          quiet = { document: '', count: 0 };
+        } else {
+          quiet = { document, count: quiet.document === document ? quiet.count + 1 : 1 };
+          if (guest.getURL() !== submitted.url || quiet.count >= SETTLED_READINGS) return reading;
+        }
+      }
+      if (Date.now() >= deadline) return last;
       await pause(pollMs, signal);
     }
   }
@@ -417,12 +512,37 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const site = new URL(origin).host;
     // Several accounts: the vault's order already put the right one first.
     const account = saved[0].id;
-    let finished = false;
-    let after: BrowserCommandResult | null = null;
+    /** The site's answer to the last submitted password or code (`outcome`,
+     *  read at `url`), and that step: its phase and what it was submitted on. */
+    const attempt: {
+      outcome: Reading | null;
+      url: string;
+      last: { phase: Phase; submitted: { url: string; document: string; error: boolean } } | null;
+      steps: number;
+    } = { outcome: null, url: '', last: null, steps: 0 };
+    /** After the password: a code field, with an authenticator key to answer
+     *  it, is one more step; anything else ends the attempt. */
+    const codeStep = (next: Reading): boolean =>
+      Boolean(deps.code && next.now.code && !next.now.captcha && !next.now.password && !next.now.sent);
+    const onOrigin = (url: string): boolean => {
+      try {
+        const parsed = new URL(url);
+        return parsed.origin === origin && parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    };
 
     /** One step on `url`: wait out its human check, give the page this
-     *  step's secret and press Enter. False when there was nothing to send. */
-    const step = async (phase: Phase, url: string, now: SignInState, bound: string, twoStep: boolean): Promise<boolean> => {
+     *  step's secret and press Enter. The page as it stood right before the
+     *  submit, or null when there was nothing to send. */
+    const step = async (
+      phase: Phase,
+      url: string,
+      now: SignInState,
+      bound: string,
+      twoStep: boolean
+    ): Promise<SignInState | null> => {
       const seen = { check: now.check !== 'none' };
       const guardPage = (message: string) => {
         if (signal?.aborted || guest.isDestroyed() || guest.getURL() !== url) throw new Error(message);
@@ -435,7 +555,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       if (phase === 'code') {
         const code = deps.code ? await deps.code.value(url, account) : '';
         // No stored key: the code is the user's.
-        if (!code) return false;
+        if (!code) return null;
         if (!mayGoOn(await state(guest, signal), seen, phase)) {
           throw new Error('The human check changed before stored credential input; input was not sent.');
         }
@@ -467,10 +587,11 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
         );
         filled = phase === 'username' ? result.usernameFilled : result.passwordFilled;
       }
-      if (!filled) return false;
+      if (!filled) return null;
       deps.invalidate(guest);
       // The fill itself may have reset the token or mounted a challenge.
-      if (!mayGoOn(await state(guest, signal), seen, phase) || guest.isDestroyed() || guest.getURL() !== url) {
+      const ready = await state(guest, signal);
+      if (!mayGoOn(ready, seen, phase) || guest.isDestroyed() || guest.getURL() !== url) {
         throw new Error('The human check changed before the submit; nothing was submitted.');
       }
       // The submit is a form submit: it follows the bot's approval policy, and
@@ -478,44 +599,67 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       if (deps.approveSubmit) await deps.approveSubmit(guest, signal);
       guardPage('The page changed before the submit; nothing was submitted.');
       await deps.submit(guest, signal, submitGuard(guest, url));
-      return true;
+      return ready;
     };
 
-    try {
-      let phase: Phase = first;
-      let url = startUrl;
-      let now = before;
-      let bound = initial.document;
-      for (let count = 0; count < MAX_STEPS; count += 1) {
-        if (!(await step(phase, url, now, bound, first === 'username'))) break;
-        after = await input.observe();
-        if (phase !== 'username') finished = true;
-        if (phase === 'code') break;
-        const next = phase === 'username' ? await passwordShown(guest, signal) : await read(guest, signal);
-        if (!next) break;
-        if (phase === 'username') phase = 'password';
-        else {
-          // After the password: a code field, with an authenticator key to
-          // answer it, is one more step; anything else ends the attempt.
-          if (!(deps.code && next.now.code && !next.now.captcha && !next.now.password && !next.now.sent)) break;
-          phase = 'code';
+    /** The steps from `start`, on the page `now` and `bound` read at `url`;
+     *  all of them count toward the attempt's bound. */
+    const runSteps = async (start: Phase, startAt: string, startNow: SignInState, startBound: string) => {
+      let phase = start;
+      let url = startAt;
+      let now = startNow;
+      let bound = startBound;
+      try {
+        while (attempt.steps < MAX_STEPS) {
+          attempt.steps += 1;
+          const ready = await step(phase, url, now, bound, first === 'username');
+          if (!ready) return;
+          let next: Reading | null;
+          if (phase === 'username') next = await passwordShown(guest, signal);
+          else {
+            attempt.last = { phase, submitted: { url, document: bound, error: ready.error } };
+            next = attempt.outcome = await submitAnswered(guest, signal, phase, attempt.last.submitted);
+            attempt.url = guest.getURL();
+          }
+          if (!next || phase === 'code') return;
+          if (phase === 'username') phase = 'password';
+          else if (codeStep(next)) phase = 'code';
+          else return;
+          const nextUrl = guest.getURL();
+          if (!onOrigin(nextUrl)) return;
+          url = nextUrl;
+          now = next.now;
+          bound = next.document;
         }
-        const nextUrl = guest.getURL();
-        let sameOrigin = false;
-        try {
-          sameOrigin = new URL(nextUrl).origin === origin && new URL(nextUrl).protocol === 'https:';
-        } catch {}
-        if (!sameOrigin) break;
-        url = nextUrl;
-        now = next.now;
-        bound = next.document;
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason || error;
       }
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason || error;
+    };
+
+    await runSteps(first, startUrl, before, initial.document);
+    // The page the attempt ended on. The answer stands only if the page still
+    // reads the same after it was observed (same document, same verdict): a
+    // redirect or a code page that renders meanwhile is waited for again and
+    // answered as the attempt would (a code step goes on, a challenge hands off).
+    let after = await input.observe();
+    let signedIn = false;
+    for (let check = 0; attempt.outcome && attempt.last; check += 1) {
+      const verdict = signedInOn(attempt.outcome.now, attempt.url);
+      const again = await readMoving(guest, signal);
+      if (again && again.document === attempt.outcome.document && signedInOn(again.now, guest.getURL()) === verdict) {
+        signedIn = verdict;
+        break;
+      }
+      if (check >= 2) break;
+      const { phase, submitted } = attempt.last;
+      const settled = await submitAnswered(guest, signal, phase, submitted);
+      attempt.outcome = settled;
+      attempt.url = guest.getURL();
+      if (settled && phase === 'password' && codeStep(settled) && onOrigin(attempt.url)) {
+        await runSteps('code', attempt.url, settled.now, settled.document);
+      }
+      after = await input.observe();
     }
-    after ??= await input.observe();
-    const nowState = finished ? await state(guest, signal).catch(() => null) : null;
-    const signedIn = Boolean(nowState && !nowState.password && !nowState.username && !nowState.challenge && !nowState.wording);
     if (signedIn && deps.recordUsed) await deps.recordUsed(startUrl, account).catch(() => undefined);
     const note = signedIn
       ? `${SAVED_SIGN_IN_DONE}${site} with its saved login (the password never left the host).`

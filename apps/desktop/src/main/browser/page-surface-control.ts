@@ -10,6 +10,7 @@ import { BROWSER_DIALOG_BLOCKING, browserTypingInput } from '../../shared/browse
 import { browserDocumentId } from './guest-state';
 import type { BrowserPageSurfaceHost } from './page-surface';
 import type { PageSurfaceState } from './page-surface-state';
+import { setBrowserPageZoom } from './page-zoom';
 
 /** Float noise from Chromium's zoom-level round trip, not a new zoom. */
 const ZOOM_EPSILON = 0.001;
@@ -258,7 +259,8 @@ export function createPageInputDispatcher(
   };
 }
 
-/** Set a page's zoom factor; the factor it already has changes nothing. */
+/** Set a page's zoom factor, for that page alone (page-zoom.ts); the factor
+ *  it already has changes nothing. */
 export function zoomGuest(
   host: Pick<BrowserPageSurfaceHost, 'state'>,
   state: Pick<PageSurfaceState, 'invalidateGeometry'>,
@@ -268,7 +270,7 @@ export function zoomGuest(
   if (Math.abs(guest.getZoomFactor() - factor) < ZOOM_EPSILON) return;
   state.invalidateGeometry(guest);
   host.state.invalidateInteraction(guest);
-  guest.setZoomFactor(factor);
+  setBrowserPageZoom(guest, factor);
 }
 
 export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: PageSurfaceState) {

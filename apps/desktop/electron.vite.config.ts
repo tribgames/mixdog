@@ -311,6 +311,7 @@ export default defineConfig({
           'computer-overlay': resolve(__dirname, 'src/preload/computer-overlay.ts'),
           'remote-window': resolve(__dirname, 'src/preload/remote-window.ts'),
           'browser-login': resolve(__dirname, 'src/preload/browser-login.ts'),
+          'browser-page': resolve(__dirname, 'src/preload/browser-page.ts'),
           'desktop-pet': resolve(__dirname, 'src/preload/desktop-pet.ts'),
         },
         output: {
