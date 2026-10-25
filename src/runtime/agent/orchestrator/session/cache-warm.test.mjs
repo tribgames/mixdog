@@ -44,6 +44,7 @@ import {
   IDLE_RETURN_LOOKBACK_MS,
   IDLE_RETURN_MEASURED_WINDOW_MS,
   cacheWarmTurnKind,
+  endCacheWarmTurn,
   noteCacheWarmActivity,
   noteCacheWarmTurn,
   planCacheWarm,
@@ -428,9 +429,10 @@ function harness({
   enabled = true,
   sessionId = 'sess_home_lead',
   minutes = [179, 179, 179],
+  gate = null,
 } = {}) {
   const touches = memoryTouches();
-  const state = { clock: Date.now(), timers: [], usage: [], logs: [], touches, enabled };
+  const state = { clock: Date.now(), timers: [], usage: [], logs: [], touches, enabled, inFlight };
   state.gaps = gapStore({ sessionId, minutes, now: () => state.clock });
   _setCacheWarmDepsForTest({
     ...(realRegistry ? {} : { registeredProvider: async () => state.prov }),
@@ -446,8 +448,12 @@ function harness({
       },
     },
     enabled: async () => state.enabled,
-    turnInFlight: () => inFlight,
-    prices: async () => prices,
+    turnInFlight: () => state.inFlight,
+    // `gate`: a promise the planning price lookup waits on.
+    prices: async () => {
+      if (gate) await gate;
+      return prices;
+    },
     recordUsage: async (req, usage, startedAt, accountId) => state.usage.push({ req, usage, startedAt, accountId }),
     touches: () => touches,
     gaps: () => state.gaps,
@@ -1053,6 +1059,135 @@ test('a failed or canceled warm is still billed; a new real request aborts the w
   assert.equal(signal.aborted, true, 'a real request aborts the warm in flight');
   assert.equal(cacheWarmChain(h.session.id), null);
   assert.equal(h.usage.length, 1, 'the aborted warm is billed');
+});
+
+test('a turn starting during the warm’s planning lookups: no warm is sent', async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  let h = harness({ gate });
+  h.settle();
+  let chain = cacheWarmChain(h.session.id);
+  await h.fire(chain.touchAt + 54 * MINUTE);
+  assert.equal(h.prov.calls.length, 0, 'still planning');
+  noteCacheWarmTurn(h.session.id, 'return');
+  release();
+  await flush();
+  assert.equal(h.prov.calls.length, 0, 'the turn entering cancelled the warm');
+  assert.equal(h.usage.length, 0);
+  assert.equal(h.touches.lastWarmUse(h.session.id), 0, 'no cache use');
+
+  // A turn the entry hook never saw (activity reported by the runtime only):
+  // the check right before dispatch still stops the warm.
+  h = harness({ gate: new Promise((resolve) => (release = resolve)) });
+  h.settle();
+  chain = cacheWarmChain(h.session.id);
+  await h.fire(chain.touchAt + 54 * MINUTE);
+  h.inFlight = true;
+  release();
+  await flush();
+  assert.equal(h.prov.calls.length, 0, 'a turn in flight before dispatch sends nothing');
+  assert.equal(cacheWarmChain(h.session.id), null);
+});
+
+test('a turn starting while a warm is in flight aborts it; the chain re-arms normally after the turn', async () => {
+  let signal;
+  let hang = true;
+  const h = harness({
+    reply: (opts, hooks) => {
+      if (!hang) return { cachedTokens: 70_000, cacheWriteTokens: 0 };
+      return new Promise((_resolve, reject) => {
+        signal = opts.signal;
+        hooks.onUsage({ cachedTokens: 70_000, cacheWriteTokens: 0 });
+        opts.signal.addEventListener('abort', () => reject(opts.signal.reason), { once: true });
+      });
+    },
+  });
+  h.settle();
+  const chain = cacheWarmChain(h.session.id);
+  await h.fire(chain.touchAt + 54 * MINUTE);
+  assert.ok(signal && !signal.aborted, 'the warm is in flight');
+  const turn = noteCacheWarmTurn(h.session.id, 'return');
+  assert.equal(signal.aborted, true, 'the turn entering aborts the warm on the wire');
+  await flush();
+  assert.equal(cacheWarmChain(h.session.id), null);
+  assert.equal(h.usage.length, 1, 'the aborted warm is billed');
+  assert.equal(h.touches.lastWarmUse(h.session.id), 0, 'and is no cache use');
+  assert.ok(!h.logs.some((line) => /warm failed|missed the cache/.test(line)), 'the abort is no miss or failure');
+
+  // The turn's own request settles: the chain arms again and warms.
+  hang = false;
+  h.clock += 5 * MINUTE;
+  requestAt(h, {});
+  endCacheWarmTurn(h.session.id, turn);
+  const rearmed = cacheWarmChain(h.session.id);
+  assert.ok(rearmed, 're-armed after the turn');
+  await h.fire(rearmed.touchAt + 54 * MINUTE);
+  assert.equal(h.prov.calls.length, 2, 'the next warm goes out');
+  assert.ok(h.touches.lastWarmUse(h.session.id) > 0);
+  assert.ok(cacheWarmChain(h.session.id), 'and the chain continues');
+});
+
+test('a turn that ends without sending restores the chain on its original schedule; a sending turn re-arms from its request', async () => {
+  const h = harness();
+  const id = h.session.id;
+  h.settle();
+  const original = cacheWarmChain(id);
+  const { request: captured, touchAt, refreshAt } = original;
+  const touchSnapshot = JSON.stringify([...h.touches.map]);
+  const gapSnapshot = JSON.stringify([h.gaps.openAt(id), h.gaps.gaps(id)]);
+  assert.equal(h.timers[0].at, refreshAt);
+
+  // A turn enters and ends (setup failure, quota refusal, a command) with no request.
+  h.clock = touchAt + 10 * MINUTE;
+  let turn = noteCacheWarmTurn(id, 'return');
+  assert.equal(cacheWarmChain(id), null, 'the entering turn stops the chain');
+  assert.equal(h.timers.length, 0);
+  endCacheWarmTurn(id, turn);
+  const restored = cacheWarmChain(id);
+  assert.ok(restored && restored !== original, 'a fresh chain is back');
+  assert.equal(restored.request, captured);
+  assert.equal(restored.touchAt, touchAt, 'the original touch');
+  assert.equal(restored.refreshAt, refreshAt, 'the original schedule');
+  assert.equal(h.timers.length, 1);
+  assert.equal(h.timers[0].at, refreshAt);
+  assert.equal(JSON.stringify([...h.touches.map]), touchSnapshot, 'the touch store is untouched');
+  assert.equal(JSON.stringify([h.gaps.openAt(id), h.gaps.gaps(id)]), gapSnapshot, 'so is the idle-gap store');
+  await h.fire();
+  assert.equal(h.prov.calls.length, 1, 'the restored chain warms');
+
+  // A turn that sends: the chain re-arms from its request, nothing is restored.
+  turn = noteCacheWarmTurn(id, 'return');
+  h.clock += 20 * MINUTE;
+  requestAt(h, {});
+  const sentAt = h.clock;
+  endCacheWarmTurn(id, turn);
+  assert.equal(cacheWarmChain(id).touchAt, sentAt, 'armed from the turn’s own request');
+  assert.equal(h.timers.length, 1);
+});
+
+test('a turn ending after an invalidation, a close or the entry’s expiry restores nothing', () => {
+  const h = harness();
+  const id = h.session.id;
+  const ends = (invalidate) => {
+    h.settle();
+    const { touchAt, ttlMs } = cacheWarmChain(id);
+    h.clock = touchAt + 10 * MINUTE;
+    const turn = noteCacheWarmTurn(id, 'return');
+    invalidate({ touchAt, ttlMs });
+    endCacheWarmTurn(id, turn);
+    return cacheWarmChain(id);
+  };
+  assert.equal(ends(() => retireCompactionFork(id)), null, 'compaction');
+  assert.equal(ends(() => forgetSideQuestion(id)), null, 'clear / rewind');
+  assert.equal(ends(() => forgetSideQuestion(id, { cancel: true })), null, 'close');
+  assert.equal(
+    ends(({ touchAt, ttlMs }) => {
+      h.clock = touchAt + ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS;
+    }),
+    null,
+    'expired'
+  );
+  assert.equal(h.timers.length, 0);
 });
 
 test('the chain stops on a miss, a late timer, a turn in flight, a new request or a compaction', async () => {

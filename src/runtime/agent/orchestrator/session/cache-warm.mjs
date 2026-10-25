@@ -491,16 +491,40 @@ const turns = new Map();
  *  endCacheWarmTurn takes. */
 export function noteCacheWarmTurn(sessionId, kind) {
   if (!sessionId) return null;
-  const turn = { kind, startedAt: deps.now(), returning: kind === 'return' };
+  const turn = { kind, startedAt: deps.now(), returning: kind === 'return', suspended: null };
   turns.set(sessionId, turn);
+  // A turn entering the session owns its cache from here: a warm pending in
+  // its planning lookups or on the wire must not overlap the real request.
+  // The chain is stopped (the abort is not a miss) and its captured request
+  // and confirmed touch are kept on the turn: the turn's own settled request
+  // arms the next chain, and a turn that ends without any request gets this
+  // one back (endCacheWarmTurn).
+  const chain = chains.get(sessionId);
+  if (chain) {
+    const { request, ttlMs, touchAt, promptTokens, accountId, latencyMs } = chain;
+    turn.suspended = { request, ttlMs, touchAt, promptTokens, accountId, latencyMs };
+    stopChain(sessionId, chain, 'turn entered', { quiet: true });
+  }
   return turn;
 }
 
 /** The turn noteCacheWarmTurn returned ended (completed, failed or
  *  cancelled): its entry goes unless a later turn already replaced it. The
- *  durable idle anchor stays. */
+ *  durable idle anchor stays. When the turn sent no request (any request,
+ *  invalidation or close dropped `suspended`), no chain replaced the one it
+ *  stopped and the cache entry has not expired, that chain comes back with
+ *  its original touch and schedule; the touch and idle-gap stores are left
+ *  alone. */
 export function endCacheWarmTurn(sessionId, turn) {
-  if (turn && turns.get(sessionId) === turn) turns.delete(sessionId);
+  if (!turn || turns.get(sessionId) !== turn) return;
+  turns.delete(sessionId);
+  const chain = turn.suspended;
+  turn.suspended = null;
+  if (!chain || chains.has(sessionId)) return;
+  if (deps.now() < chain.touchAt + chain.ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS) {
+    const restored = startChain(sessionId, chain);
+    restored.latencyMs = chain.latencyMs;
+  }
 }
 
 /** The running turn the warmer holds for `sessionId`, or null (tests). */
@@ -534,6 +558,10 @@ export function noteCacheWarmActivity(sessionId, request = null) {
 /** Drop the session's chain: clear its timer and abort a warm in flight
  *  (its usage is still accounted). */
 export function cancelCacheWarm(sessionId) {
+  // Whatever cancels (a request, an invalidation, a close) also voids the
+  // chain the running turn would restore.
+  const turn = sessionId ? turns.get(sessionId) : null;
+  if (turn) turn.suspended = null;
   const chain = sessionId ? chains.get(sessionId) : null;
   if (chain) stopChain(sessionId, chain, 'canceled', { quiet: true });
 }
@@ -702,6 +730,9 @@ async function fireWarm(sessionId, chain) {
   if (chains.get(sessionId) !== chain) return;
   const target = warmTarget(chain);
   if (!target) return stopChain(sessionId, chain, 'account holding the cache unknown');
+  // Last check before dispatch, after the final await: a turn that began
+  // during the lookups has the cache to itself.
+  if (deps.turnInFlight(sessionId)) return stopChain(sessionId, chain, 'turn in flight');
   const sentAt = deps.now();
   let usage = null;
   let reportedAt = null;
