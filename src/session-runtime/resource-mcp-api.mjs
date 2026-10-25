@@ -10,6 +10,7 @@ import {
 import { resolveMcpOAuthUrl } from '../runtime/agent/orchestrator/mcp/client-config.mjs';
 import { withAdoptedCopies, withPinnedCollisionNames, withPluginServerIntent } from './mcp-glue/plugin-servers.mjs';
 import { findRegisteredPlugin } from './resource-plugins-api.mjs';
+import { migrateMergedConnectorServers } from './connector-merge-migration.mjs';
 import { createMcpOAuthLogins } from './mcp-oauth-login.mjs';
 import {
   connectorAccountEntry,
@@ -52,6 +53,18 @@ function accountTarget(servers, name) {
     if (account) return { serverName, cfg, account, accountCfg: connectorAccountServer(cfg, account) };
   }
   return null;
+}
+
+/** The refusal of a new server name that is taken. A name a connector account
+ *  holds is an account to the user (never a server), so it says so. */
+function nameTakenError(servers, name) {
+  const holder = accountTarget(servers, name);
+  const connector = holder && connectorById(connectorOfServer(holder.cfg));
+  return new Error(
+    connector
+      ? `The name "${name}" is used by a ${connector.name} account. Choose another name.`
+      : `MCP server already exists: ${name}`
+  );
 }
 
 /** The server of multi-account connector `connector` in `servers`, or ''. */
@@ -351,7 +364,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       return { name: serverName, account: same.name, status };
     }
     if (!serverName && (Object.hasOwn(servers, name) || pluginMcpServer(name) || accountTarget(servers, name))) {
-      throw new Error(`MCP server already exists: ${name}`);
+      throw nameTakenError(servers, name);
     }
     const accountName = serverName ? freeName(servers, name) : name;
     const account = connectorAccountEntry(accountName, accountCfg);
@@ -432,13 +445,20 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
      *  connector (`gmail`, `gmail-2`…) into one server holding the accounts
      *  (connector-catalog.mjs mergeConnectorAccountServers). Every account
      *  keeps its address, so its stored sign-in and app password stay as
-     *  they are. Settings keyed by a merged-away server name (`gmail-2`'s
-     *  project scope) go with it: on/off and scopes are the server's.
+     *  they are. Settings keyed by a merged-away server name go with it:
+     *  scopes (`extensionScopes.mcp`) are dropped, on/off are the server's;
+     *  per-agent / per-project connector settings and data-dir hooks move to
+     *  the surviving server first (connector-merge-migration.mjs); a store
+     *  that fails stays in a pending record that every start retries.
      *  Returns what was merged. */
     migrateConnectorAccounts() {
       const config = getConfig();
       const { servers, merged } = mergeConnectorAccountServers(mcpServersOf(config));
+      // Also retries, without a merge, what an earlier start could not migrate.
+      const settings = migrateMergedConnectorServers(deps.cfgMod?.getPluginData?.() || deps.STANDALONE_DATA_DIR, merged);
       if (!merged.length) return merged;
+      // Neither migrated nor recorded for a retry: merging again next start is the retry.
+      if (settings.unrecorded && settings.failed.length) return [];
       let next = { ...config, mcpServers: servers };
       const scoped = extensionScopesFromConfig(config).mcp;
       for (const { name, from } of merged) {
@@ -560,7 +580,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
         return addConnectorAccount(servers, connector, name, serverConfig, input);
       }
       if (Object.hasOwn(servers, name) || accountTarget(servers, name)) {
-        throw new Error(`MCP server already exists: ${name}`);
+        throw nameTakenError(servers, name);
       }
       const owned = pluginMcpServer(name);
       if (owned) throw new Error(`MCP server already exists: ${name} (provided by plugin "${owned.owner.id}")`);
@@ -593,7 +613,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
         name !== originalName &&
         (Object.hasOwn(servers, name) || pluginMcpServer(name) || accountTarget(servers, name))
       ) {
-        throw new Error(`MCP server already exists: ${name}`);
+        throw nameTakenError(servers, name);
       }
       if (originalName && originalName !== name) delete servers[originalName];
       servers[name] = mergeMcpServerConfig(existing, normalizedInput.config);

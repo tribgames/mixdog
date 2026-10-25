@@ -4964,6 +4964,7 @@
   "The model or provider isn't available. Pick another in model settings.": "Модель или провайдер недоступны. Выберите другие в настройках моделей.",
   "The model refused to respond (safety refusal) — retry or rephrase your prompt.": "Модель отказалась отвечать (политика безопасности) — повторите попытку или перефразируйте запрос.",
   "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.": "Модель попыталась использовать инструмент вместо ответа. Побочный вопрос не может запускать инструменты; попробуйте сформулировать его иначе.",
+  "The name \"{{name}}\" is used by a {{connector}} account. Choose another name.": "Имя «{{name}}» уже используется учётной записью {{connector}}. Выберите другое имя.",
   "The network connection failed or timed out. Check the connection and run again.": "Сетевое соединение прервалось или истекло время ожидания. Проверьте соединение и запустите снова.",
   "The old Mixdog could not be stopped": "Не удалось остановить старый Mixdog",
   "The original project folder no longer exists.": "Исходная папка проекта больше не существует.",

@@ -5,6 +5,9 @@
 // joins the server, removing one leaves the others (and their credentials)
 // alone; legacy one-account servers (`gmail`, `gmail-2`…) merge on load.
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -14,6 +17,7 @@ import {
   connectorServerInput,
   gmailAppPasswordServerInput,
 } from '../runtime/shared/connector-catalog.mjs';
+import { PENDING_MERGE_FILE, migrateMergedConnectorServers } from './connector-merge-migration.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createResourceApi } from './resource-api.mjs';
 
@@ -39,6 +43,7 @@ function harness(
   {
     initial = {},
     extra = {},
+    dataDir = '',
     reject = null,
     oauthState = () => null,
     connect = async () => ({ servers: [] }),
@@ -60,7 +65,7 @@ function harness(
     getConfig: () => config,
     getSession: () => null,
     getCurrentCwd: () => process.cwd(),
-    cfgMod: {},
+    cfgMod: dataDir ? { getPluginData: () => dataDir } : {},
     mgr: {},
     hooks: {},
     saveConfigAndAdopt: (next) => {
@@ -282,7 +287,7 @@ test('another account joins the one server; the same address again only takes it
   assert.equal(h.keychain.get(OTHER), PASSWORD, 'the new password replaced the old one');
   assert.equal(h.keychain.get(EMAIL), PASSWORD, 'the other account is untouched');
   // A name another account holds is never reused.
-  await assert.rejects(h.api.addMcpServer({ name: 'gmail-2', type: 'http', url: 'https://example.com/mcp' }), /already exists/);
+  await assert.rejects(h.api.addMcpServer({ name: 'gmail-2', type: 'http', url: 'https://example.com/mcp' }), /used by a Gmail account/);
 });
 
 test('a second Google sign-in account gets its own URL, so its tokens never mix with the first', async (t) => {
@@ -427,7 +432,7 @@ test('a new connector server never takes a name an account of another connector 
     initial: { gmail: legacyAppPassword('gmail', EMAIL), 'gmail-2': legacyAppPassword('gmail-2', OTHER) },
   });
   h.api.migrateConnectorAccounts();
-  await assert.rejects(h.api.addMcpServer(connectorServerInput(CALENDAR, 'gmail-2')), /already exists: gmail-2/);
+  await assert.rejects(h.api.addMcpServer(connectorServerInput(CALENDAR, 'gmail-2')), /"gmail-2" is used by a Gmail account/);
   assert.equal(h.config().mcpServers['gmail-2'], undefined);
   assert.equal(h.config().mcpServers['google-calendar'], undefined, 'nothing was created');
   const made = await h.api.addMcpServer(connectorServerInput(CALENDAR, 'google-calendar'));
@@ -446,5 +451,260 @@ test('migration drops the settings of a merged-away server name; the server keep
   assert.deepEqual(h.config().mcpServers.gmail.accounts, [
     appPasswordAccount('gmail', EMAIL),
     appPasswordAccount('gmail-2', OTHER),
+  ]);
+});
+
+test('a custom server named like a connector account is refused as a used account name, not a "server"', async (t) => {
+  const h = harness(t, {
+    initial: {
+      gmail: legacyAppPassword('gmail', EMAIL),
+      'gmail-2': legacyAppPassword('gmail-2', OTHER),
+      notes: { type: 'http', url: 'https://example.com/mcp' },
+    },
+  });
+  h.api.migrateConnectorAccounts();
+  const taken = /Error: The name "gmail-2" is used by a Gmail account\. Choose another name\.$/;
+  await assert.rejects(h.api.addMcpServer({ name: 'gmail-2', type: 'http', url: 'https://example.com/other' }), taken);
+  await assert.rejects(
+    h.api.saveMcpServer({ originalName: 'notes', name: 'gmail-2', type: 'http', url: 'https://example.com/mcp' }),
+    taken
+  );
+  // A plain server name keeps the old wording.
+  await assert.rejects(
+    h.api.addMcpServer({ name: 'notes', type: 'http', url: 'https://example.com/other' }),
+    /Error: MCP server already exists: notes$/
+  );
+  assert.deepEqual(Object.keys(h.config().mcpServers).sort(), ['gmail', 'notes']);
+});
+
+test('migration maps per-agent, per-project and hook settings of merged-away servers onto the surviving one', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'connector-merge-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const put = (path, value) => {
+    mkdirSync(join(dataDir, ...path.slice(0, -1)), { recursive: true });
+    writeFileSync(join(dataDir, ...path), `${JSON.stringify(value, null, 2)}\n`);
+  };
+  const read = (...path) => JSON.parse(readFileSync(join(dataDir, ...path), 'utf8'));
+  const raw = (...path) => readFileSync(join(dataDir, ...path), 'utf8');
+
+  put(['agents', 'one-off', 'agent.json'], { name: 'One off', connectors: { off: ['gmail-2'] } });
+  put(['agents', 'all-off', 'agent.json'], { connectors: { off: ['gmail', 'gmail-2', 'gmail-3', 'notes'] } });
+  put(['agents', 'tools', 'agent.json'], {
+    connectors: {
+      off: [],
+      tools: {
+        gmail: { send_email: 'disabled', read_email: 'needs_approval' },
+        'gmail-2': { send_email: 'auto', delete_email: 'disabled' },
+        notes: { write: 'auto' },
+      },
+    },
+  });
+  put(['agents', 'dormant', 'agent.json'], {
+    connectors: {
+      off: ['gmail-2'],
+      tools: { 'gmail-2': { send_email: 'auto' }, gmail: { send_email: 'needs_approval' } },
+    },
+  });
+  put(['agents', 'legacy', 'agent.json'], {
+    connectors: [
+      { id: 'gmail-2', enabled: true, tools: { send_email: 'auto' } },
+      { id: 'notes', enabled: true },
+    ],
+  });
+  put(['agents', 'untouched', 'agent.json'], { connectors: { off: ['notes'], tools: { notes: { write: 'auto' } } } });
+  put(['bots', 'robot', 'agent.json'], {
+    route: { provider: 'p', model: 'm' },
+    connectors: { off: ['gmail-3'] },
+  });
+  put(['project-connectors.json'], {
+    projects: { 'C:/a': { off: ['gmail-2'] }, 'C:/b': { off: ['gmail', 'gmail-2', 'gmail-3'] }, 'C:/c': { off: ['notes'] } },
+  });
+  put(['hooks.json'], {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'mcp__gmail-2__send_email|Bash',
+          hooks: [
+            { type: 'mcp_tool', server: 'gmail-2', tool: 'audit' },
+            { type: 'mcp_tool', server: 'notes', tool: 'audit' },
+          ],
+        },
+        { matcher: 'mcp__gmail-20__x', hooks: [] },
+      ],
+    },
+  });
+
+  const h = harness(t, {
+    dataDir,
+    initial: {
+      gmail: legacyAppPassword('gmail', EMAIL),
+      'gmail-2': legacyAppPassword('gmail-2', OTHER),
+      'gmail-3': legacyAppPassword('gmail-3', 'team@gmail.com'),
+    },
+  });
+  h.api.migrateConnectorAccounts();
+
+  // Off only when every merged server was off for the agent; the key is gone otherwise.
+  assert.deepEqual(read('agents', 'one-off', 'agent.json'), { name: 'One off' });
+  assert.deepEqual(read('agents', 'all-off', 'agent.json').connectors, { off: ['gmail', 'notes'] });
+  // Per-tool entries move to the surviving name; on a conflict the more permissive wins
+  // (as "on beats off" does for the server); other servers keep theirs.
+  assert.deepEqual(read('agents', 'tools', 'agent.json').connectors, {
+    off: [],
+    tools: {
+      gmail: { send_email: 'auto', read_email: 'needs_approval', delete_email: 'disabled' },
+      notes: { write: 'auto' },
+    },
+  });
+  // What a switched-off server held was dormant and does not come alive with the merge.
+  assert.deepEqual(read('agents', 'dormant', 'agent.json').connectors, {
+    off: [],
+    tools: { gmail: { send_email: 'needs_approval' } },
+  });
+  assert.deepEqual(read('agents', 'legacy', 'agent.json').connectors, [
+    { id: 'gmail', enabled: true, tools: { send_email: 'auto' } },
+    { id: 'notes', enabled: true },
+  ]);
+  assert.deepEqual(read('bots', 'robot', 'agent.json'), { route: { provider: 'p', model: 'm' } });
+  assert.deepEqual(read('project-connectors.json'), {
+    projects: { 'C:/b': { off: ['gmail'] }, 'C:/c': { off: ['notes'] } },
+  });
+  const hooks = read('hooks.json').hooks.PreToolUse;
+  assert.equal(hooks[0].matcher, 'mcp__gmail__send_email|Bash');
+  assert.deepEqual(
+    hooks[0].hooks.map((hook) => hook.server),
+    ['gmail', 'notes']
+  );
+  assert.equal(hooks[1].matcher, 'mcp__gmail-20__x', 'a longer name is not a merged one');
+  // No key names a merged-away server anywhere.
+  for (const file of [
+    ['agents', 'one-off', 'agent.json'],
+    ['agents', 'all-off', 'agent.json'],
+    ['agents', 'tools', 'agent.json'],
+    ['agents', 'dormant', 'agent.json'],
+    ['agents', 'legacy', 'agent.json'],
+    ['bots', 'robot', 'agent.json'],
+    ['project-connectors.json'],
+  ]) {
+    assert.doesNotMatch(raw(...file), /gmail-[23]/, file.join('/'));
+  }
+  assert.equal(raw('agents', 'untouched', 'agent.json').includes('"notes"'), true);
+
+  // Idempotent: the same merge applied again rewrites nothing.
+  const snapshot = ['agents/one-off', 'agents/all-off', 'agents/tools', 'agents/dormant', 'agents/legacy', 'agents/untouched', 'bots/robot']
+    .map((dir) => raw(...dir.split('/'), 'agent.json'))
+    .concat(raw('project-connectors.json'), raw('hooks.json'));
+  const again = migrateMergedConnectorServers(dataDir, [
+    { connector: 'gmail', name: 'gmail', from: ['gmail', 'gmail-2', 'gmail-3'] },
+  ]);
+  assert.deepEqual(again, { agents: [], projects: [], hooks: [], failed: [] });
+  assert.deepEqual(
+    ['agents/one-off', 'agents/all-off', 'agents/tools', 'agents/dormant', 'agents/legacy', 'agents/untouched', 'bots/robot']
+      .map((dir) => raw(...dir.split('/'), 'agent.json'))
+      .concat(raw('project-connectors.json'), raw('hooks.json')),
+    snapshot
+  );
+  assert.deepEqual(h.api.migrateConnectorAccounts(), []);
+});
+
+test('a store that fails to migrate stays pending and is retried on the next start, the others still migrate', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'connector-merge-retry-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const put = (path, text) => {
+    mkdirSync(join(dataDir, ...path.slice(0, -1)), { recursive: true });
+    writeFileSync(join(dataDir, ...path), text);
+  };
+  const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+  const read = (...path) => JSON.parse(readFileSync(join(dataDir, ...path), 'utf8'));
+  const pending = join(dataDir, PENDING_MERGE_FILE);
+  const exists = (path) => {
+    try {
+      readFileSync(path);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  put(['agents', 'ok', 'agent.json'], json({ connectors: { off: ['gmail-3'] } }));
+  // Its write fails: a non-empty directory sits where the backup copy goes.
+  put(['agents', 'blocked', 'agent.json'], json({ connectors: { off: ['gmail-2'], tools: { 'gmail-2': { send: 'auto' } } } }));
+  put(['agents', 'blocked', 'agent.json.bak', 'keep'], 'x');
+  // Malformed now, fixed by the user later.
+  put(['agents', 'broken', 'agent.json'], '{ not json');
+  put(['hooks.json'], json({ hooks: { PreToolUse: [{ matcher: 'mcp__gmail-3__send', hooks: [] }] } }));
+
+  const h = harness(t, {
+    dataDir,
+    initial: {
+      gmail: legacyAppPassword('gmail', EMAIL),
+      'gmail-2': legacyAppPassword('gmail-2', OTHER),
+      'gmail-3': legacyAppPassword('gmail-3', 'team@gmail.com'),
+    },
+  });
+  const origWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = () => true;
+  try {
+    h.api.migrateConnectorAccounts();
+  } finally {
+    process.stderr.write = origWrite;
+  }
+  // The config is merged for good, but the failed stores are remembered.
+  assert.deepEqual(Object.keys(h.config().mcpServers), ['gmail']);
+  assert.deepEqual(read('agents', 'ok', 'agent.json'), {}, 'an independent store migrated');
+  assert.equal(read('hooks.json').hooks.PreToolUse[0].matcher, 'mcp__gmail__send');
+  assert.deepEqual(read('agents', 'blocked', 'agent.json').connectors.off, ['gmail-2'], 'not migrated yet');
+  assert.deepEqual(read(PENDING_MERGE_FILE), {
+    merged: [{ name: 'gmail', from: ['gmail', 'gmail-2', 'gmail-3'] }],
+  });
+
+  // Fixed: the next start migrates them and clears the record.
+  rmSync(join(dataDir, 'agents', 'blocked', 'agent.json.bak'), { recursive: true, force: true });
+  writeFileSync(join(dataDir, 'agents', 'broken', 'agent.json'), json({ connectors: { off: ['gmail', 'gmail-2', 'gmail-3'] } }));
+  assert.deepEqual(h.api.migrateConnectorAccounts(), []);
+  assert.deepEqual(read('agents', 'blocked', 'agent.json'), {}, 'the retried write landed');
+  assert.deepEqual(read('agents', 'broken', 'agent.json').connectors, { off: ['gmail'] });
+  assert.equal(exists(pending), false, 'the record is cleared once everything migrated');
+  const saves = h.seen.saves;
+  h.api.migrateConnectorAccounts();
+  assert.equal(h.seen.saves, saves);
+});
+
+test('hook migration renames tool identifiers only, never argument conditions or other data', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'connector-merge-hooks-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  mkdirSync(join(dataDir, 'hooks'), { recursive: true });
+  writeFileSync(
+    join(dataDir, 'hooks.json'),
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mcp__gmail-2__x', if: 'Bash(mcp__gmail-2__*)' }] },
+          {
+            matcher: 'mcp__gmail-2__send_email|Bash',
+            hooks: [
+              { type: 'mcp_tool', server: 'gmail-2', tool: 'audit', input: { note: 'mcp__gmail-2__x' } },
+              { type: 'command', command: 'check', if: 'mcp__gmail-2__send_email(to=*)' },
+            ],
+          },
+        ],
+      },
+    })
+  );
+  writeFileSync(
+    join(dataDir, 'hooks', 'hooks.json'),
+    JSON.stringify([{ tool: 'mcp__gmail-2__send_email', action: 'deny', match: 'mcp__gmail-2__', reason: 'mcp__gmail-2__' }])
+  );
+  const outcome = migrateMergedConnectorServers(dataDir, [
+    { connector: 'gmail', name: 'gmail', from: ['gmail', 'gmail-2'] },
+  ]);
+  assert.deepEqual(outcome.failed, []);
+  const [bashGroup, mcpGroup] = JSON.parse(readFileSync(join(dataDir, 'hooks.json'), 'utf8')).hooks.PreToolUse;
+  assert.deepEqual(bashGroup.hooks[0], { type: 'command', command: 'echo mcp__gmail-2__x', if: 'Bash(mcp__gmail-2__*)' });
+  assert.equal(mcpGroup.matcher, 'mcp__gmail__send_email|Bash');
+  assert.deepEqual(mcpGroup.hooks[0], { type: 'mcp_tool', server: 'gmail', tool: 'audit', input: { note: 'mcp__gmail-2__x' } });
+  assert.equal(mcpGroup.hooks[1].if, 'mcp__gmail__send_email(to=*)', 'the tool part of a condition moves');
+  assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'hooks', 'hooks.json'), 'utf8')), [
+    { tool: 'mcp__gmail__send_email', action: 'deny', match: 'mcp__gmail-2__', reason: 'mcp__gmail-2__' },
   ]);
 });

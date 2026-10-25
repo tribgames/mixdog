@@ -4775,6 +4775,7 @@
   "The model or provider isn't available. Pick another in model settings.": "Mô hình hoặc nhà cung cấp không khả dụng. Hãy chọn lại trong cài đặt mô hình.",
   "The model refused to respond (safety refusal) — retry or rephrase your prompt.": "Mô hình từ chối phản hồi (từ chối an toàn) — vui lòng thử lại hoặc diễn đạt lại lời nhắc.",
   "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.": "Mô hình đã cố dùng công cụ thay vì trả lời. Câu hỏi phụ không thể chạy công cụ; hãy thử hỏi theo cách khác.",
+  "The name \"{{name}}\" is used by a {{connector}} account. Choose another name.": "Tên \"{{name}}\" đang được dùng bởi một tài khoản {{connector}}. Hãy chọn tên khác.",
   "The network connection failed or timed out. Check the connection and run again.": "Kết nối mạng bị gián đoạn hoặc hết thời gian chờ. Hãy kiểm tra kết nối rồi chạy lại.",
   "The old Mixdog could not be stopped": "Không dừng được Mixdog cũ",
   "The original project folder no longer exists.": "Thư mục dự án gốc không còn tồn tại.",

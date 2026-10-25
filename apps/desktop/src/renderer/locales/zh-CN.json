@@ -4775,6 +4775,7 @@
   "The model or provider isn't available. Pick another in model settings.": "模型或提供商不可用。请在模型设置中重新选择。",
   "The model refused to respond (safety refusal) — retry or rephrase your prompt.": "模型拒绝响应 (安全拒绝) — 请重试或调整您的提示词。",
   "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.": "模型试图使用工具而不是直接回答。/btw 不能运行工具，请换个方式提问。",
+  "The name \"{{name}}\" is used by a {{connector}} account. Choose another name.": "名称“{{name}}”已被 {{connector}} 账号使用。请换一个名称。",
   "The network connection failed or timed out. Check the connection and run again.": "网络连接中断或超时。请检查网络后重新运行。",
   "The old Mixdog could not be stopped": "无法停止旧的 Mixdog",
   "The original project folder no longer exists.": "原项目文件夹已不存在。",

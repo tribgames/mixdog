@@ -13,7 +13,7 @@ import { PluginInfo } from './plugin-info';
 import { SkillEditorDialog } from './skill-editor';
 import { CompactSwitch, Group, ListEmpty } from './capability-controls';
 import { label, rows, sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
-import { isConnectorPlugin } from '../connectors-model';
+import { connectorAccountOwners, isConnectorPlugin } from '../connectors-model';
 import {
   currentProjectPath,
   ExtensionDetailDialog,
@@ -217,6 +217,7 @@ export function McpPanel({ data, pending, run, confirm, refreshExtensions, creat
           server={null}
           busy={busy}
           takenNames={servers.map((server) => String(server.name))}
+          accountOwners={connectorAccountOwners(servers)}
           onClose={() => closeCreate?.()}
           onConnect={(serverName) => void oauthLogin.connect(serverName)}
           onProbe={probeAuth}

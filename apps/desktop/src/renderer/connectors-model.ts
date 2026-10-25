@@ -82,6 +82,18 @@ export function connectorAccountRows(servers: readonly Row[]): Row[] {
   });
 }
 
+/** Account name → the catalog connector's name (`gmail-2` → `Gmail`) for every
+ *  account of a multi-account connector: names the user sees as accounts and
+ *  that no new server may take. */
+export function connectorAccountOwners(servers: readonly Row[]): Record<string, string> {
+  const owners: Record<string, string> = {};
+  for (const row of connectorAccountRows(servers)) {
+    const entry = CONNECTOR_CATALOG.find((candidate) => candidate.id === text(row.connector));
+    if (entry && text(row.server)) owners[text(row.name)] = entry.name;
+  }
+  return owners;
+}
+
 /** The server an MCP row belongs to: its own name, or an account row's server. */
 export function serverNameOf(row: Row | null | undefined): string {
   return text(row?.server) || text(row?.name);

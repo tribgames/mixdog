@@ -4796,6 +4796,7 @@
   "The model or provider isn't available. Pick another in model settings.": "모델 또는 제공자를 사용할 수 없습니다. 모델 설정에서 다시 고르세요.",
   "The model refused to respond (safety refusal) — retry or rephrase your prompt.": "안전 정책으로 인해 모델이 응답을 거부했습니다. 질문을 다시 작성해 주세요.",
   "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.": "모델이 답하는 대신 도구를 쓰려고 했습니다. /btw에서는 도구를 쓸 수 없으니 질문을 바꿔 다시 물어봐 주세요.",
+  "The name \"{{name}}\" is used by a {{connector}} account. Choose another name.": "\"{{name}}\" 이름은 {{connector}} 계정에서 사용 중입니다. 다른 이름을 입력해 주세요.",
   "The network connection failed or timed out. Check the connection and run again.": "네트워크 연결이 끊겼거나 시간이 초과되었습니다. 연결을 확인한 뒤 다시 실행하세요.",
   "The old Mixdog could not be stopped": "이전 Mixdog을 종료하지 못했습니다",
   "The original project folder no longer exists.": "원래 프로젝트 폴더가 더 이상 없습니다.",

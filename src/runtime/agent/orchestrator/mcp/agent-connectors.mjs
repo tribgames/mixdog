@@ -219,7 +219,7 @@ export function connectorToolPermission(policy, toolOrName) {
   return policy?.tools?.[mcp.server]?.[mcp.tool] || connectorToolDefault(serverConnector(mcp.server), mcp.tool);
 }
 
-const PERMISSION_RANK = Object.freeze({ disabled: 0, needs_approval: 1, auto: 2 });
+export const PERMISSION_RANK = Object.freeze({ disabled: 0, needs_approval: 1, auto: 2 });
 export const NO_WIDEN_MESSAGE = 'This change would widen what the bot may do without asking; make it on the desktop.';
 
 /** Whether replacing the stored policy `before` (a stored value, a parsed

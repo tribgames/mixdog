@@ -4775,6 +4775,7 @@
   "The model or provider isn't available. Pick another in model settings.": "モデルまたはプロバイダーを利用できません。モデル設定で選び直してください。",
   "The model refused to respond (safety refusal) — retry or rephrase your prompt.": "モデルが応答を拒否しました (安全性による拒否) — プロンプトを書き直してください。",
   "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.": "モデルが回答せずにツールを使おうとしました。/btw ではツールを使えないため、聞き方を変えてもう一度お試しください。",
+  "The name \"{{name}}\" is used by a {{connector}} account. Choose another name.": "「{{name}}」という名前は {{connector}} のアカウントで使われています。別の名前を選んでください。",
   "The network connection failed or timed out. Check the connection and run again.": "ネットワーク接続が切れたか、タイムアウトしました。接続を確認して再実行してください。",
   "The old Mixdog could not be stopped": "古い Mixdog を停止できませんでした",
   "The original project folder no longer exists.": "元のプロジェクトフォルダーは存在しません。",

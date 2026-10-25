@@ -226,6 +226,7 @@ export function McpEditorDialog({
   readOnly = false,
   scopeField,
   takenNames = [],
+  accountOwners = {},
   onClose,
   onSave,
   onToggle,
@@ -240,6 +241,8 @@ export function McpEditorDialog({
   readOnly?: boolean;
   scopeField?: ReactNode;
   takenNames?: string[];
+  /** Connector account name → connector name: the user knows these as accounts, not servers. */
+  accountOwners?: Record<string, string>;
   onClose(): void;
   /** A returned promise keeps the dialog open: its rejection shows in the form. */
   onSave(payload: RecordValue): unknown;
@@ -339,6 +342,14 @@ export function McpEditorDialog({
         name: String(data.get('mcp-name') || '').trim(),
         type: transport,
       };
+      if (!editing && Object.hasOwn(accountOwners, String(payload.name))) {
+        throw new Error(
+          t('The name "{{name}}" is used by a {{connector}} account. Choose another name.', {
+            name: String(payload.name),
+            connector: accountOwners[String(payload.name)],
+          })
+        );
+      }
       if (!editing && takenNames.includes(String(payload.name))) {
         throw new Error(t('MCP server "{{name}}" already exists.', { name: String(payload.name) }));
       }

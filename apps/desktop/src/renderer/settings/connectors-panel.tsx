@@ -35,6 +35,7 @@ import {
   type ConnectorRowStatus,
   type ConnectorRowView,
   type ConnectorSourceKind,
+  connectorAccountOwners,
   connectorAccountRows,
   connectorIdentity,
   connectorRowView,
@@ -277,12 +278,15 @@ function useRowState({
 function CatalogRow({
   entry,
   server,
+  hasAccounts,
   locked,
   onConnect,
   onOpen,
 }: {
   entry: ConnectorCatalogEntry;
   server: Row | null;
+  /** The connector has accounts: its detail lists them, each with its own state and connect action. */
+  hasAccounts: boolean;
   locked: boolean;
   onConnect(): void;
   onOpen(): void;
@@ -307,9 +311,12 @@ function CatalogRow({
       action={state.action}
       status={state.view.status}
       justConnected={state.view.justConnected}
-      // Not connected yet: the row itself connects (sign-in, app password or key
-      // dialog) instead of opening a detail first.
-      onOpen={state.view.status === 'idle' || state.view.status === 'needs-connect' ? onConnect : onOpen}
+      // Not connected yet and no account to show: the row itself connects (sign-in,
+      // app password or key dialog) instead of opening a detail first. With accounts
+      // the detail opens whatever the first one needs, so the others stay reachable.
+      onOpen={
+        !hasAccounts && (state.view.status === 'idle' || state.view.status === 'needs-connect') ? onConnect : onOpen
+      }
     />
   );
 }
@@ -412,6 +419,7 @@ function AccountRow({
   server,
   busy,
   locked,
+  onConnect,
   onDisconnect,
   onChangePassword,
   onSwitch,
@@ -421,6 +429,8 @@ function AccountRow({
   server: Row;
   busy: boolean;
   locked: boolean;
+  /** This account's own 연결 (sign-in or app password), where it has one. */
+  onConnect: (() => void) | null;
   onDisconnect(): void;
   onChangePassword: (() => void) | null;
   onSwitch: (() => void) | null;
@@ -432,8 +442,15 @@ function AccountRow({
   const view = connectorRowView(server, login);
   const actions = serverActions(server, title, entry?.id ?? '');
   const status = mcpStatus(server);
-  const retry = view.status === 'failed' ? retryOf(view, actions, null) : null;
-  const fix = view.status === 'needs-reauth' ? actions.reauth : view.status === 'disabled' ? actions.reenable : retry;
+  const retry = view.status === 'failed' ? (retryOf(view, actions, null) ?? onConnect) : null;
+  const fix =
+    view.status === 'needs-reauth'
+      ? actions.reauth
+      : view.status === 'disabled'
+        ? actions.reenable
+        : view.status === 'needs-connect'
+          ? onConnect
+          : retry;
   const signedIn = record(server.oauth).signedIn === true;
   const identity = connectorIdentity(server) || (signedIn ? t("Account information isn't available") : name);
   const description =
@@ -466,7 +483,9 @@ function AccountRow({
                 ? t('Re-authenticate')
                 : view.status === 'disabled'
                   ? t('Turn back on')
-                  : t('Try again')}
+                  : view.status === 'needs-connect'
+                    ? t('Connect')
+                    : t('Try again')}
             </ExtensionAction>
           )}
           <RowOverflowMenu label={identity} items={items} />
@@ -562,7 +581,8 @@ function ConnectorDetail({
     <ExtensionAction disabled={busy || locked} onClick={actions.reauth}>
       {t('Re-authenticate')}
     </ExtensionAction>
-  ) : !connected && onConnect ? (
+  ) : !connected && onConnect && !(framed && framedAccounts.length > 0) ? (
+    // A connector with accounts connects each from its own row below.
     <ExtensionAction disabled={busy || locked} onClick={onConnect}>
       {t('Connect')}
     </ExtensionAction>
@@ -659,6 +679,14 @@ function ConnectorDetail({
                   server={account}
                   busy={busy}
                   locked={locked}
+                  // Gmail connects an account by its app password, the others by sign-in.
+                  onConnect={
+                    gmail
+                      ? onAppPassword
+                        ? () => onAppPassword(account)
+                        : null
+                      : serverActions(account, title, entry.id).connect
+                  }
                   onDisconnect={() => onDisconnectAccount?.(account)}
                   onChangePassword={onAppPassword && appPasswordAccount(account) ? () => onAppPassword(account) : null}
                   onSwitch={
@@ -1505,11 +1533,12 @@ export function ConnectorsPanel(context: PanelContext) {
   return (
     <>
       <Group title={t('Connectors')}>
-        {groups.catalog.map(({ entry, server }) => (
+        {groups.catalog.map(({ entry, server, servers: accounts }) => (
           <CatalogRow
             key={entry.id}
             entry={entry}
             server={server}
+            hasAccounts={connectorMultiAccount(entry) && accounts.length > 0}
             locked={connectLocked}
             onConnect={() => connectCatalog(entry, server)}
             onOpen={() => setDetail({ kind: 'catalog', id: entry.id })}
@@ -1610,6 +1639,7 @@ export function ConnectorsPanel(context: PanelContext) {
           server={null}
           busy={busy}
           takenNames={takenNames}
+          accountOwners={connectorAccountOwners(servers)}
           onClose={() => setEditor(null)}
           onConnect={(name) => void startConnectorLogin(name, name)}
           onProbe={async (config) => {

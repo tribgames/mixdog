@@ -999,3 +999,105 @@ test('without the built-in Google client a second account asks for a key first a
   cancelConnectorLogin('google-calendar-2');
   await pane.unmount();
 });
+
+test('a connector with accounts opens its detail even when its first account needs a sign-in; each account connects on its own', async () => {
+  const calendar = {
+    name: 'google-calendar',
+    connector: 'google-calendar',
+    enabled: true,
+    connected: true,
+    status: 'connected',
+    source: 'config',
+    accounts: [
+      { name: 'work-cal', authRequired: true, oauth: { signedIn: false } },
+      { name: 'home-cal', oauth: { signedIn: true, account: 'b@example.com' } },
+    ],
+  };
+  const gmail = {
+    name: 'gmail',
+    connector: 'gmail',
+    enabled: true,
+    connected: true,
+    status: 'connected',
+    source: 'config',
+    accounts: [
+      { name: 'gm-a', authRequired: true, appPassword: { account: 'me@gmail.com' } },
+      { name: 'gm-b', appPassword: { account: 'work@gmail.com' } },
+    ],
+  };
+  const live = [calendar, gmail];
+  const groups = groupConnectors(live, []);
+  const first = (id) => groups.catalog.find((row) => row.entry.id === id).servers[0];
+  assert.equal(connectorRowView(first('google-calendar'), null).status, 'needs-connect');
+  assert.equal(connectorRowView(first('gmail'), null).status, 'needs-connect');
+
+  calls.length = 0;
+  handlers = {
+    mcpStatus: () => ({ servers: live }),
+    beginMcpOAuthLogin: () => ({ flowId: 'acc1', state: 'pending', url: 'https://accounts.google.com/x' }),
+    getMcpOAuthLoginStatus: () => ({ flowId: 'acc1', state: 'pending' }),
+    cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
+  };
+  const pane = await render(
+    React.createElement(CategoryPanel, {
+      category: 'connectors',
+      context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+    })
+  );
+  // Calendar: the row opens the detail (no sign-in starts), listing both accounts.
+  await click(rowOf(pane.host, 'google-calendar').querySelector('.extensions-row-open'));
+  await settle();
+  const detail = document.body.querySelector('.connectors-detail-dialog');
+  assert.ok(detail, 'the detail opens');
+  assert.ok(!calls.some(([capability]) => capability === 'beginMcpOAuthLogin'), 'no sign-in on opening');
+  assert.equal(detail.querySelectorAll('.extensions-item').length, 2, 'both accounts are listed');
+  assert.equal(detail.querySelectorAll('.extensions-item .row-overflow-trigger').length, 2, 'each has its menu');
+  const connectButtons = [...detail.querySelectorAll('.extensions-item button')].filter(
+    (node) => node.textContent.trim() === 'Connect'
+  );
+  assert.equal(connectButtons.length, 1, 'only the account that needs a sign-in offers Connect');
+  assert.match(connectButtons[0].closest('.extensions-item').textContent, /work-cal/);
+  await click(connectButtons[0]);
+  await settle();
+  assert.deepEqual(calls.find(([capability]) => capability === 'beginMcpOAuthLogin')[1], ['work-cal']);
+  cancelConnectorLogin('work-cal');
+  await click(button(detail, 'Close'));
+
+  // Gmail: the same, and its account connects with its app password.
+  await click(rowOf(pane.host, 'gmail').querySelector('.extensions-row-open'));
+  await settle();
+  const gmailDetail = document.body.querySelector('.connectors-detail-dialog');
+  assert.ok(gmailDetail, 'the detail opens');
+  assert.equal(document.body.querySelector('[aria-labelledby="connectors-gmail-app-password-title"]'), null);
+  await click([...gmailDetail.querySelectorAll('.extensions-item button')].find((node) => node.textContent.trim() === 'Connect'));
+  await settle();
+  assert.ok(document.body.querySelector('input[name="gmail-app-password"]'), 'the app-password dialog opens');
+  await pane.unmount();
+});
+
+test('a custom MCP server cannot take a connector account name; the refusal names the connector', async () => {
+  const sent = [];
+  const create = await render(
+    React.createElement(McpEditorDialog, {
+      busy: false,
+      server: null,
+      takenNames: ['gmail'],
+      accountOwners: { 'gmail-2': 'Gmail' },
+      onClose() {},
+      onSave: (payload) => sent.push(payload),
+    })
+  );
+  globalThis.FormData = window.FormData;
+  document.querySelector('[name="mcp-name"]').value = 'gmail-2';
+  document.querySelector('[name="mcp-command"]').value = 'example';
+  await act(async () => {
+    document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  });
+  assert.deepEqual(sent, [], 'nothing is sent');
+  assert.match(
+    document.body.textContent,
+    /The name "gmail-2" is used by a Gmail account\. Choose another name\./
+  );
+  assert.doesNotMatch(document.body.textContent, /already exists/);
+  await create.unmount();
+});

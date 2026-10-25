@@ -4901,6 +4901,7 @@
   "The model or provider isn't available. Pick another in model settings.": "Le modèle ou le fournisseur n'est pas disponible. Choisissez-en un autre dans les paramètres du modèle.",
   "The model refused to respond (safety refusal) — retry or rephrase your prompt.": "Le modèle a refusé de répondre (refus de sécurité) — réessayez ou reformulez votre invite.",
   "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.": "Le modèle a tenté d’utiliser un outil au lieu de répondre. Une question annexe ne peut pas exécuter d’outils ; reformulez la question.",
+  "The name \"{{name}}\" is used by a {{connector}} account. Choose another name.": "Le nom « {{name}} » est déjà utilisé par un compte {{connector}}. Choisissez un autre nom.",
   "The network connection failed or timed out. Check the connection and run again.": "La connexion réseau a échoué ou expiré. Vérifiez la connexion et relancez.",
   "The old Mixdog could not be stopped": "L’ancien Mixdog n’a pas pu être arrêté",
   "The original project folder no longer exists.": "Le dossier du projet d'origine n'existe plus.",
