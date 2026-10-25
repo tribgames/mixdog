@@ -38,6 +38,14 @@ export function publishSessionGlances(
   for (const listener of [...listeners]) listener();
 }
 
+/** The durable cache's glances for the first paint, taken only while nothing
+ *  reads the store (seedAgentRooms in agent-room-store.ts says why). */
+export function seedSessionGlances(
+  sessions: readonly Pick<DesktopSessionSummary, 'id' | 'title' | 'preview' | 'working'>[]
+): void {
+  if (listeners.size === 0) publishSessionGlances(sessions);
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

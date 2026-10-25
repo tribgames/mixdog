@@ -35,6 +35,14 @@ export function publishAgentModeSessions(
   for (const listener of [...listeners]) listener();
 }
 
+/** The durable cache's modes for the first paint, taken only while nothing
+ *  reads the store (seedAgentRooms in agent-room-store.ts says why). */
+export function seedAgentModeSessions(
+  sessions: readonly Pick<DesktopSessionSummary, 'id' | 'sessionMode' | 'agentDeleted'>[]
+): void {
+  if (listeners.size === 0) publishAgentModeSessions(sessions);
+}
+
 /** Whether `sessionId` is the home thread of a deleted bot: kept to read, never to send. */
 export function isDeletedBotSession(sessionId: string | null | undefined): boolean {
   return deletedHomes.has(String(sessionId || ''));

@@ -5,10 +5,10 @@ import { startTransition, useCallback, useEffect, useRef, useState, type Dispatc
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import { mergeSessionCatalogPushRows, mergeSessionCatalogRows } from '../shared/session-catalog';
-import { publishAgentRooms } from './agent-room-store';
-import { publishAgentModeSessions } from './agent-chat-mode';
+import { publishAgentRooms, seedAgentRooms } from './agent-room-store';
+import { publishAgentModeSessions, seedAgentModeSessions } from './agent-chat-mode';
 import { publishCatalogApprovalSessions } from './session-catalog-approvals';
-import { publishSessionGlances } from './session-glance-store';
+import { publishSessionGlances, seedSessionGlances } from './session-glance-store';
 import {
   purgeRemovedSessionPreviews,
   readCachedSessionCatalog,
@@ -45,9 +45,11 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
   // and the incremental host catalog replaces stale rows in the background.
   const [sessions, setSessionsState] = useState<DesktopSessionSummary[]>(() => {
     const cached = readCachedSessionCatalog();
-    publishAgentRooms(cached);
-    publishAgentModeSessions(cached);
-    publishSessionGlances(cached);
+    // Seeds, never publishes: this runs in render, and a remounted owner must
+    // not pull mounted readers back to the older cache mid-render.
+    seedAgentRooms(cached);
+    seedAgentModeSessions(cached);
+    seedSessionGlances(cached);
     return cached;
   });
   const sessionsRef = useRef<DesktopSessionSummary[]>(sessions);
@@ -120,11 +122,14 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     (rows: DesktopSessionSummary[], lowPriority: boolean): DesktopSessionSummary[] => {
       const current = sessionsRef.current;
       const merged = lowPriority ? mergeSessionCatalogPushRows(current, rows) : mergeSessionCatalogRows(current, rows);
-      if (merged === current) return current;
-      sessionsRef.current = merged;
+      // The shared stores take every accepted host catalog, unchanged rows
+      // too: a remounted owner seeded nothing into stores its mounted readers
+      // held, so the host's answer is what brings them to it.
       publishAgentRooms(merged);
       publishAgentModeSessions(merged);
       publishSessionGlances(merged);
+      if (merged === current) return current;
+      sessionsRef.current = merged;
       publishCatalogApprovalSessions(merged);
       // A renderer-staged create is presentation state, not durable startup
       // truth. It enters the cache only after a host catalog confirms the id.
