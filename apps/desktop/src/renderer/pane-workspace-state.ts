@@ -208,15 +208,19 @@ function splitLeafAtState(
   // and stays a guarded no-op here.)
   if (sourceLeafId !== leafId && targetActive && navigationKey(targetActive) === key) return prev;
   let layout: PaneNode = prev.layout;
-  const source = sourceLeafId ? findPaneLeaf(layout, sourceLeafId) : null;
-  const collapseDirection = source?.tabs.length === 1 ? paneLeafParentDirection(layout, sourceLeafId) : null;
-  if (source?.tabs.some((tab) => navigationKey(tab) === key)) {
+  // The pane holding the view: the drag's source, else (a split opened with
+  // no source, "open to the side") whichever pane already has it, exactly
+  // as openInLeafState moves it: one pane per view.
+  const named = sourceLeafId ? findPaneLeaf(layout, sourceLeafId) : null;
+  const source = named?.tabs.some((tab) => navigationKey(tab) === key) ? named : paneLeafContainingKey(layout, key);
+  const collapseDirection = source?.tabs.length === 1 ? paneLeafParentDirection(layout, source.id) : null;
+  if (source) {
     // A tab drag always MOVES (one live surface per view): the old
     // keep-a-copy-behind fallback put the SAME session in two panes,
     // which share one engine and read as a duplication bug. Splitting a
     // group with its only tab onto itself is simply a no-op.
-    if (sourceLeafId === leafId && source.tabs.length === 1) return prev;
-    const removed = closeTabInPaneLeaf(layout, sourceLeafId, key);
+    if (source.id === leafId && source.tabs.length === 1) return prev;
+    const removed = closeTabInPaneLeaf(layout, source.id, key);
     if (!removed || !findPaneLeaf(removed, leafId)) return prev;
     layout = removed;
   }

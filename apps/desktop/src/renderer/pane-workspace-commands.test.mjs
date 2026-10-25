@@ -40,6 +40,24 @@ async function mountWorkspace(t) {
 
 const session = (id) => ({ kind: 'session', id });
 
+test('a split opened with no source pane moves the session: one pane per session', async (t) => {
+  const { run, groups, workspace } = await mountWorkspace(t);
+  await run((w) => w.openInFocused(session('a')));
+  await run((w) => w.openInFocused(session('b')));
+  const [only] = workspace().leaves.map((leaf) => leaf.id);
+  // "Open to the side" (no drag source) of a session another tab of the pane holds.
+  await run((w) => w.splitLeafAt(only, 'right', session('a'), ''));
+  assert.deepEqual(groups(), [
+    { tabs: ['session:b'], active: 'session:b', focused: false },
+    { tabs: ['session:a'], active: 'session:a', focused: true },
+  ]);
+  // Again, beside the pane now showing it from elsewhere: still one copy.
+  const [left] = workspace().leaves.map((leaf) => leaf.id);
+  await run((w) => w.splitLeafAt(left, 'left', session('a'), ''));
+  const keys = workspace().leaves.flatMap((leaf) => leaf.tabs.map((tab) => navigationKey(tab)));
+  assert.equal(keys.filter((key) => key === 'session:a').length, 1);
+});
+
 test('pane commands keep one live surface per view and hand focus to the right group', async (t) => {
   const { run, groups, workspace } = await mountWorkspace(t);
 
