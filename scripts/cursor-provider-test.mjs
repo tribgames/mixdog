@@ -498,6 +498,113 @@ test('Cursor Max mode selects its mode-specific default variant', async () => {
   assert.deepEqual(body.mixdog_model_parameters, [{ id: 'context', value: '1m' }]);
 });
 
+// Both contexts exist in each mode, but only under different effort/fast
+// combinations. The stored value alone cannot tell whether it is stale.
+function contextRecoveryProvider(Provider = CursorOAuthProvider) {
+  const parameters = (context, effort, fast) => ({ context, effort, fast, thinking: 'true' });
+  const raw = [
+    {
+      id: 'context-recovery',
+      contextWindow: 300_000,
+      maxContextWindow: 1_000_000,
+      supportsMaxMode: true,
+      supportsNonMaxMode: true,
+      parameterDefinitions: [
+        { id: 'context', kind: 'enum', values: [{ value: '300k' }, { value: '1m' }] },
+        { id: 'effort', kind: 'enum', values: [{ value: 'low' }, { value: 'high' }, { value: 'medium' }] },
+        { id: 'fast', kind: 'boolean', values: [{ value: 'false' }, { value: 'true' }] },
+        { id: 'thinking', kind: 'boolean', values: [{ value: 'false' }, { value: 'true' }] },
+      ],
+      variants: [
+        { parameters: parameters('300k', 'high', 'false'), maxMode: false, defaultNonMax: true },
+        { parameters: parameters('1m', 'low', 'true'), maxMode: false },
+        { parameters: parameters('1m', 'high', 'false'), maxMode: true, defaultMax: true },
+        { parameters: parameters('300k', 'low', 'true'), maxMode: true },
+      ],
+    },
+  ];
+  const sent = [];
+  const provider = new Provider({
+    accessToken: 'offline-context-fixture',
+    runtime: {
+      async getCursorModels() {
+        return raw;
+      },
+      async handleChatCompletion(body) {
+        sent.push(body);
+        return sseResponse([{ choices: [{ delta: {}, finish_reason: 'stop' }] }]);
+      },
+    },
+  });
+  return {
+    sent,
+    send: (options) => provider.send([{ role: 'user', content: 'hello' }], raw[0].id, [], options),
+  };
+}
+
+for (const maxMode of [true, false]) {
+  test(`Cursor ${maxMode ? 'Max' : 'Non-Max'} recovers stored context after effort/fast overrides without editing`, async () => {
+    for (const Provider of [CursorOAuthProvider, CursorApiProvider]) {
+      const { send, sent } = contextRecoveryProvider(Provider);
+      const options = {
+        selectedContextWindow: maxMode ? 1_000_000 : 300_000,
+        effort: 'high',
+        fast: false,
+        // Valid before the top-level overrides, stale after them.
+        modelParameters: { context: maxMode ? '300k' : '1m', effort: 'low', fast: 'true', thinking: 'true' },
+      };
+      const saved = JSON.stringify(options);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await send(options);
+        assert.equal(sent.at(-1).mixdog_max_mode, maxMode);
+        assert.deepEqual(Object.fromEntries(sent.at(-1).mixdog_model_parameters.map(({ id, value }) => [id, value])), {
+          context: maxMode ? '1m' : '300k',
+          effort: 'high',
+          fast: 'false',
+          thinking: 'true',
+        });
+        assert.equal(JSON.stringify(options), saved, 'dispatch leaves the stored options reusable without migration');
+      }
+      assert.equal(sent.length, 2);
+    }
+  });
+}
+
+test('Cursor preserves an explicit context supported after effort/fast overrides', async () => {
+  const { send, sent } = contextRecoveryProvider();
+  await send({
+    selectedContextWindow: 1_000_000,
+    effort: 'low',
+    fast: true,
+    // Invalid before the overrides, valid after them: do not replace it early.
+    modelParameters: { context: '300k', effort: 'high', fast: 'false', thinking: 'true' },
+  });
+  assert.equal(sent[0].mixdog_max_mode, true);
+  assert.deepEqual(Object.fromEntries(sent[0].mixdog_model_parameters.map(({ id, value }) => [id, value])), {
+    context: '300k',
+    effort: 'low',
+    fast: 'true',
+    thinking: 'true',
+  });
+});
+
+test('Cursor context recovery still rejects unsupported combinations before transport', async () => {
+  const { send, sent } = contextRecoveryProvider();
+  for (const options of [
+    { effort: 'high', fast: true, modelParameters: { context: '300k' } },
+    { effort: 'medium', fast: false, modelParameters: { context: '300k' } },
+    { effort: 'high', fast: false, modelParameters: { context: '300k', thinking: 'false' } },
+    // The default context cannot accommodate these otherwise supported options.
+    { effort: 'low', fast: true, modelParameters: { context: 'retired-context' } },
+  ]) {
+    await assert.rejects(
+      send({ ...options, selectedContextWindow: 1_000_000 }),
+      /does not offer the selected parameter combination/
+    );
+  }
+  assert.equal(sent.length, 0);
+});
+
 test('Cursor developer messages retain system precedence', () => {
   const parsed = __cursorWireInternals.parseMessages([
     { role: 'developer', content: 'developer rule' },

@@ -480,16 +480,10 @@ function selectParameterizedCursorVariant(group, requested, sendOpts = {}) {
     availableVariants[0] ||
     null;
   const parameters = { ...(defaultVariant?.parameters || {}), ...aliasParameters };
+  const defaultContext = parameters.context;
   const routeParameters =
     sendOpts.modelParameters && typeof sendOpts.modelParameters === 'object' ? sendOpts.modelParameters : {};
-  // The window picked the mode above: a stored `context` no variant of that
-  // mode offers (a 256k left beside a raised 500K window) is a stale value and
-  // yields to the mode's own; one the mode offers stays the user's choice.
-  const staleContext =
-    Object.hasOwn(routeParameters, 'context') &&
-    !availableVariants.some((variant) => String(variant.parameters?.context ?? '') === String(routeParameters.context));
   for (const definition of group.definitions) {
-    if (staleContext && definition.id === 'context') continue;
     if (Object.hasOwn(routeParameters, definition.id)) {
       parameters[definition.id] = String(routeParameters[definition.id]);
     }
@@ -508,9 +502,18 @@ function selectParameterizedCursorVariant(group, requested, sendOpts = {}) {
   ) {
     parameters.fast = sendOpts.fast === true ? 'true' : 'false';
   }
-  const selected = availableVariants.find((variant) =>
-    Object.entries(parameters).every(([id, value]) => String(variant.parameters?.[id] ?? '') === String(value))
-  );
+  const matches = (variant) =>
+    Object.entries(parameters).every(([id, value]) => String(variant.parameters?.[id] ?? '') === String(value));
+  let selected = availableVariants.find(matches);
+  // Keep a supported explicit context. A persisted context can exist in this
+  // mode but conflict with its requested effort/fast/other options. In that
+  // case try only the mode's default context, preserving every other choice
+  // and still rejecting the request unless the full combination is offered.
+  if (!selected && Object.hasOwn(routeParameters, 'context')) {
+    if (defaultContext === undefined) delete parameters.context;
+    else parameters.context = defaultContext;
+    selected = availableVariants.find(matches);
+  }
   if (!selected && availableVariants.length) {
     throw new Error(`Cursor model ${group.id} does not offer the selected parameter combination`);
   }
