@@ -1,3 +1,4 @@
+import { MIN_SENSITIVE_LENGTH } from '../agent/orchestrator/session/sensitive-values.mjs';
 import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
 import { schemaStringLength, schemaValueError } from '../shared/schema-value-error.mjs';
 import { BROWSER_INPUT_FIELDS } from './input-fields.mjs';
@@ -101,7 +102,7 @@ const CONTRACT_ROWS = [
   // the host.
   contract(
     'fill',
-    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'checked', 'fields', 'submit', 'savedAccount'],
+    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'checked', 'fields', 'submit', 'savedAccount', 'sensitive'],
     [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['fields'], ['savedAccount']]
   ),
   contract(
@@ -688,10 +689,23 @@ function ruleOperationError(action, input) {
   return '';
 }
 
+/** A sensitive fill's text is kept out of every stored transcript only when
+ *  it can be told from other text (sensitive-values.mjs
+ *  MIN_SENSITIVE_LENGTH); a shorter one is refused rather than typed unprotected. */
+function sensitiveFillError(action, input) {
+  if (action !== 'fill' || input.sensitive !== true) return '';
+  const fields = Array.isArray(input.fields) ? input.fields : [];
+  const values = [input.text, ...fields.flatMap((field) => [field?.text, field?.value])];
+  return values.some((value) => typeof value === 'string' && value.length < MIN_SENSITIVE_LENGTH)
+    ? `browser action "fill" input.sensitive text needs at least ${MIN_SENSITIVE_LENGTH} characters`
+    : '';
+}
+
 // Action-specific rules, in the order they are reported.
 const ACTION_RULES = [
   navigateError,
   fillFieldsError,
+  sensitiveFillError,
   scrollError,
   screenshotOptionsError,
   snapshotTargetError,

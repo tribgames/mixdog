@@ -19,6 +19,7 @@ import {
 } from './turn-checkpoint-journal.mjs';
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
 import { stripProviderReplayMessages } from './provider-replay.mjs';
+import { sensitiveValuesVersion } from '../sensitive-values.mjs';
 
 export { turnCheckpointPath, turnMessagesForCheckpoint };
 export { captureTurnCheckpointContextState, restoreTurnCheckpointContextState };
@@ -67,9 +68,14 @@ export function projectTurnCheckpointMessages(session, checkpoint) {
 // long tool-heavy turn no longer amplifies into the shared engine thread that
 // every fanned-out agent session shares.
 export function createTurnCheckpointRecorder({ sessionId, generation, turnToken, startedAt }) {
-  const encoder = createTurnJournalEncoder({ turnToken });
+  const encoder = createTurnJournalEncoder({ turnToken, sessionId });
   let opened = false;
   let stopped = false;
+  // The sensitive-values version (sensitive-values.mjs) the header and
+  // journal were written under. A newly marked value rewrites both from the
+  // turn's current state with the value replaced, under a new journal epoch,
+  // so no recovery record keeps it.
+  let openedVersion = 0;
   return {
     get opened() {
       return opened;
@@ -77,8 +83,14 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
     /** True when this call wrote or queued durable state. */
     record({ currentUserContent, turnOutgoing, interruption, contextState = null }) {
       if (stopped || !sessionId || !turnToken) return false;
-      if (!opened) {
-        const seed = encoder.seed(turnOutgoing, currentUserContent, interruption, contextState);
+      const version = sensitiveValuesVersion(sessionId);
+      if (!opened || version !== openedVersion) {
+        const snapshot =
+          typeof interruption?.snapshot === 'function' ? interruption.snapshot() : emptyInterruptionSnapshot();
+        const seed = encoder.seed(turnOutgoing, currentUserContent, interruption, contextState, {
+          snapshot,
+          epoch: version,
+        });
         writeCheckpointHeader({
           sessionId,
           generation,
@@ -87,10 +99,11 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
           currentUserContent,
           turnMessages: seed.turnMessages,
           ...(seed.fullTranscript ? { fullTranscript: true } : {}),
-          interruption:
-            typeof interruption?.snapshot === 'function' ? interruption.snapshot() : emptyInterruptionSnapshot(),
+          ...(version ? { journalEpoch: version } : {}),
+          interruption: snapshot,
           contextState: seed.contextState,
         });
+        openedVersion = version;
         // Opening the journal is part of the anchor: a leftover journal
         // from an earlier turn of this session must never replay onto
         // the new header. It lands synchronously when the lane is idle

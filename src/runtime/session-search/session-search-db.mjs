@@ -6,8 +6,11 @@
  *
  * Rows are append-only: compaction may drop old messages from a session file,
  * but their search rows stay, so earlier conversation remains findable until
- * the session itself is deleted.
+ * the session itself is deleted. The one rewrite: a value marked sensitive
+ * replaces the rows that hold it (replaceSessionSearchMessages).
  */
+
+import { randomBytes } from 'node:crypto';
 
 import { ensurePgInstance, withSchemaBootstrapLock } from '../memory/lib/pg/adapter.mjs';
 import { buildFtsPrefixQuery } from '../memory/lib/memory-text-utils.mjs';
@@ -91,13 +94,9 @@ export function sessionSearchRows(sessionId, messages) {
   return rows;
 }
 
-/** Idempotent append of a transcript's searchable messages; returns the count
- *  of newly stored rows. Re-sending an already stored message is a no-op. */
-export async function appendSessionSearchMessages(sessionId, messages, { dataDir } = {}) {
-  const rows = sessionSearchRows(sessionId, messages);
+async function insertRows(queryable, rows) {
   if (rows.length === 0) return 0;
-  const db = await getDb(dataDir);
-  const result = await db.query(
+  const result = await queryable.query(
     `INSERT INTO session_search.messages (source_ref, session_id, ordinal, role, ts, content)
      SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::bigint[], $6::text[])
      ON CONFLICT (source_ref) DO NOTHING`,
@@ -111,6 +110,61 @@ export async function appendSessionSearchMessages(sessionId, messages, { dataDir
     ]
   );
   return Number(result?.rowCount) || 0;
+}
+
+/** Idempotent append of a transcript's searchable messages; returns the count
+ *  of newly stored rows. Re-sending an already stored message is a no-op. */
+export async function appendSessionSearchMessages(sessionId, messages, { dataDir } = {}) {
+  const rows = sessionSearchRows(sessionId, messages);
+  if (rows.length === 0) return 0;
+  const db = await getDb(dataDir);
+  return insertRows(db, rows);
+}
+
+/** In one transaction: every stored row of `sessionId` whose content
+ *  `redactText` changes is deleted, the rows of the transcript as stored
+ *  (`redactedMessages`) are written, and a deleted row that is no message of
+ *  the transcript is written again with its content redacted.
+ *
+ *  A row is matched to its message by the row's own identity
+ *  (stableSessionSourceRef: role, original timestamp or else ordinal, tool
+ *  ids, content): the id `plainMessages` — the same transcript before
+ *  redaction — gives that message. Every other deleted row (its message was
+ *  compacted away, or is under an identity the transcript no longer has) has
+ *  no message to derive an identity from; its replacement gets a fresh random
+ *  id, so no two rows ever merge and no id is derived from the plaintext.
+ *  Returns the count of deleted rows. */
+export async function replaceSessionSearchMessages(sessionId, plainMessages, redactedMessages, redactText, { dataDir } = {}) {
+  const rows = sessionSearchRows(sessionId, redactedMessages);
+  const previous = new Set(sessionSearchRows(sessionId, plainMessages).map((row) => row.sourceRef));
+  const db = await getDb(dataDir);
+  return db.transaction(async (tx) => {
+    const { rows: stored } = await tx.query(
+      `SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
+       WHERE session_id = $1 FOR UPDATE`,
+      [sessionId]
+    );
+    const changed = stored
+      .map((row) => ({ row, content: redactText(String(row.content)) }))
+      .filter(({ row, content }) => content !== row.content);
+    if (changed.length) {
+      await tx.query(`DELETE FROM session_search.messages WHERE source_ref = ANY($1::text[])`, [
+        changed.map(({ row }) => row.source_ref),
+      ]);
+    }
+    const kept = changed
+      .filter(({ row }) => !previous.has(row.source_ref))
+      .map(({ row, content }) => ({
+        sourceRef: `session:${sessionId}:${randomBytes(12).toString('hex')}`,
+        sessionId,
+        ordinal: Number(row.ordinal),
+        role: row.role,
+        ts: row.ts == null ? null : Number(row.ts),
+        content,
+      }));
+    await insertRows(tx, [...rows, ...kept]);
+    return changed.length;
+  });
 }
 
 export async function deleteSessionSearchMessages(sessionId, { dataDir } = {}) {

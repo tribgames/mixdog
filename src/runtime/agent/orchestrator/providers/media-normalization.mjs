@@ -840,6 +840,56 @@ function partCarriesLiveMedia(part) {
   return Array.isArray(part.content) && contentCarriesLiveMedia(part.content);
 }
 
+/** An image part in any spelling the providers use: inline, URL, file id or
+ *  URI, Gemini inline data. */
+function isImagePart(part) {
+  return Boolean(
+    part.type === 'image' ||
+      part.type === 'image_url' ||
+      part.type === 'input_image' ||
+      imageUrlFromPart(part) ||
+      imageFileIdFromPart(part) ||
+      imageFileUriFromPart(part) ||
+      geminiInlineInfo(part)
+  );
+}
+
+function mapPartText(part, mapText) {
+  if (typeof part === 'string') return mapText(part);
+  if (!part || typeof part !== 'object') return part;
+  // Media and attachment references are encodings, never text.
+  if (isAttachmentReference(part) || isImagePart(part) || fileInfo(part)) return part;
+  for (const key of ['text', 'content']) {
+    if (typeof part[key] === 'string') {
+      const next = mapText(part[key]);
+      return next === part[key] ? part : { ...part, [key]: next };
+    }
+  }
+  if (Array.isArray(part.content)) {
+    const nextContent = mapContentText(part.content, mapText);
+    if (nextContent !== part.content) return { ...part, content: nextContent };
+  }
+  return part;
+}
+
+/** `content` with `mapText` applied to its text and nothing else: a string,
+ *  the text a text part or a part's string content carries (textFromPart),
+ *  and nested part content; media parts and attachment references stay as
+ *  they are. The same value when nothing changed. */
+export function mapContentText(content, mapText) {
+  if (typeof content === 'string') return mapText(content);
+  const parts = contentParts(content);
+  if (!parts) return content;
+  let changed = false;
+  const out = parts.map((part) => {
+    const next = mapPartText(part, mapText);
+    if (next !== part) changed = true;
+    return next;
+  });
+  if (!changed) return content;
+  return Array.isArray(content) ? out : { ...content, content: out };
+}
+
 function sanitizePartForStoredHistory(part) {
   if (typeof part === 'string') return part;
   if (!part || typeof part !== 'object') return part;
@@ -849,15 +899,7 @@ function sanitizePartForStoredHistory(part) {
   // reloading the session keeps the provider prompt cache intact.
   const storedImage = part.type === 'image' ? storedImagePart(part) : null;
   if (storedImage) return storedImage;
-  if (
-    part.type === 'image' ||
-    part.type === 'image_url' ||
-    part.type === 'input_image' ||
-    imageUrlFromPart(part) ||
-    imageFileIdFromPart(part) ||
-    imageFileUriFromPart(part) ||
-    geminiInlineInfo(part)
-  ) {
+  if (isImagePart(part)) {
     return { type: 'text', text: storedHistoryImagePlaceholder(part) };
   }
   const file = fileInfo(part);

@@ -1,5 +1,6 @@
 import { hash } from 'node:crypto';
 import { _messagesForDisk, _sessionForDisk } from './serialize.mjs';
+import { sensitiveValuesVersion } from '../sensitive-values.mjs';
 
 // ── Delta handoff to the save worker ─────────────────────────────────────────
 // Worker.postMessage structured-clones on the CALLER's thread, so a full-
@@ -93,7 +94,7 @@ function _attemptRecord(header, refs, prints) {
  */
 export function _attemptEvidence(attempt) {
   if (!attempt) return null;
-  const messages = _messagesForDisk(attempt.refs);
+  const messages = _messagesForDisk(attempt.refs, attempt.header.id);
   for (let index = 0; index < messages.length; index += 1) {
     const print = attempt.prints[index];
     if (print === null || _messagePrint(messages[index]) !== print) return null;
@@ -112,14 +113,17 @@ function _isPureAppend(refs, live) {
 export function _buildWirePayload(id, session, forceFull = false) {
   const live = Array.isArray(session.messages) ? session.messages : [];
   const base = forceFull ? null : _deltaBaseline.get(id);
-  const resyncDue = !base || base.deltasSinceFull >= DELTA_FULL_RESYNC_EVERY;
+  // A value marked sensitive since the baseline was sent must leave the
+  // messages the worker already holds too: write the whole transcript again.
+  const sensitive = sensitiveValuesVersion(id);
+  const resyncDue = !base || base.deltasSinceFull >= DELTA_FULL_RESYNC_EVERY || base.sensitive !== sensitive;
   if (!resyncDue && _isPureAppend(base.refs, live)) {
     // Header: full disk projection with an empty message list (strips
     // transient aliases); tail: per-message projection of the appended
     // suffix only. Both use the same idempotent per-message projection
     // as a full send, so worker-side reconstruction is byte-identical.
     const header = _sessionForDisk({ ...session, messages: [] });
-    const tailMessages = _messagesForDisk(live.slice(base.refs.length));
+    const tailMessages = _messagesForDisk(live.slice(base.refs.length), id);
     // The EXACT payload the worker will reconstruct and write is the sent
     // baseline + this delta. Its evidence is fingerprint-checked against
     // what was sent, never a fresh projection of the mutable live session
@@ -127,7 +131,7 @@ export function _buildWirePayload(id, session, forceFull = false) {
     // reference-identity delta). Only the tail is fingerprinted.
     const prints = base.prints ? base.prints.concat(tailMessages.map(_messagePrint)) : null;
     const refs = live.slice();
-    _deltaBaseline.set(id, { refs, deltasSinceFull: base.deltasSinceFull + 1, prints });
+    _deltaBaseline.set(id, { refs, deltasSinceFull: base.deltasSinceFull + 1, prints, sensitive });
     return {
       delta: { baseCount: base.refs.length, header, tailMessages },
       attempt: _attemptRecord(header, refs, prints),
@@ -142,7 +146,7 @@ export function _buildWirePayload(id, session, forceFull = false) {
   // DELTA_FULL_RESYNC_EVERY saves.
   const refs = live.slice();
   const prints = _printMessages(live, diskMessages, resyncDue ? null : base);
-  _deltaBaseline.set(id, { refs, deltasSinceFull: 0, prints });
+  _deltaBaseline.set(id, { refs, deltasSinceFull: 0, prints, sensitive });
   // (saveSessionAsync normalizes `messages` to an array before any post.)
   return { session: full, attempt: _attemptRecord(full, refs, prints) };
 }

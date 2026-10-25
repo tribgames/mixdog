@@ -39,6 +39,8 @@ import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
+import { redactSettledText, sensitiveValuesVersion } from '../sensitive-values.mjs';
+import { redactSensitiveContent, redactSensitiveMessage, redactSensitiveToolCall } from '../sensitive-projection.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
 const TURN_CHECKPOINT_VERSION = 1;
@@ -131,16 +133,48 @@ export function emptyInterruptionSnapshot() {
   };
 }
 
-// ── Header (write-once, atomic) ─────────────────────────────────────────────
+// Observed tool calls ([id, { call, eagerStarted }]) and early tool results
+// ([id, tool message]) as a checkpoint stores them (sensitive-projection.mjs).
+const storedCallEntries = (sessionId, entries) =>
+  entries.map(([id, entry]) => {
+    const call = redactSensitiveToolCall(sessionId, entry?.call);
+    return [id, call === entry?.call ? entry : { ...entry, call }];
+  });
+const storedResultEntries = (sessionId, entries) =>
+  entries.map(([id, message]) => [id, redactSensitiveMessage(sessionId, message)]);
+
+/** Interruption snapshot `snapshot` as `sessionId`'s checkpoint stores it:
+ *  sensitive values (sensitive-values.mjs) replaced, and of the partial text
+ *  only what no value can still complete. */
+export function redactInterruptionSnapshot(sessionId, snapshot) {
+  const source = snapshot ?? emptyInterruptionSnapshot();
+  if (!sensitiveValuesVersion(sessionId)) return source;
+  return {
+    ...source,
+    partialAssistantContent: redactSettledText(sessionId, String(source.partialAssistantContent || '')),
+    partialReasoningContent: redactSettledText(sessionId, String(source.partialReasoningContent || '')),
+    observedToolCalls: storedCallEntries(sessionId, Array.isArray(source.observedToolCalls) ? source.observedToolCalls : []),
+    observedToolResults: storedResultEntries(
+      sessionId,
+      Array.isArray(source.observedToolResults) ? source.observedToolResults : []
+    ),
+  };
+}
+
+// ── Header (written once per turn, again when a sensitive value is marked) ──
 
 export function writeCheckpointHeader(checkpoint) {
-  const target = turnCheckpointPath(checkpoint.sessionId);
+  const { sessionId } = checkpoint;
+  const target = turnCheckpointPath(sessionId);
   const payload = {
     ...checkpoint,
     version: TURN_CHECKPOINT_VERSION,
-    currentUserContent: sanitizeContentForStoredHistory(checkpoint.currentUserContent),
-    turnMessages: (Array.isArray(checkpoint.turnMessages) ? checkpoint.turnMessages : []).map(checkpointMessage),
-    interruption: checkpoint.interruption ?? emptyInterruptionSnapshot(),
+    currentUserContent: redactSensitiveContent(sessionId, sanitizeContentForStoredHistory(checkpoint.currentUserContent)),
+    turnMessages: (Array.isArray(checkpoint.turnMessages) ? checkpoint.turnMessages : []).map((message) =>
+      redactSensitiveMessage(sessionId, checkpointMessage(message))
+    ),
+    interruption: redactInterruptionSnapshot(sessionId, checkpoint.interruption),
+    // Counts, token readings and signatures only: no text.
     contextState: checkpoint.contextState ?? null,
     updatedAt: Date.now(),
   };
@@ -488,7 +522,15 @@ export function replayTurnJournal(header) {
     if (seq > expected) break;
     expected = seq + 1;
     if (!head) {
-      if (record.t !== 'h' || record.turnToken !== header.turnToken) return header;
+      // A header rewritten for a newly marked sensitive value starts a new
+      // journal epoch; the journal it replaces never replays onto it.
+      if (
+        record.t !== 'h' ||
+        record.turnToken !== header.turnToken ||
+        (Number(record.e) || 0) !== (Number(header.journalEpoch) || 0)
+      ) {
+        return header;
+      }
       head = true;
       continue;
     }
@@ -529,7 +571,7 @@ export function replayTurnJournal(header) {
  * turn-relative index) plus an opaque interruption cursor, so each encode()
  * touches only what changed since the previous flush.
  */
-export function createTurnJournalEncoder({ turnToken } = {}) {
+export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
   let journaled = [];
   let fullTranscript = false;
   let cursor = null;
@@ -537,27 +579,64 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
   // Per-turn record sequence. It is assigned where records are produced, so
   // the number line is exactly the enqueue order the write lane preserves.
   let seq = 0;
+  // Set while the session has sensitive values (sensitive-values.mjs): the
+  // tracker's state as its deltas build it (`raw`) and the state the journal
+  // replays to (`written`). Interruption deltas are then journaled as the
+  // difference of the redacted text, so a value that streams in across
+  // flushes never lands in pieces. A newly marked value reseeds the encoder
+  // (turn-checkpoint.mjs), so the session's values are known whenever this is null.
+  let mirror = null;
   const line = (record) => {
     const stamped = { ...record, s: seq };
     seq += 1;
     return `${JSON.stringify(stamped)}\n`;
   };
+  const stored = (message) => redactSensitiveMessage(sessionId, checkpointMessage(message));
+  const interruptionRecord = (delta) => {
+    if (!mirror) return delta;
+    applyInterruptionDelta(mirror.raw, delta);
+    const out = {};
+    for (const key of ['rs', 'ph', 'cc', 'od']) if (Object.hasOwn(delta, key)) out[key] = delta[key];
+    for (const [field, setKey, appendKey] of [
+      ['text', 'ts', 'ta'],
+      ['reasoning', 'qs', 'qa'],
+    ]) {
+      const settled = redactSettledText(sessionId, mirror.raw[field]);
+      const written = mirror.written[field];
+      if (settled === written) continue;
+      if (settled.startsWith(written)) out[appendKey] = settled.slice(written.length);
+      else out[setKey] = settled;
+    }
+    if (Object.hasOwn(delta, 'tb')) out.tb = redactSensitiveContent(sessionId, mirror.raw.tomb);
+    if (delta.cs) out.cs = storedCallEntries(sessionId, delta.cs);
+    if (delta.os) out.os = storedResultEntries(sessionId, delta.os);
+    applyInterruptionDelta(mirror.written, out);
+    return out;
+  };
   return {
     /** Seed from the turn's opening state; returns the header's messages
      * and the journal's opening lines (head record, plus — defensively —
      * the delta that makes the journal authoritative if the tracker already
-     * carried state at open time). */
-    seed(turnOutgoing, currentUserContent, interruption, contextState = null) {
+     * carried state at open time). `snapshot` is the tracker snapshot the
+     * header stores; `epoch` names the journal a rewritten header starts. */
+    seed(turnOutgoing, currentUserContent, interruption, contextState = null, { snapshot = null, epoch = 0 } = {}) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
       const start = findTurnStart(source, currentUserContent);
       fullTranscript = start < 0;
       journaled = fullTranscript ? source.slice() : source.slice(start);
+      mirror = sensitiveValuesVersion(sessionId)
+        ? {
+            raw: interruptionStateFromSnapshot(snapshot),
+            written: interruptionStateFromSnapshot(redactInterruptionSnapshot(sessionId, snapshot)),
+          }
+        : null;
       const seeded = typeof interruption?.journalDelta === 'function' ? interruption.journalDelta(null) : null;
       cursor = seeded ? seeded.cursor : null;
       contextStateKey = contextState == null ? null : JSON.stringify(contextState);
       seq = 0;
-      const openLines = [line({ t: 'h', turnToken, at: Date.now() })];
-      if (seeded?.changed) openLines.push(line({ t: 'x', d: seeded.delta, at: Date.now() }));
+      const openLines = [line({ t: 'h', turnToken, ...(epoch ? { e: epoch } : {}), at: Date.now() })];
+      const seededDelta = seeded?.changed ? interruptionRecord(seeded.delta) : null;
+      if (seededDelta && Object.keys(seededDelta).length) openLines.push(line({ t: 'x', d: seededDelta, at: Date.now() }));
       return {
         turnMessages: journaled.map(checkpointMessage),
         fullTranscript,
@@ -579,7 +658,7 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
         journaled = source.slice();
         records.push({
           t: 'full',
-          ms: journaled.map(checkpointMessage),
+          ms: journaled.map(stored),
         });
       } else {
         const offset = fullTranscript ? 0 : start;
@@ -588,7 +667,7 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
           const raw = source[offset + index];
           if (journaled[index] === raw) continue;
           journaled[index] = raw;
-          records.push({ t: 'm', i: index, m: checkpointMessage(raw) });
+          records.push({ t: 'm', i: index, m: stored(raw) });
         }
         if (journaled.length > length) {
           journaled.length = length;
@@ -598,7 +677,8 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
       if (typeof interruption?.journalDelta === 'function') {
         const next = interruption.journalDelta(cursor);
         cursor = next.cursor;
-        if (next.changed) records.push({ t: 'x', d: next.delta });
+        const delta = next.changed ? interruptionRecord(next.delta) : null;
+        if (delta && Object.keys(delta).length) records.push({ t: 'x', d: delta });
       }
       const nextContextStateKey = contextState == null ? null : JSON.stringify(contextState);
       if (nextContextStateKey !== contextStateKey) {

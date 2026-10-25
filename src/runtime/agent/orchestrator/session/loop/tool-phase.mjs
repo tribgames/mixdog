@@ -9,6 +9,7 @@ import { processToolBatch } from '../tool-batch.mjs';
 import { CROSS_TURN_CAP, REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { markStepEffort } from './step-auto-effort.mjs';
 import { resolveExecutionToolCalls } from './tool-call-resolution.mjs';
+import { rememberSensitiveValues } from '../sensitive-values.mjs';
 import { callsAllowed, settleToolProgress, settleTurnLimits, turnLimitsOf } from './turn-limits.mjs';
 
 function isSleepLikeToolCall(call) {
@@ -41,7 +42,11 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   // derive the multi-tool adoption ratio without scanning message bodies.
   // Audit records what runs: a bridged call_tool is recorded as its target.
   // The wire calls stay the transcript identity (assistant turn below).
-  const toolBatchId = recordToolBatch(sessionId, resolveExecutionToolCalls(calls, sessionRef), state.iterations);
+  const executionCalls = resolveExecutionToolCalls(calls, sessionRef);
+  const toolBatchId = recordToolBatch(sessionId, executionCalls, state.iterations);
+  // A sensitive fill (a verification code): every stored copy of the
+  // transcript keeps a marker instead of the value; the call runs as is.
+  rememberSensitiveValues(sessionId, executionCalls);
   await Promise.resolve(onToolCall?.(state.iterations, calls));
   const assistantTurnMsg = buildToolCallAssistantMessage(response, { calls, opts });
   commitAssistantMessage(messages, assistantTurnMsg, opts);

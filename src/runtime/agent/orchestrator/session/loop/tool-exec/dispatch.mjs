@@ -3,7 +3,14 @@
  * MCP, code graph, internal tools, shell, apply_patch, built-ins and foreign
  * CLI adapters.
  */
-import { executeMcpTool, isMcpTool, isRegisteredMcpTool, mcpToolHasField } from '../../../mcp/client.mjs';
+import {
+  executeMcpTool,
+  isBuiltinMailRead,
+  isMcpTool,
+  isRegisteredMcpTool,
+  mcpToolHasField,
+} from '../../../mcp/client.mjs';
+import { recordMailLinks } from '../../../../../browser-bridge/mail-links.mjs';
 import {
   executeBuiltinTool,
   formatUnknownBuiltinToolMessage,
@@ -56,10 +63,17 @@ function dispatchMcp(name, args, { cwd, callerSessionId, sessionRef, executeOpts
   // an unknown argument.
   const needsCwdInjection = cwd && mcpToolHasField(name, 'cwd', mcpScopeId) && (args == null || args.cwd == null);
   const finalArgs = needsCwdInjection ? { ...(args || {}), cwd } : args;
-  return executeMcpTool(name, finalArgs, {
+  const call = executeMcpTool(name, finalArgs, {
     signal: executeOpts.signal || null,
     ownerKey: callerSessionId,
     scopeId: mcpScopeId,
+  });
+  if (!isBuiltinMailRead(name, mcpScopeId)) return call;
+  // The runtime's own record of the links in a mail it read for this session:
+  // the only way Browser Use may open a link carrying a token.
+  return call.then((result) => {
+    recordMailLinks(callerSessionId, result);
+    return result;
   });
 }
 

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
+import { redactSensitiveMessage } from '../sensitive-projection.mjs';
 
 // Inline base64 images (tool screenshots included) are written as
 // content-addressed refs, like prompt media, so session JSON stays small while
@@ -13,17 +14,17 @@ import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle
 // Per-message disk projection shared by _sessionForDisk and the save-worker
 // delta path (tail-only projection). Returns the SAME array reference when no
 // message changed. Idempotent: already-sanitized content passes through
-// unchanged, so projecting a projected message is a no-op.
-export function _messagesForDisk(messages) {
+// unchanged, so projecting a projected message is a no-op. A value session
+// `sessionId` marked sensitive (sensitive-values.mjs) is stored as a marker in
+// the message's text (sensitive-projection.mjs).
+export function _messagesForDisk(messages, sessionId) {
   let changed = false;
   const out = messages.map((m) => {
     if (!m || typeof m !== 'object') return m;
     const content = sanitizeContentForStoredHistory(m.content);
-    if (content !== m.content) {
-      changed = true;
-      return { ...m, content };
-    }
-    return m;
+    const projected = redactSensitiveMessage(sessionId, content === m.content ? m : { ...m, content });
+    if (projected !== m) changed = true;
+    return projected;
   });
   return changed ? out : messages;
 }
@@ -46,7 +47,7 @@ export function _sessionForDisk(session) {
       Object.hasOwn(session, 'toolApprovalHook') ||
       Object.hasOwn(session, '_providerPrefixGuardState'));
   const messages = Array.isArray(session?.messages) ? session.messages : null;
-  const out = messages?.length ? _messagesForDisk(messages) : messages;
+  const out = messages?.length ? _messagesForDisk(messages, session.id) : messages;
   if (out === messages) {
     if (!hasTransient) return session;
     return _withMidTurnContextAnchor(_withoutTransientFields(session), session);

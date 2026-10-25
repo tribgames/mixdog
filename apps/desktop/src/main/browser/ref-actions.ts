@@ -83,5 +83,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     setCheckedRef: controls.setCheckedRef,
     uploadRef: upload.uploadRef,
     uploadReceiver: upload.receiver,
+    /** Redact `value` in every later reply of the page's session. */
+    rememberSecret: (guest: WebContents, value: string) => host.rememberSecret?.(guest, value),
   };
 }

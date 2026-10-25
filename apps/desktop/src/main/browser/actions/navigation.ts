@@ -22,7 +22,7 @@ export const navigationActions = defineBrowserActions({
       return actionSnapshot();
     }
     if (!command.url) throw new Error('navigate requires url or reload=true');
-    const url = await urls.validatedAgentUrl(command.url);
+    const url = await urls.validatedAgentUrl(command.url, command.mail_link);
     await cdp.guestDebugger(guest);
     state.invalidateInteraction(guest);
     const stopNavigation = () => {

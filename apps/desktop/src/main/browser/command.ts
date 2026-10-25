@@ -148,6 +148,9 @@ export interface BrowserCommand {
   /** fill: complete the sign-in form from a stored login (account or its
    *  masked label); the password stays inside the host. */
   savedAccount?: string;
+  /** fill: the text is a code or secret, registered for redaction before
+   *  the page sees it. */
+  sensitive?: boolean;
   key?: string;
   dy?: number;
   dx?: number;
@@ -227,6 +230,9 @@ export interface BrowserCommand {
   unattended_run?: boolean;
   /** Runtime-set with `unattended_run`: the bot that owns the run ('' unknown). */
   unattended_agent?: string;
+  /** Runtime-set, never a tool argument: navigate's `url` is a link of a mail
+   *  the runtime read for this session, so it may carry a token (url-policy.ts). */
+  mail_link?: import('./url-policy').BrowserMailLink;
 }
 
 export interface BrowserCommandResult {

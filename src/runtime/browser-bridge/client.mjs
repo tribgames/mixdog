@@ -9,6 +9,7 @@
  */
 import { BROWSER_OBSERVATION_ACTIONS, validateBrowserToolArgs } from './action-schema.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
+import { mailLinkFor } from './mail-links.mjs';
 import { traceBrowserTiming } from './timing.mjs';
 import { base64ByteLength, inlineFileKind } from '../shared/inline-file-kind.mjs';
 import { MAX_IMAGE_BYTES, SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/limits.mjs';
@@ -320,10 +321,15 @@ export async function executeBrowserTool(args, options = {}) {
   if (!validated.ok) return browserToolError(validated.error);
   const sessionId = String(options.sessionId || '').trim();
   if (!sessionId) return browserToolError('browser session context is unavailable');
+  const mailLink = validated.action === 'navigate' ? mailLinkFor(sessionId, validated.input.url) : null;
   const payload = {
     action: validated.action,
     ...validated.input,
     session_id: sessionId,
+    // Runtime-set, never from the model's arguments: this exact URL is a link
+    // of a mail the runtime read for this session (mail-links.mjs), which the
+    // desktop may open although it carries a token.
+    ...(mailLink ? { mail_link: mailLink } : {}),
     // Set by the runtime from the session, never from the model's arguments: a
     // schedule/webhook run (or work it started) whose saved routine is the
     // user's grant for submits, posts and uploads (human-gate/run-policy.mjs).

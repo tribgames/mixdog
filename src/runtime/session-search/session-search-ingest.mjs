@@ -6,15 +6,20 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isAgentOnlySession } from '../agent/orchestrator/session/store-summary-visibility.mjs';
+import { redactSensitiveText, sensitiveValuesVersion } from '../agent/orchestrator/session/sensitive-values.mjs';
+import { redactSensitiveMessages } from '../agent/orchestrator/session/sensitive-projection.mjs';
 import {
   appendSessionSearchMessages,
   deleteSessionSearchMessages,
   readSessionSearchBackfillStamps,
   readSessionSearchSessionIds,
   recordSessionSearchBackfillStamp,
+  replaceSessionSearchMessages,
 } from './session-search-db.mjs';
 
-const lastIngestedLength = new Map();
+/** sessionId → { length, version }: the transcript length and the
+ *  sensitive-values version (sensitive-values.mjs) of the last stored ingest. */
+const lastIngested = new Map();
 const LAST_INGESTED_LIMIT = 500;
 
 function logFailure(what, error) {
@@ -33,11 +38,22 @@ export function ingestSessionTurn(session) {
     // A turn always grows the transcript; an unchanged length means nothing
     // new. This is only a shortcut: the insert itself is idempotent.
     const length = messages.length;
-    if (lastIngestedLength.get(sessionId) === length) return;
-    appendSessionSearchMessages(sessionId, messages).then(
+    const version = sensitiveValuesVersion(sessionId);
+    const last = lastIngested.get(sessionId);
+    if (last?.length === length && last.version === version) return;
+    // A value a sensitive fill marked is stored as a marker here too. While
+    // the session has values not yet applied to its stored rows (rows made
+    // before the mark, compacted ones included), the rows that hold one are
+    // replaced in one transaction instead of only appending.
+    const redacted = redactSensitiveMessages(sessionId, messages);
+    const write =
+      version && last?.version !== version
+        ? replaceSessionSearchMessages(sessionId, messages, redacted, (text) => redactSensitiveText(sessionId, text))
+        : appendSessionSearchMessages(sessionId, redacted);
+    write.then(
       () => {
-        if (lastIngestedLength.size >= LAST_INGESTED_LIMIT) lastIngestedLength.clear();
-        lastIngestedLength.set(sessionId, length);
+        if (lastIngested.size >= LAST_INGESTED_LIMIT) lastIngested.clear();
+        lastIngested.set(sessionId, { length, version });
       },
       (error) => logFailure(`ingest ${sessionId}`, error)
     );
@@ -48,7 +64,7 @@ export function ingestSessionTurn(session) {
 
 /** Best-effort removal of a deleted session's search rows. Never throws. */
 export async function forgetSessionSearch(sessionId) {
-  lastIngestedLength.delete(sessionId);
+  lastIngested.delete(sessionId);
   try {
     await deleteSessionSearchMessages(sessionId);
   } catch (error) {
@@ -89,7 +105,7 @@ export async function backfillSessionSearch({ deps } = {}) {
       if (stamps.get(sessionId) === stamp) continue;
       const session = readSession(dir, file);
       if (session?.id && !isAgentOnlySession(session)) {
-        await appendSessionSearchMessages(session.id, session.messages);
+        await appendSessionSearchMessages(session.id, redactSensitiveMessages(session.id, session.messages));
         await recordSessionSearchBackfillStamp(session.id, stamp);
         ingested += 1;
       }

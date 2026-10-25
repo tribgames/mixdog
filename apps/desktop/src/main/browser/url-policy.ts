@@ -1,16 +1,60 @@
 /**
  * Pure URL admission rules: scheme, embedded credentials, agent-input secret
- * tokens, cloud metadata endpoints, private networks, and the optional domain
+ * tokens (but in a link the runtime read in a mail for the session), cloud
+ * metadata endpoints, private networks, and the optional domain
  * allowlist. url-admission wraps these with DNS resolution; navigation and
  * request filtering both call through here.
  */
 import { isIP } from 'node:net';
 
+import { getDomain } from 'tldts';
+
+import { FLOW_TTL_MS } from './linked-sign-in';
 import { browserUrlContainsSecret, redactBrowserText } from './redaction';
 
 export interface BrowserUrlPolicy {
   allowPrivateNetwork?: boolean;
   allowedDomains?: string[];
+}
+
+/** Runtime-set on a navigate, never a tool argument (runtime
+ *  browser-bridge/mail-links.mjs): `url` appeared in a mail from `from_domain`
+ *  that the runtime read through its mailbox connector for this session at
+ *  `read_at` (ms since the epoch). */
+export interface BrowserMailLink {
+  url: string;
+  from_domain: string;
+  read_at: number;
+}
+
+/** How long after the runtime read the mail its link may still be opened:
+ *  the lifetime of a sign-in flow, a 2-step check included. */
+export const MAIL_LINK_WINDOW_MS = FLOW_TTL_MS;
+
+/** The registrable domain on the public suffix list, private suffixes
+ *  included (`a.github.io` is not `b.github.io`); '' for an IP or a suffix. */
+function registrableDomain(hostname: string): string {
+  return getDomain(hostname, { allowPrivateDomains: true }) || '';
+}
+
+/** Whether agent URL `raw` is exactly the https link `link` names, read within
+ *  the window, on the registrable domain of the mail's sender: the one agent
+ *  URL that may carry a token. Where the page redirects afterwards is its own. */
+export function mailLinkAdmits(raw: string, link: BrowserMailLink | undefined, now = Date.now()): boolean {
+  if (!link || typeof link !== 'object' || !/^[\p{L}\p{N}.-]+$/u.test(String(link.from_domain))) return false;
+  let parsed: URL;
+  let sender: string;
+  try {
+    parsed = new URL(String(raw).trim());
+    if (parsed.href !== new URL(String(link.url)).href) return false;
+    sender = new URL(`https://${link.from_domain}/`).hostname;
+  } catch {
+    return false;
+  }
+  const age = now - Number(link.read_at);
+  if (parsed.protocol !== 'https:' || !(age >= 0 && age <= MAIL_LINK_WINDOW_MS)) return false;
+  const site = registrableDomain(parsed.hostname);
+  return Boolean(site) && site === registrableDomain(sender);
 }
 
 function normalizedHostname(value: string): string {
@@ -130,8 +174,10 @@ function normalizeBrowserUrl(raw: string, policy: BrowserUrlPolicy, rejectSecret
   return parsed.href;
 }
 
-export function normalizeAgentUrl(raw: string, policy: BrowserUrlPolicy = {}): string {
-  return normalizeBrowserUrl(raw, policy, true);
+/** `mailLink` lifts only the secret-token refusal, and only for the exact link
+ *  it names (mailLinkAdmits); every other rule still applies. */
+export function normalizeAgentUrl(raw: string, policy: BrowserUrlPolicy = {}, mailLink?: BrowserMailLink): string {
+  return normalizeBrowserUrl(raw, policy, !mailLinkAdmits(raw, mailLink));
 }
 
 /** Page-generated requests may contain OAuth or tracking tokens that are

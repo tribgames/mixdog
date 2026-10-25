@@ -8,7 +8,13 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
-import { assertResolvedAddressAllowed, normalizeAgentUrl, normalizePageUrl, type BrowserUrlPolicy } from './url-policy';
+import {
+  assertResolvedAddressAllowed,
+  normalizeAgentUrl,
+  normalizePageUrl,
+  type BrowserMailLink,
+  type BrowserUrlPolicy,
+} from './url-policy';
 
 interface BrowserUrlAdmissionHost {
   /** The allow-list and private-network stance this host runs under. */
@@ -65,8 +71,9 @@ export function createBrowserUrlAdmission(host: BrowserUrlAdmissionHost) {
     }
   }
 
-  async function validatedAgentUrl(raw: string): Promise<string> {
-    const normalized = normalizeAgentUrl(raw, browserUrlPolicy);
+  /** `mailLink`: the runtime-set provenance of a navigate (url-policy.ts BrowserMailLink). */
+  async function validatedAgentUrl(raw: string, mailLink?: BrowserMailLink): Promise<string> {
+    const normalized = normalizeAgentUrl(raw, browserUrlPolicy, mailLink);
     await assertResolvedUrlAllowed(normalized, true);
     return normalized;
   }

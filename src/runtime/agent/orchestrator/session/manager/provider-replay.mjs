@@ -33,6 +33,19 @@ function plainToolCalls(toolCalls) {
   });
 }
 
+/** The provider-native replay state `message` carries — its replay fields'
+ *  values and its tool calls' signatures — or null when it carries none. */
+export function providerReplayState(message) {
+  if (!message || typeof message !== 'object') return null;
+  const state = PROVIDER_REPLAY_FIELDS.filter((field) => field in message).map((field) => message[field]);
+  for (const call of Array.isArray(message.toolCalls) ? message.toolCalls : []) {
+    if (call && typeof call === 'object') {
+      for (const field of TOOL_CALL_SIGNATURE_FIELDS) if (field in call) state.push(call[field]);
+    }
+  }
+  return state.length ? state : null;
+}
+
 /** `message` without provider-native replay state; the same object when it carries none. */
 export function stripProviderReplayMessage(message) {
   if (!message || typeof message !== 'object') return message;

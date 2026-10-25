@@ -186,6 +186,63 @@ const addresses = (list) =>
     .map((entry) => (entry?.name ? `${entry.name} <${entry.address || ''}>` : entry?.address || ''))
     .filter(Boolean)
     .join(', ');
+/** The From mailboxes as Gmail parsed them, one entry each; a group shows as
+ *  its name with an empty address (imapflow parseEnvelope). */
+const mailboxes = (list) =>
+  (Array.isArray(list) ? list : []).map((entry) => ({
+    name: String(entry?.name || ''),
+    address: String(entry?.address || ''),
+  }));
+
+const stripComments = (text) => {
+  let out = text;
+  for (let previous = ''; previous !== out; ) {
+    previous = out;
+    out = out.replace(/\([^()]*\)/g, ' ');
+  }
+  return out;
+};
+
+/** Gmail's own verdict on the sender, read from the topmost
+ *  Authentication-Results only, and only when its authserv-id is Gmail's
+ *  (mx.google.com):
+ *  - the receiving MTA prepends the field above the trace fields it adds
+ *    (RFC 8601 §4, §4.1), so the last receiver's copy is the first one;
+ *  - a conforming MTA deletes any copy that arrives bearing its own
+ *    authserv-id (RFC 8601 §5), so a sender cannot pass one off as Gmail's;
+ *  - Gmail directs other mail clients to this field for its verdict (Gmail
+ *    Help, "Check if your Gmail message is authenticated", answer 180707).
+ *  A message no MTA delivered — one appended to the mailbox over IMAP — has
+ *  only the headers its author wrote; that is the account owner's own mail.
+ *  `{ dmarc: { result, from }, dkim: [{ result, domain }] }` (`domain` is a
+ *  signature's d= as header.d reports it, RFC 8601 §2.7.1), or null. */
+function gmailAuthentication(headers) {
+  const unfolded = String(headers || '').replace(/\r?\n[ \t]+/g, ' ');
+  const first = /^authentication-results:(.*)$/im.exec(unfolded)?.[1];
+  if (!first) return null;
+  const [server = '', ...results] = stripComments(first).split(';');
+  if (server.trim().split(/\s+/)[0].toLowerCase() !== 'mx.google.com') return null;
+  const verdict = { dmarc: null, dkim: [] };
+  for (const entry of results) {
+    const method = /^\s*([a-z0-9-]+)\s*=\s*([a-z]+)/i.exec(entry);
+    if (!method) continue;
+    const props = Object.fromEntries(
+      [...entry.matchAll(/([a-z]+\.[a-z]+)\s*=\s*("[^"]*"|[^\s;]+)/gi)].map(([, name, value]) => [
+        name.toLowerCase(),
+        value.replace(/^"|"$/g, '').toLowerCase(),
+      ])
+    );
+    const result = method[2].toLowerCase();
+    if (method[1].toLowerCase() === 'dmarc' && !verdict.dmarc) verdict.dmarc = { result, from: props['header.from'] || '' };
+    // Only the signing domain d= counts toward the From domain (RFC 7489
+    // §3.1.1); the agent identity i= is not an alignment identifier.
+    if (method[1].toLowerCase() === 'dkim' && props['header.d']) {
+      verdict.dkim.push({ result, domain: props['header.d'] });
+    }
+  }
+  return verdict;
+}
+
 const isoDate = (value) => {
   const date = value ? new Date(value) : null;
   return date && !Number.isNaN(date.getTime()) ? date.toISOString() : '';
@@ -214,25 +271,30 @@ const isAttachment = (node) =>
   String(node.type || '').startsWith('message/') ||
   Boolean(node.dispositionParameters?.filename || node.parameters?.name);
 
+/** The first text/plain and the first text/html part of the message that are
+ *  not attachments (part numbers), each null without one. */
+function textParts(root) {
+  const found = { plain: null, html: null };
+  const walk = (node) => {
+    if (!node || String(node.type || '').startsWith('message/')) return;
+    if (node.childNodes?.length) {
+      for (const child of node.childNodes) walk(child);
+      return;
+    }
+    if (node.disposition === 'attachment') return;
+    const part = node.part || '1';
+    if (node.type === 'text/plain' && !found.plain) found.plain = part;
+    if (node.type === 'text/html' && !found.html) found.html = part;
+  };
+  walk(root);
+  return found;
+}
+
 /** The text/plain part (else text/html) that is the message's body. */
 function bodyPart(root) {
-  let html = null;
-  const walk = (node) => {
-    if (!node || String(node.type || '').startsWith('message/')) return null;
-    if (node.childNodes?.length) {
-      for (const child of node.childNodes) {
-        const found = walk(child);
-        if (found) return found;
-      }
-      return null;
-    }
-    if (node.disposition === 'attachment') return null;
-    const part = node.part || '1';
-    if (node.type === 'text/plain') return { part, html: false };
-    if (node.type === 'text/html' && !html) html = { part, html: true };
-    return null;
-  };
-  return walk(root) || html;
+  const { plain, html } = textParts(root);
+  if (plain) return { part: plain, html: false };
+  return html ? { part: html, html: true } : null;
 }
 
 /** Attachments by name, type and (decoded, approximate) size only. */
@@ -264,16 +326,15 @@ const htmlText = (html) =>
     .replace(/ *\n\s*/g, '\n')
     .trim();
 
-/** Up to `maxBytes` of the body text, decoded to UTF-8. */
-async function bodyText(client, uid, structure, maxBytes) {
-  const picked = bodyPart(structure);
-  if (!picked) return '';
-  const download = await client.download(String(uid), picked.part, {
+/** Up to `maxBytes` of part `part`, decoded to UTF-8; `complete` is false when
+ *  the part may go on past them. */
+async function partText(client, uid, part, maxBytes) {
+  const download = await client.download(String(uid), part, {
     uid: true,
     maxBytes,
     chunkSize: Math.min(maxBytes, 65_536),
   });
-  if (!download?.content) return '';
+  if (!download?.content) return { value: '', complete: true };
   const chunks = [];
   let size = 0;
   for await (const chunk of download.content) {
@@ -281,8 +342,61 @@ async function bodyText(client, uid, structure, maxBytes) {
     size += chunk.length;
     if (size >= maxBytes) break;
   }
-  const value = Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8');
+  return { value: Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8'), complete: size < maxBytes };
+}
+
+/** Up to `maxBytes` of the body text, decoded to UTF-8. */
+async function bodyText(client, uid, structure, maxBytes) {
+  const picked = bodyPart(structure);
+  if (!picked) return '';
+  const { value } = await partText(client, uid, picked.part, maxBytes);
   return picked.html ? htmlText(value) : value.trim();
+}
+
+let domModule;
+const loadDom = () => (domModule ||= import('jsdom'));
+
+/** The targets of an HTML part's hyperlinks (`a` and `area` with href, HTML
+ *  Standard §4.6 Links) as the HTML parser reads the attribute, character
+ *  references decoded. A tag the download cut off is no element (HTML
+ *  tokenization: the eof-in-tag error emits no tag). */
+async function htmlLinks(html) {
+  if (!html) return [];
+  const { JSDOM } = await loadDom();
+  const dom = new JSDOM(html);
+  try {
+    return [...dom.window.document.querySelectorAll('a[href], area[href]')].map((node) => node.getAttribute('href'));
+  } finally {
+    dom.window.close();
+  }
+}
+
+// An absolute http(s) URI in plain text as RFC 3986 spells one: the scheme,
+// then a run of URI characters — unreserved, reserved or percent-encoded
+// (§2.1-§2.3). Whitespace, quotes and angle brackets are no URI characters,
+// so they end it (Appendix C).
+const TEXT_URI = /https?:\/\/(?:[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=]|%[0-9A-Fa-f]{2})+/gi;
+
+const isWebUrl = (value) => {
+  try {
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+};
+
+/** The message's link targets, exactly as written: the hyperlinks of its
+ *  HTML part, then the URIs of its text part (one the download cut off is
+ *  left out). Absolute http(s) only, each once. */
+function messageLinks(plain, hrefs) {
+  const links = [...hrefs];
+  if (plain) {
+    for (const match of plain.value.matchAll(TEXT_URI)) {
+      if (!plain.complete && match.index + match[0].length === plain.value.length) continue;
+      links.push(match[0]);
+    }
+  }
+  return [...new Set(links.filter((link) => typeof link === 'string' && isWebUrl(link)))];
 }
 
 const references = (headers) =>
@@ -519,7 +633,8 @@ const TOOLS = [
   },
   {
     name: 'read_email',
-    description: 'Read one email by its id from search_emails: headers, text body, and attachment names and sizes.',
+    description:
+      'Read one email by its id from search_emails: headers, text body, link targets, and attachment names and sizes.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     annotations: { readOnlyHint: true, openWorldHint: true },
     async run(ctx, args) {
@@ -530,22 +645,36 @@ const TOOLS = [
         const [message] = uid
           ? await client.fetchAll(
               String(uid),
-              { uid: true, envelope: true, internalDate: true, bodyStructure: true, threadId: true },
+              {
+                uid: true,
+                envelope: true,
+                internalDate: true,
+                bodyStructure: true,
+                threadId: true,
+                headers: ['authentication-results'],
+              },
               { uid: true }
             )
           : [];
         if (!message) throw new ToolInputError(`No email with id ${id}.`);
         const { envelope = {} } = message;
-        const body = await bodyText(client, message.uid, message.bodyStructure, READ_BYTES);
+        const parts = textParts(message.bodyStructure);
+        const plain = parts.plain ? await partText(client, message.uid, parts.plain, READ_BYTES) : null;
+        const html = parts.html ? await partText(client, message.uid, parts.html, READ_BYTES) : null;
+        const body = plain ? plain.value.trim() : html ? htmlText(html.value) : '';
+        const links = messageLinks(plain, await htmlLinks(html?.value));
         const head = {
           id: message.emailId || id,
           threadId: message.threadId,
           messageId: envelope.messageId,
           from: addresses(envelope.from),
+          fromAddresses: mailboxes(envelope.from),
+          authentication: gmailAuthentication(message.headers),
           to: addresses(envelope.to),
           cc: addresses(envelope.cc) || undefined,
           date: isoDate(envelope.date || message.internalDate),
           subject: text(envelope.subject),
+          links,
           attachments: attachmentsOf(message.bodyStructure),
         };
         const clipped = body.length > READ_CHARS ? `${body.slice(0, READ_CHARS)}\n[truncated]` : body;

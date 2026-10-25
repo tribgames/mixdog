@@ -56,7 +56,7 @@ export const BROWSER_INPUT_FIELDS = {
       type: 'string',
       enum: ['semantic', 'visual', 'both'],
       description:
-        'snapshot only: semantic refs (default), visual image, or both. Coordinates need both; fullPage and ref/target crops need visual. navigate uses includeScreenshot.',
+        'snapshot only: semantic refs (default), visual, or both. Coordinates need both; fullPage and ref/target crops need visual. navigate: includeScreenshot.',
     },
     fullPage: { type: 'boolean', description: 'Full-document screenshot; inspection-only.' },
     format: {
@@ -132,7 +132,7 @@ export const BROWSER_INPUT_FIELDS = {
       items: { type: 'string', maxLength: 60 },
       minItems: 1,
       maxItems: 12,
-      description: 'extract only: attribute names per match; text and name always included.',
+      description: 'extract only: attribute names per match (text and name always come).',
     },
     operation: {
       type: 'string',
@@ -234,7 +234,7 @@ export const BROWSER_INPUT_FIELDS = {
       type: 'string',
       maxLength: 100,
       description:
-        'downloads only: d1/d2 ID; omitted, wait pins the newest (or next) download and attach takes the newest completed file.',
+        'downloads only: d1/d2 ID; omitted: wait pins the newest (or next), attach the newest completed.',
     },
     wait: { type: 'boolean', description: 'downloads only: wait up to timeoutMs for completion.' },
     attach: { type: 'boolean', description: 'downloads only: attach the completed file (≤ 8 MiB) to the result.' },
@@ -245,11 +245,12 @@ export const BROWSER_INPUT_FIELDS = {
     },
     textGone: { type: 'string', maxLength: 10000, description: 'wait: page-text substring that must disappear.' },
     submit: { type: 'boolean', description: 'fill or type: press Enter afterward.' },
+    sensitive: { type: 'boolean', description: 'fill: code/secret text; redacted in output and transcript.' },
     savedAccount: {
       type: 'string',
       maxLength: 320,
       description:
-        'fill: account or masked label saved for this HTTPS site; fills the whole sign-in form, password kept on the host. No ref/target/text; submit presses Enter.',
+        'fill: saved login (account or masked label) of this HTTPS site; fills the sign-in form, password stays on the host. No ref/target/text.',
     },
     key: {
       type: 'string',
@@ -399,12 +400,12 @@ export const BROWSER_INPUT_FIELDS = {
       type: 'string',
       maxLength: 64,
       description:
-        'Session-local page ID p1/p2… from list_tabs (v1/v2 aliases work), or a background page name; background:true creates one. Popups are named background pages.',
+        'Page ID p1/p2… from list_tabs (or v1/v2), or a background page name (background:true makes one; popups get one).',
     },
     background: {
       type: 'boolean',
       description:
-        'true creates/targets a hidden support page; false reveals it until task end; omitted never promotes a named one. open without true keeps it for user handoff.',
+        'true: create/target a hidden support page; false: reveal it until task end; omitted never promotes a named one. open without true keeps it for handoff.',
     },
   },
 };

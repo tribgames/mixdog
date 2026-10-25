@@ -4,6 +4,9 @@
 // canonicalizes the transcript when the turn is interrupted.
 import { captureTurnCheckpointContextState, createTurnCheckpointRecorder } from './turn-checkpoint.mjs';
 import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
+import { onSensitiveValuesMarked } from '../sensitive-values.mjs';
+import { saveSessionAsync } from '../store.mjs';
+import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
 
 // Coalescing window for streaming-delta flushes. Each flush journals only the
 // delta since the previous one, so the window just bounds syscalls.
@@ -55,6 +58,27 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
       return false;
     }
   };
+  const flushNow = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    flush();
+  };
+  // A value marked sensitive while the turn runs (sensitive-values.mjs) —
+  // before the call that carries it executes: every stored copy that may hold
+  // it is written again with it replaced. The checkpoint is rewritten in full
+  // now (the recorder sees the new version); the session file gets a full
+  // save (store/save-delta.mjs resyncs on the version) and the search rows a
+  // transactional replacement (session-search-ingest.mjs).
+  const stopMarks = onSensitiveValuesMarked(sessionId, () => {
+    if (stopped) return;
+    if (turn.outgoing) flushNow();
+    saveSessionAsync(turn.session, { expectedGeneration: generation }).catch((err) => {
+      try {
+        process.stderr.write(`[session] sensitive-value save failed session=${sessionId}: ${err?.message || err}\n`);
+      } catch {}
+    });
+    ingestSessionTurn(turn.session);
+  });
   return {
     refreshContextState() {
       contextState = captureTurnCheckpointContextState(turn.session, turn.outgoing, turn.userTurnContent);
@@ -62,9 +86,7 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
     schedule(immediate = false) {
       if (stopped || !turn.outgoing) return;
       if (immediate || Date.now() - lastAt >= TURN_CHECKPOINT_THROTTLE_MS) {
-        if (timer) clearTimeout(timer);
-        timer = null;
-        flush();
+        flushNow();
         return;
       }
       if (timer) return;
@@ -77,6 +99,7 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
     },
     stop() {
       stopped = true;
+      stopMarks();
       if (timer) clearTimeout(timer);
       timer = null;
       recorder.stop();

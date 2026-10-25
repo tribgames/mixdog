@@ -37,6 +37,8 @@ import { listAllMcpTools, MCP_CONNECT_CANCELLED, runBoundedHandshake } from './c
 import { rememberServerConnector } from './server-connectors.mjs';
 import { mcpOAuthClientFor, mcpOAuthDisplayName } from './oauth-client.mjs';
 import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
+import { gmailAppPasswordService } from '../../../connectors/gmail-app-password.mjs';
+import { connectorAccountServers } from '../../../shared/connector-catalog.mjs';
 import {
   clearMcpOAuth,
   commitMcpOAuthSwitch,
@@ -1116,6 +1118,23 @@ export function isMcpTool(name) {
 /** True when the prefixed name exists on a connected MCP server. */
 export function isRegisteredMcpTool(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
   return Boolean(resolveMcpToolTarget(scopeId, name)?.definition);
+}
+/** True when the prefixed name is `read_email` of a server whose every
+ *  endpoint Mixdog answers in-process (the Gmail app-password connector,
+ *  alone or behind the multi-account server): its result is a mail as the
+ *  mailbox holds it, never another server's text (browser-bridge/mail-links.mjs). */
+export function isBuiltinMailRead(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
+  const target = resolveMcpToolTarget(normalizeMcpScopeId(scopeId), name);
+  if (!target || (target.definition?.mcpToolName || MCP_TOOL_NAME_RE.exec(name)?.[2]) !== 'read_email') return false;
+  const accounts = connectorAccountServers(target.server.cfg);
+  return (accounts.length ? accounts : [target.server.cfg]).every((cfg) => {
+    try {
+      const url = resolveMcpOAuthUrl(cfg);
+      return Boolean(gmailAppPasswordService(url) || googleMcpService(url));
+    } catch {
+      return false;
+    }
+  });
 }
 /**
  * Check whether the inputSchema for an MCP tool declares the given top-level

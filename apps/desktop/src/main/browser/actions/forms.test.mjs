@@ -146,3 +146,52 @@ test('partial multi-field failure reports completed inputs and a fresh observati
   assert.deepEqual(writes, [['first', 'first']]);
   assert.equal(observed, 1);
 });
+
+test('a sensitive fill registers its code before the page sees it; no reply or later snapshot repeats it', async (t) => {
+  const { secretInputs } = await import('../../secret-input.ts');
+  const { guardBrowserSecrets } = await import('../agent-bridge.ts');
+  const { rememberForSession } = await import('../credential-fill-host.ts');
+  const { createBrowserRefActions } = await import('../ref-actions.ts');
+  const CODE = '682419';
+  const session = 'sess-verification-code';
+  t.after(() => secretInputs.forget(session));
+  // The page echoes the field's value, as a non-password snapshot does.
+  const page = `- textbox "Verification code" [ref=p1-s1-e3] value=${CODE}`;
+  const run = async (sensitive) => {
+    let registeredFirst;
+    // The toolkit's wiring (command-toolkit.ts): a value the host fills is remembered for the page's session.
+    const toolkit = createBrowserRefActions({
+      rememberSecret: (guest, value) => rememberForSession({ sessionIdForGuest: () => session }, guest, value),
+    });
+    const command = { action: 'fill', ref: 'p1-s1-e3', text: CODE, session_id: session, ...(sensitive ? { sensitive } : {}) };
+    const context = {
+      guest: {},
+      command,
+      refRecovery: {},
+      services: {
+        state: { invalidateInteraction() {} },
+        reply: { withRefRecovery: async (_guest, _recovery, ref) => ref, decorateRecovery: (result) => result },
+        refActions: {
+          ...toolkit,
+          fillRef: async () => {
+            registeredFirst = secretInputs.secretsOf(session).includes(CODE);
+          },
+        },
+      },
+      actionSnapshot: async () => ({ text: page }),
+    };
+    const signal = new AbortController().signal;
+    const reply = await guardBrowserSecrets(command, signal, () => formActions.fill(context));
+    const next = await guardBrowserSecrets({ action: 'snapshot', session_id: session }, signal, async () => ({ text: page }));
+    return { registeredFirst, reply: reply.text, next: next.text };
+  };
+
+  const plain = await run(false);
+  assert.match(plain.reply, new RegExp(CODE), 'an ordinary fill keeps the page text as it is');
+  const marked = await run(true);
+  assert.equal(marked.registeredFirst, true, 'registered before the field was filled');
+  for (const text of [marked.reply, marked.next]) {
+    assert.doesNotMatch(text, new RegExp(CODE));
+    assert.match(text, /value=\[redacted\]/);
+  }
+});

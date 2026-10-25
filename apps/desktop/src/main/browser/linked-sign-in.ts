@@ -86,7 +86,7 @@ export const LINKED_FIELD_READ = `function() {
 
 export const LINKED_SIGN_IN_PREFIX = 'Linked sign-in: ';
 /** How long an authorization request waits for its callback (a 2-step check included). */
-const FLOW_TTL_MS = 30 * 60_000;
+export const FLOW_TTL_MS = 30 * 60_000;
 const MAX_REQUESTS = 8;
 const SHOWN_MEMORY = 500;
 const MAX_BODY = 64 * 1024;

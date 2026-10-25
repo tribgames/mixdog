@@ -7,10 +7,19 @@ import test, { mock } from 'node:test';
 const queries = [];
 const backfillStore = new Map();
 const indexedSessionIds = [];
+const storedRows = [];
+let transactions = 0;
 const db = {
   exec: async () => {},
+  transaction: async (fn) => {
+    transactions += 1;
+    return fn({ query: (sql, params) => db.query(sql, params) });
+  },
   query: async (sql, params) => {
     queries.push({ sql, params });
+    if (/SELECT source_ref, ordinal, role, ts, content/.test(sql)) {
+      return { rows: storedRows.slice(), rowCount: storedRows.length };
+    }
     if (/INSERT INTO session_search\.messages/.test(sql)) return { rows: [], rowCount: params[0].length };
     if (/SELECT session_id, stamp/.test(sql)) {
       return {
@@ -36,6 +45,8 @@ mock.module('../shared/plugin-paths.mjs', {
 });
 
 const { ingestSessionTurn, forgetSessionSearch, backfillSessionSearch } = await import('./session-search-ingest.mjs');
+const { rememberSensitiveValues } = await import('../agent/orchestrator/session/sensitive-values.mjs');
+const { sessionSearchRows } = await import('./session-search-db.mjs');
 
 const inserts = () => queries.filter((q) => /INSERT INTO session_search\.messages/.test(q.sql));
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -62,6 +73,79 @@ test('ingestSessionTurn stores an ordinary session once per transcript length', 
   ingestSessionTurn(grown);
   await settle();
   assert.equal(inserts().length, 2);
+});
+
+test('a newly marked sensitive value replaces the stored rows that hold it, in one transaction', async () => {
+  const id = 'sess_sensitive';
+  const session = {
+    id,
+    agent: 'lead',
+    messages: [
+      { role: 'user', content: 'Finish the sign-up.' },
+      { role: 'assistant', content: 'The code is 682419.' },
+      { role: 'assistant', content: 'The code is 682419.' },
+    ],
+  };
+  queries.length = 0;
+  ingestSessionTurn(session);
+  await settle();
+  assert.equal(transactions, 0, 'no value yet: an ordinary append');
+  // Stored before the mark, as the ingest wrote them: the rows of the
+  // transcript's messages, and two rows of different messages compaction
+  // dropped that read the same once redacted.
+  const live = sessionSearchRows(id, session.messages).map((row) => ({
+    source_ref: row.sourceRef,
+    ordinal: row.ordinal,
+    role: row.role,
+    ts: row.ts,
+    content: row.content,
+  }));
+  storedRows.splice(
+    0,
+    storedRows.length,
+    ...live,
+    { source_ref: `session:${id}:gone-a`, ordinal: 0, role: 'assistant', ts: '1700000000000', content: 'Earlier: 682419' },
+    { source_ref: `session:${id}:gone-b`, ordinal: 3, role: 'assistant', ts: '1700000005000', content: 'Earlier: 682419' }
+  );
+  rememberSensitiveValues(id, [
+    { name: 'browser', arguments: { action: 'fill', input: { ref: 'p1-s1-e3', text: '682419', sensitive: true } } },
+  ]);
+  queries.length = 0;
+  ingestSessionTurn(session);
+  await settle();
+  assert.equal(transactions, 1);
+  assert.doesNotMatch(JSON.stringify(queries.map((q) => q.params)), /682419/, 'nothing written holds it');
+  const deleted = queries.find((q) => /DELETE FROM session_search\.messages WHERE source_ref/.test(q.sql));
+  assert.deepEqual(deleted.params[0], [
+    live[1].source_ref,
+    live[2].source_ref,
+    `session:${id}:gone-a`,
+    `session:${id}:gone-b`,
+  ]);
+  const [refs, , ordinals, roles, ts, contents] = inserts().at(-1).params;
+  assert.deepEqual(contents, [
+    'Finish the sign-up.',
+    'The code is [redacted].',
+    'The code is [redacted].',
+    'Earlier: [redacted]',
+    'Earlier: [redacted]',
+  ]);
+  assert.deepEqual(roles, ['user', 'assistant', 'assistant', 'assistant', 'assistant']);
+  assert.deepEqual(ordinals, [0, 1, 2, 0, 3], 'every message survives, the same text or not');
+  assert.deepEqual(ts.slice(3), [1700000000000, 1700000005000], 'dropped ones keep their place in time');
+  assert.equal(new Set(refs).size, refs.length, 'no two rows share an id');
+  const redactedRows = sessionSearchRows(
+    id,
+    session.messages.map((message) => ({ ...message, content: message.content.replace('682419', '[redacted]') }))
+  );
+  assert.deepEqual(refs.slice(0, 3), redactedRows.map((row) => row.sourceRef), "the transcript's rows by their identity");
+
+  queries.length = 0;
+  ingestSessionTurn(session);
+  await settle();
+  assert.equal(transactions, 1, 'applied once per new value');
+  assert.equal(queries.length, 0);
+  storedRows.length = 0;
 });
 
 test('ingestSessionTurn skips agent-only sessions and never throws', async () => {

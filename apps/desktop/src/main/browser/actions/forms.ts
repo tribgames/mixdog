@@ -41,6 +41,13 @@ export const formActions = defineBrowserActions({
       return afterEdit(context, Boolean(command.submit));
     }
     const fields = Array.isArray(command.fields) ? command.fields : [];
+    // A code or secret the caller marked: registered before the page sees it,
+    // so no reply, snapshot or error of this session repeats it.
+    if (command.sensitive === true) {
+      for (const value of [command.text, ...fields.flatMap((field) => [field?.text, field?.value])]) {
+        if (typeof value === 'string' && value) refActions.rememberSecret(guest, value);
+      }
+    }
     if (!fields.length) {
       const ref = await actionRef(context);
       if (!ref) throw new Error('fill requires ref, target, or fields');
