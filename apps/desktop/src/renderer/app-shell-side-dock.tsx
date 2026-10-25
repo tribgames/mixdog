@@ -18,7 +18,12 @@ import { t } from './i18n';
 import { sideFileDirtyKey, type createSideFileGuard } from './side-file-guard';
 import { sideFileKey } from './side-file-tabs';
 import type { EditorSaveHandle } from './use-pane-tab-close';
-import { isSessionSidePanelView, sessionSideDockEntryForSession } from './session-side-surface-policy';
+import {
+  isSessionSidePanelView,
+  sessionPanelViewIn,
+  sessionSideDockEntryForSession,
+  sessionSurfaceSessionFor,
+} from './session-side-surface-policy';
 import { SessionBrowserSlot } from './session-browser-surfaces';
 import { SessionTerminalSlot } from './session-terminal-surfaces';
 import { prewarmSessionTerminal } from './SessionTerminalTabs';
@@ -69,27 +74,36 @@ interface PaneDockContext {
   ) => React.ReactNode;
 }
 
+/** `groups`: the tab's own right-side groups (paneRightGroupsFor); a session
+ *  view they do not hold is not shown. */
 function sessionDockEntry(
   leafId: string,
   sessionId: string,
   paneSideDocks: PaneDockContext['paneSideDocks'],
-  sessionSurfaces: PaneDockContext['sessionSurfaces']
+  sessionSurfaces: PaneDockContext['sessionSurfaces'],
+  groups: readonly (readonly string[])[]
 ) {
   return sessionSideDockEntryForSession(
     paneSideDocks.entryFor(leafId),
     sessionId,
     sessionSurfaces.sessionSideSurfaces.get(sessionId) ?? null,
     sessionSurfaces.sessionDiffs.get(sessionId) ?? null,
-    sessionSurfaces.sessionPanelViews.get(sessionId) ?? null
+    sessionPanelViewIn(groups, sessionSurfaces.sessionPanelViews.get(sessionId)),
+    sessionSurfaces.panelViewFronts.has(sessionId)
   );
 }
 
 export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context: PaneDockContext): React.ReactNode {
   const active = paneActiveSelection(leaf);
   const sessionId = active?.kind === 'session' ? active.id : '';
-  const entry = sessionDockEntry(leaf.id, sessionId, context.paneSideDocks, context.sessionSurfaces);
-  const prewarm = focused && context.dockBodyWarm;
   const groups = paneRightGroupsFor(context.workbenchSideLayout.layout.right, sessionId);
+  const entry = sessionDockEntry(leaf.id, sessionId, context.paneSideDocks, context.sessionSurfaces, groups);
+  const prewarm = focused && context.dockBodyWarm;
+  // A child session's terminal revealed in this conversation's dock (its
+  // owner chain): the slot shows the child's terminal. A child's browser
+  // page shows in this session's own browser as a borrowed tab.
+  const surfaceSession = (surface: 'terminal') =>
+    sessionSurfaceSessionFor(context.sessionSurfaces.sessionSurfaceSources, sessionId, surface);
   const projectPath = context.paneProjectPathFor(leaf);
   // The Files tree reopens on the folder it last revealed in this
   // Project, else on the Project root.
@@ -255,11 +269,12 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           }}
           renderTerminalSurface={(surfaceActive, exiting) => {
             if (!sessionId) return null;
+            const terminalSession = surfaceSession('terminal');
             return (
               <SessionTerminalSlot
                 controller={context.sessionSurfaces.terminalSurfaces}
-                sessionId={sessionId}
-                cwd={resolveTerminalCwd(context.sessionWorkspaceCwdFor?.(sessionId), projectPath)}
+                sessionId={terminalSession}
+                cwd={resolveTerminalCwd(context.sessionWorkspaceCwdFor?.(terminalSession), projectPath)}
                 active={surfaceActive}
                 foreground={surfaceActive && focused && !exiting}
                 exiting={exiting}
@@ -374,7 +389,7 @@ export function renderPaneDockStripTrailing(
   const paneGroups = paneRightGroupsFor(workbenchSideLayout.layout.right, sessionId);
   const groups = agentChat ? agentChatStripGroups(paneGroups) : codingStripGroups(paneGroups);
   if (groups.length === 0) return null;
-  const entry = sessionDockEntry(leaf.id, sessionId, paneSideDocks, sessionSurfaces);
+  const entry = sessionDockEntry(leaf.id, sessionId, paneSideDocks, sessionSurfaces, paneGroups);
   return (
     <SessionToggleDescriptors
       base={sideViewDescriptors}

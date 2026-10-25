@@ -14,9 +14,19 @@ import { beginStudioLoad, reportStudioLoadStage } from '../renderer-load-metrics
 import { loadStudioViewModule } from '../studio-loader';
 import { prefetchBrowserPane, prefetchDiffView, prefetchEditorPane, prefetchTerminalPane } from '../lazy-widgets';
 import { useAgentBrowserSurfaceRequests } from '../use-agent-browser-surface-requests';
-import { browserSurfaceRevealPlan } from '../session-browser-policy';
+import {
+  browserSurfaceRevealPlan,
+  surfaceOwnerChain,
+  surfaceRevealTarget,
+  surfaceSessionName,
+  type SurfaceOwnerSources,
+} from '../session-browser-policy';
+import { agentPoolStore } from '../agent-activity-model';
+import { moveChildSurfacePeek, recordChildSurfacePeek } from '../child-surface-peeks';
+import { activeSessionTerminalId } from '../session-terminal-tabs';
+import type { DesktopSessionSummary } from '../../shared/contract';
 import { handleTerminalRunRequest, onTerminalRevealRequested } from '../terminal-command-request';
-import { onVisualizeRevealRequested } from '../visualize-store';
+import { onVisualizeEmptied, onVisualizeRevealRequested } from '../visualize-store';
 import { useStableEvent } from '../use-stable-event';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
 import type { useAppSideDocks } from '../use-app-side-docks';
@@ -43,6 +53,8 @@ interface UseAppTabActionsOptions {
   activeProjectPath: string;
   /** Opens the project file search (quick open). */
   openQuickOpen: () => void;
+  /** The session catalog: a bot's task sessions name the bot that made them. */
+  sessions?: readonly DesktopSessionSummary[];
 }
 
 export function useAppTabActions({
@@ -57,8 +69,15 @@ export function useAppTabActions({
   openSession,
   activeProjectPath,
   openQuickOpen,
+  sessions = [],
 }: UseAppTabActionsOptions) {
   const { openInFocused: openSelectionInFocusedPane, splitFocused: splitFocusedPane } = paneWorkspace;
+  // Read when a reveal runs: the agent pool names a sub-agent's owner, the
+  // catalog a task session's bot (session-browser-policy surfaceOwnerChain).
+  const ownerSources = (): SurfaceOwnerSources => ({
+    sessions,
+    pool: agentPoolStore(window.mixdogDesktop).getSnapshot() ?? [],
+  });
 
   const openUtilityTab = (
     utilitySelection: Extract<WorkspaceSelection, { kind: 'studio' | 'terminal' }>,
@@ -118,6 +137,7 @@ export function useAppTabActions({
     owners: sessionOwners,
     focusedLeafId: paneWorkspace.focusedLeafId,
     surfaces: sessionPaneSurfaces,
+    ownerSources,
     prefetch: prefetchBrowserPane,
     select: paneSideDocks.select,
   });
@@ -131,13 +151,45 @@ export function useAppTabActions({
   });
   useEffect(() => onBrowserMainRequested(openBrowserInMain), [openBrowserInMain]);
 
-  // A chat code block's Run: the session's terminal opens beside the pane
-  // showing that session (the focused one when several do).
+  /** `sessionId`'s terminal where its owner chain is on screen (a child's
+   *  terminal opens in the owner conversation's dock); false when none of
+   *  the chain is, the reveal then waiting for the user to return. */
+  const routeSessionTerminal = (sessionId: string, park: boolean): boolean => {
+    const chain = surfaceOwnerChain(sessionId, ownerSources());
+    const target = surfaceRevealTarget(sessionOwners, chain, paneWorkspace.focusedLeafId);
+    if (!target.leafId) {
+      if (park) setSessionSideSurface(sessionId, 'terminal');
+      return false;
+    }
+    sessionPaneSurfaces.showSessionSurface(target.sessionId, sessionId, 'terminal');
+    // The child's line goes where its terminal went (a deferred reveal moves it).
+    moveChildSurfacePeek(sessionId, 'terminal', target.sessionId);
+    paneSideDocks.select(target.leafId, 'terminal');
+    return true;
+  };
+  // A chat code block's Run, a terminal peek line, or the agent's `terminal`
+  // run: the session's terminal opens beside the pane showing it, or the
+  // conversation of its owner chain on screen (the focused one when several
+  // do). A child's terminal leaves its line where it opens: that
+  // conversation, else (none on screen) the authoritative owner.
   const revealSessionTerminal = useStableEvent((sessionId: string) => {
     void prefetchTerminalPane().catch(() => {});
-    setSessionSideSurface(sessionId, 'terminal');
-    const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
-    if (leafId) paneSideDocks.select(leafId, 'terminal');
+    const sources = ownerSources();
+    const chain = surfaceOwnerChain(sessionId, sources);
+    const target = surfaceRevealTarget(sessionOwners, chain, paneWorkspace.focusedLeafId);
+    const peekOwner = target.leafId ? target.sessionId : (chain.at(-1) ?? sessionId);
+    if (chain.length > 1 && peekOwner !== sessionId) {
+      recordChildSurfacePeek(peekOwner, {
+        childSessionId: sessionId,
+        childName: surfaceSessionName(sessionId, sources),
+        surface: 'terminal',
+        title: '',
+        tabId: activeSessionTerminalId(sessionId),
+        failed: '',
+        at: Date.now(),
+      });
+    }
+    sessionPaneSurfaces.queueDockReveal(sessionId, routeSessionTerminal(sessionId, true) ? null : 'terminal');
   });
   useEffect(() => onTerminalRevealRequested(revealSessionTerminal), [revealSessionTerminal]);
   // The agent's `terminal` run: main reveals the dock (and opens a tab when the
@@ -145,17 +197,47 @@ export function useAppTabActions({
   useEffect(() => window.mixdogDesktop?.onTerminalRunRequested?.(handleTerminalRunRequest), []);
 
   // The agent's `visualize` open or update: the session's visualize view
-  // becomes its side panel. A pane showing the session reveals it now;
-  // otherwise it waits on the session and appears when the user returns to
-  // it — no other pane or session is touched. The store's open policy
-  // decides which opens get here (visualize-store).
+  // becomes its panel view. The session's browser/terminal stays: an
+  // explicit open of either is the later one and keeps the front, the
+  // visualize view waiting under it. A pane showing the session reveals it
+  // now; otherwise it waits on the session and appears when the user returns
+  // to it, in front of its own file tabs — no other pane or session is
+  // touched. The store's open policy decides which opens get here
+  // (visualize-store). The Routines tile preference is the user's alone.
   const revealSessionVisualize = useStableEvent((sessionId: string) => {
-    sessionPaneSurfaces.setSessionSideSurface(sessionId, null);
-    sessionPaneSurfaces.setSessionPanelView(sessionId, 'visualize');
+    sessionPaneSurfaces.setSessionPanelView(sessionId, 'visualize', { agent: true, front: true });
     const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
     if (leafId) paneSideDocks.select(leafId, 'visualize');
+    sessionPaneSurfaces.queueDockReveal(sessionId, leafId ? null : 'visualize');
   });
   useEffect(() => onVisualizeRevealRequested(revealSessionVisualize), [revealSessionVisualize]);
+  // The session's last visualize tab closed: its visualize view goes, on
+  // screen or not, so no empty frame comes back (a waiting reveal too).
+  const clearEmptiedVisualize = useStableEvent((sessionId: string) => {
+    if (sessionPaneSurfaces.pendingDockReveals.current.get(sessionId) === 'visualize') {
+      sessionPaneSurfaces.queueDockReveal(sessionId, null);
+    }
+    if (sessionPaneSurfaces.sessionPanelViews.get(sessionId) !== 'visualize') return;
+    sessionPaneSurfaces.setSessionPanelView(sessionId, null, { agent: true });
+  });
+  useEffect(() => onVisualizeEmptied(clearEmptiedVisualize), [clearEmptiedVisualize]);
+
+  // A reveal left for a session no pane showed takes effect once one does,
+  // in front of that session's own file tabs or diff.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs on every render's owners and each queued reveal; the map is read at run time
+  useEffect(() => {
+    const pending = sessionPaneSurfaces.pendingDockReveals.current;
+    for (const [sessionId, view] of [...pending]) {
+      if (view === 'terminal') {
+        if (routeSessionTerminal(sessionId, false)) pending.delete(sessionId);
+        continue;
+      }
+      const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
+      if (!leafId) continue;
+      pending.delete(sessionId);
+      paneSideDocks.select(leafId, view);
+    }
+  }, [sessionOwners, paneWorkspace.focusedLeafId, sessionPaneSurfaces.dockRevealTick]);
 
   const openDiffTab = (project: string, rel: string, request: SourceControlDiffRequest) => {
     const target = cleanDiffTarget(project, rel);

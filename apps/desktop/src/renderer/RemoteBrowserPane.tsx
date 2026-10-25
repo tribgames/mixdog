@@ -277,10 +277,15 @@ function useRemotePageInput({
 function useRemoteDockTabs({
   setAddress,
   addressRef,
+  closeDock,
+  borrowed,
   ...options
 }: Parameters<typeof useRemoteBrowserTabs>[0] & {
   setAddress: Dispatch<SetStateAction<string>>;
   addressRef: RefObject<HTMLInputElement | null>;
+  closeDock(): void;
+  /** The panel shows another session's page: a tab ✕ only dismisses it. */
+  borrowed: boolean;
 }) {
   const { sessionTabsSupported, closeTab, createSessionTab, closeSessionTab, ...remoteTabs } =
     useRemoteBrowserTabs(options);
@@ -288,13 +293,14 @@ function useRemoteDockTabs({
 
   // Closing the only tab closes the side panel; the host keeps its page.
   const closeDockTab = async (id: string) => {
-    if (sessionTabsSupported) {
+    if (borrowed) closeDock();
+    else if (sessionTabsSupported) {
       // Like the PC pane, the panel closes with the last tab, but that is the
       // host's count after the close: the strip may be stale, and the PC may
       // have added or closed a tab meanwhile.
       const reply = await closeSessionTab(id);
-      if (reply?.remainingTabs === 0) requestPaneDockClose('browser');
-    } else if (tabs.length < 2) requestPaneDockClose('browser');
+      if (reply?.remainingTabs === 0) closeDock();
+    } else if (tabs.length < 2) closeDock();
     else await closeTab(id);
   };
   /** "+" on a main-workspace strip: the address field opens the new tab. */
@@ -327,7 +333,9 @@ function RemotePhoneHeader({
   selectTab,
   closeDockTab,
   createStripTab,
+  closeDock,
 }: {
+  closeDock(): void;
   streamId: string;
   frame: StreamFrameMeta | null;
   externalUrl: string;
@@ -350,7 +358,7 @@ function RemotePhoneHeader({
   ];
   return (
     <DockHeaderRow
-      onClose={() => requestPaneDockClose('browser')}
+      onClose={closeDock}
       actions={moreActions}
       left={
         <BrowserTabStrip
@@ -849,8 +857,16 @@ function RemoteBrowserContent({
 export { STREAM_RENEW_MS } from './use-remote-browser-stream';
 const TOUCH_INDICATOR_MS = 450;
 
-export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProps) {
+/** `onDockClose` is given when the panel shows another session's page: it
+ *  replaces the default close (the focused dock) with the viewer's own dock,
+ *  and a tab ✕ then only dismisses the view, leaving the page's tab. */
+export default function RemoteBrowserPane({
+  sessionId,
+  active,
+  onDockClose,
+}: BrowserPaneProps & { onDockClose?: () => void }) {
   const api = window.mixdogDesktop;
+  const closeDock = onDockClose ?? (() => requestPaneDockClose('browser'));
   // The page this client streams: its own tab until another is selected.
   const [streamId, setStreamId] = useState(sessionId);
   const ownerSessionId = streamId;
@@ -990,6 +1006,8 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     frameTabs: frame?.tabs,
     setAddress,
     addressRef,
+    closeDock,
+    borrowed: Boolean(onDockClose),
   });
 
   // A chat link or page card asks this session's pane for an address; the
@@ -1035,6 +1053,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           selectTab={selectTab}
           closeDockTab={closeDockTab}
           createStripTab={createStripTab}
+          closeDock={closeDock}
         />
       )}
       <div className="browser-pane-toolbar">

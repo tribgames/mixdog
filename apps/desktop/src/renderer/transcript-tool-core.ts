@@ -614,6 +614,35 @@ export function desktopToolActivityBrowserPage(items: readonly TranscriptItem[])
   return page;
 }
 
+export interface ToolActivityTerminalRun {
+  /** The call's id: one card per run. */
+  id: string;
+  command: string;
+  /** The terminal the command went to, from the bridge's reply. */
+  terminalId: string;
+}
+
+const TERMINAL_RUN_REPLY = /Terminal run: (session-terminal:[^\s·"\\]+)/;
+
+/** The commands a group's `terminal` calls ran, for the "터미널 · … · 보기" cards.
+ *  Only a run whose reply names its terminal leaves a card: a call still
+ *  running, a failed run, a read or a list has no tab to reveal. */
+export function desktopToolActivityTerminalRuns(items: readonly TranscriptItem[]): ToolActivityTerminalRun[] {
+  const runs: ToolActivityTerminalRun[] = [];
+  for (const item of flattenedToolActivityItems(items)) {
+    if (item.isError) continue;
+    const surface = desktopToolActivitySurface(item.name, item.args);
+    if (surface.normalizedName !== 'terminal' || surface.args.action !== 'run') continue;
+    const command = typeof surface.args.command === 'string' ? surface.args.command.trim() : '';
+    if (!command) continue;
+    const value = item.result ?? item.rawResult;
+    const reply = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+    const terminalId = TERMINAL_RUN_REPLY.exec(reply)?.[1];
+    if (terminalId) runs.push({ id: String(item.id), command, terminalId });
+  }
+  return runs;
+}
+
 const COMPUTER_REFUSAL_CODE = 'computer_capability_unavailable';
 /** Computer actions that read or drive a window (the host's window-bound set). */
 const COMPUTER_WINDOW_ACTIONS = new Set([

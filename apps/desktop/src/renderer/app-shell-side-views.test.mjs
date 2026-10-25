@@ -100,6 +100,170 @@ test('useSideViewSelection routes right-side views to paneSideDocks.select and l
   }
 });
 
+test("a room log's Browser toggle shows the member page routed into it, not an empty page of its own", async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><div id="root"></div>',
+    jsdom: { url: 'about:blank' },
+  });
+  const { roomSessionId, roomMemberSessionId } = await import(
+    '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs'
+  );
+  const { recordChildSurfacePeek } = await import('./child-surface-peeks.tsx');
+  const { borrowedBrowserTab } = await import('./browser-pane-borrowed-tab.ts');
+  const room = roomSessionId('toggle1');
+  const member = roomMemberSessionId('toggle1', 'watcher');
+  assert.ok(room && member);
+  const surfaces = [];
+  const leaves = [{ id: 'leaf-r', tabs: [{ kind: 'session', id: room }], activeKey: `session:${room}` }];
+  const actions = {
+    sideOf: () => 'right',
+    selectDock: () => {},
+    activeSideViews: { left: 'sessions', right: 'browser' },
+    setActiveSideViews: () => {},
+    sidebarOpen: false,
+    applySidebarOpen: () => {},
+    closeSidebarPanels: () => {},
+    mountSidebarPanel: () => {},
+    trackSidebarPanelModule: () => {},
+    refreshProjects: async () => {},
+    paneLeavesRef: { current: leaves },
+    focusedLeafIdRef: { current: 'leaf-r' },
+    paneLeaves: leaves,
+    focusedLeafId: 'leaf-r',
+    browserSurfaces: { ensure: () => {} },
+    pendingBrowserAutoReveal: { current: new Map() },
+    setSessionSideSurface: (sessionId, surface) => surfaces.push([sessionId, surface]),
+    setSessionPanelView: () => {},
+    dockOpenGate: { module: { peek: () => ({}), load: async () => ({}) }, waits: () => true },
+  };
+  let selectFn;
+  function TestHarness() {
+    selectFn = useSideViewSelection(actions);
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  try {
+    await act(async () => root.render(React.createElement(TestHarness)));
+    // A member's page was routed here earlier; the dock has since closed.
+    recordChildSurfacePeek(room, {
+      childSessionId: member,
+      childName: '사무관',
+      surface: 'browser',
+      title: '공시',
+      tabId: 'p2',
+      failed: '',
+      at: 1,
+    });
+    await act(async () => selectFn('browser', 'leaf-r'));
+    assert.deepEqual(borrowedBrowserTab(room), { ownerSessionId: member, ownerName: '사무관', tabId: 'p2' });
+    assert.deepEqual(surfaces, [[room, 'browser']]);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+/** A room log on screen with the real surfaces: `press()` is its Browser toggle. */
+async function mountRoomToggle(t, room) {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><div id="root"></div>',
+    jsdom: { url: 'https://mixdog.test/' },
+  });
+  const { useSessionPaneSurfaces } = await import('./use-session-pane-surfaces.ts');
+  const leaves = [{ id: 'leaf-r', tabs: [{ kind: 'session', id: room }], activeKey: `session:${room}` }];
+  const shell = { surfaces: null, select: null };
+  function Harness() {
+    shell.surfaces = useSessionPaneSurfaces();
+    shell.select = useSideViewSelection({
+      sideOf: () => 'right',
+      selectDock: () => {},
+      activeSideViews: { left: 'sessions', right: 'browser' },
+      setActiveSideViews: () => {},
+      sidebarOpen: false,
+      applySidebarOpen: () => {},
+      closeSidebarPanels: () => {},
+      mountSidebarPanel: () => {},
+      trackSidebarPanelModule: () => {},
+      refreshProjects: async () => {},
+      paneLeavesRef: { current: leaves },
+      focusedLeafIdRef: { current: 'leaf-r' },
+      paneLeaves: leaves,
+      focusedLeafId: 'leaf-r',
+      browserSurfaces: { ensure: () => {} },
+      pendingBrowserAutoReveal: shell.surfaces.pendingBrowserAutoReveal,
+      setSessionSideSurface: shell.surfaces.setSessionSideSurface,
+      setSessionPanelView: shell.surfaces.setSessionPanelView,
+      dockOpenGate: { module: { peek: () => ({}), load: async () => ({}) }, waits: () => true },
+    });
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Harness)));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    restore();
+  });
+  shell.press = () => act(async () => shell.select('browser', 'leaf-r'));
+  return shell;
+}
+
+const memberPage = (member, name, tabId, at) => ({
+  childSessionId: member,
+  childName: name,
+  surface: 'browser',
+  title: tabId,
+  tabId,
+  failed: '',
+  at,
+});
+
+test("a deleted member's page never comes back from the room log's Browser toggle", async (t) => {
+  const { roomSessionId, roomMemberSessionId } = await import(
+    '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs'
+  );
+  const { recordChildSurfacePeek, childSurfacePeeksOf } = await import('./child-surface-peeks.tsx');
+  const { borrowedBrowserTab, clearBorrowedBrowserTab } = await import('./browser-pane-borrowed-tab.ts');
+  const room = roomSessionId('deleted1');
+  const member = roomMemberSessionId('deleted1', 'watcher');
+  assert.ok(room && member);
+  const shell = await mountRoomToggle(t, room);
+  recordChildSurfacePeek(room, memberPage(member, '사무관', 'p8', 1));
+  await shell.press();
+  assert.equal(borrowedBrowserTab(room)?.tabId, 'p8');
+  await act(async () => shell.surfaces.releaseDeletedSessionSurfaces(member));
+  assert.equal(borrowedBrowserTab(room), null);
+  await shell.press();
+  assert.equal(borrowedBrowserTab(room), null, 'the toggle opens the room log browser, not the deleted page');
+  assert.equal(childSurfacePeeksOf(room).length, 1, 'its line stays as history');
+  clearBorrowedBrowserTab(room);
+});
+
+test("the room log's Browser toggle borrows the latest reveal: A, then B, then A again shows A", async (t) => {
+  const { roomSessionId, roomMemberSessionId } = await import(
+    '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs'
+  );
+  const { recordChildSurfacePeek, childSurfacePeeksOf } = await import('./child-surface-peeks.tsx');
+  const { borrowedBrowserTab, clearBorrowedBrowserTab } = await import('./browser-pane-borrowed-tab.ts');
+  const room = roomSessionId('order1');
+  const a = roomMemberSessionId('order1', 'alpha');
+  const b = roomMemberSessionId('order1', 'beta');
+  const shell = await mountRoomToggle(t, room);
+  recordChildSurfacePeek(room, memberPage(a, '가', 'pa', 1));
+  recordChildSurfacePeek(room, memberPage(b, '나', 'pb', 2));
+  recordChildSurfacePeek(room, memberPage(a, '가', 'pa', 3));
+  await shell.press();
+  assert.deepEqual(borrowedBrowserTab(room), { ownerSessionId: a, ownerName: '가', tabId: 'pa' });
+  assert.deepEqual(
+    childSurfacePeeksOf(room).map((peek) => [peek.childSessionId, peek.at]),
+    [
+      [a, 1],
+      [b, 2],
+    ],
+    'transcript placement keeps first-reveal order'
+  );
+  clearBorrowedBrowserTab(room);
+});
+
 /** A Visualize chunk whose import the test finishes by hand. */
 function slowVisualizeModule() {
   const gate = Promise.withResolvers();

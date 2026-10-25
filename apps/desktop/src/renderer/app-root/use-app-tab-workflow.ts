@@ -75,6 +75,7 @@ export function useAppTabWorkflow(
     openSession,
     activeProjectPath,
     openQuickOpen: () => setQuickAccessMode('files'),
+    sessions: nav.sessions,
   });
 
   const { focusPaneTypingSurface, navigateTab } = usePaneTabNavigation({

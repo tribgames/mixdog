@@ -414,6 +414,8 @@ test("a session pane's Changes rail entry prefetches through the descriptor's on
     sessionSideSurfaces: new Map(),
     sessionDiffs: new Map(),
     sessionPanelViews: new Map(),
+    sessionSurfaceSources: new Map(),
+    panelViewFronts: new Set(),
     terminalSurfaces: { prewarm: () => {} },
   };
   const leaf = { id: 'leaf', activeKey: 'session:wired-toggle', tabs: [{ kind: 'session', id: 'wired-toggle' }] };
@@ -445,6 +447,8 @@ test('each pane’s rail and strip entry requests the pick of its own pane, for 
     sessionSideSurfaces: new Map(),
     sessionDiffs: new Map(),
     sessionPanelViews: new Map(),
+    sessionSurfaceSources: new Map(),
+    panelViewFronts: new Set(),
     terminalSurfaces: { prewarm: () => {} },
   };
   const base = new Map([

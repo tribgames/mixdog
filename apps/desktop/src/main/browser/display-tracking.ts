@@ -28,6 +28,14 @@ export function createBrowserDisplayTracking(sessions: DisplaySessions) {
     for (const guest of sessions.visibleGuests(sessionId)) power.refresh(guest);
     for (const page of sessions.backgroundPages(sessionId).values()) power.refresh(page.guest);
   };
+  /** On this PC's screen: a mounted panel or a native view shows it (a
+   *  phone streaming the page is not the desktop panel). */
+  const isShown = (guest: WebContents) =>
+    panelActiveGuests.has(guest) || [...nativeShownGuests.values()].includes(guest);
+  const shownWaiters = new Set<() => void>();
+  const shownChanged = () => {
+    for (const waiter of [...shownWaiters]) waiter();
+  };
 
   return {
     power,
@@ -41,11 +49,34 @@ export function createBrowserDisplayTracking(sessions: DisplaySessions) {
       if (active) panelActiveGuests.add(guest);
       else panelActiveGuests.delete(guest);
       power.refresh(guest);
+      shownChanged();
     },
     setNativeShown(sessionId: string, guest: WebContents | null): void {
       if (guest) nativeShownGuests.set(sessionId, guest);
       else nativeShownGuests.delete(sessionId);
       refreshSession(sessionId);
+      shownChanged();
+    },
+    isShown,
+    /** Resolves true once a panel or native view shows `guest`, false at
+     *  `timeoutMs` (or when `signal` aborts) if none did. */
+    waitUntilShown(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+      if (isShown(guest)) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        const finish = (shown: boolean) => {
+          clearTimeout(timer);
+          shownWaiters.delete(check);
+          signal?.removeEventListener('abort', abort);
+          resolve(shown);
+        };
+        const check = () => {
+          if (isShown(guest)) finish(true);
+        };
+        const abort = () => finish(false);
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        shownWaiters.add(check);
+        signal?.addEventListener('abort', abort, { once: true });
+      });
     },
     setRemoteViewing(sessionId: string, viewing: boolean): void {
       if (viewing) remoteViewingSessions.add(sessionId);

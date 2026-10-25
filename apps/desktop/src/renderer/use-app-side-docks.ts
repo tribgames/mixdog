@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useBrowserFeatureInstalled } from './browser-feature-install';
 import { isSshConnectionWindow } from './desktop-connection';
 import {
@@ -19,10 +19,12 @@ import {
 import { usePaneSideDocks, type PaneSideDockDiff } from './pane-side-dock';
 import {
   isSessionSidePanelView,
+  legacyTerminalSessions,
   paneDockEntryForSession,
+  sessionPanelViewIn,
   sessionSideDockEntryForSession,
-  terminalSessionsToRestore,
 } from './session-side-surface-policy';
+import { paneRightGroupsFor } from './routines-tile';
 import { useStableEvent } from './use-stable-event';
 import { allowVisualizeReveal, suppressVisualizeReveal } from './visualize-store';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -38,6 +40,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
   const {
     sessionDiffs,
     sessionPanelViews,
+    panelViewFronts,
     sessionSideSurfaces,
     setSessionDiff,
     setSessionPanelView,
@@ -105,20 +108,21 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
           ])
         ),
   });
-  // A reload keeps the pane entry (open, terminal) but not the in-memory session
-  // surface; give the terminal back to the session each pane starts on, once.
-  const restoredTerminals = useRef(false);
+  // A reload restores the terminal by session (use-session-pane-surfaces):
+  // a pane's own entry never hands it to another session it shows. An
+  // upgrade, with only the pane-keyed store, migrates once the workspace is
+  // restored: each pane's stored terminal goes to the session it shows.
+  const { surfacesMigrated, migrateLegacyTerminals } = sessionSurfaces;
   useEffect(() => {
-    if (restoredTerminals.current) return;
-    restoredTerminals.current = true;
+    if (surfacesMigrated || paneWorkspace.restorePending) return;
     const owners = paneWorkspace.leaves.map((leaf) => {
       const selection = paneActiveSelection(leaf);
       return { leafId: leaf.id, sessionId: selection?.kind === 'session' ? selection.id : null };
     });
-    for (const sessionId of terminalSessionsToRestore(owners, paneSideDocks.entryFor)) {
-      setSessionSideSurface(sessionId, 'terminal');
-    }
+    migrateLegacyTerminals(legacyTerminalSessions(owners, paneSideDocks.entryFor));
   });
+  /** The right-side groups the tab showing `sessionId` has (paneRightGroupsFor). */
+  const groupsForSession = (sessionId: string) => paneRightGroupsFor(workbenchSideLayout.layout.right, sessionId);
   /** The dock entry the leaf actually shows: the pane's own entry overridden by
    *  its session's browser/terminal/diff/visualize surface. */
   const displayedDockEntry = (leafId: string) => {
@@ -130,7 +134,8 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
         sessionId,
         sessionSideSurfaces.get(sessionId) ?? null,
         sessionDiffs.get(sessionId) ?? null,
-        sessionPanelViews.get(sessionId) ?? null
+        sessionPanelViewIn(groupsForSession(sessionId), sessionPanelViews.get(sessionId)),
+        panelViewFronts.has(sessionId)
       ),
     };
   };
@@ -164,6 +169,10 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     }
     // The dock shows ONE child: closing folds the whole unit, so a Session
     // Diff list left under the browser/terminal must not reopen it on close.
+    // Likewise a browser/terminal left behind a view opened in front of it.
+    if (sessionId && entry.open && entry.surface === '' && sessionSideSurfaces.get(sessionId)) {
+      setSessionSideSurface(sessionId, null);
+    }
     if (sessionId && sessionPanelViews.get(sessionId)) {
       setSessionPanelView(sessionId, null);
     }
@@ -176,13 +185,15 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     // The pane as this tab sees it: another session's file tabs or diff are not its own.
     const rawEntry = paneDockEntryForSession(paneSideDocks.entryFor(leafId), sessionId);
     const selectedSurface = sessionSideSurfaces.get(sessionId) ?? null;
-    const selectedPanelView = sessionPanelViews.get(sessionId) ?? null;
+    const groups = groupsForSession(sessionId);
+    const selectedPanelView = sessionPanelViewIn(groups, sessionPanelViews.get(sessionId));
     const displayedEntry = sessionSideDockEntryForSession(
       rawEntry,
       sessionId,
       selectedSurface,
       sessionDiffs.get(sessionId) ?? null,
-      selectedPanelView
+      selectedPanelView,
+      panelViewFronts.has(sessionId)
     );
     if (displayedEntry.open) {
       dismissDockEntry(leafId, sessionId, displayedEntry);
@@ -200,8 +211,23 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       rawEntry.surface === '' &&
       isSessionSidePanelView(rawEntry.view)
     ) {
-      if (rawEntry.view === 'visualize') allowVisualizeReveal(sessionId);
-      setSessionPanelView(sessionId, rawEntry.view);
+      // The pane remembers a view of another session kind (Routines from a
+      // home thread, the room panel from a room): this tab has no such view,
+      // so it neither stores it nor shows the panel's first view in its
+      // place; the dock opens on this tab's own first view.
+      const remembered = sessionPanelViewIn(groups, rawEntry.view);
+      if (!remembered) {
+        const first = groups.map((group) => group[0]).find((id) => id && id !== 'browser' && id !== 'terminal');
+        if (!first) return;
+        if (isSessionSidePanelView(first)) {
+          if (first === 'visualize') allowVisualizeReveal(sessionId);
+          setSessionPanelView(sessionId, first);
+        }
+        paneSideDocks.select(leafId, first);
+        return;
+      }
+      if (remembered === 'visualize') allowVisualizeReveal(sessionId);
+      setSessionPanelView(sessionId, remembered);
       paneSideDocks.setOpen(leafId, true);
       return;
     }

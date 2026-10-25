@@ -716,10 +716,61 @@ html[data-mixdog-mobile-tabs]
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
+/* The page title truncates; another session's page leads with its owner. */
+.transcript-browser-peek {
+  max-width: 100%;
+}
+.transcript-browser-peek-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-browser-peek-owner {
+  flex: none;
+  color: var(--mx-warning);
+}
+/* The tab it named is gone: the same line, inert, saying so. */
+.transcript-browser-peek.is-gone {
+  cursor: default;
+}
+.transcript-browser-peek.is-gone:hover {
+  background: transparent;
+}
+/* "터미널 · <명령> · 보기" (terminal-peek-line.tsx): the browser line's shape,
+   with the command truncated between the two separators. */
+.transcript-terminal-peek {
+  max-width: 100%;
+}
+.transcript-terminal-peek-command {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mx-font-mono, monospace);
+  color: var(--mx-text);
+}
 /* "<site>에 저장된 로그인으로 로그인했습니다": a faint record, no control. */
 .transcript-saved-sign-in {
   margin: 4px 0 2px;
   color: var(--mx-text-faint, var(--mx-text-muted));
+  font-size: var(--mx-font-meta);
+}
+/* A child session's surfaces in its owner conversation (child-surface-peeks.tsx):
+   one line each, stacked; a failed open is a record with its reason, no 보기. */
+.transcript-child-surface-peeks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.transcript-surface-open-failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin: 6px 0 2px;
+  padding: 0 10px;
+  color: var(--mx-danger);
   font-size: var(--mx-font-meta);
 }
 /* Computer Use's one-time notice under a tool group: the Extensions dialog's

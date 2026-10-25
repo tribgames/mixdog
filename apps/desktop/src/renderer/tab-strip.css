@@ -154,6 +154,10 @@
   flex: none;
   color: var(--mx-text-faint);
 }
+/* Another session's page in this panel: its owner leads the title. */
+.browser-tab-owner {
+  color: var(--mx-warning);
+}
 /* X and + follow the workspace pane strip (04-workspace-tabs.css) in size and
    ink, but every tab — the selected one included — shows its X only under
    the pointer or keyboard, keeping its slot; both marks share a 1.5px line. */

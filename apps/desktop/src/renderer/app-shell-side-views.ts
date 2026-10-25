@@ -10,6 +10,9 @@ import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-refere
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import { isSessionSidePanelView } from './session-side-surface-policy';
 import { allowVisualizeReveal } from './visualize-store';
+import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { borrowedBrowserTab, showBorrowedBrowserTab } from './browser-pane-borrowed-tab';
+import { latestChildBrowserPage } from './child-surface-peeks';
 import { subscribeDrawerDismiss } from './drawer-intent';
 import { isMobileRemoteSurface } from './mobile-surface';
 import { type OpenRequestModule, useModuleOpenRequest } from './use-module-open-request';
@@ -162,6 +165,15 @@ export function useSideViewSelection({
         if (id === 'browser' || id === 'terminal') {
           if (selection?.kind !== 'session') return;
           if (id === 'browser') {
+            // A room log never browses itself: its toggle shows the member
+            // page last routed into it (a borrowed tab), not an empty page.
+            // Visualize needs nothing here: a member's open lands in the
+            // room log's own tabs (main/visualize service ownerSessionId).
+            const memberPage =
+              roomIdOfSession(selection.id) && !borrowedBrowserTab(selection.id)
+                ? latestChildBrowserPage(selection.id)
+                : null;
+            if (memberPage) showBorrowedBrowserTab(selection.id, memberPage);
             browserSurfaces.ensure(selection.id);
             pendingBrowserAutoReveal.current.delete(selection.id);
           } else {

@@ -142,12 +142,6 @@ export function normalizePageUrl(raw: string, policy: BrowserUrlPolicy = {}): st
   return normalizeBrowserUrl(raw, policy, false);
 }
 
-/** Only host-owned session restoration may recreate the exact blank document.
- * Agent input and page-generated navigation retain the normal web-only policy. */
-export function normalizeRestoredPageUrl(raw: string, policy: BrowserUrlPolicy = {}): string {
-  return raw === 'about:blank' ? raw : normalizePageUrl(raw, policy);
-}
-
 export function assertResolvedAddressAllowed(address: string, hostname: string, policy: BrowserUrlPolicy = {}): void {
   if (isCloudMetadataHost(address)) {
     throw new Error(`navigation to ${hostname} resolved to a blocked cloud metadata endpoint`);

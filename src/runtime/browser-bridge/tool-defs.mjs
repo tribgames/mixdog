@@ -22,7 +22,7 @@ import { BROWSER_INPUT_FIELDS } from './input-fields.mjs';
 const BROWSER_DESCRIPTION =
   "Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page text uses web_fetch, external windows computer. " +
   'Load the browser-use skill before first use. ' +
-  'Background by default; reveal only via open for a deliverable or handoff. Respect user-closed panels. ' +
+  'Background by default; open (deliverable/handoff) says shown, not on screen yet, or failed; say only that. ' +
   'Task end cleans owned pages/restores temporary panels; user pages persist. ' +
   'hide folds the panel; close_tab closes named background pages only. ' +
   'Pages are session-local; sign-in/storage shared; never provide session_id. ' +

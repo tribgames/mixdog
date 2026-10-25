@@ -34,6 +34,13 @@ export function createBrowserSessionTabStrip(options: {
     list: (sessionId) => tabs.displayTabs(sessionId),
     select: (sessionId, tabId, follow) => {
       const { agentFollow } = options;
+      // "브라우저 · 보기" on one page: that exact tab is shown and panes stop
+      // following the agent away from it, but it is not claimed or kept.
+      if (follow === 'view') {
+        tabs.selectDisplayTab(sessionId, tabId, { retain: false });
+        agentFollow?.pause(sessionId);
+        return;
+      }
       if (follow) {
         // A pane following the agent shows its page without claiming it, and
         // never overrides a pick the user made in another window.

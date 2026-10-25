@@ -57,6 +57,12 @@ import {
 import { BrowserZoomPill } from './BrowserZoomPill';
 import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import { BrowserTabStrip } from './BrowserTabStrip';
+import {
+  type BorrowedBrowserTab,
+  borrowedStripTabs,
+  clearBorrowedBrowserTab,
+  useBorrowedBrowserTab,
+} from './browser-pane-borrowed-tab';
 import RemoteBrowserPane from './RemoteBrowserPane';
 import { IsolatedBrowserView } from './IsolatedBrowserView';
 import type { BrowserPageElement } from './browser-page-client';
@@ -244,8 +250,16 @@ export function browserHeaderActions({
   return actions;
 }
 
+/** Closing a viewer's dock; the dock's dismissal also forgets the page it
+ *  borrowed (use-session-pane-surfaces dismissBrowserSurface). */
+const closeBorrowedPaneDock = (viewerSessionId: string) => requestPaneDockClose('browser', viewerSessionId);
+
+/** `sessionId` is the conversation whose panel this is; `borrowed` names
+ *  another session's page shown in it, which the page itself is then read
+ *  from (never a page of this conversation's own). */
 function DesktopBrowserPane({
-  sessionId,
+  sessionId: paneSessionId,
+  borrowed = null,
   active,
   parked = false,
   focusAddressOnActivate = true,
@@ -254,7 +268,8 @@ function DesktopBrowserPane({
   mode = 'dock',
   initialUrl,
   onPageChange,
-}: BrowserPaneProps) {
+}: BrowserPaneProps & { borrowed?: BorrowedBrowserTab | null }) {
+  const sessionId = borrowed?.ownerSessionId ?? paneSessionId;
   const mainTab = mode === 'main';
   const webviewRef = useRef<BrowserPageElement | null>(null);
   const addressRef = useRef<HTMLInputElement | null>(null);
@@ -335,6 +350,24 @@ function DesktopBrowserPane({
   const painted = useGuestPainted(webviewRef);
 
   const activeTabTitle = tabs.find((tab) => tab.active)?.title ?? '';
+  const stripTabs = borrowed ? borrowedStripTabs(tabs, borrowed) : tabs;
+  // Whether the host has sent the owner's tab list at all: before that an
+  // empty list means "not loaded", after it "no tabs left".
+  const [tabsReceived, setTabsReceived] = useState(false);
+  useEffect(() => {
+    const view = webviewRef.current;
+    if (!view) return undefined;
+    const received = () => setTabsReceived(true);
+    view.addEventListener('tabs-changed', received);
+    return () => view.removeEventListener('tabs-changed', received);
+  }, []);
+  // The owner closed the borrowed page (its last one included): the panel
+  // closes rather than fall back to (or make) a page of this conversation's own.
+  const borrowedGone = Boolean(borrowed && tabsReceived && !stripTabs.length);
+  useEffect(() => {
+    if (!borrowedGone) return;
+    closeBorrowedPaneDock(paneSessionId);
+  }, [borrowedGone, paneSessionId]);
   useMainTabPageReport(mainTab, currentUrl, activeTabTitle, onPageChange);
 
   // Header ⋯ menu: everything that is not page navigation lives here.
@@ -367,7 +400,7 @@ function DesktopBrowserPane({
   return (
     <div
       className={`browser-pane${pageFullscreen ? ' is-page-fullscreen' : ''}`}
-      data-pane-instance={sessionId}
+      data-pane-instance={paneSessionId}
       data-browser-mode={mode}
       data-surface-active={active || parked ? 'true' : 'false'}
     >
@@ -377,24 +410,35 @@ function DesktopBrowserPane({
           onToggleExpanded={onToggleExpanded}
           expandLabel={t('Expand browser')}
           restoreLabel={t('Restore browser')}
-          onClose={() => requestPaneDockClose('browser', sessionId)}
+          onClose={() => closeBorrowedPaneDock(paneSessionId)}
           actions={headerActions}
           left={
             <BrowserTabStrip
-              tabs={tabs}
+              tabs={stripTabs}
               onSelect={async (id) => {
                 await webviewRef.current?.selectTab(id);
               }}
               onClose={async (id) => {
+                // Closing a borrowed page only takes it out of this panel;
+                // the owner keeps it.
+                if (borrowed) {
+                  closeBorrowedPaneDock(paneSessionId);
+                  return;
+                }
                 // The host's count after the close decides, not the frame this
                 // click was made from: tabs may have changed in between.
                 const result = await webviewRef.current?.closeTab(id);
-                if (result?.remainingTabs === 0) requestPaneDockClose('browser', sessionId);
+                if (result?.remainingTabs === 0) requestPaneDockClose('browser', paneSessionId);
               }}
-              onCreate={async () => {
-                await webviewRef.current?.createTab();
-                addressRef.current?.focus();
-              }}
+              // A new tab would open in the owner's browser, not this one.
+              onCreate={
+                borrowed
+                  ? undefined
+                  : async () => {
+                      await webviewRef.current?.createTab();
+                      addressRef.current?.focus();
+                    }
+              }
             />
           }
         />
@@ -531,7 +575,48 @@ function DesktopBrowserPane({
 
 export default function BrowserPane(props: BrowserPaneProps) {
   if (typeof window.mixdogDesktop?.remoteBrowserStream === 'function') {
-    return <RemoteBrowserPane {...props} />;
+    return <RemoteViewerBrowserPane {...props} />;
   }
-  return <DesktopBrowserPane {...props} />;
+  return <ViewerBrowserPane {...props} />;
+}
+
+/** The page another session owns that this conversation's panel shows, if
+ *  any; this conversation's own agent opening a page takes the panel back. */
+function useShownBorrowedTab(props: BrowserPaneProps) {
+  const borrowed = useBorrowedBrowserTab(props.sessionId);
+  const shown = props.mode === 'main' ? null : borrowed;
+  // This conversation's own agent opening a page takes the panel back to it;
+  // a failed open (it carries `error`) opened nothing, so the owner's tab stays.
+  useEffect(
+    () =>
+      window.mixdogDesktop?.onBrowserOpenRequested?.((request) => {
+        if (request?.sessionId === props.sessionId && request.reveal === true && !request.error) {
+          clearBorrowedBrowserTab(props.sessionId);
+        }
+      }),
+    [props.sessionId]
+  );
+  return shown;
+}
+
+/** A conversation's panel, showing its own pages or a borrowed one; the
+ *  page view remounts per session it reads from. */
+function ViewerBrowserPane(props: BrowserPaneProps) {
+  const shown = useShownBorrowedTab(props);
+  return <DesktopBrowserPane key={shown?.ownerSessionId ?? props.sessionId} {...props} borrowed={shown} />;
+}
+
+/** The paired-client panel: streams the borrowed owner's page, while dock
+ *  closes stay addressed to the viewing conversation's dock. */
+function RemoteViewerBrowserPane(props: BrowserPaneProps) {
+  const shown = useShownBorrowedTab(props);
+  const streamed = shown?.ownerSessionId ?? props.sessionId;
+  return (
+    <RemoteBrowserPane
+      key={streamed}
+      {...props}
+      sessionId={streamed}
+      onDockClose={shown ? () => closeBorrowedPaneDock(props.sessionId) : undefined}
+    />
+  );
 }

@@ -105,6 +105,7 @@ export function createBrowserHostPages(options: {
       base.isForegroundBusy(sessionId) ||
       base.partition.downloadLedger.downloadsForSession(sessionId).some((download) => download.state === 'in_progress'),
     waitForLoadSettle: base.settle.waitForLoadSettle,
+    waitUntilShown: (guest, timeoutMs, signal) => base.display.waitUntilShown(guest, timeoutMs, signal),
     // A popup the person brought up is theirs: no agent turn closes it.
     onPopup: (opener, popup, selected) => {
       taskLifecycle.inherit(opener, popup);
@@ -122,7 +123,8 @@ export function createBrowserHostPages(options: {
       options.onGuest?.(guest);
     },
     onSurfaceRequest: (request) => {
-      if (request.hide || request.reveal === true) options.onSurfaceRequest?.(request);
+      // A failed open reveals nothing, so paired clients are not told.
+      if (request.hide || (request.reveal === true && !request.error)) options.onSurfaceRequest?.(request);
     },
     nativeView: base.nativeView,
   });

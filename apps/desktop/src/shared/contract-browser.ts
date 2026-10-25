@@ -114,6 +114,11 @@ export interface DesktopBrowserOpenRequest {
   /** A takeover hand-off: the user must act on the page, so the panel opens
    *  even where they closed it. Agent work alone never opens it. */
   handoff?: boolean;
+  /** An agent's `open`: the page it showed (session-local id `p…`) and its title. */
+  tabId?: string;
+  title?: string;
+  /** An agent's `open` that failed, and why: nothing is revealed for it. */
+  error?: string;
 }
 
 export interface DesktopRemoteBrowserFrame {
@@ -231,7 +236,7 @@ export type DesktopBrowserPageAction =
   | { type: 'choose-files'; requestId: string; cancel?: boolean }
   /** `requestId`: the agent's open this tab is for; absent for a user's "+". */
   | { type: 'new-tab'; requestId?: string }
-  | { type: 'select-tab'; tabId: string; follow?: 'agent' | 'resume' }
+  | { type: 'select-tab'; tabId: string; follow?: 'agent' | 'resume' | 'view' }
   | { type: 'close-tab'; tabId: string }
   | { type: 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' }

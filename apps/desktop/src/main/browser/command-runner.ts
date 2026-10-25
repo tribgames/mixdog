@@ -4,7 +4,7 @@
  * The host owns wiring; this owns what one command does once it runs.
  */
 import type { createBrowserActionApproval } from './action-approval';
-import type { createBrowserAutoSignIn } from './auto-sign-in';
+import { type createBrowserAutoSignIn, SAVED_SIGN_IN_DONE, SAVED_SIGN_IN_NEEDS_USER } from './auto-sign-in';
 import { browserActionHandler, type BrowserActionServices } from './actions';
 import { adoptResolvedTargets } from './actions/target';
 import {
@@ -123,12 +123,22 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     const turnId = Number(command.turn_id) || 0;
     taskLifecycle.begin(ownerSessionId, turnId);
     const previousGuest = browserSessions.liveGuest(ownerSessionId);
+    const knownPages = sessionPages(ownerSessionId);
     const target = tabs.resolveTargetGuest(ownerSessionId, background, tab);
     const targetIsBackground = target?.background === true;
     if (!target && !previousGuest && action !== 'navigate' && action !== 'open') {
       throw new Error('No browser page is open; navigate or use background:true.');
     }
     const guest = target?.guest ?? (await lifecycle.ensureGuest(ownerSessionId, { reveal: false, adopt: false }));
+    // A page this command made: a failure before it held a document closes it.
+    const createdPage = !knownPages.has(guest);
+    const opensForeground = action === 'open' && !targetIsBackground;
+    if (opensForeground && createdPage) {
+      lifecycle.discardCreatedPage(ownerSessionId, guest);
+      const message = 'Could not show a page: no page is open in this conversation; navigate to one first.';
+      lifecycle.reportOpenFailure(ownerSessionId, message);
+      throw new Error(message);
+    }
     drive(guest);
     const backgroundPage = browserSessions.backgroundPageForGuest(ownerSessionId, guest);
     // The pane follows the page the agent works in; a hidden helper page it
@@ -146,10 +156,9 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
       guest,
       backgroundPage ? backgroundPage.kind === 'agent' && !backgroundPage.keepAlive : !previousGuest
     );
-    // The panel never opens itself during a turn: the user opens it from the
-    // transcript, or a takeover hands the page over (openForTakeover). `open`
-    // keeps its page for the user.
-    if (action === 'open' && !targetIsBackground) retainGuest(guest);
+    // Only `open` (and a takeover, openForTakeover) shows a page during a
+    // turn; it keeps its page for the user.
+    if (opensForeground) retainGuest(guest);
     await lifecycle.recoverCrashedGuest(guest, signal);
     throwIfBrowserCancelled(signal);
     // Explicit navigation and dialog handling can release a blocked execution.
@@ -228,6 +237,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
         approvedReceiver,
       });
       // A page that asks for a sign-in the profile has a saved login for.
+      // On `open` it runs first, so the reveal shows the page as it ends up.
       const signedIn =
         command.internalStep === true || typeof command.savedAccount === 'string'
           ? null
@@ -241,11 +251,62 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
                   targetIsBackground,
                 }),
             });
+      // An open always answers with its placement (the transcript's "보기"
+      // line reads it); a sign-in made on the way rides along as its note.
+      if (opensForeground) {
+        const placement = await revealOpenedPage(ownerSessionId, guest, signal);
+        const note = signedIn ? savedSignInNote(signedIn.text) : '';
+        return { text: state.redactText(guest, note ? `${placement}\n\n${note}` : placement) };
+      }
       const final = signedIn ?? result;
       return { ...final, text: state.redactText(guest, final.text) };
     } catch (error) {
-      throw new Error(state.redactText(guest, (error as Error).message || String(error)));
+      const message = state.redactText(guest, (error as Error).message || String(error));
+      // A failed open (not a cancelled one) tells the shell why.
+      if (opensForeground && !signal?.aborted) {
+        lifecycle.reportOpenFailure(ownerSessionId, message, guest.isDestroyed() ? undefined : state.pageId(guest));
+      }
+      if (createdPage && lifecycle.discardCreatedPage(ownerSessionId, guest)) {
+        throw new Error(`${message.replace(/\.?$/, '.')} The blank tab this command opened was closed.`);
+      }
+      throw new Error(message);
     }
+  }
+
+  /** The saved-login line an auto sign-in put ahead of its snapshot. */
+  function savedSignInNote(text: string): string {
+    const note = text.split('\n\n')[0];
+    return note.startsWith(SAVED_SIGN_IN_DONE) || note.startsWith(SAVED_SIGN_IN_NEEDS_USER) ? note : '';
+  }
+
+  /** Every page the session holds now, visible or named. */
+  function sessionPages(sessionId: string): Set<WebContents> {
+    return new Set([
+      ...browserSessions.visibleGuests(sessionId),
+      ...[...browserSessions.backgroundPages(sessionId).values()].map((page) => page.guest),
+    ]);
+  }
+
+  /** What the agent may tell the user about an `open`: exactly one of shown,
+   *  pending (the conversation is not on screen) or failed (thrown). The
+   *  transcript's "브라우저 · 보기" line reads the page id from the first two
+   *  forms (renderer/browser-peek-line.tsx). */
+  async function revealOpenedPage(sessionId: string, guest: WebContents, signal?: AbortSignal): Promise<string> {
+    let placement: 'shown' | 'pending';
+    let page: string;
+    try {
+      placement = await lifecycle.revealPage(sessionId, guest, signal);
+      page = `page ${state.pageId(guest)} — ${guest.getTitle() || '(untitled)'} (${guest.getURL() || 'about:blank'})`;
+    } catch (error) {
+      // Cancellation stays cancellation, not a placement failure.
+      throwIfBrowserCancelled(signal);
+      throw new Error(`Could not show the page in the browser panel: ${(error as Error).message || String(error)}`);
+    }
+    if (placement === 'shown') return `Shown in the browser panel: ${page}.`;
+    return (
+      `Not on screen yet: ${page} is kept in this conversation's browser panel, which is not visible now; ` +
+      'it appears when the user opens that panel. Do not tell the user it is on screen.'
+    );
   }
 
   return runCommand;

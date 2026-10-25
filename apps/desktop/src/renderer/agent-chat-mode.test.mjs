@@ -1702,6 +1702,81 @@ test('a connect card shows in a bot chat even when the round also holds an answe
   assert.equal(cards(), 1, 'the card is not dropped when an answered question shares the round');
 });
 
+test("a bot chat shows a terminal card for a completed run, which reveals that run's tab; a pending run shows none", async (t) => {
+  const { onTerminalRevealRequested } = await import('./terminal-command-request.ts');
+  const { activeSessionTerminalId, releaseSessionTerminalTabs } = await import('./session-terminal-tabs.ts');
+  const render = rowHarness(t);
+  const terminalId = `session-terminal:${HOME}:2`;
+  const run = (id, result) => ({
+    kind: 'tool',
+    id,
+    name: 'terminal',
+    args: { action: 'run', command: 'npm test' },
+    result,
+    status: result ? 'done' : 'running',
+    at: DAY1,
+  });
+  const reply = `Terminal run: ${terminalId} · 2 pwsh running C:\\work · cursor=42\nCommand sent to the side terminal.`;
+  const round = (items) => ({ _tag: 'ToolActivity', key: 'tools', turnKey: 'c', items });
+  const options = {
+    snapshot: { sessionId: HOME },
+    disclosureScope: HOME,
+    readOnly: false,
+    transitioning: false,
+    renderAssistantRow: undefined,
+    onOpenSettings() {},
+    settledItems: [],
+    settledTurnKeys: [],
+    optimisticActivityStartedAt: 0,
+    submit: async () => true,
+    questionCard: null,
+    agentMode: true,
+  };
+  const show = async (rows) => {
+    function Rows() {
+      const { renderTranscriptRow } = useConversationRowRenderer(options);
+      return React.createElement(
+        React.Fragment,
+        null,
+        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
+      );
+    }
+    return render(React.createElement(Rows));
+  };
+  const revealed = [];
+  let stop = () => {};
+  await act(async () => {
+    stop = onTerminalRevealRequested((sessionId) => revealed.push(sessionId));
+  });
+  t.after(async () => {
+    await act(async () => stop());
+    releaseSessionTerminalTabs(HOME);
+  });
+  const cards = () => document.querySelectorAll('main .transcript-terminal-peek');
+  await show([{ ...user('c', DAY1), turnKey: 'c' }, round([run('r1', '')])]);
+  assert.equal(cards().length, 0, 'a run that has not started has no tab to reveal');
+  await show([{ ...user('c', DAY1), turnKey: 'c' }, round([run('r1', reply)])]);
+  assert.equal(cards().length, 1);
+  assert.equal(cards()[0].textContent, 'Terminal·npm test·View');
+  await act(async () => cards()[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
+  assert.deepEqual(revealed, [HOME]);
+  assert.equal(activeSessionTerminalId(HOME), terminalId);
+
+  // A round that also connected an account keeps both cards.
+  const connect = {
+    kind: 'tool',
+    id: 's1',
+    name: 'setup',
+    args: { action: 'connect_connector', connector: 'gmail' },
+    result: '{"connector":"gmail","connected":false}',
+    status: 'done',
+    at: DAY1,
+  };
+  await show([{ ...user('c', DAY1), turnKey: 'c' }, round([connect, run('r1', reply)])]);
+  assert.equal(document.querySelectorAll('main [data-connector-card="gmail"]').length, 1);
+  assert.equal(cards().length, 1, 'the terminal card is not dropped by the connector card');
+});
+
 test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sent to" line, the reply the answering bot', async (t) => {
   const render = rowHarness(t);
   const MARKETER = 'agent-12c3dee5bf';

@@ -31,7 +31,16 @@ import {
 import { AgentHandoffBlock } from './agent-task-line';
 import { useSessionAttentionIndex } from './session-attention-index';
 import { askUserCardKey, splitAskUser } from './ask-user-record';
-import { BrowserPeekLine, SavedSignInLines, lastBrowserRoundOfTurn, savedSignInSites } from './browser-peek-line';
+import {
+  BrowserPeekLine,
+  SavedSignInLines,
+  browserOpenedPage,
+  lastBrowserRoundOfTurn,
+  savedSignInSites,
+} from './browser-peek-line';
+import { TerminalPeekLines } from './terminal-peek-line';
+import { ChildSurfacePeekLines, childSurfacePeeksAt, useChildSurfacePeeks } from './child-surface-peeks';
+import { desktopToolActivityTerminalRuns } from './transcript-tool-core';
 import { ConnectorChatCard, connectorCardIds } from './connector-card';
 import { useRoomContacts } from './agent-room-parts';
 import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
@@ -190,8 +199,8 @@ function handoffBlock(rows: readonly TranscriptRowModel[], index: number): React
 }
 
 /** What a tool round leaves in a chat when no question needs the user: its
- *  connect card, its hand-off lines (a turn with no reply), a browser peek or
- *  saved sign-in lines. `undefined`: the round shows through the ordinary row
+ *  connect card, its hand-off lines (a turn with no reply), a browser peek,
+ *  saved sign-in lines or terminal-run cards. `undefined`: the round shows through the ordinary row
  *  (a question). */
 function toolRoundAside(
   items: readonly TranscriptItem[],
@@ -216,17 +225,33 @@ function toolRoundAside(
   if (asked.length || waiting) return undefined;
   const withLines = (node: ReactNode): ReactNode =>
     handoffLines ? createElement(Fragment, null, handoffLines, node) : node;
-  if (connectorCards) return withLines(asideRow(connectorCards));
-  const peek = lastBrowserRoundOfTurn(rows, index);
+  const terminalRuns = desktopToolActivityTerminalRuns(items).length > 0;
+  if (connectorCards) {
+    // A round that connected an account and ran a command keeps both.
+    return withLines(
+      asideRow(
+        terminalRuns
+          ? createElement(
+              Fragment,
+              null,
+              connectorCards,
+              createElement(TerminalPeekLines, { items, sessionId: disclosureScope })
+            )
+          : connectorCards
+      )
+    );
+  }
+  const peek = lastBrowserRoundOfTurn(rows, index) ? browserOpenedPage(items) : null;
   const signedIn = savedSignInSites(items).length > 0;
-  if (!peek && !signedIn) return handoffLines;
+  if (!peek && !signedIn && !terminalRuns) return handoffLines;
   return withLines(
     asideRow(
       createElement(
         Fragment,
         null,
         signedIn ? createElement(SavedSignInLines, { items }) : null,
-        peek ? createElement(BrowserPeekLine, { sessionId: disclosureScope }) : null
+        peek ? createElement(BrowserPeekLine, { sessionId: disclosureScope, page: peek }) : null,
+        terminalRuns ? createElement(TerminalPeekLines, { items, sessionId: disclosureScope }) : null
       )
     )
   );
@@ -368,6 +393,9 @@ export function useConversationRowRenderer({
   // A room's members type through its own typing rows.
   const inRoom = Boolean(roomIdOfSession(disclosureScope));
   const roomTyping = useRoomTyping(inRoom, settledItems, disclosureScope);
+  // The lines child sessions' surfaces (a sub-agent's, a task session's, a
+  // room member's browser or terminal) leave in this owner conversation.
+  const childPeeks = useChildSurfacePeeks(disclosureScope);
   // A line outside any run, in the bubble column (tool-round records, cards).
   const asideRow = (children: ReactNode): ReactNode =>
     createElement(AgentChatRow, { place: null, member: null }, children);
@@ -404,7 +432,12 @@ export function useConversationRowRenderer({
     });
     const seat = { cards, placed: false, visualized };
     const node = renderRow(row, index, rows, seat);
-    return cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
+    const shown = cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
+    // A child's line follows the row recorded last before its reveal.
+    const peeks = childSurfacePeeksAt(rows, index, childPeeks);
+    if (!peeks.length) return shown;
+    const lines = createElement(ChildSurfacePeekLines, { sessionId: disclosureScope, peeks });
+    return createElement(Fragment, null, shown, agentMode ? asideRow(lines) : lines);
   };
   const renderRow = (
     row: TranscriptRowModel,

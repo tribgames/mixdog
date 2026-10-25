@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, Plus, X } from 'lucide-react';
 import { ProgressSpinner } from './ProgressSpinner';
 import type { DesktopBrowserTab } from '../shared/contract';
+import type { BrowserStripTab } from './browser-pane-borrowed-tab';
 import { t } from './i18n';
 import { useBrowserSiteFavicon } from './browser-page-identity';
 import { useLoadableFavicon } from './link-kind-icon';
@@ -37,7 +38,8 @@ export function BrowserTabStrip({
   onCreate,
   onClose,
 }: {
-  tabs: readonly DesktopBrowserTab[];
+  /** A tab with `owner` is another session's page, titled under its name. */
+  tabs: readonly BrowserStripTab[];
   onSelect(id: string): Promise<void>;
   /** Omitted when the host cannot open blank tabs (main workspace tab). */
   onCreate?(): Promise<void>;
@@ -105,7 +107,8 @@ export function BrowserTabStrip({
         }}
       >
         {tabs.map((tab) => {
-          const title = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : t('New tab'));
+          const pageTitle = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : t('New tab'));
+          const title = tab.owner ? `${tab.owner} · ${pageTitle}` : pageTitle;
           return (
             // biome-ignore lint/a11y/noStaticElementInteractions: middle-click close is a pointer shortcut; the tab's close button is the keyboard path.
             <div
@@ -138,7 +141,13 @@ export function BrowserTabStrip({
                 }}
               >
                 {tab.loading ? <ProgressSpinner size={15} aria-hidden="true" /> : <BrowserTabGlyph tab={tab} />}
-                <span>{title}</span>
+                {tab.owner ? (
+                  <span>
+                    <span className="browser-tab-owner">{tab.owner}</span> · {pageTitle}
+                  </span>
+                ) : (
+                  <span>{title}</span>
+                )}
                 {tab.kind === 'popup' && <small>{t('Popup')}</small>}
               </button>
               <button

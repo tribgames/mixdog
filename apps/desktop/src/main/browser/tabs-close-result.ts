@@ -19,8 +19,9 @@ export interface SessionTabStrip {
 }
 
 /** How a `select-tab` is not the user's own pick: `agent` is a pane following
- *  the agent's page, `resume` the user asking to see it again. */
-export type SessionTabFollow = 'agent' | 'resume';
+ *  the agent's page, `resume` the user asking to see it again, `view` the
+ *  transcript's "보기" showing one page the agent opened. */
+export type SessionTabFollow = 'agent' | 'resume' | 'view';
 
 type SessionTabControl =
   | { type: 'new-tab'; requestId?: string }

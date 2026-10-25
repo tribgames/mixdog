@@ -199,6 +199,8 @@ test('Open in main tab request opens a browser tab in the owning pane and folds 
         browserSurfaces: new Map(),
         pendingBrowserAutoReveal: { current: new Set() },
         browserAutoRevealSuppressed: { current: new Set() },
+        pendingDockReveals: { current: new Map() },
+        dockRevealTick: 0,
       },
       openFileTab() {},
       openSession: async () => {},

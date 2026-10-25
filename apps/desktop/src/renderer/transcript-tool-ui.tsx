@@ -28,7 +28,8 @@ import React, {
   type ReactNode,
 } from 'react';
 import type { TranscriptItem } from './desktop-types';
-import { BrowserPeekLine, SavedSignInLines, toolActivityUsesBrowser } from './browser-peek-line';
+import { BrowserPeekLine, SavedSignInLines, browserOpenedPage } from './browser-peek-line';
+import { TerminalPeekLines } from './terminal-peek-line';
 import { t } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { LocalPathMention, openWebLinkInSystemBrowser, webLinkMenu } from './MarkdownLink';
@@ -308,6 +309,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   // failed) has no counts yet, and the running readout stays its own.
   const lineCounts = useMemo(() => groupLineCounts(calls), [calls]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
+  const openedPage = useMemo(() => browserOpenedPage(items), [items]);
   const label = summary || t('Tool use');
   // An older group on a phone holds cut outputs: read them while the reader
   // rests nearby, so opening a call shows its whole output at once.
@@ -354,12 +356,15 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
           </div>
         </div>
       )}
-      {browserPage ? (
-        <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />
+      {/* A page the agent opened shows its own tab; only a navigation left
+          without one gets the address card. */}
+      {openedPage ? (
+        <BrowserPeekLine sessionId={disclosureScope} page={openedPage} />
       ) : (
-        toolActivityUsesBrowser(items) && <BrowserPeekLine sessionId={disclosureScope} />
+        browserPage && <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />
       )}
       <SavedSignInLines items={items} />
+      <TerminalPeekLines items={items} sessionId={disclosureScope} />
       <ToolComputerReadinessCard items={items} taskKey={`${disclosureScope}|${turnKey}`} />
       <TranscriptArtifacts items={items} />
     </article>

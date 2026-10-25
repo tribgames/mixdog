@@ -42,11 +42,14 @@ export function requestBrowserPage(
   if (listeners) for (const listener of [...listeners]) listener(url);
 }
 
-/** The user asks to see the session's browser as it is now (the transcript's
- *  "브라우저 · 보기"): the pane opens on its current page, loading nothing. */
-export function revealBrowserPane(sessionId: string): void {
+/** The user asks to see the session's browser as it is now: the pane opens on
+ *  its current page, loading nothing, and shows the agent's page again.
+ *  `showsTab`: the caller already picked the tab to show (the transcript's
+ *  "브라우저 · 보기" on one page), so the pane does not move to the agent's. */
+export function revealBrowserPane(sessionId: string, options?: { showsTab?: boolean }): void {
   if (!sessionId) return;
   for (const listener of revealListeners) listener({ sessionId });
+  if (options?.showsTab) return;
   const panes = paneRevealListeners.get(sessionId);
   if (panes?.size) for (const listener of [...panes]) listener();
   else pendingPaneReveal.add(sessionId);

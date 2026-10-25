@@ -203,7 +203,43 @@ test('back folds the dock of the focused pane, not the first one', async () => {
 
 const DOCK_KEY = 'mixdog.desktop.pane-side-dock.v1';
 
-test("reload: a terminal dock stored open comes back open on its pane's session, and only there", async () => {
+test('reload: a terminal comes back by the session that opened it, never by the pane', async () => {
+  dom.window.localStorage.clear();
+  const entry = (open, surface) => ({ open, view: null, surface, diff: null });
+  // The pane L1 was left open on a terminal, but session s1 (now shown in
+  // L2) opened it; s2, now shown in L1, never did.
+  dom.window.localStorage.setItem(DOCK_KEY, JSON.stringify({ L1: entry(true, 'terminal'), L2: entry(false, '') }));
+  dom.window.localStorage.setItem(
+    'mixdog.desktop.session-dock-surfaces.v1',
+    JSON.stringify({ s1: { surface: 'terminal' }, s9: { surface: 'browser' } })
+  );
+  const leaves = [leaf('L1', 's2'), leaf('L2', 's1')];
+  const phone = await mountPhone({ leaves, focusedLeafId: 'L2' });
+  try {
+    assert.equal(phone.sessionSurfaces.sessionSideSurfaces.get('s1'), 'terminal');
+    assert.equal(phone.sideDocks.focusedPaneDockOpen, true, 'the displayed dock is the terminal');
+    assert.equal(
+      phone.sessionSurfaces.sessionSideSurfaces.has('s2'),
+      false,
+      'no shell for a session that never opened one'
+    );
+    assert.equal(phone.sessionSurfaces.sessionSideSurfaces.has('s9'), false, 'a browser is not restored');
+    const stored = JSON.parse(dom.window.localStorage.getItem('mixdog.desktop.session-dock-surfaces.v1'));
+    assert.deepEqual(stored, { s1: { surface: 'terminal' } });
+  } finally {
+    const echo = new Promise((resolve) =>
+      dom.window.addEventListener('popstate', () => setTimeout(resolve, 0), { once: true })
+    );
+    await act(async () => phone.sideDocks.closePaneRightRegion('L2'));
+    await act(async () => {
+      await echo;
+    });
+    await phone.unmount();
+    dom.window.localStorage.clear();
+  }
+});
+
+test('upgrade: with only the old pane-keyed store, open terminals migrate to the sessions their panes show', async () => {
   dom.window.localStorage.clear();
   const entry = (open, surface) => ({ open, view: null, surface, diff: null });
   dom.window.localStorage.setItem(
@@ -214,9 +250,38 @@ test("reload: a terminal dock stored open comes back open on its pane's session,
   const phone = await mountPhone({ leaves, focusedLeafId: 'L1' });
   try {
     assert.equal(phone.sessionSurfaces.sessionSideSurfaces.get('s1'), 'terminal');
-    assert.equal(phone.sideDocks.focusedPaneDockOpen, true, 'the displayed dock is the terminal');
+    assert.equal(phone.sideDocks.focusedPaneDockOpen, true, 'the terminal dock is open again');
     assert.equal(phone.sessionSurfaces.sessionSideSurfaces.has('s2'), false, 'a dock closed on purpose stays closed');
-    assert.equal(phone.sessionSurfaces.sessionSideSurfaces.has('s3'), false, 'no terminal surface to restore');
+    assert.equal(phone.sessionSurfaces.sessionSideSurfaces.has('s3'), false, 'no terminal to migrate');
+    const stored = JSON.parse(dom.window.localStorage.getItem('mixdog.desktop.session-dock-surfaces.v1'));
+    assert.deepEqual(stored, { s1: { surface: 'terminal' } }, 'the session-keyed store takes over');
+  } finally {
+    const echo = new Promise((resolve) =>
+      dom.window.addEventListener('popstate', () => setTimeout(resolve, 0), { once: true })
+    );
+    await act(async () => phone.sideDocks.closePaneRightRegion('L1'));
+    await act(async () => {
+      await echo;
+    });
+    await phone.unmount();
+    dom.window.localStorage.clear();
+  }
+});
+
+test('a remembered view another session kind owns is neither stored nor shown', async () => {
+  dom.window.localStorage.clear();
+  // The pane remembers Routines (a home thread's view) and is folded; the
+  // coding session it shows now has no Routines.
+  dom.window.localStorage.setItem(
+    DOCK_KEY,
+    JSON.stringify({ L1: { open: false, view: 'routines', surface: '', diff: null } })
+  );
+  const phone = await mountPhone({ leaves: LEAVES, focusedLeafId: 'L1' });
+  try {
+    await act(async () => phone.sideDocks.toggleDock());
+    assert.notEqual(phone.sessionSurfaces.sessionPanelViews.get('s1'), 'routines');
+    const view = phone.sideDocks.paneSideDocks.entryFor('L1').view;
+    assert.notEqual(view, 'routines', 'the dock opens on a view this tab has');
   } finally {
     // Folded again like every other test here: the mobile-back hook keeps
     // module-level history bookkeeping that an unmount with an open dock leaves behind.

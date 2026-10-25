@@ -33,6 +33,7 @@ let heldStates = new Map<string, VisualizeSessionState>();
 const heldSince = new Map<string, number>();
 const listeners = new Set<Listener>();
 const revealListeners = new Set<RevealListener>();
+const emptiedListeners = new Set<RevealListener>();
 /** Reveals asked for before the app shell subscribed (a reloaded renderer
  *  hydrates before its effects run); delivered to the first listener. */
 const pendingReveals = new Set<string>();
@@ -188,8 +189,31 @@ function putState(map: Map<string, VisualizeSessionState>, state: VisualizeSessi
 function setState(state: VisualizeSessionState): void {
   const next = new Map(states);
   if (!putState(next, state)) return;
+  replaceStates(next);
+}
+
+/** `next` becomes the state; a session whose last tab went away is told to
+ *  the shell (its 'visualize' panel view has nothing left to show). */
+function replaceStates(next: Map<string, VisualizeSessionState>): void {
+  const before = states;
   states = next;
   emit();
+  for (const [sessionId, state] of before) {
+    if (state.tabs.length && !next.get(sessionId)?.tabs.length) {
+      for (const listener of emptiedListeners) listener(sessionId);
+    }
+  }
+}
+
+/** The shell clears a session's 'visualize' panel view through this once
+ *  its last tab closed (the user's ×, the agent's close, eviction), wherever
+ *  that panel is: one off screen would otherwise come back as an empty frame. */
+export function onVisualizeEmptied(listener: RevealListener): () => void {
+  connect();
+  emptiedListeners.add(listener);
+  return () => {
+    emptiedListeners.delete(listener);
+  };
 }
 
 /** A web link clicked in a pane page opens where a chat web link would: the
@@ -467,10 +491,7 @@ export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[]
     }
   }
   const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
-  if (!same) {
-    states = next;
-    emit();
-  }
+  if (!same) replaceStates(next);
   const missed: Array<[string, string]> = [];
   const reopen: string[] = [];
   for (const [sessionId, state] of next) {

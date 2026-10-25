@@ -60,7 +60,7 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
       const tabId = text('tabId', 80);
       if (!/^p\d+$/.test(tabId)) throw new TypeError('Browser tab id is invalid.');
       const follow = input.type === 'select-tab' ? (input as { follow?: unknown }).follow : undefined;
-      if (follow !== undefined && follow !== 'agent' && follow !== 'resume')
+      if (follow !== undefined && follow !== 'agent' && follow !== 'resume' && follow !== 'view')
         throw new TypeError('Browser tab follow is invalid.');
       return { type: input.type, documentId, tabId, ...(follow ? { follow } : {}) };
     }

@@ -27,6 +27,10 @@ export function createBrowserLocalPageControl(options: {
   const { state, queue, control } = options;
   return (sessionId: string, input: DesktopBrowserPageControl): Promise<DesktopBrowserTabControlResult | void> => {
     const owner = browserSessionId(sessionId);
+    // Showing a tab without picking it ("브라우저 · 보기", a pane following the
+    // agent) needs no page of the pane's: it neither creates one, keeps one
+    // for the user, nor stops the agent. A tab no longer open says so.
+    if (input.type === 'select-tab' && input.follow) return control(owner, input);
     // Validate ownership before allowing an input to cancel this session's
     // automation. A stale frame must not take over a different document.
     const guest = options.currentGuest(owner);

@@ -14,12 +14,28 @@ import { navigationKey } from './text-format';
 
 export type SessionSideSurface = typeof PANE_DOCK_BROWSER_SURFACE | typeof PANE_DOCK_TERMINAL_SURFACE;
 
-/** The sessions whose terminal a reload must bring back. The session-owned
- *  surface map lives in memory only, while the pane entry persists `open` and
- *  `surface`: a pane stored open on the terminal (closing writes `open:false`)
- *  would otherwise fold on the first read, as it does for a session that
- *  never opened it. Only the session each pane shows at start-up is restored. */
-export function terminalSessionsToRestore(
+/** Another session's surface a session's dock shows: a child session's
+ *  browser or terminal revealed in the conversation that owns it. */
+export type SessionSurfaceSource = { sessionId: string; surface: SessionSideSurface };
+
+/** The session whose `surface` the dock of `sessionId` shows: a child's when
+ *  one was revealed there for that surface, else its own. */
+export function sessionSurfaceSessionFor(
+  sources: ReadonlyMap<string, SessionSurfaceSource>,
+  sessionId: string,
+  surface: SessionSideSurface
+): string {
+  const source = sources.get(sessionId);
+  return source?.surface === surface ? source.sessionId : sessionId;
+}
+
+export const SESSION_DOCK_SURFACES_KEY = 'mixdog.desktop.session-dock-surfaces.v1';
+
+/** An upgrade from the pane-keyed store: the sessions whose terminal it held
+ *  open, read as the restored workspace shows them (the session each pane
+ *  shows owns that pane's stored terminal). Closing wrote `open:false`, so a
+ *  terminal closed on purpose stays closed. */
+export function legacyTerminalSessions(
   owners: readonly { leafId: string; sessionId: string | null }[],
   entryFor: (leafId: string) => Pick<PaneSideDockEntry, 'open' | 'surface'>
 ): string[] {
@@ -29,6 +45,43 @@ export function terminalSessionsToRestore(
     if (sessionId && entry.open && entry.surface === PANE_DOCK_TERMINAL_SURFACE) sessions.add(sessionId);
   }
   return [...sessions];
+}
+
+type StoredSessionSurface = { surface: typeof PANE_DOCK_TERMINAL_SURFACE; source?: string };
+
+/** What a reload brings back, keyed by the session that owns the dock: its
+ *  terminal (its own, or the child's it shows). A browser is not restored:
+ *  its pages do not survive a restart, and an empty panel would come back. */
+export function storableSessionSurfaces(
+  surfaces: ReadonlyMap<string, SessionSideSurface>,
+  sources: ReadonlyMap<string, SessionSurfaceSource>
+): Record<string, StoredSessionSurface> {
+  const stored: Record<string, StoredSessionSurface> = {};
+  for (const [sessionId, surface] of surfaces) {
+    if (surface !== PANE_DOCK_TERMINAL_SURFACE) continue;
+    const source = sources.get(sessionId);
+    stored[sessionId] = source?.surface === surface ? { surface, source: source.sessionId } : { surface };
+  }
+  return stored;
+}
+
+/** The session surface maps a stored value restores; empty for anything else. */
+export function restoredSessionSurfaces(value: unknown): {
+  surfaces: Map<string, SessionSideSurface>;
+  sources: Map<string, SessionSurfaceSource>;
+} {
+  const surfaces = new Map<string, SessionSideSurface>();
+  const sources = new Map<string, SessionSurfaceSource>();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { surfaces, sources };
+  for (const [sessionId, entry] of Object.entries(value as Record<string, unknown>)) {
+    const record = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
+    if (!sessionId.trim() || record?.surface !== PANE_DOCK_TERMINAL_SURFACE) continue;
+    surfaces.set(sessionId, PANE_DOCK_TERMINAL_SURFACE);
+    const source = typeof record.source === 'string' ? record.source.trim() : '';
+    if (source && source !== sessionId)
+      sources.set(sessionId, { sessionId: source, surface: PANE_DOCK_TERMINAL_SURFACE });
+  }
+  return { surfaces, sources };
 }
 
 /** Immutable per-session map update: `null` removes the session's entry, and
@@ -62,6 +115,19 @@ export function withSessionSideSurface(
   return withSessionEntry(current, sessionId, surface);
 }
 
+export function withSessionSurfaceSource(
+  current: ReadonlyMap<string, SessionSurfaceSource>,
+  sessionId: string,
+  source: SessionSurfaceSource | null
+): ReadonlyMap<string, SessionSurfaceSource> {
+  return withSessionEntry(
+    current,
+    sessionId,
+    source,
+    (left, right) => left.sessionId === right.sessionId && left.surface === right.surface
+  );
+}
+
 function sameNavigationTarget(left: PaneSideDockDiff, right: PaneSideDockDiff): boolean {
   return navigationKey(left) === navigationKey(right);
 }
@@ -86,6 +152,17 @@ export type SessionSidePanelView = 'session-diff' | 'visualize' | 'routines' | '
 
 export const isSessionSidePanelView = (view: unknown): view is SessionSidePanelView =>
   view === 'session-diff' || view === 'visualize' || view === 'routines' || view === 'room';
+
+/** `view` when the tab's own right-side groups (paneRightGroupsFor) hold it,
+ *  else null: a view remembered for another session kind (Routines off a
+ *  home thread, the room panel off a room) is neither stored nor shown, so
+ *  the dock never falls back to an unrelated first view. */
+export function sessionPanelViewIn(
+  groups: readonly (readonly string[])[],
+  view: SessionSidePanelView | null | undefined
+): SessionSidePanelView | null {
+  return view && groups.some((group) => group.includes(view)) ? view : null;
+}
 
 export function withSessionPanelView(
   current: ReadonlyMap<string, SessionSidePanelView>,
@@ -112,13 +189,17 @@ export function paneDockEntryForSession(entry: PaneSideDockEntry, sessionId: str
  * Session-owned surfaces override the pane's remembered panel only for their
  * own session. A pane-local (git) diff stays in front of its own session
  * until it closes; a session's own diff rides in front of that session only.
+ * `panelViewInFront`: the session's panel view was opened after its
+ * browser/terminal (an agent's visualize open), so it shows while the
+ * browser/terminal stays behind it — the latest explicit open wins.
  */
 export function sessionSideDockEntryForSession(
   entry: PaneSideDockEntry,
   sessionId: string,
   surface: SessionSideSurface | null,
   sessionDiff: PaneSideDockDiff | null = null,
-  sessionPanelView: SessionSidePanelView | null = null
+  sessionPanelView: SessionSidePanelView | null = null,
+  panelViewInFront = false
 ): PaneSideDockEntry {
   // A session diff persisted into the pane entry by an older build belongs to
   // no pane: drop it so the session map below is the only owner.
@@ -144,7 +225,7 @@ export function sessionSideDockEntryForSession(
     base.surface === PANE_DOCK_FILES_SURFACE
   )
     return base;
-  if (sessionId && surface) {
+  if (sessionId && surface && !(sessionPanelView && panelViewInFront)) {
     if (base.open && base.surface === surface) return base;
     return { ...base, open: true, surface };
   }
