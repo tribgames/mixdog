@@ -195,9 +195,14 @@ test('stamping never serializes inline media and never reaches a provider payloa
     { role: 'assistant', content: 'done' },
   ];
   const messages = plain();
-  const startedAt = performance.now();
+  Object.defineProperty(image, 'toJSON', {
+    configurable: true,
+    value() {
+      throw new Error('inline media serialized');
+    },
+  });
   assert.equal(stampMessageIds(messages, { sessionId: 'media' }), 5);
-  assert.ok(performance.now() - startedAt < 250);
+  delete image.toJSON;
   assert.deepEqual(toAnthropicMessages(messages, []), toAnthropicMessages(plain(), []));
   assert.deepEqual(toOpenAIMessages(messages, 'openai'), toOpenAIMessages(plain(), 'openai'));
 });

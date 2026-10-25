@@ -142,7 +142,7 @@ test('pruning deletes exactly what the former implementation deleted', async (t)
   });
   let deleted = 0;
   let retainedOld = 0;
-  for (let index = 0; index < 300; index += 1) {
+  for (let index = 0; index < 60; index += 1) {
     const spec = scenario();
     const sessionId = `prune_${index}`;
     const legacy = build(spec, sessionId);

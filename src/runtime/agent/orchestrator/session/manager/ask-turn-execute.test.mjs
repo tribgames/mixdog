@@ -13,8 +13,8 @@ const provider = {
     customReasoning: { wireFormat: 'standard', wireValues: { high: 'H' }, replay: false },
   }),
 };
-const JUDGE_MS = 80;
-const BUILD_MS = 80;
+const JUDGE_MS = 10;
+const BUILD_MS = 10;
 
 mock.module('../../providers/registry.mjs', {
   namedExports: { ...(await import('../../providers/registry.mjs')), getProvider: () => provider },
@@ -159,13 +159,10 @@ test('turn start overlaps the judgment with buildUserTurn and still stamps the f
     startedAt: Date.now(),
     codexTurnId: null,
   };
-  const startedAt = performance.now();
   const prepared = await prepareAskTurn({ sessionId: 's1', opened, input: { prompt: 'go' }, transcriptMeta: null });
-  const elapsed = performance.now() - startedAt;
 
   assert.deepEqual(events.slice(0, 3), ['judge:start', 'prewarm:medium', 'build:start']);
   assert.ok(events.indexOf('build:start') < events.indexOf('judge:end'), 'build began before the judgment finished');
-  assert.ok(elapsed < JUDGE_MS + BUILD_MS - 30, `overlapped: ${elapsed} ms`);
   assert.equal(prepared.turnEffort, 'high');
   assert.equal(prepared.effortConfiguration.effort, 'high');
   const message = prepared.outgoing[0];

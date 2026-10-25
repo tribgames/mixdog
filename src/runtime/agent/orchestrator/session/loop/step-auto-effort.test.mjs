@@ -177,7 +177,7 @@ function nextBatch(state, id) {
   return { assistant, tool };
 }
 
-test('a slow step judgment does not hold the next request; its result rides on the request after', async () => {
+test('a slow step judgment does not hold the next request; its result rides on the request after', async (t) => {
   const provider = customProvider('openai-chat', ROW);
   const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
   const snapshot = prepareTurnEffortConfiguration(session, provider);
@@ -188,14 +188,13 @@ test('a slow step judgment does not hold the next request; its result rides on t
 
   // Batch 1 lands: starting the judgment returns at once; the request waits
   // only the grace for it, then goes out unmarked.
-  const startedAt = performance.now();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   markStepEffort(state, assistant);
-  assert.ok(performance.now() - startedAt < 50);
   assert.equal(state.stepEffort.settled, false);
-  const waitStart = performance.now();
-  await applyStepEffort(state);
-  const waited = performance.now() - waitStart;
-  assert.ok(waited >= STEP_EFFORT_GRACE_MS - 20 && waited < STEP_EFFORT_GRACE_MS + 250, `waited ${waited} ms`);
+  const waiting = applyStepEffort(state);
+  t.mock.timers.tick(STEP_EFFORT_GRACE_MS);
+  await waiting;
+  t.mock.timers.reset();
   assert.equal(tool.meta, undefined);
   assert.equal(state.opts.effort, 'medium');
 
@@ -222,35 +221,41 @@ test('a slow step judgment does not hold the next request; its result rides on t
   judge = async () => ({ probs, ms: 1 });
 });
 
-test('a judgment that resolves within the grace applies to the very next request', async () => {
+test('a judgment that resolves within the grace applies to the very next request', async (t) => {
   const provider = customProvider('openai-chat', ROW);
   const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
   const snapshot = prepareTurnEffortConfiguration(session, provider);
   probs = [0, 0, 0, 1];
-  judge = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    return { probs, ms: 60 };
-  };
+  const slow = deferredJudge();
+  judge = slow.judge;
   const { state, tool, assistant } = stepState(provider, snapshot);
   markStepEffort(state, assistant);
-  const waitStart = performance.now();
-  await applyStepEffort(state);
-  assert.ok(performance.now() - waitStart < STEP_EFFORT_GRACE_MS);
+  // Frozen grace timer: it is never advanced, so only the judge can settle the wait.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let settled = false;
+  const waiting = applyStepEffort(state).then(() => {
+    settled = true;
+  });
+  slow.release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, true, 'the request settles on the judgment, without waiting out the grace');
+  await waiting;
   assert.equal(tool.meta.effortConfiguration.effort, 'high');
   assert.equal(state.opts.effort, 'high');
   judge = async () => ({ probs, ms: 1 });
 });
 
-test('a judge that never answers holds a request no longer than the grace', async () => {
+test('a judge that never answers holds a request no longer than the grace', async (t) => {
   const provider = customProvider('openai-chat', ROW);
   const session = { provider: 'custom-a', model: 'm', effort: 'medium', messages: [] };
   const snapshot = prepareTurnEffortConfiguration(session, provider);
   judge = () => new Promise(() => {});
   const { state, tool, assistant } = stepState(provider, snapshot);
   markStepEffort(state, assistant);
-  const waitStart = performance.now();
-  await applyStepEffort(state);
-  assert.ok(performance.now() - waitStart < STEP_EFFORT_GRACE_MS + 250);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const waiting = applyStepEffort(state);
+  t.mock.timers.tick(STEP_EFFORT_GRACE_MS);
+  await waiting;
   assert.equal(tool.meta, undefined);
   judge = async () => ({ probs, ms: 1 });
 });

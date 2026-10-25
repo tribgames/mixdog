@@ -84,16 +84,15 @@ test('task wait immediately returns for input queued before wait entry without c
   });
   task.promise = new Promise(() => {});
   const stop = registerTaskWaitSteeringCheck((id) => id === sessionId);
-  const startedAt = Date.now();
   // Keep the test alive if a regression incorrectly enters the passive wait.
-  const ceiling = setTimeout(() => {}, 11_000);
+  const ceiling = setTimeout(() => {}, 5_000);
   try {
     assert.equal(interruptTaskWaitForSession(sessionId), 0);
+    // A short ceiling: blocking until it would return the timeout text, not the interruption.
     const result = await executeTaskTool(
-      { action: 'wait', task_id: taskId, timeout_ms: 10_000 },
+      { action: 'wait', task_id: taskId, timeout_ms: 3_000 },
       { sessionId, callerSessionId: sessionId, routingSessionId: sessionId }
     );
-    assert.ok(Date.now() - startedAt < 1_000, 'prequeued input should release wait immediately');
     assert.match(result, /Wait ended by new user input/);
     assert.equal(getBackgroundTask(taskId)?.status, 'running');
     assert.equal(activeTaskWaitCountForSession(sessionId), 0);
@@ -119,14 +118,13 @@ test('task wait returns on user input without cancelling the background task', a
   task.promise = new Promise(() => {});
 
   const interruptTimer = setTimeout(() => interruptTaskWaitForSession(sessionId), 20);
-  const startedAt = Date.now();
   try {
+    // A short ceiling: blocking until it would return the timeout text, not the interruption.
     const result = await executeTaskTool(
-      { action: 'wait', task_id: taskId, timeout_ms: 10_000 },
+      { action: 'wait', task_id: taskId, timeout_ms: 3_000 },
       { sessionId, callerSessionId: sessionId, routingSessionId: sessionId }
     );
 
-    assert.ok(Date.now() - startedAt < 1_000, 'wait should return before its ceiling');
     assert.match(result, /Wait ended by new user input/);
     assert.equal(getBackgroundTask(taskId)?.status, 'running');
   } finally {

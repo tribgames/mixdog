@@ -196,19 +196,20 @@ test('an unclaimed hand-off (a pane nobody resumes) is released after its lifeti
   assert.equal(reads(next), 1, 'a live hand-off is still claimed');
 });
 
-test('dropping a closed session from the load cache announces a release to the idle collector', async () => {
+test('dropping a closed session from the load cache announces a release to the idle collector', async (t) => {
   const { createIdleGc } = await import('../../../../shared/idle-gc.mjs');
   const { forgetSessionLoadCache } = await import('./load-cache.mjs');
   process.env.MIXDOG_IDLE_GC_IDLE_MS = '1000';
   process.env.MIXDOG_IDLE_GC_MIN_HEAP_MB = '0';
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   try {
     const gc = createIdleGc({ isBusy: () => false });
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    t.mock.timers.tick(1_100);
     assert.equal(await gc._tickForTest(), 'swept');
     assert.equal(await gc._tickForTest(), 'unchanged');
     forgetSessionLoadCache(ids[0]);
     assert.equal(await gc._tickForTest(), 'settling');
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    t.mock.timers.tick(1_100);
     assert.equal(await gc._tickForTest(), 'swept');
   } finally {
     delete process.env.MIXDOG_IDLE_GC_IDLE_MS;
@@ -225,8 +226,9 @@ test('a completed restore batch (every hand-off claimed) arms one idle sweep', a
     delete process.env.MIXDOG_IDLE_GC_MIN_HEAP_MB;
   });
   const id = 'sess_share_batch';
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const gc = createIdleGc({ isBusy: () => false });
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  t.mock.timers.tick(1_100);
   assert.equal(await gc._tickForTest(), 'swept');
   assert.equal(await gc._tickForTest(), 'unchanged');
   await reader.readStoredSessionTranscript(id, { transcriptItemLimit: 40 });
@@ -235,7 +237,7 @@ test('a completed restore batch (every hand-off claimed) arms one idle sweep', a
   assert.equal(loadSession(id).id, id);
   assert.equal(sessionLoadCacheStats().pendingHandoffs, 0);
   assert.equal(await gc._tickForTest(), 'settling', 'the finished batch is a release');
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  t.mock.timers.tick(1_100);
   assert.equal(await gc._tickForTest(), 'swept');
 });
 

@@ -266,7 +266,8 @@ test('a capped turn that still calls tools after it was told to reply ends with 
   );
 });
 
-test('a batch that crosses the wrap-up time starts none of its later calls', async () => {
+test('a batch that crosses the wrap-up time starts none of its later calls', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
   const batchCalls = calls(1, 3);
   const ran = [];
   const results = [];
@@ -299,7 +300,7 @@ test('a batch that crosses the wrap-up time starts none of its later calls', asy
     wrapUpAt: Date.now() + 30,
     executeToolFn: async (_name, _args, _cwd, _sessionId, _ref, meta) => {
       ran.push(meta?.toolCallId);
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      t.mock.timers.tick(60);
       return 'ok';
     },
   });

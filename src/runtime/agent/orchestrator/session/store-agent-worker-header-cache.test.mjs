@@ -89,8 +89,8 @@ function indexRow(id, index, now) {
 
 const IDS = Array.from({ length: 30 }, (_, index) => `persist-${String(index).padStart(2, '0')}`);
 
-/** A settled store of IDS workers under one Lead. */
-async function writeStore(root) {
+/** A store of IDS workers under one Lead, written but not yet settled. */
+function writeStoreFiles(root) {
   const now = Date.now();
   for (const [index, id] of IDS.entries()) writeFileSync(sessionPath(root, id), sessionRecord(id, index, `T${index}`, now));
   writeFileSync(sessionPath(root, LEAD), JSON.stringify({ id: LEAD, owner: 'user', agent: 'lead', messages: [] }));
@@ -102,6 +102,12 @@ async function writeStore(root) {
     join(root, 'lead-workers.json'),
     JSON.stringify({ workers: [{ sessionId: LEAD, status: 'idle', updatedAt: now, createdAt: now - 100 * MINUTE }] })
   );
+  return now;
+}
+
+/** A settled store of IDS workers under one Lead. */
+async function writeStore(root) {
+  const now = writeStoreFiles(root);
   await settle();
   return now;
 }
@@ -195,9 +201,9 @@ test('switching data directories before a scheduled persist still persists the n
   try {
     for (const root of roots) {
       mkdirSync(join(root, 'sessions'));
-      process.env.MIXDOG_DATA_DIR = root;
-      await writeStore(root);
+      writeStoreFiles(root);
     }
+    await settle();
     const pool = await restartedPool();
     const [first, second] = roots;
     process.env.MIXDOG_DATA_DIR = first;

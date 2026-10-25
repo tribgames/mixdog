@@ -38,10 +38,11 @@ const session = (id) => ({
 /** renameSync onto `target` refused with `code` for the first `times` calls. */
 function refuseRenames(t, target, code, times) {
   const original = fs.renameSync;
-  const state = { refused: 0 };
+  const state = { refused: 0, ticksAtRefusal: [] };
   fs.renameSync = function (from, to, ...rest) {
     if (String(to) === target && state.refused < times) {
       state.refused++;
+      state.ticksAtRefusal.push(loopTicks);
       const err = new Error(`${code}: operation not permitted, rename '${from}' -> '${to}'`);
       err.code = code;
       throw err;
@@ -56,29 +57,24 @@ function refuseRenames(t, target, code, times) {
   return state;
 }
 
-// Worst tick gap measured for the retries themselves is ~40 ms; the runner
-// adds scheduling noise on top (168 ms seen). The synchronous barrier freezes
-// the loop for the whole retry delay sum, so the limits sit between the two:
-// four refusals sleep >= 375 ms, the full schedule ~4.2 s.
-const FOUR_REFUSALS_GAP_LIMIT_MS = 300;
-const EXHAUSTED_GAP_LIMIT_MS = 2000;
+// The synchronous barrier would retry in one blocked turn; the async one waits
+// on timers, so the loop's own timer fires between any two refusals. Counted
+// ticks replace a wall-clock gap limit.
+let loopTicks = 0;
 
-/** Largest gap between 5 ms ticks while `run` settles. */
-async function maxLoopGap(run) {
-  let last = performance.now();
-  let max = 0;
+/** Runs `run` while counting 1 ms loop ticks; the value comes back with them. */
+async function withLoopTicks(run) {
   const timer = setInterval(() => {
-    const now = performance.now();
-    max = Math.max(max, now - last);
-    last = now;
-  }, 5);
+    loopTicks += 1;
+  }, 1);
   try {
-    const value = await run();
-    return { value, max };
+    return await run();
   } finally {
     clearInterval(timer);
   }
 }
+
+const tickedBetween = (ticksAtRefusal) => ticksAtRefusal.every((ticks, i) => i === 0 || ticks > ticksAtRefusal[i - 1]);
 
 for (const [code, tombstone] of [
   ['EPERM', false],
@@ -91,10 +87,10 @@ for (const [code, tombstone] of [
     // Four refusals: 25 + 50 + 100 + 200 ms of backoff (plus jitter) — a
     // ~400 ms freeze for the synchronous barrier.
     const refused = refuseRenames(t, sessionPath(id), code, 4);
-    const { value, max } = await maxLoopGap(() => closeSessionAsync(id, 'cli-agent-close', { tombstone }));
+    const value = await withLoopTicks(() => closeSessionAsync(id, 'cli-agent-close', { tombstone }));
     assert.equal(value, true);
     assert.equal(refused.refused, 4);
-    assert.ok(max < FOUR_REFUSALS_GAP_LIMIT_MS, `event loop gap ${Math.round(max)}ms during the retries`);
+    assert.ok(tickedBetween(refused.ticksAtRefusal), 'the loop ticked between retries');
     const disk = JSON.parse(readFileSync(sessionPath(id), 'utf8'));
     assert.equal(disk.generation, before + 1, 'the generation bump landed');
     assert.equal(disk.closed, tombstone);
@@ -107,11 +103,11 @@ test('a rename refused through the whole schedule fails the close with the renam
   await saveSessionAsync(session(id));
   const before = readFileSync(sessionPath(id), 'utf8');
   const refused = refuseRenames(t, sessionPath(id), 'EPERM', Infinity);
-  const { value, max } = await maxLoopGap(() => closeSessionAsync(id, 'cli-agent-close', { tombstone: false }));
+  const value = await withLoopTicks(() => closeSessionAsync(id, 'cli-agent-close', { tombstone: false }));
   assert.equal(value, false);
   // DEFAULT_BACKOFFS_MS has 23 delays: 24 attempts, as renameWithRetrySync makes.
   assert.equal(refused.refused, 24);
-  assert.ok(max < EXHAUSTED_GAP_LIMIT_MS, `event loop gap ${Math.round(max)}ms during the retries`);
+  assert.ok(tickedBetween(refused.ticksAtRefusal), 'the loop ticked between retries');
   assert.equal(getSessionLifecycleCommitError(id)?.code, 'EPERM');
   assert.equal(readFileSync(sessionPath(id), 'utf8'), before, 'the canonical record is untouched');
 });

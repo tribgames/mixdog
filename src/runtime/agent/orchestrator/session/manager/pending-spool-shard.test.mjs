@@ -169,7 +169,6 @@ test('the sweep walks the shard directory and evicts only stale shards', async (
   }));
   // A stray non-shard file in the directory is ignored.
   writeFileSync(join(shardDir, 'notes.txt'), 'x', 'utf8');
-  await sleep(5);
   assert.ok((await sweepOrphanedPendingMessages()) >= 1);
   assert.equal(existsSync(pendingMessagesPath('tui_sweep_old')), false);
   assert.equal(existsSync(pendingMessagesPath('tui_sweep_new')), true);
