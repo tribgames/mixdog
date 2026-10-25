@@ -151,6 +151,86 @@ test('with logins Import is not primary, and the text button opens the clear-all
   assert.ok(doc.body.textContent.includes('Clear all saved logins?'), 'the existing confirm opens');
 });
 
+test('linked sign-ins list with the cookie-only logins: provider pill, identity, search, delete and clear-all', async (t) => {
+  let linked = [
+    {
+      id: 'c'.repeat(24),
+      site: 'chatgpt.com',
+      redirectHost: 'auth.openai.com',
+      provider: 'google.com',
+      identity: 'tempest1033@gmail.com',
+      lastUsedAt: 2,
+    },
+    { id: 'd'.repeat(24), site: 'vercel.com', redirectHost: 'vercel.com', provider: 'github.com', identity: '', lastUsedAt: 1 },
+  ];
+  const deleted = [];
+  let cleared = 0;
+  const api = {
+    ...makeApi(),
+    browserLinkedSignIns: async () => linked,
+    browserLinkedSignInDelete: async (id) => {
+      deleted.push(id);
+      linked = linked.filter((link) => link.id !== id);
+      return true;
+    },
+    browserClearSignIns: async () => {
+      cleared += 1;
+      linked = [];
+    },
+  };
+  const dom = await mount(t, api);
+  const doc = dom.window.document;
+  // The saved-password side is as it was; the other side counts naver.com and both links.
+  assert.deepEqual(rowHosts(doc), ['github.com', 'notion.so']);
+  const options = () => doc.querySelectorAll('.auth-seg button');
+  assert.ok(options()[1].textContent.endsWith('3'), options()[1].textContent);
+  await act(async () => options()[1].click());
+  assert.deepEqual(rowHosts(doc), ['chatgpt.com', 'naver.com', 'vercel.com']);
+  const row = (host) => [...doc.querySelectorAll('.auth-row')].find((entry) => entry.querySelector('b').textContent === host);
+  const chatgpt = row('chatgpt.com');
+  assert.equal(chatgpt.querySelector('.auth-pill-linked').textContent, 'Google');
+  assert.equal(chatgpt.querySelector('.auth-user').textContent, 'tempest1033@gmail.com');
+  assert.match(chatgpt.querySelector('.auth-source').textContent, /Linked sign-in/);
+  assert.equal(row('vercel.com').querySelector('.auth-pill-linked').textContent, 'GitHub');
+  assert.equal(row('vercel.com').querySelector('.auth-user'), null, 'no account named: none shown');
+  assert.equal(row('naver.com').querySelector('.auth-pill-linked'), null);
+
+  // Search finds a link by its identity, its site or its provider.
+  const search = doc.querySelector('.auth-search input');
+  const setNativeValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+  const type = (value) =>
+    act(async () => {
+      setNativeValue.call(search, value);
+      search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+  await type('TEMPEST1033');
+  assert.deepEqual(rowHosts(doc), ['chatgpt.com']);
+  await type('github');
+  assert.deepEqual(rowHosts(doc), ['vercel.com']);
+  await type('chatgpt');
+  assert.deepEqual(rowHosts(doc), ['chatgpt.com']);
+  await type('');
+
+  // The row menu deletes that one link.
+  await act(async () => row('chatgpt.com').querySelector('.auth-row-menu').click());
+  await settle();
+  const items = [...doc.querySelectorAll('button[data-action-id]')].map((button) => button.dataset.actionId);
+  assert.deepEqual(items, ['delete']);
+  await act(async () => doc.querySelector('button[data-action-id="delete"]').click());
+  await settle();
+  assert.deepEqual(deleted, ['c'.repeat(24)]);
+  assert.deepEqual(rowHosts(doc), ['naver.com', 'vercel.com']);
+
+  // "Clear all saved logins" clears them too (the host forgets every link).
+  await act(async () => doc.querySelector('.auth-clear-all').click());
+  await settle();
+  const confirm = [...doc.querySelectorAll('footer button')].find((button) => button.textContent === 'Clear all');
+  await act(async () => confirm.click());
+  await settle();
+  assert.equal(cleared, 1);
+  assert.deepEqual(rowHosts(doc), ['naver.com']);
+});
+
 test('reopening the page reloads the list and shows a vault error', async (t) => {
   let broken = false;
   const api = {

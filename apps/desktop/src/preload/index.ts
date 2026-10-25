@@ -741,6 +741,8 @@ const api: DesktopApi = {
   browserVaultLogins: () => invokeIpc(DESKTOP_IPC.browserVaultLogins),
   browserVaultSave: (input) => invokeIpc(DESKTOP_IPC.browserVaultSave, input),
   browserVaultDelete: (id) => invokeIpc(DESKTOP_IPC.browserVaultDelete, id),
+  browserLinkedSignIns: () => invokeIpc(DESKTOP_IPC.browserLinkedSignIns),
+  browserLinkedSignInDelete: (id) => invokeIpc(DESKTOP_IPC.browserLinkedSignInDelete, id),
   browserLoginOpen: (sessionId, id) => invokeIpc(DESKTOP_IPC.browserLoginOpen, sessionId, id),
   browserLoginStatus: (sessionId, id) => invokeIpc(DESKTOP_IPC.browserLoginStatus, sessionId, id),
   browserPageIdentity: (url, options) => invokeIpc(DESKTOP_IPC.browserPageIdentity, url, options?.preview === true),

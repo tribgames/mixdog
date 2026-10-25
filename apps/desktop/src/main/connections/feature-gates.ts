@@ -36,6 +36,8 @@ const FEATURE_CHANNELS: ReadonlyArray<readonly [string, readonly string[]]> = [
       DESKTOP_IPC.browserVaultLogins,
       DESKTOP_IPC.browserVaultSave,
       DESKTOP_IPC.browserVaultDelete,
+      DESKTOP_IPC.browserLinkedSignIns,
+      DESKTOP_IPC.browserLinkedSignInDelete,
       DESKTOP_IPC.browserLoginOpen,
       DESKTOP_IPC.browserLoginStatus,
       DESKTOP_IPC.browserPageIdentity,

@@ -17,6 +17,11 @@ function setup() {
       calls.push(['delete', id]);
       return true;
     },
+    browserLinkedSignIns: async () => [],
+    browserLinkedSignInDelete: async (id) => {
+      calls.push(['delete-linked', id]);
+      return true;
+    },
   };
   registerBrowserIpc({ handle: (channel, fn) => handlers.set(channel, fn), browserHost });
   return { call: (channel, ...args) => handlers.get(channel)({}, ...args), calls };
@@ -96,8 +101,24 @@ test('only a 24-hex saved-login id reaches delete', async () => {
   assert.deepEqual(calls, [['delete', ID]]);
 });
 
+test('only a 24-hex linked sign-in id reaches its delete', async () => {
+  const { call, calls } = setup();
+  assert.deepEqual(await call(DESKTOP_IPC.browserLinkedSignIns), []);
+  assert.equal(await call(DESKTOP_IPC.browserLinkedSignInDelete, ID), true);
+  for (const id of [undefined, null, 42, '', ID.toUpperCase(), `${ID}0`, 'chatgpt.com']) {
+    await assert.rejects(async () => call(DESKTOP_IPC.browserLinkedSignInDelete, id), /Linked sign-in id is invalid/);
+  }
+  assert.deepEqual(calls, [['delete-linked', ID]]);
+});
+
 test('a server window refuses every vault channel; this PC allows them', () => {
-  for (const channel of [DESKTOP_IPC.browserVaultLogins, DESKTOP_IPC.browserVaultSave, DESKTOP_IPC.browserVaultDelete]) {
+  for (const channel of [
+    DESKTOP_IPC.browserVaultLogins,
+    DESKTOP_IPC.browserVaultSave,
+    DESKTOP_IPC.browserVaultDelete,
+    DESKTOP_IPC.browserLinkedSignIns,
+    DESKTOP_IPC.browserLinkedSignInDelete,
+  ]) {
     const refusal = connectionFeatureGate('ssh', channel);
     assert.ok(refusal, channel);
     assert.equal(refusal.code, 'ssh-unsupported');

@@ -10,6 +10,8 @@ interface BrowserRefFingerprint {
   /** Value and states are remembered for change reports, not for recovery. */
   value?: string;
   states?: string[];
+  /** The snapshot marked it a secret field (a password / protected input). */
+  sensitive?: boolean;
 }
 
 export interface BrowserRefSet {
@@ -47,6 +49,7 @@ function fingerprint(payload: BrowserSnapshotPayload, element: BrowserSnapshotEl
     // A secret is never kept, but filling one is still a change to report.
     value: element.value || (element.filled ? '[REDACTED]' : ''),
     states: element.states || [],
+    ...(element.sensitive ? { sensitive: true } : {}),
   };
 }
 

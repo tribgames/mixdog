@@ -35,14 +35,17 @@ interface BrowserIpcOptions {
     | 'browserVaultLogins'
     | 'browserVaultSave'
     | 'browserVaultDelete'
+    | 'browserLinkedSignIns'
+    | 'browserLinkedSignInDelete'
   >;
   /** Login takeovers' sign-in windows (browser/login-popup.ts). */
   browserLogin?: Pick<BrowserLoginPopup, 'open' | 'status'>;
 }
 
-/** A saved-login id: the 24-hex derived from its site and username. */
-function requiredVaultLoginId(value: unknown): string {
-  if (typeof value !== 'string' || !/^[a-f0-9]{24}$/.test(value)) throw new TypeError('Saved login id is invalid.');
+/** A saved-login id (the 24-hex derived from its site and username), or a
+ *  linked sign-in's (from its site and provider). */
+function requiredVaultLoginId(value: unknown, label = 'Saved login'): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{24}$/.test(value)) throw new TypeError(`${label} id is invalid.`);
   return value;
 }
 
@@ -264,6 +267,14 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
   handle(DESKTOP_IPC.browserVaultDelete, (_event, id) => {
     if (!browserHost) throw new Error('Saved logins are unavailable in this app surface.');
     return browserHost.browserVaultDelete(requiredVaultLoginId(id));
+  });
+  handle(DESKTOP_IPC.browserLinkedSignIns, () => {
+    if (!browserHost) throw new Error('Saved logins are unavailable in this app surface.');
+    return browserHost.browserLinkedSignIns();
+  });
+  handle(DESKTOP_IPC.browserLinkedSignInDelete, (_event, id) => {
+    if (!browserHost) throw new Error('Saved logins are unavailable in this app surface.');
+    return browserHost.browserLinkedSignInDelete(requiredVaultLoginId(id, 'Linked sign-in'));
   });
   // A login takeover's sign-in window: only the takeover this PC saw for that
   // session (its page comes from the session state, never from the caller).

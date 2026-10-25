@@ -33,10 +33,13 @@ function watchBrowserGuest(
     fullscreen: ReturnType<typeof createPageFullscreen> | null;
     leave: ReturnType<typeof createBrowserLeaveConfirmation>;
     pageIdentity: ReturnType<typeof createBrowserHostPageIdentity>['store'];
+    linkedSignIns: BrowserHostFoundation['linkedSignIns'];
   }
 ): void {
   const { leave } = watchers;
   watchers.display.track(guest);
+  // "Continue with Google/GitHub" sign-ins this page completes are remembered.
+  watchers.linkedSignIns.watch(guest);
   watchers.displayTextures.attach(guest);
   watchers.nativeViews?.watch(guest);
   watchers.fullscreen?.watch(guest);
@@ -83,6 +86,7 @@ export function createBrowserHostPages(options: {
     | 'pageIdentity'
     | 'nativeView'
     | 'sendToRenderer'
+    | 'linkedSignIns'
   >;
   onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
   onGuest?: (guest: WebContents) => void;
@@ -119,6 +123,7 @@ export function createBrowserHostPages(options: {
         fullscreen,
         leave: base.leave,
         pageIdentity: base.pageIdentity.store,
+        linkedSignIns: base.linkedSignIns,
       });
       options.onGuest?.(guest);
     },

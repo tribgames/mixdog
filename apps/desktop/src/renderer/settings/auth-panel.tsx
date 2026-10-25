@@ -7,20 +7,33 @@ import { Globe, KeyRound, MoreHorizontal, Search } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { DesktopApi, DesktopBrowserSignedInSite, DesktopVaultLogin } from '../../shared/contract';
+import type {
+  DesktopApi,
+  DesktopBrowserSignedInSite,
+  DesktopLinkedSignIn,
+  DesktopVaultLogin,
+} from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { scrimDismiss } from '../scrim-dismiss';
 import { ScmContextMenu, type ScmContextMenuState } from '../ScmContextMenu';
 import { BrowserImportDialog } from '../BrowserImportDialog';
 import { ActionButton, Group, SettingsConfirmDialog, ToggleRow } from './capability-controls';
-import { type AuthFilter, type AuthRow, authCounts, filterAuthRows, mergeAuthRows } from './auth-rows';
+import {
+  type AuthFilter,
+  type AuthRow,
+  authCounts,
+  filterAuthRows,
+  mergeAuthRows,
+} from './auth-rows';
 import { loginSavePayload } from './auth-login-draft';
 
 type AuthApi = Partial<DesktopApi>;
 
-/** How a row's login got here (mockup source line); a cookie-only site "stays signed in". */
+/** How a row's login got here (mockup source line); a cookie-only site "stays
+ *  signed in", a remembered "Continue with Google/GitHub" is a linked sign-in. */
 function sourceText(row: AuthRow): string {
+  if (row.linked) return t('Linked sign-in');
   if (!row.hasPassword) return t('Stays signed in');
   switch (row.source) {
     case 'csv':
@@ -43,6 +56,7 @@ interface LoginDialogState {
 export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?: AuthApi; active?: boolean } = {}) {
   const [logins, setLogins] = useState<DesktopVaultLogin[] | null>(null);
   const [sites, setSites] = useState<DesktopBrowserSignedInSite[]>([]);
+  const [linked, setLinked] = useState<DesktopLinkedSignIn[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<AuthFilter | null>(null);
   const [visible, setVisible] = useState(INITIAL_ROWS);
@@ -62,13 +76,15 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
   const reload = useCallback(async () => {
     const read = ++listRead.current;
     try {
-      const [vaultLogins, signedIn] = await Promise.all([
+      const [vaultLogins, signedIn, linkedSignIns] = await Promise.all([
         Promise.resolve(api.browserVaultLogins?.()).then((value) => value ?? []),
         Promise.resolve(api.browserSignedInSites?.()).then((value) => value ?? []),
+        Promise.resolve(api.browserLinkedSignIns?.()).then((value) => value ?? []),
       ]);
       if (read !== listRead.current) return;
       setLogins(vaultLogins);
       setSites(signedIn);
+      setLinked(linkedSignIns);
       setError('');
     } catch (reason) {
       if (read !== listRead.current) return;
@@ -117,10 +133,11 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   };
 
-  const rows = mergeAuthRows(logins ?? [], sites);
+  const rows = mergeAuthRows(logins ?? [], sites, linked);
   const counts = authCounts(rows);
   // Until the user picks one, the switch opens on the side that has logins.
-  // The cookie-only option disappears at zero; its filter then falls back.
+  // The cookie-only option (which also holds the linked sign-ins) disappears
+  // at zero; its filter then falls back.
   const preferred: AuthFilter = filter ?? (counts.password === 0 && counts.cookies > 0 ? 'cookies' : 'password');
   const activeFilter: AuthFilter = preferred === 'cookies' && counts.cookies === 0 ? 'password' : preferred;
   const shown = filterAuthRows(rows, activeFilter, query);
@@ -150,6 +167,15 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
         danger: true,
         separatorBefore: items.length > 0,
         onSelect: () => void run(() => api.browserVaultDelete?.(row.loginId as string) ?? Promise.resolve()),
+      });
+    }
+    const link = row.linked;
+    if (link) {
+      items.push({
+        id: 'delete',
+        label: t('Delete'),
+        danger: true,
+        onSelect: () => void run(() => api.browserLinkedSignInDelete?.(link.id) ?? Promise.resolve()),
       });
     }
     if (items.length) setMenu({ label: row.host, ...point, items });
@@ -224,6 +250,9 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
                 <span className="auth-row-copy">
                   <b>{row.host}</b>
                   <small>
+                    {row.linked && (
+                      <span className="auth-pill auth-pill-linked">{row.linked.provider}</span>
+                    )}
                     {row.username ? <span className="auth-user">{row.username}</span> : null}
                     {row.hasPassword && (
                       <span className="auth-pill auth-pill-key">

@@ -7,6 +7,8 @@ import type { DesktopBrowserImportProgress } from '../../shared/contract';
 import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserCredentialFillResult, createBrowserCredentialFill } from './credential-autofill';
 import type { CredentialVault, VaultLoginSummary } from './credential-vault';
+import type { LinkedSignIn } from './linked-sign-in';
+import type { LinkedSignInStore } from './linked-sign-in-store';
 import type {
   BrowserCredentialSuggestion,
   BrowserHistoryEntry,
@@ -22,6 +24,8 @@ export function createBrowserProfileHostMethods(options: {
   profileImporter: BrowserProfileImportService;
   signIns: ReturnType<typeof createBrowserSignIns>;
   vault: Pick<CredentialVault, 'list' | 'saveManual' | 'remove' | 'mergeImport'>;
+  /** The remembered "Continue with Google/GitHub" sign-ins (linked-sign-in-store.ts). */
+  linkedSignIns: Pick<LinkedSignInStore, 'list' | 'remove' | 'clear'>;
   liveGuest: BrowserSessionRegistry['liveGuest'];
   fillCredentialInGuest: ReturnType<typeof createBrowserCredentialFill>['fillCredentialInGuest'];
   /** A login takeover's saved-login fill into the page it was bound to
@@ -44,6 +48,9 @@ export function createBrowserProfileHostMethods(options: {
       note?: string;
     }): Promise<void> => vault.saveManual(input),
     browserVaultDelete: (id: string): Promise<boolean> => vault.remove(id),
+    /** Which identity provider (and account, when known) each site was last signed in with. */
+    browserLinkedSignIns: (): Promise<LinkedSignIn[]> => options.linkedSignIns.list(),
+    browserLinkedSignInDelete: (id: string): Promise<boolean> => options.linkedSignIns.remove(id),
     async browserImportSources(): Promise<BrowserImportSource[]> {
       return await profileImporter.sources();
     },
@@ -55,7 +62,11 @@ export function createBrowserProfileHostMethods(options: {
     },
     browserSignedInSites: (): Promise<BrowserSignedInSite[]> => options.signIns.list(),
     browserSignOutSite: (site: string): Promise<number> => options.signIns.signOut(site),
-    browserClearSignIns: (): Promise<void> => options.signIns.clearAll(),
+    /** Every sign-in goes, the remembered linked ones with it. */
+    async browserClearSignIns(): Promise<void> {
+      await options.signIns.clearAll();
+      await options.linkedSignIns.clear();
+    },
     async browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]> {
       return await profileImporter.searchHistory(query);
     },

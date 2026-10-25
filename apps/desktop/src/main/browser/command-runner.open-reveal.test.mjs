@@ -25,7 +25,7 @@ const page = (id, url = 'https://example.test/report', title = 'Report') => ({
 
 /** A runner over a real session registry; `reveal` stands in for the
  *  lifecycle's panel reveal (guest-lifecycle revealPage). */
-function fixture({ reveal = async () => 'shown', target = null, ensure, autoSignIn } = {}) {
+function fixture({ reveal = async () => 'shown', target = null, ensure, autoSignIn, linkedSignIn } = {}) {
   const sessions = new BrowserSessionRegistry();
   const shown = page(1);
   sessions.registerVisibleGuest(shown);
@@ -75,6 +75,7 @@ function fixture({ reveal = async () => 'shown', target = null, ensure, autoSign
           },
         }
       : {}),
+    ...(linkedSignIn ? { linkedSignIn } : {}),
     services: {
       cdp: { waitForIdle: async () => {}, guestDebugger: async () => {} },
       reply: { dialogResult: () => null, refRecoveryFor: () => undefined, snapshotResult: async () => ({ text: 'ok' }) },
@@ -129,6 +130,45 @@ test('a saved-login sign-in on open runs first and rides along; the reply is sti
   // No sign-in: the placement alone.
   const none = await fixture({ autoSignIn: async () => null }).run({ action: 'open', session_id: 's', turn_id: 1 });
   assert.equal(none.text, 'Shown in the browser panel: page p1 — Report (https://example.test/report).');
+});
+
+test('a linked sign-in line leads the reply, follows an open placement, and skips sequence steps', async () => {
+  const LINE = 'Linked sign-in: chatgpt.com last signed in with Google as tempest1033@gmail.com';
+  const calls = [];
+  const linkedSignIn = {
+    beforeAction: (guest, action, command) => calls.push(['before', guest.id, action, command.ref]),
+    replyLine: async ({ guest, sessionId, turnId }) => {
+      calls.push(['line', guest.id, sessionId, turnId]);
+      return LINE;
+    },
+  };
+  const snapshot = await fixture({ linkedSignIn }).run({ action: 'snapshot', session_id: 's', turn_id: 3 });
+  assert.equal(snapshot.text, `${LINE}\n\nok`);
+  assert.deepEqual(calls, [
+    ['before', 1, 'snapshot', undefined],
+    ['line', 1, 's', 3],
+  ]);
+
+  const opened = await fixture({
+    linkedSignIn,
+    autoSignIn: async () => ({ text: 'Saved sign-in: signed in to dart.example with its saved login.\n\nURL: x' }),
+  }).run({ action: 'open', session_id: 's', turn_id: 3 });
+  assert.equal(
+    opened.text,
+    'Shown in the browser panel: page p1 — Report (https://example.test/report).\n\n' +
+      `Saved sign-in: signed in to dart.example with its saved login.\n\n${LINE}`
+  );
+
+  calls.length = 0;
+  const step = await fixture({ linkedSignIn }).run({ action: 'snapshot', session_id: 's', turn_id: 3, internalStep: true });
+  assert.doesNotMatch(step.text, /Linked sign-in/);
+  assert.deepEqual(calls.map(([kind]) => kind), ['before']);
+
+  // No line to give, or a store that cannot be read: the reply as it was.
+  for (const replyLine of [async () => '', async () => Promise.reject(new Error('vault unreadable'))]) {
+    const quiet = await fixture({ linkedSignIn: { beforeAction() {}, replyLine } }).run({ action: 'snapshot', session_id: 's', turn_id: 3 });
+    assert.equal(quiet.text, 'ok');
+  }
 });
 
 test('a page that closes while the reveal waits is a failure, not a pending reveal', async () => {

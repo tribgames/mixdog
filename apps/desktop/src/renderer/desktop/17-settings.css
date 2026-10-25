@@ -1182,6 +1182,10 @@ html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
 }
+/* A linked sign-in's provider (Google / GitHub): the name, in the row's text color. */
+.auth-pill-linked {
+  color: var(--mx-text);
+}
 .auth-row-menu {
   width: 28px;
   height: 28px;

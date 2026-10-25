@@ -23,6 +23,8 @@ import { createBrowserHostPageIdentity } from './host-page-identity';
 import { browserUrlPolicyFromEnvironment } from './host-policy';
 import { createBrowserIntercept } from './intercept';
 import { createBrowserLeaveConfirmation } from './leave-confirmation';
+import { createBrowserLinkedSignIns } from './linked-sign-in';
+import { LinkedSignInStore } from './linked-sign-in-store';
 import { createBrowserPartition } from './partition';
 import { CredentialVault } from './credential-vault';
 import { BrowserProfileImportService, defaultNativeBrowserImporterPath } from './profile-import';
@@ -117,6 +119,8 @@ function createBrowserHostStorage(
     downloadsDirectory: () => app.getPath('downloads'),
     sessionIdForGuest: (guest) => sessions.sessionIdForGuest(guest),
     defaultSessionId: DEFAULT_BROWSER_SESSION_ID,
+    // A form_post callback's fields, for linked sign-in's state check.
+    onNavigationPost: (webContentsId, url, chunks) => linkedSignIns.navigationPost(webContentsId, url, chunks),
     onRequestRefused: (webContentsId, url, reason) => {
       const guest = webContentsId === undefined ? null : webContents.fromId(webContentsId);
       if (guest) state.recordRefusedRequest(guest, url, reason);
@@ -132,8 +136,35 @@ function createBrowserHostStorage(
     nativeImporterPath: defaultNativeBrowserImporterPath(),
   });
   const vault = new CredentialVault({ userDataDirectory: app.getPath('userData') });
+  const linkedSignInStore = new LinkedSignInStore({ userDataDirectory: app.getPath('userData') });
+  // Linked sign-in memory (linked-sign-in.ts): the tabs' OAuth round trips.
+  const linkedSignIns = createBrowserLinkedSignIns({
+    store: linkedSignInStore,
+    ref: (guest, ref) => {
+      const refs = state.peek(guest)?.refSet;
+      const found = refs?.refs.get(ref);
+      return refs && found
+        ? { name: found.name, url: refs.url, role: found.role, sensitive: found.sensitive === true }
+        : null;
+    },
+    pageId: (guest) => state.pageId(guest),
+    onError: (error) =>
+      onDiagnostic?.('browser-linked-sign-in-failed', {
+        error: redactBrowserText((error as Error).message || String(error)),
+      }),
+  });
   const signIns = createPartitionSignIns(partition.session, cookieJar, profileImporter, sessionStore, vault);
-  return { partition, cookieJar, sessionStore, stopSessionAutosave, profileImporter, vault, signIns };
+  return {
+    partition,
+    cookieJar,
+    sessionStore,
+    stopSessionAutosave,
+    profileImporter,
+    vault,
+    linkedSignInStore,
+    linkedSignIns,
+    signIns,
+  };
 }
 
 /** CDP over the guest state, with the document readers and settle built on it. */

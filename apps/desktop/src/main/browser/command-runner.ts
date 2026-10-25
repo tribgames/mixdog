@@ -18,6 +18,7 @@ import {
 import type { createBrowserDownloads } from './downloads';
 import type { createBrowserGuestLifecycle } from './guest-lifecycle';
 import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
+import type { createBrowserLinkedSignIns } from './linked-sign-in';
 import { normalizeBrowserPostcondition, normalizeBrowserSettleMs } from './postcondition';
 import { browserSessionId, type BrowserSessionRegistry } from './session-registry';
 import { throwIfBrowserCancelled } from './settle';
@@ -43,6 +44,12 @@ interface BrowserCommandRunnerHost {
   assertNoTakeover?: () => void;
   /** Saved-login sign-in after a command (auto-sign-in.ts). */
   autoSignIn?: ReturnType<typeof createBrowserAutoSignIn>;
+  /** Linked sign-in memory (linked-sign-in.ts): the account a click or typing
+   *  on a provider's page names, and the `Linked sign-in:` line of a reply. */
+  linkedSignIn?: {
+    beforeAction(guest: WebContents, action: string, command: BrowserCommand, signal?: AbortSignal): Promise<void> | void;
+    replyLine: ReturnType<typeof createBrowserLinkedSignIns>['replyLine'];
+  };
 }
 
 /** Validate and normalize one command before any page work: the action and the
@@ -221,6 +228,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
         );
         approvedReceiver = approved?.receiver;
       }
+      await host.linkedSignIn?.beforeAction(guest, action, command, signal);
       const result = await handler({
         guest,
         command,
@@ -252,15 +260,20 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
                   targetIsBackground,
                 }),
             });
+      // The identity a "Continue with Google/GitHub" last used on this site.
+      const linked =
+        command.internalStep === true || !host.linkedSignIn
+          ? ''
+          : await host.linkedSignIn.replyLine({ guest, sessionId: ownerSessionId, turnId }).catch(() => '');
       // An open always answers with its placement (the transcript's "보기"
       // line reads it); a sign-in made on the way rides along as its note.
       if (opensForeground) {
         const placement = await revealOpenedPage(ownerSessionId, guest, signal);
         const note = signedIn ? savedSignInNote(signedIn.text) : '';
-        return { text: state.redactText(guest, note ? `${placement}\n\n${note}` : placement) };
+        return { text: state.redactText(guest, [placement, note, linked].filter(Boolean).join('\n\n')) };
       }
       const final = signedIn ?? result;
-      return { ...final, text: state.redactText(guest, final.text) };
+      return { ...final, text: state.redactText(guest, linked ? `${linked}\n\n${final.text}` : final.text) };
     } catch (error) {
       const message = state.redactText(guest, (error as Error).message || String(error));
       // A failed open (not a cancelled one) tells the shell why.

@@ -79,6 +79,20 @@ export interface DesktopVaultLoginInput {
   note?: string;
 }
 
+/** A remembered "Continue with <provider>" sign-in
+ *  (main/browser/linked-sign-in.ts): the site, the host the provider sent it
+ *  back to, the provider and the account used — never a token. */
+export interface DesktopLinkedSignIn {
+  id: string;
+  site: string;
+  redirectHost: string;
+  /** The identity provider's registrable domain (google.com, apple.com, x.com…). */
+  provider: string;
+  /** The email or @handle signed in as; '' when unknown. */
+  identity: string;
+  lastUsedAt: number;
+}
+
 /** A site the Browser Use profile stays signed in to; no cookie data. */
 export interface DesktopBrowserSignedInSite {
   site: string;

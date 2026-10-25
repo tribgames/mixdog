@@ -17,6 +17,7 @@ import type { createBrowserCommandToolkit } from './command-toolkit';
 import { BrowserPageChangedError, type BrowserCredentialFillResult } from './credential-autofill';
 import type { createBrowserGuestLifecycle } from './guest-lifecycle';
 import type { BrowserHostFoundation } from './host-foundation';
+import { LINKED_FIELD_READ, type LinkedFieldFacts } from './linked-sign-in';
 import type { BrowserProfileImportService } from './profile-import';
 import { browserSessionId } from './session-registry';
 import type { createBrowserTabs } from './tabs';
@@ -476,6 +477,7 @@ export function createBrowserHostAgent(options: {
     | 'display'
     | 'commandChains'
     | 'pendingReads'
+    | 'linkedSignIns'
   >;
   tools: Omit<Toolkit, 'dispatchInput'>;
   lifecycle: ReturnType<typeof createBrowserGuestLifecycle>;
@@ -526,6 +528,22 @@ export function createBrowserHostAgent(options: {
     taskLifecycle,
     retainGuest: options.retainGuest,
     autoSignIn,
+    linkedSignIn: {
+      // An input's own attributes, read through the snapshot's ref (no eval).
+      beforeAction: (guest, action, command, signal) =>
+        base.linkedSignIns.beforeAction(guest, action, command, async (ref) => {
+          const read = await services.snapshots.callAccessibilityRef<LinkedFieldFacts | null>(
+            guest,
+            ref,
+            LINKED_FIELD_READ,
+            [],
+            signal,
+            3_000
+          );
+          return read.handled ? read.value : null;
+        }),
+      replyLine: base.linkedSignIns.replyLine,
+    },
     // Every agent command reaches its page here, before acting on it: from
     // now on a veto answers the agent, not a person's earlier click or key.
     drivePage: (guest) => {

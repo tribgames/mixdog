@@ -203,6 +203,8 @@ export const DESKTOP_IPC = {
   browserVaultLogins: 'mixdog:browser-vault-logins',
   browserVaultSave: 'mixdog:browser-vault-save',
   browserVaultDelete: 'mixdog:browser-vault-delete',
+  browserLinkedSignIns: 'mixdog:browser-linked-sign-ins',
+  browserLinkedSignInDelete: 'mixdog:browser-linked-sign-in-delete',
   browserLoginOpen: 'mixdog:browser-login-open',
   browserLoginStatus: 'mixdog:browser-login-status',
   browserPageIdentity: 'mixdog:browser-page-identity',

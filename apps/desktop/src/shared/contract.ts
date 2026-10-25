@@ -84,6 +84,7 @@ import type {
   DesktopBrowserCredentialFillResult,
   DesktopBrowserCredentialSuggestion,
   DesktopBrowserSignedInSite,
+  DesktopLinkedSignIn,
   DesktopVaultLogin,
   DesktopVaultLoginInput,
   DesktopBrowserLoginStatus,
@@ -1087,6 +1088,11 @@ export interface DesktopApi {
   browserVaultSave?(input: DesktopVaultLoginInput): Promise<void>;
   /** Delete a saved login by id. */
   browserVaultDelete?(id: string): Promise<boolean>;
+  /** 설정 › 인증 관리: which identity provider (and account, when known) each
+   *  site was last signed in with through Browser Use. */
+  browserLinkedSignIns?(): Promise<DesktopLinkedSignIn[]>;
+  /** Forget one linked sign-in by id. */
+  browserLinkedSignInDelete?(id: string): Promise<boolean>;
   /** A login takeover's sign-in window, bound to takeover `id` of `sessionId`
    *  as this PC saw it: opens (or focuses) it once the agent is stopped and
    *  resolves with how it ended. Desktop only; a phone shows the pending state. */

@@ -56,6 +56,7 @@ import { reclaimIdleUserSessions } from './page-power';
 import { createBrowserProfileHostMethods } from './profile-host-methods';
 import type { BrowserSignedInSite } from './signed-in-sites';
 import type { VaultLoginSummary } from './credential-vault';
+import type { LinkedSignIn } from './linked-sign-in';
 import type {
   BrowserCredentialSuggestion,
   BrowserHistoryEntry,
@@ -130,6 +131,11 @@ export interface BrowserHost {
   }): Promise<void>;
   /** Delete a saved login by id. */
   browserVaultDelete(id: string): Promise<boolean>;
+  /** 설정 › 인증 관리: which identity provider (and account, when known) each
+   *  site was last signed in with through Browser Use (no token, ever). */
+  browserLinkedSignIns(): Promise<LinkedSignIn[]>;
+  /** Forget one linked sign-in by id. */
+  browserLinkedSignInDelete(id: string): Promise<boolean>;
   /** Title, site icon and thumbnail this browser recorded for `url`, or null.
    *  `preview`: a page card asks; without a thumbnail, the page's own preview
    *  is read in the background and announced as a change. */
@@ -313,6 +319,7 @@ export function createBrowserHost(
       profileImporter: base.profileImporter,
       signIns: base.signIns,
       vault: base.vault,
+      linkedSignIns: base.linkedSignInStore,
       liveGuest: (sessionId) => sessions.liveGuest(sessionId),
       fillCredentialInGuest: (guest, credential, signal, boundUrl) =>
         tools.credentialFill.fillCredentialInGuest(guest, credential, signal, boundUrl),

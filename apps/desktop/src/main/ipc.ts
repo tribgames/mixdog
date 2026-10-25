@@ -167,6 +167,8 @@ interface DesktopIpcDependencies {
     | 'browserVaultLogins'
     | 'browserVaultSave'
     | 'browserVaultDelete'
+    | 'browserLinkedSignIns'
+    | 'browserLinkedSignInDelete'
   >;
   /** Login takeovers' sign-in windows (this PC's window only). */
   browserLogin?: Pick<BrowserLoginPopup, 'open' | 'status'>;

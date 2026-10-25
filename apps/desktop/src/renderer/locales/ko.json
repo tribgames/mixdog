@@ -5577,6 +5577,7 @@
   "Imported from Chrome": "크롬에서 가져옴",
   "Key under the QR code, or an otpauth:// address": "QR 아래 키 또는 otpauth:// 주소",
   "Leave blank to keep the saved password.": "비워 두면 기존 비밀번호를 그대로 씁니다.",
+  "Linked sign-in": "연결된 로그인",
   "Logins": "로그인",
   "No saved logins yet.": "저장된 로그인이 없습니다.",
   "Note (optional)": "메모 (선택)",
