@@ -4,9 +4,12 @@
 import { clean } from './session-text.mjs';
 import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
 import { applyInitialDeferredToolManifestToBp2 } from '../context/collect.mjs';
-import { listedDeferredToolNames } from '../context/deferred-tools.mjs';
-import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
-import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
+import {
+  listedDeferredToolNames,
+  mcpServerManifestLabel,
+  sanitizeMcpInstructionText,
+} from '../context/deferred-tools.mjs';
+import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
 import { isDeferredToolAvailable, isToolPermittedBySessionPolicy } from './deferred-tool-availability.mjs';
 import { routeToolExclusionReason } from '../session/loop/provider-tool-exclusions.mjs';
@@ -669,9 +672,8 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
   const lateCatalog = Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
   // A bridge session judges a removal by the definition it had before this
   // reconciliation (a disconnected late tool leaves the late pool below).
-  const knownBefore = isToolBridgeEnabled(session)
-    ? new Map(deferredCatalogUnion(session).map((tool) => [clean(tool?.name), tool]))
-    : null;
+  const catalogBefore = new Map(deferredCatalogUnion(session).map((tool) => [clean(tool?.name), tool]));
+  const knownBefore = isToolBridgeEnabled(session) ? catalogBefore : null;
   const active = persistentToolSurfaceNames(session);
 
   const liveMcpByName = new Map();
@@ -723,12 +725,14 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
   for (const name of previousNames) {
     if (nextNames.has(name)) continue;
     if (knownBefore && !rosterPermits(session, knownBefore.get(name) || { name })) continue;
-    removed.push(name);
+    // The server comes from the definition the session had, so a shortened
+    // name never has to be parsed.
+    removed.push({ name, server: parseMcpToolName(catalogBefore.get(name) || name)?.server || '' });
   }
   if (!added.length && !removed.length) return null;
   mergePendingDeferredToolDelta(session, { added, removed });
   session.updatedAt = Date.now();
-  return [...added.map((entry) => entry.name), ...removed];
+  return [...added, ...removed].map((entry) => entry.name);
 }
 
 /**
@@ -742,6 +746,9 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
  * Returns the re-armed names, or null when there are none.
  */
 export function rearmLateDeferredTools(session) {
+  // The compaction also drops the load results that carried a server's
+  // instruction text, so the next load of its tools delivers it again.
+  if (session) delete session.mcpInstructionsAnnounced;
   if (!session || !Array.isArray(session.tools) || fixedSurfaceSession(session)) return null;
   if (!Array.isArray(session.deferredMcpToolNames) || !Array.isArray(session.deferredAnnouncedTools)) return null;
   // Listed in the boot manifest, or already loaded/discovered: still visible.
@@ -878,14 +885,64 @@ function resolvableCatalog(session) {
   return filterSessionToolPolicy(tools, session);
 }
 
+// A server's instruction text rides the first load_tool naming any of its
+// tools (loaded now, already active, or described on the bridge), once until
+// compaction (`mcpInstructionsAnnounced`; rearmLateDeferredTools clears it with
+// the transcript that held the text): `## <server>` + body, sanitized and
+// capped like the BP2 block it replaces. No text, nothing sent or recorded.
+function pendingMcpInstructions(session, catalog, names) {
+  const map = session?.mcpServerInstructions;
+  if (!map || typeof map !== 'object' || !names.length) return [];
+  const byName = new Map(catalog.map((tool) => [clean(tool?.name), tool]));
+  const announced = new Set(Array.isArray(session.mcpInstructionsAnnounced) ? session.mcpInstructionsAnnounced : []);
+  const pending = [];
+  for (const name of names) {
+    const server = parseMcpToolName(byName.get(name) || name)?.server;
+    if (!server || announced.has(server) || !mcpServerManifestLabel(server)) continue;
+    const text = sanitizeMcpInstructionText(map[server]);
+    if (!text) continue;
+    announced.add(server);
+    pending.push({ server, block: `## ${server}\n${text}` });
+  }
+  return pending;
+}
+
+function announceMcpServers(session, pending) {
+  if (!pending.length) return;
+  session.mcpInstructionsAnnounced = [
+    ...new Set([...(session.mcpInstructionsAnnounced || []), ...pending.map((entry) => entry.server)]),
+  ];
+}
+
+function claimMcpServerInstructions(session, catalog, names) {
+  const pending = pendingMcpInstructions(session, catalog, names);
+  announceMcpServers(session, pending);
+  return pending.map((entry) => entry.block).join('\n');
+}
+
 // Pure loader. Input is exact deferred-tool names/aliases; output reports
 // loaded / already-active / missing / blocked tools PLUS pending/failed MCP
 // servers. No listing, no ranking, no substring filter. `options.mcpStatus` is
 // the runtime getter for per-server status.
 export function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
   // Bridge mode: load_tool describes (bounded, paged) and never loads.
-  if (isToolBridgeEnabled(session)) return formatBridgeResult(describeBridgeTools(session, args, { mode }));
   const catalog = resolvableCatalog(session);
+  if (isToolBridgeEnabled(session)) {
+    // The page counts the instruction text inside its size budget; only the
+    // servers whose text made it into the returned page are marked announced.
+    const pendingFor = (names) => pendingMcpInstructions(session, catalog, names);
+    const described = describeBridgeTools(session, args, {
+      mode,
+      instructionsFor: (names) => pendingFor(names).map((entry) => entry.block).join('\n'),
+    });
+    if (!described.error && described.mcpInstructions) {
+      announceMcpServers(
+        session,
+        pendingFor((described.entries || []).map((entry) => clean(entry?.name)).filter(Boolean))
+      );
+    }
+    return formatBridgeResult(described);
+  }
   const requestedNames = parseToolSelection(args.names);
   const { pending: pendingMcpServers, failed: failedMcpServers } = pendingAndFailedMcpServers(options?.mcpStatus);
   const mcpFields = {
@@ -955,11 +1012,15 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
   if (missing.length && failedMcpServers.length) {
     notes.push('Some requested names may belong to a failed MCP server; those tools are unavailable.');
   }
+  // Tools the session already had active (loaded before, or eager) count too:
+  // their server's text may never have been delivered.
+  const mcpInstructions = claimMcpServerInstructions(session, catalog, [...loaded, ...alreadyActive]);
   return JSON.stringify(
     {
       // `selected` retained for back-compat consumers (mode is always 'select').
       selected: { mode: 'select', tools: toolSelection },
       ...(nativeToolSearch ? { nativeToolSearch } : {}),
+      ...(mcpInstructions ? { mcpInstructions } : {}),
       loaded,
       alreadyActive,
       ...(alreadyActiveSchemas.length ? { alreadyActiveSchemas } : {}),

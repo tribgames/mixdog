@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyInitialDeferredToolManifestToBp2 } from './collect.mjs';
 import { listedDeferredToolNames } from './deferred-tools.mjs';
+import { accountInstructions } from '../../../shared/connector-accounts.mjs';
 import {
   CONNECTOR_TRIGGER_MAX_CHARS,
   CONNECTOR_TRIGGERS,
   connectorTrigger,
 } from '../../../shared/connector-triggers.mjs';
 
-test('MCP instructions are sorted, unique per deferred server, and confined to BP2', () => {
+test('MCP instruction bodies are not injected; server lines are sorted, unique and confined to BP2', () => {
   const bp1 = { role: 'system', content: 'BP1' };
   const bp2 = { role: 'system', content: 'BP2' };
   const bp3 = { role: 'system', content: 'BP3', cacheTier: 'tier3' };
@@ -44,19 +45,11 @@ test('MCP instructions are sorted, unique per deferred server, and confined to B
       '',
       '<available-deferred-tools>',
       'Deferred tool names and selection triggers; schemas load on demand.',
-      '- mcp__alpha: Alpha instructions. Keep this line.',
-      '- mcp__beta: Beta instructions.',
+      '- mcp__alpha: Alpha instructions',
+      '- mcp__beta: Beta instructions',
       '- mcp__empty: Empty MCP server tools.',
       '- shell',
       '</available-deferred-tools>',
-      '',
-      '<mcp-instructions>',
-      '## alpha',
-      'Alpha instructions.',
-      'Keep this line.',
-      '## beta',
-      'Beta instructions.',
-      '</mcp-instructions>',
     ].join('\n')
   );
   // A rewritten block is a fresh message (delta saves key on identity);
@@ -69,7 +62,7 @@ test('MCP instructions are sorted, unique per deferred server, and confined to B
   assert.equal(bp3.content, 'BP3');
 });
 
-test('MCP instruction caps and omission survive manifest rebuilds', () => {
+test('a legacy mcp-instructions block is shed on rebuild and never re-added', () => {
   const session = {
     messages: [
       { role: 'system', content: 'BP1' },
@@ -78,9 +71,11 @@ test('MCP instruction caps and omission survive manifest rebuilds', () => {
     mcpServerInstructions: { alpha: 'a'.repeat(601) },
   };
   applyInitialDeferredToolManifestToBp2(session, ['mcp__alpha__read']);
-  assert.ok(
-    session.messages[1].content.endsWith(`<mcp-instructions>\n## alpha\n${'a'.repeat(597)}...\n</mcp-instructions>`)
-  );
+  assert.doesNotMatch(session.messages[1].content, /mcp-instructions/);
+  session.messages[1] = {
+    ...session.messages[1],
+    content: `${session.messages[1].content}\n\n<mcp-instructions>\n## alpha\nOld body.\n</mcp-instructions>`,
+  };
   const applied = session.messages[1].content;
   assert.equal(applyInitialDeferredToolManifestToBp2(session, ['shell'], { rebuild: 'true' }), false);
   assert.equal(session.messages[1].content, applied);
@@ -89,6 +84,26 @@ test('MCP instruction caps and omission survive manifest rebuilds', () => {
     session.messages[1].content,
     'BP2\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- shell\n</available-deferred-tools>'
   );
+});
+
+test('a server line is a when-to-use trigger and never names the account', () => {
+  const session = {
+    messages: [
+      { role: 'system', content: 'BP1' },
+      { role: 'system', content: 'BP2' },
+    ],
+    deferredToolCatalog: [mcpDef('gmail-2', 'send', 'Send.'), mcpDef('acme-2', 'run', 'Run.')],
+    mcpServerInstructions: {
+      'gmail-2': accountInstructions('Gmail', 'dev@tribgames.com'),
+      'acme-2': accountInstructions('Acme', 'ops@acme.test'),
+    },
+  };
+  applyInitialDeferredToolManifestToBp2(session, ['mcp__gmail-2__send', 'mcp__acme-2__run']);
+  const content = session.messages[1].content;
+  assert.doesNotMatch(content, /mcp-instructions|ask which account|Account:|@/);
+  // The account is part of the instruction text, which a load delivers.
+  assert.match(content, /^- mcp__acme-2: This server acts only for this Acme account; other Acme accounts are separate servers$/m);
+  assert.match(content, /^- mcp__gmail-2: Gmail email: sending, reading, searching or organizing mail\.$/m);
 });
 
 test('deferred manifest prefers a tool trigger over its description', () => {
@@ -144,8 +159,8 @@ test('MCP tools are listed once per server: curated, instruction, description an
     ['- mcp__acme', '- mcp__bare', '- mcp__notion', '- mcp__tracker', '- web_search']
   );
   assert.doesNotMatch(block, /mcp__\w+__\w+/);
-  assert.match(block, /^- mcp__notion: Notion pages, databases and workspace search;/m);
-  assert.match(block, /^- mcp__acme: Acme deploy pipeline: ship builds to staging and production\.$/m);
+  assert.match(block, /^- mcp__notion: Finding, reading or updating Notion pages, databases and team notes\.$/m);
+  assert.match(block, /^- mcp__acme: Acme deploy pipeline: ship builds to staging and production$/m);
   assert.match(block, /^- mcp__bare: Bare MCP server tools\.$/m);
   const tracker = lines.find((line) => line.startsWith('- mcp__tracker: '));
   assert.match(tracker, /^- mcp__tracker: Alpha tool x+\.\.\.$/);
@@ -177,7 +192,7 @@ test('the deferred manifest is byte-identical across sessions and pool orders', 
   const first = build(names, { id: 'one', agentId: 'alpha', cwd: '/a' });
   const second = build([...names].reverse(), { id: 'two', agentId: 'beta', cwd: '/b' });
   assert.equal(first, second);
-  assert.match(first, /^- mcp__notion: Notion pages/m);
+  assert.match(first, /^- mcp__notion: Finding, reading or updating Notion pages/m);
   assert.match(first, /^- mcp__custom: Run a job$/m);
 });
 

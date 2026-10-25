@@ -27,12 +27,63 @@ export const TASK_WAIT_TIMEOUT_DEFAULT_MS = TASK_WAIT_DEFAULT_MS;
 export const TASK_WAIT_TIMEOUT_MIN_MS = TASK_WAIT_MIN_MS;
 export const TASK_WAIT_TIMEOUT_MAX_MS = TASK_WAIT_MAX_MS;
 const _holdS = budgetSeconds(SHELL_HOLD_DEFAULT_MS);
-const _shellSyntaxCheat =
-  process.platform === 'win32'
-    ? " PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no heredoc, </dev/null or | head/tail/wc (Select-Object -First/-Last); multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
-    : ' Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers.';
 // Process-stable switch used to describe foreground-only execution accurately.
 const _shellBackgroundDisabled = envFlag('MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS');
+
+// Shell kinds the description is written for: 'powershell' or 'posix' (bash,
+// zsh, sh, Git Bash, WSL), the `shellType` of the runtime's resolved shell.
+// BUILTIN_TOOLS is static, so it carries the platform's default kind; a
+// session whose configured system shell is the other kind gets the matching
+// text through bindShellKind where the session tool schema is assembled.
+const _defaultShellKind = process.platform === 'win32' ? 'powershell' : 'posix';
+
+// The kind's banned commands → replacement tool. `edit/apply_patch` is
+// rewritten per model by the edit-dialect surface filter.
+export function buildShellRoutingRules(kind = _defaultShellKind) {
+  const pairs =
+    kind === 'powershell'
+      ? 'Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit/apply_patch'
+      : 'cat/head/tail/less→read; ls/tree→list; find→glob/find; grep/rg/ag→grep; file authoring via sed/awk/echo >/tee/heredoc→edit/apply_patch';
+  return `Never use shell commands/scripts for work other tools cover: ${pairs}; git→git (-C <dir> for other folders); code structure→code_graph.`;
+}
+
+function buildShellDescription(kind) {
+  const run = _shellBackgroundDisabled
+    ? 'Commands run in the foreground until completion.'
+    : `Holds ${_holdS}s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll. Result needed now: task wait. Known-long finite run: wait_ms up to ${SHELL_HOLD_MAX_MS}. Independent long runs, servers/watchers: background:true; cancel them when done.`;
+  return `Run programs, builds, tests and computation. ${buildShellRoutingRules(kind)} ${run}`;
+}
+
+function buildShellCommandDescription(kind) {
+  const cheat =
+    kind === 'powershell'
+      ? " PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
+      : ' Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers.';
+  return `Command.${cheat}`;
+}
+
+// One bound copy per (tool, kind), so a session's shell tool keeps its identity
+// and bytes from turn to turn.
+const _boundShellTools = new WeakMap();
+
+/** The shell tool with the text of `kind`, when that differs from the static default. */
+export function bindShellKind(tool, kind) {
+  if (tool?.name !== 'shell' || kind === _defaultShellKind || (kind !== 'powershell' && kind !== 'posix')) return tool;
+  const cached = _boundShellTools.get(tool)?.get(kind);
+  if (cached) return cached;
+  const properties = tool.inputSchema?.properties || {};
+  const bound = {
+    ...tool,
+    description: buildShellDescription(kind),
+    inputSchema: {
+      ...tool.inputSchema,
+      properties: { ...properties, command: { ...properties.command, description: buildShellCommandDescription(kind) } },
+    },
+  };
+  if (!_boundShellTools.has(tool)) _boundShellTools.set(tool, new Map());
+  _boundShellTools.get(tool).set(kind, bound);
+  return bound;
+}
 
 export const BUILTIN_TOOLS = [
   {
@@ -151,11 +202,11 @@ export const BUILTIN_TOOLS = [
       openWorldHint: true,
       compressible: true,
     },
-    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : `Holds up to ${_holdS}s for the result. Still running at ${_holdS}s, or new user input or a task notification arrives: it moves to the background (never killed) and returns task_id plus output so far. Completion is delivered automatically; task wait only when you need the result now. If no execution slot frees, the command is queued as a background task. Dev servers/watchers: background:true, and stop them with task cancel when done.`}`,
+    description: buildShellDescription(_defaultShellKind),
     inputSchema: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
+        command: { type: 'string', description: buildShellCommandDescription(_defaultShellKind) },
         timeout_ms: {
           type: 'integer',
           minimum: 0,
@@ -165,7 +216,7 @@ export const BUILTIN_TOOLS = [
           type: 'integer',
           minimum: SHELL_HOLD_MIN_MS,
           maximum: SHELL_HOLD_MAX_MS,
-          description: `Hold in ms before a still-running command moves to the background (default ${SHELL_HOLD_DEFAULT_MS}). Usually omit.`,
+          description: `Hold in ms before a still-running command moves to the background (default ${SHELL_HOLD_DEFAULT_MS}). Usually omit; for a long finite command needed next, set up to ${SHELL_HOLD_MAX_MS}.`,
         },
         background: {
           type: 'boolean',

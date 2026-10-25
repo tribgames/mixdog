@@ -1,30 +1,33 @@
 // Curated selection triggers for catalog connectors (MCP servers). A catalog
 // entry carries its line as `trigger`; the deferred-tool manifest lists each
 // connected server once as `- mcp__<server id>: <trigger>`, so one line must
-// say what the connector is for (plus a close negative where useful), in
-// English, at most CONNECTOR_TRIGGER_MAX_CHARS characters.
+// say WHEN to call the server (the user requests it covers, plus a close
+// negative where useful), not list its capabilities; plain ASCII English, at
+// most CONNECTOR_TRIGGER_MAX_CHARS characters.
 export const CONNECTOR_TRIGGER_MAX_CHARS = 100;
 
 export const CONNECTOR_TRIGGERS = Object.freeze({
   // Not a catalog connector (Mixdog uses the signed-in GitHub CLI), but a
   // user-added `github` MCP server still gets this line.
-  github: 'GitHub repos, issues, pull requests, Actions and code search; not local Git history or diffs.',
-  notion: 'Notion pages, databases and workspace search; create or update team docs and notes.',
-  linear: 'Linear issues, projects, cycles and comments; create, triage or update tickets.',
-  sentry: 'Sentry issues, events, stack traces and releases; triage production errors.',
-  gmail: 'Gmail: send email; with an app password also search, read, archive, label, star, trash.',
-  'google-calendar': 'Google Calendar events on the primary calendar; list, search, create, update or delete.',
-  'google-drive': 'Google Drive files Mixdog created or was given; search, read or create; not local files.',
-  jira: 'Jira issues, projects, sprints and comments; JQL search, create or transition tickets.',
-  confluence: 'Confluence spaces and pages; search, read or edit the team wiki; not Jira tickets.',
-  dropbox: 'Dropbox files and folders; search, read, upload or share cloud files; not local files.',
-  trello: 'Trello boards, lists and cards; create, move or update cards.',
-  airtable: 'Airtable bases, tables and records; query, create or update rows.',
-  stripe: 'Stripe customers, payments, invoices, subscriptions and refunds; billing data and actions.',
-  vercel: 'Vercel projects, deployments, domains and logs; deploy status and build errors.',
-  supabase: 'Supabase projects: Postgres tables and SQL, auth, storage and edge functions.',
-  postgres: 'PostgreSQL schemas, tables and SQL queries on a connected database; not local files.',
-  'hugging-face': 'Hugging Face Hub models, datasets, Spaces and papers; not local GGUF model setup.',
+  github: 'GitHub issues, pull requests, Actions runs and repo code search; not local Git history.',
+  notion: 'Finding, reading or updating Notion pages, databases and team notes.',
+  linear: 'Looking up, creating or triaging Linear issues, projects and cycles.',
+  sentry: 'Investigating production errors, stack traces and releases in Sentry.',
+  // The line never names an account: that arrives with the server's
+  // instructions when its tools are loaded.
+  gmail: 'Gmail email: sending, reading, searching or organizing mail.',
+  'google-calendar': 'Google Calendar: checking, creating or editing events.',
+  'google-drive': 'Google Drive: finding, reading or creating files Mixdog made or was given; not local files.',
+  jira: 'Looking up, creating or transitioning Jira tickets, sprints and JQL searches.',
+  confluence: 'Searching, reading or editing Confluence wiki pages; not Jira tickets.',
+  dropbox: 'Finding, reading, uploading or sharing Dropbox files; not local files.',
+  trello: 'Viewing, creating or moving Trello boards, lists and cards.',
+  airtable: 'Querying or updating Airtable bases, tables and records.',
+  stripe: 'Checking or acting on Stripe payments, invoices, subscriptions and refunds.',
+  vercel: 'Checking Vercel deployments, domains, logs and build errors.',
+  supabase: 'Working with Supabase Postgres tables, SQL, auth, storage or edge functions.',
+  postgres: 'Running SQL or inspecting schemas on a connected PostgreSQL database; not local files.',
+  'hugging-face': 'Finding Hugging Face Hub models, datasets, Spaces or papers; not local GGUF setup.',
 });
 
 // Server ids differ only in separators and case (google_calendar, huggingface).

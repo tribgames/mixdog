@@ -42,13 +42,10 @@ test('shell, edit, and task keep their execution contracts', () => {
   // below — the tool description no longer duplicates it.
   if (
     !/^Run programs, builds, tests and computation/i.test(shellDescription) ||
-    !/Never use shell commands or scripts for work covered by dedicated tools/i.test(shellDescription) ||
-    !/Tool names are not shell commands/i.test(shellDescription) ||
-    !/Holds up to 60s for the result/i.test(shellDescription) ||
-    !/new user input or a task notification arrives: it moves to the background \(never killed\)/i.test(
-      shellDescription
-    ) ||
-    !/Completion is delivered automatically/i.test(shellDescription)
+    !/Never use shell commands\/scripts for work other tools cover/i.test(shellDescription) ||
+    !/Holds 60s; then, or on input\/task notification, backgrounds with task_id/i.test(shellDescription) ||
+    !/command keeps running/i.test(shellDescription) ||
+    !/Completion is automatic; never poll/i.test(shellDescription)
   ) {
     throw new Error(
       `shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`

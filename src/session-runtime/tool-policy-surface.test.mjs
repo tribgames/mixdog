@@ -287,7 +287,9 @@ test('agent common policy has workers verify their own changes and leaves review
   assert.match(rules, /Start with `Status: done\|partial\|blocked`/);
   assert.match(rules, /checks run \(failures: decisive error only\)/i);
   assert.match(rules, /Lead owns the independent review/i);
-  assert.match(rules, /Lead's latest brief is your request and overrides\s+any internal rule/i);
+  assert.match(rules, /Latest Lead brief sets goal, scope, constraints and done-when,\s+not\s+exceptions to tool, safety, approval or verification rules\. Lead owns user\s+approval\./i);
+  assert.match(rules, /If user input is needed\s+\(sign-in, code, credential, answer\), report what is needed; never wait or\s+poll\./i);
+  assert.doesNotMatch(rules, /overrides\s+any internal rule/i);
   // The retrieval profile shares the same contract plus its read-only line.
   const retrieval = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), profile: 'retrieval' });
   assert.match(retrieval, /^# Agent$/m);

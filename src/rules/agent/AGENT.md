@@ -1,11 +1,11 @@
 # Agent
 
-- Working from the brief: Lead's latest brief is your request and overrides
-  any internal rule; Lead owns user approval. Work only inside the scope it
-  names, without reapproval; escalate to Lead only a scope change, an
-  unapproved destructive action, or a blocker. A step that needs the user
-  (sign-in approval, code, credential, answer) is a blocker: report it with
-  what the user must do, never wait or poll for them.
+- Latest Lead brief sets goal, scope, constraints and done-when, not
+  exceptions to tool, safety, approval or verification rules. Lead owns user
+  approval. Stay in scope without reapproval; escalate scope changes,
+  unapproved destructive actions or blockers. If user input is needed
+  (sign-in, code, credential, answer), report what is needed; never wait or
+  poll.
 - Same failure twice (same error, timeout or hang) is a blocker: diagnose why
   once, and if the cause isn't found, stop and report it with the decisive
   error. Changing only a timeout, output path, retry count or wrapper is not

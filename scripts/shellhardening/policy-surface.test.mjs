@@ -18,6 +18,8 @@ import {
   PS,
   PWSH,
 } from './_shared.mjs';
+import { previewSessionTools } from '../../src/runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
+import { bindShellKind, buildShellRoutingRules } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 
 test('shell execution policy matches sync-first background-task parity', () => {
   assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 60_000);
@@ -26,7 +28,7 @@ test('shell execution policy matches sync-first background-task parity', () => {
   assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
   assert.match(
     shellTool.description,
-    /Holds up to 60s.*new user input or a task notification arrives: it moves to the background \(never killed\).*Completion is delivered automatically/i
+    /Holds 60s; then, or on input\/task notification, backgrounds with task_id \(command keeps running\)\..*Completion is automatic/i
   );
   const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
   assert.equal(taskTool.title, 'Task');
@@ -125,21 +127,9 @@ test('C: shell surface keeps execution contract separate from the platform comma
   );
   // Routing is explicit model-facing guidance for commands AND scripts,
   // rather than a runtime command-name block.
-  assert.match(shellTool.description, /Never use shell commands or scripts for work covered by dedicated tools/);
-  for (const route of [
-    'cat/head/tail→read',
-    'ls→list',
-    'find→glob',
-    'filename lookup→find',
-    'grep/rg→grep',
-    'code structure→code_graph',
-    'file edits/writes (sed/awk/redirection)→edit/apply_patch',
-    'Git→git',
-  ]) {
-    assert.ok(shellTool.description.includes(route), `shell description must name the replacement tool: ${route}`);
-  }
-  assert.match(shellTool.description, /Tool names are not shell commands/);
-  assert.doesNotMatch(shellTool.description, /Use read, NOT cat|Get-Content|Select-String/);
+  assert.ok(shellTool.description.includes(buildShellRoutingRules()));
+  // "Tool names are not shell commands" lives in rules/shared only.
+  assert.doesNotMatch(shellTool.description, /Tool names are not shell commands|Use read, NOT cat/);
   assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
   assert.equal(shellTool.inputSchema?.properties?.shell, undefined);
   assert.equal(shellTool.inputSchema?.properties?.cwd, undefined);
@@ -159,6 +149,64 @@ test('C: shell surface keeps execution contract separate from the platform comma
   }
   assert.match(commandDescription, /PowerShell:/);
   assert.match(commandDescription, /\$PID is reserved/);
+});
+
+test('C: shell routing rules name the banned commands per shell kind', () => {
+  const ps = buildShellRoutingRules('powershell');
+  assert.match(ps, /^Never use shell commands\/scripts for work other tools cover: /);
+  for (const route of [
+    'Get-Content/gc/cat/type→read',
+    'Get-ChildItem/dir/ls→list/glob/find',
+    'Select-String/findstr→grep',
+    'Set-Content/Add-Content/Out-File/`>`→edit/apply_patch',
+  ]) {
+    assert.ok(ps.includes(route), `PowerShell rules must include ${route}`);
+  }
+  assert.doesNotMatch(ps, /head\/tail|sed\/awk|grep\/rg/);
+  const posix = buildShellRoutingRules('posix');
+  for (const route of [
+    'cat/head/tail/less→read',
+    'ls/tree→list',
+    'find→glob/find',
+    'grep/rg/ag→grep',
+    'file authoring via sed/awk/echo >/tee/heredoc→edit/apply_patch',
+  ]) {
+    assert.ok(posix.includes(route), `POSIX rules must include ${route}`);
+  }
+  assert.doesNotMatch(posix, /Get-Content|Select-String|Set-Content/);
+  // Every kind: git names the git tool and -C; code_graph is named.
+  for (const rules of [ps, posix]) {
+    assert.ok(rules.includes('git→git (-C <dir> for other folders)'));
+    assert.ok(rules.includes('code structure→code_graph'));
+  }
+});
+
+test('C: the shell text follows the resolved shell kind, not only the platform', () => {
+  const shell = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
+  const other = process.platform === 'win32' ? 'posix' : 'powershell';
+  const own = process.platform === 'win32' ? 'powershell' : 'posix';
+  assert.equal(bindShellKind(shell, own), shell);
+  const bound = bindShellKind(shell, other);
+  assert.ok(bound.description.includes(buildShellRoutingRules(other)));
+  assert.ok(!bound.description.includes(buildShellRoutingRules(own)));
+  assert.equal(/PowerShell:/.test(bound.inputSchema.properties.command.description), other === 'powershell');
+  assert.match(bound.inputSchema.properties.command.description, other === 'powershell' ? /no Bash heredocs/ : /^Command\. Bash:/);
+  // One bound copy per kind, so a session's shell bytes never move between turns.
+  assert.equal(bindShellKind(shell, other), bound);
+  const turn = () => JSON.stringify(previewSessionTools('full', [], {}).find((tool) => tool.name === 'shell'));
+  assert.equal(turn(), turn());
+  // The static tool is untouched and only the shell tool is rebound.
+  assert.ok(shell.description.includes(buildShellRoutingRules(own)));
+  assert.equal(bindShellKind(BUILTIN_TOOLS.find((tool) => tool.name === 'read'), other).name, 'read');
+});
+
+test('C: shell description carries the long-running command guidance from the real budgets', () => {
+  const shell = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
+  assert.match(shell.description, /Holds 60s; then, or on input\/task notification, backgrounds with task_id \(command keeps running\)\./);
+  assert.match(shell.description, /Completion is automatic; never poll\. Result needed now: task wait\./);
+  assert.match(shell.description, /Known-long finite run: wait_ms up to 600000\./);
+  assert.match(shell.description, /Independent long runs, servers\/watchers: background:true; cancel them when done\./);
+  assert.match(shell.inputSchema.properties.wait_ms.description, /Usually omit; for a long finite command needed next, set up to 600000\./);
 });
 
 test('C: git startup state reports repository presence, not just the binary', () => {

@@ -105,6 +105,7 @@ const AGENT_BRIDGE_FIELDS = [
   'deferredToolDeltaRevision',
   'nativeDeferredDiscovery',
   'mcpServerInstructions',
+  'mcpInstructionsAnnounced',
 ];
 
 /**

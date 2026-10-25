@@ -435,7 +435,7 @@ test('late MCP reconciliation: Gemini manifests and native typed deltas', () => 
   if (
     JSON.stringify(nativeLateSession.messages) !== nativeLateMessagesBefore ||
     nativeLateSession.pendingDeferredToolDelta?.type !== 'deferred_tools_delta' ||
-    !nativeLateDelta?.content.includes('mcp__demo__late: Late tool metadata.')
+    !nativeLateDelta?.content.includes('- mcp__demo: Late tool metadata')
   ) {
     throw new Error(
       `late MCP reconcile must persist one typed delta without creating a turn: ${JSON.stringify({

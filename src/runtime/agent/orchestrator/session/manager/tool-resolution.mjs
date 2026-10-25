@@ -3,7 +3,8 @@
 import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
 import { getMcpTools } from '../../mcp/client.mjs';
 import { getInternalTools } from '../../internal-tools.mjs';
-import { BUILTIN_TOOLS } from '../../tools/builtin/builtin-tools.mjs';
+import { BUILTIN_TOOLS, bindShellKind } from '../../tools/builtin/builtin-tools.mjs';
+import { resolveShellFor } from '../../tools/builtin/shell-runtime.mjs';
 import { PATCH_TOOL_DEFS } from '../../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../../tools/code-graph-tool-defs.mjs';
 import { buildSkillToolDefs } from '../../context/collect.mjs';
@@ -101,7 +102,11 @@ export function resolveSessionTools(
   // time (loop.mjs), so the schema bytes stay bit-identical across roles /
   // cwds and the provider cache shard does not fragment.
   const skillTools = buildSkillToolDefs(skills, { ownerIsAgentSession });
-  return filterModelEditTools(_computeBaseTools(toolSpec, mcp, skillTools), modelName);
+  // The shell text follows the system shell the runtime actually resolves
+  // (Git Bash/WSL on Windows, pwsh on POSIX), before the edit-dialect rewrite.
+  const shellKind = resolveShellFor('default')?.shellType;
+  const base = _computeBaseTools(toolSpec, mcp, skillTools).map((tool) => bindShellKind(tool, shellKind));
+  return filterModelEditTools(base, modelName);
 }
 
 export function previewSessionTools(toolSpec, skills = [], options = {}) {

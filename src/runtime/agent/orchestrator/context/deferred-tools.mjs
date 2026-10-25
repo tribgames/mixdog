@@ -1,5 +1,8 @@
-// Deferred-pool and MCP-instruction manifests injected into BP2.
-import { accountOfInstructions } from '../../../shared/connector-accounts.mjs';
+// Deferred-pool manifest injected into BP2. MCP server instruction bodies are
+// not injected: a server's one-line entry is its when-to-use trigger (accounts
+// one line per server), and its instructions arrive with its tools
+// on load_tool. The <mcp-instructions> block is still recognized so older
+// prompts can shed it.
 import { connectorTrigger } from '../../../shared/connector-triggers.mjs';
 import { parseMcpToolName, titleCaseMcpServer } from '../../../shared/tool-primitives.mjs';
 import { isToolBridgeEnabled, TOOL_BRIDGE_GUIDANCE } from '../runtime-core/tool-exposure.mjs';
@@ -24,11 +27,22 @@ const MCP_INSTRUCTIONS_BLOCK_RE = /(\n\n---\n*)?<mcp-instructions>[\s\S]*?<\/mcp
 // Tool and MCP server names enter the manifests only as plain identifiers
 // (no markup can be smuggled into the prompt through a name).
 const MANIFEST_NAME_SAFE_RE = /^[A-Za-z0-9_.:-]+$/;
-const MCP_INSTRUCTION_MAX_CHARS = 600;
 
 function sanitizeManifestName(name) {
   const text = String(name || '').trim();
   return MANIFEST_NAME_SAFE_RE.test(text) ? text : '';
+}
+
+export const MCP_INSTRUCTION_MAX_CHARS = 600;
+
+/** A server's instruction text without markup, capped at MCP_INSTRUCTION_MAX_CHARS. */
+export function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
+  const stripped = String(text || '')
+    .replace(/[<>]/g, '')
+    .trim();
+  if (!stripped) return '';
+  const cap = Math.max(1, Number(max) || MCP_INSTRUCTION_MAX_CHARS);
+  return stripped.length > cap ? `${stripped.slice(0, Math.max(1, cap - 3))}...` : stripped;
 }
 
 function skillRoutedToolNames(messages) {
@@ -90,49 +104,6 @@ export function buildDeferredToolManifest(entries) {
   ].join('\n');
 }
 
-function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
-  const stripped = String(text || '')
-    .replace(/[<>]/g, '')
-    .trim();
-  if (!stripped) return '';
-  const cap = Math.max(1, Number(max) || MCP_INSTRUCTION_MAX_CHARS);
-  return stripped.length > cap ? `${stripped.slice(0, Math.max(1, cap - 3))}...` : stripped;
-}
-
-/**
- * Per-server MCP initialize instructions for deferred-pool tools only.
- * Empty when no instructions or no matching deferred MCP tools → omit block.
- * Emits ONLY the server heading + instruction body: tool names are never
- * listed — <available-deferred-tools> names each server once (mcp__<server>).
- */
-function buildMcpInstructionsManifest(mcpServerInstructions, poolNames, catalog = []) {
-  const map = mcpServerInstructions && typeof mcpServerInstructions === 'object' ? mcpServerInstructions : {};
-  const pool = [
-    ...new Set((Array.isArray(poolNames) ? poolNames : []).map((name) => sanitizeManifestName(name)).filter(Boolean)),
-  ];
-  // Tool definitions carry their server (shortened names cannot be parsed).
-  const byName = new Map();
-  for (const tool of Array.isArray(catalog) ? catalog : []) {
-    const name = String(tool?.name || '').trim();
-    if (name && !byName.has(name)) byName.set(name, tool);
-  }
-  const deferredServers = new Set();
-  for (const name of pool) {
-    const server = parseMcpToolName(byName.get(name) || name)?.server;
-    if (server) deferredServers.add(server);
-  }
-  const servers = [...deferredServers]
-    .filter((server) => sanitizeManifestName(server) && sanitizeMcpInstructionText(map[server]))
-    .sort((a, b) => a.localeCompare(b));
-  if (!servers.length) return '';
-  const lines = ['<mcp-instructions>'];
-  for (const server of servers) {
-    lines.push(`## ${sanitizeManifestName(server)}`, sanitizeMcpInstructionText(map[server]));
-  }
-  lines.push('</mcp-instructions>');
-  return lines.join('\n');
-}
-
 export function stripDeferredToolManifestBlock(text) {
   return String(text || '')
     .replace(DEFERRED_TOOLS_BLOCK_RE, '')
@@ -144,9 +115,8 @@ export function stripDeferredToolManifestBlock(text) {
 // Rebuild path: replace the FIRST previously-injected <available-deferred-tools>
 // block (with its leading `---` separator) with the fresh manifest IN PLACE, so
 // the block keeps its original position and no sibling BP2 block (skills
-// manifest, agent rules, …) is reordered or dropped. The fresh manifest already
-// carries the mcp-instructions companion, so any pre-existing standalone one is
-// removed first to avoid duplication.
+// manifest, agent rules, …) is reordered or dropped. A legacy <mcp-instructions>
+// block left by older sessions is removed first.
 function rebuildDeferredToolManifestBlock(text, manifest) {
   let out = String(text || '').replace(MCP_INSTRUCTIONS_BLOCK_RE, '');
   let replaced = false;
@@ -183,22 +153,45 @@ const firstSentence = (text) => {
   return (flat.split(/(?<=[.!?])\s/, 1)[0] || flat).replace(/[.!?]+$/, '');
 };
 
-// A catalog connector's curated trigger; else the server's MCP instructions;
-// else its tools' leading descriptions (name order); else its name. Derived
-// lines are compacted to at most 100 characters, ellipsis included.
+// A catalog connector's curated when-to-use trigger; else the first sentence
+// of the server's MCP instructions; else its tools' leading descriptions (name
+// order); else its name. Never the account: that is part of the instruction
+// text delivered when the server's tools are loaded. Derived lines are
+// compacted to at most 98 characters, ellipsis included.
 function mcpServerTrigger(server, tools, instructions) {
-  // A multi-account connector's server names its account (connector-accounts.mjs).
-  const account = accountOfInstructions(instructions?.[server]);
   const curated = connectorTrigger(server);
-  if (curated) return account ? `${curated} Account: ${account}` : curated;
-  const instruction = String(instructions?.[server] || '').replace(/[<>]/g, '');
+  if (curated) return curated;
+  // The account sentence ("Account: <address>. …", connector-accounts.mjs) is
+  // not a use line; it reaches the model with the loaded server's instructions.
+  const instruction = String(instructions?.[server] || '')
+    .replace(/[<>]/g, '')
+    .replace(/^\s*Account: \S+?\.\s+/, '');
   const described = [...tools]
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
     .map((tool) => firstSentence(String(tool?.description || '').replace(/[<>]/g, '')))
     .filter(Boolean)
     .join('; ');
-  const derived = instruction.trim() ? instruction : described;
+  const derived = firstSentence(instruction) || described;
   return derived ? compactPromptManifestText(derived, 98) : `${titleCaseMcpServer(server)} MCP server tools.`;
+}
+
+// `mcp__<server>` as the manifest names it, or '' for an unsafe server name.
+export const mcpServerManifestLabel = (server) => sanitizeManifestName(mcpServerLineName(server));
+
+/**
+ * One `{ label: 'mcp__<server>', trigger }` line per server of `servers` (Map
+ * server → its tools). The BP2 manifest and the deferred-tool delta both
+ * render these; a server with an unsafe name gets none.
+ */
+export function mcpServerLines(servers, instructions) {
+  const lines = [];
+  for (const [server, tools] of servers) {
+    const label = mcpServerManifestLabel(server);
+    if (!label) continue;
+    const trigger = compactPromptManifestText(String(mcpServerTrigger(server, tools, instructions)).replace(/[<>]/g, ''), 100);
+    lines.push({ label, trigger });
+  }
+  return lines;
 }
 
 function deferredManifestEntries(session, pool) {
@@ -221,11 +214,8 @@ function deferredManifestEntries(session, pool) {
       description: skillRoutedNames.has(key) ? '' : String(tool?.trigger || tool?.description || ''),
     });
   }
-  for (const [server, tools] of servers) {
-    entries.push({
-      name: mcpServerLineName(server),
-      description: mcpServerTrigger(server, tools, session.mcpServerInstructions),
-    });
+  for (const line of mcpServerLines(servers, session.mcpServerInstructions)) {
+    entries.push({ name: line.label, description: line.trigger });
   }
   return entries;
 }
@@ -241,7 +231,7 @@ export function listedDeferredToolNames(session, poolNames, rendered) {
 }
 
 function composeDeferredBp2Manifest(session, pool) {
-  // Bridge exposure gets the native roster and MCP instructions (the pool is
+  // Bridge exposure gets the native roster (the pool is
   // already limited to what the session's policy lets it run), followed by
   // the static bridge guidance. A tool-free bridge session gets nothing.
   const bridge = isToolBridgeEnabled(session);
@@ -249,8 +239,6 @@ function composeDeferredBp2Manifest(session, pool) {
   const parts = [];
   const deferredManifest = buildDeferredToolManifest(deferredManifestEntries(session, pool));
   if (deferredManifest) parts.push(deferredManifest);
-  const mcpManifest = buildMcpInstructionsManifest(session.mcpServerInstructions, pool, session.deferredToolCatalog);
-  if (mcpManifest) parts.push(mcpManifest);
   if (bridge) parts.push(TOOL_BRIDGE_GUIDANCE);
   return parts.join('\n\n');
 }

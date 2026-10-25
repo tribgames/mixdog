@@ -344,7 +344,9 @@ function largestChunk(text, offset, buildPage) {
   return low;
 }
 
-export function describeBridgeTools(session, args = {}, { mode } = {}) {
+// `instructionsFor(names)` (pure) returns the MCP instruction text the page
+// carries for those entries, counted inside the result budget.
+export function describeBridgeTools(session, args = {}, { mode, instructionsFor } = {}) {
   const syntaxHint = ' Use load_tool {"names":["exact_tool_name"]}; the required key is names, not name.';
   const invalid = unknownKeysError(args, DESCRIBE_KEYS, BRIDGE_LOAD_TOOL_NAME);
   if (invalid) {
@@ -409,11 +411,16 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
   }
   const entries = [];
   const reserve = { names: reserveContinuation(docs.length, available.length) };
+  const instructionsOf = (list) => {
+    const text = instructionsFor?.(list.map((entry) => entry.name)) || '';
+    return text ? { mcpInstructions: text } : {};
+  };
   const page = (extra) => ({
     entries: [...entries, extra],
     missing,
     blocked,
     ...found,
+    ...instructionsOf([...entries, extra]),
     note: DESCRIBE_NOTE,
     continueWith: reserve,
   });
@@ -431,7 +438,15 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
       // A document that fits on a page of its own starts the next page whole.
       if (
         entries.length &&
-        fits({ entries: [whole], missing, blocked, ...found, note: DESCRIBE_NOTE, continueWith: reserve })
+        fits({
+          entries: [whole],
+          missing,
+          blocked,
+          ...found,
+          ...instructionsOf([whole]),
+          note: DESCRIBE_NOTE,
+          continueWith: reserve,
+        })
       ) {
         nextPosition = [entryIndex, 0];
         break;
@@ -464,7 +479,7 @@ export function describeBridgeTools(session, args = {}, { mode } = {}) {
       'the remaining definitions cannot be continued; describe fewer tools at once.'
     );
   }
-  return { entries, missing, blocked, ...found, note: DESCRIBE_NOTE, continueWith };
+  return { entries, missing, blocked, ...found, ...instructionsOf(entries), note: DESCRIBE_NOTE, continueWith };
 }
 
 // ---------------------------------------------------------------------------

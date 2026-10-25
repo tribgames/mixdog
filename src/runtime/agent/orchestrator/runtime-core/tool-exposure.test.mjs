@@ -23,7 +23,12 @@ import {
   selectDeferredTools,
   snapshotProviderRequestTools,
 } from './tool-catalog.mjs';
-import { acknowledgePendingDeferredToolDelta, snapshotPendingDeferredToolDelta } from './deferred-tool-delta.mjs';
+import {
+  acknowledgePendingDeferredToolDelta,
+  mergePendingDeferredToolDelta,
+  snapshotPendingDeferredToolDelta,
+} from './deferred-tool-delta.mjs';
+import { _sessionForDisk } from '../session/store/serialize.mjs';
 import { describeBridgeTools, BRIDGE_LIMITS } from './tool-bridge.mjs';
 import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
 import { buildSkillToolEnvelope } from '../context/collect.mjs';
@@ -310,7 +315,7 @@ test('bridge MCP connect, reconnect and removal append delta notices and keep pr
   reconcileDeferredMcpToolCatalog(session, [mcp, late]);
   same('MCP connect');
   assert.deepEqual(session.pendingDeferredToolDelta.added, [{ name: late.name, description: 'Two.' }]);
-  assert.match(snapshotPendingDeferredToolDelta(session).content, /Added deferred tools:\n- mcp__late__two: Two\./);
+  assert.match(snapshotPendingDeferredToolDelta(session).content, /Added deferred tools:\n- mcp__late: Two\n/);
   reconcileDeferredMcpToolCatalog(session, [{ ...mcp, description: 'Run (reconnected).' }, late]);
   assert.equal(
     describeBridgeTools(session, { names: [mcp.name] }).entries[0].document.description,
@@ -407,6 +412,158 @@ test('review: a read-only bridge session announces the removal of a late read-on
   assert.equal(session.pendingDeferredToolDelta, undefined);
   reconcileDeferredMcpToolCatalog(session, []);
   assert.equal(session.pendingDeferredToolDelta, undefined);
+});
+
+test("a server's instruction text rides its first load_tool, once, and never the BP2 manifest", () => {
+  const mcp = (name, description) => ({
+    name,
+    description,
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+  });
+  const gmailText = 'Account: dev@tribgames.com. This server acts only for this Gmail account.';
+  const session = leadSession('anthropic-oauth', {
+    extraTools: [
+      mcp('mcp__gmail__send', 'Send.'),
+      mcp('mcp__gmail__read', 'Read.'),
+      mcp('mcp__docs__page', 'Page.'),
+      mcp('mcp__plain__run', 'Run.'),
+    ],
+    mcpServerInstructions: { gmail: gmailText, docs: `<>${'d'.repeat(700)}`, plain: '   ' },
+  });
+  const load = (...names) => JSON.parse(renderToolSearch({ names }, session, 'lead'));
+
+  const prompt = session.messages[1].content;
+  assert.match(prompt, /^- mcp__gmail: /m);
+  assert.doesNotMatch(prompt, /dev@tribgames|## gmail|mcp-instructions/);
+
+  // First load of any tool of the server: heading + text, once.
+  const first = load('mcp__gmail__send');
+  assert.equal(first.mcpInstructions, `## gmail\n${gmailText}`);
+  assert.deepEqual(first.loaded, ['mcp__gmail__send']);
+  assert.equal(load('mcp__gmail__read').mcpInstructions, undefined, 'another tool of an announced server');
+  assert.equal(load('mcp__gmail__send').mcpInstructions, undefined, 'a reload');
+  // The server name loads its tools; sanitized and capped like the removed block.
+  const docs = load('mcp__docs');
+  assert.deepEqual(docs.loaded, ['mcp__docs__page']);
+  assert.equal(docs.mcpInstructions, `## docs\n${'d'.repeat(597)}...`);
+  // No instruction text: nothing is added, and nothing is recorded.
+  const plain = load('mcp__plain__run', 'web_fetch');
+  assert.equal('mcpInstructions' in plain, false);
+  assert.deepEqual(session.mcpInstructionsAnnounced, ['gmail', 'docs']);
+});
+
+const instructionTool = (name) => ({
+  name,
+  description: 'Tool.',
+  inputSchema: { type: 'object', properties: {} },
+  annotations: { readOnlyHint: true },
+});
+const GMAIL_TEXT = 'Account: dev@tribgames.com. This server acts only for this Gmail account.';
+
+test('a bridge session gets the server instructions with the first described tool, once', () => {
+  const session = leadSession('gemini', {
+    extraTools: [instructionTool('mcp__gmail__send'), instructionTool('mcp__gmail__read'), instructionTool('mcp__plain__run')],
+  });
+  session.mcpServerInstructions = { gmail: GMAIL_TEXT };
+  assert.equal(session.toolExposureMode, 'bridge-v1');
+  const describe = (...names) => JSON.parse(renderToolSearch({ names }, session, 'lead'));
+  const first = describe('mcp__gmail__send');
+  assert.equal(first.entries[0].name, 'mcp__gmail__send');
+  assert.equal(first.mcpInstructions, `## gmail\n${GMAIL_TEXT}`);
+  assert.equal(describe('mcp__gmail__send').mcpInstructions, undefined, 'a repeat');
+  assert.equal(describe('mcp__gmail__read').mcpInstructions, undefined, 'another tool of the announced server');
+  assert.equal('mcpInstructions' in describe('mcp__plain__run'), false, 'a server without instructions');
+  // An error result carries nothing and records nothing.
+  assert.match(renderToolSearch({ names: [] }, session, 'lead'), /^Error: /);
+  assert.deepEqual(session.mcpInstructionsAnnounced, ['gmail']);
+});
+
+test('bridge instructions count inside the page budget and are announced only when they ride the page', () => {
+  const bridgeSession = (padding, instructions) => {
+    const session = leadSession('gemini', {
+      extraTools: [{ ...instructionTool('mcp__big__a'), description: 'x'.repeat(padding) }, instructionTool('mcp__other__b')],
+    });
+    session.mcpServerInstructions = instructions;
+    return session;
+  };
+  const describe = (session, names) => {
+    const raw = renderToolSearch({ names }, session, 'lead');
+    return { raw, page: JSON.parse(raw) };
+  };
+  const both = ['mcp__big__a', 'mcp__other__b'];
+  // The largest padding for which both definitions still share one page.
+  let low = 0;
+  let high = 40_000;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (describe(bridgeSession(middle, {}), both).page.entries.length === 2) low = middle;
+    else high = middle - 1;
+  }
+  const near = describe(bridgeSession(low, {}), both);
+  assert.equal(near.page.entries.length, 2, 'without instructions the page is full but whole');
+  assert.ok(Buffer.byteLength(near.raw) <= BRIDGE_LIMITS.describeMaxBytes);
+
+  const session = bridgeSession(low, { big: 'Big server text.', other: 'Other server text.' });
+  const first = describe(session, both);
+  assert.ok(Buffer.byteLength(first.raw) <= BRIDGE_LIMITS.describeMaxBytes, 'the instruction text stays inside the budget');
+  assert.deepEqual(
+    first.page.entries.map((entry) => entry.name),
+    ['mcp__big__a'],
+    'the second definition moved to the next page'
+  );
+  assert.equal(first.page.mcpInstructions, '## big\nBig server text.');
+  assert.deepEqual(session.mcpInstructionsAnnounced, ['big'], 'the server that did not ride the page stays unannounced');
+  // The next page carries the text of the server it describes.
+  const next = describe(session, [first.page.continueWith.names]);
+  assert.deepEqual(
+    next.page.entries.map((entry) => entry.name),
+    ['mcp__other__b']
+  );
+  assert.equal(next.page.mcpInstructions, '## other\nOther server text.');
+  assert.ok(Buffer.byteLength(next.raw) <= BRIDGE_LIMITS.describeMaxBytes);
+  assert.deepEqual(session.mcpInstructionsAnnounced, ['big', 'other']);
+});
+
+test('a native session whose tool is already active gets the server instructions once', () => {
+  const session = leadSession('anthropic-oauth', { extraTools: [instructionTool('mcp__gmail__send')] });
+  session.mcpServerInstructions = { gmail: GMAIL_TEXT };
+  selectDeferredTools(session, ['mcp__gmail__send'], 'lead'); // loaded before the text was ever claimed
+  const load = () => JSON.parse(renderToolSearch({ names: ['mcp__gmail__send'] }, session, 'lead'));
+  const first = load();
+  assert.deepEqual(first.alreadyActive, ['mcp__gmail__send']);
+  assert.deepEqual(first.loaded, []);
+  assert.equal(first.mcpInstructions, `## gmail\n${GMAIL_TEXT}`);
+  assert.equal(load().mcpInstructions, undefined);
+});
+
+test('a compaction re-arms the server instructions for the next load', () => {
+  const session = leadSession('anthropic-oauth', { extraTools: [instructionTool('mcp__gmail__send')] });
+  session.mcpServerInstructions = { gmail: GMAIL_TEXT };
+  const load = () => JSON.parse(renderToolSearch({ names: ['mcp__gmail__send'] }, session, 'lead'));
+  assert.ok(load().mcpInstructions);
+  assert.equal(load().mcpInstructions, undefined);
+  rearmLateDeferredTools(session); // the transcript that held the load result is gone
+  assert.equal(session.mcpInstructionsAnnounced, undefined);
+  assert.equal(load().mcpInstructions, `## gmail\n${GMAIL_TEXT}`);
+  assert.equal(load().mcpInstructions, undefined);
+});
+
+test('announced instructions and recorded removal servers survive a save and resume', () => {
+  const session = { deferredMcpToolNames: ['mcp__docs__keep'], deferredToolCatalog: [] };
+  mergePendingDeferredToolDelta(session, {
+    removed: [
+      { name: 'mcp__docs__a', server: 'docs' },
+      { name: 'mcp__gone__b', server: 'gone' },
+    ],
+  });
+  session.mcpInstructionsAnnounced = ['gmail'];
+  const resumed = JSON.parse(JSON.stringify(_sessionForDisk(session)));
+  assert.deepEqual(resumed.mcpInstructionsAnnounced, ['gmail']);
+  assert.deepEqual(resumed.pendingDeferredToolDelta.removedServers, { mcp__docs__a: 'docs', mcp__gone__b: 'gone' });
+  assert.equal(snapshotPendingDeferredToolDelta(resumed).content, snapshotPendingDeferredToolDelta(session).content);
+  assert.match(snapshotPendingDeferredToolDelta(resumed).content, /^- mcp__docs: 1 tool removed$/m);
+  assert.match(snapshotPendingDeferredToolDelta(resumed).content, /^- mcp__gone$/m);
 });
 
 test('switching bridge ↔ native rebuilds the surface and guidance and keeps discoveries and history', () => {

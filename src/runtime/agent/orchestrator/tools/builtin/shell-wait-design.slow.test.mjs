@@ -55,7 +55,7 @@ test('budgets come from one place: hold 60 s, task wait 300 s (agents 240 s)', (
   assert.equal(TASK_WAIT_TIMEOUT_DEFAULT_MS, TASK_WAIT_DEFAULT_MS);
   assert.equal(TASK_WAIT_TIMEOUT_MAX_MS, 3_600_000);
   const shell = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-  assert.match(shell.description, /Holds up to 60s/);
+  assert.match(shell.description, /Holds 60s;/);
   assert.equal(shell.inputSchema.properties.wait_ms.maximum, 600_000);
   assert.equal(shell.inputSchema.properties.background.type, 'boolean');
   const task = BUILTIN_TOOLS.find((tool) => tool.name === 'task');

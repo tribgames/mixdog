@@ -58,7 +58,7 @@ test('scope filtering keys a shortened tool by its real server', () => {
   assert.equal(filterMcpToolsForCwd([tool(SHORT, 'list')], { mcp: {} }, '/work').length, 1);
 });
 
-test('deferred listing attributes a shortened tool to its server for MCP instructions', () => {
+test('deferred listing attributes a shortened tool to its server line; instruction bodies stay out of BP2', () => {
   const session = {
     messages: [
       { role: 'system', content: 'BP1', cacheTier: 'tier1' },
@@ -69,8 +69,8 @@ test('deferred listing attributes a shortened tool to its server for MCP instruc
   };
   applyInitialDeferredToolManifestToBp2(session, [SHORT]);
   const bp2 = session.messages[1].content;
-  assert.match(bp2, new RegExp(`## ${SERVER}\\nUse the docs server for pages\\.`));
-  assert.match(bp2, new RegExp(`^- mcp__${SERVER}: Use the docs server for pages\\.$`, 'm'));
+  assert.doesNotMatch(bp2, /## |mcp-instructions/);
+  assert.match(bp2, new RegExp(`^- mcp__${SERVER}: Use the docs server for pages$`, 'm'));
   assert.doesNotMatch(bp2, new RegExp(SHORT));
 });
 
