@@ -111,6 +111,9 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
    *  turn went away) or `stalled` (the progress watchdog stopped it); absent
    *  for any other failure and for every row that did not fail. */
   failureReason?: string | null;
+  /** Set when the owner closed this agent (the agent tool's `close`); its
+   *  status is unchanged. Absent once the agent is reused or is working. */
+  released?: boolean;
   /** While the turn runs: the last moment it made progress the stall
    *  watchdog counts (epoch ms), the runtime stage it is in, the tool it runs
    *  (`tool_running`), and that agent's watchdog warn point (ms without

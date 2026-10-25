@@ -4,10 +4,11 @@
 // worker index of a process over one file shares one store (acquireWorkerRowStore),
 // so all of them serialize through the same projection and queue.
 import { readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { createIndexWriteQueue } from '../index-write-queue.mjs';
 import { normalizeTagTombstones, tagTombstoneKey, workerRowKey } from '../worker-rows.mjs';
+import { RELEASED_FILE, createReleasedStore } from './released-store.mjs';
 import { settleAwaitingUser } from './approval-wait.mjs';
 import { keepWorkerRow, normalizeWorkerRows } from './row-shape.mjs';
 
@@ -62,6 +63,9 @@ function rewriteIndexDocument(cur, mutator) {
 
 /** `file` may be null (no data dir): reads are empty and writes are no-ops. */
 export function createWorkerRowStore(file) {
+  // The release markers live in their own file beside the index, so a writer
+  // that rebuilds the index document never drops them.
+  const released = createReleasedStore(file ? join(dirname(file), RELEASED_FILE) : null);
   // Mtime-keyed parse cache. A single spawn calls refreshTagsFromSessions /
   // resolveTag / nextTag, which each re-read and re-parse this file; across a
   // parallel fanout that is O(spawns^2) synchronous reads of the same bytes.
@@ -148,18 +152,27 @@ export function createWorkerRowStore(file) {
     readAll,
     readSnapshot,
     readTombstones,
+    isReleased: released.isReleased,
+    markReleased: released.mark,
+    clearReleased: released.clear,
     write,
     /** Conditional field update: `mutator` runs now on the projection and again
      *  on the locked document when persisted, so its condition is re-checked
      *  against what is on disk. The one writer of `awaitingUser`. */
     update: (mutator) => queue.write(mutator, { rerun: true }),
     /** Resolves once every write so far is on disk. */
-    flush: queue.flush,
+    flush: async () => {
+      await Promise.all([queue.flush(), released.flush()]);
+    },
     /** Exit path: persist what is still queued, synchronously. */
-    flushSync: queue.flushSync,
-    hasUnpersisted: queue.hasUnpersisted,
+    flushSync: () => {
+      const flushed = [queue.flushSync(), released.flushSync()];
+      return flushed.every(Boolean);
+    },
+    hasUnpersisted: () => queue.hasUnpersisted() || released.hasUnpersisted(),
     invalidate: () => {
       dirty = true;
+      released.invalidate();
     },
   };
 }

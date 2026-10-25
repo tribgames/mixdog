@@ -121,6 +121,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     updateLeadWorkerCwd,
     forgetLeadSession,
     removeWorkerRow,
+    markReleased: index.markReleased,
     refreshTagsFromIndex,
     tags,
     tagAgents: tagMaps.tagAgents,

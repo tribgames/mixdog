@@ -29,6 +29,7 @@ import {
 import { normalizeWorkerRows, workerRowFromSession } from './worker-index/row-shape.mjs';
 import { acquireWorkerRowStore } from './worker-index/row-store.mjs';
 import { findTagTombstone, tagTombstoneKey, tombstoneBlocksWork } from '../../../runtime/shared/agent-reap-state.mjs';
+import { onSessionTurnStart } from '../../../runtime/shared/session-activity-signal.mjs';
 
 export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds }) {
   const file = dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
@@ -99,8 +100,22 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     return true;
   }
 
-  const rowFromSession = (session, fallbackTag = '', extra = {}) =>
-    workerRowFromSession(session, fallbackTag, extra, (sessionId) => mgr.getSessionRuntime?.(sessionId));
+  // A session its owner closed keeps `released` on every row written for it,
+  // until a turn starts on it.
+  const rowFromSession = (session, fallbackTag = '', extra = {}) => {
+    const row = workerRowFromSession(session, fallbackTag, extra, (sessionId) => mgr.getSessionRuntime?.(sessionId));
+    return row && store.isReleased(row.sessionId) ? { ...row, released: true } : row;
+  };
+
+  /** Persist that the owner closed these sessions (survives a restart). */
+  function markReleased(sessionIds) {
+    store.markReleased(sessionIds.map(clean).filter(Boolean));
+  }
+
+  // The one boundary every turn start passes through (user input, an answer,
+  // auto-resume, a send, a room/bot turn): the session is in use again, for
+  // good, whatever started the turn.
+  const stopTurnStartListener = onSessionTurnStart((sessionId) => store.clearReleased(sessionId));
 
   // A row whose owner is still owed its restart failure stays: closing the
   // worker (a process exit closes every one) must not lose that result.
@@ -236,6 +251,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   let disposePromise = null;
 
   function teardown() {
+    stopTurnStartListener();
     unregisterExitFlush();
     unregisterApprovalWaits();
     releaseStore();
@@ -310,6 +326,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     upsertWorkerSessionDeferred: (session, fallbackTag = '', extra = {}) =>
       upsertWorkerRow(rowFromSession(session, fallbackTag, extra), { defer: true }),
     removeWorkerRow,
+    markReleased,
     setAwaitingUser,
     refreshTagsFromIndex,
     flushActiveWorkerRows,

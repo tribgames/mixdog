@@ -16,6 +16,20 @@ export function emitSessionActivityChange(sessionId = '') {
   emit(listeners, sessionId);
 }
 
+// A turn started on a session: the one point every turn passes through, whoever
+// started it. Unlike the activity pulse it never fires on a settle or a wait.
+const turnStartListeners = new Set();
+
+export function onSessionTurnStart(listener) {
+  if (typeof listener !== 'function') return () => {};
+  turnStartListeners.add(listener);
+  return () => turnStartListeners.delete(listener);
+}
+
+export function emitSessionTurnStart(sessionId = '') {
+  emit(turnStartListeners, sessionId);
+}
+
 // A live session started or stopped showing an approval card waiting on the
 // user (its runtime state's `toolApproval`): the session catalog, which
 // stamps that on each row, listens and re-reads.

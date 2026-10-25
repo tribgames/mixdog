@@ -597,7 +597,8 @@ const ISLAND_AGENT_STATES: ReadonlySet<DesktopAgentActivityState> = new Set([
 
 /** The agents the composer island lists for one session: its group in the
  *  Agents window (same grouping, nesting and depth-first order) minus the
- *  session's own Lead row, finished agents included. Each top-level subtree
+ *  session's own Lead row, finished agents included but agents the Lead
+ *  closed (`released`) left out. Each top-level subtree
  *  stays whole; subtrees with active work come first, finished ones after. */
 export function islandAgentRows(
   pool: readonly DesktopAgentPoolRow[] | null | undefined,
@@ -613,9 +614,11 @@ export function islandAgentRows(
         hasPendingDesktopAgentWork(agent)
       );
       const state = desktopAgentActivityState(node.agent, { waitingForTasks });
-      const own = node.sessionId === ownerSessionId;
+      // The session's own Lead row and agents the Lead closed are not listed;
+      // a closed agent's subtree is still walked (a reused descendant shows).
+      const unlisted = node.sessionId === ownerSessionId || node.agent.released === true;
       const row = { node, state, waitingForTasks, finished: !ISLAND_AGENT_STATES.has(state) };
-      return [...(own ? [] : [row]), ...walk(node.children)];
+      return [...(unlisted ? [] : [row]), ...walk(node.children)];
     });
   // The Lead's children are the units under a Lead row; otherwise the top rows.
   const units = group.nodes.flatMap((node) => (node.sessionId === ownerSessionId ? node.children : [node]));

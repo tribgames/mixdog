@@ -65,6 +65,8 @@ export function normalizeWorkerRows(value) {
       // Additive and transient: present only while the worker's turn waits on
       // a user approval (worker-index setAwaitingUser).
       ...(row.awaitingUser === 'approval' ? { awaitingUser: 'approval' } : {}),
+      // Present only on an agent its owner closed (the agent tool's `close`).
+      ...(row.released === true ? { released: true } : {}),
     }))
     .filter((row) => !isLeadPoolAgent(row.agent) && keepWorkerRow(row));
 }

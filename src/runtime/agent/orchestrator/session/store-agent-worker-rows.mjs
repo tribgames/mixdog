@@ -633,6 +633,8 @@ function projectChildWorkerRow(row, context) {
     // A live turn blocked on the user's approval (persisted by the agent
     // tool's worker index); never carried by a row that is no longer working.
     ...(working && row.awaitingUser === 'approval' ? { awaitingUser: 'approval' } : {}),
+    // The owner closed this agent (status unchanged); reused work clears it.
+    ...(!working && row.released === true ? { released: true } : {}),
     // Why a settled failed row failed; a row working again has no failure.
     ...(!working && failedAgentWorker(row) && cleanValue(row.failureReason)
       ? { failureReason: cleanValue(row.failureReason) }

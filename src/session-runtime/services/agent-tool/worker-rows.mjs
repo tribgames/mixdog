@@ -129,6 +129,9 @@ export function applyWorkerRowUpsert(byKey, normalized) {
       merged[field] = prev[field];
     }
   }
+  // A whole-row write carries the session's release state: a row written
+  // without it (the agent was reused) is no longer released.
+  if (normalized.released !== true) delete merged.released;
   // `awaitingUser` is not decided here: the worker row store keeps the current
   // row's flag across every whole-row write and drops it once the row settles.
   byKey.set(key, {

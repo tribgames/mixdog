@@ -23,7 +23,7 @@
 // }
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { emitSessionApprovalWaitChange } from '../../../../shared/session-approval-wait.mjs';
-import { emitSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
+import { emitSessionActivityChange, emitSessionTurnStart } from '../../../../shared/session-activity-signal.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
 import { MODEL_THINKING_STAGE, awaitingModelResponse, lastProgressAt } from '../../../../shared/quiet-progress.mjs';
 import { beginBrowserTurn, finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
@@ -186,6 +186,7 @@ export function markSessionAskStart(id) {
   entry.lastProgressAt = now;
   entry.updatedAt = now;
   entry.taskWaits = 0;
+  emitSessionTurnStart(id);
   emitSessionActivityChange(id);
 }
 /** The provider put the request on the wire; its response headers are

@@ -92,6 +92,9 @@ export function createCloseFlow({ mgr, registry, views }) {
       for (const descendantSessionId of descendantSessionIds) {
         registry.removeWorkerRow({ sessionId: descendantSessionId });
       }
+      // The sessions stay open (a send reuses them), so a later scan, even
+      // after a restart, would list them again: remember the owner closed them.
+      registry.markReleased([sessionId, ...descendantSessionIds]);
     }
     return { closed: ok, tag, sessionId, task_id: task?.taskId || null };
   }
