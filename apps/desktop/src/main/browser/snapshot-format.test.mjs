@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { BrowserGuestStateStore } from './guest-state.ts';
 import { createBrowserRefSet } from './ref-recovery.ts';
-import { unreportedDownloads } from './reply.ts';
+import { createBrowserReply, unreportedDownloads } from './reply.ts';
 import { formatPageReport, formatSnapshot } from './snapshot-format.ts';
 
 const payload = (overrides = {}) => ({
@@ -244,6 +245,106 @@ test('snapshot lists downloads handed to it and stays quiet otherwise', () => {
     /Downloads since last report:\n- \[d1\] report\.pdf — completed, 2 KB → C:\\Users\\me\\Downloads\\report\.pdf/
   );
   assert.doesNotMatch(formatSnapshot(payload(), diagnostics(), { downloads: [] }), /Downloads since/);
+});
+
+test('a download state is reported once for the session, not once per page', () => {
+  const state = new BrowserGuestStateStore();
+  const first = {};
+  const second = {};
+  state.for(first);
+  state.for(second);
+  const download = {
+    id: 'd1',
+    file: 'Images.txt',
+    state: 'in_progress',
+    received: 10,
+    total: 2048,
+    path: 'C:/tmp/Images.txt',
+    startedAt: Date.now() + 60_000,
+  };
+  const reply = createBrowserReply({ state, downloadsForGuest: () => [download] });
+  assert.match(reply.reportPage(first), /\[d1\] Images\.txt — in_progress/);
+  assert.equal(reply.reportPage(second), '', 'the other page already heard this state');
+  assert.equal(reply.reportPage(first), '');
+
+  download.state = 'completed';
+  download.completedAt = Date.now() + 60_000;
+  assert.match(reply.reportPage(second), /\[d1\] Images\.txt — completed/);
+  assert.equal(reply.reportPage(first), '', 'a state change is also said once');
+});
+
+test('two independent pages failing identically each report their own failure once', () => {
+  const state = new BrowserGuestStateStore();
+  const signIn = 'POST https://example.test/login — net::ERR_FAILED';
+  const pages = [{}, {}].map((guest) => {
+    const record = state.for(guest);
+    record.networkFailures.push(signIn);
+    record.console.recordError('Error: sign-in failed');
+    return record;
+  });
+  for (const record of pages) {
+    const report = formatPageReport(record);
+    assert.match(report, /New console errors: Error: sign-in failed/);
+    assert.match(report, /New network failures: POST https:\/\/example\.test\/login/);
+    assert.equal(formatPageReport(record), '', 'each is said once per page');
+  }
+});
+
+test('a brief reply keeps its budget when the earlier look skipped most of the page', () => {
+  const link = (index, extra = {}) => ({
+    ref: `p1-s2-e${index}`,
+    role: 'link',
+    name: `link ${index}`,
+    tag: 'ax',
+    ...extra,
+  });
+  const elements = Array.from({ length: 160 }, (_value, index) =>
+    link(index + 1, { inViewport: index >= 100 && index < 108 })
+  );
+  const text = formatSnapshot(payload({ snapshotId: 'p1-s2', elements, totalElements: 285 }), diagnostics(), {
+    briefAgainst: createBrowserRefSet(
+      payload({
+        elements: elements.slice(0, 8).map((el) => ({ ...el, ref: el.ref.replace('s2', 's1') })),
+        totalElements: 285,
+      })
+    ),
+  });
+  assert.match(text, /152 not previously reported/);
+  assert.match(text, /Not previously reported: 152 element\(s\); showing 5/);
+  const listed = text.split('\n').filter((line) => /^\s+\[p1-s2-e\d+\]/.test(line));
+  assert.equal(listed.length, 5);
+  assert.ok(listed.every((line) => line.includes(']*')), 'the ones in view come first');
+  assert.match(text, /147 more not listed/);
+  assert.ok(text.length < 1_500);
+});
+
+test('an empty secret field shows no value; a filled one only says it is redacted', () => {
+  const field = (extra) => ({ ref: 'p1-s1-e1', role: 'textbox', name: 'Password', tag: 'input', sensitive: true, ...extra });
+  const empty = formatSnapshot(payload({ elements: [field({})], totalElements: 1 }), diagnostics());
+  assert.match(empty, /\[p1-s1-e1\] textbox "Password"$/m);
+  assert.doesNotMatch(empty, /REDACTED/);
+  const filled = formatSnapshot(payload({ elements: [field({ filled: true })], totalElements: 1 }), diagnostics());
+  assert.match(filled, /textbox "Password" value=\[REDACTED\]$/m);
+});
+
+test('refusals of one host for one reason are one line with a count', () => {
+  const reason = 'net::ERR_BLOCKED_BY_CLIENT (Browser Use network policy: private or internal address 10.0.0.1)';
+  const text = formatSnapshot(
+    payload(),
+    diagnostics({
+      networkFailures: [
+        `GET https://a.example/e?n=1 — ${reason}`,
+        'GET https://b.example/app.js — net::ERR_FAILED',
+        `GET https://a.example/e?n=2 — ${reason}`,
+        `GET https://a.example/e?n=3 — ${reason}`,
+        `GET https://c.example/e — ${reason}`,
+      ],
+    })
+  );
+  assert.match(text, /GET https:\/\/a\.example\/e\?n=1 — .*\(×3 requests to this host\)/);
+  assert.equal(text.split('Browser Use network policy').length - 1, 2, 'one line per host, reason said once each');
+  assert.doesNotMatch(text, /n=2|n=3/);
+  assert.match(text, /https:\/\/b\.example\/app\.js/);
 });
 
 test('unreported downloads are those started or finished after the last report', () => {

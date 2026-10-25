@@ -44,7 +44,8 @@ function fingerprint(payload: BrowserSnapshotPayload, element: BrowserSnapshotEl
     role: element.role,
     name: element.name,
     href: element.href || '',
-    value: element.value || '',
+    // A secret is never kept, but filling one is still a change to report.
+    value: element.value || (element.filled ? '[REDACTED]' : ''),
     states: element.states || [],
   };
 }

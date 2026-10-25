@@ -49,6 +49,7 @@ interface SnapshotExtras {
 }
 
 const BRIEF_TEXT_CHARS = 500;
+const BRIEF_UNSEEN_SHOWN = 5;
 
 /** A capped list read as the whole story turns twelve failures into three. */
 function cappedNote(shown: number, total: number | undefined, command: string): string {
@@ -61,6 +62,40 @@ function collapseRepeats(entries: string[]): string[] {
   const counts = new Map<string, number>();
   for (const entry of entries) counts.set(entry, (counts.get(entry) || 0) + 1);
   return [...counts].map(([entry, count]) => (count > 1 ? `${entry} (×${count})` : entry));
+}
+
+const REFUSED_FAILURE = /^(\S+) (\S+) — (.*net::ERR_BLOCKED_BY_CLIENT \(Browser Use network policy.*)$/;
+
+/** Requests the policy refused for one host with one reason are one fact: the
+ *  first is shown whole, the rest only counted. */
+function collapseRefusals(entries: string[]): string[] {
+  const groups = new Map<string, { first: string; count: number }>();
+  const lines: Array<string | { key: string }> = [];
+  for (const entry of entries) {
+    const match = REFUSED_FAILURE.exec(entry);
+    let host = '';
+    try {
+      host = match ? new URL(match[2]).host : '';
+    } catch {
+      /* not a URL: left as its own line */
+    }
+    if (!host) {
+      lines.push(entry);
+      continue;
+    }
+    const key = `${host}|${match?.[3]}`;
+    const group = groups.get(key);
+    if (group) group.count += 1;
+    else {
+      groups.set(key, { first: entry, count: 1 });
+      lines.push({ key });
+    }
+  }
+  return lines.map((line) => {
+    if (typeof line === 'string') return line;
+    const group = groups.get(line.key) as { first: string; count: number };
+    return group.count > 1 ? `${group.first} (×${group.count} requests to this host)` : group.first;
+  });
 }
 
 /** Elements a brief reply no longer sees, by role and name; they have no ref. */
@@ -79,8 +114,10 @@ function elementLine(el: BrowserSnapshotElement): string {
   ];
   if (el.href) parts.push(`href=${redactBrowserUrl(el.href)}`);
   if (el.matchField) parts.push(`match=${el.matchField}`);
-  if (el.sensitive) parts.push('value=[REDACTED]');
-  else if (el.value !== undefined && el.value !== '')
+  // A secret field names no value it does not hold: an empty one shows none.
+  if (el.sensitive) {
+    if (el.filled) parts.push('value=[REDACTED]');
+  } else if (el.value !== undefined && el.value !== '')
     parts.push(`value=${JSON.stringify(redactBrowserText(el.value))}`);
   if (el.states?.length) parts.push(redactBrowserText(el.states.join(',')));
   const indent = '  '.repeat(Math.min(4, Math.max(1, (el.depth || 0) + 1)));
@@ -187,8 +224,19 @@ function briefLines(
       for (const el of altered) lines.push(elementLine(el));
     }
     if (brief.unseen.length) {
-      lines.push('Not previously reported (* = in viewport):');
-      for (const el of brief.unseen) lines.push(elementLine(el));
+      // A brief reply keeps its small budget however much of the page the
+      // earlier look skipped: a count, and the few the caller can see now.
+      const shown = [...brief.unseen.filter((el) => el.inViewport), ...brief.unseen.filter((el) => !el.inViewport)].slice(
+        0,
+        BRIEF_UNSEEN_SHOWN
+      );
+      lines.push(`Not previously reported: ${brief.unseen.length} element(s); showing ${shown.length} (* = in viewport):`);
+      for (const el of shown) lines.push(elementLine(el));
+      if (brief.unseen.length > shown.length) {
+        lines.push(
+          `  … ${brief.unseen.length - shown.length} more not listed; take a focused snapshot (query) to list them.`
+        );
+      }
     }
     return lines;
   }
@@ -250,8 +298,9 @@ function diagnosticsLines(diagnostics: SnapshotDiagnosticsView | undefined, extr
   const reported = diagnostics?.reportedNetworkFailures;
   const freshFailures = reported ? failures.filter((entry) => !reported.has(entry)) : failures;
   if (freshFailures.length) {
-    const shown = pageFaultsFirst(freshFailures, 3);
-    const capped = cappedNote(shown.length, freshFailures.length, 'network');
+    const distinct = collapseRefusals(freshFailures);
+    const shown = pageFaultsFirst(distinct, 3);
+    const capped = cappedNote(shown.length, distinct.length, 'network');
     const label = reported ? 'New network failures' : 'Recent network failures';
     lines.push('', `${label}${capped}: ${collapseRepeats(shown.map(redactBrowserText)).join(' | ')}`);
   }

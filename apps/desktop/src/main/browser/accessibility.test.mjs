@@ -140,6 +140,42 @@ test('a password input is a sensitive element: its value is withheld even though
   assert.equal(email.sensitive, undefined);
   assert.equal(pass.sensitive, true);
   assert.ok(!pass.value);
+  assert.equal(pass.filled, true, 'a secret that holds a value is marked filled, the value itself is not kept');
+});
+
+test('an empty password input is sensitive but not filled', () => {
+  const { payload } = buildAccessibilitySnapshot({
+    snapshotId: 'p4-s2',
+    pageInfo: {
+      url: 'https://example.test/login',
+      title: 'Sign in',
+      scrollY: 0,
+      scrollHeight: 600,
+      viewportHeight: 600,
+      viewportWidth: 800,
+      text: '',
+    },
+    targets: [
+      {
+        nodes: [
+          {
+            nodeId: 'pass',
+            role: { value: 'textbox' },
+            name: { value: 'Password' },
+            value: { value: '' },
+            backendDOMNodeId: 21,
+          },
+        ],
+        bounds: new Map(),
+        fileInputs: new Map(),
+        passwordInputs: new Set([21]),
+      },
+    ],
+    maxElements: 10,
+    textChars: 100,
+  });
+  assert.equal(payload.elements[0].sensitive, true);
+  assert.equal(payload.elements[0].filled, undefined);
 });
 
 test('accessibility snapshot keeps actionable refs, cross-frame text, hierarchy, and degradation warnings', () => {

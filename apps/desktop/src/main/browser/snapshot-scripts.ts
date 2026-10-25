@@ -224,6 +224,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
         const type = tag === 'input' ? compact(el.getAttribute('type') || 'text', 30).toLowerCase() : '';
         const sensitive = type === 'password';
         const value = sensitive ? '' : compact(el.value ?? '', 100);
+        const filled = sensitive && String(el.value ?? '') !== '';
         const href = tag === 'a' ? compact(el.href || el.getAttribute('href') || '', 200) : '';
         unfilteredElements += 1;
         const match = config.query ? rankMatch(config.query, { name, value, role, href }) : null;
@@ -240,6 +241,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
               href,
               value,
               sensitive,
+              filled,
               states: stateList(el, style),
               inViewport,
               ...(match ? { matchField: match.field } : {}),

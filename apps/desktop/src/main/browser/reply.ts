@@ -57,23 +57,35 @@ export function unreportedDownloads(downloads: TrackedBrowserDownload[], reporte
 
 export function createBrowserReply(host: BrowserReplyHost) {
   const { state, captureSnapshotPayload, downloadsForGuest } = host;
+  // Downloads belong to the session, but each page keeps its own cursor, so a
+  // second page would announce what a first one already reported. The state a
+  // download was last reported in is remembered on the (shared) entry itself.
+  const reportedDownloadStates = new WeakMap<TrackedBrowserDownload, string>();
 
-  /** Format the page report, folding in downloads the page has not yet
+  /** Downloads this reply should mention: new to the page and not yet
+   *  reported, in their current state, by any page of the session. */
+  function takeDownloads(guest: WebContents): TrackedBrowserDownload[] {
+    const record = state.for(guest);
+    const fresh = unreportedDownloads(downloadsForGuest(guest), record.downloadsReportedAt).filter(
+      (download) => reportedDownloadStates.get(download) !== download.state
+    );
+    for (const download of fresh) reportedDownloadStates.set(download, download.state);
+    record.downloadsReportedAt = Date.now();
+    return fresh;
+  }
+
+  /** Format the page report, folding in downloads the session has not yet
    *  mentioned and marking them reported. */
   function reportSnapshot(guest: WebContents, payload: SnapshotPayload, briefAgainst?: BrowserRefSet): string {
-    const record = state.for(guest);
-    const downloads = unreportedDownloads(downloadsForGuest(guest), record.downloadsReportedAt);
-    record.downloadsReportedAt = Date.now();
-    return state.redactText(guest, formatSnapshot(payload, record, { downloads, briefAgainst }));
+    const downloads = takeDownloads(guest);
+    return state.redactText(guest, formatSnapshot(payload, state.for(guest), { downloads, briefAgainst }));
   }
 
   /** The same page report without a snapshot, for a reply that keeps the
    *  caller's refs: whatever is new since the last report, or nothing. */
   function reportPage(guest: WebContents): string {
-    const record = state.for(guest);
-    const downloads = unreportedDownloads(downloadsForGuest(guest), record.downloadsReportedAt);
-    record.downloadsReportedAt = Date.now();
-    return state.redactText(guest, formatPageReport(record, { downloads }));
+    const downloads = takeDownloads(guest);
+    return state.redactText(guest, formatPageReport(state.for(guest), { downloads }));
   }
 
   /** `dispatched` says whether this command's own gesture already reached the

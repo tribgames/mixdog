@@ -8,6 +8,8 @@ export interface BrowserSnapshotElement {
   href?: string;
   value?: string;
   sensitive?: boolean;
+  /** A secret field that holds a value (never shown); an empty one has none. */
+  filled?: boolean;
   states?: string[];
   inViewport?: boolean;
   depth?: number;
@@ -162,6 +164,7 @@ interface AccessibilityCandidate {
   value: string;
   href: string;
   sensitive: boolean;
+  filled: boolean;
   states: string[];
   inViewport?: boolean;
   order: number;
@@ -228,6 +231,7 @@ function snapshotElement(candidate: AccessibilityCandidate, ref: string): Browse
     ...(candidate.href ? { href: candidate.href } : {}),
     ...(candidate.value ? { value: candidate.value } : {}),
     ...(candidate.sensitive ? { sensitive: true } : {}),
+    ...(candidate.filled ? { filled: true } : {}),
     ...(candidate.states.length ? { states: candidate.states } : {}),
     ...(candidate.inViewport !== undefined ? { inViewport: candidate.inViewport } : {}),
     ...(candidate.matchField ? { matchField: candidate.matchField } : {}),
@@ -292,6 +296,7 @@ export function buildAccessibilitySnapshot(options: {
       if (!Number.isFinite(backendNodeId) || !actionable) continue;
       const sensitive = axProperty(node, 'protected') === true || target.passwordInputs?.has(backendNodeId) === true;
       const value = sensitive ? '' : compactAxText(String(node.value?.value ?? ''), 480, 120);
+      const filled = sensitive && String(node.value?.value ?? '') !== '';
       const href = String(axProperty(node, 'url') || '').slice(0, 240);
       const states = axStates(node);
       states.push(...fileInputStates(target.fileInputs?.get(backendNodeId)));
@@ -308,6 +313,7 @@ export function buildAccessibilitySnapshot(options: {
         value,
         href,
         sensitive,
+        filled,
         states,
         inViewport,
         order: scanned,
