@@ -509,6 +509,48 @@ test('iPads and touch laptops pick the layout by viewport width', async () => {
   }
 });
 
+test('a phone takes the phone layout without reading the viewport width (a forced layout in render)', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body></body></html>',
+    expose: ['navigator'],
+    actEnvironment: false,
+  });
+  const define = (target, key, value) => Object.defineProperty(target, key, { configurable: true, value });
+  let widthReads = 0;
+  Object.defineProperty(dom.window, 'innerWidth', {
+    configurable: true,
+    get() {
+      widthReads += 1;
+      return 412;
+    },
+  });
+  Object.defineProperty(dom.window.document.documentElement, 'clientWidth', {
+    configurable: true,
+    get() {
+      widthReads += 1;
+      return 412;
+    },
+  });
+  try {
+    const { isMobileRemoteSurface } = await import(`./mobile-surface.ts?phone-width=${Date.now()}`);
+    for (const userAgent of [
+      'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A; wv) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36',
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+    ]) {
+      define(dom.window.navigator, 'userAgent', userAgent);
+      assert.equal(isMobileRemoteSurface(), true, userAgent);
+    }
+    assert.equal(widthReads, 0);
+    // A tablet still decides by width.
+    define(dom.window.navigator, 'userAgent', 'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/131');
+    define(dom.window.navigator, 'maxTouchPoints', 5);
+    assert.equal(isMobileRemoteSurface(), true);
+    assert.ok(widthReads > 0);
+  } finally {
+    restore();
+  }
+});
+
 test('a desktop-installed PWA never becomes a remote work surface', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body></body></html>',

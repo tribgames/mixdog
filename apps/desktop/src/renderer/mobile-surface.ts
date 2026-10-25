@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from 'react';
 import { nativeAppInfo } from '../shared/native-app';
 import { remoteWindowInfo } from '../shared/remote-window';
-import { isIosDevice, isTouchDevice, readSurfaceProbe, usesPhoneLayout } from '../shared/surface-class';
+import { isIosDevice, isPhoneDevice, isTouchDevice, readSurfaceProbe, usesPhoneLayout } from '../shared/surface-class';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 export function isIOSWebSurface(): boolean {
@@ -49,7 +49,13 @@ export function usePhoneSurfaceMarked(): boolean {
 export function isMobileRemoteSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;
   try {
-    return usesPhoneLayout(readSurfaceProbe(navigator, window), surfaceViewportWidth());
+    const probe = readSurfaceProbe(navigator, window);
+    // A phone keeps the phone layout at any width, so it never reads the
+    // width: `innerWidth` flushes style and layout, and this runs inside
+    // render (every useMobileRemoteSurface snapshot). On a phone opening a
+    // session, that flush laid out the half-built transcript mid-render
+    // (30-54ms tasks at a phone's CPU in the open trace).
+    return isPhoneDevice(probe) || usesPhoneLayout(probe, surfaceViewportWidth());
   } catch {
     return false;
   }

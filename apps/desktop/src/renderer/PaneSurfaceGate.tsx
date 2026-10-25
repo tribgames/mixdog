@@ -328,7 +328,11 @@ export function DesktopBootGate({
   return (
     <div
       ref={gateRef}
-      className="desktop-boot-gate"
+      // `is-booting` lives only until the hand-off: the hide-everything rule
+      // below the cover keys on it, so after boot the style engine's
+      // ancestor filter rejects that rule outright instead of walking every
+      // element's ancestors on each style update (19-studio.css).
+      className={handoffComplete ? 'desktop-boot-gate' : 'desktop-boot-gate is-booting'}
       data-ready={handoffComplete ? 'true' : 'false'}
       data-leaving={coverLeaving ? 'true' : undefined}
       data-brand-handoff={handoffComplete && !brandSettled ? brandHandoff : undefined}

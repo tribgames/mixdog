@@ -37,6 +37,13 @@ export function useMountedRowMeasurement({
   restoreReadingAnchor: ReadingAnchorState['restoreReadingAnchor'];
 }) {
   const landingMeasure = useRef(false);
+  // The landing commit's rows were just read by the row-set effect below: the
+  // every-commit effect after it in the SAME commit would read the same boxes
+  // again, after the anchor restore's scroll and spacer writes invalidated
+  // layout — a second full layout of the landed page per landing (the 240ms
+  // tasks of a phone's flick into older history). The rows the restore mounts
+  // land in its own commit, which measures them.
+  const measuredInLanding = useRef(false);
   const previousRows = useRef(rows);
   // Rows whose live band left in this row set: the band's row is gone from
   // the virtual total in this commit, while the reply above it took the
@@ -138,10 +145,15 @@ export function useMountedRowMeasurement({
         landingMeasure.current = false;
       });
       measureMountedRows(true);
+      measuredInLanding.current = true;
     }
     restoreReadingAnchor(true);
   }, [rows]);
   useLayoutEffect(() => {
+    if (measuredInLanding.current) {
+      measuredInLanding.current = false;
+      return;
+    }
     if (!landingMeasure.current) measureMountedRows(false);
     else if (measureMountedRows(true)) restoreReadingAnchor();
   });

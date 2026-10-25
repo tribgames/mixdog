@@ -961,10 +961,15 @@
 }
 /* Under a skin the plated app is already visible while the cover fades (the
    cover is translucent, below): hidden until the cover was gone, the fade
-   showed the bare picture at full strength and the plates arrived after it. */
-.desktop-boot-gate[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
+   showed the bare picture at full strength and the plates arrived after it.
+   Keyed on the boot-only `is-booting` class, not `data-ready`: the `*` makes
+   this rule a candidate for every element, and an ancestor that always exists
+   (the gate keeps `data-ready` for good) defeats the style engine's ancestor
+   filter, so every style update walked each element's ancestors for it (the
+   costliest selector in a phone's scroll trace). */
+.desktop-boot-gate.is-booting[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
 > .desktop-boot-gate-content,
-.desktop-boot-gate[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
+.desktop-boot-gate.is-booting[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
   > .desktop-boot-gate-content
   * {
   visibility: hidden;

@@ -12,25 +12,50 @@ const DECORATIVE_LOOPS = new Set([
   'text-shimmer-mask',
 ]);
 
+/** The only elements the stylesheets run those loops on (their `animation`
+ *  rules; decorative-motion-sync.test.mjs keeps the two in step): the arcs
+ *  mark, its strip, and the shimmer glint (with its ::before copy). */
+export const DECORATIVE_LOOP_HOSTS = '.live-activity-arcs, .live-activity-arc-strip, [data-slot="text-shimmer-glint"]';
+
 /** The attributes below the root whose changes pause or resume these loops
  *  (the CSS pause rules). A resumed CSS animation restarts its clock where it
  *  was held, and no event reports it. */
 const MOTION_SIGNALS = ['data-offscreen', 'data-conversation-parked', 'data-retained', 'data-surface-active'];
+
+/** Whether a signal's current value holds the loops below it (the CSS pause
+ *  rules): a pause needs no lock, only the resume does. */
+function signalHolds(target: Element, attribute: string | null): boolean {
+  if (attribute === 'data-retained') return target.hasAttribute(attribute);
+  if (attribute === 'data-surface-active') return target.getAttribute(attribute) === 'false';
+  return attribute !== null && target.getAttribute(attribute) === 'true';
+}
 
 /** Phase-locks the running decorative loops on `element` and its subtree
  *  (pseudo-elements included) to the timeline origin. A held loop is left
  *  alone: giving it a start time would play it and detach it from its CSS
  *  play state for good; it is locked when it resumes. Every element's loops
  *  are read before any is written: a written start time invalidates style,
- *  and a read after it forced another full style update. */
+ *  and a read after it forced another full style update.
+ *  Only loop hosts are asked for their animations: `getAnimations` flushes
+ *  style for the whole document, and asked of every transcript row whose
+ *  offscreen mark changed it ran a full style update after each scroll range
+ *  change (and a 224ms one on a phone opening a session) though no loop
+ *  was there. A subtree without a host is skipped with a selector query,
+ *  which reads no style. */
 export function syncDecorativeLoops(...elements: Element[]): void {
-  const unlocked: Animation[] = [];
+  const hosts = new Set<Element>();
   for (const element of elements) {
-    for (const animation of element.getAnimations({ subtree: true })) {
+    if (element.matches(DECORATIVE_LOOP_HOSTS)) hosts.add(element);
+    for (const host of element.querySelectorAll(DECORATIVE_LOOP_HOSTS)) hosts.add(host);
+  }
+  if (hosts.size === 0) return;
+  const unlocked = new Set<Animation>();
+  for (const host of hosts) {
+    for (const animation of host.getAnimations({ subtree: true })) {
       // Only CSS animations carry a name; transitions and script animations do not.
       if (!DECORATIVE_LOOPS.has((animation as CSSAnimation).animationName)) continue;
       if (animation.playState !== 'running' || animation.startTime === 0) continue;
-      unlocked.push(animation);
+      unlocked.add(animation);
     }
   }
   for (const animation of unlocked) animation.startTime = 0;
@@ -75,7 +100,12 @@ export function installDecorativeMotionSync(root: HTMLElement = document.documen
   const signals = new MutationObserver((records) => {
     const targets = new Set<Element>();
     for (const record of records)
-      if (record.target instanceof Element && record.target.isConnected) targets.add(record.target);
+      if (
+        record.target instanceof Element &&
+        record.target.isConnected &&
+        !signalHolds(record.target, record.attributeName)
+      )
+        targets.add(record.target);
     syncDecorativeLoops(...targets);
   });
   // The root's inline style holds only custom properties (viewport metrics,
