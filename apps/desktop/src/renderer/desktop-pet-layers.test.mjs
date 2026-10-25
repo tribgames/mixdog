@@ -199,3 +199,59 @@ test('scroll and animationend move a layer: one publish, coalesced into one fram
   assert.equal(frames.size, 0, 'no frame after unmount');
   scroller.remove();
 });
+
+test('while no card shows (boot, a session loading), DOM and theme changes read the look once a frame, not per batch', async (t) => {
+  const frames = manualFrames();
+  const { window, document, root } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
+    globals: {
+      ResizeObserver: QuietResizeObserver,
+      requestAnimationFrame: frames.request,
+      cancelAnimationFrame: frames.cancel,
+    },
+  });
+  const themes = [];
+  window.mixdogDesktop = {
+    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
+    subscribeDesktopPetConfig: () => () => {},
+    publishDesktopPet: () => {},
+    publishDesktopPetComposer: () => {},
+    publishDesktopPetTheme: (theme) => themes.push(theme),
+    publishDesktopPetLayers: () => {},
+  };
+  const publisher = await import('./desktop-pet-publisher');
+  publisher.resetDesktopPetConfigForTests();
+  t.after(() => publisher.resetDesktopPetConfigForTests());
+  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (frames.size) frames.run();
+    });
+  await settle();
+  // Each look read resolves the whole page's style (a forced style update).
+  const getComputedStyle = window.getComputedStyle.bind(window);
+  let looks = 0;
+  window.getComputedStyle = (element, pseudo) => {
+    if (element === document.documentElement) looks += 1;
+    return getComputedStyle(element, pseudo);
+  };
+  t.after(() => {
+    window.getComputedStyle = getComputedStyle;
+  });
+  // A view mounting in several commits, and the root's modes flipping, all
+  // inside one frame.
+  for (let index = 0; index < 4; index += 1) {
+    await act(async () => {
+      document.body.append(document.createElement('div'));
+      document.documentElement.setAttribute('data-step', String(index));
+    });
+  }
+  assert.equal(looks, 0, 'nothing read before the frame');
+  await act(async () => frames.run());
+  assert.equal(looks, 1, 'one read in the frame');
+  document.documentElement.style.setProperty('--mx-accent', 'red');
+  await settle();
+  assert.equal(looks, 2, 'a later theme change still publishes');
+});

@@ -508,6 +508,10 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     // The chat look, read off the card (skin plates scope their tokens there).
     const sendTheme = onChange<DesktopPetTheme>((theme) => api.publishDesktopPetTheme?.(theme));
     const publishTheme = () => sendTheme(composerTheme(cardWatch.card() ?? document.documentElement));
+    // Reading the look resolves the page's style: a change asks for it in
+    // the next frame, once, however many DOM batches or root attribute flips
+    // (a reload, a reconnect, a session loading) arrive before it.
+    let themeStale = false;
     // The app's own menus/popovers/dialogs: the pet shows behind them.
     // Checked once a frame after DOM changes (portals mount into <body>).
     // Side panels (the registered ones, followed before publishing) change
@@ -519,8 +523,16 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
         // A side panel opening, closing or resizing (or settling after its
         // transition) can slide the card without resizing any column.
         measure();
+        if (themeStale) {
+          themeStale = false;
+          publishTheme();
+        }
       }
     );
+    const scheduleTheme = () => {
+      themeStale = true;
+      layersWatch.schedule();
+    };
     const { schedule: scheduleLayers, publishNow: publishLayers } = layersWatch;
     // A backdrop modal opening or closing (some flip in place, no mutation
     // of <body>'s children).
@@ -540,8 +552,8 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
         !records.some((record) => record.attributeName === 'data-ready')
       )
         return;
-      measure();
-      publishTheme();
+      // The frame scheduled above measures the card; the look follows it.
+      themeStale = true;
     });
     mutations.observe(document.body, {
       childList: true,
@@ -557,10 +569,10 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     // Backstop: a panel moved by a sibling's resize changes no box of its own.
     document.addEventListener('pointerup', scheduleLayers, true);
     // Theme, skin or accent changes land on <html> (attributes, inline tokens).
-    const looks = new MutationObserver(publishTheme);
+    const looks = new MutationObserver(scheduleTheme);
     looks.observe(document.documentElement, { attributes: true });
     const scheme = window.matchMedia?.('(prefers-color-scheme: dark)');
-    scheme?.addEventListener?.('change', publishTheme);
+    scheme?.addEventListener?.('change', scheduleTheme);
     window.addEventListener('resize', measure);
     window.addEventListener('resize', scheduleLayers);
     measure();
@@ -579,7 +591,7 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
       document.removeEventListener('pointerup', scheduleLayers, true);
       looks.disconnect();
       layersWatch.dispose();
-      scheme?.removeEventListener?.('change', publishTheme);
+      scheme?.removeEventListener?.('change', scheduleTheme);
       window.removeEventListener('resize', measure);
       window.removeEventListener('resize', scheduleLayers);
     };
