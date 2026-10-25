@@ -11,6 +11,7 @@ import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
 import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
 import { TERMINAL_ACTIVITY_EVENT } from '../shared/terminal-activity';
+import { REMOTE_TERMINAL_RUN_EVENT, TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } from '../shared/terminal-command';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
 import {
   type DesktopVisualizeEvent,
@@ -116,6 +117,11 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): RelayPushLanes {
         // An agent handoff (CAPTCHA): losing it leaves the user unaware the
         // page needs them, so it is never droppable.
         deps.broadcastEncrypted({ event: REMOTE_BROWSER_OPEN_EVENT, payload: value }, false);
+      } else if (name === TERMINAL_RUN_REQUESTED_DESKTOP_EVENT) {
+        // The agent ran a command in a session terminal: every client opens that
+        // tab, like a browser handoff, so it is never droppable and not tied to
+        // the terminal lane (a phone not showing a terminal yet must hear it).
+        deps.broadcastEncrypted({ event: REMOTE_TERMINAL_RUN_EVENT, payload: value }, false);
       } else if (name === TERMINAL_SIZE_OWNER_EVENT) {
         // Each phone is told whether IT owns the size: the owner keeps fitting
         // its own pane, every other terminal view follows the owner's grid.

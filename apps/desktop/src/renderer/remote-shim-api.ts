@@ -158,6 +158,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     remoteBrowserStreamAck: (sessionId, seq) => fire('browserRemoteStreamAck', [sessionId, seq]),
     onRemoteBrowserFrame: (listener) => listenOn(ctx.remoteBrowserFrameListeners, listener),
     onBrowserOpenRequested: (listener) => listenOn(ctx.browserOpenListeners, listener),
+    // The agent ran a command in a session terminal on the PC: open that tab here too.
+    onTerminalRunRequested: (listener) => listenOn(ctx.terminalRunListeners, listener),
     remoteBrowserControl: (sessionId, input) => call('browserRemoteControl', [sessionId, input]),
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
     removeProject: (projectPath) => call('removeProject', [projectPath]),

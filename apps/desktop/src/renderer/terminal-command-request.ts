@@ -1,10 +1,22 @@
-// A shell command the transcript asks a session's terminal to run. Like a
-// browser page request, it crosses two owners: the app shell reveals the
-// session's terminal dock, and the terminal pane enters the command once its
-// PTY is attached. A command sent before that pane exists waits here.
+// A shell command the transcript asks a session's terminal to run (a code
+// block's Run), and the reveal of a terminal the agent already ran a command in.
+// Like a browser page request, a Run crosses two owners: the app shell reveals
+// the session's terminal dock, and the terminal pane enters the command once its
+// PTY is attached. A command sent before that pane exists waits here. The
+// agent's runs need no pane: main starts the process and only reveals its tab.
 
-import { type DesktopTerminalRunRequest, terminalCommandInput } from '../shared/terminal-command';
-import { activeSessionTerminalId, openSessionTerminalTab, sessionTerminalId } from './session-terminal-tabs';
+import {
+  type DesktopTerminalRunRequest,
+  TERMINAL_SHOWN_WAIT_MS,
+  terminalCommandInput,
+} from '../shared/terminal-command';
+import {
+  activeSessionTerminalId,
+  adoptSessionTerminalTabs,
+  openSessionTerminalTab,
+  selectSessionTerminalTab,
+  sessionTerminalId,
+} from './session-terminal-tabs';
 
 type RevealListener = (sessionId: string) => void;
 type InputListener = (input: string) => void;
@@ -12,15 +24,42 @@ type InputListener = (input: string) => void;
 const revealListeners = new Set<RevealListener>();
 const availabilityListeners = new Set<() => void>();
 const inputListeners = new Map<string, Set<InputListener>>();
-/** Whether the input may still run: the agent's request resolves false once the
- *  tool call gave up, so a command reported as failed is never entered later. */
-type ClaimInput = () => Promise<boolean>;
 interface QueuedInput {
   input: string;
-  requestId?: string;
-  claim?: ClaimInput;
 }
 const pendingInput = new Map<string, QueuedInput[]>();
+
+// Terminals a pane is showing right now (an active TerminalPane).
+const shownTerminals = new Map<string, number>();
+const shownListeners = new Set<() => void>();
+
+/** A pane shows `terminalId` until the returned function is called. */
+export function markTerminalShown(terminalId: string): () => void {
+  shownTerminals.set(terminalId, (shownTerminals.get(terminalId) ?? 0) + 1);
+  for (const listener of [...shownListeners]) listener();
+  return () => {
+    const count = (shownTerminals.get(terminalId) ?? 0) - 1;
+    if (count > 0) shownTerminals.set(terminalId, count);
+    else shownTerminals.delete(terminalId);
+  };
+}
+
+/** Resolves true once a pane shows `terminalId`; false after `timeoutMs`. */
+function terminalShownWithin(terminalId: string, timeoutMs: number): Promise<boolean> {
+  if (shownTerminals.has(terminalId)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const finish = (shown: boolean) => {
+      window.clearTimeout(timer);
+      shownListeners.delete(check);
+      resolve(shown);
+    };
+    const check = () => {
+      if (shownTerminals.has(terminalId)) finish(true);
+    };
+    const timer = window.setTimeout(() => finish(false), timeoutMs);
+    shownListeners.add(check);
+  });
+}
 
 export { sessionTerminalId };
 
@@ -42,50 +81,46 @@ function notifyAvailabilityChanged(): void {
 
 export { terminalCommandInput };
 
-/** The agent's `terminal` tool ran (or wants to run) a command in a session's
- *  terminal: reveal its dock, and with a `command` open/use a tab to enter it. */
-export function handleTerminalRunRequest({
-  sessionId,
-  command,
-  requestId,
-  cancelRequestId,
-}: DesktopTerminalRunRequest): void {
-  if (cancelRequestId) cancelTerminalCommand(cancelRequestId);
-  else if (command) {
-    // The main process only lets an input through while its tool call still
-    // waits: it answers the claim at the moment the terminal would enter it.
-    const claim: ClaimInput | undefined = requestId
-      ? async () => (await window.mixdogDesktop?.claimTerminalRun?.(requestId)) === true
-      : undefined;
-    requestTerminalCommand(sessionId, command, requestId, claim);
-  } else if (sessionId) for (const listener of revealListeners) listener(sessionId);
+/** Select a session's terminal tab and reveal its dock. `tabs` is main's list
+ *  of the session's terminals; the tab list is built from it, so the tab
+ *  exists on this device (a phone, a second window) before it is selected. */
+export function revealSessionTerminalTab(
+  sessionId: string,
+  terminalId?: string,
+  tabs?: DesktopTerminalRunRequest['tabs']
+): void {
+  if (!sessionId) return;
+  // Without main's list (a transcript card), the terminal's own id names its tab.
+  const base = sessionTerminalId(sessionId);
+  const own = terminalId
+    ? [{ id: terminalId, tab: terminalId === base ? 1 : Number(terminalId.slice(base.length + 1)) }]
+    : [];
+  adoptSessionTerminalTabs(sessionId, tabs ?? own);
+  if (terminalId) selectSessionTerminalTab(sessionId, terminalId);
+  for (const listener of revealListeners) listener(sessionId);
 }
 
-/** Drop the queued input of a request the agent gave up on. */
-export function cancelTerminalCommand(requestId: string): void {
-  for (const [terminalId, queue] of pendingInput) {
-    const kept = queue.filter((entry) => entry.requestId !== requestId);
-    if (kept.length) pendingInput.set(terminalId, kept);
-    else pendingInput.delete(terminalId);
-  }
+/** The agent's `terminal` tool ran a command in a terminal main already
+ *  started: select its tab and reveal the dock. With a `requestId` (the
+ *  desktop window) main is told once a pane really shows that terminal. */
+export function handleTerminalRunRequest({ sessionId, terminalId, tabs, requestId }: DesktopTerminalRunRequest): void {
+  revealSessionTerminalTab(sessionId, terminalId, tabs);
+  if (!requestId || !terminalId) return;
+  void terminalShownWithin(terminalId, TERMINAL_SHOWN_WAIT_MS).then((shown) => {
+    if (shown) void window.mixdogDesktop?.claimTerminalRun?.(requestId);
+  });
 }
 
-async function deliverInput(entry: QueuedInput, listeners: Iterable<InputListener>): Promise<void> {
-  if (entry.claim && !(await entry.claim().catch(() => false))) return;
+function deliverInput(entry: QueuedInput, listeners: Iterable<InputListener>): void {
   for (const listener of [...listeners]) listener(entry.input);
 }
 
-export function requestTerminalCommand(
-  sessionId: string,
-  command: string,
-  requestId?: string,
-  claim?: ClaimInput
-): void {
+export function requestTerminalCommand(sessionId: string, command: string): void {
   if (!sessionId || !command.trim()) return;
   const terminalId = activeSessionTerminalId(sessionId) || openSessionTerminalTab(sessionId).id;
-  const entry: QueuedInput = { input: terminalCommandInput(command), requestId, claim };
+  const entry: QueuedInput = { input: terminalCommandInput(command) };
   const listeners = inputListeners.get(terminalId);
-  if (listeners?.size) void deliverInput(entry, listeners);
+  if (listeners?.size) deliverInput(entry, listeners);
   else pendingInput.set(terminalId, [...(pendingInput.get(terminalId) || []), entry]);
   for (const listener of revealListeners) listener(sessionId);
 }
@@ -111,7 +146,7 @@ export function onTerminalCommandRequested(terminalId: string, listener: InputLi
   const pending = pendingInput.get(terminalId);
   if (pending) {
     pendingInput.delete(terminalId);
-    for (const entry of pending) void deliverInput(entry, [listener]);
+    for (const entry of pending) deliverInput(entry, [listener]);
   }
   return () => {
     listeners.delete(listener);

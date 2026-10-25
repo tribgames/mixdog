@@ -135,6 +135,7 @@ export const withShim = async ({ secure = true } = {}, run) => {
       orchestrationModeListeners: new Set(),
       remoteBrowserFrameListeners: new Set(),
       browserOpenListeners: new Set(),
+      terminalRunListeners: new Set(),
       remoteBrowserTabListeners: new Set(),
       browserImportProgressListeners: new Set(),
       visualizeListeners: new Set(),

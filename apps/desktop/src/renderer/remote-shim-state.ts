@@ -20,6 +20,7 @@ import type { ProviderModelsChange } from '../shared/provider-models';
 import type { SettingsChange } from '../shared/settings-changed';
 import type { OrchestrationModeChange } from '../shared/orchestration-mode';
 import type { DesktopVisualizeEvent } from '../shared/visualize';
+import type { DesktopTerminalRunRequest } from '../shared/terminal-command';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import { createRemoteCatalog } from '../shared/remote-catalog';
 import { createRemoteRosterCache } from '../shared/remote-roster-cache';
@@ -209,6 +210,7 @@ export interface RemoteShimCollaborators {
   updaterListeners: Set<(state: DesktopUpdaterState) => void>;
   remoteBrowserFrameListeners: Set<(frame: DesktopRemoteBrowserStreamFrame) => void>;
   browserOpenListeners: Set<(request: DesktopBrowserOpenRequest) => void>;
+  terminalRunListeners: Set<(request: DesktopTerminalRunRequest) => void>;
   remoteBrowserTabListeners: Set<(tabs: DesktopRemoteBrowserTab[]) => void>;
   browserImportProgressListeners: Set<(progress: DesktopBrowserImportProgress) => void>;
   lspDiagnosticsListeners: Set<(event: DesktopLspDiagnosticEvent) => void>;
@@ -472,6 +474,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     updaterListeners: new Set(),
     remoteBrowserFrameListeners: new Set(),
     browserOpenListeners: new Set(),
+    terminalRunListeners: new Set(),
     remoteBrowserTabListeners: new Set(),
     browserImportProgressListeners: new Set(),
     lspDiagnosticsListeners: new Set(),

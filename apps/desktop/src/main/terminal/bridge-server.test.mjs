@@ -52,7 +52,7 @@ test('terminal commands list only the caller session and read by tab', async () 
   await assert.rejects(execute({ action: 'read', session_id: 'alpha', tab: 0 }), /tab must be/);
 });
 
-function runBackend({ window = true, opened = true } = {}) {
+function runBackend({ shown = true } = {}) {
   const base = fakeBackend();
   const log = [];
   const tabs = { alpha: base.sessionTabs('alpha'), beta: [] };
@@ -65,15 +65,11 @@ function runBackend({ window = true, opened = true } = {}) {
       return { text: '', cursor: 99, reset: false };
     },
     write: (id, data) => log.push(['write', id, data]),
-    revealTerminal: (sessionId) => (log.push(['reveal', sessionId]), window),
-    openTerminal: (sessionId, command, signal) => {
-      log.push(['open', sessionId, command]);
-      if (!window) return Promise.reject(new Error('no desktop window is available to open a terminal'));
-      if (!opened) {
-        return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-      }
+    revealTerminal: async (sessionId, target) => (log.push(['reveal', sessionId, target.id]), shown),
+    startTerminal: (sessionId) => {
+      log.push(['start', sessionId]);
       tabs[sessionId] = [{ tab: 1, id: `session-terminal:${sessionId}`, shell: 'sh', running: true, cwd: null }];
-      return Promise.resolve();
+      return tabs[sessionId][0];
     },
   };
 }
@@ -88,11 +84,12 @@ test('terminal run writes to the first or requested tab with the pre-write curso
     running: true,
     cwd: 'C:\\work',
     cursor: 99,
+    shown: true,
   });
   assert.deepEqual(backend.log, [
     ['snapshot', 'session-terminal:alpha', undefined],
     ['write', 'session-terminal:alpha', 'npm test\r'],
-    ['reveal', 'alpha'],
+    ['reveal', 'alpha', 'session-terminal:alpha'],
   ]);
   backend.log.length = 0;
   const third = await execute({ action: 'run', session_id: 'alpha', tab: 3, command: 'ls' });
@@ -101,27 +98,70 @@ test('terminal run writes to the first or requested tab with the pre-write curso
   await assert.rejects(execute({ action: 'run', session_id: 'alpha', tab: 2, command: 'ls' }), /no terminal tab 2; open tabs: 1, 3/);
 });
 
-test('terminal run opens a tab through the renderer when the session has none', async () => {
-  const backend = runBackend();
-  const execute = createTerminalCommandExecutor(backend, { openTimeoutMs: 500, openPollMs: 5 });
+test('terminal run starts the first terminal itself when the session has none, shown or not', async () => {
+  const backend = runBackend({ shown: false });
+  const execute = createTerminalCommandExecutor(backend);
   assert.deepEqual(await execute({ action: 'run', session_id: 'beta', command: 'pwd' }), {
     id: 'session-terminal:beta',
     tab: 1,
     shell: 'sh',
     running: true,
     cwd: null,
-    cursor: 0,
+    cursor: 99,
+    shown: false,
   });
-  assert.deepEqual(backend.log, [['open', 'beta', 'pwd']]);
-
-  const noWindow = createTerminalCommandExecutor(runBackend({ window: false }));
-  await assert.rejects(
-    noWindow({ action: 'run', session_id: 'beta', command: 'pwd' }),
-    /no desktop window is available to open a terminal/
-  );
-  const never = createTerminalCommandExecutor(runBackend({ opened: false }), { openTimeoutMs: 30, openPollMs: 5 });
-  await assert.rejects(never({ action: 'run', session_id: 'beta', command: 'pwd' }), /timed out/);
+  assert.deepEqual(backend.log, [
+    ['start', 'beta'],
+    ['snapshot', 'session-terminal:beta', undefined],
+    ['write', 'session-terminal:beta', 'pwd\r'],
+    ['reveal', 'beta', 'session-terminal:beta'],
+  ]);
   await assert.rejects(execute({ action: 'run', session_id: 'gamma', tab: 2, command: 'pwd' }), /no terminal tab 2/);
+});
+
+test('a run cancelled while its terminal starts, or before the write, never writes', async () => {
+  const during = new AbortController();
+  const startBackend = runBackend();
+  const startTerminal = startBackend.startTerminal;
+  startBackend.startTerminal = async (sessionId) => {
+    const started = startTerminal(sessionId);
+    during.abort();
+    return started;
+  };
+  await assert.rejects(
+    createTerminalCommandExecutor(startBackend)({ action: 'run', session_id: 'beta', command: 'pwd' }, during.signal),
+    /cancelled/
+  );
+  assert.deepEqual(
+    startBackend.log.filter(([kind]) => kind === 'write' || kind === 'reveal'),
+    []
+  );
+
+  const late = new AbortController();
+  const snapBackend = runBackend();
+  const snapshot = snapBackend.snapshot;
+  snapBackend.snapshot = async (id, since) => {
+    const result = await snapshot(id, since);
+    late.abort();
+    return result;
+  };
+  await assert.rejects(
+    createTerminalCommandExecutor(snapBackend)({ action: 'run', session_id: 'alpha', command: 'ls' }, late.signal),
+    /cancelled/
+  );
+  assert.deepEqual(
+    snapBackend.log.filter(([kind]) => kind === 'write' || kind === 'reveal'),
+    []
+  );
+
+  const before = new AbortController();
+  before.abort();
+  const idle = runBackend();
+  await assert.rejects(
+    createTerminalCommandExecutor(idle)({ action: 'run', session_id: 'beta', command: 'pwd' }, before.signal),
+    /cancelled/
+  );
+  assert.deepEqual(idle.log, []);
 });
 
 test('terminal run validates its input before touching a terminal', async () => {

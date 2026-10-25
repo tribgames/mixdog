@@ -21,7 +21,7 @@ import { attachTerminalOutput, detachTerminalOutput } from './terminal-output-su
 import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
 import { dataTransferHasLocalFiles, droppedLocalPaths, terminalPathText } from './file-drag';
 import { isRemoteHostRenderer } from './remote-ui-projection';
-import { onTerminalCommandRequested } from './terminal-command-request';
+import { markTerminalShown, onTerminalCommandRequested } from './terminal-command-request';
 import {
   CONNECTION_REATTACHED_EVENT,
   connectionLinkView,
@@ -813,6 +813,9 @@ export default function TerminalPane({
   useEffect(() => {
     if (!attachOnly) openRef.current?.();
   }, [attachOnly]);
+  // A pane showing this terminal is how the agent's `terminal` run learns it
+  // is on screen; the process itself never depends on the pane.
+  useEffect(() => (active && !attachOnly ? markTerminalShown(key) : undefined), [active, attachOnly, key]);
   useEffect(() => {
     const view = terminalViews.get(key);
     let releaseTimer = 0;

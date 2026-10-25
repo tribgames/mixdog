@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { BROWSER_APPROVAL_SESSIONS_EVENT } from '../shared/browser-approval-sessions.ts';
 import { createDesktopOperations } from './desktop-operations.ts';
 import { createRelayPushLanes } from './remote-relay-push-lanes.ts';
+import { REMOTE_TERMINAL_RUN_EVENT, TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } from '../shared/terminal-command.ts';
 
 test('the window publishes its waiting sessions through the desktop operations, which keep the last list', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-approval-marks-'));
@@ -91,4 +92,17 @@ test('a list published before the lanes started is the join baseline until the n
   answer(['sess_stale']);
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(late.pushLanes.joinFrames()[0].payload, ['sess_now']);
+});
+
+test('an agent terminal run is relayed to every paired device, undroppably and without a terminal lane', () => {
+  const h = lanes({ clients: 2 });
+  const reveal = { sessionId: 's1', terminalId: 'session-terminal:s1', tabs: [{ id: 'session-terminal:s1', tab: 1 }] };
+  h.emit(TERMINAL_RUN_REQUESTED_DESKTOP_EVENT, reveal);
+  assert.deepEqual(h.sent, [{ payload: { event: REMOTE_TERMINAL_RUN_EVENT, payload: reveal }, droppable: false }]);
+  // No device paired: nothing is sent.
+  const none = lanes({ clients: 0 });
+  none.emit(TERMINAL_RUN_REQUESTED_DESKTOP_EVENT, reveal);
+  assert.deepEqual(none.sent, []);
+  h.pushLanes.dispose();
+  none.pushLanes.dispose();
 });

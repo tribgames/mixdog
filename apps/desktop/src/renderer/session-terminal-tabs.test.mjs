@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   activeSessionTerminalId,
+  adoptSessionTerminalTabs,
   closeSessionTerminalTab,
   followSessionTerminalRoot,
   getSessionTerminalTabs,
@@ -159,5 +160,23 @@ test('terminal cwd follows the workspace root; a root change opens a new tab, ne
   const back = getSessionTerminalTabs(sid);
   assert.equal(back.tabs.length, 2);
   assert.equal(back.activeId, first);
+  releaseSessionTerminalTabs(sid);
+});
+
+test('adopting main\'s terminals adds the missing tabs in order and keeps the active tab', () => {
+  const sid = 'tabs-adopt';
+  const first = sessionTerminalId(sid);
+  adoptSessionTerminalTabs(sid, [
+    { id: `${first}:3`, tab: 3, cwd: '/c' },
+    { id: first, tab: 1, cwd: '/a' },
+    { id: `${first}:3`, tab: 3 },
+    { id: 'session-terminal:other', tab: 2 },
+    { id: `${first}:0`, tab: 0 },
+  ]);
+  const { tabs, activeId, nextN } = getSessionTerminalTabs(sid);
+  assert.deepEqual(tabs.map((tab) => [tab.id, tab.cwd]), [[first, undefined], [`${first}:3`, '/c']]);
+  assert.equal(activeId, first);
+  assert.equal(nextN, 4);
+  assert.equal(openSessionTerminalTab(sid).id, `${first}:4`);
   releaseSessionTerminalTabs(sid);
 });

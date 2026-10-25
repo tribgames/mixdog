@@ -11,6 +11,7 @@ import type {
   DesktopRemoteBrowserTab,
 } from '../shared/contract';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
+import { TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } from '../shared/terminal-command';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { watchConfiguredOrchestrationMode } from './orchestration-mode-watch';
@@ -863,6 +864,10 @@ export async function createDesktopService({
         return null;
       case 'browserRemoteOpen':
         publishDesktopEvent(BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, operationArgs[0]);
+        return null;
+      // The agent's terminal run: paired clients open the same tab.
+      case 'terminalRemoteOpen':
+        publishDesktopEvent(TERMINAL_RUN_REQUESTED_DESKTOP_EVENT, operationArgs[0]);
         return null;
       // The window's visualize changes; the relay forwards the path-free form.
       case 'visualizeRemotePublish': {

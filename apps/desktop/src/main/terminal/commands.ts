@@ -2,8 +2,9 @@
  * Command handling behind the runtime's `terminal` tool (list / read / run).
  * Pure over a small backend so it never touches PTYs or windows itself: a
  * session only ever resolves its own `session-terminal:<sessionId>[:<n>]`
- * tabs. `run` types a command into one of them, or has the renderer open a tab
- * when the session has none, and is single-shot — it is never retried here.
+ * tabs. `run` types a command into one of them, or starts the session's first
+ * terminal here when it has none — main owns the process, so a run never waits
+ * on a mounted pane — then reveals that tab; it is single-shot, never retried.
  * The runtime client owns ANSI stripping and line capping; this returns raw
  * text plus a cursor.
  */
@@ -14,14 +15,12 @@ export interface TerminalBridgeBackend {
   sessionTabs(sessionId: string): SessionTerminalTab[] | Promise<SessionTerminalTab[]>;
   /** Type `data` into the tab's PTY. */
   write(id: string, data: string): void | Promise<void>;
-  /** Ask the renderer to reveal the session's terminal dock. False when no
-   *  desktop window is available. */
-  revealTerminal(sessionId: string): boolean;
-  /** Ask the renderer to open a tab for the session and enter `command`.
-   *  Resolves once the renderer commits to entering it; rejects when no desktop
-   *  window is available or `signal` aborts first, and then the command must
-   *  never be entered. */
-  openTerminal(sessionId: string, command: string, signal: AbortSignal): Promise<void>;
+  /** Start the session's first terminal process (no pane needed) and return its tab. */
+  startTerminal(sessionId: string): SessionTerminalTab | Promise<SessionTerminalTab>;
+  /** Select `target` among the session's `tabs` and reveal its dock, on the
+   *  desktop and on paired clients. Resolves true when a pane shows it, false
+   *  when it runs in the background. */
+  revealTerminal(sessionId: string, target: SessionTerminalTab, tabs: SessionTerminalTab[]): Promise<boolean>;
   snapshot(
     id: string,
     since?: number
@@ -39,15 +38,7 @@ export interface TerminalBridgeCommand {
   command?: unknown;
 }
 
-export interface TerminalCommandOptions {
-  /** How long `run` waits for a renderer-opened tab to appear. */
-  openTimeoutMs?: number;
-  openPollMs?: number;
-}
-
 const MAX_COMMAND_LENGTH = 8000;
-const OPEN_TIMEOUT_MS = 5000;
-const OPEN_POLL_MS = 100;
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,256}$/;
 
@@ -74,57 +65,38 @@ const runResult = (target: SessionTerminalTab, cursor: number) => ({
   cursor,
 });
 
-export function createTerminalCommandExecutor(backend: TerminalBridgeBackend, options: TerminalCommandOptions = {}) {
-  const openTimeoutMs = options.openTimeoutMs ?? OPEN_TIMEOUT_MS;
-  const openPollMs = options.openPollMs ?? OPEN_POLL_MS;
-
-  // The session has no tab: the renderer opens one and enters the command. The
-  // wait is bounded and ends with the caller (`signal`); either way an
-  // unclaimed command is withdrawn, so a reported failure never runs later.
-  async function runInNewTab(sessionId: string, command: string, signal?: AbortSignal) {
-    const gate = new AbortController();
-    const abort = () => gate.abort(signal?.reason);
-    if (signal?.aborted) abort();
-    signal?.addEventListener('abort', abort, { once: true });
-    const timer = setTimeout(
-      () => gate.abort(new Error('timed out waiting for the terminal tab to open')),
-      openTimeoutMs
-    );
-    try {
-      await backend.openTerminal(sessionId, command, gate.signal);
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', abort);
-    }
-    // The command is entered; list the tab it went to.
-    const deadline = Date.now() + openTimeoutMs;
-    for (;;) {
-      const [target] = await backend.sessionTabs(sessionId);
-      if (target) return runResult(target, 0);
-      if (Date.now() >= deadline) throw new Error('the command was entered but its terminal tab is not listed');
-      await new Promise((resolve) => setTimeout(resolve, openPollMs));
-    }
-  }
-
+export function createTerminalCommandExecutor(backend: TerminalBridgeBackend) {
   return async (command: TerminalBridgeCommand, signal?: AbortSignal): Promise<unknown> => {
     const sessionId = command.session_id;
     if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) throw new Error('session_id is invalid');
     if (command.action === 'run') {
       const requested = optionalInteger(command.tab, 'tab', 1);
       const text = requireCommand(command.command);
-      const open = await backend.sessionTabs(sessionId);
+      // A caller that cancelled must never see its command entered: checked
+      // after every wait and again right before the write.
+      const notCancelled = () => {
+        if (signal?.aborted) throw new Error('terminal run cancelled');
+      };
+      notCancelled();
+      let open = await backend.sessionTabs(sessionId);
       if (!open.length) {
         if (requested !== undefined) throw new Error(`no terminal tab ${requested}; no terminal tabs are open`);
-        return runInNewTab(sessionId, text, signal);
+        // The process starts here, whatever the screen shows: the pane that
+        // appears later attaches to it.
+        open = [await backend.startTerminal(sessionId)];
       }
+      notCancelled();
       const target = requested === undefined ? open[0] : open.find((entry) => entry.tab === requested);
       if (!target)
         throw new Error(`no terminal tab ${requested}; open tabs: ${open.map((entry) => entry.tab).join(', ')}`);
       const before = await backend.snapshot(target.id);
       if (!before) throw new Error(`terminal tab ${target.tab} is no longer available`);
+      notCancelled();
       await backend.write(target.id, terminalCommandInput(text));
-      backend.revealTerminal(sessionId);
-      return runResult(target, before.cursor);
+      // Only a command that was entered is revealed, so the dock never opens on
+      // a run that failed.
+      const shown = await backend.revealTerminal(sessionId, target, open);
+      return { ...runResult(target, before.cursor), shown };
     }
     const tabs = await backend.sessionTabs(sessionId);
     if (command.action === 'list') {

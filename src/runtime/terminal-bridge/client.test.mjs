@@ -104,6 +104,24 @@ test('run sends the command and formats the cursor hint', async () => {
   );
 });
 
+test('run tells the model whether the desktop window shows the terminal, without ruling out a phone', async () => {
+  for (const [shown, expected] of [
+    [true, 'The terminal is shown in the desktop window.'],
+    [
+      false,
+      'The terminal is not shown in the desktop window right now (a paired phone may still show it); it keeps running.',
+    ],
+  ]) {
+    await withBridge(
+      () => ({ ok: true, value: { ...RUN_VALUE, shown } }),
+      async () => {
+        const result = await executeTerminalTool({ action: 'run', command: 'npm test' }, { sessionId: 's1' });
+        assert.equal(result.content[0].text.split('\n').at(-1), expected);
+      }
+    );
+  }
+});
+
 test('run is blocked by a deny policy even with elevation approval', async () => {
   await withBridge(
     () => ({ ok: true, value: RUN_VALUE }),

@@ -105,7 +105,8 @@ import { createBrowserLoginPopup } from './browser/login-popup';
 import { loginTakeoverOf } from './browser/login-takeover';
 import { createComputerHost, type ComputerHost } from './computer';
 import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
-import type { DesktopTerminalRunRequest } from '../shared/terminal-command';
+import { TERMINAL_SHOWN_WAIT_MS } from '../shared/terminal-command';
+import { createTerminalRunDispatch } from './terminal/run-dispatch';
 import { TerminalBridgeServer } from './terminal/bridge-server';
 import { requiredVisualizeTabCommand } from './ipc-validation';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
@@ -113,7 +114,7 @@ import { createDesktopVisualize } from './visualize/host';
 import { localPageOrigin, localPageUrl } from './local-page-server';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
-import type { SessionTerminalTab } from './terminal-manager';
+import { createTerminalBridgeBackend } from './terminal/bridge-backend';
 import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
 import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
@@ -716,29 +717,32 @@ function activatePrimaryWindow(): void {
 // always-on built-in (like Media Studio): it runs for the app's lifetime, so
 // headless runs without the desktop app never see the tool. It serves this
 // PC's agents, so it uses this PC's daemon.
-const requestTerminalRun = (request: DesktopTerminalRunRequest): boolean => {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return false;
-  mainWindow.webContents.send(DESKTOP_IPC.terminalRunRequested, request);
-  return true;
-};
+// A run's reveal goes to the desktop window (true when it took the request) and,
+// stripped of the ack id and paths, to paired clients through the relay.
+const requestTerminalRun = createTerminalRunDispatch({
+  sendToWindow: (request) => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return false;
+    mainWindow.webContents.send(DESKTOP_IPC.terminalRunRequested, request);
+    return true;
+  },
+  relay: (request) => {
+    void localService.invokeDesktopOperation('terminalRemoteOpen', [request]).catch(() => {});
+  },
+});
 const terminalRuns = createTerminalRunRequests(requestTerminalRun);
+// A run waits for a pane to claim its reveal (the renderer watches
+// TERMINAL_SHOWN_WAIT_MS) plus the claim's trip back, then reports background.
+const TERMINAL_CLAIM_GRACE_MS = 500;
 const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
   dataDirectory: bridgeDiscoveryDirectory,
-  execute: createTerminalCommandExecutor({
-    sessionTabs: async (sessionId) =>
-      (await localService.invokeDesktopOperation('termSessionTabs', [sessionId])) as SessionTerminalTab[],
-    write: async (id, data) => {
-      await localService.invokeDesktopOperation('termWrite', [id, data]);
-    },
-    revealTerminal: (sessionId) => requestTerminalRun({ sessionId }),
-    openTerminal: (sessionId, command, signal) => terminalRuns.open(sessionId, command, signal),
-    snapshot: async (id, since) =>
-      (await localService.invokeDesktopOperation('termSnapshot', since === undefined ? [id] : [id, since])) as {
-        text: string;
-        cursor: number;
-        reset: boolean;
-      } | null,
-  }),
+  execute: createTerminalCommandExecutor(
+    createTerminalBridgeBackend({
+      invoke: (name, args) => localService.invokeDesktopOperation(name, args),
+      sessionCwd: async (sessionId) =>
+        (await localService.listSessions()).find((session) => session.id === sessionId)?.cwd || null,
+      reveal: (request) => terminalRuns.reveal(request, TERMINAL_SHOWN_WAIT_MS + TERMINAL_CLAIM_GRACE_MS),
+    })
+  ),
 });
 // Agent `visualize` tool: shows produced artifacts in the session's side
 // panel. Default-on built-in; the runtime gates the tool by its toggle, and

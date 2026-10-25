@@ -5,8 +5,11 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import MarkdownAstBody from './MarkdownAstBody';
 import { parseMarkdownToHast } from './markdown-ast';
 import { MarkdownSessionContext } from './MarkdownLink';
+import { TERMINAL_SHOWN_WAIT_MS } from '../shared/terminal-command';
+import { activeSessionTerminalId, getSessionTerminalTabs, releaseSessionTerminalTabs } from './session-terminal-tabs';
 import {
   handleTerminalRunRequest,
+  markTerminalShown,
   onTerminalCommandRequested,
   onTerminalRevealRequested,
   requestTerminalCommand,
@@ -98,35 +101,105 @@ test('Run controls follow a terminal host registered after the first render', as
   assert.equal(buttons(), 1);
 });
 
-test('a request the agent gave up on is never entered, queued or already live', async () => {
-  const sid = 'sess-claim';
-  const stopReveal = onTerminalRevealRequested(() => {});
-  const claims = [];
-  const run = (requestId) => handleTerminalRunRequest({ sessionId: sid, command: requestId, requestId });
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+function withWindow(claims, delays = []) {
   const previous = globalThis.window;
   globalThis.window = {
-    mixdogDesktop: { claimTerminalRun: async (requestId) => (claims.push(requestId), requestId !== 'refused') },
+    setTimeout: (callback, delay) => (delays.push(delay), globalThis.setTimeout(callback, delay)),
+    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    mixdogDesktop: { claimTerminalRun: async (requestId) => (claims.push(requestId), true) },
   };
-  try {
-    run('refused');
-    run('cancelled');
-    run('accepted');
-    handleTerminalRunRequest({ sessionId: sid, cancelRequestId: 'cancelled' });
-    const entered = [];
-    const stop = onTerminalCommandRequested(sessionTerminalId(sid), (input) => entered.push(input));
-    await settle();
-    // The cancelled request was dropped unclaimed; the refused claim entered nothing.
-    assert.deepEqual(claims, ['refused', 'accepted']);
-    assert.deepEqual(entered, ['accepted\r']);
-    // Once the pane is live the same gate applies to each new request.
-    run('refused');
-    run('live');
-    await settle();
-    assert.deepEqual(entered, ['accepted\r', 'live\r']);
-    stop();
-  } finally {
+  return () => {
     globalThis.window = previous;
+  };
+}
+const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+test("an agent run builds this device's tab list from main, selects the target tab and reveals the dock", () => {
+  const sid = 'sess-agent-tabs';
+  const first = sessionTerminalId(sid);
+  const revealed = [];
+  const stopReveal = onTerminalRevealRequested((sessionId) => revealed.push(sessionId));
+  try {
+    // This device only knows tab 1; main runs tabs 1 and 3 and ran the command in 3.
+    assert.deepEqual(
+      getSessionTerminalTabs(sid).tabs.map((tab) => tab.id),
+      [first]
+    );
+    handleTerminalRunRequest({
+      sessionId: sid,
+      terminalId: `${first}:3`,
+      tabs: [
+        { id: first, tab: 1, cwd: '/a' },
+        { id: `${first}:3`, tab: 3, cwd: '/c' },
+      ],
+    });
+    assert.deepEqual(
+      getSessionTerminalTabs(sid).tabs.map((tab) => tab.id),
+      [first, `${first}:3`]
+    );
+    assert.equal(getSessionTerminalTabs(sid).tabs[1].cwd, '/c');
+    assert.equal(activeSessionTerminalId(sid), `${first}:3`);
+    assert.deepEqual(revealed, [sid]);
+    // No command is queued for a pane: the process already has it.
+    const entered = [];
+    onTerminalCommandRequested(`${first}:3`, (input) => entered.push(input))();
+    assert.deepEqual(entered, []);
+    // A tab never lists a foreign or mismatched terminal.
+    handleTerminalRunRequest({
+      sessionId: sid,
+      terminalId: 'session-terminal:other',
+      tabs: [{ id: 'session-terminal:other', tab: 1 }],
+    });
+    assert.deepEqual(
+      getSessionTerminalTabs(sid).tabs.map((tab) => tab.id),
+      [first, `${first}:3`]
+    );
+  } finally {
     stopReveal();
+    releaseSessionTerminalTabs(sid);
+  }
+});
+
+test('main is told the run is shown only once a pane shows that terminal', async () => {
+  const sid = 'sess-agent-shown';
+  const terminalId = sessionTerminalId(sid);
+  const claims = [];
+  const restore = withWindow(claims);
+  const stopReveal = onTerminalRevealRequested(() => {});
+  try {
+    handleTerminalRunRequest({ sessionId: sid, terminalId, requestId: 'r-late' });
+    await settle();
+    assert.deepEqual(claims, [], 'no pane shows it yet');
+    // The dock opens in response to the reveal and its pane mounts.
+    const unmark = markTerminalShown(terminalId);
+    await settle();
+    assert.deepEqual(claims, ['r-late']);
+    handleTerminalRunRequest({ sessionId: sid, terminalId, requestId: 'r-now' });
+    await settle();
+    assert.deepEqual(claims, ['r-late', 'r-now'], 'already shown claims at once');
+    unmark();
+    // A relayed reveal (a phone) carries no request id and claims nothing.
+    handleTerminalRunRequest({ sessionId: sid, terminalId });
+    await settle();
+    assert.deepEqual(claims, ['r-late', 'r-now']);
+  } finally {
+    restore();
+    stopReveal();
+    releaseSessionTerminalTabs(sid);
+  }
+});
+
+test('the renderer watches for a pane for the shared wait that main also counts on', async () => {
+  const delays = [];
+  const restore = withWindow([], delays);
+  const stopReveal = onTerminalRevealRequested(() => {});
+  try {
+    handleTerminalRunRequest({ sessionId: 'sess-wait', terminalId: sessionTerminalId('sess-wait'), requestId: 'r' });
+    assert.deepEqual(delays, [TERMINAL_SHOWN_WAIT_MS]);
+    assert.equal(TERMINAL_SHOWN_WAIT_MS > 1000, true, 'a pane appearing after one second still counts');
+  } finally {
+    restore();
+    stopReveal();
+    releaseSessionTerminalTabs('sess-wait');
   }
 });

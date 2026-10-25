@@ -117,6 +117,31 @@ export function openSessionTerminalTab(sessionId: string, shell = '', cwd = ''):
   return tab;
 }
 
+/** Build this device's tab list from the terminals main runs for the session:
+ *  a listed terminal this device lacks gets a tab (in main's root, default
+ *  shell); tabs without a process yet stay, they start when shown. The active
+ *  tab is left alone — the caller selects the one it wants. */
+export function adoptSessionTerminalTabs(
+  sessionId: string,
+  listed: readonly { id: string; tab: number; cwd?: string | null }[]
+): void {
+  const state = getSessionTerminalTabs(sessionId);
+  const added: SessionTerminalTab[] = [];
+  for (const entry of listed) {
+    const n = entry.tab;
+    if (!Number.isInteger(n) || n < 1 || entry.id !== sessionTerminalTabId(sessionId, n)) continue;
+    if (state.tabs.some((tab) => tab.n === n) || added.some((tab) => tab.n === n)) continue;
+    added.push({ id: entry.id, n, shell: '', ...(entry.cwd ? { cwd: entry.cwd } : {}) });
+  }
+  if (!added.length) return;
+  const tabs = [...state.tabs, ...added].sort((a, b) => a.n - b.n);
+  commit(sessionId, {
+    tabs,
+    activeId: tabs.some((tab) => tab.id === state.activeId) ? state.activeId : tabs[0].id,
+    nextN: Math.max(state.nextN, ...tabs.map((tab) => tab.n + 1)),
+  });
+}
+
 export function selectSessionTerminalTab(sessionId: string, id: string): void {
   const state = getSessionTerminalTabs(sessionId);
   if (state.activeId === id || !state.tabs.some((tab) => tab.id === id)) return;

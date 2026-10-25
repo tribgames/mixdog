@@ -41,6 +41,7 @@ import {
 } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
 import { readTerminalActivityEvent } from '../shared/terminal-activity';
+import { REMOTE_TERMINAL_RUN_EVENT, readRemoteTerminalRun } from '../shared/terminal-command';
 import { type DesktopVisualizeEvent, REMOTE_VISUALIZE_CHANGED_EVENT } from '../shared/visualize';
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -313,6 +314,10 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (request && typeof request === 'object' && typeof request.sessionId === 'string' && request.sessionId) {
         fanOut(ctx.browserOpenListeners, request);
       }
+    } else if (message.event === REMOTE_TERMINAL_RUN_EVENT) {
+      if (!authenticated) return;
+      const request = readRemoteTerminalRun(message.payload);
+      if (request) fanOut(ctx.terminalRunListeners, request);
     } else if (message.event === REMOTE_VISUALIZE_CHANGED_EVENT) {
       if (!authenticated) return;
       const event = message.payload as DesktopVisualizeEvent | null;
