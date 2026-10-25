@@ -582,6 +582,38 @@ test('an interrupted or removed boot fade (animationcancel) also settles the gat
   assert.equal(gate.dataset.brandHandoff, undefined);
 });
 
+test('the boot-only hide rule keys on a class the gate drops at the hand-off', async (t) => {
+  const { JSDOM } = await import('jsdom');
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./desktop/19-studio.css', import.meta.url), 'utf8');
+  const markup = (className) =>
+    // A descendant that sets its own visibility (the reason for the `*`).
+    new JSDOM(`<!doctype html><html><head><style>p span { visibility: visible }</style><style>${css}</style></head><body>
+      <div class="${className}" data-ready="false"><div class="desktop-boot-gate-content"><p><span id="leaf">x</span></p></div></div>
+    </body></html>`);
+  const booting = markup('desktop-boot-gate is-booting');
+  assert.equal(
+    booting.window.getComputedStyle(booting.window.document.getElementById('leaf')).visibility,
+    'hidden',
+    'every descendant stays hidden under the cover'
+  );
+  booting.window.close();
+  // Without the boot class the rule never applies, whatever data-ready says.
+  const settled = markup('desktop-boot-gate');
+  assert.equal(settled.window.getComputedStyle(settled.window.document.getElementById('leaf')).visibility, 'visible');
+  settled.window.close();
+
+  const view = harness(t);
+  const { DesktopBootGate } = await import('./PaneSurfaceGate.tsx');
+  await view.render(React.createElement(DesktopBootGate, { ready: false }, React.createElement('div')));
+  assert.equal(view.host.querySelector('.desktop-boot-gate').classList.contains('is-booting'), true);
+  await view.render(React.createElement(DesktopBootGate, { ready: true }, React.createElement('div')));
+  await view.advance(120);
+  const gate = view.host.querySelector('.desktop-boot-gate');
+  assert.equal(gate.dataset.ready, 'true');
+  assert.equal(gate.classList.contains('is-booting'), false);
+});
+
 test('a hidden logo or no logo plays no fade, so nothing is left to wait for', async (t) => {
   const { boot } = await bootedGate(t);
   stubFades(t, () => []); // display:none / reduced motion / no watermark: no running animation
@@ -850,8 +882,9 @@ test('usage pin reserves neutral rows from the connected accounts before any quo
   const snapshot = { status: 'loading', loading: true, refreshedAt: 0, dashboard: {} };
   await view.render(React.createElement(Probe, { snapshot }));
   await view.settle(() => {});
-  // Short + long is the default bar mode: two-window providers reserve both bars.
-  assert.equal(view.host.querySelector('output').textContent, 'ready codex~:2,claude~:2,opencode-go-oauth~:1');
+  // The rail draws one highest-window bar per provider (bde517a82), so a
+  // connected provider whose quota has not arrived reserves exactly one.
+  assert.equal(view.host.querySelector('output').textContent, 'ready codex~:1,claude~:1,opencode-go-oauth~:1');
   await view.render(
     React.createElement(Probe, {
       snapshot: {
