@@ -997,7 +997,7 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   assert.match(block, /@media \(min-width: 761px\)/);
   const scope = ':root:not\\(\\[data-mixdog-mobile-tabs\\]\\)';
   const esc = (s) => s.replace(/[.[\]()>:="*+|]/g, '\\$&');
-  const rule = (selector) => block.match(new RegExp(scope + ' ' + esc(selector) + ' \\{([^}]*)\\}'))?.[1] ?? '';
+  const rule = (selector) => block.match(new RegExp(`${scope} ${esc(selector)} \\{([^}]*)\\}`))?.[1] ?? '';
   const flat = (body) => {
     assert.match(body, /margin: 0;/);
     assert.match(body, /border: 0;/);
@@ -1039,12 +1039,12 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   assert.match(rule('.pane-resize-handle:is(:hover, .is-dragging)::after'), /background: var\(--mx-focus\);/);
   // The dock is a separate floating sheet again: own border + radius, a 4px gap from the workspace
   // sheet on its left; the window-edge and bottom gaps come from .main-panel's margins.
-  const open = block.match(new RegExp(scope + ' \\.pane-side-dock\\[data-open="true"\\] \\{([^}]*)\\}'))[1];
+  const open = block.match(new RegExp(`${scope} \\.pane-side-dock\\[data-open="true"\\] \\{([^}]*)\\}`))[1];
   assert.match(open, /border: 1px solid var\(--mx-border\);/);
   assert.match(open, /border-radius: var\(--mx-sheet-radius\);/);
   assert.match(open, /background: var\(--mx-sheet-surface\);/);
   const INL = '.pane-side-dock[data-open="true"]:not([data-overlay="true"]):not([data-expanded="true"])';
-  const inline = block.match(new RegExp(scope + ' ' + esc(INL) + ' \\{([^}]*)\\}'))[1];
+  const inline = block.match(new RegExp(`${scope} ${esc(INL)} \\{([^}]*)\\}`))[1];
   // The sheet gap on its left; while the cells draw the frame it also reaches into the ring and keeps
   // 1px more gap for the frame's side (pane-frame-reserve.slow.test.mjs measures the geometry).
   assert.match(
@@ -1061,11 +1061,11 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   // "An inline dock is open" is the column's own flag (useInlineDockFlag), padded to the (0,5,0)
   // specificity of the `.main-panel:has(INL)` it replaced; no :has() walks the column any more.
   const INLINE_FLAG = '.main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock]';
-  const unframed = block.match(new RegExp(scope + SURFACE_EXPANDED + ' ' + esc(INLINE_FLAG) + ' \\{([^}]*)\\}'))[1];
+  const unframed = block.match(new RegExp(`${scope}${SURFACE_EXPANDED} ${esc(INLINE_FLAG)} \\{([^}]*)\\}`))[1];
   assert.doesNotMatch(css.replace(/\/\*[\s\S]*?\*\//g, ''), /\.main-panel:has\(/);
   // An expanded browser/terminal lives on its own container, not on the dock's data-expanded: the
   // cells-draw-the-frame rules must step aside so the panel draws the single frame it is measured for.
-  assert.doesNotMatch(block, new RegExp(scope + ' ' + esc('.main-panel[data-inline-dock')));
+  assert.doesNotMatch(block, new RegExp(`${scope} ${esc('.main-panel[data-inline-dock')}`));
   // The border only turns transparent: the panel's box (and every split inside it) keeps its size.
   assert.match(unframed, /--frame: 1;\s*border-color: transparent;\s*border-radius: 0;/);
   // The frame closes on the dock's side: the right, or below for a dock below the chat.
@@ -1090,7 +1090,7 @@ test('joined surface: one continuous sheet with single dividers and outer-only r
   assert.doesNotMatch(expandedDock, /margin: 0 var|border: 1px/);
   for (const kind of ['terminal', 'browser']) {
     const box = block.match(
-      new RegExp('session-' + kind + '-surface-container\\[data-expanded="true"\\](?:,[^{]*)? \\{([^}]*)\\}')
+      new RegExp(`session-${kind}-surface-container\\[data-expanded="true"\\](?:,[^{]*)? \\{([^}]*)\\}`)
     )[1];
     assert.match(box, /border: 0;/);
     assert.match(box, /box-shadow: none;/);
@@ -1148,7 +1148,7 @@ test('joined surface: outer radii in every state (panel open|folded x dock open|
     { tl: true, tr: true, br: true, bl: true },
     'workspace (panel folded): all corners'
   );
-  assert.equal(panel, R + ' 0 0 ' + R);
+  assert.equal(panel, `${R} 0 0 ${R}`);
   // Dock open or closed never adds corners of its own: the inline dock and every cell row are square.
   // Dock open: the workspace cell keeps its own right corners (and border) where the dock follows;
   // the left corners need the folded sidebar and no left neighbour, so a joined split stays square inside.
@@ -1680,7 +1680,7 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
   // Rendered mode: the right side is empty.
   const rendered = renderToStaticMarkup(React.createElement(SideFileStatusRow, { chrome }));
   for (const marker of ['side-file-status-problems', 'side-file-status-cursor', 'side-file-status-language'])
-    assert.equal(rendered.includes(marker), false, 'rendered: ' + marker);
+    assert.equal(rendered.includes(marker), false, `rendered: ${marker}`);
   // Plain code (no toggle): only the right-side items.
   const code = renderToStaticMarkup(
     React.createElement(SideFileStatusRow, { chrome: { ...chrome, viewToggle: undefined } })
@@ -1874,7 +1874,7 @@ test('vertical resize handles: 13px hit area centred on the divider, accent cent
   const css = flattenCss(await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8'));
   const block = css.slice(css.indexOf('/* ── Sheet framing (desktop) ──'));
   const scope = ':root:not\\(\\[data-mixdog-mobile-tabs\\]\\)';
-  const rule = (selector) => block.match(new RegExp(scope + ' ' + selector + ' \\{([^}]*)\\}'))?.[1] ?? '';
+  const rule = (selector) => block.match(new RegExp(`${scope} ${selector} \\{([^}]*)\\}`))?.[1] ?? '';
   // Left panel: the divider is its right border, 1px past the padding edge: right -7 + width 13 => centre on it.
   const left = rule('\\.workbench-side-panel\\[data-side="left"\\] > \\.workbench-side-panel-resize');
   assert.match(left, /right: -7px;\s*width: 13px;/);

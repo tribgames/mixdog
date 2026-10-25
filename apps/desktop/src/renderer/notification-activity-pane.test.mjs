@@ -9,7 +9,9 @@ const { restore: restoreBootstrapDom } = installTestDom(null);
 after(restoreBootstrapDom);
 const { AgentActivityPane } = await import('./AgentActivityPane.tsx');
 
-const AGENTS = [{ id: 'translator', custom: true, kind: 'bot', label: 'Translator', route: { provider: 'openai', model: 'gpt-5' } }];
+const AGENTS = [
+  { id: 'translator', custom: true, kind: 'bot', label: 'Translator', route: { provider: 'openai', model: 'gpt-5' } },
+];
 
 test('bot page menu: mute, then reopen offers Unmute; a scope change refreshes the wording', async (t) => {
   const { dom, root } = installTestDom(t, {
@@ -43,7 +45,8 @@ test('bot page menu: mute, then reopen offers Unmute; a scope change refreshes t
   await render();
   const row = () => document.querySelector('[data-agent-contact="translator"]');
   const items = () => [...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent.trim());
-  const item = (text) => [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
+  const item = (text) =>
+    [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
   const open = () =>
     act(async () => row().dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
 
@@ -51,7 +54,12 @@ test('bot page menu: mute, then reopen offers Unmute; a scope change refreshes t
   assert.ok(items().includes('Mute notifications'));
   await act(async () => item('Mute notifications').click());
   await act(async () => item('Until I turn it back on').click());
-  assert.deepEqual(host.writes, [[{ kind: 'agent', id: 'translator' }, { mode: 'muted', until: null }]]);
+  assert.deepEqual(host.writes, [
+    [
+      { kind: 'agent', id: 'translator' },
+      { mode: 'muted', until: null },
+    ],
+  ]);
 
   await open();
   assert.ok(items().includes('Unmute notifications'), items().join('|'));

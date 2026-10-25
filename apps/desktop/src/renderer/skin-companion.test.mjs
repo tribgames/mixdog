@@ -598,7 +598,7 @@ test('a long reply shows page by page: dots, click and arrows turn, the last pag
   assert.equal(calls.dismiss.at(-1), 'p3');
 });
 
-test('Enter on the last page\'s Copy or Close button is the button\'s, not the bubble\'s: the reply stays open and Copy runs', async (t) => {
+test("Enter on the last page's Copy or Close button is the button's, not the bubble's: the reply stays open and Copy runs", async (t) => {
   const { $, render, page, calls, window } = await mountPaged(t, { name: 'Mixy' });
   await render({ bubble: { kind: 'reply', key: 'k1', text: 'Only.|Last.' } });
   await act(async () => $('.skin-companion-bubble').click());
@@ -2312,14 +2312,21 @@ async function keyboardSelectPosition(t) {
   const position = () => document.querySelector('[role="combobox"][aria-label="Position"]');
   const press = (key) =>
     act(async () => {
-      document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      document.activeElement.dispatchEvent(
+        new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      );
     });
   position().focus();
   await press('ArrowDown'); // opens
   await press('ArrowDown'); // Pin here
   await press('Enter');
   assert.equal(position().disabled, true, 'locked while main applies the choice');
-  return { ...dom, position, release: () => act(async () => release()), settle: () => act(async () => new Promise((r) => setTimeout(r, 0))) };
+  return {
+    ...dom,
+    position,
+    release: () => act(async () => release()),
+    settle: () => act(async () => new Promise((r) => setTimeout(r, 0))),
+  };
 }
 
 test('Settings → Bots: a keyboard choice of Position returns focus to the trigger once the write settles', async (t) => {

@@ -24,7 +24,7 @@ for (const key of [
 ]) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
-    value: key === 'window' ? dom.window : key === 'document' ? dom.window.document : dom.window[key],
+    value: dom.window[key],
   });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -81,12 +81,9 @@ const prompt = (extra = {}) => ({
 /** The docked card of one chat, as use-conversation-approvals mounts it. */
 function Dock({ sessionId }) {
   const prompts = useBrowserApprovals(sessionId);
-  return prompts[0]
-    ? React.createElement(BrowserApprovalCard, {
-        prompt: prompts[0],
-        queueLabel: prompts.length > 1 ? `1/${prompts.length}` : undefined,
-      })
-    : null;
+  if (!prompts[0]) return null;
+  const queueLabel = prompts.length > 1 ? `1/${prompts.length}` : undefined;
+  return React.createElement(BrowserApprovalCard, { prompt: prompts[0], queueLabel });
 }
 
 test('a browser approval docks in its top-level chat; with no such chat open it floats nowhere and marks its session', async () => {
@@ -179,7 +176,11 @@ test('one click on deny sends the denial with no reason; Enter allows once', asy
     outside.focus();
     await key('Enter', outside);
     outside.remove();
-    assert.deepEqual(api.decisions.at(-1), ['c1', 'deny', undefined], 'Enter with focus outside the conversation does nothing');
+    assert.deepEqual(
+      api.decisions.at(-1),
+      ['c1', 'deny', undefined],
+      'Enter with focus outside the conversation does nothing'
+    );
     const section = root.querySelector('.approval-prompt');
     section.focus();
     await key('Enter', section);
@@ -506,8 +507,11 @@ test('an approval answered on another device flashes "<action> · Allowed from <
   );
   // A request that timed out unanswered says so, on any device.
   assert.equal(
-    conversationIslandFlash({ approval: shell, outcome: { approved: false, device: '', expired: true } }, null, 'DESKTOP-7')
-      .text,
+    conversationIslandFlash(
+      { approval: shell, outcome: { approved: false, device: '', expired: true } },
+      null,
+      'DESKTOP-7'
+    ).text,
     'Run a command · Expired'
   );
   // The glyph matches the outcome: a deny is never drawn with the allow's check.

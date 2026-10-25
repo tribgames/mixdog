@@ -175,7 +175,10 @@ test("scope 'off' leaves every kind outside; an override still wins", async (t) 
   }
   const snap = {
     ...store.notificationSnapshot(),
-    overrides: [muted('agent', 'marketer', null), { target: { kind: 'room', id: ROOM_ID }, setting: { mode: 'always' } }],
+    overrides: [
+      muted('agent', 'marketer', null),
+      { target: { kind: 'room', id: ROOM_ID }, setting: { mode: 'always' } },
+    ],
   };
   assert.equal(store.resolveNotificationState(snap, targets[4]).kind, 'muted');
   assert.equal(store.resolveNotificationState(snap, targets[5]).kind, 'always');
@@ -184,12 +187,16 @@ test("scope 'off' leaves every kind outside; an override still wins", async (t) 
 
 test('the header shows the whole chain but writes the conversation target (or where the override lives)', async (t) => {
   const { api, controls, document, root, store } = await setup(t, {
-    overrides: [muted('agent', 'marketer', null), { target: { kind: 'session', id: HOME }, setting: { mode: 'always' } }],
+    overrides: [
+      muted('agent', 'marketer', null),
+      { target: { kind: 'session', id: HOME }, setting: { mode: 'always' } },
+    ],
   });
   const { createElement } = await import('react');
   await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: HOME })));
   const bell = () => document.querySelector('.conversation-bell');
-  const item = (text) => [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
+  const item = (text) =>
+    [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
   // The session override (always) beats the bot's mute: the bell is on.
   assert.equal(bell().dataset.state, 'always');
   await act(async () => bell().click());
@@ -256,7 +263,7 @@ test('a shown timed mute wakes at the next local midnight, DST days included', a
 });
 
 test('the store arms one timer to the nearer of expiry and midnight, and re-renders at midnight', async (t) => {
-  const { api, clock, controls, document, root, store, window } = await setup(t, {
+  const { clock, controls, document, root, store, window } = await setup(t, {
     overrides: [muted('agent', 'marketer', new Date(2026, 9, 26, 8, 0).getTime())],
   });
   const { createElement } = await import('react');
@@ -299,7 +306,10 @@ test('each item writes the right target and setting', async (t) => {
   assert.deepEqual(api.writes, [
     [agent, { mode: 'muted', until: NOW + HOUR }],
     [room, { mode: 'muted', until: NOW + 8 * HOUR }],
-    [{ kind: 'session', id: HOME }, { mode: 'muted', until: new Date(2026, 9, 26, 8, 0, 0, 0).getTime() }],
+    [
+      { kind: 'session', id: HOME },
+      { mode: 'muted', until: new Date(2026, 9, 26, 8, 0, 0, 0).getTime() },
+    ],
     [session, { mode: 'always' }],
     [agent, { mode: 'inherit' }],
     [session, { mode: 'inherit' }],
@@ -322,10 +332,16 @@ test('the header bell: faint when on, bell-off with the time when muted, menu wr
   await act(async () => bell().click());
   const menu = document.querySelector('[role="menu"]');
   assert.ok(menu);
-  const item = (text) => [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
+  const item = (text) =>
+    [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent.includes(text));
   await act(async () => item('Mute notifications').click());
   await act(async () => item('For 8 hours').click());
-  assert.deepEqual(api.writes, [[{ kind: 'agent', id: 'marketer' }, { mode: 'muted', until: NOW + 8 * HOUR }]]);
+  assert.deepEqual(api.writes, [
+    [
+      { kind: 'agent', id: 'marketer' },
+      { mode: 'muted', until: NOW + 8 * HOUR },
+    ],
+  ]);
   // 00:44 + 8h = 8:44 the same day.
   assert.equal(bell().dataset.state, 'muted');
   assert.match(bell().textContent, /^until /);
@@ -356,7 +372,11 @@ test('a muted row shows the mark; an expired mute removes it; a settings change 
   const mark = () => document.querySelector('.session-row-muted');
   await act(async () =>
     root.render(
-      createElement('div', null, createElement(controls.NotificationMuteMark, { target: { kind: 'agent', id: 'marketer' } }))
+      createElement(
+        'div',
+        null,
+        createElement(controls.NotificationMuteMark, { target: { kind: 'agent', id: 'marketer' } })
+      )
     )
   );
   assert.equal(mark(), null);
@@ -380,9 +400,7 @@ const seatOf = async (agent) => {
 async function nameRoomAndBot() {
   const { publishAgentRooms } = await import('./agent-room-store.ts');
   const { updateSidebarReference } = await import('./sidebar-reference-cache.ts');
-  publishAgentRooms([
-    { id: ROOM, agentRoom: { id: ROOM_ID, name: 'Launch room', members: ['marketer', 'writer'] } },
-  ]);
+  publishAgentRooms([{ id: ROOM, agentRoom: { id: ROOM_ID, name: 'Launch room', members: ['marketer', 'writer'] } }]);
   updateSidebarReference('agents', [
     { id: 'marketer', custom: true, kind: 'bot', label: 'Marketer', route: { provider: 'openai', model: 'gpt-5' } },
   ]);
@@ -400,7 +418,10 @@ test('a seat in a muted room: "Get notifications here" writes only the seat, "Un
   await act(async () => items()[0].onSelect());
   assert.deepEqual(api.writes, [[seatA, { mode: 'always' }]]);
   const snap = store.notificationSnapshot();
-  assert.ok(snap.overrides.some((o) => o.target.kind === 'room' && o.setting.mode === 'muted'), 'room stays muted');
+  assert.ok(
+    snap.overrides.some((o) => o.target.kind === 'room' && o.setting.mode === 'muted'),
+    'room stays muted'
+  );
   assert.equal(store.resolveNotificationState(snap, seatA).kind, 'always');
   assert.equal(store.resolveNotificationState(snap, seatB).kind, 'muted', 'the sibling seat stays muted');
   // The seat now owns an override: it offers "Use notification settings", not the parent.
@@ -441,7 +462,9 @@ test('muted by the bot: the parent item names the bot; a home-chat session row o
 });
 
 test('an inherited "always" is notified: Mute writes the own target', async (t) => {
-  const { api, controls } = await setup(t, { overrides: [{ target: { kind: 'room', id: ROOM_ID }, setting: { mode: 'always' } }] });
+  const { api, controls } = await setup(t, {
+    overrides: [{ target: { kind: 'room', id: ROOM_ID }, setting: { mode: 'always' } }],
+  });
   const seat = { kind: 'session', id: await seatOf('marketer') };
   const [mute] = controls.notificationMenuItems(seat);
   assert.equal(mute.label, 'Mute notifications');
@@ -458,14 +481,20 @@ test('the header of a seat in a muted room offers the same two items and writes 
   const bell = () => document.querySelector('.conversation-bell');
   const menuItems = () => [...document.querySelectorAll('[role="menuitem"]')];
   await act(async () => bell().click());
-  assert.deepEqual(menuItems().map((el) => el.textContent.trim()), ['Get notifications here', 'Unmute Launch room']);
+  assert.deepEqual(
+    menuItems().map((el) => el.textContent.trim()),
+    ['Get notifications here', 'Unmute Launch room']
+  );
   await act(async () => menuItems()[0].click());
   assert.deepEqual(api.writes, [[{ kind: 'session', id: seatId }, { mode: 'always' }]]);
   assert.equal(bell().dataset.state, 'always');
   // The room's own header owns the room target and unmutes just it.
   await act(async () => root.render(createElement(controls.ConversationBell, { sessionId: ROOM })));
   await act(async () => bell().click());
-  assert.deepEqual(menuItems().map((el) => el.textContent.trim()), ['Unmute notifications']);
+  assert.deepEqual(
+    menuItems().map((el) => el.textContent.trim()),
+    ['Unmute notifications']
+  );
   await act(async () => menuItems()[0].click());
   assert.deepEqual(api.writes[1], [{ kind: 'room', id: ROOM_ID }, { mode: 'inherit' }]);
 });

@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { ActivityRail } from './ActivityRail.tsx';
 import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
+import { waitFor } from './test-support/wait-for.mjs';
 import { publishUsageDashboard } from './usage-dashboard-store.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,14 +61,6 @@ async function mountRail(t) {
   return { root, props, stored };
 }
 
-async function waitFor(check) {
-  for (let i = 0; i < 100; i += 1) {
-    if (check()) return;
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  }
-  assert.ok(check(), 'condition not reached');
-}
-
 const brand = (key) => document.querySelector(`[data-usage-pin="${key}"]`);
 const meters = (key) => [...brand(key).querySelectorAll(':scope > i')];
 
@@ -95,18 +88,15 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
   const { root, props, stored } = await mountRail(t);
   assert.equal(meters('claude').length, 1);
   assert.equal(brand('claude').querySelector('small').textContent, '99%');
-  assert.equal(meters('claude')[0].classList.contains('is-thick'), true);
+  assert.ok(meters('claude')[0].classList.contains('is-thick'));
 
-  const menuButton = await openFlyout();
-  assert.ok(menuButton);
-  await press(menuButton);
+  await press(await openFlyout());
   await press(document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]'));
   assert.ok(document.querySelector('.usage-menu'), 'the menu survives its own press');
   await waitFor(() => stored.usageRailShortLong === true);
 
   // Two stacked meters, short window first; one figure = the higher; the tone
   // colors only the bar that drives it.
-  assert.equal(stored.usageRailShortLong, true);
   const claudeBars = meters('claude');
   assert.equal(claudeBars.length, 2);
   assert.deepEqual(
@@ -120,7 +110,7 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
       [false, false],
     ]
   );
-  assert.equal(brand('claude').className.includes('tone-danger'), true);
+  assert.ok(brand('claude').className.includes('tone-danger'));
   assert.equal(brand('claude').querySelector('small').textContent, '99%');
   // A single-window provider never gets a placeholder bar.
   assert.equal(meters('opencode-go-oauth').length, 1);

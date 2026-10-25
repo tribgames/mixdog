@@ -1,148 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
-
-const PHONE_UA =
-  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+import { installPhonePaneDom, laneSnapshot } from './test-support/phone-pane-dom.mjs';
 
 // A sidebar click through the real session-open hook into the real
 // PaneConversation. Commits are recorded in a layout effect, so each entry is
 // what the DOM holds when that commit lands, never a render.
-async function mountPane(t, mobile) {
-  const { dom, root } = installTestDom(t, {
-    html: mobile
-      ? '<!doctype html><html data-mixdog-mobile-tabs><body><main id="root"></main></body></html>'
-      : '<!doctype html><html><body><main id="root"></main></body></html>',
-    expose: ['window', 'navigator', 'Element', 'HTMLElement', 'MutationObserver'],
-    globals: {
-      ResizeObserver: class {
-        constructor(callback) {
-          this.callback = callback;
-        }
-        observe(target) {
-          const height = target.classList.contains('transcript')
-            ? 800
-            : target.classList.contains('transcript-virtual-row')
-              ? 500
-              : 0;
-          const size = { inlineSize: 412, blockSize: height };
-          this.callback(
-            [{ target, contentRect: { width: 412, height }, borderBoxSize: [size], contentBoxSize: [size] }],
-            this
-          );
-        }
-        unobserve() {}
-        disconnect() {}
-      },
-    },
-    rootId: 'root',
-  });
-  if (mobile) Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, get: () => PHONE_UA });
-  const noop = () => {};
-  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-  const frames = new Map();
-  const origins = new Map();
-  const sampling = new Map();
-  let nextFrame = 1;
-  dom.window.requestAnimationFrame = (callback) => {
-    const id = nextFrame++;
-    frames.set(id, callback);
-    const stack = new Error().stack;
-    origins.set(id, stack.includes('app-snapshot-views.tsx'));
-    sampling.set(id, stack.includes('use-transcript-reveal.ts'));
-    return id;
-  };
-  dom.window.cancelAnimationFrame = (id) => {
-    frames.delete(id);
-  };
-  // Code that calls the bare globals shares the same controlled frames.
-  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame;
-  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame;
-  // Layout the way a 412x915 phone lays the pane out: the viewport is 800px
-  // tall and every virtual row is 500px.
-  const proto = dom.window.HTMLElement.prototype;
-  const space = (element) => element.querySelector?.('.transcript-virtual-space');
-  dom.window.ResizeObserver = globalThis.ResizeObserver;
-  for (const [name, wide] of [
-    ['offsetHeight', 800],
-    ['offsetWidth', 412],
-  ]) {
-    Object.defineProperty(proto, name, {
-      configurable: true,
-      get() {
-        return this.classList.contains('transcript') ? wide : 0;
-      },
-    });
-  }
-  Object.defineProperty(proto, 'clientHeight', {
-    configurable: true,
-    get() {
-      return this.classList.contains('transcript') ? 800 : 0;
-    },
-  });
-  Object.defineProperty(proto, 'scrollHeight', {
-    configurable: true,
-    get() {
-      return this.classList.contains('transcript') ? Number.parseFloat(space(this)?.style.height) || 0 : 0;
-    },
-  });
-  proto.getBoundingClientRect = function getBoundingClientRect() {
-    const height = this.classList.contains('transcript-virtual-row')
-      ? 500
-      : this.classList.contains('transcript')
-        ? 800
-        : 0;
-    return { x: 0, y: 0, top: 0, left: 0, right: 412, bottom: height, width: 412, height, toJSON() {} };
-  };
-  const { PaneConversation } = await import('./app-snapshot-views.tsx');
-  const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
-  defaultSessionLaneStore.clear();
-  t.after(() => defaultSessionLaneStore.clear());
-  const props = (sessionId) => ({
-    focused: true,
-    hidden: false,
-    sessionId,
-    invokeResult: async (action) => action(),
-    errors: [],
-    submit: async () => undefined,
-    applySnapshot: noop,
-    transitioning: false,
-    composerFocusRequest: 0,
-    onNewTask: noop,
-    onClearProject: noop,
-    onResumeSession: noop,
-    onOpenSessions: noop,
-    onOpenProjects: noop,
-    onOpenSettings: noop,
-    projects: [],
-    showProjectSelector: false,
-    activeProjectPath: '',
-    activeProjectLabel: '',
-    onSelectProject: noop,
-    onOpenCommandSurface: noop,
-    reconcileOnMount: false,
-  });
-  return { dom, root, props, PaneConversation, defaultSessionLaneStore, frames };
-}
-const lane = (sessionId) => ({
-  sessionId,
-  snapshot: {
-    sessionId,
-    items: [
-      { kind: 'user', id: 'u', text: `question ${sessionId}` },
-      { kind: 'assistant', id: 'r', text: `answer ${sessionId}` },
-    ],
-  },
-});
 
 async function clickScenario(t, { mobile, warm }) {
-  const pane = await mountPane(t, mobile);
+  const pane = await installPhonePaneDom(t, { mobile });
   const { flushSync } = await import('react-dom');
   const { useAppSessionOpen } = await import('./app-shell-session-open.ts');
   const doc = pane.dom.window.document;
-  pane.defaultSessionLaneStore.apply(lane('a'));
-  if (warm) pane.defaultSessionLaneStore.apply(lane('b'));
+  pane.defaultSessionLaneStore.apply(laneSnapshot('a'));
+  if (warm) pane.defaultSessionLaneStore.apply(laneSnapshot('b'));
   pane.dom.window.mixdogDesktop = {
     prefetchSession: () => new Promise(() => {}),
     // The island's entry read: an empty review, answered at once.
@@ -153,6 +24,14 @@ async function clickScenario(t, { mobile, warm }) {
   t.after(() => {
     delete pane.dom.window.mixdogDesktop;
   });
+  // One animation frame: every callback queued before it, in order.
+  const runFrames = () =>
+    act(async () => {
+      for (const [id, callback] of [...pane.frames]) {
+        pane.frames.delete(id);
+        callback(performance.now());
+      }
+    });
   const commits = [];
   let recording = false;
   // What the DOM holds when a commit lands: rows count as painted only when
@@ -210,12 +89,7 @@ async function clickScenario(t, { mobile, warm }) {
     const settle = async () => {
       for (let round = 0; round < 30; round += 1) {
         await new Promise((resolve) => setTimeout(resolve, 20));
-        await act(async () => {
-          for (const [id, callback] of [...pane.frames]) {
-            pane.frames.delete(id);
-            callback(performance.now());
-          }
-        });
+        await runFrames();
       }
     };
     await act(async () => handle.select('b'));
@@ -231,12 +105,7 @@ async function clickScenario(t, { mobile, warm }) {
     });
   });
   // The first frame: the animation-frame work that runs before the first paint.
-  await act(async () => {
-    for (const [id, callback] of [...pane.frames]) {
-      pane.frames.delete(id);
-      callback(performance.now());
-    }
-  });
+  await runFrames();
   return Object.assign(commits, { firstFrame: snapshotOf('frame', 'b') });
 }
 

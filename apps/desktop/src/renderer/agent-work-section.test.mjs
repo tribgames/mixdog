@@ -61,7 +61,7 @@ function mount(t, pool, sessions, agentModeIds = [], unreadIds = []) {
   return { document: dom.window.document, window: dom.window, opened, render };
 }
 
-test("a bot's task session is a Lead row under its own title, never a bot-named \"Working\" row", async (t) => {
+test('a bot\'s task session is a Lead row under its own title, never a bot-named "Working" row', async (t) => {
   const { document, render, opened } = mount(
     t,
     [poolLead('t1'), poolLead('t2', { awaitingUser: 'approval' })],
@@ -225,7 +225,11 @@ test('Leads are one messenger row each, divider-separated with no header; a fini
     'the provider plate fills the avatar box'
   );
   assert.equal(row.querySelector('.agent-chat-title').textContent, 'Code c1');
-  assert.equal(row.querySelector('.agent-chat-preview').textContent, 'fake-1', 'the parent row preview is the model display name only');
+  assert.equal(
+    row.querySelector('.agent-chat-preview').textContent,
+    'fake-1',
+    'the parent row preview is the model display name only'
+  );
   assert.ok(row.querySelector('.agent-contact-aside > time.agent-chat-time').textContent);
   assert.ok(row.querySelector('.agent-contact-aside > .agent-chat-status[data-kind="running"]'));
   assert.equal(row.textContent.includes('Completed'), false);

@@ -118,18 +118,19 @@ test('Sessions → Bots → Sessions keeps the active tab, the strip, the draft 
       renameSession: async () => {},
       lastSessionStorageKey: 'test:last-session',
     });
-    const panel = !sidebarOpen
-      ? null
-      : activeSideViews.left === 'agents'
-        ? React.createElement(AgentActivityPane, {
-            active: true,
-            sessions: [],
-            onOpenSession: (id, title) => {
-              opened.push([id, title]);
-              workspace.openInFocused({ kind: 'session', id });
-            },
-          })
-        : React.createElement('div', { className: 'test-sessions-list' }, 'sessions');
+    let panel = null;
+    if (sidebarOpen && activeSideViews.left === 'agents') {
+      panel = React.createElement(AgentActivityPane, {
+        active: true,
+        sessions: [],
+        onOpenSession: (id, title) => {
+          opened.push([id, title]);
+          workspace.openInFocused({ kind: 'session', id });
+        },
+      });
+    } else if (sidebarOpen) {
+      panel = React.createElement('div', { className: 'test-sessions-list' }, 'sessions');
+    }
     return React.createElement(
       'div',
       null,
@@ -172,16 +173,17 @@ test('Sessions → Bots → Sessions keeps the active tab, the strip, the draft 
   const activeKey = () => host.querySelector('.workspace-tab.active')?.dataset.tabKey;
   const surfaces = () => [...host.querySelectorAll('.test-conversation')].map((node) => node.dataset.surface);
   const draft = () => host.querySelector('.test-draft');
+  const visibleList = () => {
+    if (host.querySelector('.test-sessions-list')) return 'sessions';
+    if (host.querySelector('.agent-contact-list')) return 'bots';
+    return null;
+  };
   const state = () => ({
     strip: stripKeys(),
     active: activeKey(),
     surfaces: surfaces(),
     draftText: draft()?.value ?? null,
-    list: host.querySelector('.test-sessions-list')
-      ? 'sessions'
-      : host.querySelector('.agent-contact-list')
-        ? 'bots'
-        : null,
+    list: visibleList(),
   });
   const click = async (id) => {
     await act(async () => rail(id).click());

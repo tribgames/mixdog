@@ -7,6 +7,7 @@ import { SidebarUsage } from './SidebarUsage.tsx';
 import { peekQuotaFocus, clearQuotaFocus } from './usage-surface-mode.ts';
 import { press } from './test-support/pointer-press.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
+import { waitFor } from './test-support/wait-for.mjs';
 import { ACCOUNT_REREAD_WINDOW_MS, useUsageAccountPools } from './usage-account-pools.ts';
 import { publishUsageDashboard } from './usage-dashboard-store.ts';
 
@@ -82,14 +83,6 @@ const usageApi = {
     return { value: pools()[args[0]] ?? { selectedId: null, accounts: [] } };
   },
 };
-
-async function waitFor(check) {
-  for (let i = 0; i < 100; i += 1) {
-    if (check()) return;
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  }
-  assert.ok(check(), 'condition not reached');
-}
 
 const text = (node) => node?.textContent ?? null;
 const claudeRow = () => document.querySelector('[data-usage-provider="claude"]');

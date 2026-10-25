@@ -5,7 +5,7 @@ import { installTestDom } from '../test-support/test-dom.mjs';
 import { WorkPanel } from './general-panel.tsx';
 import { t as translate } from '../i18n.ts';
 
-function mount(t, toolModules, run) {
+function mount(t, run) {
   const { dom, root } = installTestDom(t, {
     expose: ['HTMLElement', 'Element', 'Node', 'MouseEvent', 'PointerEvent', 'Event', 'KeyboardEvent'],
     rootId: 'root',
@@ -23,7 +23,7 @@ const select = (document) => document.querySelector(`button[aria-label="${transl
 
 test('the Auto reasoning base select reads the setting (default Medium) and saves a pick', async (t) => {
   const calls = [];
-  const { document, render } = mount(t, {}, async (name, args) => calls.push([name, args]));
+  const { document, render } = mount(t, async (name, args) => calls.push([name, args]));
   await render({});
   assert.equal(select(document).textContent, translate('Medium'));
   await render({ autoEffortBase: 'high' });

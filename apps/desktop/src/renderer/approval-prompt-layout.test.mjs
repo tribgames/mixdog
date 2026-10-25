@@ -315,7 +315,8 @@ async function page(t, { phone = false } = {}) {
 const near = (a, b) => Math.abs(a - b) <= 0.75;
 const idle = (tab) => tab.evaluate(() => window.__idle());
 // The card answers keys (and shows its chips) once its settle window is over.
-const keysOpen = (tab) => tab.waitForFunction(() => document.querySelector('.approval-prompt')?.hasAttribute('data-keys'));
+const keysOpen = (tab) =>
+  tab.waitForFunction(() => document.querySelector('.approval-prompt')?.hasAttribute('data-keys'));
 
 test('the docked card never breaks: equal buttons as wide as the preview, never wider than the composer', async (t) => {
   const tab = await page(t);

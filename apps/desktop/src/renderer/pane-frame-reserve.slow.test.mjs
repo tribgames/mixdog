@@ -247,13 +247,13 @@ async function setDock(page, id, next) {
         spacer.style.cssText = bottom ? `height:${Math.round(rest.height)}px` : `width:${Math.round(rest.width)}px`;
         dock.before(spacer);
       } else delete dock.dataset.expanded;
-      dock.style.cssText = !state.open
-        ? ''
-        : state.expanded
-          ? `position:fixed;left:${panel.left}px;top:${panel.top}px;width:${panel.width}px;height:${panel.height}px`
-          : bottom
-            ? `height:${sizes.height}px`
-            : `width:${sizes.width}px`;
+      let dockCss = '';
+      if (state.open && state.expanded) {
+        dockCss = `position:fixed;left:${panel.left}px;top:${panel.top}px;width:${panel.width}px;height:${panel.height}px`;
+      } else if (state.open) {
+        dockCss = bottom ? `height:${sizes.height}px` : `width:${sizes.width}px`;
+      }
+      dock.style.cssText = dockCss;
       const column = document.querySelector('.main-panel');
       const inline = [...document.querySelectorAll('.pane-side-dock')].some(
         (node) => node.dataset.open === 'true' && !node.dataset.overlay && !node.dataset.expanded

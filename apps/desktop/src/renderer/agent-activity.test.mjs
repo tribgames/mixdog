@@ -782,7 +782,9 @@ test('running and awaiting rows always make the five-row cut', async () => {
       );
     });
     // The task text only; an awaiting row also carries spoken (sr-only) status text.
-    return [...document.querySelector('.session-goal-task-list').children].map((li) => li.querySelector('div').textContent);
+    return [...document.querySelector('.session-goal-task-list').children].map(
+      (li) => li.querySelector('div').textContent
+    );
   };
   try {
     // Running first, awaiting beyond the cutoff: both stay, order kept.
@@ -2685,10 +2687,12 @@ test('a nested Agent row opens its exact child session without touching session 
     );
     // The contacts read the agent catalog (a read capability) and the
     // notification overrides their menu words; nothing else.
-    assert.deepEqual(
-      [...new Set(touched)].sort(),
-      ['invokeCapability', 'listAgentPool', 'listConversationNotifications', 'subscribeAgentPool']
-    );
+    assert.deepEqual([...new Set(touched)].sort(), [
+      'invokeCapability',
+      'listAgentPool',
+      'listConversationNotifications',
+      'subscribeAgentPool',
+    ]);
     assert.deepEqual(prefetched, ['grand-a', 'great-a', 'lead-a']);
   } finally {
     await act(async () => dom.root.unmount());

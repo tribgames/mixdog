@@ -15,11 +15,9 @@ const { dom } = installTestDom(null, {
 // Horizontal offset of the slot, as when the phone sheet is mid-slide.
 let slotShift = 0;
 dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
-  const fixed = this.classList.contains('main-panel')
-    ? { left: 10, top: 0, right: 1010, bottom: 700 }
-    : this.classList.contains('pane-side-dock-header')
-      ? { left: 600, top: 0, right: 1010, bottom: 48 }
-      : null;
+  let fixed = null;
+  if (this.classList.contains('main-panel')) fixed = { left: 10, top: 0, right: 1010, bottom: 700 };
+  else if (this.classList.contains('pane-side-dock-header')) fixed = { left: 600, top: 0, right: 1010, bottom: 48 };
   if (fixed) {
     return {
       ...fixed,
@@ -207,7 +205,9 @@ test('a slot that only moves is re-measured while it slides and after the transi
     for (let index = 0; index < count; index += 1) {
       const batch = [...pending.values()];
       pending.clear();
-      await act(async () => batch.forEach((callback) => callback(0)));
+      await act(async () => {
+        for (const callback of batch) callback(0);
+      });
     }
   };
   const host = document.createElement('main');

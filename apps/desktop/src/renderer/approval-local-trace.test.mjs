@@ -10,7 +10,7 @@ dom.window.mixdogDesktop = { resolveToolApprovalForSession: (...args) => answer(
 for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'navigator']) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
-    value: key === 'window' ? dom.window : key === 'document' ? dom.window.document : dom.window[key],
+    value: dom.window[key],
   });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

@@ -335,7 +335,10 @@ test('a held touch correction growing between scroll events is not read as a ret
 // The timeline holds its corrections off the native offset for exactly this
 // window: from a drag that moves the transcript, through the fling, until
 // scrollend.
-test('streaming growth never writes scrollTop while the reader scrolls, and follow resumes at the bottom', async () => {
+/** The follow hook driving an end pin over a fake viewport (400px of a 2400px
+ *  tail, scrolled to the end). `state` holds the live content height and native
+ *  scroll offset; `advance` moves the clock the hook reads. */
+async function mountFollowRig({ sessionKey, startedAt }) {
   const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }, { createTranscriptEndPin }] =
     await Promise.all([
       import('react'),
@@ -349,17 +352,16 @@ test('streaming growth never writes scrollTop while the reader scrolls, and foll
     expose: ['Element'],
   });
   const realNow = Date.now;
-  let now = 200_000;
+  let now = startedAt;
   Date.now = () => now;
   const VIEWPORT = 400;
-  let content = 2400;
-  let native = content - VIEWPORT;
+  const state = { content: 2400, native: 2000 };
   const writes = [];
   // The timeline the hook drives: its end anchor flips with every follow decision.
   const instance = {
     options: { anchorTo: 'end', followOnAppend: false },
     targetWindow: window,
-    getTotalSize: () => content,
+    getTotalSize: () => state.content,
   };
   const setAnchorBottomRef = { current: (bottom) => (instance.options.anchorTo = bottom ? 'end' : 'start') };
   let follow = null;
@@ -372,7 +374,7 @@ test('streaming growth never writes scrollTop while the reader scrolls, and foll
     follow = useTranscriptFollow({
       viewport,
       content: contentRef,
-      sessionKey: 'stream-reader',
+      sessionKey,
       setAnchorBottomRef,
       scrollToEndRef,
     });
@@ -380,215 +382,169 @@ test('streaming growth never writes scrollTop while the reader scrolls, and foll
   }
   const flush = () => React.act(async () => {});
   const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
+  let release = () => {};
+  const cleanup = async () => {
+    release();
+    Date.now = realNow;
+    await React.act(async () => root.unmount());
+    restore();
+  };
+  let viewport;
   try {
     await React.act(async () => root.render(React.createElement(Harness)));
-    const viewport = document.getElementById('root').firstElementChild;
+    viewport = document.getElementById('root').firstElementChild;
     Object.defineProperty(viewport, 'scrollTop', {
       configurable: true,
-      get: () => native,
+      get: () => state.native,
       set: (value) => {
         writes.push(value);
-        native = Math.min(Math.max(0, value), content - VIEWPORT);
+        state.native = Math.min(Math.max(0, value), state.content - VIEWPORT);
       },
     });
-    const release = registerTranscriptScrollGeometry(viewport, {
+    release = registerTranscriptScrollGeometry(viewport, {
       viewportHeight: () => VIEWPORT,
-      contentHeight: () => content,
-      scrollTop: () => native,
+      contentHeight: () => state.content,
+      scrollTop: () => state.native,
       deviation: () => 0,
     });
     pin = createTranscriptEndPin({
       getVirtualizer: () => instance,
       getViewport: () => viewport,
       getSpacer: () => null,
-      getMaxScrollTop: () => content - VIEWPORT,
+      getMaxScrollTop: () => state.content - VIEWPORT,
       hasReaderGesture: () => follow.hasScrollGesture(),
       markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
     });
-    // A streamed token grows the tail and the timeline asks for the end, as its resize path does.
-    const grow = async (px) => {
-      content += px;
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+  return {
+    React,
+    viewport,
+    VIEWPORT,
+    state,
+    writes,
+    flush,
+    frame,
+    get follow() {
+      return follow;
+    },
+    advance: (ms) => {
+      now += ms;
+    },
+    /** A streamed token grows the tail; a following timeline asks for the end. */
+    grow: async (px) => {
+      state.content += px;
       if (instance.options.anchorTo === 'end') pin.request();
       await flush();
-    };
-    await React.act(async () => follow.handleScroll());
-    now += 1_000;
+    },
+    cleanup,
+  };
+}
+
+test('streaming growth never writes scrollTop while the reader scrolls, and follow resumes at the bottom', async () => {
+  const rig = await mountFollowRig({ sessionKey: 'stream-reader', startedAt: 200_000 });
+  const { React, viewport, VIEWPORT, state, writes, flush, frame, grow, advance } = rig;
+  try {
+    await React.act(async () => rig.follow.handleScroll());
+    advance(1_000);
     await grow(40);
     assert.equal(writes.length, 1, 'a following, idle tail is pinned on growth');
-    assert.equal(native, content - VIEWPORT);
+    assert.equal(state.native, state.content - VIEWPORT);
     writes.length = 0;
 
     // A downward wheel at the tail keeps follow armed but owns the viewport:
     // growth meanwhile waits instead of writing under the wheel.
-    await React.act(async () => follow.handleWheel({ deltaY: 100, target: viewport, currentTarget: viewport }));
+    await React.act(async () => rig.follow.handleWheel({ deltaY: 100, target: viewport, currentTarget: viewport }));
     await grow(40);
     await grow(40);
     assert.equal(writes.length, 0, 'no write while the reader is scrolling');
-    assert.equal(follow.followingRef.current, true);
-    now += 1_000;
+    assert.equal(rig.follow.followingRef.current, true);
+    advance(1_000);
     await frame();
     await flush();
     assert.equal(writes.length, 1, 'the deferred pin lands once the reader stops');
-    assert.equal(native, content - VIEWPORT);
+    assert.equal(state.native, state.content - VIEWPORT);
     writes.length = 0;
 
     // Scrolling up releases follow: the tail keeps growing without a single write.
-    await React.act(async () => follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
-    native -= 300;
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, false, 'an upward wheel releases follow');
-    const reading = native;
+    await React.act(async () => rig.follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
+    state.native -= 300;
+    await React.act(async () => rig.follow.handleScroll());
+    assert.equal(rig.follow.followingRef.current, false, 'an upward wheel releases follow');
+    const reading = state.native;
     for (let index = 0; index < 5; index += 1) {
-      now += 50;
+      advance(50);
       await grow(40);
     }
-    now += 1_000;
+    advance(1_000);
     await frame();
     await flush();
     assert.equal(writes.length, 0, 'no write while the reader reads above the tail');
-    assert.equal(native, reading, 'the reading offset is never moved');
+    assert.equal(state.native, reading, 'the reading offset is never moved');
 
     // Back at the bottom, follow re-attaches and the next growth is pinned.
-    native = content - VIEWPORT;
-    now += 1_000;
-    await React.act(async () => follow.handleScroll());
-    assert.equal(follow.followingRef.current, true, 'the bottom re-attaches follow');
-    now += 1_000;
+    state.native = state.content - VIEWPORT;
+    advance(1_000);
+    await React.act(async () => rig.follow.handleScroll());
+    assert.equal(rig.follow.followingRef.current, true, 'the bottom re-attaches follow');
+    advance(1_000);
     await grow(40);
     assert.equal(writes.length, 1, 'following resumes on the next growth');
-    assert.equal(native, content - VIEWPORT);
-    release();
+    assert.equal(state.native, state.content - VIEWPORT);
   } finally {
-    Date.now = realNow;
-    await React.act(async () => root.unmount());
-    restore();
+    await rig.cleanup();
   }
 });
 
-/** The follow hook driving an end pin over a fake viewport; the reader starts
- *  released, 600px up. */
+/** The follow rig with the reader released, 600px up. */
 async function mountReturningReader() {
-  const [React, { createRoot }, { useTranscriptFollow, registerTranscriptScrollGeometry }, { createTranscriptEndPin }] =
-    await Promise.all([
-      import('react'),
-      import('react-dom/client'),
-      import('./use-transcript-follow.ts'),
-      import('./transcript-end-pin.ts'),
-    ]);
-  const { restore } = installTestDom(null, {
-    html: "<div id='root'></div>",
-    jsdom: { url: 'http://localhost/', pretendToBeVisual: true },
-    expose: ['Element'],
-  });
-  const realNow = Date.now;
-  let now = 400_000;
-  Date.now = () => now;
-  const VIEWPORT = 400;
-  let content = 2400;
-  let native = content - VIEWPORT;
-  const writes = [];
-  const instance = {
-    options: { anchorTo: 'end', followOnAppend: false },
-    targetWindow: window,
-    getTotalSize: () => content,
-  };
-  const setAnchorBottomRef = { current: (bottom) => (instance.options.anchorTo = bottom ? 'end' : 'start') };
-  let follow = null;
-  let pin = null;
-  const scrollToEndRef = { current: () => pin.request() };
-  const root = createRoot(document.getElementById('root'));
-  function Harness() {
-    const viewport = React.useRef(null);
-    const contentRef = React.useRef(null);
-    follow = useTranscriptFollow({
-      viewport,
-      content: contentRef,
-      sessionKey: 'returning-reader',
-      setAnchorBottomRef,
-      scrollToEndRef,
-    });
-    return React.createElement('div', { ref: viewport }, React.createElement('div', { ref: contentRef }, 'rows'));
-  }
-  const flush = () => React.act(async () => {});
-  const frame = () => React.act(() => new Promise((resolve) => window.requestAnimationFrame(() => resolve())));
-  await React.act(async () => root.render(React.createElement(Harness)));
-  const viewport = document.getElementById('root').firstElementChild;
-  Object.defineProperty(viewport, 'scrollTop', {
-    configurable: true,
-    get: () => native,
-    set: (value) => {
-      writes.push(value);
-      native = Math.min(Math.max(0, value), content - VIEWPORT);
-    },
-  });
-  const release = registerTranscriptScrollGeometry(viewport, {
-    viewportHeight: () => VIEWPORT,
-    contentHeight: () => content,
-    scrollTop: () => native,
-    deviation: () => 0,
-  });
-  pin = createTranscriptEndPin({
-    getVirtualizer: () => instance,
-    getViewport: () => viewport,
-    getSpacer: () => null,
-    getMaxScrollTop: () => content - VIEWPORT,
-    hasReaderGesture: () => follow.hasScrollGesture(),
-    markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
-  });
+  const rig = await mountFollowRig({ sessionKey: 'returning-reader', startedAt: 400_000 });
+  const { React, viewport, VIEWPORT, state, writes, flush, frame, grow, advance } = rig;
   const scroll = (to) => {
-    native = to;
-    return React.act(async () => follow.handleScroll());
+    state.native = to;
+    return React.act(async () => rig.follow.handleScroll());
   };
   const wheel = (deltaY) =>
-    React.act(async () => follow.handleWheel({ deltaY, target: viewport, currentTarget: viewport }));
+    React.act(async () => rig.follow.handleWheel({ deltaY, target: viewport, currentTarget: viewport }));
   const touch = {
     start: (clientY) =>
       React.act(async () =>
-        follow.handleTouchStart({ target: viewport, currentTarget: viewport, touches: [{ clientY }] })
+        rig.follow.handleTouchStart({ target: viewport, currentTarget: viewport, touches: [{ clientY }] })
       ),
     move: (clientY) =>
       React.act(async () =>
-        follow.handleTouchMove({ target: viewport, currentTarget: viewport, touches: [{ clientY }] })
+        rig.follow.handleTouchMove({ target: viewport, currentTarget: viewport, touches: [{ clientY }] })
       ),
-    end: () => React.act(async () => follow.handleTouchEnd()),
+    end: () => React.act(async () => rig.follow.handleTouchEnd()),
     scrollend: () => React.act(async () => viewport.dispatchEvent(new window.Event('scrollend'))),
   };
   /** Time passes with no input: the reader's scroll is over. */
   const idle = async (ms = 1_000) => {
-    now += ms;
+    advance(ms);
     await frame();
     await frame();
-    await flush();
-  };
-  /** A streamed token grows the tail; a following timeline asks for the end. */
-  const grow = async (px) => {
-    content += px;
-    if (instance.options.anchorTo === 'end') pin.request();
     await flush();
   };
   // The reader scrolls 600px up: released.
   await wheel(-100);
-  await scroll(native - 600);
-  assert.equal(follow.followingRef.current, false, 'an upward wheel releases follow');
+  await scroll(state.native - 600);
+  assert.equal(rig.follow.followingRef.current, false, 'an upward wheel releases follow');
   await idle();
   writes.length = 0;
   return {
-    follow,
+    follow: rig.follow,
     writes,
     VIEWPORT,
-    max: () => content - VIEWPORT,
-    native: () => native,
+    max: () => state.content - VIEWPORT,
+    native: () => state.native,
     scroll,
     wheel,
     touch,
     idle,
     grow,
-    async cleanup() {
-      release();
-      Date.now = realNow;
-      await React.act(async () => root.unmount());
-      restore();
-    },
+    cleanup: rig.cleanup,
   };
 }
 

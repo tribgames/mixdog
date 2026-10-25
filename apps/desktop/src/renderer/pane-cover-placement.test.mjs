@@ -1,131 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import React, { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
-
-const PHONE_UA =
-  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
+import { act } from 'react';
+import { installPhonePaneDom, laneSnapshot } from './test-support/phone-pane-dom.mjs';
 
 // The real PaneConversation, Conversation, transcript and composer dock on a
 // phone. Only the stored-session read and the host callbacks are stubbed;
 // animation frames and lane delivery are driven by the test.
 async function phone(t, { strict = false } = {}) {
-  const { dom, root } = installTestDom(t, {
-    html: '<!doctype html><html data-mixdog-mobile-tabs><body><main id="root"></main></body></html>',
-    expose: ['navigator', 'Element', 'HTMLElement', 'MutationObserver'],
-    globals: {
-      ResizeObserver: class {
-        constructor(callback) {
-          this.callback = callback;
-        }
-        observe(target) {
-          const height = target.classList.contains('transcript')
-            ? 800
-            : target.classList.contains('transcript-virtual-row')
-              ? 500
-              : 0;
-          const size = { inlineSize: 412, blockSize: height };
-          this.callback(
-            [{ target, contentRect: { width: 412, height }, borderBoxSize: [size], contentBoxSize: [size] }],
-            this
-          );
-        }
-        unobserve() {}
-        disconnect() {}
-      },
-    },
-    rootId: 'root',
-  });
-  Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, get: () => PHONE_UA });
-  const noop = () => {};
-  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-  const frames = new Map();
-  const origins = new Map();
-  const sampling = new Map();
-  let nextFrame = 1;
-  dom.window.requestAnimationFrame = (callback) => {
-    const id = nextFrame++;
-    frames.set(id, callback);
-    const stack = new Error().stack;
-    origins.set(id, stack.includes('app-snapshot-views.tsx'));
-    sampling.set(id, stack.includes('use-transcript-reveal.ts'));
-    return id;
-  };
-  dom.window.cancelAnimationFrame = (id) => {
-    frames.delete(id);
-  };
-  // Code that calls the bare globals shares the same controlled frames.
-  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame;
-  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame;
-  // Layout the way a 412x915 phone lays the pane out: the viewport is 800px
-  // tall and every virtual row is 500px.
-  const proto = dom.window.HTMLElement.prototype;
-  const space = (element) => element.querySelector?.('.transcript-virtual-space');
-  dom.window.ResizeObserver = globalThis.ResizeObserver;
-  for (const [name, wide] of [
-    ['offsetHeight', 800],
-    ['offsetWidth', 412],
-  ]) {
-    Object.defineProperty(proto, name, {
-      configurable: true,
-      get() {
-        return this.classList.contains('transcript') ? wide : 0;
-      },
-    });
-  }
-  Object.defineProperty(proto, 'clientHeight', {
-    configurable: true,
-    get() {
-      return this.classList.contains('transcript') ? 800 : 0;
-    },
-  });
-  Object.defineProperty(proto, 'scrollHeight', {
-    configurable: true,
-    get() {
-      return this.classList.contains('transcript') ? Number.parseFloat(space(this)?.style.height) || 0 : 0;
-    },
-  });
-  proto.getBoundingClientRect = function getBoundingClientRect() {
-    const height = this.classList.contains('transcript-virtual-row')
-      ? 500
-      : this.classList.contains('transcript')
-        ? 800
-        : 0;
-    return { x: 0, y: 0, top: 0, left: 0, right: 412, bottom: height, width: 412, height, toJSON() {} };
-  };
-  const { PaneConversation } = await import('./app-snapshot-views.tsx');
-  const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+  const { dom, root, element, defaultSessionLaneStore, frames, origins, sampling } = await installPhonePaneDom(t);
   const { rememberTranscriptVirtualMeasurements } = await import('./transcript-virtual-cache.ts');
-  defaultSessionLaneStore.clear();
-  t.after(() => defaultSessionLaneStore.clear());
-  const props = (sessionId) => ({
-    focused: true,
-    hidden: false,
-    sessionId,
-    invokeResult: async (action) => action(),
-    errors: [],
-    submit: async () => undefined,
-    applySnapshot: noop,
-    transitioning: false,
-    composerFocusRequest: 0,
-    onNewTask: noop,
-    onClearProject: noop,
-    onResumeSession: noop,
-    onOpenSessions: noop,
-    onOpenProjects: noop,
-    onOpenSettings: noop,
-    projects: [],
-    showProjectSelector: false,
-    activeProjectPath: '',
-    activeProjectLabel: '',
-    onSelectProject: noop,
-    onOpenCommandSurface: noop,
-    reconcileOnMount: false,
-  });
-  const element = (sessionId) => {
-    const pane = React.createElement(PaneConversation, props(sessionId));
-    return strict ? React.createElement(React.StrictMode, null, pane) : pane;
-  };
   const doc = dom.window.document;
   const api = {
     dom,
@@ -135,7 +18,7 @@ async function phone(t, { strict = false } = {}) {
     // Queued reveal sample frames: they read the list, so none may wait on an unmounted one.
     revealFrames: () => [...frames.keys()].filter((id) => sampling.get(id)).length,
     paneFrames: () => [...frames.keys()].filter((id) => origins.get(id)).length,
-    show: (sessionId) => act(async () => root.render(element(sessionId))),
+    show: (sessionId) => act(async () => root.render(element(sessionId, strict))),
     // One animation frame: every callback queued before it, in order.
     frame: () =>
       act(async () => {
@@ -145,16 +28,7 @@ async function phone(t, { strict = false } = {}) {
       }),
     deliver: (sessionId) =>
       act(async () => {
-        defaultSessionLaneStore.apply({
-          sessionId,
-          snapshot: {
-            sessionId,
-            items: [
-              { kind: 'user', id: 'u', text: `question ${sessionId}` },
-              { kind: 'assistant', id: 'r', text: `answer ${sessionId}` },
-            ],
-          },
-        });
+        defaultSessionLaneStore.apply(laneSnapshot(sessionId));
       }),
     remember: rememberTranscriptVirtualMeasurements,
     // Frames until the loading cover is gone (the reveal bound runs on a clock the test advances).

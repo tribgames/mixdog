@@ -36,7 +36,10 @@ function makeState(currentDeviceId = 'pc') {
     ],
     preferences: {
       pc: prefs(),
-      c1: prefs({ scope: 'bots', quietHours: { enabled: true, start: '23:00', end: '08:00', days: 'every', allowWaiting: false } }),
+      c1: prefs({
+        scope: 'bots',
+        quietHours: { enabled: true, start: '23:00', end: '08:00', days: 'every', allowWaiting: false },
+      }),
       c2: prefs(),
       c3: prefs(),
     },
@@ -80,10 +83,13 @@ const combo = (document, label) => document.querySelector(`button[role="combobox
 const clickEl = (element) => act(async () => element.click());
 async function choose(document, label, option) {
   await clickEl(combo(document, label));
-  await clickEl([...document.querySelectorAll('[role="listbox"] [role="option"]')].find((o) => o.textContent.trim() === option));
+  await clickEl(
+    [...document.querySelectorAll('[role="listbox"] [role="option"]')].find((o) => o.textContent.trim() === option)
+  );
   await settle();
 }
-const groupTitles = (document) => [...document.querySelectorAll('.settings-group > header h3')].map((h) => h.textContent);
+const groupTitles = (document) =>
+  [...document.querySelectorAll('.settings-group > header h3')].map((h) => h.textContent);
 
 test('Notifications sits right after Bots in Basics and shows on this PC and on paired devices', () => {
   const values = SETTINGS_CATEGORIES.map((category) => category.value);
@@ -98,12 +104,7 @@ test('Notifications sits right after Bots in Basics and shows on this PC and on 
 
 test('the panel starts on this PC with every group, and the device picker lists the others', async (t) => {
   const { document } = await mountPanel(t, makeApi());
-  assert.deepEqual(groupTitles(document), [
-    'Conversations to notify',
-    'What to notify',
-    'Quiet hours',
-    'On this PC',
-  ]);
+  assert.deepEqual(groupTitles(document), ['Conversations to notify', 'What to notify', 'Quiet hours', 'On this PC']);
   assert.equal(document.querySelector('.notif-device-button b').textContent, 'This PC');
   await clickEl(document.querySelector('.notif-device-button'));
   const options = [...document.querySelectorAll('.notif-device-list [role="option"]')];
@@ -119,7 +120,11 @@ test('the panel starts on this PC with every group, and the device picker lists 
   assert.equal(options[3].getAttribute('aria-disabled'), 'true');
   assert.match(document.querySelector('.notif-device-head').textContent, /Connected devices/);
   await clickEl(options[3]);
-  assert.equal(document.querySelector('.notif-device-button b').textContent, 'This PC', 'a muted device is not selectable');
+  assert.equal(
+    document.querySelector('.notif-device-button b').textContent,
+    'This PC',
+    'a muted device is not selectable'
+  );
   await clickEl(document.querySelector('.notif-device-list [data-device="c1"]'));
   assert.equal(document.querySelector('.notif-device-button b').textContent, 'Galaxy S24');
   assert.deepEqual(groupTitles(document).slice(-1), ['On this device']);
@@ -188,10 +193,16 @@ test('quiet hours: toggle, 30-minute localized times, days and the waiting excep
   assert.equal(flat(combo(document, 'Quiet hours end').textContent), '8:00 AM');
   await clickEl(checkbox(document, 'Use quiet hours'));
   await clickEl(combo(document, 'Quiet hours start'));
-  const times = [...document.querySelectorAll('[role="listbox"] [role="option"]')].map((o) => flat(o.textContent.trim()));
+  const times = [...document.querySelectorAll('[role="listbox"] [role="option"]')].map((o) =>
+    flat(o.textContent.trim())
+  );
   assert.equal(times.length, 48);
   assert.deepEqual(times.slice(0, 3), ['12:00 AM', '12:30 AM', '1:00 AM']);
-  await clickEl([...document.querySelectorAll('[role="listbox"] [role="option"]')].find((o) => flat(o.textContent.trim()) === '10:30 PM'));
+  await clickEl(
+    [...document.querySelectorAll('[role="listbox"] [role="option"]')].find(
+      (o) => flat(o.textContent.trim()) === '10:30 PM'
+    )
+  );
   await choose(document, 'Quiet hours end', '7:00 AM');
   await choose(document, 'Days', 'Weekdays');
   await clickEl(checkbox(document, 'Still notify questions and approvals'));
@@ -329,7 +340,10 @@ test('a failed older volume save does not undo a newer value', async (t) => {
   await play();
   await move('300');
   await play();
-  assert.deepEqual(saves.map((save) => save.volume), [250, 300]);
+  assert.deepEqual(
+    saves.map((save) => save.volume),
+    [250, 300]
+  );
   await act(async () => saves[0].reject(new Error('no')));
   await settle();
   assert.equal(slider().value, '300', 'the newer edit stays');
@@ -342,14 +356,19 @@ test('the device you are on stays selectable while unregistered, and keeps its r
   const state = makeState('c3');
   const made = makeApi(state);
   made.api.pushPublicKey = async () => 'key';
-  const { document } = await mountPanel(t, made, {}, {
-    globals: { navigator: { serviceWorker: { ready: new Promise(() => {}) }, userAgent: '' } },
-    prepare: (window) => {
-      window.isSecureContext = true;
-      window.Notification = { permission: 'default' };
-      window.PushManager = {};
-    },
-  });
+  const { document } = await mountPanel(
+    t,
+    made,
+    {},
+    {
+      globals: { navigator: { serviceWorker: { ready: new Promise(() => {}) }, userAgent: '' } },
+      prepare: (window) => {
+        window.isSecureContext = true;
+        window.Notification = { permission: 'default' };
+        window.PushManager = {};
+      },
+    }
+  );
   const registration = () => checkbox(document, 'Allow notifications on this device');
   assert.equal(document.querySelector('.notif-device-button b').textContent, 'iPad');
   assert.ok(registration());
@@ -369,9 +388,14 @@ test('a rejected volume save puts the slider back on the saved volume', async (t
   made.api.readSettings = () => Promise.resolve({ notificationVolume: 100 });
   made.api.setNotificationVolume = () => Promise.reject(new Error('no'));
   made.api.previewNotificationSound = () => Promise.resolve('');
-  const { document, window } = await mountPanel(t, made, {}, {
-    globals: { navigator: { userAgent: 'Windows' } },
-  });
+  const { document, window } = await mountPanel(
+    t,
+    made,
+    {},
+    {
+      globals: { navigator: { userAgent: 'Windows' } },
+    }
+  );
   const slider = () => document.querySelector('input[type="range"]');
   assert.equal(slider().value, '100');
   await act(async () => {
@@ -388,7 +412,15 @@ test('a rejected volume save puts the slider back on the saved volume', async (t
 test('the Connection tab summarizes each device and opens Notifications on it', async (t) => {
   const dom = installTestDom(t, DOM);
   const made = makeApi();
-  const device = (id, name) => ({ id, name, platform: 'Android', browser: 'Mixdog App', createdAt: 1, lastSeenAt: 2, online: true });
+  const device = (id, name) => ({
+    id,
+    name,
+    platform: 'Android',
+    browser: 'Mixdog App',
+    createdAt: 1,
+    lastSeenAt: 2,
+    online: true,
+  });
   const info = {
     relayBrowserUrl: 'https://relay.example/d/a/',
     relayBrowserQrSvg: '<svg></svg>',
@@ -406,7 +438,10 @@ test('the Connection tab summarizes each device and opens Notifications on it', 
   );
   await settle();
   const rows = [...dom.document.querySelectorAll('.conn-list .conn-row')];
-  assert.equal(flat(rows[0].querySelector('.conn-notif').textContent), 'Notifications: Bot chats only · Quiet 11:00 PM–8:00 AM');
+  assert.equal(
+    flat(rows[0].querySelector('.conn-notif').textContent),
+    'Notifications: Bot chats only · Quiet 11:00 PM–8:00 AM'
+  );
   assert.equal(rows[1].querySelector('.conn-notif').textContent, 'Notifications: Off');
   const off = rows[2].querySelector('.conn-notif');
   assert.equal(off.textContent, 'Notifications off — allow them on this device');
@@ -418,7 +453,15 @@ test('the Connection tab summarizes each device and opens Notifications on it', 
 
 test('General no longer carries the old task-finished notification group', async (t) => {
   const dom = installTestDom(t, DOM);
-  const context = { api: {}, data: {}, snapshot: null, pending: '', run: async () => undefined, confirm() {}, notice() {} };
+  const context = {
+    api: {},
+    data: {},
+    snapshot: null,
+    pending: '',
+    run: async () => undefined,
+    confirm() {},
+    notice() {},
+  };
   await act(async () => dom.root.render(React.createElement(GeneralPanel, context)));
   assert.equal(dom.document.body.textContent.includes('Notify me when a task finishes'), false);
   assert.equal(dom.document.body.textContent.includes('Notification volume'), false);

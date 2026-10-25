@@ -15,9 +15,7 @@ function mount(t) {
   const runs = [];
   const run = async (name, args) => runs.push([name, args]);
   const render = (data, pending = '') =>
-    act(async () =>
-      root.render(React.createElement(BotsPanel, { data, pending, run, api: dom.window.mixdogDesktop }))
-    );
+    act(async () => root.render(React.createElement(BotsPanel, { data, pending, run, api: dom.window.mixdogDesktop })));
   const switchNamed = (name) => dom.window.document.querySelector(`input[aria-label="${translate(name)}"]`);
   return { render, toggle: () => switchNamed('Reactions'), switchNamed, runs, document: dom.window.document };
 }

@@ -1408,7 +1408,6 @@ for (const width of [900, 412, 360, 300]) {
     });
     if (process.env.ISLAND_SHOT_DIR)
       await page.screenshot({ path: `${process.env.ISLAND_SHOT_DIR}/island-${width}.png` });
-    console.log(width, JSON.stringify(fit));
     assert.equal(fit.agents, 1);
     assert.ok(fit.island[0] <= fit.island[1], `island clipped: ${JSON.stringify(fit)}`);
     assert.ok(fit.pill[0] <= fit.pill[1], `pill clipped: ${JSON.stringify(fit)}`);

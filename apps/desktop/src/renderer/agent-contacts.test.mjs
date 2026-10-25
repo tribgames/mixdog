@@ -431,7 +431,7 @@ test('a contact whose own home turn waits on the user reads attention over runni
 
 // A bot that hands work to a task session ends its own turn while the task
 // runs: the task is still the bot's work, so its row keeps the spinner.
-test("a contact reads running while a task session it created works, and attention while one waits on the user", () => {
+test('a contact reads running while a task session it created works, and attention while one waits on the user', () => {
   const task = (id, overrides = {}) => ({ ...work, id, taskAgent: 'github-watcher', taskFrom: 'home', ...overrides });
   const sessions = [
     home('github-watcher'),
