@@ -21,7 +21,7 @@ import { useEffect, useRef } from 'react';
 
 import type { WorkspaceTab } from './navigation';
 import { openSessionSearch } from './session-search';
-import { modalDialogPresented } from './surface-input-focus';
+import { isTextNavigationTarget, modalDialogPresented } from './surface-input-focus';
 import { toggleToolActivityExpandAll } from './tool-activity-expansion';
 
 interface WorkspaceShortcutActions {
@@ -72,6 +72,7 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
     const resolve = (event: globalThis.KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey;
       const target = event.target as Partial<Element> | null;
+      const inEditor = Boolean(target?.closest?.('.monaco-editor'));
       // Alt+Left/Right walks editor history (VS Code); the browser page and
       // the terminal keep it for their own back/forward and word motion.
       if (
@@ -81,6 +82,9 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
         (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
         !target?.closest?.('.browser-pane, .browser-isolated-view, .xterm')
       ) {
+        // On a Mac, Option+Left/Right is word motion inside text (the app and
+        // a paired browser alike).
+        if (/Mac/i.test(navigator.platform) && (isTextNavigationTarget(event.target) || inEditor)) return null;
         return event.key === 'ArrowLeft'
           ? () => actionsRef.current.navigateBack()
           : () => actionsRef.current.navigateForward();
@@ -88,7 +92,6 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       if (!mod) return null;
       const key = event.key.toLowerCase();
       const plain = !event.shiftKey && !event.altKey;
-      const inEditor = Boolean(target?.closest?.('.monaco-editor'));
       if (plain && event.key.startsWith('Arrow') && inEditor) return null;
       if (!event.altKey && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
         if (inEditor) return null;
