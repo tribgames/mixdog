@@ -24,7 +24,7 @@ import {
 } from 'electron';
 
 import { isSessionId } from './desktop-state';
-import { takeoverGate } from './takeover-gate';
+import { TAKEOVER_EXPIRED_REASON, takeoverGate } from './takeover-gate';
 import {
   allowsTaskbarFlash,
   decideNotification,
@@ -1006,9 +1006,12 @@ function applyComputerObserveOnlySetting(enabled: boolean): void {
 }
 // This PC's daemon drives the PC-wide features: the Browser Use host, the
 // updater and trash requests of paired phones, and the desktop settings.
-// A pending takeover hands this PC to the user: Computer and Browser Use wait.
-// A browser takeover is the one moment the Browser Use panel opens by itself.
-// It opens once human control is ready (the agent's commands stopped and drained).
+// A pending takeover hands the requesting session's page or step to the user:
+// only that session's Browser Use waits (a screen takeover also holds
+// Computer Use, there being one screen). Nobody finishing it, it expires.
+// A browser takeover is the one moment the Browser Use panel opens by itself,
+// on the handed-over page, once human control is ready (the session's
+// commands stopped and drained).
 // A login takeover never reveals the panel: its card opens the sign-in window.
 const browserLogin = createBrowserLoginPopup({
   parent: () => mainWindow,
@@ -1017,17 +1020,41 @@ const browserLogin = createBrowserLoginPopup({
   ready: (sessionId, id) => takeoverGate.ready(sessionId, id),
   settle: (sessionId, id) =>
     localService.resolveToolApprovalForSession(sessionId, id, { approved: true, response: 'done' }),
-  afterSignIn: (sessionId) => browserHost?.reloadAfterSignIn(sessionId),
+  afterSignIn: (sessionId, id) => browserHost?.reloadAfterSignIn(sessionId, id),
+});
+takeoverGate.onExpire((sessionId, id) => {
+  browserHost?.endTakeoverPage(sessionId, '');
+  return localService.resolveToolApprovalForSession(sessionId, id, {
+    approved: false,
+    reason: TAKEOVER_EXPIRED_REASON,
+  });
 });
 unsubscribeTakeovers = localService.subscribeSessionStates((update) => {
   const surface = takeoverGate.onSessionState(update);
   const login = update?.snapshot ? loginTakeoverOf(update.snapshot) : null;
-  if (update?.sessionId && update.snapshot) browserLogin.sync(String(update.sessionId), login);
-  if (surface !== 'browser' || login) return;
+  const approval = (
+    update?.snapshot as
+      | { toolApproval?: { id?: unknown; kind?: unknown; takeover?: { tab?: unknown } | null } | null }
+      | undefined
+  )?.toolApproval;
+  const id = String(approval?.id ?? 'takeover');
+  if (update?.sessionId && update.snapshot) {
+    browserLogin.sync(String(update.sessionId), login);
+    // A settled (or replaced) takeover forgets the page it handed over.
+    browserHost?.endTakeoverPage(String(update.sessionId), approval?.kind === 'takeover' ? id : '');
+  }
+  if (surface !== 'browser') return;
   const sessionId = String(update.sessionId);
-  const approval = (update.snapshot as { toolApproval?: { id?: unknown } | null } | undefined)?.toolApproval;
-  void takeoverGate.ready(sessionId, String(approval?.id ?? 'takeover')).then((ready) => {
-    if (ready) browserHost?.openForTakeover(sessionId);
+  // The handed-over page is fixed as the takeover starts (login or not), so
+  // later tab moves never retarget the handoff or the post-login reload.
+  browserHost?.captureTakeoverPage(
+    sessionId,
+    id,
+    typeof approval?.takeover?.tab === 'string' ? approval.takeover.tab : ''
+  );
+  if (login) return;
+  void takeoverGate.ready(sessionId, id).then((ready) => {
+    if (ready) browserHost?.openForTakeover(sessionId, id);
   });
 });
 unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value }) => {

@@ -86,10 +86,11 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     signal?: AbortSignal,
     userWait?: UserWait
   ): Promise<BrowserCommandResult> {
-    // A pending takeover hands the pages to the user (takeover-gate.ts).
-    // A takeover that starts meanwhile aborts this command and waits for it.
+    // A pending takeover of this session hands its pages to the user
+    // (takeover-gate.ts); one that starts meanwhile aborts this command and
+    // waits for it. Other sessions' takeovers never stop it.
     host.assertNoTakeover?.();
-    const operation = takeoverGate.beginOperation();
+    const operation = takeoverGate.beginOperation(browserSessionId(command.session_id));
     const releases: Array<() => void> = [operation.release];
     try {
       const runSignal = signal ? AbortSignal.any([signal, operation.signal]) : operation.signal;

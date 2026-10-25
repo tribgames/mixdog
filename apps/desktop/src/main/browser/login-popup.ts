@@ -55,8 +55,9 @@ export interface BrowserLoginPopupDeps {
   ready(sessionId: string, id: string): Promise<boolean>;
   /** Settles takeover `id` as done; false when it was already answered. */
   settle(sessionId: string, id: string): Promise<boolean>;
-  /** After a sign-in, before the agent resumes: its page may reload. */
-  afterSignIn?(sessionId: string): Promise<unknown> | unknown;
+  /** After a sign-in, before the agent resumes: the page takeover `id`
+   *  handed over may reload. */
+  afterSignIn?(sessionId: string, id: string): Promise<unknown> | unknown;
   preloadPath?: string;
   autoCloseRules?: readonly LoginAutoCloseRule[];
   autoCloseDelayMs?: number;
@@ -142,7 +143,7 @@ export function createBrowserLoginPopup(deps: BrowserLoginPopupDeps) {
     if (entry.settling || entry.status.state === 'done' || entries.get(entry.sessionId) !== entry) return false;
     entry.settling = true;
     try {
-      await deps.afterSignIn?.(entry.sessionId);
+      await deps.afterSignIn?.(entry.sessionId, entry.offer.id);
     } catch (error) {
       console.warn('[browser-login] reload after sign-in failed:', (error as Error)?.message || error);
     }

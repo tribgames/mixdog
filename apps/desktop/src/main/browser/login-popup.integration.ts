@@ -96,7 +96,7 @@ async function run() {
   popup.sync('s0', null);
 
   // The privacy barrier: no window while an agent command is still in flight.
-  const inFlight = gate.beginOperation();
+  const inFlight = gate.beginOperation('s1');
   popup.sync('s1', { id: 't1', url: `${site.origin}/login`, tab: '' });
   const first = popup.open('s1', 't1');
   takeover('s1', 't1', `${site.origin}/login`);
@@ -111,7 +111,7 @@ async function run() {
   assert.ok(Math.abs(bounds.width - 480) <= 16 && Math.abs(bounds.height - 720) <= 40, JSON.stringify(bounds));
   // No agent observation: Browser Use refuses commands, the site has no CDP
   // client and no Mixdog API, and only the shell holds the window's controls.
-  assert.throws(() => gate.beginOperation(), /taken over/);
+  assert.throws(() => gate.beginOperation('s1'), /taken over/);
   const page = siteContents() as Electron.WebContents;
   assert.equal(page.debugger.isAttached(), false);
   assert.equal(await page.executeJavaScript('typeof window.mixdogBrowserLogin + typeof require'), 'undefinedundefined');

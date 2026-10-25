@@ -89,19 +89,23 @@ test('an approval decision can never carry a secret value', () => {
   assert.throws(() => requiredToolApprovalDecision({ approved: true, editedArgs: { body: 1 } }), /editedArgs/);
 });
 
-test('a pending takeover blocks Computer and Browser Use until it leaves the snapshot', async () => {
+test("a pending screen takeover blocks Computer Use and its session's Browser Use until it leaves the snapshot", async () => {
   const gate = createTakeoverGate();
-  const takeover = (id) => ({ sessionId: 's1', snapshot: { toolApproval: id ? { id, kind: 'takeover' } : null } });
+  const takeover = (id) => ({
+    sessionId: 's1',
+    snapshot: { toolApproval: id ? { id, kind: 'takeover', takeover: { surface: 'computer' } } : null },
+  });
   gate.onSessionState(takeover('t1'));
   await new Promise((resolve) => setImmediate(resolve));
   assert.throws(() => beginComputerOperation(), /blocked/);
-  assert.throws(() => gate.assertFree(), /taken over/);
+  assert.throws(() => gate.assertFree('s1'), /taken over/);
+  gate.assertFree('s2');
   gate.onSessionState(takeover(null));
   await new Promise((resolve) => setImmediate(resolve));
-  gate.assertFree();
+  gate.assertFree('s1');
   beginComputerOperation()();
   gate.onSessionState({ sessionId: 's1', snapshot: { toolApproval: { id: 'a1', kind: 'approval' } } });
-  gate.assertFree();
+  gate.assertFree('s1');
 });
 
 const device = () => {

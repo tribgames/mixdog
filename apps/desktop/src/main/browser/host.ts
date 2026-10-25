@@ -50,6 +50,8 @@ import { createBrowserLocalPageControl } from './local-page-control';
 import { reloadPageAfterSignIn } from './login-takeover';
 import type { BrowserNativeRect } from './native-view';
 import { createNewTabWaiters, type NewTabWatch } from './new-tab-waiters';
+import { createHandedOverPage } from './user-takes-page';
+import { takeoverRevealDetail } from './page-reveal';
 import { reclaimIdleUserSessions } from './page-power';
 import { createBrowserProfileHostMethods } from './profile-host-methods';
 import type { BrowserSignedInSite } from './signed-in-sites';
@@ -87,12 +89,19 @@ export interface BrowserHost {
    *  pane infrastructure stays live either way. */
   setBridgeEnabled(enabled: boolean): void;
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
-  /** A takeover hands the session's page to the user: its panel opens now,
+  /** Takeover `id` starts: the page it hands over (`tab` of the request, else
+   *  the agent's page) is fixed now, whatever tabs move later. */
+  captureTakeoverPage(sessionId: string, id: string, tab: string): void;
+  /** The session's pending takeover is now `current` ('' for none): the
+   *  page recorded for any other one is forgotten. */
+  endTakeoverPage(sessionId: string, current: string): void;
+  /** Takeover `id` hands that page to the user: the panel opens on it now,
    *  the one time Browser Use opens it without a click. */
-  openForTakeover(sessionId: string): void;
-  /** After a sign-in in the login window: the session's page reloads when
-   *  nothing would be lost (login-takeover.ts); true when it did. */
-  reloadAfterSignIn(sessionId: string): Promise<boolean>;
+  openForTakeover(sessionId: string, id: string): void;
+  /** After a sign-in in the login window: the page takeover `id` handed over
+   *  reloads when it still exists and nothing would be lost
+   *  (login-takeover.ts); true when it did. */
+  reloadAfterSignIn(sessionId: string, id: string): Promise<boolean>;
   setGuestActive(sessionId: string, webContentsId: number, active: boolean): void;
   configureGuestViewport(sessionId: string, webContentsId: number, config: DesktopBrowserViewportConfig): Promise<void>;
   browserImportSources(): Promise<BrowserImportSource[]>;
@@ -217,6 +226,17 @@ export function createBrowserHost(
   );
   userReclaimTimer.unref?.();
 
+  // The page a takeover hands over, never merely the panel's selected tab.
+  const handedOver = createHandedOverPage({
+    resolveTab: (sessionId, tab) => shown.tabs.resolveTargetGuest(sessionId, false, tab)?.guest ?? null,
+    agentPage: (sessionId) => sessions.agentPage(sessionId),
+    liveGuest: (sessionId) => sessions.liveGuest(sessionId),
+    owns: (sessionId, guest) => sessions.sessionIdForGuest(guest) === sessionId,
+    selectGuest: (sessionId, guest) => sessions.selectGuest(sessionId, guest),
+    setAgentPage: (sessionId, guest, turn) => sessions.setAgentPage(sessionId, guest, turn),
+    resumeAgentFollow: (sessionId) => sessions.resumeAgentFollow(sessionId),
+  });
+
   const browserHost: BrowserHost = {
     ...createBrowserHostDisplayMethods({
       sessions,
@@ -255,9 +275,23 @@ export function createBrowserHost(
       remoteTabs: shown.remoteTabs,
     }),
     watchNewTab: newTabs.watch,
-    openForTakeover: (sessionId) => lifecycle.requestBrowserSurface(sessionId, 'handoff'),
-    reloadAfterSignIn: (sessionId) => {
-      const guest = sessions.liveGuest(sessionId);
+    captureTakeoverPage: (sessionId, id, tab) => {
+      handedOver.capture(sessionId, id, tab);
+    },
+    endTakeoverPage: (sessionId, current) => handedOver.end(sessionId, current),
+    openForTakeover: (sessionId, id) => {
+      // The request names the handed-over page (never a guessed tab), so a
+      // child session's takeover opens it in the delegating conversation.
+      const guest = handedOver.show(sessionId, id);
+      lifecycle.requestBrowserSurface(
+        sessionId,
+        'handoff',
+        takeoverRevealDetail(guest, (page) => state.pageId(page))
+      );
+    },
+    reloadAfterSignIn: (sessionId, id) => {
+      // Only the handed-over page; gone, nothing reloads in its place.
+      const guest = handedOver.page(sessionId, id);
       return reloadPageAfterSignIn(guest, guest ? state.peek(guest) : undefined);
     },
     ...createBrowserProfileHostMethods({
@@ -296,10 +330,12 @@ export function createBrowserHost(
   const { releaseSession, dispose } = browserHost;
   browserHost.releaseSession = (sessionId, releaseOptions) => {
     newTabs.cancelSession(sessionId);
+    handedOver.forget(sessionId);
     releaseSession(sessionId, releaseOptions);
   };
   browserHost.dispose = () => {
     newTabs.cancelAll();
+    handedOver.dispose();
     return dispose();
   };
   return browserHost;
