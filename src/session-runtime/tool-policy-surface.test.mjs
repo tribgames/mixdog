@@ -104,7 +104,7 @@ test('shared tool rules omit disabled web search and memory routes', () => {
   const pluginRoot = join(process.cwd(), 'src');
   const full = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot });
   // Shared policy is tool policy only; precedence rules live with each role (Lead / agent common).
-  assert.match(full, /^# Tool Calls\s+- Every independent call in the same response/);
+  assert.match(full, /^# Tool Calls\s+- Group calls already known to be needed in one response/);
   assert.doesNotMatch(full, /# General|latest explicit request|Author model-facing/);
   assert.match(full, /`web_search`/);
   assert.match(full, /`memory`/);
