@@ -25,7 +25,13 @@ test('import capabilities take exactly one well-formed object argument', () => {
   assert.throws(() => request('cancelConversationImport', [{}]), TypeError);
 });
 
-test('progress polling publishes only changed snapshots and stops when the job ends', async () => {
+test('progress polling publishes only changed snapshots and stops when the job ends', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // One poll interval of fake time, then the microtask-only poll settles.
+  const pollOnce = async () => {
+    t.mock.timers.tick(5);
+    await new Promise((resolve) => setImmediate(resolve));
+  };
   const published = [];
   let state = { jobId: 'j', seq: 1, state: 'running', processed: 0 };
   const progress = createConversationImportProgress({
@@ -34,18 +40,18 @@ test('progress polling publishes only changed snapshots and stops when the job e
     intervalMs: 5,
   });
   progress.observe('startConversationImport', state);
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await pollOnce();
   assert.deepEqual(published, [['conversation-import-progress', 1]]);
   state = { ...state, seq: 2, processed: 1 };
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await pollOnce();
   state = { ...state, seq: 3, state: 'completed', processed: 2 };
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await pollOnce();
   assert.deepEqual(
     published.map(([, seq]) => seq),
     [1, 2, 3]
   );
   const count = published.length;
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await pollOnce();
   assert.equal(published.length, count);
   progress.dispose();
 });

@@ -4,6 +4,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { DESKTOP_IPC } from '../../shared/contract.ts';
+import { waitUntil } from '../bounded-wait.mjs';
 import { ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
 import { registerDesktopIpc } from '../ipc.ts';
 import {
@@ -196,7 +197,12 @@ test('service events and snapshots reach only their connection windows', async (
 
   f.server.service.publishEvent('terminal-data', { id: 'term-1', data: 'server output' });
   f.server.service.publishEvent('folder-changed', '/srv/repo');
-  await delay(30);
+  await waitUntil(
+    () =>
+      channels(f.server.sent, DESKTOP_IPC.termData).length > 0 &&
+      channels(f.server.sent, DESKTOP_IPC.folderChanged).length > 0,
+    'the server window to receive its terminal and folder events'
+  );
   assert.deepEqual(
     channels(f.server.sent, DESKTOP_IPC.termData).map((event) => event.data),
     ['server output']
@@ -346,7 +352,7 @@ test('a close cancels an open that has not attached or shown yet, and a reopen w
 
   // Closed while attaching: the attachment is disposed, no window is shown.
   const attaching = f.manager.open(spec);
-  await delay(5);
+  await waitUntil(() => f.created.length > 0, 'the open to start attaching');
   assert.equal(f.created.length, 1);
   await f.manager.close('srv-9');
   await assert.rejects(attaching, /connection-closed/);
@@ -356,7 +362,7 @@ test('a close cancels an open that has not attached or shown yet, and a reopen w
 
   // Closed while its window was being built: that window is closed again.
   const showing = f.manager.open(spec);
-  while (f.shown.length === 0) await delay(2);
+  await waitUntil(() => f.shown.length > 0, 'the window to be shown');
   await f.manager.close('srv-9');
   await assert.rejects(showing, /connection-closed/);
   assert.equal(f.created[1].disposed, 1);
@@ -377,7 +383,7 @@ test('closeAll cancels queued and attaching opens', async () => {
   const a = { id: 'srv-10', name: 'A', target: 'root@127.0.0.1:2223' };
   const b = { id: 'srv-11', name: 'B', target: 'root@127.0.0.1:2224' };
   const attaching = f.manager.open(a);
-  await delay(5);
+  await waitUntil(() => f.created.length > 0, 'the first open to start attaching');
   const queued = f.manager.open(b);
   await f.manager.closeAll();
   const results = await Promise.allSettled([attaching, queued]);

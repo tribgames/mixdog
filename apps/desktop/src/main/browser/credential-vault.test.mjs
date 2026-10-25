@@ -22,12 +22,6 @@ const {
   CredentialVault,
   maskedCredentialLabel,
   secureOrigin,
-  upsertVaultLogin,
-  vaultAccountsFor,
-  listVaultLogins,
-  updateVaultLogin,
-  deleteVaultLogin,
-  pauseVaultOrigin,
 } = await import('./credential-vault.ts');
 const { VAULT_FILE_NAME } = await import('./credential-vault.ts');
 
@@ -39,12 +33,6 @@ function makeVault(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return { dir, vault: new CredentialVault({ userDataDirectory: dir, seal, unseal }) };
 }
-
-test('the contract exports exist as functions', () => {
-  for (const fn of [upsertVaultLogin, vaultAccountsFor, listVaultLogins, updateVaultLogin, deleteVaultLogin, pauseVaultOrigin]) {
-    assert.equal(typeof fn, 'function');
-  }
-});
 
 test('upsert then list shows the login without its secrets, and accountsFor is masked', async (t) => {
   const { vault } = makeVault(t);
@@ -219,9 +207,11 @@ test('an existing vault written in the old format still opens', async (t) => {
 test('auto sign-in ranks accounts: the identifier prefilled on the page, then the last used, then the latest saved', async (t) => {
   const { vault } = makeVault(t);
   const origin = 'https://shop.example.com';
+  // A fake clock gives each save its own timestamp, so "latest saved" is unambiguous.
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
   for (const username of ['first@example.com', 'second@example.com', 'third@example.com']) {
     await vault.upsert({ origin, username, password: `pw-${username}`, source: 'chat' });
-    await new Promise((resolve) => setTimeout(resolve, 3));
+    t.mock.timers.tick(3);
   }
   const labels = async (prefilled) => (await vault.preferredAccountsFor(origin, prefilled)).map((entry) => entry.label);
   const ids = Object.fromEntries((await vault.list()).map((login) => [login.username, login.id]));

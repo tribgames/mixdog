@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { JSDOM } from 'jsdom';
 
+import { waitUntil } from '../bounded-wait.mjs';
 import {
   createBrowserAutoSignIn,
   SAVED_SIGN_IN_DONE,
@@ -139,7 +140,7 @@ const later = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const handedOff = (reply) => reply.text.startsWith(`${SAVED_SIGN_IN_NEEDS_USER}shop.example.com:`);
 const signedIn = (reply) => reply.text.startsWith(`${SAVED_SIGN_IN_DONE}shop.example.com`);
 
-test('no widget and an already solved one each take exactly one fill and one submit', async () => {
+test('no widget and an already solved one each take exactly one fill and one submit', async (t) => {
   const none = fixture();
   assert.ok(signedIn(await none.run()));
   assert.equal(none.calls.fills, 1);
@@ -148,11 +149,15 @@ test('no widget and an already solved one each take exactly one fill and one sub
 
   const solved = fixture();
   solved.page.check = 'solved';
-  const started = Date.now();
-  assert.ok(signedIn(await solved.run()));
+  // Fake timers that never advance: a wait for the token would never end.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let reply;
+  const running = solved.run().then((value) => (reply = value));
+  await waitUntil(() => reply, 'an already-solved check to sign in without any time passing', { timeoutMs: 2_000 });
+  await running;
+  assert.ok(signedIn(reply));
   assert.equal(solved.calls.fills, 1);
   assert.equal(solved.calls.submits, 1);
-  assert.ok(Date.now() - started < 25, 'no wait for a token that is already there');
 });
 
 test('an empty token holds fill and submit until it appears, then signs in once', async () => {

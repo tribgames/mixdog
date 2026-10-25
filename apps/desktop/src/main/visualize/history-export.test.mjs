@@ -11,6 +11,8 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { waitUntil } from '../bounded-wait.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -716,9 +718,11 @@ test('an export result and its errors carry no host path', async () => {
   assert.match(error.message, /cannot render/);
 });
 
-test('an export past the host deadline aborts the render and writes no file', async () => {
+test('an export past the host deadline aborts the render and writes no file', async (t) => {
   const cwd = project();
   writeFileSync(join(cwd, 'page.html'), '<h1>x</h1>');
+  const turn = () => new Promise((resolve) => setImmediate(resolve));
+  const until = (ready) => waitUntil(ready, 'the export render to start');
 
   // A render that honours the abort (the real one destroys its window).
   let signalSeen;
@@ -730,29 +734,42 @@ test('an export past the host deadline aborts the render and writes no file', as
         options.signal.addEventListener('abort', () => reject(new Error('cancelled')));
       }),
   });
+  // A render that ignores the abort and finishes only when released, after the deadline.
+  let release;
+  const stubborn = exportSetup(cwd, {
+    exportDeadlineMs: 30,
+    renderExport: () =>
+      new Promise((resolve) => {
+        release = () => resolve({ data: pngBytes(), problems: [] });
+      }),
+  });
   await honouring.open({ targets: ['page.html'] });
-  await assert.rejects(
+  await stubborn.open({ targets: ['page.html'] });
+
+  // The deadline is the export's own timer: fake time passes it exactly.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const slow = assert.rejects(
     honouring.run({ tab: 'v1', format: 'png', output: 'design/slow.png' }),
     /export timed out after 0s; no file was written/
   );
+  await until(() => signalSeen);
+  t.mock.timers.tick(30);
+  await slow;
   assert.equal(signalSeen.aborted, true);
   assert.equal(existsSync(join(cwd, 'design', 'slow.png')), false);
 
-  // A render that ignores the abort and finishes late still writes nothing.
-  const stubborn = exportSetup(cwd, {
-    exportDeadlineMs: 30,
-    renderExport: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      return { data: pngBytes(), problems: [] };
-    },
-  });
-  await stubborn.open({ targets: ['page.html'] });
-  await assert.rejects(stubborn.run({ tab: 'v1', format: 'png', output: 'design/late.png' }), /timed out/);
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  const late = assert.rejects(stubborn.run({ tab: 'v1', format: 'png', output: 'design/late.png' }), /timed out/);
+  await until(() => release);
+  t.mock.timers.tick(30);
+  await late;
+  release();
+  await turn();
+  await readdir(cwd); // a real I/O round trip: a late write would have started by now
   assert.equal(existsSync(join(cwd, 'design', 'late.png')), false);
   assert.deepEqual(existsSync(join(cwd, 'design')) ? readdirSync(join(cwd, 'design')) : [], []);
 
   // Within the deadline the file is written.
+  t.mock.timers.reset();
   const quick = exportSetup(cwd, { exportDeadlineMs: 5000 });
   await quick.open({ targets: ['page.html'] });
   await quick.run({ tab: 'v1', format: 'png', output: 'design/ok.png' });

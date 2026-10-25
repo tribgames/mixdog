@@ -29,15 +29,26 @@ test('cursor renders no labels, and movement does not announce a click', () => {
   }
 });
 
-test('ongoing input stays visible in both delivery modes until its lifecycle changes', async () => {
+test('ongoing input stays visible in both delivery modes until its lifecycle changes', () => {
   const views = ['background', 'foreground'].map((mode) => {
     const dom = new JSDOM(cursorHtml(), { runScripts: 'outside-only' });
+    // Page timers queue instead of running; advancing time fires every one due within the window.
+    const queued = [];
+    const schedule = (callback, ms = 0) => queued.push({ callback, ms });
+    dom.window.setTimeout = schedule;
+    dom.window.requestAnimationFrame = (callback) => schedule(callback, 16);
     dom.window.eval(cursorScript());
     dom.window.mixdogAgentCursor({ mode, effect: 'type' });
-    return { dom, mode };
+    return { dom, mode, queued };
   });
   try {
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    // 1,100 ms of page time passes: a delayed auto-hide scheduled by the script would fire now.
+    for (const { queued } of views) {
+      while (queued.length) {
+        const { callback, ms } = queued.shift();
+        if (ms <= 1_100) callback();
+      }
+    }
     for (const { dom, mode } of views) {
       const surface = dom.window.document.getElementById('surface');
       assert.ok(surface.classList.contains('visible'), `${mode} hid an ongoing input`);

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { EventEmitter } from 'node:events';
 
+import { waitUntil } from '../bounded-wait.mjs';
 import { decideBrowserApproval, requestBrowserApproval, setBrowserApprovalHooks } from './approval-dialog.ts';
 import { approvalSurfaceSessionId, createApprovalRequesterResolver, ownBotOfSession } from './approval-requester.ts';
 import { desktopSessionSummaries } from '../desktop-state.ts';
@@ -161,7 +162,7 @@ test("a group-room member is its bot like the home chat; its sub-agents are no b
       surfaceSessionId: (sessionId) => approvalSurfaceSessionId(sessionId, room),
     });
     const own = requestBrowserApproval(window, ask(member));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitUntil(() => sent.length > 0, 'the approval card to be sent');
     assert.deepEqual(sent[0].remember, { kinds: ['submit'] }, 'the seat offers "always allow"');
     assert.equal(sent[0].agentId, 'agent-12c3dee5bf');
     assert.equal(sent[0].surfaceSessionId, logId);
@@ -221,7 +222,7 @@ test('only a bot own session asks; a coding Lead, any sub-agent and a task sessi
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(audits, [['agent-12c3dee5bf', ['browser_upload'], 'remembered']]);
     const own = requestBrowserApproval(window, ask('sess_home_agent-12c3dee5bf', ['submit']));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitUntil(() => sent.length > 0, 'the approval card to be sent');
     assert.deepEqual(sent[0].remember, { kinds: ['submit'] });
     decideBrowserApproval(contents, sent[0].id, 'always');
     assert.equal(await own, true);

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
+import { waitUntil } from '../bounded-wait.mjs';
 import { exportTabBytes } from './host-export-path.ts';
 import { capturedPng, captureWindowRect, htmlFrames, paneFrames, windowAccess } from './host-frames.ts';
 import { watchFile } from './host-file-watch.ts';
@@ -59,17 +60,31 @@ test('watchFile reports changes of the watched file only and stops after dispose
     const stop = watchFile(join(dir, 'a.html'), () => {
       changes += 1;
     });
+    // A sentinel watcher on the file written last proves the earlier event
+    // would already have been delivered, so "nothing happened" is observed.
+    const sentinel = (name) => {
+      const seen = { count: 0 };
+      const stopSentinel = watchFile(join(dir, name), () => {
+        seen.count += 1;
+      });
+      return { seen, stopSentinel };
+    };
+    const until = (ready) => waitUntil(ready, 'the file watcher to report', { pollMs: 10 });
+    const b = sentinel('b.html');
     await writeFile(join(dir, 'b.html'), 'x');
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await until(() => b.seen.count >= 1);
     assert.equal(changes, 0);
     await writeFile(join(dir, 'a.html'), 'x');
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.ok(changes >= 1);
+    await until(() => changes >= 1);
     stop();
     const before = changes;
+    const c = sentinel('c.html');
     await writeFile(join(dir, 'a.html'), 'y');
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await writeFile(join(dir, 'c.html'), 'x');
+    await until(() => c.seen.count >= 1);
     assert.equal(changes, before);
+    b.stopSentinel();
+    c.stopSentinel();
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

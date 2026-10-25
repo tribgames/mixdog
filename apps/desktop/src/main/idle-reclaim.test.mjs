@@ -123,19 +123,25 @@ test('purge never touches the debugger', async () => {
 });
 
 test('purge survives a document that went away mid-navigation', async () => {
+  let attempts = 0;
   await purgeRendererMemory({
     isDestroyed: () => false,
     executeJavaScript: async () => {
+      attempts += 1;
       throw new Error('document is gone');
     },
   });
+  assert.equal(attempts, 1);
 });
 
 test('purge skips a destroyed window', async () => {
+  let attempts = 0;
   await purgeRendererMemory({
     isDestroyed: () => true,
     executeJavaScript: async () => {
+      attempts += 1;
       throw new Error('unreachable');
     },
   });
+  assert.equal(attempts, 0);
 });

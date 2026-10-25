@@ -72,7 +72,7 @@ test('a save issued before restore finishes waits and never wipes the stored sig
     });
     const restoring = store.restore();
     const saving = store.save();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal((await readFile(store.file)).length > 0, true, 'file survives while restore is pending');
     releaseSet();
     assert.equal(await restoring, 1);

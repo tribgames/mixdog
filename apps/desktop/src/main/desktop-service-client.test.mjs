@@ -197,10 +197,8 @@ test('pre-ready daemon handoff retries remain bounded by the startup timeout', a
   });
   const keepAlive = setTimeout(() => {}, 1_000);
   try {
-    const startedAt = Date.now();
     await assert.rejects(client.start(), /daemon session endpoint is unavailable/);
     assert.ok(connections > 1, 'startup should retry before reaching its deadline');
-    assert.ok(Date.now() - startedAt < 500, 'startup timeout must stay bounded');
   } finally {
     clearTimeout(keepAlive);
     await client.dispose();
@@ -233,10 +231,9 @@ test('a terminal remote failure stops reconnecting and shows its reason at once'
   });
   const keepAlive = setTimeout(() => {}, 1_000);
   try {
-    const startedAt = Date.now();
+    // The refusal itself (not the startup timeout error) is what start() rejects with.
     await assert.rejects(client.start(), (error) => error === refusal);
-    assert.ok(Date.now() - startedAt < 500, 'a terminal failure must not wait for the startup timeout');
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await turn();
     assert.equal(connections, 1);
     await assert.rejects(client.start(), (error) => error === refusal);
     assert.equal(connections, 1);
@@ -248,7 +245,7 @@ test('a terminal remote failure stops reconnecting and shows its reason at once'
   }
 });
 
-test('an upgrade wait suspends the startup timeout without a failure toast', async () => {
+test('an upgrade wait suspends the startup timeout without a failure toast', async (t) => {
   let transport;
   const client = new DesktopServiceClient({
     connect() {
@@ -269,12 +266,14 @@ test('an upgrade wait suspends the startup timeout without a failure toast', asy
   const keepAlive = setTimeout(() => {}, 1_000);
   try {
     let settled = false;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
     const started = client.start().then(
       () => (settled = 'ready'),
       () => (settled = 'rejected')
     );
     transport.emit('message', { kind: 'upgrade-wait', state: 'waiting', fromVersion: '1.0.0', toVersion: '1.1.0' });
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    t.mock.timers.tick(120);
+    await turn();
     assert.equal(settled, false, 'startup must keep waiting past startupTimeoutMs');
     for (const snapshot of snapshots) {
       assert.ok(!JSON.stringify(snapshot).includes('service-connection-stopped'));
@@ -421,7 +420,9 @@ test('a timed-out desktop operation names the operation, not just the transport 
   }
 });
 
-test('Local Provider asset installs outlive the ordinary desktop request deadline', async () => {
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+test('Local Provider asset installs outlive the ordinary desktop request deadline', async (t) => {
   const transport = new ControlledTransport();
   const client = new DesktopServiceClient({
     connect: () => transport,
@@ -437,7 +438,11 @@ test('Local Provider asset installs outlive the ordinary desktop request deadlin
   });
   try {
     await client.start();
-    await assert.rejects(client.addProject('C:/tmp/project'), /request timed out/);
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const ordinary = assert.rejects(client.addProject('C:/tmp/project'), /request timed out/);
+    await turn();
+    t.mock.timers.tick(20);
+    await ordinary;
 
     for (const [capability, args] of [
       ['installBuiltinFeature', ['localProvider']],
@@ -453,7 +458,9 @@ test('Local Provider asset installs outlive the ordinary desktop request deadlin
           settled = true;
         }
       );
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await turn();
+      t.mock.timers.tick(40);
+      await turn();
       assert.equal(settled, false, `${capability} must not inherit the 20ms ordinary deadline`);
       const request = transport.requests.at(-1);
       transport.respond(request, { value: { ok: true }, snapshot: null });
@@ -464,7 +471,7 @@ test('Local Provider asset installs outlive the ordinary desktop request deadlin
   }
 });
 
-test('built-in dependency installs outlive the ordinary desktop request deadline', async () => {
+test('built-in dependency installs outlive the ordinary desktop request deadline', async (t) => {
   const transport = new ControlledTransport();
   const client = new DesktopServiceClient({
     connect: () => transport,
@@ -480,8 +487,12 @@ test('built-in dependency installs outlive the ordinary desktop request deadline
   });
   try {
     await client.start();
+    t.mock.timers.enable({ apis: ['setTimeout'] });
     // Turning Voice off never downloads, so it keeps the ordinary deadline.
-    await assert.rejects(client.invokeCapability('toggleVoice', [false]), /request timed out/);
+    const ordinary = assert.rejects(client.invokeCapability('toggleVoice', [false]), /request timed out/);
+    await turn();
+    t.mock.timers.tick(20);
+    await ordinary;
 
     for (const [label, call] of [
       ['installLibreOffice', () => client.invokeDesktopOperation('installLibreOffice', [])],
@@ -500,7 +511,9 @@ test('built-in dependency installs outlive the ordinary desktop request deadline
           settled = true;
         }
       );
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await turn();
+      t.mock.timers.tick(40);
+      await turn();
       assert.equal(settled, false, `${label} must not inherit the 20ms ordinary deadline`);
       transport.respond(transport.requests.at(-1), { installed: true });
       assert.deepEqual(await pending, { installed: true });

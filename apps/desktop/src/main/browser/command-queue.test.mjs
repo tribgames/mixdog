@@ -168,7 +168,10 @@ test('local takeover and tab-less automation share the selected support page que
   }
 });
 
-test('hover yields to automation, and a held human pointer excludes agent edits until release and idle', async () => {
+test('hover yields to automation, and a held human pointer excludes agent edits until release and idle', async (t) => {
+  // The queue stamps local input with performance.now(); a fake clock passes the quiet window.
+  let clock = 1_000;
+  t.mock.method(performance, 'now', () => clock);
   let finish;
   let entered;
   const started = new Promise((resolve) => {
@@ -198,11 +201,11 @@ test('hover yields to automation, and a held human pointer excludes agent edits 
     await agent;
   }
   await queue.executeLocal(command, async () => {}, { takeover: true, held: true });
-  await new Promise((resolve) => setTimeout(resolve, 1_050));
+  clock += 1_050;
   await assert.rejects(queue.executeSerialized({ action: 'click' }), /local user input/);
   await queue.executeLocal(command, async () => {}, { takeover: true, held: false });
   await assert.rejects(queue.executeSerialized({ action: 'click' }), /local user input/);
-  await new Promise((resolve) => setTimeout(resolve, 1_050));
+  clock += 1_050;
   await queue.executeSerialized({ action: 'snapshot' });
 });
 
@@ -286,7 +289,8 @@ test('local admission expires behind an agent without dispatching later or relea
   }
 });
 
-test('an admission deadline does not cancel an edit after dispatch has started', async () => {
+test('an admission deadline does not cancel an edit after dispatch has started', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const controller = new AbortController();
   let started;
   const entered = new Promise((resolve) => {
@@ -318,7 +322,7 @@ test('an admission deadline does not cancel an edit after dispatch has started',
   );
   try {
     await entered;
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    t.mock.timers.tick(25);
     assert.equal(dispatchSignal.aborted, false);
   } finally {
     release();

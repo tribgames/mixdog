@@ -3,6 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
 import { EventEmitter } from 'node:events';
+import { waitUntil } from '../bounded-wait.mjs';
 import {
   BROWSER_OBSERVATION_REVISION,
   browserDocumentChanged,
@@ -19,6 +20,7 @@ function checkpointFixture(frames, checkpointDeadlineMs = 120, { sessions = new 
   const evaluations = [];
   const port = new EventEmitter();
   const ids = [];
+  const timersDone = [];
   const add = (id, timers) => {
     if (!ids.includes(id)) ids.push(id);
     const { window } = new JSDOM('<!doctype html>', { runScripts: 'outside-only' });
@@ -31,8 +33,17 @@ function checkpointFixture(frames, checkpointDeadlineMs = 120, { sessions = new 
       window.setTimeout = (callback) => window.__held.push(callback);
       window.requestAnimationFrame = (callback) => window.__held.push(callback);
     } else if (typeof timers === 'number') {
-      window.setTimeout = (callback) => globalThis.setTimeout(callback, timers);
-      window.requestAnimationFrame = (callback) => globalThis.setTimeout(callback, timers);
+      const later = (callback) =>
+        void timersDone.push(
+          new Promise((resolve) =>
+            globalThis.setTimeout(() => {
+              callback();
+              resolve();
+            }, timers)
+          )
+        );
+      window.setTimeout = later;
+      window.requestAnimationFrame = later;
     }
     windows.set(id, window);
   };
@@ -67,6 +78,8 @@ function checkpointFixture(frames, checkpointDeadlineMs = 120, { sessions = new 
     evaluations,
     marks,
     windows,
+    /** Resolves once every page timer scheduled so far has fired. */
+    firedTimers: () => Promise.all(timersDone),
     // A navigation keeps the frame id but replaces its document and context.
     navigate(id, timers) {
       generations.set(id, (generations.get(id) || 0) + 1);
@@ -94,12 +107,30 @@ test('the render checkpoint waits for a slow frame and confirms every frame', as
   );
 });
 
-test('a frame that never runs timers is skipped at the deadline and reported unconfirmed', async () => {
-  const { documents } = checkpointFixture({ top: 'normal', sandboxed: 'blocked' });
-  const startedAt = Date.now();
-  assert.equal(await documents.renderCheckpoint(new EventEmitter(), false), false);
-  const elapsed = Date.now() - startedAt;
-  assert.ok(elapsed >= 100 && elapsed < 1_000, `finished near the deadline, took ${elapsed}ms`);
+/** AbortSignal.timeout is not covered by fake timers: hand the checkpoint signals the test expires itself. */
+function controlledTimeouts(t) {
+  const requested = [];
+  t.mock.method(AbortSignal, 'timeout', (ms) => {
+    const controller = new AbortController();
+    requested.push({
+      ms,
+      expire: () => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+    });
+    return controller.signal;
+  });
+  return requested;
+}
+
+test('a frame that never runs timers is skipped at the deadline and reported unconfirmed', async (t) => {
+  const timeouts = controlledTimeouts(t);
+  const { documents, evaluations } = checkpointFixture({ top: 'normal', sandboxed: 'blocked' });
+  const checkpoint = documents.renderCheckpoint(new EventEmitter(), false);
+  const blockedReads = () => evaluations.filter(({ frame }) => frame === 'sandboxed').length;
+  await waitUntil(() => blockedReads() >= 3, 'the blocked frame to be polled while pending');
+  const deadlines = timeouts.filter(({ ms }) => ms === 120);
+  assert.equal(deadlines.length, 1, 'one deadline, of the configured 120 ms');
+  deadlines[0].expire();
+  assert.equal(await checkpoint, false);
   // The healthy frame's marker was consumed and a later checkpoint is independent.
   const { documents: healthy } = checkpointFixture({ top: 'normal', second: 'normal' });
   assert.equal(await healthy.renderCheckpoint(new EventEmitter(), true), true);
@@ -145,7 +176,7 @@ test('markers are cleared when a checkpoint ends at its deadline or is cancelled
   const slow = checkpointFixture({ top: 'normal', slow: 300 }, 100);
   assert.equal(await slow.documents.renderCheckpoint(guestFor(), false), false);
   assert.ok(noMarks(slow.marks()), 'deadline clears every marker');
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  await slow.firedTimers();
   assert.ok(noMarks(slow.marks()), 'a timer firing after the checkpoint ended is a no-op');
 
   const blocked = checkpointFixture({ top: 'blocked' }, 5_000);
@@ -263,19 +294,23 @@ test('a navigation that keeps the frame id gets its new document checkpointed, n
   assert.ok(healthy.evaluations.some(({ context, value }) => context === 'top#1' && value === true));
 });
 
-test('a child target that never becomes ready cannot hold the checkpoint past its deadline or cleanup bound', async () => {
+test('a child target that never becomes ready cannot hold the checkpoint past its deadline or cleanup bound', async (t) => {
+  const timeouts = controlledTimeouts(t);
   let becomeReady;
   const ready = new Promise((resolve) => {
     becomeReady = resolve;
   });
   const sessions = new Map([['oop', { type: 'iframe', frameId: 'oop', ready }]]);
   const f = checkpointFixture({ top: 'normal', oop: 'normal' }, 20, { sessions });
-  const startedAt = Date.now();
   const keepAlive = setInterval(() => {}, 50); // AbortSignal.timeout does not hold the event loop open
-  assert.equal(await f.documents.renderCheckpoint(guestFor(), false), false);
+  const checkpoint = f.documents.renderCheckpoint(guestFor(), false);
+  await waitUntil(() => timeouts.some(({ ms }) => ms === 20), 'the checkpoint deadline to be armed');
+  timeouts.find(({ ms }) => ms === 20).expire();
+  // Past the deadline only the 500 ms cleanup bound can still hold it.
+  await waitUntil(() => timeouts.some(({ ms }) => ms === 500), 'the cleanup bound to be armed');
+  timeouts.find(({ ms }) => ms === 500).expire();
+  assert.equal(await checkpoint, false);
   clearInterval(keepAlive);
-  const elapsed = Date.now() - startedAt;
-  assert.ok(elapsed < 900, `deadline and 500ms cleanup bound were exceeded: ${elapsed}ms`);
   // Only this wait was cancelled: the shared initialization still completes for later observations.
   becomeReady();
   const later = checkpointFixture({ top: 'normal', oop: 'normal' }, 1_000, { sessions });

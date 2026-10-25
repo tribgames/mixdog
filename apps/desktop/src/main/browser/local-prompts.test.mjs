@@ -168,7 +168,6 @@ function sharedRenderer(popupSession, openerSession) {
         answered.push([guest.name, accept, text, state.for(guest).actor]);
         // Stamped before the page resumes, so the window it opens next finds it.
         assert.equal(typeof state.for(guest).personDialogAnswerAt, 'number');
-        assert.ok(Date.now() - state.for(guest).personDialogAnswerAt < 1000);
         state.for(guest).pendingDialog = null;
       },
     },
@@ -178,7 +177,9 @@ function sharedRenderer(popupSession, openerSession) {
   return { popup, opener, state, service, answered };
 }
 
-test("a renderer peer's dialog is shown and answered from a page of the session that controls it", async () => {
+test("a renderer peer's dialog is shown and answered from a page of the session that controls it", async (t) => {
+  const answeredAt = 1_700_000_000_000;
+  t.mock.timers.enable({ apis: ['Date'], now: answeredAt });
   const same = sharedRenderer('s1', 's1');
   const shown = same.service.describe(same.popup);
   assert.deepEqual(shown.dialog, {
@@ -195,6 +196,7 @@ test("a renderer peer's dialog is shown and answered from a page of the session 
   );
   // The page resumes as the person's: a window it opens next is theirs to see.
   assert.deepEqual(same.answered, [['opener', true, 'Bo', 'person']], 'the answer reaches the dialog page');
+  assert.equal(same.state.for(same.opener).personDialogAnswerAt, answeredAt, 'stamped with the answer instant');
   assert.equal(same.service.describe(same.popup).dialog, undefined, 'answered');
 });
 

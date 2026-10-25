@@ -227,7 +227,7 @@ test('concurrent first connects of one server are serialized: the second never s
   await untilOpening(s);
   const second = s.connectTo('root@race.example.com', { settings: { identityFile: '~/.ssh/untested' } });
   // The second waits for the first instead of opening (the manager would reuse the first connection).
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(opens(s).length, 1);
   release();
   const [a, b] = await Promise.all([first, second]);
@@ -467,7 +467,7 @@ test('an attempt cancelled while queued behind another on the same server pins a
   const running = s.invokeFrom(s.win, 'sshConnect', { attemptId: first.attemptId });
   await untilOpening(s);
   const queued = s.invokeFrom(s.other, 'sshConnect', { attemptId: second.attemptId, trustHostKey: true });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setImmediate(resolve));
   await s.invokeFrom(s.other, 'sshCancel', second.attemptId);
   release.resolve();
   const [done, cancelled] = await Promise.all([running, queued]);

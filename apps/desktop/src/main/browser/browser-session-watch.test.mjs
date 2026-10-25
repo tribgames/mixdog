@@ -3,7 +3,8 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { watchBrowserSessionCookies } from './browser-session-store.ts';
 
-test('a sign-in is written within the debounce: session cookies sealed, persistent ones flushed', async () => {
+test('a sign-in is written within the debounce: session cookies sealed, persistent ones flushed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const cookies = new EventEmitter();
   let saves = 0;
   let flushes = 0;
@@ -13,7 +14,11 @@ test('a sign-in is written within the debounce: session cookies sealed, persiste
     { flushStore: async () => void flushes++ },
     10
   );
-  const wait = () => new Promise((resolve) => setTimeout(resolve, 30));
+  // The debounce is 10 ms of fake time; the async saves then settle in microtasks.
+  const wait = async () => {
+    t.mock.timers.tick(10);
+    await new Promise((resolve) => setImmediate(resolve));
+  };
   cookies.emit('changed', {}, { name: 'remember', session: false }, 'explicit', false);
   await wait();
   assert.deepEqual([saves, flushes], [0, 1], 'a persistent cookie needs only the profile flush');

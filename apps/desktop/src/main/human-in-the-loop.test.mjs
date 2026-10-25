@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { waitUntil } from './bounded-wait.mjs';
 import { decryptNativePush } from '../shared/native-push-crypto.ts';
 import { sessionAttention } from '../shared/session-attention.ts';
 import { createNotificationPreferencesStore, notificationPreferencesPath } from './notification-preferences.ts';
@@ -374,7 +375,7 @@ const device = () => {
   ecdh.generateKeys();
   return { privateKey: ecdh.getPrivateKey(), publicKey: ecdh.getPublicKey().toString('base64url') };
 };
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const until = (ready) => waitUntil(ready, 'the push to be sent');
 
 function preferencesIn(t) {
   const dir = mkdtempSync(join(tmpdir(), 'mute-'));
@@ -417,7 +418,7 @@ function notifier(t, preferences) {
 test('a held request push says only that the agent waits — no tool, arguments or text', async (t) => {
   const f = notifier(t, preferencesIn(t).store);
   f.instance.onHeldRequest({ sessionId: 'sess_home_reviewer', agentName: '리뷰어', requestId: 'held_1' });
-  await settle();
+  await until(() => f.sent.length >= 1);
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent[0].body, '리뷰어가 승인을 기다립니다');
   assert.equal(f.sent[0].body, heldRequestPushText('리뷰어'));
@@ -454,8 +455,6 @@ test('a muted bot pushes nothing — approvals, waits, held requests — while i
     snapshot: { goal: { id: 'g1', status: 'blocked', blocker: 'build failed' } },
   });
   f.instance.onHeldRequest({ sessionId: home, agentName: 'reviewer', requestId: 'held_2' });
-  await settle();
-  assert.equal(f.sent.length, 0, 'no push while muted');
   // In-app state is untouched: the summary (unread) and the attention mark.
   assert.deepEqual(summary, before);
   assert.equal(summary.messageCount > summary.readMessageCount, true);
@@ -470,13 +469,17 @@ test('a muted bot pushes nothing — approvals, waits, held requests — while i
     frameSource: 'live',
     snapshot: { toolApproval: { id: 'w1' } },
   });
-  await settle();
-  assert.equal(f.sent.length, 1);
+  await until(() => f.sent.length >= 1);
+  assert.deepEqual(
+    f.sent.map((push) => push.approvalId),
+    ['w1'],
+    'no push while muted: the writer, sent after the muted reviewer events, is the only one'
+  );
   await mute({ mode: 'inherit' });
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).overrides, []);
   f.instance.onSessionState({ sessionId: home, frameSource: 'live', snapshot: { toolApproval: { id: 'a2' } } });
   f.instance.onHeldRequest({ sessionId: home, agentName: 'reviewer', requestId: 'held_3' });
-  await settle();
+  await until(() => f.sent.length >= 3);
   assert.equal(f.sent.length, 3);
   assert.deepEqual(
     f.sent.slice(1).map((push) => push.approvalId),

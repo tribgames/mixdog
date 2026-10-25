@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { waitUntil } from './bounded-wait.mjs';
 import {
   cancelGithubCliLogin,
   githubCliLoginOpenBrowser,
@@ -61,6 +62,10 @@ test('login never triggers the git-credential prompt and never opens a browser i
   assert.deepEqual(pty.writes, []);
 });
 
+/** Waits (by condition, not by delay) until the login flow reaches a final state. */
+const finished = (flowId) =>
+  waitUntil(() => ['success', 'error'].includes(githubCliLoginStatus(flowId).state), 'the login flow to finish');
+
 test('setup-git runs after gh exits successfully', async (t) => {
   const { pty, flow } = await start(t);
   const calls = [];
@@ -71,7 +76,7 @@ test('setup-git runs after gh exits successfully', async (t) => {
     return { code: 0, stdout: '', stderr: '' };
   };
   pty.exit(0);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await finished(flow.flowId);
   assert.deepEqual(calls.at(-1), ['gh', 'auth', 'setup-git', '--hostname', 'github.com']);
   assert.equal(githubCliLoginStatus(flow.flowId).state, 'success');
 });
@@ -85,7 +90,7 @@ test('a failed setup-git after sign-in is reported, not shown as success', async
     return { code: 0, stdout: '', stderr: '' };
   };
   pty.exit(0);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await finished(flow.flowId);
   const status = githubCliLoginStatus(flow.flowId);
   assert.equal(status.state, 'error');
   assert.match(status.message, /could not write git config/);

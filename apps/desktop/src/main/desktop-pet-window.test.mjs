@@ -481,20 +481,6 @@ test('Settings toggles never take focus from the app window; a closed quick mess
   assert.equal(window.focused, false, 'closed again: focus goes back to the window below');
 });
 
-test('the overlay window stays activatable for the IME: made focusable, never switched with setFocusable', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const index = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
-  const start = index.indexOf('function createDesktopPetController');
-  const options = index.slice(start, index.indexOf('webPreferences', start));
-  // focusable: false then setFocusable(true) left Chromium's IME composing
-  // a Korean syllable outside the quick message (shown only once committed).
-  assert.doesNotMatch(options, /focusable: false/);
-  assert.match(options, /show: false/, 'shown inactive by the overlay, never on creation');
-  const module = await readFile(new URL('./desktop-pet-window.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(module, /\.setFocusable\(/);
-  assert.match(module, /showInactive\(\)/);
-});
-
 test('the overlay stays hidden until the app renderer published its first state (no bot over a black boot screen)', async () => {
   const { app, window } = await started({ published: false });
   assert.ok(window, 'the window is made (hidden) meanwhile');
@@ -1422,30 +1408,23 @@ test('the pet window is created hidden and shows only after its renderer drew th
   assert.deepEqual(window.shows, [pinned], 'once, already at its spot, no resize after');
   window.webContents.emit(DESKTOP_PET_IPC.painted);
   assert.equal(window.shows.length, 1);
+});
+
+// The real BrowserWindow options live in index.ts next to Electron's imports, so
+// the factory cannot run under test; these are the options with no other check.
+test('the pet BrowserWindow is created hidden, transparent and IME-activatable', async () => {
   const { readFile } = await import('node:fs/promises');
   const index = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   const start = index.indexOf('function createDesktopPetController');
   const options = index.slice(start, index.indexOf('webPreferences', start));
   assert.match(options, /show: false/);
-});
-
-test('the pet window is created transparent and nothing later gives it an opaque background', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const index = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
-  const start = index.indexOf('function createDesktopPetController');
-  const options = index.slice(start, index.indexOf('webPreferences', start));
   assert.match(options, /transparent: true/);
-  assert.match(options, /backgroundColor: '#00000000'/, 'Windows needs both');
-  assert.match(options, /frame: false/);
-  assert.match(options, /hasShadow: false/);
-  assert.match(options, /thickFrame: false/);
-  // No resize border (DWM draws a 1px one around a resizable window on focus).
-  assert.match(options, /resizable: false/);
-  // Windows 11 would round the frameless window and draw its light border box.
-  assert.match(options, /roundedCorners: false/);
-  for (const file of ['./desktop-pet-window.ts', './desktop-pet-store.ts']) {
-    assert.doesNotMatch(await readFile(new URL(file, import.meta.url), 'utf8'), /setBackgroundColor/);
-  }
+  assert.match(options, /backgroundColor: '#00000000'/);
+  // focusable: false then setFocusable(true) left the IME composing outside the quick message.
+  assert.doesNotMatch(options, /focusable: false/);
+  const module = await readFile(new URL('./desktop-pet-window.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(module, /\.setFocusable\(|setBackgroundColor/);
+  assert.match(module, /showInactive\(\)/);
 });
 
 test('click-through with mouse forwarding is armed only after the page loaded (Windows forwards to its child window)', async () => {
