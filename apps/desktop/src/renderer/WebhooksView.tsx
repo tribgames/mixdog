@@ -28,7 +28,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { automationProjectOptions } from './automation-editor-support';
+import { automationDraftCwd, automationProjectOptions } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -75,7 +75,7 @@ function webhookDraft(webhook: RecordValue | undefined, defaultAgent: string): W
     // shows — and save it back unchanged.
     parser: String(source.parser || 'github'),
     agent: automationAgentOf(webhook, defaultAgent),
-    cwd: String(source.cwd || ''),
+    cwd: automationDraftCwd(source.cwd),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,

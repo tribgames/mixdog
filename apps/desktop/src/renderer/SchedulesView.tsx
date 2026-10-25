@@ -42,7 +42,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { automationProjectOptions } from './automation-editor-support';
+import { automationDraftCwd, automationProjectOptions } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -190,7 +190,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string):
     weekday: parsed.weekday,
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
     whenAt: parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt.toISOString() : '',
-    cwd: String(source.cwd || ''),
+    cwd: automationDraftCwd(source.cwd),
     attachments: attachmentsFromRecords(source.attachments),
     agent: automationAgentOf(schedule, defaultAgent),
     instructions: String(source.instructions || ''),
