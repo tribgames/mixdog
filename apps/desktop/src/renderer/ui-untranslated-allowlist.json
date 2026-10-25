@@ -101,7 +101,8 @@
     "Worktree": "established Git CLI and feature term",
     "v{{value0}} / {{value1}}": "version counter, placeholders only",
     "name@gmail.com": "literal input placeholder for Gmail address",
-    "xxxx xxxx xxxx xxxx": "literal input placeholder for app password"
+    "xxxx xxxx xxxx xxxx": "literal input placeholder for app password",
+    "Mixdog {{version}}": "product name with version placeholder"
   },
   "localeExceptions": {
     "de": {
@@ -185,7 +186,10 @@
       "Server": "established IT loanword in German UI",
       "Version": "same spelling in German",
       "Audio": "same spelling in German",
-      "Web": "same spelling in German"
+      "Web": "same spelling in German",
+      "Layout": "same term used in German UI",
+      "Support": "same term used in German UI",
+      "Cookies {{count}}": "established web term in German UI"
     },
     "es": {
       "Collar": "same spelling in Spanish (avatar accessory)",
@@ -235,7 +239,8 @@
       "Global": "same spelling in Spanish",
       "Tokens (est.)": "established AI term in Spanish UI",
       "Audio": "same spelling in Spanish",
-      "Web": "same spelling in Spanish"
+      "Web": "same spelling in Spanish",
+      "Cookies {{count}}": "established web term in Spanish UI"
     },
     "fr": {
       "Position": "same spelling for a position in French UI",
@@ -329,7 +334,9 @@
       "Audio": "same spelling in French",
       "Web": "same spelling in French",
       "Options": "same word in French UI",
-      "Question": "same word in French UI"
+      "Question": "same word in French UI",
+      "Cookies {{count}}": "established web term in French UI",
+      "Site": "same spelling in French UI"
     },
     "it": {
       "Workflow": "established software term in Italian UI",
@@ -388,7 +395,9 @@
       "SSE (legacy)": "established protocol abbreviation in Italian UI",
       "WebSocket (legacy)": "established protocol name in Italian UI",
       "Audio": "same spelling in Italian",
-      "Web": "same spelling in Italian"
+      "Web": "same spelling in Italian",
+      "Layout": "same term used in Italian UI",
+      "Password": "standard term in Italian UI"
     },
     "ja": {
       "OK": "standard confirmation button label in Japanese UI",
@@ -451,7 +460,11 @@
       "Global": "same spelling in Portuguese",
       "Hashing": "established computer science term in Portuguese UI",
       "Tokens (est.)": "established AI term in Portuguese UI",
-      "Web": "same spelling in Brazilian Portuguese"
+      "Web": "same spelling in Brazilian Portuguese",
+      "Layout": "same term used in Brazilian Portuguese UI",
+      "Logins": "established software loanword in Portuguese UI",
+      "Cookies {{count}}": "established web term in Portuguese UI",
+      "Site": "same spelling in Brazilian Portuguese"
     },
     "vi": {
       "Video": "established loanword in Vietnamese UI",
