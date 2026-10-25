@@ -96,6 +96,11 @@ registerHooks({
     const url = pinnedReactUrls.get(specifier);
     if (url) return { url, shortCircuit: true };
     if (/\.css$/i.test(specifier)) return { url: EMPTY_MODULE_URL, shortCircuit: true };
+    // The build fills the phone pane prefetch lists (scripts/chunk-prefetch.ts);
+    // under test, as on the dev server, they are empty.
+    if (specifier === 'virtual:mixdog-chunk-prefetch') {
+      return { url: 'data:text/javascript,export%20const%20chunkFiles%20%3D%20%7B%7D%3B', shortCircuit: true };
+    }
     if (IMAGE_SPECIFIER.test(specifier)) {
       const source = `export default ${JSON.stringify(specifier)};`;
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };

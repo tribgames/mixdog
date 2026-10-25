@@ -50,8 +50,9 @@ export const BOOT_WARMUP = Object.freeze({
   quotaUsage: 74,
   settingsPreload: 80,
   settingsMount: 85,
-  /** A phone's side-sheet pane chunks (diff, Terminal, Browser, Visualize, editor):
-   *  the lane's tail, after everything its first screen needs. */
+  /** A phone's side-sheet pane chunks (diff, Terminal, Browser, Visualize, editor),
+   *  downloaded only — they evaluate on their first open: the lane's tail,
+   *  after everything its first screen needs. */
   phoneSheetPane: 90,
 });
 

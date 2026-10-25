@@ -16,19 +16,14 @@ import { armBootWarmup, BOOT_WARMUP, BOOT_WARMUP_ARM_DELAY_MS, scheduleBootWarmu
 import { onFirstConversationPaint } from './boot-metrics';
 import { prefetchExplorerRoot } from './explorer-root-cache';
 import { loadCommandSurfaceModule } from './command-surface-loader';
-import { FIRST_SCREEN_DEFERRED_MODULES, visualizePaneModule } from './first-screen-deferred';
+import { type ChunkPrefetchName, fetchChunkGraph } from './chunk-prefetch';
+import { FIRST_SCREEN_DEFERRED_MODULES } from './first-screen-deferred';
 import { desktopFeatureEnabled, desktopSidebarDestinationEnabled } from './desktop-feature-config';
 import { applyDesktopThemePreference, getDesktopThemePreference } from './desktop-theme';
 import { applyStoredSkin } from './desktop-skin';
 import { installHostDisplaySync } from './host-display-sync';
 import type { RecordValue } from './desktop-types';
-import {
-  prefetchBrowserPane,
-  prefetchDiffView,
-  prefetchEditorPane,
-  prefetchSurfaceForSelection,
-  prefetchTerminalPane,
-} from './lazy-widgets';
+import { prefetchEditorPane, prefetchSurfaceForSelection } from './lazy-widgets';
 import { prefetchQuotaUsage } from './quota-usage-cache';
 import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-reference-cache';
 import { connectionQuality } from './network-conditions';
@@ -89,31 +84,32 @@ export function useAppSettingsMount(settingsOpen: boolean) {
 
 /** The phone's side-sheet panes (Changes' diff view, Terminal, Browser,
  *  Visualize, the editor), last in the lane — which a phone only opens once
- *  its first conversation painted — and only on a normal link. Tapped cold, each chunk was fetched over the
- *  relay and evaluated inside the tap (Monaco alone ~760ms at a phone's CPU),
- *  so the sheet opened onto a blank body. */
-function phoneSheetPaneWarmups(): Array<() => void> {
+ *  its first conversation painted — and only on a normal link. Tapped cold, each
+ *  chunk was fetched over the relay inside the tap, so the sheet opened onto a
+ *  blank body. The lane DOWNLOADS them only (modulepreload: fetched and
+ *  compiled off the main thread); each is evaluated on its first open.
+ *  Evaluated in the lane, Monaco alone held the main thread ~400ms at a
+ *  phone's CPU between two swipes of a reader, and the transcript could not
+ *  mount the rows the next swipe brought in. */
+export function phoneSheetPaneWarmups(): Array<() => void> {
   if (connectionQuality() !== 'normal') return [];
-  const panes: Array<[string, () => Promise<unknown>]> = [
-    ['diff', prefetchDiffView],
-    ['terminal', prefetchTerminalPane],
-    ['browser', prefetchBrowserPane],
-    ['visualize', () => visualizePaneModule.load()],
-    ['editor', prefetchEditorPane],
-    // The chunk only: its capability reads still wait for the first open.
-    ...(desktopFeatureEnabled('settings')
-      ? ([['settings', loadSettingsViewModule]] as Array<[string, () => Promise<unknown>]>)
-      : []),
+  const panes: ChunkPrefetchName[] = [
+    'diff',
+    'terminal',
+    'browser',
+    'visualize',
+    'editor',
+    ...(desktopFeatureEnabled('settings') ? (['settings'] as const) : []),
   ];
   // Fetching and evaluating five chunks right after the first paint doubled
   // the blocking time of a cold open, so the lane takes them only once the
   // user touches the page, or after a long idle.
   return afterFirstPhoneTouch(() =>
-    panes.map(([name, load], index) =>
+    panes.map((name, index) =>
       scheduleBootWarmup({
         id: `module:phone-sheet:${name}`,
         priority: BOOT_WARMUP.phoneSheetPane + index,
-        run: () => load().catch(() => {}),
+        run: () => fetchChunkGraph(name),
       })
     )
   );

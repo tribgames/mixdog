@@ -12,6 +12,8 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { OutputChunk } from 'rollup';
 import { type Plugin, searchForWorkspaceRoot } from 'vite';
 import { stampRendererShell } from './scripts/renderer-shell';
+import { chunkPrefetchPlugin } from './scripts/chunk-prefetch';
+import { cssSubjectBuckets } from './scripts/css-subject-buckets';
 import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
 import {
   MONACO_TYPESCRIPT_CONTRIBUTION,
@@ -425,7 +427,26 @@ export default defineConfig({
         },
       },
     },
-    plugins: [localFontDisplayFallback, inlineBootScript, firstScreenHints, react()],
+    // Selectors whose subject is a bare multi-argument `:is()` are spelled out
+    // so the style engine keys each arm on its own subject instead of trying
+    // it on every element (scripts/css-subject-buckets.ts).
+    css: { postcss: { plugins: [cssSubjectBuckets()] } },
+    plugins: [
+      localFontDisplayFallback,
+      inlineBootScript,
+      firstScreenHints,
+      // The phone downloads its side-sheet panes ahead of time and evaluates
+      // them on the first open (use-app-boot.ts phoneSheetPaneWarmups).
+      chunkPrefetchPlugin({
+        diff: resolve(__dirname, 'src/renderer/DiffView.lazy.tsx'),
+        terminal: resolve(__dirname, 'src/renderer/TerminalPane.tsx'),
+        browser: resolve(__dirname, 'src/renderer/BrowserPane.lazy.tsx'),
+        visualize: resolve(__dirname, 'src/renderer/VisualizePane.tsx'),
+        editor: resolve(__dirname, 'src/renderer/EditorPane.lazy.tsx'),
+        settings: resolve(__dirname, 'src/renderer/settings/SettingsView.tsx'),
+      }),
+      react(),
+    ],
     server: {
       host: '127.0.0.1',
       ...(devRendererPort ? { port: devRendererPort, strictPort: true } : {}),
