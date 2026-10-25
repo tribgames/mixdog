@@ -77,7 +77,9 @@ export function leadSessionRow(s, working = false) {
   if (sourceType === 'exec') return null;
   if (!agentSession && !isLeadShaped(s, owner, sourceType)) return null;
   const { preview, messageCount, realTurnCount, incomingTail } = previewOf(s);
-  if (!preview && messageCount === 0) return null;
+  // A titled one is not scratch: its prompt was rewound away (Esc-Esc message
+  // selector), so it stays listed rather than vanishing with its open tab.
+  if (!preview && messageCount === 0 && !cleanSessionPreview(s.title || '', 100)) return null;
   const lastMessageRoutine = normalizeRoutineProvenance(s.lastMessageRoutine);
   return {
     id: s.id,

@@ -131,8 +131,9 @@ export function isLeadVisibleRow(row) {
   if (!agentSession && !isRootLeadSession(row) && owner && !LEAD_OWNERS.has(owner)) return false;
   // Mirror listLeadSessions: a previewless zero-message row is an unusable
   // scratch (desktop boot leftovers, crashed first turns) — resuming it
-  // shows an empty conversation, so the catalog hides it.
-  if (!row.preview && row.messageCount === 0) return false;
+  // shows an empty conversation, so the catalog hides it. A titled one is a
+  // real conversation whose prompts were rewound away: it stays listed.
+  if (!row.preview && row.messageCount === 0 && !row.title) return false;
   const sourceType = String(row.sourceType || '')
     .trim()
     .toLowerCase();
