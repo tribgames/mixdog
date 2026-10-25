@@ -183,6 +183,55 @@ test('a tap on a button at the screen edge still activates it, files panel open 
   }
 });
 
+test('an open files dock is swiped shut from anywhere on it, by fling or by distance', () => {
+  const env = setup();
+  env.state.right = true;
+  const text = env.doc.getElementById('text');
+  const dock = env.doc.getElementById('dock');
+  drag(env, text, 400, 250, 50);
+  assert.deepEqual(env.calls, ['right:false'], 'a fast rightward flick closes it');
+  assert.equal(dock.style.transform, 'translateX(100%)', 'it slides away to the edge it came from');
+  env.state.right = true;
+  drag(env, text, 100, 700, 1000);
+  assert.deepEqual(env.calls, ['right:false', 'right:false'], 'a slow drag past half the width closes it');
+  env.dispose();
+});
+
+test('a short slow swipe snaps the open files dock back; the opposite swipe does nothing', () => {
+  const env = setup();
+  env.state.right = true;
+  const text = env.doc.getElementById('text');
+  const dock = env.doc.getElementById('dock');
+  drag(env, text, 400, 60, 200);
+  assert.deepEqual(env.calls, []);
+  assert.equal(dock.style.transform, 'translateX(0%)', 'back at rest, not left mid-drag');
+  drag(env, text, 600, -300, 50);
+  assert.deepEqual(env.calls, []);
+  env.dispose();
+});
+
+test('the open files dock leaves a horizontally scrollable region its own scroll', () => {
+  const env = setup();
+  env.state.right = true;
+  drag(env, env.doc.getElementById('code'), 400, 400, 50);
+  assert.deepEqual(env.calls, []);
+  assert.equal(env.doc.getElementById('dock').getAttribute('style') ?? '', '', 'the dock never moved');
+  env.dispose();
+});
+
+test('a slider on the open files dock keeps its drag; the dock stays open', () => {
+  const env = setup();
+  env.state.right = true;
+  const dock = env.doc.getElementById('dock');
+  const slider = env.doc.createElement('div');
+  slider.setAttribute('role', 'slider');
+  dock.append(slider);
+  drag(env, slider, 400, 400, 50);
+  assert.deepEqual(env.calls, []);
+  assert.equal(dock.getAttribute('style') ?? '', '', 'the dock never moved');
+  env.dispose();
+});
+
 test('a Safari tab keeps its own edge: the band starts inside it', () => {
   const env = setup(24);
   const text = env.doc.getElementById('text');

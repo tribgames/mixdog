@@ -19,6 +19,8 @@ import {
   withPaneDockFileClosed,
   withPaneDockFileOpened,
 } from './pane-side-dock.tsx';
+import { DockHeaderRow } from './pane-dock-chrome.tsx';
+import { usePublishDockPanelActions } from './dock-panel-actions.ts';
 import { sessionSideDockEntryForSession } from './session-side-surface-policy.ts';
 import { sideFileKey } from './side-file-tabs.ts';
 
@@ -1939,6 +1941,64 @@ test('phone Changes panel: shared header with ⋯ switching and a × that closes
     await act(async () => headerOf('A').querySelector('.dock-header-close').click());
     assert.equal(headerOf('A'), null, '× closes the panel');
     assert.equal(document.querySelector('[data-pane-id="A"]').getAttribute('data-open'), 'false');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('phone Changes view lists no Profile after the profile was shown', async () => {
+  const { root, restore } = mountPhoneDock();
+  const Icon = () => React.createElement('span');
+  const descriptors = new Map([
+    ['routines', { id: 'routines', label: 'Profile', icon: Icon }],
+    ['session-diff', { id: 'session-diff', label: 'Changes', icon: Icon }],
+    ['terminal', { id: 'terminal', label: 'Terminal', icon: Icon }],
+  ]);
+  const resetAction = [{ id: 'agent-reset', label: 'Reset conversation', icon: Icon, onSelect() {} }];
+  function ProfileStub({ active }) {
+    usePublishDockPanelActions('A', active, resetAction);
+    return null;
+  }
+  const renderView = (id, active) => {
+    if (id === 'routines') return React.createElement(ProfileStub, { active });
+    // The Changes view draws its own shared header, as SessionDiffPane does.
+    if (id === 'session-diff') {
+      return React.createElement(DockHeaderRow, { left: 'Changes', ariaLabel: 'Changes', actions: [] });
+    }
+    return null;
+  };
+  const dock = (entry, groups) =>
+    React.createElement(PaneSideDock, {
+      ...phoneDockProps('A', { focused: true, sessionBound: true, entry, groups, descriptors, renderView }),
+    });
+  // A coding session's right side never holds the home thread's Profile.
+  const codingGroups = [['session-diff'], ['terminal']];
+  const labels = (items) => items.map((button) => button.textContent);
+  try {
+    // A home thread showed its Profile (its ⋯ actions are published) ...
+    await act(async () =>
+      root.render(dock({ ...closed('routines'), open: true }, [['routines'], ['session-diff'], ['terminal']]))
+    );
+    assert.ok(labels(await openMore('A')).includes('Reset conversation'));
+    await act(async () => document.body.click());
+    // ... then the pane's session is a coding one showing Changes.
+    await act(async () => root.render(dock({ ...closed('session-diff'), open: true }, codingGroups)));
+    const items = labels(await openMore('A'));
+    assert.equal(items.includes('Profile'), false, 'no Profile entry in the Changes header');
+    assert.equal(items.includes('Reset conversation'), false, 'no stale Profile action either');
+    assert.equal(items.includes('Terminal'), true);
+    await act(async () => document.body.click());
+    // The changes card of a home thread opens a diff over the Profile view.
+    const home = [['routines'], ['session-diff'], ['terminal']];
+    await act(async () =>
+      root.render(
+        dock({ ...closed('routines'), open: true, surface: 'diff', diff: { ...diffA, source: 'session' } }, home)
+      )
+    );
+    const diffItems = await openMore('A');
+    assert.equal(menuItem(diffItems, 'Profile').disabled, false, 'Profile is a target, not the showing pane');
+    assert.equal(menuItem(diffItems, 'Changes').disabled, true, 'Changes is the showing pane');
   } finally {
     await act(async () => root.unmount());
     restore();

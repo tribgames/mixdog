@@ -1804,12 +1804,16 @@ function renderPaneDockHeader(
       onClose={onClose}
     />
   );
+  // A session diff is the Changes view whatever panel it was opened over (the
+  // desktop pair keeps that panel pressed; the phone shows the diff alone), so
+  // the panel behind it (Profile …) is not the pane the switch marks as showing.
+  const switchActiveRoot = diffShowing && entry.diff?.source === 'session' ? 'session-diff' : activeRoot;
   const phoneSwitch = mobileSheet && focused && (
     <PhoneDockSwitchPublisher
       groups={switchGroups ?? groups}
       keepVisualize={Boolean(switchGroups)}
       descriptors={descriptors}
-      activeRoot={activeRoot}
+      activeRoot={switchActiveRoot}
       sessionBound={sessionBound}
       files={onOpenFiles ? { active: filesShowing, onOpen: onOpenFiles } : undefined}
       onSelect={onSelect}

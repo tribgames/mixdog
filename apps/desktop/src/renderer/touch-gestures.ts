@@ -212,8 +212,6 @@ export function installTouchGestures(
 // closed by fling velocity, else by distance. Everything that scrolls,
 // selects or pages on its own keeps its horizontal drags.
 
-/** Width of the left-edge band that pulls the open right sheet shut. */
-const EDGE_ZONE_PX = 24;
 /** Travel before a drag commits to horizontal (or is given up as vertical). */
 const LOCK_PX = 10;
 /** Release speed, in px/ms, that decides the snap on its own. */
@@ -232,6 +230,7 @@ const OWN_DRAG_SELECTOR = [
   '.browser-pane-content',
   '.studio-detail',
   '[role="dialog"]',
+  '[role="slider"]',
   '[data-no-edge-swipe]',
 ].join(', ');
 
@@ -356,18 +355,14 @@ export function installEdgeSwipe(
     settleTimer = win.setTimeout(clearLivePaint, SETTLE_HOLD_MS);
   };
 
-  const zoneSide = (x: number): 'left' | 'right' | null => {
-    if (x >= edgeInset && x <= edgeInset + EDGE_ZONE_PX) return 'left';
-    return x <= win.innerWidth - edgeInset && x >= win.innerWidth - edgeInset - EDGE_ZONE_PX ? 'right' : null;
-  };
-
   /** The open drawer a drag may close, or (null) one it opens once its
    *  direction shows; null itself when the drag is not ours. */
   const pick = (x: number): { drawer: DrawerControl | null; base: number } | null => {
     const openDrawer = drawers.find((drawer) => drawer.isOpen());
     if (openDrawer) {
-      // The right sheet covers the screen: only its left edge can pull it shut.
-      if (openDrawer.side === 'right' && zoneSide(x) !== 'left') return null;
+      // The right sheet covers the screen and is pushed back to the right from
+      // anywhere on it (bind() rejects other directions); the browser keeps its edge.
+      if (openDrawer.side === 'right' && x < edgeInset) return null;
       return { drawer: openDrawer, base: 1 };
     }
     // The dead band at each edge stays the browser's.
