@@ -193,6 +193,8 @@ test('native approval push: encrypted content only, same gates as web push', asy
     sessionId: 's1',
     reason: 'approval-pending',
     approvalId: 'a1',
+    // A plain tool approval is one the PC's Enter allows once, so the phone shows Allow.
+    allowOnce: true,
     hostId: HOST_ID,
   });
 });
