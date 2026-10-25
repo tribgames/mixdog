@@ -20,7 +20,7 @@ function dispatchOver(scheduler, moves) {
 }
 
 test('rename_schedule moves the row of an idle schedule and answers it as JSON', async () => {
-  const scheduler = new Scheduler([], []);
+  const scheduler = new Scheduler([]);
   const moves = [];
   const result = await dispatchOver(scheduler, moves)('rename_schedule', {
     name: 'a',
@@ -34,7 +34,7 @@ test('rename_schedule moves the row of an idle schedule and answers it as JSON',
 });
 
 test('rename_schedule is refused, and moves nothing, while the worker runs that schedule', async () => {
-  const scheduler = new Scheduler([], []);
+  const scheduler = new Scheduler([]);
   scheduler.running.add('a');
   const moves = [];
   const result = await dispatchOver(scheduler, moves)('rename_schedule', { name: 'a', def: { name: 'b' } });

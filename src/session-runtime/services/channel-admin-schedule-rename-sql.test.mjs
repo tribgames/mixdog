@@ -93,8 +93,6 @@ function seed(row) {
     when_at: null,
     when_cron: null,
     timezone: null,
-    target: 'session',
-    channel_id: null,
     cwd: null,
     attachments: null,
     delivery: 'app',

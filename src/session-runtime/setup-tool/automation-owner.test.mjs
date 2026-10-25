@@ -27,7 +27,7 @@ function runtime(schedules = [], webhooks = WEBHOOKS) {
       listAgents: async () => [{ id: 'reviewer' }, { id: 'writer' }],
       saveSchedule: async (entry) => {
         saved.push(entry);
-        return { ...entry, route: 'session' };
+        return entry;
       },
       saveWebhook: async (entry) => {
         saved.push(entry);

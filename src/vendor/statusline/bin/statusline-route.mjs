@@ -7,7 +7,6 @@ import {
   readClaudeCodeCurrentRoute,
 } from '../src/gateway/claude-current.mjs';
 import {
-  normalizeClientHostPid,
   readLatestGatewayHostRoute,
   readGatewaySessionRoute,
 } from '../src/gateway/session-routes.mjs';
@@ -16,33 +15,13 @@ import {
   defaultEffectiveContextWindowPercent,
 } from '../src/gateway/route-meta.mjs';
 import { getModelMetadataSync } from '../../../runtime/agent/orchestrator/providers/model-catalog.mjs';
-import { resolveRuntimeRoot } from '../../../runtime/shared/runtime-root.mjs';
 import { withDefaultPresets } from '../../../runtime/agent/orchestrator/config-presets.mjs';
-
-function positiveInt(value) {
-  const n = parseInt(String(value || ''), 10);
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
 
 // Keep the last known OAuth usage snapshot visible while idle. Live refreshes
 // replace it when available, but a delayed/failed refresh must not make the
 // statusline usage segment disappear. Previous-launch snapshots stay hidden
 // during boot until the current process captures usage once.
 const STATUSLINE_PROCESS_STARTED_AT_MS = Date.now() - Math.floor((Number(process.uptime?.()) || 0) * 1000);
-function isPidAlive(pid) {
-  const n = positiveInt(pid);
-  if (!n) return false;
-  try {
-    process.kill(n, 0);
-    return true;
-  } catch (e) {
-    return !!(e && e.code === 'EPERM');
-  }
-}
-
-function runtimeRoot() {
-  return resolveRuntimeRoot();
-}
 
 function claudeConfigDir() {
   return process.env.MIXDOG_CONFIG_DIR || path.join(os.homedir(), '.mixdog');
@@ -246,53 +225,9 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
   };
 }
 
-// Resolve the auto-compact limit displayed by loadGatewayStatus(). The active
-// value MUST be validated against the ACTIVE route's own boundary/window, never
-// configured?.contextWindow: the configured window can be larger than the
-// active window, so validating a stale active full-window value (== active
-// window) against the configured window would let it slip through as an
-// explicit limit. The configured route's limit (already sanitized by
-// routeContextMeta) is preferred when a configured route is present, but it
-// never validates a stale active value.
-function resolveStatusAutoCompactTokenLimit(configured, active = {}, lastCompact = null) {
-  if (configured) {
-    const c = num(configured.autoCompactTokenLimit, 0);
-    return c > 0 ? c : null;
-  }
-  const activeBoundary = num(
-    active?.gateway_context_window
-      ?? active?.gateway_raw_context_window
-      ?? lastCompact?.budgetWindow
-      ?? lastCompact?.contextWindow,
-    0,
-  );
-  const raw = num(active?.gateway_auto_compact_token_limit, 0);
-  if (!(raw > 0)) return null;
-  if (activeBoundary > 0) return raw < activeBoundary ? raw : null;
-  return raw;
-}
-
 export function compactBoundaryForStatus(routeInfo = {}, compact = null) {
   const n = compactBoundaryDenominator(routeInfo, compact);
   return n > 0 ? n : null;
-}
-
-function sessionIdFromTranscriptPath(transcriptPath) {
-  const base = path.basename(String(transcriptPath || ''));
-  return base.endsWith('.jsonl') ? base.slice(0, -6) : '';
-}
-
-function gatewaySessionStatusFileName(sessionId, clientHostPid = null) {
-  const sid = cleanString(sessionId).replace(/[^0-9A-Za-z._-]/g, '');
-  if (!sid) return null;
-  const pid = normalizeClientHostPid(clientHostPid);
-  return pid ? `${sid}--host-${pid}.json` : `${sid}.json`;
-}
-
-function gatewaySessionStatus(sessionId, clientHostPid = null) {
-  const name = gatewaySessionStatusFileName(sessionId, clientHostPid);
-  if (!name) return null;
-  return readJson(path.join(runtimeRoot(), 'gateway-session-status', name));
 }
 
 function sessionRouteFor(gateway, sessionId, clientHostPid = null) {
@@ -531,152 +466,7 @@ export function loadGatewayStatus(options = {}) {
     balance: null,
     routeSpend: null,
   } : null;
-  const activeOverride = options.activeOverride && typeof options.activeOverride === 'object' ? options.activeOverride : null;
-  const activeGlobal = activeOverride || readJson(path.join(runtimeRoot(), 'active-instance.json'));
-  const currentClientHostPid = normalizeClientHostPid(options.clientHostPid);
-  const sessionStatus = activeOverride || gatewaySessionStatus(options.sessionId, currentClientHostPid);
-  const active = sessionStatus || activeGlobal;
-  if (!active || !active.gateway_port || !active.gateway_provider || !active.gateway_model) return configuredStatus;
-  const ownerPid = positiveInt(active.gateway_server_pid);
-  if (ownerPid && !isPidAlive(ownerPid)) return configuredStatus;
-  const updatedAt = num(active.gateway_updated_at, 0) || num(active.updatedAt, 0);
-  if (updatedAt && Date.now() - updatedAt > 5 * 60_000) return configuredStatus;
-  // Gate active-instance metrics on a positive ownership proof. The display
-  // route itself always comes from the current session config (`configured`)
-  // when present; active-instance only contributes live usage for that same
-  // session/route, never model identity.
-  const currentSessionId = cleanString(options.sessionId);
-  const gatewayCcSessionMatch = currentSessionId && cleanString(active.gateway_cc_session_id) === currentSessionId;
-  const activeClientHostPid = normalizeClientHostPid(active.gateway_client_host_pid ?? active.clientHostPid);
-  const gatewayClientHostMatch = !currentClientHostPid || activeClientHostPid === currentClientHostPid;
-  const gwTranscript = typeof active.gateway_transcript_path === 'string' && active.gateway_transcript_path || null;
-  const currentTranscript = typeof activeGlobal?.transcriptPath === 'string' && activeGlobal.transcriptPath || null;
-  const gatewayTranscriptMatch = currentSessionId
-    ? sessionIdFromTranscriptPath(gwTranscript) === currentSessionId
-    : !!(gwTranscript && currentTranscript && gwTranscript === currentTranscript);
-  const activeTranscriptMatch = currentSessionId
-    ? sessionIdFromTranscriptPath(currentTranscript) === currentSessionId
-    : false;
-  const routeMatchesConfigured = configured
-    ? configured.provider === active.gateway_provider && configured.model === active.gateway_model
-    : true;
-  const activeRouteBoundary = compactBoundaryForStatus({
-    autoCompactTokenLimit: active.gateway_auto_compact_token_limit,
-    contextWindow: active.gateway_context_window,
-    rawContextWindow: active.gateway_raw_context_window,
-  });
-  const configuredRouteBoundary = configured ? compactBoundaryForStatus(configured) : null;
-  const routeBoundaryMatchesConfigured = !configured
-    || !configuredRouteBoundary
-    || !activeRouteBoundary
-    || configuredRouteBoundary === activeRouteBoundary;
-  const metricsOwnCurrentSession = !!(sessionStatus || gatewayCcSessionMatch || gatewayTranscriptMatch || activeTranscriptMatch);
-  const metricsMatch = gatewayClientHostMatch && metricsOwnCurrentSession && routeMatchesConfigured && routeBoundaryMatchesConfigured;
-  // Strong ownership = this session's own status file or an explicit session/
-  // transcript id match from the gateway advert. `activeTranscriptMatch` (the
-  // global active-instance transcript merely naming the current session) is NOT
-  // strong: right after /new the global record can already point at the new
-  // session while its stored gateway metrics (context pct, last usage) still
-  // belong to the previous one.
-  const strongSessionOwnership = !!(sessionStatus || gatewayCcSessionMatch || gatewayTranscriptMatch);
-  // A model switch can keep strong session ownership while the active gateway
-  // advert still contains the previous route's lastUsage.compact. Do not let
-  // that stale compact boundary override the configured/current route window.
-  const lastUsage = gatewayClientHostMatch && strongSessionOwnership && routeMatchesConfigured && routeBoundaryMatchesConfigured && active.gateway_last_usage && typeof active.gateway_last_usage === 'object'
-    ? active.gateway_last_usage
-    : null;
-  const rawLastCompact = lastUsage?.compact && typeof lastUsage.compact === 'object'
-    ? lastUsage.compact
-    : null;
-  // A model/window switch updates the active route fields (context/raw window)
-  // but can leave the PREVIOUS route's boundary inside gateway_last_usage.compact.
-  // routeBoundaryMatchesConfigured only checks the active route fields, so that
-  // stale compact telemetry would otherwise survive and, via compactBoundaryTokens,
-  // resurrect the previous boundary in compactBoundaryForStatus below. Drop the
-  // compact telemetry when its own implied boundary contradicts the active route
-  // window.
-  const lastCompactBoundary = rawLastCompact
-    ? compactBoundaryForStatus({}, rawLastCompact)
-    : null;
-  const lastCompact = rawLastCompact
-    && (!activeRouteBoundary || !lastCompactBoundary || lastCompactBoundary === activeRouteBoundary)
-    ? rawLastCompact
-    : null;
-  const statusLastUsage = lastUsage
-    ? {
-      ...lastUsage,
-      compact: lastCompact,
-    }
-    : null;
-  const contextBoundary = compactBoundaryForStatus({
-    autoCompactTokenLimit: active.gateway_auto_compact_token_limit,
-    contextWindow: active.gateway_context_window,
-    rawContextWindow: active.gateway_raw_context_window,
-  }, lastCompact);
-  const liveContextTokens = num(options.activeContextTokens, null);
-  const compactRequestWithLiveTokens = lastUsage?.requestKind === 'compact' && liveContextTokens !== null;
-  const overflowContextTokens = !compactRequestWithLiveTokens && lastCompact?.overflow === true
-    ? Math.max(
-      num(lastUsage?.promptTokens, 0),
-      num(lastCompact?.beforeTokens, 0),
-      num(lastCompact?.afterTokens, 0),
-      num(contextBoundary, 0),
-    )
-    : null;
-  const contextNumerator = liveContextTokens !== null && Number.isFinite(liveContextTokens)
-    ? liveContextTokens
-    : (overflowContextTokens ?? null);
-  const recomputedContextUsedPct = pctOf(contextNumerator, contextBoundary);
-  const activeQuotaWindows = metricsMatch && Array.isArray(active.gateway_quota_windows)
-    ? active.gateway_quota_windows
-    : [];
-  const statusProvider = configured?.provider || active.gateway_provider;
-  const statusProviderKind = configured?.providerKind
-    || (routeMatchesConfigured ? cleanString(active.gateway_provider_kind) : '')
-    || providerKind(statusProvider);
-  // Sanitize the auto-compact limit before display: a stale boundary/window-
-  // sized active.gateway_auto_compact_token_limit must not surface as an
-  // explicit autoCompactTokenLimit (the runtime would read it as the trigger
-  // and collapse the buffer). The active value must be validated against the
-  // ACTIVE route's own boundary/window — NOT configured?.contextWindow. The
-  // configured window can be larger than the active window, so using it would
-  // let a stale active full-window value (== active window) slip through. Use
-  // the active boundary (active context/raw window, or the lastCompact budget
-  // when present) and null the active value when it is >= that boundary.
-  const statusAutoCompactTokenLimit = resolveStatusAutoCompactTokenLimit(configured, active, lastCompact);
-  const activeStatus = {
-    provider: statusProvider,
-    model: configured?.model || active.gateway_model,
-    modelDisplay: configured?.modelDisplay
-      || statuslineDisplayForModel(active.gateway_provider, active.gateway_model, {}, active.gateway_model_display)
-      || active.gateway_model,
-    effort: configured?.effort ?? active.gateway_effort ?? '',
-    fast: configured?.fast ?? active.gateway_fast === true,
-    contextWindow: configured?.contextWindow ?? num(active.gateway_context_window, null),
-    rawContextWindow: configured?.rawContextWindow ?? num(active.gateway_raw_context_window, null),
-    effectiveContextWindowPercent: configured?.effectiveContextWindowPercent ?? num(active.gateway_effective_context_window_percent, null),
-    autoCompactTokenLimit: statusAutoCompactTokenLimit,
-    // Live recompute (from the caller's own context tokens) may use the weaker
-    // metricsMatch gate, but the STORED gateway_context_used_pct fallback needs
-    // strong ownership — otherwise a fresh /new session with a not-yet-updated
-    // active-instance record would keep showing the old session's context %.
-    contextUsedPct: metricsMatch
-      ? recomputedContextUsedPct ?? (strongSessionOwnership ? num(active.gateway_context_used_pct, null) : null)
-      : null,
-    lastUsage: statusLastUsage,
-    quotaWindows: activeQuotaWindows.length ? activeQuotaWindows : (configuredStatus?.quotaWindows || []),
-    // Provenance for monotonic hysteresis: live active-instance windows are
-    // own-instance data timestamped by the advert's updatedAt; otherwise inherit
-    // the shared-cache fallback's (unowned) asOf. Older/unowned snapshots must
-    // not displace a value already rendered from newer/owned data.
-    quotaWindowsAsOf: activeQuotaWindows.length ? (updatedAt || 0) : num(configuredStatus?.quotaWindowsAsOf, 0),
-    quotaWindowsOwned: activeQuotaWindows.length ? metricsMatch : false,
-    balance: metricsMatch && active.gateway_balance && typeof active.gateway_balance === 'object' ? active.gateway_balance : (configuredStatus?.balance || null),
-    routeSpend: metricsMatch && active.gateway_route_spend && typeof active.gateway_route_spend === 'object' ? active.gateway_route_spend : (configuredStatus?.routeSpend || null),
-    providerKind: statusProviderKind,
-  };
-  if (!configured) return activeStatus;
-  return activeStatus;
+  return configuredStatus;
 }
 
 function isLocalEstimateWindow(window) {

@@ -57,7 +57,7 @@ function* armedScheduleFires(scheduler) {
     const fireAt = cronTaskNextFireAt(task);
     if (fireAt !== null) yield { name, fireAt, kind: 'cron' };
   }
-  const defs = [...(scheduler.nonInteractive || []), ...(scheduler.interactive || [])];
+  const defs = scheduler.schedules || [];
   for (const name of (scheduler.oneShotTimers || new Map()).keys()) {
     if (scheduler.shouldSkip?.(name)) continue;
     const def = defs.find((s) => s.name === name);

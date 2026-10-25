@@ -128,7 +128,7 @@ function metaFields(meta) {
   return {
     ...(meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {}),
     ...(meta?.httpPort ? { httpPort: meta.httpPort } : {}),
-    ...Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_'))),  };
+  };
 }
 function buildActiveInstanceState(instanceId, meta) {
   return {
@@ -139,41 +139,6 @@ function buildActiveInstanceState(instanceId, meta) {
     updatedAt: Date.now(),
     ...metaFields(meta),
   };
-}
-function isProcessAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return !(e && e.code === 'ESRCH');
-  }
-}
-// gateway_* fields are preserved while the gateway owner is alive: the gateway
-// child advertises itself independently, and active-owner heartbeats must not
-// erase that discovery record while its owning server-main process is still
-// alive. Writes into `preservedExtra` (and clears from `next`).
-function preserveGatewayFields(prev, meta, identity, preservedExtra, next) {
-  const prevGatewayServerPid = parsePositivePid(prev?.gateway_server_pid);
-  const prevGatewayOwnerAlive = prevGatewayServerPid !== null && isProcessAlive(prevGatewayServerPid);
-  const sameGatewayAdvertiser =
-    prevGatewayServerPid !== null && identity.server_pid !== null && prevGatewayServerPid === identity.server_pid;
-  if (!(sameGatewayAdvertiser || prevGatewayOwnerAlive)) return;
-  if (!prev || !Object.hasOwn(prev, 'gateway_port')) return;
-  for (const [key, value] of Object.entries(prev)) {
-    if (key.startsWith('gateway_')) preservedExtra[key] = value;
-  }
-  preservedExtra.gateway_server_pid = prevGatewayServerPid;
-  // Clear session-scoped gateway metrics when the transcript changes — a new
-  // session must not inherit the previous session's context usage before the
-  // gateway re-advertises.
-  const nonEmptyString = (value) => (typeof value === 'string' && value ? value : null);
-  const metricTranscript = nonEmptyString(prev.gateway_transcript_path) ?? nonEmptyString(prev.transcriptPath);
-  if (typeof meta?.transcriptPath === 'string' && meta.transcriptPath && metricTranscript !== meta.transcriptPath) {
-    delete preservedExtra.gateway_context_used_pct;
-    delete preservedExtra.gateway_last_usage;
-    delete next.gateway_context_used_pct;
-    delete next.gateway_last_usage;
-  }
 }
 function refreshActiveInstance(instanceId, meta, options) {
   ensureRuntimeDirs();
@@ -234,7 +199,6 @@ function refreshActiveInstance(instanceId, meta, options) {
       const preservedExtra = Object.fromEntries(
         Object.entries(prevForPreserve ?? {}).filter(([k]) => k.startsWith('pg_'))
       );
-      preserveGatewayFields(prevForPreserve, meta, identity, preservedExtra, next);
       return { ...preservedExtra, ...next };
     },
     writeOpts

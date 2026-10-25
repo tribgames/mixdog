@@ -150,15 +150,12 @@ function readConfigRawCached() {
   return raw;
 }
 
-// Canonical on-disk channel shape. Provider-specific ids are durable. Schedule
-// arrays moved to the scheduler DB and prompt injection moved to runtime hooks,
-// so neither belongs in config anymore.
+// Canonical on-disk channel shape. Schedules live in the scheduler DB and
+// prompt injection moved to runtime hooks, so neither belongs in config.
 export function canonicalizeStoredChannelsConfig(value = {}) {
   const next = isPlainObject(value) ? { ...value } : {};
   delete next.promptInjection;
   delete next.schedules;
-  delete next.nonInteractive;
-  delete next.interactive;
   return next;
 }
 

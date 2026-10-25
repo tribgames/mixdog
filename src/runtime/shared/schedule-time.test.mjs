@@ -16,8 +16,7 @@ test('schedule status uses the node-cron v4 getNextRun API', async () => {
   const snapshot = await computeSnapshot({
     cronJobs: new Map([['daily', { getNextRun: () => fireAt }]]),
     oneShotTimers: new Map(),
-    nonInteractive: [],
-    interactive: [],
+    schedules: [],
     deferred: new Map(),
     shouldSkip: () => false,
   });

@@ -17,6 +17,16 @@ const db = {
     return { rows: queryRows, rowCount: queryRows.length };
   },
 };
+// A database created by an older release: `target` is a NOT NULL column.
+const legacyQueryCalls = [];
+const legacyDb = {
+  exec: async () => {},
+  query: async (sql, params) => {
+    legacyQueryCalls.push({ sql, params });
+    if (/information_schema\.columns/.test(sql)) return { rows: [{ column_name: 'target' }], rowCount: 1 };
+    return { rows: [], rowCount: 0 };
+  },
+};
 const pool = { name: 'schedules-pool' };
 
 mock.module('../../memory/lib/pg/adapter.mjs', {
@@ -24,7 +34,7 @@ mock.module('../../memory/lib/pg/adapter.mjs', {
     ensurePgInstance: async (dataDir, opts) => {
       ensureCalls.push({ dataDir, opts });
       if (failFor === dataDir) throw failError;
-      return { db, pool };
+      return { db: dataDir === '/sched-legacy-target' ? legacyDb : db, pool };
     },
     withSchemaBootstrapLock: async (pgPool, fn) => {
       lockCalls.push(pgPool);
@@ -61,7 +71,6 @@ const ownershipTest = async () => {
     {
       name: 'legacy',
       prompt: 'p',
-      target: 'session',
       owner_agent_id: null,
       model: 'x/y',
       workflow: 'solo',
@@ -73,9 +82,9 @@ const ownershipTest = async () => {
   for (const key of ['model', 'workflow', 'runAsAgent']) assert.equal(Object.hasOwn(legacy, key), false, key);
   assert.doesNotMatch(queryCalls.at(-1).sql, /\b(model|workflow|run_as_agent)\b/, 'legacy columns are not selected');
 
-  queryRows = [{ name: 'daily', prompt: 'p', target: 'session', owner_agent_id: 'lead' }];
+  queryRows = [{ name: 'daily', prompt: 'p', owner_agent_id: 'lead' }];
   await upsertSchedule(
-    { name: 'daily', prompt: 'p', target: 'session', whenCron: '0 9 * * *' },
+    { name: 'daily', prompt: 'p', whenCron: '0 9 * * *' },
     { dataDir: '/sched-owner' }
   );
   let call = queryCalls.at(-1);
@@ -83,9 +92,9 @@ const ownershipTest = async () => {
   assert.doesNotMatch(call.sql, /\b(model|workflow|run_as_agent)\b/, 'legacy columns are not written');
   assert.equal(call.params.at(-1), 'lead');
 
-  queryRows = [{ name: 'pr', prompt: 'p', target: 'session', owner_agent_id: 'reviewer' }];
+  queryRows = [{ name: 'pr', prompt: 'p', owner_agent_id: 'reviewer' }];
   const saved = await upsertSchedule(
-    { name: 'pr', prompt: 'p', target: 'session', whenCron: '0 9 * * 1-5', ownerAgentId: 'reviewer' },
+    { name: 'pr', prompt: 'p', whenCron: '0 9 * * 1-5', ownerAgentId: 'reviewer' },
     { dataDir: '/sched-owner' }
   );
   call = queryCalls.at(-1);
@@ -156,7 +165,7 @@ test('failures in a row pause a schedule at 5; a success, an edit or switching i
   call = queryCalls.at(-1);
   assert.match(call.sql, /consecutive_failures = CASE WHEN \$2 THEN 0 ELSE consecutive_failures END/);
   assert.deepEqual(call.params, ['flaky', true]);
-  await upsertSchedule({ name: 'flaky', prompt: 'p', target: 'session', whenCron: '0 9 * * *' }, opts);
+  await upsertSchedule({ name: 'flaky', prompt: 'p', whenCron: '0 9 * * *' }, opts);
   assert.match(queryCalls.at(-1).sql, /consecutive_failures = 0/);
 
   await recordScheduleDelivery('flaky', 'run_1', { state: 'pending' }, opts);
@@ -168,4 +177,30 @@ test('failures in a row pause a schedule at 5; a success, an edit or switching i
   assert.match(call.sql, /NULLIF\(COALESCE\(result_delivery, '\{\}'::jsonb\) - \$2::text, '\{\}'::jsonb\)/);
   assert.deepEqual(call.params, ['flaky', 'run_1']);
   queryRows = [];
+});
+
+test('a new table has no target or channel_id column and an insert does not write them', async () => {
+  const opts = { dataDir: '/sched-new-target' };
+  queryRows = [];
+  await upsertSchedule({ name: 'daily', prompt: 'p', whenCron: '0 9 * * *' }, opts);
+  const ddl = execCalls.at(-1);
+  assert.doesNotMatch(ddl, /\btarget\b|channel_id/);
+  const call = queryCalls.at(-1);
+  assert.doesNotMatch(call.sql, /\btarget\b|channel_id/);
+  assert.equal(call.params.length, 13);
+  assert.equal(call.params.at(-1), 'lead');
+});
+
+test('an insert fills the NOT NULL target column of a table from an older release with session', async () => {
+  const opts = { dataDir: '/sched-legacy-target' };
+  await upsertSchedule({ name: 'daily', prompt: 'p', whenCron: '0 9 * * *' }, opts);
+  await upsertSchedule({ name: 'again', prompt: 'p', whenCron: '0 9 * * *' }, opts);
+  const probes = legacyQueryCalls.filter((c) => /information_schema\.columns/.test(c.sql));
+  assert.equal(probes.length, 1, 'the schema is probed once per connection');
+  const call = legacyQueryCalls.at(-1);
+  assert.match(call.sql, /owner_agent_id, target\)/);
+  assert.match(call.sql, /\$13,\$14\)/);
+  assert.doesNotMatch(call.sql, /channel_id/);
+  assert.deepEqual(call.params.slice(-2), ['lead', 'session']);
+  assert.doesNotMatch(call.sql, /target\s*=\s*EXCLUDED/, 'a conflict leaves the stored target alone');
 });

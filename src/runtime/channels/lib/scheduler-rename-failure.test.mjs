@@ -24,8 +24,7 @@ const { Scheduler } = await import('./scheduler.mjs');
 
 function bareScheduler(schedules, overrides = {}) {
   return Object.assign(Object.create(Scheduler.prototype), {
-    nonInteractive: schedules,
-    interactive: [],
+    schedules,
     promptsDir: mkdtempSync(join(tmpdir(), 'mixdog-sched-')),
     running: new Set(),
     renaming: new Set(),
@@ -33,7 +32,6 @@ function bareScheduler(schedules, overrides = {}) {
     oneShotTimers: new Map(),
     lastFired: new Map(),
     deferred: new Map(),
-    injectFn: null,
     notifyFailure() {},
     ...overrides,
   });
@@ -70,7 +68,7 @@ test('a reload failing after the row moved drops the old name and reports the fa
   assert.equal(scheduler.lastFired.has('a'), false);
   assert.equal(scheduler.lastFired.has('other'), true);
   assert.deepEqual(
-    scheduler.nonInteractive.map((s) => s.name),
+    scheduler.schedules.map((s) => s.name),
     ['other']
   );
   assert.equal(scheduler.renaming.has('a'), false, 'the name is released');
@@ -88,13 +86,13 @@ test('a one-shot blocked by the reservation fires once after a failed rename', a
   });
   // What start() does for the loaded entries (the lock and cron are not needed here).
   scheduler.restart = () => {
-    for (const s of scheduler.nonInteractive) scheduler.armOneShot(s, 'non-interactive');
+    for (const s of scheduler.schedules) scheduler.armOneShot(s);
   };
   await assert.rejects(
     scheduler.renameLocked(
       'a',
       async () => {
-        await scheduler.fireOneShot(schedule, 'non-interactive'); // due while reserved
+        await scheduler.fireOneShot(schedule); // due while reserved
         throw new Error('the rename failed');
       },
       { newName: 'b' }
@@ -114,7 +112,7 @@ test('another rename settling meanwhile does not hide a blocked one-shot of a fa
   const scheduler = bareScheduler([a, { name: 'b' }], { tickTimer: true });
   let restarts = 0;
   scheduler.restart = () => restarts++;
-  scheduler.fireOneShot = (s) => scheduler.fireTimedPrompt(s, 'non-interactive');
+  scheduler.fireOneShot = (s) => scheduler.fireTimedPrompt(s);
   await assert.rejects(
     scheduler.renameLocked(
       'a',

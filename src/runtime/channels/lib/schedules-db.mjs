@@ -26,8 +26,6 @@ CREATE TABLE IF NOT EXISTS scheduler.schedules (
   when_at        timestamptz,
   when_cron      text,
   timezone       text,
-  target         text NOT NULL CHECK (target IN ('channel','session')),
-  channel_id     text,
   model          text,
   cwd            text,
   workflow       text,
@@ -90,8 +88,6 @@ function rowToDef(row) {
     whenAt: row.when_at,
     whenCron: row.when_cron,
     timezone: row.timezone,
-    target: row.target,
-    channelId: row.channel_id,
     cwd: row.cwd,
     attachments: row.attachments || null,
     delivery: row.delivery || null,
@@ -115,8 +111,32 @@ function rowToDef(row) {
   };
 }
 
+// A table created by an older release still has `target` as a NOT NULL column
+// with no default, so an insert must keep filling it; every schedule runs as a
+// session. A table created now has no such column. The schema is probed once
+// per connection; the column is never read, altered or dropped.
+const requiredTargetColumn = new WeakMap();
+function hasRequiredTargetColumn(db) {
+  if (!requiredTargetColumn.has(db)) {
+    requiredTargetColumn.set(
+      db,
+      db
+        .query(
+          `SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'scheduler' AND table_name = 'schedules' AND column_name = 'target'`
+        )
+        .then(({ rows }) => rows.some((row) => row.column_name === 'target'))
+        .catch((error) => {
+          requiredTargetColumn.delete(db);
+          throw error;
+        })
+    );
+  }
+  return requiredTargetColumn.get(db);
+}
+
 const COLS =
-  'name, description, when_at, when_cron, timezone, target, channel_id, cwd, attachments, delivery, prompt, enabled, status, last_fired_at, last_scheduled_at, last_started_at, last_success_at, last_failed_at, last_skipped_at, owner_agent_id, consecutive_failures, result_delivery, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
+  'name, description, when_at, when_cron, timezone, cwd, attachments, delivery, prompt, enabled, status, last_fired_at, last_scheduled_at, last_started_at, last_success_at, last_failed_at, last_skipped_at, owner_agent_id, consecutive_failures, result_delivery, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -148,8 +168,6 @@ export async function upsertSchedule(def, { dataDir } = {}) {
     def.whenAt ?? null,
     def.whenCron ?? null,
     def.timezone ?? null,
-    def.target,
-    def.channelId ?? null,
     def.cwd ?? null,
     def.attachments ? JSON.stringify(def.attachments) : null,
     def.delivery ?? null,
@@ -159,18 +177,23 @@ export async function upsertSchedule(def, { dataDir } = {}) {
     def.nextFireAt ?? null,
     def.ownerAgentId || 'lead',
   ];
+  let legacyTarget = '';
+  let legacyTargetValue = '';
+  if (await hasRequiredTargetColumn(db)) {
+    params.push('session');
+    legacyTarget = ', target';
+    legacyTargetValue = `,$${params.length}`;
+  }
   const { rows } = await db.query(
     `INSERT INTO scheduler.schedules
-       (name, description, when_at, when_cron, timezone, target, channel_id, cwd, attachments, delivery, prompt, enabled, status, next_fire_at, owner_agent_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       (name, description, when_at, when_cron, timezone, cwd, attachments, delivery, prompt, enabled, status, next_fire_at, owner_agent_id${legacyTarget})
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13${legacyTargetValue})
      ON CONFLICT (name) DO UPDATE SET
        owner_agent_id = EXCLUDED.owner_agent_id,
        description  = EXCLUDED.description,
        when_at      = EXCLUDED.when_at,
        when_cron    = EXCLUDED.when_cron,
        timezone     = EXCLUDED.timezone,
-       target       = EXCLUDED.target,
-       channel_id   = EXCLUDED.channel_id,
        cwd          = EXCLUDED.cwd,
        attachments  = EXCLUDED.attachments,
        delivery     = EXCLUDED.delivery,

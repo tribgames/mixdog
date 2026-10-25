@@ -90,8 +90,7 @@ function makeConfig(overrides = {}) {
   return {
     webhook: { enabled: true },
     events: { rules: [] },
-    nonInteractive: [],
-    interactive: [],
+    schedules: [],
     ...overrides,
   };
 }
@@ -130,7 +129,7 @@ function makeHarness(t, { config = makeConfig() } = {}) {
     scheduler: {
       start: () => record('scheduler.start'),
       stop: () => record('scheduler.stop'),
-      reloadConfig: (_a, _b, opts) => record('scheduler.reload', opts?.restart),
+      reloadConfig: (_schedules, opts) => record('scheduler.reload', opts?.restart),
     },
     logOwnership: (line) => record('ownership', line),
     currentOwnerState: () => ({}),

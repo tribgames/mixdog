@@ -20,15 +20,10 @@ async function loadConfig() {
     let raw = readSection('channels');
     raw = raw && typeof raw === 'object' ? raw : {};
     // Schedules are the PG `scheduler.schedules` table (single source of
-    // truth). The legacy SCHEDULE.md store and the `raw.schedules.items` /
-    // `raw.nonInteractive` / `raw.interactive` arrays in mixdog-config.json
-    // are no longer read. Done one-shots are dropped so they never re-arm.
-    const scheduleEntries = (await listSchedules()).filter((s) => s.enabled !== false && s.status !== 'done');
-    // Every schedule fires as a visible session run (runScheduleSession)
-    // through the non-interactive dispatch path. The legacy interactive
-    // bucket (Lead-session inject) is retired.
-    raw.nonInteractive = scheduleEntries;
-    raw.interactive = [];
+    // truth); the config file holds no schedules. Done one-shots are dropped
+    // so they never re-arm. Every schedule fires as a visible session run
+    // (runScheduleSession).
+    raw.schedules = (await listSchedules()).filter((s) => s.enabled !== false && s.status !== 'done');
     // voice config lives at the top level of mixdog-config.json (peer of
     // channels), so readSection("channels") never sees it. Pull it explicitly.
     let voice = {};

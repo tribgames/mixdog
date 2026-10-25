@@ -26,8 +26,7 @@ CREATE SCHEMA IF NOT EXISTS webhooks;
 CREATE TABLE IF NOT EXISTS webhooks.endpoints (
   name         text PRIMARY KEY,
   description  text NOT NULL DEFAULT '',
-  channel_id   text,
-  role         text NOT NULL DEFAULT '',
+  role        text NOT NULL DEFAULT '',
   model        text,
   parser       text,
   secret       text,
@@ -87,14 +86,13 @@ const getDb = createPgSchemaDb({
 // The stored payload itself is never projected here (readEndpointLastPayload
 // is its only read path); rows carry a presence flag.
 const ENDPOINT_COLS =
-  'name, description, channel_id, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id, last_event_at, last_success_at, last_failed_at, last_skipped_at, consecutive_failures, result_delivery, (last_payload IS NOT NULL) AS has_last_payload, created_at, updated_at';
+  'name, description, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id, last_event_at, last_success_at, last_failed_at, last_skipped_at, consecutive_failures, result_delivery, (last_payload IS NOT NULL) AS has_last_payload, created_at, updated_at';
 
 function rowToEndpoint(row) {
   if (!row) return null;
   return {
     name: row.name,
     description: row.description,
-    channelId: row.channel_id,
     parser: row.parser,
     cwd: row.cwd,
     attachments: row.attachments || null,
@@ -180,7 +178,6 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
   const params = [
     def.name,
     def.description ?? '',
-    def.channelId ?? null,
     '',
     def.parser ?? null,
     def.secret ?? null,
@@ -195,13 +192,12 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
   // not the definition.
   const { rows } = await db.query(
     `INSERT INTO webhooks.endpoints
-       (name, description, channel_id, role, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       (name, description, role, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (name) DO UPDATE SET
        owner_agent_id = EXCLUDED.owner_agent_id,
        description  = EXCLUDED.description,
-       channel_id   = EXCLUDED.channel_id,
-       role         = EXCLUDED.role,
+       role        = EXCLUDED.role,
        parser       = EXCLUDED.parser,
        secret       = EXCLUDED.secret,
        cwd          = EXCLUDED.cwd,

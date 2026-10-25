@@ -188,7 +188,7 @@ function parseAtDatetime(at) {
 
 // Map the store's def shape onto the flat display shape every schedule reader
 // (channelSetup, renderChannelStatus, TUI pickers) consumes: `.time` renders
-// the cron or the one-shot datetime, `.route` the channel/session target.
+// the cron or the one-shot datetime.
 function scheduleToDisplay(s, ownerProblem = '') {
   return {
     name: s.name,
@@ -201,7 +201,6 @@ function scheduleToDisplay(s, ownerProblem = '') {
     attachments: s.attachments || undefined,
     enabled: s.enabled !== false,
     instructions: s.prompt,
-    route: 'session',
     // The bot it belongs to: each run is a turn in that bot's chat.
     owner: s.ownerAgentId || MIXY_AGENT_ID,
     // Why it is paused for its owner (routine-owner.mjs); absent when it runs.
@@ -349,8 +348,6 @@ export async function saveSchedule(
     whenCron,
     whenAt,
     timezone: scheduleTimezone,
-    target: 'session',
-    channelId: null,
     cwd: cwd ? String(cwd).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
     delivery: 'app',
@@ -407,7 +404,6 @@ async function listWebhooks() {
     secretSet: ep.secretSet === true,
     secret: undefined,
     instructions: ep.instructions,
-    route: 'session',
     // The bot it belongs to: each run is a turn in that bot's chat.
     owner: ep.ownerAgentId || MIXY_AGENT_ID,
     ...(problems[index] ? { ownerProblem: problems[index] } : {}),
@@ -460,7 +456,6 @@ export async function saveWebhook({
     name: id,
     description: String(description || '').trim(),
     parser: nextParser,
-    channelId: null,
     cwd: cwd ? String(cwd).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
     delivery: 'app',

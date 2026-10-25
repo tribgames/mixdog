@@ -115,8 +115,7 @@ function releaseSchedulerRuntime(scheduler) {
   releaseOwnedSchedulerLock();
 }
 class Scheduler {
-  nonInteractive;
-  interactive;
+  schedules;
   promptsDir;
   tickTimer = null;
   lastFired = /* @__PURE__ */ new Map();
@@ -124,65 +123,28 @@ class Scheduler {
   running = /* @__PURE__ */ new Set();
   // Names whose row is being renamed: no fire starts under them meanwhile.
   renaming = /* @__PURE__ */ new Set();
-  injectFn = null;
-  injectReadyFn = null;
-  pendingCheck = null;
   // Injected by the host: (schedule, { prompt }) => Promise<{ result }>.
   scheduleRunner = null;
-  // Activity tracking
-  lastActivity = 0;
-  // timestamp of last inbound message
   deferred = /* @__PURE__ */ new Map();
   // name -> deferred-until timestamp
   cronJobs = /* @__PURE__ */ new Map();
   // name -> node-cron ScheduledTask for cron-expression entries
   oneShotTimers = /* @__PURE__ */ new Map();
   // name -> setTimeout handle for when_at one-shot entries
-  constructor(nonInteractive, interactive) {
-    this.nonInteractive = nonInteractive.filter((s) => s.enabled !== false);
-    this.interactive = interactive.filter((s) => s.enabled !== false);
+  constructor(schedules) {
+    this.schedules = schedules.filter((s) => s.enabled !== false);
     this.promptsDir = join(DATA_DIR, 'prompts');
-    for (const s of [...this.nonInteractive, ...this.interactive]) {
+    for (const s of this.schedules) {
       if (s.lastFiredAt) this.lastFired.set(s.name, new Date(s.lastFiredAt).toISOString());
     }
     this.refreshSkipCache();
   }
-  setInjectHandler(fn) {
-    this.injectFn = fn;
-  }
-  /** Probe for a live Lead bridge seat. When set, the interactive
-   *  inject only fires while it reports true; otherwise the visible-session
-   *  fallback keeps the fire from being lost. Unset → inject when wired. */
-  setInjectReadyCheck(fn) {
-    this.injectReadyFn = typeof fn === 'function' ? fn : null;
-  }
-  injectReady() {
-    if (!this.injectReadyFn) return true;
-    try {
-      return !!this.injectReadyFn();
-    } catch {
-      return false;
-    }
-  }
-  setPendingCheck(fn) {
-    this.pendingCheck = typeof fn === 'function' ? fn : null;
-  }
   setScheduleRunner(fn) {
     this.scheduleRunner = typeof fn === 'function' ? fn : null;
   }
-  noteActivity() {
-    this.lastActivity = Date.now();
-  }
-  /** Every loaded schedule with its routing type, non-interactive first. */
-  typedSchedules() {
-    return [
-      ...this.nonInteractive.map((schedule) => ({ schedule, type: 'non-interactive' })),
-      ...this.interactive.map((schedule) => ({ schedule, type: 'interactive' })),
-    ];
-  }
-  /** Find a loaded schedule def by name (either routing bucket). */
+  /** Find a loaded schedule def by name. */
   findSchedule(name) {
-    return [...this.nonInteractive, ...this.interactive].find((s) => s.name === name) ?? null;
+    return this.schedules.find((s) => s.name === name) ?? null;
   }
   /** Rebuild the in-memory deferred cache (used by the status snapshot) from
    *  the loaded rows' deferred_until values. Called on construct + reload so
@@ -190,7 +152,7 @@ class Scheduler {
   refreshSkipCache() {
     this.deferred.clear();
     const now = Date.now();
-    for (const s of [...this.nonInteractive, ...this.interactive]) {
+    for (const s of this.schedules) {
       const until = s.deferredUntil ? new Date(s.deferredUntil).getTime() : 0;
       if (until > now) this.deferred.set(s.name, until);
     }
@@ -236,56 +198,6 @@ class Scheduler {
     const skippedUntil = s.skippedUntil ? new Date(s.skippedUntil).getTime() : 0;
     if (skippedUntil && now < skippedUntil) until = Math.max(until, skippedUntil);
     return until;
-  }
-  /** Get current session activity state.
-   *  Returns { lastActivityMs, pendingWork } — callers apply their own
-   *  thresholds. pendingWork is true when pendingCheck() reports work in
-   *  flight. lastActivityMs is 0 when no activity has been recorded. */
-  getSessionState() {
-    let pendingWork = false;
-    try {
-      if (this.pendingCheck) pendingWork = !!this.pendingCheck();
-    } catch {
-      /* probe failure is not fatal */
-    }
-    return { lastActivityMs: this.lastActivity, pendingWork };
-  }
-  /** Returns true when the session is considered idle (no pending work and
-   *  lastActivityMs is either 0 or older than the given threshold).
-   *  threshold defaults to 15 minutes but callers should pass their own. */
-  isSessionIdle(thresholdMs = 15 * 6e4) {
-    const { lastActivityMs, pendingWork } = this.getSessionState();
-    if (pendingWork) return false;
-    if (lastActivityMs === 0) return true;
-    return Date.now() - lastActivityMs >= thresholdMs;
-  }
-  /** Get time context for prompt enrichment */
-  getTimeContext() {
-    const now = /* @__PURE__ */ new Date();
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const dow = now.getDay();
-    return {
-      hour: now.getHours(),
-      minute: now.getMinutes(),
-      dayOfWeek: days[dow],
-      isWeekend: dow === 0 || dow === 6,
-    };
-  }
-  /** Wrap prompt with session context metadata */
-  wrapPrompt(name, prompt, type) {
-    const { lastActivityMs, pendingWork } = this.getSessionState();
-    let state = 'recent';
-    if (pendingWork) state = 'active';
-    else if (lastActivityMs === 0) state = 'idle';
-    const time = this.getTimeContext();
-    const header = [
-      `[schedule: ${name} | type: ${type} | session: ${state}]`,
-      `[time: ${time.dayOfWeek} ${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')} | weekend: ${time.isWeekend}]`,
-      `Before starting any work, briefly tell the user what you're about to do in one short sentence.`,
-    ].join('\n');
-    return `${header}
-
-${prompt}`;
   }
   static SCHEDULER_LOCK = join(resolveRuntimeRoot(), 'scheduler.lock');
   static INSTANCE_UUID = randomUUID();
@@ -345,8 +257,7 @@ ${prompt}`;
 
   start() {
     if (this.tickTimer) return;
-    const total = this.nonInteractive.length + this.interactive.length;
-    if (total === 0) {
+    if (this.schedules.length === 0) {
       process.stderr.write('mixdog scheduler: no schedules configured\n');
       return;
     }
@@ -365,7 +276,7 @@ ${prompt}`;
       Scheduler._exitHookInstalled = true;
       process.on('exit', releaseOwnedSchedulerLock);
     }
-    logSchedule(`${this.nonInteractive.length} non-interactive, ${this.interactive.length} interactive\n`);
+    logSchedule(`${this.schedules.length} schedules\n`);
     this.registerCronJobs();
     this.tick();
     this.tickTimer = setInterval(() => this.tick(), TICK_INTERVAL);
@@ -373,14 +284,14 @@ ${prompt}`;
   /** Register schedule entries. `when_cron` entries bind to node-cron (dow
    *  field covers the day guard); `when_at` entries arm a one-shot timer. */
   registerCronJobs() {
-    for (const { schedule: s, type } of this.typedSchedules()) {
+    for (const s of this.schedules) {
       if (s.whenCron) {
         if (!isCronExpression(s.whenCron)) {
           process.stderr.write(`mixdog scheduler: invalid cron "${s.name}" (${s.whenCron}) — skipped\n`);
           continue;
         }
         try {
-          const task = cron.schedule(s.whenCron, (ctx) => this.onCronFire(s, type, ctx?.date), {
+          const task = cron.schedule(s.whenCron, (ctx) => this.onCronFire(s, ctx?.date), {
             timezone: s.timezone || undefined,
             name: s.name,
           });
@@ -397,13 +308,13 @@ ${prompt}`;
           process.stderr.write(`mixdog scheduler: failed to register cron "${s.name}" (${s.whenCron}): ${err}\n`);
         }
       } else if (s.whenAt) {
-        this.armOneShot(s, type);
+        this.armOneShot(s);
       }
     }
   }
   /** Fire path for a cron-triggered entry. node-cron's dow field covers the
    *  day guard, so there is no separate days filter. Persists last_fired_at. */
-  async onCronFire(schedule, type, scheduledDate = null) {
+  async onCronFire(schedule, scheduledDate = null) {
     const startedAt = /* @__PURE__ */ new Date();
     const scheduledAt =
       scheduledDate instanceof Date && Number.isFinite(scheduledDate.getTime()) ? scheduledDate : startedAt;
@@ -438,7 +349,7 @@ ${prompt}`;
         this.recordRefusal(schedule, refusal);
         return;
       }
-      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true, reserved: true });
+      const fired = await this.fireTimed(schedule, { awaitDispatch: true, reserved: true });
       // An overlap skip is recorded as a skip, never as a failed run.
       if (!fired && skippedSince(schedule, startedAt)) return;
       if (!fired) {
@@ -481,7 +392,7 @@ ${prompt}`;
    *  entries (misfire recovery at start) fire immediately. setTimeout's
    *  ~24.8-day (2^31-1 ms) ceiling is handled by re-arming for far-future
    *  instants instead of firing early. */
-  armOneShot(schedule, type) {
+  armOneShot(schedule) {
     const fireAt = new Date(schedule.whenAt).getTime();
     if (!Number.isFinite(fireAt)) {
       process.stderr.write(`mixdog scheduler: invalid when_at for "${schedule.name}" (${schedule.whenAt}) — skipped\n`);
@@ -489,11 +400,11 @@ ${prompt}`;
     }
     const delay = fireAt - Date.now();
     if (delay > MAX_TIMER_DELAY_MS) {
-      const timer = setTimeout(() => this.armOneShot(schedule, type), MAX_TIMER_DELAY_MS);
+      const timer = setTimeout(() => this.armOneShot(schedule), MAX_TIMER_DELAY_MS);
       this.oneShotTimers.set(schedule.name, timer);
       return;
     }
-    const timer = setTimeout(() => this.fireOneShot(schedule, type), Math.max(0, delay));
+    const timer = setTimeout(() => this.fireOneShot(schedule), Math.max(0, delay));
     this.oneShotTimers.set(schedule.name, timer);
     schedule.nextFireAt = new Date(fireAt).toISOString();
     void setNextFire(schedule.name, new Date(fireAt)).catch(() => {});
@@ -521,7 +432,7 @@ ${prompt}`;
    *  Idempotent: if last_fired_at is already set (a prior fire whose markDone
    *  failed left the row 'active'), do NOT fire again — only retry markDone so
    *  the stuck-active entry stops re-arming/misfiring. */
-  async fireOneShot(schedule, type) {
+  async fireOneShot(schedule) {
     this.oneShotTimers.delete(schedule.name);
     const now = /* @__PURE__ */ new Date();
     if (schedule.lastFiredAt) {
@@ -530,7 +441,7 @@ ${prompt}`;
       return;
     }
     if (this.shouldSkip(schedule.name)) {
-      this.rearmDeferredOneShot(schedule, type);
+      this.rearmDeferredOneShot(schedule);
       return;
     }
     // Mark done ONLY after a successful fire. A false/throwing fireTimed
@@ -546,7 +457,7 @@ ${prompt}`;
       // dispatch outcome — a truthy fireTimed alone (cron's fire-and-forget
       // contract) would retire the entry even when schedulerLlm() later
       // rejects. Only a resolved dispatch counts as a real fire here.
-      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true, reserved });
+      const fired = await this.fireTimed(schedule, { awaitDispatch: true, reserved });
       if (!fired && skippedSince(schedule, now)) {
         logSchedule(`one-shot "${schedule.name}" skipped (previous run in progress) — leaving pending for retry\n`);
         return;
@@ -571,13 +482,13 @@ ${prompt}`;
    *  already elapsed and tickAsync is a no-op, so simply returning would mean
    *  it never fires until a restart. Re-arm for the deferral expiry (the
    *  later of when_at and deferred/skipped-until) so it fires on its own. */
-  rearmDeferredOneShot(schedule, type) {
+  rearmDeferredOneShot(schedule) {
     const until = this.skipUntil(schedule.name);
     const fireAt = new Date(schedule.whenAt).getTime();
     const target = Math.max(Number.isFinite(fireAt) ? fireAt : 0, until);
     const delay = Math.min(Math.max(target - Date.now(), 1), MAX_TIMER_DELAY_MS);
     logSchedule(`one-shot "${schedule.name}" deferred/skipped — re-arming for ${new Date(target).toISOString()}\n`);
-    const timer = setTimeout(() => this.fireOneShot(schedule, type), delay);
+    const timer = setTimeout(() => this.fireOneShot(schedule), delay);
     this.oneShotTimers.set(schedule.name, timer);
     schedule.nextFireAt = new Date(target).toISOString();
     void setNextFire(schedule.name, new Date(target)).catch(() => {});
@@ -643,15 +554,13 @@ ${prompt}`;
     this.oneShotTimers.delete(name);
     this.lastFired.delete(name);
     this.deferred.delete(name);
-    this.nonInteractive = this.nonInteractive.filter((s) => s.name !== name);
-    this.interactive = this.interactive.filter((s) => s.name !== name);
+    this.schedules = this.schedules.filter((s) => s.name !== name);
   }
-  reloadConfig(nonInteractive, interactive, options = {}) {
-    this.nonInteractive = nonInteractive.filter((s) => s.enabled !== false);
-    this.interactive = interactive.filter((s) => s.enabled !== false);
+  reloadConfig(schedules, options = {}) {
+    this.schedules = schedules.filter((s) => s.enabled !== false);
     this.promptsDir = join(DATA_DIR, 'prompts');
     // A name that no longer exists must not keep (or later regain) a stamp.
-    const live = new Set([...this.nonInteractive, ...this.interactive].map((s) => s.name));
+    const live = new Set(this.schedules.map((s) => s.name));
     for (const name of this.lastFired.keys()) if (!live.has(name)) this.lastFired.delete(name);
     // Defer/skip state is persisted (deferred_until / skipped_until) and
     // re-read from the reloaded rows, so a reload no longer drops it.
@@ -664,10 +573,9 @@ ${prompt}`;
     this.restart();
   }
   getStatus() {
-    return this.typedSchedules().map(({ schedule: s, type }) => ({
+    return this.schedules.map((s) => ({
       name: s.name,
       time: s.whenCron ?? s.whenAt ?? null,
-      type,
       running: this.running.has(s.name),
       lastFired: this.lastFired.get(s.name) ?? s.lastFiredAt ?? null,
       lastSuccess: s.lastSuccessAt ?? null,
@@ -679,14 +587,13 @@ ${prompt}`;
     const timed = this.findSchedule(name);
     if (timed) {
       if (this.running.has(name)) return `"${name}" is already running`;
-      const isNonInteractive = this.nonInteractive.includes(timed);
       const now = /* @__PURE__ */ new Date();
       const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       // Match onCronFire: record lastFired only when fireTimed actually
       // proceeds past its running/precondition guards (resolves truthy),
       // and reflect a non-fire in the returned status.
-      const fired = await this.fireTimed(timed, isNonInteractive ? 'non-interactive' : 'interactive');
+      const fired = await this.fireTimed(timed);
       if (fired) {
         this.lastFired.set(name, `${dateStr}T${hhmm}`);
         return `triggered "${name}"`;
@@ -708,7 +615,7 @@ ${prompt}`;
     // interval is kept for future cadence-driven work and lifecycle parity.
   }
   // ── Fire timed schedule ─────────────────────────────────────────────
-  async fireTimed(schedule, type, opts = {}) {
+  async fireTimed(schedule, opts = {}) {
     const prompt = this.resolvePrompt(schedule);
     if (!prompt) {
       process.stderr.write(`mixdog scheduler: prompt not found for "${schedule.name}"
@@ -716,7 +623,7 @@ ${prompt}`;
       this.notifyFailure(schedule, 'prompt not found — fire skipped');
       return false;
     }
-    return await this.fireTimedPrompt(schedule, type, prompt, opts);
+    return await this.fireTimedPrompt(schedule, prompt, opts);
   }
   /** Why a fire of `name` may not start now: 'renaming', 'running' or null. */
   fireRefusal(name) {
@@ -739,14 +646,13 @@ ${prompt}`;
   }
   /** Fire a timed schedule with the given prompt content. `reserved`: the
    *  caller already holds the name in `running` and releases it itself. */
-  async fireTimedPrompt(schedule, type, prompt, { awaitDispatch = false, reserved = false } = {}) {
-    logSchedule(`firing ${schedule.name} (${type})\n`);
+  async fireTimedPrompt(schedule, prompt, { awaitDispatch = false, reserved = false } = {}) {
+    logSchedule(`firing ${schedule.name}\n`);
     const refusal = reserved ? null : this.fireRefusal(schedule.name);
     if (refusal) {
       this.recordRefusal(schedule, refusal);
       return false;
     }
-    if (type === 'interactive' && this.injectIntoLead(schedule, type, prompt)) return true;
     if (!reserved) this.running.add(schedule.name);
     // Cron (recurring) keeps the fire-and-forget contract: return truthy now
     // and swallow async failures. A one-shot (awaitDispatch) instead awaits
@@ -757,28 +663,8 @@ ${prompt}`;
     if (awaitDispatch) return await dispatch;
     return true;
   }
-  /** Interactive schedules enqueue into the live Lead session's command
-   *  queue as system-generated task notifications (priority 'later'),
-   *  exactly like inbound channel messages — enqueue counts as the fire.
-   *  False when no live Lead seat is attached or the inject fails, so the
-   *  visible-session run remains the fallback and a fire is never lost. */
-  injectIntoLead(schedule, type, prompt) {
-    if (!this.injectFn || !this.injectReady()) return false;
-    try {
-      const wrapped = this.wrapPrompt(schedule.name, prompt, type);
-      this.injectFn(`schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
-      logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
-      return true;
-    } catch (err) {
-      logSchedule(
-        `${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`
-      );
-      return false;
-    }
-  }
   /** Fires run as VISIBLE schedule sessions (desktop Recent / TUI resume)
-   *  via runScheduleSession; the wrapped prompt keeps the schedule context
-   *  header. Resolves true on success; a failure rejects for awaitDispatch
+   *  via runScheduleSession. Resolves true on success; a failure rejects for awaitDispatch
    *  callers and resolves false (after a logged notice) for fire-and-forget
    *  cron fires. */
   dispatchScheduleRun(schedule, prompt, awaitDispatch) {

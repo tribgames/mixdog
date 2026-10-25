@@ -8,7 +8,6 @@ import { ensureReady, stopVoiceWhisperServer } from './whisper-server.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
 import { Scheduler } from './scheduler.mjs';
 import { renameSchedule as renameScheduleRow } from './schedules-db.mjs';
-import { hasPending as dispatchHasPending } from '../../agent/orchestrator/dispatch-persist.mjs';
 import { stripSoftWarns } from '../../agent/orchestrator/tool-loop-guard.mjs';
 import { JsonStateFile } from './state-file.mjs';
 import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
@@ -128,21 +127,12 @@ let _reloadDebounce = null;
 const STATUS_FILE = getStatusPath(INSTANCE_ID);
 const statusState = new JsonStateFile(STATUS_FILE, {});
 statusState.ensure();
-const scheduler = new Scheduler(config.nonInteractive ?? [], config.interactive ?? []);
+const scheduler = new Scheduler(config.schedules ?? []);
 // A schedule fire is a turn in its owner bot's chat; the runner belongs to the
 // session-runtime layer, so this worker entry injects it (lazy, like webhooks).
 scheduler.setScheduleRunner(async (schedule, opts) => {
   const { runScheduleSession } = await import('../../../session-runtime/schedule-session-run.mjs');
   return runScheduleSession(schedule, opts);
-});
-// Register the pending-dispatch probe so the scheduler treats an in-flight
-// bridge dispatch as "active" regardless of user-inbound silence.
-scheduler.setPendingCheck(() => {
-  try {
-    return dispatchHasPending(DATA_DIR);
-  } catch {
-    return false;
-  }
 });
 let webhookServer = null;
 let eventPipeline = null;
@@ -202,13 +192,6 @@ function injectAndRecord(content, options) {
   if (options?.silent_to_agent === true) return;
   sendNotifyToParent('notifications/claude/channel', { content, meta });
 }
-scheduler.setInjectHandler((_name, content, options) => {
-  injectAndRecord(content, options);
-});
-// Interactive schedule fires may only inject while this process
-// actually holds the live bridge seat; otherwise the scheduler falls back to
-// the visible-session run so the fire is never lost.
-scheduler.setInjectReadyCheck(() => bridgeRuntimeConnected && currentOwnerState().owned);
 function wireWebhookHandlers() {
   if (!webhookServer) return;
   webhookServer.setEventPipeline(eventPipeline);

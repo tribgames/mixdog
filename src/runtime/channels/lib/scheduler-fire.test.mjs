@@ -14,10 +14,7 @@ function bareScheduler(overrides = {}) {
       renaming: new Set(),
       oneShotTimers: new Map(),
       lastFired: new Map(),
-      injectFn: null,
-      injectReadyFn: null,
       notifyFailure() {},
-      wrapPrompt: (name, prompt) => `[${name}] ${prompt}`,
     },
     overrides
   );
@@ -31,7 +28,7 @@ test('fireTimedPrompt skips a schedule whose previous run is still in progress a
     scheduleRunner: () => assert.fail('an overlapping fire must not start a run'),
   });
   const schedule = { name: 'daily' };
-  const fired = await scheduler.fireTimedPrompt(schedule, 'non-interactive', 'p');
+  const fired = await scheduler.fireTimedPrompt(schedule, 'p');
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(fired, false);
   assert.equal(skips.length, 1);
@@ -46,38 +43,23 @@ test('a cron fire skipped by the run path counts as a skip, not a failed run', a
     scheduleRunner: async () => ({ skipped: true, sessionId: null, result: '' }),
   });
   const schedule = { name: 'daily', prompt: 'p' };
-  const fired = await scheduler.fireTimedPrompt(schedule, 'non-interactive', 'p', { awaitDispatch: true });
+  const fired = await scheduler.fireTimedPrompt(schedule, 'p', { awaitDispatch: true });
   assert.equal(fired, false);
   assert.ok(schedule.lastSkippedAt, 'the skip is stamped on the schedule');
   assert.equal(scheduler.running.has('daily'), false);
 });
 
-test('an interactive fire enqueues into the Lead session when a seat is attached', async () => {
-  const calls = [];
-  const scheduler = bareScheduler({ injectFn: (...args) => calls.push(args) });
-  const fired = await scheduler.fireTimedPrompt({ name: 'standup', model: 'm' }, 'interactive', 'prompt');
-  assert.equal(fired, true);
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].slice(0, 2), ['schedule:standup', ' ']);
-  assert.deepEqual(calls[0][2], { type: 'schedule', instruction: '[standup] prompt' });
-  assert.equal(scheduler.running.has('standup'), false, 'an enqueue counts as the fire; nothing runs');
-});
-
-test('getStatus lists non-interactive then interactive schedules with their type and fire state', () => {
-  const scheduler = new Scheduler(
-    [
-      { name: 'nightly', whenCron: '0 3 * * *', lastSuccessAt: 's1' },
-      { name: 'off', enabled: false },
-    ],
-    [{ name: 'standup', whenAt: '2030-01-01T09:00:00Z', lastFiredAt: '2029-12-31T09:00:00Z' }],
-    ''
-  );
+test('getStatus lists the loaded schedules with their fire state', () => {
+  const scheduler = new Scheduler([
+    { name: 'nightly', whenCron: '0 3 * * *', lastSuccessAt: 's1' },
+    { name: 'off', enabled: false },
+    { name: 'standup', whenAt: '2030-01-01T09:00:00Z', lastFiredAt: '2029-12-31T09:00:00Z' },
+  ]);
   scheduler.running.add('nightly');
   assert.deepEqual(scheduler.getStatus(), [
     {
       name: 'nightly',
       time: '0 3 * * *',
-      type: 'non-interactive',
       running: true,
       lastFired: null,
       lastSuccess: 's1',
@@ -87,7 +69,6 @@ test('getStatus lists non-interactive then interactive schedules with their type
     {
       name: 'standup',
       time: '2030-01-01T09:00:00Z',
-      type: 'interactive',
       running: false,
       lastFired: '2029-12-31T09:00:00.000Z',
       lastSuccess: null,
@@ -98,11 +79,11 @@ test('getStatus lists non-interactive then interactive schedules with their type
 });
 
 test('triggerManual reports unknown, running, fired and non-fired schedules', async () => {
-  const scheduler = new Scheduler([{ name: 'nightly' }], [{ name: 'standup' }], '');
+  const scheduler = new Scheduler([{ name: 'nightly' }, { name: 'standup' }]);
   const fires = [];
   let outcome = true;
-  scheduler.fireTimed = async (schedule, type) => {
-    fires.push([schedule.name, type]);
+  scheduler.fireTimed = async (schedule) => {
+    fires.push(schedule.name);
     return outcome;
   };
   assert.equal(await scheduler.triggerManual('missing'), 'schedule "missing" not found');
@@ -113,10 +94,7 @@ test('triggerManual reports unknown, running, fired and non-fired schedules', as
   assert.match(scheduler.lastFired.get('nightly'), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
   outcome = false;
   assert.equal(await scheduler.triggerManual('standup'), '"standup" did not fire (skipped or already running)');
-  assert.deepEqual(fires, [
-    ['nightly', 'non-interactive'],
-    ['standup', 'interactive'],
-  ]);
+  assert.deepEqual(fires, ['nightly', 'standup']);
 });
 
 test("a schedule needs no model: the fire goes to its run path (a turn in its bot's chat)", async () => {
@@ -127,7 +105,7 @@ test("a schedule needs no model: the fire goes to its run path (a turn in its bo
       return { sessionId: 'sess_home_lead', result: 'done' };
     },
   });
-  const fired = await scheduler.fireTimedPrompt({ name: 'nomodel' }, 'non-interactive', 'p', { awaitDispatch: true });
+  const fired = await scheduler.fireTimedPrompt({ name: 'nomodel' }, 'p', { awaitDispatch: true });
   assert.equal(fired, true);
   assert.deepEqual(runs, [['nomodel', 'p']]);
   assert.equal(scheduler.running.has('nomodel'), false);
@@ -140,7 +118,7 @@ test('a fire whose bot is missing is a paused skip, never a failed run', async (
     scheduleRunner: async () => ({ skipped: true, reason: 'owner', message: 'Create the representative bot first.' }),
   });
   const schedule = { name: 'briefing', prompt: 'p' };
-  const fired = await scheduler.fireTimedPrompt(schedule, 'non-interactive', 'p', { awaitDispatch: true });
+  const fired = await scheduler.fireTimedPrompt(schedule, 'p', { awaitDispatch: true });
   assert.equal(fired, false);
   assert.ok(schedule.lastSkippedAt);
   assert.equal(schedule.lastFailedAt, undefined);
@@ -172,7 +150,7 @@ test('a fire of a schedule being renamed does not start a run, and one that star
   });
   let fireDuring;
   await scheduler.renameLocked('daily', async () => {
-    fireDuring = await scheduler.fireTimedPrompt({ name: 'daily' }, 'non-interactive', 'p');
+    fireDuring = await scheduler.fireTimedPrompt({ name: 'daily' }, 'p');
   });
   assert.equal(fireDuring, false);
   assert.deepEqual(runs, []);
@@ -180,7 +158,7 @@ test('a fire of a schedule being renamed does not start a run, and one that star
   // The other order: the fire is already running when the rename asks.
   const release = Promise.withResolvers();
   const slow = bareScheduler({ scheduleRunner: () => release.promise });
-  await slow.fireTimedPrompt({ name: 'daily' }, 'non-interactive', 'p');
+  await slow.fireTimedPrompt({ name: 'daily' }, 'p');
   await assert.rejects(
     slow.renameLocked('daily', async () => {}),
     /is running/
@@ -189,13 +167,10 @@ test('a fire of a schedule being renamed does not start a run, and one that star
 });
 
 test('reloadConfig drops lastFired for names that no longer exist, so a reused name starts clean', () => {
-  const scheduler = new Scheduler(
-    [{ name: 'old', whenCron: '0 3 * * *', lastFiredAt: '2030-01-01T00:00:00.000Z' }],
-    []
-  );
+  const scheduler = new Scheduler([{ name: 'old', whenCron: '0 3 * * *', lastFiredAt: '2030-01-01T00:00:00.000Z' }]);
   scheduler.lastFired.set('old', '2030-01-02T00:00:00.000Z');
   scheduler.lastFired.set('kept', '2030-01-03T00:00:00.000Z');
-  scheduler.reloadConfig([{ name: 'kept', whenCron: '0 4 * * *' }], [], { restart: false });
+  scheduler.reloadConfig([{ name: 'kept', whenCron: '0 4 * * *' }], { restart: false });
   assert.equal(scheduler.lastFired.has('old'), false);
   assert.equal(scheduler.lastFired.get('kept'), '2030-01-03T00:00:00.000Z');
   scheduler.reloadConfig(
@@ -203,10 +178,7 @@ test('reloadConfig drops lastFired for names that no longer exist, so a reused n
       { name: 'old', whenCron: '0 5 * * *' },
       { name: 'kept', whenCron: '0 4 * * *' },
     ],
-    [],
-    {
-      restart: false,
-    }
+    { restart: false }
   );
   assert.equal(scheduler.lastFired.has('old'), false, 'a reused name does not inherit the stale stamp');
   assert.equal(scheduler.getStatus().find((row) => row.name === 'old').lastFired, null);
