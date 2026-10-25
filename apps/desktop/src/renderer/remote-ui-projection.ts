@@ -18,6 +18,10 @@ export function isNativeDesktopWindow(): boolean {
   return !isRemoteHostRenderer() && Boolean(window.mixdogDesktop?.bootContext?.bootId);
 }
 
+export function isNativeMacDesktopWindow(): boolean {
+  return isNativeDesktopWindow() && window.mixdogDesktop?.platform === 'darwin';
+}
+
 /** UA-based "plain browser" check; only phone-layout decisions, composer
  *  auto-focus and browser image handling use it. Remote capability decisions
  *  use isRemoteHostRenderer. */

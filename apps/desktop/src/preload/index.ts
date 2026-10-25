@@ -91,6 +91,7 @@ function subscribeIpc<Args extends unknown[]>(channel: string, listener: (...arg
 }
 
 const api: DesktopApi = {
+  platform: process.platform,
   ...(bootContext ? { bootContext } : {}),
   ...(connection ? { connection } : {}),
   // This app's own host always takes per-route Auto reasoning.

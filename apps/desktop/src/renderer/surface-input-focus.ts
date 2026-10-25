@@ -88,6 +88,15 @@ export function surfaceOwnsKeyboard(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest(SURFACE_KEYBOARD_OWNER_SELECTOR));
 }
 
+export function isTextNavigationTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
+  return (
+    target instanceof HTMLInputElement &&
+    ['text', 'search', 'url', 'tel', 'email', 'password'].includes(target.type)
+  );
+}
+
 export function shouldFocusComposerFromWindowKey(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
   if (event.key.length !== 1 && event.key !== 'Process' && event.key !== 'Dead') return false;

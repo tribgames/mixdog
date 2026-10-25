@@ -10,7 +10,7 @@ installTestDom(null, {
   jsdom: {
     url: 'https://mixdog.test/',
   },
-  expose: ['navigator'],
+  expose: ['navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement'],
 });
 
 const { useWorkspaceShortcuts } = await import('./app-workspace-shortcuts.ts');
@@ -232,7 +232,7 @@ test('a focused code editor keeps Ctrl+Arrow for word jumps and line scrolling',
   assert.deepEqual(vertical, ['down']);
 });
 
-test('Alt+Left/Right walks history everywhere except the browser page and terminal', async (t) => {
+test('Alt+Left/Right preserves history except for owned surfaces and native mac text fields', async (t) => {
   const host = document.createElement('main');
   const plain = document.createElement('textarea');
   const terminal = document.createElement('div');
@@ -242,6 +242,7 @@ test('Alt+Left/Right walks history everywhere except the browser page and termin
   document.body.append(host, plain, terminal, browser);
   const root = createRoot(host);
   t.after(async () => {
+    delete window.mixdogDesktop;
     await act(async () => root.unmount());
     host.remove();
     plain.remove();
@@ -286,6 +287,42 @@ test('Alt+Left/Right walks history everywhere except the browser page and termin
   assert.equal(await press(terminal, 'ArrowLeft'), false);
   assert.equal(await press(browser, 'ArrowLeft'), false);
   assert.deepEqual(calls, ['back', 'forward']);
+  const input = document.createElement('input');
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  const editor = document.createElement('div');
+  editor.className = 'monaco-editor';
+  const editorInput = document.createElement('div');
+  editor.append(editorInput);
+  const editable = document.createElement('div');
+  // jsdom lacks effective contenteditable; this checks routing, not native editing.
+  Object.defineProperty(editable, 'isContentEditable', { value: true });
+  host.append(input, checkbox, editor, editable);
+
+  for (const [platform, nativeMac] of [
+    ['darwin', true],
+    ['win32', false],
+    ['linux', false],
+  ]) {
+    window.mixdogDesktop = { platform, bootContext: { bootId: 'option-navigation-test' } };
+    for (const [name, target, textTarget] of [
+      ['textarea', plain, true], ['input', input, true],
+      ['contenteditable', editable, true], ['Monaco', editorInput, true],
+      ['workspace', host, false], ['checkbox', checkbox, false],
+    ]) {
+      const yields = nativeMac && textTarget;
+      const label = `${platform}/${name}`;
+      let delivered = 0;
+      const onKey = () => delivered++;
+      target.addEventListener('keydown', onKey);
+      calls.length = 0;
+      assert.equal(await press(target, 'ArrowLeft'), !yields, label);
+      assert.equal(await press(target, 'ArrowRight'), !yields, label);
+      assert.deepEqual(calls, yields ? [] : ['back', 'forward'], label);
+      assert.equal(delivered, yields ? 2 : 0, label);
+      target.removeEventListener('keydown', onKey);
+    }
+  }
 });
 
 test('Ctrl+Alt+N starts a task without a project; Ctrl+N is unchanged; AltGr is not claimed', async (t) => {
