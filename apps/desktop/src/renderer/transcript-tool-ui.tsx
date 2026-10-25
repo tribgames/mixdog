@@ -378,13 +378,16 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
  *  revealed (a draft with no session, a paired phone). */
 function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPage; sessionId: string }) {
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
-  // What the in-app browser saw there: a screenshot leads the card; without
-  // one the site icon and title stand in; without either, globe and address.
+  // What the in-app browser saw there: a screenshot leads the card (its slot
+  // is reserved meanwhile); the site icon and title stand in beside it,
+  // else a globe and the address.
   const identity = useBrowserPageIdentity(page.url, { preview: true });
   const [faviconSrc, onFaviconError] = useLoadableFavicon(identity?.favicon);
   // The page's screenshot is kept per session + address, so the card still has
   // its picture after a restart, before (or without) the browser seeing it again.
   const thumbnail = usePersistedThumbnail(sessionId, `browser|${page.url}`, identity?.thumbnail || undefined);
+  // A picture that fails to decode gives the slot back to the placeholder.
+  const [shot, onShotError] = useLoadableFavicon(thumbnail);
   if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) !== 'pane') return null;
   const favicon = faviconSrc ? (
     <img
@@ -395,44 +398,32 @@ function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPag
       onError={onFaviconError}
     />
   ) : null;
-  let body: ReactNode;
-  if (thumbnail) {
-    body = (
-      <>
-        <span className="transcript-browser-page-thumb" aria-hidden="true">
-          <img src={thumbnail} alt="" draggable={false} />
+  // The thumbnail slot is always there at its final size: a quiet placeholder
+  // until the picture arrives (or when it cannot be decoded), then the picture
+  // in the same box, so the card never changes size when it loads.
+  const body = (
+    <>
+      <span className="transcript-browser-page-thumb" aria-hidden="true">
+        {shot ? (
+          <img src={shot} alt="" draggable={false} onError={onShotError} />
+        ) : (
+          <Globe size={18} className="transcript-browser-page-thumb-empty" />
+        )}
+      </span>
+      <span className="transcript-browser-page-copy" title={page.url}>
+        <span className="transcript-browser-page-site">
+          {favicon ?? <Globe size={14} aria-hidden="true" />}
+          <span>{page.host}</span>
         </span>
-        <span className="transcript-browser-page-copy" title={page.url}>
-          <span className="transcript-browser-page-site">
-            {favicon ?? <Globe size={14} aria-hidden="true" />}
-            <span>{page.host}</span>
-          </span>
-          <b>{identity?.title || page.host}</b>
-          {page.path && <small>{page.path}</small>}
-        </span>
-      </>
-    );
-  } else {
-    body = (
-      <>
-        <span className="transcript-browser-page-icon" aria-hidden="true">
-          {favicon ?? <Globe size={16} />}
-        </span>
-        <span className="transcript-browser-page-copy" title={page.url}>
-          <b>{identity?.title || page.host}</b>
-          <small>
-            {identity?.title
-              ? `${page.host}${page.path}`
-              : [page.path, t('Opened in browser')].filter(Boolean).join(' · ')}
-          </small>
-        </span>
-      </>
-    );
-  }
+        <b>{identity?.title || page.host}</b>
+        {page.path && <small>{page.path}</small>}
+      </span>
+    </>
+  );
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: wrapper only catches context-menu requests (right-click / menu key) bubbling from its child controls.
     <div
-      className={`transcript-browser-page${thumbnail ? ' has-thumbnail' : ''}`}
+      className="transcript-browser-page"
       onContextMenu={(event) => {
         event.preventDefault();
         setMenu(webLinkMenu(sessionId, page.url, pointerMenuPoint(event)));

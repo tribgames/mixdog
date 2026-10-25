@@ -127,7 +127,6 @@ test('the card shows a screenshot, else the site icon and title, else globe and 
   try {
     // Screenshot: thumbnail left, site icon + host, title, path.
     let card = await show('https://github.com/mixdog/mixdog/pull/412');
-    assert.ok(card.classList.contains('has-thumbnail'));
     assert.equal(card.querySelector('.transcript-browser-page-thumb img')?.getAttribute('src'), SHOT);
     assert.equal(card.querySelector('.transcript-browser-page-site img')?.getAttribute('src'), FAVICON);
     assert.equal(card.querySelector('.transcript-browser-page-site').textContent, 'github.com');
@@ -135,28 +134,29 @@ test('the card shows a screenshot, else the site icon and title, else globe and 
     assert.equal(card.querySelector('small').textContent, '/mixdog/mixdog/pull/412');
     assert.equal(card.querySelector('button').textContent, 'Open');
 
-    // No screenshot: the site icon replaces the globe, the title leads.
+    // No screenshot: the thumbnail slot stays as an empty placeholder; the site
+    // icon replaces the globe beside the host, the title leads.
     card = await show('https://docs.example.com/guide');
-    assert.ok(!card.classList.contains('has-thumbnail'));
-    assert.equal(card.querySelector('.transcript-browser-page-thumb'), null);
-    assert.equal(card.querySelector('.transcript-browser-page-icon img')?.getAttribute('src'), FAVICON);
+    assert.ok(card.querySelector('.transcript-browser-page-thumb'));
+    assert.equal(card.querySelector('.transcript-browser-page-thumb img'), null);
+    assert.ok(card.querySelector('.transcript-browser-page-thumb svg.lucide-globe'));
+    assert.equal(card.querySelector('.transcript-browser-page-site img')?.getAttribute('src'), FAVICON);
     assert.equal(card.querySelector('b').textContent, 'Guide');
-    assert.equal(card.querySelector('small').textContent, 'docs.example.com/guide');
+    assert.equal(card.querySelector('small').textContent, '/guide');
     // An icon that fails to decode gives the slot back to the globe.
     await act(async () =>
-      card.querySelector('.transcript-browser-page-icon img').dispatchEvent(new dom.window.Event('error'))
+      card.querySelector('.transcript-browser-page-site img').dispatchEvent(new dom.window.Event('error'))
     );
-    assert.equal(card.querySelector('.transcript-browser-page-icon img'), null);
-    assert.ok(card.querySelector('.transcript-browser-page-icon svg.lucide-globe'));
+    assert.equal(card.querySelector('.transcript-browser-page-site img'), null);
+    assert.ok(card.querySelector('.transcript-browser-page-site svg.lucide-globe'));
     assert.equal(card.querySelector('b').textContent, 'Guide');
 
-    // Nothing recorded: today's globe, host and path.
+    // Nothing recorded: placeholder, globe, host and path.
     card = await show('https://unknown.example.org/a');
-    assert.ok(!card.classList.contains('has-thumbnail'));
     assert.equal(card.querySelector('img'), null);
-    assert.ok(card.querySelector('.transcript-browser-page-icon svg'));
+    assert.ok(card.querySelector('.transcript-browser-page-site svg.lucide-globe'));
     assert.equal(card.querySelector('b').textContent, 'unknown.example.org');
-    assert.match(card.querySelector('small').textContent, /^\/a · /);
+    assert.equal(card.querySelector('small').textContent, '/a');
     assert.deepEqual(asked, [
       'https://github.com/mixdog/mixdog/pull/412',
       'https://docs.example.com/guide',
@@ -206,7 +206,7 @@ test('the card renders under a browser group and its button requests the page', 
       );
       const card = dom.window.document.querySelector('.transcript-browser-page');
       assert.equal(card?.querySelector('b')?.textContent, 'localhost:8080');
-      assert.match(card?.querySelector('small')?.textContent ?? '', /^\/mockups\/v3\/game\.html · /);
+      assert.equal(card?.querySelector('small')?.textContent, '/mockups/v3/game.html');
       await act(async () =>
         card.querySelector('button').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       );
@@ -255,6 +255,73 @@ test('the card renders under a browser group and its button requests the page', 
     }
   } finally {
     await act(async () => root.unmount());
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+    dom.window.close();
+  }
+});
+
+test('the thumbnail slot is the same box before the picture, once it arrives late, and if it fails', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
+  const previous = new Map(
+    ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(globalThis, key),
+    ])
+  );
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const url = 'https://late.example.com/shot';
+  const SHOT = 'data:image/jpeg;base64,CCCC';
+  let deliver;
+  dom.window.mixdogDesktop = {
+    browserPageIdentity: () =>
+      new Promise((resolve) => {
+        deliver = resolve;
+      }),
+  };
+  resetBrowserPageIdentityCache();
+  const root = createRoot(dom.window.document.getElementById('root'));
+  const stopReveal = onBrowserPageRevealRequested(() => {});
+  const doc = dom.window.document;
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(ToolActivityGroup, {
+          items: [browserCall('late', { action: 'navigate', input: { url } })],
+          disclosureScope: 'sess-late',
+        })
+      )
+    );
+    const card = doc.querySelector('.transcript-browser-page');
+    const slot = card.querySelector('.transcript-browser-page-thumb');
+    const layout = () => [...card.children].map((el) => el.className);
+    // Before the picture: the slot exists (a placeholder, no image), same layout.
+    assert.ok(slot);
+    assert.equal(slot.querySelector('img'), null);
+    assert.ok(slot.querySelector('svg'));
+    const before = layout();
+
+    // The picture arrives late: it fills the same slot, nothing else moves.
+    await act(async () => deliver({ url, title: 'Late', thumbnail: SHOT }));
+    assert.equal(card.querySelector('.transcript-browser-page-thumb'), slot);
+    assert.equal(slot.querySelector('img')?.getAttribute('src'), SHOT);
+    assert.deepEqual(layout(), before);
+
+    // It fails to decode: the placeholder returns in the same slot.
+    await act(async () => slot.querySelector('img').dispatchEvent(new dom.window.Event('error')));
+    assert.equal(card.querySelector('.transcript-browser-page-thumb'), slot);
+    assert.equal(slot.querySelector('img'), null);
+    assert.ok(slot.querySelector('svg'));
+    assert.deepEqual(layout(), before);
+  } finally {
+    stopReveal();
+    await act(async () => root.unmount());
+    resetBrowserPageIdentityCache();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else delete globalThis[key];
