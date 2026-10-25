@@ -58,6 +58,15 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     // A capped turn (turn-limits.mjs): told to reply, and ended by calling tools anyway.
     turnLimitNoticed: false,
     turnLimitEnded: false,
+    // Non-convergence backstops (turn-limits.mjs): provider calls since the
+    // last tool round that produced a new result (retries and recovery
+    // re-sends included; compaction does not reset it, unlike `iterations`),
+    // consecutive tool rounds with no new result, the call+result hashes the
+    // turn has seen, and why the turn was told to reply (or null).
+    callsSinceProgress: 0,
+    noProgressRounds: 0,
+    seenToolResults: new Set(),
+    stepLimitReached: null,
     lastUsage: undefined,
     firstTurnUsage: undefined,
     response: undefined,

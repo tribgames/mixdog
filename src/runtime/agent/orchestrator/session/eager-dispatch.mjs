@@ -24,6 +24,7 @@ export function createEagerDispatcher({
   getIterations,
   getNextIteration,
   repeatFailLimit,
+  isTurnLimitNoticed = () => false,
   executeToolFn = executeTool,
 }) {
   const pending = new Map();
@@ -56,7 +57,9 @@ export function createEagerDispatcher({
   const startEagerTool = (wireCall) => {
     // Streamed call_tool requests are admitted, ordered and executed as their
     // targets; a projection error is answered by the serial batch instead.
-    if (capped) return null;
+    // Once the turn was told to reply (any limit), no call runs: the batch
+    // refuses them, so none may start while the wrap-up response streams.
+    if (capped || isTurnLimitNoticed()) return null;
     const call = resolveExecutionToolCall(wireCall, sessionRef);
     if (!call?.id || pending.has(call.id) || !isParallelDispatchable(call.name)) return null;
     const admitted = admission.admit(call);

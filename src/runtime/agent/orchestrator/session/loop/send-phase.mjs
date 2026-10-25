@@ -126,6 +126,7 @@ export async function beginIteration(state) {
     getIterations: () => state.iterations,
     getNextIteration: () => nextIteration,
     repeatFailLimit: REPEAT_FAIL_LIMIT,
+    isTurnLimitNoticed: () => state.turnLimitNoticed === true,
   });
   const resolveToolCallId = createToolCallIdResolver(messages);
   opts.onToolCall = (call) => {
