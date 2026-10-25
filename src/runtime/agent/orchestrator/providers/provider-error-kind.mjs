@@ -391,6 +391,13 @@ const CODE_KINDS = new Map(
   }).flatMap(([kind, codes]) => codes.map((code) => [code, kind]))
 );
 const RESOURCE_EXHAUSTED = 'resource_exhausted';
+
+/** True when `code` is one of the provider error codes this module classifies
+ *  (rate/usage limits, quota, overload, server/transient, context length,
+ *  model not found, auth, policy, …): a known vocabulary word, never free text. */
+export function isKnownProviderErrorCode(code) {
+  return typeof code === 'string' && (CODE_KINDS.has(code) || code === RESOURCE_EXHAUSTED);
+}
 // When several typed codes are present (an envelope type plus a specific
 // code), the most specific verdict wins.
 const KIND_RANK = [

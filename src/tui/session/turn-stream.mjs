@@ -588,6 +588,12 @@ function stopReconnectCountdown(stream) {
   stream.reconnectTimer = null;
 }
 
+// The spinner's wait fields for a reconnect stage (see applyStageChange).
+function reconnectWait(detail, now = Date.now()) {
+  const retryAt = Number(detail?.retryAt) || 0;
+  return { retryAt, retryInMs: retryAt > 0 ? Math.max(0, retryAt - now) : 0 };
+}
+
 // Re-renders the reconnect verb once a second until the wait ends, the stage
 // moves on, or the turn is gone. The desktop reads the same spinner state.
 function startReconnectCountdown(stream, detail) {
@@ -599,7 +605,7 @@ function startReconnectCountdown(stream, detail) {
       stopReconnectCountdown(stream);
       return;
     }
-    stream.set({ spinner: { ...spinner, verb: reconnectVerb(detail) } });
+    stream.set({ spinner: { ...spinner, verb: reconnectVerb(detail), ...reconnectWait(detail) } });
   }, 1_000);
   stream.reconnectTimer.unref?.();
 }
@@ -635,7 +641,18 @@ export async function applyStageChange(stream, stage, detail = null) {
   }
   if (value === 'reconnecting') {
     stream.compactingActive = false;
-    set({ spinner: { ...getState().spinner, mode: 'reconnecting', verb: reconnectVerb(detail) } });
+    // The wait rides on the spinner so a surface that repaints on its own
+    // clock (the desktop status line) counts it down itself: `retryInMs` is
+    // the remaining wait at publish (relative, so a remote client's clock skew
+    // cannot distort it) and `retryAt` only identifies this retry.
+    set({
+      spinner: {
+        ...getState().spinner,
+        mode: 'reconnecting',
+        verb: reconnectVerb(detail),
+        ...reconnectWait(detail),
+      },
+    });
     startReconnectCountdown(stream, detail);
     await yieldToRenderer();
     return;

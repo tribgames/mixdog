@@ -3771,6 +3771,7 @@
   "Reconnected to {{name}}": "Wieder mit {{name}} verbunden",
   "Reconnecting to {{name}} (attempt {{attempt}})": "Verbindung zu {{name}} wird wiederhergestellt (Versuch {{attempt}})",
   "Reconnecting…": "Wiederverbindung läuft…",
+  "Reconnecting… {{attempt}} · retry in {{time}}": "Wiederverbindung läuft… {{attempt}} · neuer Versuch in {{time}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Erfasste Nutzdaten: {{bytes}} MiB · Einträge unbekannter Größe: {{unknown}} · Pro Änderung: {{files}} Dateien / {{limit}} MiB",
   "Recorded value": "Erfasster Gegenwert",
   "Recovery changed. Inspect again before confirming.": "Der Wiederherstellungszustand wurde geändert. Vor der Bestätigung erneut prüfen.",

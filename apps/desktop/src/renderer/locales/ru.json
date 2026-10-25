@@ -3889,6 +3889,7 @@
   "Reconnected to {{name}}": "Снова подключено к {{name}}",
   "Reconnecting to {{name}} (attempt {{attempt}})": "Повторное подключение к {{name}} (попытка {{attempt}})",
   "Reconnecting…": "Повторное подключение…",
+  "Reconnecting… {{attempt}} · retry in {{time}}": "Повторное подключение… {{attempt}} · повтор через {{time}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Записанные данные: {{bytes}} MiB · Записи неизвестного размера: {{unknown}} · На правку: {{files}} файлов / {{limit}} MiB",
   "Recorded value": "Учтённая стоимость",
   "Recovery changed. Inspect again before confirming.": "Состояние восстановления изменилось. Проверьте его ещё раз перед подтверждением.",

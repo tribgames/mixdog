@@ -3712,6 +3712,7 @@
   "Reconnected to {{name}}": "{{name}} に再接続しました",
   "Reconnecting to {{name}} (attempt {{attempt}})": "{{name}} に再接続しています（{{attempt}} 回目）",
   "Reconnecting…": "再接続中…",
+  "Reconnecting… {{attempt}} · retry in {{time}}": "再接続中… {{attempt}} · {{time}}後に再試行",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "記録されたデータ: {{bytes}} MiB · サイズ不明の記録: {{unknown}} · 編集ごとの上限: {{files}} ファイル / {{limit}} MiB",
   "Recorded value": "記録済み換算額",
   "Recovery changed. Inspect again before confirming.": "復旧状態が変わりました。確定する前に再検査してください。",

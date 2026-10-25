@@ -81,13 +81,15 @@ export async function resolveHandshakeFailure(
   const retryable =
     classifier && status !== 401 && status !== 426 && err?.unsafeToRetry !== true && !externalSignal?.aborted;
   if (retryable && attemptIndex < ctx.maxMidstreamRetries) {
+    const waitMs = ctx.retryWaitMs(attemptIndex + 1, err);
     ctx.scheduleRetry(err, {
       attemptIndex,
       classifier,
       retryLimit: ctx.maxMidstreamRetries,
       remember: !state.firstAttemptError,
+      waitMs,
     });
-    await ctx.backoff(attemptIndex + 1, err);
+    await ctx.backoff(waitMs);
     return true;
   }
   // A later auth/upgrade decision must win over an earlier transient

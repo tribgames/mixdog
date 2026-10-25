@@ -341,8 +341,14 @@ test('a reconnect wait counts down live and stops once the stage moves on', asyn
   });
   assert.equal(spinner().mode, 'reconnecting');
   assert.equal(spinner().verb, 'Connection lost · retry 1/3 in 15s');
+  // The wait rides on the spinner for surfaces that recount it on their own
+  // repaint clock (desktop status line): relative remaining time, plus the
+  // retry's identity.
+  assert.equal(spinner().retryAt, 1_000_000 + 15_000);
+  assert.equal(spinner().retryInMs, 15_000);
   t.mock.timers.tick(1_000);
   assert.equal(spinner().verb, 'Connection lost · retry 1/3 in 14s');
+  assert.equal(spinner().retryInMs, 14_000);
   t.mock.timers.tick(5_000);
   assert.equal(spinner().verb, 'Connection lost · retry 1/3 in 9s');
 

@@ -2,9 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStreamSafetyStamps } from './retry-classifier.mjs';
 import { createWsSendAttempts, MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT } from './openai-ws-send-attempts.mjs';
+import { createWsSendContext } from './openai-ws-send/send-context.mjs';
+import { safeRetryErrorCode } from './openai-ws-send-attempts/policy.mjs';
+import { emitProviderRetryStage } from './retry-executor.mjs';
 
 function harness(overrides = {}) {
   const progress = [];
+  const details = [];
   const spanEvents = [];
   const sleeps = [];
   const sendSpan = {
@@ -21,7 +25,10 @@ function harness(overrides = {}) {
       sleeps.push(ms);
     },
     sendSpan,
-    emitReconnectProgress: (p) => progress.push(p),
+    emitReconnectProgress: (p) => {
+      progress.push({ attempt: p.attempt, max: p.max, classifier: p.classifier });
+      details.push(p);
+    },
     safetyStamps: createStreamSafetyStamps(),
     handshakeErrorPolicy: null,
     retry429: true,
@@ -31,7 +38,7 @@ function harness(overrides = {}) {
     body: {},
     ...overrides,
   });
-  return { attempts, progress, spanEvents, sleeps, sendSpan };
+  return { attempts, progress, details, spanEvents, sleeps, sendSpan };
 }
 
 function fakeEntry(extra = {}) {
@@ -152,6 +159,144 @@ test('streamFailed: a rate-limited response.failed waits the server-advised time
   assert.equal(await h.attempts.streamFailed(err, { attemptIndex: 0, entry: fakeEntry(), midState: midState() }), true);
   assert.equal(err.midstreamClassifier, 'response_failed_rate_limited');
   assert.deepEqual(h.sleeps, [1500]);
+});
+
+test('streamFailed: a long server-advised wait is announced with its cause and length before it starts', async () => {
+  const h = harness();
+  const err = Object.assign(new Error('OpenAI OAuth WS error: Rate limit reached. Please try again in 210s.'), {
+    responseFailed: {
+      type: 'error',
+      error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 210s.' },
+    },
+  });
+  const pre = midState({ sawResponseCreated: false });
+  assert.equal(await h.attempts.streamFailed(err, { attemptIndex: 0, entry: fakeEntry(), midState: pre }), true);
+  assert.deepEqual(h.sleeps, [210_000]);
+  assert.equal(h.details.length, 1);
+  assert.equal(h.details[0].error, err);
+  assert.equal(h.details[0].waitMs, 210_000);
+});
+
+test('the WS reconnect stage names the failure and counts down the advised wait', () => {
+  const stages = [];
+  const ctx = createWsSendContext({
+    auth: { type: 'xai' },
+    body: {},
+    sendOpts: {},
+    onStageChange: (stage, detail) => stages.push([stage, detail]),
+    externalSignal: null,
+    poolKey: 'send-context-test',
+    cacheKey: null,
+    iteration: 0,
+    useModel: 'gpt-6.1-sol',
+    traceProvider: 'xai',
+    _sendSpanTraceFn: () => {},
+  });
+  const err = Object.assign(new Error('Rate limit reached. Please try again in 210s.'), { code: 'rate_limit_exceeded' });
+  const before = Date.now();
+  ctx.emitReconnectProgress({ attempt: 1, max: 5, classifier: 'http_429', error: err, waitMs: 210_000 });
+  assert.equal(stages.length, 1);
+  const [stage, detail] = stages[0];
+  assert.equal(stage, 'reconnecting');
+  assert.equal(detail.waitMs, 210_000);
+  assert.ok(detail.retryAt >= before + 210_000);
+  assert.equal(detail.reason, 'Rate limited by the provider');
+  assert.equal(detail.reasonClass, 'rate_limited');
+  assert.equal(detail.message, 'Rate limited by the provider · retry 1/5 in 210s');
+  // A retry without a known failure keeps the bare counter.
+  ctx.emitReconnectProgress({ attempt: 2, max: 5, classifier: 'ws_1006' });
+  assert.equal(stages[1][1].message, 'Reconnecting... 2/5');
+});
+
+test('server error text (echoed prompt, token, account) never reaches the retry trace or the status', async () => {
+  const markers = ['PROMPT_MARKER_7f3a', 'sk-TOKEN_MARKER_9b2c', 'acct_ACCOUNT_MARKER_44d1'];
+  const serverText = `Rate limit reached for "${markers[0]}" (key ${markers[1]}, account ${markers[2]}). Please try again in 3s.`;
+  const stages = [];
+  const traces = [];
+  const ctx = createWsSendContext({
+    auth: { type: 'xai' },
+    body: {},
+    sendOpts: {},
+    onStageChange: (stage, detail) => stages.push([stage, detail]),
+    externalSignal: null,
+    poolKey: 'redaction-test',
+    cacheKey: null,
+    iteration: 0,
+    useModel: 'gpt-6.1-sol',
+    traceProvider: 'xai',
+    _sleepFn: async () => {},
+    _sendSpanTraceFn: () => {},
+    _agentTraceFn: (row) => traces.push(row),
+  });
+  const cases = [
+    // Typed rate limit carrying the text in the wire error and the message.
+    Object.assign(new Error(`OpenAI OAuth WS error: ${serverText}`), {
+      responseFailed: { type: 'error', status: 429, error: { code: 'rate_limit_exceeded', message: serverText } },
+      httpStatus: 429,
+    }),
+    // A server "code" that is itself free text must not pass as a code.
+    Object.assign(new Error(serverText), {
+      responseFailed: { response: { error: { code: `bad ${markers[0]}`, message: serverText } } },
+    }),
+    // Nor may an identifier-shaped code that is not a known provider code.
+    Object.assign(new Error(serverText), {
+      responseFailed: { response: { error: { code: 'acct_private-123', message: serverText } } },
+    }),
+  ];
+  for (const [index, err] of cases.entries()) {
+    const entry = fakeEntry();
+    assert.equal(
+      await ctx.attempts.streamFailed(err, { attemptIndex: index, entry, midState: midState({ attemptIndex: index }) }),
+      true
+    );
+  }
+  assert.equal(traces.filter((row) => row.kind === 'ws_retry').length, 3);
+  assert.equal(stages.filter(([stage]) => stage === 'reconnecting').length, 3);
+  const visible = JSON.stringify({ traces, stages });
+  for (const marker of [...markers, 'acct_private-123']) assert.ok(!visible.includes(marker), `${marker} leaked`);
+  assert.ok(!visible.includes('Rate limit reached for'), 'server text leaked');
+  const [first, second, third] = traces.filter((row) => row.kind === 'ws_retry');
+  assert.equal(first.code, 'rate_limit_exceeded');
+  assert.equal(first.reason, 'rate_limited');
+  assert.equal(first.http_status, 429);
+  assert.equal(first.wait_ms, 3_000);
+  for (const row of [second, third]) {
+    assert.equal(row.code, null);
+    assert.ok(['rate_limited', 'overloaded', 'server_error', 'auth', 'other'].includes(row.reason));
+  }
+});
+
+test('safeRetryErrorCode keeps only known provider error codes', () => {
+  const coded = (code) => Object.assign(new Error('x'), { responseFailed: { error: { code } } });
+  for (const code of ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found']) {
+    assert.equal(safeRetryErrorCode(coded(code)), code);
+  }
+  for (const code of ['acct_private-123', 'user_12345', 'sk-abc', 'prompt words']) {
+    assert.equal(safeRetryErrorCode(coded(code)), null, code);
+  }
+});
+
+test('the retry stage takes a reason class, never caller text', () => {
+  const stages = [];
+  emitProviderRetryStage((stage, detail) => stages.push(detail), {
+    attempt: 1,
+    maxAttempts: 5,
+    lastErr: new Error('x'),
+    delayMs: 1_000,
+    reason: 'INJECTED_REASON_TEXT',
+    reasonClass: 'INJECTED_CLASS text',
+  });
+  emitProviderRetryStage((stage, detail) => stages.push(detail), {
+    attempt: 1,
+    maxAttempts: 5,
+    lastErr: new Error('x'),
+    delayMs: 1_000,
+    reasonClass: 'overloaded',
+  });
+  assert.ok(!JSON.stringify(stages).includes('INJECTED'));
+  assert.equal(stages[0].reason, 'Connection interrupted');
+  assert.equal(stages[0].reasonClass, 'other');
+  assert.equal(stages[1].message, 'Provider overloaded · retry 1/5 in 1s');
 });
 
 test('streamFailed: relayed text latches the no-replay marker and surfaces the error', async () => {

@@ -500,6 +500,10 @@ export function LiveActivity({
   const verb = activityVerb({
     mode,
     runtimeVerb: String(activity?.verb || ''),
+    // The band repaints once a second (useClock); the reconnect wait is
+    // anchored to this clock on first sight and recounted on each repaint.
+    retryKey: Number(activity?.retryAt) > 0 ? String(activity?.retryAt) : '',
+    retryInMs: activity?.retryInMs == null ? undefined : Number(activity.retryInMs),
     anchor: anchorRef.current,
     now: nowMs,
     language,

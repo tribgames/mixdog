@@ -89,8 +89,9 @@ export async function resolveStreamFailure(ctx, err, { attemptIndex, entry, midS
       state.carryForwardCache = null;
       tag(entry, { lastResponseId: null });
     }
-    ctx.scheduleRetry(err, { attemptIndex, classifier, retryLimit, remember: true });
-    await ctx.backoff(attemptIndex + 1, err);
+    const waitMs = ctx.retryWaitMs(attemptIndex + 1, err);
+    ctx.scheduleRetry(err, { attemptIndex, classifier, retryLimit, remember: true, waitMs });
+    await ctx.backoff(waitMs);
     return true;
   }
   // Not retryable, OR we've already exhausted the retry budget. Do not

@@ -3712,6 +3712,7 @@
   "Reconnected to {{name}}": "已重新連線到 {{name}}",
   "Reconnecting to {{name}} (attempt {{attempt}})": "正在重新連線 {{name}}（第 {{attempt}} 次嘗試）",
   "Reconnecting…": "重新連線中…",
+  "Reconnecting… {{attempt}} · retry in {{time}}": "重新連線中… {{attempt}} · {{time}}後重試",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "已記錄的資料：{{bytes}} MiB · 大小未知的記錄：{{unknown}} · 每次編輯：{{files}} 個檔案 / {{limit}} MiB",
   "Recorded value": "已記錄折算額",
   "Recovery changed. Inspect again before confirming.": "復原狀態已變更。請重新檢查後再確認。",

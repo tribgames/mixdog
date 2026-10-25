@@ -3,7 +3,38 @@
  * WS send, plus the surface/backoff primitives both failure resolvers use.
  */
 import { performance } from 'node:perf_hooks';
-import { _sleepWithAbort, MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT, midstreamBackoffFor, tag } from './policy.mjs';
+import { appendAgentTrace } from '../../agent-trace.mjs';
+import {
+  _sleepWithAbort,
+  MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT,
+  midstreamBackoffFor,
+  retryReasonClass,
+  safeRetryErrorCode,
+  tag,
+} from './policy.mjs';
+
+/** One row per WS retry: the server's typed verdict (status, close code, an
+ *  identifier-shaped code, the reason class) and the wait it bought, so a
+ *  long advised wait is diagnosable after the fact. Never the server's free
+ *  text: it can echo request content. Diagnostics only; never throws. */
+function traceRetry(traceFn, trace, err, { attempt, max, classifier, waitMs }) {
+  try {
+    const payload = {
+      provider: trace?.traceProvider || null,
+      model: trace?.useModel || null,
+      transport: 'websocket',
+      attempt,
+      max,
+      classifier: classifier || null,
+      reason: retryReasonClass(err),
+      wait_ms: Math.round(Number(waitMs) || 0),
+      http_status: Number(err?.httpStatus || err?.status || 0) || null,
+      code: safeRetryErrorCode(err),
+      ws_close_code: Number(err?.wsCloseCode || 0) || null,
+    };
+    traceFn({ sessionId: trace?.poolKey || null, kind: 'ws_retry', ...payload, payload });
+  } catch {}
+}
 
 export function createAttemptContext(deps) {
   const { sendSpan, externalSignal, sleepFn, safetyStamps } = deps;
@@ -31,10 +62,13 @@ export function createAttemptContext(deps) {
   };
   // Server advice (Retry-After, or a typed rate limit's "try again in")
   // replaces the local curve, like the reference client's retry deadline.
-  const backoff = async (retryNumber, err = null) => {
+  // Resolved before the retry is announced so the reconnect stage can name
+  // the wait it is about to sit through.
+  const retryWaitMs = (retryNumber, err = null) => midstreamBackoffFor(retryNumber, err);
+  const backoff = async (waitMs) => {
     const sleepStart = performance.now();
     try {
-      await _sleepWithAbort(midstreamBackoffFor(retryNumber, err), externalSignal, sleepFn);
+      await _sleepWithAbort(waitMs, externalSignal, sleepFn);
     } catch (sleepErr) {
       sendSpan.retryBackoffMs += performance.now() - sleepStart;
       sendSpan.emit('error');
@@ -53,14 +87,21 @@ export function createAttemptContext(deps) {
     }
     return first;
   };
-  /** Stash the error a retry is about to leave behind and announce the retry. */
-  const scheduleRetry = (err, { attemptIndex, classifier, retryLimit, remember }) => {
+  /** Stash the error a retry is about to leave behind and announce the retry
+   *  with its cause and the wait before the next attempt. */
+  const scheduleRetry = (err, { attemptIndex, classifier, retryLimit, remember, waitMs = 0 }) => {
     if (remember) {
       state.firstAttemptError = err;
       state.firstAttemptClassifier = classifier;
     }
     tag(err, { midstreamClassifier: classifier });
-    deps.emitReconnectProgress({ attempt: attemptIndex + 1, max: retryLimit, classifier });
+    deps.emitReconnectProgress({ attempt: attemptIndex + 1, max: retryLimit, classifier, error: err, waitMs });
+    traceRetry(deps.traceFn || appendAgentTrace, deps.trace, err, {
+      attempt: attemptIndex + 1,
+      max: retryLimit,
+      classifier,
+      waitMs,
+    });
   };
 
   return {
@@ -69,6 +110,7 @@ export function createAttemptContext(deps) {
     maxMidstreamRetries: MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT,
     stampAll,
     surface,
+    retryWaitMs,
     backoff,
     surfaceFirstAttempt,
     scheduleRetry,

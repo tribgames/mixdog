@@ -46,6 +46,7 @@ test('every localized spinner key exists in all 11 locales', () => {
     ...LOCALIZED_ACTIVITY_VERBS,
     'Working',
     'Reconnecting…',
+    'Reconnecting… {{attempt}} · retry in {{time}}',
     'Compacting conversation',
     'Auto-clearing conversation',
     'Resuming conversation',
@@ -94,6 +95,48 @@ test('the verb pool follows the active language and updates on a switch', async 
     await switchLanguage('ko');
     assert.equal(activityVerbPool(), LOCALIZED_ACTIVITY_VERBS);
     assert.equal(reconnectActivityVerb('Reconnecting... 2/3'), `${catalog('ko')['Reconnecting…']} 2/3`);
+    // A server-advised wait keeps its remaining time instead of a bare counter.
+    assert.equal(
+      reconnectActivityVerb('Rate limited by the provider · retry 1/5 in 210s'),
+      '다시 연결하는 중… 1/5 · 3분 30초 후 재시도'
+    );
+    // The status line repaints once a second with the SAME published verb and
+    // wait; the wait is anchored to this clock on first sight and recounted on
+    // every repaint. The runtime's clock is never compared to this one, so a
+    // client whose clock runs 5 minutes behind (or ahead) counts the same.
+    const published = 'Rate limited by the provider · retry 1/5 in 210s';
+    const runtimeRetryAt = 9_000_000 + 210_000;
+    for (const skew of [0, -300_000, 300_000]) {
+      const start = 9_000_000 + skew;
+      const retryKey = `${runtimeRetryAt}:${skew}`;
+      const paint = (now, language) =>
+        activityVerb({
+          mode: 'reconnecting',
+          runtimeVerb: published,
+          retryKey,
+          retryInMs: 210_000,
+          anchor: 1,
+          now,
+          language,
+        });
+      assert.equal(paint(start), '다시 연결하는 중… 1/5 · 3분 30초 후 재시도', `skew ${skew}`);
+      assert.equal(paint(start + 1_000), '다시 연결하는 중… 1/5 · 3분 29초 후 재시도', `skew ${skew}`);
+      assert.equal(paint(start + 150_000), '다시 연결하는 중… 1/5 · 1분 후 재시도', `skew ${skew}`);
+      assert.equal(paint(start + 205_500), '다시 연결하는 중… 1/5 · 5초 후 재시도', `skew ${skew}`);
+      assert.equal(paint(start + 210_001), `${catalog('ko')['Reconnecting…']} 1/5`, `skew ${skew}`);
+    }
+    // A later publication of the same retry (fresher retryInMs) keeps the anchor.
+    const late = (now, retryInMs) =>
+      activityVerb({ mode: 'reconnecting', runtimeVerb: published, retryKey: 'late', retryInMs, anchor: 1, now });
+    assert.equal(late(100_000, 60_000), '다시 연결하는 중… 1/5 · 1분 후 재시도');
+    assert.equal(late(101_000, 59_000), '다시 연결하는 중… 1/5 · 59초 후 재시도');
+    await i18n.changeLanguage('en');
+    const english = (now) =>
+      activityVerb({ mode: 'reconnecting', runtimeVerb: published, retryKey: 'en', retryInMs: 210_000, anchor: 1, now });
+    assert.equal(english(1_000), 'Rate limited by the provider · retry 1/5 in 210s');
+    assert.equal(english(2_000), 'Rate limited by the provider · retry 1/5 in 209s');
+    assert.equal(english(211_000), 'Rate limited by the provider · retry 1/5');
+    await switchLanguage('ko');
     await switchLanguage('ja');
     assert.equal(activityVerb({ mode: 'resuming', anchor: 1, now: 1 }), catalog('ja')['Resuming conversation']);
     // A request waiting for its headers reads as the model thinking, not a pool verb.

@@ -3712,6 +3712,7 @@
   "Reconnected to {{name}}": "Đã kết nối lại với {{name}}",
   "Reconnecting to {{name}} (attempt {{attempt}})": "Đang kết nối lại với {{name}} (lần thử {{attempt}})",
   "Reconnecting…": "Đang kết nối lại…",
+  "Reconnecting… {{attempt}} · retry in {{time}}": "Đang kết nối lại… {{attempt}} · thử lại sau {{time}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Dữ liệu đã ghi: {{bytes}} MiB · Bản ghi chưa rõ kích thước: {{unknown}} · Mỗi lần sửa: {{files}} tệp / {{limit}} MiB",
   "Recorded value": "Giá trị đã ghi nhận",
   "Recovery changed. Inspect again before confirming.": "Trạng thái khôi phục đã thay đổi. Hãy kiểm tra lại trước khi xác nhận.",

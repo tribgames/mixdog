@@ -3713,6 +3713,7 @@
   "Reconnected to {{name}}": "{{name}}에 다시 연결했습니다",
   "Reconnecting to {{name}} (attempt {{attempt}})": "{{name}}에 다시 연결하는 중입니다 ({{attempt}}번째 시도)",
   "Reconnecting…": "다시 연결하는 중…",
+  "Reconnecting… {{attempt}} · retry in {{time}}": "다시 연결하는 중… {{attempt}} · {{time}} 후 재시도",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "기록된 백업 데이터: {{bytes}} MiB · 크기 미확인 기록: {{unknown}} · 편집당 한도: {{files}}개 파일 / {{limit}} MiB",
   "Recorded value": "기록된 환산액",
   "Recovery changed. Inspect again before confirming.": "복구 상태가 변경되었습니다. 확인하기 전에 다시 검사하세요.",

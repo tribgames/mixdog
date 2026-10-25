@@ -3830,6 +3830,7 @@
   "Reconnected to {{name}}": "Reconectado a {{name}}",
   "Reconnecting to {{name}} (attempt {{attempt}})": "Reconectando a {{name}} (tentativa {{attempt}})",
   "Reconnecting…": "Reconectando…",
+  "Reconnecting… {{attempt}} · retry in {{time}}": "Reconectando… {{attempt}} · nova tentativa em {{time}}",
   "Recorded payload: {{bytes}} MiB · Unknown-size records: {{unknown}} · Per edit: {{files}} files / {{limit}} MiB": "Dados registrados: {{bytes}} MiB · Registros com tamanho desconhecido: {{unknown}} · Por edição: {{files}} arquivos / {{limit}} MiB",
   "Recorded value": "Valor registrado",
   "Recovery changed. Inspect again before confirming.": "O estado de recuperação mudou. Inspecione novamente antes de confirmar.",

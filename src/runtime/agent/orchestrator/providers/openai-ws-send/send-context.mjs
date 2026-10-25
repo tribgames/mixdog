@@ -7,6 +7,8 @@ import { createStreamSafetyStamps, resolveStallRetryBudget } from '../retry-clas
 import { _codexWsCompatibilityHeaders } from '../openai-codex-metadata.mjs';
 import { createWsSendAttempts } from '../openai-ws-send-attempts.mjs';
 import { createWsSendSpan } from '../openai-ws-send-span.mjs';
+import { emitProviderRetryStage } from '../retry-executor.mjs';
+import { retryReasonClass } from '../openai-ws-send-attempts/policy.mjs';
 
 /** Stage callbacks are observers; a throwing one never fails the send. */
 export function notifyStage(onStageChange, stage, detail) {
@@ -81,10 +83,24 @@ export function createWsSendContext(opts) {
   // Single caller-visible recovery path for both handshake/acquire retries
   // and retryable stream failures. The session/TUI stage bridge renders this
   // as non-terminal reconnect progress; transport code must not also print it
-  // to stderr.
-  const emitReconnectProgress = ({ attempt, max, classifier }) => {
+  // to stderr. A retry that knows its failure carries the reason and the wait
+  // (retryAt), so a long server-advised wait counts down with its cause
+  // instead of sitting silently at "n/max".
+  const emitReconnectProgress = ({ attempt, max, classifier, error = null, waitMs = 0 }) => {
     const retryAttempt = Number(attempt) || 1;
     const retryMax = Number(max) || 1;
+    if (error) {
+      // The reason shown is the fixed class, never the server's own text.
+      emitProviderRetryStage(onStageChange, {
+        attempt: retryAttempt,
+        maxAttempts: retryMax,
+        lastErr: error,
+        delayMs: waitMs,
+        classifier,
+        reasonClass: retryReasonClass(error),
+      });
+      return;
+    }
     notifyStage(onStageChange, 'reconnecting', {
       attempt: retryAttempt,
       max: retryMax,
@@ -105,6 +121,7 @@ export function createWsSendContext(opts) {
     retry429,
     stallRetryBudget,
     trace: { poolKey, traceProvider, useModel },
+    traceFn: _agentTraceFn,
     auth,
     body,
   });

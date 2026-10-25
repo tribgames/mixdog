@@ -46,26 +46,104 @@ function localizedOrFallback(key: string, language: UiLanguage): string {
   return text;
 }
 
+// Short (not narrow) units: the narrow Japanese form is Latin (`15s`).
+function waitUnit(value: number, unit: 'minute' | 'second'): string {
+  return new Intl.NumberFormat(uiFormatLocale(), {
+    style: 'unit',
+    unit,
+    unitDisplay: 'short',
+    useGrouping: false,
+  }).format(value);
+}
+
+// The wait tail of an engine retry status line (`… in 210s`, `… in 3m`).
+const RETRY_WAIT_TAIL = /\s+in (\d+)(ms|s|m)$/;
+
+function waitLabel(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (!minutes) return waitUnit(rest, 'second');
+  return rest ? `${waitUnit(minutes, 'minute')} ${waitUnit(rest, 'second')}` : waitUnit(minutes, 'minute');
+}
+
+// Local deadlines of the reconnect waits this renderer has seen, by retry key.
+// The runtime publishes the wait RELATIVE to its own clock (`retryInMs`); the
+// first sighting anchors it to this clock, so a remote client whose clock is
+// skewed from the runtime's still counts the right time down.
+const RETRY_DEADLINE_LIMIT = 16;
+const retryDeadlines = new Map<string, number>();
+
+function localRetryDeadline(key: string, retryInMs: number, now: number): number {
+  const known = retryDeadlines.get(key);
+  if (known !== undefined) return known;
+  const deadline = now + Math.max(0, retryInMs);
+  retryDeadlines.set(key, deadline);
+  if (retryDeadlines.size > RETRY_DEADLINE_LIMIT) retryDeadlines.delete(retryDeadlines.keys().next().value as string);
+  return deadline;
+}
+
+export interface ReconnectWait {
+  /** Identifies one retry wait (the runtime's own next-attempt stamp); never compared to this clock. */
+  retryKey?: string;
+  /** Remaining wait when the runtime published this retry state. */
+  retryInMs?: number;
+  now?: number;
+}
+
+/** Whole seconds still to wait: from the locally anchored deadline when the
+ *  surface knows the retry (so every repaint recomputes it), else from the
+ *  text's tail as authored. 0 once the wait is over; null when neither names one. */
+function remainingWaitSeconds(text: string, { retryKey = '', retryInMs, now = Date.now() }: ReconnectWait) {
+  const tail = RETRY_WAIT_TAIL.exec(text);
+  if (!tail) return null;
+  if (retryKey && Number.isFinite(retryInMs)) {
+    const left = localRetryDeadline(retryKey, Number(retryInMs), now) - now;
+    return left > 0 ? Math.max(1, Math.round(left / 1_000)) : 0;
+  }
+  const value = Number(tail[1]);
+  if (tail[2] === 'm') return value * 60;
+  return tail[2] === 's' ? value : Math.ceil(value / 1_000);
+}
+
 /** The engine authors the reconnect text in English (retry countdown, quota and
- *  rate-limit notices). English shows it as-is; other languages get the
- *  localized "Reconnecting…" plus the attempt counter when the text has one. */
-export function reconnectActivityVerb(runtimeVerb: string, language: UiLanguage = uiFormatLocale()): string {
+ *  rate-limit notices). English shows it as-is with the wait recounted locally;
+ *  other languages get the localized "Reconnecting…" plus the attempt counter
+ *  and the remaining wait when the text has them. */
+export function reconnectActivityVerb(
+  runtimeVerb: string,
+  language: UiLanguage = uiFormatLocale(),
+  wait: ReconnectWait = {}
+): string {
   const text = String(runtimeVerb || '').trim();
-  if (language === 'en') return text || t('Working');
+  const seconds = remainingWaitSeconds(text, wait);
+  if (language === 'en') {
+    if (seconds === null) return text || t('Working');
+    return text.replace(RETRY_WAIT_TAIL, seconds > 0 ? ` in ${seconds}s` : '');
+  }
   const attempt = /(\d+)\s*\/\s*(\d+)/.exec(text);
   const base = t('Reconnecting…');
-  return attempt ? `${base} ${attempt[1]}/${attempt[2]}` : base;
+  if (!attempt) return base;
+  const counter = `${attempt[1]}/${attempt[2]}`;
+  return seconds
+    ? t('Reconnecting… {{attempt}} · retry in {{time}}', { attempt: counter, time: waitLabel(seconds) })
+    : `${base} ${counter}`;
 }
 
 export function activityVerb({
   mode,
   runtimeVerb = '',
+  retryKey = '',
+  retryInMs,
   anchor,
   now,
   language = uiFormatLocale(),
 }: {
   mode: string;
   runtimeVerb?: string;
+  /** Identity of a reconnect wait; '' when none. */
+  retryKey?: string;
+  /** That wait's remaining time at publish (runtime-relative ms). */
+  retryInMs?: number;
   anchor: number;
   now: number;
   language?: UiLanguage;
@@ -74,7 +152,7 @@ export function activityVerb({
     const key = MODE_VERB_KEYS[mode] || String(SPINNER_MODE_OVERRIDE_VERBS[mode]);
     return localizedOrFallback(key, language);
   }
-  if (mode === 'reconnecting') return reconnectActivityVerb(runtimeVerb, language);
+  if (mode === 'reconnecting') return reconnectActivityVerb(runtimeVerb, language, { retryKey, retryInMs, now });
   return localizedOrFallback(String(spinnerVerbFor(anchor, now, activityVerbPool(language))), language);
 }
 

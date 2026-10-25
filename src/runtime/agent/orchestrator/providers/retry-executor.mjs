@@ -313,6 +313,15 @@ function retryWaitMs(
   return retryAfterJitterRatio > 0 ? jitterDelayMs(wait, retryAfterJitterRatio, 'positive') : wait;
 }
 
+/** Fixed status phrases for a caller-classified retry reason. */
+const RETRY_REASON_TEXT = Object.freeze({
+  rate_limited: 'Rate limited by the provider',
+  overloaded: 'Provider overloaded',
+  server_error: 'Provider server error',
+  auth: 'Provider rejected the sign-in',
+  other: 'Connection interrupted',
+});
+
 /**
  * Display-only 'reconnecting' stage for one retry wait, so it reads as a
  * reconnect instead of a silent spinner. `attempt` is the attempt about to run
@@ -321,14 +330,19 @@ function retryWaitMs(
  */
 export function emitProviderRetryStage(
   onStageChange,
-  { attempt, maxAttempts, lastErr, delayMs, classifier = null, extra = null }
+  { attempt, maxAttempts, lastErr, delayMs, classifier = null, extra = null, reasonClass = null }
 ) {
   if (typeof onStageChange !== 'function') return;
   try {
-    const reason = retryReasonText(lastErr);
+    // A caller-classified failure shows a fixed phrase (never the error's own
+    // text); an unrecognized class reads as `other`.
+    const fixedClass =
+      reasonClass == null ? null : Object.hasOwn(RETRY_REASON_TEXT, reasonClass) ? reasonClass : 'other';
+    const reason = fixedClass ? RETRY_REASON_TEXT[fixedClass] : retryReasonText(lastErr);
     const waitMs = Math.max(0, Number(delayMs) || 0);
     onStageChange('reconnecting', {
       ...extra,
+      ...(fixedClass ? { reasonClass: fixedClass } : {}),
       attempt,
       max: maxAttempts,
       waitMs,
