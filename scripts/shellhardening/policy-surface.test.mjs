@@ -203,7 +203,7 @@ test('C: the shell text follows the resolved shell kind, not only the platform',
 test('C: shell description carries the long-running command guidance from the real budgets', () => {
   const shell = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
   assert.match(shell.description, /Holds 60s; then, or on input\/task notification, backgrounds with task_id \(command keeps running\)\./);
-  assert.match(shell.description, /Completion is automatic; never poll\. Result needed now: task wait\./);
+  assert.match(shell.description, /Completion is automatic; never poll, and never sleep\/poll-loop inside the shell \(background:true or wait_ms instead\)\. Result needed now: task wait\./);
   assert.match(shell.description, /Known-long finite run: wait_ms up to 600000\./);
   assert.match(shell.description, /Independent long runs, servers\/watchers: background:true; cancel them when done\./);
   assert.match(shell.inputSchema.properties.wait_ms.description, /Usually omit; for a long finite command needed next, set up to 600000\./);

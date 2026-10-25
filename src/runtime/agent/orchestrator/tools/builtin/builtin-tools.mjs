@@ -50,7 +50,7 @@ export function buildShellRoutingRules(kind = _defaultShellKind) {
 function buildShellDescription(kind) {
   const run = _shellBackgroundDisabled
     ? 'Commands run in the foreground until completion.'
-    : `Holds ${_holdS}s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll. Result needed now: task wait. Known-long finite run: wait_ms up to ${SHELL_HOLD_MAX_MS}. Independent long runs, servers/watchers: background:true; cancel them when done.`;
+    : `Holds ${_holdS}s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead). Result needed now: task wait. Known-long finite run: wait_ms up to ${SHELL_HOLD_MAX_MS}. Independent long runs, servers/watchers: background:true; cancel them when done.`;
   return `Run programs, builds, tests and computation. ${buildShellRoutingRules(kind)} ${run}`;
 }
 

@@ -778,7 +778,7 @@
      "openWorldHint": true,
      "compressible": true
     },
-    "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit; git→git (-C <dir> for other folders); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll. Result needed now: task wait. Known-long finite run: wait_ms up to 600000. Independent long runs, servers/watchers: background:true; cancel them when done.",
+    "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit; git→git (-C <dir> for other folders); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead). Result needed now: task wait. Known-long finite run: wait_ms up to 600000. Independent long runs, servers/watchers: background:true; cancel them when done.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -3307,7 +3307,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -3361,7 +3361,7 @@
      ],
      [
       "shell",
-      "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+      "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
      ],
      [
       "task",
@@ -3501,7 +3501,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -3563,7 +3563,7 @@
      ],
      [
       "shell",
-      "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+      "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
      ],
      [
       "task",
@@ -3723,7 +3723,7 @@
       ],
       [
        "shell",
-       "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+       "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
       ],
       [
        "task",
@@ -3785,7 +3785,7 @@
       ],
       [
        "shell",
-       "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+       "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
       ],
       [
        "task",
@@ -3934,7 +3934,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -3988,7 +3988,7 @@
      ],
      [
       "shell",
-      "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+      "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
      ],
      [
       "task",
@@ -4125,7 +4125,7 @@
       ],
       [
        "shell",
-       "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+       "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
       ],
       [
        "task",
@@ -4183,7 +4183,7 @@
       ],
       [
        "shell",
-       "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+       "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
       ],
       [
        "task",
@@ -4333,7 +4333,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -4387,7 +4387,7 @@
      ],
      [
       "shell",
-      "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+      "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
      ],
      [
       "task",
@@ -4516,7 +4516,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -4570,7 +4570,7 @@
      ],
      [
       "shell",
-      "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+      "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
      ],
      [
       "task",
@@ -4859,7 +4859,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -4917,7 +4917,7 @@
      ],
      [
       "shell",
-      "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+      "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
      ],
      [
       "task",
@@ -5058,7 +5058,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -5108,7 +5108,7 @@
      ],
      [
       "shell",
-      "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+      "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
      ],
      [
       "task",
@@ -5214,7 +5214,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -5260,7 +5260,7 @@
      ],
      [
       "shell",
-      "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+      "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
      ],
      [
       "task",
@@ -5365,7 +5365,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -5411,7 +5411,7 @@
      ],
      [
       "shell",
-      "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+      "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
      ],
      [
       "task",
@@ -5528,7 +5528,7 @@
       ],
       [
        "shell",
-       "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+       "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
       ],
       [
        "task",
@@ -5574,7 +5574,7 @@
       ],
       [
        "shell",
-       "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+       "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
       ],
       [
        "task",
@@ -5680,7 +5680,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -5726,7 +5726,7 @@
      ],
      [
       "shell",
-      "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+      "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
      ],
      [
       "task",
@@ -5828,7 +5828,7 @@
       ],
       [
        "shell",
-       "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+       "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
       ],
       [
        "task",
@@ -5874,7 +5874,7 @@
       ],
       [
        "shell",
-       "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+       "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
       ],
       [
        "task",
@@ -5985,7 +5985,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -6031,7 +6031,7 @@
      ],
      [
       "shell",
-      "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+      "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
      ],
      [
       "task",
@@ -6125,7 +6125,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -6167,7 +6167,7 @@
      ],
      [
       "shell",
-      "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+      "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
      ],
      [
       "task",
@@ -6383,7 +6383,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -6429,7 +6429,7 @@
      ],
      [
       "shell",
-      "66262ffea1a85beaf82b00b2405676f8647488cbc009ef1acf780d1dca04fbca"
+      "1e99ea1760d2fd33f9288ed590d31400b0268b79f73afdf6845da8bbb7c0b7f5"
      ],
      [
       "task",
@@ -6531,7 +6531,7 @@
      ],
      [
       "shell",
-      "117bc7bba16c145c8e63cc4d0fcf2c489734906ef0939320c4caa9ddb8bddd40"
+      "853829797db4f7e571cabe2f1b6527f416403c38b0f307d0cfa80d7ba28bcb4d"
      ],
      [
       "task",
@@ -6585,7 +6585,7 @@
      ],
      [
       "shell",
-      "6de95871ca676b6f270d597de0d41ea6907dc043d06b1533bfdc763aa3e337bb"
+      "c18e054eff07ce489ae5c718620182493e42d09358fa6a0a0b63aec7e1828765"
      ],
      [
       "task",
