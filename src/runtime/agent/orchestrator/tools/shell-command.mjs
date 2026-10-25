@@ -238,7 +238,7 @@ async function admitAndSpawn(run, params, { admissionWaitMs, onSaturated }) {
     run.resourceLease = await acquireShellLeaseBounded(admission, {
       abortSignal,
       waitMs: admissionWaitMs,
-      label: `[task_id: ${run.foregroundRecordId}] ${String(command || '').slice(0, 120)}`,
+      label: `[task_id: ${run.foregroundRecordId}] ${String(params.displayCommand ?? command ?? '').slice(0, 120)}`,
       ownerKey: ownerSessionId,
     });
     const policyErr = await _execPolicyBlockMessage(command, elevationApproved === true);
@@ -295,11 +295,11 @@ function queueSaturatedAsTask(run, saturation, spec) {
       taskId,
       surface: 'shell',
       operation: 'shell',
-      label: String(spec.command || '')
+      label: String(spec.displayCommand ?? spec.command ?? '')
         .replace(/\s+/g, ' ')
         .slice(0, 120),
       context: { callerSessionId: spec.ownerSessionId, clientHostPid: spec.clientHostPid },
-      input: { command: spec.command, cwd: spec.cwd },
+      input: { command: spec.displayCommand ?? spec.command, cwd: spec.cwd },
       meta: { task_id: taskId, stdout: null, stderr: null, cwd: spec.cwd, timeoutMs: spec.backgroundDeadlineMs || 0 },
       resultType: 'shell_task_result',
       // While the command runs in the foreground, its abort handler snapshots
@@ -588,6 +588,10 @@ export function execShellCommand(options) {
     // hands the script to the shell out-of-band — see the POSIX env+eval path in
     // bash-tool.mjs, which keeps the command body out of the child's argv.
     execScript = null,
+    // What the agent passed, when `command` carries execution wrappers (the
+    // PowerShell UTF-8 prefix, the filter-tee rewrite). Job labels and
+    // records show this text; only the spawn runs `command`.
+    displayCommand = null,
     // The user approved this call's elevation 'ask' decision (runtime-set).
     elevationApproved = false,
   } = options;
@@ -612,6 +616,7 @@ export function execShellCommand(options) {
             abortSignal,
             directArgv,
             execScript,
+            displayCommand,
             elevationApproved,
             ownerSessionId,
             clientHostPid,
@@ -635,7 +640,7 @@ export function execShellCommand(options) {
         attachChildExit(run, releasePromotedCapture);
         const fireAutoBackground = createAutoBackground({
           run,
-          command,
+          command: displayCommand ?? command,
           cwd,
           clientHostPid,
           ownerSessionId,

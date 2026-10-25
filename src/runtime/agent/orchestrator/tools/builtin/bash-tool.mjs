@@ -111,6 +111,7 @@ export async function executeBashTool(args, workDir, options = {}) {
       shellArg: invocation.execShellArg,
       shellArgs: invocation.execShellArgs,
       command: invocation.wrappedCommand,
+      displayCommand: command,
       execScript: invocation.execScript,
       directArgv: invocation.directArgv,
       elevationApproved,
