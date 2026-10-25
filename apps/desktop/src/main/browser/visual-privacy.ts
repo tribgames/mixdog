@@ -2,7 +2,30 @@
  * stay untouched; an unsafe new capture is discarded before publication. */
 import type { WebContents } from 'electron';
 import { BROWSER_DOCUMENT_ROOTS, browserDocumentChanged, type createBrowserDocuments } from './documents';
+import type { BrowserCdpPort } from './cdp';
 import type { BrowserGuestStateStore } from './guest-state';
+
+/** The backend nodes of the elements the host filled a secret into (a password,
+ *  every box of a one-time code), per guest: bounded, in memory only. A
+ *  capture is refused while one of them holds a value, so a code split over
+ *  one box per digit — no single input holds all of it — is protected by the
+ *  elements themselves, not by matching values. */
+const protectedNodes = new WeakMap<WebContents, Set<number>>();
+const MAX_PROTECTED_NODES = 64;
+
+export function protectSecretNodes(guest: WebContents, nodes: readonly number[]): void {
+  const set = protectedNodes.get(guest) ?? new Set<number>();
+  for (const node of nodes) {
+    set.delete(node);
+    set.add(node);
+  }
+  while (set.size > MAX_PROTECTED_NODES) set.delete(set.values().next().value as number);
+  protectedNodes.set(guest, set);
+}
+
+/** CDP's answer when a backend node no longer exists (DOM.resolveNode). */
+const NODE_GONE = /No node with given id found|Could not find node with given id|Node with given id does not belong to the document/i;
+const HOLDS_VALUE ='function() { return this instanceof HTMLInputElement && this.isConnected && String(this.value || "") !== ""; }';
 
 export type BrowserVisualPrivacy = (guest: WebContents, signal?: AbortSignal) => Promise<() => Promise<void>>;
 
@@ -31,6 +54,8 @@ const PASSWORD_FIELD_FOCUSED = `(() => {
 export function createBrowserVisualPrivacy(host: {
   state: Pick<BrowserGuestStateStore, 'peek'>;
   documents: Pick<ReturnType<typeof createBrowserDocuments>, 'pageText' | 'collect' | 'revision'>;
+  /** Resolves the protected nodes (absent: none are checked). */
+  cdp?: Pick<BrowserCdpPort, 'call'>;
 }): BrowserVisualPrivacy {
   const secretsFor = (guest: WebContents) => [...(host.state.peek(guest)?.sensitiveValues || [])].filter(Boolean);
   const withheld = () =>
@@ -43,8 +68,49 @@ export function createBrowserVisualPrivacy(host: {
       const current = secretsFor(guest);
       return current.length === secrets.length && current.every((value) => secrets.includes(value));
     };
+    /** Whether an element the host filled a secret into still holds a value. */
+    const checkProtected = async () => {
+      const nodes = [...(protectedNodes.get(guest) || [])];
+      if (!host.cdp || !nodes.length) return;
+      const objectGroup = 'mixdog-visual-privacy';
+      try {
+        for (const backendNodeId of nodes) {
+          let objectId = '';
+          try {
+            const resolved = await host.cdp.call<{ object?: { objectId?: string } }>(
+              guest, 'DOM.resolveNode', { backendNodeId, objectGroup }, signal
+            );
+            objectId = String(resolved.object?.objectId || '');
+          } catch (error) {
+            // Only CDP's own answer that the node no longer exists lets a
+            // node go; a cancelled capture stops, and any other failure
+            // withholds the capture (the node may still hold the secret).
+            if (signal?.aborted) throw error;
+            if (!NODE_GONE.test(String((error as Error)?.message || error))) throw withheld();
+            continue;
+          }
+          if (!objectId) throw withheld();
+          let answer: { result?: { value?: unknown }; exceptionDetails?: unknown };
+          try {
+            answer = await host.cdp.call(
+              guest, 'Runtime.callFunctionOn',
+              { objectId, functionDeclaration: HOLDS_VALUE, returnByValue: true }, signal
+            );
+          } catch (error) {
+            if (signal?.aborted) throw error;
+            throw withheld();
+          }
+          // Only a plain "no value" (or a node that is no longer connected,
+          // which the function answers the same way) clears the node.
+          if (answer.exceptionDetails || answer.result?.value !== false) throw withheld();
+        }
+      } finally {
+        void host.cdp.call(guest, 'Runtime.releaseObjectGroup', { objectGroup }).catch(() => undefined);
+      }
+    };
     // A focused password field (registered or not) may show what is typed: no agent capture.
     const checkFocus = async () => {
+      await checkProtected();
       const focused = await host.documents.collect<boolean>(guest, PASSWORD_FIELD_FOCUSED, signal);
       if ((Array.isArray(focused) ? focused : [focused]).flat().some((value) => value === true)) throw withheld();
     };

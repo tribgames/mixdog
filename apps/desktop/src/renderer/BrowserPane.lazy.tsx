@@ -44,7 +44,7 @@ import { isRemoteHostRenderer } from './remote-ui-projection';
 
 import { t } from './i18n';
 import { BrowserImportDialog } from './BrowserImportDialog';
-import { BrowserSignInsDialog } from './BrowserSignInsDialog';
+import { openAuthSettings } from './open-auth-settings-event';
 import { onBrowserImportRequested } from './browser-page-request';
 import {
   BROWSER_VIEWPORT_PRESETS,
@@ -289,7 +289,6 @@ function DesktopBrowserPane({
     setPageFailure,
   } = page;
   const [importOpen, setImportOpen] = useState(false);
-  const [signInsOpen, setSignInsOpen] = useState(false);
   useEffect(() => onBrowserImportRequested(sessionId, () => setImportOpen(true)), [sessionId]);
   useBrowserAgentFollow(sessionId, webviewRef);
   const [viewportPresetId, setViewportPresetId] = useState<BrowserViewportPresetId>(
@@ -391,7 +390,8 @@ function DesktopBrowserPane({
       mainTab || isRemoteHostRenderer()
         ? undefined
         : () => requestBrowserInMain({ sessionId, url: currentUrl, title: activeTabTitle }),
-    onSignedInSites: desktopApi?.browserSignedInSites ? () => setSignInsOpen(true) : undefined,
+    // The old in-pane dialog is gone: this opens Settings › 인증 관리.
+    onSignedInSites: desktopApi?.browserSignedInSites ? () => openAuthSettings() : undefined,
   });
   const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;
   const viewportFrameStyle = fixedViewport
@@ -519,29 +519,17 @@ function DesktopBrowserPane({
         </div>
       )}
       <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
-      <BrowserSignInsDialog
-        open={signInsOpen}
-        onClose={() => setSignInsOpen(false)}
-        onImport={
-          desktopApi?.browserProfileImportSources
-            ? () => {
-                setSignInsOpen(false);
-                setImportOpen(true);
-              }
-            : undefined
-        }
-      />
       <div className={`browser-pane-content${fixedViewport ? ' is-device-frame' : ''}`} ref={contentRef}>
         <div className="browser-pane-viewport" data-viewport-preset={viewportPreset.id} style={viewportFrameStyle}>
           <IsolatedBrowserView
             ref={(element) => {
               webviewRef.current = element;
             }}
-            className={`browser-pane-webview${importOpen || signInsOpen ? ' is-import-open' : ''}${historySuggestions.length ? ' is-history-open' : ''}${credentialMenuOpen ? ' is-credential-open' : ''}${pageFailure ? ' is-failed' : ''}`}
+            className={`browser-pane-webview${importOpen ? ' is-import-open' : ''}${historySuggestions.length ? ' is-history-open' : ''}${credentialMenuOpen ? ' is-credential-open' : ''}${pageFailure ? ' is-failed' : ''}`}
             sessionId={sessionId}
             // A load failure only covers the page: the display keeps reading
             // it, so a navigation from anywhere else clears the failure.
-            active={active && !importOpen && !signInsOpen}
+            active={active && !importOpen}
             native={!fixedViewport}
           />
           <BrowserPageOverlays

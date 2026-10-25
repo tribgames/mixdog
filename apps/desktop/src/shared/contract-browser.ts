@@ -52,6 +52,33 @@ export interface DesktopBrowserCredentialSuggestion {
   label: string;
 }
 
+export type DesktopVaultLoginSource = 'chat' | 'manual' | 'chrome' | 'csv';
+
+/** A saved login as 설정 › 인증 관리 lists it: never a password or an
+ *  authenticator key, only whether one is stored. */
+export interface DesktopVaultLogin {
+  id: string;
+  origin: string;
+  username: string;
+  hasPassword: boolean;
+  hasTotp: boolean;
+  source: DesktopVaultLoginSource;
+  note: string;
+  /** False after the site was signed out here: auto sign-in skips it. */
+  autoSignIn: boolean;
+}
+
+/** Add (no id) or edit (id) from 설정 › 인증 관리. A blank password keeps the
+ *  saved one; a blank authenticator key removes it. Secrets flow in only. */
+export interface DesktopVaultLoginInput {
+  id?: string;
+  origin: string;
+  username: string;
+  password?: string;
+  totpSecret?: string;
+  note?: string;
+}
+
 /** A site the Browser Use profile stays signed in to; no cookie data. */
 export interface DesktopBrowserSignedInSite {
   site: string;
@@ -71,7 +98,8 @@ export interface DesktopBrowserLoginStatus {
 export interface DesktopBrowserCredentialFillResult {
   usernameFilled: boolean;
   passwordFilled: boolean;
-  reason?: 'no-password-field' | 'password-field-unavailable';
+  /** page-changed: a login takeover's bound page moved before the fill. */
+  reason?: 'no-password-field' | 'password-field-unavailable' | 'page-changed';
 }
 
 export interface DesktopBrowserViewportConfig {

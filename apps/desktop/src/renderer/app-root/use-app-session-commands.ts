@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from '../remote-claim-events';
 import { OPEN_CONNECTORS_EVENT } from '../connector-connect';
+import { OPEN_AUTH_SETTINGS_EVENT } from '../open-auth-settings-event';
 import {
   IMPORT_CATALOGS_CHANGED_EVENT,
   OPEN_IMPORTED_SESSION_EVENT,
@@ -140,6 +141,12 @@ export function useAppSessionCommands(
     const open = () => openSettings('mcp');
     window.addEventListener(OPEN_CONNECTORS_EVENT, open);
     return () => window.removeEventListener(OPEN_CONNECTORS_EVENT, open);
+  }, [openSettings]);
+  // The browser pane's ⋯ "로그인 유지 중인 사이트" opens Settings › 인증 관리.
+  useEffect(() => {
+    const open = () => openSettings('auth');
+    window.addEventListener(OPEN_AUTH_SETTINGS_EVENT, open);
+    return () => window.removeEventListener(OPEN_AUTH_SETTINGS_EVENT, open);
   }, [openSettings]);
 
   const { setSettingsOpen } = shellPanels;

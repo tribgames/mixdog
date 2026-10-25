@@ -6,6 +6,7 @@
 import type { DesktopBrowserImportProgress } from '../../shared/contract';
 import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserCredentialFillResult, createBrowserCredentialFill } from './credential-autofill';
+import type { CredentialVault, VaultLoginSummary } from './credential-vault';
 import type {
   BrowserCredentialSuggestion,
   BrowserHistoryEntry,
@@ -20,13 +21,29 @@ import type { BrowserSignedInSite, createBrowserSignIns } from './signed-in-site
 export function createBrowserProfileHostMethods(options: {
   profileImporter: BrowserProfileImportService;
   signIns: ReturnType<typeof createBrowserSignIns>;
+  vault: Pick<CredentialVault, 'list' | 'saveManual' | 'remove' | 'mergeImport'>;
   liveGuest: BrowserSessionRegistry['liveGuest'];
   fillCredentialInGuest: ReturnType<typeof createBrowserCredentialFill>['fillCredentialInGuest'];
+  /** A login takeover's saved-login fill into the page it was bound to
+   *  (host-agent.ts fillBoundLogin). */
+  fillBoundLogin: (sessionId: string, fillId: string, credentialId: string) => Promise<BrowserCredentialFillResult>;
   sendToRenderer: (channel: string, ...args: unknown[]) => void;
   publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
 }) {
-  const { profileImporter } = options;
+  const { profileImporter, vault } = options;
   return {
+    /** The saved logins, no passwords or authenticator keys (설정 › 인증 관리). */
+    browserVaultLogins: (): Promise<VaultLoginSummary[]> => vault.list(),
+    /** Add (no id) or edit (id) a saved login; secrets flow in only. */
+    browserVaultSave: (input: {
+      id?: string;
+      origin: string;
+      username: string;
+      password?: string;
+      totpSecret?: string;
+      note?: string;
+    }): Promise<void> => vault.saveManual(input),
+    browserVaultDelete: (id: string): Promise<boolean> => vault.remove(id),
     async browserImportSources(): Promise<BrowserImportSource[]> {
       return await profileImporter.sources();
     },
@@ -47,11 +64,21 @@ export function createBrowserProfileHostMethods(options: {
       if (!guest) return [];
       return await profileImporter.credentialSuggestions(guest.getURL());
     },
-    async browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult> {
+    /** Fill a stored login into the session's page; with `fillId` (a login
+     *  takeover's card), into the page that takeover was bound to instead.
+     *  Either way the fill is held to the address checked before the vault
+     *  is read: a navigation meanwhile sends nothing to the new page. */
+    async browserCredentialFill(
+      sessionId: string,
+      credentialId: string,
+      fillId?: string
+    ): Promise<BrowserCredentialFillResult> {
+      if (fillId) return await options.fillBoundLogin(sessionId, fillId, credentialId);
       const guest = options.liveGuest(browserSessionId(sessionId));
       if (!guest) throw new Error('Open a Browser Use page before filling a stored credential.');
-      return await profileImporter.useCredential(guest.getURL(), credentialId, (credential) =>
-        options.fillCredentialInGuest(guest, credential)
+      const url = guest.getURL();
+      return await profileImporter.useCredential(url, credentialId, (credential) =>
+        options.fillCredentialInGuest(guest, credential, undefined, url)
       );
     },
   };

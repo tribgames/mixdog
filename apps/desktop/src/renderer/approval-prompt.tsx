@@ -143,6 +143,8 @@ export interface ApprovalPromptProps {
   queue?: string;
   /** The timer's end ("0:28 남음"), or a fixed corner text. */
   expiresAt?: number;
+  /** When the request lapses: the top-left "15분 안에" (in place of the queue). */
+  deadline?: number;
   corner?: string;
   preview?: ReactNode;
   /** Left to right; the stacked phone layout puts the primary first. */
@@ -170,6 +172,13 @@ const clock = (ms: number) => {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
+
+/** "15분 안에": the time a request has left, in whole minutes (seconds in the last one). */
+export function deadlineText(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  if (seconds < 60) return t('Within {{n}} s', { n: seconds });
+  return t('Within {{n}} min', { n: Math.ceil(seconds / 60) });
+}
 
 function useNow(enabled: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -320,6 +329,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
     sessionLink,
     queue,
     expiresAt,
+    deadline,
     corner,
     preview,
     buttons,
@@ -338,7 +348,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   const titleId = useId();
   const ref = useRef<HTMLElement | null>(null);
   const mountedAt = useRef(Date.now());
-  const now = useNow(Boolean(expiresAt) && !status);
+  const now = useNow(Boolean(expiresAt || deadline) && !status);
   const openSession = useOpenSession();
   const decided = Boolean(status);
   const primaryIndex = buttons.findIndex((button) => button.tone);
@@ -478,7 +488,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       {...data}
     >
       <div className="approval-prompt-top">
-        <span className="approval-queue">{queue}</span>
+        <span className="approval-queue">{queue || (deadline && !status ? deadlineText(deadline - now) : '')}</span>
         <span className="approval-corner">{corner ?? left}</span>
         {onClose && !decided && (
           <button
@@ -499,46 +509,48 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       <h3 id={titleId} className="approval-title">
         {title}
       </h3>
-      <div className="approval-who">
-        {requester && (
-          <span className="approval-chip" title={requester}>
-            {faceAgentId && (
-              <span className="approval-chip-face" aria-hidden="true">
-                <ApprovalFace agentId={faceAgentId} />
-              </span>
-            )}
-            <span className="approval-chip-name">{requester}</span>
-          </span>
-        )}
-        {target && (
-          <span className="approval-chip approval-target-chip" title={target.name}>
-            {target.agentId ? (
-              <span className="approval-chip-face" aria-hidden="true">
-                <ApprovalFace agentId={target.agentId} />
-              </span>
-            ) : (
-              <span className="approval-target-mark" aria-hidden="true">
-                ▣
-              </span>
-            )}
-            <span className="approval-chip-name">{target.name}</span>
-          </span>
-        )}
-        {service && (
-          <span className="approval-service" title={serviceTitle}>
-            {service}
-          </span>
-        )}
-        {sessionLink && (
-          <button
-            type="button"
-            className="approval-link"
-            onClick={() => (sessionLink.handoff ? openAnySession : openSession)(sessionLink.sessionId)}
-          >
-            {sessionLink.label}
-          </button>
-        )}
-      </div>
+      {(requester || target || service || sessionLink) && (
+        <div className="approval-who">
+          {requester && (
+            <span className="approval-chip" title={requester}>
+              {faceAgentId && (
+                <span className="approval-chip-face" aria-hidden="true">
+                  <ApprovalFace agentId={faceAgentId} />
+                </span>
+              )}
+              <span className="approval-chip-name">{requester}</span>
+            </span>
+          )}
+          {target && (
+            <span className="approval-chip approval-target-chip" title={target.name}>
+              {target.agentId ? (
+                <span className="approval-chip-face" aria-hidden="true">
+                  <ApprovalFace agentId={target.agentId} />
+                </span>
+              ) : (
+                <span className="approval-target-mark" aria-hidden="true">
+                  ▣
+                </span>
+              )}
+              <span className="approval-chip-name">{target.name}</span>
+            </span>
+          )}
+          {service && (
+            <span className="approval-service" title={serviceTitle}>
+              {service}
+            </span>
+          )}
+          {sessionLink && (
+            <button
+              type="button"
+              className="approval-link"
+              onClick={() => (sessionLink.handoff ? openAnySession : openSession)(sessionLink.sessionId)}
+            >
+              {sessionLink.label}
+            </button>
+          )}
+        </div>
+      )}
       {preview && <div className="approval-preview">{preview}</div>}
       {children}
       {error && <ErrorNotice error={error} />}

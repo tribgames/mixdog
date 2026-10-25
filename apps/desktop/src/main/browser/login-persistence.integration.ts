@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createBrowserSessionStore, safeStorageEncrypt, watchBrowserSessionCookies } from './browser-session-store';
 import { BROWSER_PARTITION } from './command';
 import { createBrowserCookieJar } from './cookie-jar';
+import { CredentialVault } from './credential-vault';
 import { createPartitionSignIns } from './host-foundation';
 import { BrowserProfileImportService } from './profile-import';
 
@@ -99,7 +100,8 @@ async function run() {
         partition,
         cookieJar: jar,
       }),
-      store
+      store,
+      new CredentialVault({ userDataDirectory: root })
     );
     const listed = await signIns.list();
     assert.deepEqual(listed, [{ site: 'localhost', cookies: 2 }]);

@@ -55,7 +55,7 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
         handoff: {
           type: 'object',
           description:
-            'Instead of questions: secret = the user types a password/token into the focused field (you never see it; result provided/skipped/timeout); takeover = the user does a step (sign-in, CAPTCHA, 2FA) and says done.',
+            'Instead of questions: secret = the user types a password, sign-in, new password or one-time code into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); takeover = the user does a step (sign-in, CAPTCHA, 2FA) and says done.',
           properties: {
             kind: { type: 'string', enum: ['secret', 'takeover'] },
             surface: { type: 'string', enum: ['browser', 'computer'] },
@@ -74,8 +74,9 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
               description: 'browser takeover: login = sign-in window on url.',
             },
             url: { type: 'string', maxLength: 2048, description: 'login: sign-in page (https).' },
-            tab: { type: 'string', maxLength: 64, description: 'browser takeover: page ID from list_tabs.' },
-            window_id: { type: 'string', maxLength: 128, description: 'computer takeover: exact window id.' },
+            tab: { type: 'string', maxLength: 64, description: 'browser: page ID from list_tabs.' },
+            window_id: { type: 'string', maxLength: 128, description: 'computer: exact window id (secret: required).' },
+            ref: { type: 'string', maxLength: 64, description: 'computer secret: field ref (required).' },
             app: { type: 'string', maxLength: 120, description: 'computer takeover: app name.' },
           },
           required: ['kind', 'surface'],
@@ -112,7 +113,9 @@ export function validateAskUserHandoff(args) {
     target: text('target', 200),
     field: text('field', 80),
     instructions: text('instructions', 2000),
-    ...(handoff.kind === 'takeover' ? { need, identity: handoffIdentity(handoff), ...(login ? { login } : {}) } : {}),
+    // A secret is bound to its page (browser tab) or window and field (computer).
+    identity: handoffIdentity(handoff),
+    ...(handoff.kind === 'takeover' ? { need, ...(login ? { login } : {}) } : {}),
   };
 }
 
@@ -149,7 +152,8 @@ function handoffIdentity(handoff) {
           .trim()
           .slice(0, 120)
       : '';
-  return { ...(windowId ? { windowId } : {}), ...(app ? { app } : {}) };
+  const ref = handoff.kind === 'secret' ? token('ref', 64) : '';
+  return { ...(windowId ? { windowId } : {}), ...(app ? { app } : {}), ...(ref ? { ref } : {}) };
 }
 
 /** Throws a clear error when the questions are malformed; returns the list. */

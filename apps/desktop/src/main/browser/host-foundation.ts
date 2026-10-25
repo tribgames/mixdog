@@ -24,6 +24,7 @@ import { browserUrlPolicyFromEnvironment } from './host-policy';
 import { createBrowserIntercept } from './intercept';
 import { createBrowserLeaveConfirmation } from './leave-confirmation';
 import { createBrowserPartition } from './partition';
+import { CredentialVault } from './credential-vault';
 import { BrowserProfileImportService, defaultNativeBrowserImporterPath } from './profile-import';
 import { redactBrowserText } from './redaction';
 import { BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
@@ -70,7 +71,8 @@ export function createPartitionSignIns(
   partition: Electron.Session,
   cookieJar: ReturnType<typeof createBrowserCookieJar>,
   profileImporter: Pick<BrowserProfileImportService, 'clearImportedData'>,
-  sessionStore: Pick<ReturnType<typeof createBrowserSessionStore>, 'save'>
+  sessionStore: Pick<ReturnType<typeof createBrowserSessionStore>, 'save'>,
+  vault: Pick<CredentialVault, 'pauseOrigin'>
 ) {
   return createBrowserSignIns({
     cookies: cookieJar,
@@ -86,6 +88,7 @@ export function createPartitionSignIns(
     },
     clearImportedData: () => profileImporter.clearImportedData(),
     saveSessionCookies: () => sessionStore.save(),
+    pauseAutoSignIn: (site) => vault.pauseOrigin(site),
   });
 }
 
@@ -128,8 +131,9 @@ function createBrowserHostStorage(
     cookieJar,
     nativeImporterPath: defaultNativeBrowserImporterPath(),
   });
-  const signIns = createPartitionSignIns(partition.session, cookieJar, profileImporter, sessionStore);
-  return { partition, cookieJar, sessionStore, stopSessionAutosave, profileImporter, signIns };
+  const vault = new CredentialVault({ userDataDirectory: app.getPath('userData') });
+  const signIns = createPartitionSignIns(partition.session, cookieJar, profileImporter, sessionStore, vault);
+  return { partition, cookieJar, sessionStore, stopSessionAutosave, profileImporter, vault, signIns };
 }
 
 /** CDP over the guest state, with the document readers and settle built on it. */

@@ -84,6 +84,8 @@ import type {
   DesktopBrowserCredentialFillResult,
   DesktopBrowserCredentialSuggestion,
   DesktopBrowserSignedInSite,
+  DesktopVaultLogin,
+  DesktopVaultLoginInput,
   DesktopBrowserLoginStatus,
   DesktopBrowserGuestViewportChange,
   DesktopBrowserHistoryEntry,
@@ -1066,13 +1068,25 @@ export interface DesktopApi {
   browserHistorySearch?(query: string): Promise<DesktopBrowserHistoryEntry[]>;
   /** Current session's Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(sessionId: string): Promise<DesktopBrowserCredentialSuggestion[]>;
-  browserCredentialFill?(sessionId: string, credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
+  /** `fillId`: a login takeover card's binding, so the login goes only into
+   *  the page that takeover was bound to (desktop only). */
+  browserCredentialFill?(
+    sessionId: string,
+    credentialId: string,
+    fillId?: string
+  ): Promise<DesktopBrowserCredentialFillResult>;
   /** "로그인 유지 중인 사이트": site names and cookie counts, never values. */
   browserSignedInSites?(): Promise<DesktopBrowserSignedInSite[]>;
   /** 로그아웃: that site's cookies and page storage. */
   browserSignOutSite?(site: string): Promise<number>;
   /** 전체 지우기: every sign-in, all site storage and the data imported from Chrome. */
   browserClearSignIns?(): Promise<void>;
+  /** 설정 › 인증 관리: the saved logins, with no passwords or authenticator keys. */
+  browserVaultLogins?(): Promise<DesktopVaultLogin[]>;
+  /** Add (no id) or edit (id) a saved login. Passwords and keys flow in only. */
+  browserVaultSave?(input: DesktopVaultLoginInput): Promise<void>;
+  /** Delete a saved login by id. */
+  browserVaultDelete?(id: string): Promise<boolean>;
   /** A login takeover's sign-in window, bound to takeover `id` of `sessionId`
    *  as this PC saw it: opens (or focuses) it once the agent is stopped and
    *  resolves with how it ended. Desktop only; a phone shows the pending state. */

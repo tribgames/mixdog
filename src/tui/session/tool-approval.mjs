@@ -27,9 +27,12 @@ import {
   withdrawDelegatedApproval,
 } from '../../runtime/shared/delegated-approval-host.mjs';
 
-/** Approvals a sub-agent shows in the top-level chat too; a question, a secret
- *  or a takeover stays in its own session (its answer or window is there). */
-const DELEGATED_KINDS = new Set(['', 'approval', 'outbound', 'permission']);
+/** Requests a sub-agent (or a session a chat handed work to) shows in the
+ *  conversation the user watches too. A secret and a takeover go there as
+ *  well: the value goes to this PC by its request id and the sign-in window
+ *  is bound to the asking session, wherever the card is answered. A question
+ *  stays in its own session (its answer belongs to that conversation). */
+const DELEGATED_KINDS = new Set(['', 'approval', 'outbound', 'permission', 'secret', 'takeover']);
 
 /** The wait limit an approval has when its request names none, from
  *  MIXDOG_TOOL_APPROVAL_TIMEOUT_MS (milliseconds, one second at least): null —

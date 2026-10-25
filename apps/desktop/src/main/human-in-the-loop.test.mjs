@@ -12,47 +12,52 @@ import { fillSecretInput } from './browser/host-agent.ts';
 import { beginComputerOperation } from './human-only-approval.ts';
 import { requiredToolApprovalDecision } from './ipc-validation.ts';
 import { createPushNotifier, heldRequestPushText } from './push-notifier.ts';
-import { createSecretInputs, typeComputerSecret } from './secret-input.ts';
+import { bindComputerSecret, createSecretInputs, typeComputerSecret } from './secret-input.ts';
 import { createTakeoverGate } from './takeover-gate.ts';
 
 const SENTINEL = 'S3NT1NEL-desktop-secret-41aa';
 const REQUEST = 'secret_0123456789abcdef';
+/** What secret_bind records for a page: its main-frame document and the exact element. */
+const BOUND = { document: 'main:L1', targets: [{ node: 7, type: 'password' }] };
 
 test('secret input: one-shot slot, only the target field receives it, replies are redacted', async () => {
   const inputs = createSecretInputs();
   assert.equal(inputs.provide('not-an-id', SENTINEL), false);
   assert.equal(inputs.provide(REQUEST, SENTINEL), true);
+  assert.equal(inputs.bindComputer(REQUEST, { sessionId: 's1', windowId: 'hwnd:0x2', ref: 'e7' }), true);
   const typed = [];
   const reply = await typeComputerSecret(
-    { session_id: 's1', request_id: REQUEST },
+    { session_id: 's1', request_id: REQUEST, window_id: 'hwnd:0x2', ref: 'e7' },
     async (command) => {
       typed.push(command);
       return { text: `field now shows ${SENTINEL}` };
     },
-    inputs
+    inputs,
+    () => {}
   );
-  assert.deepEqual(reply, { text: 'provided' }, 'the reply says only provided');
-  assert.deepEqual(typed, [{ action: 'type', text: SENTINEL, session_id: 's1' }]);
+  assert.deepEqual(reply, { text: 'entered' }, 'the reply says only entered');
+  assert.deepEqual(typed, [{ action: 'type', text: SENTINEL, session_id: 's1', ref: 'e7', window_id: 'hwnd:0x2' }]);
   assert.equal(inputs.take(REQUEST), '', 'the value is gone after one use');
   assert.deepEqual(
     await typeComputerSecret({ session_id: 's1', request_id: REQUEST }, async () => assert.fail('no value'), inputs),
-    { text: 'skipped' }
+    { text: 'expired' }
   );
-  assert.equal(inputs.redact('s1', `ocr: ${SENTINEL}`), 'ocr: [REDACTED SECRET]');
+  assert.equal(inputs.redact('s1', `ocr: ${SENTINEL}`), 'ocr: [redacted]');
   assert.equal(inputs.focusArmed('s1'), true, 'captures are withheld while the field may be focused');
   inputs.forget('s1');
   assert.equal(inputs.redact('s1', SENTINEL), SENTINEL);
 
   // Browser: the isolated-world fill gets the value; the bridge reply does not.
   assert.equal(inputs.provide(REQUEST, SENTINEL), true);
+  inputs.bind(REQUEST, { sessionId: 's1', pageId: 'p1', origin: 'https://bank.example', form: 'password', ...BOUND });
   const fills = [];
-  const guest = { isDestroyed: () => false };
+  const guest = { isDestroyed: () => false, getURL: () => 'https://bank.example/login' };
   const result = await fillSecretInput(
     {
-      currentGuest: () => guest,
-      fill: async (_guest, credential) => {
-        fills.push(credential);
-        return { usernameFilled: false, passwordFilled: true };
+      pageById: (_session, pageId) => (pageId === 'p1' ? guest : null),
+      fill: async (_guest, request) => {
+        fills.push(request);
+        return { filled: true };
       },
       assertFree: () => {},
     },
@@ -61,8 +66,264 @@ test('secret input: one-shot slot, only the target field receives it, replies ar
     undefined,
     inputs
   );
-  assert.deepEqual(result, { text: 'provided' });
-  assert.deepEqual(fills, [{ username: '', password: SENTINEL }]);
+  assert.deepEqual(result, { text: 'entered' });
+  assert.deepEqual(fills, [{ form: 'password', value: SENTINEL, username: '', ...BOUND }]);
+});
+
+test('a computer secret goes only to the window and field it was bound to: unbound or junk targets are refused, never typed', async () => {
+  const typed = [];
+  const execute = async (command) => typed.push(command);
+  const free = () => {};
+  // Nothing bound (an empty identity): no field to type into, not the focused one.
+  let inputs = createSecretInputs();
+  inputs.provide(REQUEST, SENTINEL);
+  assert.deepEqual(await typeComputerSecret({ session_id: 's1', request_id: REQUEST }, execute, inputs, free), {
+    text: 'no_field',
+  });
+  assert.equal(inputs.has(REQUEST), false, 'dropped unused');
+  // An empty or junk window/ref binds nothing.
+  for (const [windowId, ref] of [
+    ['', ''],
+    ['hwnd:0x2', ''],
+    ['', 'e7'],
+    ['hwnd 0x2; x', 'e7'],
+    ['hwnd:0x2', 'e7"]'],
+  ]) {
+    inputs = createSecretInputs();
+    assert.deepEqual(
+      bindComputerSecret({ session_id: 's1', request_id: REQUEST, window_id: windowId, ref }, inputs),
+      { text: 'no_field' },
+      `${windowId} / ${ref}`
+    );
+    inputs.provide(REQUEST, SENTINEL);
+    assert.deepEqual(
+      await typeComputerSecret(
+        { session_id: 's1', request_id: REQUEST, window_id: windowId, ref },
+        execute,
+        inputs,
+        free
+      ),
+      { text: 'no_field' }
+    );
+  }
+  // Another target than the bound one, or another session: refused before the value is taken.
+  inputs = createSecretInputs();
+  assert.deepEqual(
+    bindComputerSecret({ session_id: 's1', request_id: REQUEST, window_id: 'hwnd:0x2', ref: 'e7' }, inputs),
+    { text: 'bound' }
+  );
+  inputs.provide(REQUEST, SENTINEL);
+  assert.deepEqual(
+    await typeComputerSecret(
+      { session_id: 's1', request_id: REQUEST, window_id: 'hwnd:0x9', ref: 'e7' },
+      execute,
+      inputs,
+      free
+    ),
+    { text: 'page_changed' }
+  );
+  assert.equal(inputs.has(REQUEST), false);
+  assert.equal(inputs.computerBinding(REQUEST), null);
+  bindComputerSecret({ session_id: 's1', request_id: REQUEST, window_id: 'hwnd:0x2', ref: 'e7' }, inputs);
+  inputs.provide(REQUEST, SENTINEL);
+  assert.deepEqual(await typeComputerSecret({ session_id: 's2', request_id: REQUEST }, execute, inputs, free), {
+    text: 'blocked',
+  });
+  assert.deepEqual(typed, [], 'nothing was typed anywhere');
+  // The bound window or field went away: the input path refuses it, reported as such.
+  bindComputerSecret({ session_id: 's1', request_id: REQUEST, window_id: 'hwnd:0x2', ref: 'e7' }, inputs);
+  inputs.provide(REQUEST, SENTINEL);
+  assert.deepEqual(
+    await typeComputerSecret(
+      { session_id: 's1', request_id: REQUEST },
+      async () => {
+        throw new Error('ref e7 is stale; take a fresh snapshot/find');
+      },
+      inputs,
+      free
+    ),
+    { text: 'page_changed' }
+  );
+});
+
+/** A browser host for fillSecretInput whose bound page is at `url()`. */
+function boundHost(url, { free = true, filled = true } = {}) {
+  const fills = [];
+  const saved = [];
+  const order = [];
+  return {
+    fills,
+    saved,
+    order,
+    host: {
+      pageById: (_session, pageId) => (pageId === 'p1' ? { isDestroyed: () => false, getURL: () => url() } : null),
+      fill: async (_guest, request) => {
+        order.push('fill');
+        fills.push(request);
+        return { filled };
+      },
+      assertFree: (sessionId) => {
+        order.push(`lock:${sessionId}`);
+        if (!free) throw new Error('blocked');
+      },
+      saveLogin: async (login) => {
+        saved.push(login);
+      },
+    },
+  };
+}
+
+test('a secret bound to its page is refused once that page left the origin; never the selected tab', async () => {
+  const inputs = createSecretInputs();
+  let url = 'https://bank.example/login';
+  const b = boundHost(() => url);
+  inputs.bind(REQUEST, { sessionId: 's1', pageId: 'p1', origin: 'https://bank.example', form: 'password', ...BOUND });
+  inputs.provide(REQUEST, SENTINEL);
+  url = 'https://evil.example/login';
+  assert.deepEqual(await fillSecretInput(b.host, 's1', REQUEST, undefined, inputs), { text: 'page_changed' });
+  assert.deepEqual(b.fills, [], 'nothing reaches a page on another origin');
+  assert.equal(inputs.has(REQUEST), false, 'the value is dropped, never kept for another page');
+  // A page of another session, or a request never bound, is no target either.
+  inputs.provide(REQUEST, SENTINEL);
+  assert.deepEqual(await fillSecretInput(b.host, 's2', REQUEST, undefined, inputs), { text: 'blocked' });
+  assert.deepEqual(b.fills, []);
+});
+
+test("the session's lock is checked before the value is used: a refusal drops it unused", async () => {
+  const inputs = createSecretInputs();
+  const blocked = boundHost(() => 'https://bank.example/login', { free: false });
+  inputs.bind(REQUEST, { sessionId: 's1', pageId: 'p1', origin: 'https://bank.example', form: 'password', ...BOUND });
+  inputs.provide(REQUEST, SENTINEL);
+  assert.deepEqual(await fillSecretInput(blocked.host, 's1', REQUEST, undefined, inputs), { text: 'blocked' });
+  assert.deepEqual(blocked.order, ['lock:s1'], 'asked for this session only, before any fill');
+  assert.equal(inputs.has(REQUEST), false, 'the refused value leaves memory, never filled');
+  assert.equal(inputs.binding(REQUEST), null, 'and so does its binding');
+  inputs.bind(REQUEST, { sessionId: 's1', pageId: 'p1', origin: 'https://bank.example', form: 'password', ...BOUND });
+  inputs.provide(REQUEST, SENTINEL);
+  const free = boundHost(() => 'https://bank.example/login');
+  assert.deepEqual(await fillSecretInput(free.host, 's1', REQUEST, undefined, inputs), { text: 'entered' });
+  assert.deepEqual(free.order, ['lock:s1', 'fill']);
+  // Computer Use: the same order.
+  inputs.provide(REQUEST, SENTINEL);
+  inputs.bindComputer(REQUEST, { sessionId: 's1', windowId: 'hwnd:0x2', ref: 'e7' });
+  const typed = [];
+  const refused = await typeComputerSecret(
+    { session_id: 's1', request_id: REQUEST },
+    async (command) => typed.push(command),
+    inputs,
+    () => {
+      throw new Error('blocked');
+    }
+  );
+  assert.deepEqual(refused, { text: 'blocked' });
+  assert.deepEqual(typed, []);
+  assert.equal(inputs.has(REQUEST), false, 'dropped unused after the refusal');
+});
+
+test('a refused secret leaves memory on every terminal refusal: blocked, page changed, no field', async () => {
+  const bindAndProvide = (inputs) => {
+    inputs.bind(REQUEST, { sessionId: 's1', pageId: 'p1', origin: 'https://bank.example', form: 'login', ...BOUND });
+    inputs.provide(REQUEST, SENTINEL);
+    inputs.provide(`${REQUEST}-username`, 'data-team');
+    inputs.provide(`${REQUEST}-save`, '1');
+  };
+  const gone = (inputs) =>
+    [REQUEST, `${REQUEST}-username`, `${REQUEST}-save`].every((id) => !inputs.has(id)) &&
+    inputs.binding(REQUEST) === null;
+  for (const [outcome, host] of [
+    ['blocked', boundHost(() => 'https://bank.example/login', { free: false })],
+    ['page_changed', boundHost(() => 'https://elsewhere.example/')],
+    ['no_field', boundHost(() => 'https://bank.example/login', { filled: false })],
+  ]) {
+    const inputs = createSecretInputs();
+    bindAndProvide(inputs);
+    assert.deepEqual(await fillSecretInput(host.host, 's1', REQUEST, undefined, inputs), { text: outcome });
+    assert.equal(gone(inputs), true, `${outcome}: every slot and the binding are gone`);
+    assert.deepEqual(host.saved, [], `${outcome}: nothing saved`);
+  }
+});
+
+test('secret slots and bindings expire on their own timers (unref, cleared on use), with no later call', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const mockSet = globalThis.setTimeout;
+  const mockClear = globalThis.clearTimeout;
+  const unrefed = new Set();
+  const cleared = new Set();
+  const created = [];
+  globalThis.setTimeout = (...args) => {
+    const handle = mockSet(...args);
+    const unref = handle.unref.bind(handle);
+    handle.unref = () => {
+      unrefed.add(handle);
+      return unref();
+    };
+    created.push(handle);
+    return handle;
+  };
+  globalThis.clearTimeout = (handle) => {
+    cleared.add(handle);
+    return mockClear(handle);
+  };
+  try {
+    const inputs = createSecretInputs({ timeoutMs: 1_000, bindingTimeoutMs: 2_000 });
+    inputs.bind(REQUEST, {
+      sessionId: 's1',
+      pageId: 'p1',
+      origin: 'https://bank.example',
+      form: 'password',
+      ...BOUND,
+    });
+    inputs.provide(REQUEST, SENTINEL);
+    assert.equal(created.length, 2, 'one timer per entry');
+    assert.ok(
+      created.every((handle) => unrefed.has(handle)),
+      'no timer keeps the app alive'
+    );
+    t.mock.timers.tick(999);
+    assert.equal(inputs.has(REQUEST), true);
+    t.mock.timers.tick(1);
+    assert.equal(inputs.has(REQUEST), false, 'the value expired by itself');
+    assert.notEqual(inputs.binding(REQUEST), null);
+    t.mock.timers.tick(1_000);
+    assert.equal(inputs.binding(REQUEST), null, 'the binding too');
+    // Used before expiry: its timer is cleared at once.
+    inputs.provide(REQUEST, SENTINEL);
+    const timer = created.at(-1);
+    assert.equal(inputs.take(REQUEST), SENTINEL);
+    assert.equal(cleared.has(timer), true, 'taking it clears its timer');
+    inputs.provide(REQUEST, SENTINEL);
+    inputs.discard(REQUEST);
+    assert.equal(cleared.has(created.at(-1)), true, 'discarding it too');
+  } finally {
+    globalThis.setTimeout = mockSet;
+    globalThis.clearTimeout = mockClear;
+  }
+});
+
+test('a sign-in typed in chat fills 아이디 + 비밀번호 and is saved for the origin only when chosen', async () => {
+  const inputs = createSecretInputs();
+  const b = boundHost(() => 'https://bank.example/login');
+  const bindLogin = () =>
+    inputs.bind(REQUEST, { sessionId: 's1', pageId: 'p1', origin: 'https://bank.example', form: 'login', ...BOUND });
+  bindLogin();
+  inputs.provide(REQUEST, SENTINEL);
+  inputs.provide(`${REQUEST}-username`, 'data-team');
+  inputs.provide(`${REQUEST}-save`, '1');
+  assert.deepEqual(await fillSecretInput(b.host, 's1', REQUEST, undefined, inputs), { text: 'entered' });
+  assert.deepEqual(b.fills, [{ form: 'login', value: SENTINEL, username: 'data-team', ...BOUND }]);
+  assert.deepEqual(b.saved, [{ origin: 'https://bank.example', username: 'data-team', password: SENTINEL }]);
+  assert.equal(inputs.has(`${REQUEST}-username`), false, 'every slot of the request is gone');
+  bindLogin();
+  inputs.provide(REQUEST, SENTINEL);
+  inputs.provide(`${REQUEST}-username`, 'data-team');
+  await fillSecretInput(b.host, 's1', REQUEST, undefined, inputs);
+  assert.equal(b.saved.length, 1, 'unchecked: not saved');
+  // No such field on the page any more: said so.
+  const none = boundHost(() => 'https://bank.example/login', { filled: false });
+  bindLogin();
+  inputs.provide(REQUEST, SENTINEL);
+  assert.deepEqual(await fillSecretInput(none.host, 's1', REQUEST, undefined, inputs), { text: 'no_field' });
+  assert.deepEqual(none.saved, []);
 });
 
 test('an approval decision can never carry a secret value', () => {

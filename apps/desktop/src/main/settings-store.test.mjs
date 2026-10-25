@@ -83,6 +83,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     computerObserveOnly: false,
     browserControl: false,
     browserAutoSignIn: true,
+    saveChatLogins: true,
     computerInstalled: false,
     browserInstalled: false,
   });
@@ -115,6 +116,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
       computerObserveOnly: false,
       browserControl: false,
       browserAutoSignIn: true,
+      saveChatLogins: true,
       computerInstalled: false,
       browserInstalled: false,
     }
@@ -228,6 +230,7 @@ test('writes are atomic core updates that retain unrelated config and nested fie
     computerObserveOnly: false,
     browserControl: false,
     browserAutoSignIn: true,
+    saveChatLogins: true,
     computerInstalled: false,
     browserInstalled: false,
   });

@@ -1409,6 +1409,59 @@ test('a top-level chat opened after the request adopts it; a question stays in i
   }
 });
 
+test('a secret and a login takeover also show in the conversation that delegated them; either place settles both', async () => {
+  const lead = sessionQueue('sess_dlg_lead1');
+  const sub = sessionQueue('sess_dlg_lsub1');
+  const ports = handoffPorts();
+  const home = sessionQueue(HOME);
+  const task = sessionQueue('sess_dlg_task1');
+  try {
+    // A sub-agent's secret: in the Lead's chat, with its chain; answered there.
+    const secret = sub.api.requestToolApproval({
+      name: 'ask_user',
+      kind: 'secret',
+      secret: { requestId: 'secret_0123456789ab', surface: 'browser', target: 'bank', field: 'Password' },
+      timeoutMs: 120_000,
+      sessionId: 'sess_dlg_lsub1',
+    });
+    const copy = lead.state().toolApproval;
+    assert.equal(copy?.kind, 'secret', 'the secret card is in the chat the user watches');
+    assert.equal(copy.id, sub.state().toolApproval.id);
+    assert.equal(copy.sessionId, 'sess_dlg_lsub1', 'it still names the asking session');
+    assert.deepEqual(copy.chain, ['Lead', 'Reviewer']);
+    assert.equal(
+      lead.api.finishToolApproval(copy.id, true, 'ok', 'DESKTOP', undefined, undefined, { response: 'provide-secret' }),
+      true
+    );
+    const answered = await secret;
+    assert.deepEqual([answered.approved, answered.response], [true, 'provide-secret']);
+    assert.equal(sub.state().toolApproval, null, "the sub-agent's own card is settled");
+
+    // A task session's login takeover: in the bot chat that handed it the work.
+    await ports.watches.add(handoffWatch('atask_sl1', 'sess_dlg_task1', '예측'));
+    const takeover = task.api.requestToolApproval({
+      name: 'ask_user',
+      kind: 'takeover',
+      takeover: { surface: 'browser', instructions: 'Sign in', purpose: 'login', url: 'https://dart.fss.or.kr/' },
+      timeoutMs: null,
+      sessionId: 'sess_dlg_task1',
+    });
+    const shown = home.state().toolApproval;
+    assert.equal(shown?.kind, 'takeover');
+    assert.equal(shown.takeover.purpose, 'login');
+    assert.deepEqual(shown.handoff, { title: '예측' });
+    assert.equal(shown.sessionId, 'sess_dlg_task1', 'the sign-in window stays bound to the asking session');
+    // Answered in its own pane: the copy in the bot chat goes too.
+    task.api.finishToolApproval(task.state().toolApproval.id, false, 'expired');
+    const result = await takeover;
+    assert.deepEqual([result.approved, result.reason], [false, 'expired']);
+    assert.equal(home.state().toolApproval, null);
+  } finally {
+    endHandoff('atask_sl1');
+    for (const queue of [lead, sub, home, task]) queue.dispose();
+  }
+});
+
 /** A watchdog over the real runtime liveness map for `sessionId`, as the agent
  *  tool arms one per sub-agent; `stalled()` says whether it aborted the turn. */
 function watchedTurn(sessionId) {

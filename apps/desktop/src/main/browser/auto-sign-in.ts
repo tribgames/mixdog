@@ -26,13 +26,32 @@
  * Known misses: explicit render into an unmarked container with a custom
  * field name, and a widget that appears after the grace.
  *
- * Guardrails: on by the `browserAutoSignIn` setting (default on); one attempt
- * per site per turn (a routine run is one turn), never a retry loop; one
- * saved account only (several: the agent picks with `savedAccount`); a page
- * that already shows a challenge is left alone; a password field, 2FA code,
- * CAPTCHA or passkey step after the submit stops here and the reply hands the
- * sign-in to the user (the takeover card, or a routine's "sign-in required").
- * The submit is a sign-in, not an outbound action, so it needs no approval.
+ * Steps: a sign-in page with a password field is filled and submitted; a page
+ * that shows only a username/email field (on a page that says sign-in, with
+ * that one text field alone) gets the username, Enter, and then, once the
+ * next page shows its password field, the password and Enter. When the step
+ * after the password shows a one-time-code field (one input or one box per
+ * digit) and the vault holds an authenticator key for the account, the host
+ * makes the current code, types it into that field and presses Enter. All of
+ * it is one attempt of at most three steps (username, password, code); the
+ * code is a secret like the password and never reaches the model.
+ *
+ * Accounts: with several saved logins for the site the host uses the one whose
+ * username is the identifier already prefilled on the page, else the one last
+ * used for the site, else the most recently saved. The agent's explicit
+ * `savedAccount` fill is a separate path and always wins. A successful
+ * sign-in records the account as last used (vault metadata, never a secret).
+ *
+ * Guardrails: on by the `browserAutoSignIn` setting (default on); HTTPS only;
+ * one attempt per site per turn (a routine run is one turn), never a retry
+ * loop; a page that already shows a challenge is left alone; a CAPTCHA, a
+ * passkey, an SMS or email code, a code without a stored key, or any step
+ * that does not finish stops here and the reply hands the sign-in to the user
+ * (the takeover card, or a routine's "sign-in required"). Every fill and
+ * submit re-checks the page address first. The submit follows the bot's
+ * browser approval policy (`approveSubmit`) with the saved login as the
+ * user's consent: a policy that would only ask lets it through, a block (or a
+ * denied action) sends nothing and hands the sign-in to the user.
  */
 import type { WebContents } from 'electron';
 
@@ -59,10 +78,17 @@ export const SIGN_IN_STATE = `(() => {
   const WIDGET_FRAME = /turnstile|challenges\\.cloudflare|recaptcha|hcaptcha/i;
   const BADGE = '.grecaptcha-badge';
   const filled = (field) => String(field.value || '').trim() !== '';
+  const TEXT_LIKE = ['text', 'email', 'tel', 'search', 'url', 'number'];
+  const IDENTIFIER = /^(?:user(?:_?name)?|user_?id|login(?:_?id)?|identifier(?:id)?|loginfmt|j_username|email(?:_?address)?|account|아이디)$/i;
   let password = false;
   let challenge = false;
+  let code = false;
+  let captcha = false;
   let found = false;
   let pending = false;
+  let editable = 0;
+  const candidates = [];
+  let digitBoxes = 0;
   for (const root of (${BROWSER_DOCUMENT_ROOTS})()) {
     for (const field of root.querySelectorAll(TOKEN_FIELDS)) {
       if (field.closest(BADGE)) continue;
@@ -84,24 +110,81 @@ export const SIGN_IN_STATE = `(() => {
       const identity = String(input.name || '') + ' ' + String(input.id || '');
       if (complete.includes('one-time-code') || /otp|totp|2fa|mfa|one.?time|verif\\w*.?code|auth\\w*.?code/i.test(identity)) {
         challenge = true;
+        code = true;
+      }
+      // One box per digit of a code.
+      if (input.maxLength === 1 && String(input.inputMode || '').toLowerCase() === 'numeric') digitBoxes += 1;
+      if (!input.readOnly && TEXT_LIKE.includes(type)) {
+        editable += 1;
+        if (['email', 'text', 'tel'].includes(type)
+          && (/\\b(?:username|email)\\b/.test(complete) || IDENTIFIER.test(String(input.name || '')) || IDENTIFIER.test(String(input.id || '')))) {
+          candidates.push(input);
+        }
       }
     }
     for (const frame of root.querySelectorAll('iframe')) {
       const src = String(frame.src || '');
       if (WIDGET_FRAME.test(src)) {
         // A widget's popup frame (image grid) needs a person; its anchor frame is no evidence.
-        if (/bframe|frame=challenge/i.test(src) && visible(frame)) challenge = true;
-      } else if (/captcha/i.test(src) && visible(frame)) challenge = true;
+        if (/bframe|frame=challenge/i.test(src) && visible(frame)) challenge = captcha = true;
+      } else if (/captcha/i.test(src) && visible(frame)) challenge = captcha = true;
     }
   }
+  if (digitBoxes >= 4) {
+    challenge = true;
+    code = true;
+  }
+  // A username-only first step: no password field, and one text field alone
+  // on the page that is a username/email field with real sign-in evidence:
+  // autocomplete "username", or an email/text field whose own form says
+  // sign in (its controls, headings, id/action) or whose page does (URL path,
+  // title, headings) — and a form that says subscribe/sign up never. An email
+  // field alone (autocomplete "email", a newsletter box) is no evidence.
+  const SIGN_IN_WORDS = /sign.?in|log.?in|log.?on|sign.?on|로그인|ログイン|登录|登入/i;
+  const NOT_SIGN_IN = /subscri|newsletter|sign.?up|register|join|구독|뉴스레터|가입/i;
+  const words = (nodes) => Array.from(nodes).map((node) => String(node.value || node.textContent || '')).join(' ');
+  let username = false;
+  if (!password && !code && editable === 1 && candidates.length === 1) {
+    const field = candidates[0];
+    const explicit = /\\busername\\b/.test(String(field.autocomplete || '').toLowerCase());
+    const form = field.form;
+    const formText = form
+      ? words(form.querySelectorAll('button,input[type=submit],input[type=button],[role=button],legend,h1,h2,h3,label'))
+        + ' ' + [form.id, form.getAttribute('action'), form.getAttribute('aria-label')].join(' ')
+      : '';
+    const pageText = location.pathname + ' ' + document.title + ' ' + words(document.querySelectorAll('h1,h2'));
+    // A form that says subscribe or sign up never qualifies, whatever else it carries.
+    username = !NOT_SIGN_IN.test(formText) && (explicit || SIGN_IN_WORDS.test(formText) || SIGN_IN_WORDS.test(pageText));
+  }
+  const identifier = String((candidates.find((input) => String(input.value || '').trim()) || {}).value || '').trim();
   const check = pending ? 'pending' : found ? 'solved' : 'none';
   const text = String(document.body?.innerText || '').slice(0, 20000);
   const wording = /captcha|passkey|two-factor|2-step|verification code|security code|인증 ?코드|보안 ?문자|패스키|2단계/i.test(text);
-  return { password, challenge, wording, check };
+  // A code the site sends by SMS or email is no authenticator code.
+  const sent = /sms|text message|texted|emailed|sent (?:a|the|you)[^.]{0,40}code|문자|이메일로/i.test(text)
+    && !/authenticator|authentication app|인증 ?앱/i.test(text);
+  return { password, challenge, wording, check, code, captcha, username, identifier, sent };
 })()`;
 
 type HumanCheck = 'none' | 'pending' | 'solved';
-type SignInState = { password: boolean; challenge: boolean; wording: boolean; check: HumanCheck };
+type SignInState = {
+  password: boolean;
+  /** A code field or a CAPTCHA/challenge frame: the user's step. */
+  challenge: boolean;
+  wording: boolean;
+  check: HumanCheck;
+  /** A one-time-code field (single or one box per digit). */
+  code: boolean;
+  /** A challenge frame (image grid, generic CAPTCHA). */
+  captcha: boolean;
+  /** A username-only first step. */
+  username: boolean;
+  /** An identifier already prefilled in the page's username field. */
+  identifier: string;
+  /** The page says the code comes by SMS or email. */
+  sent: boolean;
+};
+type Phase = 'username' | 'password' | 'code';
 
 /** How long a sign-in waits for a human check to solve itself, how long it
  *  looks for a late-rendered widget on a page with none, and how often it
@@ -109,12 +192,17 @@ type SignInState = { password: boolean; challenge: boolean; wording: boolean; ch
 const HUMAN_CHECK_WAIT_MS = 20_000;
 const HUMAN_CHECK_GRACE_MS = 1_500;
 const HUMAN_CHECK_POLL_MS = 500;
+/** How long the next step's page gets to show its field after a submit. */
+const STEP_WAIT_MS = 8_000;
 
 export interface BrowserAutoSignInDeps {
   /** The `browserAutoSignIn` setting. */
   enabled: () => boolean;
-  /** Saved logins for exactly `url`'s HTTPS origin (masked labels only). */
-  suggestions: (url: string) => Promise<Array<{ id: string; label: string }>>;
+  /** Saved logins for exactly `url`'s HTTPS origin (masked labels only), the
+   *  one to use first: the account whose username is the identifier already
+   *  `prefilled` on the page, then the one last used for the site, then the
+   *  most recently saved (credential-vault.ts preferredAccountsFor). */
+  suggestions: (url: string, prefilled?: string) => Promise<Array<{ id: string; label: string }>>;
   /** Hands the stored login `id` for `url`'s origin to `use`, never anywhere else. */
   withCredential: <T>(
     url: string,
@@ -122,19 +210,47 @@ export interface BrowserAutoSignInDeps {
     use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
     signal?: AbortSignal
   ) => Promise<T>;
+  /** Fills the page's sign-in form; `step: 'username'` types the username
+   *  alone into a username-only first step (the password is not passed). */
   fill: (
     guest: WebContents,
     credential: Readonly<BrowserCredentialValue>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    step?: 'username',
+    /** The main-frame document the step was read on (document): the fill is
+     *  refused unless the page still shows exactly that document. */
+    document?: string
   ) => Promise<BrowserCredentialFillResult>;
+  /** The page's main-frame document now (frame id + loader id; '' when the
+   *  browser reports none). Every step is bound to the document its state was
+   *  read on. */
+  document?: (guest: WebContents, signal?: AbortSignal) => Promise<string>;
   /** `beforeDispatch` runs right before the key is sent and throws when the
    *  page is no longer the one the sign-in was checked on. */
   submit: (guest: WebContents, signal?: AbortSignal, beforeDispatch?: () => void) => Promise<void>;
+  /** The bot's browser approval policy for the sign-in submit (a form submit):
+   *  resolves when it may go, throws (never dispatched) when a bot blocks it.
+   *  Saving the login is the user's consent, so a policy that would only ask
+   *  lets it through. Absent only on older wiring, where the submit is sent
+   *  without asking. */
+  approveSubmit?: (guest: WebContents, signal?: AbortSignal) => Promise<void>;
+  /** The saved login `id` signed in: remembered as the site's last used
+   *  account (metadata, never the secret). */
+  recordUsed?: (url: string, id: string) => Promise<void>;
+  /** One-time codes from the stored authenticator key of login `id`:
+   *  `value` makes the current code on the host ('' without a key), `fill`
+   *  binds the code field of the page and types it (false: no code field).
+   *  The code is a secret like the password and goes nowhere else. */
+  code?: {
+    value: (url: string, id: string) => Promise<string>;
+    fill: (guest: WebContents, code: string, signal?: AbortSignal, boundUrl?: string, document?: string) => Promise<boolean>;
+  };
   collect: <T>(guest: WebContents, expression: string, signal?: AbortSignal) => Promise<T[]>;
   invalidate: (guest: WebContents) => void;
   /** Bounds for the human-check wait (defaults: 20 s wait, 1.5 s grace for a
-   *  late widget, polled every 500 ms). */
-  humanCheck?: { waitMs?: number; graceMs?: number; pollMs?: number };
+   *  late widget, polled every 500 ms) and for the next step's page to show
+   *  its field after a submit (default 8 s). */
+  humanCheck?: { waitMs?: number; graceMs?: number; pollMs?: number; stepMs?: number };
 }
 
 /** The reply line of a sign-in made with a saved login; the transcript shows
@@ -144,6 +260,8 @@ export const SAVED_SIGN_IN_DONE = 'Saved sign-in: signed in to ';
 export const SAVED_SIGN_IN_NEEDS_USER = 'Saved sign-in: the site still needs the user at ';
 
 const ATTEMPT_MEMORY = 500;
+/** The username step, the password step and the code step: no more in one attempt. */
+const MAX_STEPS = 3;
 
 /** The page guard of a submit: throws once the guest is gone or left `url`. */
 function submitGuard(guest: WebContents, url: string): () => void {
@@ -154,15 +272,28 @@ function submitGuard(guest: WebContents, url: string): () => void {
   };
 }
 
+/** Whether the form of `phase` is on the page. */
+const formThere = (now: SignInState, phase: Phase): boolean =>
+  phase === 'username' ? now.username && !now.password : phase === 'code' ? now.code && !now.password : now.password;
+/** Whether a challenge stands in the way of `phase` (a code is the code step's own field). */
+const challenged = (now: SignInState, phase: Phase): boolean => (phase === 'code' ? now.captcha : now.challenge);
+
 export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
   /** `${sessionId}\0${turnId}\0${origin}`: tried once this turn. */
   const attempted = new Set<string>();
   const state = async (guest: WebContents, signal?: AbortSignal): Promise<SignInState> => {
     const frames = await deps.collect<SignInState>(guest, SIGN_IN_STATE, signal);
+    const any = (key: 'password' | 'challenge' | 'wording' | 'code' | 'captcha' | 'username' | 'sent') =>
+      frames.some((frame) => frame?.[key] === true);
     return {
-      password: frames.some((frame) => frame?.password === true),
-      challenge: frames.some((frame) => frame?.challenge === true),
-      wording: frames.some((frame) => frame?.wording === true),
+      password: any('password'),
+      challenge: any('challenge'),
+      wording: any('wording'),
+      code: any('code'),
+      captcha: any('captcha'),
+      username: any('username'),
+      sent: any('sent'),
+      identifier: String(frames.find((frame) => typeof frame?.identifier === 'string' && frame.identifier)?.identifier || ''),
       // Any unsolved widget in any frame holds the whole page.
       check: frames.some((frame) => frame?.check === 'pending')
         ? 'pending'
@@ -172,12 +303,27 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     };
   };
 
-  /** Whether the sign-in may go on after this probe: the form is still there,
-   *  no challenge stands, and any human check seen on this attempt holds its
-   *  token (a widget that vanished without one is not a success). */
-  const mayGoOn = (now: SignInState, seen: { check: boolean }): boolean => {
+  /** The main-frame document now; '' when unavailable. */
+  const documentOf = async (guest: WebContents, signal?: AbortSignal): Promise<string> =>
+    deps.document ? deps.document(guest, signal).catch(() => '') : '';
+
+  /** The page state together with the document it was read on: the document
+   *  is read before and after, and a page that moved in between is no reading
+   *  (null), as is one whose document the browser does not report. */
+  const read = async (guest: WebContents, signal?: AbortSignal): Promise<{ now: SignInState; document: string } | null> => {
+    const first = await documentOf(guest, signal);
+    const now = await state(guest, signal);
+    const second = await documentOf(guest, signal);
+    if (first !== second || (deps.document && !first)) return null;
+    return { now, document: first };
+  };
+
+  /** Whether the sign-in may go on after this probe: the step's form is still
+   *  there, no challenge stands, and any human check seen on this attempt holds
+   *  its token (a widget that vanished without one is not a success). */
+  const mayGoOn = (now: SignInState, seen: { check: boolean }, phase: Phase): boolean => {
     if (now.check !== 'none') seen.check = true;
-    return now.password && !now.challenge && now.check !== 'pending' && (!seen.check || now.check === 'solved');
+    return formThere(now, phase) && !challenged(now, phase) && now.check !== 'pending' && (!seen.check || now.check === 'solved');
   };
 
   /** Waits for the page's human check: up to the wait bound while a token is
@@ -188,7 +334,8 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     guest: WebContents,
     signal: AbortSignal | undefined,
     first: HumanCheck,
-    seen: { check: boolean }
+    seen: { check: boolean },
+    phase: Phase
   ): Promise<boolean> {
     if (first === 'solved') return true;
     const waitMs = deps.humanCheck?.waitMs ?? HUMAN_CHECK_WAIT_MS;
@@ -199,7 +346,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       await pause(pollMs, signal);
       if (guest.isDestroyed()) return false;
       const now = await state(guest, signal);
-      if (!now.password || now.challenge) return false;
+      if (!formThere(now, phase) || challenged(now, phase)) return false;
       if (now.check === 'solved') {
         seen.check = true;
         return true;
@@ -210,6 +357,23 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
         deadline = Date.now() + waitMs;
       } else if (now.check === 'none' && seen.check) return false;
       if (Date.now() >= deadline) return !seen.check;
+    }
+  }
+
+  /** Waits for the sign-in's next page to show its password field. */
+  async function passwordShown(
+    guest: WebContents,
+    signal: AbortSignal | undefined
+  ): Promise<{ now: SignInState; document: string } | null> {
+    const pollMs = deps.humanCheck?.pollMs ?? HUMAN_CHECK_POLL_MS;
+    const deadline = Date.now() + (deps.humanCheck?.stepMs ?? STEP_WAIT_MS);
+    for (;;) {
+      if (guest.isDestroyed()) return null;
+      const reading = await read(guest, signal);
+      if (reading?.now.challenge) return null;
+      if (reading?.now.password) return reading;
+      if (Date.now() >= deadline) return null;
+      await pause(pollMs, signal);
     }
   }
 
@@ -225,61 +389,127 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
   }): Promise<BrowserCommandResult | null> {
     const { guest, signal } = input;
     if (!deps.enabled() || guest.isDestroyed()) return null;
-    const url = guest.getURL();
+    const startUrl = guest.getURL();
     let origin = '';
     try {
-      const parsed = new URL(url);
+      const parsed = new URL(startUrl);
       if (parsed.protocol === 'https:') origin = parsed.origin;
     } catch {}
     if (!origin) return null;
     const key = `${input.sessionId}\0${input.turnId}\0${origin}`;
     if (attempted.has(key)) return null;
-    const before = await state(guest, signal);
-    if (!before.password || before.challenge) return null;
-    const saved = await deps.suggestions(url);
-    // One account only: several are the agent's choice (fill savedAccount).
-    if (!saved.length || new Set(saved.map((entry) => entry.label)).size !== 1) return null;
+    const initial = await read(guest, signal);
+    if (!initial) return null;
+    const before = initial.now;
+    const first: Phase | null = before.password ? 'password' : before.username ? 'username' : null;
+    if (!first || before.challenge) return null;
+    const saved = await deps.suggestions(startUrl, before.identifier);
+    if (!saved.length) return null;
     attempted.add(key);
     if (attempted.size > ATTEMPT_MEMORY) attempted.delete(attempted.values().next().value as string);
     const site = new URL(origin).host;
-    let submitted = false;
-    const seen = { check: before.check !== 'none' };
-    try {
-      // The password stays on the host until the page's human check has its token.
-      if (!(await humanCheckCleared(guest, signal, before.check, seen))) {
+    // Several accounts: the vault's order already put the right one first.
+    const account = saved[0].id;
+    let finished = false;
+    let after: BrowserCommandResult | null = null;
+
+    /** One step on `url`: wait out its human check, give the page this
+     *  step's secret and press Enter. False when there was nothing to send. */
+    const step = async (phase: Phase, url: string, now: SignInState, bound: string, twoStep: boolean): Promise<boolean> => {
+      const seen = { check: now.check !== 'none' };
+      const guardPage = (message: string) => {
+        if (signal?.aborted || guest.isDestroyed() || guest.getURL() !== url) throw new Error(message);
+      };
+      // The secret stays on the host until the page's human check has its token.
+      if (!(await humanCheckCleared(guest, signal, now.check, seen, phase))) {
         throw new Error('The human check did not finish; nothing was sent.');
       }
-      const result = await deps.withCredential(
-        url,
-        saved[0].id,
-        async (credential) => {
-          // Last awaited step: the page may have changed state since the wait.
-          if (!mayGoOn(await state(guest, signal), seen)) {
-            throw new Error('The human check changed before stored credential input; input was not sent.');
-          }
-          // Nothing is awaited between this check and the fill call.
-          if (signal?.aborted || guest.isDestroyed() || guest.getURL() !== url) {
-            throw new Error('The page changed before stored credential input; input was not sent.');
-          }
-          return deps.fill(guest, credential, signal);
-        },
-        signal
-      );
-      if (result.passwordFilled) {
-        deps.invalidate(guest);
-        // The fill itself may have reset the token or mounted a challenge.
-        if (!mayGoOn(await state(guest, signal), seen) || guest.isDestroyed() || guest.getURL() !== url) {
-          throw new Error('The human check changed before the submit; nothing was submitted.');
+      let filled: boolean;
+      if (phase === 'code') {
+        const code = deps.code ? await deps.code.value(url, account) : '';
+        // No stored key: the code is the user's.
+        if (!code) return false;
+        if (!mayGoOn(await state(guest, signal), seen, phase)) {
+          throw new Error('The human check changed before stored credential input; input was not sent.');
         }
-        submitted = true;
-        await deps.submit(guest, signal, submitGuard(guest, url));
+        guardPage('The page changed before stored credential input; input was not sent.');
+        filled = await deps.code!.fill(guest, code, signal, url, bound || undefined);
+      } else {
+        const result = await deps.withCredential(
+          url,
+          account,
+          async (credential) => {
+            // Last awaited step: the page may have changed state since the wait.
+            if (!mayGoOn(await state(guest, signal), seen, phase)) {
+              throw new Error('The human check changed before stored credential input; input was not sent.');
+            }
+            // Nothing is awaited between this check and the fill call.
+            guardPage('The page changed before stored credential input; input was not sent.');
+            if (phase === 'username') {
+              return deps.fill(guest, { username: credential.username, password: '' }, signal, 'username', bound || undefined);
+            }
+            return deps.fill(
+              guest,
+              twoStep ? { username: '', password: credential.password } : credential,
+              signal,
+              undefined,
+              bound || undefined
+            );
+          },
+          signal
+        );
+        filled = phase === 'username' ? result.usernameFilled : result.passwordFilled;
+      }
+      if (!filled) return false;
+      deps.invalidate(guest);
+      // The fill itself may have reset the token or mounted a challenge.
+      if (!mayGoOn(await state(guest, signal), seen, phase) || guest.isDestroyed() || guest.getURL() !== url) {
+        throw new Error('The human check changed before the submit; nothing was submitted.');
+      }
+      // The submit is a form submit: it follows the bot's approval policy, and
+      // a block hands the sign-in to the user like any other.
+      if (deps.approveSubmit) await deps.approveSubmit(guest, signal);
+      guardPage('The page changed before the submit; nothing was submitted.');
+      await deps.submit(guest, signal, submitGuard(guest, url));
+      return true;
+    };
+
+    try {
+      let phase: Phase = first;
+      let url = startUrl;
+      let now = before;
+      let bound = initial.document;
+      for (let count = 0; count < MAX_STEPS; count += 1) {
+        if (!(await step(phase, url, now, bound, first === 'username'))) break;
+        after = await input.observe();
+        if (phase !== 'username') finished = true;
+        if (phase === 'code') break;
+        const next = phase === 'username' ? await passwordShown(guest, signal) : await read(guest, signal);
+        if (!next) break;
+        if (phase === 'username') phase = 'password';
+        else {
+          // After the password: a code field, with an authenticator key to
+          // answer it, is one more step; anything else ends the attempt.
+          if (!(deps.code && next.now.code && !next.now.captcha && !next.now.password && !next.now.sent)) break;
+          phase = 'code';
+        }
+        const nextUrl = guest.getURL();
+        let sameOrigin = false;
+        try {
+          sameOrigin = new URL(nextUrl).origin === origin && new URL(nextUrl).protocol === 'https:';
+        } catch {}
+        if (!sameOrigin) break;
+        url = nextUrl;
+        now = next.now;
+        bound = next.document;
       }
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
     }
-    const after = await input.observe();
-    const now = submitted ? await state(guest, signal).catch(() => null) : null;
-    const signedIn = Boolean(now && !now.password && !now.challenge && !now.wording);
+    after ??= await input.observe();
+    const nowState = finished ? await state(guest, signal).catch(() => null) : null;
+    const signedIn = Boolean(nowState && !nowState.password && !nowState.username && !nowState.challenge && !nowState.wording);
+    if (signedIn && deps.recordUsed) await deps.recordUsed(startUrl, account).catch(() => undefined);
     const note = signedIn
       ? `${SAVED_SIGN_IN_DONE}${site} with its saved login (the password never left the host).`
       : `${SAVED_SIGN_IN_NEEDS_USER}${site}: one try with its saved login did not finish the sign-in ` +

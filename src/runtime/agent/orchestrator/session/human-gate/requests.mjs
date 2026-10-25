@@ -16,6 +16,19 @@ export const HUMAN_REQUEST_KINDS = Object.freeze(['approval', 'outbound', 'secre
 export const HUMAN_RESPONSES = Object.freeze(['approve', 'deny', 'edit-and-approve', 'provide-secret', 'skip', 'done']);
 export const REMEMBER_SCOPES = Object.freeze(['once', 'agent', 'always']);
 export const SECRET_REQUEST_TIMEOUT_MS = 120_000;
+/** What a secret's bound field is: a sign-in form (아이디 + 비밀번호), a lone
+ *  password, a new password, or a one-time code; '' when unknown (computer). */
+export const SECRET_FORMS = Object.freeze(['login', 'password', 'new-password', 'otp']);
+/** Every result a secret handoff (and a declined or expired takeover) gives
+ *  the agent: facts, never a verdict about the site. */
+export const HANDOFF_OUTCOMES = Object.freeze([
+  'entered',
+  'user_skipped',
+  'no_field',
+  'page_changed',
+  'blocked',
+  'expired',
+]);
 
 const RESPONSES_BY_KIND = Object.freeze({
   approval: ['approve', 'deny'],
@@ -103,11 +116,19 @@ export function humanRequestFields(input = {}) {
   }
   if (kind === 'secret') {
     const secret = isRecord(input.secret) ? input.secret : {};
+    // The bound page's origin and what its field is (the desktop read it at
+    // request time, ask-user-tool.mjs): the card's title and inputs; no value.
+    const origin = loginPageUrl(secret.origin)?.origin || '';
+    const form = SECRET_FORMS.includes(secret.form) ? secret.form : '';
+    const length = Number.isInteger(secret.length) && secret.length >= 4 && secret.length <= 10 ? secret.length : 0;
     fields.secret = {
       requestId: text(secret.requestId),
       surface: secret.surface === 'computer' ? 'computer' : 'browser',
       target: text(secret.target),
       field: text(secret.field),
+      ...(origin ? { origin } : {}),
+      ...(form ? { form } : {}),
+      ...(form === 'otp' ? { length: length || 6 } : {}),
     };
     fields.args = { surface: fields.secret.surface, target: fields.secret.target, field: fields.secret.field };
     fields.remember = ['once'];
@@ -132,12 +153,22 @@ export function humanRequestFields(input = {}) {
     // A login takeover (purpose 'login') opens the desktop's sign-in window on
     // its validated page instead of handing over the side panel.
     const login = surface === 'browser' && takeover.purpose === 'login' ? loginPageUrl(takeover.url) : null;
+    // The saved logins of the sign-in page's origin: opaque ids and masked
+    // labels only (profile-import.ts credentialSuggestions), never a password.
+    const accounts = (login && Array.isArray(takeover.accounts) ? takeover.accounts : [])
+      .filter((account) => isRecord(account) && token(account.id, 128) && text(account.label, 120))
+      .slice(0, 8)
+      .map((account) => ({ id: token(account.id, 128), label: text(account.label, 120) }));
+    // The page those logins may be filled into, bound by the desktop at
+    // request time (ask-user-tool.mjs fillId): without it none is offered.
+    const fillId = /^secret_[A-Za-z0-9-]{8,80}$/.test(text(takeover.fillId, 100)) ? text(takeover.fillId, 100) : '';
     fields.takeover = {
       surface,
       instructions: text(takeover.instructions, 2_000),
       ...(text(takeover.target) ? { target: text(takeover.target) } : {}),
       ...identity,
       ...(login ? { purpose: 'login', url: login.url, origin: login.origin } : {}),
+      ...(accounts.length && fillId ? { accounts, fillId } : {}),
     };
     fields.remember = ['once'];
   }

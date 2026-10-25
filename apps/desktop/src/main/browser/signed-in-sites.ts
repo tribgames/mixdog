@@ -58,6 +58,9 @@ export function createBrowserSignIns(host: {
   clearImportedData(): Promise<void>;
   /** Rewrites the sealed session-cookie snapshot from the jar as it is now. */
   saveSessionCookies(): Promise<unknown>;
+  /** Stops auto sign-in for the site's saved logins, so signing out is not
+   *  undone by the agent signing straight back in. */
+  pauseAutoSignIn?(site: string): Promise<void>;
 }) {
   async function list(): Promise<BrowserSignedInSite[]> {
     return signedInSites(await host.cookies.get({}));
@@ -75,6 +78,8 @@ export function createBrowserSignIns(host: {
     }
     origins.add(`https://${site}`).add(`http://${site}`);
     for (const origin of origins) await host.clearOriginStorage(origin);
+    // A saved password stays, but auto sign-in must not undo the sign-out.
+    await host.pauseAutoSignIn?.(site);
     // The sealed copy must not bring the sign-in back at the next start.
     await host.saveSessionCookies();
     return cookies.length;

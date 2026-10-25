@@ -18,6 +18,7 @@ export type SettingsSection =
   | 'voice'
   | 'update'
   | 'connection'
+  | 'auth'
   | 'bots'
   | 'developer';
 

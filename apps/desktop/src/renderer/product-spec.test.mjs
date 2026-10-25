@@ -63,6 +63,7 @@ test('the rail runs in Basics, AI behavior, Integrations and Support sections, B
       'providers',
       'models',
       'connection',
+      'auth',
       'system',
       'developer',
       'shortcuts',

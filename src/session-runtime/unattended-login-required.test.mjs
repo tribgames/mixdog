@@ -100,7 +100,7 @@ test('only an unattended turn is ended for a person; attended sessions keep the 
       return { approved: true, response: 'done' };
     },
   });
-  assert.equal(outcome, 'done');
+  assert.match(outcome, /^User pressed Done/);
   assert.deepEqual(asked, ['takeover']);
 });
 

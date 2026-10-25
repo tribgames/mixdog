@@ -213,9 +213,11 @@ export function createTakeoverGate(
     pending(): number {
       return held.size;
     },
-    /** Browser Use admits no agent command while a takeover is pending. */
-    assertFree(sessionId?: string): void {
-      const entry = sessionId === undefined ? held.values().next().value : held.get(sessionId);
+    /** Browser Use admits no command of `sessionId` while its own takeover is
+     *  pending; another session's takeover never blocks it, so every caller
+     *  names its session (a secret input checks it before taking its value). */
+    assertFree(sessionId: string): void {
+      const entry = held.get(sessionId);
       if (entry) throw browserRefusal(entry);
     },
     /** One Browser Use command of `sessionId`: refused during its takeover,

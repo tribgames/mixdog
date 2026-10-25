@@ -4,11 +4,23 @@
 // with buttons. The login takeover keeps its flow (✕ folds it into a one-line
 // chip, the request stays pending). Held requests of unattended runs render as
 // the same card from their home-thread row (HeldRequestCard).
-import { type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  Fragment,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopBrowserLoginStatus, ToolApprovalDecision } from '../shared/contract';
 import { connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
 import { loginSiteLabel } from '../shared/login-site';
+import { SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots';
 import { agentHomeTitle } from './agent-contacts-model';
 import { requestBrowserImport } from './browser-page-request';
 import { MarkdownSessionContext } from './MarkdownLink';
@@ -80,6 +92,26 @@ function ApprovalPreviewImage({ path, alt }: { path: unknown; alt: string }) {
 
 const AGENT_KEYS = ['agents'] as const;
 
+/** The "save sign-ins typed in chat" setting (`saveChatLogins`, on unless
+ *  set off): the default of a sign-in card's save box. */
+function useSaveChatLogins(enabled: boolean): boolean {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    void Promise.resolve(window.mixdogDesktop?.readSettings?.()).then(
+      (settings) => {
+        if (live) setOn(settings?.saveChatLogins !== false);
+      },
+      () => {}
+    );
+    return () => {
+      live = false;
+    };
+  }, [enabled]);
+  return on;
+}
+
 /** An agent's display name (its home tab title); its id until the catalog has it. */
 export function useAgentName(agentId: string): string {
   const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
@@ -131,6 +163,40 @@ function useHandoffChip(target: ReturnType<typeof approvalHandoffTarget>): { nam
   const bot = useAgentName(target?.agentId ?? '');
   if (!target) return null;
   return target.agentId ? { name: bot, agentId: target.agentId } : { name: title };
+}
+
+/** The one who-line chip of a secret or sign-in card: the asking session's
+ *  name (a bot's face and name, a sub-agent's chain, else its title), only
+ *  where the card shows in another conversation (a copy in the chat that
+ *  delegated the work); null in its own conversation, where the line is omitted. */
+export function useOwnerChip(
+  approval: Approval,
+  hostSessionId: string,
+  chain: string
+): { name: string; agentId?: string } | null {
+  const sessionId = String(approval.sessionId || '');
+  const shownIn = hostSessionId || String(approval.surfaceSessionId || '') || sessionId;
+  const differs = Boolean(sessionId) && shownIn !== sessionId;
+  const handoffChip = useHandoffChip(differs ? approvalHandoffTarget(approval, shownIn) : null);
+  const title = useSessionTitle(differs ? sessionId : '', t('Session'));
+  if (!differs) return null;
+  return handoffChip ?? { name: chain || title };
+}
+
+/** How long a takeover waits before it expires (main/takeover-gate.ts
+ *  TAKEOVER_EXPIRY_MS, which settles it 'expired'). */
+const TAKEOVER_EXPIRY_MS = 15 * 60_000;
+
+/** When a secret or takeover card lapses: its own expiry, else a takeover's
+ *  15 minutes from when it was asked; undefined when unknown. */
+export function approvalDeadline(approval: Approval): number | undefined {
+  const expiresAt = Number(approval.expiresAt);
+  if (Number.isFinite(expiresAt) && expiresAt > 0) return expiresAt;
+  const requestedAt = Number(approval.requestedAt);
+  if (approval.kind === 'takeover' && Number.isFinite(requestedAt) && requestedAt > 0) {
+    return requestedAt + TAKEOVER_EXPIRY_MS;
+  }
+  return undefined;
 }
 
 /** "사무관 › Worker": the runtime's chain of a delegated request (its tokens
@@ -289,10 +355,24 @@ export function approvalCardModel(approval: Approval) {
     title = t('Do it yourself');
     text = String(takeover?.instructions || '') || t('The agent needs you to do this step yourself.');
   } else if (kind === 'secret') {
-    title = t('Enter a secret');
-    text = t('Type the value for {{field}}. It goes straight into the field and the agent never sees it.', {
-      field: String(secret?.field || secret?.target || ''),
-    });
+    const form = String(secret?.form || '');
+    const origin = String(secret?.origin || '');
+    const site = origin ? loginSiteLabel(origin) : '';
+    const digits = Number(secret?.length) || 6;
+    if (form === 'login' && site) {
+      title = t('{{site}} sign-in details', { site });
+      text = '';
+    } else if (form === 'otp') {
+      title = site
+        ? t('{{site}} verification code, {{n}} digits', { site, n: digits })
+        : t('Verification code, {{n}} digits', { n: digits });
+      text = t('Enter the code you received.');
+    } else {
+      title = t('Enter a secret');
+      text = t('Type the value for {{field}}. It goes straight into the field and the agent never sees it.', {
+        field: String(secret?.field || secret?.target || ''),
+      });
+    }
   } else if (kind === 'permission') {
     title = t('Permission request');
   } else if (kind === 'approval') {
@@ -326,13 +406,25 @@ export function approvalCardModel(approval: Approval) {
     text,
     tool: outbound || kind !== 'approval' ? '' : String(approval.name || ''),
     detail: outbound || office || kind !== 'approval' ? '' : approvalDetail(approval.args),
-    target: String(outbound?.target || (kind === 'secret' ? secret?.target : '') || ''),
+    // A secret's site is its title; its target is never repeated under it.
+    target: String(outbound?.target || ''),
     account: String(outbound?.account || ''),
     payload: String(outbound?.payload || ''),
     editable: Array.isArray(outbound?.editable) ? outbound.editable.map(String) : [],
     details,
     remember: Array.isArray(approval.remember) && approval.remember.includes('agent'),
     secretId: String(secret?.requestId || ''),
+    /** The bound field (requests.mjs SECRET_FORMS): 아이디 + 비밀번호 for a
+     *  sign-in, the code boxes for a one-time code ('' = one password box). */
+    secretForm: kind === 'secret' ? String(secret?.form || '') : '',
+    secretLength: Math.min(10, Math.max(4, Number(secret?.length) || 6)),
+    /** A login takeover's saved logins for its origin (masked labels). */
+    accounts: (Array.isArray(takeover?.accounts) ? takeover.accounts : [])
+      .map(asRecord)
+      .filter((account): account is Record<string, unknown> => Boolean(account?.id && account.label))
+      .map((account) => ({ id: String(account.id), label: String(account.label) })),
+    /** The page those logins may go into, bound when the takeover was made. */
+    fillId: String(takeover?.fillId || ''),
     scopes: (Array.isArray(scopes) ? scopes : [])
       .map(asRecord)
       .filter((scope): scope is Record<string, unknown> => Boolean(scope?.id)),
@@ -349,7 +441,8 @@ export function approvalCardRows(
     officeLabel,
     reimport = false,
     controlReady = true,
-  }: { agentName: string; officeLabel: string; reimport?: boolean; controlReady?: boolean }
+    secretEntry = true,
+  }: { agentName: string; officeLabel: string; reimport?: boolean; controlReady?: boolean; secretEntry?: boolean }
 ): CardRow[] {
   const cancel: CardRow = { label: t('Cancel'), decision: { approved: false } };
   if (model.kind === 'takeover') {
@@ -368,6 +461,16 @@ export function approvalCardRows(
     ];
   }
   if (model.kind === 'secret') {
+    // A client that cannot hand a value to this PC (a paired phone) never
+    // takes one: the value is typed on the PC, and Cancel answers here.
+    if (!secretEntry) return [{ label: t('Cancel'), decision: { approved: false, response: 'skip' } }];
+    if (model.secretForm === 'otp') {
+      return [
+        { label: t('Enter'), decision: 'secret' },
+        { label: t('Do it yourself'), decision: { approved: false, response: 'skip', reason: 'self' } },
+        { label: t('Cancel'), decision: { approved: false, response: 'skip' } },
+      ];
+    }
     return [
       { label: t('Enter'), decision: 'secret' },
       { label: t('Skip'), decision: { approved: false, response: 'skip' } },
@@ -498,25 +601,36 @@ export function ApprovalCard(props: ApprovalCardProps) {
 // How each login takeover's window last ended, across remounts of its card.
 const loginStatuses = new Map<string, DesktopBrowserLoginStatus>();
 
-type LoginRow = { label: string; action: 'open' | 'wait' | 'reimport' | 'cancel' };
+type LoginRow = { label: string; action: 'open' | 'fill' | 'wait' | 'reimport' | 'cancel' };
 
-/** The login takeover's card (design/mockups/browser-login): one head line
- *  "<site> 로그인이 필요합니다" with 로그인하기 / 취소. 로그인하기 opens this PC's
- *  sign-in window (main/browser/login-popup.ts); closing it without 완료 leaves
- *  "로그인하지 않았습니다 · 다시 로그인하기"; a provider that refuses embedded
- *  sign-in offers the Chrome import; 완료 shows "로그인됨" while the agent
- *  continues. A phone cannot open the window and shows the pending state. */
+/** The login takeover's card (design/mockups/browser-login, side-panel-audit
+ *  §1): one head line "<site> 로그인이 필요합니다". With saved logins for the
+ *  page's origin it lists them (masked) to pick from: 지금 안 함 / 직접 로그인 /
+ *  이 계정으로 로그인, the last filling the picked one through the saved-login
+ *  path (profile-import.ts useCredential) and settling the takeover. 직접
+ *  로그인 (or 로그인하기 without saved logins) opens this PC's sign-in window
+ *  (main/browser/login-popup.ts); closing it without 완료 leaves "로그인하지
+ *  않았습니다 · 다시 로그인하기"; a provider that refuses embedded sign-in
+ *  offers the Chrome import; 완료 shows "로그인됨" while the agent continues.
+ *  A phone cannot open the window: it says so and can cancel. */
 function BrowserLoginCard({
   approval,
   resolve,
   agentMode = false,
   settled = null,
   site,
+  hostSessionId = '',
 }: ApprovalCardProps & { site: string }) {
   const id = String(approval.id ?? '');
   const browserSessionId = useContext(MarkdownSessionContext);
   const sessionId = String(approval.sessionId || browserSessionId || '');
-  const { headAgent, faceAgentId } = useRequester(approval, agentMode);
+  const { faceAgentId } = useRequester(approval, agentMode);
+  const owner = useOwnerChip(approval, hostSessionId, approvalChainLabel(approval.chain));
+  const model = approvalCardModel(approval);
+  // Saved logins are offered only with the page they may be filled into.
+  const accounts = model.fillId ? model.accounts : [];
+  // The picked saved login ('' = 다른 계정 입력: sign in by hand).
+  const [picked, setPicked] = useState(() => accounts[0]?.id ?? '');
   const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
   const local = Boolean(sessionId && api?.browserLoginOpen);
   const controlReady = useControlReady(id, sessionId, local && !settled);
@@ -564,46 +678,38 @@ function BrowserLoginCard({
   }, [local, sessionId, id]);
 
   const state = status.state;
-  const cancel: LoginRow = { label: t('Cancel'), action: 'cancel' };
+  const choosing = local && !settled && (state === 'idle' || state === 'closed') && accounts.length > 0;
+  const cancel: LoginRow = { label: choosing ? t('Not now') : t('Cancel'), action: 'cancel' };
   let rows: LoginRow[] = [];
-  if (local && !settled && (state === 'idle' || state === 'closed')) {
+  if (!local) {
+    // A phone: the sign-in happens on the PC, but the takeover can end here.
+    rows = settled ? [] : [cancel];
+  } else if (choosing) {
+    const yourself: LoginRow = { label: t('Sign in yourself'), action: 'open' };
+    rows = picked ? [{ label: t('Sign in with this account'), action: 'fill' }, yourself, cancel] : [yourself, cancel];
+    if (!controlReady) rows = [{ label: t('Stopping the agent…'), action: 'wait' }, cancel];
+  } else if (!settled && (state === 'idle' || state === 'closed')) {
     let first: LoginRow = { label: state === 'closed' ? t('Sign in again…') : t('Sign in…'), action: 'open' };
     if (!controlReady) first = { label: t('Stopping the agent…'), action: 'wait' };
     rows = [first, cancel];
-  } else if (local && !settled && state === 'refused') {
+  } else if (!settled && state === 'refused') {
     rows = [{ label: t('Import again from Chrome'), action: 'reimport' }, cancel];
   }
   let title = t('{{site}} sign-in required', { site });
-  let metaText = headAgent;
   if (!local) {
     title = t('Sign in on your PC');
-    metaText = '';
   } else if (state === 'done' || settled?.approved) {
     title = t('Signed in');
-    metaText = site;
   } else if (state === 'closed') {
     title = t('Not signed in');
   } else if (state === 'refused') {
     title = t('{{site}} does not allow sign-in in this window', { site: status.provider || site });
-    metaText = '';
   }
   const done = local && (state === 'done' || Boolean(settled?.approved));
   const closable = local && !done && state !== 'open';
 
-  const activate = (row: LoginRow) => {
-    if (row.action === 'wait' || resolving || settled) return;
-    noteApprovalDecision();
-    if (row.action === 'open') {
-      follow(api?.browserLoginOpen?.(sessionId, id));
-      return;
-    }
-    if (row.action === 'reimport') {
-      requestBrowserImport(browserSessionId);
-      return;
-    }
-    setResolving(true);
-    setError('');
-    void resolve({ approved: false }).then(
+  const settle = (decision: ToolApprovalDecision) =>
+    resolve(decision).then(
       (accepted) => {
         if (typeof accepted === 'boolean' || !mounted.current) return;
         setResolving(false);
@@ -619,6 +725,46 @@ function BrowserLoginCard({
         );
       }
     );
+  const activate = (row: LoginRow) => {
+    if (row.action === 'wait' || resolving || settled) return;
+    noteApprovalDecision();
+    if (row.action === 'open') {
+      follow(api?.browserLoginOpen?.(sessionId, id));
+      return;
+    }
+    if (row.action === 'reimport') {
+      requestBrowserImport(browserSessionId);
+      return;
+    }
+    setResolving(true);
+    setError('');
+    if (row.action === 'fill') {
+      // The saved login goes only into the page this takeover was bound to,
+      // while it is still on the takeover's origin (host-agent.ts fillBoundLogin).
+      // A refusal is worded here, never the raw (English) IPC error: the page
+      // moved off the takeover's page or origin, or it could not take the login.
+      const refused = (pageChanged: boolean) => {
+        if (!mounted.current) return;
+        setResolving(false);
+        setError(
+          pageChanged
+            ? t('The sign-in page changed, so the saved login was not filled.')
+            : t('The saved login could not be filled on this page.')
+        );
+      };
+      void Promise.resolve(api?.browserCredentialFill?.(sessionId, picked, model.fillId)).then(
+        (filled) => {
+          if (filled?.passwordFilled) return void settle({ approved: true, response: 'done', reason: 'saved_login' });
+          // A two-step sign-in's username step: the username is in, the
+          // takeover stays open for the user to advance and pick the login again.
+          if (filled?.usernameFilled) return void (mounted.current && setResolving(false));
+          refused(filled?.reason === 'page-changed');
+        },
+        () => refused(false)
+      );
+      return;
+    }
+    void settle({ approved: false });
   };
   const decideLater = () => {
     laterIds.add(id);
@@ -631,20 +777,47 @@ function BrowserLoginCard({
     };
     return <ApprovalPendingChip label={title} agentMode={agentMode} onOpen={reopen} />;
   }
-  // Cancel on the left, the step forward (sign in, import) as the primary.
+  // Cancel on the left, the step forward (fill, sign in, import) as the primary.
   const buttons: ApprovalButton[] = [...rows].reverse().map((row) => ({
     label: row.label,
-    tone: row.action === 'cancel' ? undefined : 'primary',
+    tone: row === rows[0] && row.action !== 'cancel' ? 'primary' : undefined,
     disabled: row.action === 'wait',
     onClick: () => activate(row),
   }));
+  const radioName = `approval-account-${id}`;
+  const preview = choosing ? (
+    <>
+      <div className="approval-accounts" role="radiogroup" aria-label={t('Saved logins')}>
+        {[...accounts, { id: '', label: t('Use another account') }].map((account) => (
+          <label
+            key={account.id || 'other'}
+            className="approval-account"
+            data-selected={picked === account.id || undefined}
+          >
+            <input
+              type="radio"
+              name={radioName}
+              value={account.id}
+              checked={picked === account.id}
+              disabled={resolving}
+              onChange={() => setPicked(account.id)}
+            />
+            <span className="approval-account-label">{account.label}</span>
+          </label>
+        ))}
+      </div>
+      <small className="approval-lock-line">{t('The agent never sees the password.')}</small>
+    </>
+  ) : undefined;
   return (
     <ApprovalPrompt
       title={title}
       faceAgentId={faceAgentId}
       tone={done ? 'done' : 'need'}
-      requester={metaText || headAgent}
-      service={site}
+      requester=""
+      target={owner}
+      deadline={done ? undefined : approvalDeadline(approval)}
+      preview={preview}
       buttons={buttons}
       focus="primary"
       enterAllows
@@ -656,7 +829,7 @@ function BrowserLoginCard({
       agentMode={agentMode}
       data={{ 'data-login': local ? state : 'remote' }}
     >
-      {!local && <ProgressSpinner size={14} aria-hidden="true" />}
+      {!local && !settled && <ProgressSpinner size={14} aria-hidden="true" />}
     </ApprovalPrompt>
   );
 }
@@ -875,6 +1048,136 @@ function OfficeApprovalDetails({ args }: { args: Record<string, unknown> | null 
   );
 }
 
+/** A secret card's inputs (design/mockups/side-panel-audit §2): a sign-in's
+ *  아이디 + 비밀번호 with "save as this site's login" (its default from the
+ *  `saveChatLogins` setting), one box per character of a one-time code (3-3 or
+ *  4-4, filled whole by a paste and entered once full), else one password box.
+ *  Every field is uncontrolled: what is typed lives only in the DOM inputs
+ *  until the card reads it at submit (never React state, props or markup). The
+ *  code boxes know only how many characters are filled. */
+function SecretFields({
+  form,
+  length,
+  filled,
+  save,
+  disabled,
+  secretRef,
+  usernameRef,
+  onFilled,
+  onSave,
+  onSubmit,
+}: {
+  form: string;
+  length: number;
+  /** How many code characters are typed (a count, no characters). */
+  filled: number;
+  save: boolean;
+  disabled: boolean;
+  secretRef: Ref<HTMLInputElement>;
+  usernameRef: Ref<HTMLInputElement>;
+  onFilled(count: number): void;
+  onSave(value: boolean): void;
+  /** Enter what the fields hold (read from them by the card). */
+  onSubmit(): void;
+}) {
+  const submitOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    onSubmit();
+  };
+  const lock = <small className="approval-lock-line">{t('The agent never sees this.')}</small>;
+  if (form === 'otp') {
+    // Typing or a paste: the field keeps only the code's characters, the
+    // boxes learn how many, and a full code is entered at once.
+    const accept = (field: HTMLInputElement) => {
+      const code = field.value.replace(/[^0-9A-Za-z]/g, '').slice(0, length);
+      if (code !== field.value) field.value = code;
+      onFilled(code.length);
+      if (code.length === length) onSubmit();
+    };
+    const current = Math.min(filled, length - 1);
+    return (
+      <>
+        <label className="approval-otp" data-long={length > 6 || undefined}>
+          <input
+            ref={secretRef}
+            className="approval-otp-input"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={length * 2}
+            disabled={disabled}
+            aria-label={t('Verification code')}
+            spellCheck={false}
+            onInput={(event) => accept(event.currentTarget)}
+            onKeyDown={submitOnEnter}
+          />
+          {Array.from({ length }, (_, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: one box per position
+            <Fragment key={index}>
+              {index === Math.ceil(length / 2) && <span className="approval-otp-sep" aria-hidden="true" />}
+              <span
+                className="approval-otp-box"
+                data-filled={index < filled || undefined}
+                data-current={index === current || undefined}
+                aria-hidden="true"
+              />
+            </Fragment>
+          ))}
+        </label>
+        {lock}
+      </>
+    );
+  }
+  const password = (
+    <input
+      ref={secretRef}
+      className="approval-secret"
+      type="password"
+      maxLength={4_096}
+      disabled={disabled}
+      aria-label={form === 'login' ? t('Password') : t('Secret value')}
+      autoComplete="off"
+      spellCheck={false}
+      onKeyDown={submitOnEnter}
+    />
+  );
+  if (form !== 'login') {
+    return (
+      <>
+        {password}
+        {lock}
+      </>
+    );
+  }
+  return (
+    <>
+      <label className="approval-field">
+        <span className="approval-field-label">{t('Username')}</span>
+        <input
+          ref={usernameRef}
+          className="approval-secret"
+          type="text"
+          maxLength={4_096}
+          disabled={disabled}
+          autoComplete="off"
+          spellCheck={false}
+          onKeyDown={submitOnEnter}
+        />
+      </label>
+      <label className="approval-field">
+        <span className="approval-field-label">{t('Password')}</span>
+        {password}
+      </label>
+      <label className="approval-check">
+        <input type="checkbox" checked={save} disabled={disabled} onChange={(event) => onSave(event.target.checked)} />
+        <span>{t("Save as this site's login")}</span>
+      </label>
+      {lock}
+    </>
+  );
+}
+
 function ToolApprovalCard({
   approval,
   resolve,
@@ -901,17 +1204,27 @@ function ToolApprovalCard({
   const takeoverSessionId = String(approval.sessionId || browserSessionId || '');
   const controlReady = useControlReady(id, takeoverSessionId, model.kind === 'takeover' && !settled);
   const [text, setText] = useState(model.payload);
-  const [secret, setSecret] = useState('');
+  // A secret is never React state: the inputs hold it until submit reads them.
+  const secretRef = useRef<HTMLInputElement | null>(null);
+  const usernameRef = useRef<HTMLInputElement | null>(null);
+  const [codeFilled, setCodeFilled] = useState(0);
+  const saveDefault = useSaveChatLogins(model.secretForm === 'login');
+  const [saveLogin, setSaveLogin] = useState<boolean | null>(null);
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState('');
   const resolvingRef = useRef(false);
-  const secretRef = useRef<HTMLInputElement | null>(null);
   const edited = model.editable.length > 0 && text !== model.payload;
+  // A value is only ever handed to this PC; a paired phone has no such path.
+  const secretEntry =
+    typeof window !== 'undefined' && typeof window.mixdogDesktop?.provideSecretInput === 'function';
+  const owner = useOwnerChip(approval, hostSessionId, approvalChainLabel(approval.chain));
+  const handsOver = model.kind === 'secret' || model.kind === 'takeover';
   const rows = approvalCardRows(model, {
     agentName,
     officeLabel,
     reimport: Boolean(browserSessionId && window.mixdogDesktop?.browserProfileImportSources),
     controlReady,
+    secretEntry,
   });
   const disabled = resolving || Boolean(settled);
 
@@ -945,12 +1258,27 @@ function ToolApprovalCard({
       return;
     }
     if (row.decision === 'secret') {
-      const value = secret;
-      if (!value) return void secretRef.current?.focus();
-      setSecret('');
+      if (resolvingRef.current) return;
+      // Read once, here, for the local IPC only; the fields are cleared at once.
+      const field = secretRef.current;
+      const value = field?.value ?? '';
+      const otpShort = model.secretForm === 'otp' && value.length < model.secretLength;
+      if (!field || !value || otpShort) return void field?.focus();
+      const login = model.secretForm === 'login';
+      const name = login ? (usernameRef.current?.value ?? '').trim() : '';
+      const save = login && name !== '' && (saveLogin ?? saveDefault);
+      field.value = '';
+      if (usernameRef.current) usernameRef.current.value = '';
+      setCodeFilled(0);
       void (async () => {
-        const held = await window.mixdogDesktop?.provideSecretInput?.(model.secretId, value);
-        await decide(held ? { approved: true, response: 'provide-secret' } : { approved: false, response: 'skip' });
+        const provide = window.mixdogDesktop?.provideSecretInput;
+        // The sign-in's 아이디 and the save choice ride their own slots of
+        // the request (main/secret-input.ts); the password is the request's own.
+        if (login && name) await provide?.(`${model.secretId}${SECRET_USERNAME_SUFFIX}`, name);
+        if (save) await provide?.(`${model.secretId}${SECRET_SAVE_SUFFIX}`, '1');
+        const held = await provide?.(model.secretId, value);
+        if (held) return void decide({ approved: true, response: 'provide-secret' });
+        setError(t('This PC could not take the value. Please try again.'));
       })();
       return;
     }
@@ -964,8 +1292,12 @@ function ToolApprovalCard({
 
   // Deny (the plain "no" row) on the left, the first row as the primary on
   // the right, anything else between.
+  // A secret's plain skip (건너뛰기 / 취소) is its Esc button too.
   const denyRow = rows.find(
-    (row) => typeof row.decision === 'object' && row.decision.approved === false && !row.decision.response
+    (row) =>
+      typeof row.decision === 'object' &&
+      row.decision.approved === false &&
+      (!row.decision.response || (row.decision.response === 'skip' && !row.decision.reason))
   );
   // Payment, permanent delete and an Office rollback or recovery discard are
   // allowed by a click only (shared/approval-enter-rule.ts, as a notification's Allow).
@@ -1010,12 +1342,15 @@ function ToolApprovalCard({
   const ownSession = String(approval.sessionId || '');
   const surface = String(approval.surfaceSessionId || '');
   const sessionLink =
-    ownSession && surface && ownSession !== surface && ownSession !== hostSessionId
+    !handsOver && ownSession && surface && ownSession !== surface && ownSession !== hostSessionId
       ? { sessionId: ownSession, label: t('Open session'), handoff: Boolean(handoff) }
       : null;
   // Who asks next to the amber target chip; a bot's chat is named once, by its chip.
   let requester = headAgent;
   if (handoff) requester = handoff.agentId ? '' : headAgent || agentName;
+  // A secret or takeover card names only the asking session, and only where
+  // that is another conversation than the one showing it.
+  if (handsOver) requester = '';
   const icon = <PixelIcon name={actionIcon(model.action, model.kind === 'outbound')} />;
 
   const body = approvalActionBody(model, icon);
@@ -1024,9 +1359,9 @@ function ToolApprovalCard({
   );
   const office = model.office && <OfficeApprovalDetails args={args} />;
   // What the agent asked in its own words, where the request is not outbound.
-  const ownText = model.kind !== 'outbound' && model.text;
+  const ownText = model.kind !== 'outbound' && !(model.kind === 'secret' && !secretEntry) && model.text;
   const previewNode =
-    body || editor || office || ownText || model.detail || model.kind === 'secret' ? (
+    body || editor || office || ownText || model.detail || (model.kind === 'secret' && secretEntry) ? (
       <>
         {ownText && (
           <p className="approval-text" data-centered={model.kind === 'permission' || undefined}>
@@ -1050,35 +1385,33 @@ function ToolApprovalCard({
         {editor}
         {model.detail && <pre className="approval-detail">{model.detail}</pre>}
         {office}
-        {model.kind === 'secret' && (
-          <input
-            ref={secretRef}
-            className="approval-secret"
-            type="password"
-            value={secret}
-            maxLength={4_096}
+        {model.kind === 'secret' && secretEntry && (
+          <SecretFields
+            form={model.secretForm}
+            length={model.secretLength}
+            filled={codeFilled}
+            save={saveLogin ?? saveDefault}
             disabled={disabled}
-            aria-label={t('Secret value')}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(event) => setSecret(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
-              event.preventDefault();
-              activate(rows[0]);
-            }}
+            secretRef={secretRef}
+            usernameRef={usernameRef}
+            onFilled={setCodeFilled}
+            onSave={setSaveLogin}
+            onSubmit={() => activate(rows[0])}
           />
         )}
       </>
     ) : null;
+  let title = model.kind === 'outbound' ? actionQuestion(model.action) : model.title;
+  if (model.kind === 'secret' && !secretEntry) title = t('Enter it on your PC');
   return (
     <ApprovalPrompt
-      title={model.kind === 'outbound' ? actionQuestion(model.action) : model.title}
+      title={title}
       faceAgentId={faceAgentId}
       tone="need"
       requester={requester}
-      target={handoffChip}
-      service={service}
+      target={handsOver ? owner : handoffChip}
+      deadline={handsOver ? approvalDeadline(approval) : undefined}
+      service={handsOver ? undefined : service}
       serviceTitle={rawTool !== service ? rawTool : undefined}
       sessionLink={sessionLink}
       queue={queue}

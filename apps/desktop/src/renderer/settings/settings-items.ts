@@ -72,6 +72,13 @@ export const SETTINGS_ITEMS = [
     description: 'Use this PC from your phone, browser, or another PC.',
     kind: 'open',
   },
+  // Desktop-only: the browser pane's ⋯ "로그인 유지 중인 사이트" opens this page.
+  {
+    value: 'auth',
+    label: 'Authentication',
+    description: 'Logins, authenticator keys, imports and auto sign-in.',
+    kind: 'open',
+  },
   // Desktop-only: the overlay's own menu deep-links to its options.
   { value: 'bots', label: 'Bots', description: 'Representative bot overlay', kind: 'open' },
   {
@@ -95,6 +102,7 @@ export type SettingsCategory =
   | 'models'
   | 'git'
   | 'connection'
+  | 'auth'
   | 'mcp'
   | 'plugins'
   | 'skills'
@@ -193,6 +201,14 @@ export const SETTINGS_CATEGORIES = [
     label: 'Connection',
     group: 'Integrations',
     items: ['connection'],
+  },
+  // Desktop-only surface: every login Browser Use may use (vault + cookies),
+  // imports and the auto sign-in/save/clear controls.
+  {
+    value: 'auth',
+    label: 'Authentication',
+    group: 'Integrations',
+    items: ['auth'],
   },
   {
     value: 'skills',

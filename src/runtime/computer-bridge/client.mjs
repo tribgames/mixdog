@@ -381,12 +381,40 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs) {
   }
 }
 
+/** Runtime-only, at request time: bind `requestId` to the exact window and
+ *  field ref the agent named (desktop secret-input.ts bindComputerSecret).
+ *  Answers 'bound' or 'no_field'; no desktop or an unknown answer is 'blocked'. */
+export async function computerSecretBind(sessionId, requestId, { ref = '', windowId = '', signal } = {}) {
+  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  if (!discovery || !sessionId || !requestId) return 'blocked';
+  try {
+    const response = await postComputerCommand(
+      discovery,
+      {
+        action: 'secret_bind',
+        session_id: String(sessionId),
+        request_id: String(requestId),
+        ref: String(ref),
+        window_id: String(windowId),
+      },
+      { signal }
+    );
+    const body = await readComputerBridgeJson(response);
+    const text = response.ok && body?.ok === true ? body.value?.text : '';
+    return ['bound', 'no_field'].includes(text) ? text : 'blocked';
+  } catch {
+    return 'blocked';
+  }
+}
+
 /** Runtime-only: type the secret the user handed the desktop for `requestId`
- *  into the focused field (or `ref`) once. The value never passes through
- *  here; the host answers only whether it was typed. */
+ *  into the window and field it was bound to (computerSecretBind) once. The
+ *  value never passes through here; the host answers only the outcome
+ *  ('entered', 'no_field', 'page_changed', 'blocked', 'expired'); no desktop
+ *  or an unknown answer is 'blocked'. */
 export async function computerSecretInput(sessionId, requestId, { ref = '', windowId = '', signal } = {}) {
   const discovery = readBridgeDiscovery(DISCOVERY_FILE);
-  if (!discovery || !sessionId || !requestId) return 'skipped';
+  if (!discovery || !sessionId || !requestId) return 'blocked';
   try {
     const response = await postComputerCommand(
       discovery,
@@ -400,9 +428,10 @@ export async function computerSecretInput(sessionId, requestId, { ref = '', wind
       { signal }
     );
     const body = await readComputerBridgeJson(response);
-    return response.ok && body?.ok === true && body.value?.text === 'provided' ? 'provided' : 'skipped';
+    const text = response.ok && body?.ok === true ? body.value?.text : '';
+    return ['entered', 'no_field', 'page_changed', 'blocked', 'expired'].includes(text) ? text : 'blocked';
   } catch {
-    return 'skipped';
+    return 'blocked';
   }
 }
 

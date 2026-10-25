@@ -20,6 +20,7 @@ import {
   snapshotTextLimit,
 } from './command';
 import { createBrowserCredentialFill } from './credential-autofill';
+import { browserCredentialFillHost, rememberForSession } from './credential-fill-host';
 import { createBrowserDialogReport } from './dialog-report';
 import type { createBrowserDocuments } from './documents';
 import { createBrowserDownloads } from './downloads';
@@ -45,6 +46,7 @@ import { createBrowserVisualPrivacy } from './visual-privacy';
 type Cdp = ReturnType<typeof createBrowserGuestCdp>;
 type Documents = ReturnType<typeof createBrowserDocuments>;
 type ToolkitSessions = Pick<BrowserSessionRegistry, 'sessionIdForGuest' | 'currentGuest'>;
+
 type DownloadsForSession = ReturnType<typeof createBrowserPartition>['downloadLedger']['downloadsForSession'];
 
 /** Input into the page and the reads that locate what to act on. */
@@ -69,7 +71,7 @@ function createBrowserReadingTools(state: BrowserGuestStateStore, cdp: Cdp, docu
     cdp,
     SCREENSHOT_TIMEOUT_MS,
     SCREENSHOT_FALLBACK_TIMEOUT_MS,
-    createBrowserVisualPrivacy({ state, documents })
+    createBrowserVisualPrivacy({ state, documents, cdp })
   );
   const snapshots = createBrowserSnapshotCapture({
     evaluate: cdp.evaluate,
@@ -123,6 +125,7 @@ function createBrowserActionTools(
   const refActions = createBrowserRefActions({
     rememberSecret: (guest, value) => {
       state.rememberSecret(guest, value);
+      rememberForSession(sessions, guest, value);
     },
     accessibilityRefs: (guest) => state.peek(guest)?.accessibilityRefs,
     callAccessibilityRef: snapshots.callAccessibilityRef,
@@ -215,12 +218,7 @@ function createBrowserPageConfigTools(
     invalidateInteractionState: (guest) => state.invalidateInteraction(guest),
     formatEvaluationValue: reply.formatEvaluationValue,
   });
-  const credentialFill = createBrowserCredentialFill({
-    cdp,
-    rememberSecret: (guest, secret) => state.rememberSecret(guest, secret),
-    forgetSecret: (guest, secret) => state.forgetSecret(guest, secret),
-    redactText: (guest, value) => state.redactText(guest, value),
-  });
+  const credentialFill = createBrowserCredentialFill(browserCredentialFillHost(state, cdp, sessions));
   return { emulation, pageState, credentialFill };
 }
 

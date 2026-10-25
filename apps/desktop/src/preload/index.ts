@@ -725,11 +725,14 @@ const api: DesktopApi = {
   onBrowserProfileImportProgress: (listener) => subscribeIpc(DESKTOP_IPC.browserProfileImportProgress, listener),
   browserHistorySearch: (query) => invokeIpc(DESKTOP_IPC.browserHistorySearch, query),
   browserCredentialSuggestions: (sessionId) => invokeIpc(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
-  browserCredentialFill: (sessionId, credentialId) =>
-    invokeIpc(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId),
+  browserCredentialFill: (sessionId, credentialId, fillId) =>
+    invokeIpc(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId, fillId),
   browserSignedInSites: () => invokeIpc(DESKTOP_IPC.browserSignedInSites),
   browserSignOutSite: (site) => invokeIpc(DESKTOP_IPC.browserSignOutSite, site),
   browserClearSignIns: () => invokeIpc(DESKTOP_IPC.browserClearSignIns),
+  browserVaultLogins: () => invokeIpc(DESKTOP_IPC.browserVaultLogins),
+  browserVaultSave: (input) => invokeIpc(DESKTOP_IPC.browserVaultSave, input),
+  browserVaultDelete: (id) => invokeIpc(DESKTOP_IPC.browserVaultDelete, id),
   browserLoginOpen: (sessionId, id) => invokeIpc(DESKTOP_IPC.browserLoginOpen, sessionId, id),
   browserLoginStatus: (sessionId, id) => invokeIpc(DESKTOP_IPC.browserLoginStatus, sessionId, id),
   browserPageIdentity: (url, options) => invokeIpc(DESKTOP_IPC.browserPageIdentity, url, options?.preview === true),

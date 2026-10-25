@@ -780,7 +780,7 @@ test('a login card waits for the agent to stop before 로그인하기 can open a
   }
 });
 
-test('the phone shows the pending "PC에서 로그인하세요" state only', async () => {
+test('the phone says "PC에서 로그인하세요" and can cancel the takeover', async () => {
   const previous = dom.window.mixdogDesktop;
   dom.window.mixdogDesktop = {};
   const c = card(loginTakeover('l4'));
@@ -789,12 +789,374 @@ test('the phone shows the pending "PC에서 로그인하세요" state only', asy
     assert.equal(ui.title(), 'Sign in on your PC');
     assert.equal(ui.doc.querySelector('.approval-note'), null, 'no note line under the title');
     assert.ok(ui.doc.querySelector('.progress-spinner'));
-    assert.deepEqual(ui.rows(), []);
+    assert.deepEqual(ui.rows(), ['Cancel']);
     assert.equal(ui.doc.querySelector('.approval-close'), null);
     assert.equal(ui.doc.querySelector('.approval-prompt').dataset.login, 'remote');
+    await ui.click(ui.button('Cancel'));
+    assert.deepEqual(c.decisions, [{ approved: false }], 'Cancel settles the takeover from the phone');
   } finally {
     dom.window.mixdogDesktop = previous;
     await ui.done();
+  }
+});
+
+const secretRequest = (id, secret = {}, extra = {}) => ({
+  id,
+  name: 'ask_user',
+  kind: 'secret',
+  sessionId: 'sess-secret',
+  remember: ['once'],
+  secret: { requestId: `secret_${id}0123456789`, surface: 'browser', target: 'bank', field: 'Password', ...secret },
+  ...extra,
+});
+
+/** A PC that takes the card's values into its one-shot slots. */
+function secretDesktop(settings = {}) {
+  const provided = [];
+  return {
+    provided,
+    api: {
+      provideSecretInput: async (requestId, value) => {
+        provided.push([requestId, value]);
+        return true;
+      },
+      readSettings: async () => settings,
+    },
+  };
+}
+
+test('the phone never takes a secret: "PC에서 입력하세요" with Cancel, no field, nothing relayed', async () => {
+  const previous = dom.window.mixdogDesktop;
+  dom.window.mixdogDesktop = { resolveToolApprovalForSession: async () => true };
+  const c = card(secretRequest('p1', { origin: 'https://bank.example.com', form: 'password' }));
+  const ui = await mount(c.element);
+  try {
+    assert.equal(ui.title(), 'Enter it on your PC');
+    assert.equal(ui.doc.querySelector('input'), null, 'no field to type into');
+    assert.deepEqual(ui.rows(), ['Cancel']);
+    await ui.click(ui.button('Cancel'));
+    assert.deepEqual(c.decisions, [{ approved: false, response: 'skip' }], 'an explicit cancel, never a silent skip');
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui.done();
+  }
+});
+
+test('a sign-in secret asks 아이디 + 비밀번호 with the save box from saveChatLogins; values go only to the PC', async () => {
+  const previous = dom.window.mixdogDesktop;
+  for (const [settings, saves] of [
+    [{}, true],
+    [{ saveChatLogins: false }, false],
+  ]) {
+    const desktop = secretDesktop(settings);
+    dom.window.mixdogDesktop = desktop.api;
+    const request = secretRequest('s1', { origin: 'https://www.dart.fss.or.kr', form: 'login' });
+    const c = card(request);
+    const ui = await mount(c.element);
+    try {
+      assert.equal(ui.title(), 'fss.or.kr sign-in details');
+      assert.equal(ui.doc.querySelector('.approval-who'), null, 'its own conversation: no who line');
+      assert.equal(ui.doc.querySelector('.approval-preview-row'), null, 'the site is never repeated under the title');
+      assert.deepEqual(ui.rows(), ['Skip', 'Enter']);
+      const box = ui.doc.querySelector('.approval-check input');
+      assert.equal(box.checked, saves, 'the save default follows the setting (on when unset)');
+      const [user, password] = ui.doc.querySelectorAll('.approval-secret');
+      await ui.type(user, 'data-team');
+      await ui.type(password, 'pw-123');
+      await ui.click(ui.button('Enter'));
+      const id = request.secret.requestId;
+      assert.deepEqual(desktop.provided, [
+        [`${id}-username`, 'data-team'],
+        ...(saves ? [[`${id}-save`, '1']] : []),
+        [id, 'pw-123'],
+      ]);
+      assert.deepEqual(c.decisions, [{ approved: true, response: 'provide-secret' }], 'the decision holds no value');
+    } finally {
+      await ui.done();
+    }
+  }
+  dom.window.mixdogDesktop = previous;
+});
+
+test('a one-time code: 3-3 boxes from its length, the current box marked, a paste fills all and enters it', async () => {
+  const previous = dom.window.mixdogDesktop;
+  const desktop = secretDesktop();
+  dom.window.mixdogDesktop = desktop.api;
+  const request = secretRequest('o1', { origin: 'https://accounts.example.com', form: 'otp', length: 6 });
+  const c = card(request);
+  const ui = await mount(c.element);
+  try {
+    assert.equal(ui.title(), 'example.com verification code, 6 digits');
+    assert.deepEqual(ui.rows(), ['Cancel', 'Do it yourself', 'Enter']);
+    const boxes = () => [...ui.doc.querySelectorAll('.approval-otp-box')];
+    assert.equal(boxes().length, 6);
+    const otp = ui.doc.querySelector('.approval-otp');
+    assert.equal(
+      [...otp.children].findIndex((node) => node.classList.contains('approval-otp-sep')),
+      4,
+      '3 | 3'
+    );
+    const input = ui.doc.querySelector('.approval-otp-input');
+    assert.equal(input.getAttribute('autocomplete'), 'one-time-code');
+    await ui.type(input, '48');
+    assert.deepEqual(
+      boxes().map((box) => Boolean(box.dataset.filled)),
+      [true, true, false, false, false, false],
+      'the boxes show how many are filled, never the characters'
+    );
+    assert.ok(boxes().every((box) => box.textContent === ''));
+    assert.equal(
+      boxes().findIndex((box) => box.dataset.current),
+      2,
+      'the next box is the current one'
+    );
+    assert.deepEqual(desktop.provided, [], 'not entered before it is full');
+    await ui.type(input, '482-190');
+    assert.deepEqual(desktop.provided, [[request.secret.requestId, '482190']], 'full: entered at once');
+    assert.deepEqual(c.decisions, [{ approved: true, response: 'provide-secret' }]);
+  } finally {
+    await ui.done();
+  }
+  // 8 characters read 4-4; 직접 하기 answers a skip the agent can tell apart.
+  const eight = card(secretRequest('o2', { form: 'otp', length: 8 }));
+  const ui8 = await mount(eight.element);
+  try {
+    assert.equal(ui8.title(), 'Verification code, 8 digits');
+    const otp = ui8.doc.querySelector('.approval-otp');
+    assert.equal(otp.dataset.long, 'true');
+    assert.equal(
+      [...otp.children].findIndex((node) => node.classList.contains('approval-otp-sep')),
+      5,
+      '4 | 4'
+    );
+    await ui8.click(ui8.button('Do it yourself'));
+    assert.deepEqual(eight.decisions, [{ approved: false, response: 'skip', reason: 'self' }]);
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui8.done();
+  }
+});
+
+/** Every string React holds for the tree under `node`: each fiber's props and
+ *  hook state (DOM nodes and fibers themselves skipped). */
+function reactHeldStrings(node) {
+  const key = Object.keys(node).find((name) => name.startsWith('__reactFiber$'));
+  let root = node[key];
+  while (root.return) root = root.return;
+  const strings = [];
+  const seen = new Set();
+  const collect = (value, depth) => {
+    if (typeof value === 'string') return void strings.push(value);
+    if (!value || typeof value !== 'object' || depth > 6 || seen.has(value)) return;
+    if (value instanceof dom.window.Node || 'stateNode' in value) return;
+    seen.add(value);
+    for (const entry of Object.values(value)) collect(entry, depth + 1);
+  };
+  const visit = (fiber) => {
+    for (; fiber; fiber = fiber.sibling) {
+      collect(fiber.memoizedProps, 0);
+      for (let hook = fiber.memoizedState; hook && typeof hook === 'object'; hook = hook.next) {
+        collect(hook.memoizedState, 0);
+        if (!('next' in hook)) break;
+      }
+      visit(fiber.child);
+    }
+  };
+  visit(root.child);
+  return strings;
+}
+
+test('a typed secret or code is never React state, props or markup; submit reads the fields and clears them', async () => {
+  const previous = dom.window.mixdogDesktop;
+  const PASSWORD = 'S3NT1NEL-pw-77';
+  const USER = 'S3NT1NEL-user';
+  const CODE = '918273';
+  for (const [secret, fill, finish] of [
+    [
+      { origin: 'https://bank.example', form: 'login' },
+      async (ui) => {
+        const [user, password] = ui.doc.querySelectorAll('.approval-secret');
+        await ui.type(user, USER);
+        await ui.type(password, PASSWORD);
+        return [user, password];
+      },
+      (ui) => ui.click(ui.button('Enter')),
+    ],
+    [
+      // Six of eight typed: still being typed when React is looked at.
+      { origin: 'https://bank.example', form: 'otp', length: 8 },
+      async (ui) => {
+        const input = ui.doc.querySelector('.approval-otp-input');
+        await ui.type(input, CODE);
+        return [input];
+      },
+      // A paste completes it: read from the field and entered at once.
+      (ui) => ui.type(ui.doc.querySelector('.approval-otp-input'), `${CODE}45`),
+    ],
+  ]) {
+    const desktop = secretDesktop();
+    dom.window.mixdogDesktop = desktop.api;
+    const c = card(secretRequest(`n${secret.form}`, secret));
+    const ui = await mount(c.element);
+    try {
+      const fields = await fill(ui);
+      const held = reactHeldStrings(ui.doc.querySelector('.approval-prompt')).join('\n');
+      for (const value of [PASSWORD, USER, CODE]) {
+        assert.ok(!held.includes(value), `${secret.form}: React holds no typed value`);
+        assert.ok(!ui.doc.documentElement.outerHTML.includes(value), `${secret.form}: no typed value in the markup`);
+      }
+      await finish(ui);
+      const values = desktop.provided.map(([, value]) => value);
+      assert.ok(values.includes(secret.form === 'otp' ? `${CODE}45` : PASSWORD), 'read from the field at submit');
+      assert.deepEqual(c.decisions, [{ approved: true, response: 'provide-secret' }]);
+      assert.ok(
+        fields.every((field) => field.value === ''),
+        'the fields are cleared once read'
+      );
+    } finally {
+      await ui.done();
+    }
+  }
+  dom.window.mixdogDesktop = previous;
+});
+
+test('a secret or sign-in card in the chat that delegated it names the asking session once; in its own chat, no who line', async () => {
+  const previous = dom.window.mixdogDesktop;
+  dom.window.mixdogDesktop = { ...loginDesktop().api, ...secretDesktop().api };
+  const copy = {
+    sessionId: 'sess_task',
+    surfaceSessionId: 'sess_home_mailer',
+    chain: [],
+    handoff: { title: '예측' },
+    requestedAt: Date.now(),
+  };
+  const names = (ui) => [...ui.doc.querySelectorAll('.approval-who .approval-chip-name')].map((n) => n.textContent);
+  try {
+    for (const request of [
+      secretRequest('w1', { origin: 'https://dart.fss.or.kr', form: 'password' }, copy),
+      loginTakeover('w2', copy),
+    ]) {
+      let ui = await mount(card(request, { agentMode: true, hostSessionId: 'sess_home_mailer' }).element);
+      try {
+        assert.deepEqual(names(ui), ['예측'], `${request.kind}: only the owner chip`);
+        assert.equal(ui.doc.querySelector('.approval-service'), null, 'no site under the title');
+        assert.equal(ui.doc.querySelector('.approval-who .approval-link'), null);
+      } finally {
+        await ui.done();
+      }
+      ui = await mount(card({ ...request, id: `${request.id}b` }, { hostSessionId: 'sess_task' }).element);
+      try {
+        assert.equal(ui.doc.querySelector('.approval-who'), null, `${request.kind}: its own chat omits the line`);
+      } finally {
+        await ui.done();
+      }
+    }
+  } finally {
+    dom.window.mixdogDesktop = previous;
+  }
+});
+
+test('the top-left says how long is left: a secret by its expiry, a takeover 15 minutes from when it was asked', async () => {
+  const { deadlineText } = await import('./approval-prompt.tsx');
+  assert.equal(deadlineText(15 * 60_000), 'Within 15 min');
+  assert.equal(deadlineText(61_000), 'Within 2 min');
+  assert.equal(deadlineText(42_000), 'Within 42 s');
+  const previous = dom.window.mixdogDesktop;
+  dom.window.mixdogDesktop = { ...loginDesktop().api, ...secretDesktop().api };
+  let ui = await mount(card(secretRequest('t1', { form: 'password' }, { expiresAt: Date.now() + 120_000 })).element);
+  try {
+    assert.equal(ui.doc.querySelector('.approval-queue').textContent, 'Within 2 min');
+  } finally {
+    await ui.done();
+  }
+  ui = await mount(card(loginTakeover('t2', { requestedAt: Date.now() })).element);
+  try {
+    assert.equal(ui.doc.querySelector('.approval-queue').textContent, 'Within 15 min');
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui.done();
+  }
+});
+
+test('saved logins for the page: masked radio rows, 지금 안 함 / 직접 로그인 / 이 계정으로 로그인 fills and settles', async () => {
+  const previous = dom.window.mixdogDesktop;
+  const desktop = loginDesktop();
+  const fills = [];
+  let fillResult = { usernameFilled: true, passwordFilled: true };
+  desktop.api.browserCredentialFill = async (sessionId, id, fillId) => {
+    fills.push([sessionId, id, fillId]);
+    if (fillResult instanceof Error) throw fillResult;
+    return fillResult;
+  };
+  dom.window.mixdogDesktop = desktop.api;
+  const accounts = [
+    { id: 'c1', label: 'd•••m' },
+    { id: 'c2', label: 'o•••s@example.com' },
+  ];
+  const fillId = 'secret_login-0123456789';
+  // Saved logins without the page they may go into are not offered.
+  const unbound = card(loginTakeover('a0', { takeover: { ...loginTakeover('a0').takeover, accounts } }));
+  const ui0 = await mount(unbound.element);
+  try {
+    assert.equal(ui0.doc.querySelectorAll('.approval-account').length, 0);
+    assert.ok(!ui0.rows().includes('Sign in with this account'));
+  } finally {
+    await ui0.done();
+  }
+  const c = card(loginTakeover('a1', { takeover: { ...loginTakeover('a1').takeover, accounts, fillId } }));
+  const ui = await mount(c.element);
+  try {
+    assert.deepEqual(
+      [...ui.doc.querySelectorAll('.approval-account-label')].map((n) => n.textContent),
+      ['d•••m', 'o•••s@example.com', 'Use another account']
+    );
+    assert.equal(ui.doc.querySelector('.approval-lock-line').textContent, 'The agent never sees the password.');
+    assert.deepEqual(ui.rows(), ['Not now', 'Sign in yourself', 'Sign in with this account']);
+    assert.equal(ui.button('Sign in with this account').dataset.tone, 'primary');
+    assert.equal(ui.button('Sign in yourself').dataset.tone, undefined);
+    // A refused fill (the page is elsewhere) says so and keeps the card.
+    fillResult = { usernameFilled: false, passwordFilled: false, reason: 'no-password-field' };
+    await ui.click(ui.button('Sign in with this account'));
+    assert.deepEqual(c.decisions, []);
+    const notice = () => ui.doc.querySelector('.error-notice, [role="alert"]')?.textContent || '';
+    assert.match(notice(), /The saved login could not be filled on this page\./);
+    // The bound page moved off the takeover's page or origin: worded as such.
+    fillResult = { usernameFilled: false, passwordFilled: false, reason: 'page-changed' };
+    await ui.click(ui.button('Sign in with this account'));
+    assert.match(notice(), /The sign-in page changed, so the saved login was not filled\./);
+    // Any other failure is the card's own message, never the raw IPC error.
+    const raw =
+      "Error invoking remote method 'mixdog:browser-credential-fill': Error: savedAccount is not a stored login for https://bank.example";
+    fillResult = new Error(raw);
+    await ui.click(ui.button('Sign in with this account'));
+    assert.match(notice(), /The saved login could not be filled on this page\./);
+    assert.ok(!ui.doc.documentElement.textContent.includes('Error invoking remote method'), 'no raw IPC text');
+    assert.deepEqual(c.decisions, [], 'every refusal keeps the card');
+    fillResult = { usernameFilled: true, passwordFilled: true };
+    const second = ui.doc.querySelectorAll('.approval-account input')[1];
+    await act(async () => second.click());
+    await ui.click(ui.button('Sign in with this account'));
+    assert.deepEqual(fills, [
+      ['sess-login', 'c1', fillId],
+      ['sess-login', 'c1', fillId],
+      ['sess-login', 'c1', fillId],
+      ['sess-login', 'c2', fillId],
+    ]);
+    assert.deepEqual(c.decisions, [{ approved: true, response: 'done', reason: 'saved_login' }]);
+  } finally {
+    await ui.done();
+  }
+  // "다른 계정 입력": the sign-in window, as today.
+  const other = card(loginTakeover('a2', { takeover: { ...loginTakeover('a2').takeover, accounts, fillId } }));
+  const ui2 = await mount(other.element);
+  try {
+    await act(async () => [...ui2.doc.querySelectorAll('.approval-account input')].at(-1).click());
+    assert.deepEqual(ui2.rows(), ['Not now', 'Sign in yourself']);
+    await ui2.click(ui2.button('Sign in yourself'));
+    assert.deepEqual(desktop.calls, [['sess-login', 'a2']]);
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui2.done();
   }
 });
 

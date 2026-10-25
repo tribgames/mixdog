@@ -24,9 +24,10 @@ function fixture({
   onProbe,
   onFill,
   onSubmit,
+  approveSubmit,
 } = {}) {
   const page = { url, password: true, challenge: false, wording: false, check: 'none' };
-  const calls = { suggestions: [], fills: 0, submits: 0, sent: 0, credentials: [], probes: 0 };
+  const calls = { suggestions: [], fills: 0, submits: 0, sent: 0, credentials: [], probes: 0, approvals: 0 };
   const guest = { isDestroyed: () => false, getURL: () => page.url };
   const signIn = createBrowserAutoSignIn({
     enabled: () => enabled,
@@ -68,6 +69,14 @@ function fixture({
       }),
     invalidate: () => {},
     humanCheck,
+    ...(approveSubmit
+      ? {
+          approveSubmit: async () => {
+            calls.approvals++;
+            await approveSubmit(page);
+          },
+        }
+      : {}),
   });
   const run = (turnId = 1, signal) =>
     signIn.afterCommand({
@@ -389,9 +398,334 @@ test('frames merge: a challenge in any frame leaves the page to the user', async
   assert.equal(f.calls.submits, 0);
 });
 
+test('the submit follows the approval policy: an approval lets it through, a block sends nothing', async () => {
+  // Approved: the fill happens, approval is asked once, then Enter is sent.
+  const ok = fixture({ approveSubmit: async () => {} });
+  assert.ok(signedIn(await ok.run()));
+  assert.equal(ok.calls.fills, 1);
+  assert.equal(ok.calls.approvals, 1);
+  assert.equal(ok.calls.submits, 1);
+  assert.equal(ok.calls.sent, 1);
+
+  // Blocked: the password was filled, but no Enter is sent and the sign-in
+  // is handed to the user — exactly one attempt, no retry that turn.
+  const blocked = fixture({
+    approveSubmit: async () => {
+      throw new Error('tool "browser" was not approved');
+    },
+  });
+  assert.ok(handedOff(await blocked.run()));
+  assert.equal(blocked.calls.fills, 1);
+  assert.equal(blocked.calls.approvals, 1);
+  assert.equal(blocked.calls.submits, 0);
+  assert.equal(await blocked.run(), null);
+  assert.equal(blocked.calls.submits, 0);
+});
+
 test('with the setting off nothing changes: no vault read, no fill', async () => {
   const f = fixture({ enabled: false });
   assert.equal(await f.run(), null);
   assert.deepEqual(f.calls.suggestions, []);
   assert.equal(f.calls.fills, 0);
+});
+
+// ---- Multi-step sign-in: a username page, the password, a one-time code ----
+
+const ACCOUNT_A = 'a'.repeat(24);
+const ACCOUNT_B = 'b'.repeat(24);
+const CODE = '482910';
+
+/** A scripted site: `pages[i]` is what the probe sees; each submit moves to the next page. */
+function flow({ pages, suggestions, code, approveSubmit, afterLast = {} }) {
+  let index = 0;
+  const log = { fills: [], codes: [], submits: 0, used: [], prefilled: [], credentialIds: [], codeValueCalls: 0 };
+  const defaults = {
+    password: false, challenge: false, wording: false, check: 'none', code: false, captcha: false,
+    username: false, identifier: '', sent: false,
+  };
+  const at = () => pages[Math.min(index, pages.length - 1)];
+  const guest = { isDestroyed: () => false, getURL: () => at().url ?? 'https://shop.example.com/login' };
+  const signIn = createBrowserAutoSignIn({
+    enabled: () => true,
+    suggestions: async (_url, prefilled) => {
+      log.prefilled.push(prefilled);
+      return suggestions ?? [{ id: ACCOUNT_A, label: 'm•••e@example.com' }];
+    },
+    withCredential: async (_url, id, use) => {
+      log.credentialIds.push(id);
+      return use({ username: 'me@example.com', password: PASSWORD });
+    },
+    fill: async (_guest, credential, _signal, step) => {
+      log.fills.push({ credential: { ...credential }, step });
+      return step === 'username'
+        ? { usernameFilled: true, passwordFilled: false }
+        : { usernameFilled: Boolean(credential.username), passwordFilled: true };
+    },
+    submit: async (_guest, _signal, beforeDispatch) => {
+      beforeDispatch?.();
+      log.submits += 1;
+      index += 1;
+    },
+    ...(approveSubmit ? { approveSubmit } : {}),
+    recordUsed: async (_url, id) => {
+      log.used.push(id);
+    },
+    ...(code
+      ? {
+          code: {
+            value: async () => {
+              log.codeValueCalls += 1;
+              return code.value;
+            },
+            fill: async (_guest, typed) => {
+              log.codes.push(typed);
+              return true;
+            },
+          },
+        }
+      : {}),
+    collect: async () => [{ ...defaults, ...afterLast, ...at().state }],
+    invalidate: () => {},
+    humanCheck: { waitMs: 100, graceMs: 20, pollMs: 5, stepMs: 60 },
+  });
+  const run = () =>
+    signIn.afterCommand({
+      guest,
+      sessionId: 'sess-1',
+      turnId: 1,
+      observe: async () => ({ text: `URL: ${guest.getURL()}\n- heading "Page"` }),
+    });
+  return { run, log };
+}
+
+const USER_PAGE = { state: { username: true }, url: 'https://shop.example.com/login' };
+const PASSWORD_PAGE = { state: { password: true }, url: 'https://shop.example.com/login/password' };
+const SIGNED_IN = { state: {}, url: 'https://shop.example.com/account' };
+const CODE_PAGE = { state: { code: true, challenge: true }, url: 'https://shop.example.com/login/code' };
+
+test('a username-only sign-in page: the username, Enter, then the password and Enter — one attempt', async () => {
+  const f = flow({ pages: [USER_PAGE, PASSWORD_PAGE, SIGNED_IN] });
+  const reply = await f.run();
+  assert.ok(signedIn(reply), reply.text);
+  assert.deepEqual(
+    f.log.fills.map((fill) => fill.step),
+    ['username', undefined]
+  );
+  assert.equal(f.log.fills[0].credential.password, '', 'the password is not sent to the username page');
+  assert.deepEqual(f.log.fills[1].credential, { username: '', password: PASSWORD });
+  assert.equal(f.log.submits, 2);
+  assert.deepEqual(f.log.used, [ACCOUNT_A], 'the account is recorded as last used');
+  assert.doesNotMatch(JSON.stringify(reply), new RegExp(PASSWORD));
+  assert.equal(await f.run(), null, 'no second attempt this turn');
+});
+
+test('a username step whose next page never shows a password field hands off after one submit', async () => {
+  const f = flow({ pages: [USER_PAGE, { state: {}, url: 'https://shop.example.com/login/wait' }] });
+  const reply = await f.run();
+  assert.ok(handedOff(reply), reply.text);
+  assert.equal(f.log.submits, 1);
+  assert.deepEqual(f.log.used, []);
+  // ...and so does a username step that leaves the origin.
+  const away = flow({ pages: [USER_PAGE, { state: { password: true }, url: 'https://sso.example.org/password' }] });
+  assert.ok(handedOff(await away.run()));
+  assert.equal(away.log.fills.length, 1, 'the password page of another origin gets nothing');
+});
+
+test('several saved accounts: the first the vault ranks is used, after the identifier prefilled on the page', async () => {
+  const f = flow({
+    pages: [{ state: { password: true, identifier: 'me@example.com' } }, SIGNED_IN],
+    suggestions: [
+      { id: ACCOUNT_B, label: 'o•••r' },
+      { id: ACCOUNT_A, label: 'm•••e@example.com' },
+    ],
+  });
+  assert.ok(signedIn(await f.run()));
+  assert.deepEqual(f.log.prefilled, ['me@example.com'], 'the prefilled identifier reaches the ranking');
+  assert.deepEqual([...new Set(f.log.credentialIds)], [ACCOUNT_B], 'the head of the ranking, nobody else');
+  assert.deepEqual(f.log.used, [ACCOUNT_B]);
+});
+
+test('a one-time code after the password is made on the host and typed with a stored key; without one it hands off', async () => {
+  const withKey = flow({ pages: [{ state: { password: true } }, CODE_PAGE, SIGNED_IN], code: { value: CODE } });
+  const reply = await withKey.run();
+  assert.ok(signedIn(reply), reply.text);
+  assert.deepEqual(withKey.log.codes, [CODE]);
+  assert.equal(withKey.log.submits, 2, 'password and code, nothing more');
+  assert.doesNotMatch(JSON.stringify(reply), new RegExp(`${CODE}|${PASSWORD}`));
+
+  // From a username page all the way: three steps, the bounded maximum.
+  const three = flow({ pages: [USER_PAGE, PASSWORD_PAGE, CODE_PAGE, SIGNED_IN], code: { value: CODE } });
+  assert.ok(signedIn(await three.run()));
+  assert.equal(three.log.submits, 3);
+
+  const noKey = flow({ pages: [{ state: { password: true } }, CODE_PAGE, CODE_PAGE], code: { value: '' } });
+  assert.ok(handedOff(await noKey.run()));
+  assert.deepEqual(noKey.log.codes, []);
+  assert.equal(noKey.log.submits, 1);
+
+  // A code the site sends by SMS or email, a CAPTCHA next to it, or a wrong
+  // code that leaves the field standing: the user's.
+  for (const state of [
+    { code: true, challenge: true, sent: true },
+    { code: true, challenge: true, captcha: true },
+  ]) {
+    const f = flow({ pages: [{ state: { password: true } }, { state }], code: { value: CODE } });
+    assert.ok(handedOff(await f.run()), JSON.stringify(state));
+    assert.deepEqual(f.log.codes, []);
+    assert.equal(f.log.codeValueCalls, 0, 'no code is even made');
+  }
+  const wrong = flow({ pages: [{ state: { password: true } }, CODE_PAGE, CODE_PAGE, CODE_PAGE], code: { value: CODE } });
+  assert.ok(handedOff(await wrong.run()));
+  assert.equal(wrong.log.submits, 2, 'never a second code');
+});
+
+test('the sign-in submit still goes through the approval policy: a block sends nothing', async () => {
+  const f = flow({
+    pages: [USER_PAGE, PASSWORD_PAGE, SIGNED_IN],
+    approveSubmit: async () => {
+      throw new Error('blocked by this bot\'s permission');
+    },
+  });
+  assert.ok(handedOff(await f.run()));
+  assert.equal(f.log.submits, 0);
+});
+
+// The real probe for the new steps.
+function domAt(url, html) {
+  const dom = new JSDOM(`<!doctype html><title>Page</title><body>${html}</body>`, { url, runScripts: 'outside-only' });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'innerText', { get() { return this.textContent; } });
+  dom.window.Element.prototype.getBoundingClientRect = () => ({ width: 100, height: 20 });
+  return dom;
+}
+const state = (url, html) => domAt(url, html).window.eval(SIGN_IN_STATE);
+
+test('probe: a username-only step is one username/email field alone on a page that says sign-in', () => {
+  const email = '<form><input type="email" name="email"></form>';
+  assert.equal(state('https://shop.example.com/login', email).username, true);
+  assert.equal(state('https://shop.example.com/signin?next=/', '<input name="username" type="text">').username, true);
+  assert.equal(state('https://shop.example.com/blog', email).username, false, 'a newsletter box on a content page');
+  assert.equal(state('https://shop.example.com/blog', '<input name="x" autocomplete="username">').username, true, 'explicit autocomplete');
+  assert.equal(state('https://shop.example.com/login', email + '<input name="q" type="search">').username, false, 'not alone');
+  assert.equal(state('https://shop.example.com/login', '<input name="nickname" type="text">').username, false, 'not an identifier');
+  assert.equal(state('https://shop.example.com/login', email + '<input type="password">').username, false, 'a password page');
+  assert.equal(state('https://shop.example.com/login', '<input type="email" name="email" value="me@example.com">').identifier, 'me@example.com');
+});
+
+test('probe: a code field, one box per digit, and a code sent by SMS', () => {
+  const boxes = Array.from({ length: 6 }, () => '<input maxlength="1" inputmode="numeric">').join('');
+  const split = state('https://shop.example.com/verify', boxes);
+  assert.equal(split.code, true);
+  assert.equal(split.challenge, true);
+  assert.equal(split.captcha, false);
+  assert.equal(state('https://shop.example.com/verify', '<input autocomplete="one-time-code">').code, true);
+  assert.equal(state('https://shop.example.com/verify', '<input name="q">').code, false);
+  const sms = domAt('https://shop.example.com/verify', '<input autocomplete="one-time-code"><p>We sent a text message with a code.</p>');
+  assert.equal(sms.window.eval(SIGN_IN_STATE).sent, true);
+  const app = domAt('https://shop.example.com/verify', '<input autocomplete="one-time-code"><p>Open your authenticator app. Text message is off.</p>');
+  assert.equal(app.window.eval(SIGN_IN_STATE).sent, false);
+});
+
+test('probe: an email field alone is no sign-in evidence; a form that says sign in, or autocomplete username, is', () => {
+  const field = (attrs, button = 'Continue') => `<form><input ${attrs}><button>${button}</button></form>`;
+  const at = (path, html) => state(`https://shop.example.com${path}`, html).username;
+  assert.equal(at('/about', field('type="email" autocomplete="email"')), false, 'autocomplete email alone');
+  assert.equal(at('/about', field('type="email" name="email"')), false, 'an email box with no context');
+  assert.equal(at('/news', field('type="email" name="email"', 'Subscribe')), false, 'a newsletter form');
+  assert.equal(at('/login', field('type="email" name="email"', 'Subscribe to our newsletter')), false, 'subscribe beats the URL');
+  assert.equal(at('/about', field('type="email" name="email"', 'Sign up')), false);
+  assert.equal(at('/about', field('type="email" name="email"', 'Log in')), true, 'its own form says log in');
+  assert.equal(at('/about', field('type="email" name="email"', '로그인')), true);
+  assert.equal(at('/login', field('type="email" name="email"')), true, 'the page says sign in');
+  assert.equal(at('/about', field('type="text" autocomplete="username"')), true, 'autocomplete username');
+  assert.equal(at('/about', '<h1>Log in</h1><input type="email" name="email">'), true, 'a heading, no form');
+  assert.equal(at('/about', '<nav><button>Log in</button></nav><input type="email" name="email">'), false, 'a nav button is not context');
+});
+
+test('a newsletter form with one email field and a saved login for the origin: nothing is filled or submitted', async () => {
+  const dom = domAt('https://shop.example.com/blog/post', '<form><input type="email" name="email" autocomplete="email"><button>Subscribe</button></form>');
+  const calls = { fills: 0, submits: 0, approvals: 0, credentials: 0 };
+  const signIn = createBrowserAutoSignIn({
+    enabled: () => true,
+    suggestions: async () => [{ id: ACCOUNT_A, label: 'm•••e@example.com' }],
+    withCredential: async (_url, _id, use) => {
+      calls.credentials += 1;
+      return use({ username: 'me@example.com', password: PASSWORD });
+    },
+    fill: async () => {
+      calls.fills += 1;
+      return { usernameFilled: true, passwordFilled: false };
+    },
+    submit: async () => {
+      calls.submits += 1;
+    },
+    approveSubmit: async () => {
+      calls.approvals += 1;
+    },
+    collect: async () => [dom.window.eval(SIGN_IN_STATE)],
+    invalidate: () => {},
+  });
+  const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/blog/post' };
+  const reply = await signIn.afterCommand({ guest, sessionId: 's', turnId: 1, observe: async () => ({ text: 'page' }) });
+  assert.equal(reply, null);
+  assert.deepEqual(calls, { fills: 0, submits: 0, approvals: 0, credentials: 0 });
+});
+
+test('every automatic step is bound to the main-frame document its state was read on', async () => {
+  let reads = 0;
+  const documents = [];
+  const fills = [];
+  const make = (documentFor) =>
+    createBrowserAutoSignIn({
+      enabled: () => true,
+      suggestions: async () => [{ id: ACCOUNT_A, label: 'm•••e@example.com' }],
+      withCredential: async (_url, _id, use) => use({ username: 'me@example.com', password: PASSWORD }),
+      document: async () => documentFor(),
+      fill: async (_guest, _credential, _signal, _step, document) => {
+        fills.push(document);
+        return { usernameFilled: true, passwordFilled: true };
+      },
+      submit: async () => {},
+      collect: async () => [{ password: true, challenge: false, wording: false, check: 'none' }],
+      invalidate: () => {},
+      humanCheck: { waitMs: 20, graceMs: 5, pollMs: 2, stepMs: 10 },
+    });
+  const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login' };
+  const run = (signIn, turnId) => signIn.afterCommand({ guest, sessionId: 's', turnId, observe: async () => ({ text: 'page' }) });
+  // The same document before and after the probe: the fill is bound to it.
+  await run(make(() => 'main:L1'), 1);
+  assert.equal(fills[0], 'main:L1');
+  // A document swapped while the state was read is no reading: nothing is filled.
+  fills.length = 0;
+  assert.equal(await run(make(() => `main:L${++reads}`), 2), null);
+  assert.deepEqual(fills, []);
+  // A browser that reports no document leaves nothing to bind to: nothing is filled.
+  assert.equal(await run(make(() => ''), 3), null);
+  assert.deepEqual(fills, []);
+  void documents;
+});
+
+test('a sign-up or subscribe form never qualifies, even with autocomplete="username"', async () => {
+  const html = '<form><input autocomplete="username"><button>Sign up</button></form>';
+  assert.equal(state('https://shop.example.com/login', html).username, false);
+  assert.equal(state('https://shop.example.com/about', '<form><input autocomplete="username"><button>Subscribe</button></form>').username, false);
+  assert.equal(state('https://shop.example.com/about', '<form><input autocomplete="username"><button>Continue</button></form>').username, true);
+  const dom = domAt('https://shop.example.com/login', html);
+  const calls = { fills: 0, submits: 0 };
+  const signIn = createBrowserAutoSignIn({
+    enabled: () => true,
+    suggestions: async () => [{ id: ACCOUNT_A, label: 'm•••e@example.com' }],
+    withCredential: async (_url, _id, use) => use({ username: 'me@example.com', password: PASSWORD }),
+    fill: async () => {
+      calls.fills += 1;
+      return { usernameFilled: true, passwordFilled: false };
+    },
+    submit: async () => {
+      calls.submits += 1;
+    },
+    collect: async () => [dom.window.eval(SIGN_IN_STATE)],
+    invalidate: () => {},
+  });
+  const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login' };
+  assert.equal(await signIn.afterCommand({ guest, sessionId: 's', turnId: 1, observe: async () => ({ text: 'page' }) }), null);
+  assert.deepEqual(calls, { fills: 0, submits: 0 });
 });

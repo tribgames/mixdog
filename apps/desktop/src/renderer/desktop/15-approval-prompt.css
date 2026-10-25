@@ -417,6 +417,129 @@
   outline: 2px solid var(--mx-accent);
   outline-offset: 1px;
 }
+/* Secret and sign-in cards (design/mockups/side-panel-audit §1–2). */
+.approval-field {
+  display: grid;
+  gap: 4px;
+}
+.approval-field-label {
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.approval-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 19px;
+  cursor: pointer;
+}
+.approval-check input {
+  margin: 0;
+  accent-color: var(--mx-accent);
+}
+.approval-lock-line {
+  display: block;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+.approval-accounts {
+  display: grid;
+  gap: 4px;
+}
+.approval-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--mx-border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 19px;
+  cursor: pointer;
+}
+.approval-account[data-selected] {
+  border-color: var(--mx-accent);
+}
+.approval-account input {
+  margin: 0;
+  accent-color: var(--mx-accent);
+}
+.approval-account-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* One box per code character; the real input lies over them, transparent. */
+.approval-otp {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  --approval-otp-box: 36px;
+}
+.approval-otp[data-long] {
+  gap: 4px;
+  --approval-otp-box: 30px;
+}
+.approval-otp-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  border: 0;
+  font-size: 16px;
+  cursor: text;
+}
+.approval-otp-box {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--approval-otp-box);
+  height: 42px;
+  border: 1px solid var(--mx-border);
+  border-radius: 8px;
+  background: var(--mx-bg-base);
+  color: var(--mx-text);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.approval-otp-sep {
+  align-self: center;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--mx-border);
+}
+.approval-otp:focus-within .approval-otp-box[data-current] {
+  border-color: var(--mx-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mx-accent) 35%, transparent);
+}
+/* A filled box shows a dot: the characters stay in the input alone. */
+.approval-otp-box[data-filled]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mx-text);
+}
+.approval-otp:focus-within .approval-otp-box[data-current]:not([data-filled])::after {
+  content: "";
+  width: 1px;
+  height: 20px;
+  background: var(--mx-text);
+  animation: approval-otp-caret 1s steps(1) infinite;
+}
+@keyframes approval-otp-caret {
+  50% {
+    opacity: 0;
+  }
+}
 .approval-edit-row {
   display: flex;
   flex-wrap: wrap;

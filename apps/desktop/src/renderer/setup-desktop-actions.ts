@@ -211,6 +211,7 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
         'usageRailSlotsAll',
         'computerObserveOnly',
         'browserAutoSignIn',
+        'saveChatLogins',
       ].includes(key) ||
       typeof value !== 'boolean'
     ) {

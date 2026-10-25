@@ -5,7 +5,7 @@ import { bridgeDiscoveryPublicIdentity } from '../../bridge/discovery-ownership'
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { computerUseCoordinator } from '../session/coordinator';
 import { isComputerLifecycleControl, READ_ACTIONS } from './action-sets';
-import { secretInputs, typeComputerSecret } from '../../secret-input';
+import { bindComputerSecret, secretInputs, typeComputerSecret } from '../../secret-input';
 import type { BridgeServerHost, BridgeServerState } from './bridge-server-contract';
 import { assertPublicComputerRequest } from './request-policy';
 import {
@@ -87,7 +87,11 @@ export function createBridgeRequestHandler(
   function runCommand(command: ComputerCommand, signal: AbortSignal): Promise<ComputerCommandResult> {
     if (command.action === 'wait_for_user' && host.waitForUser) return host.waitForUser(command, signal);
     const sessionId = String(command.session_id || '');
-    // Runtime-only: type a secret the user handed the desktop (secret-input.ts).
+    // Runtime-only: bind a secret request to its window and field at request
+    // time, then type the secret the user handed the desktop (secret-input.ts).
+    if (command.action === 'secret_bind') {
+      return Promise.resolve(bindComputerSecret(command as Parameters<typeof bindComputerSecret>[0]));
+    }
     if (command.action === 'secret_input') {
       return typeComputerSecret(command as Parameters<typeof typeComputerSecret>[0], (typed) =>
         host.executeSerialized(typed as unknown as ComputerCommand)

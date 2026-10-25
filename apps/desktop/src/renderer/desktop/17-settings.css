@@ -1018,3 +1018,170 @@ html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
     padding: 0 14px;
   }
 }
+
+/* 설정 › 인증 관리 (auth-panel.tsx): the login list with its search, filter
+   tabs, merged site rows and pills, plus the add/edit dialog's help line. */
+.auth-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.auth-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.auth-search > svg {
+  position: absolute;
+  left: 8px;
+  color: var(--mx-text-muted);
+  pointer-events: none;
+}
+.auth-search > input {
+  box-sizing: border-box;
+  width: min(220px, 40vw);
+  height: 28px;
+  padding: 0 8px 0 28px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  color: var(--mx-text);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent), var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+}
+.auth-search > input:focus {
+  outline-color: var(--mx-focus);
+}
+.auth-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.auth-filters > button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-soft, var(--mx-text));
+  background: var(--mx-hover);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.auth-filters > button[aria-pressed="true"] {
+  color: var(--mx-accent);
+  background: color-mix(in srgb, var(--mx-accent) 18%, transparent);
+}
+.auth-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.auth-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 0;
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+}
+.auth-row:last-child {
+  border-bottom: 0;
+}
+.auth-row-icon {
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-muted);
+}
+.auth-row-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.auth-row-copy > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-label);
+}
+.auth-row-copy > small {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.auth-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.auth-pill-key {
+  color: var(--mx-accent);
+  background: color-mix(in srgb, var(--mx-accent) 16%, transparent);
+}
+.auth-pill-off {
+  color: var(--mx-warning);
+  background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
+}
+.auth-row-menu {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.auth-row-menu:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+.auth-more {
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.auth-more:hover {
+  color: var(--mx-text);
+}
+.auth-dialog-help {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.auth-field-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+button.auth-field-note {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}

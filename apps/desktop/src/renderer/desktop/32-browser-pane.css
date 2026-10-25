@@ -935,23 +935,7 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   transform: translateX(-50%);
   pointer-events: none;
 }
-/* "로그인 유지 중인 사이트" (BrowserSignInsDialog.tsx) on the import dialog's frame. */
-.browser-sign-ins-list {
-  max-height: min(50vh, 360px);
-  overflow-y: auto;
-}
-.browser-sign-ins-site .browser-import-item-label {
-  flex: 1;
-  min-width: 0;
-}
-.browser-sign-ins-site .browser-import-secondary {
-  flex: none;
-  min-width: 0;
-  height: 28px;
-  padding: 0 10px;
-}
-html[data-mixdog-mobile-tabs]
-  :is(.browser-import-secondary, .browser-import-primary, .browser-sign-ins-site .browser-import-secondary) {
+html[data-mixdog-mobile-tabs] :is(.browser-import-secondary, .browser-import-primary) {
   height: var(--mx-touch, 44px);
 }
 html[data-mixdog-mobile-tabs] .browser-import-source select {
@@ -960,27 +944,4 @@ html[data-mixdog-mobile-tabs] .browser-import-source select {
 html[data-mixdog-mobile-tabs] .browser-import-dialog header .browser-pane-nav-button {
   width: var(--mx-touch, 44px);
   height: var(--mx-touch, 44px);
-}
-/* 전체 지우기 deletes every sign-in and the imported Chrome data. */
-.browser-import-secondary.browser-import-danger {
-  background: var(--mx-danger-bg);
-  color: var(--mx-danger);
-}
-.browser-sign-ins-empty {
-  margin: 0;
-  padding: 14px 12px;
-  color: var(--mx-text-muted);
-}
-/* "저장된 로그인으로 자동 로그인": the list's item grammar with a switch. */
-.browser-sign-ins-auto {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--mx-border);
-  border-radius: 10px;
-}
-.browser-sign-ins-auto .browser-import-item-label {
-  flex: 1;
-  min-width: 0;
 }

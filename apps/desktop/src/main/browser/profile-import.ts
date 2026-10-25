@@ -6,7 +6,8 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
 import type { BrowserCookieJar } from './cookie-jar';
-import { readVaultFile, writeVaultFile } from './credential-vault-file';
+import { readVaultFile } from './credential-vault-file';
+import { CredentialVault, maskedCredentialLabel, secureOrigin } from './credential-vault';
 import {
   nativeBrowserImporterPath,
   resolvePackagedBrowserImporter,
@@ -14,6 +15,7 @@ import {
 } from './profile-import-native';
 import { CookieImportError, importBrowserCookies, parseBrowserCookieReport } from './profile-import-cookies';
 import { type BrowserHistoryEntry, importChromeHistory } from './profile-import-history';
+import { requireSensitiveImportApproval } from './profile-import-approval';
 export type { BrowserImportCookie } from './profile-import-cookies';
 export type { BrowserHistoryEntry } from './profile-import-history';
 
@@ -130,29 +132,6 @@ function cleanError(error: unknown): string {
 function uniqueItems(items: BrowserImportItem[]): BrowserImportItem[] {
   const allowed = new Set<BrowserImportItem>(['passwords', 'cookies', 'history']);
   return [...new Set(items)].filter((item) => allowed.has(item));
-}
-
-function secureOrigin(value: string): string {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password) return '';
-    return url.origin;
-  } catch {
-    return '';
-  }
-}
-
-function maskedCredentialLabel(username: string): string {
-  const value = username.trim();
-  if (!value) return '저장된 계정';
-  const at = value.lastIndexOf('@');
-  if (at > 0 && at < value.length - 1) {
-    const local = value.slice(0, at);
-    const masked = local.length < 3 ? `${local[0] || ''}•••` : `${local[0]}•••${local.at(-1)}`;
-    return `${masked}@${value.slice(at + 1)}`;
-  }
-  if (value.length < 3) return '저장된 계정';
-  return `${value[0]}•••${value.at(-1)}`;
 }
 
 function chromeExecutableCandidates(explicit?: string): string[] {
@@ -603,9 +582,10 @@ export class BrowserProfileImportService {
       for (const item of items) {
         if (!source.supports[item]) throw new Error(`${item} import is unavailable in this build.`);
       }
-      if ((items.includes('passwords') || items.includes('cookies')) && !request.administratorApproved) {
-        throw new Error('Password and cookie import require explicit administrator approval.');
-      }
+      requireSensitiveImportApproval({
+        hasSensitiveItem: items.includes('passwords') || items.includes('cookies'),
+        administratorApproved: request.administratorApproved,
+      });
       await (this.options.prepareChromeForImport || prepareChromeForImport)();
       const counts: Record<BrowserImportItem, number> = {
         passwords: 0,
@@ -700,24 +680,24 @@ export class BrowserProfileImportService {
         );
     if (!Array.isArray(output)) throw new Error('Native password importer returned an invalid result.');
     if (output.length > 100_000) throw new Error('Native password importer returned too many credentials.');
-    const credentials = output
+    const entries = output
       .map((entry) => entry as NativeCredential)
       .filter(
         (entry) =>
           typeof entry.url === 'string' && typeof entry.username === 'string' && typeof entry.password === 'string'
       )
       .map((entry) => ({
-        id: createHash('sha256').update(`${entry.url}\0${entry.username}`).digest('hex').slice(0, 24),
         url: String(entry.url),
         username: String(entry.username),
         password: String(entry.password),
         note: typeof entry.note === 'string' ? entry.note : '',
       }));
-    const plaintext = JSON.stringify({ version: 1, credentials });
-    const encrypted = safeStorage.encryptString(plaintext);
-    const vaultPath = join(this.options.userDataDirectory, 'browser-password-vault.bin');
-    await writeVaultFile(vaultPath, encrypted, unsealVault);
-    return credentials.length;
+    // Merge, never replace: a login Chrome no longer has stays, and a login
+    // saved from a chat or 설정 keeps everything but its password.
+    return await new CredentialVault({ userDataDirectory: this.options.userDataDirectory }).mergeImport(
+      'chrome',
+      entries
+    );
   }
 }
 

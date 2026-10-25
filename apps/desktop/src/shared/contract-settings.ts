@@ -86,6 +86,7 @@ export type DesktopSettingKey =
   | 'computerObserveOnly'
   | 'browserControl'
   | 'browserAutoSignIn'
+  | 'saveChatLogins'
   | 'computerInstalled'
   | 'browserInstalled';
 
@@ -122,6 +123,9 @@ export interface DesktopSettings {
   /** Browser Use signs in by itself with a saved login for the page's exact
    *  origin (once per site per turn; 2FA/CAPTCHA go to the user). Default on. */
   browserAutoSignIn: boolean;
+  /** Save a login typed into a chat input card to the vault (설정 › 인증 관리).
+   *  Default on; it is the input card's save default. */
+  saveChatLogins: boolean;
   /** Extensions → Built-in install markers: the card presents Install first
    *  and only shows its toggle after activation. A profile that already had
    *  the control on is treated as installed (grandfathered). */

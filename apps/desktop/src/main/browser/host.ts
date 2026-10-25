@@ -55,6 +55,7 @@ import { takeoverRevealDetail } from './page-reveal';
 import { reclaimIdleUserSessions } from './page-power';
 import { createBrowserProfileHostMethods } from './profile-host-methods';
 import type { BrowserSignedInSite } from './signed-in-sites';
+import type { VaultLoginSummary } from './credential-vault';
 import type {
   BrowserCredentialSuggestion,
   BrowserHistoryEntry,
@@ -108,13 +109,27 @@ export interface BrowserHost {
   browserImport(request: BrowserImportRequest): Promise<BrowserImportResult>;
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
-  browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult>;
+  /** With `fillId`: a login takeover's card, into the page it was bound to. */
+  browserCredentialFill(sessionId: string, credentialId: string, fillId?: string): Promise<BrowserCredentialFillResult>;
   /** Sites the managed profile stays signed in to (names and counts only). */
   browserSignedInSites(): Promise<BrowserSignedInSite[]>;
   /** Sign out of one site: its cookies and its pages' storage. */
   browserSignOutSite(site: string): Promise<number>;
   /** Every sign-in, all site storage, and the data imported from Chrome. */
   browserClearSignIns(): Promise<void>;
+  /** 설정 › 인증 관리: the saved logins, with no passwords or authenticator keys. */
+  browserVaultLogins(): Promise<VaultLoginSummary[]>;
+  /** Add (no id) or edit (id) a saved login; secrets flow in only. */
+  browserVaultSave(input: {
+    id?: string;
+    origin: string;
+    username: string;
+    password?: string;
+    totpSecret?: string;
+    note?: string;
+  }): Promise<void>;
+  /** Delete a saved login by id. */
+  browserVaultDelete(id: string): Promise<boolean>;
   /** Title, site icon and thumbnail this browser recorded for `url`, or null.
    *  `preview`: a page card asks; without a thumbnail, the page's own preview
    *  is read in the background and announced as a change. */
@@ -297,8 +312,11 @@ export function createBrowserHost(
     ...createBrowserProfileHostMethods({
       profileImporter: base.profileImporter,
       signIns: base.signIns,
+      vault: base.vault,
       liveGuest: (sessionId) => sessions.liveGuest(sessionId),
-      fillCredentialInGuest: (guest, credential) => tools.credentialFill.fillCredentialInGuest(guest, credential),
+      fillCredentialInGuest: (guest, credential, signal, boundUrl) =>
+        tools.credentialFill.fillCredentialInGuest(guest, credential, signal, boundUrl),
+      fillBoundLogin: agent.loginFill,
       sendToRenderer,
       publishRemoteImportProgress: options.publishRemoteImportProgress,
     }),

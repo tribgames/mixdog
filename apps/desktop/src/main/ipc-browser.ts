@@ -32,9 +32,47 @@ interface BrowserIpcOptions {
     | 'browserSignedInSites'
     | 'browserSignOutSite'
     | 'browserClearSignIns'
+    | 'browserVaultLogins'
+    | 'browserVaultSave'
+    | 'browserVaultDelete'
   >;
   /** Login takeovers' sign-in windows (browser/login-popup.ts). */
   browserLogin?: Pick<BrowserLoginPopup, 'open' | 'status'>;
+}
+
+/** A saved-login id: the 24-hex derived from its site and username. */
+function requiredVaultLoginId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{24}$/.test(value)) throw new TypeError('Saved login id is invalid.');
+  return value;
+}
+
+/** An add/edit from 설정 › 인증 관리: every secret is bounded text, flowing in only. */
+function normalizeVaultLoginInput(value: unknown): {
+  id?: string;
+  origin: string;
+  username: string;
+  password?: string;
+  totpSecret?: string;
+  note?: string;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Saved login is invalid.');
+  const input = value as Record<string, unknown>;
+  const text = (field: unknown, label: string, max = 4096): string => {
+    if (field === undefined || field === null) return '';
+    if (typeof field !== 'string' || field.length > max) throw new TypeError(`${label} is invalid.`);
+    return field;
+  };
+  const origin = text(input.origin, 'Saved login site').trim();
+  const username = text(input.username, 'Saved login username').trim();
+  if (!origin || !username) throw new TypeError('A saved login needs a site and a username.');
+  return {
+    ...(input.id !== undefined ? { id: requiredVaultLoginId(input.id) } : {}),
+    origin,
+    username,
+    ...(input.password !== undefined ? { password: text(input.password, 'Saved login password') } : {}),
+    ...(input.totpSecret !== undefined ? { totpSecret: text(input.totpSecret, 'Authenticator key').trim() } : {}),
+    ...(input.note !== undefined ? { note: text(input.note, 'Saved login note') } : {}),
+  };
 }
 
 /** A pane rectangle in shell CSS pixels, or null to park the page. */
@@ -192,9 +230,16 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
     return browserHost.browserCredentialSuggestions(requiredSessionId(sessionId));
   });
-  handle(DESKTOP_IPC.browserCredentialFill, (_event, sessionId, credentialId) => {
+  handle(DESKTOP_IPC.browserCredentialFill, (_event, sessionId, credentialId, fillId) => {
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
-    return browserHost.browserCredentialFill(requiredSessionId(sessionId), normalizeBrowserCredentialId(credentialId));
+    if (fillId !== undefined && (typeof fillId !== 'string' || !/^secret_[A-Za-z0-9-]{8,80}$/.test(fillId))) {
+      throw new TypeError('Saved-login fill binding is invalid.');
+    }
+    return browserHost.browserCredentialFill(
+      requiredSessionId(sessionId),
+      normalizeBrowserCredentialId(credentialId),
+      fillId
+    );
   });
   handle(DESKTOP_IPC.browserSignedInSites, () => {
     if (!browserHost) throw new Error('Browser sign-ins are unavailable in this app surface.');
@@ -207,6 +252,18 @@ export function registerBrowserIpc({ handle, browserHost, browserLogin }: Browse
   handle(DESKTOP_IPC.browserClearSignIns, () => {
     if (!browserHost) throw new Error('Browser sign-ins are unavailable in this app surface.');
     return browserHost.browserClearSignIns();
+  });
+  handle(DESKTOP_IPC.browserVaultLogins, () => {
+    if (!browserHost) throw new Error('Saved logins are unavailable in this app surface.');
+    return browserHost.browserVaultLogins();
+  });
+  handle(DESKTOP_IPC.browserVaultSave, (_event, input) => {
+    if (!browserHost) throw new Error('Saved logins are unavailable in this app surface.');
+    return browserHost.browserVaultSave(normalizeVaultLoginInput(input));
+  });
+  handle(DESKTOP_IPC.browserVaultDelete, (_event, id) => {
+    if (!browserHost) throw new Error('Saved logins are unavailable in this app surface.');
+    return browserHost.browserVaultDelete(requiredVaultLoginId(id));
   });
   // A login takeover's sign-in window: only the takeover this PC saw for that
   // session (its page comes from the session state, never from the caller).

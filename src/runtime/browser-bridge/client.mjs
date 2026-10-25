@@ -57,13 +57,16 @@ export async function finishBrowserTurn(sessionId, turnId, { aborted = false } =
   }
 }
 
+const SECRET_FILL_OUTCOMES = new Set(['entered', 'no_field', 'page_changed', 'blocked', 'expired']);
+
 /** Runtime-only: fill the secret the user handed the desktop for `requestId`
- *  into the page's focused password field through the host's isolated-world
- *  fill. The value never passes through here; the host answers only
- *  'provided' or 'skipped'. */
+ *  into the field of the page it was bound to (browserHandoffPage), through
+ *  the host's isolated-world fill. The value never passes through here; the
+ *  host answers only the outcome ('entered', 'no_field', 'page_changed',
+ *  'blocked', 'expired'); no desktop or an unknown answer is 'blocked'. */
 export async function browserSecretInput(sessionId, requestId, { signal } = {}) {
   const discovery = readBridgeDiscovery(DISCOVERY_FILE);
-  if (!discovery || !sessionId || !requestId) return 'skipped';
+  if (!discovery || !sessionId || !requestId) return 'blocked';
   try {
     const result = await requestBridgeWithin(
       discovery,
@@ -71,11 +74,33 @@ export async function browserSecretInput(sessionId, requestId, { signal } = {}) 
       signal,
       { sessionId, action: 'secret_input' }
     );
-    return result.status === 200 && result.body?.ok !== false && result.body?.value?.text === 'provided'
-      ? 'provided'
-      : 'skipped';
+    const text = result.status === 200 && result.body?.ok !== false ? result.body?.value?.text : '';
+    return SECRET_FILL_OUTCOMES.has(text) ? text : 'blocked';
   } catch {
-    return 'skipped';
+    return 'blocked';
+  }
+}
+
+/** Runtime-only facts about a session's page for an ask_user handoff, with no
+ *  value in either direction: `secret_bind` binds `request_id` to the page
+ *  (`tab`, else the agent's page) and says its origin and field kind;
+ *  `login_accounts` lists the masked saved logins of `url`'s origin;
+ *  `page_url` says where the page is now. null when the desktop is absent or
+ *  refuses. */
+export async function browserHandoffPage(sessionId, action, fields = {}, { signal } = {}) {
+  const discovery = readBridgeDiscovery(DISCOVERY_FILE);
+  if (!discovery || !sessionId) return null;
+  try {
+    const result = await requestBridgeWithin(
+      discovery,
+      JSON.stringify({ ...fields, action, session_id: String(sessionId) }),
+      signal,
+      { sessionId, action }
+    );
+    const value = result.status === 200 && result.body?.ok !== false ? result.body?.value : null;
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
   }
 }
 

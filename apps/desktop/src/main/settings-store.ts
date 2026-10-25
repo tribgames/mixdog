@@ -75,6 +75,7 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     computerObserveOnly: desktop.computerObserveOnly === true,
     browserControl: desktop.browserControl === true,
     browserAutoSignIn: desktop.browserAutoSignIn !== false,
+    saveChatLogins: desktop.saveChatLogins !== false,
     // Grandfather: a control that is already on predates the install marker.
     computerInstalled: desktop.computerInstalled === true || desktop.computerControl === true,
     browserInstalled: desktop.browserInstalled === true || desktop.browserControl === true,
@@ -93,6 +94,7 @@ const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
   'usageRailSlotsAll',
   'computerObserveOnly',
   'browserAutoSignIn',
+  'saveChatLogins',
   'computerInstalled',
   'browserInstalled',
 ]);
@@ -111,6 +113,7 @@ export const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, b
   computerObserveOnly: false,
   browserControl: false,
   browserAutoSignIn: true,
+  saveChatLogins: true,
 };
 
 /** Marker in the `desktop` section: the one-time defaults separation ran. */

@@ -10,6 +10,7 @@ import {
   Hammer,
   Heart,
   Keyboard,
+  KeyRound,
   ListChecks,
   Paintbrush,
   Palette,
@@ -88,6 +89,7 @@ const CATEGORY_ICONS = {
   models: ListChecks,
   git: GitBranch,
   connection: Smartphone,
+  auth: KeyRound,
   mcp: Plug,
   plugins: Blocks,
   skills: Sparkles,
@@ -115,7 +117,11 @@ export const SettingsView = memo(function SettingsView({
   // The Shortcuts reference is keyboard-only, so the phone drops the tab.
   const phone = useMobileRemoteSurface();
   const hidden = (value: SettingsCategory) =>
-    (serverWindow && value === 'connection') || (phone && value === 'shortcuts');
+    (serverWindow && value === 'connection') ||
+    (phone && value === 'shortcuts') ||
+    // 인증 관리 manages this PC's own browser vault; a remote surface has no
+    // access to it, so the page shows only on the PC's own window.
+    (remoteSettings && value === 'auth');
   const visibleCategories = settingsCategoriesForSurface(remoteSettings, hostOpenAccess).filter(
     (item) => !hidden(item.value)
   );
