@@ -16,8 +16,11 @@ export function useAppFrameEntryIntake({
   navigationEpoch,
   setRequestedSessionId,
   paneWorkspace,
+  sessions,
 }: {
   sessionCatalogReady: boolean;
+  /** The loaded catalog: a notification for a session it lacks opens nothing. */
+  sessions: readonly { id: string }[];
   openSessionRef: RefObject<(sessionId: string, force?: boolean) => Promise<void>>;
   /** The app's navigation stamp and in-flight open (app-frame-navigation-state.ts). */
   navigationEpoch: RefObject<number>;
@@ -28,11 +31,12 @@ export function useAppFrameEntryIntake({
 }) {
   usePushNotificationNavigation({
     ready: sessionCatalogReady,
+    hasSession: (sessionId) => sessions.some((session) => session.id === sessionId),
     openSession: (sessionId) => {
       void openSessionRef.current(sessionId);
     },
     desktopReady: !paneWorkspace.restorePending,
-    focusDesktopSession: (sessionId) => {
+    focusDesktopSession: (sessionId) =>
       focusOpenNotificationSession(paneWorkspace, sessionId, (selection) => {
         // The reveal is the newest navigation: a cold open still loading must
         // neither keep the sidebar on its row (requestedSessionId outranks the
@@ -40,8 +44,7 @@ export function useAppFrameEntryIntake({
         navigationEpoch.current += 1;
         setRequestedSessionId('');
         activatePaneSurfaceRef.current(selection);
-      });
-    },
+      }),
   });
   // "Open" on a task session's line in an agent's chat (agent-task-line.tsx).
   useEffect(() => {

@@ -73,7 +73,12 @@ import { createDesktopTurnNotifier } from './desktop-turn-notifier';
 import { isSessionOnScreen } from './screen-sessions';
 import { desktopIdentity } from './desktop-identity';
 import { notificationSoundPath, playWindowsNotificationSound, scaledNotificationSound } from './notification-sound';
-import { activateDesktopWindow, openDesktopNotificationSession } from './notification-window';
+import {
+  activateDesktopWindow,
+  createPrimaryWindowActivation,
+  openDesktopNotificationSession,
+  retainNotification,
+} from './notification-window';
 import { createDesktopPet, type DesktopPet, type PetWindow } from './desktop-pet-window';
 import { setBrowserApprovalHooks } from './browser/approval-dialog';
 import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './browser/approval-requester';
@@ -708,10 +713,25 @@ const windowIpcDisposers = new Map<BrowserWindow, () => void>();
 // Each window's in-app input reporter (Mixy's heartbeat idle rule), stopped
 // when the window closes or the app quits.
 const userInputReporters = new Set<UserInputReporter>();
-let pendingPrimaryActivation = false;
+let primaryWindowStarted = false;
+const primaryActivation = createPrimaryWindowActivation(
+  () => mainWindow,
+  // A click on a notification after the window was closed for real (not hidden
+  // to the tray) builds it again and then opens what the click named.
+  () => {
+    // Until the first window is up, the startup path builds it and flushes the click.
+    if (!primaryWindowStarted || quitApproved || quitAfterDispose) return;
+    void showConnectionWindow(localConnection)
+      .then(() => primaryActivation.flush())
+      .catch((error: unknown) => console.error('Failed to recreate the Mixdog desktop window:', error));
+  }
+);
 function activatePrimaryWindow(): void {
-  pendingPrimaryActivation = !activateDesktopWindow(mainWindow);
+  primaryActivation.activate();
 }
+// Native notifications stay referenced until clicked, closed or failed: the
+// OS toast holds none, and a collected one never delivers its click.
+const liveNotifications = new Set<unknown>();
 // Agent `terminal` tool: a loopback bridge over the daemon-owned PTYs that
 // lists, reads and runs commands in a session's side terminal. A hidden
 // always-on built-in (like Media Studio): it runs for the app's lifetime, so
@@ -833,7 +853,7 @@ const turnNotifier = createDesktopTurnNotifier({
     if (event === 'failed' || event === 'read-failed') console.error(`[mixdog-turn-notification] ${event}`, details);
   },
   openSession: (sessionId) => {
-    pendingPrimaryActivation = !openDesktopNotificationSession(mainWindow, sessionId);
+    primaryActivation.activate(sessionId);
   },
   turnFailedText: () => nativeT('The turn stopped with an error.'),
   // "{name} · 승인을 기다리고 있습니다." / "{name} · 답변을 기다리고 있습니다."
@@ -862,9 +882,8 @@ const showTestNotification = (): NotificationTestResult => {
     ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
     silent: process.platform === 'win32',
   });
-  notification.on('click', () => {
-    if (mainWindow) activateDesktopWindow(mainWindow);
-  });
+  retainNotification(liveNotifications, notification);
+  notification.on('click', () => primaryActivation.activate());
   notification.show();
   if (process.platform === 'win32') void playNotificationSound().catch(() => undefined);
   return { ok: true };
@@ -914,6 +933,7 @@ setBrowserApprovalHooks({
       ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
       silent: process.platform === 'win32',
     });
+    retainNotification(liveNotifications, notification);
     notification.on('click', () => {
       if (!target || !openDesktopNotificationSession(window, target)) activateDesktopWindow(window);
     });
@@ -2709,7 +2729,8 @@ if (!app.requestSingleInstanceLock()) {
             console.error('Failed to open the MIXDOG_SSH_TARGET server window:', error);
           });
       }
-      if (pendingPrimaryActivation) activatePrimaryWindow();
+      primaryWindowStarted = true;
+      primaryActivation.flush();
       installDesktopMenu();
       // The settings read may have landed before the app was ready to host a tray.
       syncDesktopTray();

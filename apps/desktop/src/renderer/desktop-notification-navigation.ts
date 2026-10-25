@@ -2,8 +2,9 @@ import type { WorkspaceSelection } from './navigation';
 import { paneLeafContainingKey, type PaneNode } from './pane-layout';
 import { navigationKey } from './text-format';
 
-/** The main process already foregrounded the app. A desktop notification
- * reveals an existing tab only; it must never reopen a closed conversation.
+/** The main process already foregrounded the app. This reveals the session's
+ * existing tab and returns false when none is open, so the caller opens the
+ * session instead (use-push-notification-navigation.ts).
  * Revealing it is a tab switch like a strip click: `activateSurface` (the
  * pane chrome's activatePaneSurface) moves the app's selection with it, which
  * the sidebar's session and bot rows highlight. */

@@ -17,6 +17,7 @@ import {
 } from '../shared/contract';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { createBrowserTextureBridge } from './browser-texture';
+import { createHeldChannel } from './held-ipc';
 import { withApiFileGrantRefresh } from '../renderer/remote-file-grant-refresh';
 import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { DESKTOP_PET_IPC, desktopPetAppLayout } from '../shared/desktop-pet';
@@ -89,6 +90,13 @@ function subscribeIpc<Args extends unknown[]>(channel: string, listener: (...arg
     ipcRenderer.removeListener(channel, receive);
   };
 }
+
+// Listening starts with the preload, not with the renderer's first effect: a
+// click that reveals a window still loading must not be lost to that gap.
+const notificationOpenSessions = createHeldChannel<string>();
+ipcRenderer.on(DESKTOP_IPC.notificationOpenSession, (_event, sessionId: string) =>
+  notificationOpenSessions.push(sessionId)
+);
 
 const api: DesktopApi = {
   ...(bootContext ? { bootContext } : {}),
@@ -693,7 +701,7 @@ const api: DesktopApi = {
   setTitleBarDim: (dim) => invokeIpc(DESKTOP_IPC.setTitleBarDim, dim),
   listSystemFonts: () => invokeIpc(DESKTOP_IPC.listSystemFonts),
   onZoomFactorChanged: (listener) => subscribeIpc(DESKTOP_IPC.zoomFactorChanged, listener),
-  onNotificationOpenSession: (listener) => subscribeIpc(DESKTOP_IPC.notificationOpenSession, listener),
+  onNotificationOpenSession: (listener) => notificationOpenSessions.subscribe(listener),
   onBrowserOpenRequested: (listener) => subscribeIpc(DESKTOP_IPC.browserOpenRequested, listener),
   onTerminalRunRequested: (listener) => subscribeIpc(DESKTOP_IPC.terminalRunRequested, listener),
   claimTerminalRun: (requestId) => invokeIpc(DESKTOP_IPC.terminalRunClaim, requestId),

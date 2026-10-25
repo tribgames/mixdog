@@ -71,6 +71,7 @@ test('a desktop notification click moves the sidebar selection to the revealed s
     },
   };
   const bot = agentHomeSessionId('helper');
+  const other = agentHomeSessionId('other');
   const workspace = {
     layout: {
       type: 'split',
@@ -95,6 +96,7 @@ test('a desktop notification click moves the sidebar selection to the revealed s
     nav.activatePaneSurfaceRef.current = (selection) => nav.setSelection(selection);
     useAppFrameEntryIntake({
       sessionCatalogReady: true,
+      sessions: [{ id: 'a' }, { id: 'b' }, { id: bot }, { id: 'closed' }, { id: other }],
       openSessionRef: nav.openSessionRef,
       activatePaneSurfaceRef: nav.activatePaneSurfaceRef,
       navigationEpoch: nav.navigationEpoch,
@@ -122,10 +124,17 @@ test('a desktop notification click moves the sidebar selection to the revealed s
   await act(async () => click(bot));
   assert.deepEqual(nav.sidebarSelection, session(bot));
 
-  // A closed conversation selects nothing and opens nothing.
-  await act(async () => click('closed'));
-  assert.deepEqual(nav.sidebarSelection, session(bot));
+  // A conversation with no open tab (a bot chat, room, task or sub-agent
+  // session, or a closed tab) is opened through the same path as a sidebar click.
   assert.deepEqual(opened, []);
+  await act(async () => click('closed'));
+  assert.deepEqual(opened, ['closed']);
+  await act(async () => click(other));
+  assert.deepEqual(opened, ['closed', other]);
+  // A deleted session (not in the catalog) opens no "Untitled session" tab.
+  await act(async () => click('deleted'));
+  assert.deepEqual(opened, ['closed', other]);
+  assert.deepEqual(nav.sidebarSelection, session(bot));
 });
 
 async function harness(t, { url, ...initial } = {}) {
@@ -195,12 +204,46 @@ async function harness(t, { url, ...initial } = {}) {
   };
 }
 
-test('desktop IPC focuses an open session but never invokes the open-session path', async (t) => {
+test('desktop IPC focuses an open session and opens a closed one once the catalog exists', async (t) => {
   const h = await harness(t, { ready: false });
   await h.click('b');
   await h.click('closed');
   assert.deepEqual(h.selected, [['right', 'session:b']]);
+  assert.deepEqual(h.opened, [], 'a session that is not open waits for the catalog');
+  await h.render({ ready: true });
+  assert.deepEqual(h.opened, ['closed']);
+  await h.click('another-closed');
+  assert.deepEqual(h.opened, ['closed', 'another-closed']);
+  assert.deepEqual(h.selected, [['right', 'session:b']]);
+});
+
+test('a newer click on an open tab cancels an older closed session still waiting for the catalog', async (t) => {
+  const h = await harness(t, { ready: false });
+  await h.click('closed');
+  await h.click('b');
+  assert.deepEqual(h.selected, [['right', 'session:b']]);
+  await h.render({ ready: true });
+  assert.deepEqual(h.opened, [], 'the older click no longer opens over the newer one');
+});
+
+test('a newer tap replaces a desktop click still waiting for pane restoration', async (t) => {
+  const h = await harness(t, { desktopReady: false, ready: false });
+  await h.click('b');
+  await h.push('phone-session');
+  await h.render({ desktopReady: true, ready: true });
+  assert.deepEqual(h.selected, []);
+  assert.deepEqual(h.opened, ['phone-session']);
+});
+
+test('a notification for a session the catalog no longer has opens nothing, before or after it loads', async (t) => {
+  const h = await harness(t, { ready: false, hasSession: (id) => id !== 'deleted' });
+  await h.click('deleted');
+  await h.render({ ready: true });
   assert.deepEqual(h.opened, []);
+  await h.click('deleted');
+  assert.deepEqual(h.opened, []);
+  await h.click('kept');
+  assert.deepEqual(h.opened, ['kept']);
 });
 
 test('an early desktop click waits for pane restoration, then selects exactly once', async (t) => {
@@ -214,13 +257,13 @@ test('an early desktop click waits for pane restoration, then selects exactly on
   assert.deepEqual(h.opened, []);
 });
 
-test('a tab closed before restoration completes is not reopened by a queued click', async (t) => {
+test('a tab closed before restoration completes is opened, not revealed, by a queued click', async (t) => {
   const h = await harness(t, { desktopReady: false });
   await h.click('b');
   h.closeTabs();
   await h.render({ desktopReady: true });
   assert.deepEqual(h.selected, []);
-  assert.deepEqual(h.opened, []);
+  assert.deepEqual(h.opened, ['b']);
 });
 
 test('a moved tab uses the latest focus callback without reinstalling the IPC listener', async (t) => {

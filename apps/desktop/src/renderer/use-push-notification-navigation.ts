@@ -33,17 +33,21 @@ export function usePushNotificationNavigation({
   focusDesktopSession,
   switchHost = (url) => window.location.assign(url),
   hostEnvironment,
+  hasSession,
 }: {
   /** The catalog has to exist before a session id can resolve to a tab. */
   ready: boolean;
   openSession(sessionId: string): void;
   /** Desktop clicks need the restored pane layout, not the session catalog. */
   desktopReady: boolean;
-  focusDesktopSession(sessionId: string): void;
+  /** Reveals the session's open tab; false when none is open. */
+  focusDesktopSession(sessionId: string): boolean;
   /** Moves this app to another paired PC's route (the PC switcher's way). */
   switchHost?(url: string): void;
   /** Test seam for the paired-PC lookup (push-notification-bridge.ts). */
   hostEnvironment?: PushHostEnvironment;
+  /** Whether the loaded catalog still has the session; absent = open anything. */
+  hasSession?(sessionId: string): boolean;
 }): void {
   // A tap names the PC that sent it: open it here only when that is the PC
   // this page drives, otherwise move to that PC's route, which opens it.
@@ -52,8 +56,14 @@ export function usePushNotificationNavigation({
   // reach that PC. Only opening a session on this PC waits.
   const routeRef = useRef({ switchHost, hostEnvironment });
   routeRef.current = { switchHost, hostEnvironment };
+  const hasSessionRef = useRef(hasSession);
+  hasSessionRef.current = hasSession;
   const openRef = useRef((sessionId: string) => openSession(sessionId));
   openRef.current = (sessionId: string) => {
+    // A session the loaded catalog no longer has (deleted since the
+    // notification) is consumed here: the window is already forward, and
+    // opening it would only make an empty "Untitled session" tab.
+    if (hasSessionRef.current && !hasSessionRef.current(sessionId)) return;
     openSession(sessionId);
     requestJumpToLatest(sessionId);
   };
@@ -62,7 +72,10 @@ export function usePushNotificationNavigation({
   // A session for this PC that lands before the catalog exists waits here
   // instead of being dropped on the floor.
   const deferred = useRef('');
+  const deferredDesktop = useRef('');
   const openHere = (sessionId: string): void => {
+    // A newer tap replaces a desktop click still waiting for the panes.
+    deferredDesktop.current = '';
     if (readyRef.current) openRef.current(sessionId);
     else deferred.current = sessionId;
   };
@@ -73,13 +86,18 @@ export function usePushNotificationNavigation({
   };
   const deliverRef = useRef(deliver);
   deliverRef.current = deliver;
+  // A conversation whose tab is not open (a bot chat or room never opened this
+  // run, a closed task or sub-agent session) is opened like any other tap, once
+  // the catalog can resolve it.
   const focusDesktop = (sessionId: string): void => {
-    focusDesktopSession(sessionId);
-    requestJumpToLatest(sessionId);
+    // The newest accepted click wins: an older one still waiting for the
+    // catalog must not open over it later.
+    deferred.current = '';
+    if (focusDesktopSession(sessionId)) requestJumpToLatest(sessionId);
+    else openHere(sessionId);
   };
   const desktopRef = useRef({ ready: desktopReady, focus: focusDesktop });
   desktopRef.current = { ready: desktopReady, focus: focusDesktop };
-  const deferredDesktop = useRef('');
 
   // Listening does NOT wait for readiness: the worker posts the instant it
   // focuses this window, which on a phone is routinely before the app has
@@ -114,15 +132,19 @@ export function usePushNotificationNavigation({
     []
   );
 
-  // Desktop clicks reveal only tabs that still exist when the click is handled.
-  // Do not route a queued desktop click through the phone's open-session path.
+  // A desktop click reveals the session's tab when it is open and opens the
+  // session otherwise. It is judged when handled (after pane restoration), not
+  // when it arrived, and never takes the phone's host-routing path.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
     return api?.onNotificationOpenSession?.((sessionId) => {
       if (!sessionId) return;
       if (desktopRef.current.ready) desktopRef.current.focus(sessionId);
-      else deferredDesktop.current = sessionId;
+      else {
+        deferred.current = '';
+        deferredDesktop.current = sessionId;
+      }
     });
   }, []);
 
