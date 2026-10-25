@@ -15,7 +15,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::keys;
+use crate::failure::{Classify, Failure};
+use crate::{keys, snapshot};
 
 /// Chrome stores timestamps as microseconds since 1601-01-01 UTC.
 const CHROME_EPOCH_OFFSET_SECS: i64 = 11_644_473_600;
@@ -112,8 +113,15 @@ pub struct DecryptKeys {
     pub v20: Option<Vec<u8>>,
 }
 
-/// An owned copy of the cookie database. Reading a copy avoids touching the
-/// live profile and keeps working even if Chrome left a journal behind.
+impl Drop for DecryptKeys {
+    fn drop(&mut self) {
+        self.v10.zeroize();
+        self.v20.zeroize();
+    }
+}
+
+/// The cookie rows read into memory from a database snapshot (see
+/// [`crate::snapshot`]), so the live profile is never written to.
 pub struct CookieDb {
     schema_version: i64,
     raws: Vec<RawCookie>,
@@ -179,9 +187,10 @@ impl CookieDb {
     }
 
     pub fn load(db_path: &Path) -> Result<Self> {
+        // SQLite's own error text is dropped; only the class is ever reported.
         let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-            .map_err(|e| anyhow!("failed to open cookie database: {}", e))?;
-        Self::from_connection(&conn)
+            .classify(Failure::DataUnreadable)?;
+        Self::from_connection(&conn).classify(Failure::DataUnreadable)
     }
 
     /// Which encryption versions are present, so only the needed keys — and
@@ -324,13 +333,25 @@ fn decode_value(
         .map_err(|_| DecodeError::InvalidEncoding)
 }
 
-fn chrome_user_data_dir() -> Result<PathBuf> {
-    let local =
-        std::env::var_os("LOCALAPPDATA").ok_or_else(|| anyhow!("LOCALAPPDATA is not set"))?;
+pub(crate) fn chrome_user_data_dir() -> Result<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA").classify(Failure::ProfileNotFound)?;
     Ok(PathBuf::from(local)
         .join("Google")
         .join("Chrome")
         .join("User Data"))
+}
+
+/// The directory of `profile` inside the Chrome user-data directory, accepted
+/// only if, once both are canonicalized the same way, its parent is exactly the
+/// canonical user-data directory. That rejects `..`, drive tricks and
+/// junctions or symlinks pointing elsewhere; a missing profile is not found.
+pub(crate) fn resolve_profile_dir(user_data: &Path, profile: &str) -> Result<PathBuf> {
+    let root = std::fs::canonicalize(user_data).classify(Failure::ProfileNotFound)?;
+    let dir = std::fs::canonicalize(user_data.join(profile)).classify(Failure::ProfileNotFound)?;
+    if dir.parent() != Some(root.as_path()) {
+        return Err(Failure::ProfileNotFound.into());
+    }
+    Ok(dir)
 }
 
 fn cookie_db_path(profile_dir: &Path) -> Option<PathBuf> {
@@ -342,82 +363,19 @@ fn cookie_db_path(profile_dir: &Path) -> Option<PathBuf> {
     legacy.exists().then_some(legacy)
 }
 
-fn admin_helper_path() -> Result<PathBuf> {
-    let current = std::env::current_exe()
-        .map_err(|e| anyhow!("failed to resolve current executable: {}", e))?;
-    let helper = current
-        .parent()
-        .ok_or_else(|| anyhow!("current executable has no parent directory"))?
-        .join("bitwarden_chromium_import_helper.exe");
-    if !helper.exists() {
-        return Err(anyhow!(
-            "elevated helper was not found next to the importer"
-        ));
-    }
-    Ok(helper)
-}
-
-/// A temporary copy of the cookie database (plus any journal siblings) that is
-/// deleted on drop.
-struct TempCookieDb {
-    base: PathBuf,
-}
-
-impl TempCookieDb {
-    fn path(&self) -> &Path {
-        &self.base
-    }
-}
-
-impl Drop for TempCookieDb {
-    fn drop(&mut self) {
-        for suffix in ["", "-wal", "-shm"] {
-            let path = sibling(&self.base, suffix);
-            let _ = std::fs::remove_file(path);
-        }
-    }
-}
-
-fn sibling(base: &Path, suffix: &str) -> PathBuf {
-    if suffix.is_empty() {
-        base.to_path_buf()
-    } else {
-        PathBuf::from(format!("{}{}", base.display(), suffix))
-    }
-}
-
-fn copy_db_to_temp(src: &Path) -> Result<TempCookieDb> {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default();
-    let base = std::env::temp_dir().join(format!(
-        "mixdog-cookies-{}-{}.db",
-        stamp,
-        rand::random::<u32>()
-    ));
-    std::fs::copy(src, &base).map_err(|e| anyhow!("failed to copy cookie database: {}", e))?;
-    let temp = TempCookieDb { base };
-    for suffix in ["-wal", "-shm"] {
-        let journal = sibling(src, suffix);
-        if journal.exists() {
-            std::fs::copy(&journal, sibling(&temp.base, suffix))
-                .map_err(|_| anyhow!("failed to copy cookie database journal"))?;
-        }
-    }
-    Ok(temp)
-}
-
-/// Decrypt every cookie for a Chrome profile, requesting elevation only when a
-/// v20 (App-Bound) cookie is present.
-pub async fn import_chrome_cookies(profile: &str) -> Result<CookieImportReport> {
+/// Decrypt every cookie for a Chrome profile, resolving the v20 (App-Bound)
+/// key through `route` only when a v20 cookie is present.
+pub async fn import_chrome_cookies(
+    profile: &str,
+    route: &keys::V20Route<'_>,
+) -> Result<CookieImportReport> {
     let user_data = chrome_user_data_dir()?;
     let local_state = user_data.join("Local State");
-    let profile_dir = user_data.join(profile);
-    let source = cookie_db_path(&profile_dir)
-        .ok_or_else(|| anyhow!("cookie database not found for the selected profile"))?;
+    let profile_dir = resolve_profile_dir(&user_data, profile)?;
+    let source = cookie_db_path(&profile_dir).classify(Failure::ProfileNotFound)?;
 
-    let temp = copy_db_to_temp(&source)?;
+    // A consistent private snapshot; fails if Chrome still holds the database.
+    let temp = snapshot::snapshot(&source, "cookie")?;
     let db = CookieDb::load(temp.path())?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -430,11 +388,7 @@ pub async fn import_chrome_cookies(profile: &str) -> Result<CookieImportReport> 
         keys.v10 = Some(keys::v10_key(&local_state)?);
     }
     if needs_v20 {
-        let helper = admin_helper_path()?;
-        let helper = helper
-            .to_str()
-            .ok_or_else(|| anyhow!("helper path is not valid unicode"))?;
-        keys.v20 = Some(keys::v20_key(&local_state, helper).await?);
+        keys.v20 = Some(keys::v20_key(&local_state, route).await?);
     }
 
     Ok(db.decrypt(&keys, now))
@@ -521,6 +475,56 @@ mod tests {
                 assert_eq!(report.cookies[0].domain, ".example.test");
             }
         }
+    }
+
+    #[test]
+    fn profile_dir_must_resolve_directly_inside_user_data() {
+        let base = std::env::temp_dir().join(format!("mx-prof-{:016x}", rand::random::<u64>()));
+        let user_data = base.join("User Data");
+        let outside = base.join("Outside");
+        std::fs::create_dir_all(user_data.join("Default")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let canonical = std::fs::canonicalize(&user_data).unwrap();
+        assert_eq!(
+            resolve_profile_dir(&user_data, "Default").unwrap(),
+            canonical.join("Default")
+        );
+        // Case differences and trailing dots normalize to the same directory.
+        assert!(resolve_profile_dir(&user_data, "default.").is_ok());
+
+        for bad in ["..", ".", "../Outside", "..\\Outside", "Missing", "C:", "Default\\.."] {
+            let error = resolve_profile_dir(&user_data, bad).unwrap_err();
+            assert_eq!(error.downcast_ref::<Failure>(), Some(&Failure::ProfileNotFound), "{bad}");
+        }
+
+        // A junction inside User Data that points elsewhere is refused.
+        let junction = user_data.join("Linked");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(made, "mklink /J failed");
+        assert!(resolve_profile_dir(&user_data, "Linked").is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn iv_and_tag_only_blob_is_authenticated_not_assumed_empty() {
+        let key = [0x42_u8; 32];
+        // A genuinely sealed empty plaintext is exactly IV+tag and authenticates.
+        let sealed_empty = encrypt_v(b"", &key, b"");
+        assert_eq!(sealed_empty.len(), IV_SIZE + TAG_SIZE);
+        assert!(decrypt_gcm(&key, &sealed_empty).unwrap().is_empty());
+        // The same length with an unauthenticated tag is corrupt or forged.
+        assert!(decrypt_gcm(&key, &[0_u8; IV_SIZE + TAG_SIZE]).is_err());
+        let mut tampered = sealed_empty;
+        *tampered.last_mut().unwrap() ^= 1;
+        assert!(decrypt_gcm(&key, &tampered).is_err());
     }
 
     #[test]

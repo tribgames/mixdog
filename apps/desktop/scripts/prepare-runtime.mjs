@@ -372,7 +372,7 @@ async function prepareBrowserImportNativeSource() {
   const outputDirectory = join(desktopDir, '.cache', 'browser-import', embeddingTarget.key);
   const sourceRoot = join(rootDir, 'native', 'mixdog-browser-import');
   const cacheIdentity = {
-    schemaVersion: 1,
+    schemaVersion: 3,
     target: embeddingTarget.key,
     sourceHash: await sourceTreeHash(sourceRoot),
   };

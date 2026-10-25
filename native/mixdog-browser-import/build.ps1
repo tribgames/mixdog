@@ -158,7 +158,7 @@ else {
 $importer = Join-Path $targetProfileDirectory 'mixdog-browser-import.exe'
 $helper = Join-Path $targetProfileDirectory 'bitwarden_chromium_import_helper.exe'
 if (-not (Test-Path -LiteralPath $importer) -or -not (Test-Path -LiteralPath $helper)) {
-    throw 'Browser importer build did not produce both executables.'
+    throw 'Browser importer build did not produce every executable.'
 }
 
 Remove-Item -LiteralPath $OutputDirectory -Recurse -Force -ErrorAction SilentlyContinue

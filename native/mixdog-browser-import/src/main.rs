@@ -1,33 +1,20 @@
 use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use chromium_importer::chromium::{import_logins, LoginImportResult};
 use serde::Serialize;
 use zeroize::{Zeroize, Zeroizing};
 
 mod abe_client;
 mod cookies;
+mod failure;
 mod keys;
+mod logins;
+mod snapshot;
 
 const MAX_KEY_INPUT_BYTES: u64 = 256;
-
-#[derive(Serialize)]
-struct Credential {
-    url: String,
-    username: String,
-    password: String,
-    note: String,
-}
-
-impl Drop for Credential {
-    fn drop(&mut self) {
-        self.url.zeroize();
-        self.username.zeroize();
-        self.password.zeroize();
-        self.note.zeroize();
-    }
-}
+const MAX_PROFILE_ID_LEN: usize = 120;
 
 #[derive(Serialize)]
 struct EncryptedEnvelope {
@@ -42,6 +29,16 @@ fn argument(args: &[String], name: &str) -> Option<String> {
         .map(|pair| pair[1].clone())
 }
 
+/// The GPL `runas` admin helper shipped beside the importer; absent in a dev
+/// build, in which case the manual route reports it as unavailable.
+fn admin_helper_path() -> Option<PathBuf> {
+    let current = std::env::current_exe().ok()?;
+    let helper = current
+        .parent()?
+        .join("bitwarden_chromium_import_helper.exe");
+    helper.exists().then_some(helper)
+}
+
 fn upstream_browser_name(browser: &str) -> Option<&'static str> {
     match browser {
         "chrome" => Some("Chrome"),
@@ -50,7 +47,9 @@ fn upstream_browser_name(browser: &str) -> Option<&'static str> {
 }
 
 fn read_transport_key() -> Result<[u8; 32], ()> {
-    let mut encoded = String::new();
+    // Wiped on drop. Pre-sized to the read limit so reading never reallocates
+    // and leaves an unwiped copy of the base64 key behind.
+    let mut encoded = Zeroizing::new(String::with_capacity(MAX_KEY_INPUT_BYTES as usize));
     io::stdin()
         .take(MAX_KEY_INPUT_BYTES)
         .read_to_string(&mut encoded)
@@ -98,6 +97,19 @@ async fn main() {
     }
 }
 
+/// Cheap structural checks only: non-empty, bounded, and exactly one normal
+/// path component. Whether the id really names a directory directly inside
+/// `User Data` is decided by canonicalization in
+/// [`cookies::resolve_profile_dir`], which also covers `..`, drive tricks and
+/// junctions.
+fn valid_profile_id(value: &str) -> bool {
+    let mut components = Path::new(value).components();
+    !value.is_empty()
+        && value.len() <= MAX_PROFILE_ID_LEN
+        && matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+}
+
 /// Validate the shared argument shape and return the requested profile id.
 fn parse_common(args: &[String], command: &str) -> String {
     let profile = argument(args, "--profile");
@@ -107,9 +119,7 @@ fn parse_common(args: &[String], command: &str) -> String {
     let valid = args.first().is_some_and(|value| value == command)
         && upstream_browser.is_some()
         && args.iter().any(|value| value == "--json")
-        && profile.as_ref().is_some_and(|value| {
-            !value.is_empty() && value.len() <= 120 && !value.contains('/') && !value.contains('\\')
-        });
+        && profile.as_deref().is_some_and(valid_profile_id);
     if !valid {
         fail("Invalid importer arguments.", 2);
     }
@@ -119,29 +129,13 @@ fn parse_common(args: &[String], command: &str) -> String {
 async fn run_import_passwords(args: &[String]) -> ! {
     let profile = parse_common(args, "import-passwords");
     let key = read_transport_key().unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
-    let results = import_logins("Chrome", &profile, false)
+    let admin_exe_path = admin_helper_path();
+    let route = keys::V20Route {
+        admin_exe: admin_exe_path.as_deref().and_then(Path::to_str),
+    };
+    let credentials = logins::import_chrome_logins(&profile, &route)
         .await
-        .unwrap_or_else(|_| fail("Chrome password import failed.", 1));
-
-    let mut failures = 0_usize;
-    let credentials = results
-        .into_iter()
-        .filter_map(|result| match result {
-            LoginImportResult::Success(login) => Some(Credential {
-                url: login.url,
-                username: login.username,
-                password: login.password,
-                note: login.note,
-            }),
-            LoginImportResult::Failure(_) => {
-                failures += 1;
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    if credentials.is_empty() && failures > 0 {
-        fail("Chrome password decryption failed.", 1);
-    }
+        .unwrap_or_else(|error| fail(failure::user_message(&error), 1));
 
     let envelope = seal(key, &credentials)
         .unwrap_or_else(|_| fail("Chrome password import encryption failed.", 1));
@@ -152,9 +146,13 @@ async fn run_import_passwords(args: &[String]) -> ! {
 async fn run_import_cookies(args: &[String]) -> ! {
     let profile = parse_common(args, "import-cookies");
     let key = read_transport_key().unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
-    let cookies = cookies::import_chrome_cookies(&profile)
+    let admin_exe_path = admin_helper_path();
+    let route = keys::V20Route {
+        admin_exe: admin_exe_path.as_deref().and_then(Path::to_str),
+    };
+    let cookies = cookies::import_chrome_cookies(&profile, &route)
         .await
-        .unwrap_or_else(|error| fail(&format!("Chrome cookie import failed: {error}"), 1));
+        .unwrap_or_else(|error| fail(failure::user_message(&error), 1));
     let envelope =
         seal(key, &cookies).unwrap_or_else(|_| fail("Chrome cookie import encryption failed.", 1));
     print!("{envelope}");
@@ -167,6 +165,32 @@ mod tests {
     use aes_gcm::aead::Aead;
 
     #[test]
+    fn profile_ids_must_be_a_single_plain_directory_name() {
+        for good in ["Default", "Profile 1", "Guest Profile", "a.b", "..a"] {
+            assert!(valid_profile_id(good), "expected {good:?} to be accepted");
+        }
+        // Structural rejects only; escapes that still look like one component
+        // (junctions, trailing dots) are decided by canonicalization.
+        for bad in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "../Default",
+            "..\\Default",
+            "C:",
+            "C:Users",
+            "\\\\server\\share",
+            "\\Default",
+        ] {
+            assert!(!valid_profile_id(bad), "expected {bad:?} to be rejected");
+        }
+        assert!(valid_profile_id(&"a".repeat(MAX_PROFILE_ID_LEN)));
+        assert!(!valid_profile_id(&"a".repeat(MAX_PROFILE_ID_LEN + 1)));
+    }
+
+    #[test]
     fn maps_cli_chrome_to_the_upstream_browser_key() {
         assert_eq!(upstream_browser_name("chrome"), Some("Chrome"));
         assert_eq!(upstream_browser_name("Chrome"), None);
@@ -175,7 +199,7 @@ mod tests {
     #[test]
     fn envelope_round_trip_keeps_plaintext_out_of_stdout() {
         let key = [7_u8; 32];
-        let credentials = vec![Credential {
+        let credentials = vec![logins::Credential {
             url: "https://example.test".to_string(),
             username: "fixture-user".to_string(),
             password: "fixture-secret".to_string(),
