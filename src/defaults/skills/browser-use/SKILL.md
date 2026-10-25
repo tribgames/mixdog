@@ -238,14 +238,14 @@ chooses which to use. Without a stored login, use the returned refs and
 identity check, stop and hand control to the user; never try to solve or
 bypass it.
 
-**Linked sign-in** — when the site offers "Continue with Google / GitHub /
-Apple" and this browser is already signed in to that provider, prefer it to
-typing a password. A chooser with one account is picked directly. With
-several, use the reply's `Linked sign-in:` line (the account the site used
-last time); without one, read the provider's own list of linked apps and
-match the site's name (Google `myaccount.google.com/connections`,
-`/u/N/connections` per account; GitHub `settings/applications` and
-`settings/apps/authorizations`); otherwise ask the user once with the
+**Linked sign-in** — when the site offers "Continue with <provider>" (any
+identity provider) and this browser is already signed in there, prefer it to
+typing a password; a reply's `Linked sign-in:` line names the provider, and
+the account when known, that the site used last time. A provider's account
+chooser with one account is picked directly. With several and no known
+account, the provider's own list of connected apps (for example Google
+`myaccount.google.com/connections`, GitHub `settings/applications`) may show
+which account the site is linked to; otherwise ask the user once with the
 chooser's accounts as options. Never type a provider password: a provider
 password or 2FA step, or a first-time consent screen for an app the user did
 not name, goes to the user.
