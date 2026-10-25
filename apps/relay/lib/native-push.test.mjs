@@ -303,7 +303,14 @@ const clientsOf = (map) => ({ hasClient: (device, client) => map[device]?.includ
 
 function fakeNativePush(platforms = ['apns', 'fcm'], result = { ok: true, status: 200 }) {
   const sent = [];
-  return { platforms, sent, send: async (m) => (sent.push(m), result) };
+  return {
+    platforms,
+    sent,
+    send: async (m) => {
+      sent.push(m);
+      return result;
+    },
+  };
 }
 
 test('capabilities advertise native push only when the relay can deliver', () => {

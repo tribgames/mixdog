@@ -167,16 +167,22 @@ export function noteUserInput(
   const time = Math.min(Number(at) || 0, current);
   lastAppInputAt = Math.max(lastAppInputAt, time);
   let entry = appInputWrites.get(path);
-  if (!entry) appInputWrites.set(path, (entry = { at: 0, wroteAt: 0, timer: null }));
+  if (!entry) {
+    entry = { at: 0, wroteAt: 0, timer: null };
+    appInputWrites.set(path, entry);
+  }
   if (lastAppInputAt <= entry.at) return;
   const waited = current - entry.wroteAt;
   if (entry.wroteAt && waited < APP_INPUT_WRITE_MS) {
     if (entry.timer) return;
     const held = entry;
-    held.timer = schedule(() => {
-      held.timer = null;
-      if (lastAppInputAt > held.at) writeAppInput(path, held, now());
-    }, Math.min(APP_INPUT_WRITE_MS, APP_INPUT_WRITE_MS - waited));
+    held.timer = schedule(
+      () => {
+        held.timer = null;
+        if (lastAppInputAt > held.at) writeAppInput(path, held, now());
+      },
+      Math.min(APP_INPUT_WRITE_MS, APP_INPUT_WRITE_MS - waited)
+    );
     held.timer?.unref?.();
     return;
   }

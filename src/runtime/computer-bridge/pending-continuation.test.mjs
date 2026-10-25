@@ -27,9 +27,7 @@ test('long human interaction stays pending across waits then returns fresh state
     async (command) => {
       calls.push(command);
       if (command.action === 'wait_for_user') {
-        return value(
-          ++waits < 3 ? { status: 'timeout', reason: 'user_pause' } : { status: 'resumed', resumed: true }
-        );
+        return value(++waits < 3 ? { status: 'timeout', reason: 'user_pause' } : { status: 'resumed', resumed: true });
       }
       return { ...value({ ok: true, frame_id: 'fresh' }), image: { data: 'image', mimeType: 'image/png' } };
     }

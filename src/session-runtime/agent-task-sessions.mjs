@@ -79,12 +79,15 @@ const turnStatus = (detail) =>
 
 const INTERRUPTED = /^\[Request interrupted/;
 
-const messageText = (content) =>
-  typeof content === 'string'
-    ? content
-    : (Array.isArray(content) ? content : [])
-        .map((part) => (typeof part === 'string' ? part : part?.type === 'text' ? part.text || '' : ''))
-        .join('');
+const partText = (part) => {
+  if (typeof part === 'string') return part;
+  return part?.type === 'text' ? part.text || '' : '';
+};
+
+const messageText = (content) => {
+  if (typeof content === 'string') return content;
+  return (Array.isArray(content) ? content : []).map(partText).join('');
+};
 
 /** The submissions a stored user message delivered: a turn's prompt
  *  (`checkpointId`, `submissionIds` of a merged batch) or a steered message. */
@@ -112,7 +115,9 @@ export function submissionOutcome(messages, runId) {
     const completion = message?.meta?.transcript?.completion;
     if (completion) {
       const status = turnStatus(completion);
-      const text = status === 'failed' ? completion.detail || '' : message.role === 'assistant' ? message.content : '';
+      let text = '';
+      if (status === 'failed') text = completion.detail || '';
+      else if (message.role === 'assistant') text = message.content;
       return { status, text: messageText(text) };
     }
     if (index === start || message?.role !== 'user') continue;

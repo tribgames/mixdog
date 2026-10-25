@@ -232,10 +232,9 @@ export async function humanGateDecision(call, decision, ctx = {}) {
       editable: outbound.editable,
       details: outbound.details,
     },
-    remember: ['once'],
+    // "Don't ask again" is the bot's permission.
+    remember: outboundRemember(outbound.category),
   };
-  // "Don't ask again" is the bot's permission.
-  request.remember = outboundRemember(outbound.category);
   const store = ctx.store || (await humanGateStore());
   const mode = await store.modeFor({ agentId, action: outbound.category });
   const base = decision && typeof decision === 'object' ? decision : {};

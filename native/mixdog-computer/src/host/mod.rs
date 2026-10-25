@@ -902,7 +902,15 @@ mod tests {
         fn pointer(&self, _: Wid, _: i32, _: i32, kind: &str, _: &[Mod]) -> Result<String, String> {
             self.note(kind)
         }
-        fn wheel(&self, _: Wid, _: i32, _: i32, _: i32, _: bool, _: &[Mod]) -> Result<String, String> {
+        fn wheel(
+            &self,
+            _: Wid,
+            _: i32,
+            _: i32,
+            _: i32,
+            _: bool,
+            _: &[Mod],
+        ) -> Result<String, String> {
             self.note("wheel")
         }
         fn drag(&self, _: Wid, _: &[(i32, i32)], _: &[Mod]) -> Result<String, String> {

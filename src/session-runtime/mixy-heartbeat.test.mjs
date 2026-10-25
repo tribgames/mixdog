@@ -795,7 +795,14 @@ test('a throttled final in-app input is written by one trailing write at the end
   h.advance();
   const timers = [];
   const schedule = (run, ms) => {
-    const timer = { run, ms, unrefCalled: false, unref() { this.unrefCalled = true; } };
+    const timer = {
+      run,
+      ms,
+      unrefCalled: false,
+      unref() {
+        this.unrefCalled = true;
+      },
+    };
     timers.push(timer);
     return timer;
   };
@@ -828,8 +835,14 @@ test('a throttled final in-app input is written by one trailing write at the end
 test('the first check after a start is looked at after a minute, then every tick', (t) => {
   const calls = [];
   const timers = {
-    setTimeout: (_fn, ms) => (calls.push(['timeout', ms]), { unref() {} }),
-    setInterval: (_fn, ms) => (calls.push(['interval', ms]), { unref() {} }),
+    setTimeout: (_fn, ms) => {
+      calls.push(['timeout', ms]);
+      return { unref() {} };
+    },
+    setInterval: (_fn, ms) => {
+      calls.push(['interval', ms]);
+      return { unref() {} };
+    },
     clearTimeout: () => calls.push(['clear timeout']),
     clearInterval: () => calls.push(['clear interval']),
   };
@@ -1133,19 +1146,74 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
   const events = [
     [at(0, 30), () => Object.assign(leadA, { lastUsedAt: clock, lastMessagePreview: 'Filed' })],
     [at(1), () => Object.assign(home, { lastUsedAt: clock, lastMessagePreview: 'Book the dentist', realTurnCount: 4 })],
-    [at(23), () => (maintainer = wakeReply)],
-    [at(24), () => (routineFailures = 3)],
-    [at(29), () => (mixyReply = HEARTBEAT_QUIET)],
-    [at(31), () => ((routineFailures = 0), (mixyReply = 'Heads-up from Mixy'), (maintainer = () => 'NOTHING'))],
-    [at(99), () => ((pulse = true), (maintainer = breakerDown))],
-    [at(112), () => (routineFailures = 3)],
+    [
+      at(23),
+      () => {
+        maintainer = wakeReply;
+      },
+    ],
+    [
+      at(24),
+      () => {
+        routineFailures = 3;
+      },
+    ],
+    [
+      at(29),
+      () => {
+        mixyReply = HEARTBEAT_QUIET;
+      },
+    ],
+    [
+      at(31),
+      () => {
+        routineFailures = 0;
+        mixyReply = 'Heads-up from Mixy';
+        maintainer = () => 'NOTHING';
+      },
+    ],
+    [
+      at(99),
+      () => {
+        pulse = true;
+        maintainer = breakerDown;
+      },
+    ],
+    [
+      at(112),
+      () => {
+        routineFailures = 3;
+      },
+    ],
     [
       at(113),
-      () => ((routineFailures = 0), (config.agents.maintainer.model = 'tiny2'), (maintainer = () => 'NOTHING')),
+      () => {
+        routineFailures = 0;
+        config.agents.maintainer.model = 'tiny2';
+        maintainer = () => 'NOTHING';
+      },
     ],
-    [at(115), () => ((config.agents.maintainer.model = 'tiny3'), (maintainer = () => 'Sure, nothing to flag.'))],
-    [at(123), () => ((maintainer = () => 'NOTHING'), (heartbeat = build()))], // a restart
-    [at(125), () => (pulse = false)],
+    [
+      at(115),
+      () => {
+        config.agents.maintainer.model = 'tiny3';
+        maintainer = () => 'Sure, nothing to flag.';
+      },
+    ],
+    [
+      at(123),
+      // a restart
+      () => {
+        maintainer = () => 'NOTHING';
+        heartbeat = build();
+      },
+    ],
+    [
+      at(125),
+      () => {
+        pulse = false;
+      },
+    ],
   ];
   const outcomes = [];
   async function run(untilMinute) {
@@ -1214,7 +1282,7 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
     'none while the user chatted'
   );
   assert.equal(
-    collects.filter((c) => c.minute > at(60, 30) &&c.minute < at(98)).length,
+    collects.filter((c) => c.minute > at(60, 30) && c.minute < at(98)).length,
     0,
     'none while no process ran'
   );
@@ -1599,7 +1667,11 @@ test('a full digest still counts the task sessions and sessions it leaves out, w
     assert.ok(lines.join('\n').length < DIGEST_LIMIT, `pad ${pad}: within the bound`);
     const shownTasks = lines.filter((line) => line.startsWith('task session ')).length;
     const shownSessions = lines.filter((line) => line.startsWith('new activity in ')).length;
-    assert.equal(shownTasks + counted(lines, /^(\d+) more task sessions? finished$/), tasks.length, `pad ${pad}: tasks`);
+    assert.equal(
+      shownTasks + counted(lines, /^(\d+) more task sessions? finished$/),
+      tasks.length,
+      `pad ${pad}: tasks`
+    );
     assert.equal(
       shownSessions + counted(lines, /^(\d+) more sessions? had new activity$/),
       sessions.length,
