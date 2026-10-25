@@ -31,23 +31,22 @@ public sealed class WgcFixture : System.Windows.Forms.Form {
   public static extern System.IntPtr WindowFromPoint(System.Drawing.Point point);
   [System.Runtime.InteropServices.DllImport("user32.dll")]
   public static extern System.IntPtr GetWindow(System.IntPtr hWnd, uint uCmd);
-  [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-  public static extern int GetClassName(System.IntPtr window, System.Text.StringBuilder text, int count);
-  public static string ClassOf(System.IntPtr window) {
-    if (window == System.IntPtr.Zero) return "";
-    var name = new System.Text.StringBuilder(160);
-    GetClassName(window, name, name.Capacity);
-    return name.ToString();
-  }
+  // The cover occludes the target at the probe when both contain the probe, the
+  // target is not what the screen shows there, and the cover is above the target
+  // in z-order. This is judged against the two fixtures only: shell surfaces
+  // (toast notifications, the hosted runner's LockScreenBackstopFrame) or another
+  // app's always-on-top windows may sit above both and leave the target covered.
   public static bool IsOccluded(WgcFixture window, WgcFixture cover, System.Drawing.Point probe) {
-    var hit = WindowFromPoint(probe);
-    if (hit == cover.Handle) return true;
-    if (ClassOf(hit) == "LockScreenBackstopFrame") {
-      if (!cover.Bounds.Contains(probe)) return false;
-      const uint GW_HWNDNEXT = 2;
-      for (var cur = GetWindow(cover.Handle, GW_HWNDNEXT); cur != System.IntPtr.Zero; cur = GetWindow(cur, GW_HWNDNEXT)) {
-        if (cur == window.Handle) return true;
-      }
+    if (!window.Visible || !cover.Visible) return false;
+    if (!window.Bounds.Contains(probe) || !cover.Bounds.Contains(probe)) return false;
+    if (WindowFromPoint(probe) == window.Handle) return false;
+    const uint GW_HWNDNEXT = 2;
+    // A z-order that changes during the walk can lead back to a window already
+    // passed; meeting one again ends the walk instead of looping.
+    var seen = new System.Collections.Generic.HashSet<System.IntPtr>();
+    for (var cur = GetWindow(cover.Handle, GW_HWNDNEXT); cur != System.IntPtr.Zero; cur = GetWindow(cur, GW_HWNDNEXT)) {
+      if (cur == window.Handle) return true;
+      if (!seen.Add(cur)) return false;
     }
     return false;
   }
@@ -95,19 +94,13 @@ try {
   $window.Show()
   $window.Update()
   [Windows.Forms.Application]::DoEvents()
-  # Whatever else is on this desktop must not decide the precondition: the cover
-  # stays above ordinary windows, and the z-order is given a bounded moment to
-  # settle instead of being read once.
+  # A topmost cover is above the non-topmost target by construction; Show and
+  # TopMost update z-order synchronously, so the precondition is read once.
   $cover.TopMost = $true
   $cover.Show()
   $cover.Update()
   [Windows.Forms.Application]::DoEvents()
-  $covered = $false
-  for ($attempt = 0; $attempt -lt 20 -and -not $covered; $attempt++) {
-    [Windows.Forms.Application]::DoEvents()
-    $covered = [WgcFixture]::IsOccluded($window, $cover, [Drawing.Point]::new($window.Left + 100, $window.Top + 90))
-    if (-not $covered) { Start-Sleep -Milliseconds 50 }
-  }
+  $covered = [WgcFixture]::IsOccluded($window, $cover, [Drawing.Point]::new($window.Left + 100, $window.Top + 90))
   # Showing the fixture windows activates them, and a user switching windows
   # moves the foreground too. The property under test is narrower: the capture
   # itself must leave the foreground alone, so it is sampled around the capture.
