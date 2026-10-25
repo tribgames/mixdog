@@ -258,7 +258,7 @@ export async function fillBoundLogin(
   return result;
 }
 
-type VaultAccounts = (url: string, prefilled?: string) => Promise<Array<{ id: string; label: string }>>;
+type VaultAccounts = BrowserAutoSignInDeps['suggestions'];
 
 /** What auto sign-in reads and writes in the vault besides its accounts. */
 interface VaultSignInHooks {

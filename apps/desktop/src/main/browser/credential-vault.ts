@@ -6,6 +6,12 @@
  * so older vaults keep opening; the fields added here (source, authenticator
  * key, the auto sign-in pause) are optional. One login per HTTPS origin and
  * username: saving the same pair again replaces it, everything else stays.
+ * The username is compared exactly — `Alice` and `alice` are two logins, as
+ * the Chrome import and the ids derived from it always kept them. Case is
+ * ignored only to rank a page's prefilled identifier: an email that differs
+ * only by case ranks after the exact one, and for any identifier, several
+ * stored usernames that equal it only ignoring case, with none exactly, are
+ * ambiguous and never guessed.
  *
  * Passwords and authenticator keys never leave this process: listings carry
  * only the site, the username and what is stored, and the agent sees masked
@@ -32,6 +38,15 @@ export interface VaultLoginEntry {
   password: string;
   source: VaultLoginSource;
   totpSecret?: string;
+}
+
+/** An account auto sign-in may use, with a masked label. `ambiguous`: the
+ *  page's identifier fits this and other logins that differ only by username
+ *  case, none exactly, so no one of them may be picked by guessing. */
+export interface VaultSignInAccount {
+  id: string;
+  label: string;
+  ambiguous?: true;
 }
 
 /** An import row (Chrome or a CSV file): the saved page address, the login,
@@ -277,28 +292,41 @@ export class CredentialVault {
 
   /** The accounts auto sign-in may use for `origin`, the one to use first:
    *  the account whose username is the identifier `prefilled` on the page
-   *  (exact; case-insensitive for an email), then the one last used for the
-   *  site, then the most recently saved (a later entry of the file ties). Masked
-   *  labels only. */
-  preferredAccountsFor(origin: string, prefilled = ''): Promise<Array<{ id: string; label: string }>> {
+   *  (exact first; case-insensitive for an email), then the one last used for the
+   *  site, then the most recently saved (a later entry of the file ties). When
+   *  no username is exactly the identifier and two or more distinct usernames
+   *  equal it ignoring case (any identifier, email or not), those accounts
+   *  come first, marked `ambiguous`: the page does not say which one, and the
+   *  caller must not pick. Masked labels only. */
+  preferredAccountsFor(origin: string, prefilled = ''): Promise<VaultSignInAccount[]> {
     return this.transaction(async () => {
       const wanted = secureOrigin(origin);
       if (!wanted) return [];
       const typed = prefilled.trim();
-      const same = (username: string) =>
-        Boolean(typed) &&
-        (typed.includes('@') || username.includes('@') ? username.toLowerCase() === typed.toLowerCase() : username === typed);
-      return (await this.load())
+      const folded = (username: string) =>
+        Boolean(typed) && username !== typed && username.toLowerCase() === typed.toLowerCase();
+      const accounts = (await this.load())
         .map((login, index) => ({ login, index }))
-        .filter(({ login }) => secureOrigin(login.url) === wanted && login.password && login.autoSignIn)
+        .filter(({ login }) => secureOrigin(login.url) === wanted && login.password && login.autoSignIn);
+      const variants = new Set(accounts.filter(({ login }) => folded(login.username)).map(({ login }) => login.username));
+      const ambiguous = variants.size > 1 && !accounts.some(({ login }) => login.username === typed);
+      // The exact username first; an email also matches ignoring case, after it.
+      const sameness = (username: string) =>
+        !typed ? 0 : username === typed ? 2 : folded(username) && (ambiguous || typed.includes('@')) ? 1 : 0;
+      return accounts
+        .map((account) => ({ ...account, match: sameness(account.login.username) }))
         .sort(
           (a, b) =>
-            Number(same(b.login.username)) - Number(same(a.login.username)) ||
+            b.match - a.match ||
             (b.login.lastUsedAt ?? 0) - (a.login.lastUsedAt ?? 0) ||
             (b.login.savedAt ?? 0) - (a.login.savedAt ?? 0) ||
             b.index - a.index
         )
-        .map(({ login }) => ({ id: login.id, label: maskedCredentialLabel(login.username) }));
+        .map(({ login, match }) => ({
+          id: login.id,
+          label: maskedCredentialLabel(login.username),
+          ...(ambiguous && match === 1 ? { ambiguous: true as const } : {}),
+        }));
     });
   }
 
@@ -329,53 +357,23 @@ export class CredentialVault {
     });
   }
 
-  /** Save one login (origin+username is one entry): its password, source and
-   *  authenticator key are replaced, note kept unless the entry is new, and
-   *  the auto sign-in pause is cleared. */
+  /** Save one login (origin+username, exactly, is one entry): its password,
+   *  source and authenticator key are replaced, note kept unless the entry is
+   *  new, and the auto sign-in pause is cleared. */
   upsert(entry: VaultLoginEntry): Promise<void> {
     return this.transaction(() => this.upsertCore(entry));
   }
 
   private async upsertCore(entry: VaultLoginEntry): Promise<void> {
-    const origin = secureOrigin(entry.origin);
-    if (!origin) throw new Error('A saved login needs an HTTPS site.');
-    const username = field(entry.username).trim();
-    const password = field(entry.password);
-    if (!username || !password) throw new Error('A saved login needs a username and a password.');
-    if (!SOURCES.includes(entry.source)) throw new Error('A saved login needs a known source.');
-    const totpSecret = entry.totpSecret ? normalizeTotpSecret(entry.totpSecret) : undefined;
     const logins = await this.load();
-    const existing = logins.find(
-      (login) => secureOrigin(login.url) === origin && login.username.toLowerCase() === username.toLowerCase()
-    );
-    if (existing) {
-      existing.password = password;
-      existing.source = entry.source;
-      existing.autoSignIn = true;
-      existing.savedAt = Date.now();
-      if (entry.totpSecret !== undefined) {
-        if (totpSecret) existing.totpSecret = totpSecret;
-        else delete existing.totpSecret;
-      }
-    } else {
-      logins.push({
-        id: loginId(origin, username),
-        url: origin,
-        username,
-        password,
-        note: '',
-        source: entry.source,
-        ...(totpSecret ? { totpSecret } : {}),
-        autoSignIn: true,
-        savedAt: Date.now(),
-      });
-    }
+    upsertInto(logins, entry);
     await this.save(logins);
   }
 
   /** Merge an import (Chrome or CSV) into the vault: the same origin+username
-   *  has its password and note replaced and keeps everything else; new logins
-   *  are added. The vault is never wiped first. Returns how many were stored. */
+   *  (exactly) has its password and note replaced and keeps everything else;
+   *  new logins are added. The vault is never wiped first. Returns how many
+   *  were stored. */
   mergeImport(source: VaultLoginSource, entries: readonly VaultImportEntry[]): Promise<number> {
     return this.transaction(() => this.mergeImportCore(source, entries));
   }
@@ -383,7 +381,7 @@ export class CredentialVault {
   private async mergeImportCore(source: VaultLoginSource, entries: readonly VaultImportEntry[]): Promise<number> {
     const logins = await this.load();
     const index = new Map<string, StoredVaultLogin>();
-    for (const login of logins) index.set(`${secureOrigin(login.url)}\0${login.username.toLowerCase()}`, login);
+    for (const login of logins) index.set(`${secureOrigin(login.url)}\0${login.username}`, login);
     let stored = 0;
     for (const entry of entries) {
       const origin = secureOrigin(entry.url);
@@ -391,7 +389,7 @@ export class CredentialVault {
       const password = field(entry.password);
       if (!origin || !username || !password) continue;
       const totpSecret = entry.totpSecret ? normalizeTotpSecret(entry.totpSecret) : undefined;
-      const key = `${origin}\0${username.toLowerCase()}`;
+      const key = `${origin}\0${username}`;
       const existing = index.get(key);
       if (existing) {
         existing.password = password;
@@ -497,16 +495,18 @@ export class CredentialVault {
       return;
     }
     if (!input.password) throw new Error('A saved login needs a password.');
-    await this.upsertCore({
+    // The password and the note go into the login the upsert produced (an
+    // imported one keeps its URL-derived id) and are written together.
+    const logins = await this.load();
+    const login = upsertInto(logins, {
       origin: input.origin,
       username: input.username,
       password: input.password,
       source: 'manual',
       ...(input.totpSecret ? { totpSecret: input.totpSecret } : {}),
     });
-    if (input.note) {
-      await this.updateCore(loginId(secureOrigin(input.origin), field(input.username).trim()), { note: input.note });
-    }
+    if (input.note) login.note = field(input.note);
+    await this.save(logins);
   }
 
   /** Delete a saved login by id; true when one was removed. */
@@ -543,6 +543,45 @@ export class CredentialVault {
   }
 }
 
+/** Apply a save to `logins` in memory and return the login it produced: the
+ *  one already stored for the origin and exact username (its id kept as it is,
+ *  whatever derived it), else a new one. A username that differs only by case
+ *  is another login. Nothing is written here. */
+function upsertInto(logins: StoredVaultLogin[], entry: VaultLoginEntry): StoredVaultLogin {
+  const origin = secureOrigin(entry.origin);
+  if (!origin) throw new Error('A saved login needs an HTTPS site.');
+  const username = field(entry.username).trim();
+  const password = field(entry.password);
+  if (!username || !password) throw new Error('A saved login needs a username and a password.');
+  if (!SOURCES.includes(entry.source)) throw new Error('A saved login needs a known source.');
+  const totpSecret = entry.totpSecret ? normalizeTotpSecret(entry.totpSecret) : undefined;
+  const existing = logins.find((login) => secureOrigin(login.url) === origin && login.username === username);
+  if (existing) {
+    existing.password = password;
+    existing.source = entry.source;
+    existing.autoSignIn = true;
+    existing.savedAt = Date.now();
+    if (entry.totpSecret !== undefined) {
+      if (totpSecret) existing.totpSecret = totpSecret;
+      else delete existing.totpSecret;
+    }
+    return existing;
+  }
+  const login: StoredVaultLogin = {
+    id: loginId(origin, username),
+    url: origin,
+    username,
+    password,
+    note: '',
+    source: entry.source,
+    ...(totpSecret ? { totpSecret } : {}),
+    autoSignIn: true,
+    savedAt: Date.now(),
+  };
+  logins.push(login);
+  return login;
+}
+
 /** Reject a saved authenticator key that is neither valid base32 nor a usable
  *  otpauth:// address, so a bad key never lands in the vault. */
 function normalizeTotpSecret(value: string): string {
@@ -569,7 +608,7 @@ export function vaultAccountsFor(origin: string): Promise<Array<{ id: string; la
   return vault().accountsFor(origin);
 }
 
-export function vaultAutoSignInAccounts(origin: string, prefilled = ''): Promise<Array<{ id: string; label: string }>> {
+export function vaultAutoSignInAccounts(origin: string, prefilled = ''): Promise<VaultSignInAccount[]> {
   return vault().preferredAccountsFor(origin, prefilled);
 }
 

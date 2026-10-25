@@ -50,8 +50,10 @@
  *
  * Accounts: with several saved logins for the site the host uses the one whose
  * username is the identifier already prefilled on the page, else the one last
- * used for the site, else the most recently saved. The agent's explicit
- * `savedAccount` fill is a separate path and always wins. A successful
+ * used for the site, else the most recently saved. When that identifier fits
+ * several logins that differ only by username case and none exactly, none is
+ * guessed: nothing is filled and the sign-in is handed to the user. The agent's
+ * explicit `savedAccount` fill is a separate path and always wins. A successful
  * sign-in records the account as last used (vault metadata, never a secret).
  *
  * Guardrails: on by the `browserAutoSignIn` setting (default on); HTTPS only;
@@ -70,6 +72,7 @@ import type { WebContents } from 'electron';
 import type { BrowserCommandResult } from './command';
 import { BROWSER_DOCUMENT_ROOTS } from './documents';
 import type { BrowserCredentialFillResult } from './credential-autofill';
+import type { VaultSignInAccount } from './credential-vault';
 import type { BrowserCredentialValue } from './profile-import';
 import { pause } from './settle';
 
@@ -243,8 +246,10 @@ export interface BrowserAutoSignInDeps {
   /** Saved logins for exactly `url`'s HTTPS origin (masked labels only), the
    *  one to use first: the account whose username is the identifier already
    *  `prefilled` on the page, then the one last used for the site, then the
-   *  most recently saved (credential-vault.ts preferredAccountsFor). */
-  suggestions: (url: string, prefilled?: string) => Promise<Array<{ id: string; label: string }>>;
+   *  most recently saved (credential-vault.ts preferredAccountsFor). A head
+   *  marked `ambiguous` is not a choice: the identifier fits several logins
+   *  that differ only by case, and the sign-in is handed to the user. */
+  suggestions: (url: string, prefilled?: string) => Promise<VaultSignInAccount[]>;
   /** Hands the stored login `id` for `url`'s origin to `use`, never anywhere else. */
   withCredential: <T>(
     url: string,
@@ -500,7 +505,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     if (!first || before.challenge) return null;
     // An unreadable vault only means no saved login can be used: the page the
     // command opened stays as it is, and the sign-in is left to the user.
-    let saved: Array<{ id: string; label: string }>;
+    let saved: VaultSignInAccount[];
     try {
       saved = await deps.suggestions(startUrl, before.identifier);
     } catch {
@@ -510,6 +515,17 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     attempted.add(key);
     if (attempted.size > ATTEMPT_MEMORY) attempted.delete(attempted.values().next().value as string);
     const site = new URL(origin).host;
+    // The page's identifier fits several saved logins that differ only by
+    // username case and none exactly: no account is guessed, nothing is filled.
+    if (saved[0].ambiguous) {
+      const page = await input.observe();
+      return {
+        ...page,
+        text:
+          `${SAVED_SIGN_IN_NEEDS_USER}${site}: the identifier on the page fits several of its saved logins that differ ` +
+          `only by letter case, so none was chosen and nothing was filled. Do not retry; hand the sign-in to the user.\n\n${page.text}`,
+      };
+    }
     // Several accounts: the vault's order already put the right one first.
     const account = saved[0].id;
     /** The site's answer to the last submitted password or code (`outcome`,

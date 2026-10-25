@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -52,6 +53,47 @@ test('entries the vault cannot use are never offered, and a save writes only the
 
   assert.equal(await vault.mergeImport('csv', [{ url: 'https://csv.example.com', username: 'c', password: 'p' }]), 1);
   assert.deepEqual(stored().map((entry) => entry.username).sort(), ['c', 'ok']);
+});
+
+test('logins differing only by username case, as v1.3.5 and the current build wrote them, load and survive a save', async (t) => {
+  const { vault, write, stored } = makeVault(t);
+  // v1.3.5's Chrome import: id = sha256(url NUL username), no source, no metadata.
+  const chromeRow = (url, username, password) => ({
+    id: createHash('sha256').update(`${url}\0${username}`).digest('hex').slice(0, 24),
+    url,
+    username,
+    password,
+    note: '',
+  });
+  const login = 'https://case.example.com/login';
+  const written = [
+    chromeRow(login, 'Alice', 'pw-Alice'),
+    chromeRow(login, 'alice', 'pw-alice'),
+    // The current build's shape: an origin-keyed manual entry beside a paused one.
+    { ...chromeRow('https://head.example.com', 'Bob', 'pw-Bob'), source: 'manual', autoSignIn: false, savedAt: 5 },
+    { ...chromeRow('https://head.example.com', 'bob', 'pw-bob'), source: 'chat', savedAt: 6, lastUsedAt: 7 },
+  ];
+  write({ version: 1, credentials: written });
+
+  assert.deepEqual(
+    (await vault.list()).map((entry) => entry.username).sort(),
+    ['Alice', 'Bob', 'alice', 'bob'],
+    'every entry loads; none is merged'
+  );
+  assert.equal((await vault.accountsFor(login)).length, 2);
+
+  // A save elsewhere, then an exact re-import of the first variant: the others are untouched.
+  await vault.upsert({ origin: 'https://other.example.com', username: 'o', password: 'p', source: 'chat' });
+  assert.equal(await vault.mergeImport('chrome', [{ url: login, username: 'Alice', password: 'pw-Alice-2' }]), 1);
+  const rows = stored();
+  assert.equal(rows.length, 5);
+  for (const row of written) assert.ok(rows.some((entry) => entry.id === row.id), 'ids are kept');
+  const password = (id) => rows.find((entry) => entry.id === id).password;
+  assert.equal(password(written[0].id), 'pw-Alice-2');
+  assert.equal(password(written[1].id), 'pw-alice');
+  assert.equal(password(written[2].id), 'pw-Bob');
+  assert.equal(password(written[3].id), 'pw-bob');
+  assert.equal(rows.find((entry) => entry.id === written[2].id).autoSignIn, false, 'the pause is kept');
 });
 
 test('an unreadable vault rejects every read and write and the file is left as it was', async (t) => {

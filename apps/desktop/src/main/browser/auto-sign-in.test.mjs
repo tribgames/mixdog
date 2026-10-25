@@ -566,6 +566,37 @@ test('several saved accounts: the first the vault ranks is used, after the ident
   assert.deepEqual(f.log.used, [ACCOUNT_B]);
 });
 
+test('an identifier that fits several logins differing only by case, none exactly, is not guessed: handed to the user', async () => {
+  const ambiguous = [
+    { id: ACCOUNT_B, label: 'p•••t@example.com', ambiguous: true },
+    { id: ACCOUNT_A, label: 'P•••t@example.com', ambiguous: true },
+  ];
+  for (const page of [
+    { state: { password: true, identifier: 'PAT@example.com' } },
+    { state: { username: true, identifier: 'PAT@example.com' }, url: 'https://shop.example.com/login' },
+  ]) {
+    const f = flow({ pages: [page, SIGNED_IN], suggestions: ambiguous });
+    const reply = await f.run();
+    assert.ok(handedOff(reply), reply.text);
+    assert.match(reply.text, /differ only by letter case/);
+    assert.match(reply.text, /Do not retry; hand the sign-in to the user/);
+    assert.deepEqual(f.log.prefilled, ['PAT@example.com']);
+    assert.deepEqual(f.log.credentialIds, [], 'no stored login is even read');
+    assert.deepEqual(f.log.fills, [], 'nothing is filled');
+    assert.equal(f.log.submits, 0, 'nothing is submitted');
+    assert.deepEqual(f.log.used, []);
+    assert.doesNotMatch(JSON.stringify(reply), new RegExp(PASSWORD));
+    assert.equal(await f.run(), null, 'no second attempt this turn');
+  }
+  // The same logins without the mark (an exact match, or one variant): signed in as before.
+  const exact = flow({
+    pages: [{ state: { password: true, identifier: 'Pat@example.com' } }, SIGNED_IN],
+    suggestions: ambiguous.map(({ id, label }) => ({ id, label })),
+  });
+  assert.ok(signedIn(await exact.run()));
+  assert.deepEqual([...new Set(exact.log.credentialIds)], [ACCOUNT_B]);
+});
+
 test('a one-time code after the password is made on the host and typed with a stored key; without one it hands off', async () => {
   const withKey = flow({ pages: [{ state: { password: true } }, CODE_PAGE, SIGNED_IN], code: { value: CODE } });
   const reply = await withKey.run();

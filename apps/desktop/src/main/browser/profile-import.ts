@@ -510,10 +510,14 @@ export class BrowserProfileImportService {
         credential.username.trim().toLowerCase() === wanted.toLowerCase() ||
         maskedCredentialLabel(credential.username) === wanted
     );
+    // Usernames that differ only by case are different logins (the vault keeps
+    // them apart), so the exact username wins over a case variant of it.
+    const exact = matches.filter((credential) => credential.username.trim() === wanted);
+    const named = exact.length ? exact : matches;
     // Chrome keeps one row per sign-in URL, so the same account can appear
     // more than once for one origin; identical usernames are one login.
-    const usernames = new Set(matches.map((credential) => credential.username.trim().toLowerCase()));
-    if (usernames.size === 1) return await this.useCredential(url, matches[0].id, use, signal);
+    const usernames = new Set(named.map((credential) => credential.username.trim()));
+    if (usernames.size === 1) return await this.useCredential(url, named[0].id, use, signal);
     const labels = [...new Set(candidates.map((credential) => maskedCredentialLabel(credential.username)))]
       .sort()
       .join(', ');
