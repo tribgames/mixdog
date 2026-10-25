@@ -32,6 +32,9 @@ const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { ApprovalCard } = await import('./ApprovalCard.tsx');
 const { approvalEnterAllowsOnce, approvalAllowIsPointerOnly } = await import('../shared/approval-enter-rule.ts');
+const { createPushNotifier } = await import('../main/push-notifier.ts');
+const { createRemoteMethods } = await import('../main/remote-methods.ts');
+const { generateWebPushKeys } = await import('../main/web-push.ts');
 
 // The card's keys wait out its settle window after it appears.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 450));
@@ -112,6 +115,41 @@ for (const [name, approval] of Object.entries(cards)) {
       (decisions[0].scope === undefined || decisions[0].scope === 'once');
     assert.equal(allowedOnce, approvalEnterAllowsOnce(approval));
     if (!allowedOnce) assert.deepEqual(decisions, [], 'Enter sent nothing at all');
+  });
+}
+
+// A phone notification's Allow records the decision the card's 한 번만 허용 sends:
+// the same scope value and payload shape, per request kind.
+const SESSION = `sess_desktop_${'a'.repeat(64)}`;
+for (const name of ['shell', 'comment', 'Office commit', 'permission with a once option']) {
+  test(`${name}: a notification’s Allow records the very decision the card’s Allow just once sends`, async (t) => {
+    const approval = cards[name];
+    const [cardDecision, ...rest] = await enterOn(approval);
+    assert.deepEqual(rest, []);
+    const resolved = [];
+    const notifier = createPushNotifier({
+      store: { keys: async () => generateWebPushKeys(), list: async () => [], remove: async () => true },
+      isEnabled: () => true,
+      readFinalAnswer: async () => null,
+      isClientForeground: () => false,
+    });
+    t.after(() => notifier.dispose());
+    const methods = createRemoteMethods(
+      {
+        host: {
+          resolveToolApprovalForSession: async (...args) => {
+            resolved.push(args);
+            return true;
+          },
+          invokeDesktopOperation: async () => null,
+        },
+        approvalNotifications: notifier,
+      },
+      { deviceName: async () => 'Pixel 9' }
+    );
+    notifier.onSessionState({ sessionId: SESSION, frameSource: 'live', snapshot: { toolApproval: approval } });
+    assert.equal(await methods.answerApprovalNotification([SESSION, approval.id, 'allow']), 'answered');
+    assert.deepEqual(resolved, [[SESSION, approval.id, { ...cardDecision, device: 'Pixel 9' }]]);
   });
 }
 

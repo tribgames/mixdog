@@ -19,6 +19,7 @@ import {
   type DesktopSettings,
   type DesktopUpdaterState,
   MAIN_BROWSER_PAGE_PREFIX,
+  type ToolApprovalDecision,
 } from '../shared/contract';
 import { REMOTE_BLOCKED_CAPABILITY_NAMES } from '../shared/remote-blocked-capabilities';
 import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
@@ -206,7 +207,8 @@ export interface RemoteMethodDependencies {
   /** Which approval a notification's Allow may answer (push-notifier.ts). Only
    *  the relay leg supplies it; without it every such Allow opens the app. */
   approvalNotifications?: {
-    approvalAllowsOnce(sessionId: string, approvalId: string): boolean;
+    /** What that Allow answers with (the card's 한 번만 허용 decision); null opens the app. */
+    approvalAllowDecision(sessionId: string, approvalId: string): ToolApprovalDecision | null;
     /** Allowed only by a click on its card: a bare Allow for it is refused. */
     approvalPointerOnly(sessionId: string, approvalId: string): boolean;
   };

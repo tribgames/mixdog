@@ -22,7 +22,13 @@ import { useRemoteHostImageUrl } from './local-image-preview';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { useSessionTitle } from './session-glance-store';
-import { approvalAllowIsPointerOnly, type PermissionScope, permissionChoices } from '../shared/approval-enter-rule';
+import {
+  approvalAllowIsPointerOnly,
+  approveClickDecision,
+  type PermissionScope,
+  permissionAllowDecision,
+  permissionChoices,
+} from '../shared/approval-enter-rule';
 
 function approvalText(value: unknown, preferredKey: string): string {
   const preferred = asRecord(value)?.[preferredKey];
@@ -370,8 +376,8 @@ export function approvalCardRows(
   if (model.kind === 'permission') {
     const { always, once } = permissionChoices(model.scopes);
     return [
-      ...(once ? [{ label: t('Allow just once'), decision: { approved: true, scope: once.id } }] : []),
-      ...(always ? [{ label: t('Always allow'), decision: { approved: true, scope: always.id } }] : []),
+      ...(once ? [{ label: t('Allow just once'), decision: permissionAllowDecision(once) }] : []),
+      ...(always ? [{ label: t('Always allow'), decision: permissionAllowDecision(always) }] : []),
       { ...cancel, label: t('Deny') },
     ];
   }
@@ -379,13 +385,13 @@ export function approvalCardRows(
     return [
       // response 'approve': this card's own click (remote-session-methods.ts
       // refuses a bare Allow for a click-only approval).
-      { label: officeLabel, decision: { approved: true, response: 'approve' } },
+      { label: officeLabel, decision: approveClickDecision() },
       { label: t('Keep editing'), decision: { approved: false } },
     ];
   }
   if (model.action === 'payment') {
     return [
-      { label: t('Allow payment'), decision: { approved: true, response: 'approve' } },
+      { label: t('Allow payment'), decision: approveClickDecision() },
       { ...cancel, label: t('Deny') },
     ];
   }
@@ -393,7 +399,7 @@ export function approvalCardRows(
     return [
       {
         label: t('Delete {{n}} permanently', { n: model.details.count || '1' }),
-        decision: { approved: true, response: 'approve' },
+        decision: approveClickDecision(),
       },
       { ...cancel, label: t('Deny') },
     ];

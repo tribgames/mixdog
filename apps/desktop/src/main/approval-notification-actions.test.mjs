@@ -69,6 +69,42 @@ test('an ordinary shell approval is allowed once from its notification, as the c
   assert.deepEqual(h.resolved, [[SESSION, 'a1', { approved: true, device: 'Pixel 9' }]]);
 });
 
+test('a permission request’s notification Allow answers with its allow-once scope, as the card’s 한 번만 허용 does', async (t) => {
+  const h = host(t);
+  h.show({
+    id: 'w2',
+    kind: 'permission',
+    permission: {
+      scopes: [
+        { id: 'opt-always', kind: 'allow_always', label: 'Always' },
+        { id: 'opt-once', kind: 'allow_once', label: 'Once' },
+        { id: 'opt-no', kind: 'reject_once', label: 'No' },
+      ],
+    },
+  });
+  assert.equal(await h.answer('w2', 'allow'), 'answered');
+  // The scope id the runtime offered (never the kind, never the always option), nothing standing.
+  assert.deepEqual(h.resolved, [[SESSION, 'w2', { approved: true, scope: 'opt-once', device: 'Pixel 9' }]]);
+});
+
+test('a notification Deny of a permission request is the card’s plain Deny: no scope', async (t) => {
+  const h = host(t);
+  h.show({
+    id: 'w3',
+    kind: 'permission',
+    permission: { scopes: [{ id: 'opt-once', kind: 'allow_once', label: 'Once' }] },
+  });
+  assert.equal(await h.answer('w3', 'deny'), 'answered');
+  assert.deepEqual(h.resolved, [[SESSION, 'w3', { approved: false, device: 'Pixel 9' }]]);
+});
+
+test('an Office commit’s notification Allow answers as the card’s own Allow does: response approve', async (t) => {
+  const h = host(t);
+  h.show({ id: 'o2', kind: 'approval', name: 'office', args: { action: 'commit' } });
+  assert.equal(await h.answer('o2', 'allow'), 'answered');
+  assert.deepEqual(h.resolved, [[SESSION, 'o2', { approved: true, response: 'approve', device: 'Pixel 9' }]]);
+});
+
 test('a notification Deny answers any approval, as the card’s 거절', async (t) => {
   const h = host(t);
   h.show(refused.payment);

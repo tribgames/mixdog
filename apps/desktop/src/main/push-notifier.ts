@@ -5,7 +5,7 @@
 // session that triggered it.
 import { createHash } from 'node:crypto';
 
-import { approvalAllowIsPointerOnly, approvalEnterAllowsOnce } from '../shared/approval-enter-rule';
+import { approvalAllowIsPointerOnly, approvalAllowOnceDecision } from '../shared/approval-enter-rule';
 import { TURN_FAILED_TEXT } from './desktop-turn-notifier';
 import { createFinalAnswerWatcher } from './final-answer-watcher';
 import { encryptNativePush, type NativePushContent, type NativePushReason } from '../shared/native-push-crypto';
@@ -21,7 +21,7 @@ import type { TurnCompletion } from './push-turn-events';
 import type { PushSubscriptionStore } from './push-subscription-store';
 import type { RelayWebPushTarget } from './remote-relay-web-push';
 import { encryptWebPushPayload, sendWebPush } from './web-push';
-import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
+import type { DesktopAgentPoolRow, DesktopSessionSummary, ToolApprovalDecision } from '../shared/contract';
 import {
   type ConversationNotificationOverride,
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -105,6 +105,9 @@ interface PushApproval {
   allowOnce: boolean;
   /** A payment, permanent delete or Office rollback: allowed only by a click. */
   pointerOnly?: boolean;
+  /** What a notification's Allow answers with: the decision the card's
+   *  한 번만 허용 sends (shared/approval-enter-rule.ts). Set when `allowOnce`. */
+  allowDecision?: ToolApprovalDecision;
 }
 
 interface PushNotifier {
@@ -115,6 +118,10 @@ interface PushNotifier {
    *  session shows now, which this PC's card allows once with a bare Enter
    *  (shared/approval-enter-rule.ts). Anything else is decided in the app. */
   approvalAllowsOnce(sessionId: string, approvalId: string): boolean;
+  /** The decision a notification's Allow answers `approvalId` with: what this
+   *  PC's card sends for its 한 번만 허용 (a permission's once scope...). Null
+   *  wherever `approvalAllowsOnce` is false: the app opens on it instead. */
+  approvalAllowDecision(sessionId: string, approvalId: string): ToolApprovalDecision | null;
   /** Whether `approvalId`, the approval the session shows now, is allowed only
    *  by a click on its card (shared/approval-enter-rule.ts). */
   approvalPointerOnly(sessionId: string, approvalId: string): boolean;
@@ -496,12 +503,14 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     const approval = snapshot?.toolApproval as { id?: unknown; kind?: unknown } | null | undefined;
     // A question has no Allow/Deny: it only opens the app.
     const isQuestion = approval?.kind === 'question';
+    const allowDecision = approvalAllowOnceDecision(approval);
     const shown =
       approval && !isQuestion
         ? {
             id: String(approval.id ?? 'pending'),
-            allowOnce: approvalEnterAllowsOnce(approval),
+            allowOnce: allowDecision !== null,
             pointerOnly: approvalAllowIsPointerOnly(approval),
+            ...(allowDecision ? { allowDecision } : {}),
           }
         : null;
     if (shown) shownApprovals.set(sessionId, shown);
@@ -599,6 +608,10 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     approvalAllowsOnce(sessionId, approvalId) {
       const shown = shownApprovals.get(sessionId);
       return shown?.allowOnce === true && shown.id === approvalId;
+    },
+    approvalAllowDecision(sessionId, approvalId) {
+      const shown = shownApprovals.get(sessionId);
+      return shown?.allowOnce === true && shown.id === approvalId ? (shown.allowDecision ?? null) : null;
     },
     approvalPointerOnly(sessionId, approvalId) {
       const shown = shownApprovals.get(sessionId);

@@ -10,6 +10,8 @@
 // takeover or secret (Enter does that step, it allows nothing), a question,
 // or a kind this rule does not know.
 
+import type { ToolApprovalDecision } from './contract';
+
 export type PermissionScope = { id: string; kind: string; label: string };
 
 // A permission request's options are mapped to buttons by their KIND (never by
@@ -69,4 +71,32 @@ export function approvalEnterAllowsOnce(approval: unknown): boolean {
   const kind = String(request.kind || 'approval');
   if (kind === 'permission') return permissionChoices(permissionScopesOf(request)).once !== null;
   return kind === 'approval' || kind === 'outbound';
+}
+
+/** What the card sends when a permission request is allowed with this option:
+ *  the option's scope id. */
+export function permissionAllowDecision(scope: PermissionScope): ToolApprovalDecision {
+  return { approved: true, scope: scope.id };
+}
+
+/** What the card's own click sends for an Office commit, a payment or a
+ *  permanent delete: an allow that says response 'approve'. */
+export function approveClickDecision(): ToolApprovalDecision {
+  return { approved: true, response: 'approve' };
+}
+
+/** The decision the card's 한 번만 허용 (the one a bare Enter presses) sends for
+ *  this request, so a notification's Allow records the same answer: a
+ *  permission's once option as its scope, an Office commit as 'approve', any
+ *  other tool or outbound approval bare. Null where Enter does not allow once. */
+export function approvalAllowOnceDecision(approval: unknown): ToolApprovalDecision | null {
+  const request = recordOf(approval);
+  if (!request || !approvalEnterAllowsOnce(request)) return null;
+  if (String(request.kind || 'approval') === 'permission') {
+    const once = permissionChoices(permissionScopesOf(request)).once;
+    return once ? permissionAllowDecision(once) : null;
+  }
+  const action = String(recordOf(request.args)?.action || '').toLowerCase();
+  if (String(request.name || '').toLowerCase() === 'office' && action === 'commit') return approveClickDecision();
+  return { approved: true };
 }

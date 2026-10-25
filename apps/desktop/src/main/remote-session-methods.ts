@@ -172,22 +172,26 @@ export function sessionRemoteMethods(
       );
     },
     // A phone notification's Allow / Deny (native-push-bridge.ts). Deny answers
-    // as the card's 거절. Allow answers once, and only the approval the session
-    // shows now where this PC's card allows it with a bare Enter
-    // (push-notifier.ts approvalAllowsOnce); any other Allow (a payment, a
-    // permanent delete, an always-only permission, a sign-in...) is refused
-    // here, whatever the phone offered, and answered 'open'.
+    // as the card's 거절. Allow answers once with the very decision this PC's
+    // card sends for its 한 번만 허용 (a permission request's once scope...;
+    // shared/approval-enter-rule.ts), and only for the approval the session
+    // shows now where that card allows it with a bare Enter (push-notifier.ts
+    // approvalAllowDecision); any other Allow (a payment, a permanent delete,
+    // an always-only permission, a sign-in...) is refused here, whatever the
+    // phone offered, and answered 'open'.
     answerApprovalNotification: async ([sessionId, id, action]): Promise<ApprovalNotificationAnswer> => {
       const session = requiredSessionId(sessionId);
       const approvalId = requiredString(id, 'approval id', 1_024);
       if (action !== 'allow' && action !== 'deny') throw new TypeError('action must be allow or deny.');
-      if (action === 'allow' && approvalNotifications?.approvalAllowsOnce(session, approvalId) !== true) return 'open';
+      const decision =
+        action === 'allow' ? approvalNotifications?.approvalAllowDecision(session, approvalId) : { approved: false };
+      if (!decision) return 'open';
       const accepted = await resolveToolApprovalAnnouncingGrant(
         host,
         (name, args) => host.invokeDesktopOperation(name, args),
         session,
         approvalId,
-        { approved: action === 'allow', device: await connectionDevice() }
+        { ...decision, device: await connectionDevice() }
       );
       return accepted ? 'answered' : 'settled';
     },

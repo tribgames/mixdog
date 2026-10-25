@@ -7,7 +7,7 @@ import type { NotificationDeviceInfo, NotificationPreferencesStore } from './not
 import { createBrowserApprovalGrants } from './browser/approval-grants';
 import type { NativePushStore } from './native-push-store';
 import type { PushSubscriptionStore } from './push-subscription-store';
-import type { DesktopSessionSummary } from '../shared/contract';
+import type { DesktopSessionSummary, ToolApprovalDecision } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import type { RelayCatalogs } from './remote-relay-catalog';
 import type { RelayClientState, RelayClientRegistry, SendEncryptedFrame } from './remote-relay-clients';
@@ -56,8 +56,9 @@ export interface RelaySessionSubscriptions {
   /** A revoked client: its push registrations and notification preferences go. */
   forgetClient(clientId: string): void;
   sendTestNotification(clientId: string): Promise<NotificationTestResult>;
-  /** Whether a notification's Allow may answer that approval (push-notifier.ts). */
-  approvalAllowsOnce(sessionId: string, approvalId: string): boolean;
+  /** The decision a notification's Allow answers that approval with, or null
+   *  where it may not (push-notifier.ts). */
+  approvalAllowDecision(sessionId: string, approvalId: string): ToolApprovalDecision | null;
   /** Whether that approval is allowed only by a click on its card (push-notifier.ts). */
   approvalPointerOnly(sessionId: string, approvalId: string): boolean;
   /** Sent to each connection right after its handshake (remote-relay-push-lanes.ts). */
@@ -207,8 +208,8 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
           void notifications?.preferences.removeDevice(clientId).catch(() => undefined);
         },
         sendTestNotification: (clientId: string) => pushNotifier.sendTest(clientId),
-        approvalAllowsOnce: (sessionId: string, approvalId: string) =>
-          pushNotifier.approvalAllowsOnce(sessionId, approvalId),
+        approvalAllowDecision: (sessionId: string, approvalId: string) =>
+          pushNotifier.approvalAllowDecision(sessionId, approvalId),
         approvalPointerOnly: (sessionId: string, approvalId: string) =>
           pushNotifier.approvalPointerOnly(sessionId, approvalId),
         joinFrames: () => pushLanes.joinFrames(),

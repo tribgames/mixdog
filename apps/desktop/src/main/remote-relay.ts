@@ -293,8 +293,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           // The push lane decides what a notification's Allow may answer; a
           // call needs a connection, so the subscriptions below exist by then.
           approvalNotifications: {
-            approvalAllowsOnce: (sessionId, approvalId) =>
-              sessionSubscriptions.approvalAllowsOnce(sessionId, approvalId),
+            approvalAllowDecision: (sessionId, approvalId) =>
+              sessionSubscriptions.approvalAllowDecision(sessionId, approvalId),
             approvalPointerOnly: (sessionId, approvalId) =>
               sessionSubscriptions.approvalPointerOnly(sessionId, approvalId),
           },
