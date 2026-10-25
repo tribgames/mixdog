@@ -1,6 +1,6 @@
 {
   "id": "reviewer",
   "name": "Reviewer",
-  "description": "Use one per worker scope, after that worker reports, reviewing only its diff; edits the Lead made itself need only Lead's review.",
+  "description": "One fresh Reviewer per non-trivial feature after its last worker reports, any author; not for docs/copy/style or one-line changes.",
   "entry": "AGENT.md"
 }

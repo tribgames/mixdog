@@ -19,9 +19,7 @@ never route one through `tidy` (they are not tidy engines):
 | `deadcode` (Go, `golang.org/x/tools`) / `cargo machete` | unreachable functions / unused crates | only when on PATH |
 | `code_graph mode:symbols` per selected file | private helpers with no callers (`callers`) | universal, no install |
 
-Keep optional unused-code diagnostics separate from the build baseline.
-Do not add stricter compiler flags for a routine cleanup check; an explicitly
-requested additional diagnostic does not redefine the project's build criteria.
+Do not add stricter compiler flags for a routine cleanup.
 
 An import the project cannot resolve, or one whose package is absent from the
 manifest, is not dead code but a phantom dependency: report it under "Bugs
@@ -48,7 +46,7 @@ found" and never settle it by installing the package.
    module for registration or initialization. Preserve required initialization
    rather than deleting it with the binding.
 5. Record the symbol, kind, classified usage and contract evidence, side-effect
-   result, and proposed action in the shared candidate inventory.
+   result, and proposed action in the candidate list.
 
 ## Never dead
 
@@ -81,9 +79,7 @@ evidence. Apply this procedure before classifying an old path as dead:
 4. For a verified obsolete path, inventory its callers, flags/config, tests,
    docs, files, and dependencies. Remove only approved members in the order
    below; request scope expansion before editing related files outside it.
-5. Verify the current path and remaining supported compatibility cases with
-   documented checks. Record the retirement evidence and any remaining items.
-   A still-required path is kept with its contract; an unknown obligation
+5. Record the retirement evidence and any remaining items. A still-required path is kept with its contract; an unknown obligation
    leaves the candidate blocked, not assumed obsolete.
 
 ## Remove in order
@@ -98,11 +94,9 @@ evidence. Apply this procedure before classifying an old path as dead:
    project's own package manager.
 
 Group edits by file so one batch never touches a file another batch edits.
-Verification and failure rollback follow the skill body (section 4 step 3 and
-the test-failure pitfall); never patch forward past a failure.
+Verification and rollback follow the skill body (section 5).
 
 ## Report
 
-Use the shared candidate inventory and closing report, not a second dead-code
-ledger. Include the symbol/kind, usage and side-effect evidence, any legacy
-obligations, and verification result for each completed, kept, or unfinished ID.
+Use the shared candidate list and closing report, with usage and side-effect
+evidence per ID.

@@ -369,16 +369,17 @@ function buildRouteRulesContent({
 // - `identity`: the coding identity sentence ("You are Mixdog, …").
 const LEAD_IDENTITY_LINE = /^- (You are Mixdog, a coding agent\.)\n/m;
 const LEAD_PROGRESS_PASSAGE = / (Before your first tool call, briefly state[\s\S]*?narration or plan repeats\.)/;
-const LEAD_REPORT_PASSAGE = / (On an agent report, review its diff[\s\S]*?not a completed request\.)/;
+const LEAD_REPORT_PASSAGE = / (On an agent report[\s\S]*?not a completed request\.)/;
 const AGENT_MODE_PROGRESS =
   '- Just answer conversation. Quick tool use (checking memory, leaving a\n' +
   '  reaction) needs no announcement. When starting longer work (research,\n' +
   '  delegation, multi-step tasks), say what you are doing, and share the\n' +
   '  result when it finishes.';
 const AGENT_MODE_REPORT =
-  '- On an agent report, check the result against what you delegated and\n' +
-  '  relay it in your own words, keeping uncertainty, failures and sources\n' +
-  '  intact. Review a diff only when you delegated code.';
+  '- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n' +
+  '  feature after its last worker, any author (Lead if none); docs/copy/style:\n' +
+  '  read the diff. Recheck only fixes; at request end check feature seams and\n' +
+  '  run affected suites once.';
 
 function buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief = true, part = 'common' }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');

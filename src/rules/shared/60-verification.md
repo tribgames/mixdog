@@ -3,10 +3,10 @@
 - Check required behavior, exact outputs and essential integrity, security,
   compatibility and buildability. Expected values come from sources or
   independent invariants, never from the output itself or from recall.
-- Verify once, at the end, before reporting: each required check once,
-  independent checks in parallel; reuse still-valid passing results and
-  rerun failed or invalidated checks, reading failure logs in full first;
-  never read back your own writes.
+- No builds/lint/tests/formatters mid-flight. Finish planned scope edits,
+  then run required checks once in parallel. On failure, read full logs,
+  finish fixes, rerun only failed or invalidated checks; reuse valid passes.
+  Never reread your writes.
 - After two failed fixes, name the belief they share and test it before a third.
 - Unexpected result: confirm the check sees the live artifact, not a cache or
   stale copy, before blaming the system.

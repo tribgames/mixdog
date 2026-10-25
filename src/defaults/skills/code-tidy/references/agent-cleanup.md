@@ -40,7 +40,7 @@ evidence as `kept`.
 ## Deletion ladder
 
 Run the ladder on every selected unit (function, class, module, config knob)
-in the current round before looking for smells. Only code that lands on the
+in scope before looking for smells. Only code that lands on the
 last rung goes on to the lenses.
 
 | Rung | Question | Typical win |
@@ -55,7 +55,7 @@ in-place cleanup; take it before analysing the unit's smells.
 
 ## Lenses
 
-Each lens judges the current partition's units and may search the whole
+Each lens judges the units in scope and may search the whole
 repository for evidence (an existing helper, a sibling call site); a finding
 without a path-plus-symbol pointer is dropped. Run every lens unless the user named a focus.
 Judge each selected function or class in its full context, including relevant
@@ -116,8 +116,8 @@ Every finding carries one tier:
 
 | Tier | Meaning | Examples | Handling |
 |---|---|---|---|
-| SAFE | equivalence established, including initialization and parsing | verified unused binding with no initialization effects, nonsemantic comment, redundant type assertion | apply as one batch; verify the affected behavior without repeating unchanged checks |
-| CAREFUL | same semantics, structure changes | rename a local, flatten a ternary, guard clause, verified wrapper inlining, extract a helper, split responsibilities while preserving entry points, consolidate duplicates, name a magic number | apply one source unit at a time (including required new modules); targeted verification at behavior boundaries, final checks once; undo only this run's edits on failure |
+| SAFE | equivalence established, including initialization and parsing | verified unused binding with no initialization effects, nonsemantic comment, redundant type assertion | apply as one batch |
+| CAREFUL | same semantics, structure changes | rename a local, flatten a ternary, guard clause, verified wrapper inlining, extract a helper, split responsibilities while preserving entry points, consolidate duplicates, name a magic number | apply one source unit at a time (including required new modules); verified by the single final check; undo only this run's edits if it cannot be fixed |
 | RISKY | may change behavior or a contract | public API or export rename, route/DB column/config key rename, error-handling change, concurrency change, N+1 restructuring, altitude fix in shared infrastructure | report only, with the test coverage status; never auto-apply |
 
 Conflict resolution when lenses disagree: correctness > the user's stated

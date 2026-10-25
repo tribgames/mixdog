@@ -203,7 +203,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.doesNotMatch(full, /Git→`git`/i);
   assert.match(
     full,
-    /reuse still-valid passing results and\s+rerun failed or invalidated checks, reading failure logs in full first;\s+never read back your own writes/i
+    /On failure, read full logs,\s+finish fixes, rerun only failed or invalidated checks; reuse valid passes\.\s+Never reread your writes/i
   );
   assert.doesNotMatch(full, /Verify once after all edits/i);
   assert.match(full, /Generated data is not evidence/i);
@@ -227,10 +227,10 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.doesNotMatch(full, /UI\/edit sites/i);
   assert.match(
     full,
-    /Verify once, at the end, before reporting: each required check once,\s+independent checks in parallel/i
+    /No builds\/lint\/tests\/formatters mid-flight\. Finish planned scope edits,\s+then run required checks once in parallel/i
   );
   assert.match(full, /no\s+stricter flags or unrequested suites/i);
-  assert.match(full, /reuse still-valid passing results/i);
+  assert.match(full, /reuse valid passes/i);
   assert.doesNotMatch(full, /Collect failures, finish fixes/i);
   // Goal lifecycle and completion policy live in the goal tool description and skill.
   assert.doesNotMatch(full, /Completion means the verified objective/i);

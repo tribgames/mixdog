@@ -218,7 +218,7 @@ test('a coding Lead prompt: the same with or without a mode, in the prefix-shari
     ),
     words(LEAD_MD)
   );
-  assert.doesNotMatch(_buildLeadRules(), /You are Mixdog|Before your first tool call|review its diff/);
+  assert.doesNotMatch(_buildLeadRules(), /You are Mixdog|Before your first tool call|On an agent report/);
   assert.match(instructionFiles, /INSTRUCTION_FILE_SENTINEL/);
   assert.doesNotMatch(core, /# Bot Mode|# Delegation\n|# Your Role|# Bots\n/);
 });
@@ -288,7 +288,7 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
     ].join(SEP)
   );
   assert.match(parts.orchestrationContext, /^# Delegation\n\nHandle conversation yourself\./);
-  assert.match(_buildLeadRules({ part: 'agent' }), /- Just answer conversation\.[\s\S]*- On an agent report, check/);
+  assert.match(_buildLeadRules({ part: 'agent' }), /- Just answer conversation\.[\s\S]*- Relay agent reports faithfully\./);
   // Sub-agent catalog: no contact. Contact catalog: the other bots, never itself.
   assert.match(parts.agentCatalogContext, /\(worker\)/);
   assert.doesNotMatch(parts.agentCatalogContext, /\(sample\)|\(other\)/);
