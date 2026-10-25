@@ -49,6 +49,10 @@ may be ignored, and submissions that obviously skip your own review are closed.
 
 ## Before you open a pull request
 
+While you work, `npm test -- --changed` (and the same after
+`npm test --prefix apps/desktop`) runs only the tests your edits reach. Run the
+full commands below once, at the end:
+
 ```sh
 npm test
 npm test --prefix apps/desktop
