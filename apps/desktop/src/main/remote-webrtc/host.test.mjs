@@ -58,6 +58,131 @@ test('a demotion the phone caused by closing reaches it before the answer to tha
   assert.equal(answered, true);
 });
 
+test('a captured source switches to a drawn track for raw pictures and back, and hears each delivery', async () => {
+  const screen = { kind: 'screen', screenId: '1' };
+  const commands = [];
+  let emit = () => {};
+  let plan = { sourceId: 'screen:1:0', width: 400, height: 300, maxFrameRate: 30 };
+  const delivered = [];
+  const host = createRemoteWebrtcHost({
+    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sendSignal: () => Promise.resolve(),
+    sources: () => ({
+      source: screen,
+      start() {},
+      stop() {},
+      page: () => ({ documentId: null, geometry }),
+      dispatch: async () => {},
+      capturePlan: () => plan,
+      delivered: (epoch) => delivered.push(epoch),
+    }),
+    report: () => {},
+  });
+  const of = (type) => commands.filter((command) => command.type === type);
+  // Helper path before the first connection: the drawn track at its open, no capture.
+  await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'geometry-ack', geometryGeneration: 1 });
+  host.drawnTrack('screen:1', true);
+  assert.deepEqual(of('source-draw'), [], 'nothing to switch before a connection');
+  await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'ready', receiveCodecs: ['video/VP8'] }, TURN);
+  assert.deepEqual(
+    commands.filter((command) => command.type === 'source-draw' || command.type === 'open').map((command) => command.type),
+    ['source-draw', 'open']
+  );
+  assert.deepEqual(of('source-capture'), [], 'no capture replaces the drawn track');
+  // A raw picture goes as the rows to crop and scale; its frame-done tells the source its run.
+  const pixels = new Uint8Array(800 * 300 * 4);
+  const rows = pixels.subarray(0, 800 * 4 * 300);
+  const raw = (epoch) => ({
+    documentId: null,
+    geometry,
+    epoch,
+    mimeType: 'image/x-bgrx',
+    pixels: rows,
+    width: 800,
+    height: 300,
+    stride: 3200,
+    source: { x: 400, y: 0, width: 400, height: 300 },
+    target: { x: 0, y: 0, width: 400, height: 300 },
+  });
+  host.frame('screen:1', raw(2));
+  const [frame] = of('frame');
+  assert.equal(frame.mimeType, 'image/x-bgrx');
+  assert.deepEqual([frame.width, frame.height, frame.stride, frame.pixelWidth], [800, 300, 3200, 400]);
+  assert.deepEqual(frame.source, { x: 400, y: 0, width: 400, height: 300 });
+  assert.equal(frame.pixels, rows, 'a tight array goes as it is');
+  assert.equal('data' in frame, false);
+  emit({ type: 'frame-done', sourceKey: 'screen:1', frameId: frame.frameId, ok: true });
+  assert.deepEqual(delivered, [2]);
+  emit({ type: 'frame-done', sourceKey: 'screen:1', frameId: frame.frameId, ok: true });
+  assert.deepEqual(delivered, [2], 'only for the picture in flight');
+  // A view of a larger buffer is sent as its own bytes (the one picture sent, only).
+  host.frame('screen:1', { ...raw(2), pixels: pixels.subarray(3200, 3200 * 2) });
+  assert.equal(of('frame').at(-1).pixels.byteLength, 3200);
+  assert.equal(of('frame').at(-1).pixels.buffer.byteLength, 3200);
+  // A display change while drawing doesn't reopen the capture yet.
+  plan = { ...plan, width: 800, height: 600 };
+  host.captureChanged('screen:1');
+  assert.deepEqual(of('source-capture'), []);
+
+  // The reviewer's probe: a frame in flight, the path to capture and back to
+  // the drawn track; the old frame's ok acknowledgement then lands.
+  const inFlight = of('frame').at(-1);
+  host.frame('screen:1', raw(2));
+  host.drawnTrack('screen:1', false);
+  assert.deepEqual(of('source-capture'), [{ type: 'source-capture', sourceKey: 'screen:1', plan }]);
+  host.drawnTrack('screen:1', true);
+  assert.equal(of('source-draw').length, 2);
+  emit({ type: 'frame-done', sourceKey: 'screen:1', frameId: inFlight.frameId, ok: true });
+  assert.deepEqual(delivered, [2], 'an acknowledgement from before the transitions delivers nothing');
+  assert.equal(of('frame').at(-1), inFlight, 'the waiting picture of the old path was dropped');
+  host.drawnTrack('screen:1', true);
+  assert.equal(of('source-draw').length, 2, 'idempotent');
+});
+
+test('a sender crash resets each source’s track; the next connection sets up the selected path first', async () => {
+  const screen = { kind: 'screen', screenId: '1' };
+  const commands = [];
+  let emit = () => {};
+  const plan = { sourceId: 'screen:1:0', width: 400, height: 300, maxFrameRate: 30 };
+  const host = createRemoteWebrtcHost({
+    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sendSignal: () => Promise.resolve(),
+    sources: () => ({
+      source: screen,
+      start() {},
+      stop() {},
+      page: () => ({ documentId: null, geometry }),
+      dispatch: async () => {},
+      capturePlan: () => plan,
+    }),
+    report: () => {},
+  });
+  const ready = { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'ready', receiveCodecs: ['video/VP8'] };
+  const setup = () =>
+    commands
+      .filter((command) => ['source-capture', 'source-draw', 'open'].includes(command.type))
+      .map((command) => command.type);
+  const reopen = async () => {
+    // The crash failed the connection; the phone's viewer leaves and comes back.
+    host.viewerLeft('c1', 'screen:1');
+    await host.signal('c1', ready, TURN);
+  };
+  await host.signal('c1', ready, TURN);
+  assert.deepEqual(setup(), ['source-capture', 'open']);
+
+  // The renderer dies, its tracks with it: the capture is opened again first.
+  emit(null);
+  await reopen();
+  assert.deepEqual(setup(), ['source-capture', 'open', 'source-capture', 'open']);
+
+  // On the drawn path when it dies: the drawn track again, not the capture.
+  host.drawnTrack('screen:1', true);
+  emit(null);
+  commands.length = 0;
+  await reopen();
+  assert.deepEqual(setup(), ['source-draw', 'open']);
+});
+
 test('a ready that widens the video limit mid-negotiation offers only the reconciled, widened geometry', async () => {
   const commands = [];
   const signals = [];

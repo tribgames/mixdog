@@ -43,6 +43,10 @@ function fakeScreen(over = {}) {
       onStatus: () => () => {},
       cursor: () => null,
       onCursor: () => () => {},
+      onFrame: () => () => {},
+      videoPath: () => 'capture',
+      onVideoPath: () => () => {},
+      setHelperVideo: () => {},
     },
   };
 }
@@ -56,6 +60,7 @@ function fakeSink() {
       frame: () => calls.push(['frame']),
       captureChanged: (key) => calls.push(['capture', key]),
       channelPush: (key, message) => calls.push(['push', key, message.kind]),
+      drawnTrack: (key, drawn) => calls.push(['drawn', key, drawn]),
     },
   };
 }

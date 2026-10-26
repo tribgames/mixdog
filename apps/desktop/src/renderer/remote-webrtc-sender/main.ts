@@ -40,8 +40,25 @@ interface Connection {
 
 const sources = new Map<string, RemoteWebrtcSenderSource>();
 const connections = new Map<string, Connection>();
+
+/** A canvas-generated track, fed only when a picture is drawn. */
+function createDrawn(): RemoteWebrtcSenderSource {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 2;
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('2D canvas is unavailable.');
+  // Frames only when a picture is drawn (requestFrame), never on a timer.
+  const stream = canvas.captureStream(0);
+  const track = stream.getVideoTracks()[0] as RemoteWebrtcSenderSource['track'];
+  // Text and UI: keep detail (and resolution) over motion smoothness.
+  track.contentHint = 'detail';
+  return { canvas, context, stream, track };
+}
+
 const captures = createRemoteWebrtcSourceCaptures({
   acquire: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
+  createDrawn,
   sources,
   senders: (sourceKey) =>
     [...connections.values()].flatMap((connection) =>
@@ -53,41 +70,79 @@ const captures = createRemoteWebrtcSourceCaptures({
 function sourceTrack(sourceKey: string): RemoteWebrtcSenderSource {
   let entry = sources.get(sourceKey);
   if (entry) return entry;
-  const canvas = document.createElement('canvas');
-  canvas.width = 2;
-  canvas.height = 2;
-  const context = canvas.getContext('2d', { alpha: false });
-  if (!context) throw new Error('2D canvas is unavailable.');
-  // Frames only when a picture is drawn (requestFrame), never on a timer.
-  const stream = canvas.captureStream(0);
-  const track = stream.getVideoTracks()[0] as RemoteWebrtcSenderSource['track'];
-  // Text and UI: keep detail (and resolution) over motion smoothness.
-  track.contentHint = 'detail';
-  entry = { canvas, context, stream, track };
+  entry = createDrawn();
   sources.set(sourceKey, entry);
   return entry;
 }
 
+/** Draws the picture onto the canvas, already sized to the frame's pixel size. */
+async function paint(
+  command: Extract<RemoteWebrtcSenderCommand, { type: 'frame' }>,
+  context: CanvasRenderingContext2D
+): Promise<void> {
+  if (command.mimeType === 'image/x-bgrx') {
+    // WebCodecs takes the helper's B, G, R, X rows as they are (with their
+    // stride), and the canvas crops, scales and converts on draw: no
+    // per-pixel work in JS, here or in main.
+    const frame = new VideoFrame(command.pixels, {
+      format: 'BGRX',
+      codedWidth: command.width,
+      codedHeight: command.height,
+      layout: [{ offset: 0, stride: command.stride }],
+      timestamp: 0,
+    });
+    try {
+      const { source, target } = command;
+      // Desktop area the helper frame does not cover stays black.
+      context.fillStyle = '#000';
+      context.fillRect(0, 0, command.pixelWidth, command.pixelHeight);
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(
+        frame,
+        source.x,
+        source.y,
+        source.width,
+        source.height,
+        target.x,
+        target.y,
+        target.width,
+        target.height
+      );
+    } finally {
+      frame.close();
+    }
+    return;
+  }
+  const bytes = Uint8Array.from(atob(command.data), (char) => char.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: command.mimeType }), {
+    resizeWidth: command.pixelWidth,
+    resizeHeight: command.pixelHeight,
+    resizeQuality: 'high',
+  });
+  try {
+    context.drawImage(bitmap, 0, 0);
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** Draws a picture into the source's drawn track. `ok` means it is in the
+ *  track every connection of the source sends: still the source's track, and
+ *  on every sender (`installed`). */
 async function drawFrame(command: Extract<RemoteWebrtcSenderCommand, { type: 'frame' }>): Promise<void> {
   let ok = false;
   try {
     const entry = sourceTrack(command.sourceKey);
     const { canvas, context } = entry;
     if (!canvas || !context) throw new Error('A captured source takes no pictures.');
-    const bytes = Uint8Array.from(atob(command.data), (char) => char.charCodeAt(0));
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: command.mimeType }), {
-      resizeWidth: command.pixelWidth,
-      resizeHeight: command.pixelHeight,
-      resizeQuality: 'high',
-    });
     if (canvas.width !== command.pixelWidth || canvas.height !== command.pixelHeight) {
       canvas.width = command.pixelWidth;
       canvas.height = command.pixelHeight;
     }
-    context.drawImage(bitmap, 0, 0);
-    bitmap.close();
+    await paint(command, context);
     entry.track.requestFrame?.();
-    ok = true;
+    await entry.installed;
+    ok = sources.get(command.sourceKey) === entry;
   } finally {
     emit({ type: 'frame-done', sourceKey: command.sourceKey, frameId: command.frameId, ok });
   }
@@ -290,6 +345,9 @@ async function run(command: RemoteWebrtcSenderCommand): Promise<void> {
       return drawFrame(command);
     case 'source-capture':
       return captures.capture(command.sourceKey, command.plan);
+    case 'source-draw':
+      captures.draw(command.sourceKey);
+      return;
     case 'source-close':
       captures.close(command.sourceKey);
       return;

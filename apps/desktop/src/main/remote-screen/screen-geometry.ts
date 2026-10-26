@@ -135,43 +135,66 @@ export interface ScreenBgraFrame {
   pixels: Uint8Array;
 }
 
+export interface ScreenPixelRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The part of a helper frame that shows the display, for the sender to crop
+ *  and scale: no pixel is touched in main. */
+export interface ScreenHelperPicture {
+  /** The frame's rows that cover the display (a view, not a copy): `height`
+   *  rows `stride` bytes apart, `width` pixels of B, G, R, X bytes each. */
+  pixels: Uint8Array;
+  width: number;
+  height: number;
+  stride: number;
+  /** The display's part of those rows, in their pixels. */
+  source: ScreenPixelRect;
+  /** Where that part lands in the locked `pixelWidth × pixelHeight` picture
+   *  (video pixels, fractional when scaled); the rest stays black, never
+   *  another display's pixels. */
+  target: ScreenPixelRect;
+}
+
 /**
- * Fits a helper frame (which may cover the whole virtual screen) onto the
- * locked geometry: the display's part, sampled to the video size. Desktop
- * area the frame does not cover stays black, never another display's pixels.
+ * Locates the display in a helper frame (which may cover the whole virtual
+ * screen): the rows to forward, and the source and target rectangles the
+ * sender crops and scales with. Only arithmetic: the crop and scale run in
+ * the sender renderer. Null when the frame does not cover the display at all.
  */
-export function fitScreenFrame(
-  frame: ScreenBgraFrame,
-  mapping: ScreenPointerMapping
-): { width: number; height: number; pixels: Uint8Array } {
-  const { pixelWidth: width, pixelHeight: height, physical } = mapping;
-  if (frame.stride < frame.width * 4 || frame.pixels.length < frame.stride * frame.height) {
+export function screenFrameRegion(frame: ScreenBgraFrame, mapping: ScreenPointerMapping): ScreenHelperPicture | null {
+  if (
+    frame.width < 1 ||
+    frame.height < 1 ||
+    frame.stride < frame.width * 4 ||
+    frame.pixels.length < frame.stride * frame.height
+  ) {
     throw new Error('remote screen helper frame is malformed');
   }
-  const direct =
-    frame.originX === physical.x &&
-    frame.originY === physical.y &&
-    frame.width === width &&
-    frame.height === height &&
-    physical.width === width &&
-    physical.height === height;
-  if (direct && frame.stride === width * 4) {
-    return { width, height, pixels: frame.pixels.subarray(0, width * height * 4) };
-  }
-  const out = new Uint8Array(width * height * 4);
-  for (let row = 0; row < height; row += 1) {
-    const sourceY = physical.y + Math.floor((row * physical.height) / height) - frame.originY;
-    if (sourceY < 0 || sourceY >= frame.height) continue;
-    for (let column = 0; column < width; column += 1) {
-      const sourceX = physical.x + Math.floor((column * physical.width) / width) - frame.originX;
-      if (sourceX < 0 || sourceX >= frame.width) continue;
-      const from = sourceY * frame.stride + sourceX * 4;
-      const to = (row * width + column) * 4;
-      out[to] = frame.pixels[from];
-      out[to + 1] = frame.pixels[from + 1];
-      out[to + 2] = frame.pixels[from + 2];
-      out[to + 3] = 255;
-    }
-  }
-  return { width, height, pixels: out };
+  const { physical } = mapping;
+  const left = Math.max(physical.x, frame.originX);
+  const top = Math.max(physical.y, frame.originY);
+  const right = Math.min(physical.x + physical.width, frame.originX + frame.width);
+  const bottom = Math.min(physical.y + physical.height, frame.originY + frame.height);
+  if (right <= left || bottom <= top) return null;
+  const firstRow = top - frame.originY;
+  const rows = bottom - top;
+  const scaleX = mapping.pixelWidth / physical.width;
+  const scaleY = mapping.pixelHeight / physical.height;
+  return {
+    pixels: frame.pixels.subarray(firstRow * frame.stride, (firstRow + rows) * frame.stride),
+    width: frame.width,
+    height: rows,
+    stride: frame.stride,
+    source: { x: left - frame.originX, y: 0, width: right - left, height: rows },
+    target: {
+      x: (left - physical.x) * scaleX,
+      y: (top - physical.y) * scaleY,
+      width: (right - left) * scaleX,
+      height: rows * scaleY,
+    },
+  };
 }

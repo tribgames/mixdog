@@ -1,9 +1,10 @@
 /**
  * The sender's per-source tracks that come from a desktop capture (a screen
- * source). Acquiring a capture is asynchronous while other commands keep
- * running, so every capture and every source close takes the source over with
- * a new owner id; a completion that no longer owns its source stops every
- * track it got instead of installing it.
+ * source), and the drawn track such a source switches to while the
+ * secure-desktop helper serves (`draw`). Acquiring a capture is asynchronous
+ * while other commands keep running, so every capture, draw and source close
+ * takes the source over with a new owner id; a completion that no longer owns
+ * its source stops every track it got instead of installing it.
  */
 import { remoteScreenCaptureConstraints, type RemoteScreenCapturePlan } from '../../shared/remote-webrtc';
 import type { RemoteWebrtcSenderEvent } from '../../shared/remote-webrtc-sender';
@@ -15,11 +16,17 @@ export interface RemoteWebrtcSenderSource {
   context: CanvasRenderingContext2D | null;
   stream: MediaStream;
   track: MediaStreamTrack & { requestFrame?: () => void };
+  /** Settles once the track is on every sender the source had when it was
+   *  installed (a drawn track switched in by `draw`); rejects when a switch
+   *  failed. Absent: it went on with each sender as that was created. */
+  installed?: Promise<void>;
 }
 
 export interface RemoteWebrtcSourceCaptureDeps {
   /** Opens a desktop capture (getUserMedia). */
   acquire(constraints: MediaStreamConstraints): Promise<MediaStream>;
+  /** A new canvas-drawn track (what a source without a capture gets). */
+  createDrawn(): RemoteWebrtcSenderSource;
   /** Every source's current track, drawn ones included (shared with the sender). */
   sources: Map<string, RemoteWebrtcSenderSource>;
   /** The video senders of every connection of a source. */
@@ -78,6 +85,36 @@ export function createRemoteWebrtcSourceCaptures(deps: RemoteWebrtcSourceCapture
       } finally {
         if (stream && !installed) stopAll(stream);
       }
+    },
+
+    /**
+     * Switches the source to a new drawn track at once (a capture still
+     * opening is abandoned): pictures draw into it from now on, and every
+     * sender is moved onto it with replaceTrack, so the connections, their
+     * negotiation and the phone's geometry stay as they are. The previous
+     * track stops once the senders left it. `installed` settles when every
+     * sender carries it (taken over meanwhile: when the swap stopped).
+     */
+    draw(sourceKey: string): void {
+      serial += 1;
+      const owner = serial;
+      owners.set(sourceKey, owner);
+      const previous = deps.sources.get(sourceKey);
+      const entry = deps.createDrawn();
+      const senders = deps.senders(sourceKey);
+      deps.sources.set(sourceKey, entry);
+      entry.installed = (async () => {
+        try {
+          for (const sender of senders) {
+            if (owners.get(sourceKey) !== owner) return;
+            await sender.replaceTrack(entry.track);
+          }
+        } finally {
+          if (previous) stopAll(previous.stream);
+        }
+      })();
+      // Observed by the pictures drawn into it; never an unhandled rejection.
+      entry.installed.catch(() => undefined);
     },
 
     /** The source is gone: a capture still opening is abandoned, its track stopped. */

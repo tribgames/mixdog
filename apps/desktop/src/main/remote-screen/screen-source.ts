@@ -18,6 +18,7 @@ import type {
   RemoteScreenInput,
   RemoteScreenStatus,
   RemoteScreenStopReason,
+  RemoteScreenVideoPath,
   RemoteWebrtcGeometry,
 } from '../../shared/remote-webrtc';
 import {
@@ -26,7 +27,8 @@ import {
   screenPointToVideo,
   screenVideoSize,
   summarizeScreenDisplay,
-  fitScreenFrame,
+  screenFrameRegion,
+  type ScreenHelperPicture,
   type ScreenBgraFrame,
   type ScreenDisplay,
   type ScreenPointerMapping,
@@ -126,7 +128,8 @@ export interface ScreenSourceDeps {
   shutdownDeadlineMs?: number;
 }
 
-type ScreenVideoFrame = { width: number; height: number; pixels: Uint8Array };
+/** B, G, R, X bytes per pixel at the locked geometry's pixel size. */
+export type ScreenVideoPath = RemoteScreenVideoPath;
 /** The cursor in video pixels of geometry `generation`. */
 export type ScreenCursor = { x: number; y: number; generation: number };
 type ScreenGeometryRenewal = { plan: RemoteScreenCapturePlan; geometry: RemoteWebrtcGeometry };
@@ -159,9 +162,15 @@ export interface RemoteScreenSource {
   /** The capture plan the sender opens its track from; null unless running. */
   capturePlan(): RemoteScreenCapturePlan | null;
   status(): RemoteScreenStatus;
-  /** Helper-path frames, fitted to the locked geometry, for the sender. The
-   *  ordinary-desktop path produces its own MediaStream from the capture plan. */
-  onFrame(listener: (frame: ScreenVideoFrame) => void): () => void;
+  /** Helper-path frames, located on the locked geometry (the sender crops and
+   *  scales), for the sender. The ordinary-desktop path produces its own
+   *  MediaStream from the capture plan. */
+  onFrame(listener: (frame: ScreenHelperPicture) => void): () => void;
+  /** Where the picture comes from now: the desktop capture, or the helper's
+   *  frames (`onFrame`) while it serves the secure desktop. */
+  videoPath(): ScreenVideoPath;
+  /** The video path changed (not at stop). */
+  onVideoPath(listener: (path: ScreenVideoPath) => void): () => void;
   onStatus(listener: (status: RemoteScreenStatus) => void): () => void;
   /** The last sampled cursor position for the current geometry; null before
    *  one, after a geometry change or a switch to the helper until the next
@@ -210,7 +219,7 @@ export async function stopScreenSourcesForQuit(sources: Iterable<RemoteScreenSou
 }
 
 export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSource {
-  const frameListeners = new Set<(frame: ScreenVideoFrame) => void>();
+  const frameListeners = new Set<(frame: ScreenHelperPicture) => void>();
   const statusListeners = new Set<(status: RemoteScreenStatus) => void>();
   const geometryListeners = new Set<(result: ScreenGeometryRenewal) => void>();
   const stopListeners = new Set<(reason: RemoteScreenStopReason) => void>();
@@ -233,6 +242,8 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   let helperActive = false;
   /** The helper's video reaches this viewer (`setHelperVideo`). */
   let helperVideo = false;
+  let videoPath: ScreenVideoPath = 'capture';
+  const videoPathListeners = new Set<(path: ScreenVideoPath) => void>();
   let status: RemoteScreenStatus = { state: 'live', helper: 'not-needed', control: false };
   let cursor: ScreenCursor | null = null;
   /** Bumped by a new geometry and by a switch to the helper: a cursor read
@@ -317,8 +328,9 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     helperVideo = next;
     publishStatus();
     // Control withdrawn: what the viewer holds is lifted through the backend
-    // that pressed it, so nothing stays down on a desktop the phone can't see.
-    if (!next) void router.releaseAll();
+    // that pressed it, so nothing stays down on a desktop the phone can't see
+    // (a stop releases by itself).
+    if (!next && running) void router.releaseAll();
   };
 
   const setHelperActive = async (active: boolean): Promise<void> => {
@@ -357,6 +369,11 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
       deps.log({ type: 'secure-desktop', ...ids, state: next.status });
     }
     publishStatus();
+    const path: ScreenVideoPath = decisionUsesHelper(next) ? 'helper' : 'capture';
+    if (path !== videoPath) {
+      videoPath = path;
+      for (const listener of [...videoPathListeners]) listener(path);
+    }
     void router
       .switchTo(backendFor(next), {
         before: async () => {
@@ -392,13 +409,15 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   const onHelperFrame = (frame: ScreenBgraFrame): void => {
     // Frames are gated by the live pairing, not only the admitted one.
     if (!running || !paired() || !decision || !decisionUsesHelper(decision) || !mapping) return;
-    let fitted: ScreenVideoFrame;
+    // Located only (no pixel is touched here): the sender crops and scales.
+    let picture: ScreenHelperPicture | null;
     try {
-      fitted = fitScreenFrame(frame, mapping);
+      picture = screenFrameRegion(frame, mapping);
     } catch {
       return;
     }
-    for (const listener of frameListeners) listener(fitted);
+    if (!picture) return;
+    for (const listener of frameListeners) listener(picture);
   };
 
   const ensureHost = async (): Promise<void> => {
@@ -632,6 +651,11 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     onStatus(listener) {
       statusListeners.add(listener);
       return () => statusListeners.delete(listener);
+    },
+    videoPath: () => videoPath,
+    onVideoPath(listener) {
+      videoPathListeners.add(listener);
+      return () => videoPathListeners.delete(listener);
     },
     cursor: () =>
       running && cursor && decision && !decisionUsesHelper(decision) && cursor.generation === mapping?.generation

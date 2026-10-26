@@ -11,6 +11,7 @@ import {
   readRemoteWebrtcDesktopSignal,
   readRemoteWebrtcScreenCursor,
   readRemoteWebrtcScreenStatus,
+  readRemoteWebrtcScreenVideo,
   parseRemoteScreenInput,
   MAX_REMOTE_SCREEN_COMBO_KEYS,
   remoteWebrtcCertificateMatches,
@@ -41,6 +42,19 @@ test('screen-cursor: whole video pixels of a geometry generation', () => {
   for (const bad of [{ x: -1 }, { x: 1.5 }, { generation: 0 }, { kind: 'screen-status' }, { y: 5000 }]) {
     assert.equal(readRemoteWebrtcScreenCursor(JSON.stringify({ ...message, ...bad })), null, JSON.stringify(bad));
   }
+});
+
+test('screen-video and screen-frame-seen: a positive run epoch, a known path', () => {
+  const video = { v: REMOTE_WEBRTC_VERSION, kind: 'screen-video', epoch: 3, path: 'helper' };
+  assert.deepEqual(readRemoteWebrtcScreenVideo(JSON.stringify(video)), video);
+  assert.deepEqual(readRemoteWebrtcScreenVideo(JSON.stringify({ ...video, path: 'capture' })).path, 'capture');
+  for (const bad of [{ epoch: 0 }, { epoch: 1.5 }, { path: 'gpu' }, { kind: 'screen-cursor' }]) {
+    assert.equal(readRemoteWebrtcScreenVideo(JSON.stringify({ ...video, ...bad })), null, JSON.stringify(bad));
+  }
+  const seen = { v: REMOTE_WEBRTC_VERSION, kind: 'screen-frame-seen', epoch: 3 };
+  assert.deepEqual(parseRemoteWebrtcChannelFromClient(JSON.stringify(seen)), seen);
+  assert.throws(() => parseRemoteWebrtcChannelFromClient(JSON.stringify({ ...seen, epoch: 0 })));
+  assert.throws(() => parseRemoteWebrtcChannelFromClient(JSON.stringify({ ...seen, epoch: 'x' })));
 });
 
 const HEX_A = Array.from({ length: 32 }, () => 'AB').join(':');

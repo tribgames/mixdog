@@ -90,10 +90,26 @@ Desktop → phone on the same channel (not input-acked, not epoch-bound):
   clears the cached position, a read still in flight across that switch
   (or across a new geometry) is dropped when it completes, and the
   promotion snapshot carries no cursor while the helper serves.
-- Both go only to a channel that is up (`promoting` or `webrtc`); a viewer's
-  channel gets the current status and the last cursor once when it is
-  promoted (`RemoteWebrtcVideoSource.channelState`), so nothing sent before
-  is missed.
+- `screen-video`: `{ v, kind: 'screen-video', epoch, path }`, `epoch` a
+  positive integer increasing per session, `path` `'capture' | 'helper'`: video
+  run `epoch` of that path is on the track from now on (see "Video runs and
+  control"). Read with `readRemoteWebrtcScreenVideo`.
+- All of them go only to a channel that is up (`promoting` or `webrtc`); a
+  viewer's channel gets the current status, the current video run (once
+  announced) and the last cursor once when it is promoted
+  (`RemoteWebrtcVideoSource.channelState`), so nothing sent before is missed.
+
+Phone → desktop, not input (never acked, never gated by the input epoch):
+
+- `screen-frame-seen`: `{ v, kind: 'screen-frame-seen', epoch }`, validated by
+  `parseRemoteWebrtcChannelFromClient`. The phone sends it once per run: for
+  the first frame it presents (`requestVideoFrameCallback`) whose
+  `metadata.receiveTime` is later than the arrival of that run's
+  `screen-video`. A phone whose frame metadata has no `receiveTime` does not
+  send it (no control on the helper path, the safe default). On a browser
+  source it is a contract violation. The receipt identifies the announced
+  run, not the provenance of the presented pixels (see "Video runs and
+  control" for the accepted limits).
 
 ## Capture
 
@@ -376,9 +392,10 @@ The decision:
   refuses every positive input. `setHelperVideo(false)` withdraws control at
   once and releases what the viewer holds through the helper. Leaving the
   helper path clears the report, so each helper period needs its own, and a
-  report outside it counts for nothing. Releases always go through. Today
-  nothing feeds the helper's frames to the sender, so nothing reports it:
-  with the helper installed, a secure desktop is view-blocked. Without the helper, the
+  report outside it counts for nothing. Releases always go through. The
+  screen's WebRTC adapter reports it once the current video run was both
+  delivered into the track and seen by the phone (see "Video runs and
+  control" below). Without the helper, the
   phone gets a `secure-desktop` state ("elevation prompt on the PC — approve
   there or install the helper"), never a frozen or black frame.
 - **Elevation prompt on the ordinary desktop.** `consent.exe` is running while
@@ -388,9 +405,111 @@ The decision:
   a jump to the secure desktop is seamless.
 - **Helper frames.** They are fitted to the locked geometry and emitted only
   while the live permission allows viewing. Malformed frames are dropped.
+  The helper captures the whole virtual screen with GDI at most every 66 ms,
+  and only once its previous frame was written out (`CAPTURE_INTERVAL` in
+  `native/mixdog-secure-desktop/src/helper.rs`; ipc-spec "Capture approach").
 - **Deactivation.** When the desktop returns, the router switches back to
   `desktop`. The helper's presses are released through the helper first, then
   it is deactivated.
+
+### Helper video
+
+While the helper serves, the phone sees its frames instead of the desktop
+capture (which shows the last ordinary frame there). The source reports the
+switch as `videoPath()` / `onVideoPath` (`capture` | `helper`, from the
+decision), and the screen's WebRTC adapter (`screen-webrtc-source.ts`) drives
+the sender:
+
+- **Mechanism: the same peer connection, another track.** On `helper` the
+  adapter calls `sink.drawnTrack(key, true)`; the host sends `source-draw` and
+  the sender replaces the source's capture track with a canvas-drawn one
+  (`captureStream(0)`, a frame per drawn picture) on every connection with
+  `RTCRtpSender.replaceTrack`. No renegotiation: the connection, its
+  channel, its codec and the phone's geometry stay as they are. Each helper
+  frame goes through the host's picture feed (newest only, one in flight per
+  source, superseded ones dropped) as raw rows (`image/x-bgrx`).
+- **No pixel work in main.** `screenFrameRegion` only locates the display in
+  the helper frame (which covers the whole virtual screen): the rows that
+  cover it (a view of the helper's buffer, so the rows above and below are
+  never forwarded), the source rectangle within them, and where it lands in
+  the locked picture. A frame superseded in the queue costs nothing; only
+  the picture actually sent is copied into an array of its own (a memcpy of
+  those rows, since the IPC would otherwise serialize the view's whole
+  buffer). The sender wraps the rows in a WebCodecs `VideoFrame`
+  (`format: 'BGRX'`, the helper's own byte order, with its stride), fills
+  the canvas black and draws the source rectangle onto the target one
+  (`drawImage`, high-quality smoothing): crop, scale and colour conversion
+  all run in Chromium. Why raw rows rather than an encoded image: the
+  helper already hands over raw BGRA, and an encode in main would cost the
+  window process's main thread per frame.
+- **Rate.** No byte-rate budget is derived: there is no measured figure for
+  Electron's main → renderer IPC throughput to derive one from. The rate is
+  capped by the stream's own frame rate instead: at most one helper picture
+  per `1000 / maxFrameRate` ms (30 fps: 33.3 ms) is handed over. The helper
+  is slower still (one frame per 66 ms at most, and only once its previous
+  one was written out), and the host keeps one picture in flight per
+  source, so at most one frame's rows cross the IPC at a time.
+- **Geometry.** The target is the locked geometry's pixel size, so the track
+  keeps its resolution and the generation does not change. Desktop area the
+  frame doesn't cover stays black. A display change while the helper serves
+  locks a new geometry as always (new generation, the frames follow it);
+  the capture plan's reopen waits until the capture is back.
+
+#### Video runs and control
+
+Every path change, every pipeline stall and every loss of the viewer's
+channel (demote, viewer left: `release`) starts a new **video run**: its
+`epoch` increases, everything of the old run stops counting, and control on
+the helper path is withdrawn (held input released) until the new run earns
+it. The phone hears each run as `screen-video` (see "Contract fold-in"); a
+capture run at once, a helper run only once its first frame is in the track,
+so frames sent after the announcement belong to the new run.
+`channelState()` carries the current run once it was announced.
+
+Control on the helper path needs, for the current run, both:
+
+- **Local delivery** (`delivered(epoch)`). Each picture carries its run's
+  epoch. The sender answers it with `frame-done`; `ok` means it was drawn
+  into the source's current track after that track was on every sender
+  (`installed`), and the host passes the picture's epoch on. A switch of the
+  track (`drawnTrack`) drops the picture in flight, so its late
+  acknowledgement matches nothing; a delivery of another run is ignored.
+  This is evidence about this PC's pipeline only.
+- **Receipt** (`frameSeen(epoch)`): the phone's `screen-frame-seen` for the
+  run, routed by the viewer from the channel (not input: never gated by the
+  input epoch, never acked). A seen of another run, or one before the run
+  was announced, is ignored. The phone side is built separately; until it
+  sends it, there is no control on the helper path, which is the safe
+  default.
+
+**Pipeline watchdog** (`helperVideoStallMs`): with no delivery of the run
+for `max(3 × average, average + 150 ms)`, the average over its last 30
+delivery intervals (216 ms at the helper's nominal 66 ms before there are
+two), the run ends. The threshold borrows the shape of the webrtc-stats
+freeze rule (`freezeCount`) but applies it to local deliveries: it watches
+main → the sender's track, not the network or the phone's renderer, which
+the receipt covers once per run.
+
+**Accepted limits** (standard remote-desktop-app level, by product
+decision): the receipt identifies the announced run, not the provenance of
+the presented pixels, so a delayed or retransmitted old frame may satisfy
+the `receiveTime` check. One receipt suffices per run; later receiver or
+network stalls do not withdraw control while local deliveries continue. The
+pipeline watchdog still withdraws control and releases held keys when local
+delivery stalls.
+
+- **Back.** On `capture` the adapter starts a capture run (announced at once)
+  and calls `sink.drawnTrack(key, false)`: the host drops the helper
+  pictures waiting and in flight and sends `source-capture` with the current
+  plan, which replaces the drawn track on every connection like a display
+  change does.
+- **Track setup per sender renderer.** The host records which track the
+  running sender was asked to give each source (`none`, `capture`, `drawn`)
+  apart from the selected path (`drawn`). A source's first connection there
+  sets up the selected path first (`source-draw` or `source-capture`). When
+  the sender renderer goes (a crash), every source's track goes back to
+  `none`, so the next connection sets up the selected path again, drawn or
+  captured, before it opens.
 
 Detection is based on studying how an existing secure-desktop capture tool
 tracks a running consent process and input-desktop changes. No code or names
@@ -490,6 +609,12 @@ returns a `RemoteWebrtcVideoSource` for `{ kind: 'screen', screenId }`:
   `screen-cursor` message; the host sends it to each viewer of the source
   whose channel is up. `channelState()` returns the current status and the
   last cursor, which the host sends when a viewer is promoted.
+- `onVideoPath` starts a run and switches the track (`sink.drawnTrack`),
+  `onFrame` hands helper frames to `sink.frame` as raw rows tagged with the
+  run, `delivered(epoch)` (the host, per drawn picture) and
+  `frameSeen(epoch)` (the viewer, per `screen-frame-seen`) decide
+  `setHelperVideo`, and `release()` starts a new run; see "Video runs and
+  control".
 
 ### Main wiring
 
@@ -610,6 +735,7 @@ it; Windows only):
 `cursor()` / `onCursor` (with `sampleCursor`), `onGeometry`, `onStop`, `handleInput(input, geometryGeneration)` →
 `'applied' | 'rejected'`, `releaseInput()` (idempotent; valid before, during and
 after stop), `setHelperVideo(delivering)` (see "No blind control"),
+`videoPath()` / `onVideoPath` (see "Helper video"),
 `stop(reason, { deadlineMs? })` (idempotent; a later call
 returns the first one's promise), and `released()`. `released()`
 resolves once shutdown is done: releases delivered or dropped, and backends
@@ -749,6 +875,31 @@ sources (Node's own type stripping can't, e.g. parameter properties):
   cancels a reconnect and closes a live connection),
   `screen-webrtc-sources.test.mjs` (close disposes the client once, after
   the sessions released).
+- Helper video: `screen-source.test.mjs` (the lock screen switches the track
+  to the drawn one; a helper frame goes as the helper's own rows with source
+  and target rectangles; one per frame interval; the capture run announced
+  at once, a helper run only after its first delivery; neither a delivery
+  alone, a seen before the announcement nor one of another run grants
+  control; delivery plus this run's seen does; the watchdog at 216 ms starts
+  a new run, withdraws control and releases the key through the helper, and
+  the old run's late delivery and seen count for nothing; a lost channel
+  starts a new run; leaving announces a capture run; the reviewer's probe:
+  a frame of run 2 acknowledged after capture and back never announces or
+  grants run 4), `screen-geometry.test.mjs` (`screenFrameRegion`: rows,
+  rectangles, scaling, partial and no coverage, malformed frames),
+  `remote-webrtc/host.test.mjs` (`source-draw` set up before the first
+  connection while drawn, raw `frame` commands with their rows and
+  rectangles, only a view copied, `delivered` with the picture's epoch per
+  picture in flight, no capture reopen while drawn, the probe: a frame in
+  flight across capture and back delivers nothing; a sender crash sets up
+  the selected path, captured or drawn, again before the next connection),
+  `remote-webrtc/viewer.test.mjs` (`screen-frame-seen` reaches the source
+  while promoting, unacked; a violation on a browser source),
+  `shared/remote-webrtc.test.mjs` (`screen-video`, `screen-frame-seen`),
+  `renderer/remote-webrtc-sender/source-capture.test.mjs` (`draw` moves
+  every sender onto the drawn track and stops the capture only after;
+  `installed` waits for every sender; a capture replaces it again; a draw
+  abandons a capture still opening).
 
 Manual, local, phone-free:
 
@@ -769,15 +920,14 @@ Manual, local, phone-free:
 The main wiring is done (see "Main wiring"). Still open:
 
 - WebRTC host:
-  - feed helper `onFrame` frames to the sender while the helper owns the
-    desktop, and report it per viewer with `setHelperVideo(true)` once they
-    reach that viewer's video (`false` when they stop). Until then a secure
-    desktop is view-blocked even with the helper installed: control stays
-    off there (see "No blind control");
+  - verify helper video on a PC with the service installed (UAC, lock and
+    sign-in): it is driven by mocks here;
   - optional: pass the input message's `geometryGeneration` through
     `dispatch`. Today the adapter uses the current generation, relying on the
     host's own check against the acknowledged one;
   - an `app-quit` stop reason (`user` stands in).
 - Secure desktop: the helper's install flow (not built here).
+- Phone: send `screen-frame-seen` per `screen-video` run (no control on the
+  helper path until it does).
 - Phone: consume `screen-cursor` (trackpad anchor) and send `screen-keys`
   for shortcuts.

@@ -72,6 +72,8 @@ export interface RemoteWebrtcViewerEffects {
   clearTimer(handle: unknown): void;
   report(event: string, data: Record<string, unknown>): void;
   receiverStats?(stats: RemoteWebrtcReceiverStats): void;
+  /** The phone rendered a frame of the screen's video run `epoch`. */
+  frameSeen?(epoch: number): void;
   /** The connection was promoted: its channel is open for desktop pushes. */
   promoted?(): void;
 }
@@ -471,6 +473,16 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
       }
       if (message.kind === 'stats') {
         effects.receiverStats?.(message.stats);
+        return;
+      }
+      // Receipt evidence of a screen's video run: not input, so not gated by
+      // the input epoch and never acked.
+      if (message.kind === 'screen-frame-seen') {
+        if (source.kind !== 'screen') {
+          fail('protocol-error');
+          return;
+        }
+        effects.frameSeen?.(message.epoch);
         return;
       }
       // Page input is a browser source's; screen input a screen's.

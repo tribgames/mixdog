@@ -19,17 +19,33 @@ export const REMOTE_WEBRTC_SENDER_IPC = {
 } as const;
 
 /** One captured picture of a source, newest only. */
-export interface RemoteWebrtcSenderFrame {
+export type RemoteWebrtcSenderFrame = {
   sourceKey: string;
   /** Monotonic per source; the sender answers `frame-done` with it. */
   frameId: number;
   /** The locked geometry's pixel size: the track's frame size. */
   pixelWidth: number;
   pixelHeight: number;
-  mimeType: 'image/jpeg' | 'image/png';
-  /** Base64 image bytes. */
-  data: string;
-}
+} & (
+  | {
+      mimeType: 'image/jpeg' | 'image/png';
+      /** Base64 image bytes. */
+      data: string;
+    }
+  | {
+      /** A screen's secure-desktop helper frame, raw: `height` rows `stride`
+       *  bytes apart, `width` pixels of B, G, R, X bytes (the fourth
+       *  ignored). The sender crops `source` out of them and scales it onto
+       *  `target` of the `pixelWidth × pixelHeight` picture; the rest is black. */
+      mimeType: 'image/x-bgrx';
+      pixels: Uint8Array;
+      width: number;
+      height: number;
+      stride: number;
+      source: { x: number; y: number; width: number; height: number };
+      target: { x: number; y: number; width: number; height: number };
+    }
+);
 
 export type RemoteWebrtcSenderCommand =
   | {
@@ -53,6 +69,11 @@ export type RemoteWebrtcSenderCommand =
    *  plan instead of drawn from pictures; re-sent with a new plan when the
    *  display geometry changes. Must precede that source's `open`. */
   | { type: 'source-capture'; sourceKey: string; plan: RemoteScreenCapturePlan }
+  /** A captured source switches to a drawn track (a screen while the
+   *  secure-desktop helper serves): every connection's sender is moved onto
+   *  it with replaceTrack, and `frame` pictures draw into it. A later
+   *  `source-capture` switches back. */
+  | { type: 'source-draw'; sourceKey: string }
   | { type: 'source-close'; sourceKey: string };
 
 export type RemoteWebrtcSenderFailure = 'ice-failed' | 'dtls-failed' | 'channel-failed' | 'unsupported';

@@ -49,6 +49,10 @@ function fixture(senderCount = 1) {
       acquisitions.push(acquisition);
       return acquisition.promise;
     },
+    createDrawn: () => {
+      const stream = fakeStream();
+      return { canvas: {}, context: {}, stream, track: stream.track };
+    },
     sources,
     senders: (sourceKey) => (sourceKey === KEY ? senders : []),
     emit: (event) => events.push(event),
@@ -112,6 +116,59 @@ test('overlapping captures: only the newest is installed, the late older one is 
     [true],
     'only the owning capture reports'
   );
+});
+
+test('draw switches every sender in place onto a drawn track; a capture switches them back', async () => {
+  const h = fixture(2);
+  const capturing = h.captures.capture(KEY, PLAN);
+  const desktop = fakeStream();
+  h.acquisitions[0].resolve(desktop);
+  await capturing;
+  assert.ok(h.senders.every((sender) => sender.track === desktop.track));
+
+  // The helper serves: a drawn track at once, on every sender once swapped.
+  const hold = deferred();
+  h.senders[1].gate = hold.promise;
+  h.captures.draw(KEY);
+  const drawn = h.sources.get(KEY);
+  assert.ok(drawn.canvas, 'pictures draw into it from now on');
+  let installed = false;
+  void drawn.installed.then(() => (installed = true));
+  await flush();
+  assert.equal(installed, false, 'not until every sender carries it');
+  assert.equal(desktop.track.stopped, false, 'the capture runs until the senders left it');
+  hold.resolve();
+  await drawn.installed;
+  assert.ok(h.senders.every((sender) => sender.track === drawn.track));
+  assert.equal(desktop.track.stopped, true);
+
+  // Back on the ordinary desktop: a new capture replaces the drawn track.
+  const back = h.captures.capture(KEY, PLAN);
+  const again = fakeStream();
+  h.acquisitions[1].resolve(again);
+  await back;
+  assert.ok(h.senders.every((sender) => sender.track === again.track));
+  assert.equal(drawn.track.stopped, true);
+  assert.equal(h.sources.get(KEY).track, again.track);
+  assert.deepEqual(
+    h.events.map((event) => event.ok),
+    [true, true]
+  );
+});
+
+test('a draw abandons a capture still opening', async () => {
+  const h = fixture();
+  const capturing = h.captures.capture(KEY, PLAN);
+  h.captures.draw(KEY);
+  const drawn = h.sources.get(KEY);
+  await drawn.installed;
+  const late = fakeStream();
+  h.acquisitions[0].resolve(late);
+  await capturing;
+  assert.equal(late.track.stopped, true);
+  assert.equal(h.sources.get(KEY), drawn);
+  assert.equal(h.senders[0].track, drawn.track);
+  assert.deepEqual(h.events, [], 'the abandoned capture reports nothing');
 });
 
 test('a newer capture that starts while the older one swaps tracks ends with every sender on it', async () => {

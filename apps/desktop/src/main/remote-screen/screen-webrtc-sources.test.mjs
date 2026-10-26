@@ -97,6 +97,7 @@ function build(over = {}) {
       frame: (key, picture) => webrtc.frame(key, picture),
       captureChanged: (key) => webrtc.captureChanged(key),
       channelPush: (key, message) => webrtc.channelPush(key, message),
+      drawnTrack: (key, drawn) => webrtc.drawnTrack(key, drawn),
     },
     log: (event) => events.push(event),
   });

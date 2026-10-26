@@ -48,9 +48,20 @@ interface SourceFeed {
   framesSinceCurrent: number;
   framesCaptured: number;
   framesSuperseded: number;
-  /** A captured source's track was asked for (`source-capture`). */
-  captured: boolean;
+  /** The track the running sender renderer was asked to give this source
+   *  (`source-capture` / `source-draw`); `none` until its first connection,
+   *  and again after the renderer is gone (its tracks went with it). */
+  track: 'none' | 'capture' | 'drawn';
+  /** The path main selected for a captured source: drawn (pushed pictures,
+   *  `drawnTrack`) rather than its capture. Survives a sender crash. */
+  drawn: boolean;
 }
+
+/** The pixels in an array of their own: the IPC to the sender would copy a
+ *  view's whole buffer otherwise (a helper frame's rows view its frame). Done
+ *  for the picture actually sent only. */
+const ownBytes = (pixels: Uint8Array): Uint8Array =>
+  pixels.byteOffset === 0 && pixels.byteLength === pixels.buffer.byteLength ? pixels : pixels.slice();
 
 interface ViewerEntry {
   clientId: string;
@@ -92,7 +103,8 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
         framesSinceCurrent: 0,
         framesCaptured: 0,
         framesSuperseded: 0,
-        captured: false,
+        track: 'none',
+        drawn: false,
       };
       feeds.set(key, feed);
     }
@@ -111,15 +123,41 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
     feed.latest = null;
     feed.serial += 1;
     feed.inFlight = { frameId: feed.serial, picture };
-    deps.sender.send({
-      type: 'frame',
+    const frame = {
+      type: 'frame' as const,
       sourceKey,
       frameId: feed.serial,
       pixelWidth: picture.geometry.pixelWidth,
       pixelHeight: picture.geometry.pixelHeight,
-      mimeType: picture.mimeType,
-      data: picture.data,
-    });
+    };
+    deps.sender.send(
+      picture.mimeType === 'image/x-bgrx'
+        ? {
+            ...frame,
+            mimeType: picture.mimeType,
+            pixels: ownBytes(picture.pixels),
+            width: picture.width,
+            height: picture.height,
+            stride: picture.stride,
+            source: picture.source,
+            target: picture.target,
+          }
+        : { ...frame, mimeType: picture.mimeType, data: picture.data }
+    );
+  }
+
+  /** Gives a captured source the track its selected path needs, in the
+   *  running sender: its capture from the current plan, or a drawn track. */
+  function requestTrack(sourceKey: string, feed: SourceFeed): void {
+    if (feed.drawn) {
+      feed.track = 'drawn';
+      deps.sender.send({ type: 'source-draw', sourceKey });
+      return;
+    }
+    const plan = feed.source.capturePlan?.();
+    if (!plan) return;
+    feed.track = 'capture';
+    deps.sender.send({ type: 'source-capture', sourceKey, plan });
   }
 
   function senderStats(connectionId: string): Promise<Extract<RemoteWebrtcSenderEvent, { type: 'stats' }>['stats']> {
@@ -172,14 +210,11 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       open: ({ connectionId, iceServers, receiveCodecs }) => {
         connections.set(connectionId, entry);
         source.start();
-        // A captured source's track is opened from its plan, once, before
-        // its first connection.
+        // A captured source's track (its capture, or the drawn one while it
+        // draws) is set up once per sender renderer, before its first
+        // connection there.
         const feed = feeds.get(sourceKey);
-        const plan = source.capturePlan?.();
-        if (plan && feed && !feed.captured) {
-          feed.captured = true;
-          deps.sender.send({ type: 'source-capture', sourceKey, plan });
-        }
+        if (feed && feed.track === 'none' && (feed.drawn || source.capturePlan)) requestTrack(sourceKey, feed);
         deps.sender.send({
           type: 'open',
           connectionId,
@@ -224,6 +259,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
         if (event === 'state' && data.to === 'webrtc') void measure(entry, 'promoted');
       },
       receiverStats: (stats) => void measure(entry, 'stats', stats),
+      frameSeen: (epoch) => source.frameSeen?.(epoch),
       promoted: () => {
         for (const message of source.channelState?.() ?? []) entry.viewer.push(JSON.stringify(message));
       },
@@ -233,9 +269,14 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
 
   function onSenderEvent(event: RemoteWebrtcSenderEvent | null): void {
     if (!event) {
-      // The sender renderer is gone: every live connection falls back.
+      // The sender renderer is gone, and every track it held with it: each
+      // source's track is set up again (its selected path) before its next
+      // connection opens; every live connection falls back.
+      for (const feed of feeds.values()) {
+        feed.inFlight = null;
+        feed.track = 'none';
+      }
       for (const entry of new Set(connections.values())) entry.viewer.fail('sender-failed');
-      for (const feed of feeds.values()) feed.inFlight = null;
       for (const [requestId, resolve] of statsWaiters) {
         statsWaiters.delete(requestId);
         resolve(null);
@@ -259,6 +300,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
             feed.framesSinceCurrent = 0;
           }
           if (pageKey(picture.documentId, picture.geometry) === key) feed.framesSinceCurrent += 1;
+          feed.source.delivered?.(picture.epoch ?? 0);
         }
         pump(event.sourceKey);
         return;
@@ -283,7 +325,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
         // No track to send: every connection of that source falls back.
         deps.report('capture-failed', { source: event.sourceKey, detail: event.detail ?? '' });
         const feed = feeds.get(event.sourceKey);
-        if (feed) feed.captured = false;
+        if (feed) feed.track = 'none';
         for (const entry of new Set(connections.values())) {
           if (entry.sourceKey === event.sourceKey) entry.viewer.fail('sender-failed');
         }
@@ -368,8 +410,24 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
     /** A captured source's plan changed: the sender reopens its track. */
     captureChanged(sourceKey: string): void {
       const feed = feeds.get(sourceKey);
-      const plan = feed?.captured ? feed.source.capturePlan?.() : null;
-      if (plan) deps.sender.send({ type: 'source-capture', sourceKey, plan });
+      // While it draws, the capture reopens from the plan current when it ends.
+      if (feed?.track === 'capture') requestTrack(sourceKey, feed);
+    },
+
+    /** A captured source's track switches to a drawn one (pictures from
+     *  `frame`) or back to its capture, in place on every connection (in a
+     *  sender that has none yet, at its first connection). Every picture of
+     *  the other path is dropped: the waiting one, the one resent to a new
+     *  connection, and the one in flight, whose late `frame-done` matches
+     *  nothing any more. */
+    drawnTrack(sourceKey: string, drawn: boolean): void {
+      const feed = feeds.get(sourceKey);
+      if (!feed || feed.drawn === drawn) return;
+      feed.drawn = drawn;
+      feed.latest = null;
+      feed.delivered = null;
+      feed.inFlight = null;
+      if (feed.track !== 'none') requestTrack(sourceKey, feed);
     },
 
     /** A source's desktop → phone channel message, to each of its viewers

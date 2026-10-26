@@ -341,7 +341,22 @@ export type RemoteWebrtcChannelFromClient =
       sentAt: number;
       control: RemoteScreenInput;
     }
-  | { v: typeof REMOTE_WEBRTC_VERSION; kind: 'stats'; stats: RemoteWebrtcReceiverStats };
+  | { v: typeof REMOTE_WEBRTC_VERSION; kind: 'stats'; stats: RemoteWebrtcReceiverStats }
+  /** A screen viewer rendered a frame of video run `epoch` (see
+   *  `RemoteWebrtcScreenVideoMessage`): the receipt evidence that grants
+   *  control on the helper path. Not input: never acked, never gated. */
+  | RemoteWebrtcScreenFrameSeenMessage;
+
+/** Phone → desktop: the first frame the phone presented
+ *  (`requestVideoFrameCallback`) whose `metadata.receiveTime` is later than
+ *  the arrival of `screen-video` run `epoch` was rendered. Sent once per run,
+ *  for every run (the desktop ignores it where no evidence is needed). A
+ *  phone whose frame metadata has no `receiveTime` does not send it. */
+export interface RemoteWebrtcScreenFrameSeenMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-frame-seen';
+  epoch: number;
+}
 
 /** What a viewer's channel input is, per source kind. */
 export type RemoteWebrtcSourceInput = RemoteWebrtcPageInput | RemoteScreenInput;
@@ -473,8 +488,29 @@ export interface RemoteWebrtcScreenCursorMessage {
   generation: number;
 }
 
+/** Where a screen's picture comes from: the desktop capture, or the
+ *  secure-desktop helper's frames. */
+export type RemoteScreenVideoPath = 'capture' | 'helper';
+
+/** Desktop → phone on the channel: video run `epoch` (a positive integer,
+ *  increasing per session) of `path` is on the track from now on. A new run
+ *  starts on every path change, when the helper's frames stall, and when the
+ *  viewer's channel goes (demote, viewer left). A `capture` run is announced
+ *  at once; a `helper` run once its first frame is in the track the
+ *  connection sends. Also sent once when the channel is promoted. The phone
+ *  answers each run with `screen-frame-seen`. */
+export interface RemoteWebrtcScreenVideoMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-video';
+  epoch: number;
+  path: RemoteScreenVideoPath;
+}
+
 /** What a source pushes to its viewer's channel (desktop → phone). */
-export type RemoteWebrtcChannelPush = RemoteWebrtcScreenStatusMessage | RemoteWebrtcScreenCursorMessage;
+export type RemoteWebrtcChannelPush =
+  | RemoteWebrtcScreenStatusMessage
+  | RemoteWebrtcScreenCursorMessage
+  | RemoteWebrtcScreenVideoMessage;
 
 export type RemoteWebrtcChannelFromDesktop = {
   v: typeof REMOTE_WEBRTC_VERSION;
@@ -1027,6 +1063,9 @@ export function parseRemoteWebrtcRelayInputOrder(value: unknown): RemoteWebrtcRe
 export function parseRemoteWebrtcChannelFromClient(text: unknown): RemoteWebrtcChannelFromClient {
   const input = parseChannelText(text);
   if (input.kind === 'stats') return { v: REMOTE_WEBRTC_VERSION, kind: 'stats', stats: receiverStats(input.stats) };
+  if (input.kind === 'screen-frame-seen') {
+    return { v: REMOTE_WEBRTC_VERSION, kind: 'screen-frame-seen', epoch: positiveInteger(input.epoch, 'video epoch') };
+  }
   const envelope = {
     epoch: positiveInteger(input.epoch, 'input epoch'),
     seq: positiveInteger(input.seq, 'input seq'),
@@ -1153,6 +1192,22 @@ export function readRemoteWebrtcScreenCursor(text: unknown): RemoteWebrtcScreenC
       x: boundedInteger(input.x, 0, MAX_PIXEL_DIMENSION - 1, 'cursor x'),
       y: boundedInteger(input.y, 0, MAX_PIXEL_DIMENSION - 1, 'cursor y'),
       generation: positiveInteger(input.generation, 'geometry generation'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** A `screen-video` channel message from the desktop, as the phone receives it. */
+export function readRemoteWebrtcScreenVideo(text: unknown): RemoteWebrtcScreenVideoMessage | null {
+  try {
+    const input = parseChannelText(text);
+    if (input.kind !== 'screen-video' || (input.path !== 'capture' && input.path !== 'helper')) return null;
+    return {
+      v: REMOTE_WEBRTC_VERSION,
+      kind: 'screen-video',
+      epoch: positiveInteger(input.epoch, 'video epoch'),
+      path: input.path,
     };
   } catch {
     return null;

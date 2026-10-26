@@ -14,15 +14,42 @@ import type {
   RemoteWebrtcVideoLimit,
 } from '../../shared/remote-webrtc';
 
-/** One captured picture, at any size: the sender scales it to the geometry. */
-export interface RemoteWebrtcPicture {
+/** A rectangle in pixels (fractional where scaled). */
+export interface RemoteWebrtcPixelRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** One captured picture: an encoded image at any size (the sender scales it
+ *  to the geometry), or raw pixels the sender crops and scales into it. */
+export type RemoteWebrtcPicture = {
   /** The document it shows; null for a source without documents (a screen). */
   documentId: string | null;
   geometry: RemoteWebrtcGeometry;
-  mimeType: 'image/jpeg' | 'image/png';
-  /** Base64 image bytes. */
-  data: string;
-}
+  /** The source's video run it belongs to, echoed to `delivered`. */
+  epoch?: number;
+} & (
+  | {
+      mimeType: 'image/jpeg' | 'image/png';
+      /** Base64 image bytes. */
+      data: string;
+    }
+  | {
+      /** `height` rows `stride` bytes apart, `width` pixels of B, G, R, X
+       *  bytes each (the fourth ignored). */
+      mimeType: 'image/x-bgrx';
+      pixels: Uint8Array;
+      width: number;
+      height: number;
+      stride: number;
+      /** The part of them shown, and where it lands in the geometry's
+       *  `pixelWidth × pixelHeight` picture (the rest is black). */
+      source: RemoteWebrtcPixelRect;
+      target: RemoteWebrtcPixelRect;
+    }
+);
 
 /** How a source reaches the WebRTC host. */
 export interface RemoteWebrtcSourceSink {
@@ -32,7 +59,10 @@ export interface RemoteWebrtcSourceSink {
   frame(sourceKey: string, picture: RemoteWebrtcPicture): void;
   /** A captured source's plan changed (display changed): reopen its track. */
   captureChanged(sourceKey: string): void;
-  /** A desktop → phone channel message (a screen's status or cursor) to each
+  /** A captured source's track becomes a drawn one fed by `frame` (true),
+   *  or its capture again (false), on every connection, in place. */
+  drawnTrack(sourceKey: string, drawn: boolean): void;
+  /** A desktop → phone channel message (a screen's status, cursor or video run) to each
    *  viewer of the source whose channel is up (promoting or webrtc); dropped
    *  for the others, which get `channelState()` when they promote. */
   channelPush(sourceKey: string, message: RemoteWebrtcChannelPush): void;
@@ -67,6 +97,13 @@ export interface RemoteWebrtcVideoSource {
   /** What a channel gets when it is promoted (a screen: its status and
    *  cursor), before any later `channelPush`. */
   channelState?(): RemoteWebrtcChannelPush[];
+  /** A picture of run `epoch` it handed over (`sink.frame`) is in the track
+   *  its viewers' connections send: the sender drew it after the track was on
+   *  every one. Local evidence only (not that the phone saw it). */
+  delivered?(epoch: number): void;
+  /** The viewer's phone rendered a frame of video run `epoch`
+   *  (`screen-frame-seen`). */
+  frameSeen?(epoch: number): void;
 }
 
 /** The paired client a signal came from, and that signal's type. A screen

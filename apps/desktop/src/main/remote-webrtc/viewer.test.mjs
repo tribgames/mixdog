@@ -12,12 +12,15 @@ const HEX_A = Array.from({ length: 32 }, () => 'AB').join(':');
 const HEX_B = Array.from({ length: 32 }, () => 'CD').join(':');
 const SDP = `v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 ${HEX_A}\r\n`;
 const TURN = [{ urls: ['turn:turn.example:3478'], username: 'u', credential: 'p' }];
-const source = { kind: 'browser', sessionId: 's1' };
+const BROWSER = { kind: 'browser', sessionId: 's1' };
+const source = BROWSER;
 const geometry = { generation: 1, cssWidth: 400, cssHeight: 300, deviceScaleFactor: 1, pixelWidth: 400, pixelHeight: 300 };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-/** `dispatch`: an extra step every dispatch awaits (to hold one in flight). */
-function harness({ dispatch } = {}) {
+/** `dispatch`: an extra step every dispatch awaits (to hold one in flight).
+ *  `of`: the viewer's source (a browser session by default). */
+function harness({ dispatch, of: source = BROWSER } = {}) {
+  const seen = [];
   const signals = [];
   const sender = [];
   const dispatched = [];
@@ -55,6 +58,7 @@ function harness({ dispatch } = {}) {
     promoted: () => {
       promotions.count += 1;
     },
+    frameSeen: (epoch) => seen.push(epoch),
   });
   const last = (type) => signals.filter((signal) => signal.type === type).at(-1);
   const ref = () => {
@@ -87,8 +91,29 @@ function harness({ dispatch } = {}) {
     viewer.signal({ ...ref(), type: 'promote-ack', inputEpoch: epoch });
     return epoch;
   };
-  return { viewer, signals, sender, dispatched, acks, released, timers, page, last, ref, fire, input, connect, promote, promotions };
+  return { viewer, signals, sender, dispatched, acks, released, timers, page, last, ref, fire, input, connect, promote, promotions, seen };
 }
+
+test('a screen viewer’s frame-seen reaches the source ungated and unacked; on a browser source it is a violation', () => {
+  const seenOf = (epoch) => JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-frame-seen', epoch });
+  const screen = harness({ of: { kind: 'screen', screenId: '1' } });
+  screen.connect();
+  screen.viewer.channel(screen.ref().connectionId, seenOf(1), 0);
+  assert.deepEqual(screen.seen, [], 'not before the channel is up');
+  screen.viewer.geometryAck(1);
+  screen.viewer.signal({ ...screen.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  // Promoting: input would be held behind the barrier; the evidence is not input.
+  screen.viewer.channel(screen.ref().connectionId, seenOf(3), 0);
+  assert.deepEqual(screen.seen, [3]);
+  assert.deepEqual(screen.acks, [], 'never acked');
+  assert.equal(screen.viewer.state, 'promoting');
+
+  const browser = harness();
+  browser.promote();
+  browser.viewer.channel(browser.ref().connectionId, seenOf(1), 0);
+  assert.deepEqual(browser.seen, []);
+  assert.equal(browser.last('demote').reason, 'protocol-error');
+});
 
 test('desktop pushes reach the channel only while it is up; promotion announces it once', () => {
   const h = harness();

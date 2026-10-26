@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  fitScreenFrame,
   lockScreenGeometry,
   mapScreenPointer,
+  screenFrameRegion,
   screenGeometryChanged,
   screenVideoSize,
   summarizeScreenDisplay,
@@ -85,30 +85,34 @@ test('summary reports physical pixels a phone chooses from', () => {
   });
 });
 
-test('fitScreenFrame passes a matching frame through and crops a virtual-desktop frame', () => {
+test('screenFrameRegion locates the display in a helper frame without touching a pixel', () => {
   // The mapping is built directly (small test sizes below the stream minimum).
   const mapping = { generation: 1, pixelWidth: 4, pixelHeight: 2, physical: { x: 0, y: 0, width: 4, height: 2 } };
-  // A frame exactly the display: returned without copying the whole thing.
+  // A frame exactly the display: all of it, at the same place.
   const exact = { width: 4, height: 2, stride: 16, originX: 0, originY: 0, pixels: new Uint8Array(16 * 2).fill(7) };
-  const passed = fitScreenFrame(exact, mapping);
-  assert.equal(passed.width, 4);
-  assert.equal(passed.height, 2);
-  assert.equal(passed.pixels.length, 16 * 2);
+  const whole = screenFrameRegion(exact, mapping);
+  assert.equal(whole.pixels.buffer, exact.pixels.buffer, 'a view, not a copy');
+  assert.equal(whole.pixels.length, 32);
+  assert.deepEqual(whole.source, { x: 0, y: 0, width: 4, height: 2 });
+  assert.deepEqual(whole.target, { x: 0, y: 0, width: 4, height: 2 });
 
-  // A virtual-screen frame (two monitors side by side); this display is the
-  // right half. Each pixel's blue channel is its column so we can check the crop.
-  const virtualWidth = 8;
-  const pixels = new Uint8Array(virtualWidth * 2 * 4);
-  for (let y = 0; y < 2; y += 1) {
-    for (let x = 0; x < virtualWidth; x += 1) {
-      pixels[(y * virtualWidth + x) * 4] = x;
-    }
-  }
-  const rightHalf = { generation: 2, pixelWidth: 4, pixelHeight: 2, physical: { x: 4, y: 0, width: 4, height: 2 } };
-  const frame = { width: virtualWidth, height: 2, stride: virtualWidth * 4, originX: 0, originY: 0, pixels };
-  const cropped = fitScreenFrame(frame, rightHalf);
-  assert.equal(cropped.width, 4);
-  // The crop starts at desktop x = 4: first output pixel's blue channel is 4.
-  assert.equal(cropped.pixels[0], 4);
-  assert.equal(cropped.pixels[(cropped.width - 1) * 4], 7);
+  // A virtual screen 8 × 4 starting at (-4, -2); this display is its
+  // bottom-right quarter, streamed scaled down to half.
+  const virtual = { width: 8, height: 4, stride: 40, originX: -4, originY: -2, pixels: new Uint8Array(40 * 4) };
+  const quarter = { generation: 2, pixelWidth: 2, pixelHeight: 1, physical: { x: 0, y: 0, width: 4, height: 2 } };
+  const region = screenFrameRegion(virtual, quarter);
+  // Only the two rows that cover it are forwarded, from row 2.
+  assert.equal(region.pixels.byteOffset, 2 * 40);
+  assert.equal(region.pixels.length, 2 * 40);
+  assert.deepEqual([region.width, region.height, region.stride], [8, 2, 40]);
+  assert.deepEqual(region.source, { x: 4, y: 0, width: 4, height: 2 });
+  assert.deepEqual(region.target, { x: 0, y: 0, width: 2, height: 1 });
+
+  // A frame covering only the display's left half: the right half stays black.
+  const half = { width: 2, height: 2, stride: 8, originX: 0, originY: 0, pixels: new Uint8Array(16) };
+  assert.deepEqual(screenFrameRegion(half, mapping).target, { x: 0, y: 0, width: 2, height: 2 });
+  // Not covering it at all, or malformed.
+  assert.equal(screenFrameRegion({ ...half, originX: 10 }, mapping), null);
+  assert.throws(() => screenFrameRegion({ ...exact, stride: 8 }, mapping), /malformed/);
+  assert.throws(() => screenFrameRegion({ ...exact, pixels: new Uint8Array(8) }, mapping), /malformed/);
 });

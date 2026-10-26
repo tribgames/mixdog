@@ -7,7 +7,7 @@ import {
   ScreenSourceDenied,
   stopScreenSourcesForQuit,
 } from './screen-source.ts';
-import { createScreenWebrtcSource } from './screen-webrtc-source.ts';
+import { createScreenWebrtcSource, HELPER_FRAME_INTERVAL_MS, helperVideoStallMs } from './screen-webrtc-source.ts';
 
 const display = {
   screenId: '1',
@@ -221,15 +221,171 @@ function build(over = {}) {
   });
   /** Channel pushes the adapter made, as [sourceKey, message]. */
   const pushes = [];
+  /** Pictures and track switches it asked of the sender. */
+  const sink = [];
   // The WebRTC side drives viewer leave / disconnect and demote through this.
   const adapter = createScreenWebrtcSource(source, {
     screenId: '1',
-    sink: { geometryChanged() {}, captureChanged() {}, frame() {}, channelPush: (key, message) => pushes.push([key, message]) },
+    sink: {
+      geometryChanged() {},
+      captureChanged() {},
+      frame: (key, picture) => sink.push(['frame', key, picture]),
+      drawnTrack: (key, drawn) => sink.push(['drawn', key, drawn]),
+      channelPush: (key, message) => pushes.push([key, message]),
+    },
   });
   /** Logged drops, as [backend, count]. */
   const dropped = () => log.filter((event) => event.type === 'release-dropped').map((event) => [event.backend, event.count]);
-  return { source, adapter, displays, host, secure, indicator, log, auth, dropped, pushes };
+  return { source, adapter, displays, host, secure, indicator, log, auth, dropped, pushes, sink };
 }
+
+test('helper video: switched in place; control needs this run delivered and seen; a stall, a lost channel or a path change withdraws it', async (t) => {
+  const env = build({ secure: { installed: true, connected: true, desktop: 'winlogon' } });
+  env.host.control.reachable = false;
+  const { geometry } = await env.source.start();
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const control = () => env.source.status().control;
+  const switches = () => env.sink.filter(([kind]) => kind === 'drawn').map(([, key, drawn]) => [key, drawn]);
+  const pictures = () => env.sink.filter(([kind]) => kind === 'frame').map(([, , picture]) => picture);
+  const helperFrame = {
+    width: 1920,
+    height: 1080,
+    stride: 1920 * 4,
+    originX: 0,
+    originY: 0,
+    pixels: new Uint8Array(1920 * 1080 * 4),
+  };
+  const videos = () => env.pushes.filter(([, message]) => message.kind === 'screen-video').map(([, message]) => message);
+  const video = (epoch, path) => ({ v: 1, kind: 'screen-video', epoch, path });
+  assert.deepEqual(switches(), [], 'the desktop capture while the ordinary desktop shows');
+  assert.deepEqual(
+    env.adapter.channelState().find((message) => message.kind === 'screen-video'),
+    video(1, 'capture'),
+    'a promoted channel hears the run'
+  );
+
+  // The lock screen: run 2 on the helper, the sender's track becomes the drawn one.
+  env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await flush();
+  assert.equal(env.source.videoPath(), 'helper');
+  assert.deepEqual(switches(), [['screen:1', true]]);
+  assert.deepEqual(videos(), [], 'a helper run is announced once its first frame is in the track');
+  assert.equal(control(), false);
+
+  // A helper frame goes to the sender as raw rows to crop and scale: nothing fitted in main.
+  env.secure.emitFrame(helperFrame);
+  const [picture] = pictures();
+  assert.equal(picture.mimeType, 'image/x-bgrx');
+  assert.equal(picture.epoch, 2);
+  assert.equal(picture.geometry.generation, geometry.generation, 'same size, same generation');
+  assert.equal(picture.pixels.buffer, helperFrame.pixels.buffer, 'the helper’s own bytes');
+  assert.deepEqual(picture.source, { x: 0, y: 0, width: 1920, height: 1080 });
+  assert.deepEqual(picture.target, { x: 0, y: 0, width: 1920, height: 1080 });
+  // At most one per frame interval of the stream (30 fps: 33.3 ms).
+  env.secure.emitFrame(helperFrame);
+  assert.equal(pictures().length, 1);
+  t.mock.timers.tick(34);
+  env.secure.emitFrame(helperFrame);
+  assert.equal(pictures().length, 2);
+
+  // A seen before the announcement is no evidence.
+  env.adapter.frameSeen(2);
+  assert.equal(control(), false);
+  // Delivered into the track: announced, yet the local pipeline alone grants nothing.
+  env.adapter.delivered(2);
+  assert.deepEqual(videos(), [video(2, 'helper')]);
+  assert.equal(control(), false);
+  env.adapter.frameSeen(1);
+  assert.equal(control(), false, 'a seen of another run');
+  // The phone rendered a frame of run 2: control.
+  env.adapter.frameSeen(2);
+  assert.equal(control(), true);
+  assert.equal(await env.source.handleInput(keyA, geometry.generation), 'applied');
+
+  // Deliveries at the helper's cadence keep the watchdog quiet.
+  for (let i = 0; i < 5; i += 1) {
+    t.mock.timers.tick(HELPER_FRAME_INTERVAL_MS);
+    env.adapter.delivered(2);
+  }
+  const bound = helperVideoStallMs([66, 66, 66, 66, 66]);
+  assert.equal(bound, 216, 'max(3 × 66, 66 + 150)');
+  t.mock.timers.tick(bound - 1);
+  assert.equal(control(), true);
+  // The pipeline stalls: run 3 starts, control is withdrawn at once and the key lifted.
+  t.mock.timers.tick(1);
+  assert.equal(control(), false);
+  await flush();
+  assert.ok(env.secure.state.sent.some((command) => isKeyUp(command)), 'released through the helper');
+  assert.equal(await env.source.handleInput(keyA, geometry.generation), 'rejected');
+  // Run 2's late delivery and seen count for nothing; run 3 needs both again.
+  env.adapter.delivered(2);
+  env.adapter.frameSeen(2);
+  assert.deepEqual(videos(), [video(2, 'helper')]);
+  assert.equal(control(), false);
+  env.adapter.delivered(3);
+  assert.deepEqual(videos().at(-1), video(3, 'helper'));
+  assert.equal(control(), false);
+  env.adapter.frameSeen(3);
+  assert.equal(control(), true);
+
+  // The channel goes (demote): run 4, which the next channel must see for itself.
+  await env.adapter.release();
+  assert.equal(control(), false);
+  assert.equal(
+    env.adapter.channelState().some((message) => message.kind === 'screen-video'),
+    false,
+    'not announced before its first frame'
+  );
+  env.adapter.delivered(4);
+  env.adapter.frameSeen(4);
+  assert.equal(control(), true);
+
+  // Back on the ordinary desktop: run 5 on the capture, announced at once.
+  env.host.control.reachable = true;
+  env.host.emitDesktop({ inputDesktop: 'Default', consent: false, logonUi: false });
+  await flush();
+  assert.equal(env.source.videoPath(), 'capture');
+  assert.deepEqual(switches(), [
+    ['screen:1', true],
+    ['screen:1', false],
+  ]);
+  assert.deepEqual(videos().at(-1), video(5, 'capture'));
+  t.mock.timers.tick(34);
+  env.secure.emitFrame(helperFrame);
+  assert.equal(pictures().length, 2, 'no helper picture outside the helper path');
+  await env.source.stop('user');
+});
+
+test('an acknowledgement or a seen from an earlier run never grants control in a later one', async () => {
+  const env = build({ secure: { installed: true, connected: true, desktop: 'winlogon' } });
+  env.host.control.reachable = false;
+  await env.source.start();
+  const lock = { inputDesktop: null, consent: false, logonUi: true };
+  // Run 2 on the helper: a frame is handed over, its acknowledgement still pending.
+  env.host.emitDesktop(lock);
+  await tick();
+  env.secure.emitFrame({ width: 1920, height: 1080, stride: 7680, originX: 0, originY: 0, pixels: new Uint8Array(7680 * 1080) });
+  const pending = env.sink.filter(([kind]) => kind === 'frame').at(-1)[2];
+  assert.equal(pending.epoch, 2);
+  // To the capture (run 3) and back to the helper (run 4).
+  env.host.control.reachable = true;
+  env.host.emitDesktop({ inputDesktop: 'Default', consent: false, logonUi: false });
+  await tick();
+  env.host.control.reachable = false;
+  env.host.emitDesktop(lock);
+  await tick();
+  // The old frame's ok acknowledgement lands now, then a seen for run 4.
+  env.adapter.delivered(pending.epoch);
+  env.adapter.frameSeen(4);
+  assert.equal(env.source.status().control, false);
+  assert.equal(
+    env.pushes.some(([, message]) => message.kind === 'screen-video' && message.epoch === 4),
+    false,
+    'run 4 is not announced by run 2’s frame'
+  );
+  await env.source.stop('user');
+});
 
 const CTRL = { vk: 0xa2, scan: 0x1d, extended: false };
 const KEY_C = { vk: 0x43, scan: 0x2e, extended: false };
@@ -266,6 +422,7 @@ test('the status is pushed on each change, and a promoted channel gets the curre
   assert.deepEqual(statuses().slice(before), [{ state: 'elevation-prompt', reason: 'uac', helper: 'missing', control: false }]);
   assert.deepEqual(env.adapter.channelState(), [
     { v: 1, kind: 'screen-status', status: { state: 'elevation-prompt', reason: 'uac', helper: 'missing', control: false } },
+    { v: 1, kind: 'screen-video', epoch: 1, path: 'capture' },
   ]);
   assert.equal(env.pushes.every(([key]) => key === 'screen:1'), true);
   await env.source.stop('user');
