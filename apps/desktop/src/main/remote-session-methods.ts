@@ -79,6 +79,7 @@ export function sessionRemoteMethods(
     releaseShellJob: ([sessionId, taskId]) =>
       host.releaseShellJob(requiredSessionId(sessionId), requiredString(taskId, 'taskId', 256)),
     getQuotaAutoResume: () => host.getQuotaAutoResume(),
+    getTaskWorkspace: () => host.getTaskWorkspace(),
     setQuotaAutoResume: ([enabled]) => {
       if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
       return host.setQuotaAutoResume(enabled);

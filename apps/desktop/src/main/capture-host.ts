@@ -289,6 +289,9 @@ export class CaptureService implements DesktopService {
   async getQuotaAutoResume(): Promise<boolean> {
     return true;
   }
+  async getTaskWorkspace(): Promise<string> {
+    return '';
+  }
   async setQuotaAutoResume(): Promise<boolean> {
     return true;
   }

@@ -123,6 +123,8 @@ export class SessionHost implements DesktopService {
   private readonly sessionMetadata: DesktopSessionMetadata;
   private readonly shellJobsPoller: ReturnType<typeof createShellJobsPoller>;
   private readonly taskWorkspacePath: string;
+  /** `taskWorkspacePath` as the file system resolves it; set before the first catalog is read. */
+  private canonicalTaskWorkspace = '';
   /** Poller-facing engine state. The shell snapshot is the BLANK frame New
    *  Task/Project publishes: it carries no clientHostPid, so the poller read
    *  an owner pid of 0 and never scanned a single job record. Session frames
@@ -485,7 +487,13 @@ export class SessionHost implements DesktopService {
 
   private async taskWorkspace(): Promise<string> {
     await mkdir(this.taskWorkspacePath, { recursive: true });
-    return realpath(this.taskWorkspacePath);
+    this.canonicalTaskWorkspace = await realpath(this.taskWorkspacePath);
+    return this.canonicalTaskWorkspace;
+  }
+
+  /** The exact task workspace path (what a task session's cwd is). */
+  getTaskWorkspace(): Promise<string> {
+    return this.taskWorkspace();
   }
 
   private async resolveSessionWorkspace(projectPath?: string | null): Promise<{
@@ -744,6 +752,7 @@ export class SessionHost implements DesktopService {
     if (this.sessionCatalogPromise) return this.sessionCatalogPromise;
     const pending = (async () => {
       await this.sessionMetadata.load();
+      await this.taskWorkspace();
       // Cold desktop catalogs use the durable summary index and incrementally
       // inspect only changed/new/deleted records. Exact pane addressing remains
       // guarded by sessionClient.read/subscribe in the daemon.
@@ -1040,7 +1049,12 @@ export class SessionHost implements DesktopService {
         this.sessionMetadata.withRetiredFlags(
           this.sessionMetadata.withArchiveFlags(
             this.agentRooms.withRooms(
-              desktopSessionSummaries(this.rawSessionRows, this.sessionMetadata.titles, this.sessionMetadata.names)
+              desktopSessionSummaries(
+                this.rawSessionRows,
+                this.sessionMetadata.titles,
+                this.sessionMetadata.names,
+                this.canonicalTaskWorkspace
+              )
             )
           )
         )

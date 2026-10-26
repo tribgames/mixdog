@@ -42,7 +42,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { automationDraftCwd, automationProjectOptions } from './automation-editor-support';
+import { automationDraftCwd, automationProjectOptions, useTaskWorkspace } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -50,7 +50,7 @@ import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-refere
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { CompactSwitch } from './settings/capability-controls';
 
-type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects'>>;
+type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects' | 'getTaskWorkspace'>>;
 
 const frequencyOptions = (): Array<{ value: FrequencyKind; label: string }> => [
   { value: 'hourly', label: t('Hourly') },
@@ -173,7 +173,11 @@ function cadenceTime(schedule: RecordValue): string {
 
 // Map the engine's schedule display shape (channel-admin scheduleToDisplay)
 // onto editable form state. Results always deliver to the app session.
-function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string): ScheduleDraft {
+function scheduleDraft(
+  schedule: RecordValue | undefined,
+  defaultAgent: string,
+  taskWorkspace: string
+): ScheduleDraft {
   const source = record(schedule);
   const parsedAt = source.whenAt ? new Date(String(source.whenAt)) : null;
   const cron = String(source.whenCron || '');
@@ -189,7 +193,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string):
     weekday: parsed.weekday,
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
     whenAt: parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt.toISOString() : '',
-    cwd: automationDraftCwd(source.cwd),
+    cwd: automationDraftCwd(source.cwd, taskWorkspace),
     attachments: attachmentsFromRecords(source.attachments),
     agent: automationAgentOf(schedule, defaultAgent),
     instructions: String(source.instructions || ''),
@@ -460,6 +464,7 @@ export function SchedulesPane({
   const noBot = bots.ready && bots.members.length === 0;
   const defaultAgent = bots.members[0]?.id ?? '';
   const projects = values.projects;
+  const taskWorkspace = useTaskWorkspace(api, active);
   // Host-scoped completion invalidates the keys a capability made untrue and
   // reads through once, unless the app already rebound hosts.
   const { pending, error, setError, run } = useSidebarCapabilityRunner({
@@ -473,7 +478,7 @@ export function SchedulesPane({
   // A bot room's "루틴 만들기": the new-schedule editor with that bot preselected.
   useNewScheduleRequest(active, (agentId) => {
     setError('');
-    setEditor({ name: '', draft: scheduleDraft(undefined, agentId) });
+    setEditor({ name: '', draft: scheduleDraft(undefined, agentId, taskWorkspace) });
   });
   const [runningName, setRunningName] = useState('');
   // The editor portals to document.body, so the sidebar's inert/aria-hidden
@@ -535,7 +540,7 @@ export function SchedulesPane({
             disabled={busy}
             onClick={() => {
               setError('');
-              setEditor({ name: '', draft: scheduleDraft(undefined, defaultAgent) });
+              setEditor({ name: '', draft: scheduleDraft(undefined, defaultAgent, taskWorkspace) });
             }}
           />
         )}
@@ -632,7 +637,7 @@ export function SchedulesPane({
                   busy={busy}
                   onOpen={() => {
                     setError('');
-                    setEditor({ name, draft: scheduleDraft(schedule, defaultAgent) });
+                    setEditor({ name, draft: scheduleDraft(schedule, defaultAgent, taskWorkspace) });
                   }}
                   onToggle={(enabled) => void run('setScheduleEnabled', [name, enabled], 'toast')}
                   onRun={() => void runNow(name)}

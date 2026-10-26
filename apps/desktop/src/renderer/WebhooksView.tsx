@@ -28,7 +28,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { automationDraftCwd, automationProjectOptions } from './automation-editor-support';
+import { automationDraftCwd, automationProjectOptions, useTaskWorkspace } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -38,7 +38,7 @@ import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { CompactSwitch } from './settings/capability-controls';
 import type { RecordValue } from './desktop-types';
 
-type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects'>>;
+type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects' | 'getTaskWorkspace'>>;
 
 const parserOptions = () => [
   { value: 'generic', label: t('Generic JSON') },
@@ -64,7 +64,11 @@ interface WebhookDraft {
   enabled: boolean;
 }
 
-function webhookDraft(webhook: RecordValue | undefined, defaultAgent: string): WebhookDraft {
+function webhookDraft(
+  webhook: RecordValue | undefined,
+  defaultAgent: string,
+  taskWorkspace: string
+): WebhookDraft {
   const source = record(webhook);
   return {
     name: String(source.name || ''),
@@ -75,7 +79,7 @@ function webhookDraft(webhook: RecordValue | undefined, defaultAgent: string): W
     // shows — and save it back unchanged.
     parser: String(source.parser || 'github'),
     agent: automationAgentOf(webhook, defaultAgent),
-    cwd: automationDraftCwd(source.cwd),
+    cwd: automationDraftCwd(source.cwd, taskWorkspace),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
@@ -510,6 +514,7 @@ export function WebhooksPane({
   const noBot = bots.ready && bots.members.length === 0;
   const defaultAgent = bots.members[0]?.id ?? '';
   const projects = values.projects;
+  const taskWorkspace = useTaskWorkspace(api, active);
   const { pending, error, setError, run } = useSidebarCapabilityRunner({
     api,
     completeMutation,
@@ -585,7 +590,7 @@ export function WebhooksPane({
               // Pre-mint the signing secret so the popup shows URL + secret with
               // copy buttons BEFORE the first save (user decision).
               try {
-                setEditor({ name: '', draft: webhookDraft(undefined, defaultAgent), secret: generateSigningSecret() });
+                setEditor({ name: '', draft: webhookDraft(undefined, defaultAgent, taskWorkspace), secret: generateSigningSecret() });
               } catch (reason) {
                 showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
                   scope: 'webhook:secret',
@@ -712,7 +717,7 @@ export function WebhooksPane({
                   }
                   running={runningNames?.has(name) === true || runningName === name}
                   busy={busy}
-                  onOpen={() => openEditor(name, webhookDraft(webhook, defaultAgent))}
+                  onOpen={() => openEditor(name, webhookDraft(webhook, defaultAgent, taskWorkspace))}
                   onToggle={(enabled) => void run('setWebhookEnabled', [name, enabled], 'toast')}
                   onRun={() => void runNow(name)}
                   onRetryDelivery={() => void run('retryRoutineDelivery', ['webhook', name], 'toast')}

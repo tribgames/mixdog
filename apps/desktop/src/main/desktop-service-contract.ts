@@ -76,6 +76,8 @@ export interface DesktopService {
   stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
   releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }>;
   getQuotaAutoResume(): Promise<boolean>;
+  /** The exact path of the app's "no project" working folder. */
+  getTaskWorkspace(): Promise<string>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   /** The agent contact's one home thread (agent-home-sessions.ts). */
@@ -184,6 +186,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'stopShellJob',
   'releaseShellJob',
   'getQuotaAutoResume',
+  'getTaskWorkspace',
   'setQuotaAutoResume',
   'setSessionArchived',
   'openAgentHome',

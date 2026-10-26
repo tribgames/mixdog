@@ -5,6 +5,7 @@ import type {
   DesktopWorkspaceTransitionState,
 } from '../shared/contract';
 import { cleanIncomingTail } from '../shared/incoming-tail';
+import { isTaskWorkspaceFolder } from '../shared/task-workspace';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 import {
   agentHomeSessionId,
@@ -44,17 +45,6 @@ function sessionWorkspace(value: unknown): DesktopSessionWorkspace | null {
     revision: Number.isSafeInteger(record.revision) && Number(record.revision) >= 0 ? Number(record.revision) : 0,
     transition: txId ? { state, txId } : { state: 'idle', txId: null },
   };
-}
-
-function normalizedPath(value: string): string {
-  return value
-    .replace(/[\\/]+/g, '/')
-    .replace(/\/$/, '')
-    .toLowerCase();
-}
-
-function isDesktopTaskWorkspace(value: string): boolean {
-  return normalizedPath(value).endsWith('/workspace/unclassified');
 }
 
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -154,7 +144,10 @@ function readWithIds(rows: Array<Record<string, unknown>>): Map<string, string> 
 export function desktopSessionSummaries(
   rows: Array<Record<string, unknown>>,
   titles: Readonly<Record<string, string>> = {},
-  names: Readonly<Record<string, string>> = {}
+  names: Readonly<Record<string, string>> = {},
+  /** The host's exact task workspace path: what a legacy row (no stored
+   *  classification) running there is classified a task by. */
+  taskWorkspace = ''
 ): DesktopSessionSummary[] {
   const readWith = readWithIds(rows);
   return rows
@@ -171,7 +164,7 @@ export function desktopSessionSummaries(
       const storedClassification = meta?.classification;
       let classification: DesktopSessionClassification;
       if (storedClassification === 'project' || storedClassification === 'task') classification = storedClassification;
-      else classification = cwd && !isDesktopTaskWorkspace(cwd) ? 'project' : 'task';
+      else classification = cwd && !isTaskWorkspaceFolder(cwd, taskWorkspace) ? 'project' : 'task';
       const storedProjectPath = typeof meta?.projectPath === 'string' ? meta.projectPath.trim() : '';
       // A worktree-bound session executes in a managed folder (`cwd`) but stays
       // grouped under its registered Project: the workspace record, then the

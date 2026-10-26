@@ -143,3 +143,21 @@ test('a compacted project session with no surviving title source stays in the ca
   assert.equal(summaries[0].projectPath, 'C:\\Project\\mixdog');
   assert.equal(summaries[0].classification, 'project');
 });
+
+test('a legacy row is a task only in the host\'s exact task workspace', () => {
+  const taskWorkspace = 'C:\\Users\\u\\AppData\\Roaming\\mixdog-desktop\\workspace\\unclassified';
+  const legacy = (id, cwd) => ({ id, cwd, title: `Conversation ${id}` });
+  const summaries = desktopSessionSummaries(
+    [
+      legacy('inside', 'c:/users/u/appdata/roaming/mixdog-desktop/workspace/unclassified/'),
+      legacy('lookalike', '/repos/customer/workspace/unclassified'),
+    ],
+    {},
+    {},
+    taskWorkspace
+  );
+  assert.equal(summaries.find((row) => row.id === 'inside').classification, 'task');
+  const lookalike = summaries.find((row) => row.id === 'lookalike');
+  assert.equal(lookalike.classification, 'project');
+  assert.equal(lookalike.projectPath, '/repos/customer/workspace/unclassified');
+});

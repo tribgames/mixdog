@@ -75,6 +75,7 @@ export const DESKTOP_IPC = {
   releaseShellJob: 'mixdog:release-shell-job',
   getQuotaAutoResume: 'mixdog:get-quota-auto-resume',
   viewerDevice: 'mixdog:viewer-device',
+  getTaskWorkspace: 'mixdog:get-task-workspace',
   setQuotaAutoResume: 'mixdog:set-quota-auto-resume',
   setSessionArchived: 'mixdog:set-session-archived',
   openAgentHome: 'mixdog:open-agent-home',

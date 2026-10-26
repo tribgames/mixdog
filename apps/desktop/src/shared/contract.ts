@@ -472,6 +472,9 @@ export interface DesktopApi {
   /** The device name this window's own actions are stamped with (the host's
    *  name locally, the paired client's name on a remote surface). */
   viewerDevice?(): Promise<string>;
+  /** The exact path of the host's "no project" working folder: a working
+   *  folder equal to it means no Project (shared/task-workspace.ts). */
+  getTaskWorkspace?(): Promise<string>;
   /** Remote surface only: the uncapped output of one tool row whose output the
    *  host cut for the phone (`remoteOutputTruncated`); null when it is gone. */
   readTranscriptItem?(

@@ -245,6 +245,7 @@ const api: DesktopApi = {
   releaseShellJob: (sessionId, taskId) => invokeIpc(DESKTOP_IPC.releaseShellJob, sessionId, taskId),
   getQuotaAutoResume: () => invokeIpc(DESKTOP_IPC.getQuotaAutoResume),
   viewerDevice: () => invokeIpc(DESKTOP_IPC.viewerDevice),
+  getTaskWorkspace: () => invokeIpc(DESKTOP_IPC.getTaskWorkspace),
   setQuotaAutoResume: (enabled) => invokeIpc(DESKTOP_IPC.setQuotaAutoResume, enabled),
   setSessionArchived: (sessionId, archived) => invokeIpc(DESKTOP_IPC.setSessionArchived, sessionId, archived),
   openAgentHome: (agentId) => invokeIpc(DESKTOP_IPC.openAgentHome, agentId),

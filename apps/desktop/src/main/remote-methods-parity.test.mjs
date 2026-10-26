@@ -391,6 +391,8 @@ const REVIEW = {
 /** Methods on the file surface that never produce a named file's content nor
  *  move one, and why. */
 const EXEMPT = {
+  // The path of the host's "no project" folder, never a file in it.
+  getTaskWorkspace: 'a folder path',
   // Names, sizes and stats only.
   listProjectDir: 'entry names',
   searchProjectFiles: 'entry names',

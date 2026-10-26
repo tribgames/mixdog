@@ -29,6 +29,7 @@ const COALESCED_READS = new Set([
   'readHostDisplayPreferences',
   'readSettings',
   'viewerDevice',
+  'getTaskWorkspace',
 ]);
 const COALESCED_CAPABILITY_READS = new Set([
   'getBotOrder',

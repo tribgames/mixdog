@@ -33,6 +33,7 @@ const PARALLEL_READS = new Set([
   'readHostDisplayPreferences',
   'getUpdaterState',
   'viewerDevice',
+  'getTaskWorkspace',
   'gitCliStatus',
   'libreOfficeStatus',
   // A control-session read (session-host-transport READ_CAPABILITIES). As an

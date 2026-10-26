@@ -844,6 +844,9 @@ export class DesktopServiceClient implements DesktopService {
   getQuotaAutoResume(): Promise<boolean> {
     return this.invoke('getQuotaAutoResume', []);
   }
+  getTaskWorkspace(): Promise<string> {
+    return this.invoke('getTaskWorkspace', []);
+  }
   setQuotaAutoResume(enabled: boolean): Promise<boolean> {
     return this.invoke('setQuotaAutoResume', [enabled]);
   }

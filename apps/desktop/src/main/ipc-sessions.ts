@@ -260,6 +260,7 @@ function registerSessionRoutingIpc({
   );
   handle(DESKTOP_IPC.getQuotaAutoResume, () => host.getQuotaAutoResume());
   handle(DESKTOP_IPC.viewerDevice, () => hostDeviceName());
+  handle(DESKTOP_IPC.getTaskWorkspace, () => host.getTaskWorkspace());
   handle(DESKTOP_IPC.setQuotaAutoResume, (_event, enabled) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
     return host.setQuotaAutoResume(enabled);
