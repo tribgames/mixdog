@@ -1,0 +1,50 @@
+[package]
+name = "mixdog-secure-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+description = "Secure-desktop (UAC/lock screen) capture and input bridge for the Mixdog remote-desktop feature"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "mixdog-secure-desktop"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+base64 = "0.22.1"
+rand = "0.9.3"
+# Mutual challenge-response handshake (HMAC-SHA256). Pure Rust so protocol.rs /
+# security.rs stay host-independent and unit-testable off Windows. sha2 is the
+# same version the browser-import crate links.
+hmac = "0.12"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_System_Pipes",
+  "Win32_System_Threading",
+  "Win32_System_RemoteDesktop",
+  "Win32_System_Services",
+  "Win32_System_StationsAndDesktops",
+  "Win32_System_SystemInformation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[workspace]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
