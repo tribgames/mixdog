@@ -8,6 +8,29 @@ import { isMobileRemoteSurface } from '../mobile-surface';
 import { useShellUpdateReload } from '../use-shell-update-reload';
 import { currentVisibleSessionIds } from '../use-visible-sessions';
 import { t } from '../i18n';
+import type { WorkspaceTab } from '../navigation';
+import type { DesktopSessionSummary } from '../../shared/contract';
+
+/** Tabs showing a catalog session take its current display title. Only the
+ *  sessions with a tab are titled: titling the whole catalog on every
+ *  catalog update (four `t()` lookups per session, hundreds of sessions) was
+ *  most of the sidebar's 93 ms task when a phone caught up after resume. */
+export function retitleSessionTabs(tabs: WorkspaceTab[], sessions: readonly DesktopSessionSummary[]): WorkspaceTab[] {
+  let byId: Map<string, DesktopSessionSummary> | null = null;
+  let changed = false;
+  const next = tabs.map((tab) => {
+    // A selection-pinned title is caller-owned, not catalog-owned.
+    if (tab.selection.kind !== 'session' || tab.selection.title) return tab;
+    byId ??= new Map(sessions.map((session) => [session.id, session]));
+    const session = byId.get(tab.selection.id);
+    if (!session) return tab;
+    const title = sessionDisplayTitle(session, t('Untitled session'));
+    if (!title || title === tab.title) return tab;
+    changed = true;
+    return { ...tab, title };
+  });
+  return changed ? next : tabs;
+}
 
 type SessionActivityOptions = Pick<
   Parameters<typeof useAppSessionActions>[0],
@@ -58,22 +81,8 @@ export function useAppSessionActivity({
     return { schedule, webhook };
   }, [sessions]);
   useEffect(() => {
-    const catalogTitles = new Map(
-      sessions.map((session) => [session.id, sessionDisplayTitle(session, t('Untitled session'))] as const)
-    );
-    if (!catalogTitles.size) return;
-    setTabs((current) => {
-      let changed = false;
-      const next = current.map((tab) => {
-        // A selection-pinned title is caller-owned, not catalog-owned.
-        if (tab.selection.kind !== 'session' || tab.selection.title) return tab;
-        const title = catalogTitles.get(tab.selection.id);
-        if (!title || title === tab.title) return tab;
-        changed = true;
-        return { ...tab, title };
-      });
-      return changed ? next : current;
-    });
+    if (!sessions.length) return;
+    setTabs((current) => retitleSessionTabs(current, sessions));
   }, [sessions, setTabs]);
   // A non-empty host catalog (listing or push) dropped sessions the previous
   // catalog held: they were deleted elsewhere (IPC, another window, the phone,

@@ -3,7 +3,7 @@ import test, { after } from 'node:test';
 import React, { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
-import { useAppSessionActivity } from './use-app-session-activity.ts';
+import { retitleSessionTabs, useAppSessionActivity } from './use-app-session-activity.ts';
 import { useSessionCatalog } from '../app-session-catalog.ts';
 import { writeCachedSessionCatalog } from '../session-catalog-cache.ts';
 import { restorableSessionIds } from '../use-pane-workspace-restore.ts';
@@ -114,7 +114,11 @@ test('the cached catalog never closes tabs, but the first host catalog dropping 
 test('a session tab never listed (brand-new or agent worker) and drafts stay open', async (t) => {
   const f = await fixture(t, {
     listed: ['a'],
-    tabs: [tab({ kind: 'session', id: 'a' }), tab({ kind: 'session', id: 'worker' }), tab({ kind: 'new', id: 'draft' })],
+    tabs: [
+      tab({ kind: 'session', id: 'a' }),
+      tab({ kind: 'session', id: 'worker' }),
+      tab({ kind: 'new', id: 'draft' }),
+    ],
   });
   await f.push(['a', 'c']);
   await f.push(['a']);
@@ -131,10 +135,43 @@ test('an in-flight local delete keeps owning its tab cleanup', async (t) => {
   assert.deepEqual(f.closedPaneKeys, []);
 });
 
+// A catalog update on a phone with hundreds of sessions: only the sessions a
+// tab shows are titled, not the whole catalog on every update.
+test('a catalog update titles only the sessions a tab shows', () => {
+  const read = [];
+  const counted = (id, title) =>
+    new Proxy(
+      { id, title, preview: id },
+      {
+        get(target, key) {
+          if (key !== 'id') read.push(id);
+          return target[key];
+        },
+      }
+    );
+  const sessions = Array.from({ length: 300 }, (_, index) => counted(`s${index}`, `Session ${index}`));
+  sessions[7] = counted('s7', 'Renamed seven');
+  const tabs = [
+    tab({ kind: 'session', id: 's7' }),
+    tab({ kind: 'session', id: 's9', title: 'Pinned' }),
+    tab({ kind: 'settings', id: 'general' }),
+  ];
+  const next = retitleSessionTabs(tabs, sessions);
+  assert.equal(next[0].title, 'Renamed seven');
+  assert.equal(next[1], tabs[1], 'a selection-pinned title stays');
+  assert.equal(next[2], tabs[2]);
+  assert.deepEqual([...new Set(read)], ['s7'], 'no other session is read');
+  // Nothing changed: the same array comes back (no tab state update).
+  assert.equal(retitleSessionTabs(next, sessions), next);
+});
+
 test('restore: a stale pool row does not resurrect a deleted Lead tab', () => {
   const ids = restorableSessionIds(
     [{ id: 'live' }],
-    [{ sessionId: 'deleted', ownerSessionId: 'deleted' }, { sessionId: 'orphan-worker', ownerSessionId: 'deleted' }]
+    [
+      { sessionId: 'deleted', ownerSessionId: 'deleted' },
+      { sessionId: 'orphan-worker', ownerSessionId: 'deleted' },
+    ]
   );
   assert.deepEqual([...ids], ['live']);
 });
@@ -142,7 +179,10 @@ test('restore: a stale pool row does not resurrect a deleted Lead tab', () => {
 test('restore: a worker session of a listed Lead keeps its tab', () => {
   const ids = restorableSessionIds(
     [{ id: 'lead' }],
-    [{ sessionId: 'lead', ownerSessionId: 'lead' }, { sessionId: 'worker', ownerSessionId: 'lead' }]
+    [
+      { sessionId: 'lead', ownerSessionId: 'lead' },
+      { sessionId: 'worker', ownerSessionId: 'lead' },
+    ]
   );
   assert.deepEqual([...ids].sort(), ['lead', 'worker']);
 });
