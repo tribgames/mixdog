@@ -466,3 +466,30 @@ test('General no longer carries the old task-finished notification group', async
   assert.equal(dom.document.body.textContent.includes('Notify me when a task finishes'), false);
   assert.equal(dom.document.body.textContent.includes('Notification volume'), false);
 });
+
+test('a failed first read shows the error with a retry that loads the panel', async (t) => {
+  const made = makeApi();
+  const read = made.api.getNotificationPreferences;
+  let fail = true;
+  made.api.getNotificationPreferences = () => (fail ? Promise.reject(new Error('connection lost')) : read());
+  const { document } = await mountPanel(t, made);
+  const alert = document.querySelector('[role="alert"]');
+  assert.ok(alert, 'the failure is announced');
+  assert.match(alert.textContent, /connection lost/);
+  assert.deepEqual(groupTitles(document), []);
+  fail = false;
+  await clickEl([...alert.querySelectorAll('button')].find((button) => button.textContent.includes('Retry')));
+  await settle();
+  assert.equal(document.querySelector('[role="alert"]'), null);
+  assert.equal(groupTitles(document).length, 4);
+});
+
+test('a failed write shows its error and rolls the control back', async (t) => {
+  const { document } = await mountPanel(t, makeApi(makeState(), { failWrites: true }));
+  const toggle = checkbox(document, 'Taskbar flash');
+  assert.equal(toggle.checked, true);
+  await clickEl(toggle);
+  await settle();
+  assert.equal(checkbox(document, 'Taskbar flash').checked, true, 'rolled back');
+  assert.match(document.querySelector('[role="alert"]').textContent, /no/);
+});

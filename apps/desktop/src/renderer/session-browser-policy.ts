@@ -32,9 +32,12 @@ export function surfaceOwnerChain(sessionId: string, sources: SurfaceOwnerSource
     if (clean && !chain.includes(clean)) chain.push(clean);
   };
   let row = sources.pool.find((entry) => entry.sessionId === sessionId);
-  for (let depth = 0; row && depth < 16; depth += 1) {
-    add(row.parentSessionId);
-    const next = sources.pool.find((entry) => entry.sessionId === text(row?.parentSessionId));
+  while (row) {
+    // A parent already on the chain closes a cycle: stop there, never loop.
+    const parent = text(row.parentSessionId);
+    const visited = chain.includes(parent);
+    add(parent);
+    const next = visited ? undefined : sources.pool.find((entry) => entry.sessionId === parent);
     if (!next) {
       add(row.ownerSessionId);
       break;

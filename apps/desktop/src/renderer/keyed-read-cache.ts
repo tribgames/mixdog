@@ -11,6 +11,9 @@ type Entry<T> = {
   /** Order of the newest read start or write: an answer older than the
    *  newest value applied is dropped. */
   applied: number;
+  /** The last subscriber left: the entry goes once no read is in flight, so a
+   *  key nobody shows (a deleted bot) is not kept for the renderer's lifetime. */
+  released: boolean;
 };
 
 export interface KeyedReadCache<T> {
@@ -34,10 +37,13 @@ export function createKeyedReadCache<T>(): KeyedReadCache<T> {
   const entry = (key: string): Entry<T> => {
     let found = entries.get(key);
     if (!found) {
-      found = { value: undefined, read: null, again: null, applied: 0 };
+      found = { value: undefined, read: null, again: null, applied: 0, released: false };
       entries.set(key, found);
     }
     return found;
+  };
+  const dropIfReleased = (key: string, current: Entry<T>) => {
+    if (current.released && !current.read && !current.again && entries.get(key) === current) entries.delete(key);
   };
   const apply = (key: string, value: T, at: number) => {
     const current = entry(key);
@@ -56,6 +62,7 @@ export function createKeyedReadCache<T>(): KeyedReadCache<T> {
       })
       .finally(() => {
         if (current.read === read) current.read = null;
+        dropIfReleased(key, current);
       });
     current.read = read;
     // Every caller handles its own rejection; the shared promise must not
@@ -87,8 +94,16 @@ export function createKeyedReadCache<T>(): KeyedReadCache<T> {
         listeners.set(key, set);
       }
       set.add(listener);
+      const subscribed = entries.get(key);
+      if (subscribed) subscribed.released = false;
       return () => {
         set.delete(listener);
+        if (set.size > 0) return;
+        listeners.delete(key);
+        const current = entries.get(key);
+        if (!current) return;
+        current.released = true;
+        dropIfReleased(key, current);
       };
     },
     load,

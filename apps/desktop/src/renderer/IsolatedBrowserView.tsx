@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, use
 import { createBrowserPageClient, type BrowserPageElement } from './browser-page-client';
 import { useBrowserPageInput } from './use-browser-page-input';
 import { ErrorNotice } from './ErrorNotice';
+import { reportBrowserPanelShown } from './browser-panel-presence';
 import { t } from './i18n';
 import { copyTextToClipboard } from './text-format';
 import type { DesktopBrowserPageFrame } from '../shared/contract';
@@ -100,10 +101,8 @@ export const IsolatedBrowserView = forwardRef<
   useEffect(() => {
     if (!active) return undefined;
     const pane = String(++nextPaneActivation);
-    void window.mixdogDesktop?.browserPanelShown?.(sessionId, true, pane).catch(() => {});
-    return () => {
-      void window.mixdogDesktop?.browserPanelShown?.(sessionId, false, pane).catch(() => {});
-    };
+    reportBrowserPanelShown(sessionId, true, pane);
+    return () => reportBrowserPanelShown(sessionId, false, pane);
   }, [active, sessionId]);
 
   useEffect(() => {

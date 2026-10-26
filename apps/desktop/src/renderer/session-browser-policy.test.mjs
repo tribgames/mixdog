@@ -62,6 +62,26 @@ test('a child, task or room-member session reveals in the owner conversation on 
   assert.equal(surfaceSessionName('task-1', sources), 'Report');
 });
 
+test('the owner chain climbs any depth and stops at a cycle', () => {
+  const depth = 40;
+  const pool = Array.from({ length: depth }, (_, index) => ({
+    sessionId: `s${index}`,
+    parentSessionId: index + 1 < depth ? `s${index + 1}` : 'lead',
+    ownerSessionId: 'lead',
+    title: '',
+    tag: '',
+  }));
+  const chain = surfaceOwnerChain('s0', { sessions: [], pool });
+  assert.equal(chain.length, depth + 1);
+  assert.equal(chain.at(-1), 'lead');
+
+  const loop = [
+    { sessionId: 'a', parentSessionId: 'b', ownerSessionId: 'lead', title: '', tag: '' },
+    { sessionId: 'b', parentSessionId: 'a', ownerSessionId: 'lead', title: '', tag: '' },
+  ];
+  assert.deepEqual(surfaceOwnerChain('a', { sessions: [], pool: loop }), ['a', 'b', 'lead']);
+});
+
 const owners = [
   { leafId: 'pane-a', sessionId: 'alpha' },
   { leafId: 'pane-b', sessionId: 'beta' },

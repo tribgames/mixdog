@@ -69,16 +69,17 @@ function waitLabel(seconds: number): string {
 // Local deadlines of the reconnect waits this renderer has seen, by retry key.
 // The runtime publishes the wait RELATIVE to its own clock (`retryInMs`); the
 // first sighting anchors it to this clock, so a remote client whose clock is
-// skewed from the runtime's still counts the right time down.
-const RETRY_DEADLINE_LIMIT = 16;
+// skewed from the runtime's still counts the right time down. A deadline lives
+// until its wait ends (the countdown anchor of a retry still waiting must
+// survive revisits); other retries' ended waits are dropped on each access.
 const retryDeadlines = new Map<string, number>();
 
 function localRetryDeadline(key: string, retryInMs: number, now: number): number {
+  for (const [other, deadline] of retryDeadlines) if (other !== key && deadline <= now) retryDeadlines.delete(other);
   const known = retryDeadlines.get(key);
   if (known !== undefined) return known;
   const deadline = now + Math.max(0, retryInMs);
   retryDeadlines.set(key, deadline);
-  if (retryDeadlines.size > RETRY_DEADLINE_LIMIT) retryDeadlines.delete(retryDeadlines.keys().next().value as string);
   return deadline;
 }
 

@@ -16,6 +16,7 @@ import {
   type NotificationQuietDays,
   type NotificationScope,
 } from '../../shared/contract';
+import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { OpenSelect } from '../OpenSelect';
@@ -445,17 +446,24 @@ export function NotificationsPanel({
   api: NotificationsApi;
   openCategory?: (category: SettingsCategory) => void;
 }) {
-  const { state, save } = useNotificationPreferences(api);
+  const { state, save, readError, writeError, retry } = useNotificationPreferences(api);
   const [requested, setRequested] = useState<string | null>(() => takeNotificationDeviceRequest());
-  if (!state) return null;
+  const notices = (
+    <>
+      {readError != null && <ErrorNotice error={readError} onRetry={retry} />}
+      {writeError != null && <ErrorNotice error={writeError} />}
+    </>
+  );
+  if (!state) return notices;
   const usable = (id: string | null) =>
     state.devices.find((device) => device.id === id && (device.canNotify || id === state.currentDeviceId));
   const selected =
     usable(requested) ?? usable(state.currentDeviceId) ?? state.devices.find((device) => device.canNotify);
   const prefs = selected && state.preferences[selected.id];
-  if (!selected || !prefs) return null;
+  if (!selected || !prefs) return notices;
   return (
     <>
+      {notices}
       <DevicePicker
         devices={state.devices}
         selected={selected}

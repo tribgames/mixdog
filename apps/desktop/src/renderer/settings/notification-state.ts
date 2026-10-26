@@ -64,6 +64,9 @@ function withPatch(
  *  older than that write and is discarded. */
 export function useNotificationPreferences(api: NotificationApi | undefined) {
   const [state, setState] = useState<NotificationPreferencesState | null>(null);
+  // The last failed read / write (null once one succeeds); the panel shows them.
+  const [readError, setReadError] = useState<unknown>(null);
+  const [writeError, setWriteError] = useState<unknown>(null);
   const confirmed = useRef<NotificationPreferencesState | null>(null);
   const pending = useRef<PendingWrite[]>([]);
   const chain = useRef<Promise<void>>(Promise.resolve());
@@ -89,9 +92,12 @@ export function useNotificationPreferences(api: NotificationApi | undefined) {
             return;
           }
           confirmed.current = next;
+          setReadError(null);
           show();
         })
-        .catch(() => {});
+        .catch((error: unknown) => {
+          if (live) setReadError(error);
+        });
     };
     rereadRef.current = read;
     read();
@@ -111,8 +117,10 @@ export function useNotificationPreferences(api: NotificationApi | undefined) {
         try {
           const next = await api?.setNotificationPreferences?.(deviceId, patch);
           if (next) confirmed.current = next;
-        } catch {
-          /* only this write's change is dropped */
+          setWriteError(null);
+        } catch (error) {
+          // Only this write's change is dropped (it leaves `pending` below); the failure is exposed.
+          setWriteError(error);
         }
         pending.current = pending.current.filter((entry) => entry !== write);
         writeEpoch.current += 1;
@@ -125,7 +133,8 @@ export function useNotificationPreferences(api: NotificationApi | undefined) {
     },
     [api, show]
   );
-  return { state, save };
+  const retry = useCallback(() => rereadRef.current(), []);
+  return { state, save, readError, writeError, retry };
 }
 
 export function scopeLabel(scope: NotificationScope): string {

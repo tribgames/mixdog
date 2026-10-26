@@ -309,6 +309,27 @@ test('a muted row shows the mark; an expired mute removes it; a settings change 
   assert.equal(mark(), null, 'expired mute disappears');
 });
 
+test('a failed settings read keeps the cached values and tells the user', async (t) => {
+  const { api, store, window } = await setup(t, { scope: 'bots' });
+  const target = { kind: 'agent', id: 'marketer' };
+  api.overrides = [muted('agent', 'marketer', null)];
+  await store.refreshConversationNotifications();
+  const toasts = [];
+  window.addEventListener('mixdog:desktop-toast', (event) => toasts.push(event.detail));
+  window.mixdogDesktop.listConversationNotifications = async () => {
+    throw new Error('config unreadable');
+  };
+  window.mixdogDesktop.getNotificationPreferences = async () => {
+    throw new Error('preferences unreadable');
+  };
+  await store.refreshConversationNotifications();
+  const snap = store.notificationSnapshot();
+  assert.equal(snap.scope, 'bots');
+  assert.deepEqual(store.resolveNotificationState(snap, target).kind, 'muted');
+  assert.equal(toasts.length, 2);
+  assert.ok(toasts.every((toast) => toast.tone === 'error' && /unreadable/.test(toast.text)));
+});
+
 const seatOf = async (agent) => {
   const { roomMemberSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-room.mjs');
   return roomMemberSessionId(ROOM_ID, agent);

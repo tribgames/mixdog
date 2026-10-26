@@ -159,3 +159,15 @@ test('the verb pool follows the active language and updates on a switch', async 
     await i18n.changeLanguage('en');
   }
 });
+
+test('every retry still waiting keeps its countdown anchor, however many are tracked', () => {
+  const text = 'Rate limited · retry 1/5 in 100s';
+  const paint = (retryKey, now) => reconnectActivityVerb(text, 'en', { retryKey, retryInMs: 100_000, now });
+  assert.equal(paint('kept-0', 0), 'Rate limited · retry 1/5 in 100s');
+  for (let index = 1; index < 40; index += 1) paint(`kept-${index}`, 0);
+  // Revisiting the first retry counts down from its first sighting, not from the full wait again.
+  assert.equal(paint('kept-0', 40_000), 'Rate limited · retry 1/5 in 60s');
+  // A retry whose wait ended is dropped once another is read, so its key can anchor afresh.
+  paint('kept-1', 101_000);
+  assert.equal(paint('kept-0', 102_000), 'Rate limited · retry 1/5 in 100s');
+});

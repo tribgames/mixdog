@@ -85,3 +85,43 @@ test('a failed read keeps the cached value and the next activation reads again',
   void cache.load('bot', host.reader);
   assert.equal(host.pending.length, 3);
 });
+
+test('a key nobody subscribes to any more is dropped, and a revisit reads afresh', async () => {
+  const cache = createKeyedReadCache();
+  const host = hostReads();
+  for (let index = 0; index < 100; index += 1) {
+    const unsubscribe = cache.subscribe(`bot-${index}`, () => {});
+    const read = cache.load(`bot-${index}`, host.reader);
+    host.pending.at(-1).resolve([index]);
+    await read;
+    assert.deepEqual(cache.peek(`bot-${index}`), [index], 'kept while shown');
+    unsubscribe();
+    assert.equal(cache.peek(`bot-${index}`), undefined, 'dropped with its last subscriber');
+  }
+  const reads = host.pending.length;
+  const unsubscribe = cache.subscribe('bot-0', () => {});
+  const revisit = cache.load('bot-0', host.reader);
+  assert.equal(host.pending.length, reads + 1, 'the revisit reads again');
+  host.pending.at(-1).resolve(['again']);
+  await revisit;
+  assert.deepEqual(cache.peek('bot-0'), ['again']);
+  unsubscribe();
+});
+
+test('a warm-up keeps its value for the list that mounts, and a read in flight at unsubscribe still ends dropped', async () => {
+  const cache = createKeyedReadCache();
+  const host = hostReads();
+  const prefetch = cache.load('bot', host.reader);
+  host.pending[0].resolve(['gmail']);
+  await prefetch;
+  const first = cache.subscribe('bot', () => {});
+  const second = cache.subscribe('bot', () => {});
+  first();
+  assert.deepEqual(cache.peek('bot'), ['gmail'], 'another subscriber remains');
+  const refreshed = cache.refresh('bot', host.reader);
+  second();
+  assert.deepEqual(cache.peek('bot'), ['gmail'], 'kept while its read is in flight');
+  host.pending[1].resolve(['slack']);
+  await refreshed;
+  assert.equal(cache.peek('bot'), undefined);
+});

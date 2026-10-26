@@ -89,14 +89,24 @@ export async function refreshConversationNotifications(): Promise<void> {
   const api = window.mixdogDesktop;
   if (!api?.listConversationNotifications) return;
   const mine = ++refreshSeq;
-  const [overrides, preferences] = await Promise.all([
-    api.listConversationNotifications().catch(() => null),
-    (api.getNotificationPreferences?.() ?? Promise.resolve(null)).catch(() => null),
+  const [overrides, preferences] = await Promise.allSettled([
+    api.listConversationNotifications(),
+    api.getNotificationPreferences?.() ?? Promise.resolve(null),
   ]);
   if (mine !== refreshSeq) return;
+  // A failed read keeps the cached value (never a default) and is reported:
+  // the shown settings may be stale.
+  for (const read of [overrides, preferences]) {
+    if (read.status === 'rejected') {
+      showDesktopToast(errorMessageText(read.reason), 'error', { scope: 'notifications:refresh' });
+    }
+  }
   publish({
-    overrides: overrides ?? snapshot.overrides,
-    scope: preferences?.preferences[preferences.currentDeviceId]?.scope || snapshot.scope,
+    overrides: overrides.status === 'fulfilled' ? overrides.value : snapshot.overrides,
+    scope:
+      (preferences.status === 'fulfilled' &&
+        preferences.value?.preferences[preferences.value.currentDeviceId]?.scope) ||
+      snapshot.scope,
   });
 }
 
