@@ -67,6 +67,11 @@ export function connectorAccountServer(cfg: Record<string, unknown>, account: Co
 export function connectorAccountServers(cfg: unknown): Record<string, unknown>[];
 export function connectorAccountEnabled(account: ConnectorAccountEntry): boolean;
 export function connectorLiveAccountServers(cfg: unknown): Record<string, unknown>[];
+export function withConnectorAccountEnabled(
+  cfg: Record<string, unknown>,
+  name: string,
+  enabled: boolean
+): Record<string, unknown>;
 export function connectorAccountEntry(name: string, cfg: Record<string, unknown>): ConnectorAccountEntry;
 export function mergeConnectorAccountServers(servers: Record<string, unknown>): {
   servers: Record<string, unknown>;

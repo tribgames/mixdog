@@ -16,6 +16,7 @@ import {
   connectorById,
   connectorOfServer,
   gmailAppPasswordAccount,
+  withConnectorAccountEnabled,
 } from '../runtime/shared/connector-catalog.mjs';
 import { forgetConnectorAccountHealth } from '../runtime/connectors/connector-accounts-mcp.mjs';
 import { accountTarget, mergedServerInput, nameTakenError, oauthUrlOf } from './resource-mcp-servers.mjs';
@@ -140,5 +141,20 @@ export function createConnectorAccountEdits({
     return { name: serverName, account: account.name, source: 'config', status };
   }
 
-  return { addConnectorAccount, saveConnectorAccount };
+  /** Switch one account (`target` from accountTarget) on or off by itself and
+   *  reconnect its server. Switching an account on switches its server on;
+   *  switching its last live account off switches the server off. */
+  async function setConnectorAccountEnabled(servers, target, enabled) {
+    const { serverName, cfg, account } = target;
+    const next = withConnectorAccountEnabled(cfg, account.name, enabled);
+    servers[serverName] = next;
+    saveServers(servers);
+    forgetConnectorAccountHealth(account.name);
+    const serverOn = next.enabled !== false;
+    const status = await sync.scheduleMcpToggle(serverName, serverOn);
+    await sync.publish('mcp', { mcpChanges: [{ name: serverName, enabled: serverOn }] });
+    return status;
+  }
+
+  return { addConnectorAccount, saveConnectorAccount, setConnectorAccountEnabled };
 }

@@ -14,6 +14,7 @@ import {
   CONNECTOR_CATALOG,
   GMAIL_APP_PASSWORD,
   connectorAccountsUrl,
+  connectorLiveAccountServers,
   connectorServerInput,
   gmailAppPasswordServerInput,
   mergeConnectorAccountServers,
@@ -846,6 +847,110 @@ test('migration reports an unreadable agents directory and keeps the mapping pen
   const missing = migrateMergedConnectorServers(dataDir, [], { readdir: refuse('ENOENT') });
   assert.deepEqual(missing.failed, []);
   assert.throws(() => readFileSync(pending), { code: 'ENOENT' });
+});
+
+/** A Gmail connector server over `accounts`, and a harness that records every connect it is asked for. */
+function accountsHarness(t, accounts) {
+  const connects = [];
+  const h = harness(t, {
+    initial: { gmail: { type: 'http', url: connectorAccountsUrl('gmail'), connector: 'gmail', accounts } },
+    connect: async (options) => {
+      connects.push(options);
+      return { servers: [] };
+    },
+  });
+  const server = () => h.config().mcpServers.gmail;
+  return {
+    ...h,
+    connects,
+    server,
+    flags: () => server().accounts.map((account) => account.enabled),
+    live: () => connectorLiveAccountServers(server()).map((account) => account.name),
+    rowFlags: () =>
+      h.glue
+        .mcpStatus()
+        .servers.find((row) => row.name === 'gmail')
+        .accounts.map((row) => row.enabled),
+  };
+}
+
+test('an account turns on and off by its own flag and its server reconnects; the connector toggle and edits leave the flags alone', async (t) => {
+  const THIRD = 'team@gmail.com';
+  const h = accountsHarness(t, [
+    appPasswordAccount('gmail', EMAIL),
+    { ...appPasswordAccount('gmail-2', OTHER), enabled: false },
+    appPasswordAccount('gmail-3', THIRD),
+  ]);
+  assert.deepEqual(h.rowFlags(), [undefined, false, undefined]);
+
+  // Editing a disabled account never turns it on.
+  await h.api.saveMcpServer({ ...gmailAppPasswordServerInput('gmail-2', OTHER, OTHER_PASSWORD), originalName: 'gmail-2' });
+  assert.deepEqual(h.flags(), [undefined, false, undefined]);
+  assert.deepEqual(h.live(), ['gmail', 'gmail-3']);
+
+  // Turning it on drops its flag and reconnects the server, which now connects it.
+  h.connects.length = 0;
+  await h.api.setMcpServerEnabled('gmail-2', true);
+  assert.deepEqual(h.flags(), [undefined, undefined, undefined]);
+  assert.equal(h.server().enabled, true);
+  assert.deepEqual(h.live(), ['gmail', 'gmail-2', 'gmail-3']);
+  assert.deepEqual(h.rowFlags(), [undefined, undefined, undefined]);
+  assert.deepEqual(h.connects, [{ only: 'gmail', enabled: true }]);
+
+  // Turning it off flags that account only; the server stays on and reconnects without it.
+  h.connects.length = 0;
+  await h.api.setMcpServerEnabled('gmail-2', false);
+  assert.deepEqual(h.flags(), [undefined, false, undefined]);
+  assert.equal(h.server().enabled, true);
+  assert.deepEqual(h.live(), ['gmail', 'gmail-3']);
+  assert.deepEqual(h.rowFlags(), [undefined, false, undefined]);
+  assert.deepEqual(h.connects, [{ only: 'gmail', enabled: true }]);
+
+  // The connector itself switches as before and every account keeps its own flag.
+  h.connects.length = 0;
+  await h.api.setMcpServerEnabled('gmail', false);
+  assert.equal(h.server().enabled, false);
+  assert.deepEqual(h.flags(), [undefined, false, undefined]);
+  await h.api.setMcpServerEnabled('gmail', true);
+  assert.equal(h.server().enabled, true);
+  assert.deepEqual(h.flags(), [undefined, false, undefined]);
+  assert.deepEqual(h.connects, [
+    { only: 'gmail', enabled: false },
+    { only: 'gmail', enabled: true },
+  ]);
+
+  // Turning on an account of a turned-off connector turns the connector on with it.
+  await h.api.setMcpServerEnabled('gmail', false);
+  await h.api.setMcpServerEnabled('gmail-3', true);
+  assert.equal(h.server().enabled, true);
+  assert.deepEqual(h.flags(), [undefined, false, undefined]);
+});
+
+test('the account that shares its server’s name turns on with that name; turning it off is turning off the connector', async (t) => {
+  const h = accountsHarness(t, [{ ...appPasswordAccount('gmail', EMAIL), enabled: false }, appPasswordAccount('gmail-2', OTHER)]);
+  assert.deepEqual(h.live(), ['gmail-2']);
+
+  await h.api.setMcpServerEnabled('gmail', true);
+  assert.deepEqual(h.flags(), [undefined, undefined]);
+  assert.deepEqual(h.live(), ['gmail', 'gmail-2']);
+
+  await h.api.setMcpServerEnabled('gmail', false);
+  assert.equal(h.server().enabled, false);
+  assert.deepEqual(h.flags(), [undefined, undefined]);
+});
+
+test('turning off the last live account turns its server off, and turning an account on turns it back on', async (t) => {
+  const h = accountsHarness(t, [{ ...appPasswordAccount('gmail', EMAIL), enabled: false }, appPasswordAccount('gmail-2', OTHER)]);
+  await h.api.setMcpServerEnabled('gmail-2', false);
+  assert.equal(h.server().enabled, false);
+  assert.deepEqual(h.flags(), [false, false]);
+  assert.deepEqual(h.connects, [{ only: 'gmail', enabled: false }]);
+
+  await h.api.setMcpServerEnabled('gmail-2', true);
+  assert.equal(h.server().enabled, true);
+  assert.deepEqual(h.flags(), [false, undefined]);
+  assert.deepEqual(h.live(), ['gmail-2']);
+  assert.deepEqual(h.connects.at(-1), { only: 'gmail', enabled: true });
 });
 
 test('hook migration renames tool identifiers only, never argument conditions or other data', async (t) => {

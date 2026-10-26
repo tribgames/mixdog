@@ -247,6 +247,23 @@ export function connectorLiveAccountServers(cfg) {
     .map((account) => connectorAccountServer(cfg, account));
 }
 
+/**
+ * Server `cfg` with its account `name` switched on or off. Off flags the
+ * account (`enabled: false`) and switches the server off with its last
+ * switched-on account. On drops the flag (a switched-on account carries none)
+ * and switches the server on. Every other entry stays as stored.
+ */
+export function withConnectorAccountEnabled(cfg, name, enabled) {
+  const accounts = cfg.accounts.map((account) => {
+    if (!isRecord(account) || account.name !== name) return account;
+    const { enabled: _enabled, ...rest } = account;
+    return enabled ? rest : { ...rest, enabled: false };
+  });
+  const next = { ...cfg, accounts };
+  if (enabled) return { ...next, enabled: true };
+  return connectorAccountsOf(next).some(connectorAccountEnabled) ? next : { ...next, enabled: false };
+}
+
 /** The stored account entry of one-account config `cfg` under `name`. */
 export function connectorAccountEntry(name, cfg) {
   const out = { name };

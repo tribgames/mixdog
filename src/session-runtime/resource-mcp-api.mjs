@@ -82,7 +82,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       clearMcpServerOAuth,
       resolveConfiguredMcpCatalog,
     });
-  const { addConnectorAccount, saveConnectorAccount } = createConnectorAccountEdits({
+  const { addConnectorAccount, saveConnectorAccount, setConnectorAccountEnabled } = createConnectorAccountEdits({
     normalizeMcpServerInput,
     pluginMcpServer,
     sync,
@@ -104,7 +104,8 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
      *  (connector-catalog.mjs mergeConnectorAccountServers). Every account
      *  keeps its address, so its stored sign-in and app password stay as
      *  they are. Settings keyed by a merged-away server name go with it:
-     *  scopes (`extensionScopes.mcp`) are dropped, on/off are the server's;
+     *  scopes (`extensionScopes.mcp`) are dropped, and the accounts of a
+     *  server that was off stay off (`enabled: false` on the account);
      *  per-agent / per-project connector settings and data-dir hooks move to
      *  the surviving server first (connector-merge-migration.mjs); a store
      *  that fails stays in a pending record that every start retries.
@@ -269,8 +270,13 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       return released ? { ...status, ...released } : status;
     },
     async setMcpServerEnabled(name, enabled) {
-      // The accounts of a multi-account connector are switched on and off with their server.
-      const serverName = accountTarget(userServers(), clean(name))?.serverName || clean(name);
+      // A name a multi-account connector holds as an account switches that
+      // account (and, on, its server) rather than the whole server; the
+      // account sharing the server's name is switched off with the server.
+      const requested = clean(name);
+      const servers = userServers();
+      const held = accountTarget(servers, requested);
+      const serverName = held?.serverName || requested;
       if (!serverName) throw new Error('MCP server name is required');
       const want = enabled !== false;
       const owned = pluginMcpServer(serverName);
@@ -292,11 +298,11 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       }
       const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
       if (!shadowRow) throw new Error(`MCP server not configured: ${serverName}`);
-      const servers = userServers();
       const current = servers[serverName];
       if (!current || typeof current !== 'object' || Array.isArray(current)) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
+      if (held && (want || serverName !== requested)) return setConnectorAccountEnabled(servers, held, want);
       servers[serverName] = { ...current, enabled: want };
       saveServers(servers);
       const status = await sync.scheduleMcpToggle(serverName, want);

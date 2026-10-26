@@ -8,7 +8,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import keychain from '../../../../lib/keychain-cjs.cjs';
 import { connectorAccountHealth } from '../../../connectors/connector-accounts-mcp.mjs';
 import { gmailAppPasswordSecretAccount } from '../../../connectors/gmail-app-password.mjs';
-import { GMAIL_APP_PASSWORD } from '../../../shared/connector-catalog.mjs';
+import { GMAIL_APP_PASSWORD, withConnectorAccountEnabled } from '../../../shared/connector-catalog.mjs';
 import { createMcpTransport } from './client-transport.mjs';
 import { mcpOAuthClientSecretAccount } from './oauth-client.mjs';
 
@@ -228,6 +228,30 @@ test('a disabled account is neither connected nor called', async (t) => {
   assert.equal(call.isError, undefined);
   assert.deepEqual(live.requests, ['initialize', 'tools/call']);
   assert.deepEqual(off.requests, []);
+});
+
+test('an account turned back on is connected again and receives calls', async (t) => {
+  const live = await recordingAccountServer(t);
+  const back = await recordingAccountServer(t);
+  const disabled = accountsCfg([
+    { name: 'gmail', url: live.url, headers: { 'x-api-key': 'k' } },
+    { name: 'gmail-2', url: back.url, headers: { 'x-api-key': 'k' }, enabled: false },
+  ]);
+  const { transport } = createMcpTransport({
+    name: 'gmail',
+    cfg: withConnectorAccountEnabled(disabled, 'gmail-2', true),
+    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    log: () => {},
+  });
+  const client = new Client({ name: 'test', version: '1' });
+  t.after(() => client.close());
+  await client.connect(transport);
+  const { tools } = await client.listTools();
+
+  const call = await client.callTool({ name: tools[0].name, arguments: { account: 'gmail-2' } });
+  assert.equal(call.isError, undefined);
+  assert.deepEqual(back.requests, ['initialize', 'tools/call']);
+  assert.deepEqual(live.requests, ['initialize']);
 });
 
 test('a connector whose every account is disabled does not connect', (t) => {
