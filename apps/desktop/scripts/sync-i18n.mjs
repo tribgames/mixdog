@@ -21,7 +21,7 @@ for (const [language, catalog] of catalogs) {
       catalog[key] = catalog[key.slice(0, -6)];
       continue;
     }
-    catalog[key] = reusableTranslation(key, catalog) ?? (key in neutral ||!hasLatinText(key) ? key : '');
+    catalog[key] = reusableTranslation(key, catalog) ?? (key in neutral || !hasLatinText(key) ? key : '');
     if (!catalog[key]) missing += 1;
   }
   const sorted = Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b, 'en')));

@@ -984,7 +984,6 @@ test('with a publication revision the lane comparison never scans the transcript
     view.root.render(h(Probe, { name: 'a', cwd: undefined, sessionId: 'lane-scan', active: true }))
   );
   await view.settle();
-  const base = scans;
   await publish(2);
   const afterMove = scans;
   // Same-revision frames (deltas) are compared by revision, not by transcript.

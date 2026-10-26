@@ -109,14 +109,14 @@ app.whenReady().then(async () => {
               .find((el) => el.getAttribute('aria-label') === ${JSON.stringify(label)}).click();
           })()`);
           await evaluate('window.localProviderProbe.settle()');
-          confirmations[file] = await evaluate(
-            `document.querySelector('[role="alertdialog"]')?.textContent || null`
-          );
+          confirmations[file] = await evaluate(`document.querySelector('[role="alertdialog"]')?.textContent || null`);
           if (!confirmations[file]) failures.push(`${file} confirmation missing`);
           win.webContents.invalidate();
           await evaluate('window.localProviderProbe.settle()');
           writeFileSync(join(output, `${name}-${file}.png`), (await win.webContents.capturePage()).toPNG());
-          await evaluate(`[...document.querySelectorAll('[role="alertdialog"] button')].find((el) => !el.classList.contains('danger'))?.click()`);
+          await evaluate(
+            `[...document.querySelectorAll('[role="alertdialog"] button')].find((el) => !el.classList.contains('danger'))?.click()`
+          );
           await evaluate('window.localProviderProbe.settle()');
         }
         if (!/먼저 내린 뒤/.test(confirmations.delete || '')) failures.push('delete confirmation omits unload notice');

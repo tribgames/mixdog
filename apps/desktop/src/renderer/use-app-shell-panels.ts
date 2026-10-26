@@ -181,10 +181,9 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
   const [commandSurfaceSessionId, setCommandSurfaceSessionId] = useState('');
   const commandSurfaceLane = useSessionLane(commandSurfaceSessionId, defaultSessionLaneStore);
-  // The session travels WITH the open request. The clear used to live here
-  // unconditionally, so a caller that had just named its pane session saw it
-  // wiped inside the same batch and /context read the blank control session
-  // instead (user: /context가 0으로 나온다). A surface that owns no
+  // The session travels WITH the open request. Clearing it unconditionally here
+  // would wipe a session the caller just named inside the same batch, and
+  // /context would read the blank control session. A surface that owns no
   // conversation simply passes nothing.
   const openConversationCommandSurface = useCallback((surface: CommandSurfaceName, sessionId = '') => {
     if (surface === 'stats' && !desktopFeatureEnabled('usage')) return;
@@ -386,8 +385,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     window.addEventListener(NEW_SCHEDULE_REQUEST_EVENT, openSchedules);
     return () => window.removeEventListener(NEW_SCHEDULE_REQUEST_EVENT, openSchedules);
   }, [openSchedules]);
-  // Inbound-webhooks panel: same session-panel concept as Schedules
-  // (user decision — moved out of the settings dialog).
+  // Inbound-webhooks panel: same session-panel concept as Schedules.
   const [webhooksOpen, setWebhooksOpen] = useState(false);
   const openWebhooks = useCallback(() => {
     if (!desktopFeatureEnabled('webhooks')) return;

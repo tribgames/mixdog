@@ -239,7 +239,10 @@ test('--copy-auth copies each provider account credential the pool file names', 
     'provider-accounts.json',
     'provider-accounts/anthropic-oauth/acct-1.json',
   ]);
-  assert.equal(readFileSync(join(dataDir, 'provider-accounts', 'anthropic-oauth', 'acct-1.json'), 'utf8'), '{"token":"t"}');
+  assert.equal(
+    readFileSync(join(dataDir, 'provider-accounts', 'anthropic-oauth', 'acct-1.json'), 'utf8'),
+    '{"token":"t"}'
+  );
   assert.equal(existsSync(join(dataDir, 'provider-accounts', 'anthropic-oauth', 'notes.txt')), false);
 });
 
@@ -323,7 +326,11 @@ test('--copy-auth refuses a GPT access token that cannot last the lease and says
   const root = await tempRoot(t);
   const cases = [
     ['expired', { expires_at: Date.now() - 60_000 }, /is expired/],
-    ['inside-lease', { expires_at: Date.now() + 3600_000 }, /valid for only \d+ more minutes, less than this 120-minute lease/],
+    [
+      'inside-lease',
+      { expires_at: Date.now() + 3600_000 },
+      /valid for only \d+ more minutes, less than this 120-minute lease/,
+    ],
     ['unreadable', { expires_at: undefined, access_token: 'opaque' }, /no readable access-token expiry/],
   ];
   const openKeptApp = /Open the kept dev app once \(npm run dev in apps\/desktop\)/;
@@ -549,7 +556,10 @@ test('process matching: the instance tree and its daemon, never a reused or unre
   ];
   const needle = `${instanceDir}\\`;
   assert.deepEqual(instanceProcessIds(processes, { needle }).sort(), [10, 11, 12, 13]);
-  assert.deepEqual(instanceProcessIds(processes, { needle, ancestors: new Map([[99, undefined]]) }).sort(), [10, 11, 12, 13, 40]);
+  assert.deepEqual(
+    instanceProcessIds(processes, { needle, ancestors: new Map([[99, undefined]]) }).sort(),
+    [10, 11, 12, 13, 40]
+  );
   assert.deepEqual(instanceProcessIds(processes, { needle: 'nothing', ancestors: new Map([[30, undefined]]) }), []);
 });
 

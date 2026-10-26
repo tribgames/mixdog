@@ -96,7 +96,7 @@ export async function refreshConversationNotifications(): Promise<void> {
   if (mine !== refreshSeq) return;
   publish({
     overrides: overrides ?? snapshot.overrides,
-    scope: (preferences && preferences.preferences[preferences.currentDeviceId]?.scope) || snapshot.scope,
+    scope: preferences?.preferences[preferences.currentDeviceId]?.scope || snapshot.scope,
   });
 }
 
@@ -164,15 +164,6 @@ export function resolveNotificationState(
   const conversation = target.kind !== 'session' || chain.length > 1;
   if (snap.scope === 'off' || (snap.scope === 'bots' && !conversation)) return { kind: 'outside' };
   return { kind: 'on' };
-}
-
-/** The override target a conversation's header and bot/room rows use. */
-export function conversationTarget(sessionId: string): NotificationTarget {
-  const room = roomIdOfSession(sessionId);
-  if (room) return { kind: 'room', id: room };
-  const agent = agentIdOfHomeSession(sessionId);
-  if (agent) return { kind: 'agent', id: agent };
-  return { kind: 'session', id: sessionId };
 }
 
 export function useNotificationSnapshot(): NotificationSnapshot {

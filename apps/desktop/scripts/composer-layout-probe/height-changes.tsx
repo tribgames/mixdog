@@ -73,13 +73,33 @@ function Harness({ state, session }: { state: State; session: string }) {
         showProjectSelector={state.context}
         contextBar={<button type="button">Project / workflow</button>}
         goalIsland={
-          <SessionGoalIsland snapshot={{ sessionId: session, goal: state.goal ? {
-            id: 'height-goal', status: 'active', title: 'Height goal', tasks: [],
-          } : null }} />
+          <SessionGoalIsland
+            snapshot={{
+              sessionId: session,
+              goal: state.goal
+                ? {
+                    id: 'height-goal',
+                    status: 'active',
+                    title: 'Height goal',
+                    tasks: [],
+                  }
+                : null,
+            }}
+          />
         }
-        approval={state.approval ? <ApprovalCard approval={{
-          id: 'approval', name: 'shell', reason: 'Review this request', args: { command: 'echo approved' },
-        }} resolve={async () => true} /> : null}
+        approval={
+          state.approval ? (
+            <ApprovalCard
+              approval={{
+                id: 'approval',
+                name: 'shell',
+                reason: 'Review this request',
+                args: { command: 'echo approved' },
+              }}
+              resolve={async () => true}
+            />
+          ) : null
+        }
         reviewItems={[]}
         reviewActive={false}
         reviewBusy={false}
@@ -88,10 +108,25 @@ function Harness({ state, session }: { state: State; session: string }) {
       >
         <ComposerBanners draggingFiles={false} transitioning={false} dropTarget={null} />
         <form className="composer">
-          {state.attachments && <AttachmentChips attachments={[{
-            id: 1, name: 'notes.txt', kind: 'text', mimeType: 'text/plain', data: 'bm90ZXM=', bytes: 5,
-          }]} onRemove={noop} onError={noop} />}
-          <div className="composer-input-row"><textarea value={state.prompt} readOnly rows={1} /></div>
+          {state.attachments && (
+            <AttachmentChips
+              attachments={[
+                {
+                  id: 1,
+                  name: 'notes.txt',
+                  kind: 'text',
+                  mimeType: 'text/plain',
+                  data: 'bm90ZXM=',
+                  bytes: 5,
+                },
+              ]}
+              onRemove={noop}
+              onError={noop}
+            />
+          )}
+          <div className="composer-input-row">
+            <textarea value={state.prompt} readOnly rows={1} />
+          </div>
           <div className="composer-footer" />
         </form>
       </ComposerDock>
@@ -121,7 +156,13 @@ export async function runHeightChangesProbe(root: Root) {
       for (const reading of count === 3 ? [false] : [false, true]) {
         const session = `height-${width}-${count}-${reading ? 'reader' : 'tail'}`;
         let state: State = {
-          width, height: 680, count, prompt: '', approval: false, context: false, goal: false,
+          width,
+          height: 680,
+          count,
+          prompt: '',
+          approval: false,
+          context: false,
+          goal: false,
           attachments: false,
         };
         const render = () => flushSync(() => root.render(<Harness key={session} state={state} session={session} />));
@@ -168,9 +209,14 @@ export async function runHeightChangesProbe(root: Root) {
           const last = frames.at(-1)!;
           const maxGap = Math.max(...frames.map((item) => item.gap));
           const finalRows = new Map(last.rows.map((row) => [row.key, row.top]));
-          const maxDrift = Math.max(0, ...frames.flatMap((item) => item.rows
-            .filter((row) => row.visible && finalRows.has(row.key))
-            .map((row) => Math.abs(row.top - finalRows.get(row.key)!))));
+          const maxDrift = Math.max(
+            0,
+            ...frames.flatMap((item) =>
+              item.rows
+                .filter((row) => row.visible && finalRows.has(row.key))
+                .map((row) => Math.abs(row.top - finalRows.get(row.key)!))
+            )
+          );
           if (!reading && maxGap > 1) failures.push(`${name}: tail gap ${maxGap}px`);
           if (maxDrift > 1) failures.push(`${name}: rows move after first paint ${maxDrift}px`);
           if (frames.some((item) => Math.abs(item.height - last.height) > 1)) {
@@ -198,11 +244,13 @@ export async function runHeightChangesProbe(root: Root) {
           for (let n = 0; n < 3; n++) await frame();
           const touch = (type: string, clientY: number) => {
             const point = new Touch({ identifier: 1, target: viewport, clientX: 40, clientY });
-            viewport.dispatchEvent(new TouchEvent(type, {
-              bubbles: true,
-              touches: type === 'touchend' ? [] : [point],
-              changedTouches: [point],
-            }));
+            viewport.dispatchEvent(
+              new TouchEvent(type, {
+                bubbles: true,
+                touches: type === 'touchend' ? [] : [point],
+                changedTouches: [point],
+              })
+            );
           };
           const heldTop = viewport.scrollTop;
           touch('touchstart', 120);

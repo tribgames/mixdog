@@ -2,9 +2,14 @@
 // text contains window.__probeModel; returns the submenu entries and the picker label.
 (async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  const visible = () => [...document.querySelectorAll('[role="menuitem"], [role="option"], [role="menuitemradio"]')].filter((n) => n.getClientRects().length > 0);
+  const visible = () =>
+    [...document.querySelectorAll('[role="menuitem"], [role="option"], [role="menuitemradio"]')].filter(
+      (n) => n.getClientRects().length > 0
+    );
   if (!visible().length) {
-    [...document.querySelectorAll('button[aria-label="모델 선택"]')].find((b) => b.getClientRects().length > 0)?.click();
+    [...document.querySelectorAll('button[aria-label="모델 선택"]')]
+      .find((b) => b.getClientRects().length > 0)
+      ?.click();
     await wait(600);
   }
   const modelRow = visible().find((n) => n.textContent?.trim().startsWith('모델'));
@@ -17,6 +22,8 @@
     target.click();
     await wait(800);
   }
-  const picker = [...document.querySelectorAll('button[aria-label="모델 선택"]')].find((b) => b.getClientRects().length > 0);
+  const picker = [...document.querySelectorAll('button[aria-label="모델 선택"]')].find(
+    (b) => b.getClientRects().length > 0
+  );
   return { ok: Boolean(target), entries, picker: picker?.textContent?.trim() };
-})()
+})();

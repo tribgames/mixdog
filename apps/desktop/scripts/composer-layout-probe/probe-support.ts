@@ -3,8 +3,7 @@ import { flushSync } from 'react-dom';
 // Sample after layout/ResizeObserver/paint, not in the rAF phase preceding
 // them. Reading a rect inside rAF measured an animation's new height against
 // the previous ResizeObserver delivery and reported an unpainted gap.
-export const frame = () =>
-  new Promise<void>((done) => requestAnimationFrame(() => window.setTimeout(done, 0)));
+export const frame = () => new Promise<void>((done) => requestAnimationFrame(() => window.setTimeout(done, 0)));
 
 export async function waitFor(ready: () => boolean, label: string) {
   const deadline = performance.now() + 5_000;

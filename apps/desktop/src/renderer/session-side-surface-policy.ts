@@ -146,8 +146,8 @@ export function withSessionDiff(
 
 /** Session-owned classic panel views: today only the Session Diff list. The
  *  browser and terminal ride `SessionSideSurface` above; the diff FILE rides
- *  `withSessionDiff`. The list used to live in the pane entry itself, so it
- *  leaked across sessions in the same pane. */
+ *  `withSessionDiff`. The list is session-owned, never kept on the pane entry,
+ *  so it cannot leak across sessions in the same pane. */
 export type SessionSidePanelView = 'session-diff' | 'visualize' | 'routines' | 'room';
 
 export const isSessionSidePanelView = (view: unknown): view is SessionSidePanelView =>

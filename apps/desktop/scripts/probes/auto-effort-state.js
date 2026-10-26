@@ -3,4 +3,4 @@
 (async () => {
   const result = await window.mixdogDesktop.invokeCapability({ capability: 'getToolModuleSettings', args: [] });
   return result?.value?.autoEffort ?? null;
-})()
+})();

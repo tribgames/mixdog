@@ -418,7 +418,8 @@ function assertAccessTokenOutlivesLease(credential, label, ttlMs) {
   const now = Date.now();
   if (expiresAt > now + ttlMs) return;
   const prefix = `--copy-auth: the kept dev profile's GPT sign-in (${label})`;
-  const never = 'A refresh token is never copied (refreshing it in an isolated instance would sign the kept profile out).';
+  const never =
+    'A refresh token is never copied (refreshing it in an isolated instance would sign the kept profile out).';
   if (expiresAt <= now) {
     const problem = expiresAt ? 'is expired' : 'has no readable access-token expiry';
     throw new Error(

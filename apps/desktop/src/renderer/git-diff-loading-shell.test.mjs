@@ -4,7 +4,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { ReadyGitDiffPane } from './app-shell-components.tsx';
 import { DockHeaderRow } from './pane-dock-chrome.tsx';

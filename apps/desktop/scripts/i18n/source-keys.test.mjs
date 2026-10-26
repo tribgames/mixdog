@@ -7,10 +7,22 @@ import { collectUiKeys, catalogProblems, reusableTranslation, untranslatedProble
 
 test('untranslated check is per locale and honours terms and locale exceptions', () => {
   const keys = ['Edit document', 'GitHub', 'Terminal', '{{value0}}%', 'Launch'];
-  const catalog = { 'Edit document': 'Edit document', GitHub: 'GitHub', Terminal: 'Terminal', '{{value0}}%': '{{value0}}%', Launch: 'Lancer' };
+  const catalog = {
+    'Edit document': 'Edit document',
+    GitHub: 'GitHub',
+    Terminal: 'Terminal',
+    '{{value0}}%': '{{value0}}%',
+    Launch: 'Lancer',
+  };
   const allowlist = { terms: { GitHub: 'brand' }, localeExceptions: { fr: { Terminal: 'cognate' } } };
-  assert.deepEqual(untranslatedProblems('fr', catalog, keys, allowlist).map((p) => p.key), ['Edit document']);
-  assert.deepEqual(untranslatedProblems('de', catalog, keys, allowlist).map((p) => p.key), ['Edit document', 'Terminal']);
+  assert.deepEqual(
+    untranslatedProblems('fr', catalog, keys, allowlist).map((p) => p.key),
+    ['Edit document']
+  );
+  assert.deepEqual(
+    untranslatedProblems('de', catalog, keys, allowlist).map((p) => p.key),
+    ['Edit document', 'Terminal']
+  );
 });
 
 test('UI extraction covers TS data, variable phrases, JSX, and direct translations', () => {

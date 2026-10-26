@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test, { mock } from 'node:test';
+import test from 'node:test';
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';

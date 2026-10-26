@@ -459,7 +459,3 @@ export const scrollMetrics = transcriptScrollPosition;
 export function distanceFromBottom(metrics: ScrollMetrics): number {
   return metrics.maxScrollTop - metrics.top;
 }
-
-export function canScroll(metrics: ScrollMetrics): boolean {
-  return metrics.maxScrollTop > 1;
-}
