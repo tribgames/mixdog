@@ -72,7 +72,8 @@ interface UsagePinEntry {
   key: string;
   label: string;
   provider: string;
-  /** The figure shown under the bars: the highest of all the quota windows. */
+  /** The figure shown under the bars: the long window's usage in long-only
+   *  mode, the highest of all the quota windows in short + long mode. */
   percent: number;
   /** Drawn bars, short window first. */
   bars: UsagePinWindow[];
@@ -219,6 +220,12 @@ function pinTooltipWindows(picked: NonNullable<ReturnType<typeof pinWindows>>): 
   return [...picked.pair, ...picked.all.filter((window) => !picked.pair.includes(window))];
 }
 
+/** The figure under a brand's bars: the long window alone in long-only mode,
+ *  the highest window in short + long mode. */
+function pinFigure(picked: NonNullable<ReturnType<typeof pinWindows>>, mode: UsageRailBars): number {
+  return mode === 'short-long' ? picked.peak : picked.long.percent;
+}
+
 /** Index of the drawn bar holding the figure (the last one on a tie); when the
  *  highest window is not drawn, the highest drawn bar. */
 function hotBar(bars: readonly UsagePinWindow[], peak: number): number {
@@ -236,22 +243,24 @@ function hotBar(bars: readonly UsagePinWindow[], peak: number): number {
  *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
  *  the provider's final entry. In `short-long` mode the shortest-duration
  *  window joins as a second bar (none for a provider without one) and the
- *  figure/tone follow the higher of the two. */
+ *  figure/tone follow the highest window. Long-only mode shows the long
+ *  window's own figure: the user chose that period. */
 export function usagePinEntries(dashboard: unknown, mode: UsageRailBars = 'long'): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
     const picked = pinWindows(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);
     if (!picked) return [];
     const windows = picked.pair;
     const bars = mode === 'short-long' ? windows : [picked.long];
+    const percent = pinFigure(picked, mode);
     return [
       {
         key: subscription.key,
         label: subscription.label,
         provider: subscription.provider,
-        percent: picked.peak,
+        percent,
         bars,
         windows,
-        hot: hotBar(bars, picked.peak),
+        hot: hotBar(bars, percent),
         tooltip: usagePinTooltip(subscription.label, pinTooltipWindows(picked)),
       },
     ];
@@ -282,14 +291,15 @@ export function usagePinAccountEntries(
       else if (mode === 'short-long') bars = windows;
       else bars = [picked.long];
       const title = `${entry.label} · ${index + 1} ${usageAccountName(account)}`;
+      const percent = picked ? pinFigure(picked, mode) : 0;
       return {
         key: `${entry.key}:${account.id}`,
         label: entry.label,
         provider: entry.provider,
-        percent: picked ? picked.peak : 0,
+        percent,
         bars,
         windows,
-        hot: picked ? hotBar(bars, picked.peak) : 0,
+        hot: picked ? hotBar(bars, percent) : 0,
         tooltip: picked ? usagePinTooltip(title, pinTooltipWindows(picked)) : title,
         pending: picked ? undefined : true,
         accountIndex: index + 1,

@@ -40,8 +40,9 @@ test('short + long mode picks the shortest and the longest window, short first',
     longOnly.bars.map((bar) => bar.label),
     ['M']
   );
-  // The figure follows every window, not only the drawn bars.
-  assert.equal(longOnly.percent, 99);
+  // Long-only mode shows the chosen long window's own figure.
+  assert.equal(longOnly.percent, 5);
+  assert.equal(longOnly.hot, 0);
 });
 
 test('the figure and the driving bar follow the higher of the two', () => {
@@ -122,10 +123,10 @@ test('Cursor keeps Basic as the long bar and API becomes the second bar', () => 
     longOnly.bars.map((bar) => bar.label),
     ['Basic']
   );
-  assert.equal(longOnly.percent, 70);
+  assert.equal(longOnly.percent, 0.2);
 });
 
-test('account slots show the highest window of the account in both modes', () => {
+test('account slots show the long window in long-only mode and the highest in short + long', () => {
   const [entry] = usagePinEntries(claude([{ label: 'W', usedPct: 1 }]));
   const pools = new Map([
     [
@@ -156,11 +157,15 @@ test('account slots show the highest window of the account in both modes', () =>
       },
     ],
   ]);
-  for (const mode of ['long', 'short-long']) {
+  for (const [mode, expected] of [
+    // Account A has no duration window under Claude, so its last window (API) is the long one.
+    ['long', [70, 10]],
+    ['short-long', [70, 80]],
+  ]) {
     const slots = usagePinAccountEntries([entry], pools, mode);
     assert.deepEqual(
       slots.map((slot) => slot.percent),
-      [70, 80]
+      expected
     );
   }
 });
