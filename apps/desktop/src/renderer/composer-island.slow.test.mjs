@@ -2250,6 +2250,8 @@ test('the branch segment shows for every git session: branch, detached commit, w
 });
 
 test('the worktree menu runs Merge through the confirm popup, shows conflicts in a popup and flashes the result', async (t) => {
+  // The flash expires on a timer: tick a mocked clock instead of waiting it out.
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 5_000_000 });
   const { root, document, window } = mount(t);
   const calls = [];
   let reply = { merged: false, target: 'main', commit: null, conflicts: ['src/login.ts', 'src/session.ts'] };
@@ -2332,7 +2334,7 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
   assert.equal(popup(), null);
   assert.equal(document.querySelector('.composer-island-flash').textContent, 'Merged mixdog/fix-login into main');
   // A refused cleanup keeps the worktree but the merge still reads as done.
-  await act(async () => sleep(2_700));
+  await act(async () => t.mock.timers.tick(2_700));
   reply = { merged: true, target: 'main', commit: 'fed789', cleanup: { removed: false, code: 'WORKTREE_DIRTY' } };
   await act(async () => segment().click());
   await act(async () => item('merge').click());
@@ -2353,7 +2355,7 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
     )
   );
   assert.equal(document.querySelector('.composer-island-flash'), null);
-  await act(async () => sleep(2_700));
+  await act(async () => t.mock.timers.tick(2_700));
   await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() }))));
   assert.equal(document.querySelector('.composer-island-flash'), null);
 });
@@ -2396,6 +2398,7 @@ test('removing the worktree asks in a danger popup and a refusal shows in a popu
 });
 
 test('a merge whose route changes mid-flight still flashes on the merging session only, once', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 5_000_000 });
   const { root, document, window } = mount(t);
   let release = () => {};
   window.mixdogDesktop.invokeCapability = async (request) => {
@@ -2420,12 +2423,12 @@ test('a merge whose route changes mid-flight still flashes on the merging sessio
   // island remounts under the new key.
   await render({ reviewSessionId: 'island-session-route-2' });
   await act(async () => release());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => t.mock.timers.tick(0));
   assert.equal(flash()?.textContent, 'Merged mixdog/fix-login into main');
   // Another session never shows it, and after it expired a return does not replay it.
   await render({ sessionId: 'other-session', reviewSessionId: 'other-session' });
   assert.equal(flash(), null);
-  await act(async () => sleep(2_700));
+  await act(async () => t.mock.timers.tick(2_700));
   await render({ reviewSessionId: 'island-session-route-2' });
   assert.equal(flash(), null);
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import { JSDOM } from 'jsdom';
 
 // react-dom decides at import time whether a DOM exists, so the globals come first.
@@ -38,7 +38,16 @@ const { createRoot } = await import('react-dom/client');
 const { ApprovalCard } = await import('./ApprovalCard.tsx');
 const { QuestionCard } = await import('./QuestionCard.tsx');
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 450));
+// The card settles by the clock (Date.now), so the clock is mocked and moved
+// past the 400ms window instead of waiting it out; a focus event then makes
+// the card re-read the window (the real timer for the same moment is still
+// pending and only repeats that read).
+mock.timers.enable({ apis: ['Date'] });
+const settle = () =>
+  act(async () => {
+    mock.timers.tick(450);
+    dom.window.dispatchEvent(new dom.window.Event('focus'));
+  });
 
 async function mount(element) {
   const doc = dom.window.document;

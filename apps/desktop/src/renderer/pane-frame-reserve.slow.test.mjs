@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { PNG } from 'pngjs';
@@ -164,16 +164,33 @@ async function stylesheet(rendererDir) {
   return result.outputFiles[0].text;
 }
 
-async function launch(t, css) {
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
+// One stylesheet build and one Chrome for the file; each test gets its own page.
+let shared = null;
+function sharedBrowser() {
+  shared ??= (async () => {
+    const [css, browser] = await Promise.all([
+      stylesheet(RENDERER),
+      puppeteer.launch({
+        ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+        headless: true,
+      }),
+    ]);
+    return { css, browser };
+  })();
+  return shared;
+}
+
+after(async () => {
+  if (shared) await (await shared).browser.close();
+});
+
+async function launch(t) {
+  const { css, browser } = await sharedBrowser();
   const page = await browser.newPage();
+  t.after(() => page.close());
   await page.setViewport(VIEWPORT);
   await page.setContent('<!doctype html><html><head></head><body><div id="root"></div></body></html>');
-  await page.addStyleTag({ content: css ?? (await stylesheet(RENDERER)) });
+  await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: PROBE });
   return page;
 }
@@ -523,8 +540,10 @@ function pixelDiff(before, after, skip) {
   let at = null;
   for (let y = 0; y < a.height; y++) {
     for (let x = 0; x < a.width; x++) {
-      if (skip(x, y)) continue;
       const i = (y * a.width + x) * 4;
+      // Identical pixels (nearly all of them) cost one 32-bit compare.
+      if (a.data.readUInt32LE(i) === b.data.readUInt32LE(i)) continue;
+      if (skip(x, y)) continue;
       const d = Math.max(
         Math.abs(a.data[i] - b.data[i]),
         Math.abs(a.data[i + 1] - b.data[i + 1]),
@@ -544,12 +563,17 @@ test('the frame handoff paints the same ring, dividers and corners in dark, ligh
   const clip = { x: PANEL.left - 4, y: PANEL.top - 4, width: PANEL.width + 8, height: PANEL.height + 8 };
   const worst = {};
   const recoloured = [];
+  const closedShots = new Map();
   for (const theme of ['dark', 'light', 'skin']) {
     for (const [name, { panes, html }] of Object.entries(LAYOUTS)) {
       for (const id of panes) {
         for (const placement of ['right', 'bottom']) {
           await layout(page, html(FIXTURES.bare), { theme });
-          const closedShot = await settledShot(page, clip);
+          // The closed layout is the same for every dock id and placement of
+          // a theme and layout: shoot it once.
+          const closedKey = `${theme}|${name}`;
+          if (!closedShots.has(closedKey)) closedShots.set(closedKey, await settledShot(page, clip));
+          const closedShot = closedShots.get(closedKey);
           await setDock(page, id, { open: true, placement });
           const open = await probe(page);
           const openShot = await settledShot(page, clip);

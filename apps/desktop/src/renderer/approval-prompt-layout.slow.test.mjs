@@ -6,7 +6,7 @@
 // phone sheet's 44px stacked buttons with the primary on top.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
@@ -225,7 +225,7 @@ const PAGE = `
       sticky: getComputedStyle(document.querySelector('.approval-buttons')).position,
     };
   };
-  // Resolves once every finite animation/transition has finished and a frame
+  // Resolves once every finite animation/transition has been finished and a frame
   // has since delivered the resize observers (the dock's fit steps).
   window.__idle = async () => {
     const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -233,7 +233,10 @@ const PAGE = `
       await frames();
       const running = document.getAnimations().filter((a) => a.effect && a.effect.getComputedTiming().endTime !== Infinity && a.playState !== 'finished' && a.playState !== 'idle');
       if (running.length === 0) return;
-      await Promise.all(running.map((a) => a.finished.catch(() => {})));
+      // Jump each finite animation to its end state (firing its finish and
+      // transitionend events) rather than sitting out its duration; every
+      // measurement below is of the resting layout.
+      for (const a of running) a.finish();
     }
   };
   window.__measure = () => {
@@ -267,7 +270,27 @@ const PAGE = `
   };
 `;
 
-async function page(t, { phone = false } = {}) {
+// One bundle build and one Chrome for the file; each test gets its own page.
+let shared = null;
+function sharedBrowser() {
+  shared ??= (async () => {
+    const [script, browser] = await Promise.all([
+      buildScript(),
+      puppeteer.launch({
+        ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+        headless: true,
+      }),
+    ]);
+    return { script, browser };
+  })();
+  return shared;
+}
+
+after(async () => {
+  if (shared) await (await shared).browser.close();
+});
+
+async function buildScript() {
   const bundle = await build({
     plugins: [
       {
@@ -290,13 +313,21 @@ async function page(t, { phone = false } = {}) {
     logLevel: 'silent',
     loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
   });
-  const script = bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const tab = await browser.newPage();
+  return bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
+}
+
+// One tab for the file. Every test still gets a fresh document and a fresh
+// evaluation of the bundle (setContent + addScriptTag), so every module-level
+// singleton (lastDecisionAt, the docked-surface registry, the pet reserve, the
+// lazy review module) and all DOM state starts as in a new tab; only the
+// browser launch, the esbuild build and the tab creation are shared.
+let sharedTab = null;
+
+async function page(_t, { phone = false } = {}) {
+  const { script, browser } = await sharedBrowser();
+  const tab = (sharedTab ??= await browser.newPage());
+  await tab.bringToFront();
+  await tab.setViewport({ width: 800, height: 600 });
   const shell = phone ? '<html data-mixdog-mobile-tabs><head><style>' : '<html><head><style>';
   const root = phone
     ? '<section class="conversation" id="root" style="display:flex;flex-direction:column;height:100vh"></section>'
@@ -320,7 +351,9 @@ const keysOpen = (tab) =>
 
 test('the docked card never breaks: equal buttons as wide as the preview, never wider than the composer', async (t) => {
   const tab = await page(t);
-  for (const width of [1400, 900, 600, 360]) {
+  // 900 dropped: no breakpoint lies between 900 and 1400 (the composer column
+  // is capped at 800px either way), so it repeated the 1400 layout.
+  for (const width of [1400, 600, 360]) {
     for (const scenario of ['standard', 'german', 'files', 'danger']) {
       await tab.setViewport({ width, height: 900 });
       await tab.evaluate((name) => window.__render(name), scenario);

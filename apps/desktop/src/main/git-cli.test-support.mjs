@@ -4,7 +4,8 @@
 // file would run all of them in sequence.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
+import { chmod, cp, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -117,11 +118,31 @@ export function gitWithIndex(cwd, args, indexFile) {
   });
 }
 
+// One `git init` + config per process; every repository is a copy of it. Each
+// case used to spawn three git children (~110ms apiece on win32) just to reach
+// the same empty, configured repository.
+let repositoryTemplate = null;
+
+function buildRepositoryTemplate() {
+  return (async () => {
+    const template = await mkdtemp(join(tmpdir(), 'mixdog-git-template-'));
+    await git(template, ['init', '-b', 'main']);
+    await git(template, ['config', 'user.name', 'Mixdog Test']);
+    await git(template, ['config', 'user.email', 'mixdog@example.com']);
+    // Throwaway repositories: no object fsyncs and no background maintenance,
+    // which cost real time per git child on win32 and prove nothing here.
+    await git(template, ['config', 'core.fsync', 'none']);
+    await git(template, ['config', 'gc.auto', '0']);
+    await git(template, ['config', 'maintenance.auto', 'false']);
+    process.once('exit', () => rmSync(template, { recursive: true, force: true }));
+    return template;
+  })();
+}
+
 export async function createRepository() {
+  repositoryTemplate ??= buildRepositoryTemplate();
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-git-'));
-  await git(cwd, ['init', '-b', 'main']);
-  await git(cwd, ['config', 'user.name', 'Mixdog Test']);
-  await git(cwd, ['config', 'user.email', 'mixdog@example.com']);
+  await cp(await repositoryTemplate, cwd, { recursive: true });
   return cwd;
 }
 
