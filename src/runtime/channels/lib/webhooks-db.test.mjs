@@ -121,7 +121,13 @@ const ownershipTest = async () => {
 test('webhooks-db bootstraps the webhooks schema once per dataDir', async () => {
   await listEndpoints({ dataDir: '/hooks-a' });
   await listEndpoints({ dataDir: '/hooks-a' });
-  assert.deepEqual(ensureCalls, [{ dataDir: '/hooks-a', opts: { schema: 'webhooks' } }]);
+  assert.deepEqual(
+    ensureCalls.map(({ dataDir, opts }) => ({ dataDir, schema: opts.schema })),
+    [{ dataDir: '/hooks-a', schema: 'webhooks' }]
+  );
+  // The init gets the shared cancellation signal; a caller without one never withdraws it.
+  assert.ok(ensureCalls[0].opts.signal instanceof AbortSignal);
+  assert.equal(ensureCalls[0].opts.signal.aborted, false);
   assert.deepEqual(lockCalls, [pool]);
   assert.equal(execCalls.length, 1);
   assert.match(execCalls[0], /CREATE SCHEMA IF NOT EXISTS webhooks/);

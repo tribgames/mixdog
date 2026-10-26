@@ -109,7 +109,13 @@ const ownershipTest = async () => {
 test('schedules-db bootstraps the scheduler schema once per dataDir', async () => {
   await listSchedules({ dataDir: '/sched-a' });
   await listSchedules({ dataDir: '/sched-a' });
-  assert.deepEqual(ensureCalls, [{ dataDir: '/sched-a', opts: { schema: 'scheduler' } }]);
+  assert.deepEqual(
+    ensureCalls.map(({ dataDir, opts }) => ({ dataDir, schema: opts.schema })),
+    [{ dataDir: '/sched-a', schema: 'scheduler' }]
+  );
+  // The init gets the shared cancellation signal; a caller without one never withdraws it.
+  assert.ok(ensureCalls[0].opts.signal instanceof AbortSignal);
+  assert.equal(ensureCalls[0].opts.signal.aborted, false);
   assert.deepEqual(lockCalls, [pool]);
   assert.equal(execCalls.length, 1);
   assert.match(execCalls[0], /CREATE TABLE IF NOT EXISTS scheduler\.schedules/);
@@ -118,7 +124,8 @@ test('schedules-db bootstraps the scheduler schema once per dataDir', async () =
 
 test('omitted schedules dataDir uses resolvePluginData and retries the same failure', async () => {
   await listSchedules();
-  assert.deepEqual(ensureCalls.at(-1), { dataDir: '/resolved-plugin-data', opts: { schema: 'scheduler' } });
+  assert.equal(ensureCalls.at(-1).dataDir, '/resolved-plugin-data');
+  assert.equal(ensureCalls.at(-1).opts.schema, 'scheduler');
 
   const boom = new Error('schedules pg down');
   failFor = '/sched-fail';
