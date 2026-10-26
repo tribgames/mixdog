@@ -307,50 +307,21 @@ const FILE_KINDS: Array<[RegExp, VisualizeCardKind]> = [
   [/\.(?:mp4|webm|mov|mkv|m4v)$/i, 'video'],
 ];
 
-/** What a card shows, for its placeholder icon and its "HTML · 버전 3" line:
- *  the live tab's panes when it is open, else what the open named. */
-export function visualizeCardKind(
-  call: VisualizeCardCall,
-  tab: VisualizeTabView | null
-): { kind: VisualizeCardKind; panes: number } {
+/** What a card shows, for its placeholder icon: the live tab's panes when it
+ *  is open, else what the open named. */
+export function visualizeCardKind(call: VisualizeCardCall, tab: VisualizeTabView | null): { kind: VisualizeCardKind } {
   const current = tab?.panes.filter((pane) => pane.version === undefined) ?? [];
   const live = current.length ? current : (tab?.panes ?? []);
-  if (live.length > 1) return { kind: 'split', panes: live.length };
+  if (live.length > 1) return { kind: 'split' };
   const pane = live[0];
   if (pane) {
-    if (pane.kind === 'inline' && pane.inline) return { kind: inlineCardKind(pane.inline.kind), panes: 1 };
-    if (pane.kind && pane.kind !== 'inline') return { kind: pane.kind, panes: 1 };
+    if (pane.kind === 'inline' && pane.inline) return { kind: pane.inline.kind };
+    if (pane.kind && pane.kind !== 'inline') return { kind: pane.kind };
   }
-  if (call.content) return { kind: inlineCardKind(call.content.kind), panes: 1 };
-  if (call.targets.length > 1) return { kind: 'split', panes: call.targets.length };
+  if (call.content) return { kind: call.content.kind };
+  if (call.targets.length > 1) return { kind: 'split' };
   const file = call.targets[0] ?? '';
-  return { kind: FILE_KINDS.find(([pattern]) => pattern.test(file))?.[1] ?? 'document', panes: 1 };
-}
-
-function inlineCardKind(kind: VisualizeInlineKind): VisualizeCardKind {
-  return kind === 'markdown' ? 'markdown' : kind;
-}
-
-/** The kind's name on a card ("HTML", "이미지", "분할 3개"). */
-export function visualizeCardKindLabel({ kind, panes }: { kind: VisualizeCardKind; panes: number }): string {
-  switch (kind) {
-    case 'split':
-      return t('Split ({{panes}})', { panes });
-    case 'image':
-      return t('Image');
-    case 'pdf':
-      return 'PDF';
-    case 'document':
-      return t('Document');
-    case 'audio':
-      return t('Audio');
-    case 'video':
-      return t('Video');
-    case 'mermaid':
-      return 'Mermaid';
-    default:
-      return visualizeInlineKindLabel(kind);
-  }
+  return { kind: FILE_KINDS.find(([pattern]) => pattern.test(file))?.[1] ?? 'document' };
 }
 
 /** A stable tint (0-359) per title, for the placeholder tile. */

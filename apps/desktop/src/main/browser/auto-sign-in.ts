@@ -559,9 +559,12 @@ function createSignInWaits(
 
 type SignInWaits = ReturnType<typeof createSignInWaits>;
 
-/** `url`'s origin when it is an HTTPS address; '' for any other, or for an
- *  unparseable one. */
-function httpsOrigin(url: string): string {
+/** `url`'s origin (scheme, host and port, as WHATWG URL parsing serializes it)
+ *  when it is an HTTPS address; '' for any other, or for an unparseable one.
+ *  A secret or saved login is handed to an https page only, with no loopback
+ *  exception (the vault keeps logins the same way: credential-vault.ts
+ *  secureOrigin). */
+export function httpsOrigin(url: string): string {
   try {
     const parsed = new URL(url);
     if (parsed.protocol === 'https:') return parsed.origin;

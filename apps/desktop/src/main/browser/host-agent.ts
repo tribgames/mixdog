@@ -6,7 +6,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserActionServices } from './actions';
-import { type BrowserAutoSignInDeps, createBrowserAutoSignIn } from './auto-sign-in';
+import { type BrowserAutoSignInDeps, createBrowserAutoSignIn, httpsOrigin } from './auto-sign-in';
 import { createBrowserAgentBridge } from './agent-bridge';
 import { type BrowserCommand, COMMAND_TIMEOUT_MS, READ_ONLY_ACTIONS } from './command';
 import { ownBotOfSession } from './approval-requester';
@@ -62,23 +62,6 @@ function storedCredentialFill(
       signal
     );
   };
-}
-
-/** The origin (scheme, host and port, as WHATWG URL parsing serializes it)
- *  of an https page; '' for any other scheme or anything unparsable. Origins
- *  are compared exactly as this returns them. A secret or saved login is
- *  handed to an https page only, as the vault keeps logins
- *  (credential-vault.ts secureOrigin) and auto sign-in fills them
- *  (auto-sign-in.ts): with no loopback exception, which the browser grants
- *  only to opening a login takeover's page (login-takeover.ts
- *  loginNavigationUrl), where nothing is typed for the user. */
-function httpsOrigin(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'https:' ? parsed.origin : '';
-  } catch {
-    return '';
-  }
 }
 
 /** Save a sign-in typed in chat as this site's login (credential-vault.ts).

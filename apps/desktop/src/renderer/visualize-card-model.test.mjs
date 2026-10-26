@@ -13,7 +13,6 @@ import {
   visualizeCardOwnVersion,
   visualizeCardsShown,
   visualizeCardKind,
-  visualizeCardKindLabel,
   visualizeCardLiveThumbnail,
   visualizeCardTab,
   visualizeCardThumbnailLine,
@@ -49,19 +48,19 @@ test('a card picture is its own version: filed per version, never taken from ano
 
 test('a card names its kind: the live panes, else what the open named', () => {
   const call = (input) => ({ id: 'c', pending: false, label: '', tabId: 'v1', at: 1, targets: [], ...input });
-  const kind = (input, tab = null) => visualizeCardKindLabel(visualizeCardKind(call(input), tab));
-  assert.equal(kind({ targets: ['a.html'] }), 'HTML');
-  assert.equal(kind({ targets: ['shot.png'] }), 'Image');
-  assert.equal(kind({ targets: ['report.pdf'] }), 'PDF');
-  assert.equal(kind({ targets: ['a.html', 'b.md', 'c.png'] }), 'Split (3)');
-  assert.equal(kind({ content: { kind: 'mermaid', source: 'graph TD;A-->B' } }), 'Mermaid');
-  assert.equal(kind({ content: { kind: 'markdown', source: '# x' } }), 'Markdown');
+  const kind = (input, tab = null) => visualizeCardKind(call(input), tab).kind;
+  assert.equal(kind({ targets: ['a.html'] }), 'html');
+  assert.equal(kind({ targets: ['shot.png'] }), 'image');
+  assert.equal(kind({ targets: ['report.pdf'] }), 'pdf');
+  assert.equal(kind({ targets: ['a.html', 'b.md', 'c.png'] }), 'split');
+  assert.equal(kind({ content: { kind: 'mermaid', source: 'graph TD;A-->B' } }), 'mermaid');
+  assert.equal(kind({ content: { kind: 'markdown', source: '# x' } }), 'markdown');
   const tab = (panes) => ({ id: 'v1', label: '', revision: 1, panes });
-  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'pdf' }])), 'PDF');
-  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'inline', inline: { kind: 'svg', source: '' } }])), 'SVG');
-  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'html' }, { kind: 'image' }])), 'Split (2)');
+  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'pdf' }])), 'pdf');
+  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'inline', inline: { kind: 'svg', source: '' } }])), 'svg');
+  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'html' }, { kind: 'image' }])), 'split');
   // A kept version beside live (compare) is still one artifact.
-  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'html', version: 1 }, { kind: 'html' }])), 'HTML');
+  assert.equal(kind({ targets: ['x'] }, tab([{ kind: 'html', version: 1 }, { kind: 'html' }])), 'html');
 });
 
 const openCall = (id, input, result, at) => ({
