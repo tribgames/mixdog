@@ -1218,3 +1218,142 @@ test('Comment mode shows no hint strip; its hints are a one-time toast', async (
   announceVisualizeCommentMode(['pdf']);
   assert.deepEqual(toasts, ['Drag area · Esc End comments'], 'one toast, once');
 });
+
+test('an HTML layer tags a hovered region, forwards other hovers and the wheel, and its keys close or save the card', async (t) => {
+  const { host, frame, toPage } = await mount(t, true);
+  const layer = host.querySelector('.visualize-region-layer');
+  sized(layer, 0, 0, 400, 300);
+  sized(frame, 10, 20, 400, 300);
+  let region = null;
+  await act(async () => {
+    region = queuedPin({ type: 'region', view: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 } }, 'Tighter');
+  });
+  const frames = () => act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  const lastHover = () => {
+    const { x, y } = toPage.findLast((message) => message.type === 'hover');
+    return [x, y];
+  };
+
+  // Over the region: its tag shows, and the page's own hover outline is cleared.
+  await userEvent(layer, mouse('pointermove', { clientX: 100, clientY: 60 }));
+  assert.equal(
+    host.querySelector('.visualize-region-box.is-hover .visualize-region-tag').textContent,
+    'Section · Settings200×90'
+  );
+  await frames();
+  assert.deepEqual(lastHover(), [-1, -1]);
+  // Elsewhere the hover goes to the page, in its own viewport px.
+  await userEvent(layer, mouse('pointermove', { clientX: 300, clientY: 250 }));
+  assert.equal(host.querySelector('.visualize-region-tag'), null);
+  await frames();
+  assert.deepEqual(lastHover(), [290, 230]);
+  await act(async () => layer.dispatchEvent(mouse('pointerout', { relatedTarget: host })));
+  assert.deepEqual(lastHover(), [-1, -1], 'leaving the layer clears the page hover');
+
+  // The wheel scrolls the page, lines counted as 16 px.
+  await act(async () =>
+    layer.dispatchEvent(new window.WheelEvent('wheel', { deltaY: 3, deltaMode: 1, bubbles: true, cancelable: true }))
+  );
+  const scroll = toPage.findLast((message) => message.type === 'scroll');
+  assert.deepEqual([scroll.dx, scroll.dy], [0, 48]);
+
+  const key = (node, init) =>
+    act(async () =>
+      node.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
+    );
+  // Esc in the note closes the card; so does a trusted Esc outside it.
+  await userClick(layer, { clientX: 100, clientY: 60 });
+  assert.equal(card(host).querySelector('textarea').value, 'Tighter');
+  await key(card(host).querySelector('textarea'), { key: 'Escape' });
+  assert.equal(card(host), null);
+  await userClick(layer, { clientX: 100, clientY: 60 });
+  await userEvent(
+    document.body,
+    new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  );
+  assert.equal(card(host), null);
+  // Enter saves the note.
+  await userClick(layer, { clientX: 100, clientY: 60 });
+  await type(card(host).querySelector('textarea'), 'Wider');
+  await key(card(host).querySelector('textarea'), { key: 'Enter' });
+  assert.equal(card(host), null);
+  assert.equal(visualizeFeedbackFor('s1').pins.find((pin) => pin.id === region.id).note, 'Wider');
+
+  // A new HTML region is added with Enter; the page hides its marks for the shot and shows them again.
+  await userDrag(layer, [250, 150], [350, 250]);
+  await type(card(host).querySelector('textarea'), 'Here');
+  await key(card(host).querySelector('textarea'), { key: 'Enter' });
+  await cropSettled();
+  assert.equal(visualizeFeedbackFor('s1').pins.length, 2);
+  const marks = toPage.filter((message) => message.type === 'hide' || message.type === 'show').map((m) => m.type);
+  assert.deepEqual(marks, ['hide', 'show']);
+  assert.equal(layer.style.visibility, '', 'the layer shows again after the shot');
+});
+
+test('a cropped pin: the page marks come back and the image is stored before any queued microtask runs', async (t) => {
+  const { host, frame } = await mount(t, true);
+  const layer = host.querySelector('.visualize-region-layer');
+  sized(layer, 0, 0, 400, 300);
+  sized(frame, 0, 0, 400, 300);
+  // A window capture that decodes and encodes: a fake image and canvas.
+  const realImage = globalThis.Image;
+  const canvas = window.HTMLCanvasElement.prototype;
+  const realContext = canvas.getContext;
+  const realDataUrl = canvas.toDataURL;
+  globalThis.Image = class {
+    naturalWidth = 200;
+    naturalHeight = 100;
+    set src(_value) {
+      setTimeout(() => this.onload?.());
+    }
+  };
+  canvas.getContext = () => ({ drawImage() {}, fillRect() {}, fillStyle: '' });
+  canvas.toDataURL = () => 'data:image/png;base64,UE5H';
+  window.mixdogDesktop.visualizeCaptureRect = async () => 'UE5H';
+  t.after(() => {
+    globalThis.Image = realImage;
+    canvas.getContext = realContext;
+    canvas.toDataURL = realDataUrl;
+    delete window.mixdogDesktop.visualizeCaptureRect;
+  });
+  const order = [];
+  frame.contentWindow.postMessage = (message) => {
+    if (message.type === 'measure') {
+      setTimeout(() =>
+        window.dispatchEvent(
+          new window.MessageEvent('message', {
+            data: tagged({ type: 'measured', id: message.id, count: 0, masks: [], masksOverflow: false }),
+            source: frame.contentWindow,
+          })
+        )
+      );
+    } else if (message.type === 'show') {
+      order.push('show');
+      queueMicrotask(() => order.push(visualizeFeedbackFor('s1').pins[0]?.image ? 'microtask: stored' : 'microtask'));
+    }
+  };
+
+  await userDrag(layer, [40, 30], [240, 130]);
+  await type(card(host).querySelector('textarea'), 'Shot');
+  await act(async () => button(host, 'Add').click());
+  await cropSettled();
+  assert.equal(visualizeFeedbackFor('s1').pins[0].image?.data, 'UE5H');
+  assert.deepEqual(order, ['show', 'microtask: stored']);
+});
+
+test('a full pin queue answers a drag with a notice instead of a card', async (t) => {
+  const { host } = await mount(t, true);
+  const layer = host.querySelector('.visualize-region-layer');
+  sized(layer, 0, 0, 400, 300);
+  await act(async () => {
+    for (let i = 0; i < 20; i += 1) {
+      queuedPin({ type: 'region', view: { x: 0.9, y: 0.9, width: 0.05, height: 0.05 } }, `n${i}`);
+    }
+  });
+  await userDrag(layer, [40, 30], [240, 130]);
+  assert.equal(card(host), null);
+  assert.equal(
+    host.querySelector('.visualize-region-notice[role="status"]').textContent,
+    'Up to 20 pins per message. Send or remove some first.'
+  );
+});

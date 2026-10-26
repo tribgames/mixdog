@@ -8,30 +8,23 @@
 // (visualize-feedback-gate.ts). Crops come from a window capture on the
 // desktop, or from the image / video frame itself; a client with neither (a
 // paired remote client on an HTML or PDF pane) sends its pins without one.
-import { Pause, Play } from 'lucide-react';
 import {
-  type ChangeEvent,
   type FormEvent,
-  Fragment,
   type MouseEvent,
   type PointerEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type WheelEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 
 import type { VisualizePaneView, VisualizeTabView } from '../shared/visualize';
 import {
-  formatVisualizeTime,
-  VISUALIZE_ELEMENT_ROLES,
+  type VisualizeCommentCrop,
   visualizeCommentHints,
   visualizeCommentKind,
-  visualizeCommentLabel,
   visualizeCommentPage,
   visualizeElementName,
   visualizeElementNouns,
@@ -58,6 +51,26 @@ import { t } from './i18n';
 import { loadImage } from './load-image';
 import { takeVisualizeElementPin, useVisualizeElementPinPending } from './visualize-elements-store';
 import { openVisualizePageLink } from './visualize-store';
+import { useVisualizeCommentCardPlace, VisualizeCommentCard } from './visualize-comment-card';
+import { type CommentDraft, commentDraftLabel, fullNotice, pinElement } from './visualize-comment-draft';
+import { setActiveVisualizeKeyLayer, useVisualizeCommentKeys } from './visualize-comment-keys';
+import {
+  useVisualizePaneVideo,
+  useVisualizePictureRelayout,
+  VisualizeCommentMediaBar,
+} from './visualize-comment-media';
+import {
+  fractionStyle,
+  layerBox,
+  liveRegion,
+  mediaArea,
+  type PaneMedia,
+  paneFrame,
+  paneMedia,
+  paneVideo,
+  regionUnder,
+} from './visualize-comment-pane';
+import { useVisualizePickAnswers, type VisualizePickReason } from './visualize-comment-picks';
 import {
   beginVisualizeCapture,
   consumeVisualizeChoiceGesture,
@@ -75,7 +88,6 @@ import {
 } from './visualize-feedback-gate';
 import {
   addVisualizePin,
-  MAX_VISUALIZE_PINS,
   peekVisualizePinOpen,
   removeVisualizePin,
   setVisualizeChoice,
@@ -90,7 +102,6 @@ import {
   visualizePinsFull,
   type VisualizePin,
   type VisualizePinImage,
-  type VisualizeRegionAnchor,
   type VisualizeRegionTarget,
 } from './visualize-feedback-store';
 import {
@@ -113,10 +124,6 @@ const HIDE_SETTLE_MS = 60;
 const DESCRIBE_TIMEOUT_MS = 500;
 /** How long a video has to land on a pin's time before its frame is cropped. */
 const SEEK_TIMEOUT_MS = 1_000;
-const CARD_WIDTH_PX = 288;
-/** Between the comment card and its target, and the card and the pane's edge (CSS px). */
-const CARD_GAP_PX = 10;
-const CARD_EDGE_PX = 8;
 /** A video pin's region shows while the video is this close (s) to its time. */
 const PIN_TIME_WINDOW_S = 0.5;
 
@@ -124,9 +131,6 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 const nextFrames = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-
-const fullNotice = () =>
-  t('Up to {{count}} pins per message. Send or remove some first.', { count: MAX_VISUALIZE_PINS });
 
 /** PNG of `source`'s area (source px), at most MAX_CROP_EDGE on its long
  *  edge, with `masks` (source px) painted over. Throws when the canvas may
@@ -290,69 +294,6 @@ export async function captureVisualizeRegionCrop(
   );
 }
 
-type PaneMedia = HTMLImageElement | HTMLVideoElement;
-
-const mediaSize = (element: PaneMedia) =>
-  element instanceof HTMLVideoElement
-    ? { width: element.videoWidth, height: element.videoHeight }
-    : { width: element.naturalWidth, height: element.naturalHeight };
-
-/** Where the picture of an image or video (drawn `object-fit: contain`,
- *  letterboxed) is now, in window CSS px, and its CSS px per picture pixel;
- *  null before its size is known. */
-function mediaPicture(element: PaneMedia): { picture: VisualizeFeedbackRect; scale: number } | null {
-  const { width, height } = mediaSize(element);
-  const shown = rectOfBox(element.getBoundingClientRect());
-  if (!width || !height || !shown.width || !shown.height) return null;
-  const scale = Math.min(shown.width / width, shown.height / height);
-  return {
-    picture: {
-      x: shown.x + (shown.width - width * scale) / 2,
-      y: shown.y + (shown.height - height * scale) / 2,
-      width: width * scale,
-      height: height * scale,
-    },
-    scale,
-  };
-}
-
-/** An area of the picture (its own pixels) where it is drawn now, in
- *  fractions of `frame` (window CSS px); null before its size is known. */
-function mediaRegionRect(
-  element: PaneMedia,
-  area: VisualizeFeedbackRect,
-  frame: VisualizeFeedbackRect
-): VisualizeFeedbackRect | null {
-  const shown = mediaPicture(element);
-  if (!shown) return null;
-  const { picture, scale } = shown;
-  return rectToFractions(
-    {
-      x: picture.x + area.x * scale,
-      y: picture.y + area.y * scale,
-      width: area.width * scale,
-      height: area.height * scale,
-    },
-    frame
-  );
-}
-
-/** The part of `area` (window CSS px) over the picture of an image or video
- *  (drawn `object-fit: contain`), in the picture's own pixels. */
-function mediaArea(element: PaneMedia, area: VisualizeFeedbackRect): VisualizeFeedbackRect | null {
-  const shown = mediaPicture(element);
-  if (!shown) return null;
-  const { picture, scale } = shown;
-  const inside = intersectRect(area, picture);
-  if (!inside) return null;
-  return {
-    x: Math.round((inside.x - picture.x) / scale),
-    y: Math.round((inside.y - picture.y) / scale),
-    width: Math.max(1, Math.round(inside.width / scale)),
-    height: Math.max(1, Math.round(inside.height / scale)),
-  };
-}
-
 /** Pause a video on `time` (s), waiting briefly for it to get there. */
 async function settleVideo(video: HTMLVideoElement, time: number): Promise<void> {
   video.pause();
@@ -387,17 +328,68 @@ async function captureMediaArea(
   return captureWindowArea(windowArea);
 }
 
-const paneFrame = (layer: HTMLElement | null): HTMLIFrameElement | null =>
-  layer?.parentElement?.querySelector('iframe') ?? null;
-/** The pane a layer lies over: its cell, else the layer's own container. */
-const paneCell = (layer: HTMLElement | null): HTMLElement | null =>
-  layer?.closest<HTMLElement>('[data-visualize-pane]') ?? layer?.parentElement ?? null;
-const paneMedia = (layer: HTMLElement | null): PaneMedia | null =>
-  layer?.parentElement?.querySelector<PaneMedia>('img, video') ?? null;
-const paneVideo = (layer: HTMLElement | null): HTMLVideoElement | null => {
-  const media = paneMedia(layer);
-  return media instanceof HTMLVideoElement ? media : null;
-};
+/** Queue a new comment's pin, with how its crop is taken: an element is
+ *  described afresh by its page, an HTML area measured again, an image or
+ *  video-frame area drawn from the picture (a video settled on the pin's
+ *  time first), anything else captured from the window. */
+function addCommentPin(
+  sessionId: string,
+  base: Omit<VisualizePin, 'id' | 'target'>,
+  draft: Extract<CommentDraft, { mode: 'new' }>,
+  {
+    cropKind,
+    layer,
+    frame,
+    windowArea,
+  }: {
+    cropKind: VisualizeCommentCrop;
+    layer: HTMLElement | null;
+    frame: HTMLIFrameElement | null;
+    windowArea: VisualizeFeedbackRect;
+  }
+): { added: VisualizePin | null; crop: () => Promise<VisualizePinImage | null> } {
+  const { pick } = draft;
+  if (pick) {
+    const added = addVisualizePin(sessionId, {
+      ...base,
+      target: {
+        type: 'element',
+        selector: pick.selector,
+        html: pick.html,
+        styles: pick.styles,
+        box: pick.box,
+        path: pick.path.map((node) => visualizeElementName(node, t)),
+      },
+    });
+    return { added, crop: async () => (frame ? captureVisualizeElementCrop(frame, pick) : null) };
+  }
+  const element = cropKind === 'image' || cropKind === 'video-frame' ? paneMedia(layer) : null;
+  const natural = element ? mediaArea(element, windowArea) : null;
+  const region: VisualizeRegionTarget = {
+    type: 'region',
+    view: roundRect(draft.rect),
+    ...(natural ? { image: natural } : {}),
+    ...(draft.time !== undefined ? { time: draft.time } : {}),
+    ...(draft.elements !== undefined ? { elements: draft.elements } : {}),
+    ...(draft.anchor ? { anchor: draft.anchor } : {}),
+  };
+  const added = addVisualizePin(sessionId, { ...base, target: region });
+  const crop = async () => {
+    if (cropKind === 'page') {
+      if (!frame) return null;
+      const origin = frame.getBoundingClientRect();
+      return captureVisualizeRegionCrop(frame, {
+        ...windowArea,
+        x: windowArea.x - origin.left,
+        y: windowArea.y - origin.top,
+      });
+    }
+    if (!element) return captureWindowArea(windowArea);
+    if (element instanceof HTMLVideoElement && draft.time !== undefined) await settleVideo(element, draft.time);
+    return captureMediaArea(element, natural, windowArea);
+  };
+  return { added, crop };
+}
 
 /** Wires the active tab's HTML panes to the feedback store: injects the page
  *  script on the desktop, answers page readiness, takes `data-choice` picks
@@ -622,71 +614,17 @@ export function announceVisualizeCommentMode(kinds: readonly string[]): void {
   showDesktopToast(visualizeCommentHintText(kinds), 'info', { scope: 'visualize-comment' });
 }
 
-const fractionStyle = (rect: VisualizeFeedbackRect) => ({
-  left: `${rect.x * 100}%`,
-  top: `${rect.y * 100}%`,
-  width: `${rect.width * 100}%`,
-  height: `${rect.height * 100}%`,
-});
+export { visualizeCardPlace } from './visualize-comment-card';
 
-/** Where the comment card goes (px of the layer): below its target when it
- *  fits there, else above when it fits there, else on the roomier side; then
- *  clamped inside the layer, over the target when neither side has room. */
-export function visualizeCardPlace(
-  target: VisualizeFeedbackRect,
-  layer: { width: number; height: number },
-  card: { width: number; height: number }
-): { left: number; top: number } {
-  const below = layer.height - (target.y + target.height) - CARD_GAP_PX;
-  const above = target.y - CARD_GAP_PX;
-  const top =
-    below >= card.height || (above < card.height && below >= above)
-      ? target.y + target.height + CARD_GAP_PX
-      : target.y - CARD_GAP_PX - card.height;
-  const clamp = (value: number, size: number, room: number) =>
-    Math.max(CARD_EDGE_PX, Math.min(value, room - size - CARD_EDGE_PX));
-  return { left: clamp(target.x, card.width, layer.width), top: clamp(top, card.height, layer.height) };
-}
-
-/** Layers in Comment mode that take keys, and the one the pointer was last
- *  over: a key outside every pane goes to that pane only. */
-const keyLayers = new Set<HTMLElement>();
-let activeKeyLayer: HTMLElement | null = null;
-
-/** Whether a key event in Comment mode is for this layer's pane: one inside
- *  its pane, or one outside every pane while it is the active (or only) one. */
-function layerOwnsKey(layer: HTMLElement, target: Node | null): boolean {
-  if (paneCell(layer)?.contains(target)) return true;
-  const section = layer.closest('.visualize-pane');
-  if (target && target !== document.body && !section?.contains(target)) return false;
-  for (const other of keyLayers) if (other !== layer && paneCell(other)?.contains(target)) return false;
-  if (activeKeyLayer?.isConnected && keyLayers.has(activeKeyLayer)) return activeKeyLayer === layer;
-  return keyLayers.size === 1;
-}
-
-/** A comment being written (fractions of the layer): a new pin, on the
- *  element the page described or a dragged region (on HTML, with the element
- *  it lies in), or a queued pin reopened. */
-type CommentDraft =
-  | {
-      mode: 'new';
-      rect: VisualizeFeedbackRect;
-      pick?: VisualizePagePick;
-      time?: number;
-      elements?: number;
-      anchor?: VisualizeRegionAnchor;
-    }
-  | { mode: 'edit'; pinId: string; rect: VisualizeFeedbackRect };
-
-/** The page element a pin is drawn on: an element pin's own, an anchored
- *  region's anchor (null: the panel draws it). */
-const pinElement = (pin: VisualizePin): string | null =>
-  pin.target.type === 'element' ? pin.target.selector : (pin.target.anchor?.selector ?? null);
-
-interface MediaState {
-  time: number;
-  duration: number;
-  paused: boolean;
+/** A notice the layer shows for a moment (a full pin queue). */
+function useTransientNotice(): readonly [string, (notice: string) => void] {
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  return [notice, setNotice];
 }
 
 /** The panel's own layer over a commentable pane in Comment mode. Panes
@@ -721,9 +659,7 @@ export function VisualizeCommentLayer({
   const start = useRef<{ x: number; y: number } | null>(null);
   /** The pointer moved past DRAG_PX: the click that follows is no pick. */
   const dragged = useRef(false);
-  /** Why the open pick request was made: a retarget keeps the draft's note,
-   *  an open answers a pin card's request. */
-  const pickReason = useRef<'click' | 'retarget' | 'open'>('click');
+  const pickReason = useRef<VisualizePickReason>('click');
   const card = useRef<HTMLFormElement>(null);
   const hoverFrame = useRef(0);
   const [pickGate] = useState(() => createVisualizePickGate());
@@ -731,37 +667,19 @@ export function VisualizeCommentLayer({
   const [draft, setDraft] = useState<CommentDraft | null>(null);
   const [note, setNote] = useState('');
   const [capturing, setCapturing] = useState(false);
-  const [notice, setNotice] = useState('');
   const [hovered, setHovered] = useState<string | null>(null);
-  const [mediaState, setMediaState] = useState<MediaState | null>(null);
-  /** The pane's video while Comment mode is on (it may mount later). */
-  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   /** The mounted layer (it renders only while it has something to show). */
   const [layerNode, setLayerNode] = useState<HTMLDivElement | null>(null);
   const attachLayer = useCallback((node: HTMLDivElement | null) => {
     layer.current = node;
     setLayerNode(node);
   }, []);
-  /** Bumped when the pane or its picture is laid out anew: region pins on a
-   *  picture are placed again. */
-  const [, setLayoutTick] = useState(0);
   const live = useRef({ value, draft, comment });
   live.current = { value, draft, comment };
 
-  const layerBox = (): VisualizeFeedbackRect | null => {
-    const box = layer.current?.getBoundingClientRect();
-    return box?.width && box.height ? rectOfBox(box) : null;
-  };
   const cropsMedia = spec?.crop === 'image' || spec?.crop === 'video-frame';
-  /** Where a region pin on an image or video is now (fractions of the layer):
-   *  its picture-pixel area on the picture as laid out now; null for the
-   *  others (and a pin made before the picture's size was known). */
-  const liveRegion = (target: VisualizeRegionTarget): VisualizeFeedbackRect | null => {
-    const element = cropsMedia && target.image ? paneMedia(layer.current) : null;
-    const box = layerBox();
-    return element && box && target.image ? mediaRegionRect(element, target.image, box) : null;
-  };
-  const placeRegion = (target: VisualizeRegionTarget): VisualizeFeedbackRect => liveRegion(target) ?? target.view;
+  const placeRegion = (target: VisualizeRegionTarget): VisualizeFeedbackRect =>
+    liveRegion(layer.current, cropsMedia, target) ?? target.view;
   const close = () => {
     setDraft(null);
     setNote('');
@@ -809,89 +727,23 @@ export function VisualizeCommentLayer({
     setDraft(null);
     setHovered(null);
   }, [comment, pickGate]);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(''), NOTICE_MS);
-    return () => clearTimeout(timer);
-  }, [notice]);
+  const [notice, setNotice] = useTransientNotice();
   useEffect(() => () => cancelAnimationFrame(hoverFrame.current), []);
 
-  // The page's answer to this layer's own pick request, and nothing else.
-  useEffect(() => {
-    if (!picks) return;
-    const onMessage = (event: MessageEvent) => {
-      const target = paneFrame(layer.current);
-      if (!target?.contentWindow || event.source !== target.contentWindow) return;
-      const message = visualizeFeedbackPageMessage(event.data);
-      if (message?.type === 'ready') {
-        if (live.current.comment) keys.current.describePinOpen();
-        return;
-      }
-      if (message?.type !== 'picked' || !pickGate.accept(message.id, performance.now())) return;
-      const box = layer.current?.getBoundingClientRect();
-      if (!box?.width || !box.height) return;
-      const origin = target.getBoundingClientRect();
-      const { view } = message.pick;
-      const shown = { ...view, x: origin.left + view.x, y: origin.top + view.y };
-      const rect = rectToFractions(shown, rectOfBox(box));
-      /** Where a pin is now: an anchored region inside its element's live box. */
-      const pinRect = (pin: VisualizePin) =>
-        pin.target.type === 'region' && pin.target.anchor
-          ? rectToFractions(rectFromFractions(pin.target.anchor.rect, shown), rectOfBox(box))
-          : rect;
-      const { value: current, draft: open } = live.current;
-      if (pickReason.current === 'open') {
-        pickReason.current = 'click';
-        const requested = takeVisualizePinOpen(sessionId, tab.id, index);
-        if (requested) {
-          setDraft({ mode: 'edit', pinId: requested.id, rect: pinRect(requested) });
-          setNote(requested.note);
-        }
-        return;
-      }
-      if (pickReason.current === 'retarget' && open?.mode === 'new') {
-        setDraft({ mode: 'new', rect, pick: message.pick });
-        return;
-      }
-      // An anchored region's number (the page draws it) reopens that pin.
-      const region = message.pin
-        ? current.pins.find(
-            (pin) =>
-              pin.id === message.pin &&
-              pin.tabId === tab.id &&
-              pin.pane === index &&
-              pin.target.type === 'region' &&
-              pin.target.anchor?.selector === message.pick.selector
-          )
-        : undefined;
-      if (region) {
-        setDraft({ mode: 'edit', pinId: region.id, rect: pinRect(region) });
-        setNote(region.note);
-        return;
-      }
-      // A pinned element (or its number) reopens that pin.
-      const pinned = current.pins.find(
-        (pin) =>
-          pin.tabId === tab.id &&
-          pin.pane === index &&
-          pin.target.type === 'element' &&
-          pin.target.selector === message.pick.selector
-      );
-      if (pinned) {
-        setDraft({ mode: 'edit', pinId: pinned.id, rect });
-        setNote(pinned.note);
-        return;
-      }
-      if (visualizePinsFull(sessionId)) {
-        setNotice(fullNotice());
-        return;
-      }
-      setDraft({ mode: 'new', rect, pick: message.pick });
-      setNote('');
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [picks, pickGate, sessionId, tab.id, index]);
+  useVisualizePickAnswers({
+    picks,
+    pickGate,
+    pickReason,
+    sessionId,
+    tabId: tab.id,
+    index,
+    layer,
+    live,
+    keys,
+    setDraft,
+    setNote,
+    setNotice,
+  });
 
   // A row of the Elements list asked for a pin on its element: ask the page to
   // describe it (the answer is accepted like a click's), once Comment mode is on.
@@ -949,123 +801,15 @@ export function VisualizeCommentLayer({
     if (draft?.mode === 'edit' && !editedPin) close();
   });
 
-  // Video panes in Comment mode: follow the pane's video element itself, one
-  // that mounts or is replaced later (a remote or late load) included.
-  useEffect(() => {
-    const cell = comment && media ? layer.current?.parentElement : null;
-    if (!cell) {
-      setVideo(null);
-      return;
-    }
-    const find = () => setVideo(paneVideo(layer.current));
-    find();
-    const observer = new window.MutationObserver(find);
-    observer.observe(cell, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [comment, media]);
-
-  // That video pauses for comments, and its time is followed.
-  useEffect(() => {
-    if (!video) {
-      setMediaState(null);
-      return;
-    }
-    video.pause();
-    const sync = () =>
-      setMediaState({
-        time: video.currentTime,
-        duration: Number.isFinite(video.duration) ? video.duration : 0,
-        paused: video.paused,
-      });
-    sync();
-    const events = ['timeupdate', 'seeked', 'play', 'pause', 'loadedmetadata', 'durationchange'];
-    for (const name of events) video.addEventListener(name, sync);
-    return () => {
-      for (const name of events) video.removeEventListener(name, sync);
-    };
-  }, [video]);
-
-  // Pins on an image or video follow its picture: a pane resize (maximize,
-  // restore, zoom) or a picture that loads or changes size places them again.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a video mounting later re-runs this; the element is read from the pane
-  useEffect(() => {
-    if (!layerNode || !cropsMedia) return;
-    const relayout = () => setLayoutTick((tick) => tick + 1);
-    const element = paneMedia(layerNode);
-    const observer = new ResizeObserver(relayout);
-    observer.observe(layerNode);
-    if (element) observer.observe(element);
-    const events = ['load', 'loadedmetadata', 'resize'];
-    for (const name of events) element?.addEventListener(name, relayout);
-    relayout();
-    return () => {
-      observer.disconnect();
-      for (const name of events) element?.removeEventListener(name, relayout);
-    };
-  }, [layerNode, cropsMedia, video]);
-
-  // Keys in Comment mode: Esc closes an open card, Alt+↑/↓ move the target,
-  // Space and ←/→ play and seek a video; only in the pane they are meant for.
-  useEffect(() => {
-    const own = layer.current;
-    if (!comment || (!picks && !media) || !own) return;
-    keyLayers.add(own);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || !event.isTrusted) return;
-      const target = event.target as HTMLElement | null;
-      if (!layerOwnsKey(own, target)) return;
-      if (event.key === 'Escape' && live.current.draft) {
-        event.preventDefault();
-        keys.current.close();
-        return;
-      }
-      if (picks && event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-        event.preventDefault();
-        keys.current.step(event.key === 'ArrowUp' ? 'up' : 'down');
-        return;
-      }
-      if (!media) return;
-      const typing =
-        target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement || target?.isContentEditable;
-      const playing = typing ? null : paneVideo(own);
-      if (!playing) return;
-      if (event.key === ' ') {
-        event.preventDefault();
-        if (playing.paused) void playing.play().catch(() => {});
-        else playing.pause();
-      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        event.preventDefault();
-        playing.pause();
-        const delta = (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 5 : 1);
-        playing.currentTime = Math.max(0, playing.currentTime + delta);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      keyLayers.delete(own);
-      if (activeKeyLayer === own) activeKeyLayer = null;
-    };
-  }, [comment, picks, media]);
-
-  // The open card sits beside its target and always inside the pane.
-  useLayoutEffect(() => {
-    const form = card.current;
-    const box = layer.current?.getBoundingClientRect();
-    if (!form || !draft || !box?.width || !box.height) return;
-    const size = form.getBoundingClientRect();
-    // A reopened pin on a picture stays beside it as the pane is laid out anew.
-    const target =
-      (draft.mode === 'edit' && editedPin?.target.type === 'region' ? liveRegion(editedPin.target) : null) ??
-      draft.rect;
-    const place = visualizeCardPlace(
-      rectFromFractions(target, { x: 0, y: 0, width: box.width, height: box.height }),
-      box,
-      { width: size.width || CARD_WIDTH_PX, height: size.height }
-    );
-    form.style.left = `${place.left}px`;
-    form.style.top = `${place.top}px`;
-  });
+  const { video, mediaState } = useVisualizePaneVideo(layer, comment, media);
+  useVisualizePictureRelayout(layerNode, cropsMedia, video);
+  useVisualizeCommentKeys(layer, { comment, picks, media }, live, keys);
+  // A reopened pin on a picture stays beside it as the pane is laid out anew.
+  useVisualizeCommentCardPlace(card, layer, draft?.rect ?? null, () =>
+    draft?.mode === 'edit' && editedPin?.target.type === 'region'
+      ? liveRegion(layer.current, cropsMedia, editedPin.target)
+      : null
+  );
 
   const confirmBar = paged ? (
     <VisualizeChoiceConfirm proposalKey={visualizeProposalKey(sessionId, tab.id, index)} />
@@ -1085,13 +829,8 @@ export function VisualizeCommentLayer({
     )
     .map((region) => ({ ...region, rect: placeRegion(region.target) }));
   const regionAt = (clientX: number, clientY: number) => {
-    const box = layerBox();
-    if (!box) return undefined;
-    const x = (clientX - box.x) / box.width;
-    const y = (clientY - box.y) / box.height;
-    return shownRegions
-      .filter(({ rect }) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
-      .at(-1);
+    const box = layerBox(layer.current);
+    return box ? regionUnder(shownRegions, box, clientX, clientY) : undefined;
   };
   const hoverPage = (x: number, y: number) => {
     const target = paneFrame(layer.current);
@@ -1128,7 +867,7 @@ export function VisualizeCommentLayer({
     });
   };
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    activeKeyLayer = event.currentTarget;
+    setActiveVisualizeKeyLayer(event.currentTarget);
     if (!comment || !drags || event.button !== 0 || !event.nativeEvent.isTrusted) return;
     if (event.target !== event.currentTarget || (draft && note.trim())) return;
     event.preventDefault();
@@ -1138,9 +877,9 @@ export function VisualizeCommentLayer({
     paneVideo(layer.current)?.pause();
   };
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    activeKeyLayer = event.currentTarget;
+    setActiveVisualizeKeyLayer(event.currentTarget);
     const from = start.current;
-    const box = layerBox();
+    const box = layerBox(layer.current);
     if (from) {
       const far = Math.max(Math.abs(event.clientX - from.x), Math.abs(event.clientY - from.y)) > DRAG_PX;
       if (!dragged.current && !far) return;
@@ -1164,7 +903,7 @@ export function VisualizeCommentLayer({
     const from = start.current;
     start.current = null;
     setDrag(null);
-    const box = layerBox();
+    const box = layerBox(layer.current);
     if (!from || !dragged.current || !box || !event.nativeEvent.isTrusted) return;
     const area = spanRect(from, { x: event.clientX, y: event.clientY });
     if (area.width <= DRAG_PX || area.height <= DRAG_PX) return;
@@ -1209,18 +948,11 @@ export function VisualizeCommentLayer({
     postToPage(target, { type: 'scroll', dx: event.deltaX * scale, dy: event.deltaY * scale });
   };
 
-  const draftLabel = (current: CommentDraft): string => {
-    if (current.mode === 'edit') return editedPin?.label ?? '';
-    return current.pick
-      ? visualizeCommentLabel({ type: 'element', role: current.pick.role, name: current.pick.name }, pane, t)
-      : visualizeCommentLabel({ type: 'region', time: current.time, elements: current.elements }, pane, t);
-  };
-
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const text = note.trim();
     const current = draft;
-    const box = layerBox();
+    const box = layerBox(layer.current);
     if (!text || !current || !box) return;
     if (current.mode === 'edit') {
       updateVisualizePinNote(sessionId, current.pinId, text);
@@ -1234,53 +966,15 @@ export function VisualizeCommentLayer({
       paneKind: pane.kind,
       file: visualizePaneFile(pane),
       note: text,
-      label: draftLabel(current),
+      label: commentDraftLabel(current, editedPin, pane),
     };
-    const windowArea = rectFromFractions(current.rect, box);
     const frame = paneFrame(layer.current);
-    let added: ReturnType<typeof addVisualizePin>;
-    let crop: () => Promise<VisualizePinImage | null>;
-    const { pick } = current;
-    if (pick) {
-      added = addVisualizePin(sessionId, {
-        ...base,
-        target: {
-          type: 'element',
-          selector: pick.selector,
-          html: pick.html,
-          styles: pick.styles,
-          box: pick.box,
-          path: pick.path.map((node) => visualizeElementName(node, t)),
-        },
-      });
-      crop = async () => (frame ? captureVisualizeElementCrop(frame, pick) : null);
-    } else {
-      const element = spec.crop === 'image' || spec.crop === 'video-frame' ? paneMedia(layer.current) : null;
-      const natural = element ? mediaArea(element, windowArea) : null;
-      const region: VisualizeRegionTarget = {
-        type: 'region',
-        view: roundRect(current.rect),
-        ...(natural ? { image: natural } : {}),
-        ...(current.time !== undefined ? { time: current.time } : {}),
-        ...(current.elements !== undefined ? { elements: current.elements } : {}),
-        ...(current.anchor ? { anchor: current.anchor } : {}),
-      };
-      added = addVisualizePin(sessionId, { ...base, target: region });
-      crop = async () => {
-        if (spec.crop === 'page') {
-          if (!frame) return null;
-          const origin = frame.getBoundingClientRect();
-          return captureVisualizeRegionCrop(frame, {
-            ...windowArea,
-            x: windowArea.x - origin.left,
-            y: windowArea.y - origin.top,
-          });
-        }
-        if (!element) return captureWindowArea(windowArea);
-        if (element instanceof HTMLVideoElement && current.time !== undefined) await settleVideo(element, current.time);
-        return captureMediaArea(element, natural, windowArea);
-      };
-    }
+    const { added, crop } = addCommentPin(sessionId, base, current, {
+      cropKind: spec.crop,
+      layer: layer.current,
+      frame,
+      windowArea: rectFromFractions(current.rect, box),
+    });
     close();
     if (!added) {
       setNotice(fullNotice());
@@ -1309,30 +1003,10 @@ export function VisualizeCommentLayer({
     if (draft?.mode === 'edit') removeVisualizePin(sessionId, draft.pinId);
     close();
   };
-  const onNoteKey = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      void submit();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-    }
-  };
 
-  const seek = (time: number) => {
-    if (!video) return;
-    video.pause();
-    video.currentTime = Math.max(0, time);
-  };
   const editing = draft?.mode === 'edit';
-  const placeholder = draft?.mode === 'new' && draft.pick ? t('Comment on this element…') : t('Comment on this area…');
-  const pickedNode = draft?.mode === 'new' ? draft.pick : undefined;
-  const crumbs = pickedNode ? [...pickedNode.path, pickedNode] : [];
-  if (pickedNode?.child) crumbs.push(pickedNode.child);
   const sizeOf = (rect: VisualizeFeedbackRect) => {
-    const box = layerBox();
+    const box = layerBox(layer.current);
     return box ? `${Math.round(rect.width * box.width)}×${Math.round(rect.height * box.height)}` : '';
   };
   let draftBox: ReactNode = null;
@@ -1347,55 +1021,6 @@ export function VisualizeCommentLayer({
     );
   } else if (draft && editedPin?.target.type === 'element') {
     draftBox = <div className="visualize-region-box is-anchor" style={fractionStyle(draft.rect)} />;
-  }
-  let mediaBar: ReactNode = null;
-  if (video && mediaState) {
-    const PlayPause = mediaState.paused ? Play : Pause;
-    const pinMarkers = mediaState.duration
-      ? regions.map(({ n, pin, target }) => {
-          if (target.time === undefined) return null;
-          return (
-            <button
-              key={pin.id}
-              type="button"
-              className="visualize-media-pin"
-              style={{ left: `${Math.min(100, (target.time / mediaState.duration) * 100)}%` }}
-              aria-label={t('Go to pin {{number}}', { number: String(n) })}
-              onClick={() => seek(target.time ?? 0)}
-            >
-              {n}
-            </button>
-          );
-        })
-      : null;
-    mediaBar = (
-      <div className="visualize-media-bar">
-        <button
-          type="button"
-          aria-label={mediaState.paused ? t('Play') : t('Pause')}
-          onClick={() => {
-            if (video.paused) void video.play().catch(() => {});
-            else video.pause();
-          }}
-        >
-          <PlayPause size={14} aria-hidden="true" />
-        </button>
-        <span className="visualize-media-time">{formatVisualizeTime(mediaState.time)}</span>
-        <span className="visualize-media-track">
-          <input
-            type="range"
-            min={0}
-            max={mediaState.duration || 0}
-            step={0.01}
-            value={Math.min(mediaState.time, mediaState.duration || 0)}
-            aria-label={t('Seek')}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => seek(Number(event.currentTarget.value))}
-          />
-          {pinMarkers}
-        </span>
-        <span className="visualize-media-time">{formatVisualizeTime(mediaState.duration)}</span>
-      </div>
-    );
   }
   return (
     <>
@@ -1453,66 +1078,24 @@ export function VisualizeCommentLayer({
         {draft && (
           <>
             {draftBox}
-            <form ref={card} className="visualize-region-note" onSubmit={(event) => void submit(event)}>
-              <div className="visualize-region-note-head">
-                <span className="visualize-region-note-number">
-                  {editing ? value.pins.findIndex((pin) => pin.id === draft.pinId) + 1 : next}
-                </span>
-                <b className="visualize-region-note-label">{draftLabel(draft)}</b>
-                {editing ? (
-                  <button type="button" className="visualize-region-note-delete" onClick={remove}>
-                    {t('Delete')}
-                  </button>
-                ) : null}
-              </div>
-              {crumbs.length > 1 && draft.mode === 'new' && draft.pick && (
-                <nav className="visualize-region-crumbs" aria-label={t('Element path')}>
-                  {crumbs.map((node, at) => {
-                    const current = node.selector === draft.pick?.selector;
-                    return (
-                      <Fragment key={node.selector}>
-                        {at > 0 ? <i aria-hidden="true">{'›'}</i> : null}
-                        <button
-                          type="button"
-                          className={current ? 'is-current' : undefined}
-                          aria-current={current ? 'true' : undefined}
-                          title={node.name || undefined}
-                          onClick={(event) => {
-                            if (event.nativeEvent.isTrusted && !current) retarget(node.selector);
-                          }}
-                        >
-                          {t(VISUALIZE_ELEMENT_ROLES[node.role])}
-                        </button>
-                      </Fragment>
-                    );
-                  })}
-                </nav>
-              )}
-              <textarea
-                // biome-ignore lint/a11y/noAutofocus: the card opens from the user's own click or drag and takes the text at once
-                autoFocus
-                rows={3}
-                value={note}
-                placeholder={placeholder}
-                aria-label={placeholder}
-                onChange={(event) => setNote(event.currentTarget.value)}
-                onKeyDown={onNoteKey}
-              />
-              <div className="visualize-region-note-row">
-                <span className="visualize-region-note-keys">
-                  <kbd>Enter</kbd> {editing ? t('Save') : t('Add')} · <kbd>Esc</kbd> {t('Cancel')}
-                </span>
-                <button type="button" onClick={close}>
-                  {t('Cancel')}
-                </button>
-                <button type="submit" className="is-primary" disabled={!note.trim()}>
-                  {editing ? t('Save') : t('Add')}
-                </button>
-              </div>
-            </form>
+            <VisualizeCommentCard
+              cardRef={card}
+              number={editing ? value.pins.findIndex((pin) => pin.id === draft.pinId) + 1 : next}
+              label={commentDraftLabel(draft, editedPin, pane)}
+              editing={editing}
+              pick={draft.mode === 'new' ? draft.pick : undefined}
+              note={note}
+              setNote={setNote}
+              submit={submit}
+              remove={remove}
+              close={close}
+              retarget={retarget}
+            />
           </>
         )}
-        {mediaBar}
+        {video && mediaState ? (
+          <VisualizeCommentMediaBar video={video} mediaState={mediaState} regions={regions} />
+        ) : null}
       </div>
     </>
   );
