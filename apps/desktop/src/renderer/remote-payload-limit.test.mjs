@@ -1217,10 +1217,13 @@ test("frames are measured in the relay's unit, UTF-8 bytes", () => {
 });
 
 test('a relay notice teaches the limit, names no call, and is never broadcast', async () => {
-  const [source, caps] = await Promise.all([
+  const [relay, source, caps] = await Promise.all([
     readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../main/remote-relay-inbound.ts', import.meta.url), 'utf8'),
     readFile(new URL('../main/remote-relay-capabilities.ts', import.meta.url), 'utf8'),
   ]);
+  // The leg's inbound dispatch learns into THIS connection's caps.
+  assert.match(relay, /learnRefusedFrameLimit:\s*caps\.learnRefusedFrameLimit,/);
   const branch = source.indexOf('if (envelope.type === RELAY_FRAME_TOO_LARGE) {');
   const bail = source.indexOf("if (envelope.type !== 'frame'");
   assert.ok(branch > 0 && branch < bail, 'the notice branch runs before the frame bail');
@@ -1229,7 +1232,7 @@ test('a relay notice teaches the limit, names no call, and is never broadcast', 
   assert.match(handler, /if\s*\(\s*!rejection\s*\)\s*return;/);
   // The notice tightens the connection's ceiling, before anything else is
   // decided about it…
-  const learnAt = handler.search(/caps\.learnRefusedFrameLimit\(\s*rejection\s*\);/);
+  const learnAt = handler.search(/deps\.learnRefusedFrameLimit\(\s*rejection\s*\);/);
   assert.ok(learnAt > 0 && learnAt < handler.indexOf('if (!clientId) {'), 'the ceiling is learned first');
   // …only ever downwards, and only from a limit the notice actually stated.
   const learn = caps.slice(
@@ -1267,10 +1270,14 @@ test('the desktop declares its receive cap on connect, and so on redial', async 
   // Inside the open handler: every connection, including every redial,
   // re-declares it before the first frame can be routed.
   const declaredAt = source.search(declaration);
-  // The relay leg's own handlers, not the one-shot revoke socket earlier on.
-  const openAt = source.lastIndexOf("ws.on('open'", declaredAt);
-  const messageAt = source.indexOf("ws.on('message'", declaredAt);
-  assert.ok(openAt > 0 && declaredAt > openAt && declaredAt < messageAt);
+  const openAt = source.lastIndexOf('onOpen: () => {', declaredAt);
+  const envelopeAt = source.indexOf('onEnvelope:', declaredAt);
+  assert.ok(openAt > 0 && declaredAt > openAt && declaredAt < envelopeAt);
+  // …which the device leg runs from its socket's own open handler.
+  const leg = await readFile(new URL('../main/remote-relay-connection.ts', import.meta.url), 'utf8');
+  const legOpenAt = leg.indexOf("ws.on('open'");
+  const legOpenCallAt = leg.indexOf('deps.onOpen();', legOpenAt);
+  assert.ok(legOpenAt > 0 && legOpenCallAt > legOpenAt && legOpenCallAt < leg.indexOf("ws.on('message'", legOpenAt));
   // And the token registration still follows it.
   assert.ok(source.indexOf("type: 'set-client-token'") > declaredAt);
 });
@@ -1293,7 +1300,7 @@ test('a text-flagged binary frame is handed on as a string', async () => {
   assert.equal(legacy.text, false);
   assert.equal(typeof dataOf(legacy), 'object');
   assert.equal(Buffer.from(dataOf(legacy)).toString('utf8'), text);
-  const source = await readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../main/remote-relay-connection.ts', import.meta.url), 'utf8');
   assert.match(
     source,
     /data:\s*frame\.text\s*\?\s*Buffer\.from\(frame\.data\)\.toString\(\s*['"]utf8['"]\s*\)\s*:\s*frame\.data/
