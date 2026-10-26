@@ -95,11 +95,17 @@ export async function packPlaintext(body: Uint8Array, compress: boolean): Promis
   return framed;
 }
 
-export async function unpackPlaintext(bytes: Uint8Array): Promise<Uint8Array> {
-  requirePlaintextSize(bytes.byteLength, MAX_E2EE_PLAINTEXT_BYTES);
+/** `maxOutputBytes`: a caller with a tighter bound than the legacy frame
+ *  ceiling (the transport record) passes it; the default is unchanged. */
+export async function unpackPlaintext(
+  bytes: Uint8Array,
+  maxOutputBytes = MAX_E2EE_PLAINTEXT_BYTES
+): Promise<Uint8Array> {
+  requirePlaintextSize(bytes.byteLength, maxOutputBytes);
   if (bytes.byteLength === 0 || bytes[0] !== E2EE_PLAINTEXT_DEFLATED) return bytes;
   return runBoundedByteTransform(
     bytes.subarray(1),
-    new DecompressionStream('deflate-raw') as unknown as ByteTransformStream
+    new DecompressionStream('deflate-raw') as unknown as ByteTransformStream,
+    maxOutputBytes
   );
 }
