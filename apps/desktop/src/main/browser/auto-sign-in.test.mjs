@@ -27,8 +27,13 @@ function fixture({
   onSubmit,
   approveSubmit,
   onObserve,
+  document,
+  recordUsed,
+  fillFails,
+  suggestionsFail,
 } = {}) {
-  const page = { url, password: true, challenge: false, wording: false, check: 'none' };
+  const diagnostics = [];
+  const page = { url, password: true, challenge: false, wording: false, check: 'none', destroyed: false };
   const calls = {
     suggestions: [],
     fills: 0,
@@ -39,11 +44,15 @@ function fixture({
     approvals: 0,
     observed: 0,
   };
-  const guest = { isDestroyed: () => false, getURL: () => page.url, isLoading: () => false };
+  const guest = { isDestroyed: () => page.destroyed, getURL: () => page.url, isLoading: () => false };
   const signIn = createBrowserAutoSignIn({
     enabled: () => enabled,
+    onDiagnostic: (event, data) => diagnostics.push([event, data]),
+    ...(document ? { document } : {}),
+    ...(recordUsed ? { recordUsed } : {}),
     // profile-import.ts credentialSuggestions: exactly the HTTPS origin, masked labels.
     suggestions: async (pageUrl) => {
+      if (suggestionsFail) throw suggestionsFail;
       calls.suggestions.push(pageUrl);
       return VAULT.filter((entry) => new URL(pageUrl).origin === entry.origin).map((entry) => ({
         id: entry.id,
@@ -59,6 +68,7 @@ function fixture({
     fill: async () => {
       calls.fills++;
       onFill?.(page);
+      if (fillFails) throw fillFails;
       return { usernameFilled: true, passwordFilled: true };
     },
     submit: async (_guest, _signal, beforeDispatch) => {
@@ -102,8 +112,90 @@ function fixture({
         return { text: `URL: ${page.url}\n- heading "Page"` };
       },
     });
-  return { page, calls, run };
+  return { page, calls, run, diagnostics };
 }
+
+test('a failure that is not an expected end is reported and still hands the sign-in to the user', async () => {
+  const failing = fixture({ fillFails: new Error('debugger detached') });
+  failing.page.check = 'solved';
+  assert.ok(handedOff(await failing.run()));
+  assert.equal(failing.diagnostics.length, 1);
+  assert.equal(failing.diagnostics[0][0], 'browser-auto-sign-in-step-failed');
+  assert.match(failing.diagnostics[0][1].error, /debugger detached/);
+
+  const vault = fixture({ suggestionsFail: new Error('vault unreadable') });
+  assert.equal(await vault.run(), null);
+  assert.equal(vault.diagnostics[0][0], 'browser-auto-sign-in-vault-failed');
+
+  const record = fixture({
+    recordUsed: async () => {
+      throw new Error('metadata write failed');
+    },
+  });
+  assert.ok(signedIn(await record.run()), 'the sign-in stands');
+  assert.equal(record.diagnostics[0][0], 'browser-auto-sign-in-record-failed');
+  assert.match(record.diagnostics[0][1].error, /metadata write failed/);
+
+  const document = fixture({
+    document: async () => {
+      throw new Error('debugger detached');
+    },
+  });
+  assert.equal(await document.run(), null, 'no reading, no sign-in');
+  assert.equal(document.diagnostics[0][0], 'browser-auto-sign-in-document-failed');
+});
+
+test('the named expected ends are not reported: navigation away, a destroyed page, a refused submit, a human check that did not finish', async () => {
+  // Navigation away: the fill fails because the page moved.
+  const moved = fixture({
+    fillFails: new Error('Target closed'),
+    onFill: (page) => (page.url = 'https://shop.example.com.evil.test/login'),
+  });
+  moved.page.check = 'solved';
+  assert.ok(handedOff(await moved.run()));
+  // A destroyed page.
+  const destroyed = fixture({
+    fillFails: new Error('Object has been destroyed'),
+    onFill: (page) => (page.destroyed = true),
+  });
+  destroyed.page.check = 'solved';
+  assert.ok(handedOff(await destroyed.run()));
+  // CDP says the document went away.
+  const replaced = fixture({ fillFails: new Error('Execution context was destroyed.') });
+  replaced.page.check = 'solved';
+  assert.ok(handedOff(await replaced.run()));
+  // A refused submit.
+  const refused = fixture({
+    approveSubmit: async () => {
+      throw new Error('tool "browser" was not approved');
+    },
+  });
+  assert.ok(handedOff(await refused.run()));
+  // A page whose document the browser reports gone mid-read.
+  const reading = fixture({
+    document: async () => {
+      throw new Error('Inspected target navigated or closed');
+    },
+  });
+  assert.equal(await reading.run(), null);
+  // A human check that never finishes.
+  const waiting = fixture();
+  waiting.page.check = 'pending';
+  assert.ok(handedOff(await waiting.run()));
+  for (const f of [moved, destroyed, replaced, refused, reading, waiting]) assert.deepEqual(f.diagnostics, []);
+});
+
+test('cancellation is never reported or swallowed', async () => {
+  const controller = new AbortController();
+  const f = fixture({
+    document: async () => {
+      controller.abort(new Error('stop'));
+      throw new Error('aborted by the command');
+    },
+  });
+  await assert.rejects(f.run(1, controller.signal), /stop/);
+  assert.deepEqual(f.diagnostics, []);
+});
 
 test('a saved login for the exact origin signs in by itself, once, and says so without the secret', async () => {
   const f = fixture();

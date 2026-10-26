@@ -73,8 +73,36 @@ import type { BrowserCommandResult } from './command';
 import { BROWSER_DOCUMENT_ROOTS } from './documents';
 import type { BrowserCredentialFillResult } from './credential-autofill';
 import type { VaultSignInAccount } from './credential-vault';
+import { pageLeft } from './page-left';
 import type { BrowserCredentialValue } from './profile-import';
+import { redactBrowserText } from './redaction';
 import { pause } from './settle';
+
+/** The sign-in's own decision to stop and hand over to the user (a human
+ *  check that did not finish or changed, a page that moved before a fill or
+ *  submit, a submit the approval policy refused). It is the expected end of
+ *  an attempt, not a failure to report. */
+class SignInStopped extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'SignInStopped';
+  }
+}
+
+/** The expected ends of a step: the sign-in's own stop, or a fill that found
+ *  the page no longer the one it was bound to (credential-autofill.ts). */
+const expectedStop = (error: unknown): boolean =>
+  error instanceof SignInStopped || (error instanceof Error && error.name === 'BrowserPageChangedError');
+
+/** A failure the flow carries on past (the attempt is handed to the user,
+ *  or the reading counts as none), reported with its text redacted. */
+function reportFailure(
+  deps: { onDiagnostic?: (event: string, data: Record<string, unknown>) => void },
+  event: string,
+  error: unknown
+): void {
+  deps.onDiagnostic?.(event, { error: redactBrowserText(error instanceof Error ? error.message : String(error)) });
+}
 
 /** What the page shows: a sign-in password field, a challenge input or frame
  *  (one-time code, an interactive CAPTCHA), challenge wording (2FA, passkey),
@@ -306,6 +334,10 @@ export interface BrowserAutoSignInDeps {
    *  field after a submit (default 8 s) and for the site's answer to a
    *  submitted password or code (default 15 s). */
   humanCheck?: { waitMs?: number; graceMs?: number; pollMs?: number; stepMs?: number; submitMs?: number };
+  /** Receives a sanitized diagnostic for a failure that is not an expected
+   *  end (a navigation away, a destroyed page, the sign-in's own stop, a
+   *  refused submit); cancellation is never reported, it propagates. */
+  onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
 }
 
 /** The reply line of a sign-in made with a saved login; the transcript shows
@@ -322,7 +354,7 @@ const MAX_STEPS = 3;
 function submitGuard(guest: WebContents, url: string): () => void {
   return () => {
     if (guest.isDestroyed() || guest.getURL() !== url) {
-      throw new Error('The page changed before the submit; nothing was submitted.');
+      throw new SignInStopped('The page changed before the submit; nothing was submitted.');
     }
   };
 }
@@ -338,7 +370,7 @@ const challenged = (now: SignInState, phase: Phase): boolean => (phase === 'code
 
 /** Reads of the sign-in page: its state across every frame, and that state
  *  bound to the main-frame document it was read on. */
-function createSignInReader(deps: Pick<BrowserAutoSignInDeps, 'collect' | 'document'>) {
+function createSignInReader(deps: Pick<BrowserAutoSignInDeps, 'collect' | 'document' | 'onDiagnostic'>) {
   const state = async (guest: WebContents, signal?: AbortSignal): Promise<SignInState> => {
     const frames = await deps.collect<SignInState>(guest, SIGN_IN_STATE, signal);
     const any = (key: 'password' | 'challenge' | 'wording' | 'code' | 'captcha' | 'username' | 'sent' | 'error') =>
@@ -365,9 +397,19 @@ function createSignInReader(deps: Pick<BrowserAutoSignInDeps, 'collect' | 'docum
     };
   };
 
-  /** The main-frame document now; '' when unavailable. */
-  const documentOf = async (guest: WebContents, signal?: AbortSignal): Promise<string> =>
-    deps.document ? deps.document(guest, signal).catch(() => '') : '';
+  /** The main-frame document now; '' when unavailable (the page is leaving,
+   *  which is no reading; any other failure is reported). Cancellation throws. */
+  const documentOf = async (guest: WebContents, signal?: AbortSignal): Promise<string> => {
+    if (!deps.document) return '';
+    const url = guest.isDestroyed() ? '' : guest.getURL();
+    try {
+      return await deps.document(guest, signal);
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
+      if (!pageLeft(error, guest, url)) reportFailure(deps, 'browser-auto-sign-in-document-failed', error);
+      return '';
+    }
+  };
 
   /** The page state together with the document it was read on: the document
    *  is read before and after, and a page that moved in between is no reading
@@ -384,10 +426,12 @@ function createSignInReader(deps: Pick<BrowserAutoSignInDeps, 'collect' | 'docum
    *  away mid-read (a redirect) is no reading this time. A cancelled command
    *  still throws. */
   const readMoving = async (guest: WebContents, signal?: AbortSignal): Promise<Reading | null> => {
+    const url = guest.isDestroyed() ? '' : guest.getURL();
     try {
       return await read(guest, signal);
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
+      if (!pageLeft(error, guest, url)) reportFailure(deps, 'browser-auto-sign-in-read-failed', error);
       return null;
     }
   };
@@ -565,11 +609,11 @@ function createSignInStep(
   ): Promise<SignInState | null> => {
     const seen = { check: now.check !== 'none' };
     const guardPage = (message: string) => {
-      if (signal?.aborted || guest.isDestroyed() || guest.getURL() !== url) throw new Error(message);
+      if (signal?.aborted || guest.isDestroyed() || guest.getURL() !== url) throw new SignInStopped(message);
     };
     // The secret stays on the host until the page's human check has its token.
     if (!(await humanCheckCleared(guest, signal, now.check, seen, phase))) {
-      throw new Error('The human check did not finish; nothing was sent.');
+      throw new SignInStopped('The human check did not finish; nothing was sent.');
     }
     let filled: boolean;
     if (phase === 'code') {
@@ -577,7 +621,7 @@ function createSignInStep(
       // No stored key: the code is the user's.
       if (!code) return null;
       if (!mayGoOn(await state(guest, signal), seen, phase)) {
-        throw new Error('The human check changed before stored credential input; input was not sent.');
+        throw new SignInStopped('The human check changed before stored credential input; input was not sent.');
       }
       guardPage('The page changed before stored credential input; input was not sent.');
       filled = await deps.code!.fill(guest, code, signal, url, bound || undefined);
@@ -588,7 +632,7 @@ function createSignInStep(
         async (credential) => {
           // Last awaited step: the page may have changed state since the wait.
           if (!mayGoOn(await state(guest, signal), seen, phase)) {
-            throw new Error('The human check changed before stored credential input; input was not sent.');
+            throw new SignInStopped('The human check changed before stored credential input; input was not sent.');
           }
           // Nothing is awaited between this check and the fill call.
           guardPage('The page changed before stored credential input; input was not sent.');
@@ -618,11 +662,20 @@ function createSignInStep(
     // The fill itself may have reset the token or mounted a challenge.
     const ready = await state(guest, signal);
     if (!mayGoOn(ready, seen, phase) || guest.isDestroyed() || guest.getURL() !== url) {
-      throw new Error('The human check changed before the submit; nothing was submitted.');
+      throw new SignInStopped('The human check changed before the submit; nothing was submitted.');
     }
     // The submit is a form submit: it follows the bot's approval policy, and
-    // a block hands the sign-in to the user like any other.
-    if (deps.approveSubmit) await deps.approveSubmit(guest, signal);
+    // a block hands the sign-in to the user like any other. approveSubmit
+    // rejects only to refuse (a bot's block, a denied action, an operator
+    // decline), so a rejection is the expected stop; cancellation propagates.
+    if (deps.approveSubmit) {
+      try {
+        await deps.approveSubmit(guest, signal);
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason || error;
+        throw new SignInStopped('The submit was not approved; nothing was submitted.', { cause: error });
+      }
+    }
     guardPage('The page changed before the submit; nothing was submitted.');
     await deps.submit(guest, signal, submitGuard(guest, url));
     return ready;
@@ -643,7 +696,8 @@ function createSignInRun(
     step: ReturnType<typeof createSignInStep>;
     codeStep: (next: Reading) => boolean;
   },
-  { guest, signal, origin, twoStep }: { guest: WebContents; signal?: AbortSignal; origin: string; twoStep: boolean }
+  { guest, signal, origin, twoStep }: { guest: WebContents; signal?: AbortSignal; origin: string; twoStep: boolean },
+  deps: Pick<BrowserAutoSignInDeps, 'onDiagnostic'>
 ) {
   const attempt: {
     outcome: Reading | null;
@@ -683,6 +737,11 @@ function createSignInRun(
       }
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
+      // The attempt ends and the sign-in is handed to the user either way;
+      // only a failure that is not an expected end is reported.
+      if (!expectedStop(error) && !pageLeft(error, guest, url)) {
+        reportFailure(deps, 'browser-auto-sign-in-step-failed', error);
+      }
     }
   };
 
@@ -742,11 +801,13 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const first = firstPhase(before);
     if (!first || before.challenge) return null;
     // An unreadable vault only means no saved login can be used: the page the
-    // command opened stays as it is, and the sign-in is left to the user.
+    // command opened stays as it is, and the sign-in is left to the user. The
+    // failure itself is reported.
     let saved: VaultSignInAccount[];
     try {
       saved = await deps.suggestions(startUrl, before.identifier);
-    } catch {
+    } catch (error) {
+      reportFailure(deps, 'browser-auto-sign-in-vault-failed', error);
       return null;
     }
     if (!saved.length) return null;
@@ -761,7 +822,8 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const step = createSignInStep(deps, reader.state, waits.humanCheckCleared, { guest, signal, account });
     const { attempt, runSteps } = createSignInRun(
       { step, passwordShown: waits.passwordShown, submitAnswered: waits.submitAnswered, codeStep },
-      { guest, signal, origin, twoStep: first === 'username' }
+      { guest, signal, origin, twoStep: first === 'username' },
+      deps
     );
     await runSteps(first, startUrl, before, initial.document);
     // The page the attempt ended on. The answer stands only if the page still
@@ -787,7 +849,15 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       }
       after = await input.observe();
     }
-    if (signedIn && deps.recordUsed) await deps.recordUsed(startUrl, account).catch(() => undefined);
+    // The sign-in already happened: a failed metadata write changes nothing
+    // for the reply, but is reported.
+    if (signedIn && deps.recordUsed) {
+      try {
+        await deps.recordUsed(startUrl, account);
+      } catch (error) {
+        reportFailure(deps, 'browser-auto-sign-in-record-failed', error);
+      }
+    }
     return attemptReply(after, site, signedIn);
   }
 

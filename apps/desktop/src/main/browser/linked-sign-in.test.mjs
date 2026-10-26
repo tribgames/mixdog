@@ -74,9 +74,10 @@ function fakeGuest(id) {
 /** The host side over a store, with the snapshot refs the agent may click or
  *  type into (a name, or { name, url, role, sensitive }) and the attributes
  *  each ref's input declares. */
-function setup({ store = memoryStore(), refs = {}, fields = {} } = {}) {
+function setup({ store = memoryStore(), refs = {}, fields = {}, onError } = {}) {
   const linked = createBrowserLinkedSignIns({
     store,
+    onError,
     ref: (guest, ref) => {
       const entry = typeof refs[ref] === 'string' ? { name: refs[ref] } : refs[ref];
       return entry ? { url: guest.getURL(), role: 'textbox', ...entry } : null;
@@ -123,6 +124,53 @@ function toGoogleChooser(guest, site, callback, state = 'G0OGLE') {
   guest.go([site], { by: null });
   guest.go([googleAuthorize(callback, state), googleChooser(callback, state)]);
 }
+
+test('a field that cannot be read never fails the action: expected losses are silent, others reported, cancellation propagates', async () => {
+  const errors = [];
+  const { linked, tab } = setup({ refs: { e1: 'Email or phone' }, onError: (error) => errors.push(error.message) });
+  const guest = tab(60);
+  toGoogleChooser(guest, 'https://chatgpt.com/', OPENAI_CB);
+  const fill = (readField, signal) => linked.beforeAction(guest, 'fill', { ref: 'e1', text: 'a@gmail.com' }, readField, signal);
+
+  await fill(async () => {
+    throw new Error('ref e1 is stale or unknown; take a fresh snapshot first');
+  });
+  await fill(async () => {
+    throw new Error('ref e1 is stale or detached; take a fresh snapshot first');
+  });
+  await fill(async () => {
+    throw new Error('Inspected target navigated or closed');
+  });
+  assert.deepEqual(errors, [], 'a stale ref or a document that went away is expected');
+
+  await fill(async () => {
+    throw new Error('debugger detached');
+  });
+  assert.deepEqual(errors, ['debugger detached'], 'anything else is reported, and the action still goes on');
+
+  const url = guest.url;
+  await fill(async () => {
+    guest.url = 'https://elsewhere.example/';
+    throw new Error('Target closed');
+  });
+  guest.url = url;
+  await fill(async () => {
+    guest.destroyed = true;
+    throw new Error('Object has been destroyed');
+  });
+  guest.destroyed = false;
+  assert.deepEqual(errors, ['debugger detached'], 'a page that moved or was destroyed is expected');
+
+  const controller = new AbortController();
+  await assert.rejects(
+    fill(async () => {
+      controller.abort(new Error('stop'));
+      throw new Error('aborted');
+    }, controller.signal),
+    /stop/
+  );
+  assert.deepEqual(errors, ['debugger detached']);
+});
 
 test('Google OIDC inside a site auth server: the state round trip records the account the agent clicked', async () => {
   const { store, tab } = setup({ refs: { e7: '박재영 tempest1033@gmail.com', e9: 'Use another account' } });
@@ -590,6 +638,24 @@ test('records persist sealed, one per site and provider, with nothing but the ac
   assert.deepEqual(readdirSync(dir), []);
   assert.deepEqual(await again.list(), []);
   assert.deepEqual(await open().list(), []);
+});
+
+test('a file any number of records long stays readable after one more is recorded', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-linked-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const links = Array.from({ length: 10_001 }, (_, index) => ({
+    site: `s${index}.example`,
+    redirectHost: '',
+    provider: 'google.com',
+    identity: '',
+    lastUsedAt: 1,
+  }));
+  writeFileSync(join(dir, LINKED_SIGN_IN_FILE_NAME), seal(JSON.stringify({ version: 1, links })));
+  const store = new LinkedSignInStore({ userDataDirectory: dir, seal, unseal });
+  assert.equal((await store.list()).length, 10_001);
+  await store.record({ site: 'another.example', redirectHost: '', provider: 'google.com', identity: '' });
+  const reopened = new LinkedSignInStore({ userDataDirectory: dir, seal, unseal });
+  assert.equal((await reopened.list()).length, 10_002);
 });
 
 test('a linked sign-in file of another shape is refused, never overwritten', async (t) => {

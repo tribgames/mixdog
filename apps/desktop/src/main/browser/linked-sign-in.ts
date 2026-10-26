@@ -38,6 +38,7 @@ import type { WebContents, WebFrameMain } from 'electron';
 import { getDomain } from 'tldts';
 
 import { linkedProviderLabel } from '../../shared/linked-sign-in-label';
+import { pageLeft, STALE_REF } from './page-left';
 
 /** One remembered federated sign-in: never a token, code or state. */
 export interface LinkedSignIn {
@@ -480,12 +481,15 @@ export function createBrowserLinkedSignIns(deps: BrowserLinkedSignInDeps) {
    *  or @handle, or the value typed into an input that positively is an
    *  account identifier (`identifierField`, from the snapshot's secret flag
    *  and the input's own attributes as `readField` reads them). A ref counts
-   *  only from a snapshot of this very page. Never fails the command. */
+   *  only from a snapshot of this very page. A field that cannot be read
+   *  never fails the command: a stale ref or a page that left is expected and
+   *  silent, anything else goes to `onError`; cancellation propagates. */
   async function beforeAction(
     guest: WebContents,
     action: string,
     command: { ref?: unknown; target?: unknown; text?: unknown; fields?: unknown },
-    readField: (ref: string) => Promise<LinkedFieldFacts | null>
+    readField: (ref: string) => Promise<LinkedFieldFacts | null>,
+    signal?: AbortSignal
   ): Promise<void> {
     if (!['click', 'fill', 'type'].includes(action) || guest.isDestroyed()) return;
     const url = guest.getURL();
@@ -504,7 +508,14 @@ export function createBrowserLinkedSignIns(deps: BrowserLinkedSignInDeps) {
     for (const entry of entries as Array<{ ref?: unknown; text?: unknown }>) {
       const ref = refOf(entry?.ref);
       if (!ref || typeof entry.text !== 'string') continue;
-      const field = await readField(String(entry.ref)).catch(() => null);
+      let field: LinkedFieldFacts | null = null;
+      try {
+        field = await readField(String(entry.ref));
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason || error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!STALE_REF.test(message) && !pageLeft(error, guest, url)) deps.onError?.(error);
+      }
       if (identifierField(ref, field)) tracker.named(guest.id, url, entry.text, true);
     }
   }

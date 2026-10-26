@@ -105,7 +105,7 @@ async function waitForNetworkQuiet(host: BrowserSettleHost, guest: WebContents, 
 
 /** How CDP reports that the document a checkpoint was awaiting in went away:
  *  the gesture itself navigated (Enter in a search box, a submit button). */
-const DOCUMENT_REPLACED = /Inspected target navigated or closed|Execution context was destroyed/;
+export const DOCUMENT_REPLACED =/Inspected target navigated or closed|Execution context was destroyed/;
 
 /** Let input handlers and their rendering work run without waiting for
  * unrelated DOM mutations. The next gesture still owns its target's
