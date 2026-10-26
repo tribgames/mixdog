@@ -3,7 +3,8 @@
  * command must satisfy and the lookups that turn window/app/foreground into an
  * exact window id.
  */
-import { assertOcrLanguageTag, type captureMode } from './analysis';
+import { assertOcrLanguageTag, captureMode } from './analysis';
+import type { CaptureEngineHost } from './capture';
 import type { ComputerCommand } from '../shared/types';
 
 export type CaptureMode = ReturnType<typeof captureMode>;
@@ -55,6 +56,32 @@ export function assertScreenTargetMode(
   if (mode !== 'vision' && command.screen !== undefined && namesOwnTarget(command, forcedWindowId)) {
     throw new Error('screen capture supports mode=vision only; use app or window_id for state/som/ax');
   }
+}
+
+export type CaptureAttemptHost = Pick<
+  CaptureEngineHost,
+  'sessionIdFor' | 'forgetObservedWindowScope' | 'framesBySession' | 'elementTargetsBySession'
+>;
+
+/** Open a capture attempt: validate the command's target shape and retire the
+ *  observation it replaces. A valid capture attempt replaces the actionable
+ *  observation, so its frames, element targets, and window scope are cleared
+ *  before target resolution: a failed lookup or screen-only capture cannot
+ *  authorize older input. */
+export function beginCaptureAttempt(
+  host: CaptureAttemptHost,
+  command: ComputerCommand,
+  forcedWindowId: string | undefined
+): { mode: CaptureMode; explicitScreen: boolean } {
+  const { sessionIdFor, forgetObservedWindowScope, framesBySession, elementTargetsBySession } = host;
+  const mode = captureMode(command);
+  assertCaptureTargetShape(command, forcedWindowId, mode);
+  framesBySession.delete(sessionIdFor(command));
+  elementTargetsBySession.delete(sessionIdFor(command));
+  forgetObservedWindowScope(command);
+  const explicitScreen = explicitScreenCapture(command, forcedWindowId, mode);
+  assertScreenTargetMode(command, forcedWindowId, mode);
+  return { mode, explicitScreen };
 }
 
 export async function resolveCaptureWindowId(

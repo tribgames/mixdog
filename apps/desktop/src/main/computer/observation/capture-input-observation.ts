@@ -45,6 +45,35 @@ export function createInputObservationReader(host: InputObservationHost, command
   };
 }
 
+/** A different monitor after the capture means its observation worker was replaced. */
+export function inputMonitorChanged(
+  before: ComputerInputObservation | undefined,
+  after: ComputerInputObservation | undefined
+): boolean {
+  return Boolean(before && after && before.monitor !== after.monitor);
+}
+
+/** User input during the capture never fails it: the capture is published
+ *  without a foreground-ready observation, so foreground input refuses it and
+ *  background input proceeds. */
+export function settleInputObservation(
+  before: ComputerInputObservation | undefined,
+  after: ComputerInputObservation | undefined
+): {
+  inputObservation: ComputerInputObservation | undefined;
+  foregroundReady: boolean;
+  foregroundInputReason?: string;
+} {
+  const { foregroundReady, foregroundInputReason } = foregroundInputState(before, after);
+  if (!before) return { inputObservation: before, foregroundReady, foregroundInputReason };
+  const inputObservation = {
+    ...before,
+    ready: foregroundReady,
+    ...(foregroundReady ? {} : { reason: foregroundInputReason || 'unknown' }),
+  };
+  return { inputObservation, foregroundReady, foregroundInputReason };
+}
+
 export function foregroundInputState(
   before: ComputerInputObservation | undefined,
   after: ComputerInputObservation | undefined

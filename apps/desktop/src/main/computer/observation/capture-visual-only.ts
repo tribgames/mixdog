@@ -92,3 +92,25 @@ export function createVisualOnlyCache() {
 
   return { resolve, record, releasePrefix: (prefix: string) => store.releasePrefix(prefix) };
 }
+
+/** One capture's view of the cache: whether the window is served from it, and
+ *  how the capture's own answer is learned. Only an eligible capture that did
+ *  not answer from the cache teaches it; `learn` answers undefined otherwise. */
+export function resolveVisualOnlyCapture(
+  cache: ReturnType<typeof createVisualOnlyCache>,
+  sessionId: string,
+  command: ComputerCommand,
+  mode: CaptureMode,
+  windowId: string
+) {
+  const key = visualOnlyCapabilityKey(sessionId, windowId);
+  const eligible = visualOnlyEligible(command, mode, windowId);
+  const resolved = cache.resolve(key, eligible);
+  return {
+    cacheHit: resolved.cacheHit,
+    cachedAccessibilityError: resolved.cachedAccessibilityError,
+    retryAt: resolved.retryAt,
+    learn: (outcome: Parameters<typeof cache.record>[2]) =>
+      eligible && !resolved.cacheHit ? cache.record(key, resolved, outcome) : undefined,
+  };
+}

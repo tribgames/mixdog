@@ -1013,3 +1013,86 @@ test('a failed chrome-only re-read reports its error instead of the retired firs
   assert.equal(result.payload.accessibility_status, 'error');
   assert.doesNotMatch(JSON.stringify(result.payload.elements), /s1:e0/);
 });
+
+test('releasing a session forgets its stalled accessibility provider', async () => {
+  let snapshots = 0;
+  const f = fixture({
+    native: (request) => {
+      if (request.action !== 'snapshot') return;
+      snapshots++;
+      throw new Error('computer_command_timeout: snapshot exceeded 2500ms');
+    },
+  });
+  const command = { action: 'capture', window_id: 'hwnd:0x1', session_id: 'a', mode: 'state' };
+  await f.run(() => f.capture.captureComputer(command));
+  await f.run(() => f.capture.captureComputer(command));
+  assert.equal(snapshots, 1, 'the stalled provider is cached for the session');
+  f.capture.releaseCaptureSession('a');
+  await f.run(() => f.capture.captureComputer(command));
+  assert.equal(snapshots, 2, 'a released session asks the provider again');
+});
+
+test('capture authorization runs before any capture request, and a refusal leaves no observation', async () => {
+  const authorized = [];
+  const f = fixture({
+    host: {
+      authorizeCapture: async (command, windowId) => {
+        authorized.push({ windowId, requests: f.requests.length });
+        if (command.refuse) throw new Error('saved_login_pixel_guard: fixture refusal');
+      },
+    },
+  });
+  const command = { action: 'capture', window_id: 'hwnd:0x1', session_id: 'a', mode: 'state' };
+  f.state.rememberFrame({
+    id: 'frame',
+    sessionId: 'a',
+    windowId: 'hwnd:0x1',
+    relatedWindowIds: ['hwnd:0x1'],
+    capturedAt: performance.now(),
+  });
+  f.state.rememberObservedWindowScope(command, 'hwnd:0x1');
+  await assert.rejects(
+    f.run(() => f.capture.captureComputer({ ...command, refuse: true })),
+    /saved_login_pixel_guard: fixture refusal/
+  );
+  assert.deepEqual(authorized, [{ windowId: 'hwnd:0x1', requests: 0 }]);
+  assert.deepEqual(f.requests, [], 'a refused capture dispatches nothing');
+  assert.equal(f.state.framesBySession.get('a')?.size || 0, 0);
+  assert.equal(f.state.observedWindowBySession.has('a'), false);
+  const result = await f.run(() => f.capture.captureComputer(command));
+  assert.equal(result.payload.ok, true);
+  assert.deepEqual(authorized[1], { windowId: 'hwnd:0x1', requests: 0 });
+});
+
+test('an observation worker replaced during a capture earns one fresh-pixel read, never for ax', async () => {
+  for (const mode of ['state', 'ax']) {
+    let reads = 0;
+    const f = fixture({
+      native: (request) => {
+        if (request.action !== 'input_idle_state') return undefined;
+        const monitor = ++reads > 1 ? 'worker-b' : 'worker-a';
+        return { ok: true, result: { observer_ready: true, monitor, sequence: 3 } };
+      },
+    });
+    const command = { action: 'capture', window_id: 'hwnd:0x1', session_id: 'a', mode };
+    if (mode === 'ax') {
+      await assert.rejects(
+        f.run(() => f.capture.captureComputer(command)),
+        /input_observation_unavailable: observation worker changed during capture/
+      );
+      continue;
+    }
+    const result = await f.run(() => f.capture.captureComputer({ ...command, include_ocr: true }));
+    assert.equal(result.payload.ok, true);
+    assert.ok(result.image);
+    assert.equal(result.payload.foreground_input_ready, true);
+    const changedAt = f.requests.filter((request) => request.action === 'input_idle_state')[1];
+    const replacement = f.requests.slice(f.requests.indexOf(changedAt) + 1);
+    assert.equal(
+      replacement.some((request) => request.action === 'snapshot' || request.action === 'ocr_image'),
+      false,
+      'the replacement read takes fresh pixels only'
+    );
+    assert.equal(f.state.freshObservedWindowScope(command).inputObservation.monitor, 'worker-b');
+  }
+});
