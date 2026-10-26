@@ -120,7 +120,9 @@ export function humanRequestFields(input = {}) {
     // request time, ask-user-tool.mjs): the card's title and inputs; no value.
     const origin = loginPageUrl(secret.origin)?.origin || '';
     const form = SECRET_FORMS.includes(secret.form) ? secret.form : '';
-    const length = Number.isInteger(secret.length) && secret.length >= 4 && secret.length <= 10 ? secret.length : 0;
+    // A code's length is the bound field's own (credential-autofill.ts
+    // codeLength); absent, it stays unspecified.
+    const length = Number.isInteger(secret.length) && secret.length > 0 ? secret.length : 0;
     fields.secret = {
       requestId: text(secret.requestId),
       surface: secret.surface === 'computer' ? 'computer' : 'browser',
@@ -128,7 +130,7 @@ export function humanRequestFields(input = {}) {
       field: text(secret.field),
       ...(origin ? { origin } : {}),
       ...(form ? { form } : {}),
-      ...(form === 'otp' ? { length: length || 6 } : {}),
+      ...(form === 'otp' && length ? { length } : {}),
     };
     fields.args = { surface: fields.secret.surface, target: fields.secret.target, field: fields.secret.field };
     fields.remember = ['once'];
@@ -157,7 +159,6 @@ export function humanRequestFields(input = {}) {
     // labels only (profile-import.ts credentialSuggestions), never a password.
     const accounts = (login && Array.isArray(takeover.accounts) ? takeover.accounts : [])
       .filter((account) => isRecord(account) && token(account.id, 128) && text(account.label, 120))
-      .slice(0, 8)
       .map((account) => ({ id: token(account.id, 128), label: text(account.label, 120) }));
     // The page those logins may be filled into, bound by the desktop at
     // request time (ask-user-tool.mjs fillId): without it none is offered.

@@ -160,6 +160,37 @@ test('a cd that is not one plain path then ; or && runs unchanged', () => {
   }
 });
 
+test('PowerShell wildcard paths are left to Set-Location; a POSIX quoted glob is a literal folder name', () => {
+  const powershell = [
+    'cd "C:/work/project-*"; node build.js',
+    "cd 'C:/work/project-?'; node build.js",
+    'Set-Location -Path "C:/work/proj[12]"; node build.js',
+    'cd C:/work/proj[12]; node build.js',
+    'cd C:/work/project-*; node build.js',
+  ];
+  for (const command of powershell) {
+    const out = guard(command, POWERSHELL);
+    assert.equal(out.args.command, command, command);
+    assert.equal(out.args.cwd, undefined, command);
+    assert.deepEqual(out.notes, [], command);
+  }
+  // Bash: a quoted glob never expands, so the folder is that literal name;
+  // an unquoted one (`*`, `?`, `[`) expands and stays with the shell.
+  for (const [command, dir] of [
+    ['cd "project-*"; node build.js', 'project-*'],
+    ["cd 'proj[12]' && node build.js", 'proj[12]'],
+  ]) {
+    const out = guard(command, POSIX);
+    assert.equal(out.args.command, 'node build.js', command);
+    assert.equal(out.args.cwd, dir, command);
+  }
+  for (const command of ['cd project-*; node build.js', 'cd project-?; x', 'cd proj[12]; x']) {
+    const out = guard(command, POSIX);
+    assert.equal(out.args.command, command, command);
+    assert.equal(out.args.cwd, undefined, command);
+  }
+});
+
 test('the guard parses with the shell the call asks for, not the default one', () => {
   const windowsPath = 'cd foo\\bar; npm test';
   assert.equal(guard(windowsPath, POWERSHELL).args.cwd, 'foo\\bar');

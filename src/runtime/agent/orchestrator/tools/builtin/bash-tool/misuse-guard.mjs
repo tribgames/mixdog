@@ -57,9 +57,12 @@ function leadingSleepFailure(command) {
 // ── 2. leading cd → cwd ──────────────────────────────────────────────────────
 
 // One plain path token: quoted (no variable or escape characters) or unquoted
-// (no shell metacharacters), then `;` or `&&` and a remainder.
+// (no shell metacharacters, glob characters included), then `;` or `&&` and a remainder.
 const CD_RE =
-  /^\s*(?:cd|set-location)\s+(?:-path\s+)?(?:"([^"$`]+)"|'([^'$`]+)'|([^\s;&|<>"'`$(){}*?,@%#!]+))\s*(?:;|&&)\s*(\S[\s\S]*)$/i;
+  /^\s*(?:cd|set-location)\s+(?:-path\s+)?(?:"([^"$`]+)"|'([^'$`]+)'|([^\s;&|<>"'`$(){}*?[,@%#!]+))\s*(?:;|&&)\s*(\S[\s\S]*)$/i;
+// `Set-Location -Path` expands wildcards even in a quoted path; a POSIX shell
+// keeps a quoted glob literal, so only PowerShell leaves those unrewritten.
+const POWERSHELL_WILDCARD_RE = /[*?[]/;
 const CD_LIKE_RE = /^(?:cd|set-location|pushd|popd)(?:\s|;|&|$)/i;
 
 /** `{ dir, rest }` for a command that starts with a plain `cd <dir>` and more, else null. */
@@ -70,6 +73,7 @@ export function splitLeadingCd(command, shellType) {
   const rest = match[4];
   if (CD_LIKE_RE.test(rest)) return null;
   if (dir.trim() === '' || dir.startsWith('-')) return null;
+  if (shellType === 'powershell' && POWERSHELL_WILDCARD_RE.test(dir)) return null;
   // `~user` is another account's home in a shell, not a folder named so; a
   // quoted `~` is a literal directory name, only an unquoted one is home.
   if (dir.startsWith('~') && (match[3] === undefined || !/^~(?:[\\/]|$)/.test(dir))) return null;
