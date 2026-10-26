@@ -515,3 +515,114 @@ test('a stored authenticator key makes the current code on the host, for its own
   assert.equal(await vault.totpCodeFor(ids['me@example.com'], 'https://evil.example'), '', 'another origin');
   assert.equal(await vault.totpCodeFor('f'.repeat(24), 'https://shop.example.com'), '');
 });
+
+const NAVER = 'https://nid.naver.com';
+const firstUsername = async (vault, prefilled = '') => {
+  const [first] = await vault.preferredAccountsFor(NAVER, prefilled);
+  const logins = await vault.list();
+  return logins.find((login) => login.id === first.id).username;
+};
+
+test('two Chrome-imported siblings: the one Chrome used last wins, whatever the file order; a re-import updates it', async (t) => {
+  const { dir, vault } = makeVault(t);
+  const chrome = (username, lastUsedAt) => ({
+    url: `${NAVER}/nidlogin.login`,
+    username,
+    password: `pw-${username}`,
+    ...(lastUsedAt ? { lastUsedAt } : {}),
+  });
+  // Without Chrome's dates the later file entry wins (here the wrong one).
+  await vault.mergeImport('chrome', [chrome('tempest1033'), chrome('ghdnghdn131')]);
+  assert.equal(await firstUsername(vault), 'ghdnghdn131');
+  // Chrome used tempest1033 last, though it is listed first.
+  await vault.mergeImport('chrome', [
+    chrome('tempest1033', 1_700_000_000_000),
+    chrome('ghdnghdn131', 1_650_000_000_000),
+  ]);
+  assert.equal(await firstUsername(vault), 'tempest1033');
+  assert.deepEqual(
+    stored(dir)
+      .map((entry) => [entry.username, entry.chromeUsedAt, entry.lastUsedAt, entry.savedAt])
+      .sort(),
+    [
+      ['ghdnghdn131', 1_650_000_000_000, undefined, undefined],
+      ['tempest1033', 1_700_000_000_000, undefined, undefined],
+    ]
+  );
+  // A re-import with newer dates replaces them; one without a date keeps what is stored.
+  await vault.mergeImport('chrome', [chrome('ghdnghdn131', 1_750_000_000_000)]);
+  assert.equal(await firstUsername(vault), 'ghdnghdn131');
+  await vault.mergeImport('chrome', [chrome('ghdnghdn131')]);
+  assert.equal(await firstUsername(vault), 'ghdnghdn131');
+  // The same login on two rows (two sign-in URLs) keeps the later date.
+  await vault.mergeImport('chrome', [
+    { ...chrome('tempest1033', 1_760_000_000_000), url: `${NAVER}/a` },
+    { ...chrome('tempest1033', 1_740_000_000_000), url: `${NAVER}/a` },
+  ]);
+  assert.equal(await firstUsername(vault), 'tempest1033');
+  assert.equal(stored(dir).find((entry) => entry.username === 'tempest1033').chromeUsedAt, 1_760_000_000_000);
+});
+
+test('a re-import carrying an older Chrome date never lowers the stored one', async (t) => {
+  const { dir, vault } = makeVault(t);
+  const chrome = (username, lastUsedAt) => ({ url: NAVER, username, password: `pw-${username}`, lastUsedAt });
+  await vault.mergeImport('chrome', [chrome('tempest1033', 1_700_000_000_000), chrome('ghdnghdn131', 1_650_000_000_000)]);
+  assert.equal(await firstUsername(vault), 'tempest1033');
+  // A stale export (older dates for both) must not reorder them or lower the dates.
+  await vault.mergeImport('chrome', [chrome('tempest1033', 1_600_000_000_000), chrome('ghdnghdn131', 1_649_000_000_000)]);
+  assert.equal(await firstUsername(vault), 'tempest1033');
+  assert.deepEqual(
+    stored(dir)
+      .map((entry) => [entry.username, entry.chromeUsedAt])
+      .sort(),
+    [
+      ['ghdnghdn131', 1_650_000_000_000],
+      ['tempest1033', 1_700_000_000_000],
+    ]
+  );
+});
+
+test('recency is the latest of use, save and Chrome use: a newer save beats an older sign-in; a newer sign-in beats an older Chrome date', async (t) => {
+  const { vault } = makeVault(t);
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
+  await vault.upsert({ origin: NAVER, username: 'old-save', password: 'pw-1', source: 'chat' });
+  const ids = Object.fromEntries((await vault.list()).map((login) => [login.username, login.id]));
+  t.mock.timers.tick(10);
+  await vault.markUsed(ids['old-save']);
+  t.mock.timers.tick(10);
+  await vault.upsert({ origin: NAVER, username: 'new-save', password: 'pw-2', source: 'chat' });
+  // new-save was saved after old-save last signed in.
+  assert.equal(await firstUsername(vault), 'new-save');
+  t.mock.timers.tick(10);
+  await vault.markUsed(ids['old-save']);
+  assert.equal(await firstUsername(vault), 'old-save', 'a later sign-in wins again');
+  // An imported login Chrome used before that sign-in ranks after it; one Chrome used after ranks first.
+  await vault.mergeImport('chrome', [
+    { url: NAVER, username: 'chrome-before', password: 'pw-3', lastUsedAt: 1_699_999_999_000 },
+    { url: NAVER, username: 'chrome-after', password: 'pw-4', lastUsedAt: 1_700_000_000_500 },
+  ]);
+  assert.deepEqual(
+    (await vault.preferredAccountsFor(NAVER)).map((entry) => entry.label),
+    ['chrome-after', 'old-save', 'new-save', 'chrome-before'].map(maskedCredentialLabel)
+  );
+});
+
+test('a prefilled identifier still outranks every recency', async (t) => {
+  const { vault } = makeVault(t);
+  await vault.mergeImport('chrome', [
+    { url: NAVER, username: 'ghdnghdn131', password: 'pw-1', lastUsedAt: 1_600_000_000_000 },
+    { url: NAVER, username: 'tempest1033', password: 'pw-2', lastUsedAt: 1_700_000_000_000 },
+  ]);
+  assert.equal(await firstUsername(vault), 'tempest1033');
+  assert.equal(await firstUsername(vault, 'ghdnghdn131'), 'ghdnghdn131');
+  // The ambiguity rule is unchanged: case variants of the identifier, none exact, are not guessed.
+  await vault.mergeImport('chrome', [
+    { url: NAVER, username: 'Pat', password: 'pw-3', lastUsedAt: 1_800_000_000_000 },
+    { url: NAVER, username: 'pat', password: 'pw-4', lastUsedAt: 1_500_000_000_000 },
+  ]);
+  const ranked = await vault.preferredAccountsFor(NAVER, 'PAT');
+  assert.deepEqual(
+    ranked.slice(0, 2).map((entry) => entry.ambiguous),
+    [true, true]
+  );
+});

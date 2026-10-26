@@ -35,10 +35,13 @@ import {
 type Toolkit = ReturnType<typeof createBrowserCommandToolkit>;
 
 /** Fill an account's stored credential into the page it was asked for, never
- *  into one the guest navigated to meanwhile. */
+ *  into one the guest navigated to meanwhile. An explicit fill the form took
+ *  records the account as last used (vault metadata, never a secret), so it
+ *  ranks first for the site's next auto sign-in. */
 function storedCredentialFill(
   profileImporter: BrowserProfileImportService,
-  fillCredentialInGuest: Toolkit['credentialFill']['fillCredentialInGuest']
+  fillCredentialInGuest: Toolkit['credentialFill']['fillCredentialInGuest'],
+  recordUsed: (id: string) => Promise<void> = vaultSignInHooks.markUsed
 ): BrowserActionServices['credentials']['fillStored'] {
   return (guest, account, signal) => {
     signal?.throwIfAborted();
@@ -46,12 +49,15 @@ function storedCredentialFill(
     return profileImporter.useCredentialByAccount(
       url,
       account,
-      (credential) => {
+      async (credential, id) => {
         signal?.throwIfAborted();
         if (guest.isDestroyed() || guest.getURL() !== url) {
           throw new Error('The page changed before stored credential input; input was not sent.');
         }
-        return fillCredentialInGuest(guest, credential, signal, url);
+        const result = await fillCredentialInGuest(guest, credential, signal, url);
+        // The password is in the form: a failed metadata write changes nothing for the reply.
+        if (result.passwordFilled) await recordUsed(id).catch(() => undefined);
+        return result;
       },
       signal
     );

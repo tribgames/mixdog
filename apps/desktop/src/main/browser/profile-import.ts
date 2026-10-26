@@ -99,6 +99,8 @@ interface NativeCredential {
   username?: unknown;
   password?: unknown;
   note?: unknown;
+  /** Chrome's last use of the login (ms since the Unix epoch); absent from an older importer. */
+  lastUsedAt?: unknown;
 }
 
 interface BrowserProfileImportOptions {
@@ -493,7 +495,7 @@ export class BrowserProfileImportService {
   async useCredentialByAccount<T>(
     url: string,
     account: string,
-    use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
+    use: (credential: Readonly<BrowserCredentialValue>, id: string) => Promise<T>,
     signal?: AbortSignal
   ): Promise<T> {
     signal?.throwIfAborted();
@@ -531,7 +533,7 @@ export class BrowserProfileImportService {
   async useCredential<T>(
     url: string,
     credentialId: string,
-    use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
+    use: (credential: Readonly<BrowserCredentialValue>, id: string) => Promise<T>,
     signal?: AbortSignal
   ): Promise<T> {
     signal?.throwIfAborted();
@@ -543,10 +545,13 @@ export class BrowserProfileImportService {
       throw new Error('The stored credential does not match the current page origin.');
     }
     signal?.throwIfAborted();
-    return await use({
-      username: credential.username,
-      password: credential.password,
-    });
+    return await use(
+      {
+        username: credential.username,
+        password: credential.password,
+      },
+      credential.id
+    );
   }
 
   private async readCredentialVault(signal?: AbortSignal): Promise<StoredBrowserCredential[]> {
@@ -714,6 +719,7 @@ export class BrowserProfileImportService {
         username: String(entry.username),
         password: String(entry.password),
         note: typeof entry.note === 'string' ? entry.note : '',
+        ...(typeof entry.lastUsedAt === 'number' && entry.lastUsedAt > 0 ? { lastUsedAt: entry.lastUsedAt } : {}),
       }));
     // Merge, never replace: a login Chrome no longer has stays, and a login
     // saved from a chat or 설정 keeps everything but its password.

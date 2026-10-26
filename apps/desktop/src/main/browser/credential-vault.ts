@@ -13,6 +13,12 @@
  * stored usernames that equal it only ignoring case, with none exactly, are
  * ambiguous and never guessed.
  *
+ * Recency, which orders the accounts that tie on that identifier: a login's
+ * latest of its auto sign-in use or explicit `savedAccount` fill
+ * (`lastUsedAt`), its save (`savedAt`: a chat card, 설정 or a re-saved
+ * password) and, for a Chrome import, Chrome's own last use of it
+ * (`chromeUsedAt`). All three are metadata, never secrets.
+ *
  * Passwords and authenticator keys never leave this process: listings carry
  * only the site, the username and what is stored, and the agent sees masked
  * labels.
@@ -55,6 +61,9 @@ export interface VaultImportEntry {
   password: string;
   note?: string;
   totpSecret?: string;
+  /** When Chrome last used the login (ms since the Unix epoch; its last change
+   *  or creation when it never used it); a re-import raises the stored date, never lowers it. */
+  lastUsedAt?: number;
 }
 
 /** A saved login as listings show it: no password, no authenticator key. */
@@ -93,8 +102,17 @@ interface StoredVaultLogin {
   autoSignIn: boolean;
   /** When it was last saved or re-saved (ms); metadata, never the secret. */
   savedAt?: number;
-  /** When auto sign-in last signed in with it (ms); metadata, never the secret. */
+  /** When auto sign-in or an explicit `savedAccount` fill last signed in with
+   *  it (ms); metadata, never the secret. */
   lastUsedAt?: number;
+  /** When Chrome last used it, from the import (ms); metadata, never the secret. */
+  chromeUsedAt?: number;
+}
+
+/** When the login was last used or saved (ms): the latest of its own use, its
+ *  save and Chrome's last use of it. 0 when none is known. */
+function recency(login: StoredVaultLogin): number {
+  return Math.max(login.lastUsedAt ?? 0, login.savedAt ?? 0, login.chromeUsedAt ?? 0);
 }
 
 /** `scheme://host[:port]` of an HTTPS URL with no credentials; '' otherwise. */
@@ -232,6 +250,7 @@ export class CredentialVault {
           autoSignIn: value.autoSignIn !== false,
           ...(Number(value.savedAt) > 0 ? { savedAt: Number(value.savedAt) } : {}),
           ...(Number(value.lastUsedAt) > 0 ? { lastUsedAt: Number(value.lastUsedAt) } : {}),
+          ...(Number(value.chromeUsedAt) > 0 ? { chromeUsedAt: Number(value.chromeUsedAt) } : {}),
         },
       ];
     });
@@ -249,6 +268,7 @@ export class CredentialVault {
       ...(login.autoSignIn === false ? { autoSignIn: false } : {}),
       ...(login.savedAt ? { savedAt: login.savedAt } : {}),
       ...(login.lastUsedAt ? { lastUsedAt: login.lastUsedAt } : {}),
+      ...(login.chromeUsedAt ? { chromeUsedAt: login.chromeUsedAt } : {}),
     }));
     await writeVaultFile(this.file, this.seal(JSON.stringify({ version: 1, credentials })), this.unseal);
   }
@@ -294,9 +314,10 @@ export class CredentialVault {
 
   /** The accounts auto sign-in may use for `origin`, the one to use first:
    *  the account whose username is the identifier `prefilled` on the page
-   *  (exact first; case-insensitive for an email), then the one last used for the
-   *  site, then the most recently saved (a later entry of the file ties). When
-   *  no username is exactly the identifier and two or more distinct usernames
+   *  (exact first; case-insensitive for an email), then the one used or saved
+   *  most recently — the latest of its auto sign-in or `savedAccount` use, its
+   *  save and Chrome's own last use of an imported login (a later entry of the
+   *  file ties). When no username is exactly the identifier and two or more distinct usernames
    *  equal it ignoring case (any identifier, email or not), those accounts
    *  come first, marked `ambiguous`: the page does not say which one, and the
    *  caller must not pick. Masked labels only. */
@@ -325,8 +346,7 @@ export class CredentialVault {
         .sort(
           (a, b) =>
             b.match - a.match ||
-            (b.login.lastUsedAt ?? 0) - (a.login.lastUsedAt ?? 0) ||
-            (b.login.savedAt ?? 0) - (a.login.savedAt ?? 0) ||
+            recency(b.login) - recency(a.login) ||
             b.index - a.index
         )
         .map(({ login, match }) => ({
@@ -353,7 +373,8 @@ export class CredentialVault {
     });
   }
 
-  /** Record that auto sign-in signed in with login `id` just now. */
+  /** Record that login `id` just signed in: auto sign-in, or an explicit
+   *  `savedAccount` fill the form took. */
   markUsed(id: string): Promise<void> {
     return this.transaction(async () => {
       const logins = await this.load();
@@ -378,8 +399,9 @@ export class CredentialVault {
   }
 
   /** Merge an import (Chrome or CSV) into the vault: the same origin+username
-   *  (exactly) has its password and note replaced and keeps everything else;
-   *  new logins are added. The vault is never wiped first. Returns how many
+   *  (exactly) has its password and note replaced, takes Chrome's last-use date
+   *  when the import carries a newer one than is stored, and keeps everything else; new logins are
+   *  added. The vault is never wiped first. Returns how many
    *  were stored. */
   mergeImport(source: VaultLoginSource, entries: readonly VaultImportEntry[]): Promise<number> {
     return this.transaction(() => this.mergeImportCore(source, entries));
@@ -390,6 +412,8 @@ export class CredentialVault {
     const index = new Map<string, StoredVaultLogin>();
     for (const login of logins) index.set(`${secureOrigin(login.url)}\0${login.username}`, login);
     let stored = 0;
+    // Chrome keeps one row per sign-in URL, so one login may arrive twice: the later date wins.
+    const usedAt = new Map<string, number>();
     for (const entry of entries) {
       const origin = secureOrigin(entry.url);
       const username = field(entry.username).trim();
@@ -417,7 +441,12 @@ export class CredentialVault {
         logins.push(login);
         index.set(key, login);
       }
+      if (Number(entry.lastUsedAt) > 0) usedAt.set(key, Math.max(usedAt.get(key) ?? 0, Number(entry.lastUsedAt)));
       stored += 1;
+    }
+    for (const [key, chromeUsedAt] of usedAt) {
+      const login = index.get(key);
+      if (login) login.chromeUsedAt = Math.max(login.chromeUsedAt ?? 0, chromeUsedAt);
     }
     await this.save(logins);
     return stored;

@@ -49,8 +49,11 @@
  * 2-step or passkeys). The reply's snapshot is taken of that page.
  *
  * Accounts: with several saved logins for the site the host uses the one whose
- * username is the identifier already prefilled on the page, else the one last
- * used for the site, else the most recently saved. When that identifier fits
+ * username is the identifier already prefilled on the page, else the one used or
+ * saved most recently: the latest of its last sign-in here (auto sign-in or an
+ * explicit `savedAccount` fill the form took), its last save (a login typed in
+ * chat, 설정, a re-saved password) and, for a Chrome import, Chrome's own last
+ * use of it. When that identifier fits
  * several logins that differ only by username case and none exactly, none is
  * guessed: nothing is filled and the sign-in is handed to the user. The agent's
  * explicit `savedAccount` fill is a separate path and always wins. A successful
