@@ -148,7 +148,7 @@ function Assert-SavedLoginSignedImage($info) {
         Stop-SavedLogin "the '$process' window's program could not be verified as a signed browser"
     }
     if ([System.IO.Path]::GetFileNameWithoutExtension([string]$image.Path).ToLowerInvariant() -cne $process -or
-        [string]$image.Publisher -notmatch ('(?:^|,\s*)O="?' + [regex]::Escape($vendor) + '\b')) {
+        [string]$image.Publisher -cnotmatch ('(?:^|,\s*)O=(?:"' + [regex]::Escape($vendor) + '"|' + [regex]::Escape($vendor) + ')\s*(?:,|$)')) {
         Stop-SavedLogin "the '$process' window's program is not signed by $vendor"
     }
     return [long]$image.StartTime
