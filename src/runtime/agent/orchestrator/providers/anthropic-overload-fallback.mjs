@@ -16,7 +16,11 @@ export const OVERLOADED_ERROR_CODE = 'overloaded_error';
 
 /** Consecutive 529s end the request only for API-key (non-subscriber) first-party Opus. */
 export function isTerminalOverloadModel(model) {
-  return /^claude-opus-/.test(String(model || '').trim().toLowerCase());
+  return /^claude-opus-/.test(
+    String(model || '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 export function isAnthropicOverloadError(err) {
@@ -53,6 +57,24 @@ export function createAnthropicOverloadTracker({ model, fallbackModel, terminalA
       err.repeated529 = true;
       return err;
     },
+  };
+}
+
+/**
+ * The catch around a whole Anthropic send. The fallback trigger can surface
+ * from the request loop, a mid-stream overload, or the non-streaming
+ * recovery; any other error is rethrown unchanged. For the trigger it logs,
+ * announces the model switch, and returns the options of the single re-send
+ * on `err.fallbackModel` (no second hop).
+ */
+export function takeAnthropicModelFallback(err, { tag, model, opts, onStageChange, displayModel = (id) => id }) {
+  if (!(err instanceof AnthropicFallbackTriggeredError)) throw err;
+  process.stderr.write(`[${tag}] ${err.message}\n`);
+  announceAnthropicModelFallback(onStageChange, displayModel(model), displayModel(err.fallbackModel));
+  return {
+    ...opts,
+    fallbackModel: undefined,
+    _fallbackTriggered: true,
   };
 }
 

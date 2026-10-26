@@ -502,6 +502,100 @@ test('API-key SSE overloads trip the fallback model and announce it', async () =
   assert.ok(stages.some((entry) => entry.stage === 'reconnecting' && /overloaded/.test(entry.message || '')));
 });
 
+// The fallback hand-off logs the trigger on stderr and announces the switch
+// with the exact display labels (OAuth: catalog display names).
+async function captureStderr(run) {
+  const lines = [];
+  const write = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => {
+    lines.push(String(chunk));
+    return write.call(process.stderr, chunk, ...rest);
+  };
+  try {
+    return { value: await run(), lines };
+  } finally {
+    process.stderr.write = write;
+  }
+}
+
+test('the fallback hand-off logs the trigger and announces exact labels on both providers', async () => {
+  const { _displayModel } = await import('./anthropic-model-resolve.mjs');
+  const apiStages = [];
+  const { provider: api, calls } = apiProvider((index) => (index <= 3 ? overloadReply() : okReply()));
+  const apiRun = await captureStderr(() =>
+    sendApi(api, {
+      fallbackModel: 'claude-sonnet-4-6',
+      onStageChange: (stage, detail) => apiStages.push({ stage, detail }),
+    })
+  );
+  assert.equal(apiRun.value.content, 'ok');
+  assert.equal(calls.length, 4);
+  assert.deepEqual(
+    apiStages.filter((entry) => /continuing on/.test(entry.detail?.message || '')),
+    [{ stage: 'reconnecting', detail: { message: `${FAST_MODEL} is overloaded — continuing on claude-sonnet-4-6` } }]
+  );
+  assert.equal(apiRun.lines.filter((line) => /^\[anthropic\] .*claude-sonnet-4-6/.test(line)).length, 1);
+
+  const oauth = oauthProvider();
+  const oauthStages = [];
+  let parses = 0;
+  const oauthRun = await captureStderr(() =>
+    oauth.send(MESSAGES, 'claude-fable-5-1', [], {
+      fallbackModel: 'claude-sonnet-4-6',
+      _doRequestFn: async () => requestResult(httpResponse(200)),
+      _parseSSEFn: async () => {
+        parses += 1;
+        if (parses <= 3) throw overloadedSseError();
+        return { model: 'claude-sonnet-4-6', content: 'from fallback', usage: { inputTokens: 1 } };
+      },
+      onStageChange: (stage, detail) => oauthStages.push({ stage, detail }),
+    })
+  );
+  assert.equal(oauthRun.value.content, 'from fallback');
+  assert.deepEqual(
+    oauthStages.filter((entry) => /continuing on/.test(entry.detail?.message || '')),
+    [
+      {
+        stage: 'reconnecting',
+        detail: {
+          message: `${_displayModel('claude-fable-5-1')} is overloaded — continuing on ${_displayModel('claude-sonnet-4-6')}`,
+        },
+      },
+    ]
+  );
+  assert.equal(oauthRun.lines.filter((line) => /^\[anthropic-oauth\] .*claude-sonnet-4-6/.test(line)).length, 1);
+});
+
+test('an OAuth streamed turn offers the body tool names and tags its mid-stream retries', async () => {
+  const provider = oauthProvider();
+  const seenNames = [];
+  let parses = 0;
+  const result = await provider.send(
+    MESSAGES,
+    'claude-fable-5-1',
+    [
+      { name: 'read', description: 'r', inputSchema: { type: 'object', properties: {} } },
+      { name: 'grep', description: 'g', inputSchema: { type: 'object', properties: {} } },
+    ],
+    {
+      _doRequestFn: async () => requestResult(httpResponse(200)),
+      _parseSSEFn: async (...args) => {
+        parses += 1;
+        seenNames.push([...args[7]].sort());
+        if (parses === 1) {
+          args[5].sawMessageStart = true;
+          throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+        }
+        return { model: 'claude-fable-5-1', content: 'ok', usage: { inputTokens: 1 } };
+      },
+    }
+  );
+  assert.equal(result.content, 'ok');
+  assert.deepEqual(seenNames.at(-1), ['grep', 'read']);
+  assert.equal(result.__midstreamRetries, parses - 1);
+  assert.equal(Object.keys(result).includes('__midstreamRetries'), false);
+});
+
 test('the overload fallback is a single hop', async () => {
   const { provider, calls } = apiProvider(() => overloadReply());
   await assert.rejects(

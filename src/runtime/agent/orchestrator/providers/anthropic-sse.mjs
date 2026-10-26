@@ -224,14 +224,7 @@ export async function parseSSEStream(
     _captureMidstreamAbort(state, signal.reason);
     return signal.reason instanceof Error ? signal.reason : new Error(`${labels.display} SSE stream aborted`);
   };
-  const onAbort = () => {
-    try {
-      const _c = reader.cancel('SSE aborted');
-      if (_c && typeof _c.catch === 'function') _c.catch(() => {});
-    } catch {
-      // the reader may already be closed or released
-    }
-  };
+  const onAbort = () => cancelReaderOnAbort(reader);
   let buffer = '';
   let currentEvent = '';
   retainProviderSseStream(streamKey);
@@ -243,24 +236,12 @@ export async function parseSSEStream(
       signal.addEventListener('abort', onAbort, { once: true });
     }
     watchdogs.armFirstMessageTimer();
-    streamLoop: while (true) {
+    while (true) {
       let chunk;
       try {
         chunk = await watchdogs.read();
       } catch (err) {
-        const stopped = watchdogs.readFailure() ?? (signal?.aborted ? abortedError() : null);
-        if (stopped) {
-          // The caller's cancellation reason may be shared: never stamp this
-          // request's usage on it; the usage reported so far goes to this send.
-          if (signal?.aborted && state?.sawMessageStart) {
-            const reported = turn.reportedUsage();
-            noteAbandonedUsage(reported.usage, reported.model);
-          }
-          throw stopped;
-        }
-        // The connection dropped mid-body: carry what this turn completed so
-        // the loop can continue from finished tool calls instead of failing.
-        throw state?.sawMessageStart ? turn.attachTransportPartial(err) : err;
+        throw readFailureError(err, { watchdogs, signal, state, turn, abortedError });
       }
       const { done, value } = chunk;
       if (done) break;
@@ -281,10 +262,7 @@ export async function parseSSEStream(
       const framed = frameProviderSseChunk(region, { currentEvent, streamKey });
       const framedChunk = typeof framed?.then === 'function' ? await framed : framed;
       currentEvent = framedChunk.currentEvent;
-      for (const framedEvent of framedChunk.events) {
-        if (framedEvent.error) continue;
-        if (applyAnthropicSseEvent(framedEvent, { turn, watchdogs, state, progress, labels })) break streamLoop;
-      }
+      if (applyAnthropicSseChunk(framedChunk.events, { turn, watchdogs, state, progress, labels })) break;
     }
     turn.flushLeak();
     if (state?.sawMessageStart && !state?.sawCompleted) throw turn.truncatedError();
@@ -305,14 +283,57 @@ export async function parseSSEStream(
     } catch {
       // the reader may already be closed after the stream ended
     }
+    releaseReaderLock(reader, labels);
+  }
+}
+
+// Caller cancellation of a live stream: cancel the reader without awaiting it.
+function cancelReaderOnAbort(reader) {
+  try {
+    const _c = reader.cancel('SSE aborted');
+    if (_c && typeof _c.catch === 'function') _c.catch(() => {});
+  } catch {
+    // the reader may already be closed or released
+  }
+}
+
+// The error a failed reader.read() ends the stream with: a watchdog stop or the
+// caller's abort as-is, otherwise the transport failure carrying the partial
+// turn once the message started.
+function readFailureError(err, { watchdogs, signal, state, turn, abortedError }) {
+  const stopped = watchdogs.readFailure() ?? (signal?.aborted ? abortedError() : null);
+  if (stopped) {
+    // The caller's cancellation reason may be shared: never stamp this
+    // request's usage on it; the usage reported so far goes to this send.
+    if (signal?.aborted && state?.sawMessageStart) {
+      const reported = turn.reportedUsage();
+      noteAbandonedUsage(reported.usage, reported.model);
+    }
+    return stopped;
+  }
+  // The connection dropped mid-body: carry what this turn completed so
+  // the loop can continue from finished tool calls instead of failing.
+  return state?.sawMessageStart ? turn.attachTransportPartial(err) : err;
+}
+
+// Fold one network chunk's framed records into the turn, in order. Returns true
+// once a terminal record ends the stream; a framing error skips its record.
+function applyAnthropicSseChunk(events, context) {
+  for (const framedEvent of events) {
+    if (framedEvent.error) continue;
+    if (applyAnthropicSseEvent(framedEvent, context)) return true;
+  }
+  return false;
+}
+
+function releaseReaderLock(reader, labels) {
+  try {
+    reader.releaseLock();
+  } catch (err) {
     try {
-      reader.releaseLock();
-    } catch (err) {
-      try {
-        process.stderr.write(`[${labels.tag}] reader releaseLock failed: ${err?.message ?? String(err)}\n`);
-      } catch {
-        // stderr may be closed; the releaseLock failure is only reported
-      }
+      process.stderr.write(`[${labels.tag}] reader releaseLock failed: ${err?.message ?? String(err)}\n`);
+    } catch {
+      // stderr may be closed; the releaseLock failure is only reported
     }
   }
 }

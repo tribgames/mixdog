@@ -113,6 +113,40 @@ test('connection failures keep the 4-attempt ladder at 1s / 2s / 4s', async () =
   });
 });
 
+test('an empty STOP is re-asked once after a logged backoff, then the usable answer resolves', async () => {
+  const chunk = (parts) => ({
+    response: {
+      candidates: [{ content: { role: 'model', parts }, finishReason: 'STOP' }],
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+    },
+  });
+  const replies = [chunk([]), chunk([{ text: 'answer' }])];
+  let calls = 0;
+  const h = harness(async () => {
+    const body = `data: ${JSON.stringify(replies[calls++])}\n\n`;
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  });
+  const lines = [];
+  const write = process.stderr.write;
+  process.stderr.write = (text, ...rest) => {
+    lines.push(String(text));
+    return write.call(process.stderr, text, ...rest);
+  };
+  try {
+    await h.request();
+  } finally {
+    process.stderr.write = write;
+  }
+  assert.equal(calls, 2);
+  assert.equal(h.sleeps.length, 1);
+  assert.deepEqual(
+    lines.filter((line) => line.startsWith('[antigravity] retry')),
+    ['[antigravity] retry 2 after Gemini stream unusable: NO_RESPONSE_TEXT\n']
+  );
+  const reconnect = h.stages.find(([stage]) => stage === 'reconnecting')[1];
+  assert.equal(reconnect.attempt, 2);
+});
+
 test('a non-thinking model keeps its fixed window on the ordinary ladder', async () => {
   const calls = [];
   const h = harness(silentFetch(calls), { firstByte: { timeoutMs: 30, maxMs: 30, retries: null } });

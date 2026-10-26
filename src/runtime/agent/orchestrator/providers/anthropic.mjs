@@ -2,10 +2,11 @@ import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/pro
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
 import {
-  announceAnthropicModelFallback,
   createAnthropicOverloadTracker,
   isTerminalOverloadModel,
+  takeAnthropicModelFallback,
 } from './anthropic-overload-fallback.mjs';
+import { removeAbortListener } from './anthropic-oauth-request/abort-wiring.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { createPassthroughSignal } from '../stall-policy.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
@@ -38,6 +39,29 @@ import { ANTHROPIC_VERSION, MODELS } from './lib/anthropic-models.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 export { _test, _toAnthropicMessagesForTest } from './anthropic-messages.mjs';
+
+// One stream attempt's controller, aborted with the caller's reason when the
+// send's signal aborts. An already-aborted send fails before the attempt.
+function linkAttemptAbort(totalSignal) {
+  const streamController = createAbortController();
+  let cancelHandler = null;
+
+  if (totalSignal) {
+    if (totalSignal.aborted) {
+      const reason = totalSignal.reason;
+      throw reason instanceof Error ? reason : new Error('Anthropic request aborted');
+    }
+    cancelHandler = () => {
+      try {
+        streamController.abort(totalSignal.reason);
+      } catch {
+        // best-effort propagation of caller cancellation
+      }
+    };
+    totalSignal.addEventListener('abort', cancelHandler, { once: true });
+  }
+  return { streamController, cancelHandler };
+}
 
 export class AnthropicProvider {
   // Takes a PDF as a native document block (decided by this adapter's wire protocol).
@@ -221,93 +245,20 @@ export class AnthropicProvider {
     const totalTimeout = createPassthroughSignal(externalSignal);
     const totalSignal = totalTimeout.signal;
 
-    const cleanupCancelHandler = (handler) => {
-      if (!handler) return;
-      try {
-        totalSignal.removeEventListener('abort', handler);
-      } catch {
-        // the abort listener may already be gone
-      }
-    };
-
-    // Request-loop 529s and SSE overload events share one counter; at the
-    // limit the configured fallback model takes over the whole send.
-    const overload = createAnthropicOverloadTracker({
-      model: useModel,
-      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
-      terminalAtLimit: !isCustomProviderName(this.name) && isTerminalOverloadModel(useModel),
-    });
-    // The SDK calls and their initial-response retry policy
-    // (anthropic-api-transport.mjs).
-    const transport = createAnthropicApiTransport({
-      client: this._currentClient(),
-      label: this.name,
+    const { transport, buildTurnResult, recovery, midstream } = this._createSendRecovery({
       opts,
       useModel,
       params,
       requestHeaders,
       totalSignal,
-      overload,
-    });
-    // Usage accounting + caller-visible projection, shared by the streaming
-    // success path and the non-streaming fallback (anthropic-turn-result.mjs).
-    const buildTurnResult = (parseResult) =>
-      buildAnthropicTurnResult(parseResult, { provider: this.name, useModel, opts });
-    // Non-streaming re-issue of a dead stream, behind the transport-recovery
-    // budget and the exposed-output retraction handshake
-    // (anthropic-api-recovery.mjs).
-    const recovery = createAnthropicApiRecovery({
-      label: this.name,
-      opts,
-      useModel,
-      params,
-      totalSignal,
-      transport,
-      buildTurnResult,
       onStageChange,
       onTextReset,
-    });
-    // Bounded mid-stream retries for transient stream loss; jittered backoff
-    // between attempts (anthropic-midstream-recovery.mjs, shared with
-    // anthropic-oauth).
-    const midstream = createAnthropicMidstreamRecovery({
-      label: this.name,
-      displayName: 'Anthropic',
-      outcomeProvider: 'anthropic',
-      midstreamOwner: `${this.name}-midstream`,
-      unreachableMessage: 'Anthropic mid-stream retry: unreachable',
-      // The transport's withRetry already exhausted the full request-level
-      // budget for a non-OK initial response, so it must not earn an
-      // additional SSE retry budget here.
-      initialResponseErrorTerminal: true,
-      maxRetries: ANTHROPIC_MAX_MIDSTREAM_RETRIES,
-      totalSignal,
-      recovery,
-      onStageChange,
-      retry529: opts.retry529 !== false,
-      overload,
     });
 
     let streamingFallbackTried = false;
     try {
       for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
-        const streamController = createAbortController();
-        let cancelHandler = null;
-
-        if (totalSignal) {
-          if (totalSignal.aborted) {
-            const reason = totalSignal.reason;
-            throw reason instanceof Error ? reason : new Error('Anthropic request aborted');
-          }
-          cancelHandler = () => {
-            try {
-              streamController.abort(totalSignal.reason);
-            } catch {
-              // best-effort propagation of caller cancellation
-            }
-          };
-          totalSignal.addEventListener('abort', cancelHandler, { once: true });
-        }
+        const { streamController, cancelHandler } = linkAttemptAbort(totalSignal);
 
         const midState = createAnthropicMidState(attemptIndex);
 
@@ -379,25 +330,79 @@ export class AnthropicProvider {
           return decision.value;
         } finally {
           firstByte?.cleanup();
-          cleanupCancelHandler(cancelHandler);
+          removeAbortListener(totalSignal, cancelHandler);
         }
       }
       throw midstream.exhaustedError();
     } catch (err) {
-      // The fallback trigger can surface from the request loop, a mid-stream
-      // overload, or the non-streaming recovery: handle it around the whole
-      // operation, not just the first request.
-      if (!(err instanceof AnthropicFallbackTriggeredError)) throw err;
-      process.stderr.write(`[${this.name}] ${err.message}\n`);
-      announceAnthropicModelFallback(onStageChange, useModel, err.fallbackModel);
-      return await this._doSend(messages, err.fallbackModel, tools, {
-        ...opts,
-        fallbackModel: undefined,
-        _fallbackTriggered: true,
-      });
+      const fallbackOpts = takeAnthropicModelFallback(err, { tag: this.name, model: useModel, opts, onStageChange });
+      return await this._doSend(messages, err.fallbackModel, tools, fallbackOpts);
     } finally {
       totalTimeout.cleanup();
     }
+  }
+  // The recovery pipeline of one send over its fixed request: the shared
+  // overload counter, the transport, the turn-result projection, the
+  // non-streaming recovery and the bounded mid-stream retries.
+  _createSendRecovery({ opts, useModel, params, requestHeaders, totalSignal, onStageChange, onTextReset }) {
+    // Request-loop 529s and SSE overload events share one counter; at the
+    // limit the configured fallback model takes over the whole send.
+    const overload = createAnthropicOverloadTracker({
+      model: useModel,
+      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+      terminalAtLimit: !isCustomProviderName(this.name) && isTerminalOverloadModel(useModel),
+    });
+    // The SDK calls and their initial-response retry policy
+    // (anthropic-api-transport.mjs).
+    const transport = createAnthropicApiTransport({
+      client: this._currentClient(),
+      label: this.name,
+      opts,
+      useModel,
+      params,
+      requestHeaders,
+      totalSignal,
+      overload,
+    });
+    // Usage accounting + caller-visible projection, shared by the streaming
+    // success path and the non-streaming fallback (anthropic-turn-result.mjs).
+    const buildTurnResult = (parseResult) =>
+      buildAnthropicTurnResult(parseResult, { provider: this.name, useModel, opts });
+    // Non-streaming re-issue of a dead stream, behind the transport-recovery
+    // budget and the exposed-output retraction handshake
+    // (anthropic-api-recovery.mjs).
+    const recovery = createAnthropicApiRecovery({
+      label: this.name,
+      opts,
+      useModel,
+      params,
+      totalSignal,
+      transport,
+      buildTurnResult,
+      onStageChange,
+      onTextReset,
+    });
+    // Bounded mid-stream retries for transient stream loss; jittered backoff
+    // between attempts (anthropic-midstream-recovery.mjs, shared with
+    // anthropic-oauth).
+    const midstream = createAnthropicMidstreamRecovery({
+      label: this.name,
+      displayName: 'Anthropic',
+      outcomeProvider: 'anthropic',
+      midstreamOwner: `${this.name}-midstream`,
+      unreachableMessage: 'Anthropic mid-stream retry: unreachable',
+      // The transport's withRetry already exhausted the full request-level
+      // budget for a non-OK initial response, so it must not earn an
+      // additional SSE retry budget here.
+      initialResponseErrorTerminal: true,
+      maxRetries: ANTHROPIC_MAX_MIDSTREAM_RETRIES,
+      totalSignal,
+      recovery,
+      onStageChange,
+      retry529: opts.retry529 !== false,
+      overload,
+    });
+    return { transport, buildTurnResult, recovery, midstream };
   }
   async listModels() {
     const apiKey = resolveProviderApiKey(this.name, this.config);

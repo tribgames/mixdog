@@ -43,7 +43,6 @@ import {
 } from './anthropic-oauth-credentials.mjs';
 import { claudeCliUserAgent, learnRequiredCliVersion, warmCliVersion } from './anthropic-oauth-client-version.mjs';
 import { createPassthroughSignal } from '../stall-policy.mjs';
-import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
 import { ANTHROPIC_MAX_MIDSTREAM_RETRIES, parseSSEStream, _classifyMidstreamError } from './anthropic-sse.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
 import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
@@ -54,7 +53,7 @@ import { postMessages } from './anthropic-oauth-request/gzip-post.mjs';
 import { sendAnthropicCacheWarm } from './anthropic-cache-warm.mjs';
 import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
 import { adjustMaxTokensForContextOverflow } from './anthropic-max-tokens-recovery.mjs';
-import { announceAnthropicModelFallback, createAnthropicOverloadTracker } from './anthropic-overload-fallback.mjs';
+import { createAnthropicOverloadTracker, takeAnthropicModelFallback } from './anthropic-overload-fallback.mjs';
 import { createAnthropicOAuthRecovery } from './anthropic-oauth-recovery.mjs';
 import { createMidState, createMidstreamRecovery } from './anthropic-oauth-midstream.mjs';
 import { assertAnthropicStreamNotEmpty } from './anthropic-midstream-recovery.mjs';
@@ -304,6 +303,28 @@ function buildRequestBody(requestMessages, model, tools, sendOpts) {
   return markAnthropicEffortBody(body, effortProjection);
 }
 
+// Known tool names for the leaked-tool-call guard in parseSSEStream:
+// recovered leaked calls are only synthesized when they name a tool
+// actually offered to this request (native + lowered). Derived from the
+// final request body so it matches exactly what the model was given.
+function requestToolNames(body) {
+  return new Set(
+    (Array.isArray(body.tools) ? body.tools : [])
+      .map((t) => (t && typeof t.name === 'string' ? t.name : null))
+      .filter(Boolean)
+  );
+}
+
+// The number of mid-stream retries a streamed turn took, as a hidden field of
+// the result.
+function tagMidstreamRetries(result, attemptIndex) {
+  try {
+    Object.defineProperty(result, '__midstreamRetries', { value: attemptIndex, enumerable: false });
+  } catch {
+    /* ignore non-extensible result */
+  }
+}
+
 export function _buildRequestBodyForCacheSmoke(messages, model, tools = [], sendOpts = {}) {
   return buildRequestBody(messages, model, tools, sendOpts);
 }
@@ -542,15 +563,7 @@ export class AnthropicOAuthProvider {
     // actually carries deferred (defer_loading) tools — gate the header on
     // that instead of sending it unconditionally on every request.
     const hasDeferredTools = Array.isArray(body.tools) && body.tools.some((t) => t && t.defer_loading === true);
-    // Known tool names for the leaked-tool-call guard in parseSSEStream:
-    // recovered leaked calls are only synthesized when they name a tool
-    // actually offered to this request (native + lowered). Derived from the
-    // final request body so it matches exactly what the model was given.
-    const knownToolNames = new Set(
-      (Array.isArray(body.tools) ? body.tools : [])
-        .map((t) => (t && typeof t.name === 'string' ? t.name : null))
-        .filter(Boolean)
-    );
+    const knownToolNames = requestToolNames(body);
     const sessionId = opts.sessionId || null;
     const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
     // Option A: no absolute wall-clock cap on streaming generation. A stream
@@ -567,50 +580,16 @@ export class AnthropicOAuthProvider {
     // totalSignal is therefore a pure pass-through of externalSignal with no timer.
     const totalTimeout = createPassthroughSignal(externalSignal);
     const totalSignal = totalTimeout.signal;
-    // Request-loop 529s and SSE overload events share one counter; at the
-    // limit the configured fallback model takes over the whole send.
-    const overload = createAnthropicOverloadTracker({
-      model: useModel,
-      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
-    });
-    const { requestWithRetry, cleanupCancelHandler } = createAnthropicOAuthRequest({
-      provider: this,
+    const { requestWithRetry, cleanupCancelHandler, midstream } = this._createSendRecovery({
       opts,
       body,
       useModel,
       sessionId,
-      totalSignal,
-      overload,
-      betaHeadersFor: (requestBody) =>
-        buildOAuthBetaHeaders(requestBody, {
-          fastMode: this.fastModeBetaHeaderLatched,
-          toolSearch: hasDeferredTools,
-          model: useModel,
-          opts,
-        }),
-      onStageChange,
-    });
-    const recovery = createAnthropicOAuthRecovery({
-      provider: this,
-      opts,
-      body,
-      useModel,
       auth,
       totalSignal,
-      requestWithRetry,
-      cleanupCancelHandler,
+      hasDeferredTools,
       onStageChange,
       onTextReset,
-    });
-    // Bounded mid-stream retries for transient stream loss; jittered backoff
-    // between attempts (anthropic-oauth-midstream.mjs).
-    const midstream = createMidstreamRecovery({
-      maxRetries: ANTHROPIC_MAX_MIDSTREAM_RETRIES,
-      totalSignal,
-      recovery,
-      onStageChange,
-      retry529: opts.retry529 !== false,
-      overload,
     });
 
     let maxTokensAdjusted = false;
@@ -674,11 +653,7 @@ export class AnthropicOAuthProvider {
             useModel,
             requestKind: opts.requestKind || null,
           });
-          try {
-            Object.defineProperty(result, '__midstreamRetries', { value: attemptIndex, enumerable: false });
-          } catch {
-            /* ignore non-extensible result */
-          }
+          tagMidstreamRetries(result, attemptIndex);
           return result;
         } catch (err) {
           const decision = await midstream.onStreamError({ err, midState, controller, response, attemptIndex });
@@ -690,20 +665,79 @@ export class AnthropicOAuthProvider {
       }
       throw midstream.exhaustedError();
     } catch (err) {
-      // The fallback trigger can surface from the request loop, a mid-stream
-      // overload, or the non-streaming recovery: handle it around the whole
-      // operation, not just the first request.
-      if (!(err instanceof AnthropicFallbackTriggeredError)) throw err;
-      process.stderr.write(`[anthropic-oauth] ${err.message}\n`);
-      announceAnthropicModelFallback(onStageChange, _displayModel(useModel), _displayModel(err.fallbackModel));
-      return await this.send(messages, err.fallbackModel, tools, {
-        ...opts,
-        fallbackModel: undefined,
-        _fallbackTriggered: true,
+      const fallbackOpts = takeAnthropicModelFallback(err, {
+        tag: 'anthropic-oauth',
+        model: useModel,
+        opts,
+        onStageChange,
+        displayModel: _displayModel,
       });
+      return await this.send(messages, err.fallbackModel, tools, fallbackOpts);
     } finally {
       totalTimeout.cleanup();
     }
+  }
+
+  // The request and recovery pipeline of one send over its fixed body: the
+  // shared overload counter, the retried request with its per-request beta
+  // headers, the non-streaming recovery and the bounded mid-stream retries.
+  _createSendRecovery({
+    opts,
+    body,
+    useModel,
+    sessionId,
+    auth,
+    totalSignal,
+    hasDeferredTools,
+    onStageChange,
+    onTextReset,
+  }) {
+    // Request-loop 529s and SSE overload events share one counter; at the
+    // limit the configured fallback model takes over the whole send.
+    const overload = createAnthropicOverloadTracker({
+      model: useModel,
+      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+    });
+    const { requestWithRetry, cleanupCancelHandler } = createAnthropicOAuthRequest({
+      provider: this,
+      opts,
+      body,
+      useModel,
+      sessionId,
+      totalSignal,
+      overload,
+      betaHeadersFor: (requestBody) =>
+        buildOAuthBetaHeaders(requestBody, {
+          fastMode: this.fastModeBetaHeaderLatched,
+          toolSearch: hasDeferredTools,
+          model: useModel,
+          opts,
+        }),
+      onStageChange,
+    });
+    const recovery = createAnthropicOAuthRecovery({
+      provider: this,
+      opts,
+      body,
+      useModel,
+      auth,
+      totalSignal,
+      requestWithRetry,
+      cleanupCancelHandler,
+      onStageChange,
+      onTextReset,
+    });
+    // Bounded mid-stream retries for transient stream loss; jittered backoff
+    // between attempts (anthropic-oauth-midstream.mjs).
+    const midstream = createMidstreamRecovery({
+      maxRetries: ANTHROPIC_MAX_MIDSTREAM_RETRIES,
+      totalSignal,
+      recovery,
+      onStageChange,
+      retry529: opts.retry529 !== false,
+      overload,
+    });
+    return { requestWithRetry, cleanupCancelHandler, midstream };
   }
 
   // One attempt's initial response: a 401 (or Anthropic's exact revoked-token

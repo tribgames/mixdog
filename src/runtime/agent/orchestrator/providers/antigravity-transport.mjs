@@ -132,105 +132,12 @@ export function createAntigravityRequest({
   firstByte = ANTIGRAVITY_UNCLASSED_FIRST_BYTE,
   afterToolResult = false,
 }) {
-  const log = (attempt, lastErr, delayMs) => {
-    // A first-byte timeout runs on its own, shorter retry budget.
-    const firstByteLimited = isFirstByteTimeout(lastErr) && firstByte.retries != null;
-    emitProviderRetryStage(opts.onStageChange, {
-      attempt: attempt + 1,
-      maxAttempts: firstByteLimited
-        ? Math.min(ANTIGRAVITY_RETRY.maxAttempts, firstByte.retries + 1)
-        : ANTIGRAVITY_RETRY.maxAttempts,
-      lastErr,
-      delayMs,
-      providerLabel: 'Antigravity',
-    });
-    process.stderr.write(`[antigravity] retry ${attempt + 1} after ${lastErr?.message || 'transient error'}\n`);
-  };
-  // Stamps what the attempt tells the user: how many attempts ran and, for a
-  // first-byte timeout, how long the model was given in total. A timeout past
-  // the first-byte retry budget ends the ladder here. A caller's cancellation
-  // reason may be shared by other requests and is never stamped.
-  const noteFailure = (err, { attemptSignal, windowMs, send }) => {
-    if (!err || typeof err !== 'object' || attemptSignal?.aborted) return err;
-    send.attempts += 1;
-    err.attempts = send.attempts;
-    if (!isFirstByteTimeout(err)) return err;
-    send.firstByteTimeouts += 1;
-    send.firstByteWaitedMs += windowMs;
-    err.waitedMs = send.firstByteWaitedMs;
-    if (firstByte.retries != null && send.firstByteTimeouts > firstByte.retries) {
-      markProviderRecoveryExhausted(err, { owner: 'antigravity-first-byte', attempts: send.attempts, terminal: true });
-    }
-    return err;
-  };
+  const log = (attempt, lastErr, delayMs) =>
+    logAntigravityRetry(opts.onStageChange, firstByte, attempt, lastErr, delayMs);
   const attemptOnce = (send) =>
     withRetry(
-      async ({ signal: attemptSignal }) => {
-        try {
-          opts.onStageChange?.('requesting');
-        } catch {
-          /* heartbeat */
-        }
-        const windowMs = firstByteWindowMs(firstByte, send.firstByteTimeouts);
-        try {
-          const firstByteTimer = createTimeoutSignal(attemptSignal, windowMs, 'Antigravity first byte');
-          let res;
-          try {
-            const response = fetchFn(`${endpoint}/v1internal:streamGenerateContent?alt=sse`, {
-              method: 'POST',
-              headers,
-              body,
-              signal: firstByteTimer.signal,
-              dispatcher: getLlmDispatcher(),
-            });
-            // The request is on the wire and its headers are pending: the
-            // gateway sends them only with the first chunk, so this wait is
-            // the model's queueing and thinking time.
-            try {
-              opts.onStageChange?.(MODEL_THINKING_STAGE);
-            } catch {
-              /* heartbeat */
-            }
-            res = await response;
-          } catch (err) {
-            // Fetch surfaces AbortError; rethrow the timer/parent
-            // reason so same-host retry sees EPROVIDERTIMEOUT and
-            // a caller cancel stays a cancel.
-            if (firstByteTimer.signal.aborted && firstByteTimer.signal.reason instanceof Error) {
-              const reason = firstByteTimer.signal.reason;
-              if (!attemptSignal?.aborted) reason.timeoutPhase = TIMEOUT_PHASE.HEADERS;
-              throw reason;
-            }
-            throw err;
-          } finally {
-            firstByteTimer.cleanup();
-          }
-          // Headers arrived: the connection is live even while the model
-          // has not produced its first chunk.
-          try {
-            opts.onStreamDelta?.('transport');
-          } catch {
-            // the stream-delta observer is advisory
-          }
-          if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            const failure = antigravityError(res, text, endpoint);
-            // Capacity is paced by the local schedule below; the generic loop
-            // would sleep whatever wait the server names.
-            if (isCapacityFailure(failure)) markProviderRecoveryExhausted(failure, { owner: 'antigravity-capacity' });
-            throw failure;
-          }
-          try {
-            opts.onStageChange?.('streaming');
-          } catch {
-            /* heartbeat */
-          }
-          collector.beginAttempt();
-          return await collector.consume(res, attemptSignal, { firstByteTimeoutMs: windowMs });
-        } catch (err) {
-          throw noteFailure(err, { attemptSignal, windowMs, send });
-        }
-      },
+      ({ signal: attemptSignal }) =>
+        streamAttempt({ fetchFn, endpoint, headers, body, opts, collector, firstByte, send, attemptSignal }),
       {
         ...ANTIGRAVITY_RETRY,
         finalOnExhaust: true,
@@ -263,16 +170,128 @@ export function createAntigravityRequest({
         streamAttempt += 1;
         await sleepWithAbort(reask.waitMs, signal, sleepFn, 'Antigravity retry wait aborted');
       } catch (err) {
-        const waitMs = antigravity429WaitMs(err, state);
-        if (waitMs == null) {
-          if (isCapacityFailure(err)) {
-            markProviderRecoveryExhausted(err, { owner: 'antigravity-capacity', attempts: tried });
-          }
-          throw err;
-        }
+        const waitMs = scheduledRetryWaitMs(err, state, tried);
         log(tried, err, waitMs);
         await sleepWithAbort(waitMs, signal, sleepFn, 'Antigravity retry wait aborted');
       }
     }
   };
+}
+
+// The retry status and log line of one scheduled retry. A first-byte timeout
+// runs on its own, shorter retry budget.
+function logAntigravityRetry(onStageChange, firstByte, attempt, lastErr, delayMs) {
+  const firstByteLimited = isFirstByteTimeout(lastErr) && firstByte.retries != null;
+  emitProviderRetryStage(onStageChange, {
+    attempt: attempt + 1,
+    maxAttempts: firstByteLimited
+      ? Math.min(ANTIGRAVITY_RETRY.maxAttempts, firstByte.retries + 1)
+      : ANTIGRAVITY_RETRY.maxAttempts,
+    lastErr,
+    delayMs,
+    providerLabel: 'Antigravity',
+  });
+  process.stderr.write(`[antigravity] retry ${attempt + 1} after ${lastErr?.message || 'transient error'}\n`);
+}
+
+// The local wait before re-sending a failed request (429 / capacity schedule);
+// a failure the schedule does not retry is rethrown, a capacity one marked
+// exhausted after `tried` sends.
+function scheduledRetryWaitMs(err, state, tried) {
+  const waitMs = antigravity429WaitMs(err, state);
+  if (waitMs == null) {
+    if (isCapacityFailure(err)) {
+      markProviderRecoveryExhausted(err, { owner: 'antigravity-capacity', attempts: tried });
+    }
+    throw err;
+  }
+  return waitMs;
+}
+
+// One POST under the first-byte window: headers pending is the model's
+// thinking time, a non-OK body becomes the typed error, and a live stream is
+// handed to the collector for this attempt.
+async function streamAttempt({ fetchFn, endpoint, headers, body, opts, collector, firstByte, send, attemptSignal }) {
+  try {
+    opts.onStageChange?.('requesting');
+  } catch {
+    /* heartbeat */
+  }
+  const windowMs = firstByteWindowMs(firstByte, send.firstByteTimeouts);
+  try {
+    const firstByteTimer = createTimeoutSignal(attemptSignal, windowMs, 'Antigravity first byte');
+    let res;
+    try {
+      const response = fetchFn(`${endpoint}/v1internal:streamGenerateContent?alt=sse`, {
+        method: 'POST',
+        headers,
+        body,
+        signal: firstByteTimer.signal,
+        dispatcher: getLlmDispatcher(),
+      });
+      // The request is on the wire and its headers are pending: the
+      // gateway sends them only with the first chunk, so this wait is
+      // the model's queueing and thinking time.
+      try {
+        opts.onStageChange?.(MODEL_THINKING_STAGE);
+      } catch {
+        /* heartbeat */
+      }
+      res = await response;
+    } catch (err) {
+      // Fetch surfaces AbortError; rethrow the timer/parent
+      // reason so same-host retry sees EPROVIDERTIMEOUT and
+      // a caller cancel stays a cancel.
+      if (firstByteTimer.signal.aborted && firstByteTimer.signal.reason instanceof Error) {
+        const reason = firstByteTimer.signal.reason;
+        if (!attemptSignal?.aborted) reason.timeoutPhase = TIMEOUT_PHASE.HEADERS;
+        throw reason;
+      }
+      throw err;
+    } finally {
+      firstByteTimer.cleanup();
+    }
+    // Headers arrived: the connection is live even while the model
+    // has not produced its first chunk.
+    try {
+      opts.onStreamDelta?.('transport');
+    } catch {
+      // the stream-delta observer is advisory
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const failure = antigravityError(res, text, endpoint);
+      // Capacity is paced by the local schedule; the generic loop
+      // would sleep whatever wait the server names.
+      if (isCapacityFailure(failure)) markProviderRecoveryExhausted(failure, { owner: 'antigravity-capacity' });
+      throw failure;
+    }
+    try {
+      opts.onStageChange?.('streaming');
+    } catch {
+      /* heartbeat */
+    }
+    collector.beginAttempt();
+    return await collector.consume(res, attemptSignal, { firstByteTimeoutMs: windowMs });
+  } catch (err) {
+    throw noteAttemptFailure(err, { attemptSignal, windowMs, send, firstByte });
+  }
+}
+
+// Stamps what the attempt tells the user: how many attempts ran and, for a
+// first-byte timeout, how long the model was given in total. A timeout past
+// the first-byte retry budget ends the ladder here. A caller's cancellation
+// reason may be shared by other requests and is never stamped.
+function noteAttemptFailure(err, { attemptSignal, windowMs, send, firstByte }) {
+  if (!err || typeof err !== 'object' || attemptSignal?.aborted) return err;
+  send.attempts += 1;
+  err.attempts = send.attempts;
+  if (!isFirstByteTimeout(err)) return err;
+  send.firstByteTimeouts += 1;
+  send.firstByteWaitedMs += windowMs;
+  err.waitedMs = send.firstByteWaitedMs;
+  if (firstByte.retries != null && send.firstByteTimeouts > firstByte.retries) {
+    markProviderRecoveryExhausted(err, { owner: 'antigravity-first-byte', attempts: send.attempts, terminal: true });
+  }
+  return err;
 }
