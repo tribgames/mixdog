@@ -9,6 +9,7 @@ import {
   paneDiffStacks,
   paneDockActiveFile,
   paneDockActiveRoot,
+  paneDockEntryInGroups,
   paneDockFileCloseEndsDock,
   paneDiffShowing,
   paneDockRestored,
@@ -453,6 +454,57 @@ test("a session terminal's X closes the dock of its session even when that pane 
     assert.deepEqual(closes, [], 'without a session only the focused dock takes the X');
     await act(async () => requestPaneDockClose('terminal', 's1'));
     assert.deepEqual(closes, ['pane-1'], 'its own session closes it without focusing the pane first');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('a stored Profile view outside the session groups never titles the Changes body', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  const Icon = () => React.createElement('span');
+  const descriptors = new Map([
+    ['session-diff', { id: 'session-diff', label: 'Changes', icon: Icon }],
+    ['routines', { id: 'routines', label: 'Profile', icon: Icon }],
+  ]);
+  const props = (groups) => ({
+    leafId: 'pane-1',
+    sessionId: 's1',
+    sessionBound: true,
+    groups,
+    descriptors,
+    focused: true,
+    onSelect() {},
+    onClose() {},
+    onCloseDiff() {},
+    onMoveGroup() {},
+    onMoveView() {},
+    onFocusPane() {},
+    openFileTab() {},
+    renderView: (id) => React.createElement('div', { className: `body-${id}` }),
+    entry: { open: true, view: 'routines', surface: '', diff: null },
+  });
+  assert.equal(
+    paneDockEntryInGroups(props([['session-diff']]).entry, [['session-diff']]).view,
+    'session-diff',
+    'the view the panel falls back to'
+  );
+  assert.equal(paneDockEntryInGroups(props([]).entry, [['routines'], ['session-diff']]).view, 'routines');
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () => root.render(React.createElement(PaneSideDock, props([['session-diff']]))));
+    assert.equal(document.querySelector('.pane-side-dock-chrome'), null, 'no panel title row over Changes');
+    assert.equal(document.body.textContent.includes('Profile'), false);
+    await act(async () => root.render(React.createElement(PaneSideDock, props([['routines'], ['session-diff']]))));
+    assert.equal(document.querySelector('.pane-side-dock-chrome .dock-header-title')?.textContent, 'Profile');
   } finally {
     await act(async () => root.unmount());
     restore();

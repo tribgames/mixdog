@@ -1842,7 +1842,24 @@ function expandedHostStyle(
   };
 }
 
-export function PaneSideDock(props: PaneSideDockProps) {
+/** The entry with the panel view the body really shows: WorkbenchSidePanel
+ *  falls back to the first group when the stored view (Profile remembered
+ *  from a home thread) is not among this session's groups, so the header and
+ *  showing flags must read that same view, not the stale one. */
+export function paneDockEntryInGroups(
+  entry: PaneSideDockEntry,
+  groups: readonly WorkbenchSideViewGroup[]
+): PaneSideDockEntry {
+  if (entry.view === null || groups.length === 0) return entry;
+  const view = entry.view;
+  if (groups.some((group) => group.includes(view))) return entry;
+  const first = groups[0]?.[0];
+  return first === undefined ? entry : { ...entry, view: first };
+}
+
+export function PaneSideDock(rawProps: PaneSideDockProps) {
+  const resolvedEntry = paneDockEntryInGroups(rawProps.entry, rawProps.groups);
+  const props = resolvedEntry === rawProps.entry ? rawProps : { ...rawProps, entry: resolvedEntry };
   const {
     leafId,
     entry,
