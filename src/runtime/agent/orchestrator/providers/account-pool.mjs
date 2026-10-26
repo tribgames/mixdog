@@ -388,107 +388,151 @@ export async function recordAccountRefusal(providerName, accountId, model, error
   return true;
 }
 
+// Whether every account in `ids` (default: the roster) is exhausted with quota
+// evidence: observed in this send (`evidenced`), or a full window.
+function rosterExhaustion(providerName, model, evidenced, ids) {
+  const pool = readProviderAccountPool(providerName);
+  // Manual policy: the eligible set is the selected account alone.
+  const scope = ids || (providerAccountPolicy(pool) === 'manual' ? [pool.selectedId] : null);
+  const rows = scope ? pool.accounts.filter((entry) => scope.includes(entry.id)) : pool.accounts;
+  const opts = { useCredits: pool.useCredits === true };
+  const now = Date.now();
+  const all =
+    rows.length > 0 &&
+    rows.every((entry) =>
+      providerAccountExhausted(
+        evidenced.has(entry.id) ? entry : providerAccountWithBlocks(entry, (block) => block.blockedQuota === true),
+        now,
+        model,
+        opts
+      )
+    );
+  return { rows, opts, now, all };
+}
+
+// Mark `error` only when every account in `ids` is exhausted with quota
+// evidence (`rosterExhaustion`). Without an error of its own, the send reports
+// quota exhaustion only on that evidence, and a rate-limit cooldown otherwise.
+function exhaustedSendError(providerName, model, evidenced, error, ids) {
+  const { rows, opts, now, all } = rosterExhaustion(providerName, model, evidenced, ids);
+  if (all) {
+    return quotaExhausted(error || accountsExhaustedError(opts.useCredits), providerName, model, rows, opts);
+  }
+  return error || accountsCoolingDownError(rows, now, model);
+}
+
+// The provider's bound on the time one send spends waiting for cooldowns.
+function cooldownWaitBoundMs(providerName, account, ids) {
+  const id = ids?.[0] || readProviderAccountPool(providerName).selectedId || 'default';
+  return finiteMs(cooldownPolicyOf(account(id))?.waitForCooldownMs, 0);
+}
+
+// A cooldown-only eligible set whose earliest cooldown ends inside the
+// remaining wait budget is waited out; otherwise the send fails as before.
+// `ledger` is the send's own record of the roster (see `poolSend`).
+async function waitOutCooldownOrThrow(request, ledger, error, ids) {
+  const { providerName, model, account, options } = request;
+  const { rows, now, all } = rosterExhaustion(providerName, model, ledger.evidenced, ids);
+  const bound = cooldownWaitBoundMs(providerName, account, ids);
+  // Persisting a short cooldown can outlast its deadline. Release only
+  // attempts cooled by this send, and only under an enabled wait policy.
+  const expired = bound > 0 && rows.some((row) => ledger.cooled.has(row.id) && !(coolingUntil(row, model) > now));
+  let wait = null;
+  if (!all) wait = expired ? 0 : earliestCooldownMs(rows, now, model);
+  if (wait == null || ledger.waitedMs + wait > bound) {
+    throw exhaustedSendError(providerName, model, ledger.evidenced, error, ids);
+  }
+  options.onStageChange?.('reconnecting', {
+    message: `Rate limited — every account is cooling down; retrying in ${Math.ceil(wait / 1000)}s`,
+    reason: 'rate_limited',
+    waitMs: wait,
+    retryAt: now + wait,
+  });
+  // A zero-duration sleep does not check cancellation, including on the
+  // final allowed send when no next loop iteration will check it either.
+  options.signal?.throwIfAborted();
+  await sleepWithAbort(wait, options.signal);
+  ledger.waitedMs += wait;
+  const lifted = Date.now();
+  for (const row of readProviderAccountPool(providerName).accounts) {
+    if (ledger.cooled.has(row.id) && !(coolingUntil(row, model) > lifted)) {
+      ledger.cooled.delete(row.id);
+      ledger.attempted.delete(row.id);
+    }
+  }
+}
+
+// No roster: with credit use off, a stored reading showing the plan's window
+// spent refuses before the implicit account sends.
+function throwIfPlanQuotaSpent(providerName, pool, model) {
+  if (pool.useCredits !== true) {
+    const stored = readCachedOAuthUsageSnapshot({ provider: providerName, model: '' });
+    // A snapshot cached before per-model gating is stale evidence.
+    if (stored?.quotaWindows?.length && !staleQuotaWindows(providerName, stored.quotaWindows)) {
+      const row = { usage: { windows: stored.quotaWindows, checkedAt: stored.cachedAt } };
+      if (providerAccountExhausted(row, Date.now(), model)) {
+        throw quotaExhausted(accountsExhaustedError(false), providerName, model, [row]);
+      }
+    }
+  }
+}
+
+// Headroom policy: a session's first pick, or its move off its account on a
+// limit, becomes the selection; continuing on its account does not, so
+// concurrent sessions never flip the selection back and forth. A move forced
+// by a model-scoped limit serves this request only (`scoped`). Stamps the
+// serving account on `result` and resolves whether the selection may commit.
+function bindServedAccount(providerName, result, rowId, model, binding) {
+  const { policy, boundId, sessionKey, switched, refusalScoped } = binding;
+  const leftBound = Boolean(boundId) && rowId !== boundId;
+  const scoped = switched
+    ? refusalScoped
+    : policy === 'headroom' && leftBound && accountExhaustedForModelOnly(providerName, boundId, model);
+  recordServingAccount(providerName, result, rowId, scoped && boundId ? boundId : rowId);
+  if (sessionKey && policy === 'headroom' && !scoped) rememberSessionAccount(sessionKey, rowId);
+  return { scoped, commit: policy !== 'headroom' || !boundId || leftBound };
+}
+
+// A failed attempt is never re-issued once output reached the caller or the
+// attempt was unsafe to retry (`unsafe`, judged by the caller and read only
+// when nothing was emitted).
+function attemptUnretryable(bound, error, unsafe) {
+  return Boolean(bound.emitted() || unsafe() || error.liveTextEmitted || error.emittedToolCall);
+}
+
+function rotationReason(evidence, accountBlocked) {
+  if (evidence) return 'Quota exhausted';
+  if (accountBlocked) return 'Account blocked';
+  return 'Rate limited (cooldown)';
+}
+
 // The pool's send: walks the eligible accounts until one answers, blocking
 // the ones whose quota window is exhausted along the way.
 function poolSend(providerName, account) {
   return async function send(messages, model, tools, options = {}) {
-    const attempted = new Set();
+    const request = { providerName, model, account, options };
+    // This send's record of the roster: the accounts it tried, those it found
+    // exhausted with quota evidence, those it blocked on a rate-limit
+    // cooldown, and the time it spent waiting for cooldowns.
+    const ledger = { attempted: new Set(), evidenced: new Set(), cooled: new Set(), waitedMs: 0 };
     let lastError;
     let probed = false;
-    const evidenced = new Set();
+    let sends = 0;
     const sessionKey = options.sessionId ? `${providerName}:${options.sessionId}` : null;
     const boundId = sessionAccountId(providerName, sessionKey, messages, options);
     // Whether this send already left an account, and whether the latest quota
     // refusal held only for this model's family.
     let switched = false;
     let refusalScoped = false;
-    // Mark `error` only when every account in `ids` (default: the roster) is
-    // exhausted with quota evidence: observed in this send, or a full window.
-    // Without an error of its own, the send reports quota exhaustion only on
-    // that evidence, and a rate-limit cooldown otherwise.
-    const exhaustion = (ids) => {
-      const pool = readProviderAccountPool(providerName);
-      // Manual policy: the eligible set is the selected account alone.
-      const scope = ids || (providerAccountPolicy(pool) === 'manual' ? [pool.selectedId] : null);
-      const rows = scope ? pool.accounts.filter((entry) => scope.includes(entry.id)) : pool.accounts;
-      const opts = { useCredits: pool.useCredits === true };
-      const now = Date.now();
-      const all =
-        rows.length > 0 &&
-        rows.every((entry) =>
-          providerAccountExhausted(
-            evidenced.has(entry.id) ? entry : providerAccountWithBlocks(entry, (block) => block.blockedQuota === true),
-            now,
-            model,
-            opts
-          )
-        );
-      return { rows, opts, now, all };
-    };
-    const markExhausted = (error, ids) => {
-      const { rows, opts, now, all } = exhaustion(ids);
-      if (all) {
-        return quotaExhausted(error || accountsExhaustedError(opts.useCredits), providerName, model, rows, opts);
-      }
-      return error || accountsCoolingDownError(rows, now, model);
-    };
-    // Accounts this send blocked on a rate-limit cooldown, the time it spent
-    // waiting for cooldowns, and the provider's wait bound.
-    const cooled = new Set();
-    let waitedMs = 0;
-    let sends = 0;
-    const waitBoundMs = (ids) => {
-      const id = ids?.[0] || readProviderAccountPool(providerName).selectedId || 'default';
-      return finiteMs(cooldownPolicyOf(account(id))?.waitForCooldownMs, 0);
-    };
-    // A cooldown-only eligible set whose earliest cooldown ends inside the
-    // remaining wait budget is waited out; otherwise the send fails as before.
-    const waitOrThrow = async (error, ids) => {
-      const { rows, now, all } = exhaustion(ids);
-      const bound = waitBoundMs(ids);
-      // Persisting a short cooldown can outlast its deadline. Release only
-      // attempts cooled by this send, and only under an enabled wait policy.
-      const expired = bound > 0 && rows.some((row) => cooled.has(row.id) && !(coolingUntil(row, model) > now));
-      let wait = null;
-      if (!all) wait = expired ? 0 : earliestCooldownMs(rows, now, model);
-      if (wait == null || waitedMs + wait > bound) throw markExhausted(error, ids);
-      options.onStageChange?.('reconnecting', {
-        message: `Rate limited — every account is cooling down; retrying in ${Math.ceil(wait / 1000)}s`,
-        reason: 'rate_limited',
-        waitMs: wait,
-        retryAt: now + wait,
-      });
-      // A zero-duration sleep does not check cancellation, including on the
-      // final allowed send when no next loop iteration will check it either.
-      options.signal?.throwIfAborted();
-      await sleepWithAbort(wait, options.signal);
-      waitedMs += wait;
-      const lifted = Date.now();
-      for (const row of readProviderAccountPool(providerName).accounts) {
-        if (cooled.has(row.id) && !(coolingUntil(row, model) > lifted)) {
-          cooled.delete(row.id);
-          attempted.delete(row.id);
-        }
-      }
-    };
-    while (attempted.size < 20 && sends < 20) {
+    while (ledger.attempted.size < 20 && sends < 20) {
       options.signal?.throwIfAborted();
       const pool = readProviderAccountPool(providerName);
       if (!pool.accounts.length) {
-        if (pool.useCredits !== true) {
-          const stored = readCachedOAuthUsageSnapshot({ provider: providerName, model: '' });
-          // A snapshot cached before per-model gating is stale evidence.
-          if (stored?.quotaWindows?.length && !staleQuotaWindows(providerName, stored.quotaWindows)) {
-            const row = { usage: { windows: stored.quotaWindows, checkedAt: stored.cachedAt } };
-            if (providerAccountExhausted(row, Date.now(), model)) {
-              throw quotaExhausted(accountsExhaustedError(false), providerName, model, [row]);
-            }
-          }
-        }
+        throwIfPlanQuotaSpent(providerName, pool, model);
         return account('default').send(messages, model, tools, options);
       }
       const policy = providerAccountPolicy(pool);
-      const row = chooseProviderAccount(pool, attempted, Date.now(), model, { sessionAccountId: boundId });
+      const row = chooseProviderAccount(pool, ledger.attempted, Date.now(), model, { sessionAccountId: boundId });
       if (!row) {
         // Once per send: a refusal built on a stale meter must not outlive the
         // meter. Re-measuring can only widen the roster, so it is tried before
@@ -497,26 +541,22 @@ function poolSend(providerName, account) {
           probed = true;
           if (await probeRefusedAccounts(providerName, pool, model, account)) continue;
         }
-        await waitOrThrow(lastError);
+        await waitOutCooldownOrThrow(request, ledger, lastError);
         continue;
       }
-      attempted.add(row.id);
+      ledger.attempted.add(row.id);
       sends += 1;
       const bound = boundAccountSend(providerName, row, messages, options);
       try {
         const result = await account(row.id).send(bound.history, model, tools, bound.opts);
         quotaStrikes.delete(`${providerName}:${row.id}`);
-        // Headroom policy: a session's first pick, or its move off its account
-        // on a limit, becomes the selection; continuing on its account does
-        // not, so concurrent sessions never flip the selection back and forth.
-        // A move forced by a model-scoped limit serves this request only.
-        const leftBound = Boolean(boundId) && row.id !== boundId;
-        const scoped = switched
-          ? refusalScoped
-          : policy === 'headroom' && leftBound && accountExhaustedForModelOnly(providerName, boundId, model);
-        recordServingAccount(providerName, result, row.id, scoped && boundId ? boundId : row.id);
-        if (sessionKey && policy === 'headroom' && !scoped) rememberSessionAccount(sessionKey, row.id);
-        const commit = policy !== 'headroom' || !boundId || leftBound;
+        const { scoped, commit } = bindServedAccount(providerName, result, row.id, model, {
+          policy,
+          boundId,
+          sessionKey,
+          switched,
+          refusalScoped,
+        });
         if (commit && (await commitFallbackAccount(providerName, pool, row, model, scoped, policy))) {
           // Publish only a committed selection, never a speculative retry or
           // one superseded by a manual switch. The existing progress channel
@@ -535,14 +575,7 @@ function poolSend(providerName, account) {
       } catch (error) {
         if (options.signal?.aborted) throw error;
         if (error?.reauthRequired === true) {
-          if (
-            policy === 'manual' ||
-            bound.emitted() ||
-            error.unsafeToRetry ||
-            error.liveTextEmitted ||
-            error.emittedToolCall
-          )
-            throw error;
+          if (policy === 'manual' || attemptUnretryable(bound, error, () => error.unsafeToRetry)) throw error;
           lastError = error;
           switched = true;
           refusalScoped = false;
@@ -552,34 +585,31 @@ function poolSend(providerName, account) {
         const verdict = await accountQuotaExhausted(providerName, row, model, error, account);
         const { exhausted, evidence, accountBlocked } = verdict;
         if (options.signal?.aborted || !exhausted) throw error;
-        if (evidence) evidenced.add(row.id);
-        else cooled.add(row.id);
+        if (evidence) ledger.evidenced.add(row.id);
+        else ledger.cooled.add(row.id);
         await blockRefusedAccount(providerName, row.id, model, error, verdict);
         // An account block is unsafe to re-issue on THAT account only; with no
         // output emitted, the next account may serve the same request.
-        if (
-          bound.emitted() ||
-          (error.unsafeToRetry && accountBlocked !== true) ||
-          error.liveTextEmitted ||
-          error.emittedToolCall
-        )
-          throw error;
+        if (attemptUnretryable(bound, error, () => error.unsafeToRetry && accountBlocked !== true)) throw error;
         // Manual policy: the eligible set is the selected account alone.
         if (policy === 'manual') {
-          await waitOrThrow(error, [row.id]);
+          await waitOutCooldownOrThrow(request, ledger, error, [row.id]);
           lastError = error;
           continue;
         }
         lastError = error;
         switched = true;
         refusalScoped = accountExhaustedForModelOnly(providerName, row.id, model);
-        let reason = 'Rate limited (cooldown)';
-        if (evidence) reason = 'Quota exhausted';
-        else if (accountBlocked) reason = 'Account blocked';
+        const reason = rotationReason(evidence, accountBlocked);
         options.onStageChange?.('reconnecting', { message: `${reason} — switching to the next account` });
       }
     }
-    throw markExhausted(lastError || new Error('Provider account attempts exhausted.'));
+    throw exhaustedSendError(
+      providerName,
+      model,
+      ledger.evidenced,
+      lastError || new Error('Provider account attempts exhausted.')
+    );
   };
 }
 

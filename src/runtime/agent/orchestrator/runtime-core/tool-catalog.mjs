@@ -384,10 +384,35 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
       session.deferredDiscoveredTools || []
     );
   }
+  const catalog = surfaceCatalog(session, extraTools, options);
+  const defaultNames = surfaceDefaultNames(session, catalog, mode);
+  const selected = new Set(surfaceSelectedNames(session, catalog, defaultNames, providerMode, bridge));
+  session.deferredToolCatalog = catalog;
+  session.deferredToolUsage = MEASURED_TOOL_USAGE;
+  session.deferredDefaultTools = sortedNamesByMeasuredUsage(defaultNames);
+  session.deferredProviderMode = providerMode;
+  session.deferredNativeTools = providerMode === 'native';
+  session.deferredSurfaceMode = mode;
+  const active = installSurfaceTools(session, catalog, selected, mode, bridge);
+  session.deferredCallableTools = sortedNamesByMeasuredUsage(active);
+  if (providerMode === 'native') {
+    const restored = previousExposure === TOOL_EXPOSURE_BRIDGE ? session.nativeDeferredDiscovery || [] : [];
+    delete session.nativeDeferredDiscovery;
+    const discovered = canonicalDeferredToolNames(catalog, [...(session.deferredDiscoveredTools || []), ...restored]);
+    session.deferredSelectedTools = active;
+    session.deferredDiscoveredTools = discovered.filter((name) => !selected.has(name));
+  } else {
+    setDeferredToolState(session, active);
+  }
+  refreshSurfaceManifest(session, exposureChanged);
+  return session;
+}
+
+// The surface's catalog, rebuilt from the full catalog, not just its eager
+// projection. Current definitions still take precedence over retained
+// definitions. Bridge definitions belong to the exposure, never to the catalog.
+function surfaceCatalog(session, extraTools, options) {
   const byName = new Map();
-  // Rebuild from the full catalog, not just its eager projection. Current
-  // definitions still take precedence over retained definitions. Bridge
-  // definitions belong to the exposure, never to the catalog.
   const candidates = filterDisallowedTools(
     filterModelEditTools(
       [...session.tools, ...(extraTools || []), ...deferredCatalogUnion(session)].filter(
@@ -402,7 +427,11 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
     if (!name || byName.has(name)) continue;
     byName.set(name, activeToolForSurface(tool));
   }
-  const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
+  return sortedCatalogByMeasuredUsage([...byName.values()]);
+}
+
+// The mode's eager tools in `catalog`, less those the session keeps loadable.
+function surfaceDefaultNames(session, catalog, mode) {
   const defaultNames = defaultDeferredToolNames(catalog, mode);
   // Solo keeps `agent` in the deferred pool: loadable on request, never eager.
   // The mode the prompt was built with: a mid-conversation workflow or
@@ -417,19 +446,24 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   for (const name of Array.isArray(session.workflowOpenedTools) ? session.workflowOpenedTools : []) {
     defaultNames.delete(name);
   }
+  return defaultNames;
+}
+
+// The names the surface selects: the session's stored selection, else the
+// defaults.
+function surfaceSelectedNames(session, catalog, defaultNames, providerMode, bridge) {
   // Bridge sessions expose the mode's core only: a stored (legacy all-selected)
   // selection never widens the wire surface, and load_tool is the bridge's own.
   const storedNames = providerMode === 'native' || bridge ? [] : storedDeferredToolNames(session);
   let selectedNames = storedNames.length ? canonicalDeferredToolNames(catalog, storedNames) : [];
   if (!selectedNames.length || providerMode === 'native') selectedNames = sortedNamesByMeasuredUsage(defaultNames);
   if (bridge) selectedNames = selectedNames.filter((name) => name !== 'load_tool');
-  const selected = new Set(selectedNames);
-  session.deferredToolCatalog = catalog;
-  session.deferredToolUsage = MEASURED_TOOL_USAGE;
-  session.deferredDefaultTools = sortedNamesByMeasuredUsage(defaultNames);
-  session.deferredProviderMode = providerMode;
-  session.deferredNativeTools = providerMode === 'native';
-  session.deferredSurfaceMode = mode;
+  return selectedNames;
+}
+
+// Replace `session.tools` with the selected definitions (plus the bridge's
+// own) and record the exposure; returns the active tool names.
+function installSurfaceTools(session, catalog, selected, mode, bridge) {
   session.tools.length = 0;
   const active = [];
   for (const tool of catalog) {
@@ -443,16 +477,12 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   if (bridge && catalog.length) session.tools.push(...BRIDGE_SURFACE_TOOLS);
   if (bridge) session.toolExposureMode = TOOL_EXPOSURE_BRIDGE;
   else delete session.toolExposureMode;
-  session.deferredCallableTools = sortedNamesByMeasuredUsage(active);
-  if (providerMode === 'native') {
-    const restored = previousExposure === TOOL_EXPOSURE_BRIDGE ? session.nativeDeferredDiscovery || [] : [];
-    delete session.nativeDeferredDiscovery;
-    const discovered = canonicalDeferredToolNames(catalog, [...(session.deferredDiscoveredTools || []), ...restored]);
-    session.deferredSelectedTools = active;
-    session.deferredDiscoveredTools = discovered.filter((name) => !selected.has(name));
-  } else {
-    setDeferredToolState(session, active);
-  }
+  return active;
+}
+
+// Keep the system prompt's fixed deferred-tool block (BP2) and the announced
+// set in step with the surface.
+function refreshSurfaceManifest(session, exposureChanged) {
   if (exposureChanged && session.messages?.some((m) => m?.role === 'system')) {
     // Replace the previous exposure's fixed block once: the native deferred
     // manifest, or the bridge roster + guidance. History stays as is.
@@ -477,7 +507,6 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
     // the startup pool.
     session.deferredAnnouncedTools = deferredPoolToolNames(session);
   }
-  return session;
 }
 
 export function rebuildDeferredToolSurfaceForProvider(session, provider) {

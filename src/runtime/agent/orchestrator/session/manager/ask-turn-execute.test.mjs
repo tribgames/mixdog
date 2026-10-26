@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 
 const events = [];
+const buildCalls = [];
 let mockHistory = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const provider = {
@@ -39,7 +40,8 @@ mock.module('./ask-turn-prepare.mjs', {
       events.push(`prewarm:${args.turnEffort}`);
       return null;
     },
-    buildUserTurn: async () => {
+    buildUserTurn: async (args) => {
+      buildCalls.push(args);
       events.push('build:start');
       await sleep(BUILD_MS);
       events.push('build:end');
@@ -168,6 +170,42 @@ test('turn start overlaps the judgment with buildUserTurn and still stamps the f
   const message = prepared.outgoing[0];
   assert.equal(message.meta.effortConfiguration.effort, 'high');
   assert.deepEqual(Object.keys(message.meta), ['effortConfiguration', 'runtimeUserContext']);
+});
+
+test('the built turn carries its prompt origin and retry provenance; the pre-commit checkpoints before provider work', async () => {
+  const session = {
+    provider: 'custom-a',
+    model: 'm',
+    effort: 'medium',
+    messages: [],
+    cwd: process.cwd(),
+    sessionStartMetaInjected: true,
+  };
+  const scheduled = [];
+  const opened = { ...turnFor(session), checkpoint: { schedule: (flag) => scheduled.push(flag) }, turnToken: 'tk' };
+  buildCalls.length = 0;
+  const prepared = await prepareAskTurn({
+    sessionId: 's8',
+    opened,
+    input: {
+      prompt: 'go',
+      promptSource: { source: 'task-notification' },
+      promptOrigin: 'channel',
+      retryProvenance: { source: 'agent-report' },
+    },
+  });
+  assert.deepEqual(buildCalls.at(-1).turnPromptSource, {
+    source: 'task-notification',
+    origin: 'channel',
+    provenance: { source: 'agent-report' },
+  });
+  await prepareAskTurn({ sessionId: 's8', opened, input: { prompt: 'go', promptSource: 'task-notification' } });
+  assert.equal(buildCalls.at(-1).turnPromptSource, 'task-notification', 'no origin: the source passes as is');
+  assert.deepEqual(scheduled, [true, true]);
+  assert.deepEqual(session.activeTurnCheckpoint, { version: 1, turnToken: 'tk', startedAt: opened.startedAt });
+  assert.equal(session.liveTurnMessages.length, 1);
+  assert.equal(prepared.beforeCount, 1);
+  assert.equal(session.messages.at(-1).content, 'go');
 });
 
 test('a turn carries its starting hop, a steered bot message raises it, a hopless notification turn starts at 0', async () => {

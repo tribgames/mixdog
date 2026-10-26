@@ -922,3 +922,38 @@ test('auto switching off: a full window on the selected account marks even with 
     return true;
   });
 });
+
+test('rotation progress names the refusal: quota, account block, rate-limit cooldown', async () => {
+  const rotations = async (makeError, policy) => {
+    await setup();
+    const stages = [];
+    let calls = 0;
+    const gateway = cooling(policy, async () => {
+      calls += 1;
+      if (calls === 1) throw makeError();
+      return { content: 'ok' };
+    });
+    const onStageChange = (stage, detail) => {
+      if (stage === 'reconnecting') stages.push(detail?.message);
+    };
+    assert.equal((await gateway.send([], 'm', [], { onStageChange })).content, 'ok');
+    return stages;
+  };
+  assert.deepEqual(await rotations(() => quotaError(600_000), null), [
+    'Quota exhausted — switching to the next account',
+  ]);
+  assert.deepEqual(
+    await rotations(
+      () => Object.assign(new Error('verify'), { status: 403, code: 'validation_required', accountBlocked: true }),
+      { blockedMs: 600_000 }
+    ),
+    ['Account blocked — switching to the next account']
+  );
+  assert.deepEqual(
+    await rotations(
+      () => Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded', retryAfterMs: 120_000 }),
+      null
+    ),
+    ['Rate limited (cooldown) — switching to the next account']
+  );
+});

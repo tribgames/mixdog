@@ -31,6 +31,119 @@ function turnPromptSourceFor(input) {
   };
 }
 
+// A retried failed turn resubmits its retained user message over the history
+// before it: the message keeps its input and records the failed completion.
+function retainedUserTurn(session, retained, transcriptMeta, currentAgents) {
+  const historyMessages = filterModelVisibleSessionMessages(session.messages.slice(0, retained.index));
+  const { completion, ...previousTranscript } = retained.message.meta.transcript;
+  // The retained message keeps its input; agents enabled or switched
+  // off since it was built ride its runtime context.
+  const userTurnMessage = withAgentListingNotice(
+    session,
+    retained.index,
+    {
+      ...retained.message,
+      meta: {
+        ...retained.message.meta,
+        transcript: {
+          ...previousTranscript,
+          ...transcriptMeta,
+          messageId: previousTranscript.messageId,
+          previousCompletions: [
+            ...(previousTranscript.previousCompletions || []),
+            { ...completion, at: completion.at ?? previousTranscript.at },
+          ],
+        },
+      },
+    },
+    currentAgents
+  );
+  return { historyMessages, userTurnMessage, outgoing: [...historyMessages, userTurnMessage] };
+}
+
+// The turn's user message: the retained one of a retried failed turn, or a
+// newly built one (a promise).
+function pendingUserTurn({ session, input, retained, turnSignal, transcriptMeta, currentAgents }) {
+  if (retained) return retainedUserTurn(session, retained, transcriptMeta, currentAgents);
+  return buildUserTurn({
+    session,
+    prompt: input.prompt,
+    context: input.context,
+    explicitPrefetch: input.explicitPrefetch,
+    turnSignal,
+    transcriptMeta,
+    // The stored message keeps an inbound channel's provenance and, for
+    // a rebuilt retry (the resubmitted prompt or a continuation prompt),
+    // the failed turn's, which a later retry reads back
+    // (cache-warm.mjs failedTurnProvenance).
+    turnPromptSource: turnPromptSourceFor(input),
+    effortConfiguration: null,
+    currentAgents,
+  });
+}
+
+// Stamp the turn's effort on the user message (same meta order as when it
+// was built with it: before the runtime-context provenance).
+function stampTurnEffort(userTurnMessage, effortConfiguration) {
+  const { runtimeUserContext, ...meta } = userTurnMessage.meta || {};
+  userTurnMessage.meta = {
+    ...meta,
+    effortConfiguration,
+    ...(runtimeUserContext ? { runtimeUserContext } : {}),
+  };
+}
+
+// Expose the in-flight working transcript so contextStatus() can
+// estimate the LIVE context footprint mid-turn. agentLoop mutates
+// `outgoing` in place (user turn + tool calls/results + compaction),
+// so the statusline context gauge climbs as the turn accumulates
+// tool output instead of freezing at the pre-turn snapshot. Cleared
+// on turn commit and in the ask finally.
+//
+// Also commit the user turn to the live session BEFORE the provider
+// call. Previously the prompt only reached session.messages after
+// agentLoop returned. If a worker/lead session was closed or aborted
+// before first response, closeSession() wrote a tombstone from the
+// still-system-only session and the handoff brief vanished forever
+// (agent row showed messages=2). Pre-committing makes cancellation,
+// close, and post-mortem files retain the exact user task; completion
+// overwrites this provisional transcript with the fully mutated
+// outgoing history and appends the assistant result, so no duplicate
+// user turn is introduced.
+function precommitUserTurn(session, outgoing, historyMessages, input) {
+  session.messages = filterModelVisibleSessionMessages(outgoing);
+  session.liveTurnMessages = outgoing;
+  // Name a titleless session from its first human prompt before the first
+  // save, so the title outlives any later compaction of the transcript. The
+  // earliest human turn already in the history wins; this turn's prompt is the
+  // fallback (runtime-injected turns carrying a promptSource never name it).
+  backfillFallbackSessionTitle(session, [
+    ...historyMessages,
+    ...(input.promptSource ? [] : [{ role: 'user', content: input.prompt }]),
+  ]);
+}
+
+// Mark the turn active and persist the pre-committed session before the
+// provider runs.
+function persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration }) {
+  session.activeTurnCheckpoint = {
+    version: 1,
+    turnToken,
+    startedAt,
+  };
+  // The sidecar lands synchronously before provider execution. Even
+  // if the async canonical-session preflight save has not reached its
+  // worker when the process is killed, recovery still has the prompt.
+  checkpoint.schedule(true);
+  saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
+    try {
+      process.stderr.write(`[session] preflight user-turn save failed: ${err?.message || err}\n`);
+    } catch {
+      // stderr may be closed; the save failure is only reported
+    }
+  });
+}
+
 /** Resolves the provider, builds the user turn and pre-commits it; returns
  *  what the loop and the commit need from this preparation. */
 export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta, currentAgents }) {
@@ -77,49 +190,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   });
   const [autoEffort, userTurn] = await Promise.all([
     autoEffortPending,
-    retained
-      ? (() => {
-          const historyMessages = filterModelVisibleSessionMessages(session.messages.slice(0, retained.index));
-          const { completion, ...previousTranscript } = retained.message.meta.transcript;
-          // The retained message keeps its input; agents enabled or switched
-          // off since it was built ride its runtime context.
-          const userTurnMessage = withAgentListingNotice(
-            session,
-            retained.index,
-            {
-              ...retained.message,
-              meta: {
-                ...retained.message.meta,
-                transcript: {
-                  ...previousTranscript,
-                  ...transcriptMeta,
-                  messageId: previousTranscript.messageId,
-                  previousCompletions: [
-                    ...(previousTranscript.previousCompletions || []),
-                    { ...completion, at: completion.at ?? previousTranscript.at },
-                  ],
-                },
-              },
-            },
-            currentAgents
-          );
-          return { historyMessages, userTurnMessage, outgoing: [...historyMessages, userTurnMessage] };
-        })()
-      : buildUserTurn({
-          session,
-          prompt: input.prompt,
-          context: input.context,
-          explicitPrefetch: input.explicitPrefetch,
-          turnSignal,
-          transcriptMeta,
-          // The stored message keeps an inbound channel's provenance and, for
-          // a rebuilt retry (the resubmitted prompt or a continuation prompt),
-          // the failed turn's, which a later retry reads back
-          // (cache-warm.mjs failedTurnProvenance).
-          turnPromptSource: turnPromptSourceFor(input),
-          effortConfiguration: null,
-          currentAgents,
-        }),
+    pendingUserTurn({ session, input, retained, turnSignal, transcriptMeta, currentAgents }),
     wireRoutePending,
   ]);
   const turnEffort = autoEffort?.applied ? autoEffort.effort : session.effort || null;
@@ -131,62 +202,12 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // Auto effort also judges every tool-result step of the turn when the
   // installed judge was trained on steps (session/loop/step-auto-effort.mjs).
   const stepAutoEffort = turnStepAutoEffort(autoEffort, effortConfiguration);
-  if (effortConfiguration) {
-    // Stamp the turn's effort on the user message (same meta order as when it
-    // was built with it: before the runtime-context provenance).
-    const { runtimeUserContext, ...meta } = userTurn.userTurnMessage.meta || {};
-    userTurn.userTurnMessage.meta = {
-      ...meta,
-      effortConfiguration,
-      ...(runtimeUserContext ? { runtimeUserContext } : {}),
-    };
-  }
+  if (effortConfiguration) stampTurnEffort(userTurn.userTurnMessage, effortConfiguration);
   const { historyMessages, outgoing } = userTurn;
   turn.userTurnContent = userTurn.userTurnMessage.content;
   turn.outgoing = outgoing;
-  // Expose the in-flight working transcript so contextStatus() can
-  // estimate the LIVE context footprint mid-turn. agentLoop mutates
-  // `outgoing` in place (user turn + tool calls/results + compaction),
-  // so the statusline context gauge climbs as the turn accumulates
-  // tool output instead of freezing at the pre-turn snapshot. Cleared
-  // on turn commit and in the ask finally.
-  //
-  // Also commit the user turn to the live session BEFORE the provider
-  // call. Previously the prompt only reached session.messages after
-  // agentLoop returned. If a worker/lead session was closed or aborted
-  // before first response, closeSession() wrote a tombstone from the
-  // still-system-only session and the handoff brief vanished forever
-  // (agent row showed messages=2). Pre-committing makes cancellation,
-  // close, and post-mortem files retain the exact user task; completion
-  // overwrites this provisional transcript with the fully mutated
-  // outgoing history and appends the assistant result, so no duplicate
-  // user turn is introduced.
-  session.messages = filterModelVisibleSessionMessages(outgoing);
-  session.liveTurnMessages = outgoing;
-  // Name a titleless session from its first human prompt before the first
-  // save, so the title outlives any later compaction of the transcript. The
-  // earliest human turn already in the history wins; this turn's prompt is the
-  // fallback (runtime-injected turns carrying a promptSource never name it).
-  backfillFallbackSessionTitle(session, [
-    ...historyMessages,
-    ...(input.promptSource ? [] : [{ role: 'user', content: input.prompt }]),
-  ]);
-  session.activeTurnCheckpoint = {
-    version: 1,
-    turnToken,
-    startedAt,
-  };
-  // The sidecar lands synchronously before provider execution. Even
-  // if the async canonical-session preflight save has not reached its
-  // worker when the process is killed, recovery still has the prompt.
-  checkpoint.schedule(true);
-  saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
-    try {
-      process.stderr.write(`[session] preflight user-turn save failed: ${err?.message || err}\n`);
-    } catch {
-      // stderr may be closed; the save failure is only reported
-    }
-  });
+  precommitUserTurn(session, outgoing, historyMessages, input);
+  persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration });
   traceTurnContext({
     sessionId,
     session,

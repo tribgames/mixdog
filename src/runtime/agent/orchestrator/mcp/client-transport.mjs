@@ -163,24 +163,115 @@ function createHeaderWebSocketTransport(Base, messageSchema, url, headers) {
     }
   })(url);
 }
+// Unset variables a config references: a failure under `strictEnv`,
+// otherwise warnings (names only), each logged.
+function missingEnvWarnings(name, cfg, strictEnv, log) {
+  const warnings = [];
+  const missing = findMissingMcpEnvVars(cfg);
+  if (missing.length) {
+    const message = `missing environment variable(s): ${missing.join(', ')}`;
+    if (strictEnv === true) throw new Error(message);
+    warnings.push(message);
+    log(`[mcp-client] "${name}": ${message}\n`);
+  }
+  return warnings;
+}
+
+// A multi-account connector: one server, every account behind it; closing the
+// transport closes every account client.
+function connectorAccountsTransport({ name, cfg, Transport, url, accountServers, oauthOptions, log }) {
+  const accounts = accountServers.map((accountCfg) => connectorAccountClient(name, accountCfg, oauthOptions));
+  const transport = new Transport(new URL(url), {
+    fetch: withConnectorAccountsMcp({ connector: cfg.connector, accounts }),
+  });
+  const close = transport.close.bind(transport);
+  transport.close = async () => {
+    for (const account of accounts) account.close();
+    await close();
+  };
+  log(`[mcp-client] Connecting "${name}" with ${accounts.length} account(s)\n`);
+  return transport;
+}
+
+// A streamable HTTP or SSE server: its configured authentication, or else an
+// OAuth sign-in the transport owns (and closes with it).
+function remoteHttpTransport({ name, cfg, kind, Transport, url, oauthOptions, log }) {
+  const opts = requestInitFor(cfg);
+  // Explicit authentication remains authoritative (including custom API-key
+  // headers). Never forward those credentials to OAuth discovery endpoints.
+  let transport;
+  let oauth = null;
+  if (!hasConfiguredMcpAuth(cfg)) {
+    oauth = createMcpOAuth({
+      url,
+      serverName: mcpOAuthDisplayName(cfg, name),
+      oauthClient: mcpOAuthClientFor(cfg, url),
+      ...oauthOptions,
+      // A built-in Google connector is answered in-process.
+      ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp(oauthOptions?.fetchImpl) } : {}),
+      // SSE advertises its POST endpoint on the authenticated event stream.
+      // No other path on the origin is allowed to receive this server's token.
+      isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
+    });
+  }
+  // Gmail with an app password is answered in-process too (its account
+  // header is the configured authentication; the password is in the keychain).
+  const local = !oauth && gmailAppPasswordService(url) ? { ...opts, fetch: withGmailAppPasswordMcp() } : opts;
+  transport = new Transport(new URL(url), oauth ? { fetch: oauth.fetch } : local);
+  if (oauth) {
+    transport.oauth = oauth;
+    const close = transport.close.bind(transport);
+    transport.close = async () => {
+      oauth.close();
+      await close();
+    };
+  }
+  log(`[mcp-client] Connecting "${name}" via ${kind.toUpperCase()}: ${mcpUrlForLog(url)}\n`);
+  return transport;
+}
+
+function webSocketTransport(name, cfg, sdk, log) {
+  const { WebSocketClientTransport } = sdk;
+  const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'ws');
+  const opts = requestInitFor(cfg);
+  log(`[mcp-client] Connecting "${name}" via WebSocket: ${mcpUrlForLog(url)}\n`);
+  return opts
+    ? createHeaderWebSocketTransport(
+        WebSocketClientTransport,
+        sdk.JSONRPCMessageSchema,
+        new URL(url),
+        opts.requestInit.headers
+      )
+    : new WebSocketClientTransport(new URL(url));
+}
+
+// A stdio child, its stderr logged and its bounded (scrubbed) tail kept.
+function stdioTransport(name, cfg, StdioClientTransport, log) {
+  const transport = new StdioClientTransport({
+    command: expandEnvVars(String(cfg.command ?? '')),
+    args: Array.isArray(cfg.args) ? expandEnvVars(cfg.args) : cfg.args,
+    cwd: cfg.cwd == null ? cfg.cwd : expandEnvVars(String(cfg.cwd)),
+    env: resolveMcpStdioEnvironment(cfg),
+    stderr: cfg.stderr ?? 'pipe',
+  });
+  let tail = '';
+  transport.stderr?.on?.('data', (chunk) => {
+    const text = scrubMcpConnectionMessage(chunk, cfg);
+    tail = (tail + text).slice(-MCP_STDERR_TAIL_CHARS);
+    log(`[mcp:${name}:stderr] ${text}`);
+  });
+  return { transport, stderrTail: () => tail.trim() };
+}
+
 /** Returns { transport, autoDetectAdvert, stderrTail, warnings } — stderrTail()
  *  is the last ~4 KB of a stdio server's (scrubbed) stderr, '' for remote
  *  transports. `strictEnv` (the caller passes it for plugin-declared servers)
  *  makes unset variables without a default fail the server; otherwise they
  *  expand to empty and are reported in `warnings` (names only). */
 export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOptions }) {
-  const { StdioClientTransport, StreamableHTTPClientTransport, SSEClientTransport, WebSocketClientTransport } = sdk;
+  const { StdioClientTransport, StreamableHTTPClientTransport, SSEClientTransport } = sdk;
   const kind = resolveMcpTransportKind(cfg);
-  const warnings = [];
-  if (kind !== 'autoDetect') {
-    const missing = findMissingMcpEnvVars(cfg);
-    if (missing.length) {
-      const message = `missing environment variable(s): ${missing.join(', ')}`;
-      if (strictEnv === true) throw new Error(message);
-      warnings.push(message);
-      log(`[mcp-client] "${name}": ${message}\n`);
-    }
-  }
+  const warnings = kind !== 'autoDetect' ? missingEnvWarnings(name, cfg, strictEnv, log) : [];
   if (kind === 'autoDetect') {
     const { url, advert } = resolveAutoDetectUrl(name, cfg);
     log(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
@@ -194,88 +285,19 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
   if (kind === 'http' || kind === 'sse') {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
     const url = resolveMcpOAuthUrl(cfg);
-    // A multi-account connector: one server, every account behind it.
     const accountServers = connectorAccountServers(cfg);
-    if (accountServers.length) {
-      const accounts = accountServers.map((accountCfg) => connectorAccountClient(name, accountCfg, oauthOptions));
-      const transport = new Transport(new URL(url), {
-        fetch: withConnectorAccountsMcp({ connector: cfg.connector, accounts }),
-      });
-      const close = transport.close.bind(transport);
-      transport.close = async () => {
-        for (const account of accounts) account.close();
-        await close();
-      };
-      log(`[mcp-client] Connecting "${name}" with ${accounts.length} account(s)\n`);
-      return { transport, autoDetectAdvert: null, stderrTail: noStderrTail, warnings };
-    }
-    const opts = requestInitFor(cfg);
-    // Explicit authentication remains authoritative (including custom API-key
-    // headers). Never forward those credentials to OAuth discovery endpoints.
-    let transport;
-    let oauth = null;
-    if (!hasConfiguredMcpAuth(cfg)) {
-      oauth = createMcpOAuth({
-        url,
-        serverName: mcpOAuthDisplayName(cfg, name),
-        oauthClient: mcpOAuthClientFor(cfg, url),
-        ...oauthOptions,
-        // A built-in Google connector is answered in-process.
-        ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp(oauthOptions?.fetchImpl) } : {}),
-        // SSE advertises its POST endpoint on the authenticated event stream.
-        // No other path on the origin is allowed to receive this server's token.
-        isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
-      });
-    }
-    // Gmail with an app password is answered in-process too (its account
-    // header is the configured authentication; the password is in the keychain).
-    const local = !oauth && gmailAppPasswordService(url) ? { ...opts, fetch: withGmailAppPasswordMcp() } : opts;
-    transport = new Transport(new URL(url), oauth ? { fetch: oauth.fetch } : local);
-    if (oauth) {
-      transport.oauth = oauth;
-      const close = transport.close.bind(transport);
-      transport.close = async () => {
-        oauth.close();
-        await close();
-      };
-    }
-    log(`[mcp-client] Connecting "${name}" via ${kind.toUpperCase()}: ${mcpUrlForLog(url)}\n`);
-    return {
-      transport,
-      autoDetectAdvert: null,
-      stderrTail: noStderrTail,
-      warnings,
-    };
+    const transport = accountServers.length
+      ? connectorAccountsTransport({ name, cfg, Transport, url, accountServers, oauthOptions, log })
+      : remoteHttpTransport({ name, cfg, kind, Transport, url, oauthOptions, log });
+    return { transport, autoDetectAdvert: null, stderrTail: noStderrTail, warnings };
   }
   if (kind === 'ws') {
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'ws');
-    const opts = requestInitFor(cfg);
-    log(`[mcp-client] Connecting "${name}" via WebSocket: ${mcpUrlForLog(url)}\n`);
-    const transport = opts
-      ? createHeaderWebSocketTransport(
-          WebSocketClientTransport,
-          sdk.JSONRPCMessageSchema,
-          new URL(url),
-          opts.requestInit.headers
-        )
-      : new WebSocketClientTransport(new URL(url));
+    const transport = webSocketTransport(name, cfg, sdk, log);
     return { transport, autoDetectAdvert: null, stderrTail: noStderrTail, warnings };
   }
   if (kind === 'stdio') {
-    const transport = new StdioClientTransport({
-      command: expandEnvVars(String(cfg.command ?? '')),
-      args: Array.isArray(cfg.args) ? expandEnvVars(cfg.args) : cfg.args,
-      cwd: cfg.cwd == null ? cfg.cwd : expandEnvVars(String(cfg.cwd)),
-      env: resolveMcpStdioEnvironment(cfg),
-      stderr: cfg.stderr ?? 'pipe',
-    });
-    let tail = '';
-    transport.stderr?.on?.('data', (chunk) => {
-      const text = scrubMcpConnectionMessage(chunk, cfg);
-      tail = (tail + text).slice(-MCP_STDERR_TAIL_CHARS);
-      log(`[mcp:${name}:stderr] ${text}`);
-    });
-    return { transport, autoDetectAdvert: null, stderrTail: () => tail.trim(), warnings };
+    const { transport, stderrTail } = stdioTransport(name, cfg, StdioClientTransport, log);
+    return { transport, autoDetectAdvert: null, stderrTail, warnings };
   }
   throw new Error(
     `Invalid config for "${name}": need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`

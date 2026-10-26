@@ -92,6 +92,41 @@ function fakeSdk() {
   };
 }
 
+test('transport results, connect logs and the stdio stderr tail per kind', async () => {
+  const { EventEmitter } = await import('node:events');
+  class Stdio {
+    constructor(params) {
+      this.params = params;
+      this.stderr = new EventEmitter();
+    }
+  }
+  const sdk = { ...fakeSdk(), StdioClientTransport: Stdio };
+  const logs = [];
+  const log = (m) => logs.push(m);
+
+  const stdio = createMcpTransport({ name: 's', cfg: { command: 'node' }, sdk, log });
+  assert.deepEqual(Object.keys(stdio), ['transport', 'autoDetectAdvert', 'stderrTail', 'warnings']);
+  assert.equal(stdio.autoDetectAdvert, null);
+  assert.equal(stdio.transport.params.stderr, 'pipe');
+  stdio.transport.stderr.emit('data', 'boom ');
+  stdio.transport.stderr.emit('data', 'x'.repeat(5000));
+  assert.equal(stdio.stderrTail().length, 4096);
+  assert.equal(logs[0], '[mcp:s:stderr] boom ');
+
+  logs.length = 0;
+  const http = createMcpTransport({
+    name: 'h',
+    cfg: { type: 'http', url: 'https://h.example/mcp', headers: { 'X-Key': 'k' } },
+    sdk,
+    log,
+  });
+  assert.deepEqual(Object.keys(http), ['transport', 'autoDetectAdvert', 'stderrTail', 'warnings']);
+  assert.equal(http.stderrTail(), '');
+  assert.equal(http.transport.oauth, undefined, 'configured auth never turns into OAuth');
+  assert.deepEqual(http.transport.args[1], { requestInit: { headers: { 'X-Key': 'k' } } });
+  assert.deepEqual(logs, ['[mcp-client] Connecting "h" via HTTP: https://h.example/mcp\n']);
+});
+
 test('strict (plugin-declared) server fails with names only; others unaffected', () => {
   const sdk = fakeSdk();
   const logs = [];
