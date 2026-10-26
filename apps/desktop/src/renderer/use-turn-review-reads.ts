@@ -3,7 +3,13 @@ import type { TranscriptItem } from './desktop-types';
 import { turnReviewScope } from './renderer-logic.mjs';
 import { isMobileRemoteSurface } from './mobile-surface';
 import { useTurnChangesEpoch } from './turn-changes-model';
-import { recordTurnReviewAnswer, turnReviewPrefetch } from './turn-review-prefetch';
+import {
+  beginTurnReviewRequest,
+  endTurnReviewRequest,
+  isLatestTurnReviewRequest,
+  recordTurnReviewAnswer,
+  turnReviewPrefetch,
+} from './turn-review-prefetch';
 import {
   leadReviewSnapshotKindCache,
   reviewTagCache,
@@ -42,8 +48,6 @@ type ReadContext = {
   activeScope: MutableRefObject<string>;
   /** The read this pane has outstanding for its current scope. */
   capabilityRequestInFlight: MutableRefObject<ReadRequest | null>;
-  /** The newest read issued per scope; an older answer of that scope is dropped. */
-  latestReads: MutableRefObject<Map<string, ReadRequest>>;
   sameCommitRequest: MutableRefObject<ReadRequest | null>;
   pendingCapabilityRefresh: MutableRefObject<ReadRequest | null>;
   refreshAgentReviewsRef: MutableRefObject<RefreshAgentReviews>;
@@ -123,7 +127,7 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
   }
   const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree, summary, background };
   capabilityRequestInFlight.current = issued;
-  ctx.latestReads.current.set(requestedScope, issued);
+  const generation = beginTurnReviewRequest(requestedScope);
   let recorded = false;
   let cachedAnswer = false;
   sameCommitRequest.current = issued;
@@ -166,7 +170,7 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     const value = (result?.value ?? null) as TurnReviewCapabilityValue;
     // Leaving and re-entering a scope issues a newer read of it while this
     // one runs; that read owns the scope's cache and state.
-    if (ctx.latestReads.current.get(requestedScope) !== issued) return;
+    if (!isLatestTurnReviewRequest(requestedScope, generation)) return;
     if (value?.unchanged === true) return;
     recorded = value?.reason === 'recorded';
     cachedAnswer = value?.reason === 'cached';
@@ -192,8 +196,7 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     // The next turn boundary, visibility change, expansion, or bounded idle
     // refresh retries. A transient read must never permanently lock Revert.
   } finally {
-    const latest = ctx.latestReads.current.get(requestedScope) === issued;
-    if (latest) ctx.latestReads.current.delete(requestedScope);
+    const latest = endTurnReviewRequest(requestedScope, generation);
     if (latest && ctx.activeScope.current === requestedScope) ctx.setAnsweredSession(String(sessionId));
     // A superseded read neither releases nor drains the newer scope's lane.
     if (capabilityRequestInFlight.current === issued) {
@@ -323,7 +326,6 @@ export function useTurnReviewReads({
   const reviewState =
     agentReviewState.scopeKey === turnScopeKey ? agentReviewState : cachedTurnReviewState(turnScopeKey);
   const capabilityRequestInFlight = useRef<ReadRequest | null>(null);
-  const latestReads = useRef(new Map<string, ReadRequest>());
   // The read issued in the current synchronous pass (one commit's effects),
   // cleared at the next microtask.
   const sameCommitRequest = useRef<ReadRequest | null>(null);
@@ -396,7 +398,6 @@ export function useTurnReviewReads({
           detailShown,
           activeScope,
           capabilityRequestInFlight,
-          latestReads,
           sameCommitRequest,
           pendingCapabilityRefresh,
           refreshAgentReviewsRef,

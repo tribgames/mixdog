@@ -4,6 +4,8 @@ import React, { act } from 'react';
 import { TurnReviewBar } from './TurnReview';
 import { installReviewDom } from './turn-review-test-support.mjs';
 import { prefetchTurnReview } from './turn-review-prefetch';
+import { turnReviewScope } from './renderer-logic.mjs';
+import { cachedTurnReviewState } from './turn-review-model';
 
 const prompt = { kind: 'user', id: 'prompt', text: 'Change a file' };
 const edit = { kind: 'tool', id: 'edit', name: 'apply_patch', args: {}, result: 'Updated a.txt' };
@@ -47,6 +49,26 @@ test('the island entry read takes the answer of the prefetch in flight: one entr
   assert.ok(document.querySelector('.turn-review-bar'), 'the bar shows the shared answer');
   // The worktree refresh the island always follows with is its own request.
   assert.equal(calls.filter((call) => call.args[0].refresh === true).length, 1);
+});
+
+test('a prefetch answering after a newer mounted read does not overwrite its files, counts or patch', async (t) => {
+  const { root, calls, settle } = mount(t);
+  const withAdditions = (additions, patch) => ({
+    value: { ...reply.value, patch, files: [{ path: 'a.txt', status: 'M', additions, deletions: 0 }] },
+  });
+  prefetchTurnReview('sess-order', items);
+  // A busy mount skips the entry read and issues its own, newer read.
+  await act(async () =>
+    root.render(React.createElement(TurnReviewBar, { items, sessionId: 'sess-order', active: true, busy: true }))
+  );
+  assert.equal(calls.length, 2, 'the prefetch and the mounted read are separate requests');
+  await act(async () => settle[1].resolve(withAdditions(2, 'newer patch')));
+  const scopeKey = `sess-order:${turnReviewScope(items).key}`;
+  assert.equal(cachedTurnReviewState(scopeKey).files[0].additions, 2);
+  await act(async () => settle[0].resolve(withAdditions(1, 'older patch')));
+  const cached = cachedTurnReviewState(scopeKey);
+  assert.equal(cached.files[0].additions, 2, 'the older answer was dropped');
+  assert.equal(cached.leadPatch, 'newer patch');
 });
 
 test('a prefetch that failed leaves the island to ask for its own entry read', async (t) => {

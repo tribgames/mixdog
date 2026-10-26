@@ -15,6 +15,29 @@ export type TurnReviewReadResult = { value?: unknown } | null;
  *  takes its answer instead of asking again. */
 const prefetchesInFlight = new Map<string, Promise<TurnReviewReadResult>>();
 
+/** The newest read issued per scope, prefetch and mounted reader alike. An
+ *  older answer of a scope is dropped, so a delayed read never overwrites the
+ *  files, counts and cached patch a newer read already published. */
+const latestRequests = new Map<string, number>();
+let requestGeneration = 0;
+
+export function beginTurnReviewRequest(scopeKey: string): number {
+  requestGeneration += 1;
+  latestRequests.set(scopeKey, requestGeneration);
+  return requestGeneration;
+}
+
+export function isLatestTurnReviewRequest(scopeKey: string, generation: number): boolean {
+  return latestRequests.get(scopeKey) === generation;
+}
+
+/** Ends a request; a superseded one leaves the newer request's mark alone. */
+export function endTurnReviewRequest(scopeKey: string, generation: number): boolean {
+  const latest = isLatestTurnReviewRequest(scopeKey, generation);
+  if (latest) latestRequests.delete(scopeKey);
+  return latest;
+}
+
 export function turnReviewPrefetch(scopeKey: string): Promise<TurnReviewReadResult> | undefined {
   return prefetchesInFlight.get(scopeKey);
 }
@@ -74,6 +97,7 @@ export function prefetchTurnReview(sessionId: string, items: readonly Transcript
   if (!sessionId || scope.key === 'none' || !scope.hasActivity || !api?.invokeCapability) return;
   if (leadReviewSnapshotKindCache.has(scopeKey) || prefetchesInFlight.has(scopeKey)) return;
   const known = reviewTagCache.get(scopeKey) ?? '';
+  const generation = beginTurnReviewRequest(scopeKey);
   const read = api
     .invokeCapability({
       capability: TURN_REVIEW_CAPABILITY,
@@ -83,12 +107,15 @@ export function prefetchTurnReview(sessionId: string, items: readonly Transcript
     .then(
       (result) => {
         const value = (result?.value ?? null) as TurnReviewCapabilityValue;
-        if (value?.unchanged !== true) recordTurnReviewAnswer(sessionId, scopeKey, scope.key, value);
+        if (value?.unchanged !== true && isLatestTurnReviewRequest(scopeKey, generation)) {
+          recordTurnReviewAnswer(sessionId, scopeKey, scope.key, value);
+        }
         return result ?? null;
       },
       () => null
     )
     .finally(() => {
+      endTurnReviewRequest(scopeKey, generation);
       prefetchesInFlight.delete(scopeKey);
     });
   prefetchesInFlight.set(scopeKey, read);
