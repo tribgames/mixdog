@@ -5,6 +5,7 @@ import { createPushNotifier } from './push-notifier.ts';
 import { decryptNativePush } from '../shared/native-push-crypto.ts';
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '../shared/contract-notifications.ts';
 import { generateWebPushKeys } from './web-push.ts';
+import { noteLegLive, someLegShowsSession } from './remote-transport/foreground.ts';
 
 function subscription() {
   const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
@@ -118,6 +119,39 @@ test('approval push is suppressed for foreground, disabled and replayed state', 
     await settle();
     assert.equal(f.sent.length, 0);
   }
+});
+
+test('a frozen phone suppresses pushes until its authenticated liveness goes stale, then is pushed to', async (t) => {
+  let clock = 0;
+  const phone = { background: false, screenSessionIds: new Set(['s1']), browserId: 'browser-1' };
+  noteLegLive(phone, clock);
+  const legs = [phone];
+  const sent = [];
+  const notifier = createPushNotifier({
+    store: {
+      keys: async () => generateWebPushKeys(),
+      list: async () => [subscription()],
+      remove: async () => true,
+    },
+    isEnabled: () => true,
+    readFinalAnswer: async () => null,
+    isClientForeground: (browserId, sessionId) =>
+      someLegShowsSession(legs, sessionId, (leg) => leg.browserId === browserId, clock),
+    fetchImpl: async (_url, init) => {
+      sent.push(init);
+      return new Response(null, { status: 201 });
+    },
+  });
+  t.after(() => notifier.dispose());
+  clock = 34_999;
+  notifier.onSessionState(update({ id: 'a1' }));
+  await settle();
+  assert.equal(sent.length, 0);
+  clock = 35_000;
+  notifier.onSessionState(update(null));
+  notifier.onSessionState(update({ id: 'a2' }));
+  await settle();
+  assert.equal(sent.length, 1);
 });
 
 const withGoal = (goal, extra = {}, frameSource = 'live') => ({
