@@ -49,64 +49,12 @@ import { type TurnCardsSeat, transcriptRowNode } from './conversation-support';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
 import { ToolVisualizeCards } from './transcript-visualize-card';
-import { linkedLocalPaths } from './markdown-plugins';
+import { turnIndexOf } from './conversation-turn-index';
 import { runningTurnKeyOf } from './turn-preview-model';
-import { visualizeCardCalls, visualizedTargets, visualizeTurnEndAt } from './visualize-card-model';
+import { visualizeCardCalls } from './visualize-card-model';
 import { useConversationRetry } from './use-conversation-retry';
 
 const NO_TOOL_ITEMS: TranscriptItem[] = [];
-
-/** When the turn's rows were last recorded (ms): its previews' time. */
-function turnEndedAt(rows: readonly TranscriptRowModel[], turnKey: string): number {
-  let at = 0;
-  for (const row of rows) {
-    if (row.turnKey !== turnKey) continue;
-    if (row._tag === 'ToolActivity') at = Math.max(at, visualizeTurnEndAt(row.items));
-    else if ('item' in row && row.item) {
-      at = Math.max(at, Number(row.item.completedAt ?? row.item.at ?? row.item.startedAt) || 0);
-    }
-  }
-  return at;
-}
-
-/** The text of the turn's final reply part (what its previews look for). */
-function turnReplyText(rows: readonly TranscriptRowModel[], turnKey: string): string {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    if (row._tag === 'AssistantPart' && row.turnKey === turnKey && row.item.kind === 'assistant') {
-      return String(row.item.text || '');
-    }
-  }
-  return '';
-}
-
-const linkedCache = new Map<string, readonly string[]>();
-
-function linkedIn(text: string): readonly string[] {
-  let paths = linkedCache.get(text);
-  if (!paths) {
-    paths = linkedLocalPaths(text);
-    linkedCache.set(text, paths);
-    if (linkedCache.size > 200) linkedCache.delete(linkedCache.keys().next().value as string);
-  }
-  return paths;
-}
-
-/** What earlier turns of the conversation surfaced: the files their replies
- *  linked and the targets they opened in the panel. Read from the rows
- *  themselves, so it holds after a reload and on a paired device. */
-function surfacedBeforeTurn(rows: readonly TranscriptRowModel[], turnKey: string): string[] {
-  const first = rows.findIndex((row) => row.turnKey === turnKey);
-  const surfaced = new Set<string>();
-  for (const row of first < 0 ? rows : rows.slice(0, first)) {
-    if (row._tag === 'AssistantPart' && row.item.kind === 'assistant') {
-      for (const path of linkedIn(String(row.item.text || ''))) surfaced.add(path);
-    } else if (row._tag === 'ToolActivity') {
-      for (const target of visualizedTargets(row.items)) surfaced.add(target);
-    }
-  }
-  return [...surfaced];
-}
 
 /** Who is typing in a room: the member the host's trailing typing row names.
  *  The host drops that row while its supervisor decides, a moment BEFORE the
@@ -152,30 +100,22 @@ function turnCards(
     disclosureScope: string;
     cardProps: { compact: boolean; frame: (children: ReactNode) => ReactNode } | null;
   }
-): { cards: ReactNode; visualized: string[] | undefined } {
+): { cards: ReactNode; visualized: readonly string[] | undefined } {
   // The turn's changed-files card (on its reply or error row) lists no file
   // its visualize cards showed; Undo moves onto them when none is left.
-  const turnChanges = rows.find(
-    (other) =>
-      other.turnKey === row.turnKey && (other._tag === 'AssistantPart' || other._tag === 'Error') && other.turnChanges
-  );
-  const changesRef =
-    turnChanges && (turnChanges._tag === 'AssistantPart' || turnChanges._tag === 'Error')
-      ? turnChanges.turnChanges
-      : undefined;
-  const turnToolItems = () =>
-    rows.flatMap((other) => (other._tag === 'ToolActivity' && other.turnKey === row.turnKey ? other.items : []));
-  const visualized = changesRef ? visualizedTargets(turnToolItems()) : undefined;
+  const turn = turnIndexOf(rows).get(row.turnKey);
+  const changesRef = turn?.changes;
+  const visualized = turn && changesRef ? turn.visualized() : undefined;
   // A turn that changed files gets the card too, tool rounds or not: its
   // previews (the changed files the panel can show) fill it at its end.
   const tools = turnEndToolItems(rows, index) ?? (changesRef && isEndedTurnLastRow(rows, index) ? NO_TOOL_ITEMS : null);
   const turnEnd =
-    tools && changesRef
+    tools && turn && changesRef
       ? {
-          replyText: turnReplyText(rows, row.turnKey),
-          surfacedBefore: surfacedBeforeTurn(rows, row.turnKey),
+          replyText: turn.replyText,
+          surfacedBefore: turn.surfacedBefore,
           endTurnKey: runningTurnKeyOf(settledItems, settledTurnKeys, row.turnKey),
-          endedAt: turnEndedAt(rows, row.turnKey),
+          endedAt: turn.endedAt,
         }
       : null;
   const cards =
