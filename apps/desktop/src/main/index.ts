@@ -32,6 +32,7 @@ import {
   notificationConversationOf,
 } from './notification-decision';
 import { notificationPreferencesPath, readPcNotificationView } from './notification-preferences';
+import { captureTakeoverOrDecline } from './takeover-capture';
 import type { NotificationTestResult } from './notification-center';
 import { secretInputs } from './secret-input';
 import { remoteSessionConfigFromEnv } from './ssh/remote-session';
@@ -746,7 +747,14 @@ const requestTerminalRun = createTerminalRunDispatch({
     return true;
   },
   relay: (request) => {
-    void localService.invokeDesktopOperation('terminalRemoteOpen', [request]).catch(() => {});
+    // Best effort: a paired client missing the reveal costs nothing the run
+    // needs, but the failure is reported rather than lost.
+    void localService.invokeDesktopOperation('terminalRemoteOpen', [request]).catch((error: unknown) => {
+      diagnostics?.write('terminal-remote-open-failed', {
+        sessionId: request.sessionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   },
 });
 const terminalRuns = createTerminalRunRequests(requestTerminalRun);
@@ -1049,6 +1057,15 @@ takeoverGate.onExpire((sessionId, id) => {
     reason: TAKEOVER_EXPIRED_REASON,
   });
 });
+const takeoverCapture = {
+  capture: (sessionId: string, id: string, tab: string) => browserHost?.captureTakeoverPage(sessionId, id, tab),
+  decline: (sessionId: string, id: string, reason: string) =>
+    localService.resolveToolApprovalForSession(sessionId, id, { approved: false, reason }),
+  report: (event: string, details: Record<string, unknown>) => {
+    diagnostics?.write(event, details);
+    console.error(`[mixdog-takeover] ${event}`, details);
+  },
+};
 unsubscribeTakeovers = localService.subscribeSessionStates((update) => {
   const surface = takeoverGate.onSessionState(update);
   const login = update?.snapshot ? loginTakeoverOf(update.snapshot) : null;
@@ -1067,11 +1084,9 @@ unsubscribeTakeovers = localService.subscribeSessionStates((update) => {
   const sessionId = String(update.sessionId);
   // The handed-over page is fixed as the takeover starts (login or not), so
   // later tab moves never retarget the handoff or the post-login reload.
-  browserHost?.captureTakeoverPage(
-    sessionId,
-    id,
-    typeof approval?.takeover?.tab === 'string' ? approval.takeover.tab : ''
-  );
+  // A tab that cannot be handed over declines the takeover with the reason.
+  const tab = typeof approval?.takeover?.tab === 'string' ? approval.takeover.tab : '';
+  if (!captureTakeoverOrDecline(takeoverCapture, sessionId, id, tab)) return;
   if (login) return;
   void takeoverGate.ready(sessionId, id).then((ready) => {
     if (ready) browserHost?.openForTakeover(sessionId, id);

@@ -81,12 +81,30 @@ test('a handoff shows and reloads the handed-over page, not the selected tab', (
   // No tab named: the agent's page, which the post-login reload targets too.
   assert.equal(handedOver.capture('s', 't1', ''), agentDriven);
   assert.equal(handedOver.page('s', 't1'), agentDriven);
-  assert.equal(handedOver.capture('s', 't2', 'v9'), agentDriven, 'a tab the session lacks: the agent page');
   assert.equal(handedOver.capture('s', 't3', 'v3'), named);
-  assert.equal(handedOver.page('s', 't2'), null, 'only the current takeover has a page');
+  assert.equal(handedOver.page('s', 't1'), null, 'only the current takeover has a page');
   assert.equal(handedOver.show('s', 't3'), named);
   assert.equal(sessions.liveGuest('s'), named, 'the panel shows the handed-over page');
   assert.deepEqual(sessions.agentPage('s'), { guest: named, turn: 4, paused: false }, 'following panes show it');
+});
+
+test('a named tab that cannot be resolved fails the handoff instead of handing over another page', () => {
+  const { handedOver, agentDriven } = handoffFixture();
+  assert.equal(handedOver.capture('s', 't1', ''), agentDriven);
+  assert.throws(() => handedOver.capture('s', 't2', 'v9'), /Cannot hand over tab "v9": no page "v9"/);
+  assert.equal(handedOver.tracked(), 0, 'nothing is recorded for the failed handoff');
+  assert.equal(handedOver.page('s', 't2'), null);
+  assert.equal(handedOver.show('s', 't2'), null);
+  const resolvesNothing = createHandedOverPage({
+    resolveTab: () => null,
+    agentPage: () => ({ guest: agentDriven, turn: 1 }),
+    liveGuest: () => null,
+    owns: () => true,
+    selectGuest() {},
+    setAgentPage() {},
+    resumeAgentFollow() {},
+  });
+  assert.throws(() => resolvesNothing.capture('s', 't3', 'v1'), /Cannot hand over tab "v1"/);
 });
 
 test('the post-login reload keeps the page captured at takeover start, and reloads nothing once it is gone', () => {

@@ -18,10 +18,12 @@ export function createUserTakesPage(host: {
 /** The page a takeover hands to the user, fixed as the takeover starts: the
  *  tab its request names (list_tabs p1, v1 or a page name), else the page the
  *  agent last drove; the tab the panel happens to have selected only when
- *  there is neither. Later tab moves never retarget it, and once that page is
- *  gone there is no handed-over page (nothing stands in for it). */
+ *  there is neither. A named tab that cannot be resolved fails the capture
+ *  (the agent's page never stands in for it). Later tab moves never retarget
+ *  it, and once that page is gone there is no handed-over page (nothing
+ *  stands in for it). */
 export function createHandedOverPage(host: {
-  /** The session's page `tab` names; may throw when none does. */
+  /** The session's page `tab` names; throws (or returns null) when none does. */
   resolveTab(sessionId: string, tab: string): WebContents | null;
   agentPage(sessionId: string): { guest: WebContents; turn: number } | null;
   liveGuest(sessionId: string): WebContents | null;
@@ -51,10 +53,17 @@ export function createHandedOverPage(host: {
     capture(sessionId: string, id: string, tab = ''): WebContents | null {
       forget(sessionId);
       let named: WebContents | null = null;
-      try {
-        named = tab ? host.resolveTab(sessionId, tab) : null;
-      } catch {
-        // A tab the request names but the session no longer has: the agent's page.
+      if (tab) {
+        // A named tab is never replaced by another page: if it cannot be
+        // resolved the handoff fails (nothing is recorded for it).
+        try {
+          named = host.resolveTab(sessionId, tab);
+        } catch (error) {
+          throw new Error(`Cannot hand over tab "${tab}": ${error instanceof Error ? error.message : String(error)}`, {
+            cause: error,
+          });
+        }
+        if (!named) throw new Error(`Cannot hand over tab "${tab}": the session has no such page.`);
       }
       const guest = named ?? host.agentPage(sessionId)?.guest ?? host.liveGuest(sessionId);
       let unwatch = () => {};
