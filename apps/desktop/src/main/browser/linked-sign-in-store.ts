@@ -23,7 +23,6 @@ import {
 } from './linked-sign-in';
 
 export const LINKED_SIGN_IN_FILE_NAME = 'browser-linked-sign-ins.bin';
-const MAX_LINKS = 10_000;
 const HOST = /^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/;
 
 type Seal = (plaintext: string) => Buffer;
@@ -107,7 +106,6 @@ export class LinkedSignInStore {
       throw new Error('The linked sign-in file could not be opened.');
     }
     const entries = parsed ? (parsed as { links: unknown[] }).links : [];
-    if (entries.length > MAX_LINKS) throw new Error('The linked sign-in file is too large.');
     const links = new Map<string, LinkedSignIn>();
     for (const entry of entries) {
       const link = parseLink(entry);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -62,6 +63,40 @@ test('upsert then list shows the login without its secrets, and accountsFor is m
 /** The vault file as stored: what the next version, or the importer, reads. */
 const stored = (dir) => JSON.parse(unseal(readFileSync(join(dir, VAULT_FILE_NAME)))).credentials;
 const passwordsByUsername = (rows) => Object.fromEntries(rows.map((row) => [row.username, row.password]));
+
+test('stored credentials are kept verbatim: a long password survives load and a metadata-only save', async (t) => {
+  const { dir, vault } = makeVault(t);
+  const password = `p${'x'.repeat(5000)}é `;
+  await vault.upsert({ origin: 'https://long.example', username: 'u'.repeat(5000), password, source: 'manual' });
+  const [login] = await vault.list();
+  await vault.markUsed(login.id);
+  await vault.update(login.id, { note: 'n'.repeat(5000) });
+  const [row] = stored(dir);
+  assert.equal(row.password, password);
+  assert.equal(row.username.length, 5000);
+  assert.equal(row.note.length, 5000);
+  assert.ok(row.lastUsedAt > 0);
+});
+
+test('a vault a merge can produce is never refused for its size', async (t) => {
+  const { dir, vault } = makeVault(t);
+  const credentials = Array.from({ length: 100_001 }, (_, index) => {
+    const url = `https://s${index}.example`;
+    return {
+      id: createHash('sha256').update(`${url}\0u`).digest('hex').slice(0, 24),
+      url,
+      username: 'u',
+      password: 'pw',
+      note: '',
+      source: 'csv',
+    };
+  });
+  writeFileSync(join(dir, VAULT_FILE_NAME), seal(JSON.stringify({ version: 1, credentials })));
+  assert.equal((await vault.list()).length, 100_001);
+  await vault.upsert({ origin: 'https://more.example', username: 'u', password: 'pw', source: 'manual' });
+  assert.equal(stored(dir).length, 100_002);
+  assert.equal((await vault.list()).length, 100_002);
+});
 
 test('upsert replaces the same origin+username in place and keeps the note', async (t) => {
   const { vault } = makeVault(t);

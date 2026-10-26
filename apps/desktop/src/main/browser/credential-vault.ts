@@ -26,8 +26,6 @@ import { readVaultFile, writeVaultFile } from './credential-vault-file';
 import { parseTotpSecret, totpCode } from './totp';
 
 export const VAULT_FILE_NAME = 'browser-password-vault.bin';
-const MAX_LOGINS = 100_000;
-const MAX_FIELD = 4096;
 
 export type VaultLoginSource = 'chat' | 'manual' | 'chrome' | 'csv';
 const SOURCES: readonly VaultLoginSource[] = ['chat', 'manual', 'chrome', 'csv'];
@@ -129,8 +127,10 @@ function loginId(url: string, username: string): string {
   return createHash('sha256').update(`${url}\0${username}`).digest('hex').slice(0, 24);
 }
 
+/** A stored or entered text, verbatim: no length is imposed on a credential,
+ *  so what was saved is exactly what is read back and written again. */
 function field(value: unknown): string {
-  return typeof value === 'string' ? value.slice(0, MAX_FIELD) : '';
+  return typeof value === 'string' ? value : '';
 }
 
 function parseSource(value: unknown): VaultLoginSource {
@@ -213,7 +213,6 @@ export class CredentialVault {
       throw new Error('The stored browser credential vault could not be opened.');
     }
     const entries = parsed ? (parsed as { credentials: unknown[] }).credentials : [];
-    if (entries.length > MAX_LOGINS) throw new Error('Stored browser credential vault is too large.');
     return entries.flatMap((entry) => {
       if (!entry || typeof entry !== 'object') return [];
       const value = entry as Record<string, unknown>;
