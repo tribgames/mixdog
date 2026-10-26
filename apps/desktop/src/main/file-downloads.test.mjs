@@ -499,6 +499,23 @@ test('a grant is bound to its device and redeemed once', async (t) => {
   await refusedAs(f.service.readRange(PHONE, transfer.transferId, 0, 4, transfer.version), 'expired');
 });
 
+test('a device holds at most 8 grants and 4 leases; an unredeemed grant can be aborted', async (t) => {
+  const f = fixture(t);
+  const grants = [];
+  for (let index = 0; index < 9; index += 1) grants.push(await f.service.authorize(PHONE, f.project('out.bin')));
+  // The ninth grant dropped the oldest; the others stay redeemable.
+  await refusedAs(f.service.begin(PHONE, grants[0].grantId), 'expired');
+  const other = await f.service.authorize(OTHER, f.project('out.bin'));
+  assert.equal(await f.service.abort(OTHER, grants[1].grantId), false);
+  assert.equal(await f.service.abort(PHONE, grants[1].grantId), true);
+  await refusedAs(f.service.begin(PHONE, grants[1].grantId), 'expired');
+  for (const grant of grants.slice(2, 6)) assert.ok(await f.service.begin(PHONE, grant.grantId));
+  await refusedAs(f.service.begin(PHONE, grants[6].grantId), 'busy');
+  // The refused grant was consumed; another device is not counted against this one.
+  await refusedAs(f.service.begin(PHONE, grants[6].grantId), 'expired');
+  assert.ok(await f.service.begin(OTHER, other.grantId));
+});
+
 test('grants and leases expire', async (t) => {
   const f = fixture(t);
   const stale = await f.service.authorize(PHONE, f.project('out.bin'));

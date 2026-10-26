@@ -291,6 +291,279 @@ const STATIC_OPERATIONS = {
   writeWorkspaceFile: workspaceConfig.writeWorkspaceFile,
 } satisfies Record<string, (...args: never[]) => unknown>;
 
+/** One named operation: its RPC arguments in, its answer out. */
+type OperationHandler = (args: unknown[]) => unknown;
+type Emit = (event: DesktopOperationEvent) => void;
+type InstallPaths = Pick<DesktopOperationsOptions, 'packaged' | 'resourcesPath' | 'appPath'>;
+
+/** Edits and restores run inside the root's recovery store; anything but an
+ *  inspection reports the folder changed. Recovery storage belongs to the
+ *  file host, never to an RPC argument. */
+function recoveryOperations(
+  userDataPath: string,
+  withRecoveryStore: NonNullable<DesktopOperationsOptions['withRecoveryStore']>,
+  emit: Emit
+): Record<string, OperationHandler> {
+  const recoveryOperation = <T>(
+    root: string,
+    action: 'write' | 'restore' | 'inspect' | 'discard',
+    run: () => Promise<T>
+  ) =>
+    withRecoveryStore(root, action, run).finally(() => {
+      if (action !== 'inspect') emit({ name: 'folder-changed', value: root });
+    });
+  return {
+    projectRecoveryIn: (args) => {
+      const action = (args[1] as { action?: string })?.action;
+      return recoveryOperation(
+        args[0] as string,
+        action === 'restore' || action === 'discard' ? action : 'inspect',
+        () => projectRecoveryIn(userDataPath, args[0] as string, args[1])
+      );
+    },
+    writeProjectTextFilesIn: (args) =>
+      recoveryOperation(args[0] as string, 'write', () =>
+        projectFiles.writeProjectTextFilesIn(
+          args[0] as string,
+          args[1] as Parameters<typeof projectFiles.writeProjectTextFilesIn>[1],
+          userDataPath
+        )
+      ),
+    writeProjectTextFilesAuthorized: (args) =>
+      recoveryOperation(args[0] as string, 'write', () =>
+        remoteProjectFiles.writeProjectTextFilesAuthorized(
+          args[0] as string,
+          args[1] as Parameters<typeof remoteProjectFiles.writeProjectTextFilesAuthorized>[1],
+          userDataPath
+        )
+      ),
+    replaceWorkspaceTextIn: (args) =>
+      recoveryOperation(args[0] as string, 'write', () =>
+        workspaceSearch.replaceWorkspaceTextIn(
+          args[0] as string,
+          args[1] as Parameters<typeof workspaceSearch.replaceWorkspaceTextIn>[1],
+          args[2] as string,
+          args[3] as readonly string[] | undefined,
+          undefined,
+          userDataPath
+        )
+      ),
+  };
+}
+
+/** The GitHub API through the configured account, and this repository's star. */
+function githubOperations(executeGithub: ReturnType<typeof createGithubService>): Record<string, OperationHandler> {
+  return {
+    githubRequest: (args) => executeGithub(args[0], args[1]),
+    githubStarStatus: () => githubStarStatus(),
+    starGithub: () => starGithub(),
+  };
+}
+
+/** Document previews and the office suite that renders them. */
+function documentOperations(
+  documentPreviews: ReturnType<typeof createDocumentPreviewOperations>,
+  { packaged, resourcesPath, appPath }: InstallPaths
+): Record<string, OperationHandler> {
+  return {
+    documentPreviewIn: (args) => documentPreviews.documentPreviewIn(String(args[0] || ''), String(args[1] || '')),
+    documentPreviewPagesIn: (args) =>
+      documentPreviews.documentPreviewPagesIn(
+        String(args[0] || ''),
+        String(args[1] || ''),
+        (args[2] ?? {}) as { pages?: unknown; maxWidth?: unknown; password?: unknown }
+      ),
+    installLibreOffice: () => libreoffice.installLibreOffice({ packaged, resourcesPath, appPath }),
+  };
+}
+
+/** Desktop settings: reads and updates; saved rail pins are announced. */
+function settingsOperations(settingsStore: DesktopSettingsStore, emit: Emit): Record<string, OperationHandler> {
+  return {
+    readSettings: () => settingsStore.read(),
+    readActivityRailPins: () => settingsStore.readActivityRailPins(),
+    updateActivityRailPins: async (args) => {
+      if (args[1] !== undefined && typeof args[1] !== 'boolean') {
+        throw new TypeError('initializeIfMissing must be a boolean.');
+      }
+      const saved = await settingsStore.updateActivityRailPins(args[0], args[1] === true);
+      emit({ name: ACTIVITY_RAIL_PINS_EVENT, value: saved });
+      return saved;
+    },
+    updateSetting: (args) =>
+      settingsStore.update(args[0] as Parameters<DesktopSettingsStore['update']>[0], args[1] === true),
+    updateNotificationVolume: (args) => settingsStore.updateNotificationVolume(Number(args[0])),
+    readZoom: () => settingsStore.readZoom(),
+    updateZoom: (args) => settingsStore.updateZoom(Number(args[0])),
+  };
+}
+
+/** State the window process owns, announced to every client: provider and
+ *  settings changes, the updater, and the sessions with a Browser Use
+ *  approval waiting. */
+function windowEventOperations(emit: Emit): Record<string, OperationHandler> {
+  // The last list the window published (publishBrowserApprovalSessions).
+  let browserApprovalSessions: string[] = [];
+  return {
+    notifyProviderModelsChanged: (args) => {
+      emit({ name: PROVIDER_MODELS_EVENT, value: { origin: args[0] } });
+      return undefined;
+    },
+    notifySettingsChanged: (args) => {
+      const change = readSettingsChange({ scope: args[0] });
+      if (!change) throw new TypeError('settings scope is invalid.');
+      emit({ name: SETTINGS_CHANGED_EVENT, value: change });
+      return undefined;
+    },
+    // The window process owns the updater; remote clients learn its state here.
+    publishUpdaterState: (args) => {
+      emit({ name: UPDATER_STATE_EVENT, value: args[0] });
+      return undefined;
+    },
+    // The window process holds the Browser Use approval cards; paired devices
+    // learn which sessions have one waiting (ids only) here.
+    publishBrowserApprovalSessions: (args) => {
+      const ids = readBrowserApprovalSessions(args[0]);
+      if (!ids) throw new TypeError('browser approval sessions are invalid.');
+      browserApprovalSessions = ids;
+      emit({ name: BROWSER_APPROVAL_SESSIONS_EVENT, value: ids });
+      return undefined;
+    },
+    readBrowserApprovalSessions: () => browserApprovalSessions,
+  };
+}
+
+/** Language servers: their diagnostics and status as events, and the `lsp*`
+ *  operations. */
+function createLanguageServerOperations(emit: Emit) {
+  const languageServers = new LanguageServerManager();
+  const unsubscribeDiagnostics = languageServers.subscribeDiagnostics((value) => {
+    emit({ name: 'lsp-diagnostics', value });
+  });
+  const unsubscribeStatus = languageServers.subscribeStatus((value) => {
+    emit({ name: 'lsp-status', value });
+  });
+  const operations: Record<string, OperationHandler> = {
+    lspDocument: (args) =>
+      languageServers.document(
+        String(args[0] || ''),
+        String(args[1] || ''),
+        args[2] as Parameters<LanguageServerManager['document']>[2]
+      ),
+    lspRequest: (args) =>
+      languageServers.request(
+        String(args[0] || ''),
+        String(args[1] || ''),
+        String(args[2] || ''),
+        String(args[3] || ''),
+        args[4] as Parameters<LanguageServerManager['request']>[4],
+        args[5] as Parameters<LanguageServerManager['request']>[5]
+      ),
+    lspDisposeUnder: (args) => languageServers.disposeUnder(String(args[0] || '')),
+  };
+  return {
+    operations,
+    stopEvents(): void {
+      unsubscribeDiagnostics();
+      unsubscribeStatus();
+    },
+    dispose: (): Promise<void> => languageServers.dispose(),
+  };
+}
+
+/** The desktop's terminals: the PTY manager, its coalesced output, size-owner
+ *  and activity events, and the `term*` operations. */
+function createTerminalOperations(terminals: TerminalManager, emit: Emit) {
+  const terminalOutput = createTerminalOutputCoalescer(terminals, emit);
+  const unsubscribeSizeOwner = terminals.subscribeSizeOwner((value) => {
+    emit({ name: TERMINAL_SIZE_OWNER_EVENT, value });
+  });
+  const unsubscribeActivity = terminals.subscribeActivity((value) => {
+    emit({ name: TERMINAL_ACTIVITY_EVENT, value });
+  });
+  const operations: Record<string, OperationHandler> = {
+    termEnsure: async (args) => {
+      const requestedProfile = args[2];
+      const profile =
+        requestedProfile && typeof requestedProfile === 'object'
+          ? (requestedProfile as Parameters<TerminalManager['ensure']>[2])
+          : await resolveShellProfileSpawn(requestedProfile);
+      return terminals.ensure(
+        typeof args[0] === 'string' && args[0] ? args[0] : null,
+        typeof args[1] === 'string' && args[1] ? args[1] : null,
+        profile
+      );
+    },
+    // Attach-only (warm-ups): a running PTY's replay, or null; never spawns.
+    termAttach: (args) => terminals.attach(String(args[0] || '')),
+    termProfiles: () => listShellProfiles(),
+    // Read-only views for the agent `terminal` bridge (see terminal/bridge-server.ts).
+    termSessionTabs: (args) => terminals.sessionTabs(String(args[0] || '')),
+    termSnapshot: (args) => terminals.snapshot(String(args[0] || ''), args[1] == null ? undefined : Number(args[1])),
+    termWrite: (args) => {
+      terminals.write(String(args[0] || ''), String(args[1] ?? ''));
+      return null;
+    },
+    termActivity: () => terminals.activitySnapshot(),
+    termFocus: (args) => {
+      terminals.focus(String(args[0] || ''), typeof args[2] === 'string' ? args[2] : '', args[1] === true);
+      return null;
+    },
+    termResize: (args) => {
+      terminals.resize(
+        String(args[0] || ''),
+        Number(args[1]),
+        Number(args[2]),
+        typeof args[3] === 'string' ? args[3] : ''
+      );
+      return null;
+    },
+    termPause: (args) => {
+      terminals.pauseOutput(String(args[0] || ''));
+      return null;
+    },
+    termResume: (args) => {
+      terminals.resumeOutput(String(args[0] || ''));
+      return null;
+    },
+    termDispose: (args) => {
+      const terminalId = String(args[0] || '');
+      terminalOutput.drop(terminalId);
+      terminals.dispose(terminalId);
+      return null;
+    },
+    termDisposeUnder: (args) => {
+      const ids = terminals.disposeTerminalsUnder(String(args[0] || ''));
+      for (const id of ids) terminalOutput.drop(id);
+      return ids;
+    },
+  };
+  return {
+    operations,
+    stopEvents(): void {
+      terminalOutput.dispose();
+      unsubscribeSizeOwner();
+      unsubscribeActivity();
+    },
+  };
+}
+
+/** Folder watches a window or device holds open. */
+function folderOperations(
+  folderWatchers: ReturnType<typeof createFolderWatchRegistry>
+): Record<string, OperationHandler> {
+  return {
+    folderWatch: (args) => {
+      folderWatchers.watch(localFiles.absoluteLocalPath(args[0]), args[1] === true);
+      return null;
+    },
+    folderUnwatch: (args) => {
+      folderWatchers.unwatch(localFiles.absoluteLocalPath(args[0]), args[1] === true);
+      return null;
+    },
+  };
+}
+
 export function createDesktopOperations({
   userDataPath,
   withRecoveryStore = (_root, _action, run) => run(),
@@ -301,15 +574,7 @@ export function createDesktopOperations({
   loadDocumentPreview,
   emit,
 }: DesktopOperationsOptions) {
-  const recoveryOperation = <T>(
-    root: string,
-    action: 'write' | 'restore' | 'inspect' | 'discard',
-    run: () => Promise<T>
-  ) =>
-    withRecoveryStore(root, action, run).finally(() => {
-      if (action !== 'inspect') emit({ name: 'folder-changed', value: root });
-    });
-  const languageServers = new LanguageServerManager();
+  const languageServerOperations = createLanguageServerOperations(emit);
   const terminals = new TerminalManager({ shellIntegrationDir: join(userDataPath, 'shell-integration') });
   const settingsStore = new DesktopSettingsStore({
     packaged,
@@ -333,223 +598,41 @@ export function createDesktopOperations({
   const folderWatchers = createFolderWatchRegistry(emit);
   // Upload staging, ranged reads and trash for server windows' files.
   const serverFiles = createServerFileOperations({ userDataPath });
-  const unsubscribeDiagnostics = languageServers.subscribeDiagnostics((value) => {
-    emit({ name: 'lsp-diagnostics', value });
-  });
-  const unsubscribeStatus = languageServers.subscribeStatus((value) => {
-    emit({ name: 'lsp-status', value });
-  });
-  const terminalOutput = createTerminalOutputCoalescer(terminals, emit);
-  const unsubscribeSizeOwner = terminals.subscribeSizeOwner((value) => {
-    emit({ name: TERMINAL_SIZE_OWNER_EVENT, value });
-  });
-  const unsubscribeActivity = terminals.subscribeActivity((value) => {
-    emit({ name: TERMINAL_ACTIVITY_EVENT, value });
-  });
-  // The last list the window published (publishBrowserApprovalSessions).
-  let browserApprovalSessions: string[] = [];
+  const terminalOperations = createTerminalOperations(terminals, emit);
+  // Every named operation but the static and server-file tables; the names
+  // are distinct across these groups.
+  const operations = new Map<string, OperationHandler>(
+    Object.entries({
+      ...recoveryOperations(userDataPath, withRecoveryStore, emit),
+      ...githubOperations(executeGithub),
+      ...documentOperations(documentPreviews, { packaged, resourcesPath, appPath }),
+      ...settingsOperations(settingsStore, emit),
+      ...windowEventOperations(emit),
+      ...languageServerOperations.operations,
+      ...terminalOperations.operations,
+      // The Ports panel of a server window: what listens on this machine.
+      listListeningPorts: () => listListeningPorts(),
+      ...folderOperations(folderWatchers),
+    })
+  );
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
-    // Recovery storage belongs to the file host, never to an RPC argument.
-    if (name === 'projectRecoveryIn') {
-      const action = (args[1] as { action?: string })?.action;
-      return recoveryOperation(
-        args[0] as string,
-        action === 'restore' || action === 'discard' ? action : 'inspect',
-        () => projectRecoveryIn(userDataPath, args[0] as string, args[1])
-      );
-    }
-    if (name === 'writeProjectTextFilesIn') {
-      return recoveryOperation(args[0] as string, 'write', () =>
-        projectFiles.writeProjectTextFilesIn(
-          args[0] as string,
-          args[1] as Parameters<typeof projectFiles.writeProjectTextFilesIn>[1],
-          userDataPath
-        )
-      );
-    }
-    if (name === 'writeProjectTextFilesAuthorized') {
-      return recoveryOperation(args[0] as string, 'write', () =>
-        remoteProjectFiles.writeProjectTextFilesAuthorized(
-          args[0] as string,
-          args[1] as Parameters<typeof remoteProjectFiles.writeProjectTextFilesAuthorized>[1],
-          userDataPath
-        )
-      );
-    }
-    if (name === 'replaceWorkspaceTextIn') {
-      return recoveryOperation(args[0] as string, 'write', () =>
-        workspaceSearch.replaceWorkspaceTextIn(
-          args[0] as string,
-          args[1] as Parameters<typeof workspaceSearch.replaceWorkspaceTextIn>[1],
-          args[2] as string,
-          args[3] as readonly string[] | undefined,
-          undefined,
-          userDataPath
-        )
-      );
-    }
-    if (name === 'githubRequest') return executeGithub(args[0], args[1]);
+    const operation = operations.get(name);
+    if (operation) return operation(args);
     const staticOperation = STATIC_OPERATIONS[name as keyof typeof STATIC_OPERATIONS] as
       | ((...values: unknown[]) => unknown)
       | undefined;
     if (staticOperation) return await staticOperation(...args);
     if (serverFiles.handles(name)) return serverFiles.invoke(name, args);
-    if (name === 'documentPreviewIn') {
-      return documentPreviews.documentPreviewIn(String(args[0] || ''), String(args[1] || ''));
-    }
-    if (name === 'documentPreviewPagesIn') {
-      return documentPreviews.documentPreviewPagesIn(
-        String(args[0] || ''),
-        String(args[1] || ''),
-        (args[2] ?? {}) as { pages?: unknown; maxWidth?: unknown; password?: unknown }
-      );
-    }
-    if (name === 'readSettings') return settingsStore.read();
-    if (name === 'readActivityRailPins') return settingsStore.readActivityRailPins();
-    if (name === 'updateActivityRailPins') {
-      if (args[1] !== undefined && typeof args[1] !== 'boolean') {
-        throw new TypeError('initializeIfMissing must be a boolean.');
-      }
-      const saved = await settingsStore.updateActivityRailPins(args[0], args[1] === true);
-      emit({ name: ACTIVITY_RAIL_PINS_EVENT, value: saved });
-      return saved;
-    }
-    if (name === 'notifyProviderModelsChanged') {
-      emit({ name: PROVIDER_MODELS_EVENT, value: { origin: args[0] } });
-      return undefined;
-    }
-    if (name === 'notifySettingsChanged') {
-      const change = readSettingsChange({ scope: args[0] });
-      if (!change) throw new TypeError('settings scope is invalid.');
-      emit({ name: SETTINGS_CHANGED_EVENT, value: change });
-      return undefined;
-    }
-    // The window process owns the updater; remote clients learn its state here.
-    if (name === 'publishUpdaterState') {
-      emit({ name: UPDATER_STATE_EVENT, value: args[0] });
-      return undefined;
-    }
-    // The window process holds the Browser Use approval cards; paired devices
-    // learn which sessions have one waiting (ids only) here.
-    if (name === 'publishBrowserApprovalSessions') {
-      const ids = readBrowserApprovalSessions(args[0]);
-      if (!ids) throw new TypeError('browser approval sessions are invalid.');
-      browserApprovalSessions = ids;
-      emit({ name: BROWSER_APPROVAL_SESSIONS_EVENT, value: ids });
-      return undefined;
-    }
-    if (name === 'readBrowserApprovalSessions') return browserApprovalSessions;
-    if (name === 'updateSetting') {
-      return settingsStore.update(args[0] as Parameters<DesktopSettingsStore['update']>[0], args[1] === true);
-    }
-    if (name === 'updateNotificationVolume') return settingsStore.updateNotificationVolume(Number(args[0]));
-    if (name === 'readZoom') return settingsStore.readZoom();
-    if (name === 'updateZoom') return settingsStore.updateZoom(Number(args[0]));
-    if (name === 'githubStarStatus') return githubStarStatus();
-    if (name === 'starGithub') return starGithub();
-    if (name === 'installLibreOffice') {
-      return libreoffice.installLibreOffice({ packaged, resourcesPath, appPath });
-    }
-    if (name === 'lspDocument') {
-      return languageServers.document(
-        String(args[0] || ''),
-        String(args[1] || ''),
-        args[2] as Parameters<LanguageServerManager['document']>[2]
-      );
-    }
-    if (name === 'lspRequest') {
-      return languageServers.request(
-        String(args[0] || ''),
-        String(args[1] || ''),
-        String(args[2] || ''),
-        String(args[3] || ''),
-        args[4] as Parameters<LanguageServerManager['request']>[4],
-        args[5] as Parameters<LanguageServerManager['request']>[5]
-      );
-    }
-    if (name === 'termEnsure') {
-      const requestedProfile = args[2];
-      const profile =
-        requestedProfile && typeof requestedProfile === 'object'
-          ? (requestedProfile as Parameters<TerminalManager['ensure']>[2])
-          : await resolveShellProfileSpawn(requestedProfile);
-      return terminals.ensure(
-        typeof args[0] === 'string' && args[0] ? args[0] : null,
-        typeof args[1] === 'string' && args[1] ? args[1] : null,
-        profile
-      );
-    }
-    // Attach-only (warm-ups): a running PTY's replay, or null; never spawns.
-    if (name === 'termAttach') return terminals.attach(String(args[0] || ''));
-    if (name === 'termProfiles') return listShellProfiles();
-    // The Ports panel of a server window: what listens on this machine.
-    if (name === 'listListeningPorts') return listListeningPorts();
-    // Read-only views for the agent `terminal` bridge (see terminal/bridge-server.ts).
-    if (name === 'termSessionTabs') return terminals.sessionTabs(String(args[0] || ''));
-    if (name === 'termSnapshot') {
-      return terminals.snapshot(String(args[0] || ''), args[1] == null ? undefined : Number(args[1]));
-    }
-    if (name === 'termWrite') {
-      terminals.write(String(args[0] || ''), String(args[1] ?? ''));
-      return null;
-    }
-    if (name === 'termActivity') return terminals.activitySnapshot();
-    if (name === 'termFocus') {
-      terminals.focus(String(args[0] || ''), typeof args[2] === 'string' ? args[2] : '', args[1] === true);
-      return null;
-    }
-    if (name === 'termResize') {
-      terminals.resize(
-        String(args[0] || ''),
-        Number(args[1]),
-        Number(args[2]),
-        typeof args[3] === 'string' ? args[3] : ''
-      );
-      return null;
-    }
-    if (name === 'termPause') {
-      terminals.pauseOutput(String(args[0] || ''));
-      return null;
-    }
-    if (name === 'termResume') {
-      terminals.resumeOutput(String(args[0] || ''));
-      return null;
-    }
-    if (name === 'termDispose') {
-      const terminalId = String(args[0] || '');
-      terminalOutput.drop(terminalId);
-      terminals.dispose(terminalId);
-      return null;
-    }
-    if (name === 'termDisposeUnder') {
-      const ids = terminals.disposeTerminalsUnder(String(args[0] || ''));
-      for (const id of ids) terminalOutput.drop(id);
-      return ids;
-    }
-    if (name === 'lspDisposeUnder') {
-      return languageServers.disposeUnder(String(args[0] || ''));
-    }
-    if (name === 'folderWatch') {
-      folderWatchers.watch(localFiles.absoluteLocalPath(args[0]), args[1] === true);
-      return null;
-    }
-    if (name === 'folderUnwatch') {
-      folderWatchers.unwatch(localFiles.absoluteLocalPath(args[0]), args[1] === true);
-      return null;
-    }
     throw new TypeError('Mixdog desktop service operation is unavailable.');
   }
 
   async function dispose(): Promise<void> {
-    unsubscribeDiagnostics();
-    unsubscribeStatus();
-    terminalOutput.dispose();
-    unsubscribeSizeOwner();
-    unsubscribeActivity();
+    languageServerOperations.stopEvents();
+    terminalOperations.stopEvents();
     folderWatchers.dispose();
     terminals.disposeAll();
-    await languageServers.dispose();
+    await languageServerOperations.dispose();
     await serverFiles.dispose();
   }
 

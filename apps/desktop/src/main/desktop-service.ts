@@ -620,65 +620,51 @@ async function createRemoteAccess(input: RemoteAccessInput) {
   };
 }
 
-/** Desktop service adapter hosted inside the singleton machine daemon.
- *
- * DesktopServiceClient remains a pure, tested projection/cache layer. The
- * adapter itself never follows a desktop view's lifetime; this object's
- * dispose runs only when the daemon exits.
- */
-export async function createDesktopService({
-  options,
-  runtime,
-  emit,
-  onClientCountChanged,
-}: DesktopServiceFactoryInput): Promise<DesktopServiceAdapter> {
-  if (!runtime || typeof runtime.attachSessionClient !== 'function') {
-    throw new TypeError('Mixdog service session bridge is unavailable.');
-  }
-  // Git children start on the daemon's process-runner worker, never on its
-  // event loop. An older daemon (no runner) keeps the in-thread spawns.
-  const processRunner = await runtime.loadProcessRunner?.().catch(() => null);
-  setGitProcessRunner(processRunner?.runProcessOffThread ?? null);
-  const host = await SessionHost.create(options, runtime);
-  const desktopEventListeners = new Set<(event: { name: string; value: unknown }) => void>();
-  const publishDesktopEvent = (name: string, value: unknown): void => {
+type RemoteAccess = Awaited<ReturnType<typeof createRemoteAccess>>;
+type WindowRequests = ReturnType<typeof createBrowserRemoteRequests>;
+type DesktopEventListener = (event: { name: string; value: unknown }) => void;
+
+/** The service's desktop events: to the window (`emit`) and to every
+ *  in-process subscriber (the relay). */
+function createDesktopEventBus(host: SessionHost, emit: DesktopServiceFactoryInput['emit']) {
+  const listeners = new Set<DesktopEventListener>();
+  const publish = (name: string, value: unknown): void => {
     // A provider or setting changed: the host's reused catalog and branch
     // menu answers describe the state before it.
     if (name === PROVIDER_MODELS_EVENT || name === SETTINGS_CHANGED_EVENT) host.invalidateReadCaches();
     emit({ kind: 'desktop-event', name, value });
-    for (const listener of desktopEventListeners) listener({ name, value });
+    for (const listener of listeners) listener({ name, value });
   };
-  const operations = createDesktopOperations({
-    withRecoveryStore: async (root, action, run) => {
-      const worktrees = await runtime.loadWorktrees?.();
-      if (worktrees?.withWorktreeRecoveryStore)
-        return worktrees.withWorktreeRecoveryStore(
-          root,
-          projectRecoveryStorePath(options.userDataPath, root),
-          action,
-          run
-        );
-      if (worktrees && (await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(root)))
-        throw new Error('Worktree file recovery protection is unavailable. Update the host before editing.');
-      return run();
-    },
-    userDataPath: options.userDataPath,
-    packaged: options.packaged,
-    resourcesPath: options.resourcesPath,
-    appPath: options.appPath,
-    loadConfig: runtime.loadConfig,
-    loadDocumentPreview: runtime.loadDocumentPreview ? () => runtime.loadDocumentPreview!() : undefined,
-    emit: (event) => publishDesktopEvent(event.name, event.value),
-  });
-  const importProgress = createConversationImportProgress({
-    fetchJobs: async () => {
-      const { value } = await host.invokeCapability<{ jobs?: ConversationImportJob[] }>('getConversationImportJobs', [
-        {},
-      ]);
-      return value?.jobs ?? [];
-    },
-    publish: publishDesktopEvent,
-  });
+  const subscribe = (listener: DesktopEventListener): (() => boolean) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  return { publish, subscribe, clear: (): void => listeners.clear() };
+}
+
+/** An edit's file recovery: inside a managed worktree through the worktree
+ *  manager's own store, refused when an older host cannot protect it. */
+function worktreeRecoveryStore(runtime: Pick<DesktopServiceRuntime, 'loadWorktrees'>, userDataPath: string) {
+  return async <T>(
+    root: string,
+    action: 'write' | 'restore' | 'inspect' | 'discard',
+    run: () => Promise<T>
+  ): Promise<T> => {
+    const worktrees = await runtime.loadWorktrees?.();
+    if (worktrees?.withWorktreeRecoveryStore)
+      return worktrees.withWorktreeRecoveryStore(root, projectRecoveryStorePath(userDataPath, root), action, run);
+    if (worktrees && (await (worktrees.findWorktreeContaining ?? worktrees.getWorktreeByPath)(root)))
+      throw new Error('Worktree file recovery protection is unavailable. Update the host before editing.');
+    return run();
+  };
+}
+
+/** The runtime hosts this daemon serves; returns the unregister for all. */
+async function registerRuntimeHosts(
+  runtime: Pick<DesktopServiceRuntime, 'loadWorktrees'>,
+  host: SessionHost,
+  operations: DesktopOperations
+): Promise<() => void> {
   const unregisterTerminalReleaser = await registerWorktreeTerminalReleaser(
     runtime,
     (root) => operations.invoke('termDisposeUnder', [root]),
@@ -693,104 +679,87 @@ export async function createDesktopService({
   // Group rooms run only here: the `session` tool's sends to a room and a
   // member's relay of its reported work reach them through this host.
   const unregisterAgentRoomHost = registerAgentRoomHost(host.agentRoomHost());
-  const settingsStore = operations.settingsStore;
-  // Notification preferences (issue #221). The first load migrates the removed
-  // `desktop.turnNotifications` setting and the old per-agent mute list.
-  const notificationPreferences = createNotificationPreferencesStore({
-    filePath: notificationPreferencesPath(options.userDataPath),
+  return () => {
+    unregisterTerminalReleaser();
+    unregisterSessionSidebarHost();
+    unregisterAgentRoomHost();
+  };
+}
+
+/** Notification preferences (issue #221). The first load migrates the removed
+ *  `desktop.turnNotifications` setting and the old per-agent mute list;
+ *  `loaded` settles once it is done. */
+function loadNotificationPreferences(
+  runtime: Pick<DesktopServiceRuntime, 'loadConfig'>,
+  userDataPath: string,
+  publishDesktopEvent: (name: string, value: unknown) => void
+) {
+  const preferences = createNotificationPreferencesStore({
+    filePath: notificationPreferencesPath(userDataPath),
     readLegacy: async () => ({
       turnNotifications: record(record((await runtime.loadConfig()).readConfig()).desktop).turnNotifications !== false,
-      mutedAgents: readLegacyMutedAgents(legacyAgentMutePath(options.userDataPath)),
+      mutedAgents: readLegacyMutedAgents(legacyAgentMutePath(userDataPath)),
     }),
     // Open settings pages and lists here and on paired devices re-read.
     onChange: () => publishDesktopEvent(SETTINGS_CHANGED_EVENT, { scope: 'notifications' }),
   });
-  const notificationPreferencesLoaded = notificationPreferences
+  const loaded = preferences
     .ready()
     .catch((error: unknown) =>
       console.error(`[mixdog-notifications] load failed: ${error instanceof Error ? error.message : String(error)}`)
     );
-  // Remote methods reach it through the proxy below, which exists first.
-  let notificationCenter: NotificationCenter | null = null;
-  // The configured orchestration default (a New Task's mode) is cached by every
-  // client; its own narrow event, published only when the value changes, keeps
-  // those caches current without waking any other settings reader.
-  const stopConfigChanges = watchConfiguredOrchestrationMode(await runtime.loadConfig(), publishDesktopEvent);
-  // A deleted session takes its server-window upload staging folder with it.
-  const deleteSessionWithUploads = async (sessionId: unknown): Promise<unknown> => {
-    const result = await host.deleteSession(String(sessionId || ''));
-    void operations.serverFiles.removeSessionUploads(String(sessionId || '')).catch(() => {});
-    return result;
-  };
-  const stopUploadSweeps = startUploadSweeps(() => runtime.loadSessionStore(), operations.serverFiles);
-  const remoteHost = new Proxy(host, {
+  return { preferences, loaded };
+}
+
+/** The host as remote methods reach it: `overrides` replace the named members,
+ *  every other method stays bound to the host. */
+function remoteHostView(
+  host: SessionHost,
+  overrides: Record<'deleteSession' | 'invokeDesktopOperation' | 'subscribeDesktopEvents', unknown>
+): DesktopService {
+  return new Proxy(host, {
     get(target, property) {
-      if (property === 'deleteSession') return deleteSessionWithUploads;
-      if (property === 'invokeDesktopOperation') {
-        return (name: string, args: unknown[] = []) =>
-          notificationCenter?.handles(name) ? notificationCenter.invoke(name, args) : operations.invoke(name, args);
-      }
-      if (property === 'subscribeDesktopEvents') {
-        return (listener: (event: { name: string; value: unknown }) => void) => {
-          desktopEventListeners.add(listener);
-          return () => desktopEventListeners.delete(listener);
-        };
-      }
+      if (property === 'deleteSession') return overrides.deleteSession;
+      if (property === 'invokeDesktopOperation') return overrides.invokeDesktopOperation;
+      if (property === 'subscribeDesktopEvents') return overrides.subscribeDesktopEvents;
       const value = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
   }) as unknown as DesktopService;
-  const browserRemoteRequests = createBrowserRemoteRequests((request) =>
-    publishDesktopEvent('browser-remote-request', request)
-  );
-  // The window's agent `visualize` tabs, mirrored for paired remote clients.
-  const visualizeMirror = createRemoteVisualizeMirror();
-  // Remote mode only: this daemon's model calls run on the connected PC. The
-  // request state travels out as an event; the PC answers through operations.
-  const modelProxy = modelProxyClientMode() ? getModelProxyChannel() : null;
-  const detachModelProxy =
-    modelProxy?.attachPublisher((snapshot) => publishDesktopEvent(MODEL_PROXY_REQUEST_EVENT, snapshot)) ?? null;
-  // This PC's OS notifications live in the window process: asked there, and
-  // answered as unsupported / not in use when no window answers in time.
-  const notificationStatus = async (): Promise<{ supported: boolean; idleSeconds: number | null }> => {
-    const status = record(await browserRemoteRequests.request('notificationStatus', [], 3_000).catch(() => null));
+}
+
+/** This PC's OS notifications live in the window process: asked there, and
+ *  answered as unsupported / not in use when no window answers in time. */
+function windowNotificationStatus(windowRequests: WindowRequests) {
+  return async (): Promise<{ supported: boolean; idleSeconds: number | null }> => {
+    const status = record(await windowRequests.request('notificationStatus', [], 3_000).catch(() => null));
     const idle = Number(status.idleSeconds);
     return { supported: status.supported === true, idleSeconds: Number.isFinite(idle) ? idle : null };
   };
-  const remote = await createRemoteAccess({
-    notifications: {
-      preferences: notificationPreferences,
-      desktopActive: async () => {
-        const { idleSeconds } = await notificationStatus();
-        return idleSeconds !== null && idleSeconds < DESKTOP_ACTIVE_WINDOW_SECONDS;
-      },
-      // `remote` exists by the time a push is decided.
-      pairedClient: async (clientId) => {
-        const client = (await remote.clients()).find((entry) => entry.id === clientId);
-        return client ? pairedDeviceInfo(client) : null;
-      },
-    },
-    userDataPath: options.userDataPath,
-    appVersion: options.appVersion,
-    host: remoteHost,
-    settingsStore,
-    terminals: operations.terminals,
-    subscribeTerminalData: operations.subscribeTerminalData,
-    windowRequest: browserRemoteRequests.request,
-    visualize: visualizeMirror,
-    onClientCountChanged,
-    emit,
-    publishDesktopEvent,
-  });
-  const notifications = createNotificationCenter({
-    store: notificationPreferences,
+}
+
+/** The notification center: preferences, this PC's window notifications and
+ *  the paired devices' pushes through the relay. */
+function createDesktopNotifications({
+  store,
+  remote,
+  windowRequests,
+  notificationStatus,
+}: {
+  store: ReturnType<typeof createNotificationPreferencesStore>;
+  remote: RemoteAccess;
+  windowRequests: WindowRequests;
+  notificationStatus: ReturnType<typeof windowNotificationStatus>;
+}): NotificationCenter {
+  return createNotificationCenter({
+    store,
     pcName: remote.pcName,
     listClients: () => remote.clients(),
     pushRegistrations: async () => (await remote.relay()?.pushRegistrations()) ?? new Set<string>(),
     pcSupported: async () => (await notificationStatus()).supported,
     sendPcTest: async () => {
       const result = record(
-        await browserRemoteRequests.request('notificationTest', [], 5_000).catch(() => ({
+        await windowRequests.request('notificationTest', [], 5_000).catch(() => ({
           ok: false,
           message: 'The Mixdog window on this PC did not answer.',
         }))
@@ -804,10 +773,29 @@ export async function createDesktopService({
         : { ok: false, message: 'This PC is not connected to the relay, so paired devices cannot be reached.' };
     },
   });
-  notificationCenter = notifications;
-  const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
-  const stateSync = createDesktopServiceStateSync({ host, emit });
-  const invokeServiceOperation = async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
+}
+
+/** The service's `invokeDesktopOperation`: the model proxy's and the
+ *  notification center's operations, remote access, the window's relay
+ *  traffic, then the desktop operations table. */
+function createServiceOperationRouter({
+  remote,
+  modelProxy,
+  notifications,
+  operations,
+  visualizeMirror,
+  windowRequests,
+  publishDesktopEvent,
+}: {
+  remote: RemoteAccess;
+  modelProxy: ReturnType<typeof getModelProxyChannel> | null;
+  notifications: NotificationCenter;
+  operations: DesktopOperations;
+  visualizeMirror: ReturnType<typeof createRemoteVisualizeMirror>;
+  windowRequests: WindowRequests;
+  publishDesktopEvent(name: string, value: unknown): void;
+}) {
+  return async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
     if (modelProxy?.handlesOperation(operation)) return modelProxy.handleOperation(operation, operationArgs);
     if (notifications.handles(operation)) return notifications.invoke(operation, operationArgs);
     switch (operation) {
@@ -878,7 +866,7 @@ export async function createDesktopService({
       case 'visualizeRemoteViewing':
         return remote.relay()?.viewsSessionLane(String(operationArgs[0] || ''), REMOTE_VISUALIZE_LANE) ?? false;
       case 'browserRemoteResolve':
-        return browserRemoteRequests.settle(
+        return windowRequests.settle(
           String(operationArgs[0] || ''),
           operationArgs[1] === true,
           operationArgs[2],
@@ -888,6 +876,129 @@ export async function createDesktopService({
         return operations.invoke(operation, operationArgs);
     }
   };
+}
+
+/** Desktop service adapter hosted inside the singleton machine daemon.
+ *
+ * DesktopServiceClient remains a pure, tested projection/cache layer. The
+ * adapter itself never follows a desktop view's lifetime; this object's
+ * dispose runs only when the daemon exits.
+ */
+export async function createDesktopService({
+  options,
+  runtime,
+  emit,
+  onClientCountChanged,
+}: DesktopServiceFactoryInput): Promise<DesktopServiceAdapter> {
+  if (!runtime || typeof runtime.attachSessionClient !== 'function') {
+    throw new TypeError('Mixdog service session bridge is unavailable.');
+  }
+  // Git children start on the daemon's process-runner worker, never on its
+  // event loop. An older daemon (no runner) keeps the in-thread spawns.
+  const processRunner = await runtime.loadProcessRunner?.().catch(() => null);
+  setGitProcessRunner(processRunner?.runProcessOffThread ?? null);
+  const host = await SessionHost.create(options, runtime);
+  const desktopEvents = createDesktopEventBus(host, emit);
+  const publishDesktopEvent = desktopEvents.publish;
+  const operations = createDesktopOperations({
+    withRecoveryStore: worktreeRecoveryStore(runtime, options.userDataPath),
+    userDataPath: options.userDataPath,
+    packaged: options.packaged,
+    resourcesPath: options.resourcesPath,
+    appPath: options.appPath,
+    loadConfig: runtime.loadConfig,
+    loadDocumentPreview: runtime.loadDocumentPreview ? () => runtime.loadDocumentPreview!() : undefined,
+    emit: (event) => publishDesktopEvent(event.name, event.value),
+  });
+  const importProgress = createConversationImportProgress({
+    fetchJobs: async () => {
+      const { value } = await host.invokeCapability<{ jobs?: ConversationImportJob[] }>('getConversationImportJobs', [
+        {},
+      ]);
+      return value?.jobs ?? [];
+    },
+    publish: publishDesktopEvent,
+  });
+  const unregisterRuntimeHosts = await registerRuntimeHosts(runtime, host, operations);
+  const settingsStore = operations.settingsStore;
+  const { preferences: notificationPreferences, loaded: notificationPreferencesLoaded } = loadNotificationPreferences(
+    runtime,
+    options.userDataPath,
+    publishDesktopEvent
+  );
+  // Remote methods reach it through the proxy below, which exists first.
+  let notificationCenter: NotificationCenter | null = null;
+  // The configured orchestration default (a New Task's mode) is cached by every
+  // client; its own narrow event, published only when the value changes, keeps
+  // those caches current without waking any other settings reader.
+  const stopConfigChanges = watchConfiguredOrchestrationMode(await runtime.loadConfig(), publishDesktopEvent);
+  // A deleted session takes its server-window upload staging folder with it.
+  const deleteSessionWithUploads = async (sessionId: unknown): Promise<unknown> => {
+    const result = await host.deleteSession(String(sessionId || ''));
+    void operations.serverFiles.removeSessionUploads(String(sessionId || '')).catch(() => {});
+    return result;
+  };
+  const stopUploadSweeps = startUploadSweeps(() => runtime.loadSessionStore(), operations.serverFiles);
+  const remoteHost = remoteHostView(host, {
+    deleteSession: deleteSessionWithUploads,
+    invokeDesktopOperation: (name: string, args: unknown[] = []) =>
+      notificationCenter?.handles(name) ? notificationCenter.invoke(name, args) : operations.invoke(name, args),
+    subscribeDesktopEvents: desktopEvents.subscribe,
+  });
+  const browserRemoteRequests = createBrowserRemoteRequests((request) =>
+    publishDesktopEvent('browser-remote-request', request)
+  );
+  // The window's agent `visualize` tabs, mirrored for paired remote clients.
+  const visualizeMirror = createRemoteVisualizeMirror();
+  // Remote mode only: this daemon's model calls run on the connected PC. The
+  // request state travels out as an event; the PC answers through operations.
+  const modelProxy = modelProxyClientMode() ? getModelProxyChannel() : null;
+  const detachModelProxy =
+    modelProxy?.attachPublisher((snapshot) => publishDesktopEvent(MODEL_PROXY_REQUEST_EVENT, snapshot)) ?? null;
+  const notificationStatus = windowNotificationStatus(browserRemoteRequests);
+  const remote = await createRemoteAccess({
+    notifications: {
+      preferences: notificationPreferences,
+      desktopActive: async () => {
+        const { idleSeconds } = await notificationStatus();
+        return idleSeconds !== null && idleSeconds < DESKTOP_ACTIVE_WINDOW_SECONDS;
+      },
+      // `remote` exists by the time a push is decided.
+      pairedClient: async (clientId) => {
+        const client = (await remote.clients()).find((entry) => entry.id === clientId);
+        return client ? pairedDeviceInfo(client) : null;
+      },
+    },
+    userDataPath: options.userDataPath,
+    appVersion: options.appVersion,
+    host: remoteHost,
+    settingsStore,
+    terminals: operations.terminals,
+    subscribeTerminalData: operations.subscribeTerminalData,
+    windowRequest: browserRemoteRequests.request,
+    visualize: visualizeMirror,
+    onClientCountChanged,
+    emit,
+    publishDesktopEvent,
+  });
+  const notifications = createDesktopNotifications({
+    store: notificationPreferences,
+    remote,
+    windowRequests: browserRemoteRequests,
+    notificationStatus,
+  });
+  notificationCenter = notifications;
+  const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
+  const stateSync = createDesktopServiceStateSync({ host, emit });
+  const invokeServiceOperation = createServiceOperationRouter({
+    remote,
+    modelProxy,
+    notifications,
+    operations,
+    visualizeMirror,
+    windowRequests: browserRemoteRequests,
+    publishDesktopEvent,
+  });
   return {
     get clientCount() {
       return remote.relay()?.clientCount ?? 0;
@@ -930,13 +1041,11 @@ export async function createDesktopService({
       return stateSync.releaseClient(epoch);
     },
     async dispose(): Promise<void> {
-      unregisterTerminalReleaser();
-      unregisterSessionSidebarHost();
-      unregisterAgentRoomHost();
+      unregisterRuntimeHosts();
       stopConfigChanges?.();
       importProgress.dispose();
       stateSync.dispose();
-      desktopEventListeners.clear();
+      desktopEvents.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');
       detachModelProxy?.();
       stopUploadSweeps();

@@ -424,18 +424,13 @@ interface ExportRecord {
   staging?: boolean;
 }
 
-export function createFileDownloadService({
-  host,
-  mediaLane = false,
-  now = Date.now,
-}: FileDownloadServiceOptions): FileDownloadService {
-  const grants = new Map<string, Grant>();
-  const leases = new Map<string, Lease>();
-  const exportRecords = new Map<string, ExportRecord>();
-  const mediaLeases = new Map<string, string>();
+type AuthorizedSource = { file: OpenedFile; name: string; mime: string; leftOut?: FolderLeftOut };
+
+/** Revocation generations and the host's session catalog: what an authorize
+ *  or begin re-checks after its awaited work. */
+function createRevocations() {
   const seenSessions = new Set<string>();
   let catalog: Set<string> | null = null;
-  let sweeper: NodeJS.Timeout | null = null;
   // Revocation generations. Each only grows, so their sum for a device and
   // session changes exactly when anything revoked either one, or everything.
   let globalGeneration = 0;
@@ -446,6 +441,48 @@ export function createFileDownloadService({
   const bump = (generations: Map<string, number>, key: string): void => {
     generations.set(key, (generations.get(key) ?? 0) + 1);
   };
+  const sessionRemoved = (sessionId: string): boolean =>
+    catalog !== null && seenSessions.has(sessionId) && !catalog.has(sessionId);
+  /** After awaited work: rejects, releasing `file`, when the session is gone
+   *  or anything revoked the device or session since `mark`. */
+  const stillAuthorized = (deviceId: string, sessionId: string, mark: number, file: OpenedFile): void => {
+    if (sessionRemoved(sessionId)) {
+      release(file);
+      throw new FileDownloadError('unavailable', 'This conversation is not available.');
+    }
+    if (generation(deviceId, sessionId) !== mark) {
+      release(file);
+      throw expired();
+    }
+  };
+  return {
+    generation,
+    sessionRemoved,
+    stillAuthorized,
+    /** The host's current catalog: a session that left it is revoked. */
+    retainCatalog(sessionIds: Iterable<string>): void {
+      const next = new Set(sessionIds);
+      for (const id of catalog ?? []) if (!next.has(id)) bump(sessionGenerations, id);
+      catalog = next;
+      for (const id of catalog) seenSessions.add(id);
+    },
+    revokeDevice(deviceId: string): void {
+      bump(deviceGenerations, deviceId);
+    },
+    revokeAll(): void {
+      globalGeneration += 1;
+    },
+  };
+}
+
+/** The grants, leases and temp records a service holds, and the sweeper that
+ *  ends them once expired, even when no device calls again. */
+function createDownloadTables(now: () => number) {
+  const grants = new Map<string, Grant>();
+  const leases = new Map<string, Lease>();
+  const exportRecords = new Map<string, ExportRecord>();
+  const mediaLeases = new Map<string, string>();
+  let sweeper: NodeJS.Timeout | null = null;
 
   const dropGrant = (grant: Grant): void => {
     if (grants.get(grant.grantId) === grant) grants.delete(grant.grantId);
@@ -502,24 +539,64 @@ export function createFileDownloadService({
     sweeper = setInterval(sweep, SWEEP_INTERVAL_MS);
     sweeper.unref?.();
   };
-  const sessionRemoved = (sessionId: string): boolean =>
-    catalog !== null && seenSessions.has(sessionId) && !catalog.has(sessionId);
-  /** After awaited work: rejects, releasing `file`, when the session is gone
-   *  or anything revoked the device or session since `mark`. */
-  const stillAuthorized = (deviceId: string, sessionId: string, mark: number, file: OpenedFile): void => {
-    if (sessionRemoved(sessionId)) {
-      release(file);
-      throw new FileDownloadError('unavailable', 'This conversation is not available.');
-    }
-    if (generation(deviceId, sessionId) !== mark) {
-      release(file);
-      throw expired();
-    }
+  const owned = <T extends { deviceId: string }>(entry: T | undefined, deviceId: string): T | undefined =>
+    entry && entry.deviceId === deviceId ? entry : undefined;
+
+  return {
+    sweep,
+    stopSweeperWhenIdle,
+    dropGrant,
+    dropLease,
+    dropExport,
+    grantOf: (deviceId: string, grantId: string): Grant | undefined => owned(grants.get(grantId), deviceId),
+    leaseOf: (deviceId: string, transferId: string): Lease | undefined => owned(leases.get(transferId), deviceId),
+    /** The lease a media-lane asset id was minted for. */
+    mediaLease: (assetId: string): Lease | undefined => leases.get(mediaLeases.get(assetId) ?? ''),
+    isLive: (lease: Lease): boolean => leases.get(lease.transferId) === lease,
+    exportRecord: (exportId: string): ExportRecord | undefined => exportRecords.get(exportId),
+    deviceLeaseCount: (deviceId: string): number =>
+      [...leases.values()].filter((lease) => lease.deviceId === deviceId).length,
+    /** One-time: out of the grant table, revocation can no longer reach it. */
+    consumeGrant(grant: Grant): void {
+      grants.delete(grant.grantId);
+    },
+    /** Adds a grant; the device's oldest go first past MAX_GRANTS_PER_DEVICE. */
+    addGrant(grant: Grant): void {
+      const held = [...grants.values()].filter((entry) => entry.deviceId === grant.deviceId);
+      for (const stale of held.slice(0, Math.max(0, held.length - MAX_GRANTS_PER_DEVICE + 1))) dropGrant(stale);
+      grants.set(grant.grantId, grant);
+      ensureSweeper();
+    },
+    addLease(lease: Lease): void {
+      if (lease.media) mediaLeases.set(lease.media.assetId, lease.transferId);
+      leases.set(lease.transferId, lease);
+      ensureSweeper();
+    },
+    /** Adds an export or staged temp record, making room for it first. */
+    addRecord(record: ExportRecord): void {
+      makeRoomForRecord(record.deviceId);
+      exportRecords.set(record.exportId, record);
+      ensureSweeper();
+    },
+    /** Ends every grant, lease and record `match` names. */
+    dropMatching(match: (entry: { deviceId: string; sessionId: string }) => boolean): void {
+      for (const grant of [...grants.values()]) if (match(grant)) dropGrant(grant);
+      for (const lease of [...leases.values()]) if (match(lease)) dropLease(lease);
+      for (const record of [...exportRecords.values()]) if (match(record)) dropExport(record);
+      stopSweeperWhenIdle();
+    },
   };
+}
+
+type DownloadTables = ReturnType<typeof createDownloadTables>;
+
+/** Serving a lease's bytes: the lease a device names, and reads through its
+ *  own opened file. */
+function createLeaseReader(tables: DownloadTables, now: () => number) {
   const liveLease = (requester: FileDownloadRequester, transferId: string): Lease => {
-    sweep();
-    const lease = leases.get(transferId);
-    if (!lease || lease.deviceId !== requester.deviceId) throw expired();
+    tables.sweep();
+    const lease = tables.leaseOf(requester.deviceId, transferId);
+    if (!lease) throw expired();
     return lease;
   };
   const readLease = async (lease: Lease, offset: number, length: number): Promise<Buffer> => {
@@ -534,14 +611,18 @@ export function createFileDownloadService({
       lease.idleUntil = now() + FILE_DOWNLOAD_LEASE_IDLE_MS;
       return bytes;
     } catch (error) {
-      if (error instanceof FileDownloadError && error.reason === 'changed') dropLease(lease);
+      if (error instanceof FileDownloadError && error.reason === 'changed') tables.dropLease(lease);
       throw error;
     } finally {
       lease.file.inflight -= 1;
       closeWhenIdle(lease.file);
     }
   };
+  return { liveLease, readLease };
+}
 
+/** Opens what a download source names as the file a grant reads. */
+function createSourceAuthorizer(host: FileDownloadHost, now: () => number, tables: DownloadTables) {
   /** A folder the session names (absolute, or relative to its folder),
    *  zipped into the service's own temp record (removed like an export once
    *  nothing holds it) and opened as the download. */
@@ -608,15 +689,13 @@ export function createFileDownloadService({
       expiresAt: now() + EXPORT_TTL_MS,
       staging: true,
     };
-    makeRoomForRecord(requester.deviceId);
-    exportRecords.set(record.exportId, record);
-    ensureSweeper();
+    tables.addRecord(record);
     try {
       await writeFile(path, bytes, { mode: 0o600 });
       const opened = await openRegularFile(path);
       return { file: opened.file, name, mime };
     } catch (error) {
-      dropExport(record);
+      tables.dropExport(record);
       throw error;
     } finally {
       record.staging = false;
@@ -641,8 +720,8 @@ export function createFileDownloadService({
     requester: FileDownloadRequester,
     row: DesktopSessionSummary,
     exportId: string
-  ): Promise<{ file: OpenedFile; name: string; mime: string; leftOut?: FolderLeftOut }> => {
-    const record = exportRecords.get(exportId);
+  ): Promise<AuthorizedSource> => {
+    const record = tables.exportRecord(exportId);
     if (!record || record.deviceId !== requester.deviceId || record.sessionId !== row.id) throw expired();
     // A record kept alive only by a grant or lease must not be renewed past its deadline.
     if (record.expiresAt <= now()) throw expired();
@@ -663,7 +742,7 @@ export function createFileDownloadService({
     requester: FileDownloadRequester,
     row: DesktopSessionSummary,
     source: FileDownloadSource
-  ): Promise<{ file: OpenedFile; name: string; mime: string; leftOut?: FolderLeftOut }> => {
+  ): Promise<AuthorizedSource> => {
     switch (source.kind) {
       case 'project':
         return authorizeProjectFile(host, row, source.relPath);
@@ -681,15 +760,27 @@ export function createFileDownloadService({
         return authorizeExport(requester, row, source.exportId);
     }
   };
+  return authorizeSource;
+}
+
+export function createFileDownloadService({
+  host,
+  mediaLane = false,
+  now = Date.now,
+}: FileDownloadServiceOptions): FileDownloadService {
+  const revocations = createRevocations();
+  const tables = createDownloadTables(now);
+  const { liveLease, readLease } = createLeaseReader(tables, now);
+  const authorizeSource = createSourceAuthorizer(host, now, tables);
 
   return {
     async authorize(requester, request) {
-      sweep();
+      tables.sweep();
       const { sessionId } = request.source;
-      const mark = generation(requester.deviceId, sessionId);
+      const mark = revocations.generation(requester.deviceId, sessionId);
       const row = await sessionRow(host, sessionId);
       const authorized = await authorizeSource(requester, row, request.source);
-      stillAuthorized(requester.deviceId, sessionId, mark, authorized.file);
+      revocations.stillAuthorized(requester.deviceId, sessionId, mark, authorized.file);
       const size = Number(authorized.file.identity.size);
       const grant: Grant = {
         ...authorized,
@@ -702,27 +793,22 @@ export function createFileDownloadService({
         grantId: randomUUID(),
         expiresAt: now() + FILE_DOWNLOAD_GRANT_TTL_MS,
       };
-      const held = [...grants.values()].filter((entry) => entry.deviceId === requester.deviceId);
-      for (const stale of held.slice(0, Math.max(0, held.length - MAX_GRANTS_PER_DEVICE + 1))) dropGrant(stale);
-      grants.set(grant.grantId, grant);
-      ensureSweeper();
+      tables.addGrant(grant);
       const { grantId, name, mime, version, expiresAt, leftOut } = grant;
       return { grantId, name, size, mime, version, expiresAt, ...(leftOut ? { leftOut } : {}) };
     },
 
     async begin(requester, grantId) {
-      sweep();
-      const grant = grants.get(grantId);
-      if (!grant || grant.deviceId !== requester.deviceId) throw expired();
+      tables.sweep();
+      const grant = tables.grantOf(requester.deviceId, grantId);
+      if (!grant) throw expired();
       // One-time: consumed before anything can interleave.
-      grants.delete(grantId);
+      tables.consumeGrant(grant);
       // Out of the grant table, revocation can no longer reach it.
-      const mark = generation(grant.deviceId, grant.sessionId);
+      const mark = revocations.generation(grant.deviceId, grant.sessionId);
       await guarded(grant.file, () => verifyUnchanged(grant.file));
-      stillAuthorized(grant.deviceId, grant.sessionId, mark, grant.file);
-      if (
-        [...leases.values()].filter((lease) => lease.deviceId === requester.deviceId).length >= MAX_LEASES_PER_DEVICE
-      ) {
+      revocations.stillAuthorized(grant.deviceId, grant.sessionId, mark, grant.file);
+      if (tables.deviceLeaseCount(requester.deviceId) >= MAX_LEASES_PER_DEVICE) {
         release(grant.file);
         throw new FileDownloadError('busy', 'Too many downloads are in progress on this device.');
       }
@@ -742,10 +828,8 @@ export function createFileDownloadService({
       };
       if (mediaLane) {
         lease.media = { assetId: randomUUID(), variant: FILE_DOWNLOAD_MEDIA_VARIANT, expiresAt: lease.expiresAt };
-        mediaLeases.set(lease.media.assetId, lease.transferId);
       }
-      leases.set(lease.transferId, lease);
-      ensureSweeper();
+      tables.addLease(lease);
       return {
         transferId: lease.transferId,
         name: lease.name,
@@ -782,59 +866,47 @@ export function createFileDownloadService({
         await verifyUnchanged(lease.file);
       } finally {
         lease.file.inflight -= 1;
-        dropLease(lease);
+        tables.dropLease(lease);
       }
       return { transferId, size: lease.size, version: lease.version };
     },
 
     async abort(requester, id) {
-      sweep();
-      const lease = leases.get(id);
-      if (lease && lease.deviceId === requester.deviceId) {
-        dropLease(lease);
-        stopSweeperWhenIdle();
+      tables.sweep();
+      const lease = tables.leaseOf(requester.deviceId, id);
+      if (lease) {
+        tables.dropLease(lease);
+        tables.stopSweeperWhenIdle();
         return true;
       }
-      const grant = grants.get(id);
-      if (grant && grant.deviceId === requester.deviceId) {
-        dropGrant(grant);
-        stopSweeperWhenIdle();
+      const grant = tables.grantOf(requester.deviceId, id);
+      if (grant) {
+        tables.dropGrant(grant);
+        tables.stopSweeperWhenIdle();
         return true;
       }
       return false;
     },
 
     retainSessions(sessionIds) {
-      const next = new Set(sessionIds);
-      for (const id of catalog ?? []) if (!next.has(id)) bump(sessionGenerations, id);
-      catalog = next;
-      for (const id of catalog) seenSessions.add(id);
-      for (const grant of [...grants.values()]) if (sessionRemoved(grant.sessionId)) dropGrant(grant);
-      for (const lease of [...leases.values()]) if (sessionRemoved(lease.sessionId)) dropLease(lease);
-      for (const record of [...exportRecords.values()]) if (sessionRemoved(record.sessionId)) dropExport(record);
-      stopSweeperWhenIdle();
+      revocations.retainCatalog(sessionIds);
+      tables.dropMatching((entry) => revocations.sessionRemoved(entry.sessionId));
     },
 
-    sessionRemoved,
+    sessionRemoved: revocations.sessionRemoved,
 
     revokeDevice(deviceId) {
-      bump(deviceGenerations, deviceId);
-      for (const grant of [...grants.values()]) if (grant.deviceId === deviceId) dropGrant(grant);
-      for (const lease of [...leases.values()]) if (lease.deviceId === deviceId) dropLease(lease);
-      for (const record of [...exportRecords.values()]) if (record.deviceId === deviceId) dropExport(record);
-      stopSweeperWhenIdle();
+      revocations.revokeDevice(deviceId);
+      tables.dropMatching((entry) => entry.deviceId === deviceId);
     },
 
     revokeAll() {
-      globalGeneration += 1;
-      for (const grant of [...grants.values()]) dropGrant(grant);
-      for (const lease of [...leases.values()]) dropLease(lease);
-      for (const record of [...exportRecords.values()]) dropExport(record);
-      stopSweeperWhenIdle();
+      revocations.revokeAll();
+      tables.dropMatching(() => true);
     },
 
     async registerExport(requester, { sessionId, path, mime, pages }) {
-      sweep();
+      tables.sweep();
       const canonical = await realpath(path).catch(missing);
       if (!EXPORT_FOLDER.test(basename(dirname(canonical)))) {
         throw new FileDownloadError('not-a-file', 'Only a visualize export can be offered this way.');
@@ -849,23 +921,21 @@ export function createFileDownloadService({
         expiresAt: now() + EXPORT_TTL_MS,
         ...(pages ? { pages } : {}),
       };
-      makeRoomForRecord(requester.deviceId);
-      exportRecords.set(record.exportId, record);
-      ensureSweeper();
+      tables.addRecord(record);
       return { source: { kind: 'export', sessionId: record.sessionId, exportId: record.exportId }, name: record.name };
     },
 
     resolveMedia(assetId, variant, deviceId) {
       if (variant !== FILE_DOWNLOAD_MEDIA_VARIANT) return null;
-      sweep();
-      const lease = leases.get(mediaLeases.get(assetId) ?? '');
+      tables.sweep();
+      const lease = tables.mediaLease(assetId);
       if (!lease || lease.deviceId !== deviceId) return null;
       return {
         size: lease.size,
         mime: lease.mime,
         version: lease.version,
         read: (offset, length) => {
-          if (leases.get(lease.transferId) !== lease) return Promise.reject(expired());
+          if (!tables.isLive(lease)) return Promise.reject(expired());
           return readLease(lease, offset, length);
         },
       };
