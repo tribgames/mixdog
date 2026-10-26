@@ -42,10 +42,10 @@ function fixture({ foreground = false, enabled = true } = {}) {
 const update = (toolApproval, frameSource = 'live') => ({ sessionId: 's1', frameSource, snapshot: { toolApproval } });
 // final-answer-watcher confirms a finished lead turn after this delay.
 const LEAD_FINISHED_MS = 300;
-// The notifier's collaborators are in-memory, so draining the event loop settles it.
-const settle = async () => {
-  for (let i = 0; i < 25; i += 1) await new Promise((resolve) => setImmediate(resolve));
-};
+// The notifier's collaborators are promise-only fakes (its timers are faked or
+// not yet due), so all its work is microtasks; the event loop reaches its next
+// macrotask (the real setImmediate) only once every one of them has run.
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 // Holds use the global setTimeout; fake it so a hold is advanced, not waited out.
 const fakeHoldTimers = (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });

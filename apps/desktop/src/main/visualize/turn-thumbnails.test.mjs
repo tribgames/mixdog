@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
 
+import { waitUntil } from '../bounded-wait.mjs';
 import { remoteVisualizeState, versionProducedAt } from '../../shared/visualize.ts';
 import { TURN_END_THUMBNAIL_MS } from './thumbnails.ts';
 import { VISIBLE_PASSWORD_SCRIPT } from './export-render.ts';
@@ -252,10 +253,12 @@ test('a turn starting while the previous turn flushes keeps its own span; versio
 test('a picture not ready in time (or refused) leaves the card its placeholder, never an older picture', async () => {
   let refuse = false;
   let started = 0;
+  let requestSignal;
   const t = setup({
     async thumbnailOffscreen(_sessionId, _tab, _files, signal) {
       if (refuse) throw new Error('the page shows a password field');
       started += 1;
+      requestSignal = signal;
       // Never ready: only the deadline ends it.
       await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
       assert.equal(signal.aborted, true);
@@ -274,15 +277,13 @@ test('a picture not ready in time (or refused) leaves the card its placeholder, 
     mock.timers.enable({ apis: ['setTimeout'] });
     let ended = false;
     const ending = t.service.setTurnActive(SESSION, false).then(() => (ended = true));
-    for (let turn = 0; turn < 5_000 && started === 0; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(started, 1, 'the picture was requested');
-    const drain = async () => {
-      for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-    };
+    await waitUntil(() => started === 1, 'the picture to be requested');
+    // The deadline aborts the request synchronously when its timer fires.
     mock.timers.tick(TURN_END_THUMBNAIL_MS - 1);
-    await drain();
-    assert.equal(ended, false, 'still waiting one millisecond before the deadline');
+    assert.equal(requestSignal.aborted, false, 'still waiting one millisecond before the deadline');
+    assert.equal(ended, false);
     mock.timers.tick(1);
+    assert.equal(requestSignal.aborted, true, 'complete exactly at the deadline');
     await ending;
     mock.timers.reset();
     const tab = t.shownTabs()[0];

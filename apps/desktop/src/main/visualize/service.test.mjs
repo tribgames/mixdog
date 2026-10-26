@@ -559,20 +559,13 @@ test('a web URL open without a browser host answers at once with the list_tabs f
   const { deps } = fakeDeps({ delay: () => new Promise(() => {}) });
   const service = createVisualizeService(deps);
   try {
-    const outcome = await Promise.race([
-      service.execute({
-        sessionId: 's1',
-        cwd,
-        action: 'open',
-        input: { targets: ['http://127.0.0.1:8765/index.html'] },
-      }),
-      (async () => {
-        for (let turn = 0; turn < 50; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-        return null;
-      })(),
-    ]);
-    assert.notEqual(outcome, null, 'the open waited for a page that nothing will create');
-    const opened = outcome;
+    // A wait on a page that nothing will create would never return (the test's own timeout fails it).
+    const opened = await service.execute({
+      sessionId: 's1',
+      cwd,
+      action: 'open',
+      input: { targets: ['http://127.0.0.1:8765/index.html'] },
+    });
     assert.match(opened.text, /list_tabs/);
     assert.doesNotMatch(opened.text, /as page/);
   } finally {

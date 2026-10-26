@@ -22,6 +22,11 @@ function fakeWindow(mode = 'visible') {
   return { window, state };
 }
 
+// The notifier's collaborators are promise-only fakes, so everything a tick
+// sets going is microtasks; the event loop reaches its next macrotask (the
+// real setImmediate, not faked here) only once all of them have run.
+const drained = () => new Promise((resolve) => setImmediate(resolve));
+
 const sent = (state) => state.calls.filter(Array.isArray);
 
 /** The real notifier and the real click route; only Electron is faked. */
@@ -64,7 +69,7 @@ function harness(t, { windows }) {
     notifier.onSessions(rows.map((row) => ({ title: 'T', ...row, working: true })));
     notifier.onSessions(rows.map((row) => ({ title: 'T', ...row })));
     t.mock.timers.tick(2_500);
-    for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+    await drained();
   };
   return {
     notifier,
@@ -121,7 +126,7 @@ test('approval and question waits open the chat that shows them, a sub-agent’s
     snapshot: { toolApproval: { id: 'q1', kind: 'question' } },
   });
   t.mock.timers.tick(0);
-  for (let hop = 0; hop < 20; hop++) await Promise.resolve();
+  await drained();
   assert.equal(h.notifications.length, 2);
   for (const notification of h.notifications) notification.emit('click');
   assert.deepEqual(

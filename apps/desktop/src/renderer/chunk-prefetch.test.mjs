@@ -25,10 +25,7 @@ test('a pane is downloaded with preload links and never imported', async () => {
     for (const link of links) link.dispatchEvent(new window.Event(link === links[1] ? 'error' : 'load'));
     await done;
     // A second warm-up of an overlapping graph requests nothing twice.
-    await Promise.race([
-      fetchChunkGraph('editor', files),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('waited on a landed file')), 200)),
-    ]);
+    await fetchChunkGraph('editor', files);
     assert.equal(document.head.querySelectorAll('link').length, 3);
     // The dev server and tests have no lists: nothing is fetched.
     await fetchChunkGraph('terminal');

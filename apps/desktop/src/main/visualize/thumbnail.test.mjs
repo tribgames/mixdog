@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import test, { mock } from 'node:test';
 
+import { waitUntil } from '../bounded-wait.mjs';
 import { settledBodyImage } from './host.ts';
 import { createVisualizeService } from './service.ts';
 
@@ -493,9 +494,6 @@ test('an aborted thumbnail job stops between capture rounds', async (t) => {
   // Fake the quiet interval's timer: it is never advanced, so only the abort can end the wait.
   mock.timers.enable({ apis: ['setTimeout'] });
   t.after(() => mock.timers.reset());
-  const drain = async () => {
-    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  };
   const controller = new AbortController();
   // The job is superseded while its second capture is taken.
   const { window, log } = captureWindow(
@@ -516,10 +514,9 @@ test('an aborted thumbnail job stops between capture rounds', async (t) => {
   const pending = settledBodyImage(waiting.window, 's1', imageTab, slow.signal);
   let finished = false;
   pending.then(() => (finished = true));
-  await drain();
-  assert.equal(waiting.log.captures, 1, 'the first round captured and is now in its quiet wait');
+  await waitUntil(() => waiting.log.captures === 1, 'the first round to capture');
   assert.equal(finished, false, 'the quiet interval has not elapsed');
   slow.abort();
-  const outcome = await Promise.race([pending, drain().then(() => 'still waiting')]);
-  assert.equal(outcome, null, 'the abort ended the wait without advancing its deadline');
+  // The quiet interval's timer is never advanced, so only the abort can end the job.
+  assert.equal(await pending, null, 'the abort ended the wait without advancing its deadline');
 });
