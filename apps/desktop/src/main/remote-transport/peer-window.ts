@@ -380,7 +380,11 @@ export function createRemoteTransportPeerWindow(options: RemoteTransportPeerWind
   /** Both channels against the one bound. */
   const load = (connection: PeerConnection): number => total(connection.queues.app) + total(connection.queues.control);
 
-  function settle(connection: PeerConnection, channel: RemoteTransportPeerChannel, update: (queue: ChannelQueue) => void): void {
+  function settle(
+    connection: PeerConnection,
+    channel: RemoteTransportPeerChannel,
+    update: (queue: ChannelQueue) => void
+  ): void {
     const before = load(connection);
     update(connection.queues[channel]);
     const after = load(connection);
@@ -440,7 +444,10 @@ export function createRemoteTransportPeerWindow(options: RemoteTransportPeerWind
       }
       case 'connected':
         // DTLS is up: the certificate must be one the E2EE answer named.
-        if (!connection.fingerprints || !remoteWebrtcCertificateMatches(connection.fingerprints, event.remoteCertificate)) {
+        if (
+          !connection.fingerprints ||
+          !remoteWebrtcCertificateMatches(connection.fingerprints, event.remoteCertificate)
+        ) {
           fail(connection, 'fingerprint-mismatch');
           return;
         }
@@ -463,7 +470,13 @@ export function createRemoteTransportPeerWindow(options: RemoteTransportPeerWind
           fits,
           path: event.path,
         });
-        emit({ type: 'open', connectionId: connection.id, maxMessageSize: event.maxMessageSize, fits, path: event.path });
+        emit({
+          type: 'open',
+          connectionId: connection.id,
+          maxMessageSize: event.maxMessageSize,
+          fits,
+          path: event.path,
+        });
         return;
       }
       case 'message': {
@@ -564,7 +577,10 @@ export function createRemoteTransportPeerWindow(options: RemoteTransportPeerWind
         timer: null,
       };
       connections.set(connectionId, connection);
-      connection.timer = setTimeout(() => fail(connection, 'negotiation-timeout'), REMOTE_TRANSPORT_NEGOTIATION_TIMEOUT_MS);
+      connection.timer = setTimeout(
+        () => fail(connection, 'negotiation-timeout'),
+        REMOTE_TRANSPORT_NEGOTIATION_TIMEOUT_MS
+      );
       command({ type: 'create', connectionId, iceServers: servers });
       return true;
     },

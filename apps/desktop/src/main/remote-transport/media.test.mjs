@@ -57,7 +57,10 @@ function file(name, size) {
   for (let index = 0; index < size; index += 1) bytes[index] = (index * 31 + (index >> 8)) & 0xff;
   const path = join(dir, name);
   writeFileSync(path, bytes);
-  return { bytes, assetId: leaseMediaFile(path, 'video/mp4', { within: dir, identity: statSync(path, { bigint: true }) }) };
+  return {
+    bytes,
+    assetId: leaseMediaFile(path, 'video/mp4', { within: dir, identity: statSync(path, { bigint: true }) }),
+  };
 }
 
 async function session() {
@@ -150,7 +153,15 @@ function transport({ client, server }, { drained = false } = {}) {
   };
 }
 
-const request = (id, fields) => ({ type: 'transport-media', op: 'request', id, variant: 'original', range: '', enc: ENC, ...fields });
+const request = (id, fields) => ({
+  type: 'transport-media',
+  op: 'request',
+  id,
+  variant: 'original',
+  range: '',
+  enc: ENC,
+  ...fields,
+});
 
 /** Serves one request over the adapter, acking as the phone drains, until it ends. */
 async function serveDirect(t, adapter, message) {
@@ -170,7 +181,8 @@ async function decode(key, asset, range, status, frames) {
   if (status !== 200) return { status, frames: frames.length };
   const reader = createMediaFrameReader();
   const bodies = frames.flatMap((frame) => reader.push(frame));
-  const alignedStart = Math.floor(Number(/bytes=(\d+)/.exec(range)?.[1] ?? 0) / MEDIA_SEGMENT_BYTES) * MEDIA_SEGMENT_BYTES;
+  const alignedStart =
+    Math.floor(Number(/bytes=(\d+)/.exec(range)?.[1] ?? 0) / MEDIA_SEGMENT_BYTES) * MEDIA_SEGMENT_BYTES;
   const meta = await decryptMediaMeta(key, asset, alignedStart, bodies[0]);
   const parts = [];
   let offset = meta.start;
@@ -201,14 +213,25 @@ async function overHttp(sources, key, device, fields) {
 /** One request over a fresh adapter of the session `t` carries. */
 async function overTransport(sources, t, device, fields, id) {
   const { pair } = t;
-  const adapter = createRemoteTransportMediaAdapter({ ...sources, link: t.link, mediaKey: pair.server.mediaKey, device });
+  const adapter = createRemoteTransportMediaAdapter({
+    ...sources,
+    link: t.link,
+    mediaKey: pair.server.mediaKey,
+    device,
+  });
   const message = request(id, fields);
   const mine = await serveDirect(t, adapter, message);
   // Every message the phone receives is a valid desktop → client media message.
   for (const m of mine) assert.deepEqual(readRemoteTransportMedia(m, 'desktop'), m);
   const frames = mine.filter((m) => m.op === 'chunk').map((m) => Buffer.from(m.frame, 'base64url'));
   const head = mine.find((m) => m.op === 'head');
-  return decode(pair.client.mediaKey, { assetId: message.assetId, variant: message.variant }, message.range, head?.status, frames);
+  return decode(
+    pair.client.mediaKey,
+    { assetId: message.assetId, variant: message.variant },
+    message.range,
+    head?.status,
+    frames
+  );
 }
 
 async function downloadFixture(t, name, size) {
@@ -328,8 +351,18 @@ test('a changed file is refused as 412 before any byte on both lanes; a change m
       },
     }),
   };
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads: changing, link: stream.link, mediaKey: pair.server.mediaKey, device: PHONE });
-  const mine = await serveDirect(stream, adapter, request('c3', { assetId: '00000000-0000-4000-8000-000000000001', variant: 'download' }));
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads: changing,
+    link: stream.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
+  const mine = await serveDirect(
+    stream,
+    adapter,
+    request('c3', { assetId: '00000000-0000-4000-8000-000000000001', variant: 'download' })
+  );
   assert.deepEqual(
     mine.map((m) => m.op),
     ['head', 'chunk', 'chunk', 'chunk', 'error']
@@ -378,7 +411,13 @@ test('backpressure is the sealed wire bytes: the reader stops at the stream cred
   // The carrier drains at once here, so only the stream credit holds the pump.
   const t = transport(pair, { drained: true });
   const source = recordingDownload(4 * 1024 * 1024);
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads: source.downloads, link: t.link, mediaKey: pair.server.mediaKey, device: PHONE });
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads: source.downloads,
+    link: t.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
   adapter.receive(request('w1', LEASE));
   await settled(t, source);
   const media = t.boxes.filter((box) => box.stream === 'w1');
@@ -409,7 +448,13 @@ test('above the low-water mark nothing is sealed and no further segment is read,
   const pair = await session();
   const t = transport(pair);
   const source = recordingDownload(2 * 1024 * 1024);
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads: source.downloads, link: t.link, mediaKey: pair.server.mediaKey, device: PHONE });
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads: source.downloads,
+    link: t.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
   t.setQueued(REMOTE_TRANSPORT_BUFFER_HIGH_BYTES + 1);
   adapter.receive(request('q1', LEASE));
   await settled(t, source);
@@ -434,7 +479,13 @@ test('an RPC sent during a download is admitted at once and queues behind at mos
   const pair = await session();
   const t = transport(pair);
   const source = recordingDownload(DOWNLOAD_WINDOW_MAX_BYTES);
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads: source.downloads, link: t.link, mediaKey: pair.server.mediaKey, device: PHONE });
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads: source.downloads,
+    link: t.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
   adapter.receive(request('r1', LEASE));
   // The phone acks everything at once but the carrier never drains: the
   // download runs into the low-water mark of its carrier queue.
@@ -462,7 +513,13 @@ test('cancel stops the pump: no further read, record, end or error', async () =>
   const pair = await session();
   const t = transport(pair);
   const source = recordingDownload(DOWNLOAD_WINDOW_MAX_BYTES);
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads: source.downloads, link: t.link, mediaKey: pair.server.mediaKey, device: PHONE });
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads: source.downloads,
+    link: t.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
   adapter.receive(request('x1', LEASE));
   await settled(t, source);
   await t.ack();
@@ -502,8 +559,15 @@ test('at most 32 streams run; a further one is refused before any head; close st
       },
     }),
   };
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads, link: t.link, mediaKey: pair.server.mediaKey, device: PHONE });
-  for (let index = 0; index < REMOTE_TRANSPORT_MAX_MEDIA_STREAMS; index += 1) adapter.receive(request(`s${index}`, LEASE));
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads,
+    link: t.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
+  for (let index = 0; index < REMOTE_TRANSPORT_MAX_MEDIA_STREAMS; index += 1)
+    adapter.receive(request(`s${index}`, LEASE));
   await waitUntil(() => reads === REMOTE_TRANSPORT_MAX_MEDIA_STREAMS, 'every stream to start reading');
   assert.equal(adapter.receive(request('extra', LEASE)), true);
   await waitUntil(() => t.boxes.length === 1 && t.idle(), 'the refusal');
@@ -545,7 +609,13 @@ test('a writable notification that arrives while a refused send is pending still
   const pair = await session();
   const s = scriptedLink();
   const source = recordingDownload(1_000_000);
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads: source.downloads, link: s.link, mediaKey: pair.server.mediaKey, device: PHONE });
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads: source.downloads,
+    link: s.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
   adapter.receive(request('lw', LEASE));
   await waitUntil(() => s.sends.length === 1, 'the head send');
   // The seal-time check refuses it (another record took the room); while
@@ -584,17 +654,29 @@ test('excess requests on a blocked carrier hold only a bounded refusal queue; ov
   // Bulk is blocked: every pump waits for room before its head.
   s.bulk = false;
   const source = recordingDownload(1_000_000);
-  const adapter = createRemoteTransportMediaAdapter({ host: NO_HOST, downloads: source.downloads, link: s.link, mediaKey: pair.server.mediaKey, device: PHONE });
+  const adapter = createRemoteTransportMediaAdapter({
+    host: NO_HOST,
+    downloads: source.downloads,
+    link: s.link,
+    mediaKey: pair.server.mediaKey,
+    device: PHONE,
+  });
   const max = REMOTE_TRANSPORT_MAX_MEDIA_STREAMS;
   for (let index = 0; index < max; index += 1) adapter.receive(request(`run${index}`, LEASE));
-  await waitUntil(() => source.state.reads.length === max && source.state.inflight === 0, 'every pump to wait for room');
+  await waitUntil(
+    () => source.state.reads.length === max && source.state.inflight === 0,
+    'every pump to wait for room'
+  );
   assert.equal(s.sends.length, 0);
   // Excess requests: each is refused by one ordinary (non-bulk) record, sent
   // without waiting for bulk room, one at a time; the carrier holds them.
   for (let index = 0; index < max; index += 1) adapter.receive(request(`over${index}`, LEASE));
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(s.sends.length, 1, 'one refusal in flight, the rest queued by id');
-  assert.deepEqual([s.sends[0].message, s.sends[0].stream], [{ type: 'transport-media', op: 'error', id: 'over0' }, null]);
+  assert.deepEqual(
+    [s.sends[0].message, s.sends[0].stream],
+    [{ type: 'transport-media', op: 'error', id: 'over0' }, null]
+  );
   assert.equal(source.state.reads.length, max, 'no refused request reads or resolves anything');
   // The carrier refuses it too: the queue waits for a notification, no spin.
   s.sends[0].resolve(false);

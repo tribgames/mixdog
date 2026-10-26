@@ -217,7 +217,8 @@ const MEDIA_FRAME_MAX_BYTES = 4 + 12 + 64 * 1024 + GCM_TAG_BYTES;
 export const REMOTE_TRANSPORT_MEDIA_CHUNK_MAX_CHARS = Math.ceil((MEDIA_FRAME_MAX_BYTES * 4) / 3);
 /** One control box fills at most one carrier message, and its plaintext is
  *  the box minus header and tag: every signal must serialize within it. */
-export const REMOTE_TRANSPORT_MAX_CONTROL_BOX_BYTES = REMOTE_TRANSPORT_MAX_MESSAGE_BYTES - REMOTE_TRANSPORT_PREFIX_BYTES;
+export const REMOTE_TRANSPORT_MAX_CONTROL_BOX_BYTES =
+  REMOTE_TRANSPORT_MAX_MESSAGE_BYTES - REMOTE_TRANSPORT_PREFIX_BYTES;
 export const REMOTE_TRANSPORT_MAX_CONTROL_PLAINTEXT_BYTES =
   REMOTE_TRANSPORT_MAX_CONTROL_BOX_BYTES - REMOTE_TRANSPORT_BOX_HEADER_BYTES - GCM_TAG_BYTES;
 /** Most selective-ack ranges one ack carries (RFC 9000 §19.3 ACK ranges set
@@ -417,7 +418,13 @@ function parseSignalFields(value: unknown, from: 'desktop' | 'client'): RemoteTr
     case 'offer': {
       if (from !== 'desktop') fail('offer direction');
       const text = sdp(input.sdp);
-      return { ...ref, t: 'offer', sdp: text, fingerprints: fingerprintsFor(text, input.fingerprints), iceServers: parseRemoteWebrtcIceServers(input.iceServers) };
+      return {
+        ...ref,
+        t: 'offer',
+        sdp: text,
+        fingerprints: fingerprintsFor(text, input.fingerprints),
+        iceServers: parseRemoteWebrtcIceServers(input.iceServers),
+      };
     }
     case 'answer': {
       if (from !== 'client') fail('answer direction');
@@ -432,7 +439,9 @@ function parseSignalFields(value: unknown, from: 'desktop' | 'client'): RemoteTr
         ...ref,
         t: 'close',
         reason: input.reason as RemoteTransportCloseReason,
-        ...(input.detail === undefined ? {} : { detail: boundedText(input.detail, REMOTE_TRANSPORT_MAX_DETAIL_CHARS,'close detail') }),
+        ...(input.detail === undefined
+          ? {}
+          : { detail: boundedText(input.detail, REMOTE_TRANSPORT_MAX_DETAIL_CHARS, 'close detail') }),
       };
     }
     default:
@@ -534,7 +543,11 @@ export function readRemoteTransportControl(
   } else if (input.t === 'repair') {
     if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
     const sequences = input.sequences;
-    if (!Array.isArray(sequences) || sequences.length < 1 || sequences.length > REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT) {
+    if (
+      !Array.isArray(sequences) ||
+      sequences.length < 1 ||
+      sequences.length > REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT
+    ) {
       fail('repair');
     }
     let floor = 0;
@@ -592,7 +605,15 @@ export type RemoteTransportMediaStatus = 200 | 403 | 404 | 405 | 412 | 416 | 500
 const MEDIA_STATUSES: ReadonlySet<number> = new Set([200, 403, 404, 405, 412, 416, 500]);
 
 export type RemoteTransportMedia =
-  | { type: typeof REMOTE_TRANSPORT_MEDIA_TYPE; op: 'request'; id: string; assetId: string; variant: string; range: string; enc: string }
+  | {
+      type: typeof REMOTE_TRANSPORT_MEDIA_TYPE;
+      op: 'request';
+      id: string;
+      assetId: string;
+      variant: string;
+      range: string;
+      enc: string;
+    }
   | { type: typeof REMOTE_TRANSPORT_MEDIA_TYPE; op: 'head'; id: string; status: RemoteTransportMediaStatus }
   | { type: typeof REMOTE_TRANSPORT_MEDIA_TYPE; op: 'chunk'; id: string; frame: string }
   | { type: typeof REMOTE_TRANSPORT_MEDIA_TYPE; op: 'end' | 'cancel' | 'error'; id: string };
@@ -613,7 +634,15 @@ export function readRemoteTransportMedia(value: unknown, from: 'desktop' | 'clie
       if (!/^[0-9a-fA-F-]{8,64}$/u.test(assetId)) fail('media asset');
       const range = boundedText(input.range, 64, 'media range');
       if (range && !/^bytes=\d{0,16}-\d{0,16}$/u.test(range)) fail('media range');
-      return { type, op: 'request', id, assetId, variant: token(input.variant, 'media variant', 1, 32), range, enc: token(input.enc, 'media scheme', 1, 16) };
+      return {
+        type,
+        op: 'request',
+        id,
+        assetId,
+        variant: token(input.variant, 'media variant', 1, 32),
+        range,
+        enc: token(input.enc, 'media scheme', 1, 16),
+      };
     }
     case 'head': {
       if (typeof input.status !== 'number' || !MEDIA_STATUSES.has(input.status)) fail('media status');
@@ -923,7 +952,11 @@ function bytesOf(value: unknown): Uint8Array | null {
  *  peer cannot produce. Copies, so a carrier may reuse its buffer. */
 export function decodeRemoteTransportMessage(raw: unknown): RemoteTransportMessage {
   const bytes = bytesOf(raw);
-  if (!bytes || bytes.byteLength > REMOTE_TRANSPORT_MAX_MESSAGE_BYTES || bytes.byteLength < REMOTE_TRANSPORT_PREFIX_BYTES) {
+  if (
+    !bytes ||
+    bytes.byteLength > REMOTE_TRANSPORT_MAX_MESSAGE_BYTES ||
+    bytes.byteLength < REMOTE_TRANSPORT_PREFIX_BYTES
+  ) {
     fail('message size');
   }
   if (!hasMagic(bytes, 0, TRANSPORT_MAGIC)) fail('message magic');
@@ -945,7 +978,8 @@ export function decodeRemoteTransportMessage(raw: unknown): RemoteTransportMessa
       const total = view.getUint32(21, false);
       if (total <= REMOTE_TRANSPORT_CHUNK_BYTES || total > REMOTE_TRANSPORT_MAX_RECORD_BYTES) fail('chunk total');
       if (count !== Math.ceil(total / REMOTE_TRANSPORT_CHUNK_BYTES) || index >= count) fail('chunk index');
-      const expected = index === count - 1 ? total - index * REMOTE_TRANSPORT_CHUNK_BYTES : REMOTE_TRANSPORT_CHUNK_BYTES;
+      const expected =
+        index === count - 1 ? total - index * REMOTE_TRANSPORT_CHUNK_BYTES : REMOTE_TRANSPORT_CHUNK_BYTES;
       const data = bytes.slice(REMOTE_TRANSPORT_CHUNK_HEADER_BYTES);
       if (data.byteLength !== expected) fail('chunk length');
       return { kind: 'chunk', sequence: Number(rawSequence), index, count, total, data };
@@ -1056,7 +1090,8 @@ export class RemoteTransportSender {
    *  media can never starve RPC and state records. Droppable payloads that
    *  find it closed are coalesced or dropped BEFORE sealing, never after. */
   canAdmit(admission: RemoteTransportAdmission = {}): boolean {
-    const size = admission.stream === undefined ? REMOTE_TRANSPORT_MAX_RECORD_BYTES : REMOTE_TRANSPORT_MEDIA_RECORD_MAX_BYTES;
+    const size =
+      admission.stream === undefined ? REMOTE_TRANSPORT_MAX_RECORD_BYTES : REMOTE_TRANSPORT_MEDIA_RECORD_MAX_BYTES;
     if (this.bytes + size > REMOTE_TRANSPORT_MAX_OUTSTANDING_BYTES) return false;
     if (admission.stream === undefined) return true;
     return (
@@ -1277,7 +1312,9 @@ export class RemoteTransportSender {
    *  new authenticated session resets the stream) and fail unacked calls as
    *  ambiguous. A slow link that keeps acking never expires. */
   expired(now: number): boolean {
-    return this.retained.size > 0 && this.progressAt !== null && now - this.progressAt >= REMOTE_TRANSPORT_RECORD_EXPIRY_MS;
+    return (
+      this.retained.size > 0 && this.progressAt !== null && now - this.progressAt >= REMOTE_TRANSPORT_RECORD_EXPIRY_MS
+    );
   }
 
   stats(): RemoteTransportSenderStats {
@@ -1485,7 +1522,11 @@ export class RemoteTransportReceiver {
     if (slot && slot.candidates.length >= REMOTE_TRANSPORT_CANDIDATES_PER_SLOT) {
       for (const candidate of slot.candidates) {
         if (complete(candidate)) continue;
-        if (!victim || candidate.received < victim.received || (candidate.received === victim.received && candidate.progressAt < victim.progressAt)) {
+        if (
+          !victim ||
+          candidate.received < victim.received ||
+          (candidate.received === victim.received && candidate.progressAt < victim.progressAt)
+        ) {
           victim = candidate;
         }
       }
@@ -1622,10 +1663,7 @@ export class RemoteTransportReceiver {
     for (const [sequence, since] of [...this.gaps]) {
       if (sequence <= this.delivered || this.hasComplete(sequence)) {
         this.gaps.delete(sequence);
-      } else if (
-        sequence + REMOTE_TRANSPORT_PACKET_THRESHOLD <= this.highestArrived ||
-        now - since >= lossDelay
-      ) {
+      } else if (sequence + REMOTE_TRANSPORT_PACKET_THRESHOLD <= this.highestArrived || now - since >= lossDelay) {
         declare(sequence);
       }
     }
@@ -1833,9 +1871,7 @@ export class RemoteTransportPathMonitor implements RemoteTransportRttEstimate {
 
   ptoMs(): number {
     return (
-      this.smoothedRtt +
-      Math.max(4 * this.rttvar, REMOTE_TRANSPORT_GRANULARITY_MS) +
-      REMOTE_TRANSPORT_MAX_ACK_DELAY_MS
+      this.smoothedRtt + Math.max(4 * this.rttvar, REMOTE_TRANSPORT_GRANULARITY_MS) + REMOTE_TRANSPORT_MAX_ACK_DELAY_MS
     );
   }
 

@@ -296,7 +296,8 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     bytesSent += message.byteLength;
   };
 
-  const laneOf = (path: Path): RelayE2EEControlLane => (path === relayPath ? RELAY_E2EE_RELAY_LANE : (path as Direct).lane);
+  const laneOf = (path: Path): RelayE2EEControlLane =>
+    path === relayPath ? RELAY_E2EE_RELAY_LANE : (path as Direct).lane;
 
   /** Seals one control message FOR `path`'s lane and hands it to that lane
    *  in seal order (signals: the relay lane only). On a direct lane its wire
@@ -554,7 +555,15 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   const failDirect = (d: Direct, why: RemoteTransportCloseReason, detail?: string): void => {
     if (direct !== d) return;
     options.log(`[mixdog-remote-transport] closing ${d.connectionId}: ${why}${detail ? ` (${detail})` : ''}`);
-    control({ ...ref(d), t: 'close', reason: why, ...(detail ? { detail: detail.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) } : {}) }, relayPath);
+    control(
+      {
+        ...ref(d),
+        t: 'close',
+        reason: why,
+        ...(detail ? { detail: detail.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) } : {}),
+      },
+      relayPath
+    );
     closePeer(d, detail === 'max-message-size' ? 'message-size' : (PATH_REASONS[why] ?? 'channel-failed'));
   };
 

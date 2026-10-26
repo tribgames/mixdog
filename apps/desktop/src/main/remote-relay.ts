@@ -275,9 +275,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // resolveRemoteIceServers() (remote-ice-servers.ts) while this client runs.
   const iceServers = createRemoteIceServers({
     request: () =>
-      caps.relayIce()
-        ? control.request<Record<string, unknown>>('ice-servers-request')
-        : Promise.resolve(null),
+      caps.relayIce() ? control.request<Record<string, unknown>>('ice-servers-request') : Promise.resolve(null),
   });
   const unbindIceServers = bindRemoteIceServers(iceServers);
   // With zero phones the relay would drop every broadcast on the floor anyway,

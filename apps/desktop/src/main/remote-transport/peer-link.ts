@@ -134,7 +134,8 @@ const isChannel = (value: unknown): value is RemoteTransportPeerChannel => value
 const isLoad = (value: unknown): value is Load =>
   Array.isArray(value) && value.length === 2 && isCount(value[0]) && isCount(value[1]);
 
-const toBase64 = (data: Uint8Array): string => Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64');
+const toBase64 = (data: Uint8Array): string =>
+  Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64');
 /** A carrier message from the lane, or null when it is not one. */
 function carrierBytes(value: unknown): Uint8Array | null {
   if (typeof value !== 'string' || value.length > Math.ceil(REMOTE_TRANSPORT_MAX_MESSAGE_BYTES / 3) * 4) return null;
@@ -209,7 +210,10 @@ export function createRemoteTransportPeerStandIn(deps: RemoteTransportPeerStandI
     for (const connectionId of ids) emit({ type: 'failed', connectionId, reason: 'peer-host-unavailable' });
   }
 
-  function send(command: RemoteTransportPeerLinkCommand, bytes = new Map<string, Record<RemoteTransportPeerChannel, number>>()): void {
+  function send(
+    command: RemoteTransportPeerLinkCommand,
+    bytes = new Map<string, Record<RemoteTransportPeerChannel, number>>()
+  ): void {
     if (!attachment) return;
     const id = ++seq;
     pending.set(id, { bytes, cancel: schedule(lost, REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS) });
@@ -247,7 +251,8 @@ export function createRemoteTransportPeerStandIn(deps: RemoteTransportPeerStandI
       settle(
         connectionId,
         (mirror) => {
-          if (sent) for (const channel of CHANNELS) mirror.hop[channel] = Math.max(0, mirror.hop[channel] - sent[channel]);
+          if (sent)
+            for (const channel of CHANNELS) mirror.hop[channel] = Math.max(0, mirror.hop[channel] - sent[channel]);
           if (fresh && isLoad(load)) mirror.app = load;
         },
         sent && sent.app > 0 ? 'app' : 'control'
@@ -316,7 +321,8 @@ export function createRemoteTransportPeerStandIn(deps: RemoteTransportPeerStandI
         return;
       case 'failed': {
         connections.delete(connectionId);
-        const reason = typeof report.reason === 'string' && FAILURES.has(report.reason) ? report.reason : 'channel-failed';
+        const reason =
+          typeof report.reason === 'string' && FAILURES.has(report.reason) ? report.reason : 'channel-failed';
         emit({ type: 'failed', connectionId, reason: reason as RemoteTransportPeerBridgeFailure });
         return;
       }
@@ -470,10 +476,20 @@ export function createRemoteTransportPeerEndpoint(deps: RemoteTransportPeerEndpo
         report({ type: 'candidate', connectionId: event.connectionId, candidate: event.candidate });
         return;
       case 'open':
-        report({ type: 'open', connectionId: event.connectionId, maxMessageSize: event.maxMessageSize, path: event.path });
+        report({
+          type: 'open',
+          connectionId: event.connectionId,
+          maxMessageSize: event.maxMessageSize,
+          path: event.path,
+        });
         return;
       case 'message':
-        report({ type: 'message', connectionId: event.connectionId, channel: event.channel, data: toBase64(event.data) });
+        report({
+          type: 'message',
+          connectionId: event.connectionId,
+          channel: event.channel,
+          data: toBase64(event.data),
+        });
         return;
       case 'drain':
         report({ type: 'drain', connectionId: event.connectionId, load: loadOf(event.connectionId) });
@@ -519,11 +535,20 @@ export function createRemoteTransportPeerEndpoint(deps: RemoteTransportPeerEndpo
         return [];
       }
       case 'offer':
-        if (isText(connectionId) && ids.has(connectionId)) bridge?.offer(connectionId, { iceRestart: command.iceRestart === true });
+        if (isText(connectionId) && ids.has(connectionId))
+          bridge?.offer(connectionId, { iceRestart: command.iceRestart === true });
         return [];
       case 'answer':
-        if (isText(connectionId) && ids.has(connectionId) && typeof command.sdp === 'string' && Array.isArray(command.fingerprints)) {
-          bridge?.answer(connectionId, { sdp: command.sdp, fingerprints: command.fingerprints as RemoteWebrtcFingerprint[] });
+        if (
+          isText(connectionId) &&
+          ids.has(connectionId) &&
+          typeof command.sdp === 'string' &&
+          Array.isArray(command.fingerprints)
+        ) {
+          bridge?.answer(connectionId, {
+            sdp: command.sdp,
+            fingerprints: command.fingerprints as RemoteWebrtcFingerprint[],
+          });
         }
         return [];
       case 'candidate':

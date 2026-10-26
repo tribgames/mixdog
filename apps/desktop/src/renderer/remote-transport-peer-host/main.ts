@@ -141,7 +141,8 @@ function textField(source: object | null, name: string): string | undefined {
   return typeof value === 'string' ? value.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) : undefined;
 }
 
-const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS);
+const describe = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS);
 
 /** The DTLS transport's remote certificate, as RTCCertificateStats names it. */
 async function remoteCertificate(pc: RTCPeerConnection) {
@@ -183,7 +184,12 @@ export function startRemoteTransportPeerHost(env: RemoteTransportPeerHostEnv): v
   function fail(connection: Connection, reason: RemoteTransportPeerFailure, detail?: string): void {
     if (connection.done) return;
     connection.done = true;
-    emit({ type: 'failed', connectionId: connection.id, reason, ...(detail ? { detail: detail.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) } : {}) });
+    emit({
+      type: 'failed',
+      connectionId: connection.id,
+      reason,
+      ...(detail ? { detail: detail.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) } : {}),
+    });
   }
 
   function reportBuffered(connection: Connection, channel: RemoteTransportPeerChannel): void {
@@ -339,7 +345,11 @@ export function startRemoteTransportPeerHost(env: RemoteTransportPeerHostEnv): v
     const description = await connection.pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
     await connection.pc.setLocalDescription(description);
     if (connection.done) return;
-    emit({ type: 'offer', connectionId: connection.id, sdp: connection.pc.localDescription?.sdp ?? description.sdp ?? '' });
+    emit({
+      type: 'offer',
+      connectionId: connection.id,
+      sdp: connection.pc.localDescription?.sdp ?? description.sdp ?? '',
+    });
   }
 
   function send(items: RemoteTransportPeerSendItem[]): void {
@@ -426,7 +436,13 @@ export function startRemoteTransportPeerHost(env: RemoteTransportPeerHostEnv): v
       const connection = connections.get(command.connectionId);
       // A `create` that threw before its connection existed is reported too.
       if (connection) fail(connection, 'peer-host-unavailable', describe(error));
-      else emit({ type: 'failed', connectionId: command.connectionId, reason: 'peer-host-unavailable', detail: describe(error) });
+      else
+        emit({
+          type: 'failed',
+          connectionId: command.connectionId,
+          reason: 'peer-host-unavailable',
+          detail: describe(error),
+        });
     });
   });
   emit({ type: 'ready' });

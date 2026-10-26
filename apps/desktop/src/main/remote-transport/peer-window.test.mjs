@@ -94,7 +94,10 @@ const APP_LIMIT = REMOTE_TRANSPORT_BUFFER_HIGH_BYTES - REMOTE_TRANSPORT_BUFFER_L
 // Fake WebRTC
 // ---------------------------------------------------------------------------
 
-const hex = (seed) => Array.from({ length: 32 }, (_, index) => ((index * 7 + seed) & 0xff).toString(16).padStart(2, '0').toUpperCase()).join(':');
+const hex = (seed) =>
+  Array.from({ length: 32 }, (_, index) =>
+    ((index * 7 + seed) & 0xff).toString(16).padStart(2, '0').toUpperCase()
+  ).join(':');
 const LOCAL_FP = hex(1);
 const REMOTE_FP = hex(2);
 const sdpWith = (fingerprint) =>
@@ -339,7 +342,12 @@ test('the PC offers with both channels, applies the answer and candidates, and o
     assert.equal(channel.bufferedAmountLowThreshold, REMOTE_TRANSPORT_BUFFER_LOW_BYTES);
   }
   assert.deepEqual(f.of('offer'), [
-    { type: 'offer', connectionId: ID, sdp: sdpWith(LOCAL_FP), fingerprints: [{ algorithm: 'sha-256', value: LOCAL_FP }] },
+    {
+      type: 'offer',
+      connectionId: ID,
+      sdp: sdpWith(LOCAL_FP),
+      fingerprints: [{ algorithm: 'sha-256', value: LOCAL_FP }],
+    },
   ]);
 
   // A phone candidate before any answer is refused.
@@ -555,7 +563,9 @@ test('backpressure counts the IPC hop with bufferedAmount and refuses above the 
 });
 
 test('control (ping, pong, ack) is sent and delivered at once while the app channel sits at the high-water mark', async () => {
-  const { encodeRemoteTransportControl, decodeRemoteTransportMessage } = await import('../../shared/remote-transport.ts');
+  const { encodeRemoteTransportControl, decodeRemoteTransportMessage } = await import(
+    '../../shared/remote-transport.ts'
+  );
   // A sealed control box as remote-e2ee.ts frames it: its magic, a header and a tag.
   const box = (tag) => {
     const bytes = new Uint8Array(64).fill(tag);
@@ -701,7 +711,10 @@ test('a host reload fails every connection, frees their ids and resets the accou
       reload
     );
     assert.equal(windows[0].destroyed, true, 'the reloaded page is discarded');
-    assert.equal(f.reports.find((entry) => entry.event === 'host-lost').cause, reload === 'navigation' ? 'navigated' : 'reloaded');
+    assert.equal(
+      f.reports.find((entry) => entry.event === 'host-lost').cause,
+      reload === 'navigation' ? 'navigated' : 'reloaded'
+    );
     assert.equal(f.bridge.queued(ID), 0, 'its accounting went with it');
     assert.equal(f.bridge.queued('conn-0002'), 0);
     assert.equal(f.bridge.send(ID, 'app', bulk), false, 'no send without a live peer');

@@ -57,7 +57,11 @@ export interface RelayEncryptedDelivery {
    *  anything is sent on it, and stores it on `state.transport`: from then on
    *  every frame for this client is a record of that stream, carried by the
    *  relay as a NON-droppable binary frame (or by the direct carrier). */
-  openTransport(clientId: string, state: RelayClientState, handlers: RelayTransportHandlers): RemoteTransportCoordinator;
+  openTransport(
+    clientId: string,
+    state: RelayClientState,
+    handlers: RelayTransportHandlers
+  ): RemoteTransportCoordinator;
   sendEncryptedFrame: SendEncryptedFrame;
   broadcastEncryptedAsync(
     payload: unknown,

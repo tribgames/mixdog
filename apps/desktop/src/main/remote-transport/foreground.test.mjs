@@ -59,6 +59,12 @@ test('only a session the leg reports on screen counts, and match narrows the leg
   assert.equal(legShowsSession(none, 's1', 1), false);
   assert.equal(legShowsSession(a, 's2', 1), false);
   const legs = [a, b];
-  assert.equal(someLegShowsSession(legs, 's2', (l) => l.credentialId === 'b', 1), true);
-  assert.equal(someLegShowsSession(legs, 's2', (l) => l.credentialId === 'a', 1), false);
+  assert.equal(
+    someLegShowsSession(legs, 's2', (l) => l.credentialId === 'b', 1),
+    true
+  );
+  assert.equal(
+    someLegShowsSession(legs, 's2', (l) => l.credentialId === 'a', 1),
+    false
+  );
 });

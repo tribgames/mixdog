@@ -255,15 +255,24 @@ test('relay-only without a peer host: split → seal → sender out, receiver �
   await h.coordinator.send(large);
   await h.phoneReadsRelay();
   assert.deepEqual(h.phone.messages.slice(1), [{ event: 'push', payload: 1 }, large]);
-  assert.ok(h.relay.every((raw) => raw[0] === 0x4d && raw[1] === 0x58 && raw[2] === 0x54), 'MXT messages only');
+  assert.ok(
+    h.relay.every((raw) => raw[0] === 0x4d && raw[1] === 0x58 && raw[2] === 0x54),
+    'MXT messages only'
+  );
 
   // Inbound: the client's calls are delivered in order; the desktop acks
   // them in the control domain.
-  for (const call of [{ id: 1, method: 'a' }, { id: 2, method: 'b' }]) {
+  for (const call of [
+    { id: 1, method: 'a' },
+    { id: 2, method: 'b' },
+  ]) {
     for (const raw of await h.phone.record(call)) h.coordinator.receive('relay', raw);
   }
   await until(() => h.delivered.length === 2, 'delivery');
-  assert.deepEqual(h.delivered, [{ id: 1, method: 'a' }, { id: 2, method: 'b' }]);
+  assert.deepEqual(h.delivered, [
+    { id: 1, method: 'a' },
+    { id: 2, method: 'b' },
+  ]);
   await h.advance(30);
   const seenControl = (t) => h.phone.controls.some(({ control }) => control.t === t);
   for (let i = 0; i < 2_000 && !(seenControl('ack') && seenControl('ping')); i += 1) {
@@ -290,7 +299,8 @@ test('a refusal before sealing leaves nextSequence unchanged', async () => {
   const before = h.coordinator.nextSequence();
   await assert.rejects(
     h.coordinator.send({ id: 3, ok: true, value: 'y'.repeat(REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES) }),
-    (error) => error instanceof RemoteTransportOversizeError && error.bytes > REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES
+    (error) =>
+      error instanceof RemoteTransportOversizeError && error.bytes > REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES
   );
   assert.equal(h.coordinator.nextSequence(), before, 'oversize: no sequence consumed');
   // Fill the window (no acks), then a droppable message is dropped unsealed.
@@ -446,7 +456,10 @@ test('relay meter: a message carried on the relay reports its bytes; one carried
   const before = h.relay.length;
   const total = await h.coordinator.send({ event: 'relay' }, { onRelayWrite: (bytes) => relayWrites.push(bytes) });
   await until(() => relayWrites.length > 0, 'the relay write');
-  assert.equal(relayWrites.reduce((a, b) => a + b, 0), total);
+  assert.equal(
+    relayWrites.reduce((a, b) => a + b, 0),
+    total
+  );
   assert.equal(messageBytes(h.relay.slice(before)), total);
 
   const { peer } = await promote(h, peerHost);
@@ -586,7 +599,10 @@ test('a slow but draining carrier is never demoted or re-sent to', async () => {
     const fresh = peer.sent.slice(answered).filter(({ channel }) => channel === 'control');
     answered = peer.sent.length;
     const before = h.phone.controls.length;
-    await h.phone.ingest(fresh.map(({ message }) => message), lane);
+    await h.phone.ingest(
+      fresh.map(({ message }) => message),
+      lane
+    );
     for (const { control } of h.phone.controls.slice(before)) {
       if (control.t === 'ping') peer.events.message(await h.phone.control({ v: 1, t: 'pong', id: control.id }, lane));
     }
@@ -605,7 +621,10 @@ test('TURN allocations are logged per session without credentials', async () => 
   assert.equal(h.coordinator.diagnostics().path, 'turn');
   assert.equal(h.coordinator.diagnostics().turnAllocations, 1);
   assert.ok(h.logs.some((line) => /turn-allocations=1 path=turn/.test(line)));
-  assert.ok(h.logs.every((line) => !line.includes('secret')), 'no credentials in logs');
+  assert.ok(
+    h.logs.every((line) => !line.includes('secret')),
+    'no credentials in logs'
+  );
 });
 
 test('media hook: client media messages reach the route; chunks are bulk records within the stream credit', async () => {
@@ -632,7 +651,15 @@ test('media hook: client media messages reach the route; chunks are bulk records
   };
   const h = await harness({ media });
   await h.ready();
-  const request = { type: 'transport-media', op: 'request', id: 'm1', assetId: 'abcdef12', variant: 'original', range: '', enc: 'e2ee1' };
+  const request = {
+    type: 'transport-media',
+    op: 'request',
+    id: 'm1',
+    assetId: 'abcdef12',
+    variant: 'original',
+    range: '',
+    enc: 'e2ee1',
+  };
   for (const raw of await h.phone.record(request)) h.coordinator.receive('relay', raw);
   for (const raw of await h.phone.record({ id: 1, method: 'listProjects' })) h.coordinator.receive('relay', raw);
   await until(() => received.length === 1 && h.delivered.length === 1, 'routing');
@@ -669,7 +696,10 @@ test('media hook: client media messages reach the route; chunks are bulk records
 
   h.coordinator.close();
   assert.equal(closedCount, 1, 'the adapter closes with the session');
-  await assert.rejects(link.send({ type: 'transport-media', op: 'end', id: 'm1' }, { stream: 'm1' }), RemoteTransportEndedError);
+  await assert.rejects(
+    link.send({ type: 'transport-media', op: 'end', id: 'm1' }, { stream: 'm1' }),
+    RemoteTransportEndedError
+  );
 });
 
 test('delivery: every sealed record takes the non-droppable relay path; drops happen only before sealing', async () => {
@@ -709,7 +739,10 @@ test('delivery: every sealed record takes the non-droppable relay path; drops ha
     return sequences.size === sealed;
   }, 'every sealed record written');
   const frames = writes.map((frame) => decodeRelayBinaryFrame(frame));
-  assert.ok(frames.every((frame) => frame.droppable === false), 'never droppable');
+  assert.ok(
+    frames.every((frame) => frame.droppable === false),
+    'never droppable'
+  );
   assert.deepEqual(closed, []);
 });
 
@@ -741,7 +774,12 @@ test('delivery: the byte meter records each relay write with its payload, at the
   const payload = { event: 'push', pad: 'p'.repeat(200_000) };
   await delivery.sendEncryptedFrame('c11e1700-0001', payload);
   await until(() => recorded.length > 0, 'a metered write');
-  await until(() => recorded.reduce((sum, entry) => sum + entry.bytes, 0) === messageBytes(writes.map((f) => decodeRelayBinaryFrame(f).data)), 'every write metered');
+  await until(
+    () =>
+      recorded.reduce((sum, entry) => sum + entry.bytes, 0) ===
+      messageBytes(writes.map((f) => decodeRelayBinaryFrame(f).data)),
+    'every write metered'
+  );
   assert.ok(recorded.every((entry) => entry.payload === payload));
 });
 
@@ -807,7 +845,10 @@ test('a suspended close for a connection already closed here still marks the leg
   h.coordinator.receive('relay', await h.phone.control({ ...ref, t: 'close', reason: 'suspended' }));
   await until(() => h.suspended === 1, 'background');
   // A connection this session never offered: ignored, not a protocol error.
-  h.coordinator.receive('relay', await h.phone.control({ ...ref, connectionId: 'never-offered', t: 'close', reason: 'suspended' }));
+  h.coordinator.receive(
+    'relay',
+    await h.phone.control({ ...ref, connectionId: 'never-offered', t: 'close', reason: 'suspended' })
+  );
   await handled(h, 9);
   await h.advance(30);
   assert.equal(h.suspended, 1);
@@ -815,17 +856,29 @@ test('a suspended close for a connection already closed here still marks the leg
   assert.equal(peerHost.peers.length, 1, 'no peer was touched or started by it');
 });
 
-const refOf = (offer) => ({ v: 1, sessionId: offer.sessionId, connectionId: offer.connectionId, generation: offer.generation });
+const refOf = (offer) => ({
+  v: 1,
+  sessionId: offer.sessionId,
+  connectionId: offer.connectionId,
+  generation: offer.generation,
+});
 
 /** Sends a client ping and waits for its pong: control boxes open in
  *  order, so everything sent before it was handled. */
 async function handled(h, id) {
   h.coordinator.receive('relay', await h.phone.control({ v: 1, t: 'ping', id }));
-  for (let i = 0; i < 200 && !h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === id); i += 1) {
+  for (
+    let i = 0;
+    i < 200 && !h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === id);
+    i += 1
+  ) {
     await h.phoneReadsRelay();
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
-  assert.ok(h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === id), `pong ${id}`);
+  assert.ok(
+    h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === id),
+    `pong ${id}`
+  );
 }
 
 /** The client acks everything sealed so far (no record expiry over long runs). */
@@ -862,7 +915,8 @@ test('restart: only the newest offer may be named, and it never shortens the neg
     { ...refOf(second.offer), generation: 1 },
     { ...refOf(second.offer), connectionId: 'never-offered' },
   ];
-  for (const ref of stale) h.coordinator.receive('relay', await h.phone.control({ ...ref, t: 'close', reason: 'restart' }));
+  for (const ref of stale)
+    h.coordinator.receive('relay', await h.phone.control({ ...ref, t: 'close', reason: 'restart' }));
   await handled(h, 2);
   await h.advance(30);
   assert.equal(second.peer.closedWith, null, 'the live connection is untouched');
@@ -949,7 +1003,11 @@ test('delivery: an oversize answer is refused before sealing and the call is tol
   const transport = delivery.openTransport('c11e1700-0001', state, { deliver: () => {}, authenticated: () => {} });
   await delivery.sendEncryptedFrame('c11e1700-0001', { type: 'e2ee-ready', ...desktopChannel.handshakeConfirmation() });
   const before = transport.nextSequence();
-  await delivery.sendEncryptedFrame('c11e1700-0001', { id: 9, ok: true, value: 'v'.repeat(REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES) });
+  await delivery.sendEncryptedFrame('c11e1700-0001', {
+    id: 9,
+    ok: true,
+    value: 'v'.repeat(REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES),
+  });
   assert.equal(transport.nextSequence(), before + 1, 'only the refusal notice was sealed');
   const clock = { t: 0 };
   const phone = createPhone(phoneChannel, clock);
@@ -1238,7 +1296,10 @@ test('through the real 1B bridge: offer, open, the aggregate bound, control past
     await bridgePump();
     await phoneReadsControl();
   }
-  assert.ok(h.phone.controls.some(({ control: c }) => c.t === 'pong' && c.id === 77), 'the pong past bulk');
+  assert.ok(
+    h.phone.controls.some(({ control: c }) => c.t === 'pong' && c.id === 77),
+    'the pong past bulk'
+  );
   assert.ok(bridge.queued(id) <= REMOTE_TRANSPORT_BUFFER_HIGH_BYTES);
 
   // A drain resumes the held records.
@@ -1308,23 +1369,26 @@ async function linkWorld({ enabled = true } = {}) {
   world.restartApp = () => {
     world.endpoint = makeEndpoint();
   };
-  const makeEndpoint = () => createRemoteTransportPeerEndpoint({
-    enabled,
-    createBridge: () => {
-      world.windows += 1;
-      world.bridge = createRemoteTransportPeerWindow({ page: { file: '/app/out/renderer/remote-transport-peer.html' } });
-      return world.bridge;
-    },
-    attach: async () => {
-      world.attaches += 1;
-      return json(service.standIn.attach());
-    },
-    report: (attachment, report) => {
-      world.reports += 1;
-      toDaemon.push(['report', attachment, json(report)]);
-    },
-    detach: (attachment) => toDaemon.push(['detach', attachment]),
-  });
+  const makeEndpoint = () =>
+    createRemoteTransportPeerEndpoint({
+      enabled,
+      createBridge: () => {
+        world.windows += 1;
+        world.bridge = createRemoteTransportPeerWindow({
+          page: { file: '/app/out/renderer/remote-transport-peer.html' },
+        });
+        return world.bridge;
+      },
+      attach: async () => {
+        world.attaches += 1;
+        return json(service.standIn.attach());
+      },
+      report: (attachment, report) => {
+        world.reports += 1;
+        toDaemon.push(['report', attachment, json(report)]);
+      },
+      detach: (attachment) => toDaemon.push(['detach', attachment]),
+    });
   world.endpoint = makeEndpoint();
   /** Carrier bytes still on the daemon → app lane for one connection. */
   world.hopBytes = (connectionId) =>
@@ -1381,7 +1445,10 @@ test('switch on: one stand-in and one peer window serve every session of the dae
   bridgeWorld.peers.length = 0;
   const world = await linkWorld();
   await world.endpoint.attach();
-  const sessions = [await harness({ peerHost: world.service.peerHost }), await harness({ peerHost: world.service.peerHost })];
+  const sessions = [
+    await harness({ peerHost: world.service.peerHost }),
+    await harness({ peerHost: world.service.peerHost }),
+  ];
   for (const h of sessions) {
     await h.ready();
     await h.advance(30);
@@ -1455,20 +1522,31 @@ test('across the daemon ↔ app hop: no app, the bound end to end, drain, failur
 
   // Control still passes under the full share.
   first.control.receive(await h.phone.control({ v: 1, t: 'ping', id: 91 }, first.lane));
-  for (let i = 0; i < 500 && !h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === 91); i += 1) {
+  for (
+    let i = 0;
+    i < 500 && !h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === 91);
+    i += 1
+  ) {
     await world.pump();
     check();
     await first.phoneReadsControl();
   }
-  assert.ok(h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === 91), 'the pong past bulk');
+  assert.ok(
+    h.phone.controls.some(({ control }) => control.t === 'pong' && control.id === 91),
+    'the pong past bulk'
+  );
 
   // A drain in the page crosses both hops and resumes sending.
   const held = first.app.sent.length;
   first.app.drain(first.app.bufferedAmount);
-  await pumpUntil(() => first.app.sent.length > held, 'sending resumed after the drain', async () => {
-    await world.pump();
-    check();
-  });
+  await pumpUntil(
+    () => first.app.sent.length > held,
+    'sending resumed after the drain',
+    async () => {
+      await world.pump();
+      check();
+    }
+  );
 
   // A failure in the app (the page reloads) fails the carrier to the relay.
   startBridgePage(bridgeWorld.windows.at(-1));

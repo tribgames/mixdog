@@ -425,7 +425,9 @@ function fragmentBytes(value: unknown): number {
 }
 
 function isFragment(value: unknown): boolean {
-  return Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === REMOTE_TRANSPORT_FRAGMENT_TYPE;
+  return (
+    Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === REMOTE_TRANSPORT_FRAGMENT_TYPE
+  );
 }
 
 function pathReasonOf(reason: RemoteTransportCloseReason): RemoteTransportPathReason {
@@ -1258,8 +1260,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     // Bulk admission is re-checked at seal time in the serialized path; a
     // refusal there seals nothing (null → false).
     // Without `admission` it is an ordinary record (a refusal), sealed like an RPC answer.
-    send: (message, admission?: { stream: string }) =>
-      send(message, admission ?? {}).then((bytes) => bytes !== null),
+    send: (message, admission?: { stream: string }) => send(message, admission ?? {}).then((bytes) => bytes !== null),
     protocolError: () => fail('protocol-error'),
     onWritable: (listener) => {
       writableListeners.add(listener);
