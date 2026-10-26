@@ -1045,6 +1045,21 @@ test('hand-offs follow the report watches: ended by a report naming them or a tu
   assert.equal(handoffChatsOf('sess_dlg_task1').size, 0);
 });
 
+test('an ended hand-off stays ended however many others end after it', async () => {
+  const stale = handoffWatch('atask_old1', 'sess_dlg_task1', 'Old');
+  noteHandoff(stale);
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 1);
+  endHandoff('atask_old1');
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 0);
+  // More ends than any fixed tombstone cap would have kept.
+  for (let i = 0; i < 5_000; i += 1) {
+    noteHandoff(handoffWatch(`atask_many${i}`, 'sess_dlg_task1', 'Many'));
+    endHandoff(`atask_many${i}`);
+  }
+  noteHandoff(stale);
+  assert.equal(handoffChatsOf('sess_dlg_task1').size, 0, 'the stale registration is rejected');
+});
+
 // Two chats hand the same task session work: the bot home (A) and a coding Lead (B).
 const CHAT_B = 'sess_dlg_lead1';
 

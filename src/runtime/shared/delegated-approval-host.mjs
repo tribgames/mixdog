@@ -57,9 +57,10 @@ function syncHandoffCopies(sessionId) {
 }
 
 // Run ids of hand-offs that ended: never noted again (a watch read before it
-// was removed must not bring it back). Run ids are never reused; the newest
-// ENDED_KEPT are kept.
-const ENDED_KEPT = 2_000;
+// was removed must not bring it back, however many hand-offs ended since).
+// Run ids are never reused, so an ended id is final for the life of the
+// process and there is nothing to age out: no count decides what is
+// forgotten. One id string is kept per ended hand-off.
 
 /** Chat `homeSessionId` handed session `taskSessionId` work (`title`: the
  *  target's name in that chat) under report watch `runId`. */
@@ -78,9 +79,7 @@ export function noteHandoff({ runId, taskSessionId, homeSessionId, title }) {
  *  taken, or the watch was retired): its hand-off ends for good. */
 export function endHandoff(runId) {
   const { handoffs, ended } = registry();
-  ended.delete(String(runId));
   ended.add(String(runId));
-  if (ended.size > ENDED_KEPT) ended.delete(ended.values().next().value);
   const handoff = handoffs.get(String(runId));
   if (!handoff) return;
   handoffs.delete(String(runId));
