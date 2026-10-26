@@ -10,12 +10,12 @@
 import type { RemoteScreenDisplaySummary, RemoteWebrtcGeometry } from '../../shared/remote-webrtc';
 
 /** The contract's pixel bound (remote-webrtc.ts MAX_PIXEL_DIMENSION). */
-export const MAX_SCREEN_PIXELS = 4_096;
+const MAX_SCREEN_PIXELS = 4_096;
 const MIN_SCREEN_PIXELS = 64;
 const MIN_CSS = 200;
 const MAX_CSS = 3_840;
 
-export interface ScreenRect {
+interface ScreenRect {
   x: number;
   y: number;
   width: number;
@@ -44,7 +44,7 @@ export interface ScreenPointerMapping {
   physical: ScreenRect;
 }
 
-export interface LockedScreenGeometry {
+interface LockedScreenGeometry {
   geometry: RemoteWebrtcGeometry;
   mapping: ScreenPointerMapping;
 }
@@ -135,7 +135,7 @@ export interface ScreenBgraFrame {
   pixels: Uint8Array;
 }
 
-export interface ScreenPixelRect {
+interface ScreenPixelRect {
   x: number;
   y: number;
   width: number;

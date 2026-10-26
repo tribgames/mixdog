@@ -73,7 +73,7 @@ export function helperVideoStallMs(intervals: readonly number[]): number {
   return Math.max(3 * average, average + 150);
 }
 
-export interface ScreenWebrtcSourceOptions {
+interface ScreenWebrtcSourceOptions {
   screenId: string;
   sink: RemoteWebrtcSourceSink;
   /** A start the gate refused, or that failed (logged by the source). */

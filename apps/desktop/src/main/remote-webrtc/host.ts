@@ -29,7 +29,7 @@ export interface RemoteWebrtcSenderBridge {
   onEvent(listener: (event: RemoteWebrtcSenderEvent | null) => void): void;
 }
 
-export interface RemoteWebrtcHostDeps {
+interface RemoteWebrtcHostDeps {
   sender: RemoteWebrtcSenderBridge;
   /** To one phone, through the service's E2EE relay. */
   sendSignal(clientId: string, signal: RemoteWebrtcDesktopSignal): Promise<unknown>;

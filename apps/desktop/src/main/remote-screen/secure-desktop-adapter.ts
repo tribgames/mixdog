@@ -56,7 +56,7 @@ import type { ScreenHostCommand } from './screen-input-host';
 import { NO_SECURE_DESKTOP, type SecureDesktopClient } from './secure-desktop-switch';
 
 /** The part of the real client this adapter uses (tests supply a fake). */
-export type SecureDesktopServicePort = Pick<
+type SecureDesktopServicePort = Pick<
   SecureDesktopService,
   | 'available'
   | 'session'
@@ -106,7 +106,7 @@ const NOT_INSTALLED: SecureDesktopAdapter = {
 };
 
 /** A host command as a helper input event; null when the helper has none. */
-export function secureDesktopInputEvent(
+function secureDesktopInputEvent(
   command: ScreenHostCommand,
   lastPointer: { x: number; y: number }
 ): InputEvent | null {

@@ -35,10 +35,10 @@ import type { ScreenDesktopIdentity } from './screen-input-router';
 /** The input desktop's real object name, as the helper reports it (protocol
  *  v3 `DesktopName`): `Default`, or `Winlogon` for the lock screen, sign-in
  *  and UAC alike. Compared case-insensitively. */
-export type SecureDesktopKind = string;
+type SecureDesktopKind = string;
 
 /** Desktop names compare case-insensitively (Windows object names do). */
-export const normalizeDesktopName = (name: string): string => name.toLowerCase();
+const normalizeDesktopName = (name: string): string => name.toLowerCase();
 
 /**
  * The secure-desktop helper client, as this switch uses it. The real client
@@ -100,7 +100,7 @@ export const NO_SECURE_DESKTOP: SecureDesktopClient = {
   dispose: () => {},
 };
 
-export type ScreenSourceMode =
+type ScreenSourceMode =
   /** Renderer capture + the Windows input host on the ordinary desktop. */
   | 'default'
   /** Ordinary capture still, but an elevation prompt owns input (no helper). */
@@ -120,7 +120,7 @@ export interface ScreenSourceDecision {
   reason?: RemoteScreenStatus['reason'];
 }
 
-export interface ScreenSwitchInputs {
+interface ScreenSwitchInputs {
   /** The local input watcher's last report (null before the first). */
   local: ScreenLocalDesktop | null;
   helperInstalled: boolean;

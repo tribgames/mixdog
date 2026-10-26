@@ -18,7 +18,7 @@ import { showRemoteScreenIndicator, type RemoteScreenIndicatorHandle } from './s
 import { createScreenInputHost, type ScreenInputHost } from './screen-input-host';
 import type { ScreenDisplayProvider, ScreenIndicator } from './screen-source';
 
-export interface ElectronScreenDisplays extends ScreenDisplayProvider {
+interface ElectronScreenDisplays extends ScreenDisplayProvider {
   /** Re-reads the desktop-capture source ids (desktopCapturer is async). */
   refresh(): Promise<void>;
   dispose(): void;

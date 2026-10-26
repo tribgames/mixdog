@@ -16,7 +16,7 @@ import type {
 } from '../../shared/remote-webrtc';
 
 /** A rectangle in pixels (fractional where scaled). */
-export interface RemoteWebrtcPixelRect {
+interface RemoteWebrtcPixelRect {
   x: number;
   y: number;
   width: number;
@@ -114,7 +114,7 @@ export interface RemoteWebrtcVideoSource {
 
 /** The paired client a signal came from, and that signal's type. A screen
  *  source is opened per client, and only by its `ready`. */
-export interface RemoteWebrtcSourceViewer {
+interface RemoteWebrtcSourceViewer {
   clientId: string;
   signal: RemoteWebrtcClientSignal['type'];
 }

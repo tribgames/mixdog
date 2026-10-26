@@ -70,7 +70,7 @@ import type { SecureDesktopInstallResult, SecureDesktopInstallState, SecureDeskt
 import type { SecureDesktopAdapter } from './secure-desktop-adapter';
 
 /** The installer, as this module uses it (install-request.ts). */
-export interface SecureDesktopInstallPort {
+interface SecureDesktopInstallPort {
   /** The install state, for that phone when its key is given; never prompts. */
   state(controllerKey?: string): Promise<SecureDesktopInstallState>;
   /** One phone request, enrolling its controller key: at most one UAC
@@ -119,7 +119,7 @@ export interface SecureDesktopHelper {
 export const DECLINED_ON_PC =
   'the helper install was refused on the PC; restart Mixdog on the PC before asking again';
 
-export interface SecureDesktopHelperDeps {
+interface SecureDesktopHelperDeps {
   /** A fresh client and its adapter. */
   adapter(): SecureDesktopAdapter;
   installer: SecureDesktopInstallPort;

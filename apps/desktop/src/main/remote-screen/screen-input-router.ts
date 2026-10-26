@@ -46,7 +46,7 @@ interface HeldPress {
   origin: ScreenDesktopIdentity;
 }
 
-export interface ScreenInputBackend {
+interface ScreenInputBackend {
   /** Resolves once the desktop accepted the command; rejects otherwise. */
   send(command: ScreenHostCommand): Promise<void>;
   /** The desktop a command sent now would land on; null while unknown or
@@ -58,7 +58,7 @@ export type ScreenRouteOutcome = 'applied' | 'rejected';
 
 /** Hooks run inside a switch's turn, so activation and the backend change are
  *  one atomic step relative to input. */
-export interface ScreenSwitchHooks {
+interface ScreenSwitchHooks {
   before?(): Promise<void>;
   after?(): Promise<void>;
 }
@@ -72,7 +72,7 @@ const SHORTCUT_MODIFIER_VKS: ReadonlySet<number> = new Set([0x11, 0x12, 0x5b, 0x
 const ALTGR_RIGHT_ALT = 0xa5;
 const ALTGR_VKS: ReadonlySet<number> = new Set([0xa2, ALTGR_RIGHT_ALT]);
 
-export const sameDesktopIdentity = (a: ScreenDesktopIdentity | null, b: ScreenDesktopIdentity | null): boolean =>
+const sameDesktopIdentity = (a: ScreenDesktopIdentity | null, b: ScreenDesktopIdentity | null): boolean =>
   a !== null && b !== null && a.session === b.session && a.desktop === b.desktop;
 
 /** A held press's map key within its backend: origin plus key/button. */

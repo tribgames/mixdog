@@ -46,7 +46,7 @@ import {
   type ScreenInputHost,
   type ScreenLocalDesktop,
 } from './screen-input-host';
-import { ScreenInputRouter, type ScreenInputBackendId } from './screen-input-router';
+import { ScreenInputRouter, type ScreenInputBackendId, type ScreenRouteOutcome } from './screen-input-router';
 import type { SecureDesktopLease } from './secure-desktop-helper';
 import {
   decideScreenSource,
@@ -108,7 +108,7 @@ export type ScreenSourceEvent =
    *  deadline): they were dropped. */
   | { type: 'release-dropped'; clientId: string; screenId: string; backend: ScreenInputBackendId; count: number };
 
-export interface ScreenSourceDeps {
+interface ScreenSourceDeps {
   clientId: string;
   clientLabel: string;
   screenId: string;
@@ -144,15 +144,14 @@ export type ScreenVideoPath = RemoteScreenVideoPath;
 export type ScreenCursor = { x: number; y: number; generation: number };
 type ScreenGeometryRenewal = { plan: RemoteScreenCapturePlan; geometry: RemoteWebrtcGeometry };
 
-export interface ScreenStartResult {
+interface ScreenStartResult {
   plan: RemoteScreenCapturePlan;
   geometry: RemoteWebrtcGeometry;
   status: RemoteScreenStatus;
 }
 
-export type ScreenInputOutcome = 'applied' | 'rejected';
 
-export interface ScreenStopOptions {
+interface ScreenStopOptions {
   /** Bound of this stop as a whole (watchdog plus closing the host), instead
    *  of `shutdownDeadlineMs`. App quit passes `SCREEN_QUIT_BUDGET_MS`
    *  (`stopScreenSourcesForQuit`). */
@@ -194,7 +193,7 @@ export interface RemoteScreenSource {
    *  host failure). The sender stops the capture track at once. */
   onStop(listener: (reason: RemoteScreenStopReason) => void): () => void;
   /** Dispatch one validated screen input; the outcome feeds the input-ack. */
-  handleInput(input: RemoteScreenInput, geometryGeneration: number): Promise<ScreenInputOutcome>;
+  handleInput(input: RemoteScreenInput, geometryGeneration: number): Promise<ScreenRouteOutcome>;
   /** Lift every key and button this viewer holds (demote, viewer-left,
    *  `screen-release`). Idempotent, and valid before, during and after stop. */
   releaseInput(): Promise<void>;
@@ -619,7 +618,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     return { plan: plan!, geometry: geometry!, status };
   }
 
-  async function handleInput(input: RemoteScreenInput, geometryGeneration: number): Promise<ScreenInputOutcome> {
+  async function handleInput(input: RemoteScreenInput, geometryGeneration: number): Promise<ScreenRouteOutcome> {
     // Release always runs, even after a revoke or stop, so nothing stays stuck.
     if (input.type === 'screen-release') {
       await router.releaseAll();

@@ -30,13 +30,13 @@ import type { RemoteScreenAccess } from './screen-webrtc-sources';
 
 /** One relay connection: the same object for its lifetime, a new object for a
  *  new connection under a reused client id. */
-export interface ScreenAccessClient {
+interface ScreenAccessClient {
   readonly credentialId: string;
   /** The E2EE channel; null until the handshake completes. */
   readonly channel: unknown;
 }
 
-export interface ScreenAccessPublisherDeps {
+interface ScreenAccessPublisherDeps {
   client(clientId: string): ScreenAccessClient | undefined;
   /** Every connection in the relay registry. */
   clients(): Iterable<[string, ScreenAccessClient]>;

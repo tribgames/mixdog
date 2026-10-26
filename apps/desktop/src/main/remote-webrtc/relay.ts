@@ -27,7 +27,7 @@ interface Ownership {
   demoteEpoch: number;
 }
 
-export interface RemoteWebrtcRelayDeps {
+interface RemoteWebrtcRelayDeps {
   /** The client holds a live stream subscription of this browser session. */
   subscribed(clientId: string, sessionId: string): boolean;
   /** The client's subscription is a take-over still waiting for its first
@@ -59,7 +59,7 @@ export interface RemoteWebrtcRelayDeps {
 /** The relay connection a phone signal arrived on (its client state object),
  *  captured when the signal is decoded: a client id the relay reuses for a
  *  new connection names a different object. */
-export type RemoteWebrtcOrigin = object;
+type RemoteWebrtcOrigin = object;
 
 /** The signals whose order against relay input matters: they must reach the
  *  window behind every relay call decoded before them. */

@@ -13,7 +13,7 @@ interface OrderState {
   poisoned: boolean;
 }
 
-export type RemoteRelayInputVerdict = { dispatch: true } | { dispatch: false; error: string };
+type RemoteRelayInputVerdict = { dispatch: true } | { dispatch: false; error: string };
 
 export function createRemoteRelayInputOrder() {
   const states = new Map<string, OrderState>();

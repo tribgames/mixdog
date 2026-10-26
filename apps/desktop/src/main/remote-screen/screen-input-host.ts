@@ -396,7 +396,7 @@ export interface ScreenInputHost {
   kill(): void;
 }
 
-export interface ScreenInputHostOptions {
+interface ScreenInputHostOptions {
   /** Where the bootstrap script and the compiled assembly live. */
   directory: string;
   spawn: typeof spawnType;

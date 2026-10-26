@@ -40,17 +40,17 @@ export const REMOTE_WEBRTC_NEGOTIATION_TIMEOUT_MS = 39_500;
 export const REMOTE_WEBRTC_DEMOTE_ACK_TIMEOUT_MS = REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS;
 /** Channel input held or queued per viewer: the per-client outstanding frame
  *  budget the relay path enforces (shared/remote-frame-budget.ts). */
-export const REMOTE_WEBRTC_INPUT_LIMIT = REMOTE_CLIENT_PENDING_FRAMES;
+const REMOTE_WEBRTC_INPUT_LIMIT = REMOTE_CLIENT_PENDING_FRAMES;
 
 /** What main knows of the source right now. */
-export interface RemoteWebrtcViewerPage {
+interface RemoteWebrtcViewerPage {
   documentId: string | null;
   geometry: RemoteWebrtcGeometry | null;
   /** Frames the sender took for this document and geometry generation. */
   framesSinceCurrent: number;
 }
 
-export interface RemoteWebrtcViewerEffects {
+interface RemoteWebrtcViewerEffects {
   /** To this viewer's phone, over the E2EE relay. */
   signal(signal: RemoteWebrtcDesktopSignal): void;
   /** Sender renderer: a new peer connection for this source. */

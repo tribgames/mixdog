@@ -16,7 +16,7 @@ import {
   type RemotePillSlot,
 } from '../computer/overlay/overlay-layout';
 
-export interface IndicatorDisplay {
+interface IndicatorDisplay {
   id: number;
   workArea: Rect;
 }
@@ -35,7 +35,7 @@ export interface IndicatorWindowHandlers {
   gone(): void;
 }
 
-export interface IndicatorDeps {
+interface IndicatorDeps {
   displays(): IndicatorDisplay[];
   primaryDisplayId(): number;
   createWindow(bounds: Rect, handlers: IndicatorWindowHandlers): IndicatorWindow;
