@@ -289,12 +289,32 @@ function clearPairCode({ pairCodes, deviceId }) {
   pairCodes?.clear(deviceId);
 }
 
+// Direct-transport carrier messages (docs/remote-transport.md §3) start with
+// `MXT\x01`, in clear, ahead of the encrypted box: the relay recognises them by
+// those four bytes and decrypts nothing. They are binary relay frames only, so
+// a text `frame` can never be one.
+const TRANSPORT_MAGIC = Buffer.from([0x4d, 0x58, 0x54, 0x01]);
+
+/** Whether `data` is a transport carrier message. */
+export function isTransportFrame(data) {
+  return typeof data !== 'string' && data.length >= TRANSPORT_MAGIC.length && TRANSPORT_MAGIC.equals(data.subarray(0, 4));
+}
+
+/** Desktop -> one phone. A pushed legacy frame is recoverable (resync), so it
+ *  may be dropped for a busy leg; a transport frame is a record of an ordered,
+ *  acknowledged stream, so whatever the sender's `droppable` flag says it is
+ *  never dropped: `sendToPhone` sends it, or cuts the leg (never defers or
+ *  skips it), and the stream resumes over the phone's next leg. */
+function deliverToPhone(phone, data, droppable) {
+  return sendToPhone(phone, data, droppable && !isTransportFrame(data));
+}
+
 function forwardFrame({ entry }, message) {
   if (typeof message.data !== 'string') return;
   const phone = entry.clients.get(String(message.clientId || ''));
   if (!phone) return;
   noteDesktopTurn(phone);
-  sendToPhone(phone, message.data, message.droppable === true);
+  deliverToPhone(phone, message.data, message.droppable === true);
 }
 
 function closeClient({ entry }, message) {
@@ -490,7 +510,7 @@ function handleDesktopFrame(leg, liveDesktops, maxFrameBytes, raw, isBinary) {
     // itself — this desktop socket is never paused for one consumer.
     if (!phone) return;
     noteDesktopTurn(phone);
-    sendToPhone(phone, frame.data, frame.droppable);
+    deliverToPhone(phone, frame.data, frame.droppable);
     return;
   }
   let message;
