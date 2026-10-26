@@ -35,7 +35,13 @@ import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 import { isStoredSessionId, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
-import { compactionArchivePath, readCompactionArchivePage } from './compaction-archive.mjs';
+import {
+  compactionArchivePath,
+  compactionArchiveRange,
+  readCompactionArchivePage,
+  visitCompactionArchive,
+} from './compaction-archive.mjs';
+import { attachmentHistoryRows } from './stored-attachment-history.mjs';
 import { currentSessionCatalogDb, onSessionCatalogDbChange, sessionCatalogDb } from './catalog-db/index.mjs';
 import { decodeCatalogCursor, encodeCatalogCursor, isAfterCursor } from './catalog-db/schema.mjs';
 import { onSessionActivityChange, onSessionApprovalCardChange } from '../../../shared/session-activity-signal.mjs';
@@ -60,6 +66,11 @@ export { storedAgentWorkerIndexPath } from './store-summary-locations.mjs';
 // One cache per process: the daemon serves every cold pane read from it, and
 // the desktop service worker keeps its own for the deep-history prefetch.
 const storedTranscriptCache = createStoredTranscriptCache();
+
+// The attachment rows of whole stored conversations: the same cache mechanism
+// and byte budget as the windows above, as an instance of its own, which a
+// lookup can neither fill nor evict.
+const attachmentHistoryCache = createStoredTranscriptCache();
 
 /** Test seam: forget every cached projection. */
 export function clearStoredTranscriptCache() {
@@ -430,6 +441,49 @@ async function produceStoredTranscript(text, stamp, context) {
   }
 }
 
+/** The rows of one session's whole stored conversation that name attachments
+ *  (see attachmentHistoryRows): its record's messages and every visible
+ *  segment of its compaction archive (a cleared or capped archive stays
+ *  excluded, as for a window). Read from the files alone, under the same
+ *  strict record authority as a transcript read, and cached by content
+ *  identity in a cache of its own: the transcript windows are untouched.
+ *  Null when the record is absent, unreadable or not this session's. */
+async function readStoredAttachmentHistory(sessionId, recordPath, archivePath) {
+  const recordStat = probePath(recordPath);
+  if (recordStat.state !== PROBE_PRESENT) return null;
+  const archive = probePath(archivePath);
+  const key = `${sessionId}|attachments`;
+  let complete = true;
+  const { value } = await attachmentHistoryCache.read({
+    key,
+    fingerprint: [archive.state, archive.mtimeMs, archive.ctimeMs, archive.size, archive.ino, archive.dev].join(':'),
+    fileStat: recordStat,
+    loadText: () => {
+      const body = readTextFile(recordPath);
+      return body.state === PROBE_PRESENT ? body.text : null;
+    },
+    produce: async (text) => {
+      const record = readTopLevelLifecycleRecord(text);
+      if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+      const { restoreTranscriptItems } = await import('./transcript-restore/restore.mjs');
+      const items = [];
+      const range = compactionArchiveRange(record.doc);
+      // An archive that exists but could not be walked is a transient miss,
+      // not a state worth keeping.
+      const walked = range
+        ? await visitCompactionArchive(join(dataDir(), 'sessions'), sessionId, range, (segment) =>
+            items.push(...attachmentHistoryRows(segment))
+          )
+        : true;
+      complete = walked || archive.state !== PROBE_PRESENT;
+      items.push(...attachmentHistoryRows(restoreTranscriptItems(record.doc.messages, { sessionId })));
+      return { sessionId, items };
+    },
+  });
+  if (!complete) attachmentHistoryCache.forget(key);
+  return value ?? null;
+}
+
 /** Read exactly one persisted session for a visible desktop pane. This never
  * enumerates siblings. Normal reads stay independent of runtime ownership;
  * interrupted turns conditionally use the same durable reconnect recovery as
@@ -441,6 +495,8 @@ export async function readStoredSessionTranscript(id, options = {}) {
   // absent, unreadable, ambiguous or foreign record yields no transcript.
   const { recordPath, checkpointPath, archivePath } = storedTranscriptInputPaths(sessionId);
   if (options.metadataOnly === true) return readStoredSessionMetadata(recordPath, sessionId);
+  // The attachments the whole conversation names, apart from any window.
+  if (options.attachmentHistory === true) return readStoredAttachmentHistory(sessionId, recordPath, archivePath);
   // One page of the display-only compaction archive (the live head loader
   // pages it once a runtime's in-memory rows are exhausted).
   if (options.compactionArchive && typeof options.compactionArchive === 'object') {

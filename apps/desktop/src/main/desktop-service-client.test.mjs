@@ -125,6 +125,7 @@ test('a window opens a sent attachment: the client reads the transcript the serv
   })();
   try {
     assert.ok(DESKTOP_SERVICE_METHODS.includes('readSessionTranscript'));
+    assert.ok(DESKTOP_SERVICE_METHODS.includes('readSessionHistory'));
     const { meta, bytes: read } = await readSessionAttachment(client, 'session_a', id);
     await served;
     assert.equal(meta.name, 'shot.png');

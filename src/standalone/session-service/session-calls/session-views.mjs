@@ -131,6 +131,14 @@ export function createSessionViewCalls(ctx) {
     notePrependViewer(viewer, params);
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
+    if (params.attachmentHistory === true) {
+      // Apart from every window: nothing here reads, fills or replaces a
+      // transcript projection.
+      const stored =
+        typeof readStoredSession === 'function' ? await readStoredSession(id, { attachmentHistory: true }) : null;
+      assertAvailable();
+      return { history: stored ? { items: stored.items } : null };
+    }
     const live = await liveEntryFor(id);
     assertAvailable(live);
     if (params.transcriptRange) {

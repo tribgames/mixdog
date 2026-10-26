@@ -86,7 +86,12 @@ export interface FileDownloadRequester {
 
 export type FileDownloadHost = Pick<
   DesktopService,
-  'listSessions' | 'projectDirectory' | 'invokeCapability' | 'readSessionTranscript' | 'readAttachmentImage'
+  | 'listSessions'
+  | 'projectDirectory'
+  | 'invokeCapability'
+  | 'readSessionTranscript'
+  | 'readSessionHistory'
+  | 'readAttachmentImage'
 >;
 
 /** Streaming hook for the encrypted media lane (remote-relay-media.ts, later

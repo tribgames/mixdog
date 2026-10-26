@@ -617,6 +617,10 @@ export class SessionHost implements DesktopService {
     return this.publication.projections.get(id)?.snapshot ?? (await this.readSession(id, false, false));
   }
 
+  readSessionHistory(sessionId: string): Promise<SessionSnapshot | null> {
+    return this.transport.readSessionHistory(sessionId);
+  }
+
   async startProject(projectPath: string): Promise<SessionSnapshot> {
     return this.lifecycle.startProject(projectPath);
   }

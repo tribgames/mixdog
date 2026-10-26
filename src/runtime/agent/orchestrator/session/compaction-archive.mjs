@@ -194,36 +194,56 @@ async function archiveIndexFor(path, handle) {
   return entries;
 }
 
-/** One page of a session's archive sidecar (see pageFromSegments). The
- *  open handle pins the file a concurrent atomic replace may swap out, so
- *  the index and the segment reads describe the same bytes. */
-export async function readCompactionArchivePage(storeDir, sessionId, range = {}) {
+/** Runs `use(entries, load)` over a session's archive sidecar: its segment
+ *  index and a loader of one segment's items. The open handle pins the file
+ *  a concurrent atomic replace may swap out, so the index and the segment
+ *  reads describe the same bytes. `fallback` when the archive is absent or
+ *  unreadable (display-only history: it shows nothing then). */
+async function withArchive(storeDir, sessionId, fallback, use) {
   const path = compactionArchivePath(storeDir, sessionId);
-  if (!path) return { items: [], hasOlder: false };
+  if (!path) return fallback;
   let handle;
   try {
     handle = await open(path, 'r');
   } catch {
-    // Display-only history: an absent or unreadable archive shows nothing.
     archiveIndexes.delete(path);
-    return { items: [], hasOlder: false };
+    return fallback;
   }
   try {
     const entries = await archiveIndexFor(path, handle);
-    return await pageFromSegments(
-      entries,
-      async (entry) => {
-        const buffer = Buffer.alloc(entry.length);
-        await handle.read(buffer, 0, entry.length, entry.start);
-        return segmentItems(buffer.toString('utf8'));
-      },
-      range
-    );
+    return await use(entries, async (entry) => {
+      const buffer = Buffer.alloc(entry.length);
+      await handle.read(buffer, 0, entry.length, entry.start);
+      return segmentItems(buffer.toString('utf8'));
+    });
   } catch {
-    return { items: [], hasOlder: false };
+    return fallback;
   } finally {
     await handle.close().catch(() => {});
   }
+}
+
+/** One page of a session's archive sidecar (see pageFromSegments). */
+export function readCompactionArchivePage(storeDir, sessionId, range = {}) {
+  return withArchive(storeDir, sessionId, { items: [], hasOlder: false }, (entries, load) =>
+    pageFromSegments(entries, load, range)
+  );
+}
+
+/** Hands every visible segment of the archive (numbered in (after, before),
+ *  oldest first) to `visit` as its items, one segment at a time, so a whole
+ *  walk never holds more than one segment. True when the walk completed;
+ *  false when the archive was absent or unreadable (the visits made so far
+ *  are then incomplete). */
+export function visitCompactionArchive(storeDir, sessionId, { after = 0, before = Number.POSITIVE_INFINITY } = {}, visit) {
+  return withArchive(storeDir, sessionId, false, async (entries, load) => {
+    for (const entry of entries) {
+      const { seq, count } = entry.head;
+      if (seq <= after || seq >= before || count < 1) continue;
+      visit(await load(entry));
+    }
+    return true;
+  });
 }
 
 // Delete fence: every deletion bumps the session's epoch. A writer captures

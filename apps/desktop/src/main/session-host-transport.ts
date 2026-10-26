@@ -139,6 +139,17 @@ export class SessionHostTransport {
     return this.owner.applySessionResult(id, result, publish);
   }
 
+  /** The rows of the session's whole stored conversation (compaction archive
+   *  included) that name attachments, outside any transcript window. */
+  async readSessionHistory(sessionId: string): Promise<SessionSnapshot | null> {
+    const result = await this.client.read(
+      { sessionId: sessionIdOf(sessionId), attachmentHistory: true },
+      this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
+    );
+    const history = result.history;
+    return history && typeof history === 'object' ? (history as SessionSnapshot) : null;
+  }
+
   /** A read capability rides `read`; every other action is a `configure`. */
   private callAction(
     method: string,

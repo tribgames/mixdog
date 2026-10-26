@@ -858,6 +858,10 @@ export class DesktopServiceClient implements DesktopService {
   readSessionTranscript(sessionId: string): Promise<SessionSnapshot> {
     return this.invokeRead('readSessionTranscript', [sessionId]);
   }
+  /** The whole stored conversation, compaction-archived rows included. */
+  readSessionHistory(sessionId: string): Promise<SessionSnapshot | null> {
+    return this.invokeRead('readSessionHistory', [sessionId]);
+  }
 
   readSessionFinalAnswer(
     sessionId: string,

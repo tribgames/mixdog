@@ -25,7 +25,8 @@ function fixture(t) {
   const shot = Buffer.from('png bytes');
   const old = Buffer.from('legacy image bytes');
   const secret = Buffer.from('another session attachment');
-  const store = new Map([pdf, note, shot, old, secret].map((bytes) => [sha(bytes), bytes]));
+  const archived = Buffer.from('image pasted before a compaction');
+  const store = new Map([pdf, note, shot, old, secret, archived].map((bytes) => [sha(bytes), bytes]));
   const record = (bytes, kind, name, mimeType) => ({
     id: sha(bytes),
     attachmentRef: sha(bytes),
@@ -76,8 +77,29 @@ function fixture(t) {
       },
     ],
   ]);
+  // The whole stored conversation: the window above plus the rows a
+  // compaction moved into the archive, which the window no longer holds.
+  const histories = new Map([
+    [
+      's1',
+      {
+        items: [
+          {
+            id: 'arch1_0_1',
+            kind: 'user',
+            archived: true,
+            attachments: [record(archived, 'image', 'image.png', 'image/png')],
+            images: [{ id: 1, name: 'image.png', mimeType: 'image/png', attachmentRef: sha(archived) }],
+          },
+          // Printing a hash in an archived reply grants nothing either.
+          { id: 'arch1_1_1', kind: 'assistant', archived: true, attachments: [record(secret, 'file', 'x.bin', 'x/y')] },
+        ],
+      },
+    ],
+  ]);
   const host = {
     readSessionTranscript: async (id) => transcripts.get(id) ?? null,
+    readSessionHistory: async (id) => histories.get(id) ?? null,
     readAttachmentImage: async (ref) => store.get(ref)?.toString('base64') ?? null,
     listSessions: async () => [
       { id: 's1', cwd: temp, projectPath: null, classification: 'task' },
@@ -89,7 +111,14 @@ function fixture(t) {
   return {
     temp,
     host,
-    ids: { pdf: sha(pdf), note: sha(note), shot: sha(shot), old: sha(old), secret: sha(secret) },
+    ids: {
+      pdf: sha(pdf),
+      note: sha(note),
+      shot: sha(shot),
+      old: sha(old),
+      secret: sha(secret),
+      archived: sha(archived),
+    },
     store,
     pdf,
     note,
@@ -133,6 +162,24 @@ test('an attachment reads by id for its own session and for no other', async (t)
   await assert.rejects(readSessionAttachment(host, 's1', '../../etc/passwd'), TypeError);
   // The legacy image resolves by its own ref.
   assert.equal((await readSessionAttachment(host, 's1', ids.old)).meta.kind, 'image');
+});
+
+test('an attachment only the compacted history names opens; another session\'s id is still refused', async (t) => {
+  const { host, ids } = fixture(t);
+  // The transcript window the host holds does not name it (a chip of rows paged in earlier shows it).
+  assert.equal(sessionAttachments(await host.readSessionTranscript('s1')).has(ids.archived), false);
+  const { meta, bytes } = await readSessionAttachment(host, 's1', ids.archived);
+  assert.equal(meta.name, 'image.png');
+  assert.equal(bytes.toString(), 'image pasted before a compaction');
+  // The history belongs to s1 alone, and only its user rows grant an id.
+  await refusedAs(readSessionAttachment(host, 's2', ids.archived), 'not-linked');
+  await refusedAs(readSessionAttachment(host, 's1', ids.secret), 'not-linked');
+  await refusedAs(readSessionAttachment(host, 's1', sha(Buffer.from('guess'))), 'not-linked');
+  await refusedAs(readSessionAttachment(host, 'missing', ids.archived), 'not-linked');
+  // A host that cannot read the stored history serves the window alone.
+  const windowOnly = { ...host, readSessionHistory: undefined };
+  await refusedAs(readSessionAttachment(windowOnly, 's1', ids.archived), 'not-linked');
+  assert.equal((await readSessionAttachment(windowOnly, 's1', ids.pdf)).meta.name, 'spec.pdf');
 });
 
 test('a named attachment the store no longer holds, or holds corrupted, is not served', async (t) => {

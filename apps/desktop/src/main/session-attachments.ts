@@ -12,15 +12,28 @@ import type { DesktopService } from './desktop-service-contract';
 import { sanitizedFileName } from './ipc-validation';
 import { type SessionAttachment, sessionAttachments } from './transcript-file-links';
 
-export type AttachmentHost = Pick<DesktopService, 'readAttachmentImage' | 'readSessionTranscript'>;
+export type AttachmentHost = Pick<DesktopService, 'readAttachmentImage' | 'readSessionTranscript' | 'readSessionHistory'>;
 
 export function requiredAttachmentId(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new TypeError('attachment id is invalid.');
   return value;
 }
 
+/** The attachment this session's conversation names by `id`. The transcript
+ *  the host holds is a window (a tail plus the pages paged in), and a
+ *  compaction moves older rows into the archive, so a chip the pane still
+ *  shows can name an id only the session's whole stored conversation holds:
+ *  that is read when the window does not name it. */
+async function namedAttachment(host: AttachmentHost, sessionId: string, id: string): Promise<SessionAttachment | undefined> {
+  const windowed = host.readSessionTranscript ? await host.readSessionTranscript(sessionId) : null;
+  const found = windowed ? sessionAttachments(windowed).get(id) : undefined;
+  if (found) return found;
+  const history = host.readSessionHistory ? await host.readSessionHistory(sessionId) : null;
+  return history ? sessionAttachments(history).get(id) : undefined;
+}
+
 /** The attachment of `sessionId` with this id and its verified bytes. Rejects
- *  `not-linked` for an id the session's transcript does not name (another
+ *  `not-linked` for an id the session's conversation does not name (another
  *  session's, a guessed hash), `not-found` when the store no longer has it. */
 export async function readSessionAttachment(
   host: AttachmentHost,
@@ -28,8 +41,7 @@ export async function readSessionAttachment(
   attachmentId: unknown
 ): Promise<{ meta: SessionAttachment; bytes: Buffer }> {
   const id = requiredAttachmentId(attachmentId);
-  const snapshot = host.readSessionTranscript ? await host.readSessionTranscript(sessionId) : null;
-  const meta = snapshot ? sessionAttachments(snapshot).get(id) : undefined;
+  const meta = await namedAttachment(host, sessionId, id);
   if (!meta) throw new FileDownloadError('not-linked', 'This conversation has no such attachment.');
   const base64 = await host.readAttachmentImage(id);
   if (!base64) throw new FileDownloadError('not-found', 'This attachment is no longer stored on the PC.');
