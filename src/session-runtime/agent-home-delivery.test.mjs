@@ -80,6 +80,7 @@ test("a finished run posts ONE routine result into the owner's home thread", asy
     runSessionId: 'sess_run_1',
   });
   assert.equal(message.meta.transcript.messageId, 'routine_run_1');
+  assert.equal(message.meta.transcript.posted, true, 'a posted row says so');
   assert.deepEqual(h.saved, ['sess_home_reviewer']);
   assert.deepEqual(await h.deps.queue.items(homeId), [], 'dequeued once posted');
   // An open thread shows it at once; every surface restores it as a notice,
@@ -94,6 +95,8 @@ test("a finished run posts ONE routine result into the owner's home thread", asy
   assert.equal(items[1].tone, 'info');
   assert.equal(items[1].routine.name, 'new-issues');
   assert.equal(items[1].messageId, 'routine_run_1');
+  assert.equal(items[1].posted, true);
+  assert.equal(h.notices[0][1].posted, true, 'the live row says so too');
 });
 
 test('the "n omitted" notice of a full queue is shown live like every posted row', async (t) => {
@@ -120,6 +123,31 @@ test('the "n omitted" notice of a full queue is shown live like every posted row
   assert.equal(h.notices[0][1].text, '⏱ Routine results omitted: 1');
   assert.deepEqual(h.notices[0][1].routine, { omitted: 1 });
   assert.deepEqual(logs, [], 'no live notice failed');
+});
+
+test('messages queued hours apart and drained together keep their stored times live and restored', async (t) => {
+  const h = homes(t, ['sess_home_lead']);
+  const at = [Date.UTC(2026, 9, 19, 3, 0), Date.UTC(2026, 9, 19, 6, 0)];
+  for (const [n, time] of at.entries()) {
+    await h.deps.queue.add('sess_home_lead', { runId: `heartbeat_${n}`, kind: 'agent-message', text: `check-in ${n}`, at: time });
+  }
+  await createAgentHomeDelivery(h.deps).drain('sess_home_lead');
+  // Live: the notices as the open thread's surface shows them.
+  const live = [];
+  const surface = createNoticeSurface({
+    getState: () => ({ items: live, toasts: [] }),
+    set: () => {},
+    isDisposed: () => false,
+    pushItem: (item) => live.push(item),
+    replaceItems: (rows) => rows,
+  });
+  for (const [, { text, tone, ...options }] of h.notices) surface.pushNotice(text, tone, { ...options, transcript: true });
+  const restored = restoreTranscriptItems(h.sessions.get('sess_home_lead').messages, { sessionId: 'sess_home_lead' }).slice(1);
+  assert.deepEqual(
+    live.map((item) => [item.kind, item.at, item.posted]),
+    restored.map((item) => [item.kind, item.at, item.posted])
+  );
+  assert.deepEqual(live.map((item) => item.at), at, 'the stored times, hours apart, in both views');
 });
 
 test('a long task reply reaches the waking agent with its lines, cut at a line boundary and marked', async (t) => {

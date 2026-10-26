@@ -4,6 +4,7 @@ import { retainedFailedTurnInput } from './failed-turn-rewind.mjs';
 import { createTakeEntriesOps } from '../../../../../tui/session/session-flow/queue/take-entries.mjs';
 import { transcriptTurnKeys } from '../../../../shared/transcript-turn-keys.mjs';
 import { restoreTranscriptItems } from '../transcript-restore/restore.mjs';
+import { routineResultMessage } from '../routine-result.mjs';
 
 test('attempt identity survives full and tail restoration for visible and internal prompts', () => {
   for (const content of ['user prompt', '<system-reminder>internal notice</system-reminder>']) {
@@ -19,6 +20,46 @@ test('attempt identity survives full and tail restoration for visible and intern
       assert.equal(transcriptTurnKeys(restored).at(-1), 'attempt:attempt-a');
     }
   }
+});
+
+test('the posted marker of a stored message reaches its restored item, in full and tail restores', () => {
+  const posted = (n) => ({
+    role: 'assistant',
+    content: `check-in ${n}`,
+    meta: { transcript: { at: n * 1000, messageId: `msg_${n}`, posted: true } },
+  });
+  const messages = [posted(1), posted(2), { role: 'user', content: 'hi', meta: { transcript: { messageId: 'u' } } }];
+  for (const itemLimit of [2, Infinity]) {
+    const items = restoreTranscriptItems(messages, { sessionId: 'test', itemLimit });
+    assert.deepEqual(
+      items.map((item) => item.posted === true),
+      [true, true, false].slice(-items.length)
+    );
+  }
+});
+
+test('rows posted before the marker existed restore as posted; a routine fire prompt does not', () => {
+  const legacy = (n) => ({
+    role: 'assistant',
+    content: `check-in ${n}`,
+    meta: { transcript: { at: n * 1000, messageId: `routine_heartbeat_sess_daemon_${n}` } },
+  });
+  const messages = [
+    legacy(1),
+    legacy(2),
+    routineResultMessage({ name: 'news', ok: true, text: 'done', messageId: 'routine_run_9' }),
+    { role: 'user', content: 'fire', meta: { transcript: { messageId: 'routine_3f2a' } } },
+    {
+      role: 'assistant',
+      content: 'fired',
+      meta: { transcript: { completion: { status: 'done', elapsedMs: 1, attemptId: 'attempt-fire' } } },
+    },
+  ];
+  const items = restoreTranscriptItems(messages, { sessionId: 'test' });
+  assert.deepEqual(
+    items.map((item) => item.posted === true),
+    [true, true, true, false, false, false]
+  );
 });
 
 test('a stale attempt cannot retry the same retained input after it fails again', () => {

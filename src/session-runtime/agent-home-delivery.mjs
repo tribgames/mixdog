@@ -66,9 +66,21 @@ import {
   heldRequestNotice,
 } from '../runtime/agent/orchestrator/session/human-gate/held-message.mjs';
 
+/** `message` marked as posted outside any turn (`meta.transcript.posted`):
+ *  its row is a turn of its own, never part of the rows around it
+ *  (transcript-turn-keys.mjs). */
+function postedMessage(message) {
+  return { ...message, meta: { ...message.meta, transcript: { ...message.meta?.transcript, posted: true } } };
+}
+
 /** A queued item's stored message and live notice: a routine result, or a
  *  held request of an unattended run (session-runtime/held-requests.mjs). */
 function deliveredRow(item, messageId) {
+  const row = queuedRow(item, messageId);
+  return { ...row, message: postedMessage(row.message) };
+}
+
+function queuedRow(item, messageId) {
   // The agent's own words from a turn it ran elsewhere (mixy-heartbeat.mjs):
   // one ordinary reply of the agent in its thread.
   if (item.kind === 'agent-message') {
@@ -548,7 +560,7 @@ const messageIdOf = (runId) => `routine_${runId}`;
  *  or false (logged) when the surface threw. */
 function noticeLive(live, log, homeId, notice) {
   try {
-    return live()?.notice?.(homeId, notice);
+    return live()?.notice?.(homeId, { ...notice, posted: true });
   } catch (error) {
     log(`live notice in ${homeId} failed: ${error?.message || error}`);
     return false;
@@ -662,7 +674,7 @@ function postQueuedRows(session, items, omitted) {
   const fresh = [];
   const omittedId = omitted ? messageIdOf(omitted.id) : '';
   if (omitted && !posted.has(omittedId)) {
-    const message = routineOmittedMessage({ count: omitted.count, messageId: omittedId });
+    const message = postedMessage(routineOmittedMessage({ count: omitted.count, messageId: omittedId }));
     session.messages.push(message);
     fresh.push({ message, notice: routineResultNotice(message) });
   }
@@ -734,15 +746,17 @@ function createHomeRelay({
     log(`the relay turn in ${homeId} ${why}; its results stay posted unrelayed`);
     const messageId = messageIdOf(`relay_${batch.id}`);
     if (!session.messages.some((message) => message?.meta?.transcript?.messageId === messageId)) {
-      const message = agentTaskRelayFailedMessage({
-        count: batch.runIds.length + (batch.overflow?.count || 0),
-        tries,
-        messageId,
-      });
+      const message = postedMessage(
+        agentTaskRelayFailedMessage({
+          count: batch.runIds.length + (batch.overflow?.count || 0),
+          tries,
+          messageId,
+        })
+      );
       session.messages.push(message);
       session.updatedAt = Date.now();
       await saveSession(session);
-      noticeLive(live, log, homeId, { ...routineResultNotice(message), messageId });
+      noticeLive(live, log, homeId, { ...routineResultNotice(message), messageId, at: message.meta.transcript.at });
     }
     await queue.woke(homeId, batch.id);
     return true;
@@ -864,7 +878,7 @@ function createHeldLiveDisplay(live, log) {
         const messageId = messageIdOf(item.runId);
         if (shownLive.has(messageId)) continue;
         shownLive.add(messageId);
-        noticeLive(live, log, homeId, { ...deliveredRow(item, messageId).notice, messageId });
+        noticeLive(live, log, homeId, { ...deliveredRow(item, messageId).notice, messageId, at: item.at });
       }
     },
     forget(items) {
@@ -1100,7 +1114,8 @@ export function createAgentHomeDelivery({
       session.updatedAt = Date.now();
       await saveSession(session);
       for (const { message, notice } of fresh) {
-        noticeLive(live, log, homeId, { ...notice, messageId: message.meta.transcript.messageId });
+        const { messageId, at } = message.meta.transcript;
+        noticeLive(live, log, homeId, { ...notice, messageId, at });
       }
     }
     // Dequeuing and owing the wake are one write: no restart between posting

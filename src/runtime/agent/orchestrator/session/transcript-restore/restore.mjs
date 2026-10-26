@@ -64,6 +64,20 @@ function restoredFailureFields(value) {
   };
 }
 
+/** Whether `message` was posted into the thread outside any turn: it says so
+ *  (`transcript.posted`, stamped by agent-home-delivery.mjs), or it is a row
+ *  stored before that marker existed. Those carry the id agent-home-delivery
+ *  mints for every posted row (`messageIdOf`: `routine_<runId>`) and are not
+ *  prompts: an agent's own message (assistant role) or a result/held-request
+ *  notice (stored under the user role, but not a prompt). The `routine_` scheme
+ *  alone is not enough: routine-home-turn.mjs:144 gives the prompt of a routine
+ *  fire (user role) the same prefix, and that prompt opens a real turn. */
+function isPostedMessage(message, transcript) {
+  if (transcript.posted === true) return true;
+  if (typeof transcript.messageId !== 'string' || !transcript.messageId.startsWith('routine_')) return false;
+  return message?.role !== 'user' || isRoutineResultMessage(message) || isHeldRequestMessage(message);
+}
+
 function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
   if (!value || typeof value !== 'object') return {};
@@ -87,6 +101,8 @@ function restoredTranscriptMetadata(message) {
     // messages back to these rows.
     ...(typeof value.messageId === 'string' && value.messageId ? { messageId: value.messageId } : {}),
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
+    // Delivered into the thread outside any turn (agent-home-delivery.mjs).
+    ...(isPostedMessage(message, value) ? { posted: true } : {}),
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
@@ -400,7 +416,7 @@ function restoredUserTranscriptItems(message, nextId, userText) {
   // A schedule's result in its owner's home thread: a notice row.
   // A held request of an unattended run (human-gate/held-message.mjs) likewise.
   if (isRoutineResultMessage(message) || isHeldRequestMessage(message)) {
-    const { messageId, at } = restoredTranscriptMetadata(message);
+    const { messageId, at, posted } = restoredTranscriptMetadata(message);
     return [
       {
         kind: 'notice',
@@ -408,6 +424,7 @@ function restoredUserTranscriptItems(message, nextId, userText) {
         ...(isHeldRequestMessage(message) ? heldRequestNotice(message) : routineResultNotice(message)),
         ...(messageId ? { messageId } : {}),
         ...(at ? { at } : {}),
+        ...(posted ? { posted } : {}),
       },
     ];
   }

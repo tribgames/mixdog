@@ -40,6 +40,8 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
         : polishNoticeText(text);
     if (!value && !options.room) return null;
     const forceTranscript = options.transcript === true;
+    // A message posted from the stored record keeps its stored time.
+    const storedAt = Number.isFinite(options.at) ? options.at : null;
     if (!forceTranscript) return pushToast(value, tone, options.ttlMs, options);
     // The agent's own message posted outside a turn (agent-home-delivery.mjs):
     // its reply row, as the stored message restores.
@@ -50,8 +52,9 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
         id,
         text: value,
         streaming: false,
-        at: Date.now(),
+        at: storedAt ?? Date.now(),
         ...(options.messageId ? { messageId: options.messageId } : {}),
+        ...(options.posted ? { posted: true } : {}),
       });
       return id;
     }
@@ -85,6 +88,9 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
       // A held request of an unattended run (human-gate/held-message.mjs).
       ...(options.heldRequest ? { heldRequest: options.heldRequest } : {}),
       ...(options.messageId ? { messageId: options.messageId } : {}),
+      ...(storedAt !== null ? { at: storedAt } : {}),
+      // Posted outside any turn: its own turn key (transcript-turn-keys.mjs).
+      ...(options.posted ? { posted: true } : {}),
     });
     return id;
   };

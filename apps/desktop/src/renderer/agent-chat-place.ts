@@ -498,9 +498,12 @@ export function agentChatPlace(
     return null;
   };
   // A run shows one time, on its last bubble: bubbles of one turn always join,
-  // other turns join only when sent in the same minute.
+  // other turns join only when sent in the same minute. A posted row (a
+  // message delivered outside any turn, hours apart from the next) is no part
+  // of the turn whose key it shares: the minute decides.
   const together = (row: TranscriptRowModel) => {
-    if (row.turnKey === rows[index].turnKey) return true;
+    const posted = rowItem(row)?.posted === true || rowItem(rows[index])?.posted === true;
+    if (row.turnKey === rows[index].turnKey && !posted) return true;
     const other = rowTime(row);
     return !at || !other || minuteOf(other) === minuteOf(at);
   };

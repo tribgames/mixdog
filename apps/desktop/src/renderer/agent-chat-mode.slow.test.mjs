@@ -100,6 +100,54 @@ test('a routine "nothing new" reply paints nothing and leaves the run before it 
   assert.equal(agentChatPlace(rows, 0).last, true);
 });
 
+test('posted messages hours apart are separate runs; two within one minute still join', async () => {
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const posted = (id, at) => ({ kind: 'assistant', id, text: id, at, messageId: id, posted: true });
+  const items = [
+    posted('routine_h1', DAY1),
+    posted('routine_h2', DAY1 + 2 * 3_600_000),
+    posted('routine_h3', DAY1 + 4 * 3_600_000),
+    posted('routine_h4', DAY1 + 4 * 3_600_000 + 20_000),
+  ];
+  const keys = transcriptTurnKeys(items);
+  const rows = items.map((item, index) => ({
+    _tag: 'AssistantPart',
+    key: item.id,
+    turnKey: keys[index],
+    item,
+  }));
+  assert.deepEqual(
+    rows.map((_, index) => {
+      const place = agentChatPlace(rows, index);
+      return [place.first, place.last];
+    }),
+    [
+      [true, true],
+      [true, true],
+      [true, false],
+      [false, true],
+    ]
+  );
+  // The turn keys give rows posted back to back one segment key; the posted
+  // marker, not the key, keeps them apart.
+  assert.equal(new Set(keys).size, 1);
+  // The parts of one real turn stay together, however far apart they were sent.
+  const turn = [
+    { ...reply('t1', DAY1), turnKey: 'turn:u9' },
+    { ...reply('t2', DAY1 + 10 * 60_000), turnKey: 'turn:u9' },
+  ];
+  assert.deepEqual(
+    turn.map((_, index) => {
+      const place = agentChatPlace(turn, index);
+      return [place.first, place.last];
+    }),
+    [
+      [true, false],
+      [false, true],
+    ]
+  );
+});
+
 test('bubble runs: face and name on the first bubble, the time on the last, a day pill per date', () => {
   const rows = [
     user('u1', DAY1),

@@ -11,6 +11,8 @@ export type TranscriptItem = RecordValue & {
   id?: string | number;
   /** Stable message identity, live and restored (unlike `id` of restored rows). */
   messageId?: string;
+  /** Delivered into the thread outside any turn: bot chat groups it by time only (agentChatPlace). */
+  posted?: boolean;
   kind?: string;
   text?: string;
   at?: number;
