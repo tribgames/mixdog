@@ -31,6 +31,8 @@ winresource = "0.1"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Security",
+  # LogonUserW / GetUserNameExW for the credential-logon install path.
+  "Win32_Security_Authentication_Identity",
   "Win32_Security_Authorization",
   "Win32_Security_Cryptography",
   # Catalog + Sip gate the WinTrust provider-data helpers that read the signer

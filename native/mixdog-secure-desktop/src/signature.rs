@@ -88,6 +88,16 @@ pub struct SignerPin {
     profile_eku: String,
 }
 
+/// A signer policy as a pair of strings, for storing in the install state (the
+/// authorized app's subject DN and Artifact Signing profile EKU) and verifying
+/// an arbitrary image against it ([`verify_file_against`]). Decoupled from
+/// [`SignerPin`] so `security.rs` can serialize it without this module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignerPolicy {
+    pub subject: String,
+    pub profile_eku: String,
+}
+
 /// The signer of a verified image: its subject DN (X.500, most specific RDN
 /// first — the same form `Get-AuthenticodeSignature` prints) and its EKUs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,6 +445,26 @@ fn pin_from(subject: Option<&str>, profile_eku: Option<&str>) -> Result<SignerPi
 /// This build's release signer pin, or why it has none.
 pub fn release_pin() -> Result<SignerPin, String> {
     pin_from(PINNED_SUBJECT, PINNED_PROFILE_EKU)
+}
+
+/// This build's release signer as a storable [`SignerPolicy`]: the authorized
+/// app delegation records this at the elevated opt-in, because the Mixdog app
+/// and this helper share the one release signer. An unpinned build has none.
+pub fn release_signer_policy() -> Result<SignerPolicy, String> {
+    let pin = release_pin()?;
+    Ok(SignerPolicy { subject: pin.subject, profile_eku: pin.profile_eku })
+}
+
+/// Verify an image against a stored [`SignerPolicy`] (the delegated app's
+/// recorded signer) rather than this build's compile-time pin: full
+/// Authenticode + chain + revocation, and the signer must match the policy's
+/// subject DN and carry its profile EKU. Used by the service to authenticate
+/// the calling EXE on the delegation pipe. The handle is held against
+/// writers/deleters across the check, so the bytes verified are the image's.
+pub fn verify_file_against(path: &Path, policy: &SignerPolicy) -> Result<VerifiedSource, Refusal> {
+    let pin = pin_from(Some(&policy.subject), Some(&policy.profile_eku))?;
+    let handle = open_denying_writers(path)?;
+    verify_held(&path.to_string_lossy(), handle, &pin)
 }
 
 /// The verified signer must be the pinned release signer: the exact subject DN

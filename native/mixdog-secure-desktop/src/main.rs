@@ -8,7 +8,16 @@
 //! One executable, several roles selected by the first argument:
 //!   service    SCM entry point; runs as LocalSystem (installed, not run by hand)
 //!   helper     launched by the service into the active console session
-//!   install    elevated: create secret + state, register and start the service
+//!   install    admin-gated: create secret + state, register and start the
+//!              service, and enroll zero or more phone keys (--controller-key).
+//!              Elevated (UAC) or, with --logon, under a batch-logon admin
+//!              token from a password on stdin.
+//!   enroll     admin-gated (UAC, --logon, or --delegated): add --controller-key
+//!              values (and apply --revoke-key values) to an installed helper
+//!   revoke     admin-gated (UAC, --logon, or --delegated): remove the given
+//!              --controller-key values
+//!   disable-delegation
+//!              admin-gated (UAC or --logon): turn off app-delegated enroll/revoke
 //!   uninstall  elevated: stop and delete the service, remove all state
 //!   status     report installed / running / version as JSON (no elevation)
 //!   check      exit 0 current / 1 missing / 2 stale / 4 other-user (no
@@ -39,9 +48,13 @@ mod helper;
 #[cfg(windows)]
 mod inject;
 #[cfg(windows)]
+mod delegation;
+#[cfg(windows)]
 mod install;
 #[cfg(windows)]
 mod ipc;
+#[cfg(windows)]
+mod logon;
 #[cfg(windows)]
 mod launch;
 #[cfg(windows)]
@@ -62,6 +75,9 @@ fn main() {
         Some("service") => service::run(),
         Some("helper") => helper::run(&args[1..]),
         Some("install") => install::install(&args[1..]),
+        Some("enroll") => install::enroll(&args[1..]),
+        Some("revoke") => install::revoke(&args[1..]),
+        Some("disable-delegation") => install::disable_delegation(&args[1..]),
         Some("uninstall") => install::uninstall(&args[1..]),
         Some("status") => install::status(),
         Some("check") => install::check(&args[1..]),
@@ -71,7 +87,7 @@ fn main() {
         other => {
             eprintln!(
                 "mixdog-secure-desktop: unknown command {:?}\n\
-                 commands: service | helper | install | uninstall | status | check | start | verify-image | probe",
+                 commands: service | helper | install | enroll | revoke | disable-delegation | uninstall | status | check | start | verify-image | probe",
                 other.unwrap_or("")
             );
             2

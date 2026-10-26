@@ -79,7 +79,7 @@ const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 /// stalled or hostile peer (one that dribbles bytes, or one that stopped
 /// reading). It is a total deadline, not an inactivity timer, so trickling a
 /// byte at a time cannot extend it.
-const FRAME_DEADLINE: Duration = Duration::from_secs(10);
+pub(crate) const FRAME_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How long the service waits for this helper to acknowledge a stop and exit
 /// before force-killing it. It is the frame deadline, reused rather than a new
@@ -278,6 +278,18 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
     let mut reattach_failures: u32 = 0;
     let connected_at = Instant::now();
     let mut next_capture = Instant::now();
+    // The committed key set reaches this live connection by re-reading the
+    // protected state file before every authorization-bearing step — right
+    // after the handshake, before each post-handshake control frame (input,
+    // `sas`, grant; [`dispatch_refreshed`]) and before each pass's grant upkeep
+    // (challenges, lapse) — and comparing its *bytes* with the last good load
+    // (never its mtime, which can collide or be preserved by a replace): a
+    // small, OS-cached file read, parsed only when the content changed. The
+    // write side is atomic, so a reader never sees partial JSON; an
+    // unreadable/unparseable state suspends authorization (fail closed) until a
+    // good read. `loaded_state` advances only after a successful load.
+    let mut loaded_state: Option<Vec<u8>> = None;
+    let mut read_state = || std::fs::read(paths::state_file());
     // Set when the connection ends with an error frame the client should get
     // to read before the disconnect discards it.
     let mut farewell = false;
@@ -316,9 +328,11 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                 Ok(Some(Decoded::Control(message))) => {
                     if let Some(control) = control.as_mut() {
                         let now = Instant::now();
-                        let effect = apply_control(
+                        let effect = dispatch_refreshed(
                             &mut injector,
                             control,
+                            &mut loaded_state,
+                            &mut read_state,
                             message,
                             now,
                             &crate::security::ecdsa_p256_verify,
@@ -342,7 +356,11 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                             }
                             HandshakeStep::Done => {
                                 let nonce = handshake.connection_nonce().unwrap_or_default().to_vec();
-                                control = Some(Control::new(nonce, state.controller_key_bytes()));
+                                let mut fresh = Control::new(nonce, state.controller_keys_bytes());
+                                // Never start from `serve`'s snapshot: load the
+                                // committed set before anything is dispatched.
+                                apply_refresh(&mut injector, &mut fresh, &mut loaded_state, read_state(), &mut replies);
+                                control = Some(fresh);
                             }
                             HandshakeStep::Continue => {}
                         }
@@ -352,8 +370,11 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
         }
 
         // Grant upkeep: a lapse releases held input, a fresh challenge is
-        // issued on cadence, and a failed injection is reported.
+        // issued on cadence, and a failed injection is reported. The committed
+        // key set is refreshed first, so a revoke on an idle connection (no
+        // frames this pass) still ends its grant and releases held input.
         if let Some(control) = control.as_mut() {
+            apply_refresh(&mut injector, control, &mut loaded_state, read_state(), &mut replies);
             tick(&mut injector, control, Instant::now(), &mut replies);
         }
         for reply in replies.drain(..) {
@@ -673,32 +694,44 @@ struct Control {
     /// solicited, only while true.
     active: bool,
     grants: GrantBook,
-    /// The enrolled phone key; `None` refuses every grant (`grant_key_missing`).
-    key: Option<[u8; CONTROLLER_KEY_BYTES]>,
+    /// The enrolled phone keys (one per paired phone); empty refuses every
+    /// grant (`grant_key_missing`). A grant is accepted when any one of these
+    /// verifies it. Refreshed from the committed install state before every
+    /// post-handshake dispatch ([`dispatch_refreshed`]), so an enroll/revoke
+    /// takes effect on the live connection without a reconnect.
+    keys: Vec<[u8; CONTROLLER_KEY_BYTES]>,
     /// A grant was live at the last check, so its lapse is noticed once.
     granted: bool,
+    /// The enrolled key that signed the live grant: each grant is bound to the
+    /// key that signed it. `None` when no grant is live.
+    granted_key: Option<[u8; CONTROLLER_KEY_BYTES]>,
     /// `grant_required` was reported since control was last authorized.
     refusal_reported: bool,
     /// The thread is attached to the current input desktop.
     desktop_available: bool,
+    /// The install state could not be read/parsed, so the key set cannot be
+    /// trusted: authorization is suspended (fail closed) until a good read.
+    suspended: bool,
 }
 
 impl Control {
-    fn new(connection_nonce: Vec<u8>, key: Option<[u8; CONTROLLER_KEY_BYTES]>) -> Self {
+    fn new(connection_nonce: Vec<u8>, keys: Vec<[u8; CONTROLLER_KEY_BYTES]>) -> Self {
         Control {
             active: false,
             grants: GrantBook::new(connection_nonce),
-            key,
+            keys,
             granted: false,
+            granted_key: None,
             refusal_reported: false,
             desktop_available: true,
+            suspended: false,
         }
     }
 
     /// New input and `sas` may act at `now`: control is active, the desktop
-    /// is attached, and a grant is live.
+    /// is attached, a grant is live, and authorization is not suspended.
     fn authorized(&self, now: Instant) -> bool {
-        self.active && self.desktop_available && self.grants.live(now)
+        self.active && self.desktop_available && !self.suspended && self.grants.live(now)
     }
 }
 
@@ -737,6 +770,32 @@ fn apply_control<S: inject::InputSink>(
     effect
 }
 
+/// Reads the committed install state: production reads the protected state
+/// file; tests substitute an in-memory one they can change between dispatches.
+type ReadState<'a> = &'a mut dyn FnMut() -> std::io::Result<Vec<u8>>;
+
+/// Refresh the committed key set, then dispatch one post-handshake control
+/// message. **Every** post-handshake message goes through here — each input,
+/// `sas` and grant, one frame at a time, even within one read's batch — so a
+/// revoke committed before this call returns ends the removed key's grant
+/// before the message acts, and an unreadable state suspends it (fail closed).
+/// There is no change signal to miss: the check is the read itself (bytes
+/// compared with the last good load, parsed only when they differ).
+#[allow(clippy::too_many_arguments)]
+fn dispatch_refreshed<S: inject::InputSink>(
+    injector: &mut inject::Injector<S>,
+    control: &mut Control,
+    last: &mut Option<Vec<u8>>,
+    read_state: ReadState<'_>,
+    message: Message,
+    now: Instant,
+    verify: Verify<'_>,
+    replies: &mut Vec<Message>,
+) -> Effect {
+    apply_refresh(injector, control, last, read_state(), replies);
+    apply_control(injector, control, message, now, verify, replies)
+}
+
 fn dispatch_control<S: inject::InputSink>(
     injector: &mut inject::Injector<S>,
     control: &mut Control,
@@ -751,14 +810,15 @@ fn dispatch_control<S: inject::InputSink>(
                 injector.release_all();
                 control.grants.revoke();
                 control.granted = false;
+                control.granted_key = None;
             }
             if on && !control.active {
                 // Activation is what makes the first challenge due at once.
                 control.grants.restart_cadence();
-                if control.key.is_none() {
+                if control.keys.is_empty() {
                     replies.push(Message::error(
                         "grant_key_missing",
-                        "no phone key is enrolled; reinstall the helper from the phone",
+                        "no phone key is enrolled; pair a phone or enroll its key",
                     ));
                 }
             }
@@ -774,6 +834,7 @@ fn dispatch_control<S: inject::InputSink>(
             if control.grants.set_epoch(epoch) {
                 injector.release_all();
                 control.grants.revoke();
+                control.granted_key = None;
                 if std::mem::take(&mut control.granted) {
                     replies.push(Message::error(
                         "grant_expired",
@@ -782,18 +843,35 @@ fn dispatch_control<S: inject::InputSink>(
                 }
             }
         }
-        Message::Grant { challenge, epoch, signature } => match control.key {
-            None => replies.push(Message::error("grant_key_missing", "no phone key is enrolled")),
-            Some(key) => {
-                let verdict = control
-                    .grants
-                    .accept(now, &challenge, epoch, &signature, |payload, signature| verify(&key, payload, signature));
+        Message::Grant { challenge, epoch, signature } => {
+            if control.suspended {
+                replies.push(Message::error("grant_key_missing", "control is suspended; the install state is unreadable"));
+            } else if control.keys.is_empty() {
+                replies.push(Message::error("grant_key_missing", "no phone key is enrolled"));
+            } else {
+                // Try every enrolled key; the first that verifies accepts the
+                // grant and is the key it is bound to. `accept` consumes the
+                // challenge once, so the loop runs inside the single call.
+                let keys = &control.keys;
+                let mut signer: Option<[u8; CONTROLLER_KEY_BYTES]> = None;
+                let verdict = control.grants.accept(now, &challenge, epoch, &signature, |payload, signature| {
+                    for key in keys {
+                        if verify(key, payload, signature) {
+                            signer = Some(*key);
+                            return true;
+                        }
+                    }
+                    false
+                });
                 match verdict {
                     Ok(()) => {
-                        if !control.granted {
+                        // Log a fresh grant, and a mid-session switch to a
+                        // different paired phone's key.
+                        if !control.granted || control.granted_key != signer {
                             log::event("helper", "control grant accepted");
                         }
                         control.granted = true;
+                        control.granted_key = signer;
                         control.refusal_reported = false;
                     }
                     Err(refusal) => {
@@ -802,7 +880,7 @@ fn dispatch_control<S: inject::InputSink>(
                     }
                 }
             }
-        },
+        }
         Message::Input { event } => {
             if control.authorized(now) {
                 inject_event(injector, event);
@@ -833,6 +911,116 @@ fn dispatch_control<S: inject::InputSink>(
     Effect::None
 }
 
+/// What a fresh read of the state file means for the live key set.
+enum KeyRefresh {
+    /// Byte-identical to the last successful load: nothing to do.
+    Unchanged,
+    /// A new, parseable state: its key set, and the bytes to remember.
+    Loaded { keys: Vec<[u8; CONTROLLER_KEY_BYTES]>, bytes: Vec<u8> },
+    /// Unreadable or unparseable: fail closed (suspend authorization).
+    Suspend,
+}
+
+/// Decide a key-set refresh from a fresh read of the state file and the bytes
+/// last successfully loaded. Compares **content**, so a timestamp-preserving
+/// replace is still seen; an `Err` read or an unparseable body suspends
+/// authorization. Pure; unit-tested. `last` is advanced by the caller only on
+/// [`KeyRefresh::Loaded`], never on a failure, so one bad read cannot suppress
+/// the next retry.
+fn decide_refresh(read: std::io::Result<Vec<u8>>, last: &Option<Vec<u8>>) -> KeyRefresh {
+    let bytes = match read {
+        Ok(bytes) => bytes,
+        Err(_) => return KeyRefresh::Suspend,
+    };
+    if last.as_deref() == Some(bytes.as_slice()) {
+        return KeyRefresh::Unchanged;
+    }
+    match std::str::from_utf8(&bytes).ok().and_then(|text| InstallState::from_json(text).ok()) {
+        Some(state) => KeyRefresh::Loaded { keys: state.controller_keys_bytes(), bytes },
+        None => KeyRefresh::Suspend,
+    }
+}
+
+/// Apply a fresh read to the live connection: a changed set is installed
+/// ([`apply_key_set`]), a failure suspends authorization. `last` advances only
+/// on a successful load.
+fn apply_refresh<S: inject::InputSink>(
+    injector: &mut inject::Injector<S>,
+    control: &mut Control,
+    last: &mut Option<Vec<u8>>,
+    read: std::io::Result<Vec<u8>>,
+    replies: &mut Vec<Message>,
+) {
+    match decide_refresh(read, last) {
+        // Identical to the last good load: still valid, so an outage ends.
+        KeyRefresh::Unchanged => {
+            if control.suspended {
+                control.suspended = false;
+                log::event("helper", "install state readable again; authorization resumed");
+            }
+        }
+        KeyRefresh::Loaded { keys, bytes } => {
+            *last = Some(bytes);
+            if control.suspended {
+                control.suspended = false;
+                log::event("helper", "install state readable again; authorization resumed");
+            }
+            apply_key_set(injector, control, keys, replies);
+        }
+        KeyRefresh::Suspend => suspend_authorization(injector, control, replies),
+    }
+}
+
+/// Fail closed: the install state could not be read or parsed, so no set can be
+/// trusted. Revoke any live grant, release everything held, and refuse new
+/// grants and input/SAS ([`Control::authorized`] and the grant branch both
+/// gate on `suspended`) until a good read resumes it. Acts once per outage.
+fn suspend_authorization<S: inject::InputSink>(
+    injector: &mut inject::Injector<S>,
+    control: &mut Control,
+    replies: &mut Vec<Message>,
+) {
+    if control.suspended {
+        return;
+    }
+    control.suspended = true;
+    control.grants.revoke();
+    control.granted = false;
+    control.granted_key = None;
+    injector.release_all();
+    log::event("helper", "install state unreadable; authorization suspended (held input released)");
+    replies.push(Message::error(
+        "grant_key_missing",
+        "the install state is unreadable; control is suspended until it recovers",
+    ));
+}
+
+/// Install the current enrolled key set on a live connection. If the key that
+/// signed the live grant is no longer enrolled (the phone was unpaired), the
+/// grant is revoked and everything held released before any further input or
+/// SAS — authority ends at once, without a reconnect or restart. A newly
+/// enrolled key simply becomes verifiable for the next grant. Pure; unit-tested.
+fn apply_key_set<S: inject::InputSink>(
+    injector: &mut inject::Injector<S>,
+    control: &mut Control,
+    keys: Vec<[u8; CONTROLLER_KEY_BYTES]>,
+    replies: &mut Vec<Message>,
+) {
+    control.keys = keys;
+    if let Some(signer) = control.granted_key {
+        if !control.keys.contains(&signer) {
+            control.grants.revoke();
+            control.granted = false;
+            control.granted_key = None;
+            injector.release_all();
+            replies.push(Message::error(
+                "grant_key_missing",
+                "the controlling phone's key was revoked; held input released",
+            ));
+        }
+    }
+}
+
 /// A grant that was live and has expired by `now` releases everything held
 /// and is reported once (`grant_expired`). Run before every message is
 /// dispatched and on every loop pass.
@@ -844,6 +1032,7 @@ fn settle_lapse<S: inject::InputSink>(
 ) {
     if control.granted && !control.grants.live(now) {
         control.granted = false;
+        control.granted_key = None;
         injector.release_all();
         replies.push(Message::error("grant_expired", "the control grant lapsed; held input released"));
     }
@@ -886,7 +1075,7 @@ fn tick<S: inject::InputSink>(
 ) {
     settle_lapse(injector, control, now, replies);
     suspend_if_desktop_lost(injector, control, replies);
-    if control.active && control.key.is_some() && control.grants.needs_challenge(now) {
+    if control.active && !control.suspended && !control.keys.is_empty() && control.grants.needs_challenge(now) {
         let challenge = generate_challenge();
         replies.push(Message::GrantChallenge {
             nonce: encode_nonce(control.grants.connection_nonce()),
@@ -1135,10 +1324,18 @@ mod tests {
 
     const KEY: [u8; CONTROLLER_KEY_BYTES] = [4; CONTROLLER_KEY_BYTES];
     const GOOD_SIGNATURE: [u8; crate::security::GRANT_SIGNATURE_BYTES] = [1; crate::security::GRANT_SIGNATURE_BYTES];
+    /// A second paired phone's key, and the signature only it produces.
+    const KEY2: [u8; CONTROLLER_KEY_BYTES] = {
+        let mut key = [4u8; CONTROLLER_KEY_BYTES];
+        key[1] = 9;
+        key
+    };
+    const GOOD_SIGNATURE2: [u8; crate::security::GRANT_SIGNATURE_BYTES] = [2; crate::security::GRANT_SIGNATURE_BYTES];
 
-    /// Accepts exactly `GOOD_SIGNATURE` under `KEY`.
+    /// Accepts `GOOD_SIGNATURE` under `KEY` or `GOOD_SIGNATURE2` under `KEY2`,
+    /// so a grant is bound to whichever enrolled key signed it.
     fn fake_verify(key: &[u8; CONTROLLER_KEY_BYTES], _payload: &[u8], signature: &[u8]) -> bool {
-        key == &KEY && signature == GOOD_SIGNATURE
+        (key == &KEY && signature == GOOD_SIGNATURE) || (key == &KEY2 && signature == GOOD_SIGNATURE2)
     }
 
     /// Feed one message with the fake verifier; returns the effect and replies.
@@ -1165,7 +1362,12 @@ mod tests {
 
     /// Active control on video run 1, with a challenge issued at `now`.
     fn active_control(now: Instant) -> (Control, String) {
-        let mut control = Control::new(vec![0x33; 16], Some(KEY));
+        active_control_keys(now, vec![KEY])
+    }
+
+    /// Like [`active_control`] but with an explicit enrolled key set.
+    fn active_control_keys(now: Instant, keys: Vec<[u8; CONTROLLER_KEY_BYTES]>) -> (Control, String) {
+        let mut control = Control::new(vec![0x33; 16], keys);
         control.active = true;
         control.grants.set_epoch(1);
         let mut replies = Vec::new();
@@ -1291,7 +1493,7 @@ mod tests {
     fn without_an_enrolled_key_control_is_never_granted() {
         let t0 = Instant::now();
         let mut injector = inject::Injector::with_sink(Recorder::default());
-        let mut control = Control::new(vec![0x33; 16], None);
+        let mut control = Control::new(vec![0x33; 16], Vec::new());
         let (_, replies) = feed(&mut injector, &mut control, Message::Control { active: true }, t0);
         assert_eq!(codes(&replies), ["grant_key_missing"]);
         let mut replies = Vec::new();
@@ -1302,13 +1504,276 @@ mod tests {
     }
 
     #[test]
+    fn a_grant_verifies_against_any_enrolled_key_and_binds_to_the_signer() {
+        let t0 = Instant::now();
+        let mut injector = inject::Injector::with_sink(Recorder::default());
+        // Two phones enrolled; the grant is signed only by the second one.
+        let (mut control, challenge) = active_control_keys(t0, vec![KEY, KEY2]);
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
+        assert!(codes(&replies).is_empty(), "the second enrolled key's grant is accepted");
+        assert!(control.authorized(t0), "control is live under that grant");
+        assert_eq!(control.granted_key, Some(KEY2), "the live grant is bound to the key that signed it");
+    }
+
+    #[test]
+    fn a_committed_revoke_ends_control_on_a_live_connection_without_a_restart() {
+        let t0 = Instant::now();
+        let mut injector = inject::Injector::with_sink(Recorder::default());
+        // KEY is enrolled and holds a live grant.
+        let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
+        assert!(codes(&replies).is_empty());
+        assert!(control.authorized(t0), "control is live under KEY");
+        // The phone is unpaired: the committed set no longer has KEY. Without
+        // the refresh the snapshot would keep KEY and control would survive.
+        let mut after = Vec::new();
+        apply_key_set(&mut injector, &mut control, Vec::new(), &mut after);
+        assert!(!control.authorized(t0), "control ends at once");
+        assert_eq!(control.granted_key, None);
+        assert!(codes(&after).iter().any(|code| code == "grant_key_missing"));
+        // A further input is refused — no live grant.
+        let (_, refused) =
+            feed(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0x41, scan: 0, extended: false }), t0);
+        assert!(codes(&refused).iter().any(|code| code == "grant_required"));
+    }
+
+    /// Serialize an install state whose enrolled keys are `fills` (each a
+    /// 65-byte uncompressed point filled with that byte), for the delivery tests.
+    fn state_bytes_with(fills: &[u8]) -> Vec<u8> {
+        use base64::Engine as _;
+        let mut state = state();
+        // A fixed secret, so equal key sets serialize to equal bytes.
+        state.secret = base64::engine::general_purpose::STANDARD.encode([5u8; crate::security::SECRET_BYTES]);
+        for &fill in fills {
+            let mut point = [4u8; CONTROLLER_KEY_BYTES];
+            point[1] = fill;
+            state.enroll_key(&base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point)).unwrap();
+        }
+        state.to_json().into_bytes()
+    }
+
+    #[test]
+    fn decide_refresh_fails_closed_on_unparseable_state() {
+        assert!(matches!(decide_refresh(Ok(b"{\"schema\":".to_vec()), &None), KeyRefresh::Suspend));
+        assert!(matches!(decide_refresh(Ok(vec![0xff, 0xfe]), &None), KeyRefresh::Suspend));
+        let good = state_bytes_with(&[4]);
+        assert!(matches!(decide_refresh(Err(std::io::Error::other("locked")), &Some(good)), KeyRefresh::Suspend));
+    }
+
+    #[test]
+    fn a_content_change_is_delivered_even_when_the_timestamp_is_unchanged() {
+        // decide_refresh compares bytes, not mtime: a timestamp-preserving
+        // replace that revokes a key is still seen. (The byte in KEY2 is 9.)
+        let with_both = state_bytes_with(&[4, 9]);
+        let only_first = state_bytes_with(&[4]);
+        // First load from no prior state.
+        let KeyRefresh::Loaded { keys, bytes } = decide_refresh(Ok(with_both.clone()), &None) else {
+            panic!("first read should load");
+        };
+        assert_eq!(keys.len(), 2);
+        // A different content (same mtime, in reality) is loaded, not skipped.
+        assert!(matches!(decide_refresh(Ok(only_first.clone()), &Some(bytes.clone())), KeyRefresh::Loaded { .. }));
+        // Identical bytes are Unchanged (no reparse).
+        assert!(matches!(decide_refresh(Ok(with_both.clone()), &Some(with_both)), KeyRefresh::Unchanged));
+        // Now prove delivery revokes a live grant: enroll KEY2, grant under it,
+        // then deliver a state that drops KEY2.
+        let t0 = Instant::now();
+        let mut injector = inject::Injector::with_sink(Recorder::default());
+        let (mut control, challenge) = active_control_keys(t0, vec![KEY, KEY2]);
+        let (_, ok) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
+        assert!(codes(&ok).is_empty() && control.authorized(t0));
+        let mut last = Some(with_both_key2());
+        let mut replies = Vec::new();
+        apply_refresh(&mut injector, &mut control, &mut last, Ok(state_bytes_with(&[4])), &mut replies);
+        assert!(!control.authorized(t0), "KEY2 revoked → its live grant ends");
+        assert!(codes(&replies).iter().any(|c| c == "grant_key_missing"));
+    }
+
+    /// The `with_both` bytes KEY+KEY2 as the "last loaded" for the delivery test.
+    fn with_both_key2() -> Vec<u8> {
+        state_bytes_with(&[4, 9])
+    }
+
+    #[test]
+    fn an_unreadable_state_suspends_then_a_good_read_resumes() {
+        let t0 = Instant::now();
+        let mut injector = inject::Injector::with_sink(Recorder::default());
+        let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
+        let (_, ok) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
+        assert!(codes(&ok).is_empty() && control.authorized(t0));
+        let mut last = Some(state_bytes_with(&[4]));
+        // A read error (fail closed): the live grant ends, input is refused,
+        // and `last` is not advanced so the next retry still runs.
+        let mut replies = Vec::new();
+        apply_refresh(&mut injector, &mut control, &mut last, Err(std::io::Error::other("boom")), &mut replies);
+        assert!(control.suspended && !control.authorized(t0));
+        assert!(codes(&replies).iter().any(|c| c == "grant_key_missing"));
+        let (_, refused) =
+            feed(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0x41, scan: 0, extended: false }), t0);
+        assert!(codes(&refused).iter().any(|c| c == "grant_required"));
+        assert_eq!(last, Some(state_bytes_with(&[4])), "a failed read never advances the seen bytes");
+        // A good read resumes authorization; a fresh grant is then accepted.
+        apply_refresh(&mut injector, &mut control, &mut last, Ok(state_bytes_with(&[4])), &mut Vec::new());
+        assert!(!control.suspended, "resumed");
+        let t1 = t0 + crate::security::GRANT_REFRESH;
+        let mut issued = Vec::new();
+        tick(&mut injector, &mut control, t1, &mut issued);
+        let challenge2 = issued_challenge(&issued);
+        let (_, accepted) = feed(&mut injector, &mut control, grant(&challenge2, 1, &GOOD_SIGNATURE), t1);
+        assert!(codes(&accepted).is_empty() && control.authorized(t1), "control works again");
+    }
+
+    /// Two control frames that arrive in **one read**: encoded into one buffer,
+    /// fed to the real accumulator with a single `extend`, and drained one frame
+    /// at a time through [`dispatch_refreshed`] — as `serve_client` does. The
+    /// injected hook `commit` replaces the committed state *between* the first
+    /// and the second dispatch (a revoke whose command returns mid-batch).
+    /// Returns each dispatch's effect and replies.
+    fn batch_with_commit_between(
+        injector: &mut inject::Injector<Recorder>,
+        control: &mut Control,
+        last: &mut Option<Vec<u8>>,
+        disk: &RefCell<Vec<u8>>,
+        frames: [Message; 2],
+        commit: Vec<u8>,
+        now: Instant,
+    ) -> Vec<(Effect, Vec<Message>)> {
+        let mut wire = Vec::new();
+        for frame in &frames {
+            wire.extend(protocol::encode_control(frame));
+        }
+        let mut acc = protocol::FrameAccumulator::new();
+        acc.extend(&wire, now);
+        let mut read = || -> std::io::Result<Vec<u8>> { Ok(disk.borrow().clone()) };
+        let mut commit = Some(commit);
+        let mut out = Vec::new();
+        while let Some(decoded) = acc.next_frame(now, FRAME_DEADLINE).unwrap() {
+            let Decoded::Control(message) = decoded else { panic!("expected a control frame") };
+            let mut replies = Vec::new();
+            let effect = dispatch_refreshed(injector, control, last, &mut read, message, now, &fake_verify, &mut replies);
+            out.push((effect, replies));
+            if let Some(bytes) = commit.take() {
+                *disk.borrow_mut() = bytes;
+            }
+        }
+        assert_eq!(out.len(), 2, "both frames came from the one read");
+        out
+    }
+
+    /// Active control holding a live grant signed by KEY, with KEY and KEY2
+    /// committed on the in-memory "disk" and already loaded.
+    fn granted_by_key(t0: Instant, sink: Recorder) -> (inject::Injector<Recorder>, Control, Option<Vec<u8>>, RefCell<Vec<u8>>) {
+        let mut injector = inject::Injector::with_sink(sink);
+        let (mut control, challenge) = active_control_keys(t0, vec![KEY, KEY2]);
+        let disk = RefCell::new(state_bytes_with(&[4, 9]));
+        let mut last = None;
+        let mut read = || -> std::io::Result<Vec<u8>> { Ok(disk.borrow().clone()) };
+        let mut replies = Vec::new();
+        dispatch_refreshed(&mut injector, &mut control, &mut last, &mut read, grant(&challenge, 1, &GOOD_SIGNATURE), t0, &fake_verify, &mut replies);
+        assert!(codes(&replies).is_empty() && control.authorized(t0), "{replies:?}");
+        assert_eq!(control.granted_key, Some(KEY));
+        (injector, control, last, disk)
+    }
+
+    #[test]
+    fn a_revoke_committed_mid_batch_refuses_the_next_input_in_the_same_read() {
+        let t0 = Instant::now();
+        let sink = Recorder::default();
+        let (mut injector, mut control, mut last, disk) = granted_by_key(t0, sink.clone());
+        let press = |vk| input(InputEvent::Key { down: true, vk, scan: 0, extended: false });
+        // KEY is revoked (KEY2 stays) between the two frames' dispatches.
+        let out = batch_with_commit_between(
+            &mut injector,
+            &mut control,
+            &mut last,
+            &disk,
+            [press(0x41), press(0x42)],
+            state_bytes_with(&[9]),
+            t0,
+        );
+        assert!(codes(&out[0].1).is_empty(), "the first frame ran under the live grant");
+        // The second frame: the revoke is seen before it acts → refused.
+        assert!(codes(&out[1].1).iter().any(|code| code == "grant_key_missing"), "{:?}", out[1].1);
+        assert!(codes(&out[1].1).iter().any(|code| code == "grant_required"), "{:?}", out[1].1);
+        assert!(!control.authorized(t0) && control.granted_key.is_none());
+        // Over the whole batch: exactly one press reached the desktop (the
+        // first frame's), followed only by its release when the grant ended;
+        // the second press never did.
+        let sent = sink.0.borrow().clone();
+        let presses = sent.iter().filter(|event| !is_key_up(event)).count();
+        assert_eq!(presses, 1, "only the first frame's press was injected: {}", sent.len());
+        assert!(!is_key_up(&sent[0]), "the first press came first");
+        assert!(sent.len() > 1 && sent[1..].iter().all(is_key_up), "then only its release");
+    }
+
+    #[test]
+    fn a_revoke_committed_mid_batch_refuses_the_next_sas_in_the_same_read() {
+        let t0 = Instant::now();
+        let (mut injector, mut control, mut last, disk) = granted_by_key(t0, Recorder::default());
+        let out = batch_with_commit_between(
+            &mut injector,
+            &mut control,
+            &mut last,
+            &disk,
+            [Message::Sas, Message::Sas],
+            state_bytes_with(&[9]),
+            t0,
+        );
+        assert!(matches!(out[0].0, Effect::Sas), "the first SAS ran under the live grant");
+        assert!(matches!(out[1].0, Effect::None), "the second SAS is refused");
+        assert!(codes(&out[1].1).iter().any(|code| code == "grant_required"), "{:?}", out[1].1);
+    }
+
+    #[test]
+    fn a_state_unreadable_mid_batch_refuses_the_next_frame() {
+        // The read itself is the check: a failure there (no signal to miss)
+        // fails closed for the very next frame.
+        let t0 = Instant::now();
+        let (mut injector, mut control, mut last, disk) = granted_by_key(t0, Recorder::default());
+        let out =
+            batch_with_commit_between(&mut injector, &mut control, &mut last, &disk, [Message::Sas, Message::Sas], b"{".to_vec(), t0);
+        assert!(matches!(out[0].0, Effect::Sas));
+        assert!(matches!(out[1].0, Effect::None) && control.suspended);
+    }
+
+    #[test]
+    fn a_committed_enroll_is_accepted_on_a_live_connection_without_a_restart() {
+        let t0 = Instant::now();
+        let mut injector = inject::Injector::with_sink(Recorder::default());
+        // Only KEY is enrolled: a grant signed by KEY2 is refused.
+        let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
+        let (_, refused) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
+        assert!(!codes(&refused).is_empty() && !control.authorized(t0));
+        // Phone B is enrolled: the committed set now includes KEY2 — no reconnect.
+        apply_key_set(&mut injector, &mut control, vec![KEY, KEY2], &mut Vec::new());
+        // A fresh challenge, then B's grant is accepted.
+        let t1 = t0 + crate::security::GRANT_REFRESH;
+        let mut issued = Vec::new();
+        tick(&mut injector, &mut control, t1, &mut issued);
+        let challenge2 = issued_challenge(&issued);
+        let (_, accepted) = feed(&mut injector, &mut control, grant(&challenge2, 1, &GOOD_SIGNATURE2), t1);
+        assert!(codes(&accepted).is_empty() && control.authorized(t1), "B now controls without a restart");
+    }
+
+    #[test]
+    fn a_grant_no_enrolled_key_signed_is_refused() {
+        let t0 = Instant::now();
+        let mut injector = inject::Injector::with_sink(Recorder::default());
+        // Only the first key is enrolled; a signature only the second produces.
+        let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
+        assert_eq!(codes(&replies), ["grant_bad_signature"]);
+        assert!(control.granted_key.is_none());
+    }
+
+    #[test]
     fn a_failed_injection_is_reported_once_per_blocked_period() {
         let t0 = Instant::now();
         let gate = Gate::default();
         let blocked = gate.blocked.clone();
         *blocked.borrow_mut() = true;
         let mut injector = inject::Injector::with_sink(gate);
-        let mut control = Control::new(vec![0x33; 16], Some(KEY));
+        let mut control = Control::new(vec![0x33; 16], vec![KEY]);
         let mut replies = Vec::new();
         injector.pointer_move(1, 1);
         tick(&mut injector, &mut control, t0, &mut replies);
@@ -1525,7 +1990,7 @@ mod tests {
     fn inactive_gate_admits_only_in_place_releases_of_held_input() {
         let sink = Recorder::default();
         let mut injector = inject::Injector::with_sink(sink.clone());
-        let mut control = Control::new(vec![0x33; 16], Some(KEY));
+        let mut control = Control::new(vec![0x33; 16], vec![KEY]);
         let now = Instant::now();
         let left = protocol::PointerButton::Left;
 

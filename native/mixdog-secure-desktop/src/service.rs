@@ -264,7 +264,21 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
         log::event("service", "install state unavailable; no session will be served");
     }
 
-    match monitor_loop(event, installing_sid.as_deref()) {
+    // The delegation pipe server (app-delegated enroll/revoke) runs on its own
+    // thread for the service's lifetime, gated per request by the stored
+    // policy; it is stopped and joined after the monitor loop returns. It is
+    // started only when the installing user is known (its pipe DACL needs the
+    // SID), matching the session policy above.
+    let delegation = installing_sid.clone().map(|sid| std::thread::spawn(move || crate::delegation::serve(&sid)));
+
+    let verdict = monitor_loop(event, installing_sid.as_deref());
+
+    if let Some(thread) = delegation {
+        crate::delegation::request_stop();
+        let _ = thread.join();
+    }
+
+    match verdict {
         None => {
             set_status(SERVICE_STOPPED, 0, 0);
             log::event("service", "stopped");

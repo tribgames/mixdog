@@ -36,16 +36,89 @@ pub struct InstallState {
     pub pipe_name: String,
     /// Unix-epoch milliseconds the install completed.
     pub installed_at_ms: u64,
-    /// The paired phone's control-grant public key, enrolled by the
-    /// (phone-requested, elevated) install: base64url, unpadded, of the 65-byte
-    /// uncompressed P-256 point. The helper accepts new input and `sas` only
-    /// under a grant this key signed ([`GrantBook`]); without one enrolled it
-    /// refuses them all. The state file is writable by SYSTEM and
-    /// Administrators only, so a process of the installing user can read this
-    /// key but never replace it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub controller_key: Option<String>,
+    /// The paired phones' control-grant public keys, one per paired phone,
+    /// enrolled by an admin-gated `install`/`enroll` (elevated UAC, or the
+    /// credential-logon path): base64url, unpadded, of the 65-byte uncompressed
+    /// P-256 point. The helper accepts new input and `sas` only under a grant
+    /// one of these keys signed ([`GrantBook`]); with none enrolled it refuses
+    /// them all. The state file is writable by SYSTEM and Administrators only,
+    /// so a process of the installing user can read these keys but never add or
+    /// remove one — enrolling a key requires the elevated or logon path, which
+    /// is the privilege-escalation guard (a same-user process must not be able
+    /// to add a key and then drive its own UAC prompt).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub controller_keys: Vec<String>,
+    /// Legacy single-key field written by installs before the key set (schema
+    /// unchanged). Read for back-compat and folded into `controller_keys` by
+    /// [`Self::from_json`]; never written again.
+    #[serde(default, rename = "controllerKey", skip_serializing)]
+    controller_key_legacy: Option<String>,
+    /// The app-delegation policy (the "approve once, then paired phones
+    /// auto-enroll" model). Absent/`default` on installs made before it, and on
+    /// installs that did not opt in — both read as delegation disabled.
+    #[serde(default, skip_serializing_if = "DelegationPolicy::is_default")]
+    pub delegation: DelegationPolicy,
 }
+
+/// How the genuine signed Mixdog app may enroll/revoke phone keys **without
+/// elevation** after a one-time elevated opt-in.
+///
+/// Stored only in the SYSTEM/Administrators-writable install state, never as a
+/// bearer secret the app holds: the app asks the service and the service
+/// decides. Only an elevated path ([`InstallState::enable_delegation`], reached
+/// from the elevated `install`) can set `enabled`, so no unelevated process can
+/// grant itself delegation — a same-user process cannot write this file. The
+/// service re-reads it on every delegated request, so [`disable`]
+/// (`InstallState::disable_delegation`) takes effect at once, across reconnect
+/// and reboot; re-enabling after a disable needs elevation again (another
+/// `install`).
+///
+/// It is an explicit, permanent delegation to the authorized app: approving it
+/// trusts the app as it runs on this PC. The residual risk is documented in the
+/// crate README Security section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationPolicy {
+    /// Whether delegated (unelevated, app-authorized) enroll/revoke is allowed.
+    pub enabled: bool,
+    /// The authorized app's exact Authenticode signer subject DN, captured from
+    /// the release signer pin at opt-in. The service verifies the calling
+    /// EXE's signer against this (plus the profile EKU) before honoring a
+    /// delegated request. `None` on a never-delegated install.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_subject: Option<String>,
+    /// The authorized app's Artifact Signing certificate-profile EKU, captured
+    /// with the subject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_profile_eku: Option<String>,
+}
+
+impl DelegationPolicy {
+    /// A default (never-opted-in) policy, not serialized so the on-disk state of
+    /// an install that never delegated is unchanged.
+    pub fn is_default(&self) -> bool {
+        !self.enabled && self.app_subject.is_none() && self.app_profile_eku.is_none()
+    }
+
+    /// The authorized app signer (subject + profile EKU) when delegation is
+    /// enabled and both were recorded; `None` otherwise. The service uses this
+    /// to decide; `None` means no delegated request is honored.
+    pub fn authorized_signer(&self) -> Option<(&str, &str)> {
+        if !self.enabled {
+            return None;
+        }
+        match (self.app_subject.as_deref(), self.app_profile_eku.as_deref()) {
+            (Some(subject), Some(eku)) => Some((subject, eku)),
+            _ => None,
+        }
+    }
+}
+
+/// The maximum number of enrolled phone keys. Reuses the relay's cap on clients
+/// paired to one desktop, `MAX_PAIRED_CLIENTS_PER_DEVICE` (256) in
+/// `apps/relay/lib/device-store-auth.mjs`, so the helper never holds more keys
+/// than the relay would ever pair to this PC.
+pub const MAX_CONTROLLER_KEYS: usize = 256;
 
 impl InstallState {
     pub fn new(product_version: &str, user_sid: &str, pipe_name: &str, installed_at_ms: u64) -> Self {
@@ -56,21 +129,82 @@ impl InstallState {
             secret: generate_secret(),
             pipe_name: pipe_name.to_string(),
             installed_at_ms,
-            controller_key: None,
+            controller_keys: Vec::new(),
+            controller_key_legacy: None,
+            delegation: DelegationPolicy::default(),
         }
     }
 
-    /// Enroll the phone's control-grant key (see [`Self::controller_key`]).
-    /// Refuses anything that is not an uncompressed P-256 point.
-    pub fn with_controller_key(mut self, key: &str) -> Result<Self, String> {
-        decode_controller_key(key).ok_or("controller key is not an uncompressed P-256 point")?;
-        self.controller_key = Some(key.trim().to_string());
+    /// Opt in to app delegation, recording the authorized app signer (subject +
+    /// Artifact Signing profile EKU). Only the elevated `install` reaches this,
+    /// which is the privilege-escalation guard: the state file an unelevated
+    /// process can read it cannot write.
+    pub fn enable_delegation(&mut self, app_subject: &str, app_profile_eku: &str) {
+        self.delegation = DelegationPolicy {
+            enabled: true,
+            app_subject: Some(app_subject.to_string()),
+            app_profile_eku: Some(app_profile_eku.to_string()),
+        };
+    }
+
+    /// Disable delegation (a security disable). The recorded app identity is
+    /// kept for audit, but no delegated request is honored until an elevated
+    /// `install` enables it again.
+    pub fn disable_delegation(&mut self) {
+        self.delegation.enabled = false;
+    }
+
+    /// Enroll each of `keys` (see [`Self::enroll_key`]). Used when `install`
+    /// is given zero or more `--controller-key` values.
+    pub fn with_controller_keys(mut self, keys: &[String]) -> Result<Self, String> {
+        for key in keys {
+            self.enroll_key(key)?;
+        }
         Ok(self)
     }
 
-    /// The enrolled controller key, decoded; `None` when none is enrolled.
-    pub fn controller_key_bytes(&self) -> Option<[u8; CONTROLLER_KEY_BYTES]> {
-        self.controller_key.as_deref().and_then(decode_controller_key)
+    /// Add one phone's control-grant key, if not already enrolled and the cap
+    /// is not reached. Returns whether it was newly added. Refuses anything
+    /// that is not an uncompressed P-256 point, and refuses once
+    /// [`MAX_CONTROLLER_KEYS`] keys are enrolled.
+    pub fn enroll_key(&mut self, key: &str) -> Result<bool, String> {
+        let point = decode_controller_key(key).ok_or("controller key is not an uncompressed P-256 point")?;
+        if self.controller_keys.iter().any(|enrolled| decode_controller_key(enrolled) == Some(point)) {
+            return Ok(false);
+        }
+        if self.controller_keys.len() >= MAX_CONTROLLER_KEYS {
+            return Err(format!(
+                "the helper already has the maximum of {MAX_CONTROLLER_KEYS} enrolled phone keys"
+            ));
+        }
+        self.controller_keys.push(key.trim().to_string());
+        Ok(true)
+    }
+
+    /// Remove one phone's key (matched as a decoded point, so padding or case
+    /// of the base64url does not matter). Returns whether a key was removed.
+    /// The others are kept.
+    pub fn revoke_key(&mut self, key: &str) -> bool {
+        let Some(point) = decode_controller_key(key) else {
+            return false;
+        };
+        let before = self.controller_keys.len();
+        self.controller_keys.retain(|enrolled| decode_controller_key(enrolled) != Some(point));
+        self.controller_keys.len() != before
+    }
+
+    /// Whether `key` is one of the enrolled keys (compared as decoded points).
+    pub fn is_key_enrolled(&self, key: &str) -> bool {
+        match decode_controller_key(key) {
+            Some(point) => self.controller_keys.iter().any(|enrolled| decode_controller_key(enrolled) == Some(point)),
+            None => false,
+        }
+    }
+
+    /// The enrolled controller keys, decoded; empty when none is enrolled. The
+    /// helper verifies a grant against every one of these.
+    pub fn controller_keys_bytes(&self) -> Vec<[u8; CONTROLLER_KEY_BYTES]> {
+        self.controller_keys.iter().filter_map(|key| decode_controller_key(key)).collect()
     }
 
     pub fn to_json(&self) -> String {
@@ -78,7 +212,7 @@ impl InstallState {
     }
 
     pub fn from_json(text: &str) -> Result<Self, String> {
-        let state: InstallState =
+        let mut state: InstallState =
             serde_json::from_str(text).map_err(|error| format!("invalid install state: {error}"))?;
         if state.schema != STATE_SCHEMA_VERSION {
             return Err(format!(
@@ -92,8 +226,22 @@ impl InstallState {
         if !is_sid_literal(&state.user_sid) {
             return Err("install state user SID is malformed".into());
         }
-        if state.controller_key.as_deref().is_some_and(|key| decode_controller_key(key).is_none()) {
+        // Fold a legacy single key into the set, then validate every key and
+        // the cap. A same-user process cannot exploit this read path: the
+        // state file is writable by SYSTEM/Administrators only, so the keys it
+        // reads were written by an elevated or logon-path operation.
+        if let Some(legacy) = state.controller_key_legacy.take() {
+            if !state.controller_keys.iter().any(|key| key == &legacy) {
+                state.controller_keys.push(legacy);
+            }
+        }
+        if state.controller_keys.iter().any(|key| decode_controller_key(key).is_none()) {
             return Err("install state controller key is malformed".into());
+        }
+        if state.controller_keys.len() > MAX_CONTROLLER_KEYS {
+            return Err(format!(
+                "install state has more than the maximum of {MAX_CONTROLLER_KEYS} controller keys"
+            ));
         }
         Ok(state)
     }
@@ -698,7 +846,11 @@ pub fn is_shutdown_token(token: &str) -> bool {
 }
 
 /// SDDL for the state file: SYSTEM and Administrators full, installing user
-/// read-only. The user never needs to write it after install.
+/// read-only, nobody else. The file holds public material (enrolled phones'
+/// public keys, delegation policy, SID, versions) **and** the pipe secret; the
+/// secret is shared by design with the installing user's app, which must read
+/// it for the pipe's mutual HMAC handshake, so that user keeps read access and
+/// every other principal is excluded. The user never writes it.
 pub fn state_file_sddl(user_sid: &str) -> Option<String> {
     is_sid_literal(user_sid)
         .then(|| format!("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;{user_sid})"))
@@ -1096,27 +1248,107 @@ mod tests {
         assert!(InstallState::from_json("{}").is_err());
     }
 
+    /// A valid controller key made distinct by `fill` (two leading body bytes),
+    /// so more than 256 distinct keys can be generated for the cap test.
+    fn a_key(fill: u16) -> String {
+        let mut body = [7u8; 64];
+        body[0] = (fill >> 8) as u8;
+        body[1] = fill as u8;
+        URL_SAFE_NO_PAD.encode([&[4u8][..], &body[..]].concat())
+    }
+
     #[test]
-    fn install_state_enrolls_only_a_valid_controller_key() {
-        let key = URL_SAFE_NO_PAD.encode([&[4u8][..], &[7u8; 64][..]].concat());
+    fn install_state_enrolls_only_valid_controller_keys() {
+        let key = a_key(7);
         let state = InstallState::new("0.1.0", "S-1-5-18", crate::paths::PIPE_NAME, 0)
-            .with_controller_key(&key)
+            .with_controller_keys(std::slice::from_ref(&key))
             .unwrap();
         let parsed = InstallState::from_json(&state.to_json()).unwrap();
-        assert_eq!(parsed.controller_key_bytes().unwrap()[0], 4);
+        assert_eq!(parsed.controller_keys_bytes()[0][0], 4);
+        assert!(parsed.is_key_enrolled(&key));
         // A state without a key still parses (the helper then refuses control),
-        // and the field is not written at all.
+        // and no key field is written at all.
         let bare = InstallState::new("0.1.0", "S-1-5-18", crate::paths::PIPE_NAME, 0);
         assert!(!bare.to_json().contains("controllerKey"));
-        assert!(InstallState::from_json(&bare.to_json()).unwrap().controller_key_bytes().is_none());
+        assert!(InstallState::from_json(&bare.to_json()).unwrap().controller_keys_bytes().is_empty());
         // Compressed points, wrong lengths and non-base64url are refused.
         let compressed = URL_SAFE_NO_PAD.encode([&[2u8][..], &[7u8; 64][..]].concat());
         for bad in [compressed.as_str(), "AAAA", "not base64!"] {
-            assert!(InstallState::new("0.1.0", "S-1-5-18", "p", 0).with_controller_key(bad).is_err());
+            assert!(InstallState::new("0.1.0", "S-1-5-18", "p", 0)
+                .with_controller_keys(&[bad.to_string()])
+                .is_err());
             let mut forged = bare.clone();
-            forged.controller_key = Some(bad.to_string());
+            forged.controller_keys = vec![bad.to_string()];
             assert!(InstallState::from_json(&forged.to_json()).is_err());
         }
+    }
+
+    #[test]
+    fn a_legacy_single_key_state_is_read_as_a_one_key_set() {
+        // Installs before the key set wrote `controllerKey`; it must still read.
+        let legacy = format!(
+            r#"{{"schema":1,"productVersion":"0.1.0","userSid":"S-1-5-18","secret":"{}","pipeName":"p","installedAtMs":0,"controllerKey":"{}"}}"#,
+            generate_secret(),
+            a_key(5),
+        );
+        let parsed = InstallState::from_json(&legacy).unwrap();
+        assert!(parsed.is_key_enrolled(&a_key(5)));
+        // Re-serializing drops the legacy field for the new plural one.
+        let round = parsed.to_json();
+        assert!(!round.contains("\"controllerKey\""));
+        assert!(round.contains("controllerKeys"));
+    }
+
+    #[test]
+    fn enroll_is_idempotent_adds_others_and_revoke_removes_only_its_own() {
+        let mut state = InstallState::new("0.1.0", "S-1-5-18", "p", 0);
+        assert_eq!(state.enroll_key(&a_key(1)), Ok(true));
+        assert_eq!(state.enroll_key(&a_key(1)), Ok(false), "already enrolled");
+        assert_eq!(state.enroll_key(&a_key(2)), Ok(true));
+        assert_eq!(state.controller_keys_bytes().len(), 2);
+        assert!(state.revoke_key(&a_key(1)));
+        assert!(!state.revoke_key(&a_key(1)), "already gone");
+        assert!(state.is_key_enrolled(&a_key(2)) && !state.is_key_enrolled(&a_key(1)));
+    }
+
+    #[test]
+    fn delegation_is_off_until_an_elevated_opt_in_records_the_app_signer() {
+        let mut state = InstallState::new("0.1.0", "S-1-5-18", "p", 0);
+        // Fresh install: delegation is off and serializes to nothing (the
+        // on-disk shape of a never-delegated install is unchanged).
+        assert!(state.delegation.is_default());
+        assert_eq!(state.delegation.authorized_signer(), None);
+        assert!(!state.to_json().contains("delegation"));
+        // The elevated opt-in records the authorized app signer.
+        state.enable_delegation("CN=TRIBGAMES", "1.3.6.1.4.1.311.97.1.2.3");
+        assert_eq!(state.delegation.authorized_signer(), Some(("CN=TRIBGAMES", "1.3.6.1.4.1.311.97.1.2.3")));
+        let round = InstallState::from_json(&state.to_json()).unwrap();
+        assert_eq!(round.delegation, state.delegation, "the policy round-trips");
+        // A security disable stops honoring delegated requests at once, but
+        // keeps the recorded identity for audit; re-enabling needs elevation.
+        state.disable_delegation();
+        assert_eq!(state.delegation.authorized_signer(), None, "no delegated request is honored");
+        assert_eq!(state.delegation.app_subject.as_deref(), Some("CN=TRIBGAMES"), "identity kept for audit");
+    }
+
+    #[test]
+    fn an_install_made_before_delegation_reads_as_disabled() {
+        let legacy = format!(
+            r#"{{"schema":1,"productVersion":"0.1.0","userSid":"S-1-5-18","secret":"{}","pipeName":"p","installedAtMs":0}}"#,
+            generate_secret(),
+        );
+        let parsed = InstallState::from_json(&legacy).unwrap();
+        assert!(parsed.delegation.is_default() && parsed.delegation.authorized_signer().is_none());
+    }
+
+    #[test]
+    fn the_key_set_is_capped_at_the_relay_pairing_limit() {
+        let mut state = InstallState::new("0.1.0", "S-1-5-18", "p", 0);
+        for fill in 0..MAX_CONTROLLER_KEYS as u16 {
+            state.controller_keys.push(a_key(fill));
+        }
+        assert_eq!(state.controller_keys.len(), MAX_CONTROLLER_KEYS);
+        assert!(state.enroll_key(&a_key(MAX_CONTROLLER_KEYS as u16)).is_err(), "the cap is enforced");
     }
 
     // ---- control grants (pure) ----

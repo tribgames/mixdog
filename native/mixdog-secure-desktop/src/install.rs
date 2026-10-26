@@ -26,7 +26,8 @@ use std::os::windows::ffi::OsStrExt;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Globalization::{CompareStringOrdinal, CSTR_EQUAL};
 use windows::Win32::Foundation::{
-    GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE,
+    GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, GENERIC_WRITE,
+    HANDLE,
 };
 use windows::Win32::Security::{
     CreateWellKnownSid, GetTokenInformation, SetFileSecurityW, TokenElevation, WinBuiltinAdministratorsSid,
@@ -34,7 +35,8 @@ use windows::Win32::Security::{
     OWNER_SECURITY_INFORMATION, PSID, SECURITY_MAX_SID_SIZE, TOKEN_ELEVATION, TOKEN_QUERY, WELL_KNOWN_SID_TYPE,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateDirectoryW, MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT, MOVE_FILE_FLAGS,
+    CreateDirectoryW, CreateFileW, MoveFileExW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_MODE,
+    MOVEFILE_DELAY_UNTIL_REBOOT, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MOVE_FILE_FLAGS,
 };
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY,
@@ -86,6 +88,25 @@ const EXIT_UNTRUSTED_IMAGE: i32 = 5;
 /// Exit code when the image's certificate revocation status could not be
 /// determined (no CRL/OCSP answer within the bounded retrieval time).
 const EXIT_REVOCATION_UNKNOWN: i32 = 6;
+/// Exit code of `check --controller-key k` when the helper is installed and
+/// current but that phone's key is not enrolled: the phone is offered an
+/// `enroll` (add its key) rather than a reinstall.
+const EXIT_NOT_ENROLLED: i32 = 7;
+// Exit codes of the credential-logon path (`--logon`): the typed password did
+// not authenticate, the account is not an unfiltered administrator, or the
+// account/policy refused this logon. The app maps each to a phone outcome.
+pub(crate) const EXIT_BAD_CREDENTIALS: i32 = 10;
+pub(crate) const EXIT_NOT_ADMIN: i32 = 11;
+pub(crate) const EXIT_LOGON_TYPE_DENIED: i32 = 12;
+pub(crate) const EXIT_ACCOUNT_LOCKED: i32 = 13;
+pub(crate) const EXIT_ACCOUNT_DISABLED: i32 = 14;
+pub(crate) const EXIT_POLICY_BLOCKED: i32 = 15;
+// Exit codes of the delegated (unelevated, app-authorized) path (`--delegated`):
+// delegation is off (never opted in, or disabled), or the service refused this
+// caller / was unreachable. The app maps each to a phone outcome.
+pub(crate) const EXIT_DELEGATION_DISABLED: i32 = 20;
+pub(crate) const EXIT_DELEGATION_DENIED: i32 = 21;
+pub(crate) const EXIT_DELEGATION_UNAVAILABLE: i32 = 22;
 // No overall self-abort timer on `install`/`uninstall`/`verify-image`. Each
 // external wait has its own limit instead:
 // - the online revocation retrieval: `signature::REVOCATION_RETRIEVAL_TIMEOUT_MS`,
@@ -154,13 +175,13 @@ impl Drop for ScHandle {
     }
 }
 
-fn emit(value: serde_json::Value) {
+pub(crate) fn emit(value: serde_json::Value) {
     let text = value.to_string();
     let mut stdout = std::io::stdout();
     let _ = writeln!(stdout, "{text}");
 }
 
-fn fail(message: &str) -> i32 {
+pub(crate) fn fail(message: &str) -> i32 {
     emit(json!({ "ok": false, "error": message }));
     1
 }
@@ -297,7 +318,7 @@ impl Drop for Boundary {
 }
 
 /// A well-known SID in a buffer of the documented maximum size.
-fn well_known_sid(kind: WELL_KNOWN_SID_TYPE) -> Result<[u8; SECURITY_MAX_SID_SIZE as usize], String> {
+pub(crate) fn well_known_sid(kind: WELL_KNOWN_SID_TYPE) -> Result<[u8; SECURITY_MAX_SID_SIZE as usize], String> {
     let mut sid = [0u8; SECURITY_MAX_SID_SIZE as usize];
     let mut size = sid.len() as u32;
     unsafe { CreateWellKnownSid(kind, None, Some(PSID(sid.as_mut_ptr().cast())), &mut size) }
@@ -423,14 +444,104 @@ fn refuse_image(refusal: &signature::Refusal) -> i32 {
     }
 }
 
-/// Write the state file (the secret) into the already-protected directory and
-/// set its read-only-to-user DACL. Must run only after [`stage_protected_binary`]
-/// has created and verified the directory.
+/// The temp sibling [`write_protected_state`] writes before the atomic replace.
+const STATE_TEMP_NAME: &str = "state.json.tmp";
+
+/// Whether `name` is a state temp file a crashed write may have left behind:
+/// [`STATE_TEMP_NAME`], or an earlier build's `state.<pid>.tmp`. Pure.
+fn is_state_temp_name(name: &str) -> bool {
+    name.starts_with("state.") && name.ends_with(".tmp")
+}
+
+/// Remove every leftover state temp file in `dir` (a crash between create and
+/// replace leaves one). Called under the install lock before each write, so it
+/// never races a live write.
+fn remove_leftover_state_temps(dir: &Path) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir).map_err(|error| format!("list {}: {error}", dir.display()))?;
+    for entry in entries.flatten() {
+        if entry.file_name().to_str().is_some_and(is_state_temp_name) {
+            std::fs::remove_file(entry.path())
+                .map_err(|error| format!("remove leftover {}: {error}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Create `path` as a **new** file (`CREATE_NEW`: never reuse a pre-planted
+/// one) carrying `sddl` as its security descriptor from the moment it exists
+/// (`CreateFileW` with `SECURITY_ATTRIBUTES`, so the parent's inheritable ACEs
+/// never apply to it, not even briefly), then write `bytes` through that same
+/// handle and flush them to disk (`FlushFileBuffers` via `sync_all`).
+fn create_protected_file(path: &Path, bytes: &[u8], sddl: &str) -> Result<(), String> {
+    use std::io::Write as _;
+    use std::os::windows::io::FromRawHandle as _;
+    let descriptor = SecurityDescriptor::from_sddl(sddl).map_err(|error| error.to_string())?;
+    let attributes = descriptor.attributes();
+    let wide_path = wide(&path.to_string_lossy());
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(wide_path.as_ptr()),
+            GENERIC_WRITE.0,
+            FILE_SHARE_MODE(0),
+            Some(&attributes),
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    }
+    .map_err(|error| format!("create {}: {error}", path.display()))?;
+    // The File owns (and closes) the handle from here.
+    let mut file = unsafe { std::fs::File::from_raw_handle(handle.0) };
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| format!("write {}: {error}", path.display()))
+}
+
+/// Write the state file into the already-protected directory with its
+/// read-only-to-user DACL. Must run only after [`stage_protected_binary`] has
+/// created and verified the directory, and under the install lock.
+///
+/// What it holds: the installing user's SID, versions, the enrolled phones'
+/// **public** keys, the delegation policy — and the 32-byte pipe `secret`.
+/// The secret *is* sensitive, but by design it is shared with exactly one
+/// principal besides SYSTEM/Administrators: the installing user, whose app
+/// must read it to run the mutual HMAC handshake on the helper pipe (`probe`,
+/// the desktop client). So that user keeps read-only access (it can never
+/// write the file, so it cannot change keys or policy), and every other user
+/// is excluded. See `security::state_file_sddl`.
+///
+/// The temp sibling is created with that final DACL (never weaker, even for a
+/// moment), written and flushed through its own handle, then atomically
+/// swapped in, so a concurrent reader (the running helper re-reading the key
+/// set) sees either the old file or the whole new one, never partial JSON. A
+/// temp a crash left behind is removed first.
 fn write_protected_state(state: &InstallState) -> Result<(), String> {
-    std::fs::write(paths::state_file(), state.to_json())
-        .map_err(|error| format!("write state: {error}"))?;
+    let final_path = paths::state_file();
+    let dir = final_path.parent().ok_or("the state file has no parent directory")?;
     let sddl = state_file_sddl(&state.user_sid).ok_or("invalid user SID")?;
-    apply_security(&paths::state_file(), &sddl, DACL_SECURITY_INFORMATION)
+    remove_leftover_state_temps(dir)?;
+    let temp = dir.join(STATE_TEMP_NAME);
+    let result =
+        create_protected_file(&temp, state.to_json().as_bytes(), &sddl).and_then(|()| atomic_replace(&temp, &final_path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
+/// Atomically replace `to` with `from` (create `to` if absent), flushed to disk:
+/// `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`.
+fn atomic_replace(from: &Path, to: &Path) -> Result<(), String> {
+    let wide_from = wide(&from.to_string_lossy());
+    let wide_to = wide(&to.to_string_lossy());
+    unsafe {
+        MoveFileExW(
+            PCWSTR(wide_from.as_ptr()),
+            PCWSTR(wide_to.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    }
+    .map_err(|error| format!("atomically replace the state file: {error}"))
 }
 
 /// Open the service control manager with `access`.
@@ -627,21 +738,308 @@ fn controller_key_arg(args: &[String]) -> Result<Option<String>, String> {
     Ok(Some(key.trim().to_string()))
 }
 
-/// The install state an install or update writes: always freshly built with the
-/// requesting phone's key, so an approved update replaces any key enrolled
-/// before (one key per install). Pure; unit-tested.
-fn install_state_for(user_sid: &str, controller_key: &str, now_ms: u64) -> Result<InstallState, String> {
-    InstallState::new(env!("CARGO_PKG_VERSION"), user_sid, paths::PIPE_NAME, now_ms).with_controller_key(controller_key)
+/// Every `--controller-key <value>` on the command line, each validated as an
+/// uncompressed P-256 point. Zero is allowed (`install` may install the helper
+/// with no key yet). Pure; unit-tested.
+fn collect_controller_keys(args: &[String]) -> Result<Vec<String>, String> {
+    let mut keys = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--controller-key" {
+            let key = args.get(index + 1).ok_or("--controller-key needs a value")?;
+            decode_controller_key(key)
+                .ok_or("the controller key is not an uncompressed P-256 point (base64url)")?;
+            keys.push(key.trim().to_string());
+            index += 2;
+        } else {
+            index += 1;
+        }
+    }
+    Ok(keys)
 }
 
+/// Every `--revoke-key <value>`, each validated like a controller key. Used by
+/// `enroll` to apply pending revokes in the same elevation. Pure; unit-tested.
+fn collect_revoke_keys(args: &[String]) -> Result<Vec<String>, String> {
+    let mut keys = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--revoke-key" {
+            let key = args.get(index + 1).ok_or("--revoke-key needs a value")?;
+            decode_controller_key(key)
+                .ok_or("the revoke key is not an uncompressed P-256 point (base64url)")?;
+            keys.push(key.trim().to_string());
+            index += 2;
+        } else {
+            index += 1;
+        }
+    }
+    Ok(keys)
+}
+
+
+/// Whether the command line asked for the credential-logon path (`--logon`):
+/// the unelevated app runs the operation under an administrator token obtained
+/// from a password on stdin, instead of a UAC elevation.
+fn wants_logon(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "--logon")
+}
+
+/// The install state an install writes: freshly built and enrolling `keys`
+/// (zero or more). Pure; unit-tested.
+fn install_state_for(user_sid: &str, keys: &[String], now_ms: u64) -> Result<InstallState, String> {
+    InstallState::new(env!("CARGO_PKG_VERSION"), user_sid, paths::PIPE_NAME, now_ms).with_controller_keys(keys)
+}
+
+/// `install [--controller-key k]...` (zero or more keys) under one UAC
+/// elevation, or — with `--logon` — under an administrator token logged on
+/// from a password on stdin (the unelevated app's remote fallback).
 pub fn install(args: &[String]) -> i32 {
-    // Before the lock and any change: no key, no install (the
-    // helper refuses all input without an enrolled key anyway).
-    let controller_key = match controller_key_arg(args) {
-        Ok(Some(key)) => key,
-        Ok(None) => return fail("install needs --controller-key <base64url> (the paired phone's public key)"),
+    // Collected (and validated) before the lock. Zero keys is allowed: the
+    // helper installs but refuses all input until a key is enrolled.
+    let keys = match collect_controller_keys(args) {
+        Ok(keys) => keys,
         Err(error) => return fail(&error),
     };
+    if wants_logon(args) {
+        return crate::logon::with_credential_logon(move || perform_install(&keys));
+    }
+    perform_install(&keys)
+}
+
+/// `enroll --controller-key k [--controller-key k2 …] [--revoke-key r …]`: add
+/// each phone's key to an installed helper (and apply pending revokes in the
+/// same step), keeping the rest. Three authorization sources:
+/// - a UAC elevation (default),
+/// - `--logon`: an administrator token logged on from a password on stdin
+///   (the remote password fallback),
+/// - `--delegated`: the unelevated, app-authorized path, honored only when the
+///   SYSTEM service's stored delegation policy allows this signed app. The
+///   delegated pipe op carries exactly one key and no revokes.
+pub fn enroll(args: &[String]) -> i32 {
+    let add = match collect_controller_keys(args) {
+        Ok(add) => add,
+        Err(error) => return fail(&error),
+    };
+    let remove = match collect_revoke_keys(args) {
+        Ok(remove) => remove,
+        Err(error) => return fail(&error),
+    };
+    if add.is_empty() && remove.is_empty() {
+        return fail("enroll needs at least one --controller-key or --revoke-key");
+    }
+    if wants_delegated(args) {
+        if !remove.is_empty() {
+            return fail("the delegated enroll takes no --revoke-key");
+        }
+        return perform_delegated("enroll", &add);
+    }
+    if wants_logon(args) {
+        return crate::logon::with_credential_logon(move || perform_key_change(&add, &remove));
+    }
+    perform_key_change(&add, &remove)
+}
+
+/// `revoke --controller-key k [--controller-key k2 …]`: remove each phone's
+/// key, keeping the rest. Same three authorization sources as [`enroll`]; the
+/// delegated pipe op carries exactly one key.
+pub fn revoke(args: &[String]) -> i32 {
+    let remove = match collect_controller_keys(args) {
+        Ok(remove) => remove,
+        Err(error) => return fail(&error),
+    };
+    if remove.is_empty() {
+        return fail("revoke needs at least one --controller-key");
+    }
+    if wants_delegated(args) {
+        return perform_delegated("revoke", &remove);
+    }
+    if wants_logon(args) {
+        return crate::logon::with_credential_logon(move || perform_key_change(&[], &remove));
+    }
+    perform_key_change(&[], &remove)
+}
+
+/// Apply the adds and removes under one authorization (one UAC prompt, or one
+/// logon). Takes the install lock, then the shared mutation.
+fn perform_key_change(add: &[String], remove: &[String]) -> i32 {
+    let _auth = match authorize_key_change() {
+        Ok(auth) => auth,
+        Err(code) => return code,
+    };
+    apply_key_change(add, remove)
+}
+
+/// Run one delegated op (exactly one key) through the service's delegation
+/// pipe, unelevated. The client authenticates the service is SYSTEM and the
+/// service authenticates this app; see [`crate::delegation`].
+fn perform_delegated(op: &str, keys: &[String]) -> i32 {
+    match keys {
+        [key] => crate::delegation::request_key_change(op, key),
+        _ => fail("the delegated path takes exactly one --controller-key"),
+    }
+}
+
+/// Whether the command line asked for the delegated (unelevated, app-authorized)
+/// path (`--delegated`).
+fn wants_delegated(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "--delegated")
+}
+
+/// `disable-delegation`: an elevated (UAC or `--logon`) security disable. Turns
+/// off app-delegated enroll/revoke at once — the service re-reads the policy on
+/// every request — while keeping the recorded app identity for audit.
+/// Re-enabling needs an elevated `install`.
+pub fn disable_delegation(args: &[String]) -> i32 {
+    if wants_logon(args) {
+        return crate::logon::with_credential_logon(perform_disable_delegation);
+    }
+    perform_disable_delegation()
+}
+
+fn perform_disable_delegation() -> i32 {
+    let _auth = match authorize_key_change() {
+        Ok(auth) => auth,
+        Err(code) => return code,
+    };
+    if let Err(code) = confirm_installed_and_ours() {
+        return code;
+    }
+    let mut state = match std::fs::read_to_string(paths::state_file()) {
+        Ok(text) => match InstallState::from_json(&text) {
+            Ok(state) => state,
+            Err(error) => return fail(&error),
+        },
+        Err(error) => return fail(&format!("read install state: {error}")),
+    };
+    state.disable_delegation();
+    if let Err(error) = write_protected_state(&state) {
+        return fail(&error);
+    }
+    log::event("disable-delegation", "app delegation disabled");
+    emit(json!({ "ok": true, "delegationEnabled": false }));
+    0
+}
+
+/// How an enroll/revoke was authorized to change the key set. Authorization is
+/// kept separate from the mutation ([`mutate_key_set`]) so each source is one
+/// isolated arm.
+enum KeyChangeAuth {
+    /// Under the install lock: an elevated administrator (one UAC prompt), the
+    /// impersonated batch-logon token, or the SYSTEM service applying a
+    /// delegated change it has already authenticated. Holding the lock
+    /// serializes against installs/uninstalls and is kept for the change.
+    Elevated(#[allow(dead_code)] PrivateNamespace),
+}
+
+/// Take the install lock, which only an elevated administrator, the logon
+/// token, or SYSTEM (the service) can — an ordinary unelevated process cannot
+/// (its Administrators SID is deny-only). This is the privilege-escalation
+/// guard for the CLI paths; the delegated path adds the service's app
+/// authentication *before* it calls in as SYSTEM.
+fn authorize_key_change() -> Result<KeyChangeAuth, i32> {
+    match acquire_install_lock() {
+        InstallLock::Held(lock) => Ok(KeyChangeAuth::Elevated(lock)),
+        refused => Err(lock_refused(refused)),
+    }
+}
+
+/// The authorized mutation for the CLI paths (elevated UAC or logon): confirm
+/// the install is ours, then apply the adds and removes and report. The caller
+/// already holds a [`KeyChangeAuth`].
+fn apply_key_change(add: &[String], remove: &[String]) -> i32 {
+    if let Err(code) = confirm_installed_and_ours() {
+        return code;
+    }
+    match mutate_key_set(add, remove) {
+        Ok(changed) => {
+            emit(json!({ "ok": true, "installed": true, "changed": changed }));
+            0
+        }
+        Err(error) => fail(&error),
+    }
+}
+
+/// Confirm the helper is installed and this operation may change it: SYSTEM (the
+/// service, on the delegated path, having already authenticated the installing
+/// user) is always allowed; otherwise the acting user must be the install's
+/// recorded owner. Returns the refusal exit code on failure.
+fn confirm_installed_and_ours() -> Result<(), i32> {
+    let sid = current_user_sid().map_err(|error| fail(&format!("cannot resolve user SID: {error}")))?;
+    let registered = service_registered().map_err(|error| fail(&error))?;
+    if !registered {
+        return Err(fail("the secure-desktop helper is not installed; install it before enrolling a key"));
+    }
+    // SYSTEM is the service applying a delegated change for the verified
+    // installing user; the owner check only guards against a *different user*
+    // taking over, which SYSTEM is not.
+    if !crate::security::is_system_sid(&sid) && owned_by_other_user(registered, recorded_owner().as_deref(), &sid) {
+        return Err(refuse_other_user("enroll"));
+    }
+    Ok(())
+}
+
+/// Apply adds and removes to the key set in one read/write; returns whether the
+/// set changed. Removes are applied first, so an enroll-plus-pending-revoke in
+/// one elevation cannot drop a key it just added. The only thing written is the
+/// key set. Shared by every authorization source (CLI and the delegated pipe),
+/// so the mutation is identical however it was authorized.
+fn mutate_key_set(add: &[String], remove: &[String]) -> Result<bool, String> {
+    let mut state = match std::fs::read_to_string(paths::state_file()) {
+        Ok(text) => InstallState::from_json(&text)?,
+        Err(error) => return Err(format!("read install state: {error}")),
+    };
+    let mut changed = false;
+    for key in remove {
+        changed |= state.revoke_key(key);
+    }
+    for key in add {
+        changed |= state.enroll_key(key)?;
+    }
+    if changed {
+        write_protected_state(&state)?;
+        log::event("key-change", &format!("controller key set updated (+{} -{})", add.len(), remove.len()));
+    }
+    Ok(changed)
+}
+
+/// The delegated (unelevated, app-authorized) mutation the service runs after
+/// it has authenticated the calling app: take the install lock as SYSTEM, then
+/// apply exactly one add or one remove through the shared [`mutate_key_set`].
+/// Returns whether the set changed, or an error string for the pipe reply. It
+/// never emits to stdout (the service has no console peer).
+pub(crate) fn apply_delegated_key_change(op: &str, key: &str, expected: &signature::SignerPolicy) -> Result<bool, String> {
+    let _auth = match authorize_key_change() {
+        Ok(auth) => auth,
+        Err(_) => return Err("the install lock is held or unavailable".into()),
+    };
+    confirm_installed_and_ours().map_err(|_| "the helper is not installed for this account".to_string())?;
+    // Re-read the delegation policy UNDER the lock: a `disable-delegation` (or
+    // a signer-policy change) that completed while the caller was being
+    // authenticated must be honored, not raced past. The policy read in
+    // `delegation::evaluate` was before the lock; this is the authoritative one.
+    let state = match std::fs::read_to_string(paths::state_file()) {
+        Ok(text) => InstallState::from_json(&text)?,
+        Err(error) => return Err(format!("read install state: {error}")),
+    };
+    if !delegation_still_authorized(&state, expected) {
+        return Err("app delegation was disabled or changed before the request was applied".into());
+    }
+    match op {
+        "enroll" => mutate_key_set(std::slice::from_ref(&key.to_string()), &[]),
+        "revoke" => mutate_key_set(&[], std::slice::from_ref(&key.to_string())),
+        other => Err(format!("unknown delegated operation {other:?}")),
+    }
+}
+
+/// Whether the stored delegation policy still authorizes `expected` — enabled,
+/// and the same app signer. The under-lock guard against a disable racing an
+/// in-flight delegated request. Pure; unit-tested.
+fn delegation_still_authorized(state: &InstallState, expected: &signature::SignerPolicy) -> bool {
+    state.delegation.authorized_signer() == Some((expected.subject.as_str(), expected.profile_eku.as_str()))
+}
+
+fn perform_install(keys: &[String]) -> i32 {
     let _lock = match acquire_install_lock() {
         InstallLock::Held(lock) => lock,
         refused => return lock_refused(refused),
@@ -692,10 +1090,19 @@ pub fn install(args: &[String]) -> i32 {
         Err(error) => return fail_and_roll_back(&error),
     };
 
-    let state = match install_state_for(&sid, &controller_key, now_ms()) {
+    let mut state = match install_state_for(&sid, keys, now_ms()) {
         Ok(state) => state,
         Err(error) => return fail_and_roll_back(&error),
     };
+    // Opt in to app delegation (the "approve once, then paired phones
+    // auto-enroll" model). The authorized app signer is this build's release
+    // signer, which the Mixdog app and this helper share; a build with no pin
+    // never reaches here (the image was verified above). A later elevated
+    // `install` re-enables it after a security disable.
+    match signature::release_signer_policy() {
+        Ok(policy) => state.enable_delegation(&policy.subject, &policy.profile_eku),
+        Err(error) => return fail_and_roll_back(&format!("record the delegation signer: {error}")),
+    }
     if let Err(error) = write_protected_state(&state) {
         return fail_and_roll_back(&error);
     }
@@ -1455,17 +1862,23 @@ enum InstallCheck {
     /// Registered, but owned by a different Windows account (its state is
     /// readable only by that user). A request must not silently take it over.
     OtherUser,
+    /// Installed and current, but the requesting phone's key is not enrolled:
+    /// an `enroll` adds it (no reinstall). Only ever returned when `check` was
+    /// given `--controller-key`.
+    NotEnrolled,
 }
 
 impl InstallCheck {
     /// Exit codes the installer branches on: 0 current, 1 missing, 2 stale,
-    /// 4 other-user (3 is reserved for "could not determine", see [`check`]).
+    /// 4 other-user, 7 not-enrolled (3 is reserved for "could not determine",
+    /// see [`check`]).
     fn exit_code(self) -> i32 {
         match self {
             InstallCheck::Current => 0,
             InstallCheck::Missing => 1,
             InstallCheck::Stale => 2,
             InstallCheck::OtherUser => 4,
+            InstallCheck::NotEnrolled => EXIT_NOT_ENROLLED,
         }
     }
 
@@ -1475,6 +1888,7 @@ impl InstallCheck {
             InstallCheck::Missing => "missing",
             InstallCheck::Stale => "stale",
             InstallCheck::OtherUser => "other-user",
+            InstallCheck::NotEnrolled => "not-enrolled",
         }
     }
 }
@@ -1493,6 +1907,9 @@ fn install_check(
         StateStatus::AccessDenied if service_registered => InstallCheck::OtherUser,
         _ if !service_registered && !state_dir_present => InstallCheck::Missing,
         StateStatus::Valid if service_registered && binary_matches => InstallCheck::Current,
+        // Installed and current, but this phone's key is not enrolled: the
+        // helper only needs that one key added, not a reinstall.
+        StateStatus::Unenrolled if service_registered && binary_matches => InstallCheck::NotEnrolled,
         _ => InstallCheck::Stale,
     }
 }
@@ -1500,12 +1917,11 @@ fn install_check(
 /// Whether a parsed state enrolls a controller key, and the requesting phone's
 /// key when one is named (compared as decoded points). Pure; unit-tested.
 fn enrollment_status(state: &InstallState, requested: Option<&str>) -> StateStatus {
-    let Some(enrolled) = state.controller_key_bytes() else {
-        return StateStatus::Unenrolled;
-    };
-    match requested.map(decode_controller_key) {
-        Some(requested) if requested != Some(enrolled) => StateStatus::Unenrolled,
-        _ => StateStatus::Valid,
+    match requested {
+        Some(key) if state.is_key_enrolled(key) => StateStatus::Valid,
+        Some(_) => StateStatus::Unenrolled,
+        None if state.controller_keys_bytes().is_empty() => StateStatus::Unenrolled,
+        None => StateStatus::Valid,
     }
 }
 
@@ -1712,6 +2128,93 @@ pub fn verify_image(args: &[String]) -> i32 {
 mod tests {
     use super::*;
 
+    /// A fresh, uniquely named directory under `%TEMP%` (`create_dir` fails if
+    /// it exists, so nothing pre-existing is ever reused or cleared).
+    fn unique_temp_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mixdog-sd-{tag}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        dir
+    }
+
+    /// The DACL of `path` as SDDL, read back from disk.
+    fn dacl_sddl(path: &Path) -> String {
+        use windows::Win32::Foundation::{LocalFree, HLOCAL};
+        use windows::Win32::Security::Authorization::{
+            ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW, SDDL_REVISION_1,
+            SE_FILE_OBJECT,
+        };
+        use windows::Win32::Security::PSECURITY_DESCRIPTOR;
+        let wide_path = wide(&path.to_string_lossy());
+        unsafe {
+            let mut descriptor = PSECURITY_DESCRIPTOR::default();
+            let status = GetNamedSecurityInfoW(
+                PCWSTR(wide_path.as_ptr()),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                None,
+                None,
+                &mut descriptor,
+            );
+            assert_eq!(status, ERROR_SUCCESS);
+            let mut text = PWSTR::null();
+            ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                descriptor,
+                SDDL_REVISION_1,
+                DACL_SECURITY_INFORMATION,
+                &mut text,
+                None,
+            )
+            .unwrap();
+            let sddl = text.to_string().unwrap();
+            let _ = LocalFree(Some(HLOCAL(text.0 as *mut _)));
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            sddl
+        }
+    }
+
+    #[test]
+    fn a_state_temp_is_created_new_with_its_final_dacl_and_leftovers_are_removed() {
+        let dir = unique_temp_dir("state");
+        let user = current_user_sid().unwrap();
+        // The final, protected DACL (the user keeps full access only so the
+        // test can clean up; the real state grants it FR).
+        let sddl = format!("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{user})");
+        let temp = dir.join(STATE_TEMP_NAME);
+        create_protected_file(&temp, b"{\"x\":1}", &sddl).unwrap();
+        assert_eq!(std::fs::read(&temp).unwrap(), b"{\"x\":1}");
+        // Born with exactly that descriptor: protected, nothing inherited from %TEMP%.
+        assert_eq!(dacl_sddl(&temp), sddl);
+        // CREATE_NEW: a pre-existing (possibly pre-planted) file is never reused.
+        assert!(create_protected_file(&temp, b"other", &sddl).is_err());
+        assert_eq!(std::fs::read(&temp).unwrap(), b"{\"x\":1}");
+        // A crash's leftovers (this name and an earlier build's) go on the next
+        // locked write; the live state file and unrelated files are kept.
+        std::fs::write(dir.join("state.4242.tmp"), b"old").unwrap();
+        std::fs::write(dir.join("state.json"), b"live").unwrap();
+        std::fs::write(dir.join("other.tmp"), b"keep").unwrap();
+        remove_leftover_state_temps(&dir).unwrap();
+        assert!(!temp.exists() && !dir.join("state.4242.tmp").exists());
+        assert!(dir.join("state.json").exists() && dir.join("other.tmp").exists());
+        // The replace swaps in a whole new file.
+        create_protected_file(&temp, b"new", &sddl).unwrap();
+        atomic_replace(&temp, &dir.join("state.json")).unwrap();
+        assert_eq!(std::fs::read(dir.join("state.json")).unwrap(), b"new");
+        assert!(!temp.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_state_temp_names_are_leftovers() {
+        assert!(is_state_temp_name(STATE_TEMP_NAME));
+        assert!(is_state_temp_name("state.1234.tmp"));
+        assert!(!is_state_temp_name("state.json"));
+        assert!(!is_state_temp_name("other.tmp"));
+        assert!(!is_state_temp_name("sas-policy-marker.json"));
+    }
+
     #[test]
     fn check_reports_missing_only_when_nothing_is_left() {
         assert_eq!(install_check(false, StateStatus::Missing, false, false), InstallCheck::Missing);
@@ -1760,55 +2263,116 @@ mod tests {
     }
 
     #[test]
-    fn install_refuses_a_missing_or_invalid_controller_key() {
-        // `install` refuses before taking the lock or changing anything.
-        assert_eq!(install(&args(&[])), 1);
-        assert_eq!(install(&args(&["--controller-key"])), 1);
-        assert_eq!(install(&args(&["--controller-key", "not-a-key"])), 1);
+    fn install_collects_zero_or_more_controller_keys_and_refuses_invalid_ones() {
+        // Zero keys is allowed now (the helper installs but refuses input
+        // until a key is enrolled).
+        assert_eq!(collect_controller_keys(&args(&[])), Ok(vec![]));
+        assert_eq!(collect_controller_keys(&args(&["--controller-key"])).is_err(), true);
+        assert_eq!(collect_controller_keys(&args(&["--controller-key", "not-a-key"])).is_err(), true);
         let compressed = {
             use base64::Engine as _;
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([&[2u8][..], &[7u8; 32][..]].concat())
         };
-        assert_eq!(install(&args(&["--controller-key", &compressed])), 1);
-        assert!(controller_key_arg(&args(&["--controller-key", &compressed])).is_err());
-        // A valid key parses; `check` may name none.
-        let key = controller_key(7);
-        assert_eq!(controller_key_arg(&args(&["--controller-key", &key])), Ok(Some(key)));
-        assert_eq!(controller_key_arg(&args(&[])), Ok(None));
+        assert!(collect_controller_keys(&args(&["--controller-key", &compressed])).is_err());
+        // Several valid keys collect in order.
+        let (a, b) = (controller_key(7), controller_key(9));
+        assert_eq!(
+            collect_controller_keys(&args(&["--controller-key", &a, "--controller-key", &b])),
+            Ok(vec![a.clone(), b.clone()])
+        );
+        // `--revoke-key` collects the pending revokes enroll applies.
+        assert_eq!(collect_revoke_keys(&args(&["--revoke-key", &a, "--revoke-key", &b])), Ok(vec![a, b]));
+        assert!(collect_revoke_keys(&args(&["--revoke-key", "nope"])).is_err());
+        assert_eq!(collect_revoke_keys(&args(&[])), Ok(vec![]));
     }
 
     #[test]
-    fn install_writes_the_phone_key_into_the_state() {
-        let key = controller_key(7);
-        let state = install_state_for("S-1-5-21-1-2-3-1001", &key, 1).unwrap();
+    fn install_writes_every_enrolled_key_into_the_state() {
+        let (a, b) = (controller_key(7), controller_key(9));
+        let state = install_state_for("S-1-5-21-1-2-3-1001", &[a.clone(), b.clone()], 1).unwrap();
         let parsed = InstallState::from_json(&state.to_json()).unwrap();
-        assert_eq!(parsed.controller_key.as_deref(), Some(key.as_str()));
-        assert_eq!(enrollment_status(&parsed, Some(&key)), StateStatus::Valid);
-        assert!(install_state_for("S-1-5-21-1-2-3-1001", "bad", 1).is_err());
+        assert!(parsed.is_key_enrolled(&a) && parsed.is_key_enrolled(&b));
+        assert_eq!(enrollment_status(&parsed, Some(&a)), StateStatus::Valid);
+        // A zero-key install parses and reads unenrolled.
+        let empty = install_state_for("S-1-5-21-1-2-3-1001", &[], 1).unwrap();
+        assert_eq!(enrollment_status(&empty, None), StateStatus::Unenrolled);
+        assert!(install_state_for("S-1-5-21-1-2-3-1001", &["bad".into()], 1).is_err());
     }
 
     #[test]
-    fn check_is_stale_without_an_enrolled_key() {
+    fn a_current_install_without_any_key_only_needs_an_enroll() {
+        // A zero-key install is current but enrolls nobody: the answer is
+        // not-enrolled (add a key), never a reinstall; a different binary is
+        // still stale.
         let bare = InstallState::new("0.1.0", "S-1-5-21-1-2-3-1001", paths::PIPE_NAME, 0);
         assert_eq!(enrollment_status(&bare, None), StateStatus::Unenrolled);
         assert_eq!(enrollment_status(&bare, Some(&controller_key(7))), StateStatus::Unenrolled);
         let outcome = install_check(true, enrollment_status(&bare, None), true, true);
+        assert_eq!((outcome, outcome.exit_code()), (InstallCheck::NotEnrolled, 7));
+        let outcome = install_check(true, enrollment_status(&bare, None), true, false);
         assert_eq!((outcome, outcome.exit_code()), (InstallCheck::Stale, 2));
     }
 
     #[test]
-    fn an_approved_update_from_another_phone_replaces_the_key() {
-        let (first, second) = (controller_key(7), controller_key(9));
-        let installed = install_state_for("S-1-5-21-1-2-3-1001", &first, 1).unwrap();
-        // The enrolled phone (or a check naming no phone) is current…
-        assert_eq!(install_check(true, enrollment_status(&installed, Some(&first)), true, true).exit_code(), 0);
+    fn a_phone_whose_key_is_not_enrolled_is_offered_enroll_not_a_reinstall() {
+        // Two phones enrolled; a third asks.
+        let (a, b, c) = (controller_key(7), controller_key(9), controller_key(11));
+        let installed = install_state_for("S-1-5-21-1-2-3-1001", &[a.clone(), b.clone()], 1).unwrap();
+        // Either enrolled phone (or a check naming none) is current…
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&a)), true, true).exit_code(), 0);
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&b)), true, true).exit_code(), 0);
         assert_eq!(install_check(true, enrollment_status(&installed, None), true, true).exit_code(), 0);
-        // …another phone sees stale, i.e. the update offer…
-        assert_eq!(install_check(true, enrollment_status(&installed, Some(&second)), true, true).exit_code(), 2);
-        // …and the approved update writes only its key: the first is gone.
-        let updated = install_state_for("S-1-5-21-1-2-3-1001", &second, 2).unwrap();
-        assert_eq!(enrollment_status(&updated, Some(&second)), StateStatus::Valid);
-        assert_eq!(enrollment_status(&updated, Some(&first)), StateStatus::Unenrolled);
+        // …the third sees not-enrolled (exit 7: add my key), not stale…
+        assert_eq!(
+            install_check(true, enrollment_status(&installed, Some(&c)), true, true),
+            InstallCheck::NotEnrolled
+        );
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&c)), true, true).exit_code(), 7);
+        // …but a different *binary* is still stale for that phone (reinstall).
+        assert_eq!(install_check(true, enrollment_status(&installed, Some(&c)), true, false).exit_code(), 2);
+    }
+
+    #[test]
+    fn enroll_and_revoke_add_and_remove_only_their_own_key() {
+        let (a, b) = (controller_key(7), controller_key(9));
+        let mut state = install_state_for("S-1-5-21-1-2-3-1001", &[a.clone()], 1).unwrap();
+        assert_eq!(state.enroll_key(&b), Ok(true));
+        assert!(state.is_key_enrolled(&a) && state.is_key_enrolled(&b));
+        assert!(state.revoke_key(&a));
+        assert!(!state.is_key_enrolled(&a) && state.is_key_enrolled(&b));
+    }
+
+    #[test]
+    fn a_disable_or_signer_change_fails_the_under_lock_delegation_recheck() {
+        let expected = signature::SignerPolicy {
+            subject: "CN=TRIBGAMES".into(),
+            profile_eku: "1.3.6.1.4.1.311.97.1.2.3".into(),
+        };
+        let mut state = InstallState::new("0.1.0", "S-1-5-21-1-2-3-1001", paths::PIPE_NAME, 0);
+        state.enable_delegation(&expected.subject, &expected.profile_eku);
+        assert!(delegation_still_authorized(&state, &expected), "enabled + matching signer");
+        // A security disable that lands during an in-flight request fails the recheck.
+        state.disable_delegation();
+        assert!(!delegation_still_authorized(&state, &expected), "a disable is honored");
+        // A changed authorized signer fails it too.
+        let mut changed = InstallState::new("0.1.0", "S-1-5-21-1-2-3-1001", paths::PIPE_NAME, 0);
+        changed.enable_delegation("CN=OTHER", &expected.profile_eku);
+        assert!(!delegation_still_authorized(&changed, &expected), "a signer change is honored");
+    }
+
+    #[test]
+    fn enroll_and_revoke_require_the_elevated_or_logon_path() {
+        // The admin-gated ops take the install lock first; an unelevated
+        // process cannot (its Administrators SID is deny-only), so no
+        // unelevated path can add or remove a key. When the test process is
+        // elevated the lock would succeed and touch real state, so only the
+        // unelevated case is asserted (the lock itself is covered elsewhere).
+        if process_is_elevated().expect("query own elevation") {
+            return;
+        }
+        let key = controller_key(7);
+        assert_eq!(enroll(&args(&["--controller-key", &key])), 1, "unelevated enroll is refused at the lock");
+        assert_eq!(revoke(&args(&["--controller-key", &key])), 1, "unelevated revoke is refused at the lock");
     }
 
     #[test]

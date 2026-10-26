@@ -159,6 +159,95 @@ form. Approving the prompt is therefore consent to the app as it runs on this
 PC, including the key it supplies. Showing the key's fingerprint in trusted
 elevated UI, for comparison with the phone, is out of scope for this release.
 
+### App delegation (approve once, then paired phones auto-enroll)
+
+The primary moment to grant PC access is Computer Use setup, at the PC, where an
+ordinary UAC prompt installs the helper. To let phones paired *later* enroll
+without anyone at the PC, the elevated `install` also records an **app-delegation
+policy** in the SYSTEM-only install state (`DelegationPolicy`: enabled, plus the
+authorized app's signer subject DN and Artifact Signing profile EKU, captured
+from the release signer pin). With it enabled, the genuine signed Mixdog app may
+later run `enroll`/`revoke` of one key **unelevated**, by asking the always-on
+SYSTEM service over a second, SYSTEM-owned named pipe
+(`\\.\pipe\mixdog-secure-desktop-delegate`, DACL = installing user + SYSTEM).
+
+The app holds no bearer secret — it asks, and the service decides, with
+two-sided authentication:
+
+- **App → service:** the client refuses to send unless the pipe's server
+  process is SYSTEM (so a same-user squatter that pre-created the name while the
+  service was down is rejected; `FILE_FLAG_FIRST_PIPE_INSTANCE` blocks a
+  squatter while it is up).
+- **Service → app, per request:** `GetNamedPipeClientProcessId` (never a PID
+  from the message) → a held `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` so
+  the PID cannot be reused mid-check → `QueryFullProcessImageNameW` →
+  `WinVerifyTrust` of that image against the stored signer policy (the same
+  pinned-signer verification `install` uses, full Authenticode + chain +
+  revocation), plus the caller's token SID = the installing user and session =
+  the active console session. Any failure is refused.
+
+Only `enroll{key}` and `revoke{key}` exist on the pipe — never a generic "sign
+this" or "hand me the capability" — each evaluated against the policy and applied
+through the same key-set mutation the elevated paths use. The policy is re-read
+from state on every request, so a **security disable** (`disable-delegation`,
+elevated) and any revoke take effect **at once, across reconnect and reboot**;
+re-enabling delegation after a disable needs elevation again (another `install`).
+Every delegated enrollment raises an on-PC notification in the console session,
+so a silent addition is visible.
+
+**Residual risk of delegation (the maintainer accepts this trust cost).** This
+is an explicit, permanent delegation to the authorized app. The caller
+authentication proves the calling **executable** is the signed Mixdog app on
+disk — it does **not** prove the running process is uncompromised. A compromised
+but still-signed app (injected code, a malicious add-in, a debugger on the
+process) running as the installing user could therefore enroll its own phone key
+and drive the secure desktop. Approving delegation trusts the app as it runs on
+this PC. What still holds regardless: each phone has its own control key; every
+input and SAS is authorized by a per-connection, single-use, time-bounded signed
+grant that only the paired phone can produce; an unpair revokes that phone's key;
+and no *unelevated, unauthenticated* path can add a key.
+
+**What caller authentication does not check** (known limits, by design):
+
+- **Signer only, not location.** `verify_caller_image` checks the caller EXE's
+  Authenticode signer against the stored policy; it does not pin the install
+  path. A correctly signed copy of the Mixdog EXE run from anywhere else passes.
+  (Pinning was not added: the app's install directory is per-user and
+  versioned, so a pin would be brittle without adding a real boundary — anyone
+  who can run a signed copy as the installing user can run the installed one.)
+- **The EXE only, not Electron's `resources/`.** The app's JavaScript lives in
+  `resources/` next to the EXE and is not covered by the EXE's signature, so a
+  modified `resources/` (or `app.asar`) is **not** detected; the signed EXE
+  would still authenticate. This is the same trust cost as the compromised-app
+  case above.
+- **No replay nonce.** Delegated requests carry none: an *authenticated* caller
+  may repeat a request, and that is allowed — `enroll`/`revoke` are idempotent
+  (enrolling an enrolled key or revoking an absent one changes nothing).
+  *Unauthenticated* requests are refused whatever they contain, because every
+  request is authenticated afresh from the pipe peer (PID → held handle →
+  image signer, token user, console session), never from message content.
+
+**Must be proven on hardware before release** (none is exercisable here without a
+real signed install and real logons):
+
+- the UAC prompt for `install` shows "Mixdog 원격 접근";
+- a wrong user or session is refused (delegated caller not the installing user,
+  or not in the active console session);
+- an unsigned or foreign-signed caller image is refused by the caller-auth
+  signature check, and a modified or swapped **exe** fails it;
+- a pipe-name squatter (service down) is rejected by the client's SYSTEM check;
+- a PID-reuse race cannot smuggle a different process past the held handle;
+- an unauthenticated delegated request (wrong user, wrong session, or a caller
+  image that fails the signer check) is refused;
+- the service restarts fail-closed (no delegation server, no session served)
+  when install state is unreadable;
+- an unpair's revoke (and `disable-delegation`) ends that authority across a
+  reboot;
+- the credential (batch-logon) path: a local admin account's password enrolls;
+  a Microsoft-account sign-in with its `COMPUTER\localname` SAM name and account
+  password is **unverified** pending hardware; a Windows Hello PIN is **not** a
+  password `LogonUserW` accepts.
+
 ## Build
 
 ```powershell

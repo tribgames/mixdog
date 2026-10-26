@@ -331,6 +331,54 @@ account's desktop:
   briefly impersonating the client) must be the installing user. A client that
   fails either check is disconnected with no error frame.
 
+## Delegation pipe (app-delegated enroll/revoke)
+
+A **second**, SYSTEM-owned pipe, separate from the control pipe and carrying
+only key-set changes: `\\.\pipe\mixdog-secure-desktop-delegate`, DACL = the
+installing user + SYSTEM (`pipe_sddl`), single-instance
+(`FILE_FLAG_FIRST_PIPE_INSTANCE`), local-only (`PIPE_REJECT_REMOTE_CLIENTS`),
+byte mode. The always-on service hosts it on a dedicated thread for its whole
+lifetime; it is **only** reachable while app delegation is enabled in the install
+state, and every request is authenticated regardless.
+
+This is how a phone paired *after* the one-time elevated opt-in is enrolled with
+no further UAC or password: the genuine signed Mixdog app, running unelevated as
+the installing user, asks the service to enroll (or revoke) one key. The app
+holds no capability token — the service decides against the stored
+[`DelegationPolicy`](../README.md#app-delegation-approve-once-then-paired-phones-auto-enroll).
+
+**Authentication (both sides).**
+
+- **App → service:** the client opens the pipe and verifies the **server
+  process is SYSTEM** (`GetNamedPipeServerProcessId` → token user) before
+  sending a byte; otherwise it closes (a same-user squatter that owns the name
+  while the service is down is rejected).
+- **Service → app, per connection:** `GetNamedPipeClientProcessId` (never a PID
+  from the message) → held `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` →
+  `QueryFullProcessImageNameW` → `WinVerifyTrust` of that image against the
+  policy's recorded signer (subject DN + Artifact Signing profile EKU; the same
+  verification `install` applies to itself), **and** the client's token user =
+  the installing user and pipe session = the active console session. Any failure
+  is refused.
+
+**Frames.** Length-prefixed, `u32` big-endian length then a UTF-8 JSON body
+(≤ 4 KiB). One request, one reply, then the connection is dropped.
+
+- Request: `{ "op": "enroll" | "revoke", "key": "<base64url controller key>" }`
+- Reply (success): `{ "ok": true, "changed": <bool> }`
+- Reply (refused): `{ "ok": false, "reason": "disabled" | "denied", "error": "<text>" }`
+  — `disabled` = delegation is off (never opted in, or `disable-delegation`);
+  `denied` = caller authentication or the policy refused it.
+
+The mutation is the same key-set change the elevated paths apply, under the
+install lock (the service runs it as SYSTEM). The policy is read from state on
+**every** request, so a disable or revoke is effective at once, across reconnect
+and reboot; re-enabling delegation needs elevation again. A successful `enroll`
+raises an on-PC notification (`WTSSendMessageW`) in the console session. The key
+set is bounded by the pairing cap (256). No *unelevated, unauthenticated* path
+can add a key — that invariant is the privilege-escalation guard, since input
+this SYSTEM helper injects is not subject to UIPI.
+
 ## Framing
 
 Every message is a length-prefixed frame:
@@ -504,6 +552,20 @@ relay.
   verification per challenge), younger than the lifetime, `epoch` equals the
   declared run, and the signature verifies under the enrolled key (CNG
   `BCryptVerifySignature`). Refusals are reported with the codes below.
+- **Key-set delivery.** A running helper re-reads the protected state file
+  right after the handshake completes, before **each** post-handshake control
+  frame is dispatched (every input, `sas` and grant — frame by frame, even
+  within one read's batch), and before each loop pass's grant upkeep
+  (challenges, lapse). It compares the file's **bytes** with the last
+  successful load (never its mtime, which can collide or survive a replace)
+  and parses only when they differ. There is no change signal that could be
+  missed: the read is the check. So the first frame dispatched after a revoke
+  command returns is refused: the live grant signed by the removed key ends
+  (held input released, `grant_key_missing`) before that frame acts, and a
+  committed enroll is accepted, with no restart or reconnect. An unreadable or unparseable state **fails closed**:
+  the live grant is revoked, held input released, and new grants and
+  input/`sas` are refused until a good read; a failed read never counts as
+  "seen", so the next pass retries.
 - **Lifetime: 6 s** (`GRANT_LIFETIME`), measured on the helper's monotonic
   clock from when it **issued** the challenge — never from a phone timestamp,
   so clock skew cannot extend it and holding a signed grant only burns its
