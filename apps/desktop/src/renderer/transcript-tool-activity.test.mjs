@@ -22,6 +22,7 @@ function installToolActivityDom(userAgent) {
   });
   // jsdom has no Web Animations: an element runs no animations.
   dom.window.Element.prototype.getAnimations = () => [];
+  dom.window.Document.prototype.getAnimations = () => [];
   Object.defineProperty(dom.window.navigator, 'userAgent', {
     configurable: true,
     value: userAgent,
@@ -39,14 +40,25 @@ function installToolActivityDom(userAgent) {
     value: /Mobile/.test(userAgent) ? 844 : 900,
   });
   const previous = new Map(
-    ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
-      key,
-      Object.getOwnPropertyDescriptor(globalThis, key),
-    ])
+    [
+      'window',
+      'document',
+      'navigator',
+      'IS_REACT_ACT_ENVIRONMENT',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+    ].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
   );
   Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
   Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
+  // The loops' mount locks run in the next animation frame.
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (callback) => setTimeout(() => callback(0), 0),
+  });
+  Object.defineProperty(globalThis, 'cancelAnimationFrame', { configurable: true, value: (id) => clearTimeout(id) });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   return {
     window: dom.window,

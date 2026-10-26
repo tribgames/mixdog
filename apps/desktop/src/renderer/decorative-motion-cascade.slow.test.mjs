@@ -471,10 +471,14 @@ test('every loop locks to the timeline origin when it mounts or resumes, and a h
         const out = {};
         // Mount well after the timeline started, as the components' refs do.
         await wait(150);
+        // In a task, as React commits; the refs' locks run in the next
+        // frame's animation callbacks, before its paint.
+        await new Promise((resolve) => setTimeout(resolve, 0));
         document.body.append(host);
         for (const element of host.querySelectorAll('.live-activity-icon, [data-slot="text-shimmer-glint"]')) {
           window.motionSync.lockDecorativeLoops(element);
         }
+        await frame();
         out.mounted = read(host);
         out.mountedPhase = loops(host).map((animation) => animation.currentTime - document.timeline.currentTime);
         // Pause each signal for a while, then resume it.
@@ -484,7 +488,11 @@ test('every loop locks to the timeline origin when it mounts or resumes, and a h
           await wait(120);
           const held = read(region);
           resume();
+          // Resumes lock in the next frame's animation callbacks, before its
+          // paint; this callback is queued after the lock's (the observer's
+          // microtask queues that).
           await Promise.resolve();
+          await frame();
           out[name] = { held, resumed: read(host) };
         };
         await cycle(
@@ -590,6 +598,8 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
       host.innerHTML = `<div class="transcript-virtual-row"><div class="transcript-virtual-row-content">${html.band}</div></div><div class="utility-dock-pane" data-surface-active="true"><h2>${html.heading}</h2></div>`;
       const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
       for (let i = 0; i < 6; i += 1) await frame();
+      // In a task, as React commits.
+      await new Promise((resolve) => setTimeout(resolve, 0));
       document.body.append(host);
       for (const element of host.querySelectorAll('.live-activity-icon, [data-slot="text-shimmer-glint"]')) {
         window.motionSync.lockDecorativeLoops(element);
@@ -630,9 +640,7 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
       for (const start of starts) assert.match(start, /:0$/, `${label}: locked before its first paint (${starts})`);
     }
   };
-  await settle();
-  await takeStarts();
-  await check('mounted', 6, { prePaint: false });
+  await check('mounted', 6, { prePaint: true });
 
   const setPhone = (phone) =>
     page.evaluate((phone) => {

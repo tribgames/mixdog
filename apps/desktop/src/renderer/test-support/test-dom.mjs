@@ -37,6 +37,7 @@ export function installTestDom(t, options = {}) {
   // jsdom has no Web Animations: an element runs no animations (the
   // decorative loops lock their phase through getAnimations on mount).
   window.Element.prototype.getAnimations = () => [];
+  window.Document.prototype.getAnimations = () => [];
   const installed = {
     window,
     document: window.document,

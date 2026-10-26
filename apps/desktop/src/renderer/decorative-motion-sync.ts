@@ -41,30 +41,74 @@ function signalHolds(target: Element, attribute: string | null): boolean {
  *  offscreen mark changed it ran a full style update after each scroll range
  *  change (and a 224ms one on a phone opening a session) though no loop
  *  was there. A subtree without a host is skipped with a selector query,
- *  which reads no style. */
+ *  which reads no style.
+ *  The hosts share one document read: every `getAnimations` call, an
+ *  element's too, collects and orders all of the document's animations (a
+ *  transcript's word fades included) before it filters them, so a read per
+ *  host repeated that for each one (81-97 ms locking the hosts of a phone
+ *  back from the background). A loop runs on its host or the host's
+ *  pseudo-element, and both report the host as their target. */
 export function syncDecorativeLoops(...elements: Element[]): void {
   const hosts = new Set<Element>();
   for (const element of elements) {
     if (element.matches(DECORATIVE_LOOP_HOSTS)) hosts.add(element);
     for (const host of element.querySelectorAll(DECORATIVE_LOOP_HOSTS)) hosts.add(host);
   }
-  if (hosts.size === 0) return;
-  const unlocked = new Set<Animation>();
-  for (const host of hosts) {
-    for (const animation of host.getAnimations({ subtree: true })) {
-      // Only CSS animations carry a name; transitions and script animations do not.
-      if (!DECORATIVE_LOOPS.has((animation as CSSAnimation).animationName)) continue;
-      if (animation.playState !== 'running' || animation.startTime === 0) continue;
-      unlocked.add(animation);
-    }
+  const [first] = hosts;
+  if (!first) return;
+  const unlocked: Animation[] = [];
+  for (const animation of first.ownerDocument.getAnimations()) {
+    // Only CSS animations carry a name; transitions and script animations do not.
+    if (!DECORATIVE_LOOPS.has((animation as CSSAnimation).animationName)) continue;
+    const target = (animation.effect as KeyframeEffect | null)?.target;
+    if (!target || !hosts.has(target)) continue;
+    if (animation.playState !== 'running' || animation.startTime === 0) continue;
+    unlocked.push(animation);
   }
   for (const animation of unlocked) animation.startTime = 0;
 }
 
+/** Every lock a frame asks for (mounts, starts, resumes, root modes) runs in
+ *  one pass in its animation callbacks, which come after the frame's tasks and
+ *  before its style update and paint: the pass shares that style update, one
+ *  `getAnimations` read serves every host, and the loops still paint locked.
+ *  A lock per cause forced a full style update and a read of every animation
+ *  each time: a resume (a phone back from the background) changes the root
+ *  mode and unpauses rows across many commits (31 ms in one resumed task),
+ *  and a commit mounting several marks read once per mark. */
+const pendingLocks = new Set<Element>();
+let lockFrame = 0;
+
+function lockPending(): void {
+  lockFrame = 0;
+  const targets = [...pendingLocks];
+  pendingLocks.clear();
+  // A root mode change locks the whole page, which covers every other cause.
+  const page = targets.find((target) => target === target.ownerDocument.documentElement);
+  syncDecorativeLoops(...(page ? [page] : targets.filter((target) => target.isConnected)));
+}
+
+/** A hidden window runs no frames, and rows resumed or started meanwhile
+ *  may be removed before one comes: each enqueue first drops the queued
+ *  elements no longer in the document (the frame pass skips them anyway), so
+ *  the queue holds at most the connected elements still waiting, never a
+ *  removed row's subtree. */
+function queueDecorativeLocks(targets: Iterable<Element>): void {
+  for (const queued of pendingLocks) if (!queued.isConnected) pendingLocks.delete(queued);
+  for (const target of targets) pendingLocks.add(target);
+  if (pendingLocks.size && !lockFrame) lockFrame = requestAnimationFrame(lockPending);
+}
+
 /** Ref callback for the element a loop mounts on: locks it before its first
- *  paint. */
-export function lockDecorativeLoops(element: Element | null): void {
-  if (element) syncDecorativeLoops(element);
+ *  paint, in the frame's one lock pass. Its cleanup (React runs it on unmount)
+ *  drops a lock still queued: a hidden window runs no frames, and the queue
+ *  held every element mounted and unmounted meanwhile, with its subtree. */
+export function lockDecorativeLoops(element: Element | null): (() => void) | undefined {
+  if (!element) return undefined;
+  queueDecorativeLocks([element]);
+  return () => {
+    pendingLocks.delete(element);
+  };
 }
 
 /** Locks every decorative loop the window starts or resumes.
@@ -75,28 +119,17 @@ export function lockDecorativeLoops(element: Element | null): void {
  *    together in its animation callbacks.
  *  - Resumes, which raise no event: a pause signal changed.
  *  - Root modes (hidden document, phone layout, theme...) and the reduced
- *    motion preference recreate loops page-wide: their change runs before the
- *    frame's style update, so locking there forces that update and locks the
- *    new animations before they paint. */
+ *    motion preference recreate loops page-wide.
+ *  All of a frame's causes lock together in its animation callbacks, ahead
+ *  of its style update and paint. */
 export function installDecorativeMotionSync(root: HTMLElement = document.documentElement): () => void {
   // A burst of starts (a list mounting its running marks) arrives as one
-  // event each in the same frame: they lock together in that frame's
-  // animation callbacks, which run after the events and before its paint.
-  const started = new Set<Element>();
-  let startFrame = 0;
-  const lockStarted = () => {
-    startFrame = 0;
-    const targets = [...started].filter((target) => target.isConnected);
-    started.clear();
-    syncDecorativeLoops(...targets);
-  };
+  // event each in the same frame: they lock together in that frame's pass.
   const onStart = (event: AnimationEvent) => {
-    if (DECORATIVE_LOOPS.has(event.animationName) && event.target instanceof Element) {
-      started.add(event.target);
-      if (!startFrame) startFrame = window.requestAnimationFrame(lockStarted);
-    }
+    if (DECORATIVE_LOOPS.has(event.animationName) && event.target instanceof Element)
+      queueDecorativeLocks([event.target]);
   };
-  const onRoot = () => syncDecorativeLoops(root);
+  const onRoot = () => queueDecorativeLocks([root]);
   const signals = new MutationObserver((records) => {
     const targets = new Set<Element>();
     for (const record of records)
@@ -106,7 +139,7 @@ export function installDecorativeMotionSync(root: HTMLElement = document.documen
         !signalHolds(record.target, record.attributeName)
       )
         targets.add(record.target);
-    syncDecorativeLoops(...targets);
+    queueDecorativeLocks(targets);
   });
   // The root's inline style holds only custom properties (viewport metrics,
   // skin values) that never create an animation, and it changes on every
@@ -120,8 +153,9 @@ export function installDecorativeMotionSync(root: HTMLElement = document.documen
   modes.observe(root, { attributes: true });
   reducedMotion.addEventListener('change', onRoot);
   return () => {
-    if (startFrame) window.cancelAnimationFrame(startFrame);
-    started.clear();
+    if (lockFrame) cancelAnimationFrame(lockFrame);
+    lockFrame = 0;
+    pendingLocks.clear();
     root.removeEventListener('animationstart', onStart, true);
     signals.disconnect();
     modes.disconnect();
