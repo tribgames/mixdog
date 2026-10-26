@@ -1,4 +1,4 @@
-// Shell misuse guards: a long leading sleep is rejected, a plain leading `cd`
+// Shell misuse guards: a plain leading `cd`
 // moves into `cwd` (hooks, task records and results see the moved call), and a
 // shell file read gets a note — or a block in reject mode.
 import assert from 'node:assert/strict';
@@ -42,58 +42,13 @@ writeFileSync(dataFile, 'file-body-marker\n');
 const PRINT_CWD = 'node -e "console.log(process.cwd())"';
 const textOf = (output) => (typeof output === 'string' ? output : output.result);
 const guard = (command, shellType, extra = {}) => guardShellCall({ command, ...extra.args }, { shellType, ...extra });
-const blockedSleep = (seconds) =>
-  `Blocked: a leading sleep of ${seconds} s. Run the step with background:true and wait with task wait (or poll a condition inside one command with its own deadline).`;
-
-test('a leading sleep of 5 s or more is rejected, alone or followed by statements', () => {
-  const rejected = [
-    ['Start-Sleep 50; check', 50, POWERSHELL],
-    ['Start-Sleep -Seconds 58', 58, POWERSHELL],
-    ['Start-Sleep -s 30; npm test', 30, POWERSHELL],
-    ['start-sleep -Seconds:12 && echo hi', 12, POWERSHELL],
-    ['  sleep 5', 5, POWERSHELL],
-    ['Start-Sleep -Milliseconds 5000; x', 5, POWERSHELL],
-    ['Start-Sleep -m 7500', 7.5, POWERSHELL],
-    ['timeout /t 60', 60, POWERSHELL],
-    ['timeout /t 30 /nobreak >nul; x', 30, POWERSHELL],
-    ['sleep 30 && check', 30, POSIX],
-    ['sleep 60\ngit status', 60, POSIX],
-    ['sleep 2m; check', 120, POSIX],
-    ['sleep 5.5 || true', 5.5, POSIX],
-  ];
-  for (const [command, seconds, shellType] of rejected) {
-    const out = guard(command, shellType);
-    assert.match(out.failure ?? '', /^Error: \[shell-tool-failed\] Blocked: a leading sleep/, command);
-    assert.ok(out.failure.includes(blockedSleep(seconds)), `${command}: ${out.failure}`);
-  }
-});
-
-test('short sleeps and sleeps that do not lead are untouched', () => {
-  const allowed = [
-    'Start-Sleep 4',
-    'Start-Sleep -Seconds 4; check',
-    'Start-Sleep -Milliseconds 4999',
-    'Start-Sleep -Milliseconds 500; x',
-    'sleep 4.9; check',
-    'echo start; Start-Sleep 60',
-    'npm test && sleep 30',
-    'for ($i=0; $i -lt 3; $i++) { Start-Sleep 30 }',
-    'npm start | ForEach-Object { Start-Sleep 30 }',
-    'while ! ready; do sleep 10; done',
-    'timeout 60 npm test',
-    'sleepy 60',
-    'sleep 60 | cat',
-    "node -e 'setTimeout(() => {}, 60000)'",
-  ];
-  for (const command of allowed) {
-    for (const shellType of [POWERSHELL, POSIX]) {
-      assert.equal(guard(command, shellType).failure, undefined, command);
+test('a leading sleep runs as written, alone or after a moved cd', () => {
+  for (const shellType of [POWERSHELL, POSIX]) {
+    for (const command of ['sleep 30; check', 'Start-Sleep 50', 'timeout /t 60', 'sleep 60\ngit status']) {
+      assert.deepEqual(guard(command, shellType), { args: { command }, notes: [] }, command);
     }
   }
-});
-
-test('a leading sleep after a moved cd is still leading', () => {
-  assert.match(guard('cd sub; Start-Sleep 50; check', POWERSHELL).failure, /leading sleep of 50 s/);
+  assert.equal(guard('cd sub; Start-Sleep 50; check', POWERSHELL).args.command, 'Start-Sleep 50; check');
 });
 
 test('a plain leading cd moves into cwd with a note', () => {
@@ -336,25 +291,6 @@ test('reject mode blocks a flagged read without a note and still records it', ()
 });
 
 // ── through the tool ────────────────────────────────────────────────────────
-
-test('a leading sleep is rejected before hooks, approvals and execution', async () => {
-  const seen = [];
-  const hookSession = { id: 'misuse-sleep', cwd: session };
-  const hooks = { beforeToolHook: (input) => seen.push(input), toolApprovalHook: () => seen.push('approval') };
-  const out = await executeTool(
-    'shell',
-    { command: 'Start-Sleep 50; echo ran' },
-    session,
-    hookSession.id,
-    hookSession,
-    hooks
-  );
-  assert.ok(textOf(out).includes(blockedSleep(50)), textOf(out));
-  assert.doesNotMatch(textOf(out), /\bran\b$/m);
-  assert.deepEqual(seen, []);
-  const direct = await executeBashTool({ command: 'sleep 30; echo ran' }, session, {});
-  assert.ok(textOf(direct).includes(blockedSleep(30)), textOf(direct));
-});
 
 test('hooks, approvals, the result and the task record see the moved cd', async () => {
   const hookSession = { id: 'misuse-cd', cwd: session };
