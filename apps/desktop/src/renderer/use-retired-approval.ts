@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Approval, Snapshot } from './desktop-types';
 
-const RETIRED_APPROVAL_MS = 6_000;
+export const RETIRED_APPROVAL_MS = 6_000;
 
 export interface RetiredApproval {
   approval: Approval;

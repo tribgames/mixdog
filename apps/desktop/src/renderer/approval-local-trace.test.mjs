@@ -57,6 +57,44 @@ test("this PC's answer is traced in its own chat only: switching chats inside th
   }
 });
 
+test("this PC's trace outlives its own resolved state and ends when the server resolves another approval", async () => {
+  answer = async () => true;
+  const ui = await mountHook('s1');
+  try {
+    await act(async () => ui.state.approvals.approvalDock.props.resolve({ approved: true }));
+    const own = { id: 'ap-1', approved: true, device: '' };
+    await ui.show({ sessionId: 's1', items: [], toolApproval: null, toolApprovalResult: own });
+    assert.equal(ui.flash()?.text, 'Run a command · Allowed', 'its own resolved state keeps the trace');
+    await ui.show({ sessionId: 's1', items: [], toolApproval: null, toolApprovalResult: { ...own, id: 'ap-9' } });
+    assert.equal(ui.flash(), null, "another approval's resolved state retired it");
+  } finally {
+    await ui.done();
+  }
+});
+
+test('a result already published before the answer does not retire the answer\'s trace', async () => {
+  answer = async () => true;
+  const ui = await mountHook('s1');
+  try {
+    await ui.show({
+      sessionId: 's1',
+      items: [],
+      toolApproval: shell,
+      toolApprovalResult: { id: 'ap-0', approved: true, device: '' },
+    });
+    await act(async () => ui.state.approvals.approvalDock.props.resolve({ approved: true }));
+    await ui.show({
+      sessionId: 's1',
+      items: [],
+      toolApproval: null,
+      toolApprovalResult: { id: 'ap-0', approved: true, device: '' },
+    });
+    assert.equal(ui.flash()?.text, 'Run a command · Allowed');
+  } finally {
+    await ui.done();
+  }
+});
+
 // A task session's request shown in the delegating bot chat's dock ("docked copy"):
 // it names the task as its own session and the bot chat as the surface.
 const dockedCopy = { ...shell, sessionId: 'task', surfaceSessionId: 'bot' };

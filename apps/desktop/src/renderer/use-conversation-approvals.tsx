@@ -12,12 +12,10 @@ import type { ComposerIslandFlash } from './ComposerIsland';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { approvalInstanceKey } from './renderer-logic.mjs';
-import { type RetiredApproval, useRetiredApproval } from './use-retired-approval';
+import { RETIRED_APPROVAL_MS, type RetiredApproval, useRetiredApproval } from './use-retired-approval';
 import { useViewerDevice } from './use-viewer-device';
 
 type AnsweredElsewhere = { id: string; device: string };
-
-const LOCAL_DECIDED_MS = 6_000;
 
 /** Tool approvals for the session this pane renders: the pending card, the
  *  approvals this device answered itself, and whether the conversation was
@@ -40,16 +38,32 @@ export function useConversationApprovals(
     for (const id of decidedLocally.current.ids) if (!relevant.has(id)) decidedLocally.current.ids.delete(id);
   }
   const otherDeviceApproval = useRetiredApproval(snapshot, decidedLocally.current.ids);
-  // The approval this device answered, kept briefly once it left the dock
+  // The approval this device answered, kept once it left the dock
   // (device '' names this PC) so the island can say what was decided.
   // It belongs to the session it was answered in: another chat never shows it.
-  const [localDecided, setLocalDecided] = useState<(RetiredApproval & { sessionId: string }) | null>(null);
+  // `resultBefore` is the server's resolved approval at the time of the answer.
+  const [localDecided, setLocalDecided] = useState<
+    (RetiredApproval & { sessionId: string; resultBefore: string }) | null
+  >(null);
+  const resolvedId = String(snapshot.toolApprovalResult?.id ?? '');
+  const resolvedIdRef = useRef(resolvedId);
+  resolvedIdRef.current = resolvedId;
+  // Retired on the server's update: the resolved state moving on to another
+  // approval means this one's trace has been taken (the island shows each
+  // trace once, for its own duration, so the entry only has to outlive that).
   useEffect(() => {
     if (!localDecided) return;
     if (localDecided.sessionId !== decidedSessionId) return setLocalDecided(null);
-    const timer = window.setTimeout(() => setLocalDecided(null), LOCAL_DECIDED_MS);
+    const own = String(localDecided.approval.id ?? '');
+    if (resolvedId && resolvedId !== localDecided.resultBefore && resolvedId !== own) setLocalDecided(null);
+  }, [localDecided, decidedSessionId, resolvedId]);
+  // Fallback when no later update arrives: the same bound a retired approval
+  // from another device is kept for (use-retired-approval.ts).
+  useEffect(() => {
+    if (!localDecided) return;
+    const timer = window.setTimeout(() => setLocalDecided(null), RETIRED_APPROVAL_MS);
     return () => window.clearTimeout(timer);
-  }, [localDecided, decidedSessionId]);
+  }, [localDecided]);
   const retiredApproval =
     otherDeviceApproval ??
     (localDecided &&
@@ -109,6 +123,7 @@ export function useConversationApprovals(
           setLocalDecided({
             sessionId: decidedSessionId,
             approval: pendingApproval,
+            resultBefore: resolvedIdRef.current,
             outcome: { approved: decision.approved === true, device: '' },
           });
         }
