@@ -119,6 +119,30 @@ test("close on process exit reaps every session's work and tombstones only a scr
   f.cleanup();
 });
 
+test('the summary row a close queues is on disk when the close resolves', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-teardown-summary-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  const { _upsertSessionSummary, summaryIndexPath } = await import(
+    '../../runtime/agent/orchestrator/session/store-summary-index.mjs'
+  );
+  const { readSummaryLogText } = await import('../../runtime/agent/orchestrator/session/store-summary-log.mjs');
+  const f = fixture({
+    session: { id: 'sess_teardown_summary', messages: [{ role: 'user', content: 'hi' }] },
+    // The closing save queues its summary-index op; the index flushes it later.
+    onCloseSurface: (session) => _upsertSessionSummary(session),
+  });
+  try {
+    await f.teardown.close('cli-exit');
+    assert.match(readSummaryLogText(summaryIndexPath()), /sess_teardown_summary/);
+  } finally {
+    f.cleanup();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function rowFor(id, owner) {
   return (byKey) =>
     byKey.set(id, {

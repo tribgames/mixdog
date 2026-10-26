@@ -34,6 +34,12 @@ export function recordGatewayUsageEvent(summary) {
   return requireRouteMeta().recordGatewayUsageEvent(summary);
 }
 
+/** Resolves once every recorded usage event has been written; nothing was
+ *  recorded while the module is not loaded. */
+export function settleGatewayUsageWrites() {
+  return routeMeta ? routeMeta.settleGatewayUsageWrites() : Promise.resolve();
+}
+
 export function summarizeGatewayUsage(routeInfo, providerOut, compact = null, durationMs = null) {
   return requireRouteMeta().summarizeGatewayUsage(routeInfo, providerOut, compact, durationMs);
 }

@@ -148,7 +148,7 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
   let api = null;
   t.after(async () => {
     try {
-      await api?.dispose?.().catch?.(() => {});
+      await api?.dispose();
       drainSessionStore?.();
     } finally {
       store.reloadQuotaResumeStore();
