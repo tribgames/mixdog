@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -198,6 +198,41 @@ test('conversation overrides: set, replace, inherit removes, an expired mute is 
   );
   assert.deepEqual(readPcNotificationView(notificationPreferencesPath(dir), now.value).overrides.length, 1);
   assert.deepEqual(await prefs.setConversation({ kind: 'room', id: 'r1' }, { mode: 'inherit' }), []);
+});
+
+test('every stored override and device is kept; adding one evicts nothing', async (t) => {
+  const dir = profile(t);
+  const overrides = Array.from({ length: 501 }, (_, index) => ({
+    target: { kind: 'session', id: `s${index}` },
+    setting: { mode: 'muted', until: null },
+  }));
+  const devices = Object.fromEntries(Array.from({ length: 201 }, (_, index) => [`d${index}`, { scope: 'bots' }]));
+  writeFileSync(
+    notificationPreferencesPath(dir),
+    JSON.stringify({ version: 1, migratedAt: MIGRATED_AT, devices, overrides })
+  );
+  assert.equal(readPcNotificationView(notificationPreferencesPath(dir)).overrides.length, 501);
+  const prefs = store(dir);
+  assert.equal((await prefs.overrides()).length, 501);
+  assert.equal((await prefs.setConversation({ kind: 'room', id: 'extra' }, { mode: 'muted', until: null })).length, 502);
+  const kept = await prefs.overrides();
+  assert.equal(kept.length, 502);
+  assert.ok(kept.some((entry) => entry.target.id === 's0'), 'the oldest mute is still there');
+  assert.equal((await prefs.device('d200')).scope, 'bots');
+});
+
+test('a read error is not an absent file: nothing is migrated and no default replaces the preferences', async (t) => {
+  const dir = profile(t);
+  const path = notificationPreferencesPath(dir);
+  mkdirSync(path);
+  assert.throws(() => readPcNotificationView(path), { code: 'EISDIR' });
+  const prefs = store(dir);
+  await assert.rejects(prefs.ready(), { code: 'EISDIR' });
+  assert.equal(statSync(path).isDirectory(), true, 'the path is left as it was');
+  const legacy = join(dir, 'legacy-as-directory');
+  mkdirSync(legacy);
+  assert.throws(() => readLegacyMutedAgents(legacy), { code: 'EISDIR' });
+  assert.deepEqual(readLegacyMutedAgents(join(dir, 'no-such-file.json')), []);
 });
 
 test('a damaged file falls back to its last good copy', async (t) => {

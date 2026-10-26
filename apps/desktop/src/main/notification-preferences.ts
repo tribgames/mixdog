@@ -56,8 +56,6 @@ const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/u;
-const MAX_OVERRIDES = 500;
-const MAX_DEVICES = 200;
 
 /** Stored preferences, each field falling back to the default when missing or invalid. */
 function storedPreferences(value: unknown): NotificationDevicePreferences {
@@ -113,25 +111,23 @@ function storedDoc(value: unknown): NotificationPreferencesDoc {
   const doc = record(value);
   if (doc.version !== 1) throw new TypeError('The notification preferences are not version 1.');
   const devices: Record<string, NotificationDevicePreferences> = {};
-  for (const [id, prefs] of Object.entries(record(doc.devices)).slice(0, MAX_DEVICES)) {
+  for (const [id, prefs] of Object.entries(record(doc.devices))) {
     devices[id] = storedPreferences(prefs);
   }
   const overrides = (Array.isArray(doc.overrides) ? doc.overrides : [])
     .map(storedOverride)
-    .filter((entry): entry is ConversationNotificationOverride => entry !== null)
-    .slice(0, MAX_OVERRIDES);
+    .filter((entry): entry is ConversationNotificationOverride => entry !== null);
   const migratedAt = Number.isSafeInteger(doc.migratedAt) ? (doc.migratedAt as number) : 0;
   return { version: 1, migratedAt, devices, overrides };
 }
 
-/** The file as it is on disk, or null when there is none yet. */
+/** The file as it is on disk, or null when there is none yet. The storage
+ *  helper answers `fallback` only for a missing file or a damaged one with no
+ *  good backup (kept aside and reported by the helper); any other read error
+ *  (a directory in its place, permissions) is thrown, never taken for "none". */
 function readNotificationPreferencesFile(filePath: string): NotificationPreferencesDoc | null {
-  try {
-    // A damaged file is kept aside and its last good copy read.
-    return readJsonStateSync(filePath, { validate: storedDoc, fallback: null });
-  } catch {
-    return null;
-  }
+  // A damaged file is kept aside and its last good copy read.
+  return readJsonStateSync(filePath, { validate: storedDoc, fallback: null });
 }
 
 /** A device's preferences: its stored entry, else the default its kind and
@@ -171,14 +167,12 @@ function applyNotificationPreferencesPatch(
   });
 }
 
-/** The mute list the pre-#221 desktop kept; empty when absent or unreadable. */
+/** The mute list the pre-#221 desktop kept; empty when there is none (the
+ *  helper's missing / damaged-without-backup result). Any other read error is
+ *  thrown: the migration then does not run, instead of dropping the mutes. */
 export function readLegacyMutedAgents(filePath: string): string[] {
-  try {
-    const doc = readJsonStateSync(filePath, { validate: record, fallback: {} }) as { muted?: unknown };
-    return Array.isArray(doc.muted) ? doc.muted.filter((id): id is string => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
+  const doc = readJsonStateSync(filePath, { validate: record, fallback: {} }) as { muted?: unknown };
+  return Array.isArray(doc.muted) ? doc.muted.filter((id): id is string => typeof id === 'string') : [];
 }
 
 /** What the migration reads, once, when there is no file yet. */
@@ -332,9 +326,7 @@ export function createNotificationPreferencesStore({
           (entry) => entry.target.kind !== target.kind || entry.target.id !== target.id
         );
         const overrides: ConversationNotificationOverride[] =
-          setting.mode === 'inherit'
-            ? kept
-            : [...kept, { target: { kind: target.kind, id: target.id }, setting }].slice(-MAX_OVERRIDES);
+          setting.mode === 'inherit' ? kept : [...kept, { target: { kind: target.kind, id: target.id }, setting }];
         return { next: { ...value, overrides }, result: overrides };
       });
     },
