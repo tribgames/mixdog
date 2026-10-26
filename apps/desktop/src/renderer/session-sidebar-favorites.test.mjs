@@ -68,6 +68,52 @@ test('Lead-only display hides agent rows without removing them from the supplied
   assert.equal(sessions.length, 2);
 });
 
+test('the ⋯ menu Show sections submenu toggles section visibility and persists it', async (t) => {
+  const sessions = [row('fav', { favorite: true }), row('plain'), row('old', { archived: true })];
+  const document = await mount(t, sessions);
+  const labels = () => [...document.querySelectorAll('.session-sidebar-scroll > section')].map((s) => s.getAttribute('aria-label'));
+  assert.deepEqual(labels(), ['Favorites', 'Recent sessions', 'Archived sessions']);
+  const items = () => [...document.querySelectorAll('[role^="menuitem"]')];
+  await act(async () => document.querySelector('button[aria-label="Session order"]').click());
+  await act(async () => items().find((item) => item.textContent === 'Show sections').click());
+  assert.deepEqual(
+    items()
+      .filter((item) => item.hasAttribute('aria-checked'))
+      .map((item) => [item.textContent, item.getAttribute('aria-checked')]),
+    [
+      ['Bots', 'true'],
+      ['Favorites', 'true'],
+      ['Projects', 'true'],
+      ['Automations', 'true'],
+      ['Recent', 'true'],
+      ['Archived', 'true'],
+    ]
+  );
+  await act(async () => items().find((item) => item.textContent === 'Recent').click());
+  assert.deepEqual(labels(), ['Favorites', 'Archived sessions']);
+  assert.equal(document.querySelector('[data-session-id="plain"]'), null);
+  assert.equal(items().find((item) => item.textContent === 'Recent').getAttribute('aria-checked'), 'false');
+  assert.deepEqual(JSON.parse(document.defaultView.localStorage.getItem('mixdog:session-sidebar-hidden-sections')), [
+    'recent',
+  ]);
+  await act(async () => items().find((item) => item.textContent === 'Favorites').click());
+  await act(async () => items().find((item) => item.textContent === 'Archived').click());
+  assert.deepEqual(labels(), [], 'hiding every section leaves an empty list');
+  await act(async () => items().find((item) => item.textContent === 'Recent').click());
+  assert.deepEqual(labels(), ['Recent sessions']);
+});
+
+test('hidden sections persist across a remount', async (t) => {
+  const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
+  document.defaultView.localStorage.setItem('mixdog:session-sidebar-hidden-sections', '["recent","bogus"]');
+  const { useSidebarHiddenSections } = await import('./session-sidebar-state.ts');
+  function Probe() {
+    return React.createElement('i', { id: 'probe' }, [...useSidebarHiddenSections().hiddenSections].join(','));
+  }
+  await act(async () => root.render(React.createElement(Probe)));
+  assert.equal(document.getElementById('probe').textContent, 'recent,bogus');
+});
+
 test('Favorites render first, are excluded from Recent, and never include archived sessions', async (t) => {
   const document = await mount(t, [
     row('fav', { favorite: true }),

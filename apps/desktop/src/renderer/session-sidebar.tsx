@@ -24,6 +24,7 @@ import {
   useSidebarBootSurface,
   useSidebarOpenState,
   useSidebarSessionFilter,
+  useSidebarHiddenSections,
 } from './session-sidebar-state';
 import { useSidebarMenus } from './session-sidebar-menus';
 import {
@@ -779,6 +780,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
   const { sidebarWidth, resizeStart, updateSidebarWidth, finishSidebarResize } = useSidebarWidth();
   const { showAgents, updateShowAgents } = useSidebarSessionFilter();
+  const { hiddenSections, toggleSectionHidden } = useSidebarHiddenSections();
   const agents = useSidebarAgents(
     sessions,
     unreadSessionIds,
@@ -1058,7 +1060,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         panelTitle,
         panelTitleDragProps,
         setPanelActionSlot,
-        orderMenuItems: sessionOrderMenuItems(orderPrefs, updateOrderPrefs, showAgents, updateShowAgents),
+        orderMenuItems: sessionOrderMenuItems(
+          orderPrefs,
+          updateOrderPrefs,
+          showAgents,
+          updateShowAgents,
+          hiddenSections,
+          toggleSectionHidden
+        ),
       })}
       {hasSessionSurface &&
         sessionsSurface({
@@ -1068,6 +1077,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           scrollerRef: recentScrollerRef,
           onScroll: handleRecentScroll,
           sectionIds: sectionOrder.orderedIds,
+          hiddenSections,
           sectionContext,
         })}
       {/* Rail destinations render here as compact visible lists; their

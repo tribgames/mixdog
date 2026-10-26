@@ -337,9 +337,11 @@ export function sessionsSurface({
   scrollerRef,
   onScroll,
   sectionIds,
+  hiddenSections,
   sectionContext,
 }: {
   panelActive: boolean;
+  hiddenSections?: ReadonlySet<string>;
   onNewTask(): void;
   onNewStudio(): void;
   scrollerRef: React.RefObject<HTMLDivElement | null>;
@@ -384,7 +386,8 @@ export function sessionsSurface({
         onDragLeave={sectionContext.gapDrop.onDragLeave}
         onDrop={sectionContext.gapDrop.onDrop}
       >
-        {(sectionContext.agentContacts.length > 0 || sectionContext.agentRooms.length > 0) &&
+        {!hiddenSections?.has('agents') &&
+          (sectionContext.agentContacts.length > 0 || sectionContext.agentRooms.length > 0) &&
           agentsSection({
             contacts: sectionContext.agentContacts,
             rooms: sectionContext.agentRooms,
@@ -397,9 +400,11 @@ export function sessionsSurface({
             onOpenRoomMenu: sectionContext.onOpenRoomMenu,
             attentionOf: sectionContext.attentionOf,
           })}
-        {sectionIds.map((section) => (
-          <Fragment key={section}>{renderSidebarSection(section, sectionContext)}</Fragment>
-        ))}
+        {sectionIds
+          .filter((section) => !hiddenSections?.has(section))
+          .map((section) => (
+            <Fragment key={section}>{renderSidebarSection(section, sectionContext)}</Fragment>
+          ))}
       </div>
     </div>
   );
@@ -410,8 +415,18 @@ export function sessionOrderMenuItems(
   orderPrefs: SessionOrderPrefs,
   updateOrderPrefs: (update: Partial<SessionOrderPrefs>) => void,
   showAgents: boolean,
-  updateShowAgents: (show: boolean) => void
+  updateShowAgents: (show: boolean) => void,
+  hiddenSections: ReadonlySet<string> = new Set(),
+  toggleSectionHidden: (section: string) => void = () => {}
 ): React.ComponentProps<typeof RowOverflowMenu>['items'] {
+  const sectionLabels: readonly (readonly [string, string])[] = [
+    ['agents', t('Bots')],
+    ['favorites', t('Favorites')],
+    ['projects', t('Projects')],
+    ['automations', t('Automations')],
+    ['recent', t('Recent')],
+    ['archived', t('Archived')],
+  ];
   return [
     {
       id: 'sessions-lead-only',
@@ -439,6 +454,18 @@ export function sessionOrderMenuItems(
       checked: orderPrefs.favorites === mode,
       onSelect: () => updateOrderPrefs({ favorites: mode }),
     })),
+    {
+      id: 'sessions-sections',
+      label: t('Show sections'),
+      separatorBefore: true,
+      children: sectionLabels.map(([section, label]) => ({
+        id: `sessions-section-${section}`,
+        label,
+        checked: !hiddenSections.has(section),
+        closeOnSelect: false,
+        onSelect: () => toggleSectionHidden(section),
+      })),
+    },
   ];
 }
 

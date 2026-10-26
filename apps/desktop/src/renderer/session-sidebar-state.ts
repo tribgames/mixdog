@@ -54,6 +54,33 @@ export function useSidebarSessionFilter() {
   return { showAgents, updateShowAgents };
 }
 
+export const HIDDEN_SECTIONS_KEY = 'mixdog:session-sidebar-hidden-sections';
+
+/** Sidebar sections the user hid from the ⋯ menu (persisted; none by default). */
+export function useSidebarHiddenSections() {
+  const [hiddenSections, setHiddenSections] = useState<ReadonlySet<string>>(() => {
+    try {
+      const value = JSON.parse(window.localStorage.getItem(HIDDEN_SECTIONS_KEY) || '[]');
+      return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []);
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const toggleSectionHidden = useCallback((section: string) => {
+    setHiddenSections((current) => {
+      const next = new Set(current);
+      if (!next.delete(section)) next.add(section);
+      try {
+        window.localStorage.setItem(HIDDEN_SECTIONS_KEY, JSON.stringify([...next]));
+      } catch {
+        /* The current view still changes when persistence is unavailable. */
+      }
+      return next;
+    });
+  }, []);
+  return { hiddenSections, toggleSectionHidden };
+}
+
 /** Open/collapsed map persisted under `storageKey`; updates write through. */
 function usePersistedOpenMap(
   storageKey: string,
