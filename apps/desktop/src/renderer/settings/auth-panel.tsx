@@ -236,7 +236,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
             )}
           </p>
         ) : shown.length === 0 ? (
-          <p className="settings-empty">{t('No saved logins yet.')}</p>
+          <p className="settings-empty">{query.trim() ? t('No results found.') : t('No saved logins yet.')}</p>
         ) : (
           <ul className="auth-list">
             {shown.slice(0, visible).map((row) => (

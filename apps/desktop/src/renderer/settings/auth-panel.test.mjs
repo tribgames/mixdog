@@ -121,6 +121,19 @@ test('the segmented switch filters the list and hides "stay signed in only" at z
   assert.equal(doc.querySelectorAll('.auth-seg button')[1].getAttribute('aria-pressed'), 'true');
 });
 
+test('a search that matches nothing says so instead of claiming there are no logins', async (t) => {
+  const dom = await mount(t, makeApi());
+  const doc = dom.window.document;
+  const search = doc.querySelector('.auth-search input');
+  const setNativeValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+  await act(async () => {
+    setNativeValue.call(search, 'no-such-site');
+    search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  assert.deepEqual(rowHosts(doc), []);
+  assert.equal(doc.querySelector('.settings-empty').textContent, 'No results found.');
+});
+
 test('the "stay signed in only" option is hidden when its count is zero', async (t) => {
   const second = await mount(t, { ...makeApi(), browserSignedInSites: async () => [] });
   const options = second.window.document.querySelectorAll('.auth-seg button');
