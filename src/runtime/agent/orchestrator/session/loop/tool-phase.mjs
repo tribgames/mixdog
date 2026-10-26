@@ -87,7 +87,7 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   // carries a runtime notice for the model, delivered after its results.
   if (response.recoveryNotice) messages.push(response.recoveryNotice);
   settleTurnLimits(state, overrun);
-  if (!overrun) settleToolProgress(state, messages.slice(resultsFrom), calls);
+  if (!overrun) settleToolProgress(state, messages.slice(resultsFrom), executionCalls);
   const toolsEndedAt = Date.now();
   // Starts the step judgment; the next request uses it if it has resolved by
   // then (send-phase.mjs applyStepEffort), else the one after.

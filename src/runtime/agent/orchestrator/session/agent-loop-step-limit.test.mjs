@@ -9,6 +9,7 @@ import test from 'node:test';
 process.env.MIXDOG_TURN_STEP_LIMIT = '6';
 process.env.MIXDOG_NO_PROGRESS_ROUND_LIMIT = '3';
 const { agentLoop } = await import('./agent-loop.mjs');
+const { setInternalToolsProvider } = await import('../internal-tools.mjs');
 
 // Far above any bound the loop should allow: before the limits existed these
 // turns ran until this guard threw.
@@ -149,6 +150,44 @@ test('a task wait returning the same result is not cut off', async () => {
   });
   assert.equal(provider.sends.length, 6);
   assert.equal(result.content, 'final answer');
+  assert.equal(messages.filter((m) => m.meta?.source === 'turn-limit').length, 0);
+});
+
+test('a bridged task wait returning the same result is not cut off', async (t) => {
+  const scopeId = 'step-limit-bridge';
+  const task = {
+    name: 'task',
+    description: 'Task.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+  };
+  t.after(setInternalToolsProvider({ scopeId, tools: [task], executor: async () => 'still running' }));
+  const poll = (send) => ({
+    content: 'waiting…',
+    toolCalls: [
+      {
+        id: `b${send}`,
+        name: 'call_tool',
+        arguments: { name: 'task', arguments: { action: 'wait', task_id: 'job_1' } },
+      },
+    ],
+  });
+  const provider = scripted((send) => (send <= 5 ? poll(send) : finalTurn));
+  const { result, messages } = await run('sess-bridged-task-wait', provider, {
+    sessionProps: {
+      provider: 'openrouter',
+      mcpScopeId: scopeId,
+      cwd: process.cwd(),
+      toolSpec: 'full',
+      deferredProviderMode: 'canonical',
+      toolExposureMode: 'bridge-v1',
+      tools: [],
+      deferredToolCatalog: [task],
+    },
+  });
+  assert.equal(provider.sends.length, 6);
+  assert.equal(result.content, 'final answer');
+  assert.equal(messages.filter((m) => m.role === 'tool' && m.toolKind === 'error').length, 0);
   assert.equal(messages.filter((m) => m.meta?.source === 'turn-limit').length, 0);
 });
 
