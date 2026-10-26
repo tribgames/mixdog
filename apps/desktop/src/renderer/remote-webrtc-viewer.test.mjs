@@ -7,6 +7,7 @@ import {
   parseRemoteWebrtcDesktopSignal,
   readRemoteWebrtcDesktopSignal,
 } from '../shared/remote-webrtc.ts';
+import { generateSecureDesktopControllerKey } from '../shared/secure-desktop-grant.ts';
 import { createRemoteBrowserInputQueue } from './remote-browser-input.ts';
 import { createScreenCursorStore } from './remote-screen-touch.ts';
 import { createScreenCursorTracker } from './remote-screen-state.ts';
@@ -486,6 +487,87 @@ async function connectScreen(h, generation = 1) {
   h.peers.at(-1).connect();
   await settle();
 }
+
+test('helper messages go over the verified channel of a screen source only, and never queue', async () => {
+  const { publicKey } = await generateSecureDesktopControllerKey();
+  const b64 = (bytes, byte) => Buffer.alloc(bytes, byte).toString('base64');
+  const install = { v: 1, kind: 'screen-helper-install', publicKey };
+  const grant = { v: 1, kind: 'screen-helper-grant', epoch: 3, challenge: b64(16, 2), signature: b64(64, 3) };
+  const h = harness({ extra: { source: screenSource } });
+  assert.equal(h.viewer.sendHelperMessage(install), false, 'no connection yet');
+  assert.equal(h.viewer.videoEpoch, null);
+  await connectScreen(h);
+  const channel = h.peers[0].channel;
+  const helper = () => channel.sent.filter((message) => message.kind.startsWith('screen-helper'));
+
+  assert.equal(h.viewer.sendHelperMessage(install), true);
+  assert.equal(h.viewer.sendHelperMessage(grant), true);
+  assert.deepEqual(helper(), [install, grant]);
+
+  // The run epoch is the newest announced; an older announcement does not move it.
+  channel.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-video', epoch: 3, path: 'helper' }) });
+  assert.equal(h.viewer.videoEpoch, 3);
+  channel.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-video', epoch: 2, path: 'capture' }) });
+  assert.equal(h.viewer.videoEpoch, 3);
+
+  h.viewer.stop();
+  assert.equal(h.viewer.videoEpoch, null, 'a new session announces its own runs');
+  assert.equal(h.viewer.sendHelperMessage(grant), false, 'a stopped viewer has no channel to send on');
+  assert.equal(helper().length, 2);
+
+  // A connection whose certificate does not match the desktop's carries nothing.
+  const forged = harness({ extra: { source: screenSource } });
+  forged.viewer.start();
+  forged.viewer.handle(offer(1, { source: screenSource }));
+  await settle();
+  forged.peers[0].connect({ algorithm: DESKTOP_FP.algorithm, value: PHONE_FP.value });
+  await settle();
+  assert.equal(forged.viewer.sendHelperMessage(grant), false);
+  assert.equal(forged.peers[0].channel.sent.filter((message) => message.kind.startsWith('screen-helper')).length, 0);
+
+  // A browser source has no helper.
+  const browser = harness();
+  await connect(browser);
+  assert.equal(browser.viewer.sendHelperMessage(install), false);
+});
+
+test('a malformed helper message is refused before it reaches the channel', async () => {
+  const h = harness({ extra: { source: screenSource } });
+  await connectScreen(h);
+  const channel = h.peers[0].channel;
+  const before = channel.sent.length;
+  assert.equal(h.viewer.sendHelperMessage({ v: 1, kind: 'screen-helper-install', publicKey: 'short' }), false);
+  assert.equal(
+    h.viewer.sendHelperMessage({ v: 1, kind: 'screen-helper-grant', epoch: 1, challenge: 'x', signature: 'y' }),
+    false
+  );
+  assert.equal(channel.sent.length, before);
+  assert.equal(channel.readyState, 'open', 'the connection is not failed by it');
+  assert.equal(h.viewer.sendHelperMessage({ v: 1, kind: 'screen-helper-install', publicKey: (await generateSecureDesktopControllerKey()).publicKey }), true);
+});
+
+test('a helper challenge reaches the callback for a screen source, current session only', async () => {
+  const b64 = (byte) => Buffer.alloc(16, byte).toString('base64');
+  const message = (epoch) => ({ data: JSON.stringify({ v: 1, kind: 'screen-helper-challenge', epoch, nonce: b64(1), challenge: b64(2) }) });
+  const seen = [];
+  const h = harness({ extra: { source: screenSource, screenHelperChallenge: (challenge) => seen.push(challenge) } });
+  await connectScreen(h);
+  const channel = h.peers[0].channel;
+  channel.onmessage(message(4));
+  channel.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-helper-challenge', epoch: 4, nonce: 'bad', challenge: b64(2) }) });
+  assert.deepEqual(seen, [{ epoch: 4, nonce: b64(1), challenge: b64(2) }], 'the malformed one is dropped');
+
+  const lingering = channel.onmessage;
+  h.viewer.stop();
+  lingering?.(message(5));
+  assert.equal(seen.length, 1, 'a session that has ended is not answered');
+
+  const browserSeen = [];
+  const browser = harness({ extra: { screenHelperChallenge: (challenge) => browserSeen.push(challenge) } });
+  await connect(browser);
+  browser.peers[0].channel.onmessage(message(1));
+  assert.deepEqual(browserSeen, []);
+});
 
 test('screen-frame-seen: once per run, for a frame received after the announcement', async () => {
   const h = harness({ extra: { source: screenSource } });

@@ -14,6 +14,7 @@ import {
   type DurablePairing,
 } from './remote-pairing-durable';
 import { createRemotePairingScreen } from './remote-pairing-screen';
+import { clearControllerKey } from './remote-screen-controller-key';
 import { clearRemoteConnectionState, setRemoteConnectionPhase } from './remote-connection-state';
 import {
   DEVICE_STORAGE_KEY,
@@ -334,6 +335,8 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     // the delete fails and the app reloads before it is retried.
     markDurableRevoked();
     void dropDurablePairing().catch(() => undefined);
+    // The secure-desktop helper's controller key belonged to this pairing.
+    void clearControllerKey(ctx.pairingKeys.token).catch(() => undefined);
     ctx.serverBase = location.origin;
     ctx.token = '';
     ctx.e2eePairing = null;

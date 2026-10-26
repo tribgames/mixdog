@@ -4,6 +4,7 @@ import test from 'node:test';
 import { VirtualConsole } from 'jsdom';
 
 import { sealRelayE2EEPairingMaterial } from '../shared/remote-e2ee.ts';
+import { fakeIndexedDB as namedIndexedDB } from './test-support/fake-indexeddb.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 const until = async (check, ms = 8000) => {
@@ -144,6 +145,31 @@ test('an approval is stored only with its durable copy, and boot restores from t
   // A refused credential is wiped from both copies.
   ctx.resetApprovalAndAsk('gone');
   await until(() => !factory.data.has(ctx.pairingKeys.token));
+  document.getElementById('mixdog-remote-pairing')?.remove();
+});
+
+test('unpairing a PC retires its secure-desktop controller key and keeps the others', async (t) => {
+  const pairingDb = fakeIndexedDB();
+  const keysDb = namedIndexedDB();
+  const factory = { open: (name) => (name === 'mixdog-remote-screen-controller' ? keysDb : pairingDb).open(name) };
+  const { ctx } = await installPairing(t, { indexedDB: factory });
+  const { ensureControllerKey, loadControllerKey } = await import('./remote-screen-controller-key.ts');
+  const { remotePairingKeys } = await import('./remote-pairing-recovery.ts');
+  const otherPc = remotePairingKeys('https://relay.example', 'def').token;
+  const kept = await ensureControllerKey(otherPc, factory);
+  await ensureControllerKey(ctx.pairingKeys.token, factory);
+  const { hasAutoRequestedHelper, markAutoRequestedHelper } = await import('./remote-screen-controller-key.ts');
+  await markAutoRequestedHelper(ctx.pairingKeys.token, factory);
+  await markAutoRequestedHelper(otherPc, factory);
+  const stored = () => keysDb.databases.get('mixdog-remote-screen-controller').get('keys');
+  assert.equal(stored().has(ctx.pairingKeys.token), true);
+
+  ctx.resetApprovalAndAsk('gone');
+  await until(() => !stored().has(ctx.pairingKeys.token));
+  assert.equal(await loadControllerKey(ctx.pairingKeys.token, factory), null);
+  assert.equal(await hasAutoRequestedHelper(ctx.pairingKeys.token, factory), false, 'the mark goes with the key');
+  assert.equal(await hasAutoRequestedHelper(otherPc, factory), true);
+  assert.equal((await loadControllerKey(otherPc, factory)).publicKey, kept.publicKey);
   document.getElementById('mixdog-remote-pairing')?.remove();
 });
 

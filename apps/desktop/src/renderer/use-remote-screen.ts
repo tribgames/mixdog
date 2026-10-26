@@ -3,18 +3,30 @@
 // underneath, so the viewer offers to receive as soon as it exists, offers
 // again whenever it falls back to the relay state, and any failure is shown
 // (with a retry) instead of being covered by another picture.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../shared/contract';
 import type { RemoteScreenInput, RemoteScreenStatus } from '../shared/remote-webrtc';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { remoteWebrtcHost } from './remote-webrtc-bridge';
 import { createRemoteWebrtcViewer, type RemoteWebrtcViewer } from './remote-webrtc-viewer';
+import { createControllerKeys } from './remote-screen-controller-key';
+import {
+  createScreenHelperAutoInstall,
+  createScreenHelperGrants,
+  createScreenHelperInstall,
+  readScreenHelperBlock,
+  screenGrantSurfaceActive,
+} from './remote-screen-helper';
 import { createScreenCursorTracker, screenInputAllowed, screenView, type ScreenView } from './remote-screen-state';
 import { STREAM_RENEW_MS } from './use-remote-browser-stream';
 import { receiveCodecs } from './use-remote-webrtc';
 
 const RELEASE: RemoteScreenInput = { type: 'screen-release' };
+
+/** How long a pressed install button waits for the PC's status before it can
+ *  be pressed again (the person at the PC may be slow, the request may be lost). */
+export const HELPER_REQUEST_WAIT_MS = 15_000;
 
 export function useRemoteScreen({
   api,
@@ -42,11 +54,64 @@ export function useRemoteScreen({
     cursorRef.current = createScreenCursorTracker(() => viewerRef.current?.geometry?.generation ?? null);
   }
   const cursor = cursorRef.current;
+  // The secure-desktop helper: this pairing's controller key, and the install
+  // request that enrolls it. A request in flight lasts until the PC's next
+  // status (its answer) or the wait runs out.
+  const keysRef = useRef<ReturnType<typeof createControllerKeys> | null>(null);
+  keysRef.current ??= createControllerKeys();
+  const keys = keysRef.current;
+  const [helperPending, setHelperPending] = useState(false);
+  const viewRef = useRef<ScreenView>({ kind: 'connecting' });
+  // Signs the PC's helper challenges for the run on screen, right away, and
+  // only while this pane is shown and the page visible.
+  const grantsRef = useRef<ReturnType<typeof createScreenHelperGrants<RemoteWebrtcViewer>> | null>(null);
+  grantsRef.current ??= createScreenHelperGrants<RemoteWebrtcViewer>({
+    key: keys.load,
+    epoch: () => viewerRef.current?.videoEpoch ?? null,
+    active: () => screenGrantSurfaceActive(viewRef.current, document.visibilityState),
+    origin: () => viewerRef.current,
+    // Through the viewer the challenge came from, never whichever is current.
+    send: (message, origin) => origin.sendHelperMessage(message),
+  });
+  const grants = grantsRef.current;
+  // The one automatic install request of a pairing, behind the grants' gate.
+  const autoInstallRef = useRef<ReturnType<typeof createScreenHelperAutoInstall<RemoteWebrtcViewer>> | null>(null);
+  autoInstallRef.current ??= createScreenHelperAutoInstall<RemoteWebrtcViewer>({
+    guard: keys.autoGuard,
+    requested: keys.autoRequested,
+    mark: keys.markAutoRequested,
+    ensureKey: keys.ensure,
+    active: () => screenGrantSurfaceActive(viewRef.current, document.visibilityState),
+    generation: grants.generation,
+    origin: () => viewerRef.current,
+    send: (message, origin) => origin.sendHelperMessage(message),
+  });
+  const autoInstall = autoInstallRef.current;
+  const requestInstall = useMemo(
+    () =>
+      createScreenHelperInstall({
+        ensureKey: keys.ensure,
+        send: (message) => viewerRef.current?.sendHelperMessage(message) ?? false,
+      }),
+    [keys]
+  );
+  const installHelper = useCallback(async (): Promise<boolean> => {
+    setHelperPending(true);
+    const sent = await requestInstall();
+    if (!sent) setHelperPending(false);
+    return sent;
+  }, [requestInstall]);
+  useEffect(() => {
+    if (!helperPending) return undefined;
+    const timer = window.setTimeout(() => setHelperPending(false), HELPER_REQUEST_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [helperPending]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the retry trigger; the viewer follows the host and the display.
   useEffect(() => {
     if (!supported || !remoteWebrtcHost(api)) return undefined;
     setStatus(null);
+    setHelperPending(false);
     cursor.clear();
     const viewer: RemoteWebrtcViewer = createRemoteWebrtcViewer({
       source: { kind: 'screen', screenId },
@@ -66,17 +131,26 @@ export function useRemoteScreen({
       screenStatus: (next) => {
         cursor.status(next);
         setStatus(next);
+        // The PC's status is its answer to a pending helper request.
+        setHelperPending(false);
       },
       screenCursor: cursor.set,
+      screenHelperChallenge: (challenge) => void grants.challenge(challenge, viewer),
       screenInputRejected: () => rejectedRef.current?.(),
-      sessionEnded: cursor.clear,
+      sessionEnded: () => {
+        grants.invalidate();
+        cursor.clear();
+      },
       failure: () => {},
       statsIntervalMs: STREAM_RENEW_MS,
       log: (line) => console.info(line),
     });
+    // A replaced viewer ends every challenge the old one began.
+    grants.invalidate();
     viewerRef.current = viewer;
     const unsubscribe = api.onRemoteBrowserWebrtc!((signal) => viewer.handle(signal));
     const visibility = () => {
+      grants.invalidate();
       if (document.visibilityState === 'hidden') {
         // Nothing stays pressed on the PC while this page is away.
         viewer.sendInput(RELEASE);
@@ -94,12 +168,13 @@ export function useRemoteScreen({
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
       unsubscribe();
+      grants.invalidate();
       viewer.sendInput(RELEASE);
       viewer.dispose();
       viewerRef.current = null;
       setStream(null);
     };
-  }, [supported, api, screenId, attempt]);
+  }, [supported, api, screenId, attempt, cursor, grants]);
 
   // The track plays muted inline; each presented frame reports its size, which
   // the desktop's media-ready check needs before it promotes the connection.
@@ -130,8 +205,22 @@ export function useRemoteScreen({
   const view: ScreenView = supported
     ? screenView({ transport: viewer?.state ?? 'relay', showsVideo, status })
     : { kind: 'failed' };
-  const viewRef = useRef(view);
   viewRef.current = view;
+  // Any change of the signing surface (shown ↔ not shown) ends the challenges
+  // begun before it, whichever way it went.
+  const grantSurface = screenGrantSurfaceActive(view, document.visibilityState);
+  useEffect(() => {
+    grants.invalidate();
+  }, [grantSurface, grants]);
+  // The first time this pairing's PC screen offers the helper, ask for it once.
+  // Tried again when the surface or the status changes, until a send went out.
+  const helperOffer = status?.helperInfo.offer ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `grantSurface` and `helperOffer` are the triggers; the viewer is read through its ref.
+  useEffect(() => {
+    const current = viewerRef.current;
+    if (!current || !grantSurface || helperOffer !== 'install') return;
+    void autoInstall.consider({ offer: helperOffer }, current);
+  }, [grantSurface, helperOffer, autoInstall]);
   // Gated on the newest view, not the one a callback was made in.
   const send = useCallback(
     (input: RemoteScreenInput): boolean =>
@@ -148,6 +237,13 @@ export function useRemoteScreen({
     geometry: viewer?.geometry ?? null,
     send,
     retry,
+    /** The helper block of the latest status, or null (an older PC). */
+    helper: readScreenHelperBlock(status),
+    /** An install / update request was sent and the PC has not answered. */
+    helperPending,
+    /** The button: enroll this phone's key and ask the PC to install (or
+     *  update) the helper. False when the request could not be sent. */
+    installHelper,
     /** The PC cursor in video pixels, or null until it is reported. */
     cursor: cursor.read,
     /** Changes when a cursor kept by the touch layer goes stale. */

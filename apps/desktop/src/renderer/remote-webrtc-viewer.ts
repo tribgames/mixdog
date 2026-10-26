@@ -9,7 +9,10 @@ import {
   REMOTE_WEBRTC_VERSION,
   isRemoteWebrtcPageInput,
   readRemoteWebrtcChannelFromDesktop,
+  encodeRemoteWebrtcScreenHelperGrant,
+  encodeRemoteWebrtcScreenHelperInstall,
   readRemoteWebrtcScreenCursor,
+  readRemoteWebrtcScreenHelperChallenge,
   readRemoteWebrtcScreenStatus,
   readRemoteWebrtcScreenVideo,
   remoteWebrtcCandidatePath,
@@ -31,6 +34,7 @@ import {
   type RemoteWebrtcVideoLimit,
 } from '../shared/remote-webrtc';
 import { browserTypingInput } from '../shared/browser-input-policy';
+import type { ScreenHelperClientMessage } from './remote-screen-helper';
 import { readRemoteWebrtcReceiverStats, remoteWebrtcPeerCertificate } from './remote-webrtc-stats';
 import { remoteVideoBelowLimit, remoteVideoLimit } from './remote-view-zoom';
 
@@ -81,6 +85,8 @@ export interface RemoteWebrtcViewerOptions {
   /** A screen source's PC cursor, in video pixels of the current geometry
    *  (a `screen-cursor` of any other generation never arrives here). */
   screenCursor?(cursor: { x: number; y: number }): void;
+  /** A screen source's secure-desktop helper challenge, to sign for its run. */
+  screenHelperChallenge?(challenge: { epoch: number; nonce: string; challenge: string }): void;
   /** The host acknowledged a screen key, combo or text as `rejected`. */
   screenInputRejected?(): void;
   /** The desktop session behind the current connection ended (stop, hide,
@@ -401,6 +407,15 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       // that has ended, or any push for a browser source is not a new run.
       if (!ended && options.source.kind === 'screen' && (!videoRun || video.epoch > videoRun.epoch)) {
         videoRun = { epoch: video.epoch, arrivedAt: now(), seen: false };
+      }
+      return;
+    }
+    const challenge = readRemoteWebrtcScreenHelperChallenge(data);
+    if (challenge) {
+      // Answered at once or not at all (a grant lapses in seconds), and never
+      // for a session that has ended or a browser source.
+      if (!ended && options.source.kind === 'screen') {
+        options.screenHelperChallenge?.({ epoch: challenge.epoch, nonce: challenge.nonce, challenge: challenge.challenge });
       }
       return;
     }
@@ -811,6 +826,35 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       if (owner === 'channel' || !lingering) return;
       dropLingering();
       options.changed();
+    },
+    /** The newest video run the desktop announced on this connection, or null. */
+    get videoEpoch(): number | null {
+      return videoRun?.epoch ?? null;
+    },
+    /** A secure-desktop helper message (an install request, a signed grant)
+     *  on the verified channel of a screen source. Never queued: a grant that
+     *  cannot go now is useless a moment later. False when it did not go. */
+    sendHelperMessage(message: ScreenHelperClientMessage): boolean {
+      const attempt = current;
+      const channel = attempt?.channel;
+      if (options.source.kind !== 'screen' || !attempt?.verified || channel?.readyState !== 'open') return false;
+      let text: string;
+      try {
+        text =
+          message.kind === 'screen-helper-install'
+            ? encodeRemoteWebrtcScreenHelperInstall(message.publicKey)
+            : encodeRemoteWebrtcScreenHelperGrant(message);
+      } catch {
+        // Malformed (not a controller key, not a canonical grant): never sent.
+        return false;
+      }
+      try {
+        channel.send(text);
+        return true;
+      } catch (error) {
+        fail(attempt, 'channel-failed', String(error));
+        return false;
+      }
     },
     /** A deliberate resize (never keyboard, rotation, zoom or pan). */
     requestResize(resize: RemoteWebrtcResize): Promise<void> {

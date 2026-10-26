@@ -28,6 +28,12 @@ import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
 import { useCompositionFinisher } from './remote-composition';
 import { createScreenGestureAdapter, type ScreenInputMode } from './remote-screen-gesture';
+import {
+  screenBlockReason,
+  screenHelperPanel,
+  type ScreenHelperLine,
+  type ScreenHelperPanel,
+} from './remote-screen-helper';
 import { SCREEN_SPECIAL_KEYS, createScreenTextController, screenSpecialKeyInputs } from './remote-screen-keys';
 import {
   installScreenReleaseTriggers,
@@ -80,8 +86,46 @@ function sizeLabel(width: number, height: number): string {
   return `${width}×${height}`;
 }
 
-function BlockedNote({ view }: { view: Extract<ScreenView, { kind: 'blocked' }> }) {
-  const copy = BLOCK_COPY[view.reason];
+function helperLineText(line: ScreenHelperLine): string {
+  if (line.kind === 'detail') return line.text;
+  switch (line.id) {
+    case 'in-progress':
+      return t('Answer the confirmation prompt shown on the PC.');
+    case 'declined':
+      return t('The request was declined on the PC. Restart Mixdog on the PC to ask again.');
+    case 'failed':
+      return t('The helper could not be installed.');
+    case 'other-user':
+      return t('Another Windows account on the PC owns the helper.');
+    case 'unavailable':
+      return t('The helper is not available on this PC.');
+    case 'in-use':
+      return t('Another device is controlling the PC screen.');
+    case 'service-failed':
+      return t('The helper service could not be started on the PC.');
+    case 'sas_disabled_by_policy':
+      return t('Ctrl+Alt+Del is blocked by the PC’s policy.');
+    case 'desktop_unavailable':
+      return t('The PC’s secure screen cannot be opened right now.');
+    case 'input_failed':
+      return t('Input could not be delivered to the PC.');
+    case 'grant_key_missing':
+      return t('This phone is not registered with the helper.');
+  }
+}
+
+function BlockedNote({
+  view,
+  reason,
+  panel,
+  onInstall,
+}: {
+  view: Extract<ScreenView, { kind: 'blocked' }>;
+  reason: ScreenBlockReason;
+  panel: ScreenHelperPanel;
+  onInstall(): void;
+}) {
+  const copy = BLOCK_COPY[reason];
   const Glyph = copy.icon;
   return (
     <>
@@ -95,6 +139,16 @@ function BlockedNote({ view }: { view: Extract<ScreenView, { kind: 'blocked' }> 
       <div className="remote-screen-note" role="status">
         <strong>{t(copy.title)}</strong>
         <span>{t(view.dim ? copy.detail : PROMPT_DETAIL)}</span>
+        {panel.lines.map((line) => (
+          <span key={line.kind === 'copy' ? line.id : line.text}>{helperLineText(line)}</span>
+        ))}
+        {panel.action && (
+          <div className="remote-screen-actions">
+            <button type="button" className="remote-screen-primary" disabled={panel.busy} onClick={onInstall}>
+              {panel.action === 'update' ? t('Approve helper update') : t('Request helper installation on the PC')}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
@@ -188,8 +242,16 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   const api = window.mixdogDesktop;
   // The host refused a key, combo or text it had accepted off the channel.
   const [notSent, setNotSent] = useState(false);
+  // The helper install / update request could not be sent.
+  const [helperNotSent, setHelperNotSent] = useState(false);
   const screen = useRemoteScreen({ api, screenId: display.screenId, onInputRejected: () => setNotSent(true) });
-  const { view, send, retry, geometry } = screen;
+  const { view, send, retry, geometry, installHelper } = screen;
+  const requestHelper = useCallback(() => {
+    setHelperNotSent(false);
+    void installHelper().then((sent) => {
+      if (!sent) setHelperNotSent(true);
+    });
+  }, [installHelper]);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const pictureRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
@@ -391,7 +453,14 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
             aria-hidden={showPicture ? undefined : true}
           />
         </div>
-        {blocked && <BlockedNote view={blocked} />}
+        {blocked && (
+          <BlockedNote
+            view={blocked}
+            reason={screenBlockReason(blocked, screen.helper)}
+            panel={screenHelperPanel(screen.helper, screen.helperPending, screen.status?.helper)}
+            onInstall={requestHelper}
+          />
+        )}
         {view.kind === 'connecting' && (
           <ScreenStateCard>
             <ProgressSpinner size={24} />
@@ -411,9 +480,16 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
             </div>
           </ScreenStateCard>
         )}
-        {notSent && (
+        {(notSent || helperNotSent) && (
           <div className="browser-remote-status">
-            <ErrorNotice error={t('Input was not sent.')} role="status" onDismiss={() => setNotSent(false)} />
+            <ErrorNotice
+              error={helperNotSent ? t('The request could not be sent to the PC.') : t('Input was not sent.')}
+              role="status"
+              onDismiss={() => {
+                setNotSent(false);
+                setHelperNotSent(false);
+              }}
+            />
           </div>
         )}
       </div>

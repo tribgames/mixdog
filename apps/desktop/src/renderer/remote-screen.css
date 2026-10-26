@@ -177,6 +177,35 @@ html:has(.remote-screen-overlay) {
   margin-top: 10px;
 }
 
+/* The helper request inside the blocked note: the note itself lets touches
+   through to the stage, its button does not. */
+.remote-screen-note .remote-screen-actions {
+  margin-top: 4px;
+  pointer-events: auto;
+}
+
+.remote-screen-note .remote-screen-actions button {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  cursor: pointer;
+}
+
+.remote-screen-note .remote-screen-actions .remote-screen-primary {
+  background: var(--mx-text);
+  color: var(--mx-bg-base);
+}
+
+.remote-screen-note .remote-screen-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .browser-remote-empty .remote-screen-actions button {
   height: 32px;
   padding: 0 12px;
