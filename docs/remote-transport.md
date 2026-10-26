@@ -455,6 +455,15 @@ refusal.
 - Prompt attachments are not streamed; a maximal `sendPrompt` is one message.
 - The unbounded producers above (`remote-view-sync.ts:228`, unbounded RPC
   results) should become paged or streamed results.
+- Media adapter buffering on the phone: the phone's stream acknowledges media
+  records as soon as they are accepted into the ordered stream, whether or not
+  the element reads them, and there is no phone → PC credit message. A stalled
+  element can therefore leave up to one window per stream buffered in the
+  service worker: 1 MiB for media (`MEDIA_WINDOW_MAX_BYTES`), 8 MiB for a file
+  download (`DOWNLOAD_WINDOW_MAX_BYTES`), with at most
+  `REMOTE_TRANSPORT_MAX_MEDIA_STREAMS` (32) streams. On the HTTP lane the
+  relay pauses the producer once 1 MiB sits in its response buffer
+  (`MEDIA_PAUSE_BUFFER_BYTES`). Accepted as a known bound for this release.
 
 A fragmented message holds back later application messages in its direction
 until its last fragment is sealed. That matches today's single relay frame.

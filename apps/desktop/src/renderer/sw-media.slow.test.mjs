@@ -2,7 +2,14 @@
 // (public/sw-media.js, evaluated in a VM like a worker) through a fake relay
 // that forwards bytes untouched. Whatever the worker returns to an element is
 // what a <video>/<img> would receive.
+//
+// With `direct`, the same worker gets the page's transport port: the REAL
+// page half (remote-file-preview.ts createRemoteTransportMediaClient) sends
+// each window as a transport-media request to the REAL desktop adapter
+// (main/remote-transport/media.ts), whose records are sealed and opened by a
+// real E2EE transport session on their way back.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,8 +18,17 @@ import vm from 'node:vm';
 
 import { leaseMediaFile } from '../main/media-leases.ts';
 import { DOWNLOAD_WINDOW_MAX_BYTES, MEDIA_WINDOW_MAX_BYTES, createRelayMediaLane } from '../main/remote-relay-media.ts';
+import { createRemoteTransportMediaAdapter } from '../main/remote-transport/media.ts';
 import { FileDownloadError } from '../shared/file-downloads.ts';
+import {
+  acceptRelayE2EEClientHello,
+  createRelayE2EEChallenge,
+  createRelayE2EEClientHandshake,
+  generateRelayE2EEServerIdentity,
+  relayE2EEPairingMaterial,
+} from '../shared/remote-e2ee.ts';
 import { MEDIA_SEGMENT_BYTES } from '../shared/remote-media-crypto.ts';
+import { createRemotePreviewApi, createRemoteTransportMediaClient } from './remote-file-preview.ts';
 import { fileDownloadLaneUrl, publishMediaKey, revokeMediaKey } from './remote-media-lane.ts';
 
 const source = readFileSync(new URL('./public/sw-media.js', import.meta.url), 'utf8');
@@ -31,7 +47,88 @@ function lease(name, size, mime = 'video/mp4') {
   return { bytes, assetId: leaseMediaFile(path, mime, { within: dir, identity: statSync(path, { bigint: true }) }) };
 }
 
-async function setup({ mutate, redirect, downloads, device = PHONE_DEVICE } = {}) {
+/** One E2EE transport session (the stream the media records travel on). */
+async function transportSession() {
+  const identity = await generateRelayE2EEServerIdentity();
+  const challenge = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1 };
+  const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), challenge, {
+    transportWebrtc: true,
+  });
+  const server = await acceptRelayE2EEClientHello(identity, challenge, client.hello);
+  client.channel.confirmHandshake({ type: 'e2ee-ready', version: 1, ...server.handshakeConfirmation() });
+  return { client: client.channel, server };
+}
+
+/** The page's transport and the desktop adapter behind it, attached to `worker`. */
+async function directLane(worker, { key, downloads, device }) {
+  const { client, server } = await transportSession();
+  const asked = { ranges: [], cancels: 0, records: 0 };
+  let page = null;
+  let sealing = Promise.resolve();
+  // Records the desktop may still send (its stream credit, in records here).
+  let budget = Number.POSITIVE_INFINITY;
+  const writable = new Set();
+  const adapter = createRemoteTransportMediaAdapter({
+    host: { invokeCapability: async () => null },
+    downloads,
+    mediaKey: key,
+    device,
+    link: {
+      canAdmit: () => budget > 0,
+      send: (message) => {
+        if (budget <= 0) return Promise.resolve(false);
+        budget -= 1;
+        asked.records += 1;
+        const run = sealing.then(async () => {
+          const opened = await client.decryptJson(await server.encryptBinary(message));
+          assert.equal(page.receive(opened), true);
+          return true;
+        });
+        sealing = run.catch(() => undefined);
+        return run;
+      },
+      onWritable: (listener) => {
+        writable.add(listener);
+        return () => writable.delete(listener);
+      },
+      protocolError: (detail) => assert.fail(`media protocol error: ${detail}`),
+    },
+  });
+  let open = true;
+  page = createRemoteTransportMediaClient({
+    send: async (message) => {
+      if (message.op === 'request') asked.ranges.push(message.range);
+      else asked.cancels += 1;
+      // The phone's own records travel the same way to the desktop.
+      const opened = await server.decryptJson(await client.encryptBinary(message));
+      assert.equal(adapter.receive(opened), true);
+    },
+    container: {
+      controller: { postMessage: (data) => open && worker.acceptKey(data) },
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    },
+  });
+  page.attach(SID);
+  return {
+    asked,
+    page,
+    adapter,
+    /** Lets the desktop send `records` more records from now on. */
+    credit(records) {
+      budget = records;
+      for (const listener of [...writable]) listener();
+    },
+    /** The worker stops hearing from the page (a withdrawal still in flight). */
+    deafen() {
+      open = false;
+    },
+  };
+}
+
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+async function setup({ mutate, redirect, downloads, device = PHONE_DEVICE, direct = false, timers } = {}) {
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   const upstream = [];
   const upstreamUrls = [];
@@ -81,6 +178,7 @@ async function setup({ mutate, redirect, downloads, device = PHONE_DEVICE } = {}
   const context = {
     AbortController,
     Headers,
+    MessageChannel,
     Promise,
     ReadableStream,
     Response,
@@ -88,9 +186,9 @@ async function setup({ mutate, redirect, downloads, device = PHONE_DEVICE } = {}
     TextEncoder,
     URL,
     URLSearchParams,
-    clearTimeout,
+    clearTimeout: timers?.clearTimeout ?? clearTimeout,
     fetch: fetchThroughRelay,
-    setTimeout,
+    setTimeout: timers?.setTimeout ?? setTimeout,
     self: { crypto: globalThis.crypto, clients: { matchAll: async () => [] } },
   };
   context.globalThis = context;
@@ -98,12 +196,16 @@ async function setup({ mutate, redirect, downloads, device = PHONE_DEVICE } = {}
   vm.runInContext(`${source}\n;globalThis.__lane = mixdogMediaLane;`, context);
   const worker = context.__lane;
   worker.acceptKey({ type: worker.KEY_MESSAGE, sid: SID, key });
-  const get = async (assetId, { range, destination = 'video', variant = 'original', sid = SID } = {}) => {
+  const lane = direct ? await directLane(worker, { key, downloads, device }) : null;
+  const get = async (
+    assetId,
+    { range, destination = 'video', mode = 'no-cors', variant = 'original', sid = SID } = {}
+  ) => {
     const url = `${ORIGIN}/media/${assetId}?variant=${variant}&sid=${sid}&enc=e2ee1&token=t`;
     const request = {
       url,
       method: 'GET',
-      mode: 'no-cors',
+      mode,
       destination,
       headers: new Headers(range ? { range } : {}),
     };
@@ -122,7 +224,7 @@ async function setup({ mutate, redirect, downloads, device = PHONE_DEVICE } = {}
     assert.ok(route?.download, 'the worker recognizes the download URL');
     return worker.answer(request, route);
   };
-  return { get, download, upstream, upstreamUrls, worker, key };
+  return { get, download, upstream, upstreamUrls, worker, key, lane };
 }
 
 const SIZE = MEDIA_WINDOW_MAX_BYTES * 2 + 123;
@@ -521,4 +623,179 @@ test('download routes are matched only with their full contract, and leases neve
   // The element route never serves a download lease inline.
   const element = { method: 'GET', mode: 'no-cors', destination: 'image' };
   assert.equal(worker.match(element, at(`/media/${LEASE_ID}?variant=download&sid=${SID}&enc=e2ee1`)), null);
+});
+
+// ── Direct transport (the page's transport port) ────────────────────────────
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+
+test('over the direct transport every window bypasses the relay and yields the same bytes as the HTTP lane', async () => {
+  const { bytes, assetId } = lease('direct.mp4', SIZE);
+  const http = await setup();
+  const direct = await setup({ direct: true });
+  for (const range of [
+    undefined,
+    'bytes=1500000-1500099',
+    'bytes=1000000-2200000',
+    `bytes=${SIZE - 70_000}-`,
+    'bytes=-50',
+    `bytes=${SIZE + 10}-`,
+    'bytes=abc',
+  ]) {
+    const [a, b] = [await http.get(assetId, { range }), await direct.get(assetId, { range })];
+    assert.equal(b.status, a.status, range);
+    for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+      assert.equal(b.headers.get(name), a.headers.get(name), `${range} ${name}`);
+    }
+    const [left, right] = [Buffer.from(await a.arrayBuffer()), Buffer.from(await b.arrayBuffer())];
+    assert.equal(sha256(right), sha256(left), range);
+  }
+  assert.equal(
+    sha256(Buffer.from(await (await direct.get(assetId)).arrayBuffer())),
+    sha256(bytes),
+    'the whole file, decrypted'
+  );
+  // The worker never asked the relay; it asked the transport for the very
+  // windows the HTTP lane fetched.
+  assert.deepEqual(direct.upstream, []);
+  assert.deepEqual(direct.lane.asked.ranges.slice(0, http.upstream.length), http.upstream);
+  direct.lane.page.close();
+});
+
+test('a download over the direct transport keeps its version, its device and its resume semantics', async () => {
+  const bytes = downloadBytes(DOWNLOAD_SIZE);
+  const source = leaseSource(bytes);
+  const lane = await setup({ downloads: source, direct: true });
+  const url = pageUrl(lane.key, transferOf(bytes.length));
+  const whole = await lane.download(url);
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('etag'), `"${VERSION}"`);
+  assert.equal(sha256(Buffer.from(await whole.arrayBuffer())), sha256(bytes));
+  assert.deepEqual(lane.lane.asked.ranges, [
+    `bytes=0-${DOWNLOAD_WINDOW_MAX_BYTES - 1}`,
+    `bytes=${DOWNLOAD_WINDOW_MAX_BYTES}-${bytes.length - 1}`,
+  ]);
+  const offset = DOWNLOAD_WINDOW_MAX_BYTES - 1000;
+  const resumed = await lane.download(url, { range: `bytes=${offset}-`, ifRange: `"${VERSION}"`, mode: 'cors', destination: '' });
+  assert.equal(resumed.status, 206);
+  assert.deepEqual(Buffer.from(await resumed.arrayBuffer()), bytes.subarray(offset));
+  assert.equal((await lane.download(pageUrl(lane.key, transferOf(bytes.length, { version: 'y'.repeat(43) })))).status, 412);
+  source.state.changed = true;
+  assert.equal((await lane.download(url, { range: 'bytes=70000-' })).status, 412);
+  assert.deepEqual(lane.upstream, []);
+  lane.lane.page.close();
+  // Another device's session gets no such lease on this lane either.
+  const other = await setup({ downloads: leaseSource(bytes), device: 'tablet-credential', direct: true });
+  const refused = await other.download(pageUrl(other.key, transferOf(bytes.length)));
+  assert.equal(refused.status, 404);
+  assert.equal(refused.body, null);
+  assert.deepEqual(other.upstream, []);
+  other.lane.page.close();
+});
+
+test('the preview range probe takes the direct transport through the worker', async () => {
+  const { assetId } = lease('probe.mp4', SIZE);
+  const lane = await setup({ direct: true });
+  const laneUrl = (id, variant) => `${ORIGIN}/media/${id}?variant=${variant}&sid=${SID}&enc=e2ee1&token=t`;
+  // The page's fetch of a same-origin lane URL is the worker's to answer.
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const request = { url, method: 'GET', mode: 'cors', destination: '', headers: new Headers(init?.headers ?? {}) };
+    const route = lane.worker.match(request, new URL(url));
+    assert.ok(route, 'the worker answers the probe');
+    return lane.worker.answer(request, route);
+  };
+  try {
+    const api = createRemotePreviewApi(
+      async () => ({ kind: 'video', mime: 'video/mp4', mtimeMs: 1, size: SIZE, mediaAssetId: assetId }),
+      laneUrl
+    );
+    const preview = await api.previewProjectFile('p', 'clip.mp4');
+    assert.equal(preview.url, laneUrl(assetId, 'original'));
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.deepEqual(lane.lane.asked.ranges, ['bytes=0-0']);
+  assert.deepEqual(lane.upstream, []);
+  lane.lane.page.close();
+});
+
+test('a cancelled element cancels its stream at the host, which stops sending', async () => {
+  const { assetId } = lease('direct-cancel.mp4', SIZE);
+  const lane = await setup({ direct: true });
+  // Head, meta and two segments, then the host waits for credit.
+  lane.lane.credit(4);
+  const response = await lane.get(assetId);
+  const reader = response.body.getReader();
+  await reader.read();
+  await reader.cancel();
+  await settle();
+  assert.equal(lane.lane.asked.cancels, 1);
+  const records = lane.lane.asked.records;
+  lane.lane.credit(Number.POSITIVE_INFINITY);
+  await settle();
+  assert.equal(lane.lane.asked.records, records, 'the cancelled pump sends nothing more');
+  assert.equal(lane.lane.asked.ranges.length, 1);
+  assert.deepEqual(lane.upstream, []);
+  lane.lane.page.close();
+});
+
+test('a direct window with no first frame within the relay head timeout answers 504 and cancels at the host', async () => {
+  const { assetId } = lease('direct-silent.mp4', 300_000);
+  const armed = [];
+  const timers = {
+    setTimeout: (callback, ms) => {
+      const timer = { callback, ms, cleared: false };
+      armed.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => {
+      if (timer) timer.cleared = true;
+    },
+  };
+  const lane = await setup({ direct: true, timers });
+  // A window whose head arrives in time clears its wait.
+  const served = await lane.get(assetId, { range: 'bytes=0-99' });
+  assert.equal(served.status, 206);
+  await served.arrayBuffer();
+  assert.deepEqual(
+    armed.map((timer) => [timer.ms, timer.cleared]),
+    [[30_000, true]]
+  );
+  // The host goes quiet: it may send nothing, not even the head.
+  lane.lane.credit(0);
+  const silent = lane.get(assetId, { range: 'bytes=0-99' });
+  for (let turn = 0; turn < 100 && armed.length < 2; turn += 1) await settle();
+  const wait = armed[1];
+  assert.deepEqual([wait.ms, wait.cleared], [30_000, false]);
+  wait.callback();
+  // The element gets the relay's own answer to a silent desktop.
+  assert.equal((await silent).status, 504);
+  await settle();
+  assert.equal(lane.lane.asked.cancels, 1, 'the host was told to stop');
+  const records = lane.lane.asked.records;
+  lane.lane.credit(Number.POSITIVE_INFINITY);
+  await settle();
+  assert.equal(lane.lane.asked.records, records, 'the cancelled pump sends nothing');
+  assert.deepEqual(lane.upstream, []);
+  lane.lane.page.close();
+});
+
+test('without the transport, or once the page withdrew it, windows take the HTTP lane as before', async () => {
+  const { bytes, assetId } = lease('direct-fallback.mp4', SIZE);
+  const closed = await setup({ direct: true });
+  closed.lane.page.close();
+  const after = await closed.get(assetId, { range: 'bytes=0-99' });
+  assert.equal(after.status, 206);
+  assert.deepEqual(Buffer.from(await after.arrayBuffer()), bytes.subarray(0, 100));
+  assert.deepEqual([closed.upstream.length, closed.lane.asked.ranges.length], [1, 0]);
+  // The withdrawal has not reached the worker yet: the page answers the
+  // worker's request `unavailable`, and the worker fetches it from the relay.
+  const racing = await setup({ direct: true });
+  racing.lane.deafen();
+  racing.lane.page.close();
+  const raced = await racing.get(assetId, { range: 'bytes=0-99' });
+  assert.equal(raced.status, 206);
+  assert.deepEqual(Buffer.from(await raced.arrayBuffer()), bytes.subarray(0, 100));
+  assert.deepEqual([racing.upstream.length, racing.lane.asked.ranges.length], [1, 0]);
 });

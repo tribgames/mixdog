@@ -14,6 +14,11 @@
 // the asset id is the lease's random media id, the lease must belong to the
 // paired device of the requesting session, and every byte is read through the
 // lease's own opened handle, which refuses a file whose version changed.
+//
+// The same window logic (`serveMediaWindow`) also serves the direct transport
+// (main/remote-transport/media.ts): only where the frames go, how the
+// requesting session is known and what pauses the reader differ per lane, so
+// range, version, lease, device and encryption semantics are one code path.
 import type { FileHandle } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -68,20 +73,53 @@ interface MediaPump {
   relayPaused: boolean;
 }
 
-export interface RelayMediaRequest {
-  id: string;
+/** What one request asks for, on either lane. */
+export interface MediaWindowRequest {
   assetId: string;
   variant: string;
   method: string;
   range: string;
-  /** The requesting session's handshake challenge; '' when the relay sent none. */
-  sid: string;
   /** Protocol opt-in (`MEDIA_SCHEME`); '' from an older client or relay. */
   enc: string;
 }
 
-export interface RelayMediaLaneDeps {
+export interface RelayMediaRequest extends MediaWindowRequest {
+  id: string;
+  /** The requesting session's handshake challenge; '' when the relay sent none. */
+  sid: string;
+}
+
+/** Where gallery files and download leases come from. */
+export interface MediaWindowSources {
   host: Pick<DesktopService, 'invokeCapability'>;
+  /** Download leases; without it every `download` request is a 404. */
+  downloads?: FileDownloadMediaSource;
+}
+
+/** The requesting session, as its lane knows it: named by `sid` on the relay
+ *  lane, the stream's own session on the transport. */
+export interface MediaWindowSession {
+  /** Its media key; null when there is no such authenticated session. */
+  mediaKey(): CryptoKey | null;
+  /** Its paired device (as file-downloads.ts names requesters). */
+  device(): string | null;
+}
+
+/** Where one window's answer goes. Every step is awaited in order, so a lane
+ *  that must wait for room before it may queue a frame holds the pump there. */
+export interface MediaWindowOutput {
+  /** The requester went away: the pump stops at its next step, quietly. */
+  readonly aborted: boolean;
+  /** Resolves once the next segment may be produced. The file read waits
+   *  here, so a consumer that stopped draining stops the reads. */
+  ready(): Promise<void>;
+  head(status: number): void | Promise<void>;
+  chunk(frame: Uint8Array): void | Promise<void>;
+  end(): void | Promise<void>;
+  error(): void | Promise<void>;
+}
+
+export interface RelayMediaLaneDeps extends MediaWindowSources {
   sendEnvelope(payload: unknown): void;
   /** Bytes queued on the relay socket; 0 when no socket is attached. */
   socketBacklog(): number;
@@ -90,8 +128,6 @@ export interface RelayMediaLaneDeps {
   /** The paired device (as file-downloads.ts names requesters) of the
    *  authenticated session whose challenge is `sid`. */
   mediaDevice?(sid: string): string | null;
-  /** Download leases; without it every `download` request is a 404. */
-  downloads?: FileDownloadMediaSource;
 }
 
 export interface RelayMediaLane {
@@ -117,7 +153,7 @@ async function openLeasedFile(lease: NonNullable<ReturnType<typeof leasedMediaFi
   return file.handle;
 }
 
-async function gallerySource(deps: RelayMediaLaneDeps, media: RelayMediaRequest): Promise<MediaByteSource | null> {
+async function gallerySource(deps: MediaWindowSources, media: MediaWindowRequest): Promise<MediaByteSource | null> {
   const leased = leasedMediaFile(media.assetId);
   const target = leased ?? (await resolveMediaFileTarget(deps.host, media.assetId, media.variant));
   if (!target) return null;
@@ -150,8 +186,11 @@ async function gallerySource(deps: RelayMediaLaneDeps, media: RelayMediaRequest)
 
 // A lease answers only the device it was minted for; the device comes from
 // the authenticated session the request names, never from the request.
-function downloadSource(deps: RelayMediaLaneDeps, media: RelayMediaRequest): MediaByteSource | null {
-  const deviceId = deps.mediaDevice?.(media.sid);
+function downloadSource(
+  deps: MediaWindowSources,
+  deviceId: string | null,
+  media: MediaWindowRequest
+): MediaByteSource | null {
   const target = deviceId ? deps.downloads?.resolveMedia(media.assetId, FILE_DOWNLOAD_MEDIA_VARIANT, deviceId) : null;
   if (!target) return null;
   return {
@@ -164,107 +203,125 @@ function downloadSource(deps: RelayMediaLaneDeps, media: RelayMediaRequest): Med
   };
 }
 
-export function createRelayMediaLane(deps: RelayMediaLaneDeps): RelayMediaLane {
-  const pumps = new Map<string, MediaPump>();
-  const sendChunk = (id: string, frame: Uint8Array): void =>
-    deps.sendEnvelope({ type: 'media-chunk', id, data: Buffer.from(frame).toString('base64') });
-  const serve = async (media: RelayMediaRequest): Promise<void> => {
-    const { id } = media;
-    const fail = (status: number): void => {
-      deps.sendEnvelope({ type: 'media-head', id, status, headers: {} });
-      deps.sendEnvelope({ type: 'media-end', id });
-    };
-    // Only a client that explicitly speaks the encrypted scheme gets bytes.
-    // Anything else (an older renderer expecting plaintext) is told there is
-    // no such media, which is exactly what it falls back from today.
-    if (media.enc !== MEDIA_SCHEME) {
-      fail(404);
+/** Answers one request on `out`: a status, or a 200 head, the authenticated
+ *  meta frame and the window's segment frames, then the end. Shared by both
+ *  lanes, so a window is the same bytes whichever lane carries it. */
+export async function serveMediaWindow(
+  deps: MediaWindowSources,
+  media: MediaWindowRequest,
+  session: MediaWindowSession,
+  out: MediaWindowOutput
+): Promise<void> {
+  const fail = async (status: number): Promise<void> => {
+    await out.head(status);
+    await out.end();
+  };
+  // Only a client that explicitly speaks the encrypted scheme gets bytes.
+  // Anything else (an older renderer expecting plaintext) is told there is
+  // no such media, which is exactly what it falls back from today.
+  if (media.enc !== MEDIA_SCHEME) return fail(404);
+  const key = session.mediaKey();
+  if (!key) return fail(403);
+  if (media.method !== 'GET') return fail(405);
+  const download = media.variant === FILE_DOWNLOAD_MEDIA_VARIANT;
+  let source: MediaByteSource | null;
+  try {
+    // A download id never falls through to the gallery's own resolution.
+    source = download ? downloadSource(deps, session.device(), media) : await gallerySource(deps, media);
+  } catch {
+    return fail(500);
+  }
+  if (!source) return fail(404);
+  const opened = source;
+  // Exactly `length` bytes, or the file changed under the stream: a short
+  // segment would not match the size the frames are bound to.
+  const readSegment = async (offset: number, length: number): Promise<Uint8Array> => {
+    const bytes = await opened.read(offset, length);
+    if (bytes.byteLength !== length) throw new Error('Media file changed while streaming.');
+    return bytes;
+  };
+  try {
+    const { size } = opened;
+    const range = parseRange(media.range, size) as { start: number; end: number } | { unsatisfiable: true } | null;
+    if (range && 'unsatisfiable' in range) {
+      await fail(416);
       return;
     }
-    const key = media.sid ? deps.mediaKey(media.sid) : null;
-    if (!key) {
-      fail(403);
-      return;
-    }
-    if (media.method !== 'GET') {
-      fail(405);
-      return;
-    }
-    const download = media.variant === FILE_DOWNLOAD_MEDIA_VARIANT;
-    let source: MediaByteSource | null;
-    try {
-      // A download id never falls through to the gallery's own resolution.
-      source = download ? downloadSource(deps, media) : await gallerySource(deps, media);
-    } catch {
-      fail(500);
-      return;
-    }
-    if (!source) {
-      fail(404);
-      return;
-    }
-    const pump: MediaPump = { aborted: false, relayPaused: false };
-    pumps.set(id, pump);
-    // Exactly `length` bytes, or the file changed under the stream: a short
-    // segment would not match the size the frames are bound to.
-    const readSegment = async (offset: number, length: number): Promise<Uint8Array> => {
-      const bytes = await (source as MediaByteSource).read(offset, length);
-      if (bytes.byteLength !== length) throw new Error('Media file changed while streaming.');
-      return bytes;
-    };
-    try {
-      const { size } = source;
-      const range = parseRange(media.range, size) as { start: number; end: number } | { unsatisfiable: true } | null;
-      if (range && 'unsatisfiable' in range) {
-        fail(416);
+    const requested = range ?? { start: 0, end: size - 1 };
+    const start = Math.floor(requested.start / MEDIA_SEGMENT_BYTES) * MEDIA_SEGMENT_BYTES;
+    const windowBytes = download ? DOWNLOAD_WINDOW_MAX_BYTES : MEDIA_WINDOW_MAX_BYTES;
+    const capped = Math.min(requested.end, start + windowBytes - 1);
+    const end = Math.min(size - 1, (Math.floor(capped / MEDIA_SEGMENT_BYTES) + 1) * MEDIA_SEGMENT_BYTES - 1);
+    const asset: MediaAssetRef = { assetId: media.assetId, variant: media.variant };
+    // The first segment is read before the head: a lease that ended or a
+    // file that changed is then a status the phone can act on (404/412),
+    // not a body that breaks off.
+    let first: Uint8Array | null = null;
+    if (start <= end) {
+      try {
+        first = await readSegment(start, Math.min(MEDIA_SEGMENT_BYTES, end - start + 1));
+      } catch (error) {
+        if (!out.aborted) await fail(readFailureStatus(error));
         return;
       }
-      const requested = range ?? { start: 0, end: size - 1 };
-      const start = Math.floor(requested.start / MEDIA_SEGMENT_BYTES) * MEDIA_SEGMENT_BYTES;
-      const windowBytes = download ? DOWNLOAD_WINDOW_MAX_BYTES : MEDIA_WINDOW_MAX_BYTES;
-      const capped = Math.min(requested.end, start + windowBytes - 1);
-      const end = Math.min(size - 1, (Math.floor(capped / MEDIA_SEGMENT_BYTES) + 1) * MEDIA_SEGMENT_BYTES - 1);
-      const asset: MediaAssetRef = { assetId: media.assetId, variant: media.variant };
-      // The first segment is read before the head: a lease that ended or a
-      // file that changed is then a status the phone can act on (404/412),
-      // not a body that breaks off.
-      let first: Uint8Array | null = null;
-      if (start <= end) {
-        try {
-          first = await readSegment(start, Math.min(MEDIA_SEGMENT_BYTES, end - start + 1));
-        } catch (error) {
-          if (!pump.aborted) fail(readFailureStatus(error));
-          return;
-        }
-      }
-      if (pump.aborted) return;
-      deps.sendEnvelope({
-        type: 'media-head',
-        id,
-        status: 200,
-        // The relay sees these anyway; the authenticated facts are in the meta frame.
-        headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' },
-      });
-      const meta = { size, mime: source.mime, start, end, ...(source.version ? { version: source.version } : {}) };
-      sendChunk(id, await encryptMediaMeta(key, asset, meta));
-      for (let offset = start; offset <= end; offset += MEDIA_SEGMENT_BYTES) {
+    }
+    if (out.aborted) return;
+    await out.head(200);
+    const meta = { size, mime: opened.mime, start, end, ...(opened.version ? { version: opened.version } : {}) };
+    await out.chunk(await encryptMediaMeta(key, asset, meta));
+    for (let offset = start; offset <= end; offset += MEDIA_SEGMENT_BYTES) {
+      await out.ready();
+      if (out.aborted) return;
+      const bytes = first ?? (await readSegment(offset, Math.min(MEDIA_SEGMENT_BYTES, end - offset + 1)));
+      first = null;
+      if (out.aborted) return;
+      const frame = await encryptMediaSegment(key, asset, offset, size, bytes);
+      if (out.aborted) return;
+      await out.chunk(frame);
+    }
+    await out.end();
+  } catch {
+    if (!out.aborted) await out.error();
+  } finally {
+    await opened.close();
+  }
+}
+
+export function createRelayMediaLane(deps: RelayMediaLaneDeps): RelayMediaLane {
+  const pumps = new Map<string, MediaPump>();
+  const serve = async (media: RelayMediaRequest): Promise<void> => {
+    const { id } = media;
+    const pump: MediaPump = { aborted: false, relayPaused: false };
+    pumps.set(id, pump);
+    const out: MediaWindowOutput = {
+      get aborted() {
+        return pump.aborted;
+      },
+      ready: async () => {
         while (!pump.aborted && (pump.relayPaused || deps.socketBacklog() > MEDIA_SOCKET_BACKLOG_BYTES)) {
           await sleep(MEDIA_POLL_MS);
         }
-        if (pump.aborted) return;
-        const bytes = first ?? (await readSegment(offset, Math.min(MEDIA_SEGMENT_BYTES, end - offset + 1)));
-        first = null;
-        if (pump.aborted) return;
-        const frame = await encryptMediaSegment(key, asset, offset, size, bytes);
-        if (pump.aborted) return;
-        sendChunk(id, frame);
-      }
-      deps.sendEnvelope({ type: 'media-end', id });
-    } catch {
-      if (!pump.aborted) deps.sendEnvelope({ type: 'media-error', id });
+      },
+      head: (status) =>
+        deps.sendEnvelope({
+          type: 'media-head',
+          id,
+          status,
+          // The relay sees these anyway; the authenticated facts are in the meta frame.
+          headers: status === 200 ? { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' } : {},
+        }),
+      chunk: (frame) => deps.sendEnvelope({ type: 'media-chunk', id, data: Buffer.from(frame).toString('base64') }),
+      end: () => deps.sendEnvelope({ type: 'media-end', id }),
+      error: () => deps.sendEnvelope({ type: 'media-error', id }),
+    };
+    const session: MediaWindowSession = {
+      mediaKey: () => (media.sid ? deps.mediaKey(media.sid) : null),
+      device: () => deps.mediaDevice?.(media.sid) ?? null,
+    };
+    try {
+      await serveMediaWindow(deps, media, session, out);
     } finally {
       if (pumps.get(id) === pump) pumps.delete(id);
-      await source.close();
     }
   };
   const abort = (id: string): void => {

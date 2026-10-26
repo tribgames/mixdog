@@ -18,6 +18,16 @@
 // navigation this worker did not take cannot hand ciphertext to the
 // browser's downloader.
 //
+// Direct transport (docs/remote-transport.md §3 "Media adapter"): while a
+// window's session runs the transport, the page hands this worker a
+// MessagePort for that session (`mixdog:media-transport`, built by
+// remote-file-preview.ts createRemoteTransportMediaClient). A window is then
+// asked for over that port instead of the relay's HTTP route: the same
+// request, answered with the same head status and the same encrypted frames,
+// so everything below the fetch is unchanged. Without a port (an older host
+// or page, a legacy session, a restarted worker) or when the page says its
+// transport is gone, the window takes the HTTP route exactly as before.
+//
 // Loaded by sw.js through importScripts('/sw-media.js'); everything is behind
 // the one global below so it cannot collide with sibling scripts.
 // biome-ignore lint/correctness/noUnusedVariables: read by sw.js and sw-media.slow.test.mjs as a worker global.
@@ -43,6 +53,11 @@ const mixdogMediaLane = (() => {
   const KEY_MESSAGE = 'mixdog:media-key';
   const KEY_REVOKE_MESSAGE = 'mixdog:media-key-revoke';
   const KEY_REQUEST_MESSAGE = 'mixdog:media-key-request';
+  const TRANSPORT_MESSAGE = 'mixdog:media-transport';
+  // The relay's wait for a window's first frame before it answers 504
+  // (apps/relay/lib/relay-media-proxy.mjs MEDIA_HEAD_TIMEOUT_MS); the direct
+  // lane gives up at the same point, with the same status.
+  const MEDIA_HEAD_TIMEOUT_MS = 30_000;
   // Documents the relay origin would execute; as image/video/audio bytes they
   // are data, but nothing else may be handed out under these types.
   const ACTIVE_TYPE =
@@ -51,6 +66,8 @@ const mixdogMediaLane = (() => {
   const encoder = new TextEncoder();
   const keys = new Map();
   const waiters = new Map();
+  // sid -> the page's MessagePort into that session's transport.
+  const transports = new Map();
 
   /** `{ assetId, variant, sid }` for a request this lane answers, else null.
    *  A download route also carries `download: { size, version, name, token }`. */
@@ -85,10 +102,25 @@ const mixdogMediaLane = (() => {
     };
   }
 
+  function dropTransport(sid) {
+    transports.get(sid)?.close();
+    transports.delete(sid);
+  }
+
   function acceptKey(data) {
     if (!data || typeof data !== 'object') return;
     if (data.type === KEY_REVOKE_MESSAGE && SESSION_ID.test(String(data.sid))) {
       keys.delete(data.sid);
+      dropTransport(data.sid);
+      return;
+    }
+    // The page's transport for a session came up (a port) or went away (none).
+    if (data.type === TRANSPORT_MESSAGE && SESSION_ID.test(String(data.sid))) {
+      dropTransport(data.sid);
+      if (data.port && typeof data.port.postMessage === 'function') {
+        transports.set(data.sid, data.port);
+        while (transports.size > MAX_KEYS) dropTransport(transports.keys().next().value);
+      }
       return;
     }
     if (data.type !== KEY_MESSAGE || !SESSION_ID.test(String(data.sid))) return;
@@ -186,6 +218,87 @@ const mixdogMediaLane = (() => {
   }
 
   /**
+   * One window asked for over the page's transport `port`: resolves a
+   * response like the relay's (the head's status; on 200 a body of the
+   * encrypted frames), or null when the page has no transport for it any
+   * more, so the HTTP route serves it. Cancelling the body or aborting the
+   * window cancels the stream at the host.
+   */
+  function directWindow(port, lane, range) {
+    return new Promise((resolve, reject) => {
+      const reply = new MessageChannel();
+      let body = null;
+      let open = true;
+      // No first frame in time: cancel at the host, answer as the relay does.
+      const headTimer = setTimeout(() => {
+        stop(true);
+        resolve(new Response(null, { status: 504 }));
+      }, MEDIA_HEAD_TIMEOUT_MS);
+      const stop = (cancel) => {
+        if (!open) return;
+        open = false;
+        clearTimeout(headTimer);
+        lane.signal.removeEventListener('abort', onAbort);
+        if (cancel) reply.port1.postMessage({ op: 'cancel' });
+        reply.port1.close();
+      };
+      const onAbort = () => {
+        stop(true);
+        const error = new Error('Media window aborted.');
+        if (body) body.error(error);
+        else reject(error);
+      };
+      lane.signal.addEventListener('abort', onAbort);
+      reply.port1.onmessage = ({ data }) => {
+        if (!open || !data || typeof data !== 'object') return;
+        clearTimeout(headTimer);
+        if (body) {
+          if (data.op === 'chunk' && ArrayBuffer.isView(data.frame)) {
+            body.enqueue(new Uint8Array(data.frame.buffer, data.frame.byteOffset, data.frame.byteLength));
+          } else if (data.op === 'end') {
+            stop(false);
+            body.close();
+          } else {
+            stop(data.op !== 'error');
+            body.error(new Error('Media window failed.'));
+          }
+          return;
+        }
+        if (data.op === 'unavailable') {
+          stop(false);
+          resolve(null);
+        } else if (data.op === 'head' && data.status === 200) {
+          resolve(
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  body = controller;
+                },
+                cancel() {
+                  stop(true);
+                },
+              }),
+              { status: 200 }
+            )
+          );
+        } else if (data.op === 'head' && Number.isInteger(data.status) && data.status > 200 && data.status < 600) {
+          stop(false);
+          resolve(new Response(null, { status: data.status }));
+        } else {
+          // `error` before any head is the host refusing one more stream, as
+          // the relay answers 503; anything else is not the protocol.
+          stop(data.op !== 'error');
+          resolve(new Response(null, { status: data.op === 'error' ? 503 : 502 }));
+        }
+      };
+      port.postMessage(
+        { op: 'request', assetId: lane.asset.assetId, variant: lane.asset.variant, range, enc: SCHEME, port: reply.port2 },
+        [reply.port2]
+      );
+    });
+  }
+
+  /**
    * One encrypted window starting at the segment containing `start`, no
    * further than `last` (inclusive, plaintext). Resolves `{ status }` when the
    * host or relay refused (412 when the window is not of the expected file),
@@ -196,13 +309,16 @@ const mixdogMediaLane = (() => {
     const aligned = Math.floor(start / SEGMENT_BYTES) * SEGMENT_BYTES;
     const wanted = Math.min(last, aligned + lane.window - 1);
     // An empty file has no byte to ask for: its whole-file answer is the meta.
-    const headers = wanted >= aligned ? { Range: `bytes=${aligned}-${wanted}` } : {};
-    const response = await fetch(lane.upstream, {
-      headers,
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal: lane.signal,
-    });
+    const range = wanted >= aligned ? `bytes=${aligned}-${wanted}` : '';
+    const port = transports.get(lane.sid);
+    const response =
+      (port && (await directWindow(port, lane, range))) ||
+      (await fetch(lane.upstream, {
+        headers: range ? { Range: range } : {},
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal: lane.signal,
+      }));
     if (!response.ok || !response.body) return { status: response.status || 502 };
     const reader = response.body.getReader();
     const split = frameReader();
@@ -359,6 +475,7 @@ const mixdogMediaLane = (() => {
     if (token) query.set('token', token);
     const lane = {
       upstream: `${new URL(request.url).origin}/media/${route.assetId}?${query.toString()}`,
+      sid: route.sid,
       key,
       asset: { assetId: route.assetId, variant: DOWNLOAD_VARIANT },
       signal: controller.signal,
@@ -414,6 +531,7 @@ const mixdogMediaLane = (() => {
     const controller = new AbortController();
     const lane = {
       upstream: request.url,
+      sid: route.sid,
       key,
       asset: { assetId: route.assetId, variant: route.variant },
       signal: controller.signal,
@@ -467,5 +585,6 @@ const mixdogMediaLane = (() => {
     KEY_MESSAGE,
     KEY_REVOKE_MESSAGE,
     KEY_REQUEST_MESSAGE,
+    TRANSPORT_MESSAGE,
   };
 })();
