@@ -111,7 +111,26 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     clearWakePongTimer();
     clearReconnectTimer();
     setRemoteConnectionState('connecting');
-    ctx.retireConnection?.(1000, 'background');
+    const retire = ctx.retireConnection;
+    const transport = ctx.transport;
+    if (!transport) {
+      retire?.(1000, 'background');
+      return;
+    }
+    // The background report leaves first: suspension waits until it was
+    // handed to a carrier. One that could not be right away (no window room,
+    // an upload ahead of it) does not hold suspension up: `close{suspended}`
+    // itself tells the PC this leg is in the background.
+    const media = ctx.transportMedia;
+    void backgroundReport
+      .then(() => {
+        // Media windows not yet answered fall back to the HTTP lane now.
+        media?.close();
+        if (ctx.transportMedia === media) ctx.transportMedia = null;
+        // close{suspended}, then the peer closes, then the relay socket.
+        return transport.suspend();
+      })
+      .finally(() => retire?.(1000, 'background'));
   };
   // A quick app switch must not cost the relay leg: going hidden only arms
   // this grace, and the suspend above runs only if the page is still hidden
@@ -124,10 +143,17 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
   // Every report names this browser: the relay gives each leg a fresh id, and
   // only the browser id ties the leg to this browser's push subscription.
   let reportedBackground = false;
+  /** Settles once this hide's `setForeground(false)` was handed to a carrier,
+   *  or at once when it could not be right away. */
+  let backgroundReport: Promise<boolean> = Promise.resolve(false);
   const reportForeground = (foreground: boolean): void => {
     if (reportedBackground === !foreground) return;
     reportedBackground = !foreground;
     if (ctx.socket?.readyState !== WebSocket.OPEN) return;
+    if (!foreground && ctx.transport) {
+      backgroundReport = ctx.fireHanded('setForeground', [false, ctx.browserId]);
+      return;
+    }
     ctx.fire('setForeground', [foreground, ctx.browserId]);
   };
   // A new leg is unknown to the desktop until it reports, so each connection
@@ -147,6 +173,8 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     // A phone suspends a backgrounded page and may kill its socket without a
     // close it can deliver before the page is back. Until a wake probe proves
     // it, this leg dying is the cost of the background, not an outage.
+    // The transport stops its timers: it re-proves everything on wake.
+    ctx.transport?.hidden();
     if (ctx.socket?.readyState === WebSocket.OPEN) ctx.unprovenSocket = ctx.socket;
     if (!backgroundSuspendApplies()) return;
     reportForeground(false);
@@ -211,6 +239,9 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
     } catch {
       /* surfaces as close */
     }
+    // The transport pings at once too (direct control channel and relay);
+    // an open direct channel is unproven until that ping is answered.
+    ctx.transport?.wake();
     // Foreground recovery should not inherit the normal 10s background
     // heartbeat budget. If this exact probe gets no response, recycle the
     // half-open socket promptly; its close redials silently (unprovenSocket).

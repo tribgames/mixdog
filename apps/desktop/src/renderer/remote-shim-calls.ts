@@ -1,6 +1,8 @@
 // Calls over the socket: RPC framing, the view-sync gate, catalog reads and
 // the push lanes this browser registers.
-import { RELAY_PAYLOAD_TOO_LARGE_CODE } from '../shared/remote-payload-limit';
+import { RELAY_PAYLOAD_TOO_LARGE_CODE, relayFrameCallId, relayFrameRefusal } from '../shared/remote-payload-limit';
+import { REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES } from '../shared/remote-transport';
+import { relayPayloadTooLargeError, showRemoteToast } from './remote-shim-payload-limit';
 import type { createRemoteCatalog } from '../shared/remote-catalog';
 import { REMOTE_CLIENT_CALL_WINDOW, REMOTE_CLIENT_PRIORITY_RESERVE } from '../shared/remote-frame-budget';
 import { armRemoteCallDeadline } from './remote-call-deadline';
@@ -87,6 +89,20 @@ export function prefetchBootReads(ctx: RemoteShimContext, reads: ReadonlyArray<r
   setTimeout(() => bootReads.clear(), BOOT_READ_WINDOW_MS);
 }
 
+const utf8 = new TextEncoder();
+
+/** A transport message over REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES
+ *  fails exactly as an oversize relay frame does today. */
+function refuseTransportOversize(payload: Record<string, unknown>): void {
+  const text = JSON.stringify(payload);
+  const bytes = text.length * 3 <= REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES ? 0 : utf8.encode(text).byteLength;
+  const refusal = relayFrameRefusal(bytes, REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES, relayFrameCallId(payload));
+  if (!refusal) return;
+  const failure = relayPayloadTooLargeError(refusal);
+  if (refusal.callId === null) showRemoteToast(failure.message);
+  throw failure;
+}
+
 export const installRemoteCalls = (ctx: RemoteShimContext): void => {
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
@@ -118,6 +134,13 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
     const { refuseOversize, noteSentFrame } = ctx.limits;
     if (ctx.e2eePairing) {
       if (!ctx.secureChannel || !ctx.connectionReady) throw new Error('Relay encryption is not ready.');
+      if (ctx.transport) {
+        // Refused BEFORE sealing, at the relay's own 64 MiB frame ceiling, so
+        // no sequence is consumed; the stream itself splits → admits → seals.
+        refuseTransportOversize(payload);
+        await ctx.transport.send(payload);
+        return;
+      }
       const frame = ctx.relayBinaryFrames
         ? await ctx.secureChannel.encryptBinary(payload)
         : await ctx.secureChannel.encryptJson(payload);
@@ -328,8 +351,22 @@ export const installRemoteCalls = (ctx: RemoteShimContext): void => {
       .catch(() => {});
   };
 
+  /** `fire`, reporting the hand-off: on a transport session it settles true
+   *  once the frame was sealed and handed to a carrier, false at once when
+   *  that cannot happen right away (it still goes). Elsewhere it is `fire`,
+   *  settling false. */
+  const fireHanded = (method: string, params: unknown[]): Promise<boolean> => {
+    const transport = ctx.transport;
+    if (!transport || !ctx.connectionReady) {
+      fire(method, params);
+      return Promise.resolve(false);
+    }
+    return transport.sendPromptly({ method, params }).catch(() => false);
+  };
+
   Object.assign(ctx, {
     publishLanes,
+    fireHanded,
     laneSubscription,
     invoke,
     call,

@@ -40,8 +40,14 @@ import {
   remotePairingKeys,
   type RemotePairingKeys,
 } from './remote-pairing-recovery';
-import { createRemotePageCache, type RemotePageCache } from './remote-file-preview';
+import {
+  createRemotePageCache,
+  createRemoteTransportMediaClient,
+  type RemotePageCache,
+  type RemoteTransportMediaClient,
+} from './remote-file-preview';
 import { createRemoteSessionInbox } from './remote-session-inbox';
+import { REMOTE_TRANSPORT_PHONE_OPT_IN, type RemoteTransportPeer } from './remote-transport-peer';
 import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './remote-shim-payload-limit';
 import type { createRemotePairingScreen } from './remote-pairing-screen';
 import type { createRemoteViewSync } from './remote-view-sync';
@@ -106,6 +112,16 @@ export interface RemoteShimState {
   retryMs: number;
   nextId: number;
   secureChannel: RelayE2EEChannel | null;
+  /** Opt into the direct transport on the hello: REMOTE_TRANSPORT_PHONE_OPT_IN
+   *  (renderer/remote-transport-peer.ts), the one rollout switch. */
+  transportOptIn: boolean;
+  /** The current session's transport stream, when the handshake negotiated
+   *  one; null on a legacy session. */
+  transport: RemoteTransportPeer | null;
+  /** The transport session's media adapter client (1D), beside `transport`. */
+  transportMedia: RemoteTransportMediaClient | null;
+  /** Builds it per transport session; tests substitute a fake. */
+  createTransportMedia: typeof createRemoteTransportMediaClient;
   connectionReady: boolean;
   peerViewSync: boolean;
   /** The current host advertised `remoteParity` in its challenge: it serves
@@ -299,6 +315,9 @@ export interface RemoteShimServices {
     method: 'listSessions' | 'listAgentPool'
   ) => Promise<T[]>;
   fire: (method: string, params: unknown[]) => void;
+  /** `fire` that settles true once a transport session handed the frame to
+   *  a carrier, false at once when it cannot right away (or off transport). */
+  fireHanded: (method: string, params: unknown[]) => Promise<boolean>;
   /** The PC answered call `id` (or named it in a refusal): its transport
    *  credit returns, whether or not the caller is still waiting. */
   settleCallCredit: (id: number) => void;
@@ -424,6 +443,10 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     retryMs: 0,
     nextId: 1,
     secureChannel: null,
+    transportOptIn: REMOTE_TRANSPORT_PHONE_OPT_IN,
+    transport: null,
+    transportMedia: null,
+    createTransportMedia: createRemoteTransportMediaClient,
     connectionReady: false,
     peerViewSync: false,
     peerRemoteParity: false,

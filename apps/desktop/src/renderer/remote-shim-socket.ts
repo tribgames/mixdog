@@ -19,6 +19,7 @@ import { REMOTE_CONNECTION_READY_EVENT, REMOTE_SECURE_CHANNEL_READY_EVENT } from
 import type { RemoteShimContext } from './remote-shim-state';
 import { publishMediaKey, revokeMediaKey } from './remote-media-lane';
 import { notifyMediaSessionChanged } from './remote-file-preview';
+import { createRemoteTransportPeer, type RemoteTransportPeer } from './remote-transport-peer';
 
 /** Challenges a joining socket may answer again after its first one, before
  *  it is ready: each is one PC leg replaced mid-handshake. */
@@ -230,11 +231,29 @@ const openSocketAttempt = (
    *  dispatch must never drift apart between the two. */
   const deliverSecureFrame = async (payload: unknown): Promise<void> => {
     if (!ctx.secureChannel) throw new Error('Relay encryption handshake was not established.');
-    const decrypted = await ctx.secureChannel.decryptJson(payload);
+    // A transport session's records arrive only through its stream.
+    if (ctx.transport) throw new Error('Relay sent a legacy frame on a transport session.');
+    deliverMessage(await ctx.secureChannel.decryptJson(payload));
+  };
+  /** One authenticated application message, from the legacy channel or the
+   *  transport stream. */
+  const deliverMessage = (decrypted: unknown): void => {
     if (closed) return;
-    if (!decrypted || typeof decrypted !== 'object') return;
+    if (!decrypted || typeof decrypted !== 'object') {
+      // A transport session's first message must be its e2ee-ready.
+      if (ctx.transport && !ctx.connectionReady) throw new Error('Relay sent data before encryption was ready.');
+      return;
+    }
     const message = decrypted as Record<string, unknown>;
     if (message.type === 'e2ee-ready' && message.version === 1) {
+      // The host's authenticated word on the handshake comes first: a
+      // missing, stripped or altered transcript throws here, before the
+      // session is opened or anything is sent on it, and the attempt ends.
+      ctx.secureChannel?.confirmHandshake(message);
+      ctx.transport?.confirm();
+      // Only now may the worker route media over this session, under the
+      // sid its media key was published with.
+      if (ctx.mediaSid) ctx.transportMedia?.attach(ctx.mediaSid);
       // The caps the desktop learned from the relay handshake; this leg
       // never sees `relay-capabilities` itself.
       ctx.limits.learnRoutingCaps(message);
@@ -249,6 +268,8 @@ const openSocketAttempt = (
       return;
     }
     if (!ctx.connectionReady) throw new Error('Relay sent data before encryption was ready.');
+    // Media adapter messages are the media client's.
+    if (ctx.transportMedia?.receive(message)) return;
     // Decrypted on this leg's own channel: authenticated.
     ctx.handleMessage(message, true);
   };
@@ -291,7 +312,8 @@ const openSocketAttempt = (
     ctx.lastTrafficAt = Date.now();
     void (async () => {
       if (event.data instanceof ArrayBuffer) {
-        await deliverSecureFrame(event.data);
+        if (ctx.transport) ctx.transport.receiveRelay(event.data);
+        else await deliverSecureFrame(event.data);
         return;
       }
       let parsed: unknown;
@@ -345,6 +367,11 @@ const openSocketAttempt = (
         handshakeStarted = true;
         const generation = ++handshakeGeneration;
         ctx.secureChannel = null;
+        // A new handshake is a new session: the old stream ends with it.
+        ctx.transportMedia?.close();
+        ctx.transportMedia = null;
+        ctx.transport?.close();
+        ctx.transport = null;
         ctx.relayBinaryFrames = clear.binaryFrames === 1;
         // Restated by every challenge: a reconnect may reach another host.
         ctx.peerRemoteParity = clear.remoteParity === 1;
@@ -370,10 +397,41 @@ const openSocketAttempt = (
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         setRemoteConnectionPhase('encryption');
         handshakeTimer = window.setTimeout(expireHandshake, 10_000);
-        const handshake = await createRelayE2EEClientHandshake(ctx.e2eePairing, clear);
+        // The extra members go in through `helloFields`, so the transcript
+        // covers the hello exactly as sent. promptHistoryPatch: this build's
+        // snapshot decoder applies head patches to the prompt history; a
+        // desktop that predates it ignores the flag and keeps sending the
+        // whole field. Without the opt-in the hello is the legacy one.
+        const handshake = await createRelayE2EEClientHandshake(ctx.e2eePairing, clear, {
+          ...(ctx.transportOptIn ? { transportWebrtc: true } : {}),
+          helloFields: { viewSync: 1, promptHistoryPatch: 2 },
+        });
         // A newer challenge arrived while this one was being answered.
         if (closed || generation !== handshakeGeneration) return;
         ctx.secureChannel = handshake.channel;
+        if (handshake.channel.transportEnabled) {
+          const peer: RemoteTransportPeer = createRemoteTransportPeer({
+            channel: handshake.channel,
+            sessionId: clear.challenge,
+            relay: { send: (data) => ws.send(data), bufferedAmount: () => ws.bufferedAmount },
+            deliver: deliverMessage,
+            fatal: (error) => {
+              if (closed || ctx.transport !== peer) return;
+              reportFailure('frame-failed', error);
+              retire();
+            },
+            createPeer: (configuration) => new RTCPeerConnection(configuration),
+            visible: () => document.visibilityState !== 'hidden',
+            timers: {
+              setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+              clearTimeout: (handle) => window.clearTimeout(handle as number),
+            },
+            log: (line) => console.info(line),
+          });
+          ctx.transport = peer;
+          // Its requests take the same send path as every other message.
+          ctx.transportMedia = ctx.createTransportMedia({ send: (message) => peer.send(message).then(() => undefined) });
+        }
         // The worker decrypts media with this session's key; it never leaves
         // this browser. Only a host that advertised the lane derived one.
         if (ctx.peerMediaE2ee && handshake.channel.mediaKey) {
@@ -384,10 +442,7 @@ const openSocketAttempt = (
           });
           notifyMediaSessionChanged();
         }
-        // promptHistoryPatch: this build's snapshot decoder applies head
-        // patches to the prompt history; a desktop that predates it
-        // ignores the flag and keeps sending the whole field.
-        ws.send(JSON.stringify({ ...handshake.hello, viewSync: 1, promptHistoryPatch: 2 }));
+        ws.send(JSON.stringify(handshake.hello));
         return;
       }
       await deliverSecureFrame(clear);
@@ -412,6 +467,10 @@ const openSocketAttempt = (
     ctx.openPromise = null;
     ctx.connectionReady = false;
     ctx.secureChannel = null;
+    ctx.transportMedia?.close();
+    ctx.transportMedia = null;
+    ctx.transport?.close();
+    ctx.transport = null;
     dropMediaSession(ctx);
     // Until a host's challenge says otherwise there is no host: its live-view
     // capabilities must not be read across the gap to the next connection.

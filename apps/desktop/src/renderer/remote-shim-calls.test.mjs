@@ -275,6 +275,38 @@ test('a call met by silence probes the leg early; any arriving frame proves it',
   await Promise.all([silent, heard]);
 });
 
+test('a transport session sends through its stream; an oversize message is refused before sealing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { ctx, sent } = harness();
+  const streamed = [];
+  ctx.transport = { send: async (payload) => streamed.push(payload) };
+  const call = ctx.invoke('readSettings', []);
+  await flush();
+  assert.deepEqual(streamed, [{ id: 1, method: 'readSettings', params: [] }]);
+  assert.deepEqual(sent, [], 'nothing went around the stream');
+  ctx.pending.get(1).resolve('ok');
+  assert.equal(await call, 'ok');
+
+  const huge = await ctx.invoke('sendPrompt', ['x'.repeat(64 * 1024 * 1024)]).catch((error) => error);
+  assert.equal(huge.code, 'RELAY_PAYLOAD_TOO_LARGE');
+  assert.equal(streamed.length, 1, 'never handed to the stream');
+});
+
+test('fireHanded reports the transport hand-off, and is plain fire elsewhere', async () => {
+  const { ctx, sent, release } = harness();
+  release();
+  const prompt = [];
+  ctx.transport = { sendPromptly: async (payload) => (prompt.push(payload), true) };
+  assert.equal(await ctx.fireHanded('setForeground', [false, 'b']), true);
+  assert.deepEqual(prompt, [{ method: 'setForeground', params: [false, 'b'] }]);
+  ctx.transport = { sendPromptly: async () => Promise.reject(new Error('session ended')) };
+  assert.equal(await ctx.fireHanded('setForeground', [false, 'b']), false, 'a failure never holds suspension');
+  ctx.transport = null;
+  assert.equal(await ctx.fireHanded('setForeground', [false, 'b']), false);
+  await flush();
+  assert.deepEqual(sent, ['box'], 'off transport it is the legacy fire');
+});
+
 test('a request on the wire still fails on its own deadline and probes the connection', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { ctx, sent, probes, release } = harness();

@@ -252,6 +252,116 @@ test('a wake after a long offline backoff redials at once and restarts the backo
   }
 });
 
+test('the transport stops its timers when hidden, and pings on every wake event', async () => {
+  let visibility = 'visible';
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+  const order = [];
+  const ws = { readyState: WebSocket.OPEN, send: () => order.push('relay-ping') };
+  const ctx = {
+    socket: ws,
+    openingSocket: null,
+    openingStartedAt: 0,
+    retryMs: 0,
+    backgroundSuspended: false,
+    resyncOnWake: false,
+    token: 't',
+    e2eePairing: {},
+    connect: async () => ws,
+    fire: () => {},
+    retireConnection: () => order.push('retire'),
+    fireHanded: async () => false,
+    transport: {
+      hidden: () => order.push('hidden'),
+      wake: () => order.push('wake'),
+      suspend: async () => order.push('suspend'),
+    },
+  };
+  try {
+    installRemoteLiveness(ctx);
+    visibility = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    assert.ok(order.includes('hidden'));
+    visibility = 'visible';
+    for (const [target, type] of [[document, 'visibilitychange'], [window, 'pageshow'], [document, 'resume'], [window, 'online']]) {
+      order.length = 0;
+      target.dispatchEvent(new Event(type));
+      assert.ok(order.includes('wake'), `${type} pings the transport`);
+    }
+  } finally {
+    delete document.visibilityState;
+  }
+});
+
+for (const blocked of [false, true]) test(
+  blocked
+    ? 'suspension: a background report that cannot be handed off right away does not hold suspension up'
+    : 'suspension: the background report is handed off before media closes and close{suspended} goes',
+  async () => {
+  let handOff = () => {};
+  const handedOff = new Promise((resolve) => {
+    handOff = () => resolve(true);
+  });
+  let visibility = 'visible';
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+  // An installed surface (the direct-browser mark), where suspension applies.
+  const hadStorage = 'localStorage' in globalThis;
+  globalThis.localStorage ??= window.localStorage;
+  localStorage.setItem('mixdog.directBrowser', '1');
+  const realSetTimeout = window.setTimeout;
+  const graces = [];
+  const order = [];
+  const ws = { readyState: WebSocket.OPEN, send() {} };
+  const ctx = {
+    socket: ws,
+    openingSocket: null,
+    openingStartedAt: 0,
+    retryMs: 0,
+    backgroundSuspended: false,
+    resyncOnWake: false,
+    token: 't',
+    e2eePairing: {},
+    backgroundGraceTimer: null,
+    reconnectTimer: null,
+    connect: async () => ws,
+    fire: (method, params) => order.push(`${method}:${params[0]}`),
+    // The transport's answer: handed (later) or not right away (at once).
+    fireHanded: (method, params) => {
+      order.push(`${method}:${params[0]}`);
+      return blocked ? Promise.resolve(false) : handedOff.then(() => order.push('handed')).then(() => true);
+    },
+    retireConnection: () => order.push('retire'),
+    transportMedia: { close: () => order.push('media-close') },
+    transport: { hidden() {}, wake() {}, suspend: async () => order.push('suspend') },
+  };
+  try {
+    installRemoteLiveness(ctx);
+    window.setTimeout = (fn, ms) => {
+      if (ms === 30_000) graces.push(fn);
+      return 0;
+    };
+    visibility = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    // Contexts of earlier tests still listen on this window: ours is the last.
+    assert.ok(graces.length >= 1);
+    graces.at(-1)();
+    await new Promise((resolve) => setImmediate(resolve));
+    if (blocked) {
+      assert.deepEqual(order, ['setForeground:false', 'media-close', 'suspend', 'retire']);
+    } else {
+      assert.deepEqual(order, ['setForeground:false'], 'nothing closes before the report is handed off');
+      handOff();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(order, ['setForeground:false', 'handed', 'media-close', 'suspend', 'retire']);
+    }
+    assert.equal(ctx.transportMedia, null);
+  } finally {
+    window.setTimeout = realSetTimeout;
+    localStorage.removeItem('mixdog.directBrowser');
+    if (!hadStorage) delete globalThis.localStorage;
+    delete document.visibilityState;
+  }
+});
+
 test('a wake without a freeze dials immediately', () => {
   let connects = 0;
   const ctx = {
