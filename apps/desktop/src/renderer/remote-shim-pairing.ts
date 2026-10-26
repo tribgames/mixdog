@@ -14,7 +14,8 @@ import {
   type DurablePairing,
 } from './remote-pairing-durable';
 import { createRemotePairingScreen } from './remote-pairing-screen';
-import { clearControllerKey } from './remote-screen-controller-key';
+import { clearControllerKey, ensureControllerKey } from './remote-screen-controller-key';
+import { REMOTE_CONTROLLER_KEY_METHOD } from '../shared/remote-controller-key';
 import { clearRemoteConnectionState, setRemoteConnectionPhase } from './remote-connection-state';
 import {
   DEVICE_STORAGE_KEY,
@@ -292,6 +293,14 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
     return true;
   };
 
+  /** This pairing's controller key (made now on first use), its public half
+   *  handed to the PC over the E2EE RPC channel of the approved connection.
+   *  The PC binds it to the credential that connection authenticated with. */
+  const deliverControllerKey = async (): Promise<void> => {
+    const key = await ensureControllerKey(ctx.pairingKeys.token);
+    await ctx.invoke<boolean>(REMOTE_CONTROLLER_KEY_METHOD, [key.publicKey]);
+  };
+
   /** Dial with the fresh credential and answer once THIS connection is secure.
    *  A connection problem is never a failure here: an attempt that is not
    *  secure within APPROVED_CONNECTION_ATTEMPT_MS is dropped and the reconnect
@@ -311,6 +320,10 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
         if (ctx.retireConnection) ctx.retireConnection();
         else if (ctx.reconnectTimer === null) void ctx.connect().catch(() => {});
       }
+      // The PC learns this pairing's secure-desktop controller key now, so
+      // its PC access setup can enroll this phone. Best effort: without it
+      // the phone's own helper request still carries the key.
+      void deliverControllerKey().catch(() => undefined);
     } finally {
       ctx.approvalVerificationInFlight = false;
     }

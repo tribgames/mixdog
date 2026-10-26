@@ -12,7 +12,12 @@ import { ConnectionError } from './errors';
 const FEATURE_CHANNELS: ReadonlyArray<readonly [string, readonly string[]]> = [
   [
     'Computer Use',
-    [DESKTOP_IPC.computerReadiness, DESKTOP_IPC.openComputerPermissionSettings, DESKTOP_IPC.requestLinuxInputAccess],
+    [
+      DESKTOP_IPC.computerReadiness,
+      DESKTOP_IPC.openComputerPermissionSettings,
+      DESKTOP_IPC.requestLinuxInputAccess,
+      DESKTOP_IPC.approvePcAccess,
+    ],
   ],
   [
     'The browser pane',

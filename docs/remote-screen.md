@@ -592,6 +592,97 @@ helper injects only under a grant the paired phone signed:
 - **`secure`** in the block is the decision's reason when it is `lock` or
   `uac`, else null.
 
+### PC access: install and enroll moments
+
+"PC access" (접근 권한) is the secure-desktop service as the user meets it.
+Installing it and enrolling a phone's controller key need admin rights, so each happens at a
+moment when someone can approve it:
+
+- **Key delivery at pairing** (`renderer/remote-shim-pairing.ts`,
+  `shared/remote-controller-key.ts`, `main/remote-controller-keys.ts`). Once
+  an approved connection's E2EE channel is up, the phone makes this pairing's
+  controller key (`ensureControllerKey`) and calls
+  `deliverScreenControllerKey([publicKey])` over that channel. The PC's
+  method table is served only from frames decrypted on an established
+  channel. It binds the key to the relay credential that leg authenticated,
+  never to a request field, and refuses a connection with no credential, a
+  device whose unpair is recorded, or a value that isn't a P-256 point. The
+  key is kept with the paired-device record (`remote-client-cache.ts`,
+  `controllerKeys`) and goes with that device's confirmed unpair or a
+  reset. Nothing is elevated at pairing. Each accepted delivery (every
+  connection delivers again) is announced to the desktop app as the
+  `remote-controller-key-delivered` event, which enrolls it (below).
+- **Computer Use setup on the PC** (`main/pc-access.ts`, the Windows row of
+  `renderer/settings/computer-readiness.ts`). The Readiness section's last
+  row, *PC access for admin prompts and the lock screen*, is optional and
+  never blocks Computer Use. Each of its actions is one ordinary UAC prompt
+  (the person is at the PC), through the one shared
+  `secureDesktopInstallerFor` installer:
+  - not installed (or outdated): **Approve** runs
+    `install(keys of every paired phone that delivered one, {revoke: pending})`.
+    The install writes exactly those keys (possibly none) and records the
+    app-delegation policy, so later phones need no prompt;
+  - installed, and a missing phone's delegated enroll (or the pending
+    revoke before it) was refused in a way only elevation fixes
+    (`delegation-disabled`, `delegation-denied`): **Approve new phone** runs
+    one UAC `enroll(missing keys, {revoke: pending})`. The bridge applies the
+    revokes and the enrolls in one key-set write, so both commit or neither.
+    The row stays hidden while a delegated enroll is in flight and after
+    `service-unreachable` (the phone's next delivery tries again);
+  - installed, but the revocations owed are unknown (below): **Approve**
+    reinstalls, `install(keys of the current pairings, {revoke: pending})`;
+  - nothing to approve: no row;
+  - another Windows account owns it: an informational row, no action.
+
+  Whether a key is enrolled is the bridge's `check --controller-key`:
+  `installed` while that key is enrolled in a current install, `not-enrolled`
+  (exit 7) when the current install lacks it.
+- **A phone paired after setup** is enrolled by the desktop app on its key
+  delivery: `enroll(key, {delegated: true})`, unelevated through the
+  service's delegation pipe, with no PC prompt (the service shows its own
+  notification). Only a phone paired now is enrolled (its record present and
+  not unpaired). Nothing happens while the service is not installed for this
+  account. Every pending revoke is first applied through delegation; if one
+  does not run, or the revocations are unknown, nothing is enrolled. The
+  phone's own Windows-password `enroll` stays the remote fallback.
+- **Unpair on the PC** (Settings → Connection → Remove) is one transaction
+  in the same queue as every enrollment, approval and revoke, so no
+  delivery or drain runs in the middle of it. The phone's key is read and
+  written to the app's pending-revoke file (`pc-access-revokes.json` in user
+  data) before the unpair runs; if it cannot be written, the unpair fails
+  with that error. An unreadable key marks the revocations unknown instead.
+  The unpair then runs, and its answer returns. Still inside the
+  transaction, `revoke(key, {delegated: true})` runs; only a confirmed
+  `revoked` removes the key from the file. Every other outcome, a throw, a
+  failed unpair, or quitting mid-revoke keeps it (each refusal logged by its
+  outcome). A pending revoke is passed with the next UAC install or enroll
+  and tried through delegation before the next delegated enroll.
+- **Every pairing removal in the service** (an unpair from any caller,
+  Disconnect all's rotation, the recovery reset after lost revocation
+  records) owes the removed phones' controller keys in `remote-clients.json`
+  (`owedAccessKeys`, `remote-client-cache.ts` `oweAccess`) before any pairing
+  or key mapping goes: `queueRevoke`, `applied` and `clear` owe in the same
+  write that unpairs or forgets a device, and rotation and recovery owe every
+  mapped key first. A paired phone that delivers a different key (after
+  clearing its app data) has the replaced key owed in the same write that
+  stores the new one, so it is revoked before the new key enrolls; the same
+  key again owes nothing. A damaged client record lost the keys, so its owed
+  revocations are unknown (`owedAccessUnknown`). The service then sends
+  `remote-controller-keys-owed`. The desktop app takes the owed keys over
+  (into its pending file, durably, then settles them in the service) before
+  every delivery, approval and revoke, and revokes them on that event.
+- **The rule: a revocation is never lost, and a pending one blocks every new
+  enrollment.** The pending file holds at most 256 keys (the pairing cap).
+  A missing file is empty. A damaged, wrong-shaped or unreadable one is
+  copied aside as `pc-access-revokes.json.damaged-<marker>` and replaced by
+  an "unknown" record, as is a full one on the next add. While revocations
+  are unknown nothing is enrolled; the next elevated install, which writes
+  the full key set from the current pairings, resolves it (a loss recorded
+  while that install ran stays unknown).
+- **No automatic request.** A phone screen session never asks for the helper
+  by itself; only the phone's blocked-state button sends
+  `screen-helper-install`.
+
 ### Helper video
 
 While the helper serves, the phone sees its frames instead of the desktop

@@ -425,15 +425,25 @@ export type RemoteScreenStopReason =
  *  account's, not available on this build, or not known yet). */
 export type RemoteScreenHelperOffer = 'install' | 'update' | 'none';
 
-/** How the last install request ended (main/secure-desktop/install-request.ts). */
+/** How the last install request ended (main/secure-desktop/install-request.ts).
+ *  The `*-credentials`/`*-admin`/account/policy values are the remote
+ *  batch-logon path's refusals; the UAC path never produces them. */
 export type RemoteScreenHelperInstallOutcome =
   | 'installed'
   | 'updated'
+  | 'enrolled'
+  | 'revoked'
   | 'declined'
   | 'failed'
   | 'in-progress'
   | 'other-user'
-  | 'unavailable';
+  | 'unavailable'
+  | 'bad-credentials'
+  | 'not-admin'
+  | 'logon-type-denied'
+  | 'account-locked'
+  | 'account-disabled'
+  | 'policy-blocked';
 
 /** The helper's advisory codes the phone is told about
  *  (native/mixdog-secure-desktop/docs/ipc-spec.md, "Error codes"). */
@@ -591,15 +601,61 @@ export interface RemoteWebrtcScreenHelperGrantMessage {
   signature: string;
 }
 
+/** A Windows administrator credential the phone types for the remote install
+ *  path (no one is at the PC to answer UAC). It rides the DTLS-encrypted,
+ *  fingerprint-verified screen channel. `user` is optional: omitted, the PC
+ *  uses the account running the app (it is never sent to or taken from the
+ *  phone). The desktop never echoes a credential back in any message. */
+export interface RemoteScreenHelperCredential {
+  /** Windows account password, at most `CREDUI_MAX_PASSWORD_LENGTH` UTF-16 units. */
+  password: string;
+  /** Optional account name, at most `CREDUI_MAX_USERNAME_LENGTH` UTF-16 units. */
+  user?: string;
+}
+
+/** Windows' documented credential-field maxima (wincred.h / the
+ *  *CredUIPromptForCredentials* docs), in UTF-16 units; the bounds on a
+ *  credential's fields on the wire, so an oversized field is rejected. */
+export const CREDUI_MAX_USERNAME_LENGTH = 513;
+export const CREDUI_MAX_PASSWORD_LENGTH = 256;
+
 /** Phone → desktop: install (or update) the secure-desktop helper, enrolling
  *  this controller key (`generateSecureDesktopControllerKey().publicKey`:
- *  unpadded base64url of the 65-byte uncompressed P-256 point). At most one
- *  UAC prompt on the PC; the outcome arrives in `screen-status`. */
+ *  unpadded base64url of the 65-byte uncompressed P-256 point) and any extra
+ *  `keys` (other paired phones, each a controller key; at most the pairing cap
+ *  `MAX_REMOTE_SCREEN_HELPER_KEYS`). With no `credential`, one UAC prompt on
+ *  the PC; with one, the remote batch-logon path and no prompt. The outcome
+ *  arrives in `screen-status`. */
 export interface RemoteWebrtcScreenHelperInstallMessage {
   v: typeof REMOTE_WEBRTC_VERSION;
   kind: 'screen-helper-install';
   publicKey: string;
+  keys?: string[];
+  credential?: RemoteScreenHelperCredential;
 }
+
+/** Phone → desktop: enroll this phone's controller key into an already-installed
+ *  helper (with a `credential`, the batch-logon path; otherwise the PC decides
+ *  UAC or the app-delegated path). The outcome arrives in `screen-status`. */
+export interface RemoteWebrtcScreenHelperEnrollMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-helper-enroll';
+  publicKey: string;
+  credential?: RemoteScreenHelperCredential;
+}
+
+/** Phone → desktop: revoke this phone's controller key. Same authorization
+ *  options as enroll. */
+export interface RemoteWebrtcScreenHelperRevokeMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-helper-revoke';
+  publicKey: string;
+  credential?: RemoteScreenHelperCredential;
+}
+
+/** The most controller keys one `screen-helper-install` may carry, the relay's
+ *  cap on phones paired to one desktop (`MAX_PAIRED_CLIENTS_PER_DEVICE`). */
+export const MAX_REMOTE_SCREEN_HELPER_KEYS = 256;
 
 /** A signed grant as main relays it (`screen-helper-grant` without its envelope). */
 export type RemoteScreenHelperGrant = Omit<RemoteWebrtcScreenHelperGrantMessage, 'v' | 'kind'>;
@@ -1345,11 +1401,19 @@ const HELPER_OFFERS: ReadonlySet<string> = new Set(['install', 'update', 'none']
 const HELPER_OUTCOMES: ReadonlySet<string> = new Set([
   'installed',
   'updated',
+  'enrolled',
+  'revoked',
   'declined',
   'failed',
   'in-progress',
   'other-user',
   'unavailable',
+  'bad-credentials',
+  'not-admin',
+  'logon-type-denied',
+  'account-locked',
+  'account-disabled',
+  'policy-blocked',
 ]);
 const HELPER_ISSUES: ReadonlySet<string> = new Set(REMOTE_SCREEN_HELPER_ISSUES);
 const SECURE_SCREENS: ReadonlySet<string> = new Set(['lock', 'uac']);
@@ -1438,9 +1502,67 @@ function helperGrantMessage(input: Fields): RemoteWebrtcScreenHelperGrantMessage
   };
 }
 
+/** A credential's fields on the wire, length-bounded by the Windows maxima.
+ *  Never echoed back by the desktop. Absent → undefined (the UAC path). */
+function helperCredential(value: unknown): RemoteScreenHelperCredential | undefined {
+  if (value === undefined || value === null) return undefined;
+  const input = record(value, 'credential');
+  if (typeof input.password !== 'string' || !input.password || input.password.length > CREDUI_MAX_PASSWORD_LENGTH) {
+    fail('credential password');
+  }
+  const credential: RemoteScreenHelperCredential = { password: input.password as string };
+  if (input.user !== undefined && input.user !== null) {
+    if (typeof input.user !== 'string' || input.user.length > CREDUI_MAX_USERNAME_LENGTH) fail('credential user');
+    if (input.user) credential.user = input.user;
+  }
+  return credential;
+}
+
+/** The optional extra controller keys of an install, each validated; at most
+ *  the pairing cap. */
+function helperKeys(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_REMOTE_SCREEN_HELPER_KEYS) fail('helper keys');
+  const keys = value.map((entry) => {
+    if (!isSecureDesktopControllerKey(entry)) fail('controller key');
+    return entry as string;
+  });
+  return keys;
+}
+
 function helperInstallMessage(input: Fields): RemoteWebrtcScreenHelperInstallMessage {
   if (!isSecureDesktopControllerKey(input.publicKey)) fail('controller key');
-  return { v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey: input.publicKey };
+  const keys = helperKeys(input.keys);
+  const credential = helperCredential(input.credential);
+  return {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-install',
+    publicKey: input.publicKey,
+    ...(keys ? { keys } : {}),
+    ...(credential ? { credential } : {}),
+  };
+}
+
+function helperEnrollMessage(input: Fields): RemoteWebrtcScreenHelperEnrollMessage {
+  if (!isSecureDesktopControllerKey(input.publicKey)) fail('controller key');
+  const credential = helperCredential(input.credential);
+  return {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-enroll',
+    publicKey: input.publicKey,
+    ...(credential ? { credential } : {}),
+  };
+}
+
+function helperRevokeMessage(input: Fields): RemoteWebrtcScreenHelperRevokeMessage {
+  if (!isSecureDesktopControllerKey(input.publicKey)) fail('controller key');
+  const credential = helperCredential(input.credential);
+  return {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-revoke',
+    publicKey: input.publicKey,
+    ...(credential ? { credential } : {}),
+  };
 }
 
 /** Desktop: the `screen-helper-challenge` for a helper challenge and the
@@ -1468,10 +1590,56 @@ export function encodeRemoteWebrtcScreenHelperGrant(grant: RemoteScreenHelperGra
   return JSON.stringify(helperGrantMessage({ ...grant }));
 }
 
-/** Phone: the channel text of a `screen-helper-install`; throws TypeError on
- *  a key that is not an enrollable controller key. */
-export function encodeRemoteWebrtcScreenHelperInstall(publicKey: string): string {
-  return JSON.stringify(helperInstallMessage({ publicKey }));
+/** Phone: the channel text of a `screen-helper-install`. `keys` are extra
+ *  controller keys to enroll, `credential` the Windows password for the remote
+ *  (no-prompt) path. Throws TypeError on an invalid key, an over-long
+ *  credential field, or too many keys. */
+export function encodeRemoteWebrtcScreenHelperInstall(
+  publicKey: string,
+  options: { keys?: string[]; credential?: RemoteScreenHelperCredential } = {},
+): string {
+  return JSON.stringify(
+    helperInstallMessage({ publicKey, keys: options.keys, credential: options.credential }),
+  );
+}
+
+/** Phone: the channel text of a `screen-helper-enroll`. */
+export function encodeRemoteWebrtcScreenHelperEnroll(
+  publicKey: string,
+  options: { credential?: RemoteScreenHelperCredential } = {},
+): string {
+  return JSON.stringify(helperEnrollMessage({ publicKey, credential: options.credential }));
+}
+
+/** Phone: the channel text of a `screen-helper-revoke`. */
+export function encodeRemoteWebrtcScreenHelperRevoke(
+  publicKey: string,
+  options: { credential?: RemoteScreenHelperCredential } = {},
+): string {
+  return JSON.stringify(helperRevokeMessage({ publicKey, credential: options.credential }));
+}
+
+/** Desktop: read a phone's `screen-helper-enroll` (null when it is not one or
+ *  is malformed). Enroll/revoke are read with their own functions rather than
+ *  through `parseRemoteWebrtcChannelFromClient`: they are not input and carry
+ *  no epoch/seq, so they stay off the input dispatch path. */
+export function readRemoteWebrtcScreenHelperEnroll(text: unknown): RemoteWebrtcScreenHelperEnrollMessage | null {
+  try {
+    const input = parseChannelText(text);
+    return input.kind === 'screen-helper-enroll' ? helperEnrollMessage(input) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Desktop: read a phone's `screen-helper-revoke` (null when not one or malformed). */
+export function readRemoteWebrtcScreenHelperRevoke(text: unknown): RemoteWebrtcScreenHelperRevokeMessage | null {
+  try {
+    const input = parseChannelText(text);
+    return input.kind === 'screen-helper-revoke' ? helperRevokeMessage(input) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A `screen-cursor` channel message from the desktop, as the phone receives it. */

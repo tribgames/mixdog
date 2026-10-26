@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  createScreenHelperAutoInstall,
   createScreenHelperGrants,
   createScreenHelperInstall,
   readScreenHelperBlock,
@@ -49,7 +48,11 @@ test('the helper block is the helperInfo of the status the shared reader parsed'
   const text = JSON.stringify({ v: 1, kind: 'screen-status', status });
   assert.deepEqual(readScreenHelperBlock(readRemoteWebrtcScreenStatus(text).status), info);
   // The reader refuses a block it does not know, so none ever reaches the panel.
-  const bad = JSON.stringify({ v: 1, kind: 'screen-status', status: { ...status, helperInfo: { ...info, offer: 'later' } } });
+  const bad = JSON.stringify({
+    v: 1,
+    kind: 'screen-status',
+    status: { ...status, helperInfo: { ...info, offer: 'later' } },
+  });
   assert.equal(readRemoteWebrtcScreenStatus(bad), null);
 });
 
@@ -102,7 +105,15 @@ test('the lines say how the request ended, then what the helper reported', () =>
   assert.deepEqual(lines({ offer: 'install', outcome: 'declined' }), [{ kind: 'copy', id: 'declined' }]);
   assert.deepEqual(lines({ outcome: 'other-user' }), [{ kind: 'copy', id: 'other-user' }]);
   assert.deepEqual(lines({ outcome: 'unavailable' }), [{ kind: 'copy', id: 'unavailable' }]);
-  assert.deepEqual(lines({ offer: 'install', outcome: 'failed', detail: 'Error 5' }), [{ kind: 'detail', text: 'Error 5' }]);
+  // The PC's diagnostic never becomes a visible line: the fixed access copy does.
+  assert.deepEqual(
+    lines({
+      offer: 'install',
+      outcome: 'failed',
+      detail: 'the helper image was refused: it is not a signed, unrevoked Mixdog release build',
+    }),
+    [{ kind: 'copy', id: 'failed' }]
+  );
   assert.deepEqual(lines({ offer: 'install', outcome: 'failed' }), [{ kind: 'copy', id: 'failed' }]);
   assert.deepEqual(lines({ outcome: 'installed' }), [], 'back to normal');
   assert.deepEqual(lines({ offer: 'update', outcome: 'updated' }), [], 'back to normal');
@@ -120,16 +131,30 @@ test('the lines say how the request ended, then what the helper reported', () =>
 test('every line the panel can show has Korean copy', () => {
   const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
   const pane = readFileSync(new URL('./RemoteScreenPane.tsx', import.meta.url), 'utf8');
-  const copy = new Map([...pane.matchAll(/case '([\w-]+)':\s*return t\('([^']+)'\)/gu)].map(([, id, text]) => [id, text]));
-  const ids = ['in-progress', 'declined', 'failed', 'other-user', 'unavailable', 'sas_disabled_by_policy', 'desktop_unavailable', 'input_failed', 'grant_key_missing'];
+  const copy = new Map(
+    [...pane.matchAll(/case '([\w-]+)':\s*return t\('([^']+)'\)/gu)].map(([, id, text]) => [id, text])
+  );
+  const ids = [
+    'in-progress',
+    'declined',
+    'failed',
+    'other-user',
+    'unavailable',
+    'sas_disabled_by_policy',
+    'desktop_unavailable',
+    'input_failed',
+    'grant_key_missing',
+  ];
   for (const id of ids) {
     assert.ok(copy.has(id), `${id} has copy in the pane`);
     assert.ok(ko[copy.get(id)], `${id}: ${copy.get(id)}`);
   }
-  for (const text of ['PC에 도우미 설치 요청', '도우미 업데이트 승인', 'PC에 떠 있는 확인 창에 답해 주세요.']) {
+  for (const text of ['PC에 접근 권한 요청', '접근 권한 다시 승인', 'PC에 뜬 확인 창에서 승인해 주세요.']) {
     assert.ok(Object.values(ko).includes(text), text);
   }
-  assert.ok(ko['Request helper installation on the PC'] && ko['Approve helper update'] && ko['The request could not be sent to the PC.']);
+  assert.ok(
+    ko['Request access on the PC'] && ko['Approve access again'] && ko['The request could not be sent to the PC.']
+  );
 });
 
 test('the lock or UAC wording follows the helper when it names the secure screen', () => {
@@ -147,9 +172,15 @@ test('the install request enrolls the pairing key, and fails if there is none to
     sent.push(message);
     return true;
   };
-  assert.equal(await createScreenHelperInstall({ ensureKey: () => Promise.reject(new Error('no storage')), send })(), false);
+  assert.equal(
+    await createScreenHelperInstall({ ensureKey: () => Promise.reject(new Error('no storage')), send })(),
+    false
+  );
   assert.deepEqual(sent, [], 'a key that could not be kept is never enrolled');
-  assert.equal(await createScreenHelperInstall({ ensureKey: async () => ({ publicKey: 'K' }), send: () => false })(), false);
+  assert.equal(
+    await createScreenHelperInstall({ ensureKey: async () => ({ publicKey: 'K' }), send: () => false })(),
+    false
+  );
 });
 
 test('a grant is signed only for the current run, while the surface is active, and verifies', async () => {
@@ -169,10 +200,24 @@ test('a grant is signed only for the current run, while the surface is active, a
 
   assert.equal(await grants.challenge(challenge(4)), 'sent');
   const [grant] = sent;
-  assert.deepEqual({ ...grant, signature: undefined }, { v: 1, kind: 'screen-helper-grant', epoch: 4, challenge: nonce(2), signature: undefined });
-  const publicKey = await crypto.subtle.importKey('raw', Buffer.from(key.publicKey, 'base64url'), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  assert.deepEqual(
+    { ...grant, signature: undefined },
+    { v: 1, kind: 'screen-helper-grant', epoch: 4, challenge: nonce(2), signature: undefined }
+  );
+  const publicKey = await crypto.subtle.importKey(
+    'raw',
+    Buffer.from(key.publicKey, 'base64url'),
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['verify']
+  );
   assert.equal(
-    await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, Buffer.from(grant.signature, 'base64'), secureDesktopGrantPayload(nonce(1), nonce(2), 4)),
+    await crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      publicKey,
+      Buffer.from(grant.signature, 'base64'),
+      secureDesktopGrantPayload(nonce(1), nonce(2), 4)
+    ),
     true,
     'signed over nonce, challenge and the run epoch'
   );
@@ -227,9 +272,22 @@ test('a grant is dropped if the run or the surface changed while it was being si
   assert.equal(sent.length, 1);
 
   // A signing error or a channel that is gone answers nothing.
-  const broken = createScreenHelperGrants({ key: async () => key, epoch: () => 2, active: () => true, send: () => true, sign: async () => { throw new Error('x'); } });
+  const broken = createScreenHelperGrants({
+    key: async () => key,
+    epoch: () => 2,
+    active: () => true,
+    send: () => true,
+    sign: async () => {
+      throw new Error('x');
+    },
+  });
   assert.equal(await broken.challenge(challenge), 'failed');
-  const closed = createScreenHelperGrants({ key: async () => key, epoch: () => 2, active: () => true, send: () => false });
+  const closed = createScreenHelperGrants({
+    key: async () => key,
+    epoch: () => 2,
+    active: () => true,
+    send: () => false,
+  });
   assert.equal(await closed.challenge(challenge), 'failed');
 });
 
@@ -300,7 +358,12 @@ test('a transition during the key load or the signature ends the challenge, even
     assert.deepEqual(sent, []);
     // The next challenge, begun after the transition, goes out.
     hold.release();
-    const next = createScreenHelperGrants({ key: async () => key, epoch: () => 2, active: () => true, send: () => true });
+    const next = createScreenHelperGrants({
+      key: async () => key,
+      epoch: () => 2,
+      active: () => true,
+      send: () => true,
+    });
     assert.equal(await next.challenge(challenge), 'sent');
   }
 });
@@ -337,135 +400,26 @@ test('a grant goes out through the viewer its challenge came from, and is droppe
   assert.equal(first.sent.length, 0);
 });
 
-/** An auto-install over a fake pairing store; `page` is one page load (its own memory), `stored` survives reloads. */
-function autoHarness(stored = { requested: false }) {
-  const state = { active: true, viewer: { name: 'one', sent: [] }, generation: 0, sendOk: true };
-  const grants = createScreenHelperGrants({ key: async () => null, epoch: () => 1, active: () => true, send: () => true });
-  const marks = [];
-  const guard = { running: false, done: false }; // page scope: shared by every load of the pane
-  const load = (pageGuard = guard) =>
-    createScreenHelperAutoInstall({
-      guard: () => pageGuard,
-      requested: async () => stored.requested,
-      mark: async () => {
-        marks.push(1);
-        stored.requested = true;
-      },
-      ensureKey: async () => ({ publicKey: 'PUB' }),
-      active: () => state.active,
-      generation: () => grants.generation(),
-      origin: () => state.viewer,
-      send: (message, origin) => (state.sendOk ? origin.sent.push(message) > 0 : false),
-    });
-  return { state, grants, marks, stored, load, auto: load() };
-}
-
-test('the first desktop session offering an install asks once; a second session or a reload asks nothing', async () => {
-  const h = autoHarness();
-  const first = h.state.viewer;
-  assert.equal(await h.auto.consider({ offer: 'install' }, first), 'sent');
-  assert.deepEqual(first.sent, [{ v: 1, kind: 'screen-helper-install', publicKey: 'PUB' }]);
-  assert.equal(h.stored.requested, true, 'marked per pairing once it went out');
-  // The same page again (every later status), then a new session on a new viewer.
-  assert.equal(await h.auto.consider({ offer: 'install' }, first), 'skipped');
-  h.grants.invalidate();
-  h.state.viewer = { name: 'two', sent: [] };
-  assert.equal(await h.auto.consider({ offer: 'install' }, h.state.viewer), 'skipped');
-  // A reload keeps the mark, not the page's memory.
-  assert.equal(await h.load({ running: false, done: false }).consider({ offer: 'install' }, h.state.viewer), 'skipped');
-  assert.equal(h.state.viewer.sent.length + first.sent.length, 1, 'exactly one request, ever');
-});
-
-test('a request that went out stays made across pane remounts even if its mark could not be written', async () => {
-  const guard = { running: false, done: false }; // the pairing's page-scope guard
-  const viewer = { sent: [] };
-  const coordinator = () =>
-    createScreenHelperAutoInstall({
-      guard: () => guard,
-      requested: async () => false, // the stored mark never takes
-      mark: async () => {
-        throw new Error('quota');
-      },
-      ensureKey: async () => ({ publicKey: 'PUB' }),
-      active: () => true,
-      generation: () => 0,
-      origin: () => viewer,
-      send: (message, origin) => origin.sent.push(message) > 0,
-    });
-  assert.equal(await coordinator().consider({ offer: 'install' }, viewer), 'sent');
-  // Full screen closed and opened again on the same page: a new coordinator.
-  assert.equal(await coordinator().consider({ offer: 'install' }, viewer), 'skipped');
-  assert.equal(viewer.sent.length, 1, 'exactly one automatic send overall');
-});
-
-test('two statuses arriving together make one request', async () => {
-  const h = autoHarness();
-  const viewer = h.state.viewer;
-  const results = await Promise.all([h.auto.consider({ offer: 'install' }, viewer), h.auto.consider({ offer: 'install' }, viewer)]);
-  assert.deepEqual(results.sort(), ['sent', 'skipped']);
-  assert.equal(viewer.sent.length, 1);
-});
-
-test('an update, or nothing to offer, never asks by itself', async () => {
-  const h = autoHarness();
-  assert.equal(await h.auto.consider({ offer: 'update' }, h.state.viewer), 'skipped');
-  assert.equal(await h.auto.consider({ offer: 'none' }, h.state.viewer), 'skipped');
-  assert.deepEqual([h.state.viewer.sent.length, h.marks.length, h.stored.requested], [0, 0, false]);
-});
-
-test('a hidden pane asks nothing, and the attempt is still there when it is shown', async () => {
-  const h = autoHarness();
-  h.state.active = false;
-  assert.equal(await h.auto.consider({ offer: 'install' }, h.state.viewer), 'dropped');
-  assert.deepEqual([h.state.viewer.sent.length, h.stored.requested], [0, false]);
-  h.state.active = true;
-  assert.equal(await h.auto.consider({ offer: 'install' }, h.state.viewer), 'sent');
-});
-
-test('a send that cannot go out (a browser source or closed channel) does not use up the attempt', async () => {
-  const h = autoHarness();
-  h.state.sendOk = false;
-  assert.equal(await h.auto.consider({ offer: 'install' }, h.state.viewer), 'failed');
-  assert.deepEqual([h.marks.length, h.stored.requested], [0, false]);
-  h.state.sendOk = true;
-  assert.equal(await h.auto.consider({ offer: 'install' }, h.state.viewer), 'sent');
-});
-
-test('a surface change or a replaced viewer while the key loads drops the send and keeps the attempt', async () => {
-  for (const change of ['hidden', 'generation', 'viewer']) {
-    const stored = { requested: false };
-    const state = { active: true, viewer: { sent: [] } };
-    const grants = createScreenHelperGrants({ key: async () => null, epoch: () => 1, active: () => true, send: () => true });
-    let release;
-    const guard = { running: false, done: false };
-    const hold = new Promise((resolve) => (release = resolve));
-    const auto = createScreenHelperAutoInstall({
-      guard: () => guard,
-      requested: async () => stored.requested,
-      mark: async () => {
-        stored.requested = true;
-      },
-      ensureKey: async () => (await hold, { publicKey: 'PUB' }),
-      active: () => state.active,
-      generation: () => grants.generation(),
-      origin: () => state.viewer,
-      send: (message, origin) => origin.sent.push(message) > 0,
-    });
-    const original = state.viewer;
-    const pending = auto.consider({ offer: 'install' }, original);
-    await new Promise((done) => setTimeout(done, 0));
-    if (change === 'hidden') state.active = false;
-    if (change === 'generation') grants.invalidate();
-    if (change === 'viewer') state.viewer = { sent: [] };
-    release();
-    assert.equal(await pending, 'dropped', change);
-    assert.deepEqual([original.sent.length, state.viewer.sent.length, stored.requested], [0, 0, false], change);
-  }
+test("no screen session asks for the helper by itself: the only request is the button's", async () => {
+  const helper = await import('./remote-screen-helper.ts');
+  assert.equal(helper.createScreenHelperAutoInstall, undefined, 'the first-full-screen request is gone');
+  const sent = [];
+  const requestInstall = createScreenHelperInstall({
+    ensureKey: async () => ({ publicKey: 'PUB' }),
+    send: (message) => sent.push(message) > 0,
+  });
+  assert.deepEqual(sent, [], 'nothing goes out until the person presses the button');
+  assert.equal(await requestInstall(), true);
+  assert.deepEqual(sent, [{ v: 1, kind: 'screen-helper-install', publicKey: 'PUB' }]);
 });
 
 test('only a shown, visible screen pane may sign a grant', () => {
   const visible = 'visible';
-  assert.equal(screenGrantSurfaceActive({ kind: 'live', control: false }, visible), true, 'the grant is what gives control');
+  assert.equal(
+    screenGrantSurfaceActive({ kind: 'live', control: false }, visible),
+    true,
+    'the grant is what gives control'
+  );
   assert.equal(screenGrantSurfaceActive({ kind: 'live', control: true }, visible), true);
   assert.equal(screenGrantSurfaceActive({ kind: 'blocked', reason: 'lock', dim: true }, visible), true);
   for (const view of [{ kind: 'connecting' }, { kind: 'failed' }, { kind: 'stopped', reason: 'other' }]) {

@@ -1,13 +1,25 @@
 import {
   ELEVATION_DECLINED_EXIT,
   elevateSecureDesktop,
+  runSecureDesktopDelegated,
+  runSecureDesktopWithLogon,
+  SECURE_DESKTOP_ACCOUNT_DISABLED_EXIT,
+  SECURE_DESKTOP_ACCOUNT_LOCKED_EXIT,
+  SECURE_DESKTOP_BAD_CREDENTIALS_EXIT,
   SECURE_DESKTOP_BUSY_EXIT,
+  SECURE_DESKTOP_DELEGATION_DENIED_EXIT,
+  SECURE_DESKTOP_DELEGATION_DISABLED_EXIT,
+  SECURE_DESKTOP_DELEGATION_UNAVAILABLE_EXIT,
+  SECURE_DESKTOP_LOGON_TYPE_DENIED_EXIT,
+  SECURE_DESKTOP_NOT_ADMIN_EXIT,
   SECURE_DESKTOP_OTHER_USER_EXIT,
+  SECURE_DESKTOP_POLICY_BLOCKED_EXIT,
   SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT,
   SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT,
   secureDesktopInstallState,
   startSecureDesktopService,
   verifySecureDesktopImage,
+  type SecureDesktopCredential,
   type SecureDesktopImageCheck,
   type SecureDesktopInstallState,
   type SecureDesktopStatus,
@@ -58,7 +70,9 @@ import { isSecureDesktopControllerKey } from '../../shared/secure-desktop-grant'
  *  (`NATIVE_FILE_SAVE_INTERACTIVE_TIMEOUT_MS`), reused rather than tuned. */
 const DEFAULT_REPORT_AFTER_MS = NATIVE_FILE_SAVE_INTERACTIVE_TIMEOUT_MS;
 
-/** How one request ended, reported back to the phone. */
+/** How one phone `request` (the UAC-only install path) ended. Unchanged: the
+ *  credential and delegation outcomes belong to the key-set ops only
+ *  ([`SecureDesktopKeyChangeOutcome`]). */
 export type SecureDesktopInstallOutcome =
   | 'installed'
   /** An outdated helper (check exit 2) was replaced by the bundled one. */
@@ -68,6 +82,29 @@ export type SecureDesktopInstallOutcome =
   | 'in-progress'
   | 'other-user'
   | 'unavailable';
+
+/** How a key-set op (install/enroll/revoke) ended. A superset of
+ *  [`SecureDesktopInstallOutcome`]: `enrolled`/`revoked` are key-change
+ *  successes; `bad-credentials`…`policy-blocked` are the remote batch-logon
+ *  path's refusals (the UAC path never produces them); `delegation-disabled`
+ *  is the app-delegated path's "not enabled". */
+export type SecureDesktopKeyChangeOutcome =
+  | SecureDesktopInstallOutcome
+  | 'enrolled'
+  | 'revoked'
+  | 'bad-credentials'
+  | 'not-admin'
+  | 'logon-type-denied'
+  | 'account-locked'
+  | 'account-disabled'
+  | 'policy-blocked'
+  // The app-delegated path, PC-side only (never travels to the phone, which
+  // uses the credential path): delegation off, the service refused this
+  // caller, or the service was unreachable — kept distinct so logs and the
+  // pending-revoke path can tell them apart.
+  | 'delegation-disabled'
+  | 'delegation-denied'
+  | 'service-unreachable';
 
 export interface SecureDesktopInstallResult {
   outcome: SecureDesktopInstallOutcome;
@@ -90,6 +127,42 @@ export interface SecureDesktopInstallerPort {
   elevateInstall(controllerKey: string): Promise<number>;
   /** Unelevated `start` of the installed service; the running status after. */
   startService(): Promise<SecureDesktopStatus>;
+  /** Launch one admin-gated key op through the chosen authorization path and
+   *  resolve the bridge exit code (rejects only when it could not launch):
+   *  a UAC prompt when `credential` is absent, the batch-logon from a phone
+   *  password when present, or the unelevated app-delegation path when
+   *  `delegated` (enroll/revoke only). */
+  runKeyOp(op: SecureDesktopKeyOp): Promise<number>;
+}
+
+/** One admin-gated key-set operation and its authorization path. */
+export interface SecureDesktopKeyOp {
+  verb: 'install' | 'enroll' | 'revoke';
+  /** Keys to enroll (install/enroll). For a `revoke`, the keys to remove. */
+  keys: readonly string[];
+  /** Keys to also remove in the same op (apply pending revokes on install/enroll). */
+  revoke?: readonly string[];
+  /** The phone's Windows password for the no-prompt batch-logon path. */
+  credential?: SecureDesktopCredential;
+  /** Use the unelevated app-delegation path (enroll/revoke of one key). */
+  delegated?: boolean;
+}
+
+/** Options for an explicit key-set operation. */
+export interface SecureDesktopKeyChangeOptions {
+  /** Keys to also revoke in the same elevation (pending revokes). */
+  revoke?: readonly string[];
+  /** The phone's Windows password (remote, no-prompt path). */
+  credential?: SecureDesktopCredential;
+  /** Use the unelevated app-delegation path (enroll/revoke). */
+  delegated?: boolean;
+}
+
+/** How a key-set operation ended. */
+export interface SecureDesktopKeyChangeResult {
+  outcome: SecureDesktopKeyChangeOutcome;
+  state: SecureDesktopInstallState;
+  detail?: string;
 }
 
 export interface SecureDesktopInstallerOptions {
@@ -105,6 +178,17 @@ export interface SecureDesktopInstaller {
   /** Handle one phone request carrying its public control key: at most one
    *  UAC prompt, never retried. An invalid key fails without a prompt. */
   request(controllerKey: string): Promise<SecureDesktopInstallResult>;
+  /** Install (or update) the helper enrolling `keys` (zero or more), applying
+   *  `options.revoke` in the same elevation. UAC by default, the batch-logon
+   *  path with `options.credential`. */
+  install(keys: readonly string[], options?: SecureDesktopKeyChangeOptions): Promise<SecureDesktopKeyChangeResult>;
+  /** Enroll one key, or several in a single authorization (one UAC prompt for
+   *  all), into the installed helper. UAC, batch-logon (`credential`), or the
+   *  unelevated app-delegation path (`delegated`, one key per call). A single
+   *  string is accepted so existing one-key callers keep working. */
+  enroll(keys: string | string[], options?: SecureDesktopKeyChangeOptions): Promise<SecureDesktopKeyChangeResult>;
+  /** Revoke one phone's key. Same authorization paths as `enroll`. */
+  revoke(key: string, options?: SecureDesktopKeyChangeOptions): Promise<SecureDesktopKeyChangeResult>;
   /** Start the installed service if it is registered but stopped (after a
    *  reboot). Never installs, never prompts; the running status after. */
   ensureRunning(): Promise<SecureDesktopStatus>;
@@ -131,8 +215,78 @@ export type SecureDesktopInstallOffer = 'install' | 'update' | 'none';
 
 export function installOfferFor(state: SecureDesktopInstallState): SecureDesktopInstallOffer {
   if (state === 'not-installed') return 'install';
-  if (state === 'outdated') return 'update';
+  // Outdated (a different bundled binary) or current-but-this-phone-unenrolled:
+  // both are "approve", but `not-enrolled` only adds this key (an enroll), never
+  // a reinstall that would replace the whole key set.
+  if (state === 'outdated' || state === 'not-enrolled') return 'update';
   return 'none';
+}
+
+/** The in-progress detail when another admin action holds the single slot. */
+const KEY_OP_IN_FLIGHT = 'another secure-desktop admin action is already running on the PC';
+
+/** The phone outcome for a credential-logon refusal exit code, or null when the
+ *  code is not a credential refusal. Derived only from the code — never from
+ *  any credential — so nothing secret is echoed. Pure; unit-tested. */
+function credentialOutcome(exitCode: number): SecureDesktopKeyChangeOutcome | null {
+  switch (exitCode) {
+    case SECURE_DESKTOP_BAD_CREDENTIALS_EXIT:
+      return 'bad-credentials';
+    case SECURE_DESKTOP_NOT_ADMIN_EXIT:
+      return 'not-admin';
+    case SECURE_DESKTOP_LOGON_TYPE_DENIED_EXIT:
+      return 'logon-type-denied';
+    case SECURE_DESKTOP_ACCOUNT_LOCKED_EXIT:
+      return 'account-locked';
+    case SECURE_DESKTOP_ACCOUNT_DISABLED_EXIT:
+      return 'account-disabled';
+    case SECURE_DESKTOP_POLICY_BLOCKED_EXIT:
+      return 'policy-blocked';
+    default:
+      return null;
+  }
+}
+
+/** Map a key-op bridge exit code to an outcome. `before`/`after` are the
+ *  install state around the op (an install of an `outdated` helper reads as
+ *  `updated`). A detail never contains any credential — only the exit code.
+ *  Pure; unit-tested. */
+function keyChangeFromExit(
+  verb: SecureDesktopKeyOp['verb'],
+  exitCode: number,
+  before: SecureDesktopInstallState,
+  after: SecureDesktopInstallState,
+): SecureDesktopKeyChangeResult {
+  if (exitCode === 0) {
+    if (verb === 'install') return { outcome: before === 'outdated' ? 'updated' : 'installed', state: after };
+    return { outcome: verb === 'enroll' ? 'enrolled' : 'revoked', state: after };
+  }
+  if (exitCode === ELEVATION_DECLINED_EXIT) return { outcome: 'declined', state: after };
+  if (exitCode === SECURE_DESKTOP_BUSY_EXIT) {
+    return { outcome: 'in-progress', state: after, detail: 'another install is already running' };
+  }
+  if (exitCode === SECURE_DESKTOP_OTHER_USER_EXIT) return { outcome: 'other-user', state: after };
+  if (exitCode === SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT) {
+    return { outcome: 'failed', state: after, detail: 'the helper image was refused: not a signed, unrevoked Mixdog release build' };
+  }
+  if (exitCode === SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT) {
+    return { outcome: 'failed', state: after, detail: 'could not check certificate revocation (offline?)' };
+  }
+  if (exitCode === SECURE_DESKTOP_DELEGATION_DISABLED_EXIT) return { outcome: 'delegation-disabled', state: after };
+  if (exitCode === SECURE_DESKTOP_DELEGATION_DENIED_EXIT) return { outcome: 'delegation-denied', state: after };
+  if (exitCode === SECURE_DESKTOP_DELEGATION_UNAVAILABLE_EXIT) return { outcome: 'service-unreachable', state: after };
+  const credential = credentialOutcome(exitCode);
+  if (credential) return { outcome: credential, state: after };
+  return { outcome: 'failed', state: after, detail: `the helper exited with ${exitCode}` };
+}
+
+/** The bridge args for a key op. `install`/`enroll` take `--controller-key` for
+ *  adds and `--revoke-key` for pending revokes in the same elevation; `revoke`
+ *  takes `--controller-key` for the keys to remove. */
+function keyOpArgs(verb: SecureDesktopKeyOp['verb'], keys: readonly string[], revoke: readonly string[]): string[] {
+  const adds = keys.flatMap((key) => ['--controller-key', key]);
+  if (verb === 'revoke') return adds;
+  return [...adds, ...revoke.flatMap((key) => ['--revoke-key', key])];
 }
 
 const STILL_RUNNING = Symbol('still-running');
@@ -152,6 +306,47 @@ export function createSecureDesktopInstaller(
   let inFlightKey: string | null = null;
   /** The launched elevation until it is known to have finished. */
   let outstanding: Promise<number> | null = null;
+  /** The single in-flight explicit key op (install/enroll/revoke). Rate limit:
+   *  at most one admin action runs at a time across all phones, and there is no
+   *  automatic retry — a second concurrent call is answered `in-progress`, not
+   *  queued, so a failure never spins. Repeated password guesses are bounded by
+   *  Windows' own account-lockout policy, not a Mixdog timer. */
+  let keyOpInFlight: Promise<SecureDesktopKeyChangeResult> | null = null;
+
+  async function runKeyChange(
+    verb: SecureDesktopKeyOp['verb'],
+    keys: readonly string[],
+    options?: SecureDesktopKeyChangeOptions,
+  ): Promise<SecureDesktopKeyChangeResult> {
+    // One admin action at a time (including a phone request's elevation).
+    if (inFlight || outstanding || keyOpInFlight) {
+      return { outcome: 'in-progress', state: await port.check(), detail: KEY_OP_IN_FLIGHT };
+    }
+    const revoke = options?.revoke ?? [];
+    for (const key of [...keys, ...revoke]) {
+      if (!isSecureDesktopControllerKey(key)) {
+        return { outcome: 'failed', state: await port.check(), detail: 'a controller key is invalid' };
+      }
+    }
+    const op = (async (): Promise<SecureDesktopKeyChangeResult> => {
+      if (verb === 'install') {
+        const image = await port.verifyImage();
+        if (!image.ok) return { outcome: 'failed', state: await port.check(), detail: image.detail };
+      }
+      const before = await port.check(keys[0]);
+      let exitCode: number;
+      try {
+        exitCode = await port.runKeyOp({ verb, keys, revoke, credential: options?.credential, delegated: options?.delegated });
+      } catch (error) {
+        return { outcome: 'failed', state: await port.check(), detail: error instanceof Error ? error.message : String(error) };
+      }
+      return keyChangeFromExit(verb, exitCode, before, await port.check(keys[0]));
+    })();
+    keyOpInFlight = op.finally(() => {
+      keyOpInFlight = null;
+    });
+    return keyOpInFlight;
+  }
 
   function latch(launched: Promise<number>): void {
     outstanding = launched;
@@ -181,10 +376,10 @@ export function createSecureDesktopInstaller(
   }
 
   async function run(controllerKey: string): Promise<SecureDesktopInstallResult> {
-    // A launched elevation has not settled: never launch another. A
-    // determinate installed state answers this request, and only this one;
-    // the latch is released solely when the launched process settles.
-    if (outstanding) {
+    // A launched elevation or an explicit key op has not settled: never launch
+    // another. A determinate installed state answers this request, and only
+    // this one; the latch is released solely when the launched process settles.
+    if (outstanding || keyOpInFlight) {
       const state = await port.check(controllerKey);
       if (state === 'installed') return { outcome: 'installed', state };
       return { outcome: 'in-progress', state, detail: AWAITING_PROMPT };
@@ -195,11 +390,20 @@ export function createSecureDesktopInstaller(
     if (before === 'unavailable') return { outcome: 'unavailable', state: before };
     if (before === 'installed') return { outcome: 'installed', state: before };
     if (before === 'other-user') return { outcome: 'other-user', state: before };
-    // A build the elevated install would refuse: say why, without a prompt.
-    const image = await port.verifyImage();
-    if (!image.ok) return { outcome: 'failed', state: before, detail: image.detail };
+    // Installed and current, but this phone's key is not enrolled: add that one
+    // key (an enroll), never a reinstall — a reinstall rebuilds the state and
+    // would drop every other paired phone's key. The image is already the
+    // bundled one, so there is nothing to verify.
+    const enrollOnly = before === 'not-enrolled';
+    if (!enrollOnly) {
+      // A build the elevated install would refuse: say why, without a prompt.
+      const image = await port.verifyImage();
+      if (!image.ok) return { outcome: 'failed', state: before, detail: image.detail };
+    }
 
-    const launched = port.elevateInstall(controllerKey);
+    const launched = enrollOnly
+      ? port.runKeyOp({ verb: 'enroll', keys: [controllerKey], revoke: [], credential: undefined, delegated: undefined })
+      : port.elevateInstall(controllerKey);
     latch(launched);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stillRunning = new Promise<typeof STILL_RUNNING>((resolve) => {
@@ -226,8 +430,11 @@ export function createSecureDesktopInstaller(
   return {
     state: (controllerKey) => port.check(controllerKey),
     get pending() {
-      return inFlight !== null || outstanding !== null;
+      return inFlight !== null || outstanding !== null || keyOpInFlight !== null;
     },
+    install: (keys, options) => runKeyChange('install', keys, options),
+    enroll: (keys, options) => runKeyChange('enroll', Array.isArray(keys) ? keys : [keys], options),
+    revoke: (key, options) => runKeyChange('revoke', [key], options),
     async request(controllerKey) {
       if (!isSecureDesktopControllerKey(controllerKey)) {
         return { outcome: 'failed', state: await port.check(), detail: "the phone's control key is invalid" };
@@ -263,5 +470,13 @@ export function secureDesktopInstallerFor(environment: SecureDesktopEnvironment)
     elevateInstall: (controllerKey) =>
       elevateSecureDesktop(environment, 'install', ['--controller-key', controllerKey]),
     startService: () => startSecureDesktopService(environment),
+    runKeyOp: (op) => {
+      const args = keyOpArgs(op.verb, op.keys, op.revoke ?? []);
+      if (op.delegated && (op.verb === 'enroll' || op.verb === 'revoke')) {
+        return runSecureDesktopDelegated(environment, op.verb, args);
+      }
+      if (op.credential) return runSecureDesktopWithLogon(environment, op.verb, args, op.credential);
+      return elevateSecureDesktop(environment, op.verb, args);
+    },
   });
 }

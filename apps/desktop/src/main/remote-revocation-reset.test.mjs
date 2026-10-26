@@ -18,6 +18,7 @@ import { WebSocketServer } from 'ws';
 
 import { createDesktopService } from './desktop-service.ts';
 import { generateRelayClaimKeyPair } from '../shared/remote-e2ee.ts';
+import { generateSecureDesktopControllerKey } from '../shared/secure-desktop-grant.ts';
 import { activateRemote } from './remote-activation.ts';
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee.ts';
 import { loadOrCreatePairingToken } from './remote-pairing-token.ts';
@@ -247,6 +248,78 @@ test('undamaged revocation records leave the pairing alone', () =>
       context.legs.every((leg) => leg.deviceId === context.before.device.deviceId),
       true
     );
+  }));
+
+// PC access: every pairing removal owes the removed phones' secure-desktop
+// controller keys (remote-client-cache.ts `oweAccess`) before any mapping goes,
+// and tells the desktop app, which takes them over and revokes them.
+const PHONE_2 = 'fedcba9876543210fedcba9876543210';
+const controllerKeys = async (count) =>
+  Promise.all(Array.from({ length: count }, async () => (await generateSecureDesktopControllerKey()).publicKey));
+const cacheFile = (dir) => JSON.parse(readFileSync(join(dir, CLIENTS), 'utf8'));
+const writeMappedCache = (dir, keys) =>
+  writeFileSync(
+    join(dir, CLIENTS),
+    JSON.stringify({ clients: [], pendingRevokes: [], repairRequired: false, controllerKeys: keys })
+  );
+const announcedOwed = (context) => context.events.some((event) => event.name === 'remote-controller-keys-owed');
+
+test('rotating the pairing leaves every previously paired phone’s access key owed', () =>
+  paired(async (context) => {
+    const [first, second] = await controllerKeys(2);
+    writeMappedCache(context.dir, { [PHONE]: first, [PHONE_2]: second });
+    const invoke = await context.start();
+    await invoke('remoteAccessStart');
+    await wait(() => connected(context));
+    await invoke('remoteAccessRotate');
+    assert.deepEqual(cacheFile(context.dir).controllerKeys, {});
+    assert.deepEqual(cacheFile(context.dir).owedAccessKeys, [first, second]);
+    assert.deepEqual(await invoke('remoteAccessOwedControllerKeys'), { keys: [first, second], unknown: 0 });
+    assert.equal(announcedOwed(context), true);
+    // The desktop app took one over.
+    await invoke('remoteAccessSettleOwedControllerKeys', [first], 0);
+    assert.deepEqual(cacheFile(context.dir).owedAccessKeys, [second]);
+    // The old registration's revocation is done with the profile before the test removes it.
+    await wait(() => JSON.parse(readFileSync(join(context.dir, QUEUE), 'utf8')).length === 0);
+  }));
+
+test('the recovery reset leaves every paired phone’s access key owed, or unknown when the record was damaged', async () => {
+  await paired(async (context) => {
+    const [first, second] = await controllerKeys(2);
+    writeMappedCache(context.dir, { [PHONE]: first, [PHONE_2]: second });
+    writeFileSync(join(context.dir, QUEUE), '[{"deviceId":"11111111-2222-3333-4444-5555');
+    const invoke = await context.start();
+    await invoke('remoteAccessStart');
+    await assertPairingReset(context);
+    assert.deepEqual(cacheFile(context.dir).controllerKeys, {});
+    assert.deepEqual(cacheFile(context.dir).owedAccessKeys, [first, second]);
+    assert.equal(announcedOwed(context), true);
+  });
+  await paired(async (context) => {
+    writeFileSync(join(context.dir, CLIENTS), Buffer.alloc(160));
+    const invoke = await context.start();
+    await invoke('remoteAccessStart');
+    await assertPairingReset(context);
+    assert.ok((await invoke('remoteAccessOwedControllerKeys')).unknown > 0, 'the keys went with the damage');
+  });
+});
+
+test('the daemon’s unpair route owes the phone’s access key like the settings route, before the relay is asked', () =>
+  paired(async (context) => {
+    const [key] = await controllerKeys(1);
+    writeMappedCache(context.dir, { [PHONE]: key });
+    const invoke = await context.start();
+    await invoke('remoteAccessStart');
+    await wait(() => connected(context));
+    context.relay.revokeClientOk = false;
+    await assert.rejects(invoke('remoteAccessRevokeClient', PHONE), /failed/);
+    assert.deepEqual(cacheFile(context.dir).owedAccessKeys, [key], 'owed even though the relay refused');
+    assert.deepEqual(await invoke('remoteAccessControllerKeys'), [{ clientId: PHONE, publicKey: key, unpaired: true }]);
+    assert.equal(announcedOwed(context), true);
+    context.relay.revokeClientOk = true;
+    await invoke('remoteAccessRevokeClient', PHONE);
+    assert.deepEqual(cacheFile(context.dir).controllerKeys, {});
+    assert.deepEqual(cacheFile(context.dir).owedAccessKeys, [key], 'still owed until the app takes it over');
   }));
 
 test('a record that cannot even be read keeps the relay closed while local use goes on', () =>

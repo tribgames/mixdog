@@ -1,4 +1,4 @@
-import { Accessibility, AppWindow, ClipboardList, MousePointer2, Monitor, ScanText } from 'lucide-react';
+import { Accessibility, AppWindow, ClipboardList, MousePointer2, Monitor, ScanText, ShieldCheck } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { DesktopApi, DesktopComputerReadiness } from '../../shared/contract';
@@ -20,7 +20,10 @@ import {
 } from './extension-detail';
 
 type ReadinessApi = Partial<
-  Pick<DesktopApi, 'computerReadiness' | 'requestLinuxInputAccess' | 'openComputerPermissionSettings'>
+  Pick<
+    DesktopApi,
+    'computerReadiness' | 'requestLinuxInputAccess' | 'openComputerPermissionSettings' | 'approvePcAccess'
+  >
 >;
 
 /** While something is pending the dialog re-reads this often, so the section
@@ -67,6 +70,7 @@ const ICONS: Record<ComputerReadinessIcon, ReactNode> = {
   text: <ScanText size={16} />,
   monitor: <Monitor size={16} />,
   accessibility: <Accessibility size={16} />,
+  shield: <ShieldCheck size={16} />,
 };
 
 /** The translated line for a failed Allow, chosen from the structured result (never the English diagnostic). */
@@ -111,6 +115,11 @@ export function ComputerReadinessSection({
         setHowTo((open) => (open?.id === row.id ? null : { id: row.id, package: action.package }));
       } else if (action.kind === 'open_settings') {
         await api.openComputerPermissionSettings?.(action.pane);
+      } else if (action.kind === 'approve_pc_access') {
+        // One UAC prompt on this PC; a declined prompt is the person's answer.
+        const result = await api.approvePcAccess?.();
+        if (result?.outcome === 'failed') setError(t('PC access could not be set up.'));
+        await refresh();
       } else if (action.kind === 'allow_input') {
         const result = await api.requestLinuxInputAccess?.();
         if (!result?.ok) setError(inputAccessError(result));

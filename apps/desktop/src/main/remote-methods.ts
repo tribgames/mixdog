@@ -70,6 +70,8 @@ import {
   requiredNotificationTarget,
 } from './ipc-validation';
 import { absoluteLocalPath } from './local-files';
+import { REMOTE_CONTROLLER_KEY_METHOD } from '../shared/remote-controller-key';
+import type { RemoteControllerKeys } from './remote-controller-keys';
 import { codedErrorParams } from '../shared/coded-error';
 import { redactSecrets } from '../shared/redact-secret';
 import { remoteDesktopOnlyError } from '../shared/remote-error-codes';
@@ -238,6 +240,10 @@ export interface RemoteMethodDependencies {
    *  by the relay across that device's connections; a table of its own when
    *  absent. */
   selectedFileGrants?: SelectedFileGrants;
+  /** The paired phones' secure-desktop controller keys (remote-controller-keys.ts).
+   *  Only the relay leg supplies it: the key is bound to the credential the
+   *  relay authenticated for the connection. */
+  screenControllerKeys?: Pick<RemoteControllerKeys, 'deliver'>;
 }
 
 export type RemoteHostRequestMethod =
@@ -828,6 +834,7 @@ export function createRemoteMethods(
     visualize,
     fileDownloads,
     selectedFileGrants,
+    screenControllerKeys,
   }: RemoteMethodDependencies,
   client?: RemoteMethodClient
 ): Record<string, RemoteMethod> {
@@ -878,6 +885,11 @@ export function createRemoteMethods(
   if (settingsStore)
     Object.assign(methods, settingsRemoteMethods(settingsStore, onDesktopSettingsChanged, invokeDesktopOperation));
   if (terminals) Object.assign(methods, terminalRemoteMethods(terminals, invokeDesktopOperation, client));
+  // The phone's controller key, bound to this connection's paired credential.
+  if (screenControllerKeys) {
+    methods[REMOTE_CONTROLLER_KEY_METHOD] = ([publicKey]) =>
+      screenControllerKeys.deliver(client?.credentialId?.() ?? '', publicKey);
+  }
   return methods;
 }
 

@@ -103,50 +103,10 @@ export async function ensureControllerKey(
   });
 }
 
-// The "install prompt was already requested automatically" mark of a pairing:
-// a record beside its key (same store, scope + suffix), so retiring the pairing
-// deletes both together and a new pairing starts without it.
-const autoRequestedKey = (scope: string): string => `${scope}#helper-auto-requested`;
-
-/** Whether this pairing already made its one automatic install request. */
-export function hasAutoRequestedHelper(scope: string, factory: Factory = defaultFactory()): Promise<boolean> {
-  return transact<boolean>(factory, 'readonly', (store, report) => {
-    const request = store.get(autoRequestedKey(scope));
-    request.onsuccess = () => report(request.result === true);
-  });
-}
-
-/** Records that this pairing made its automatic install request. */
-export async function markAutoRequestedHelper(scope: string, factory: Factory = defaultFactory()): Promise<void> {
-  await transact<undefined>(factory, 'readwrite', (store) => {
-    store.put(true, autoRequestedKey(scope));
-  });
-}
-
-/** The page-scope state of a pairing's automatic request: shared by every pane
- *  mount, so a request that went out stays made even if its mark could not be
- *  written. The stored mark is the record across reloads. */
-export interface AutoRequestGuard {
-  running: boolean;
-  done: boolean;
-}
-const autoRequestGuards = new Map<string, AutoRequestGuard>();
-
-export function autoRequestGuard(scope: string): AutoRequestGuard {
-  let guard = autoRequestGuards.get(scope);
-  if (!guard) {
-    guard = { running: false, done: false };
-    autoRequestGuards.set(scope, guard);
-  }
-  return guard;
-}
-
-/** Forget this pairing's key and its automatic-request mark (the PC was unpaired). */
+/** Forget this pairing's key (the PC was unpaired). */
 export async function clearControllerKey(scope: string, factory: Factory = defaultFactory()): Promise<void> {
-  autoRequestGuards.delete(scope);
   await transact<undefined>(factory, 'readwrite', (store) => {
     store.delete(scope);
-    store.delete(autoRequestedKey(scope));
   });
 }
 
@@ -205,10 +165,6 @@ export function createControllerKeys(scope: () => string = controllerKeyScope, f
         });
       return creating;
     },
-    /** Whether this pairing already made its one automatic install request. */
-    autoRequested: (): Promise<boolean> => hasAutoRequestedHelper(scope(), factory),
-    markAutoRequested: (): Promise<void> => markAutoRequestedHelper(scope(), factory),
-    autoGuard: (): AutoRequestGuard => autoRequestGuard(scope()),
     async clear(): Promise<void> {
       cached = null;
       await clearControllerKey(scope(), factory);

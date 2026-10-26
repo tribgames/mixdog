@@ -3,7 +3,14 @@ import { test } from 'node:test';
 
 import {
   ELEVATION_DECLINED_EXIT,
+  SECURE_DESKTOP_ACCOUNT_LOCKED_EXIT,
+  SECURE_DESKTOP_BAD_CREDENTIALS_EXIT,
   SECURE_DESKTOP_BUSY_EXIT,
+  SECURE_DESKTOP_DELEGATION_DENIED_EXIT,
+  SECURE_DESKTOP_DELEGATION_DISABLED_EXIT,
+  SECURE_DESKTOP_DELEGATION_UNAVAILABLE_EXIT,
+  SECURE_DESKTOP_NOT_ADMIN_EXIT,
+  SECURE_DESKTOP_NOT_ENROLLED_EXIT,
   SECURE_DESKTOP_OTHER_USER_EXIT,
   SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT,
   SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT,
@@ -14,9 +21,10 @@ import { createSecureDesktopInstaller, installOfferFor } from './install-request
 /** A fake bridge: `check` answers from `states` in order (the last repeats);
  *  `verifyImage` answers `image`; `elevateInstall` answers from `elevations`
  *  (an Error is thrown, a promise is adopted as the still-running child);
- *  `startService` answers from `starts`. */
-function fakePort({ states, elevations = [], starts = [], image = { ok: true } }) {
-  const calls = { check: 0, verify: 0, elevate: 0, start: 0, checkKeys: [], elevateKeys: [] };
+ *  `startService` answers from `starts`; `runKeyOp` answers from `keyOps`
+ *  (Error thrown, promise adopted) and records every op it was given. */
+function fakePort({ states, elevations = [], starts = [], image = { ok: true }, keyOps = [] }) {
+  const calls = { check: 0, verify: 0, elevate: 0, start: 0, keyOp: 0, checkKeys: [], elevateKeys: [], ops: [] };
   return {
     calls,
     port: {
@@ -41,6 +49,13 @@ function fakePort({ states, elevations = [], starts = [], image = { ok: true } }
         const next = starts[Math.min(calls.start, starts.length - 1)];
         calls.start += 1;
         return next ?? { installed: false, running: false };
+      },
+      async runKeyOp(op) {
+        const next = keyOps[Math.min(calls.keyOp, keyOps.length - 1)];
+        calls.keyOp += 1;
+        calls.ops.push(op);
+        if (next instanceof Error) throw next;
+        return next ?? 0;
       },
     },
   };
@@ -351,4 +366,119 @@ test('requests while one is pending join it: one prompt', async () => {
   assert.equal(firstResult.outcome, 'installed');
   assert.equal(elevations, 1);
   assert.equal(installer.pending, false);
+});
+
+test('install(keys) enrolls every key and applies pending revokes in one op', async () => {
+  const { port, calls } = fakePort({ states: ['not-installed', 'installed'], keyOps: [0] });
+  const result = await createSecureDesktopInstaller(port).install([KEY, OTHER_KEY], { revoke: [controllerKey(3)] });
+  assert.equal(result.outcome, 'installed');
+  assert.equal(calls.verify, 1, 'the image is verified before an install op');
+  assert.deepEqual(calls.ops, [
+    { verb: 'install', keys: [KEY, OTHER_KEY], revoke: [controllerKey(3)], credential: undefined, delegated: undefined },
+  ]);
+});
+
+test('install(keys) of an outdated helper reports updated', async () => {
+  const { port } = fakePort({ states: ['outdated', 'installed'], keyOps: [0] });
+  assert.equal((await createSecureDesktopInstaller(port).install([KEY])).outcome, 'updated');
+});
+
+test('enroll takes several keys in one op; revoke maps a success to enrolled / revoked', async () => {
+  // "Approve new phones" with two un-enrolled phones is a single op (one prompt).
+  const enroll = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
+  assert.equal((await createSecureDesktopInstaller(enroll.port).enroll([KEY, OTHER_KEY])).outcome, 'enrolled');
+  assert.deepEqual(enroll.calls.ops[0], { verb: 'enroll', keys: [KEY, OTHER_KEY], revoke: [], credential: undefined, delegated: undefined });
+  assert.equal(enroll.calls.keyOp, 1, 'one op, not one per key');
+  // A bare string is still accepted (existing one-key callers keep working).
+  const single = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
+  assert.equal((await createSecureDesktopInstaller(single.port).enroll(KEY)).outcome, 'enrolled');
+  assert.deepEqual(single.calls.ops[0].keys, [KEY]);
+  const revoke = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
+  assert.equal((await createSecureDesktopInstaller(revoke.port).revoke(KEY)).outcome, 'revoked');
+  assert.deepEqual(revoke.calls.ops[0].verb, 'revoke');
+});
+
+test('the credential variant passes the password to the op and never echoes it', async () => {
+  const { port, calls } = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
+  const credential = { password: 'hunter2-secret', user: 'PC\\admin' };
+  const result = await createSecureDesktopInstaller(port).enroll([KEY], { credential });
+  assert.equal(result.outcome, 'enrolled');
+  // The op receives the credential (handed to the bridge over stdin there)…
+  assert.deepEqual(calls.ops[0].credential, credential);
+  // …but the result the phone sees never contains the password.
+  assert.ok(!JSON.stringify(result).includes('hunter2-secret'));
+});
+
+test('credential refusals map to their outcomes without a password in the detail', async () => {
+  const cases = [
+    [SECURE_DESKTOP_BAD_CREDENTIALS_EXIT, 'bad-credentials'],
+    [SECURE_DESKTOP_NOT_ADMIN_EXIT, 'not-admin'],
+    [SECURE_DESKTOP_ACCOUNT_LOCKED_EXIT, 'account-locked'],
+  ];
+  for (const [exit, outcome] of cases) {
+    const { port } = fakePort({ states: ['installed', 'installed'], keyOps: [exit] });
+    const result = await createSecureDesktopInstaller(port).enroll([KEY], { credential: { password: 'wrong-pw' } });
+    assert.equal(result.outcome, outcome);
+    assert.ok(!JSON.stringify(result).includes('wrong-pw'));
+  }
+});
+
+test('the delegated path uses the app-delegation op, and its exits are distinct', async () => {
+  const { port, calls } = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
+  await createSecureDesktopInstaller(port).enroll([KEY], { delegated: true });
+  assert.equal(calls.ops[0].delegated, true);
+  assert.equal(calls.ops[0].credential, undefined);
+  // 20/21/22 are distinct, not a generic failure — logs and the pending-revoke
+  // path can tell "delegation off" from "refused" from "service unreachable".
+  for (const [exit, outcome] of [
+    [SECURE_DESKTOP_DELEGATION_DISABLED_EXIT, 'delegation-disabled'],
+    [SECURE_DESKTOP_DELEGATION_DENIED_EXIT, 'delegation-denied'],
+    [SECURE_DESKTOP_DELEGATION_UNAVAILABLE_EXIT, 'service-unreachable'],
+  ]) {
+    const d = fakePort({ states: ['installed', 'installed'], keyOps: [exit] });
+    assert.equal((await createSecureDesktopInstaller(d.port).enroll([KEY], { delegated: true })).outcome, outcome);
+  }
+});
+
+test('a not-enrolled phone is enrolled, never reinstalled (its key set is kept)', async () => {
+  // check 7 → not-enrolled. request() must add this key (enroll), not run the
+  // elevated install, which would rebuild state and drop other phones' keys.
+  const { port, calls } = fakePort({ states: ['not-enrolled', 'installed'], keyOps: [0] });
+  const result = await createSecureDesktopInstaller(port).request(KEY);
+  assert.equal(result.outcome, 'installed', 'the phone now has access');
+  assert.equal(calls.keyOp, 1, 'it enrolled');
+  assert.equal(calls.elevate, 0, 'no reinstall');
+  assert.equal(calls.verify, 0, 'the bundled image is already installed; nothing to verify');
+  assert.deepEqual(calls.ops[0], { verb: 'enroll', keys: [KEY], revoke: [], credential: undefined, delegated: undefined });
+});
+
+test('check exit 7 maps to not-enrolled and offers an enroll, not a reinstall', () => {
+  assert.equal(installStateFromCheckExit(SECURE_DESKTOP_NOT_ENROLLED_EXIT), 'not-enrolled');
+  assert.equal(installStateFromCheckExit(99), 'unavailable', 'unknown codes still fall back');
+  assert.equal(installOfferFor('not-enrolled'), 'update');
+});
+
+test('only one admin action runs at a time across phones (rate limit, no retry)', async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { port, calls } = fakePort({ states: ['installed', 'installed', 'installed'], keyOps: [gate] });
+  const installer = createSecureDesktopInstaller(port);
+  const first = installer.enroll([KEY]);
+  // A second op while the first is in flight is told in-progress, not launched.
+  const second = await installer.enroll([OTHER_KEY]);
+  assert.equal(second.outcome, 'in-progress');
+  assert.equal(installer.pending, true);
+  assert.equal(calls.keyOp, 1, 'the second op never reached the bridge');
+  release(0);
+  assert.equal((await first).outcome, 'enrolled');
+  assert.equal(installer.pending, false);
+});
+
+test('an invalid key fails a key op without launching anything', async () => {
+  const { port, calls } = fakePort({ states: ['installed'], keyOps: [0] });
+  const result = await createSecureDesktopInstaller(port).enroll(['not-a-key']);
+  assert.equal(result.outcome, 'failed');
+  assert.equal(calls.keyOp, 0);
 });

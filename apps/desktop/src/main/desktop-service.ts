@@ -54,6 +54,11 @@ import { revocationQueueDamaged } from './remote-relay-device';
 import { createRemoteAccessSettingsStore } from './remote-access-settings';
 import { loadRemoteClientCache } from './remote-client-cache';
 import { createPendingRevokeDrain } from './remote-revoke-drain';
+import { createRemoteControllerKeys } from './remote-controller-keys';
+import {
+  REMOTE_CONTROLLER_KEY_DELIVERED_EVENT,
+  REMOTE_CONTROLLER_KEYS_OWED_EVENT,
+} from '../shared/remote-controller-key';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
 import type { RemoteHostRequestMethod } from './remote-methods';
 import type { BrowserRemoteMethod } from './remote-browser-methods';
@@ -324,6 +329,10 @@ async function loadRemoteDeviceBook(userDataPath: string, accessSettings: Remote
   };
 }
 
+/** Tells the desktop app a pairing removal owed PC access revocations. */
+const announceOwedAccess = (emit: (message: DesktopServiceOutbound) => void): void =>
+  emit({ kind: 'desktop-event', name: REMOTE_CONTROLLER_KEYS_OWED_EVENT, value: null });
+
 const RELAY_RETRY_BASE_MS = 5_000;
 const RELAY_RETRY_MAX_MS = 5 * 60_000;
 
@@ -377,12 +386,16 @@ function createRelayLeg({
    *  stays closed (the start fails and retries); local use is unaffected. */
   const resetPairingAfterLostRevocations = async (): Promise<void> => {
     if (!clientCache.repairRequired() && !(await revocationQueueDamaged(userDataPath))) return;
+    // Every paired phone's PC access key is owed a revoke before any pairing
+    // goes (a damaged cache already marked them unknown when it loaded).
+    await clientCache.oweAccess('all');
     await Promise.all([
       rotatePairingToken(userDataPath),
       rotateRemoteDevice(userDataPath),
       rotateRelayE2EEIdentity(userDataPath),
     ]);
     await clientCache.clear();
+    announceOwedAccess(emit);
   };
   /** `explicit` is a user remote-access action: it activates (and persists)
    *  remote access. Boot/resume/retry starts only connect once activated, so a
@@ -441,6 +454,8 @@ function createRelayLeg({
      *  pairs again on a fresh leg. */
     async rotate(): Promise<void> {
       await startRemoteServices(true);
+      // Owed before any pairing goes: every paired phone's PC access key.
+      await clientCache.oweAccess('all');
       const relay = remoteRelay;
       await Promise.all([
         rotatePairingToken(userDataPath),
@@ -452,6 +467,7 @@ function createRelayLeg({
         await relay?.close();
       } catch {}
       await clientCache.clear();
+      announceOwedAccess(emit);
       await startRemoteServices(true);
     },
     /** Switched off: no retry; a start already in flight finishes first, then
@@ -504,6 +520,10 @@ async function createRemoteAccess(input: RemoteAccessInput) {
   let pcName = (await accessSettings.read()).name;
   const devices = await loadRemoteDeviceBook(userDataPath, accessSettings);
   const { cache: clientCache, remembered, withAliases } = devices;
+  // Each paired phone's secure-desktop controller key, kept with its record.
+  const controllerKeys = createRemoteControllerKeys(clientCache, (publicKey) =>
+    emit({ kind: 'desktop-event', name: REMOTE_CONTROLLER_KEY_DELIVERED_EVENT, value: { publicKey } })
+  );
   const publishAccessSettings = (settings: DesktopRemoteAccessSettings): DesktopRemoteAccessSettings => {
     publishDesktopEvent('remote-access-settings-changed', settings);
     return settings;
@@ -562,6 +582,7 @@ async function createRemoteAccess(input: RemoteAccessInput) {
     // Approving the device again is an explicit re-pair: an unpair still
     // queued for it is withdrawn (the next drain would revoke the new pairing).
     onClaimApproved: (clientId: string): void => void clientCache.repaired(clientId).catch(() => undefined),
+    screenControllerKeys: controllerKeys,
   };
   const leg = createRelayLeg({
     userDataPath,
@@ -590,6 +611,7 @@ async function createRemoteAccess(input: RemoteAccessInput) {
   };
   return {
     claims,
+    controllerKeys,
     settings: accessSettings,
     relay: leg.relay,
     start: leg.start,
@@ -616,20 +638,23 @@ async function createRemoteAccess(input: RemoteAccessInput) {
       if (!remoteRelay) {
         // Off: forget it now, tell the relay on the next enable.
         if (!(await accessSettings.disabled())) return null;
+        // Also owes the device's PC access key, in the same write.
         await clientCache.queueRevoke(clientId);
+        announceOwedAccess(emit);
         return remoteDescriptor();
       }
       // Recorded before the relay is asked, and in force at once: until the
       // relay confirms it, this PC keeps the device unpaired (`unpairPending`,
       // persisted, so across a restart too) and each relay (re)connection
-      // retries it. If the write fails, the record is kept in memory for this
-      // run only.
+      // retries it. The same step owes the device's PC access key. If the
+      // write fails, the record is kept in memory for this run only.
       const recorded = clientCache.queueRevoke(clientId).catch(() => undefined);
       const revocation = clientCache.revocation(clientId);
       try {
         await remoteRelay.revokeClient(clientId);
       } finally {
         await recorded;
+        announceOwedAccess(emit);
       }
       if (revocation !== null) await clientCache.applied(clientId, revocation);
       return remoteDescriptor();
@@ -850,6 +875,13 @@ function createServiceOperationRouter({
       }
       case 'remoteAccessRevokeClient':
         return remote.revokeClient(String(operationArgs[0] || ''));
+      case 'remoteAccessControllerKeys':
+        return remote.controllerKeys.list();
+      case 'remoteAccessOwedControllerKeys':
+        return remote.controllerKeys.owed();
+      case 'remoteAccessSettleOwedControllerKeys':
+        await remote.controllerKeys.settleOwed(operationArgs);
+        return null;
       case 'remoteAccessResume': {
         const relay = remote.relay();
         if (relay) relay.resume();

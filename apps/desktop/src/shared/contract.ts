@@ -7,6 +7,7 @@ import type {
   DesktopComputerInputAccess,
   DesktopComputerPermissionPane,
   DesktopComputerReadiness,
+  DesktopPcAccessApproval,
 } from './contract-computer';
 import type {
   DesktopAbortOptions,
@@ -271,6 +272,9 @@ export interface DesktopApi {
   computerReadiness?(): Promise<DesktopComputerReadiness>;
   requestLinuxInputAccess?(): Promise<DesktopComputerInputAccess>;
   openComputerPermissionSettings?(pane: DesktopComputerPermissionPane): Promise<void>;
+  /** Windows: the PC access row's Approve — installs the secure-desktop
+   *  service (one UAC prompt) or enrolls the paired phones it is missing. */
+  approvePcAccess?(): Promise<DesktopPcAccessApproval>;
   githubCliStatus?(): Promise<DesktopGithubCliStatus>;
   installGithubCli?(): Promise<DesktopGithubCliStatus>;
   githubCliLoginStart?(): Promise<DesktopGithubCliLoginFlow>;

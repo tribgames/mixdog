@@ -136,6 +136,7 @@ const api: DesktopApi = {
   libreOfficeStatus: (refresh) => invokeIpc(DESKTOP_IPC.libreOfficeStatus, refresh === true),
   installLibreOffice: () => invokeIpc(DESKTOP_IPC.installLibreOffice),
   computerReadiness: () => invokeIpc(DESKTOP_IPC.computerReadiness),
+  approvePcAccess: () => invokeIpc(DESKTOP_IPC.approvePcAccess),
   openComputerPermissionSettings: (pane) => invokeIpc(DESKTOP_IPC.openComputerPermissionSettings, pane),
   githubCliStatus: () => invokeIpc(DESKTOP_IPC.githubCliStatus),
   installGithubCli: () => invokeIpc(DESKTOP_IPC.installGithubCli),

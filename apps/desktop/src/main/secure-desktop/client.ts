@@ -503,6 +503,23 @@ export const SECURE_DESKTOP_OTHER_USER_EXIT = 4;
 export const SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT = 5;
 /** …and its certificate revocation status could not be determined in time. */
 export const SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT = 6;
+/** `check --controller-key k`: installed and current, but that phone's key is
+ *  not enrolled (offer an enroll, not a reinstall). */
+export const SECURE_DESKTOP_NOT_ENROLLED_EXIT = 7;
+// Credential-logon (`--logon`) exit codes: the typed Windows password did not
+// authenticate, the account is not an unfiltered admin, or the account/policy
+// refused the logon. Each maps to a phone outcome.
+export const SECURE_DESKTOP_BAD_CREDENTIALS_EXIT = 10;
+export const SECURE_DESKTOP_NOT_ADMIN_EXIT = 11;
+export const SECURE_DESKTOP_LOGON_TYPE_DENIED_EXIT = 12;
+export const SECURE_DESKTOP_ACCOUNT_LOCKED_EXIT = 13;
+export const SECURE_DESKTOP_ACCOUNT_DISABLED_EXIT = 14;
+export const SECURE_DESKTOP_POLICY_BLOCKED_EXIT = 15;
+// App-delegated (`--delegated`) exit codes: delegation is off, the service
+// refused this caller, or the service was unreachable.
+export const SECURE_DESKTOP_DELEGATION_DISABLED_EXIT = 20;
+export const SECURE_DESKTOP_DELEGATION_DENIED_EXIT = 21;
+export const SECURE_DESKTOP_DELEGATION_UNAVAILABLE_EXIT = 22;
 
 /**
  * Run `file args`, resolving its exit code; a spawn failure (or, when
@@ -572,9 +589,13 @@ export async function verifySecureDesktopImage(
  * the bridge's exit code, or `ELEVATION_DECLINED_EXIT` when the prompt was
  * declined; rejects only when it could not be launched.
  */
+/** The admin-gated subcommands the app runs through one of the three
+ *  authorization paths (UAC elevation, `--logon`, or `--delegated`). */
+export type SecureDesktopAdminVerb = 'install' | 'uninstall' | 'enroll' | 'revoke' | 'disable-delegation';
+
 export async function elevateSecureDesktop(
   environment: SecureDesktopEnvironment,
-  verbArgument: 'install' | 'uninstall',
+  verbArgument: SecureDesktopAdminVerb,
   extraArguments: readonly string[] = [],
 ): Promise<number> {
   const exe = secureDesktopExePath(environment);
@@ -601,6 +622,59 @@ export async function elevateSecureDesktop(
   return exitCodeOf('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command]);
 }
 
+/** A Windows administrator credential the phone typed for the remote (no-one
+ *  at the PC) install path. `user` is optional: when omitted, the bridge uses
+ *  the account running the app (`GetUserNameExW`). The password is never put in
+ *  argv, the environment, logs or events — only on the child's stdin. */
+export interface SecureDesktopCredential {
+  password: string;
+  user?: string;
+}
+
+/**
+ * Run an admin-gated subcommand **unelevated, under a batch logon** from a
+ * Windows password typed on the phone (`--logon`). The credential is written
+ * only to the child's stdin as `<user>\n<password>` (an empty first line means
+ * "use the app's own account"); it never appears in argv, the environment or
+ * any log. Resolves the bridge's exit code (the `SECURE_DESKTOP_*_EXIT`
+ * credential codes map to phone outcomes); rejects only when it could not be
+ * spawned. The stdin string is dropped as soon as it is written.
+ */
+export function runSecureDesktopWithLogon(
+  environment: SecureDesktopEnvironment,
+  verbArgument: SecureDesktopAdminVerb,
+  extraArguments: readonly string[],
+  credential: SecureDesktopCredential,
+): Promise<number> {
+  const exe = secureDesktopExePath(environment);
+  const args = [verbArgument, ...extraArguments, '--logon'];
+  const stdin = `${credential.user ?? ''}\n${credential.password}`;
+  return new Promise<number>((resolve, reject) => {
+    const child = execFile(exe, args, { windowsHide: true }, (error) => {
+      if (!error) return resolve(0);
+      const code = (error as { code?: unknown }).code;
+      if (typeof code === 'number') return resolve(code);
+      return reject(error);
+    });
+    // Write the secret to stdin and close it; never retained after this.
+    child.stdin?.end(stdin);
+  });
+}
+
+/**
+ * Run an admin-gated enroll/revoke **unelevated through the app-delegation
+ * path** (`--delegated`): the bridge asks the SYSTEM service, which decides
+ * against the stored delegation policy. No prompt, no credential. Resolves the
+ * bridge's exit code; rejects only when it could not be spawned.
+ */
+export function runSecureDesktopDelegated(
+  environment: SecureDesktopEnvironment,
+  verbArgument: 'enroll' | 'revoke',
+  extraArguments: readonly string[],
+): Promise<number> {
+  return exitCodeOf(secureDesktopExePath(environment), [verbArgument, ...extraArguments, '--delegated']);
+}
+
 /** Whether the installed service matches the bundled bridge, from its
  *  unelevated `check` (exit 0 current / 1 missing / 2 stale / 4 other-user).
  *  `other-user` is a service another Windows account installed. */
@@ -608,6 +682,9 @@ export type SecureDesktopInstallState =
   | 'installed'
   | 'outdated'
   | 'not-installed'
+  /** Installed and current, but the asking phone's key is not enrolled (bridge
+   *  exit 7): add that one key (enroll), never a reinstall. */
+  | 'not-enrolled'
   | 'other-user'
   | 'unavailable';
 
@@ -621,6 +698,8 @@ export function installStateFromCheckExit(exitCode: number): SecureDesktopInstal
       return 'outdated';
     case 4:
       return 'other-user';
+    case SECURE_DESKTOP_NOT_ENROLLED_EXIT:
+      return 'not-enrolled';
     default:
       return 'unavailable';
   }

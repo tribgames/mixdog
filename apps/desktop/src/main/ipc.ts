@@ -347,6 +347,7 @@ export function registerDesktopIpc(
     rotateRemoteAccess,
     revokeRemoteAccessClient,
     remoteHosts,
+    pcAccess: computer?.pcAccess,
   });
   if (notifications) registerNotificationIpc({ handle, invokeDesktopOperation, notifications });
   registerBrowserIpc({ handle, browserHost, browserLogin });

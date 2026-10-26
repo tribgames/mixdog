@@ -12,7 +12,6 @@ import { remoteWebrtcHost } from './remote-webrtc-bridge';
 import { createRemoteWebrtcViewer, type RemoteWebrtcViewer } from './remote-webrtc-viewer';
 import { createControllerKeys } from './remote-screen-controller-key';
 import {
-  createScreenHelperAutoInstall,
   createScreenHelperGrants,
   createScreenHelperInstall,
   readScreenHelperBlock,
@@ -26,7 +25,7 @@ const RELEASE: RemoteScreenInput = { type: 'screen-release' };
 
 /** How long a pressed install button waits for the PC's status before it can
  *  be pressed again (the person at the PC may be slow, the request may be lost). */
-export const HELPER_REQUEST_WAIT_MS = 15_000;
+const HELPER_REQUEST_WAIT_MS = 15_000;
 
 export function useRemoteScreen({
   api,
@@ -74,19 +73,8 @@ export function useRemoteScreen({
     send: (message, origin) => origin.sendHelperMessage(message),
   });
   const grants = grantsRef.current;
-  // The one automatic install request of a pairing, behind the grants' gate.
-  const autoInstallRef = useRef<ReturnType<typeof createScreenHelperAutoInstall<RemoteWebrtcViewer>> | null>(null);
-  autoInstallRef.current ??= createScreenHelperAutoInstall<RemoteWebrtcViewer>({
-    guard: keys.autoGuard,
-    requested: keys.autoRequested,
-    mark: keys.markAutoRequested,
-    ensureKey: keys.ensure,
-    active: () => screenGrantSurfaceActive(viewRef.current, document.visibilityState),
-    generation: grants.generation,
-    origin: () => viewerRef.current,
-    send: (message, origin) => origin.sendHelperMessage(message),
-  });
-  const autoInstall = autoInstallRef.current;
+  // The helper is asked for only by the button (the PC's own setup, or the
+  // phone's blocked-state sheet); a screen session never asks by itself.
   const requestInstall = useMemo(
     () =>
       createScreenHelperInstall({
@@ -212,15 +200,6 @@ export function useRemoteScreen({
   useEffect(() => {
     grants.invalidate();
   }, [grantSurface, grants]);
-  // The first time this pairing's PC screen offers the helper, ask for it once.
-  // Tried again when the surface or the status changes, until a send went out.
-  const helperOffer = status?.helperInfo.offer ?? null;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `grantSurface` and `helperOffer` are the triggers; the viewer is read through its ref.
-  useEffect(() => {
-    const current = viewerRef.current;
-    if (!current || !grantSurface || helperOffer !== 'install') return;
-    void autoInstall.consider({ offer: helperOffer }, current);
-  }, [grantSurface, helperOffer, autoInstall]);
   // Gated on the newest view, not the one a callback was made in.
   const send = useCallback(
     (input: RemoteScreenInput): boolean =>
@@ -233,7 +212,6 @@ export function useRemoteScreen({
     videoRef,
     view,
     status,
-    showsVideo,
     geometry: viewer?.geometry ?? null,
     send,
     retry,

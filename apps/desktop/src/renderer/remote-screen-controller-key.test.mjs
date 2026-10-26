@@ -6,11 +6,8 @@ import {
   clearControllerKey,
   controllerKeyScopeFor,
   createControllerKeys,
-  autoRequestGuard,
   ensureControllerKey,
-  hasAutoRequestedHelper,
   loadControllerKey,
-  markAutoRequestedHelper,
 } from './remote-screen-controller-key.ts';
 import { remotePairingKeys } from './remote-pairing-recovery.ts';
 import { fakeIndexedDB } from './test-support/fake-indexeddb.mjs';
@@ -110,34 +107,14 @@ test('the store keeps the key for the page and clears it with the pairing', asyn
   assert.equal(await loadControllerKey(SCOPE, factory), null);
 });
 
-test('the automatic-request mark lives per pairing beside the key and is retired with it', async () => {
+test('a pairing keeps only its key: no automatic-request mark is stored beside it', async () => {
   const factory = fakeIndexedDB();
-  const other = remotePairingKeys('https://relay.example', 'ffffffff-0000').token;
-  assert.equal(await hasAutoRequestedHelper(SCOPE, factory), false);
-  await ensureControllerKey(SCOPE, factory);
-  await markAutoRequestedHelper(SCOPE, factory);
-  await markAutoRequestedHelper(other, factory);
-  assert.equal(await hasAutoRequestedHelper(SCOPE, factory), true, 'it survives a reload');
-  assert.ok(await loadControllerKey(SCOPE, factory), 'the key is unaffected by the mark');
-
-  await clearControllerKey(SCOPE, factory);
-  assert.equal(await hasAutoRequestedHelper(SCOPE, factory), false, 'retired with the key');
-  assert.equal(await hasAutoRequestedHelper(other, factory), true, 'another PC keeps its mark');
-
-  // The page-scope guard is shared per pairing and retired with it.
-  const guard = autoRequestGuard(SCOPE);
-  guard.done = true;
-  assert.equal(autoRequestGuard(SCOPE), guard);
-  assert.notEqual(autoRequestGuard(other), guard);
-  await clearControllerKey(SCOPE, factory);
-  assert.equal(autoRequestGuard(SCOPE).done, false, 'a new pairing starts fresh');
-
-  const keys = createControllerKeys(() => other, factory);
-  assert.equal(await keys.autoRequested(), true);
+  const keys = createControllerKeys(() => SCOPE, factory);
+  await keys.ensure();
+  const store = factory.databases.get('mixdog-remote-screen-controller').get('keys');
+  assert.deepEqual([...store.keys()], [SCOPE]);
   await keys.clear();
-  assert.equal(await keys.autoRequested(), false);
-  await keys.markAutoRequested();
-  assert.equal(await keys.autoRequested(), true);
+  assert.equal(store.size, 0);
 });
 
 test('the pairing scope is the key the shim stores the credential under', () => {

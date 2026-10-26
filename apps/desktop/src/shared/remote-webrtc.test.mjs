@@ -16,6 +16,13 @@ import {
   remoteWebrtcScreenHelperChallenge,
   encodeRemoteWebrtcScreenHelperGrant,
   encodeRemoteWebrtcScreenHelperInstall,
+  encodeRemoteWebrtcScreenHelperEnroll,
+  encodeRemoteWebrtcScreenHelperRevoke,
+  readRemoteWebrtcScreenHelperEnroll,
+  readRemoteWebrtcScreenHelperRevoke,
+  CREDUI_MAX_USERNAME_LENGTH,
+  CREDUI_MAX_PASSWORD_LENGTH,
+  MAX_REMOTE_SCREEN_HELPER_KEYS,
   REMOTE_SCREEN_HELPER_ISSUES,
   MAX_REMOTE_SCREEN_HELPER_DETAIL,
   parseRemoteScreenInput,
@@ -324,7 +331,23 @@ test('screen-status helper block: every offer, outcome and issue; bounded detail
       })
     )?.status.helperInfo ?? null;
   for (const offer of ['install', 'update', 'none']) assert.deepEqual(read({ ...base, offer }), { ...base, offer });
-  for (const outcome of ['installed', 'updated', 'declined', 'failed', 'in-progress', 'other-user', 'unavailable']) {
+  for (const outcome of [
+    'installed',
+    'updated',
+    'enrolled',
+    'revoked',
+    'declined',
+    'failed',
+    'in-progress',
+    'other-user',
+    'unavailable',
+    'bad-credentials',
+    'not-admin',
+    'logon-type-denied',
+    'account-locked',
+    'account-disabled',
+    'policy-blocked',
+  ]) {
     assert.deepEqual(read({ ...base, outcome, detail: 'why' }), { ...base, outcome, detail: 'why' });
   }
   assert.deepEqual(REMOTE_SCREEN_HELPER_ISSUES, [
@@ -446,6 +469,88 @@ test('helper grants: challenge, grant and install messages, strict and bounded; 
   }
   assert.throws(parsed({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-challenge', ...grant, nonce: NONCE }), TypeError, 'a desktop message');
   assert.throws(parsed({ ...grantMessage, kind: 'screen-helper-grants' }), TypeError);
+});
+
+test('helper install/enroll/revoke carry optional keys and a credential, bounded and never echoed', async () => {
+  const key = await generateSecureDesktopControllerKey();
+  const other = await generateSecureDesktopControllerKey();
+  const credential = { password: 'p@ss w0rd', user: 'PC\\admin' };
+
+  // Install with extra keys and a credential round-trips exactly.
+  const installText = encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { keys: [other.publicKey], credential });
+  assert.deepEqual(parseRemoteWebrtcChannelFromClient(installText), {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-install',
+    publicKey: key.publicKey,
+    keys: [other.publicKey],
+    credential,
+  });
+  // The bare install (no options) carries neither — unchanged from before.
+  assert.deepEqual(parseRemoteWebrtcChannelFromClient(encodeRemoteWebrtcScreenHelperInstall(key.publicKey)), {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-install',
+    publicKey: key.publicKey,
+  });
+
+  // Enroll/revoke: read with their own readers (off the input dispatch path).
+  for (const [encode, read, kind] of [
+    [encodeRemoteWebrtcScreenHelperEnroll, readRemoteWebrtcScreenHelperEnroll, 'screen-helper-enroll'],
+    [encodeRemoteWebrtcScreenHelperRevoke, readRemoteWebrtcScreenHelperRevoke, 'screen-helper-revoke'],
+  ]) {
+    assert.deepEqual(read(encode(key.publicKey)), { v: REMOTE_WEBRTC_VERSION, kind, publicKey: key.publicKey });
+    const withCredential = read(encode(key.publicKey, { credential: { password: 'x' } }));
+    assert.deepEqual(withCredential, { v: REMOTE_WEBRTC_VERSION, kind, publicKey: key.publicKey, credential: { password: 'x' } });
+    // A user-less credential is accepted (the PC resolves its own account).
+    assert.equal(withCredential.credential.user, undefined);
+    // The wrong reader, or input dispatch, does not accept it.
+    assert.equal(readRemoteWebrtcScreenHelperChallenge(encode(key.publicKey)), null);
+    assert.throws(() => parseRemoteWebrtcChannelFromClient(encode(key.publicKey)), TypeError);
+  }
+
+  // A `user` omitted is fine; an empty one is dropped, not kept.
+  const noUser = parseRemoteWebrtcChannelFromClient(
+    encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { credential: { password: 'pw', user: '' } }),
+  );
+  assert.equal(noUser.credential.user, undefined);
+
+  // Bounds: an over-long password or username, too many keys, an empty
+  // password, or an invalid extra key are all refused on encode and read.
+  const longPassword = 'a'.repeat(CREDUI_MAX_PASSWORD_LENGTH + 1);
+  const longUser = 'u'.repeat(CREDUI_MAX_USERNAME_LENGTH + 1);
+  const tooManyKeys = Array.from({ length: MAX_REMOTE_SCREEN_HELPER_KEYS + 1 }, () => other.publicKey);
+  assert.throws(() => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: longPassword } }), TypeError);
+  assert.throws(() => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: 'pw', user: longUser } }), TypeError);
+  assert.throws(() => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: '' } }), TypeError);
+  assert.throws(() => encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { keys: tooManyKeys }), TypeError);
+  assert.throws(() => encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { keys: ['not-a-key'] }), TypeError);
+  // The reader rejects a malformed enroll (over-long password, bad key) as null.
+  assert.equal(
+    readRemoteWebrtcScreenHelperEnroll(
+      JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-enroll', publicKey: key.publicKey, credential: { password: longPassword } }),
+    ),
+    null,
+  );
+  assert.equal(
+    readRemoteWebrtcScreenHelperEnroll(JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-enroll', publicKey: 'not-a-key' })),
+    null,
+  );
+
+  // The credential never rides back to the phone: the status reader (desktop →
+  // phone) has no credential field to carry it.
+  const status = readRemoteWebrtcScreenStatus(
+    JSON.stringify({
+      v: REMOTE_WEBRTC_VERSION,
+      kind: 'screen-status',
+      status: {
+        state: 'stopped',
+        helper: 'missing',
+        control: false,
+        helperInfo: { offer: 'install', outcome: 'bad-credentials', detail: null, issue: null, secure: null },
+      },
+    }),
+  );
+  assert.equal(status.status.helperInfo.outcome, 'bad-credentials');
+  assert.ok(!JSON.stringify(status).includes('password'));
 });
 
 test('the transport machine keeps JPEG until WebRTC owns the view and has no input owner mid-demotion', () => {

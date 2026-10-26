@@ -11,15 +11,26 @@ import {
   writeJsonAtomicAsync,
 } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopRemoteClientInfo } from '../shared/contract';
+import type { RemoteControllerKeyRecord, RemoteControllerKeysOwed } from '../shared/remote-controller-key';
+import { MAX_REMOTE_SCREEN_HELPER_KEYS } from '../shared/remote-webrtc';
+import { isSecureDesktopControllerKey } from '../shared/secure-desktop-grant';
 
 const CLIENTS_FILE = 'remote-clients.json';
 
 interface Stored {
   clients: DesktopRemoteClientInfo[];
   pendingRevokes: string[];
+  /** Each paired phone's secure-desktop controller public key, by client id
+   *  (public halves only: nothing here is a secret). */
+  controllerKeys: Record<string, string>;
   /** The file was damaged (or unreadable) when it was loaded, so the revocations
    *  it held are unknown. Kept in the file until `clear()` answers it. */
   repairRequired: boolean;
+  /** PC access: controller keys of removed pairings, owed a secure-desktop
+   *  revoke until the desktop app takes them over (`settleOwedAccess`). */
+  owedAccessKeys: string[];
+  /** Non-zero while owed access revocations may be missing. */
+  owedAccessUnknown: number;
 }
 
 export interface RemoteClientCache {
@@ -47,8 +58,24 @@ export interface RemoteClientCache {
    *  for it no longer applies. */
   repaired(clientId: string): Promise<void>;
   /** The device identity changed: nothing earlier applies any more, and a
-   *  damaged record is answered. */
+   *  damaged record is answered. Every mapped controller key is owed first. */
   clear(): Promise<void>;
+  /** PC access: owes the controller keys of `clientIds` (every mapped one for
+   *  'all'), durably — the step every pairing removal takes before a pairing
+   *  or its mapping goes (`queueRevoke`, `applied` and `clear` take it in the
+   *  same write). Rejects when it could not be written. */
+  oweAccess(clientIds: readonly string[] | 'all'): Promise<void>;
+  /** The access revocations owed for removed pairings. */
+  owedAccess(): RemoteControllerKeysOwed;
+  /** The desktop app holds `keys` (and the `unknown` it read) durably now. */
+  settleOwedAccess(keys: readonly string[], unknown: number): Promise<void>;
+  /** Every delivered controller key, each marked while its device's unpair
+   *  is still queued. */
+  controllerKeys(): RemoteControllerKeyRecord[];
+  /** Keeps the key a paired device delivered. A different earlier key is
+   *  replaced and owed a revoke in the same write; a failed write keeps both
+   *  as they were. The same key again changes nothing. */
+  setControllerKey(clientId: string, publicKey: string): Promise<void>;
 }
 
 const text = (value: unknown, max: number): string => (typeof value === 'string' ? value.slice(0, max) : '');
@@ -80,9 +107,28 @@ function storedOf(value: unknown): Stored {
   if (parsed.repairRequired !== undefined && typeof parsed.repairRequired !== 'boolean') {
     throw new TypeError('The repair flag is not a boolean.');
   }
+  // Owed access revocations are checked as strictly; written before they existed: none.
+  const owed = parsed.owedAccessKeys ?? [];
+  if (!Array.isArray(owed) || !owed.every((key) => isSecureDesktopControllerKey(key))) {
+    throw new TypeError('The owed access revocations are not a list of keys.');
+  }
+  const owedUnknown = parsed.owedAccessUnknown ?? 0;
+  if (!Number.isSafeInteger(owedUnknown) || owedUnknown < 0) {
+    throw new TypeError('The owed access marker is not a count.');
+  }
+  const keys =
+    parsed.controllerKeys && typeof parsed.controllerKeys === 'object' && !Array.isArray(parsed.controllerKeys)
+      ? parsed.controllerKeys
+      : {};
   return {
+    owedAccessKeys: [...owed],
+    owedAccessUnknown: owedUnknown,
     clients: (Array.isArray(parsed.clients) ? parsed.clients : []).flatMap((row) => entry(row) ?? []),
     pendingRevokes: [...parsed.pendingRevokes],
+    // Written before keys existed: none. An entry that is not a key is dropped.
+    controllerKeys: Object.fromEntries(
+      Object.entries(keys).filter(([id, key]) => id && isSecureDesktopControllerKey(key))
+    ),
     repairRequired: parsed.repairRequired === true,
   };
 }
@@ -107,7 +153,29 @@ async function readStored(file: string): Promise<{ stored: Stored | null } | { d
 
 export async function loadRemoteClientCache(userDataPath: string): Promise<RemoteClientCache> {
   const file = join(userDataPath, CLIENTS_FILE);
-  let state: Stored = { clients: [], pendingRevokes: [], repairRequired: false };
+  let state: Stored = {
+    clients: [],
+    pendingRevokes: [],
+    controllerKeys: {},
+    repairRequired: false,
+    owedAccessKeys: [],
+    owedAccessUnknown: 0,
+  };
+  /** Owes the access keys of `clientIds` in memory (the caller persists):
+   *  past the pairing cap the revocations become unknown, never dropped. */
+  const owe = (clientIds: readonly string[] | 'all'): void => {
+    const keys =
+      clientIds === 'all'
+        ? Object.values(state.controllerKeys)
+        : clientIds.flatMap((id) => state.controllerKeys[id] ?? []);
+    const owed = [...state.owedAccessKeys];
+    for (const key of keys) {
+      if (owed.includes(key)) continue;
+      if (owed.length >= MAX_REMOTE_SCREEN_HELPER_KEYS) state.owedAccessUnknown += 1;
+      else owed.push(key);
+    }
+    state.owedAccessKeys = owed;
+  };
   /** Queued revocation → its instance (this run only). */
   const revocations = new Map<string, number>();
   let lastRevocation = 0;
@@ -135,6 +203,8 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
     // damaged bytes are copied aside and the flag written over them, so a crash
     // before either finishes finds the damage again instead of an empty file.
     state.repairRequired = true;
+    // The paired phones' controller keys went with it: their access revocations are unknown.
+    state.owedAccessUnknown = 1;
     if (read.damaged) {
       await writeFileAtomicAsync(quarantinePath(file), read.damaged, { secret: true }).catch(() => undefined);
     }
@@ -152,12 +222,18 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
     async remember(clients) {
       const next = clients.flatMap((row) => entry(row) ?? []);
       // Each remote-access read reports the list; rewriting an unchanged one
-      // cost an owner-only ACL process and two fsyncs per poll.
+      // cost an owner-only ACL process and two fsyncs per poll. Controller
+      // keys are not pruned against it: a list read before a pairing could
+      // land after that phone's key. A key goes with its device's confirmed
+      // unpair (`applied`) or a reset (`clear`).
       if (JSON.stringify(next) === JSON.stringify(state.clients)) return;
       state.clients = next;
       await persist();
     },
     async queueRevoke(clientId) {
+      // Owed in the same step that marks it unpaired: no moment where the
+      // device is being removed and its access key is not owed.
+      owe([clientId]);
       if (!state.pendingRevokes.includes(clientId)) {
         state.pendingRevokes.push(clientId);
         issue(clientId);
@@ -167,8 +243,10 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
     async applied(clientId, revocation) {
       if (revocations.get(clientId) !== revocation) return;
       revocations.delete(clientId);
+      owe([clientId]);
       state.clients = state.clients.filter((client) => client.id !== clientId);
       state.pendingRevokes = state.pendingRevokes.filter((id) => id !== clientId);
+      delete state.controllerKeys[clientId];
       await persist();
     },
     async repaired(clientId) {
@@ -179,8 +257,60 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
     },
     async clear() {
       revocations.clear();
-      state = { clients: [], pendingRevokes: [], repairRequired: false };
+      owe('all');
+      state = {
+        clients: [],
+        pendingRevokes: [],
+        controllerKeys: {},
+        repairRequired: false,
+        owedAccessKeys: state.owedAccessKeys,
+        owedAccessUnknown: state.owedAccessUnknown,
+      };
       await persist();
+    },
+    async oweAccess(clientIds) {
+      owe(clientIds);
+      await persist();
+    },
+    owedAccess: () => ({ keys: [...state.owedAccessKeys], unknown: state.owedAccessUnknown }),
+    async settleOwedAccess(keys, unknown) {
+      const left = state.owedAccessKeys.filter((key) => !keys.includes(key));
+      const resolved = unknown > 0 && state.owedAccessUnknown === unknown;
+      if (left.length === state.owedAccessKeys.length && !resolved) return;
+      state.owedAccessKeys = left;
+      if (resolved) state.owedAccessUnknown = 0;
+      await persist();
+    },
+    controllerKeys: () =>
+      Object.entries(state.controllerKeys).map(([clientId, publicKey]) => ({
+        clientId,
+        publicKey,
+        unpaired: state.pendingRevokes.includes(clientId),
+      })),
+    async setControllerKey(clientId, publicKey) {
+      const previous = state.controllerKeys[clientId];
+      if (previous === publicKey) return;
+      const wasOwed = previous !== undefined && state.owedAccessKeys.includes(previous);
+      // A replaced key may still be enrolled: owed in the same write that
+      // stores the new mapping, so the app revokes it before the new one enrolls.
+      if (previous !== undefined) owe([clientId]);
+      state.controllerKeys = { ...state.controllerKeys, [clientId]: publicKey };
+      try {
+        await persist();
+      } catch (error) {
+        // Not written: neither change stands (unless the mapping moved on meanwhile,
+        // when the old key stays owed).
+        if (state.controllerKeys[clientId] === publicKey) {
+          const restored = { ...state.controllerKeys };
+          if (previous === undefined) delete restored[clientId];
+          else restored[clientId] = previous;
+          state.controllerKeys = restored;
+          if (previous !== undefined && !wasOwed) {
+            state.owedAccessKeys = state.owedAccessKeys.filter((key) => key !== previous);
+          }
+        }
+        throw error;
+      }
     },
   };
 }

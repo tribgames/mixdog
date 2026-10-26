@@ -157,7 +157,14 @@ import {
 } from './remote-screen/screen-electron';
 import { createSecureDesktopAdapter } from './remote-screen/secure-desktop-adapter';
 import { createSecureDesktopHelper } from './remote-screen/secure-desktop-helper';
-import { createSecureDesktopClient, secureDesktopInstallerFor } from './secure-desktop';
+import { createSecureDesktopClient, secureDesktopInstallerFor, type SecureDesktopInstaller } from './secure-desktop';
+import { createPcAccess, pendingRevokesFile, type PcAccess } from './pc-access';
+import {
+  REMOTE_CONTROLLER_KEY_DELIVERED_EVENT,
+  REMOTE_CONTROLLER_KEYS_OWED_EVENT,
+  type RemoteControllerKeyRecord,
+  type RemoteControllerKeysOwed,
+} from '../shared/remote-controller-key';
 import { modelProxyRuntimeLoader } from './model-proxy-host';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
@@ -1222,6 +1229,21 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
   }
+  // A paired phone delivered its key: PC access enrolls it (delegated, no prompt).
+  if (name === REMOTE_CONTROLLER_KEY_DELIVERED_EVENT) {
+    const publicKey = (value as { publicKey?: unknown } | null)?.publicKey;
+    if (typeof publicKey === 'string') {
+      void windowsPcAccess()
+        ?.delivered(publicKey)
+        .catch((error: unknown) => console.error('[mixdog-pc-access] enroll after delivery failed:', error));
+    }
+  }
+  // A pairing removal in the service owed access revocations: take them over and revoke.
+  if (name === REMOTE_CONTROLLER_KEYS_OWED_EVENT) {
+    void windowsPcAccess()
+      ?.revokeOwed()
+      .catch((error: unknown) => console.error('[mixdog-pc-access] owed revoke failed (still pending):', error));
+  }
 });
 // Paired browsers show this machine's updater, so its state travels to the daemon.
 unsubscribeUpdaterRelay = desktopUpdater.subscribe((state) => {
@@ -1388,6 +1410,39 @@ async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {
   const descriptor = await localService.invokeDesktopOperation('remoteAccessRotate', []);
   const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
   return remoteAccessInfoFromDescriptor(descriptor);
+}
+
+/** The one secure-desktop installer (its single in-flight latch covers the
+ *  phone's requests and PC access alike). */
+let sharedSecureDesktopInstaller: SecureDesktopInstaller | null = null;
+function secureDesktopInstaller(): SecureDesktopInstaller {
+  sharedSecureDesktopInstaller ??= secureDesktopInstallerFor({
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+    cwd: process.cwd(),
+    programData: process.env.ProgramData,
+  });
+  return sharedSecureDesktopInstaller;
+}
+
+/** Windows "PC access" (main/pc-access.ts): the readiness row's install and
+ *  enroll, the delegated enroll of a delivered key, and the revoke on unpair. */
+let pcAccess: PcAccess | null = null;
+function windowsPcAccess(): PcAccess | null {
+  if (process.platform !== 'win32') return null;
+  pcAccess ??= createPcAccess({
+    installer: secureDesktopInstaller(),
+    pending: pendingRevokesFile(join(app.getPath('userData'), 'pc-access-revokes.json')),
+    keys: async () =>
+      (await localService.invokeDesktopOperation('remoteAccessControllerKeys', [])) as RemoteControllerKeyRecord[],
+    owed: async () =>
+      (await localService.invokeDesktopOperation('remoteAccessOwedControllerKeys', [])) as RemoteControllerKeysOwed,
+    settleOwed: async (keys, unknown) => {
+      await localService.invokeDesktopOperation('remoteAccessSettleOwedControllerKeys', [keys, unknown]);
+    },
+  });
+  return pcAccess;
 }
 
 async function revokeRemoteAccessClient(clientId: string): Promise<DesktopRemoteAccessInfo | null> {
@@ -2215,7 +2270,7 @@ function installLocalWindowFeatures(
                 createInputHost: createElectronScreenInputHost,
                 secureDesktop: createSecureDesktopHelper({
                   adapter: () => createSecureDesktopAdapter(createSecureDesktopClient({ environment })),
-                  installer: secureDesktopInstallerFor(environment),
+                  installer: secureDesktopInstaller(),
                 }),
                 indicator: createPillScreenIndicator,
               };
@@ -2482,7 +2537,11 @@ function installWindowIpc(
           onDesktopSettingsChanged: applyDesktopSettings,
           browserHost: windowBrowserHost,
           browserLogin,
-          computer: { readPermissions: readComputerPermissions, requestPermissions: requestComputerPermissions },
+          computer: {
+            readPermissions: readComputerPermissions,
+            requestPermissions: requestComputerPermissions,
+            pcAccess: windowsPcAccess(),
+          },
           remoteAccessInfo,
           rotateRemoteAccess,
           revokeRemoteAccessClient,

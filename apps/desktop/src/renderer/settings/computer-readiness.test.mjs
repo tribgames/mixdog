@@ -69,6 +69,96 @@ test('Windows and an unread host list nothing', () => {
   assert.deepEqual(rowsOf(null), []);
 });
 
+const windows = (pcAccess) => ({
+  platform: 'win32',
+  screen_capture: 'not_required_on_windows',
+  accessibility: 'not_required_on_windows',
+  input: 'target_integrity_dependent',
+  ...(pcAccess ? { pcAccess: { state: pcAccess } } : {}),
+});
+
+test('Windows PC access: Approve, Approve new phone, informational for another account, nothing once done', () => {
+  const [install] = rowsOf(windows('not-installed'));
+  assert.deepEqual(
+    [install.id, install.title, install.status, install.tone, install.optional, install.needsSetup, install.action],
+    [
+      'pc-access',
+      'PC access for admin prompts and the lock screen',
+      'Optional add-on',
+      'muted',
+      true,
+      true,
+      { kind: 'approve_pc_access', label: 'Approve' },
+    ]
+  );
+  const [enroll] = rowsOf(windows('needs-enroll'));
+  assert.deepEqual(enroll.action, { kind: 'approve_pc_access', label: 'Approve new phone' });
+  // Lost revocation records: the plain Approve (a reinstall with the current pairings).
+  const [unknown] = rowsOf(windows('revocations-unknown'));
+  assert.deepEqual(
+    [unknown.id, unknown.needsSetup, unknown.optional, unknown.action],
+    ['pc-access', true, true, { kind: 'approve_pc_access', label: 'Approve' }]
+  );
+
+  const [other] = rowsOf(windows('other-user'));
+  assert.equal(other.action, undefined);
+  assert.equal(other.needsSetup, false);
+  assert.equal(other.status, 'Set up by another account');
+
+  for (const state of ['ready', 'unavailable', null]) assert.deepEqual(rowsOf(windows(state)), [], String(state));
+  // Only Windows carries the row.
+  assert.deepEqual(rowsOf({ ...linux(), pcAccess: { state: 'not-installed' } }), []);
+});
+
+test('PC access never blocks Computer Use, and is the last row', () => {
+  for (const state of ['not-installed', 'needs-enroll', 'revocations-unknown', 'other-user']) {
+    const rows = rowsOf(windows(state));
+    assert.equal(computerReadinessBlocking(rows), false, state);
+    assert.equal(rows.at(-1).id, 'pc-access');
+  }
+  assert.equal(computerReadinessPending(rowsOf(windows('not-installed'))), true, 'the list keeps polling until done');
+  assert.equal(computerReadinessPending(rowsOf(windows('other-user'))), false);
+});
+
+test('the PC access row’s Approve runs one approval, refreshes, and says so when it failed', async (t) => {
+  const reads = [windows('not-installed'), windows('needs-enroll'), windows('needs-enroll'), windows('ready')];
+  let reading = 0;
+  const answers = [{ outcome: 'done' }, { outcome: 'failed', detail: 'ENGLISH DIAGNOSTIC' }];
+  const approvals = [];
+  const api = {
+    computerReadiness: async () => reads[Math.min(reading++, reads.length - 1)],
+    approvePcAccess: async () => {
+      approvals.push(true);
+      return answers[approvals.length - 1];
+    },
+  };
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  await act(async () => root.render(React.createElement(Harness, { api })));
+  await act(async () => {});
+  const button = () => host.querySelector('[data-readiness-row="pc-access"] button');
+  assert.equal(button().textContent, 'Approve');
+
+  await act(async () => button().click());
+  assert.equal(approvals.length, 1);
+  assert.equal(button().textContent, 'Approve new phone', 'the read after it shows the next step');
+
+  await act(async () => button().click());
+  assert.equal(approvals.length, 2);
+  assert.match(host.textContent, /PC access could not be set up\./);
+  assert.doesNotMatch(host.textContent, /ENGLISH DIAGNOSTIC/);
+  // Every phone enrolled (the phone's own password enroll): the section goes.
+  await act(async () => {
+    window.dispatchEvent(new window.Event('focus'));
+  });
+  assert.equal(host.querySelector('[data-computer-readiness]'), null);
+});
+
 test('allow_input is a Mouse and keyboard row with an Allow action', () => {
   const rows = rowsOf(
     linux({

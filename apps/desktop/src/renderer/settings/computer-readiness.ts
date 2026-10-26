@@ -1,17 +1,28 @@
 // Computer Use readiness as list rows: one pure mapping from what the main
-// process reads (Linux capabilities, macOS grants) to what the detail dialog
-// shows. Windows needs no grant, so it maps to no rows.
+// process reads (Linux capabilities, macOS grants, Windows PC access) to what
+// the detail dialog shows. Windows needs no grant for Computer Use itself; its
+// one row is the optional PC access the phone uses on admin prompts and the
+// lock screen.
 import type {
   DesktopComputerCapability,
   DesktopComputerPermissionPane,
   DesktopComputerReadiness,
   DesktopLinuxComputerReadiness,
+  DesktopPcAccessReadiness,
 } from '../../shared/contract';
 import { t } from '../i18n';
 
-export type ComputerReadinessIcon = 'pointer' | 'window' | 'clipboard' | 'text' | 'monitor' | 'accessibility';
+export type ComputerReadinessIcon =
+  | 'pointer'
+  | 'window'
+  | 'clipboard'
+  | 'text'
+  | 'monitor'
+  | 'accessibility'
+  | 'shield';
 
 export type ComputerReadinessAction =
+  | { kind: 'approve_pc_access'; label: string }
   | { kind: 'allow_input'; label: string }
   | { kind: 'retry'; label: string }
   | { kind: 'install_how'; label: string; package: string }
@@ -204,16 +215,53 @@ function macRows(readiness: DesktopComputerReadiness): ComputerReadinessRow[] {
   return rows;
 }
 
+/** Windows PC access (the secure-desktop helper), or null once it is done or
+ *  not offered. Optional: Computer Use itself never waits for it. */
+function pcAccessRow(access: DesktopPcAccessReadiness | undefined): ComputerReadinessRow | null {
+  if (!access) return null;
+  const base = {
+    id: 'pc-access',
+    icon: 'shield' as const,
+    title: t('PC access for admin prompts and the lock screen'),
+    tone: 'muted' as const,
+    optional: true,
+  };
+  if (access.state === 'other-user') {
+    return {
+      ...base,
+      description: t('Another Windows account on this PC set this up. Only that account can change it.'),
+      status: t('Set up by another account'),
+      needsSetup: false,
+    };
+  }
+  if (access.state !== 'not-installed' && access.state !== 'needs-enroll' && access.state !== 'revocations-unknown')
+    return null;
+  return {
+    ...base,
+    description: t(
+      'Lets your paired phones answer admin prompts and use the lock screen. Windows asks for administrator approval once.'
+    ),
+    status: t('Optional add-on'),
+    needsSetup: true,
+    action: {
+      kind: 'approve_pc_access',
+      label: access.state === 'needs-enroll' ? t('Approve new phone') : t('Approve'),
+    },
+  };
+}
+
 /** The rows the "Readiness" section lists; empty when nothing is pending.
- *  Optional add-ons appear only next to a required row, never on their own. */
+ *  Optional add-ons appear only next to a required row, never on their own,
+ *  except Windows PC access, which is the last row whenever it can be set up. */
 export function computerReadinessRows(readiness: DesktopComputerReadiness | null): ComputerReadinessRow[] {
   if (!readiness) return [];
+  let rows: ComputerReadinessRow[] = [];
   if (readiness.platform === 'linux' && readiness.linux) {
-    const rows = linuxRows(readiness.linux);
-    return rows.some((row) => !row.optional) ? rows : [];
-  }
-  if (readiness.platform === 'darwin') return macRows(readiness);
-  return [];
+    const linux = linuxRows(readiness.linux);
+    rows = linux.some((row) => !row.optional) ? linux : [];
+  } else if (readiness.platform === 'darwin') rows = macRows(readiness);
+  const pcAccess = readiness.platform === 'win32' ? pcAccessRow(readiness.pcAccess) : null;
+  return pcAccess ? [...rows, pcAccess] : rows;
 }
 
 /** Something the user (or the app) can still fix: keeps the list polling. */

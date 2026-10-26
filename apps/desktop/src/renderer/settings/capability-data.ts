@@ -84,6 +84,7 @@ export type CapabilityApi = Partial<
     | 'computerReadiness'
     | 'requestLinuxInputAccess'
     | 'openComputerPermissionSettings'
+    | 'approvePcAccess'
   >
 >;
 

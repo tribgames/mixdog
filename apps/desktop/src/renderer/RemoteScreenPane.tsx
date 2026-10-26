@@ -87,22 +87,21 @@ function sizeLabel(width: number, height: number): string {
 }
 
 function helperLineText(line: ScreenHelperLine): string {
-  if (line.kind === 'detail') return line.text;
   switch (line.id) {
     case 'in-progress':
-      return t('Answer the confirmation prompt shown on the PC.');
+      return t('Approve it in the confirmation prompt on the PC.');
     case 'declined':
-      return t('The request was declined on the PC. Restart Mixdog on the PC to ask again.');
+      return t('Access was declined on the PC. Restart Mixdog on the PC to ask again.');
     case 'failed':
-      return t('The helper could not be installed.');
+      return t('Access could not be set up.');
     case 'other-user':
-      return t('Another Windows account on the PC owns the helper.');
+      return t('Another Windows account on the PC manages access.');
     case 'unavailable':
-      return t('The helper is not available on this PC.');
+      return t('Access is not available on this PC.');
     case 'in-use':
       return t('Another device is controlling the PC screen.');
     case 'service-failed':
-      return t('The helper service could not be started on the PC.');
+      return t('Access could not be started on the PC.');
     case 'sas_disabled_by_policy':
       return t('Ctrl+Alt+Del is blocked by the PC’s policy.');
     case 'desktop_unavailable':
@@ -110,7 +109,19 @@ function helperLineText(line: ScreenHelperLine): string {
     case 'input_failed':
       return t('Input could not be delivered to the PC.');
     case 'grant_key_missing':
-      return t('This phone is not registered with the helper.');
+      return t('This phone has no access on the PC.');
+    case 'bad-credentials':
+      return t('That Windows password was not correct. Try again.');
+    case 'not-admin':
+      return t('That account is not an administrator on the PC. Use an administrator account’s password.');
+    case 'logon-type-denied':
+      return t('That account is not allowed to sign in this way on the PC.');
+    case 'account-locked':
+      return t('That Windows account is locked. Unlock it on the PC, then try again.');
+    case 'account-disabled':
+      return t('That Windows account is disabled on the PC.');
+    case 'policy-blocked':
+      return t('A policy on the PC blocked that sign-in.');
   }
 }
 
@@ -140,12 +151,12 @@ function BlockedNote({
         <strong>{t(copy.title)}</strong>
         <span>{t(view.dim ? copy.detail : PROMPT_DETAIL)}</span>
         {panel.lines.map((line) => (
-          <span key={line.kind === 'copy' ? line.id : line.text}>{helperLineText(line)}</span>
+          <span key={line.id}>{helperLineText(line)}</span>
         ))}
         {panel.action && (
           <div className="remote-screen-actions">
             <button type="button" className="remote-screen-primary" disabled={panel.busy} onClick={onInstall}>
-              {panel.action === 'update' ? t('Approve helper update') : t('Request helper installation on the PC')}
+              {panel.action === 'update' ? t('Approve access again') : t('Request access on the PC')}
             </button>
           </div>
         )}
@@ -367,7 +378,6 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
     };
   }, [live, mode, viewport, cursorStore, adapter, sendAll, finishComposition]);
 
-  const chooseMode = useCallback((next: ScreenInputMode) => setMode(next), []);
   const controlling = bar.enabled;
   const menu: DockAction[] = [
     ...SCREEN_SPECIAL_KEYS.map(
@@ -375,7 +385,7 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
         id: `key-${special.id}`,
         label: special.label,
         detail:
-          special.needsHelper && screen.status?.helper !== 'active' ? t('Needs the secure desktop helper') : undefined,
+          special.needsHelper && screen.status?.helper !== 'active' ? t('Needs access on the PC') : undefined,
         disabled: !controlling,
         onSelect: () => sendAll(screenSpecialKeyInputs(special.id)),
       })
@@ -385,9 +395,9 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
       label: t('Direct touch'),
       checked: mode === 'direct',
       separatorBefore: true,
-      onSelect: () => chooseMode('direct'),
+      onSelect: () => setMode('direct'),
     },
-    { id: 'mode-trackpad', label: t('Trackpad'), checked: mode === 'trackpad', onSelect: () => chooseMode('trackpad') },
+    { id: 'mode-trackpad', label: t('Trackpad'), checked: mode === 'trackpad', onSelect: () => setMode('trackpad') },
   ];
 
   let toolbarText = sizeLabel(width, height);

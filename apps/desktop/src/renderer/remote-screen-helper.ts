@@ -35,15 +35,16 @@ export function screenBlockReason(
   return block?.secure ?? view.reason;
 }
 
-/** One line under the blocked view's note: fixed copy by id, or the PC's own
- *  detail text. */
+/** One line under the blocked view's note: fixed, translated copy by id. The
+ *  PC's diagnostic `detail` (English, naming internals) is never shown: the
+ *  PC logs it (secure-desktop.log). */
 export type ScreenHelperCopyId =
-  | Exclude<ScreenHelperOutcome | ScreenHelperIssue, 'installed' | 'updated' | 'grant_expired'>
+  // Successes render no line (`installed`/`updated`/`enrolled`/`revoked`); an
+  // expired grant is handled by re-signing, not a line.
+  | Exclude<ScreenHelperOutcome | ScreenHelperIssue, 'installed' | 'updated' | 'enrolled' | 'revoked' | 'grant_expired'>
   | 'service-failed'
   | 'in-use';
-export type ScreenHelperLine =
-  | { kind: 'copy'; id: ScreenHelperCopyId }
-  | { kind: 'detail'; text: string };
+export type ScreenHelperLine = { kind: 'copy'; id: ScreenHelperCopyId };
 
 export interface ScreenHelperPanel {
   /** The button: ask for the helper to be installed, or approve its update. */
@@ -93,7 +94,7 @@ export function screenHelperPanel(
       action = null;
       break;
     case 'failed':
-      lines.push(block.detail ? { kind: 'detail', text: block.detail } : { kind: 'copy', id: 'failed' });
+      lines.push({ kind: 'copy', id: 'failed' });
       break;
     case 'other-user':
       lines.push({ kind: 'copy', id: 'other-user' });
@@ -105,7 +106,20 @@ export function screenHelperPanel(
       break;
     case 'installed':
     case 'updated':
+    case 'enrolled':
+    case 'revoked':
+      // A success: no line, and nothing left to press.
       action = null;
+      break;
+    case 'bad-credentials':
+    case 'not-admin':
+    case 'logon-type-denied':
+    case 'account-locked':
+    case 'account-disabled':
+    case 'policy-blocked':
+      // The remote (Windows-password) path was refused: say why, and leave the
+      // action so the person can try again.
+      lines.push({ kind: 'copy', id: block.outcome });
       break;
     default:
       break;
@@ -242,69 +256,6 @@ export function createScreenHelperGrants<Origin = undefined>(deps: {
       )
         ? 'sent'
         : 'failed';
-    },
-  };
-}
-
-// --- the one automatic install request --------------------------------------
-
-export type ScreenHelperAutoResult = 'sent' | 'skipped' | 'dropped' | 'failed';
-
-/**
- * Asks for the helper once, by itself, the first time a PC screen session
- * offers an install: the same `screen-helper-install` the button sends, behind
- * the same gate as a grant (the pane is the active, visible surface; the
- * surface generation and the viewer are the ones the status came from, checked
- * again after each await). Only an `install` offer qualifies: an update
- * replaces another phone's key and stays button-only. The pairing's mark is
- * written only after the send went out, so a dropped or failed send leaves
- * the attempt available; after a sent one only the button can ask again.
- */
-export function createScreenHelperAutoInstall<Origin = undefined>(deps: {
-  /** The pairing's page-scope guard, shared by every coordinator of this page. */
-  guard(): { running: boolean; done: boolean };
-  /** Whether this pairing already made its automatic request. */
-  requested(): Promise<boolean>;
-  mark(): Promise<void>;
-  ensureKey(): Promise<Pick<SecureDesktopControllerKey, 'publicKey'>>;
-  active(): boolean;
-  /** The surface generation (`createScreenHelperGrants().generation`). */
-  generation(): number;
-  origin?(): Origin | null;
-  send(message: ScreenHelperInstallMessage, origin: Origin): boolean;
-}) {
-  return {
-    async consider(info: Pick<RemoteScreenHelperInfo, 'offer'>, origin?: Origin): Promise<ScreenHelperAutoResult> {
-      const guard = deps.guard();
-      if (info.offer !== 'install' || guard.running || guard.done) return 'skipped';
-      guard.running = true;
-      try {
-        const captured = deps.generation();
-        const valid = () =>
-          captured === deps.generation() && (!deps.origin || deps.origin() === (origin ?? null)) && deps.active();
-        if (!valid()) return 'dropped';
-        try {
-          if (await deps.requested()) {
-            guard.done = true;
-            return 'skipped';
-          }
-          if (!valid()) return 'dropped';
-          const key = await deps.ensureKey();
-          if (!valid()) return 'dropped';
-          if (!deps.send({ v: 1, kind: 'screen-helper-install', publicKey: key.publicKey }, origin as Origin)) {
-            return 'failed';
-          }
-        } catch {
-          return 'failed';
-        }
-        // The request is out: this page makes no second one even if the mark
-        // cannot be kept.
-        guard.done = true;
-        await deps.mark().catch(() => {});
-        return 'sent';
-      } finally {
-        guard.running = false;
-      }
     },
   };
 }

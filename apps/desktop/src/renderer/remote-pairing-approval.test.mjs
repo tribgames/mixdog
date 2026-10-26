@@ -158,19 +158,38 @@ test('unpairing a PC retires its secure-desktop controller key and keeps the oth
   const otherPc = remotePairingKeys('https://relay.example', 'def').token;
   const kept = await ensureControllerKey(otherPc, factory);
   await ensureControllerKey(ctx.pairingKeys.token, factory);
-  const { hasAutoRequestedHelper, markAutoRequestedHelper } = await import('./remote-screen-controller-key.ts');
-  await markAutoRequestedHelper(ctx.pairingKeys.token, factory);
-  await markAutoRequestedHelper(otherPc, factory);
   const stored = () => keysDb.databases.get('mixdog-remote-screen-controller').get('keys');
   assert.equal(stored().has(ctx.pairingKeys.token), true);
 
   ctx.resetApprovalAndAsk('gone');
   await until(() => !stored().has(ctx.pairingKeys.token));
   assert.equal(await loadControllerKey(ctx.pairingKeys.token, factory), null);
-  assert.equal(await hasAutoRequestedHelper(ctx.pairingKeys.token, factory), false, 'the mark goes with the key');
-  assert.equal(await hasAutoRequestedHelper(otherPc, factory), true);
   assert.equal((await loadControllerKey(otherPc, factory)).publicKey, kept.publicKey);
   document.getElementById('mixdog-remote-pairing')?.remove();
+});
+
+test('once an approved connection is secure, the phone hands this pairing’s controller key to the PC over the E2EE RPC', async (t) => {
+  const pairingDb = fakeIndexedDB();
+  const keysDb = namedIndexedDB();
+  const factory = { open: (name) => (name === 'mixdog-remote-screen-controller' ? keysDb : pairingDb).open(name) };
+  const { ctx, window } = await installPairing(t, { indexedDB: factory });
+  const { loadControllerKey } = await import('./remote-screen-controller-key.ts');
+  const { REMOTE_CONTROLLER_KEY_METHOD } = await import('../shared/remote-controller-key.ts');
+  const calls = [];
+  ctx.invoke = async (method, params) => {
+    calls.push([method, params]);
+    return true;
+  };
+  const verified = ctx.verifyApprovedConnection();
+  await new Promise((done) => setTimeout(done, 20));
+  assert.deepEqual(calls, [], 'nothing is sent before the channel is secure');
+  ctx.connectionReady = true;
+  window.dispatchEvent(new window.Event('mixdog:remote-secure-channel-ready'));
+  await verified;
+  await until(() => calls.length === 1);
+  const key = await loadControllerKey(ctx.pairingKeys.token, factory);
+  assert.ok(key, 'the pairing’s key was made');
+  assert.deepEqual(calls, [[REMOTE_CONTROLLER_KEY_METHOD, [key.publicKey]]], 'only its public half, once');
 });
 
 /** What the next boot holds: the credential createRemoteShimContext reads
