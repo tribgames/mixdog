@@ -112,7 +112,7 @@ function fixture({
         return { text: `URL: ${page.url}\n- heading "Page"` };
       },
     });
-  return { page, calls, run, diagnostics };
+  return { page, calls, run, diagnostics, signIn };
 }
 
 test('a failure that is not an expected end is reported and still hands the sign-in to the user', async () => {
@@ -949,6 +949,40 @@ test('every automatic step is bound to the main-frame document its state was rea
   void documents;
 });
 
+test('what a turn tried goes with the turn or the session, and no count drops it early', async () => {
+  let suggested = 0;
+  const signIn = createBrowserAutoSignIn({
+    enabled: () => true,
+    suggestions: async () => {
+      suggested += 1;
+      return [{ id: ACCOUNT_A, label: 'm•••e@example.com' }];
+    },
+    withCredential: async (_url, _id, use) => use({ username: 'me@example.com', password: PASSWORD }),
+    fill: async () => ({ usernameFilled: true, passwordFilled: true }),
+    submit: async () => {},
+    collect: async () => [{ password: true, challenge: false, wording: false, check: 'none' }],
+    invalidate: () => {},
+    humanCheck: { waitMs: 4, graceMs: 1, pollMs: 1, stepMs: 2, submitMs: 2 },
+  });
+  const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login', isLoading: () => false };
+  const run = (turnId) =>
+    signIn.afterCommand({ guest, sessionId: 's', turnId, observe: async () => ({ text: 'page' }) });
+  // More turns than the old 500-entry cap: the first is still remembered.
+  for (let turn = 1; turn <= 520; turn += 1) await run(turn);
+  assert.equal(suggested, 520);
+  await run(1);
+  assert.equal(suggested, 520, 'tried once this turn, however many turns came after');
+  // A finished turn (and the earlier ones) are forgotten.
+  signIn.finishTurn('s', 519);
+  await run(520);
+  assert.equal(suggested, 520, 'a later turn is still remembered');
+  await run(1);
+  assert.equal(suggested, 521, 'the finished turn was dropped');
+  // A released session is forgotten as a whole.
+  signIn.forgetSession('s');
+  await run(520);
+  assert.equal(suggested, 522);
+});
 test('a sign-up or subscribe form never qualifies, even with autocomplete="username"', async () => {
   const html = '<form><input autocomplete="username"><button>Sign up</button></form>';
   assert.equal(state('https://shop.example.com/login', html).username, false);

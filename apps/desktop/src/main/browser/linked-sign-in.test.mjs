@@ -19,9 +19,8 @@ registerHooks({
   },
 });
 
-const { createBrowserLinkedSignIns, linkedSignInFor, linkedSignInId, linkedSignInLine } = await import(
-  './linked-sign-in.ts'
-);
+const { authorizationRequest, createBrowserLinkedSignIns, FLOW_TTL_MS, linkedSignInFor, linkedSignInId, linkedSignInLine } =
+  await import('./linked-sign-in.ts');
 const { LINKED_SIGN_IN_FILE_NAME, LinkedSignInStore } = await import('./linked-sign-in-store.ts');
 
 const seal = (plaintext) => Buffer.from(plaintext, 'utf8').reverse();
@@ -74,10 +73,11 @@ function fakeGuest(id) {
 /** The host side over a store, with the snapshot refs the agent may click or
  *  type into (a name, or { name, url, role, sensitive }) and the attributes
  *  each ref's input declares. */
-function setup({ store = memoryStore(), refs = {}, fields = {}, onError } = {}) {
+function setup({ store = memoryStore(), refs = {}, fields = {}, onError, now } = {}) {
   const linked = createBrowserLinkedSignIns({
     store,
     onError,
+    now,
     ref: (guest, ref) => {
       const entry = typeof refs[ref] === 'string' ? { name: refs[ref] } : refs[ref];
       return entry ? { url: guest.getURL(), role: 'textbox', ...entry } : null;
@@ -250,6 +250,82 @@ test('a page whose address merely names a recorded site in its parameters gets n
     await linked.replyLine({ guest: again, sessionId: 's', turnId: 1 }),
     'Linked sign-in: evil.example last signed in with fake-idp.example'
   );
+});
+
+test('nine open requests in one tab are all honored, the first included', async () => {
+  const { store, tab } = setup();
+  const guest = tab(3);
+  const callback = 'https://vercel.com/api/registration/login-with-github';
+  for (let n = 1; n <= 9; n += 1) {
+    guest.go(['https://vercel.com/login'], { by: null });
+    guest.go([
+      `https://github.com/login/oauth/authorize?client_id=Iv1.abc&redirect_uri=${enc(callback)}&scope=user&state=GH${n}`,
+    ]);
+  }
+  guest.go([
+    'https://github.com/login/oauth/authorize',
+    `${callback}?code=C0DE&state=GH1`,
+    'https://vercel.com/dashboard',
+  ]);
+  await flush();
+  assert.deepEqual(records(store), [
+    { site: 'vercel.com', redirectHost: 'vercel.com', provider: 'github.com', identity: '' },
+  ]);
+});
+
+test('requests leave on expiry and with their tab', async () => {
+  const store = memoryStore();
+  await store.record({ site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: 'a@gmail.com' });
+  let clock = 1_000;
+  const { linked, tab } = setup({ store, now: () => clock });
+  const line = (guest, turnId) => linked.replyLine({ guest, sessionId: 's', turnId });
+  const fresh = tab(50);
+  toGoogleChooser(fresh, 'https://chatgpt.com/', OPENAI_CB);
+  assert.match(await line(fresh, 1), /^Linked sign-in: chatgpt\.com /);
+  clock += FLOW_TTL_MS;
+  assert.match(await line(fresh, 2), /^Linked sign-in: /, 'still open at the limit');
+  clock += 1;
+  assert.equal(await line(fresh, 3), '', 'expired requests no longer name a site, even with no navigation since');
+  const closing = tab(51);
+  toGoogleChooser(closing, 'https://chatgpt.com/', OPENAI_CB);
+  assert.match(await line(closing, 4), /^Linked sign-in: /);
+  closing.emit('destroyed');
+  closing.destroyed = false;
+  assert.equal(await line(closing, 5), '', 'a closed tab keeps no requests');
+});
+
+test('the reply-line memory has no count cap and goes with its turn or session', async () => {
+  const store = memoryStore();
+  await store.record({ site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'github.com', identity: '' });
+  const { linked } = setup({ store });
+  const pages = [];
+  for (let id = 100; id < 700; id += 1) {
+    const page = fakeGuest(id);
+    page.url = 'https://chatgpt.com/';
+    pages.push(page);
+    assert.match(await linked.replyLine({ guest: page, sessionId: 's', turnId: 1 }), /^Linked sign-in: /);
+  }
+  assert.equal(await linked.replyLine({ guest: pages[0], sessionId: 's', turnId: 1 }), '', 'the first of 600 is remembered');
+  linked.finishTurn('s', 1);
+  assert.match(await linked.replyLine({ guest: pages[0], sessionId: 's', turnId: 1 }), /^Linked sign-in: /);
+  linked.forgetSession('s');
+  assert.match(await linked.replyLine({ guest: pages[0], sessionId: 's', turnId: 1 }), /^Linked sign-in: /);
+});
+
+test('nested continue / return_to / next addresses are followed to any depth, and a cycle ends', () => {
+  const request = 'https://kauth.example.com/oauth/authorize?client_id=K&redirect_uri=https%3A%2F%2Fsite.example%2Fcb&state=ST';
+  let address = request;
+  const keys = ['continue', 'return_to', 'next'];
+  for (let depth = 0; depth < 6; depth += 1) {
+    address = `https://login.example.com/step?${keys[depth % 3]}=${enc(address)}`;
+  }
+  // login.example.com and kauth.example.com share a registrable domain.
+  const found = authorizationRequest(new URL(address));
+  assert.equal(found?.state, 'ST');
+  assert.equal(found?.redirect?.href, 'https://site.example/cb');
+  // An address that names itself, or two that name each other, stops.
+  assert.equal(authorizationRequest(new URL('https://login.example.com/a?next=https%3A%2F%2Flogin.example.com%2Fa%3Fnext%3Dhttps%253A%252F%252Flogin.example.com%252Fa')), null);
+  assert.equal(authorizationRequest(new URL('https://login.example.com/a?next=%2Fa%3Fnext%3D%252Fa')), null);
 });
 
 test('GitHub OAuth: recorded with no account when the agent named none', async () => {

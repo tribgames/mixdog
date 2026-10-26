@@ -37,7 +37,8 @@ export class BrowserSessionRegistry {
   private readonly backgroundsBySession = new Map<string, Map<string, BackgroundPage>>();
   /** The newest agent turn a session ran, and when it finished (unset while live). */
   private readonly turnBySession = new Map<string, { turn: number; finishedAt?: number }>();
-  private readonly turnFinishedListeners = new Set<(sessionId: string) => void>();
+  private readonly turnFinishedListeners = new Set<(sessionId: string, turn: number) => void>();
+  private readonly turnForgottenListeners = new Set<(sessionId: string) => void>();
   private readonly lastPageGoneListeners = new Set<(sessionId: string) => void>();
 
   /** Set by every turn start, command and turn end of the session, so
@@ -70,7 +71,7 @@ export class BrowserSessionRegistry {
     const current = this.turnBySession.get(sessionId);
     if (current && current.turn > turn) return;
     this.turnBySession.set(sessionId, { turn, finishedAt: now });
-    for (const listener of this.turnFinishedListeners) listener(sessionId);
+    for (const listener of this.turnFinishedListeners) listener(sessionId, turn);
   }
 
   /** The session is released: its turn state and activity entry go. An
@@ -80,6 +81,7 @@ export class BrowserSessionRegistry {
   forgetTurn(sessionId: string): void {
     this.activityBySession.delete(sessionId);
     this.turnBySession.delete(sessionId);
+    for (const listener of this.turnForgottenListeners) listener(sessionId);
   }
 
   /** When the session's latest turn finished; undefined while one is live or none is known. */
@@ -87,8 +89,14 @@ export class BrowserSessionRegistry {
     return this.turnBySession.get(sessionId)?.finishedAt;
   }
 
-  onTurnFinished(listener: (sessionId: string) => void): void {
+  /** `turn` is the turn that finished (older turns of the session are over too). */
+  onTurnFinished(listener: (sessionId: string, turn: number) => void): void {
     this.turnFinishedListeners.add(listener);
+  }
+
+  /** The session was released (`forgetTurn`): per-turn state kept for it elsewhere can go. */
+  onTurnForgotten(listener: (sessionId: string) => void): void {
+    this.turnForgottenListeners.add(listener);
   }
 
   /** A page left the session (closed by anyone, or its window went away) and

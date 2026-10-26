@@ -530,6 +530,15 @@ export function createBrowserHostAgent(options: {
     { profileImporter: base.profileImporter, credentialFill: tools.credentialFill },
     (command, signal) => runCommand(command, signal)
   );
+  // What the sign-in flows remember per turn goes with the turn or the session.
+  sessions.onTurnFinished((sessionId, turn) => {
+    autoSignIn.finishTurn(sessionId, turn);
+    base.linkedSignIns.finishTurn(sessionId, turn);
+  });
+  sessions.onTurnForgotten((sessionId) => {
+    autoSignIn.forgetSession(sessionId);
+    base.linkedSignIns.forgetSession(sessionId);
+  });
   const runCommand = createBrowserCommandRunner({
     state,
     approvals: base.approvals,

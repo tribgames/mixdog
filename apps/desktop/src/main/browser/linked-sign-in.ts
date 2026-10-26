@@ -39,6 +39,7 @@ import { getDomain } from 'tldts';
 
 import { linkedProviderLabel } from '../../shared/linked-sign-in-label';
 import { pageLeft, STALE_REF } from './page-left';
+import { createTurnMemory } from './turn-memory';
 
 /** One remembered federated sign-in: never a token, code or state. */
 export interface LinkedSignIn {
@@ -88,8 +89,6 @@ export const LINKED_FIELD_READ = `function() {
 export const LINKED_SIGN_IN_PREFIX = 'Linked sign-in: ';
 /** How long an authorization request waits for its callback (a 2-step check included). */
 export const FLOW_TTL_MS = 30 * 60_000;
-const MAX_REQUESTS = 8;
-const SHOWN_MEMORY = 500;
 const MAX_BODY = 64 * 1024;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 const EMAIL_ONLY = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
@@ -174,7 +173,12 @@ interface AuthorizationRequest {
  *  `continue` / `return_to` / `next` address on its domain — when it has a
  *  value to come back (a state, an OAuth 1.0a token); null otherwise. */
 export function authorizationRequest(url: URL): AuthorizationRequest | null {
-  const visit = (at: URL, depth: number): AuthorizationRequest | null => {
+  // Nested addresses are followed to any depth; an address met twice is a
+  // cycle and ends that branch.
+  const seen = new Set<string>();
+  const visit = (at: URL): AuthorizationRequest | null => {
+    if (seen.has(at.href)) return null;
+    seen.add(at.href);
     const params = at.searchParams;
     if (params.get('client_id') && (params.get('redirect_uri') || params.get('response_type'))) {
       const state = params.get('state') || '';
@@ -183,13 +187,12 @@ export function authorizationRequest(url: URL): AuthorizationRequest | null {
     } else if (params.get('oauth_token') && /\/(?:authorize|authenticate)(?:\/|$)/i.test(at.pathname)) {
       return { redirect: null, state: '', oauthToken: String(params.get('oauth_token')), formPost: false };
     }
-    if (depth > 1) return null;
     for (const key of ['continue', 'return_to', 'next']) {
       const nested = params.get(key);
       if (!nested) continue;
       try {
         const inner = new URL(nested, at.origin);
-        const found = siteOf(inner) === siteOf(url) ? visit(inner, depth + 1) : null;
+        const found = siteOf(inner) === siteOf(url) ? visit(inner) : null;
         if (found) return found;
       } catch {
         /* not an address */
@@ -197,7 +200,7 @@ export function authorizationRequest(url: URL): AuthorizationRequest | null {
     }
     return null;
   };
-  return visit(url, 0);
+  return visit(url);
 }
 
 interface Flow extends AuthorizationRequest {
@@ -236,14 +239,24 @@ function callbackParams(hop: Hop): URLSearchParams {
 /** Electron-free flow tracking per tab `key`. */
 export function createLinkedSignInTracker(now: () => number = Date.now) {
   const pages = new Map<unknown, PageTrack>();
+  /** Requests older than FLOW_TTL_MS are dropped; a tab's whole entry goes
+   *  with the tab (`forget`). */
+  const expire = (entry: PageTrack): PageTrack => {
+    entry.flows = entry.flows.filter((flow) => now() - flow.at <= FLOW_TTL_MS);
+    return entry;
+  };
   const track = (key: unknown): PageTrack => {
     let entry = pages.get(key);
     if (!entry) {
       entry = { committed: '', hops: [], flows: [] };
       pages.set(key, entry);
     }
-    entry.flows = entry.flows.filter((flow) => now() - flow.at <= FLOW_TTL_MS);
-    return entry;
+    return expire(entry);
+  };
+  /** Tab `key`'s entry with only its unexpired requests, if it has one. */
+  const live = (key: unknown): PageTrack | undefined => {
+    const entry = pages.get(key);
+    return entry && expire(entry);
   };
 
   /** A hop onto `url` that is an authorization request: remembered for the tab. */
@@ -264,7 +277,6 @@ export function createLinkedSignInTracker(now: () => number = Date.now) {
       flow.provider === provider && flow.state === found.state && flow.oauthToken === found.oauthToken;
     if (entry.flows.some(same)) return;
     entry.flows.push({ ...found, siteHost: left.hostname.toLowerCase(), provider, identity: '', at: now() });
-    if (entry.flows.length > MAX_REQUESTS) entry.flows.shift();
   };
 
   /** Whether `hop` (the `index`th of its navigation) brings `flow` home. */
@@ -333,7 +345,7 @@ export function createLinkedSignInTracker(now: () => number = Date.now) {
    *  request waits for as its callback. */
   function expectsPost(key: unknown, raw: string): boolean {
     const url = httpUrl(raw);
-    const entry = pages.get(key);
+    const entry = live(key);
     return Boolean(
       url &&
         entry?.hops.at(-1)?.url.href === url.href &&
@@ -351,8 +363,7 @@ export function createLinkedSignInTracker(now: () => number = Date.now) {
   const flowOn = (key: unknown, url: string): Flow | undefined => {
     const at = httpUrl(url);
     return at
-      ? pages
-          .get(key)
+      ? live(key)
           ?.flows.filter((flow) => flow.provider === siteOf(at))
           .at(-1)
       : undefined;
@@ -375,7 +386,7 @@ export function createLinkedSignInTracker(now: () => number = Date.now) {
    *  that site's own page here) wait on `url`'s provider. */
   function flowSites(key: unknown, url: string): string[] {
     const at = httpUrl(url);
-    const flows = at ? (pages.get(key)?.flows ?? []).filter((flow) => flow.provider === siteOf(at)) : [];
+    const flows = at ? (live(key)?.flows ?? []).filter((flow) => flow.provider === siteOf(at)) : [];
     return flows.map((flow) => registrableHost(flow.siteHost));
   }
 
@@ -443,8 +454,9 @@ function initiatorOf(guest: WebContents, frame: WebFrameMain | null | undefined)
  *  clicks and typing on provider pages, and the reply line. */
 export function createBrowserLinkedSignIns(deps: BrowserLinkedSignInDeps) {
   const tracker = createLinkedSignInTracker(deps.now);
-  /** `${sessionId}\0${turnId}\0${pageId}\0${site}`: the line was given. */
-  const shown = new Set<string>();
+  /** `${pageId}\0${site}` per session and turn: the line was given. Dropped
+   *  with the turn (`finishTurn`) or the session (`forgetSession`). */
+  const shown = createTurnMemory();
   const settle = (found: LinkedSignInInput | null): void => {
     if (found) void deps.store.record(found).catch((error) => deps.onError?.(error));
   };
@@ -528,12 +540,16 @@ export function createBrowserLinkedSignIns(deps: BrowserLinkedSignInDeps) {
     const url = guest.getURL();
     const record = linkedSignInFor(await deps.store.list(), url, tracker.flowSites(guest.id, url));
     if (!record) return '';
-    const key = [input.sessionId, input.turnId, deps.pageId(guest), record.site].join('\0');
-    if (shown.has(key)) return '';
-    shown.add(key);
-    if (shown.size > SHOWN_MEMORY) shown.delete(shown.values().next().value as string);
+    if (!shown.add(input.sessionId, input.turnId, [deps.pageId(guest), record.site].join('\0'))) return '';
     return linkedSignInLine(record);
   }
 
-  return { watch, navigationPost, beforeAction, replyLine };
+  return {
+    watch,
+    navigationPost,
+    beforeAction,
+    replyLine,
+    finishTurn: shown.finishTurn,
+    forgetSession: shown.forgetSession,
+  };
 }

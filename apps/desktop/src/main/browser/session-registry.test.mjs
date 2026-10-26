@@ -46,6 +46,17 @@ test('releasing a session drops its activity entry and no later activity repeats
   assert.equal(registry.activityBySession.size, 1);
 });
 
+test('listeners hear which turn finished and which session was released', () => {
+  const registry = new BrowserSessionRegistry();
+  const heard = [];
+  registry.onTurnFinished((sessionId, turn) => heard.push(['finished', sessionId, turn]));
+  registry.onTurnForgotten((sessionId) => heard.push(['forgotten', sessionId]));
+  registry.beginTurn('s', 4);
+  registry.finishTurn('s', 4);
+  registry.forgetTurn('s');
+  assert.deepEqual(heard, [['finished', 's', 4], ['forgotten', 's']]);
+});
+
 test('visible guests, active targets, and waiters are isolated by session', async () => {
   const registry = new BrowserSessionRegistry();
   const alpha = guest(1);

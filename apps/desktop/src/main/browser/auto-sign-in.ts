@@ -74,6 +74,7 @@ import { BROWSER_DOCUMENT_ROOTS } from './documents';
 import type { BrowserCredentialFillResult } from './credential-autofill';
 import type { VaultSignInAccount } from './credential-vault';
 import { pageLeft } from './page-left';
+import { createTurnMemory } from './turn-memory';
 import type { BrowserCredentialValue } from './profile-import';
 import { redactBrowserText } from './redaction';
 import { pause } from './settle';
@@ -346,7 +347,6 @@ export const SAVED_SIGN_IN_DONE = 'Saved sign-in: signed in to ';
 /** The reply line of one that needs the user (routines fail as sign-in required). */
 export const SAVED_SIGN_IN_NEEDS_USER = 'Saved sign-in: the site still needs the user at ';
 
-const ATTEMPT_MEMORY = 500;
 /** The username step, the password step and the code step: no more in one attempt. */
 const MAX_STEPS = 3;
 
@@ -769,8 +769,9 @@ function attemptReply(after: BrowserCommandResult, site: string, signedIn: boole
 }
 
 export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
-  /** `${sessionId}\0${turnId}\0${origin}`: tried once this turn. */
-  const attempted = new Set<string>();
+  /** The origins tried once this turn; dropped with the turn (`finishTurn`)
+   *  or the session (`forgetSession`). */
+  const attempted = createTurnMemory();
   const reader = createSignInReader(deps);
   const waits = createSignInWaits(deps, reader);
   /** After the password: a code field, with an authenticator key to answer
@@ -793,8 +794,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const startUrl = guest.getURL();
     const origin = httpsOrigin(startUrl);
     if (!origin) return null;
-    const key = `${input.sessionId}\0${input.turnId}\0${origin}`;
-    if (attempted.has(key)) return null;
+    if (attempted.has(input.sessionId, input.turnId, origin)) return null;
     const initial = await reader.read(guest, signal);
     if (!initial) return null;
     const before = initial.now;
@@ -811,8 +811,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       return null;
     }
     if (!saved.length) return null;
-    attempted.add(key);
-    if (attempted.size > ATTEMPT_MEMORY) attempted.delete(attempted.values().next().value as string);
+    attempted.add(input.sessionId, input.turnId, origin);
     const site = new URL(origin).host;
     // The page's identifier fits several saved logins that differ only by
     // username case and none exactly: no account is guessed, nothing is filled.
@@ -861,5 +860,5 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     return attemptReply(after, site, signedIn);
   }
 
-  return { afterCommand };
+  return { afterCommand, finishTurn: attempted.finishTurn, forgetSession: attempted.forgetSession };
 }
