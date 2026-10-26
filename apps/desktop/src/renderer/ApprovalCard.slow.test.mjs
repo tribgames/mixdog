@@ -878,6 +878,78 @@ test('a sign-in secret asks 아이디 + 비밀번호 with the save box from save
   dom.window.mixdogDesktop = previous;
 });
 
+/** Submit a sign-in on a card whose settings read is `readSettings`; resolves
+ *  with what the PC took and the failures the renderer reported. */
+async function submitLoginWith(readSettings, beforeSubmit = async () => {}) {
+  const previous = dom.window.mixdogDesktop;
+  const desktop = secretDesktop();
+  const diagnostics = [];
+  dom.window.mixdogDesktop = {
+    ...desktop.api,
+    readSettings,
+    rendererDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+  };
+  const request = secretRequest('s10', { origin: 'https://www.dart.fss.or.kr', form: 'login' });
+  const c = card(request);
+  const ui = await mount(c.element);
+  try {
+    const [user, password] = ui.doc.querySelectorAll('.approval-secret');
+    await ui.type(user, 'data-team');
+    await ui.type(password, 'pw-123');
+    await ui.click(ui.button('Enter'));
+    await beforeSubmit();
+    return { provided: desktop.provided, diagnostics, id: request.secret.requestId };
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui.done();
+  }
+}
+
+test('a sign-in submitted before saveChatLogins loads never sends the save slot', async () => {
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { provided, id } = await submitLoginWith(
+    () => pending,
+    async () => release({ saveChatLogins: true })
+  );
+  assert.deepEqual(provided, [
+    [`${id}-username`, 'data-team'],
+    [id, 'pw-123'],
+  ]);
+});
+
+test('a sign-in whose saveChatLogins loads off never sends the save slot', async () => {
+  const { provided, id } = await submitLoginWith(async () => ({ saveChatLogins: false }));
+  assert.deepEqual(provided, [
+    [`${id}-username`, 'data-team'],
+    [id, 'pw-123'],
+  ]);
+});
+
+test('a sign-in whose settings read fails reports it and never sends the save slot', async () => {
+  const { provided, diagnostics, id } = await submitLoginWith(async () => {
+    throw new TypeError('settings unreadable');
+  });
+  assert.deepEqual(provided, [
+    [`${id}-username`, 'data-team'],
+    [id, 'pw-123'],
+  ]);
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].phase, 'unhandled-rejection');
+  assert.equal(diagnostics[0].errorName, 'TypeError');
+});
+
+test('a sign-in whose saveChatLogins loads on sends the save slot', async () => {
+  const { provided, id } = await submitLoginWith(async () => ({ saveChatLogins: true }));
+  assert.deepEqual(provided, [
+    [`${id}-username`, 'data-team'],
+    [`${id}-save`, '1'],
+    [id, 'pw-123'],
+  ]);
+});
+
 test('a one-time code: 3-3 boxes from its length, the current box marked, a paste fills all and enters it', async () => {
   const previous = dom.window.mixdogDesktop;
   const desktop = secretDesktop();

@@ -27,6 +27,7 @@ import { MarkdownSessionContext } from './MarkdownLink';
 import type { Approval, TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
+import { reportRendererFailure } from './RendererRecovery';
 import { type ApprovalButton, ApprovalPreviewRow, ApprovalPrompt, noteApprovalDecision } from './approval-prompt';
 import { PixelIcon, type PixelIconName } from './pixel-icon';
 import { asRecord, textOf } from './text-format';
@@ -93,17 +94,18 @@ function ApprovalPreviewImage({ path, alt }: { path: unknown; alt: string }) {
 const AGENT_KEYS = ['agents'] as const;
 
 /** The "save sign-ins typed in chat" setting (`saveChatLogins`, on unless
- *  set off): the default of a sign-in card's save box. */
+ *  set off): the default of a sign-in card's save box. It is off until the
+ *  stored value has loaded; a failed read is reported and stays off. */
 function useSaveChatLogins(enabled: boolean): boolean {
-  const [on, setOn] = useState(true);
+  const [on, setOn] = useState(false);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
     void Promise.resolve(window.mixdogDesktop?.readSettings?.()).then(
       (settings) => {
-        if (live) setOn(settings?.saveChatLogins !== false);
+        if (live && settings) setOn(settings.saveChatLogins !== false);
       },
-      () => {}
+      (error: unknown) => reportRendererFailure('unhandled-rejection', error)
     );
     return () => {
       live = false;
