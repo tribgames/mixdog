@@ -22,7 +22,7 @@ export const REDACTED_MARKER = '[redacted]';
  *  and none shorter than this (they could not be told from page text). */
 const MAX_SESSION_SECRETS = 64;
 const MIN_REDACTED_LENGTH = 4;
-const REQUEST_ID =/^secret_[A-Za-z0-9-]{8,80}$/;
+const REQUEST_ID = /^secret_[A-Za-z0-9-]{8,80}$/;
 
 /** What the agent hears about a fill (human-gate/requests.mjs HANDOFF_OUTCOMES). */
 export type SecretFillOutcome = 'entered' | 'no_field' | 'page_changed' | 'blocked' | 'expired';
@@ -171,7 +171,10 @@ export function createSecretInputs(options: { timeoutMs?: number; bindingTimeout
     return through;
   };
   const validFill = (fill: SavedLoginTurn): boolean =>
-    Boolean(fill.sessionId) && Number.isSafeInteger(fill.turnId) && fill.turnId > 0 && SAVED_LOGIN_OWNER.test(fill.ownerId);
+    Boolean(fill.sessionId) &&
+    Number.isSafeInteger(fill.turnId) &&
+    fill.turnId > 0 &&
+    SAVED_LOGIN_OWNER.test(fill.ownerId);
   const sameFill = (a: SavedLoginTurn, b: SavedLoginTurn): boolean =>
     a.sessionId === b.sessionId && a.turnId === b.turnId && a.ownerId === b.ownerId;
   const hold = <T>(map: Map<string, Held<T>>, id: string, value: T, ms: number): void => {
@@ -346,7 +349,12 @@ export function createSecretInputs(options: { timeoutMs?: number; bindingTimeout
         return 'its agent turn has already ended';
       }
       let finish = () => {};
-      const running = { sessionId: fill.sessionId, turnId: fill.turnId, ownerId: fill.ownerId, done: new Promise<void>((resolve) => (finish = resolve)) };
+      const running = {
+        sessionId: fill.sessionId,
+        turnId: fill.turnId,
+        ownerId: fill.ownerId,
+        done: new Promise<void>((resolve) => (finish = resolve)),
+      };
       runningFills.add(running);
       return () => {
         runningFills.delete(running);
@@ -375,9 +383,12 @@ export function createSecretInputs(options: { timeoutMs?: number; bindingTimeout
       focused.delete(sessionId);
       const newest = new Map<string, number>();
       for (const entry of [...runningFills, ...pixelGuards, ...savedLoginValues]) {
-        if (entry.sessionId === sessionId) newest.set(entry.ownerId, Math.max(newest.get(entry.ownerId) ?? 0, entry.turnId));
+        if (entry.sessionId === sessionId)
+          newest.set(entry.ownerId, Math.max(newest.get(entry.ownerId) ?? 0, entry.turnId));
       }
-      const through = new Map([...newest].map(([ownerId, turnId]) => [ownerId, markSettled(ownerId, sessionId, turnId)]));
+      const through = new Map(
+        [...newest].map(([ownerId, turnId]) => [ownerId, markSettled(ownerId, sessionId, turnId)])
+      );
       void drainThenRetire(
         (entry) => entry.sessionId === sessionId && entry.turnId <= (through.get(entry.ownerId) ?? 0)
       );
@@ -446,10 +457,7 @@ export async function typeComputerSecret(
   if (!sessionId || !registry.has(requestId)) return refuse('expired');
   if (!binding) return refuse('no_field');
   if (binding.sessionId !== sessionId) return refuse('blocked');
-  if (
-    (command.window_id && command.window_id !== binding.windowId) ||
-    (command.ref && command.ref !== binding.ref)
-  ) {
+  if ((command.window_id && command.window_id !== binding.windowId) || (command.ref && command.ref !== binding.ref)) {
     return refuse('page_changed');
   }
   try {
@@ -462,7 +470,13 @@ export async function typeComputerSecret(
   registry.remember(sessionId, value);
   registry.armFocus(sessionId);
   try {
-    await execute({ action: 'type', text: value, session_id: sessionId, ref: binding.ref, window_id: binding.windowId });
+    await execute({
+      action: 'type',
+      text: value,
+      session_id: sessionId,
+      ref: binding.ref,
+      window_id: binding.windowId,
+    });
     return { text: 'entered' };
   } catch (error) {
     // The window or field went away: the input path refuses a stale target

@@ -369,7 +369,7 @@ export const COMPUTER_ACTION_CONTRACTS = [
           type: 'string',
           enum: SAVED_LOGIN_FIELDS,
           description:
-            'username (text field) or password (password field). One-time codes, passkeys, security keys and app approvals are the user\'s step: ask_user takeover.',
+            "username (text field) or password (password field). One-time codes, passkeys, security keys and app approvals are the user's step: ask_user takeover.",
         },
       },
       ['savedAccount', 'field']

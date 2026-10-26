@@ -66,7 +66,10 @@ const BRIDGE_OWNER = '00000000-0000-4000-8000-000000000003';
 const BRIDGE_OWNER_2 = '00000000-0000-4000-8000-000000000004';
 const BRIDGE_OWNER_3 = '00000000-0000-4000-8000-000000000005';
 /** Each test owner's runtime process: a pid and an OS creation time. */
-const processOf = (ownerId) => ({ pid: 4000 + Number(ownerId.slice(-2)), created: `13370000000000${ownerId.slice(-4)}` });
+const processOf = (ownerId) => ({
+  pid: 4000 + Number(ownerId.slice(-2)),
+  created: `13370000000000${ownerId.slice(-4)}`,
+});
 const command = (field = 'password', extra = {}) => ({
   action: 'fill_saved_login',
   session_id: SESSION,
@@ -396,7 +399,7 @@ test('pixels of the filled browser are withheld for every session until the fill
   assert.equal(registry.redact('x', PASSWORD), PASSWORD, 'its redaction retired with the turn');
 });
 
-test('a settlement waits for the turn\'s running fill, and a newer turn outlives an older settlement', async () => {
+test("a settlement waits for the turn's running fill, and a newer turn outlives an older settlement", async () => {
   const registry = createSecretInputs();
   let release;
   const gate = new Promise((resolve) => (release = resolve));
@@ -407,7 +410,8 @@ test('a settlement waits for the turn\'s running fill, and a newer turn outlives
     },
   });
   const filling = run(savedLogins(), native, 'password', { registry });
-  while (!native.requests.some((request) => request.action === 'saved_login_type')) await new Promise((r) => setImmediate(r));
+  while (!native.requests.some((request) => request.action === 'saved_login_type'))
+    await new Promise((r) => setImmediate(r));
   let settled = false;
   const settlement = registry.settleSavedLoginTurn(TURN).then(() => (settled = true));
   await new Promise((r) => setImmediate(r));
@@ -430,7 +434,13 @@ test('a settlement waits for the turn\'s running fill, and a newer turn outlives
 test('at guard capacity a new password fill is refused, never evicting a held guard', async () => {
   const registry = createSecretInputs();
   for (let index = 0; index < MAX_SAVED_LOGIN_ENTRIES; index++) {
-    const guard = { sessionId: 'other', turnId: 1, ownerId: OTHER_OWNER, windowId: `hwnd:0x${100 + index}`, pid: String(index) };
+    const guard = {
+      sessionId: 'other',
+      turnId: 1,
+      ownerId: OTHER_OWNER,
+      windowId: `hwnd:0x${100 + index}`,
+      pid: String(index),
+    };
     assert.equal(registry.armSavedLoginPixels(guard), true);
   }
   const native = worker();
@@ -457,7 +467,10 @@ test('a settlement shuts its turn at once: a fill accepted after it is refused, 
     assert.match(String(registry.admitSavedLoginFill({ ...TURN, turnId })), /agent turn has already ended/);
   }
   const late = worker();
-  await assert.rejects(admittedFill(command(), savedLogins(), late.call, { registry }), /already ended.*no input was sent/);
+  await assert.rejects(
+    admittedFill(command(), savedLogins(), late.call, { registry }),
+    /already ended.*no input was sent/
+  );
   assert.deepEqual(late.requests, [], 'nothing reached the worker');
   // The early fill now arms its guard while the settlement waits for it.
   const early = await fillSavedLogin(command(), savedLogins(), worker().call, { platform: 'win32', registry });
@@ -475,10 +488,15 @@ test('a settlement shuts its turn at once: a fill accepted after it is refused, 
 test('only an OS-proven end of its process retires an owner; closed connections and other runtimes never do', async () => {
   const registry = createSecretInputs();
   const fill = (owner, turnId = 7, session = SESSION) =>
-    admittedFill(command('password', { runtime_id: owner, turn_id: turnId, session_id: session }), savedLogins(), worker().call, {
-      registry,
-      attach: false,
-    });
+    admittedFill(
+      command('password', { runtime_id: owner, turn_id: turnId, session_id: session }),
+      savedLogins(),
+      worker().call,
+      {
+        registry,
+        attach: false,
+      }
+    );
   // The OS's answers, per process id: what a real worker's process_fate gives.
   const fates = new Map();
   const fate = async ({ pid }) => ({ state: fates.get(pid) ?? 'unknown' });
@@ -510,7 +528,11 @@ test('only an OS-proven end of its process retires an owner; closed connections 
     await settle();
     assert.equal(registry.savedLoginPixelGuards().length, 1, state);
   }
-  assert.match(String(registry.admitSavedLoginFill({ ...TURN, turnId: 9 })), /no owner connection/, 'detached: no new fills');
+  assert.match(
+    String(registry.admitSavedLoginFill({ ...TURN, turnId: 9 })),
+    /no owner connection/,
+    'detached: no new fills'
+  );
   // Another runtime's proven end never touches this owner's protection.
   const otherDetach = registry.attachSavedLoginOwner(OTHER_OWNER, processOf(OTHER_OWNER));
   await fill(OTHER_OWNER, 3, 'session-b');
@@ -518,8 +540,15 @@ test('only an OS-proven end of its process retires an owner; closed connections 
   fates.set(processOf(OTHER_OWNER).pid, 'ended');
   await reconcileSavedLoginOwners(fate, registry);
   await settle();
-  assert.deepEqual(registry.savedLoginPixelGuards().map((guard) => guard.ownerId), [OWNER]);
-  assert.equal(registry.attachSavedLoginOwner(OTHER_OWNER, processOf(OTHER_OWNER)), null, 'an ended owner never comes back');
+  assert.deepEqual(
+    registry.savedLoginPixelGuards().map((guard) => guard.ownerId),
+    [OWNER]
+  );
+  assert.equal(
+    registry.attachSavedLoginOwner(OTHER_OWNER, processOf(OTHER_OWNER)),
+    null,
+    'an ended owner never comes back'
+  );
   // The owner's process proven ended: retired, once its running fill finished.
   const reattached = registry.attachSavedLoginOwner(OWNER, processOf(OWNER));
   const finishRunning = registry.admitSavedLoginFill({ ...TURN, turnId: 10 });
@@ -555,7 +584,7 @@ function guardedCaptures(registry) {
 const WITHHELD = /capture_withheld: pixels of a browser a saved-login password was filled into are withheld/;
 const nextTick = () => new Promise((resolve) => setImmediate(resolve));
 
-test('a detached owner\'s guard releases at the next capture it would withhold once the OS proves the process ended', async () => {
+test("a detached owner's guard releases at the next capture it would withhold once the OS proves the process ended", async () => {
   const registry = createSecretInputs();
   const { fates, asked, capture, check } = guardedCaptures(registry);
   const ownerPid = processOf(OWNER).pid;
@@ -631,7 +660,10 @@ test('a capture asks the OS only about detached owners whose guards withhold it,
   // C's own browser: now C is the one asked, and its ended process releases it.
   await check('hwnd:0x9');
   assert.deepEqual(asked, [processOf(OWNER).pid, processOf(BRIDGE_OWNER).pid]);
-  assert.deepEqual(registry.savedLoginPixelGuards().map((guard) => guard.ownerId), [OTHER_OWNER]);
+  assert.deepEqual(
+    registry.savedLoginPixelGuards().map((guard) => guard.ownerId),
+    [OTHER_OWNER]
+  );
 });
 
 test('concurrent guarded captures share one OS question per detached owner', async () => {
@@ -648,7 +680,13 @@ test('concurrent guarded captures share one OS question per detached owner', asy
   await admittedFill(command(), savedLogins(), worker().call, { registry, attach: false });
   detach();
   const captures = [1, 2, 3].map(() =>
-    assertSavedLoginPixelsAllowed({ action: 'capture', session_id: 's', mode: 'state' }, 'hwnd:0x1', async () => '4242', registry, fate)
+    assertSavedLoginPixelsAllowed(
+      { action: 'capture', session_id: 's', mode: 'state' },
+      'hwnd:0x1',
+      async () => '4242',
+      registry,
+      fate
+    )
   );
   await nextTick();
   assert.equal(asked, 1, 'one question in flight');
@@ -944,7 +982,11 @@ test('through the router: reply, history record and diagnostics never hold the v
   assert.deepEqual(payload.saved_login, { account: LABEL, origin: ORIGIN, field: 'password' });
   assert.equal(reply.image, undefined);
   assert.deepEqual(
-    requests.map((request) => [request.action, request.observed_input_monitor_id, request.observed_input_user_sequence]),
+    requests.map((request) => [
+      request.action,
+      request.observed_input_monitor_id,
+      request.observed_input_user_sequence,
+    ]),
     [
       ['saved_login_check', 'monitor-1', 7],
       ['saved_login_type', 'monitor-1', 7],
@@ -956,29 +998,35 @@ test('through the router: reply, history record and diagnostics never hold the v
   secretInputs.forget(SESSION);
 });
 
-test('through the router: Auto login switched off after the dispatch authorization sends no value', WINDOWS, async () => {
-  const logins = savedLogins();
-  let on = true;
-  logins.enabled = () => on;
-  const { host, requests } = routerHost(logins, worker());
-  // The observe-only gate runs right after `await authorizeDispatch()`; the
-  // user turns Auto login off there, just before the secret-bearing request.
-  host.isObserveOnly = () => {
-    if (requests.some((request) => request.action === 'saved_login_check')) on = false;
-    return false;
-  };
-  secretInputs.attachSavedLoginOwner(OWNER, processOf(OWNER));
-  const finish = secretInputs.admitSavedLoginFill({ ...TURN, turnId: 70 });
-  await assert.rejects(
-    createCommandRouter(host).runCommand(command('password', { turn_id: 70 })).finally(finish),
-    /Auto login is off.*no input was sent/
-  );
-  assert.deepEqual(
-    requests.map((request) => request.action),
-    ['saved_login_check']
-  );
-  secretInputs.forget(SESSION);
-});
+test(
+  'through the router: Auto login switched off after the dispatch authorization sends no value',
+  WINDOWS,
+  async () => {
+    const logins = savedLogins();
+    let on = true;
+    logins.enabled = () => on;
+    const { host, requests } = routerHost(logins, worker());
+    // The observe-only gate runs right after `await authorizeDispatch()`; the
+    // user turns Auto login off there, just before the secret-bearing request.
+    host.isObserveOnly = () => {
+      if (requests.some((request) => request.action === 'saved_login_check')) on = false;
+      return false;
+    };
+    secretInputs.attachSavedLoginOwner(OWNER, processOf(OWNER));
+    const finish = secretInputs.admitSavedLoginFill({ ...TURN, turnId: 70 });
+    await assert.rejects(
+      createCommandRouter(host)
+        .runCommand(command('password', { turn_id: 70 }))
+        .finally(finish),
+      /Auto login is off.*no input was sent/
+    );
+    assert.deepEqual(
+      requests.map((request) => request.action),
+      ['saved_login_check']
+    );
+    secretInputs.forget(SESSION);
+  }
+);
 
 test('through the router: Auto login off is refused before the target is touched', WINDOWS, async () => {
   const native = worker();

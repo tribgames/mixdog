@@ -197,7 +197,11 @@ test('the Windows worker refuses every saved-login target it cannot prove, befor
     'https://xn--bcher-kva.example',
     'https://xn--bcher-kva.example',
   ]);
-  for (const url of ['https://LOGIN.Example.com:443/a?b=1#c', 'https://login.example.com:8443/x', 'https://bücher.example/p']) {
+  for (const url of [
+    'https://LOGIN.Example.com:443/a?b=1#c',
+    'https://login.example.com:8443/x',
+    'https://bücher.example/p',
+  ]) {
     assert.ok(result.origins.includes(new URL(url).origin), `matches URL.origin for ${url}`);
   }
   assert.deepEqual(result.changes, [
@@ -217,17 +221,26 @@ test('the Windows worker refuses every saved-login target it cannot prove, befor
   }
   // No key reached either box and the foreground never moved.
   assert.deepEqual(result.window, { secretText: '', plainText: '', foregroundKept: true });
-  assert.equal(result.document, 'saved_login_refused: focus is not on a web page of this browser window; no input was sent');
+  assert.equal(
+    result.document,
+    'saved_login_refused: focus is not on a web page of this browser window; no input was sent'
+  );
   // The live process image, verified per call (cache-only chain, no revocation
   // fetch), bound to that process; its signer, not the basename, decides trust.
   assert.equal(result.sig.flags, 0x10 | 0x1000, 'WTD_REVOCATION_CHECK_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL');
-  assert.equal(result.sig.zero, "saved_login_refused: the 'msedge' window's program could not be verified as a signed browser; no input was sent");
+  assert.equal(
+    result.sig.zero,
+    "saved_login_refused: the 'msedge' window's program could not be verified as a signed browser; no input was sent"
+  );
   assert.equal(result.sig.gone, '');
   if (result.sig.publisher) {
     assert.equal(result.sig.path.toLowerCase(), 'node.exe');
     assert.equal(result.sig.bound, true);
     assert.equal(result.sig.again, true);
-    assert.equal(result.sig.asChrome, "saved_login_refused: the 'chrome' window's program is not signed by Google LLC; no input was sent");
+    assert.equal(
+      result.sig.asChrome,
+      "saved_login_refused: the 'chrome' window's program is not signed by Google LLC; no input was sent"
+    );
   } else {
     // An unsigned test node refuses as unverifiable, never silently trusted.
     assert.match(result.sig.asChrome, /could not be verified as a signed browser/);

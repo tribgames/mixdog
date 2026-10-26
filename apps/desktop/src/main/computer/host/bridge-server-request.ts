@@ -232,10 +232,13 @@ export function createBridgeRequestHandler(
     } catch {
       /* answered below */
     }
-    const identity = fate && Number.isSafeInteger(pid) && pid > 0 ? await fate({ pid, created: '' }).catch(() => null) : null;
+    const identity =
+      fate && Number.isSafeInteger(pid) && pid > 0 ? await fate({ pid, created: '' }).catch(() => null) : null;
     if (closed) return;
     detach =
-      identity?.state === 'running' ? secretInputs.attachSavedLoginOwner(ownerId, { pid, created: identity.created }) : null;
+      identity?.state === 'running'
+        ? secretInputs.attachSavedLoginOwner(ownerId, { pid, created: identity.created })
+        : null;
     if (!detach || !fate) {
       respond(response, 400, { ok: false, error: 'invalid request: unknown or ended runtime owner' });
       return;

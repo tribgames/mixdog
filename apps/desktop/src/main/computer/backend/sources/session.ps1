@@ -55,13 +55,13 @@ function Get-SessionState($id) {
     $key = if ($id) { [string]$id } else { 'default' }
     if (-not $Sessions.ContainsKey($key)) {
         $Sessions[$key] = @{
-            Map                = @{}
-            Generation         = 0
-            Continuation       = $null
-            LastFocus          = [IntPtr]::Zero
-            HeldPointerTargets = @{}
-            HeldKeys           = @{}
-            CursorTheme        = $null
+            Map                  = @{}
+            Generation           = 0
+            Continuation         = $null
+            LastFocus            = [IntPtr]::Zero
+            HeldPointerTargets   = @{}
+            HeldKeys             = @{}
+            CursorTheme          = $null
             # Top-level window handle -> owner identity, for windows seen taking
             # the foreground during their own accessibility value write.
             ValueWriteActivators = @{}

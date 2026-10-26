@@ -19,13 +19,19 @@ test('saved_login names one window, a saved account and which of its values to t
   // One-time codes stay with the user: no field takes them.
   assert.match(validateComputerToolArgs(args({ savedAccount: 'a@b.c', field: 'code' })), /field/);
   assert.equal(
-    validateComputerToolArgs({ action: 'saved_login', input: { app: 'Chrome', savedAccount: 'a@b.c', field: 'password' } }),
+    validateComputerToolArgs({
+      action: 'saved_login',
+      input: { app: 'Chrome', savedAccount: 'a@b.c', field: 'password' },
+    }),
     null
   );
   assert.match(validateComputerToolArgs(args({ field: 'password' })), /requires input field\(s\): savedAccount/);
   assert.match(validateComputerToolArgs(args({ savedAccount: 'a@b.c' })), /requires input field\(s\): field/);
   assert.match(validateComputerToolArgs(args({ savedAccount: 'a@b.c', field: 'otp' })), /field/);
-  assert.match(validateComputerToolArgs(args({ savedAccount: '   ', field: 'password' })), /savedAccount must not be empty/);
+  assert.match(
+    validateComputerToolArgs(args({ savedAccount: '   ', field: 'password' })),
+    /savedAccount must not be empty/
+  );
   // The value itself is never an input: the host takes it from the vault.
   assert.match(
     validateComputerToolArgs(args({ savedAccount: 'a@b.c', field: 'password', text: 'hunter2' })),
@@ -49,10 +55,20 @@ test('the host receives fill_saved_login, always on the foreground route', () =>
   assert.ok(schema.properties.action.enum.includes('saved_login'));
   const text = JSON.stringify(schema);
   assert.match(text, /prefer its existing session\/SSO or Browser Use's saved sign-in/);
-  assert.match(text, /site receives it.*redisplays it can expose it.*same Windows user are outside this protection.*ask_user secret/);
-  assert.match(text, /One-time codes, passkeys, security keys and app approvals are the user's step: ask_user takeover/);
+  assert.match(
+    text,
+    /site receives it.*redisplays it can expose it.*same Windows user are outside this protection.*ask_user secret/
+  );
+  assert.match(
+    text,
+    /One-time codes, passkeys, security keys and app approvals are the user's step: ask_user takeover/
+  );
   // The typing tools steer secrets away from themselves.
-  assert.equal((text.match(/Never a password or one-time code, even one shown on screen: saved_login or ask_user/g) || []).length >= 2, true);
+  assert.equal(
+    (text.match(/Never a password or one-time code, even one shown on screen: saved_login or ask_user/g) || [])
+      .length >= 2,
+    true
+  );
 });
 
 test('a fill names its agent turn, and only the turn settlement retires it, even after an abort', {
@@ -103,7 +119,10 @@ test('a fill names its agent turn, and only the turn settlement retires it, even
     // The owner connection was attached before the fill left, and both name this process.
     assert.deepEqual(owners, [{ runtime_id: SAVED_LOGIN_OWNER_ID, pid: process.pid, before: 0 }]);
     assert.equal(sentFill.runtime_id, SAVED_LOGIN_OWNER_ID);
-    assert.ok(seen.some((command) => command.action === 'session_abort'), 'the cancelled request aborted');
+    assert.ok(
+      seen.some((command) => command.action === 'session_abort'),
+      'the cancelled request aborted'
+    );
     // The abort was input cleanup; the turn's settlement is still owed and sent.
     await endComputerExecution('turn-session');
     const settles = () => seen.filter((command) => command.action === 'turn_settle');
@@ -130,7 +149,11 @@ test('a fill names its agent turn, and only the turn settlement retires it, even
     assert.equal(session.usageMetricsTurnId, 4);
     await executeComputerTool(fill, { sessionId: session.id, turnId: session.usageMetricsTurnId });
     await finishComputerTurn(session.id, 3);
-    assert.equal(settles().filter((command) => command.session_id === session.id).length, 0, 'an older turn ending settles nothing newer');
+    assert.equal(
+      settles().filter((command) => command.session_id === session.id).length,
+      0,
+      'an older turn ending settles nothing newer'
+    );
     liveness.markSessionDone(session.id);
     for (let attempt = 0; attempt < 100 && !settles().some((command) => command.session_id === session.id); attempt++) {
       await new Promise((r) => setTimeout(r, 5));
@@ -158,7 +181,9 @@ test('a desktop that refuses the owner connection receives no fill', { timeout: 
     request.resume();
     request.on('end', () => {
       const payload = JSON.stringify(
-        request.url === '/owner' ? { ok: false, error: 'unknown or ended runtime owner' } : { ok: true, value: { text: '{}' } }
+        request.url === '/owner'
+          ? { ok: false, error: 'unknown or ended runtime owner' }
+          : { ok: true, value: { text: '{}' } }
       );
       response.writeHead(request.url === '/owner' ? 400 : 200, { 'content-type': 'application/json' });
       response.end(payload);

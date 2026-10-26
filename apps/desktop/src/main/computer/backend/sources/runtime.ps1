@@ -143,10 +143,10 @@ function Handle($req) {
                     observer_ready  = $state.Ready
                     observer_reason = [string]$state.Reason
                     desktop_ready   = $desktop
-                    monitor        = $state.Generation
-                    sequence       = $state.Sequence
-                    idleMs         = [Math]::Max(0, ([long][Environment]::TickCount - [long]$state.Tick + 4294967296) % 4294967296)
-                    held           = [MixInputObservation]::AnyInputHeld()
+                    monitor         = $state.Generation
+                    sequence        = $state.Sequence
+                    idleMs          = [Math]::Max(0, ([long][Environment]::TickCount - [long]$state.Tick + 4294967296) % 4294967296)
+                    held            = [MixInputObservation]::AnyInputHeld()
                 }
             }
             'restore_input_state' { return Restore-InputRecoveryState $req }

@@ -76,7 +76,7 @@ export function assertSavedLoginAvailable(
   const field = String(command.field || '');
   if (!SAVED_LOGIN_FIELDS.includes(field)) {
     throw new Error(
-      'invalid_input: field must be username or password; one-time codes, passkeys, security keys and app approvals are the user\'s step (ask_user takeover)'
+      "invalid_input: field must be username or password; one-time codes, passkeys, security keys and app approvals are the user's step (ask_user takeover)"
     );
   }
   const account = typeof command.saved_account === 'string' ? command.saved_account.trim() : '';
@@ -244,7 +244,9 @@ export async function fillSavedLogin(
   const { field, account, turn } = assertSavedLoginAvailable(command, savedLogins, platform);
   const { sessionId } = turn;
   if (!registry.savedLoginFillAdmitted(turn)) {
-    throw new Error('saved_login_unavailable: the fill was not admitted by the bridge for its runtime and turn; no input was sent');
+    throw new Error(
+      'saved_login_unavailable: the fill was not admitted by the bridge for its runtime and turn; no input was sent'
+    );
   }
   const checked = await call({ action: 'saved_login_check', field, text: null });
   if (!checked.ok) {
@@ -266,7 +268,9 @@ export async function fillSavedLogin(
   }
   // The worker's origin and the vault's (secureOrigin) must agree exactly.
   if (saved.origin !== target.origin) {
-    throw new Error('saved_login_refused: the page origin could not be matched exactly to the saved login; no input was sent');
+    throw new Error(
+      'saved_login_refused: the page origin could not be matched exactly to the saved login; no input was sent'
+    );
   }
   assertRunnable?.();
   assertSavedLoginAvailable(command, savedLogins, platform);
@@ -306,7 +310,12 @@ export async function fillSavedLogin(
   }
   if (!written.ok) {
     throw new Error(
-      redact(String(written.error || 'saved_login_unconfirmed: the worker gave no answer; the value may have been written and is not retried'))
+      redact(
+        String(
+          written.error ||
+            'saved_login_unconfirmed: the worker gave no answer; the value may have been written and is not retried'
+        )
+      )
     );
   }
   if (typeof written.result?.code === 'string' && written.result.code) return asSavedLoginReply(written);
