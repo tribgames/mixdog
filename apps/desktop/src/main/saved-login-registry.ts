@@ -43,7 +43,7 @@ export interface SavedLoginTurn {
 }
 /** After a saved-login password fill, no pixels of the filled browser window,
  *  nor of any window of the same browser process, leave the host for any
- *  session until the filling turn settles (saved-login.ts, powershell-host.ts). */
+ *  session until the filling turn settles (saved-login.ts, host-authorization.ts). */
 export interface SavedLoginPixelGuard extends SavedLoginTurn {
   windowId: string;
   pid: string;

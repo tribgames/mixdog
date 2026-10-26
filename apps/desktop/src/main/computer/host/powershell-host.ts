@@ -26,10 +26,10 @@ import type { ComputerAuthorizationStatus, ComputerAuthorizationWindow } from '.
 import { createComputerAuthorizationSettings } from './authorization-settings';
 import { createComputerFailureDiagnostics } from '../session/failure-diagnostics';
 import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
-import { CHROME_SETUP_SESSION_ID, mixdogDataDirectory } from '../shared/common';
-import { assertSavedLoginPixelsAllowed } from './saved-login';
-import type { ProcessFate } from './bridge-server-contract';
-import { HOST_WARMUP_SESSION_ID } from './action-sets';
+import { mixdogDataDirectory } from '../shared/common';
+import { createProcessFateReader } from './process-fate';
+import { createCaptureAuthorizer, listAuthorizationWindows } from './host-authorization';
+import { createSequenceHoldRelease, killSessionWorkers, retireBridgeWorkers } from './worker-control';
 import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import { createWorkerPool } from '../backend/worker-pool';
 import { createCaptureEngine } from '../observation/capture';
@@ -51,7 +51,7 @@ import { WINDOWS_NATIVE_SURFACE_BACKENDS } from '../shared/capture-attempts';
 import { publishPointerProgress } from './pointer-cursor';
 import { createSessionLifecycle } from './session-lifecycle';
 import { createInputResolution } from './input-resolution';
-import { createSequenceRunner, sequenceHoldReleaseError, suppressCaptureAfter } from './sequence-runner';
+import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
 import { createInputPreflight } from './input-preflight';
 import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
@@ -102,6 +102,19 @@ function desktopBoundsEnvironment(): Record<string, string> {
   return { MIXDOG_COMPUTER_DESKTOP_BOUNDS: `${left},${top},${right - left},${bottom - top}` };
 }
 
+/** The host's diagnostic sink: a failing listener never reaches the host. */
+function advisoryDiagnostics(
+  onDiagnostic: ((event: string, data: Record<string, unknown>) => void) | undefined
+): (event: string, data?: Record<string, unknown>) => void {
+  return (event, data = {}) => {
+    try {
+      onDiagnostic?.(event, data);
+    } catch {
+      /* diagnostics are advisory */
+    }
+  };
+}
+
 export function createPowerShellComputerHost(
   options: {
     bridgeEnabled?: boolean;
@@ -125,21 +138,11 @@ export function createPowerShellComputerHost(
       userWait.cancel();
       return lifecycle.stopAllComputerSessions(false);
     },
-    windows: async () => {
-      const windows = await readComputerWindows({ action: 'list_windows', session_id: 'computer-settings' }, true);
-      if (!windows) throw new Error('computer_windows_unavailable: could not read current app windows');
-      return windows.map(({ id, pid, app, title }) => ({ id, pid, app, title }));
-    },
+    windows: () => listAuthorizationWindows(readComputerWindows),
   });
   const policy = authorization.policy;
   configureCursorDiagnostics(join(mixdogDataDirectory(), 'computer-cursor-diagnostics.json'));
-  const diagnose = (event: string, data: Record<string, unknown> = {}): void => {
-    try {
-      options.onDiagnostic?.(event, data);
-    } catch {
-      /* diagnostics are advisory */
-    }
-  };
+  const diagnose = advisoryDiagnostics(options.onDiagnostic);
 
   // Agent-scoped resident PowerShell workers + their shared pending-request table.
   const workerPool = createWorkerPool({
@@ -172,22 +175,7 @@ export function createPowerShellComputerHost(
     readPermissions: readComputerPermissions,
     isObserveOnly: () => observeOnly,
   });
-  // Saved-login owners (Windows only, like saved logins): the OS's answer
-  // about one runtime process, read by the host's own worker. The bridge asks
-  // as owners attach and detach; a capture a detached owner's saved-login
-  // guard would withhold asks too.
-  const processFate = async ({ pid, created }: { pid: number; created: string }): Promise<ProcessFate> => {
-    if (process.platform !== 'win32') return { state: 'unknown', created: '' };
-    const response = await callPowerShell({
-      action: 'process_fate',
-      session_id: HOST_WARMUP_SESSION_ID,
-      pid: String(pid),
-      created,
-    });
-    const result = response.result as { state?: unknown; created?: unknown } | undefined;
-    const state = response.ok && (result?.state === 'running' || result?.state === 'ended') ? result.state : 'unknown';
-    return { state, created: typeof result?.created === 'string' ? result.created : '' };
-  };
+  const processFate = createProcessFateReader(callPowerShell);
   const captureEngine = createCaptureEngine({
     ...sessionState,
     callPowerShell,
@@ -197,27 +185,7 @@ export function createPowerShellComputerHost(
     beginObservation: execution.beginObservation,
     resolveAppWindowId: targeting.resolveAppWindowId,
     resolveForegroundWindowId: targeting.resolveForegroundWindowId,
-    authorizeCapture: async (command, windowId) => {
-      // Before any policy decision, for every session: no pixels of a browser a
-      // saved-login password was filled into leave the host until the filling
-      // turn ends, however the capture was reached (explicit read,
-      // capture-after, zoom). The target's process is read live; unreadable
-      // refuses.
-      await assertSavedLoginPixelsAllowed(
-        command,
-        windowId,
-        async (id) => {
-          const windows = await readComputerWindows(command);
-          const owner = windows?.find((window) => String(window.id).toLowerCase() === id.toLowerCase());
-          return owner?.pid ? String(owner.pid) : undefined;
-        },
-        undefined,
-        processFate
-      );
-      if (!policy.restricted || sessionIdFor(command) === CHROME_SETUP_SESSION_ID) return;
-      if (!windowId) throw new Error('computer_policy_denied: full-screen capture is not authorized');
-      policy.assertWindow({ ...command, action: 'capture', window_id: windowId }, await readComputerWindows(command));
-    },
+    authorizeCapture: createCaptureAuthorizer({ policy, readComputerWindows, sessionIdFor, processFate }),
   });
 
   // The lifecycle owns the command chain, so the router it dispatches through
@@ -254,17 +222,7 @@ export function createPowerShellComputerHost(
     freshObservedWindowScope: sessionState.freshObservedWindowScope,
     captureAfterAction: captureEngine.captureAfterAction,
     runCommand: (command) => router.runCommand(command),
-    releaseSequenceHolds: async (sessionId) => {
-      const child = powerShellBySession.get(sessionId);
-      // Never start a worker just to release: a retired worker held nothing.
-      if (!child || child.killed) return;
-      const response = await callPowerShell({
-        action: 'release_sequence_holds',
-        session_id: sessionId,
-        read_only: false,
-      });
-      if (response.ok === false) throw sequenceHoldReleaseError(response.error);
-    },
+    releaseSequenceHolds: createSequenceHoldRelease({ powerShellBySession, callPowerShell }),
   });
   const router = createCommandRouter({
     policy,
@@ -337,12 +295,8 @@ export function createPowerShellComputerHost(
       if (enabled) bridge.startBridge();
       else {
         userWait.cancel();
-        // A stopped bridge answers no command, so its native workers are pure
-        // cost. Retire them through the session path instead of holding the
-        // processes until dispose.
-        for (const child of new Set(powerShellBySession.values())) {
-          retirePowerShell(child, new Error('computer bridge stopped'));
-        }
+        // Retired now instead of holding the processes until dispose.
+        retireBridgeWorkers(powerShellBySession, retirePowerShell);
         // A bridge that refuses to stop would keep answering agent commands
         // after the user switched Computer Use off, so the failure is recorded.
         void bridge.stopBridge().catch((error) => {
@@ -383,16 +337,7 @@ export function createPowerShellComputerHost(
       disposed = true;
       bridgeWanted = false;
       await bridge.stopBridge();
-      for (const child of powerShellBySession.values()) {
-        if (!child.killed) {
-          try {
-            child.kill();
-          } catch {
-            /* already gone */
-          }
-        }
-      }
-      powerShellBySession.clear();
+      killSessionWorkers(powerShellBySession);
       computerUseCoordinator.reset();
       workerPool.removeHostScript();
     },
