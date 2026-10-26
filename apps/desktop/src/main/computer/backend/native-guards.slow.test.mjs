@@ -94,7 +94,7 @@ public sealed class CloseFixture : NativeWindow, IDisposable {
         if (message.Msg == 0x0010) {
             received.Set();
             if (!cancel) {
-                Gate.WaitOne(5000);
+                Gate.WaitOne();
                 DestroyHandle();
                 Application.ExitThread();
             }
@@ -111,6 +111,8 @@ public sealed class CloseFixture : NativeWindow, IDisposable {
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
     public void Dispose() {
+        // Cleanup releases a handler still blocked at its gate, so a failing test cannot leave it hung.
+        Gate.Set();
         if (thread.IsAlive) PostMessage(Target, 0x8001, IntPtr.Zero, IntPtr.Zero);
         if (!thread.Join(5000)) throw new Exception("fixture did not stop");
         ready.Dispose();
