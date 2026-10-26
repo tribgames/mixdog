@@ -119,6 +119,169 @@ api.onState((state) => {
 </script></body></html>`;
 }
 
+/** The sign-in window itself: a native, non-modal child of the Mixdog window
+ *  (when it is there), centred on it, loading the shell preload. */
+function openLoginWindow(deps: Pick<BrowserLoginPopupDeps, 'parent' | 'preloadPath'>): BrowserWindow {
+  const parent = deps.parent();
+  const parentBounds = parent && !parent.isDestroyed() ? parent.getBounds() : null;
+  const workArea = (parentBounds ? screen.getDisplayMatching(parentBounds) : screen.getPrimaryDisplay()).workArea;
+  return new BrowserWindow({
+    ...loginPopupBounds(parentBounds, workArea),
+    minWidth: 360,
+    minHeight: 420,
+    ...(parent && !parent.isDestroyed() ? { parent } : {}),
+    modal: false,
+    show: false,
+    maximizable: false,
+    fullscreenable: false,
+    autoHideMenuBar: true,
+    // A native frame whose title is the page's own (or 로그인): no address.
+    title: nativeT('Sign in'),
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#f7f7f7',
+    webPreferences: {
+      preload: deps.preloadPath ?? shellPreloadPath(),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      spellcheck: false,
+    },
+  });
+}
+
+/** The site's page: a sandboxed view on `session` over all of `window` but
+ *  the bottom bar, kept so as the window resizes. */
+function attachSiteView(window: BrowserWindow, session: Session): WebContentsView {
+  const view = new WebContentsView({
+    webPreferences: {
+      session,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+    },
+  });
+  window.contentView.addChildView(view);
+  const layout = () => {
+    const [width, height] = window.getContentSize();
+    view.setBounds({ x: 0, y: 0, width, height: Math.max(0, height - BAR_HEIGHT) });
+  };
+  layout();
+  window.on('resize', layout);
+  return view;
+}
+
+/** What the shell's bar shows (`shown`), pushed to it once it has loaded:
+ *  `push` after a change, `ready` when the shell finished loading, `blocked`
+ *  for a page that was not opened. */
+function createShellStatus(window: BrowserWindow) {
+  const shown = { status: pausedStatus(), tone: '' };
+  let shellReady = false;
+  const push = () => {
+    if (shellReady && !window.isDestroyed()) window.webContents.send(STATE_CHANNEL, shown);
+  };
+  return {
+    shown,
+    push,
+    ready: () => {
+      shellReady = true;
+      push();
+    },
+    blocked: () => {
+      Object.assign(shown, {
+        tone: 'blocked',
+        status: nativeT('This page was not opened: sign-in pages must use HTTPS.'),
+      });
+      push();
+    },
+  };
+}
+
+/** Navigation of the site and of every window it opens: the URL policy, and
+ *  HTTPS except loopback. A site's own popups keep their opener. */
+function guardContents(
+  contents: WebContents,
+  parent: BrowserWindow,
+  deps: Pick<BrowserLoginPopupDeps, 'urlPolicy'>,
+  onBlocked: () => void
+): void {
+  const guard = (event: Electron.Event, url: string) => {
+    try {
+      loginNavigationUrl(url, deps.urlPolicy);
+    } catch {
+      event.preventDefault();
+      onBlocked();
+    }
+  };
+  contents.on('will-navigate', guard);
+  contents.on('will-redirect', guard);
+  contents.setWindowOpenHandler(({ url }) => {
+    try {
+      if (url !== 'about:blank') loginNavigationUrl(url, deps.urlPolicy);
+    } catch {
+      onBlocked();
+      return { action: 'deny' };
+    }
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent,
+        width: 480,
+        height: 640,
+        autoHideMenuBar: true,
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+      },
+    };
+  });
+  contents.on('did-create-window', (child) => guardContents(child.webContents, parent, deps, onBlocked));
+}
+
+/** The site's page in `window`: its navigation guarded, the window titled
+ *  after it, each main-frame navigation reported, and a crash. */
+function watchSitePage(
+  site: WebContents,
+  window: BrowserWindow,
+  deps: Pick<BrowserLoginPopupDeps, 'urlPolicy'>,
+  on: { navigated(url: string): void; blocked(): void; crashed(): void }
+): void {
+  guardContents(site, window, deps, on.blocked);
+  site.on('did-navigate', (_event, next) => on.navigated(next));
+  site.on('page-title-updated', (_event, title) => {
+    if (!window.isDestroyed()) window.setTitle(title.trim() || nativeT('Sign in'));
+  });
+  site.on('did-navigate-in-page', (_event, next, isMainFrame) => {
+    if (isMainFrame) on.navigated(next);
+  });
+  site.on('render-process-gone', on.crashed);
+}
+
+/** The trusted shell's own contents: a crash is reported, it never navigates
+ *  or opens a window, and its load is reported. */
+function lockShell(shell: WebContents, on: { crashed(): void; loaded(): void }): void {
+  shell.on('render-process-gone', on.crashed);
+  shell.on('will-navigate', (event) => event.preventDefault());
+  shell.setWindowOpenHandler(() => ({ action: 'deny' }));
+  shell.on('did-finish-load', on.loaded);
+}
+
+/** The shell's control channel, answered for its own main frame only: 닫기
+ *  closes `window`, 완료 runs `complete`. */
+function handleShellControl(window: BrowserWindow, complete: () => Promise<boolean>): void {
+  const shell = window.webContents;
+  shell.ipc.handle(CONTROL_CHANNEL, async (event, request) => {
+    if (shell.isDestroyed() || event.sender !== shell || event.senderFrame !== shell.mainFrame) {
+      throw new Error('Invalid sign-in window sender');
+    }
+    const action = (request as { action?: unknown } | null)?.action;
+    if (action === 'close') {
+      if (!window.isDestroyed()) window.close();
+      return true;
+    }
+    if (action === 'complete') return complete();
+    throw new Error('Invalid sign-in window request');
+  });
+}
+
 export function createBrowserLoginPopup(deps: BrowserLoginPopupDeps) {
   /** sessionId → its login takeover and its window. */
   const entries = new Map<string, Entry>();
@@ -154,140 +317,30 @@ export function createBrowserLoginPopup(deps: BrowserLoginPopupDeps) {
     return settled;
   }
 
-  /** Navigation of the site and of every window it opens: the URL policy, and
-   *  HTTPS except loopback. A site's own popups keep their opener. */
-  function guardContents(contents: WebContents, parent: BrowserWindow, onBlocked: () => void): void {
-    const guard = (event: Electron.Event, url: string) => {
-      try {
-        loginNavigationUrl(url, deps.urlPolicy);
-      } catch {
-        event.preventDefault();
-        onBlocked();
-      }
-    };
-    contents.on('will-navigate', guard);
-    contents.on('will-redirect', guard);
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        if (url !== 'about:blank') loginNavigationUrl(url, deps.urlPolicy);
-      } catch {
-        onBlocked();
-        return { action: 'deny' };
-      }
-      return {
-        action: 'allow',
-        overrideBrowserWindowOptions: {
-          parent,
-          width: 480,
-          height: 640,
-          autoHideMenuBar: true,
-          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
-        },
-      };
-    });
-    contents.on('did-create-window', (child) => guardContents(child.webContents, parent, onBlocked));
-  }
-
   function createWindow(entry: Entry, url: string): void {
-    const parent = deps.parent();
-    const parentBounds = parent && !parent.isDestroyed() ? parent.getBounds() : null;
-    const workArea = (parentBounds ? screen.getDisplayMatching(parentBounds) : screen.getPrimaryDisplay()).workArea;
-    const window = new BrowserWindow({
-      ...loginPopupBounds(parentBounds, workArea),
-      minWidth: 360,
-      minHeight: 420,
-      ...(parent && !parent.isDestroyed() ? { parent } : {}),
-      modal: false,
-      show: false,
-      maximizable: false,
-      fullscreenable: false,
-      autoHideMenuBar: true,
-      // A native frame whose title is the page's own (or 로그인): no address.
-      title: nativeT('Sign in'),
-      backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#f7f7f7',
-      webPreferences: {
-        preload: deps.preloadPath ?? shellPreloadPath(),
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        spellcheck: false,
-      },
-    });
+    const window = openLoginWindow(deps);
     entry.window = window;
-    const view = new WebContentsView({
-      webPreferences: {
-        session: deps.session(),
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        webSecurity: true,
-        allowRunningInsecureContent: false,
-      },
-    });
-    window.contentView.addChildView(view);
-    const layout = () => {
-      const [width, height] = window.getContentSize();
-      view.setBounds({ x: 0, y: 0, width, height: Math.max(0, height - BAR_HEIGHT) });
-    };
-    layout();
-    window.on('resize', layout);
-
-    const shown = { status: pausedStatus(), tone: '' };
-    let shellReady = false;
-    const push = () => {
-      if (shellReady && !window.isDestroyed()) window.webContents.send(STATE_CHANNEL, shown);
-    };
+    const view = attachSiteView(window, deps.session());
+    const status = createShellStatus(window);
     const navigated = (raw: string) => {
       const provider = loginRefusal(raw);
       if (provider) {
         finish(entry, { state: 'refused', provider });
         return;
       }
-      if (shown.tone === 'blocked') Object.assign(shown, { tone: '', status: pausedStatus() });
-      if (loginAutoClose(raw, rules) && shown.tone !== 'ok') {
-        Object.assign(shown, { tone: 'ok', status: nativeT('Signed in. This window closes in a moment.') });
+      if (status.shown.tone === 'blocked') Object.assign(status.shown, { tone: '', status: pausedStatus() });
+      if (loginAutoClose(raw, rules) && status.shown.tone !== 'ok') {
+        Object.assign(status.shown, { tone: 'ok', status: nativeT('Signed in. This window closes in a moment.') });
         setTimeout(() => void complete(entry).catch(() => {}), deps.autoCloseDelayMs ?? AUTO_CLOSE_DELAY_MS);
       }
-      push();
-    };
-    const blocked = () => {
-      Object.assign(shown, {
-        tone: 'blocked',
-        status: nativeT('This page was not opened: sign-in pages must use HTTPS.'),
-      });
-      push();
+      status.push();
     };
     const site = view.webContents;
-    guardContents(site, window, blocked);
-    site.on('did-navigate', (_event, next) => navigated(next));
-    site.on('page-title-updated', (_event, title) => {
-      if (!window.isDestroyed()) window.setTitle(title.trim() || nativeT('Sign in'));
-    });
-    site.on('did-navigate-in-page', (_event, next, isMainFrame) => {
-      if (isMainFrame) navigated(next);
-    });
     // A crash of either side ends the window, never as a success.
-    site.on('render-process-gone', () => finish(entry, { state: 'closed' }));
-    window.webContents.on('render-process-gone', () => finish(entry, { state: 'closed' }));
-    window.webContents.on('will-navigate', (event) => event.preventDefault());
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    window.webContents.on('did-finish-load', () => {
-      shellReady = true;
-      push();
-    });
-    const shell = window.webContents;
-    shell.ipc.handle(CONTROL_CHANNEL, async (event, request) => {
-      if (shell.isDestroyed() || event.sender !== shell || event.senderFrame !== shell.mainFrame) {
-        throw new Error('Invalid sign-in window sender');
-      }
-      const action = (request as { action?: unknown } | null)?.action;
-      if (action === 'close') {
-        if (!window.isDestroyed()) window.close();
-        return true;
-      }
-      if (action === 'complete') return complete(entry);
-      throw new Error('Invalid sign-in window request');
-    });
+    const crashed = () => finish(entry, { state: 'closed' });
+    watchSitePage(site, window, deps, { navigated, blocked: status.blocked, crashed });
+    lockShell(window.webContents, { crashed, loaded: status.ready });
+    handleShellControl(window, () => complete(entry));
     // 닫기 and the OS close alike: still pending, offered again on the card.
     window.on('closed', () => {
       if (!site.isDestroyed()) site.close();

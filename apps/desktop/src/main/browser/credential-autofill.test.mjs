@@ -399,12 +399,19 @@ test("a secret fill binds each element's node and the main-frame document, and r
   const fill = sent.find(({ method }) => method === 'Runtime.callFunctionOn');
   assert.deepEqual(fill.params.arguments.slice(1), [{ objectId: 'node-42' }, { objectId: 'node-43' }]);
   assert.equal(fill.params.arguments[0].value.types, 'password email');
+  // Each world of one fill service has its own object group (the inspect's was the first).
+  assert.equal(fill.params.objectGroup, 'mixdog-browser-credential-fill-2');
 
   // A bound node is gone: stale, and the value never left this process.
   page.nodeAlive = false;
   sent.length = 0;
   remembered.length = 0;
   assert.deepEqual(await service.fillSecretField(guest, request), { filled: false, stale: true });
+  assert.deepEqual(
+    sent.filter(({ method }) => method === 'DOM.resolveNode').map(({ params }) => params.backendNodeId),
+    [42],
+    'resolution stops at the first gone node'
+  );
   assert.equal(secretSent(), false);
   assert.deepEqual(remembered, []);
   // Never bound to an element or a document: refused before anything is dispatched.
@@ -424,6 +431,55 @@ test("a secret fill binds each element's node and the main-frame document, and r
   await assert.rejects(service.fillSecretField(guest, request), /page changed.*input was not sent/);
   assert.equal(secretSent(), false);
   assert.deepEqual(remembered, [], 'nothing is remembered for a page that moved');
+});
+
+test('a secret fill checks the page and protects its nodes in the same turn as the last node resolution', async () => {
+  const order = [];
+  const page = { url: 'https://bank.example/login' };
+  const service = createBrowserCredentialFill({
+    cdp: {
+      call: async (_guest, method, params, _signal, options) => {
+        options?.beforeDispatch?.();
+        if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main', loaderId: 'L1' } } };
+        if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+        if (method === 'DOM.resolveNode') {
+          // A page change queued one microtask after the last resolution's
+          // answer is taken: it runs only once the fill's own turn has ended.
+          if (params.backendNodeId === 43) {
+            queueMicrotask(() =>
+              queueMicrotask(() => {
+                order.push('page changed');
+                page.url = 'https://bank.example/elsewhere';
+              })
+            );
+          }
+          return { object: { objectId: `node-${params.backendNodeId}` } };
+        }
+        if (method === 'Runtime.callFunctionOn') {
+          order.push('fill dispatched');
+          return { result: { value: { filled: true, usernameFilled: true } } };
+        }
+        return {};
+      },
+    },
+    rememberSecret: () => order.push('remembered'),
+    forgetSecret() {},
+    redactText: (_guest, text) => text,
+    protectNodes: (_guest, nodes) => order.push(`protected ${nodes.join(' ')}`),
+  });
+  const guest = { getURL: () => page.url, isDestroyed: () => false };
+  const result = await service.fillSecretField(guest, {
+    form: 'login',
+    value: 'S3NT1NEL-ordering',
+    username: 'data-team',
+    targets: [
+      { node: 42, type: 'password' },
+      { node: 43, type: 'email' },
+    ],
+    document: 'main:L1',
+  });
+  assert.deepEqual(result, { filled: true, usernameFilled: true });
+  assert.deepEqual(order, ['protected 42', 'remembered', 'fill dispatched', 'page changed']);
 });
 
 test('stored credential fill targets the current login form and emits framework events without returning secrets', async () => {

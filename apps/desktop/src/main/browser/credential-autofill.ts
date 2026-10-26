@@ -348,11 +348,9 @@ interface BrowserCredentialFillHost {
   protectNodes?(guest: WebContents, nodes: number[]): void;
 }
 
-/** Fill a stored credential through an isolated world, so the page script
- *  never sees the values as source text or renderer IPC. */
-export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
-  const { cdp, rememberSecret, forgetSecret, redactText, protectNodes } = host;
-
+/** Opens the isolated worlds every fill runs in; owns the counter that
+ *  names each world's object group. */
+function createIsolatedWorldOpener(cdp: BrowserCdpPort, redactText: BrowserCredentialFillHost['redactText']) {
   let objectGroups = 0;
 
   /** A fresh isolated world of the guest's main frame. `check` runs before
@@ -450,6 +448,22 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
     };
   }
 
+  return openIsolatedWorld;
+}
+
+type OpenIsolatedWorld = ReturnType<typeof createIsolatedWorldOpener>;
+
+/** Fill a stored credential through an isolated world, so the page script
+ *  never sees the values as source text or renderer IPC. */
+export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
+  const { cdp, rememberSecret, forgetSecret, redactText, protectNodes } = host;
+  const openIsolatedWorld = createIsolatedWorldOpener(cdp, redactText);
+  const { inspectSecretField, fillSecretField } = createSecretFieldFill(openIsolatedWorld, {
+    rememberSecret,
+    forgetSecret,
+    protectNodes,
+  });
+
   /** Auto sign-in and the agent's stored-login fill: the login form of the
    *  page as it is at fill time. `boundUrl`: the page address checked before
    *  the stored login was read; the fill is refused unless the page is still
@@ -500,6 +514,20 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
     return mainDocumentOf(await cdp.call<MainFrameTree>(guest, 'Page.getFrameTree', {}, signal));
   }
 
+  return { fillCredentialInGuest, pageDocument, inspectSecretField, fillSecretField };
+}
+
+/** The bound secret fill of the login card and of secret requests: request
+ *  time binds the exact elements (inspectSecretField), fill time writes only
+ *  them (fillSecretField). */
+function createSecretFieldFill(
+  openIsolatedWorld: OpenIsolatedWorld,
+  {
+    rememberSecret,
+    forgetSecret,
+    protectNodes,
+  }: Pick<BrowserCredentialFillHost, 'rememberSecret' | 'forgetSecret' | 'protectNodes'>
+) {
   /** Request time: which field a secret would go to on the guest's page, and
    *  the exact elements a fill will write (each one's CDP backend node id and
    *  type) with the document they belong to, for the fill to be bound to; no
@@ -588,6 +616,7 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
         if (!objectId) return stale;
         elements.push({ objectId });
       }
+      // Nothing is awaited between the last resolution and this check.
       world.check();
       // Not a login's username, nor a username step: those are no secret.
       const secretNodes = request.targets
@@ -624,7 +653,7 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
     }
   }
 
-  return { fillCredentialInGuest, pageDocument, inspectSecretField, fillSecretField };
+  return { inspectSecretField, fillSecretField };
 }
 
 interface MainFrameTree {

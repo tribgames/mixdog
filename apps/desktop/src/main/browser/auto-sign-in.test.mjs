@@ -135,6 +135,14 @@ test('a lookalike origin, a plain HTTP page or a page with no password field nev
   assert.equal(plain.calls.fills, 0);
 });
 
+test('an unparseable page address has no origin: no probe, no vault read, no fill', async () => {
+  const f = fixture({ url: 'not a url' });
+  assert.equal(await f.run(), null);
+  assert.equal(f.calls.probes, 0);
+  assert.deepEqual(f.calls.suggestions, []);
+  assert.equal(f.calls.fills, 0);
+});
+
 test('a 2FA step or an error after the one try falls back to the user, never a retry', async () => {
   for (const after of ['two-factor', 'error']) {
     const f = fixture({ after });

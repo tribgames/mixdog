@@ -336,9 +336,9 @@ const formThere = (now: SignInState, phase: Phase): boolean => {
 /** Whether a challenge stands in the way of `phase` (a code is the code step's own field). */
 const challenged = (now: SignInState, phase: Phase): boolean => (phase === 'code' ? now.captcha : now.challenge);
 
-export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
-  /** `${sessionId}\0${turnId}\0${origin}`: tried once this turn. */
-  const attempted = new Set<string>();
+/** Reads of the sign-in page: its state across every frame, and that state
+ *  bound to the main-frame document it was read on. */
+function createSignInReader(deps: Pick<BrowserAutoSignInDeps, 'collect' | 'document'>) {
   const state = async (guest: WebContents, signal?: AbortSignal): Promise<SignInState> => {
     const frames = await deps.collect<SignInState>(guest, SIGN_IN_STATE, signal);
     const any = (key: 'password' | 'challenge' | 'wording' | 'code' | 'captcha' | 'username' | 'sent' | 'error') =>
@@ -392,19 +392,31 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     }
   };
 
-  /** Whether the sign-in may go on after this probe: the step's form is still
-   *  there, no challenge stands, and any human check seen on this attempt holds
-   *  its token (a widget that vanished without one is not a success). */
-  const mayGoOn = (now: SignInState, seen: { check: boolean }, phase: Phase): boolean => {
-    if (now.check !== 'none') seen.check = true;
-    return (
-      formThere(now, phase) &&
-      !challenged(now, phase) &&
-      now.check !== 'pending' &&
-      (!seen.check || now.check === 'solved')
-    );
-  };
+  return { state, read, readMoving };
+}
 
+type SignInReader = ReturnType<typeof createSignInReader>;
+
+/** Whether the sign-in may go on after this probe: the step's form is still
+ *  there, no challenge stands, and any human check seen on this attempt holds
+ *  its token (a widget that vanished without one is not a success). */
+const mayGoOn = (now: SignInState, seen: { check: boolean }, phase: Phase): boolean => {
+  if (now.check !== 'none') seen.check = true;
+  return (
+    formThere(now, phase) &&
+    !challenged(now, phase) &&
+    now.check !== 'pending' &&
+    (!seen.check || now.check === 'solved')
+  );
+};
+
+/** The bounded waits of a sign-in, each polling the page within the
+ *  `humanCheck` bounds: for its human check, for the next step's password
+ *  field, and for the site's answer to a submit. */
+function createSignInWaits(
+  deps: Pick<BrowserAutoSignInDeps, 'humanCheck'>,
+  { state, readMoving }: Pick<SignInReader, 'state' | 'readMoving'>
+) {
   /** Waits for the page's human check: up to the wait bound while a token is
    *  missing, or a short grace for a late-rendered widget when none is there
    *  yet. False when it never finishes, vanishes without a token, a challenge
@@ -495,6 +507,218 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     }
   }
 
+  return { humanCheckCleared, passwordShown, submitAnswered };
+}
+
+type SignInWaits = ReturnType<typeof createSignInWaits>;
+
+/** `url`'s origin when it is an HTTPS address; '' for any other, or for an
+ *  unparseable one. */
+function httpsOrigin(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:') return parsed.origin;
+  } catch {
+    // An unparseable address has no origin.
+  }
+  return '';
+}
+
+/** Whether `url` is still on the HTTPS `origin` the attempt started on. */
+function onOrigin(url: string, origin: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === origin && parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** The step a sign-in page asks for first: its password field, else a
+ *  username-only first step; null for neither. */
+function firstPhase(now: SignInState): Phase | null {
+  if (now.password) return 'password';
+  if (now.username) return 'username';
+  return null;
+}
+
+/** What a step was submitted on: its address, its document, and whether the
+ *  page showed a sign-in error right before the submit. */
+type Submitted = { url: string; document: string; error: boolean };
+
+/** One step of an attempt with saved login `account` on `guest`: on `url`,
+ *  wait out its human check, give the page this step's secret and press
+ *  Enter. The page as it stood right before the submit, or null when there
+ *  was nothing to send. */
+function createSignInStep(
+  deps: Pick<BrowserAutoSignInDeps, 'code' | 'withCredential' | 'fill' | 'invalidate' | 'approveSubmit' | 'submit'>,
+  state: SignInReader['state'],
+  humanCheckCleared: SignInWaits['humanCheckCleared'],
+  { guest, signal, account }: { guest: WebContents; signal?: AbortSignal; account: string }
+) {
+  return async (
+    phase: Phase,
+    url: string,
+    now: SignInState,
+    bound: string,
+    twoStep: boolean
+  ): Promise<SignInState | null> => {
+    const seen = { check: now.check !== 'none' };
+    const guardPage = (message: string) => {
+      if (signal?.aborted || guest.isDestroyed() || guest.getURL() !== url) throw new Error(message);
+    };
+    // The secret stays on the host until the page's human check has its token.
+    if (!(await humanCheckCleared(guest, signal, now.check, seen, phase))) {
+      throw new Error('The human check did not finish; nothing was sent.');
+    }
+    let filled: boolean;
+    if (phase === 'code') {
+      const code = deps.code ? await deps.code.value(url, account) : '';
+      // No stored key: the code is the user's.
+      if (!code) return null;
+      if (!mayGoOn(await state(guest, signal), seen, phase)) {
+        throw new Error('The human check changed before stored credential input; input was not sent.');
+      }
+      guardPage('The page changed before stored credential input; input was not sent.');
+      filled = await deps.code!.fill(guest, code, signal, url, bound || undefined);
+    } else {
+      const result = await deps.withCredential(
+        url,
+        account,
+        async (credential) => {
+          // Last awaited step: the page may have changed state since the wait.
+          if (!mayGoOn(await state(guest, signal), seen, phase)) {
+            throw new Error('The human check changed before stored credential input; input was not sent.');
+          }
+          // Nothing is awaited between this check and the fill call.
+          guardPage('The page changed before stored credential input; input was not sent.');
+          if (phase === 'username') {
+            return deps.fill(
+              guest,
+              { username: credential.username, password: '' },
+              signal,
+              'username',
+              bound || undefined
+            );
+          }
+          return deps.fill(
+            guest,
+            twoStep ? { username: '', password: credential.password } : credential,
+            signal,
+            undefined,
+            bound || undefined
+          );
+        },
+        signal
+      );
+      filled = phase === 'username' ? result.usernameFilled : result.passwordFilled;
+    }
+    if (!filled) return null;
+    deps.invalidate(guest);
+    // The fill itself may have reset the token or mounted a challenge.
+    const ready = await state(guest, signal);
+    if (!mayGoOn(ready, seen, phase) || guest.isDestroyed() || guest.getURL() !== url) {
+      throw new Error('The human check changed before the submit; nothing was submitted.');
+    }
+    // The submit is a form submit: it follows the bot's approval policy, and
+    // a block hands the sign-in to the user like any other.
+    if (deps.approveSubmit) await deps.approveSubmit(guest, signal);
+    guardPage('The page changed before the submit; nothing was submitted.');
+    await deps.submit(guest, signal, submitGuard(guest, url));
+    return ready;
+  };
+}
+
+/** One attempt on `guest`, started on `origin`: its steps, at most
+ *  MAX_STEPS in all. It makes the attempt's record: the site's answer to the
+ *  last submitted password or code (`outcome`, read at `url`), and that step:
+ *  its phase and what it was submitted on. */
+function createSignInRun(
+  {
+    step,
+    passwordShown,
+    submitAnswered,
+    codeStep,
+  }: Pick<SignInWaits, 'passwordShown' | 'submitAnswered'> & {
+    step: ReturnType<typeof createSignInStep>;
+    codeStep: (next: Reading) => boolean;
+  },
+  { guest, signal, origin, twoStep }: { guest: WebContents; signal?: AbortSignal; origin: string; twoStep: boolean }
+) {
+  const attempt: {
+    outcome: Reading | null;
+    url: string;
+    last: { phase: Phase; submitted: Submitted } | null;
+    steps: number;
+  } = { outcome: null, url: '', last: null, steps: 0 };
+
+  /** The steps from `start`, on the page `now` and `bound` read at `url`;
+   *  all of them count toward the attempt's bound. */
+  const runSteps = async (start: Phase, startAt: string, startNow: SignInState, startBound: string) => {
+    let phase = start;
+    let url = startAt;
+    let now = startNow;
+    let bound = startBound;
+    try {
+      while (attempt.steps < MAX_STEPS) {
+        attempt.steps += 1;
+        const ready = await step(phase, url, now, bound, twoStep);
+        if (!ready) return;
+        let next: Reading | null;
+        if (phase === 'username') next = await passwordShown(guest, signal);
+        else {
+          attempt.last = { phase, submitted: { url, document: bound, error: ready.error } };
+          next = attempt.outcome = await submitAnswered(guest, signal, phase, attempt.last.submitted);
+          attempt.url = guest.getURL();
+        }
+        if (!next || phase === 'code') return;
+        if (phase === 'username') phase = 'password';
+        else if (codeStep(next)) phase = 'code';
+        else return;
+        const nextUrl = guest.getURL();
+        if (!onOrigin(nextUrl, origin)) return;
+        url = nextUrl;
+        now = next.now;
+        bound = next.document;
+      }
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
+    }
+  };
+
+  return { attempt, runSteps };
+}
+
+/** The reply when the page's identifier fits several saved logins of `site`
+ *  that differ only by username case and none exactly. */
+function ambiguousReply(page: BrowserCommandResult, site: string): BrowserCommandResult {
+  return {
+    ...page,
+    text:
+      `${SAVED_SIGN_IN_NEEDS_USER}${site}: the identifier on the page fits several of its saved logins that differ ` +
+      `only by letter case, so none was chosen and nothing was filled. Do not retry; hand the sign-in to the user.\n\n${page.text}`,
+  };
+}
+
+/** The reply after an attempt on `site`: signed in, or handed to the user. */
+function attemptReply(after: BrowserCommandResult, site: string, signedIn: boolean): BrowserCommandResult {
+  const note = signedIn
+    ? `${SAVED_SIGN_IN_DONE}${site} with its saved login (the password never left the host).`
+    : `${SAVED_SIGN_IN_NEEDS_USER}${site}: one try with its saved login did not finish the sign-in ` +
+      '(a human check that did not finish, a code, CAPTCHA, passkey or an error). Do not retry; hand the sign-in to the user.';
+  return { ...after, text: `${note}\n\n${after.text}` };
+}
+
+export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
+  /** `${sessionId}\0${turnId}\0${origin}`: tried once this turn. */
+  const attempted = new Set<string>();
+  const reader = createSignInReader(deps);
+  const waits = createSignInWaits(deps, reader);
+  /** After the password: a code field, with an authenticator key to answer
+   *  it, is one more step; anything else ends the attempt. */
+  const codeStep = (next: Reading): boolean =>
+    Boolean(deps.code && next.now.code && !next.now.captcha && !next.now.password && !next.now.sent);
+
   /** After one agent command: sign in when the page asks for it and a saved
    *  login fits; returns the reply to send instead, or null to keep `result`. */
   async function afterCommand(input: {
@@ -508,22 +732,14 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const { guest, signal } = input;
     if (!deps.enabled() || guest.isDestroyed()) return null;
     const startUrl = guest.getURL();
-    let origin = '';
-    try {
-      const parsed = new URL(startUrl);
-      if (parsed.protocol === 'https:') origin = parsed.origin;
-    } catch {
-      // An unparseable address has no origin; handled just below.
-    }
+    const origin = httpsOrigin(startUrl);
     if (!origin) return null;
     const key = `${input.sessionId}\0${input.turnId}\0${origin}`;
     if (attempted.has(key)) return null;
-    const initial = await read(guest, signal);
+    const initial = await reader.read(guest, signal);
     if (!initial) return null;
     const before = initial.now;
-    let first: Phase | null = null;
-    if (before.password) first = 'password';
-    else if (before.username) first = 'username';
+    const first = firstPhase(before);
     if (!first || before.challenge) return null;
     // An unreadable vault only means no saved login can be used: the page the
     // command opened stays as it is, and the sign-in is left to the user.
@@ -539,147 +755,14 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const site = new URL(origin).host;
     // The page's identifier fits several saved logins that differ only by
     // username case and none exactly: no account is guessed, nothing is filled.
-    if (saved[0].ambiguous) {
-      const page = await input.observe();
-      return {
-        ...page,
-        text:
-          `${SAVED_SIGN_IN_NEEDS_USER}${site}: the identifier on the page fits several of its saved logins that differ ` +
-          `only by letter case, so none was chosen and nothing was filled. Do not retry; hand the sign-in to the user.\n\n${page.text}`,
-      };
-    }
+    if (saved[0].ambiguous) return ambiguousReply(await input.observe(), site);
     // Several accounts: the vault's order already put the right one first.
     const account = saved[0].id;
-    /** The site's answer to the last submitted password or code (`outcome`,
-     *  read at `url`), and that step: its phase and what it was submitted on. */
-    const attempt: {
-      outcome: Reading | null;
-      url: string;
-      last: { phase: Phase; submitted: { url: string; document: string; error: boolean } } | null;
-      steps: number;
-    } = { outcome: null, url: '', last: null, steps: 0 };
-    /** After the password: a code field, with an authenticator key to answer
-     *  it, is one more step; anything else ends the attempt. */
-    const codeStep = (next: Reading): boolean =>
-      Boolean(deps.code && next.now.code && !next.now.captcha && !next.now.password && !next.now.sent);
-    const onOrigin = (url: string): boolean => {
-      try {
-        const parsed = new URL(url);
-        return parsed.origin === origin && parsed.protocol === 'https:';
-      } catch {
-        return false;
-      }
-    };
-
-    /** One step on `url`: wait out its human check, give the page this
-     *  step's secret and press Enter. The page as it stood right before the
-     *  submit, or null when there was nothing to send. */
-    const step = async (
-      phase: Phase,
-      url: string,
-      now: SignInState,
-      bound: string,
-      twoStep: boolean
-    ): Promise<SignInState | null> => {
-      const seen = { check: now.check !== 'none' };
-      const guardPage = (message: string) => {
-        if (signal?.aborted || guest.isDestroyed() || guest.getURL() !== url) throw new Error(message);
-      };
-      // The secret stays on the host until the page's human check has its token.
-      if (!(await humanCheckCleared(guest, signal, now.check, seen, phase))) {
-        throw new Error('The human check did not finish; nothing was sent.');
-      }
-      let filled: boolean;
-      if (phase === 'code') {
-        const code = deps.code ? await deps.code.value(url, account) : '';
-        // No stored key: the code is the user's.
-        if (!code) return null;
-        if (!mayGoOn(await state(guest, signal), seen, phase)) {
-          throw new Error('The human check changed before stored credential input; input was not sent.');
-        }
-        guardPage('The page changed before stored credential input; input was not sent.');
-        filled = await deps.code!.fill(guest, code, signal, url, bound || undefined);
-      } else {
-        const result = await deps.withCredential(
-          url,
-          account,
-          async (credential) => {
-            // Last awaited step: the page may have changed state since the wait.
-            if (!mayGoOn(await state(guest, signal), seen, phase)) {
-              throw new Error('The human check changed before stored credential input; input was not sent.');
-            }
-            // Nothing is awaited between this check and the fill call.
-            guardPage('The page changed before stored credential input; input was not sent.');
-            if (phase === 'username') {
-              return deps.fill(
-                guest,
-                { username: credential.username, password: '' },
-                signal,
-                'username',
-                bound || undefined
-              );
-            }
-            return deps.fill(
-              guest,
-              twoStep ? { username: '', password: credential.password } : credential,
-              signal,
-              undefined,
-              bound || undefined
-            );
-          },
-          signal
-        );
-        filled = phase === 'username' ? result.usernameFilled : result.passwordFilled;
-      }
-      if (!filled) return null;
-      deps.invalidate(guest);
-      // The fill itself may have reset the token or mounted a challenge.
-      const ready = await state(guest, signal);
-      if (!mayGoOn(ready, seen, phase) || guest.isDestroyed() || guest.getURL() !== url) {
-        throw new Error('The human check changed before the submit; nothing was submitted.');
-      }
-      // The submit is a form submit: it follows the bot's approval policy, and
-      // a block hands the sign-in to the user like any other.
-      if (deps.approveSubmit) await deps.approveSubmit(guest, signal);
-      guardPage('The page changed before the submit; nothing was submitted.');
-      await deps.submit(guest, signal, submitGuard(guest, url));
-      return ready;
-    };
-
-    /** The steps from `start`, on the page `now` and `bound` read at `url`;
-     *  all of them count toward the attempt's bound. */
-    const runSteps = async (start: Phase, startAt: string, startNow: SignInState, startBound: string) => {
-      let phase = start;
-      let url = startAt;
-      let now = startNow;
-      let bound = startBound;
-      try {
-        while (attempt.steps < MAX_STEPS) {
-          attempt.steps += 1;
-          const ready = await step(phase, url, now, bound, first === 'username');
-          if (!ready) return;
-          let next: Reading | null;
-          if (phase === 'username') next = await passwordShown(guest, signal);
-          else {
-            attempt.last = { phase, submitted: { url, document: bound, error: ready.error } };
-            next = attempt.outcome = await submitAnswered(guest, signal, phase, attempt.last.submitted);
-            attempt.url = guest.getURL();
-          }
-          if (!next || phase === 'code') return;
-          if (phase === 'username') phase = 'password';
-          else if (codeStep(next)) phase = 'code';
-          else return;
-          const nextUrl = guest.getURL();
-          if (!onOrigin(nextUrl)) return;
-          url = nextUrl;
-          now = next.now;
-          bound = next.document;
-        }
-      } catch (error) {
-        if (signal?.aborted) throw signal.reason || error;
-      }
-    };
-
+    const step = createSignInStep(deps, reader.state, waits.humanCheckCleared, { guest, signal, account });
+    const { attempt, runSteps } = createSignInRun(
+      { step, passwordShown: waits.passwordShown, submitAnswered: waits.submitAnswered, codeStep },
+      { guest, signal, origin, twoStep: first === 'username' }
+    );
     await runSteps(first, startUrl, before, initial.document);
     // The page the attempt ended on. The answer stands only if the page still
     // reads the same after it was observed (same document, same verdict): a
@@ -689,27 +772,23 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     let signedIn = false;
     for (let check = 0; attempt.outcome && attempt.last; check += 1) {
       const verdict = signedInOn(attempt.outcome.now, attempt.url);
-      const again = await readMoving(guest, signal);
+      const again = await reader.readMoving(guest, signal);
       if (again && again.document === attempt.outcome.document && signedInOn(again.now, guest.getURL()) === verdict) {
         signedIn = verdict;
         break;
       }
       if (check >= 2) break;
       const { phase, submitted } = attempt.last;
-      const settled = await submitAnswered(guest, signal, phase, submitted);
+      const settled = await waits.submitAnswered(guest, signal, phase, submitted);
       attempt.outcome = settled;
       attempt.url = guest.getURL();
-      if (settled && phase === 'password' && codeStep(settled) && onOrigin(attempt.url)) {
+      if (settled && phase === 'password' && codeStep(settled) && onOrigin(attempt.url, origin)) {
         await runSteps('code', attempt.url, settled.now, settled.document);
       }
       after = await input.observe();
     }
     if (signedIn && deps.recordUsed) await deps.recordUsed(startUrl, account).catch(() => undefined);
-    const note = signedIn
-      ? `${SAVED_SIGN_IN_DONE}${site} with its saved login (the password never left the host).`
-      : `${SAVED_SIGN_IN_NEEDS_USER}${site}: one try with its saved login did not finish the sign-in ` +
-        '(a human check that did not finish, a code, CAPTCHA, passkey or an error). Do not retry; hand the sign-in to the user.';
-    return { ...after, text: `${note}\n\n${after.text}` };
+    return attemptReply(after, site, signedIn);
   }
 
   return { afterCommand };
