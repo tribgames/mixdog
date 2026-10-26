@@ -1051,3 +1051,41 @@ test("A → B → A is refused: B, in the turn A started, sends neither to A nor
   stampTurnHop(b, createAskTranscriptMeta({ sender: 'user' }).user);
   assert.equal((await sendFrom(b)({ session_id: 'sess_home_a' })).accepted, true);
 });
+
+test('the control itself refuses unknown actions, a missing caller, bad paging and a busy effort change', async () => {
+  const calls = [];
+  const service = {
+    readSession: async (params) => {
+      calls.push(['read', params.action || 'state']);
+      if (params.action === 'listProviderModels') {
+        const effortOptions = ['low', 'max'].map((value) => ({ value, label: value }));
+        return { value: [{ provider: 'anthropic', id: 'm', display: 'M', effortOptions }] };
+      }
+      return { full: { provider: 'anthropic', model: 'm', effort: 'low' } };
+    },
+    configureSession: async (params) => {
+      calls.push(['configure', params.action]);
+      return { value: false };
+    },
+    submitSession: async () => assert.fail('a refused effort change queues no prompt'),
+  };
+  const execute = createSessionControl({
+    getSessionService: () => service,
+    agentTasks: { reportOrigin: async () => null },
+    pendingWork: async () => false,
+  });
+  const caller = { callerSessionId: 'sess_caller_1' };
+  await assert.rejects(execute({ action: 'rename' }, caller), /^Error: session: unsupported remote action "rename"$/);
+  await assert.rejects(execute({ action: 'list' }, {}), /^Error: session: caller session is required$/);
+  await assert.rejects(
+    execute({ action: 'read', session_id: 'sess_t_1', text_offset: -1 }, caller),
+    /^Error: session: invalid text_offset$/
+  );
+  await assert.rejects(execute({ action: 'list', limit: 101 }, caller), /limit must be an integer from 1 to 100/);
+  assert.deepEqual(calls, []);
+  await assert.rejects(
+    execute({ action: 'send', session_id: 'sess_t_1', prompt: 'go', effort: 'max' }, caller),
+    /^Error: session: sess_t_1 is busy with another command; effort not changed$/
+  );
+  assert.deepEqual(calls.at(-1), ['configure', 'setEffort']);
+});

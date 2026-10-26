@@ -106,6 +106,30 @@ test('register records a live client; a passive replacement retires the old toke
   reg.stopTimers();
 });
 
+test('a throwing registered-client hook never fails registration; a pinned restore id takes the remote session; a replay of a gone client registers fresh', () => {
+  const { reg, state, logs } = registry({
+    onClientRegistered: () => {
+      throw new Error('hook failed');
+    },
+  });
+  state.remoteAcquired = true;
+  state.pinnedSessionId = 'sess_pin';
+  const a = reg.registerClient({ leadPid: process.pid, cwd: '/w', restoreSessionId: 'sess_pin' });
+  assert.equal(state.clients.get(a).remoteSessionId, 'sess_pin');
+  const other = reg.registerClient({ leadPid: process.pid, restoreSessionId: 'sess_other' });
+  assert.equal(state.clients.get(other).remoteSessionId, undefined);
+
+  const replay = { leadPid: process.pid, cwd: '/w', passive: true, registrationId: 'reg-gone' };
+  const first = reg.registerClient(replay);
+  // The record is gone while its replay survives (no removal path ran).
+  state.clients.delete(first);
+  const second = reg.registerClient(replay);
+  assert.notEqual(second, first, 'a replay whose client is gone is not replayed');
+  assert.equal(state.registrationReplays.get('reg-gone').token, second);
+  assert.ok(logs.some((line) => line.startsWith(`client registered token=${second} `)));
+  reg.stopTimers();
+});
+
 test('cancelReplacementRegistration honours only a fully matching identity; a stream or finished response clears the replay', () => {
   const { reg, state } = registry();
   const a = reg.registerClient({ leadPid: process.pid, cwd: '/w' });
