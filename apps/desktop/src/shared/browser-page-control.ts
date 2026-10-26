@@ -1,5 +1,8 @@
 import type { DesktopBrowserPageControl } from './contract';
 
+/** What the host answers when a named tab is not (or no longer) open. */
+export const BROWSER_TAB_GONE_MESSAGE = 'Browser tab is no longer available in this session.';
+
 export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageControl {
   if (!value || typeof value !== 'object') throw new TypeError('Browser input is invalid.');
   const input = value as Record<string, unknown>;

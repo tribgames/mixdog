@@ -10,6 +10,7 @@ import {
   onBrowserPaneRevealed,
 } from './browser-page-request.ts';
 import { BrowserPeekLine, browserOpenedPage, lastBrowserRoundOfTurn, savedSignInSites } from './browser-peek-line.tsx';
+import { BROWSER_TAB_GONE_MESSAGE } from '../shared/browser-page-control.ts';
 import { borrowedBrowserTab, borrowedStripTabs, clearBorrowedBrowserTab } from './browser-pane-borrowed-tab.ts';
 import { BrowserTabStrip } from './BrowserTabStrip.tsx';
 import { ToolActivityGroup } from './TranscriptView.tsx';
@@ -119,7 +120,7 @@ test('a failed open leaves no line; a successful one reveals its tab by id, load
   dom.window.mixdogDesktop = {
     browserPageControl: async (sessionId, input) => {
       controls.push([sessionId, input]);
-      if (input.tabId !== 'p4') throw new Error('Browser tab is no longer available in this session.');
+      if (input.tabId !== 'p4') throw new Error(`Error invoking remote method: ${BROWSER_TAB_GONE_MESSAGE}`);
     },
     browserPageFrame: () => assert.fail('viewing reads no page of its own'),
   };
@@ -174,6 +175,40 @@ test('a failed open leaves no line; a successful one reveals its tab by id, load
     stopReveal();
     stopAddress();
     stopPane();
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('a lost connection shows its error and keeps the line pressable; it is not "no longer open"', async () => {
+  const { dom, restore } = installDom();
+  let attempts = 0;
+  dom.window.mixdogDesktop = {
+    browserPageControl: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Connection lost');
+    },
+  };
+  const revealed = [];
+  const stopReveal = onBrowserPageRevealRequested((request) => revealed.push(request));
+  const root = createRoot(dom.window.document.getElementById('root'));
+  const peek = () => dom.window.document.querySelector('.transcript-browser-peek');
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(BrowserPeekLine, { sessionId: 'sess-1', page: { tabId: 'p4', title: 'A', url: '' } })
+      )
+    );
+    await act(async () => peek().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+    assert.equal(peek().classList.contains('is-gone'), false);
+    assert.equal(peek().tagName, 'BUTTON', 'retry stays available');
+    assert.equal(peek().querySelector('[role="alert"]').textContent, 'Connection lost');
+    assert.equal(revealed.length, 0);
+    await act(async () => peek().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+    assert.equal(peek().querySelector('[role="alert"]'), null, 'the retry cleared the error');
+    assert.deepEqual(revealed, [{ sessionId: 'sess-1' }]);
+  } finally {
+    stopReveal();
     await act(async () => root.unmount());
     restore();
   }

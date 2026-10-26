@@ -4,6 +4,7 @@
 // shown one, never making a page. A tab no longer open says so instead.
 import { Globe } from 'lucide-react';
 import { useState } from 'react';
+import { BROWSER_TAB_GONE_MESSAGE } from '../shared/browser-page-control';
 import { revealBrowserPane, browserPageRequestsAvailable } from './browser-page-request';
 import { clearBorrowedBrowserTab, showBorrowedBrowserTab } from './browser-pane-borrowed-tab';
 import type { TranscriptItem } from './desktop-types';
@@ -131,6 +132,9 @@ function pageLabel(page: BrowserOpenedPage): string {
  *  this conversation. Hidden where no pane can be revealed (a draft). */
 export function BrowserPeekLine({ sessionId, page }: { sessionId: string; page?: BrowserOpenedPage }) {
   const [gone, setGone] = useState(false);
+  // A failed selection that is not a missing tab (a lost connection): shown
+  // beside the line, which stays pressable to retry.
+  const [failure, setFailure] = useState('');
   if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) !== 'pane') return null;
   // A caller naming no page (a routed child-surface line that predates page
   // ids) still opens the session's panel on its current page.
@@ -182,6 +186,7 @@ export function BrowserPeekLine({ sessionId, page }: { sessionId: string; page?:
   const view = async () => {
     // Show that exact tab first: one that closed (or did not survive a
     // restart) is reported here, and no panel opens onto a page made for it.
+    setFailure('');
     try {
       await window.mixdogDesktop?.browserPageControl?.(owner, {
         type: 'select-tab',
@@ -189,8 +194,11 @@ export function BrowserPeekLine({ sessionId, page }: { sessionId: string; page?:
         follow: 'view',
         documentId: `${page.tabId}:0`,
       });
-    } catch {
-      setGone(true);
+    } catch (error) {
+      // The host's IPC wraps the message, so the missing-tab answer is matched inside it.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes(BROWSER_TAB_GONE_MESSAGE)) setGone(true);
+      else setFailure(message);
       return;
     }
     if (ownerName) showBorrowedBrowserTab(sessionId, { ownerSessionId: owner, ownerName, tabId: page.tabId });
@@ -205,6 +213,14 @@ export function BrowserPeekLine({ sessionId, page }: { sessionId: string; page?:
       onClick={() => void view()}
     >
       {parts}
+      {failure && (
+        <>
+          <span className="transcript-browser-peek-owner" role="alert">
+            {failure}
+          </span>
+          <span aria-hidden="true">·</span>
+        </>
+      )}
       <b>{t('View')}</b>
     </button>
   );

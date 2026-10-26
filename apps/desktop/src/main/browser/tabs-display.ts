@@ -1,5 +1,6 @@
 /** The tab strip the desktop pane shows for one session — its visible pages
  *  and live background pages — and the user's actions on it. */
+import { BROWSER_TAB_GONE_MESSAGE } from '../../shared/browser-page-control';
 import type { DesktopBrowserTab } from '../../shared/contract';
 import type { BackgroundPage, BrowserTabsHost } from './tabs-contract';
 
@@ -44,7 +45,7 @@ export function createDisplayTabs(host: DisplayTabsHost) {
 
   function displayEntry(sessionId: string, id: string) {
     const entry = displayEntries(sessionId).find(({ guest }) => stablePageId(guest) === id);
-    if (!entry) throw new Error('Browser tab is no longer available in this session.');
+    if (!entry) throw new Error(BROWSER_TAB_GONE_MESSAGE);
     return entry;
   }
 
