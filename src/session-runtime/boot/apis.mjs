@@ -107,6 +107,7 @@ export function wireApis(boot) {
     try {
       boot.resourceApi.migratePluginMcpCopies();
     } catch (error) {
+      console.warn(`[mcp] adopting plugin MCP copies failed: ${error?.message || error}`);
       bootProfile('plugin-mcp:adopt-failed', { error: error?.message || String(error) });
     }
     // One server per multi-account connector: `gmail`, `gmail-2`… merge into
@@ -114,6 +115,7 @@ export function wireApis(boot) {
     try {
       boot.resourceApi.migrateConnectorAccounts();
     } catch (error) {
+      console.warn(`[connectors] merging connector accounts failed: ${error?.message || error}`);
       bootProfile('connector-accounts:merge-failed', { error: error?.message || String(error) });
     }
   }
