@@ -42,7 +42,7 @@ export const SETUP_EXTENDED_ACTION_FIELDS = Object.freeze({
 });
 
 /** Mirrors RULE_ACTIONS in services/hook-bus/rule-store.mjs. */
-export const SETUP_HOOK_RULE_ACTIONS = Object.freeze(['allow', 'deny', 'block', 'modify', 'rewrite', 'ask']);
+const SETUP_HOOK_RULE_ACTIONS = Object.freeze(['allow', 'deny', 'block', 'modify', 'rewrite', 'ask']);
 
 /** Mirrors ACTIVITY_RAIL_PIN_IDS in apps/desktop/src/shared/activity-rail-pins.ts. */
 export const SETUP_ACTIVITY_RAIL_PIN_IDS = Object.freeze([

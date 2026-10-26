@@ -172,14 +172,14 @@ export function agentHomeLiveSurface() {
 // even into a thread that was reset ("대화 새로 시작") since.
 const DELIVERED_LEDGER = 500;
 // A target's round-trip count left idle this long starts over.
-export const ROUND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const ROUND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Per home: round-trip targets counted (least recently counted drop first),
 // reporting turns watched at once, and posted results owed a wake.
 export const QUEUE_CAPS = Object.freeze({ roundTargets: 100, watches: 200, wakeRunIds: 100 });
 // Waits before the 2nd, 3rd and 4th try of a relay (wake) turn that did not finish.
-export const WAKE_RETRY_DELAYS_MS = Object.freeze([30_000, 120_000, 600_000]);
+const WAKE_RETRY_DELAYS_MS = Object.freeze([30_000, 120_000, 600_000]);
 // Refused wake submissions of one batch, a minute apart, before it is given up.
-export const WAKE_REFUSAL_LIMIT = 10;
+const WAKE_REFUSAL_LIMIT = 10;
 
 /** `homeId`'s wake obligations in `wakes`: posted task results not in a batch
  *  yet (`owed`), those past the cap collapsed into one marker (`overflow`:

@@ -13,7 +13,7 @@ import { formatShellToolFailure } from './result-format.mjs';
 /** `warn` runs the read with a note; `reject` returns the block without running. */
 export const SHELL_FILE_READ_MODE = 'warn';
 export const SHELL_FILE_READ_NOTE = 'Note: use the read / grep / list tools for files instead of the shell.';
-export const SHELL_FILE_READ_BLOCK =
+const SHELL_FILE_READ_BLOCK =
   'Blocked: use read / grep / list for files instead of the shell (read takes offset/limit for a window of a large file).';
 
 const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -35,7 +35,7 @@ const POWERSHELL_SLEEP_RE = new RegExp(
 );
 
 /** Whole seconds of the sleep the command starts with, or null when it does not start with one. */
-export function leadingSleepSeconds(command, shellType) {
+function leadingSleepSeconds(command, shellType) {
   const match = (shellType === 'powershell' ? POWERSHELL_SLEEP_RE : POSIX_SLEEP_RE).exec(String(command ?? ''));
   return match ? Number(match[1]) : null;
 }
@@ -60,7 +60,7 @@ const POWERSHELL_WILDCARD_RE = /[*?[]/;
 const CD_LIKE_RE = /^(?:cd|set-location|pushd|popd)(?:\s|;|&|$)/i;
 
 /** `{ dir, rest }` for a command that starts with a plain `cd <dir>` and more, else null. */
-export function splitLeadingCd(command, shellType) {
+function splitLeadingCd(command, shellType) {
   const match = CD_RE.exec(String(command ?? ''));
   if (!match) return null;
   const dir = match[1] ?? match[2] ?? match[3];
@@ -169,7 +169,7 @@ function stageOperands(args) {
  * A pipeline whose later stage is a program, a write, and a first stage that
  * reads piped input are not file reads.
  */
-export function detectShellFileRead(command, shellType) {
+function detectShellFileRead(command, shellType) {
   const first = shellSplitSegments(String(command ?? ''))[0];
   if (!first) return null;
   const stages = shellSplitPipelineSegments(first);

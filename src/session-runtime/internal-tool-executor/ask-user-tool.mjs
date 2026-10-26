@@ -229,7 +229,7 @@ const DISMISSED =
   'User closed the questions without answering. Proceed with your best judgment; ask again only if something new depends on it.';
 
 /** Wire answers -> array aligned with questions; invalid entries become null. */
-export function normalizeAskUserAnswers(answers, questions) {
+function normalizeAskUserAnswers(answers, questions) {
   const list = Array.isArray(answers) ? answers.slice(0, 4) : [];
   return questions.map((q, i) => {
     const entry = list[i];
@@ -247,7 +247,7 @@ export function normalizeAskUserAnswers(answers, questions) {
 
 // Strings are JSON-quoted so a quote inside one cannot end it early; typed
 // text stays apart from the picked labels (`"picked" + "typed" (typed)`).
-export function formatAskUserAnswers(questions, answers) {
+function formatAskUserAnswers(questions, answers) {
   const quote = (text) => JSON.stringify(text);
   const parts = questions.map((q, i) => {
     const a = answers[i];
@@ -261,14 +261,14 @@ export function formatAskUserAnswers(questions, answers) {
 
 /** A composer message sent instead of (or with) picking: kept when it is a
  *  non-empty string within the typed-answer limit, else dropped. */
-export function normalizeAskUserReply(reply) {
+function normalizeAskUserReply(reply) {
   if (typeof reply !== 'string' || reply.length > ASK_USER_MAX_TEXT) return '';
   return reply.trim();
 }
 
 // `User replied in chat: "<reply>". ` leads, then the usual picks sentence
 // when any question was answered, else just the closing sentence.
-export function formatAskUserResult(questions, answers, reply) {
+function formatAskUserResult(questions, answers, reply) {
   if (!reply) return formatAskUserAnswers(questions, answers);
   const lead = `User replied in chat: ${JSON.stringify(reply)}. `;
   if (answers.some(Boolean)) return `${lead}${formatAskUserAnswers(questions, answers)}`;

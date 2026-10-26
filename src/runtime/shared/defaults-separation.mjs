@@ -45,7 +45,7 @@ export const CHANNELS_DEFAULTS = Object.freeze({
 
 // Disabled-agent roster shipped before `advisor` joined the defaults
 // (worker … writer plus the Maintainer). Stored full lists are read against it.
-export const PREVIOUS_DISABLED_AGENT_ROSTER = Object.freeze([
+const PREVIOUS_DISABLED_AGENT_ROSTER = Object.freeze([
   'front-worker',
   'heavy-worker',
   'maintainer',
@@ -176,7 +176,7 @@ function removeLegacyKeys(root, dataDir) {
  * not set the marker. `stripRouteDefaults` drops shipped presets and
  * maintenance routes (their defaults live with the agent config).
  */
-export function separateDefaultsInConfig(
+function separateDefaultsInConfig(
   root,
   { stripRouteDefaults = (agent) => agent, dataDir = resolvePluginData() } = {}
 ) {

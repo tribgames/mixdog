@@ -369,7 +369,7 @@ function chainPendingWork(sessionId, taskIds, { owed, pool, agentTaskOwners, wor
 /** The agent results queued for `sessionId` that no turn has taken yet (its
  *  durable pending queue: an agent's completion, a restart failure): `{ text,
  *  meta }` as the notification bus delivers them. */
-export async function owedAgentResults(sessionId) {
+async function owedAgentResults(sessionId) {
   const [{ _getPendingMessagesForSession }, { completionIsDelivered, isCompletionNotificationEntry }] =
     await Promise.all([
       import('../runtime/agent/orchestrator/session/manager/pending-messages.mjs'),

@@ -48,7 +48,7 @@ const unique = (list) => [...new Set(list)].sort();
 /** The policy `{ off, tools }` (or a legacy `{ allow, off, tools }`) with every
  *  merged-away server of `merged` mapped onto its surviving one; null when it
  *  names none. `merged` is mergeConnectorAccountServers' `merged`. */
-export function mapMergedConnectorPolicy(policy, merged) {
+function mapMergedConnectorPolicy(policy, merged) {
   let current = policy;
   for (const { name, from } of merged) {
     const gone = from.filter((server) => server !== name);

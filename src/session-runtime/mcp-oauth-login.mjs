@@ -8,7 +8,7 @@ import { openInBrowser } from '../runtime/shared/open-url.mjs';
 // Settled flows stay readable long enough for a poller to observe the result.
 const SETTLED_FLOW_TTL_MS = 10 * 60_000;
 const NOT_COMPLETED = 'MCP OAuth sign-in was not completed';
-export const MCP_OAUTH_LOGIN_TIMED_OUT = 'MCP OAuth sign-in timed out';
+const MCP_OAUTH_LOGIN_TIMED_OUT = 'MCP OAuth sign-in timed out';
 // A sign-in nobody finishes ends here, ahead of the OAuth layer's own 5-minute
 // abort, so its failure is reported as the timeout it is.
 const LOGIN_DEADLINE_MS = 5 * 60_000 - 10_000;

@@ -274,7 +274,7 @@ function* walkContentParts(content) {
  * beforehand by preparePdfTextForProvider, so one reaching here is a bug.
  * Null when the part is not a file at all.
  */
-export function textFormOfFilePart(part) {
+function textFormOfFilePart(part) {
   if (part?.type !== 'file' && part?.type !== 'document') return null;
   try {
     const file = fileInfo(part);

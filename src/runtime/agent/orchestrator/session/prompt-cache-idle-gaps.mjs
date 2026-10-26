@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { readJsonStateSync, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 
-export const PROMPT_CACHE_IDLE_GAP_FILE = 'prompt-cache-idle-gaps.json';
+const PROMPT_CACHE_IDLE_GAP_FILE = 'prompt-cache-idle-gaps.json';
 
 const validGap = (gap) => gap && Number(gap.at) > 0 && Number(gap.ms) > 0;
 

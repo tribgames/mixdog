@@ -596,7 +596,7 @@ async function readAutomationRows() {
 // at once; writes from other processes are picked up after ttlMs. A failed
 // check (e.g. PG still booting) answers false to its callers but is never
 // reused, so the next runtime checks again.
-export const AUTOMATION_PROBE_TTL_MS = 60_000;
+const AUTOMATION_PROBE_TTL_MS = 60_000;
 
 export function createAutomationProbe(check, { ttlMs = AUTOMATION_PROBE_TTL_MS, now = Date.now } = {}) {
   let pending = null;

@@ -12,8 +12,8 @@ import { GMAIL_APP_PASSWORD, gmailAddress } from '../shared/connector-catalog.mj
 import { connectorAccountsInstructions } from '../shared/connector-accounts.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
-export const GMAIL_IMAP = Object.freeze({ host: 'imap.gmail.com', port: 993, secure: true });
-export const GMAIL_SMTP = Object.freeze({ host: 'smtp.gmail.com', port: 465, secure: true });
+const GMAIL_IMAP = Object.freeze({ host: 'imap.gmail.com', port: 993, secure: true });
+const GMAIL_SMTP = Object.freeze({ host: 'smtp.gmail.com', port: 465, secure: true });
 const TIMEOUTS = { connectionTimeout: 20_000, greetingTimeout: 15_000, socketTimeout: 60_000 };
 const SEARCH_DEFAULT = 10;
 const SEARCH_MAX = 25;
@@ -48,7 +48,7 @@ const MESSAGES = {
 
 /** `GMAIL_APP_PASSWORD_<CODE>: <sentence>` — the code is what Desktop shows
  *  in the user's language. */
-export class GmailAppPasswordError extends Error {
+class GmailAppPasswordError extends Error {
   constructor(code, detail = '') {
     super(`GMAIL_APP_PASSWORD_${code}: ${MESSAGES[code]}${detail ? ` (${detail})` : ''}`);
     this.code = code;
@@ -101,7 +101,7 @@ function gmailError(error, password) {
 }
 
 // ── Clients (tests pass fakes with the same surface) ────────────────────────
-export const gmailClients = {
+const gmailClients = {
   async imap({ email, password }) {
     const { ImapFlow } = await import('imapflow');
     const client = new ImapFlow({

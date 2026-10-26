@@ -26,7 +26,7 @@ import { providerToolExclusionReason, routeToolExclusionReason } from '../sessio
 
 export { isToolBridgeEnabled } from './tool-exposure.mjs';
 
-export const BRIDGE_LOAD_TOOL_NAME = 'load_tool';
+const BRIDGE_LOAD_TOOL_NAME = 'load_tool';
 export const BRIDGE_CALL_TOOL_NAME = 'call_tool';
 const DESCRIBE_MAX_NAMES = 8;
 // Most definitions one request resolves to: every name an alias of the widest

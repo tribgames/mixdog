@@ -8,7 +8,7 @@
 // an event: the queue re-reads it instead of trusting that whoever closes it
 // will remember to kick the queue on the way out. Both timers exist only while
 // the queue actually holds work, so an idle session never polls.
-export const BLOCKED_DRAIN_RETRY_MS = 50;
+const BLOCKED_DRAIN_RETRY_MS = 50;
 // Session commands (setModel/newSession/resume/auto-clear) release in seconds;
 // an active turn can run for many minutes, so its gate is re-read coarsely.
 export const ACTIVE_TURN_RECHECK_MS = 2_000;

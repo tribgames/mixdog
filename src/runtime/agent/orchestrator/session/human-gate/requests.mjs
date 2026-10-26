@@ -12,9 +12,9 @@
 // the scopes it allows and can leave out `always`. Nothing here ever carries a
 // secret value: a decision that names one is stripped to its verdict.
 
-export const HUMAN_REQUEST_KINDS = Object.freeze(['approval', 'outbound', 'secret', 'takeover', 'permission']);
-export const HUMAN_RESPONSES = Object.freeze(['approve', 'deny', 'edit-and-approve', 'provide-secret', 'skip', 'done']);
-export const REMEMBER_SCOPES = Object.freeze(['once', 'agent', 'always']);
+const HUMAN_REQUEST_KINDS = Object.freeze(['approval', 'outbound', 'secret', 'takeover', 'permission']);
+const HUMAN_RESPONSES = Object.freeze(['approve', 'deny', 'edit-and-approve', 'provide-secret', 'skip', 'done']);
+const REMEMBER_SCOPES = Object.freeze(['once', 'agent', 'always']);
 export const SECRET_REQUEST_TIMEOUT_MS = 120_000;
 /** What a secret's bound field is: a sign-in form (아이디 + 비밀번호), a lone
  *  password, a new password, or a one-time code; '' when unknown (computer). */
@@ -62,7 +62,7 @@ const text = (value, limit = TEXT_LIMIT) => (typeof value === 'string' ? value.t
 
 /** The human kind of a request; anything else (ask_user's 'question', a
  *  hook's bare ask) is an ordinary approval for responses. */
-export function humanRequestKind(request) {
+function humanRequestKind(request) {
   return HUMAN_REQUEST_KINDS.includes(request?.kind) ? request.kind : 'approval';
 }
 

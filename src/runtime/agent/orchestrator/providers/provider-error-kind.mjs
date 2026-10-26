@@ -396,7 +396,7 @@ const RESOURCE_EXHAUSTED = 'resource_exhausted';
 /** True when `code` is one of the provider error codes this module classifies
  *  (rate/usage limits, quota, overload, server/transient, context length,
  *  model not found, auth, policy, …): a known vocabulary word, never free text. */
-export function isKnownProviderErrorCode(code) {
+function isKnownProviderErrorCode(code) {
   return typeof code === 'string' && (CODE_KINDS.has(code) || code === RESOURCE_EXHAUSTED);
 }
 // When several typed codes are present (an envelope type plus a specific
@@ -443,7 +443,7 @@ const GATEWAY_ERROR_TYPE_CODES = Object.freeze({
 });
 
 /** The typed code a gateway `error_type` names, or null for an absent/unmapped one. */
-export function gatewayErrorTypeCode(errorType) {
+function gatewayErrorTypeCode(errorType) {
   const key = typeof errorType === 'string' ? errorType.trim().toLowerCase() : '';
   return key && Object.hasOwn(GATEWAY_ERROR_TYPE_CODES, key) ? GATEWAY_ERROR_TYPE_CODES[key] : null;
 }

@@ -9,7 +9,6 @@ import {
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { featureEnvOverride, moduleEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { normalizeAgentAvatar } from '../runtime/shared/agent-avatar.mjs';
-import { promptCacheWarmingSetting } from '../runtime/agent/orchestrator/config.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 import { INSTRUCTION_FILES_MODES, normalizeInstructionFilesMode } from '../runtime/shared/instruction-files-mode.mjs';
 import { AUTO_EFFORT_BASES, autoEffortBase } from '../runtime/agent/orchestrator/providers/auto-effort.mjs';
@@ -98,16 +97,14 @@ export function createBuiltinToolSettings(
       return this.getSessionTitleSettings();
     },
     // Prompt-cache warming on/off (orchestrator session/cache-warm.mjs);
-    // default on, the earlier target list migrated (config.mjs
-    // promptCacheWarmingSetting). The warmer reads the saved value at each
+    // default on. The warmer reads the saved value at each
     // warm, so a change applies without a restart.
     getCacheWarmingSettings() {
-      return { enabled: promptCacheWarmingSetting(getConfig()) };
+      return { enabled: getConfig()?.promptCacheWarming !== false };
     },
     setCacheWarmingEnabled(enabled) {
       if (typeof enabled !== 'boolean') throw new TypeError('cache warming must be on or off (a boolean)');
-      const { cacheWarming: _legacy, ...config } = getConfig() || {};
-      saveConfigAndAdopt({ ...config, promptCacheWarming: enabled });
+      saveConfigAndAdopt({ ...getConfig(), promptCacheWarming: enabled });
       return this.getCacheWarmingSettings();
     },
     // The one pixel face every Lead row on the bot page wears, shared by every

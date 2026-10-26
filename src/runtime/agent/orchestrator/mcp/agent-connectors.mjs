@@ -203,7 +203,7 @@ export function readProjectConnectorsFile(path) {
   });
 }
 
-export function projectConnectorPolicies(dataDir = resolvePluginData()) {
+function projectConnectorPolicies(dataDir = resolvePluginData()) {
   return cachedRead(join(dataDir, PROJECT_CONNECTORS_FILE), readProjectConnectorsFile);
 }
 
@@ -229,7 +229,7 @@ export const NO_WIDEN_MESSAGE = 'This change would widen what the bot may do wit
  *  default, which is `needs_approval` for a catalog connector's high-risk
  *  tools and `auto` otherwise). A legacy allow list or an unreadable policy is
  *  not compared: it counts as widening. */
-export function connectorPolicyWidens(before, after) {
+function connectorPolicyWidens(before, after) {
   let old;
   try {
     old = before == null ? { off: [], tools: {} } : parseConnectorPolicy(before);

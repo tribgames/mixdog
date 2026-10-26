@@ -196,7 +196,7 @@ export function pendingDurablePgOps() {
  * Wait, bounded, until no durable-schema operation is in flight (including
  * ones issued while waiting). Resolves true when drained, false at the bound.
  */
-export async function drainDurablePgOps({ timeoutMs = 0 } = {}) {
+async function drainDurablePgOps({ timeoutMs = 0 } = {}) {
   const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
   while (_durableInFlight.size > 0) {
     const remaining = deadline - Date.now();

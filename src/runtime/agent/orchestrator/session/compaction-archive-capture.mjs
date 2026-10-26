@@ -141,7 +141,7 @@ export function compactionArchiveProjection(before, after) {
 /** What a live view needs to find the rows of what left the context: the
  *  stable ids whose text rows went (projection `textIds`) and the tool calls
  *  that went (dropped results and calls no kept copy carries). */
-export function droppedIdentitySummary(projection) {
+function droppedIdentitySummary(projection) {
   const callIds = new Set();
   for (const message of projection.messages) {
     for (const call of toolCallsOf(message)) if (callIdOf(call)) callIds.add(callIdOf(call));

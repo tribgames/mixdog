@@ -12,7 +12,7 @@
 import { ANTHROPIC_MAX_CONSECUTIVE_529 } from './retry-backoff.mjs';
 import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
 
-export const OVERLOADED_ERROR_CODE = 'overloaded_error';
+const OVERLOADED_ERROR_CODE = 'overloaded_error';
 
 /** Consecutive 529s end the request only for API-key (non-subscriber) first-party Opus. */
 export function isTerminalOverloadModel(model) {
@@ -79,7 +79,7 @@ export function takeAnthropicModelFallback(err, { tag, model, opts, onStageChang
 }
 
 /** Visible model-switch notice on the existing display-only stage channel. */
-export function announceAnthropicModelFallback(onStageChange, fromLabel, toLabel) {
+function announceAnthropicModelFallback(onStageChange, fromLabel, toLabel) {
   if (typeof onStageChange !== 'function') return;
   try {
     onStageChange('reconnecting', {

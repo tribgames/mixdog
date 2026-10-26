@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { readJsonStateSync, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 
-export const PROMPT_CACHE_TOUCH_FILE = 'prompt-cache-touches.json';
+const PROMPT_CACHE_TOUCH_FILE = 'prompt-cache-touches.json';
 
 function validTouch(value) {
   return (

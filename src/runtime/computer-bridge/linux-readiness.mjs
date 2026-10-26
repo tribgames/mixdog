@@ -23,8 +23,7 @@ export const WINDOW_HELPER_ENABLE_HINT =
   'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is not enabled; it could not be enabled automatically (run gnome-extensions enable mixdog-windows@mixdog.io)';
 export const WINDOW_CONTROL_UNSUPPORTED_HINT =
   'wayland_window_control_unavailable: this desktop offers no window control to other programs (supported: GNOME with the Mixdog Windows extension, sway, Hyprland, or an X11 session); screen, pointer, keyboard and clipboard still work';
-export const ACCESSIBILITY_HINT =
-  'accessibility_unavailable: the AT-SPI bus is not running; install at-spi2-core';
+export const ACCESSIBILITY_HINT = 'accessibility_unavailable: the AT-SPI bus is not running; install at-spi2-core';
 export const TESSERACT_HINT =
   'ocr_unavailable: install Tesseract (for example `sudo apt install tesseract-ocr tesseract-ocr-kor`) to read text from pixels';
 export const CLIPBOARD_HINT =
@@ -56,7 +55,12 @@ function gdbusOutput(env, args, timeoutMs = 2000) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn('gdbus', ['call', '--session', ...args], { env, stdio: ['ignore', 'pipe', 'ignore'], shell: false, windowsHide: true });
+      child = spawn('gdbus', ['call', '--session', ...args], {
+        env,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        shell: false,
+        windowsHide: true,
+      });
     } catch {
       resolve(null);
       return;
@@ -88,10 +92,14 @@ const gdbusSucceeds = async (env, args, timeoutMs) => (await gdbusOutput(env, ar
 // The version the shell actually loaded, or null when nothing answers.
 async function gnomeWindowHelperVersion(env) {
   const out = await gdbusOutput(env, [
-    '--dest', 'org.gnome.Shell',
-    '--object-path', '/io/mixdog/Windows',
-    '--method', 'org.freedesktop.DBus.Properties.Get',
-    'io.mixdog.Windows', 'Version',
+    '--dest',
+    'org.gnome.Shell',
+    '--object-path',
+    '/io/mixdog/Windows',
+    '--method',
+    'org.freedesktop.DBus.Properties.Get',
+    'io.mixdog.Windows',
+    'Version',
   ]);
   const version = /uint32 (\d+)/.exec(out ?? '');
   return version ? Number(version[1]) : null;
@@ -148,9 +156,12 @@ async function gnomeWindowHelperStatus(env) {
 
 function accessibilityBusReachable(env) {
   return gdbusSucceeds(env, [
-    '--dest', 'org.a11y.Bus',
-    '--object-path', '/org/a11y/bus',
-    '--method', 'org.a11y.Bus.GetAddress',
+    '--dest',
+    'org.a11y.Bus',
+    '--object-path',
+    '/org/a11y/bus',
+    '--method',
+    'org.a11y.Bus.GetAddress',
   ]);
 }
 
@@ -167,7 +178,8 @@ function sessionBusPresent(env) {
 
 /** Same rule as native platform::linux::wayland_session(). */
 export function detectSession(env) {
-  const wayland = env.WAYLAND_DISPLAY !== undefined && (env.XDG_SESSION_TYPE === undefined || env.XDG_SESSION_TYPE === 'wayland');
+  const wayland =
+    env.WAYLAND_DISPLAY !== undefined && (env.XDG_SESSION_TYPE === undefined || env.XDG_SESSION_TYPE === 'wayland');
   return wayland ? 'wayland' : 'x11';
 }
 
@@ -206,7 +218,7 @@ async function windowsCapability({ env, session, hasCommand, windowHelperVersion
   return { state: 'unsupported' };
 }
 
-async function accessibilityCapability({ env, hasCommand, hasSessionBus, accessibilityReachable }) {
+async function accessibilityCapability({ hasCommand, hasSessionBus, accessibilityReachable }) {
   if (!hasSessionBus() || !hasCommand('gdbus')) return { state: 'unknown' };
   return (await accessibilityReachable()) ? READY : needsPackage('at-spi2-core');
 }
@@ -246,8 +258,14 @@ export async function checkLinuxComputerReadiness({
       session,
       desktop,
       capabilities: {
-        capture: none, windows: none, accessibility: none, semanticActions: none,
-        pointer: none, keyboard: none, clipboard: optional(none), ocr: optional(none),
+        capture: none,
+        windows: none,
+        accessibility: none,
+        semanticActions: none,
+        pointer: none,
+        keyboard: none,
+        clipboard: optional(none),
+        ocr: optional(none),
       },
     };
   }
@@ -255,7 +273,8 @@ export async function checkLinuxComputerReadiness({
   const windows = await windowsCapability({ env, session, hasCommand, windowHelperVersion, windowHelperStatus });
   const accessibility = await accessibilityCapability({ env, hasCommand, hasSessionBus, accessibilityReachable });
   const input = !wayland || canWrite('/dev/uinput') ? READY : { state: 'needs_setup', fix: 'allow_input' };
-  const clipboard = !wayland || (hasCommand('wl-copy') && hasCommand('wl-paste')) ? READY : needsPackage('wl-clipboard');
+  const clipboard =
+    !wayland || (hasCommand('wl-copy') && hasCommand('wl-paste')) ? READY : needsPackage('wl-clipboard');
   return {
     session,
     desktop,
@@ -278,15 +297,25 @@ export async function checkLinuxComputerReadiness({
 }
 
 function capabilityIssue(name, readiness) {
-  if (readiness.capabilities.capture.state === 'unsupported') return { code: 'display_unavailable', message: DISPLAY_HINT };
+  if (readiness.capabilities.capture.state === 'unsupported')
+    return { code: 'display_unavailable', message: DISPLAY_HINT };
   // Semantic actions fail on whichever of their two prerequisites is missing.
   const gnomeWayland = readiness.session === 'wayland' && readiness.desktop === 'gnome';
-  const target = name === 'semanticActions' ? (readiness.capabilities.windows.state === 'ready' ? 'accessibility' : 'windows') : name === 'capture' && gnomeWayland ? 'windows' : name;
+  const target =
+    name === 'semanticActions'
+      ? readiness.capabilities.windows.state === 'ready'
+        ? 'accessibility'
+        : 'windows'
+      : name === 'capture' && gnomeWayland
+        ? 'windows'
+        : name;
   const capability = readiness.capabilities[target];
   switch (target) {
     case 'windows':
-      if (capability.fix === 'relogin') return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_RELOGIN_HINT };
-      if (capability.fix === 'enable_window_helper') return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_ENABLE_HINT };
+      if (capability.fix === 'relogin')
+        return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_RELOGIN_HINT };
+      if (capability.fix === 'enable_window_helper')
+        return { code: 'wayland_window_control_unavailable', message: WINDOW_HELPER_ENABLE_HINT };
       if (capability.fix === 'install_package') {
         return {
           code: 'wayland_window_control_unavailable',
@@ -304,7 +333,10 @@ function capabilityIssue(name, readiness) {
     case 'ocr':
       return { code: 'ocr_unavailable', message: TESSERACT_HINT };
     default:
-      return { code: `${target}_unavailable`, message: `${target}_unavailable: ${target} is not available on this session` };
+      return {
+        code: `${target}_unavailable`,
+        message: `${target}_unavailable: ${target} is not available on this session`,
+      };
   }
 }
 
@@ -357,7 +389,11 @@ export async function linuxComputerPreflight({ command, platform = process.platf
     details.set(item.message, entry);
   }
   const lines = [...details.values()].map((entry) => `- ${entry.message} [${entry.capabilities.join(', ')}]`);
-  if (String(command?.action) === 'capture' && missing.some((item) => item.capability === 'windows') && !missing.some((item) => item.capability === 'capture')) {
+  if (
+    String(command?.action) === 'capture' &&
+    missing.some((item) => item.capability === 'windows') &&
+    !missing.some((item) => item.capability === 'capture')
+  ) {
     lines.push('Screenshots that need no window still work: capture with mode="vision" and a screen index (screen=0).');
   }
   return {
@@ -383,7 +419,13 @@ export async function linuxCaptureFallback({ command, platform = process.platfor
   if (capabilities.capture.state === 'needs_setup' || capabilities.capture.state === 'unsupported') return null;
   const { action, session_id, include_ocr } = command;
   return {
-    command: { action, mode: 'vision', screen: 0, ...(session_id ? { session_id } : {}), ...(include_ocr ? { include_ocr } : {}) },
+    command: {
+      action,
+      mode: 'vision',
+      screen: 0,
+      ...(session_id ? { session_id } : {}),
+      ...(include_ocr ? { include_ocr } : {}),
+    },
     note: CAPTURE_FALLBACK_NOTE,
   };
 }

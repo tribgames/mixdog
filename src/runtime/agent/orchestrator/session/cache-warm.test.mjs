@@ -57,7 +57,6 @@ import {
   wilsonLowerBound,
   writtenCacheTtlMs,
 } from './cache-warm.mjs';
-import { promptCacheWarmingSetting } from '../config.mjs';
 import { createIdleGapStore } from './prompt-cache-idle-gaps.mjs';
 import { createPromptCacheTouchStore } from './prompt-cache-touch-store.mjs';
 import { captureSideQuestionRequest, forgetSideQuestion, retireCompactionFork } from './side-question-store.mjs';
@@ -400,15 +399,9 @@ test('plan: fails closed on an unknown fact, a late timer, or the learned window
   assert.match(planCacheWarm({ ...base, touchAt: 11 * HOUR + 1, now: 11 * HOUR + 1 + I }).stop, /learned window/);
 });
 
-test('the switch: on by default; the earlier target list migrates (non-empty → on, empty or off → off)', () => {
+test('the switch: on by default', () => {
   assert.equal(cacheWarmingEnabled({}), true);
   assert.equal(cacheWarmingEnabled({ promptCacheWarming: false }), false);
-  assert.equal(promptCacheWarmingSetting({}), true);
-  assert.equal(promptCacheWarmingSetting({ cacheWarming: ['scheduled'] }), true);
-  assert.equal(promptCacheWarmingSetting({ cacheWarming: [] }), false);
-  assert.equal(promptCacheWarmingSetting({ cacheWarming: 'off' }), false);
-  assert.equal(promptCacheWarmingSetting({ cacheWarming: 'routine' }), true);
-  assert.equal(promptCacheWarmingSetting({ promptCacheWarming: false, cacheWarming: ['scheduled'] }), false);
 });
 
 // An in-memory touch store (prompt-cache-touch-store.mjs shape).

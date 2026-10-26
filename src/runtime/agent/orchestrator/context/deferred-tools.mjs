@@ -34,7 +34,7 @@ function sanitizeManifestName(name) {
   return MANIFEST_NAME_SAFE_RE.test(text) ? text : '';
 }
 
-export const MCP_INSTRUCTION_MAX_CHARS = 600;
+const MCP_INSTRUCTION_MAX_CHARS = 600;
 
 /** A server's instruction text without markup, capped at MCP_INSTRUCTION_MAX_CHARS. */
 export function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {

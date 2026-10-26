@@ -98,7 +98,7 @@ export function checkpointMessage(message) {
   return content === message.content ? message : { ...message, content };
 }
 
-export function matchingUserMessage(message, currentUserContent) {
+function matchingUserMessage(message, currentUserContent) {
   return (
     message?.role === 'user' &&
     (message.content === currentUserContent ||
@@ -146,7 +146,7 @@ const storedResultEntries = (sessionId, entries) =>
 /** Interruption snapshot `snapshot` as `sessionId`'s checkpoint stores it:
  *  sensitive values (sensitive-values.mjs) replaced, and of the partial text
  *  only what no value can still complete. */
-export function redactInterruptionSnapshot(sessionId, snapshot) {
+function redactInterruptionSnapshot(sessionId, snapshot) {
   const source = snapshot ?? emptyInterruptionSnapshot();
   if (!sensitiveValuesVersion(sessionId)) return source;
   return {

@@ -70,7 +70,7 @@ export function sessionActivityTimestamp(session, fallback = 0) {
 
 // A zero is often an unavailable/stale meter field, not an authoritative
 // measurement. Do not let it mask the sibling live estimate.
-export function contextUsageBelowThreshold(runtime, minContextPercent) {
+function contextUsageBelowThreshold(runtime, minContextPercent) {
   if (!(minContextPercent > 0)) return false;
   const status = runtime.contextStatus?.() || null;
   const usedTokens = Math.max(

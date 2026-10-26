@@ -26,7 +26,7 @@ export const MARKER = '[redacted]';
  *  (apps/desktop/src/main/secret-markers.ts). */
 export const SAVED_LOGIN_MARKER = '[saved login]';
 /** Every marker a redactor writes. */
-export const MARKERS = [MARKER, SAVED_LOGIN_MARKER];
+const MARKERS = [MARKER, SAVED_LOGIN_MARKER];
 /** sessionId → { version, values: Set(value), spellings: string[] (longest first) } */
 const bySession = new Map();
 /** sessionId → Set(listener) notified synchronously when the session gains a value. */

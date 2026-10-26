@@ -305,7 +305,7 @@ export function loadConfig(options = {}) {
         // anything else reads as the default.
         heartbeatIntervalMinutes: normalizeHeartbeatIntervalMinutes(raw.heartbeatIntervalMinutes),
         // Prompt-cache warming (session/cache-warm.mjs); default on.
-        promptCacheWarming: promptCacheWarmingSetting(raw),
+        promptCacheWarming: raw?.promptCacheWarming !== false,
         // Bots may leave an emoji reaction on the user's message (react tool); default on.
         reactions: raw.reactions !== false,
         // Bots page layout (order, hidden groups, pins, retention) and the shared
@@ -498,9 +498,6 @@ function buildAgentSaveBuilder(config) {
     else delete next.heartbeatIntervalMinutes;
     if (config.reactions === false) next.reactions = false;
     else delete next.reactions;
-    // The earlier target list is migrated on load (promptCacheWarmingSetting)
-    // and no longer stored.
-    delete next.cacheWarming;
     if (config.promptCacheWarming === false) next.promptCacheWarming = false;
     else delete next.promptCacheWarming;
     if (Array.isArray(config.botOrder) && config.botOrder.length) next.botOrder = [...config.botOrder];
@@ -515,15 +512,6 @@ function buildAgentSaveBuilder(config) {
     // Defaults live in code: values equal to the current default are not stored.
     return storedAgentForm(removeRetiredAgentFields(next));
   };
-}
-
-/** Whether prompt-cache warming is on from a stored agent section: the
- *  `promptCacheWarming` switch, else the earlier `cacheWarming` target list
- *  migrated (a non-empty list → on, an empty list or 'off' → off), else on. */
-export function promptCacheWarmingSetting(raw) {
-  if (typeof raw?.promptCacheWarming === 'boolean') return raw.promptCacheWarming;
-  if (Array.isArray(raw?.cacheWarming)) return raw.cacheWarming.length > 0;
-  return raw?.cacheWarming !== 'off';
 }
 
 /** A numeric `default` is a preset index; store the preset id it points at (index into the effective list). */

@@ -69,7 +69,7 @@ import { createIdleGapStore } from './prompt-cache-idle-gaps.mjs';
 import { registerSessionPurgeHook } from './store/session-observers.mjs';
 import { PROMPT_ORIGIN_AGENT_REPORT, PROMPT_ORIGIN_CHANNEL, promptOriginOf } from '../../../shared/prompt-origin.mjs';
 
-export const CACHE_WARM_SOURCE = 'cache-warm';
+const CACHE_WARM_SOURCE = 'cache-warm';
 
 // The refresh goes out this long before the entry's expiry, for both tiers
 // (5m → 240 s after the last cache use, 1h → 3540 s): in a 7-day sample of
@@ -94,7 +94,7 @@ export const IDLE_RETURN_MEASURED_WINDOW_MS = 12 * 60 * 60 * 1000;
 export const IDLE_RETURN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 // z of a two-sided 95% normal interval (the 0.975 standard normal quantile),
 // for the Wilson score bound.
-export const WILSON_Z_95 = 1.959963984540054;
+const WILSON_Z_95 = 1.959963984540054;
 
 /** Whether prompt-cache warming is on (config `promptCacheWarming`, default
  *  on; config.mjs migrates the earlier target list). */
@@ -379,7 +379,7 @@ registerSessionPurgeHook((sessionId) => {
 
 let defaultGapStore = null;
 /** The idle-gap store the warmer learns from (prompt-cache-idle-gaps.mjs). */
-export function promptCacheIdleGapStore() {
+function promptCacheIdleGapStore() {
   defaultGapStore ??= createIdleGapStore({
     lookbackMs: IDLE_RETURN_LOOKBACK_MS,
     windowMs: IDLE_RETURN_MEASURED_WINDOW_MS,

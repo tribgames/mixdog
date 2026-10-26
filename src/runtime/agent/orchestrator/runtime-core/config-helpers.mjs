@@ -241,7 +241,7 @@ const AGENT_TERMINAL_REAP_MS = Object.freeze({ 'openai-oauth': 60 * 60 * 1000 })
 
 /** A stored/requested idle value: AUTO_CLEAR_UNLIMITED, a window ≥ 1 min, or
  *  null when absent or invalid. */
-export function normalizeAutoClearIdleValue(value) {
+function normalizeAutoClearIdleValue(value) {
   if (value === null || value === undefined || typeof value === 'boolean') return null;
   if (typeof value === 'string') {
     const text = value.trim().toLowerCase();
@@ -350,7 +350,7 @@ export function resolveAutoClearIdleMs(config, provider) {
 
 /** The idle auto-clear gate's settings for a thread on `provider`
  *  (idle-auto-clear-gate.mjs): `{ enabled, idleMs, minContextPercent }`. */
-export function autoClearGateSettings(config, provider) {
+function autoClearGateSettings(config, provider) {
   const normalized = normalizeAutoClearConfig(config?.autoClear);
   return {
     enabled: normalized.enabled,

@@ -297,7 +297,7 @@ export function assignUiDiffFromMessage(target, source) {
  * and the owner conversation of a `visualize` call run for another session's
  * work (visualize-bridge/tool-meta.mjs). Anything else is dropped so stored
  * history stays small and predictable. */
-export function toolMetaFromMessage(source) {
+function toolMetaFromMessage(source) {
   const meta = source?.toolMeta ?? source?.content?.toolMeta;
   if (!meta || typeof meta !== 'object' || typeof meta.code !== 'string' || !meta.code) return undefined;
   const missing = Array.isArray(meta.missing) ? meta.missing.filter((name) => typeof name === 'string' && name) : [];
