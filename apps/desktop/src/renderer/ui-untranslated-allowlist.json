@@ -102,7 +102,14 @@
     "v{{value0}} / {{value1}}": "version counter, placeholders only",
     "name@gmail.com": "literal input placeholder for Gmail address",
     "xxxx xxxx xxxx xxxx": "literal input placeholder for app password",
-    "Mixdog {{version}}": "product name with version placeholder"
+    "Mixdog {{version}}": "product name with version placeholder",
+    "Trackpad": "input device mode for remote screen",
+    "Ctrl+Alt+Del": "keyboard shortcut for remote screen",
+    "PrintScreen": "keyboard key for remote screen",
+    "Esc": "keyboard key for remote screen",
+    "Tab": "keyboard key for remote screen",
+    "Win": "keyboard key for remote screen",
+    "Alt+Tab": "keyboard shortcut for remote screen"
   },
   "localeExceptions": {
     "de": {
