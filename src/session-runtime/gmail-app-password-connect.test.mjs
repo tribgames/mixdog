@@ -50,6 +50,7 @@ function harness(
     startSwitch = () => {
       throw new Error('no browser sign-in expected');
     },
+    commitSwitch = async () => async () => {},
   } = {}
 ) {
   let config = { ...extra, mcpServers: { ...initial } };
@@ -76,7 +77,7 @@ function harness(
     awaitKeychainPrewarm: async () => {},
     connectConfiguredMcp: connect,
     startMcpServerOAuthSwitch: (cfg, launch, name) => startSwitch(cfg, launch, name),
-    commitMcpServerOAuthSwitch: async () => async () => {},
+    commitMcpServerOAuthSwitch: (cfg, signIn) => commitSwitch(cfg, signIn),
     invalidatePreSessionToolSurface: () => {},
     refreshEmptySessionToolPolicy: async () => {},
     recreateCurrentSessionIfReady: async () => {},
@@ -434,6 +435,71 @@ test('re-authenticating a signed-in account tries its stored sign-in first; the 
   switches.length = 0;
   await assert.rejects(works.api.beginMcpOAuthLogin('google-calendar-2', { mode: 'switch' }), /cancelled/);
   assert.deepEqual(switches, [['google-calendar-2', 'switch']]);
+});
+
+test('an account switch refuses an address another account has, and rolls back a sign-in that cannot connect', async (t) => {
+  const calendar = {
+    'google-calendar': { type: 'http', url: CALENDAR.backend.url, connector: 'google-calendar' },
+    'google-calendar-2': {
+      type: 'http',
+      url: `${CALENDAR.backend.url}?account=google-calendar-2`,
+      connector: 'google-calendar',
+    },
+  };
+  const events = [];
+  let identity = 'Me@Example.com';
+  const h = harness(t, {
+    initial: calendar,
+    oauthState: (cfg) => ({ signedIn: true, account: cfg.name === 'google-calendar' ? 'me@example.com' : '' }),
+    connect: async ({ only }) => {
+      events.push(['connect', only]);
+      return { servers: [{ name: only, connected: false, error: 'invalid_grant' }] };
+    },
+    startSwitch: (cfg) => {
+      events.push(['start', cfg.name]);
+      return { done: Promise.resolve({ identity: { account: identity } }), cancel() {}, answer() {} };
+    },
+    commitSwitch: async (cfg, signIn) => {
+      events.push(['commit', cfg.name, signIn.identity.account]);
+      return async () => events.push(['rollback', cfg.name]);
+    },
+  });
+  h.api.migrateConnectorAccounts();
+  // The address the other account already signed in with: refused, nothing committed.
+  await assert.rejects(
+    h.api.beginMcpOAuthLogin('google-calendar-2', { mode: 'switch' }),
+    /Me@Example\.com is already connected/
+  );
+  assert.deepEqual(events, [['start', 'google-calendar-2']]);
+  // A new address that cannot connect is committed, then rolled back and reconnected.
+  events.length = 0;
+  identity = 'new@example.com';
+  await assert.rejects(h.api.beginMcpOAuthLogin('google-calendar-2', { mode: 'switch' }), /invalid_grant/);
+  assert.deepEqual(events, [
+    ['start', 'google-calendar-2'],
+    ['commit', 'google-calendar-2', 'new@example.com'],
+    ['connect', 'google-calendar'],
+    ['rollback', 'google-calendar-2'],
+    ['connect', 'google-calendar'],
+  ]);
+});
+
+test('an OAuth client secret goes to the keychain under the server URL, and clearing the client id forgets it', async (t) => {
+  const h = harness(t);
+  await h.api.addMcpServer({
+    name: 'custom',
+    type: 'http',
+    url: 'https://mcp.example/mcp',
+    oauthClientId: 'mine',
+    oauthClientSecret: '  s3cret  ',
+  });
+  assert.deepEqual(h.seen.clientSecrets, [['https://mcp.example/mcp', 's3cret']]);
+  assert.doesNotMatch(JSON.stringify(h.config()), /s3cret/);
+  await h.api.saveMcpServer({ name: 'custom', originalName: 'custom', oauthClientId: '' });
+  assert.deepEqual(h.seen.clientSecrets, [
+    ['https://mcp.example/mcp', 's3cret'],
+    ['https://mcp.example/mcp', ''],
+  ]);
 });
 
 test('a new connector server never takes a name an account of another connector has', async (t) => {
