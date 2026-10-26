@@ -256,6 +256,49 @@ test('a sandboxed page is rewritten from the file it opened, not from what later
   assert.equal(Number(page.length), Buffer.byteLength(page.body));
 });
 
+test('a client that disconnects mid-stream gets its file handle closed exactly once', async (t) => {
+  const root = await site(t);
+  // Far larger than the socket buffers, so the stream is still reading when the client leaves.
+  await writeFile(join(root, 'big.css'), Buffer.alloc(32 * 1024 * 1024, 'a'));
+  const url = await projectPageUrl(root, 'page.html');
+  const { hostname, port, pathname } = new URL(url);
+  const prefix = pathname.slice(0, pathname.lastIndexOf('/'));
+
+  const probe = await open(join(root, 'page.html'));
+  const handles = Object.getPrototypeOf(probe);
+  await probe.close();
+  const original = handles.createReadStream;
+  let closes = 0;
+  let closeSettled;
+  const settled = new Promise((resolve) => {
+    closeSettled = resolve;
+  });
+  let served;
+  handles.createReadStream = function createReadStream(...args) {
+    served = this;
+    this.on('close', () => {
+      closes += 1;
+      closeSettled();
+    });
+    return original.apply(this, args);
+  };
+  t.after(() => {
+    handles.createReadStream = original;
+  });
+
+  await new Promise((resolve) => {
+    const req = request({ hostname, port, path: `${prefix}/big.css` }, (response) => {
+      response.once('data', () => req.destroy());
+    });
+    req.on('error', () => {});
+    req.on('close', resolve);
+    req.end();
+  });
+  await settled;
+  assert.equal(closes, 1);
+  assert.equal(served.fd, -1);
+});
+
 test('a project-scope page is served unchanged, without the storage shim', async (t) => {
   const root = await site(t);
   const url = await projectPageUrl(root, 'page.html');

@@ -14,6 +14,7 @@ import { realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { pipeline } from 'node:stream';
 import { fileExtension } from '../shared/file-extension';
 import { withSandboxStorageShim } from '../shared/sandbox-storage-shim';
 import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';
@@ -309,10 +310,10 @@ async function serveFile(
     response.end(page);
     return false;
   }
-  opened.handle
-    .createReadStream({ start: 0 })
-    .on('error', () => response.destroy())
-    .pipe(response);
+  // pipeline destroys the source when the response closes early (or already
+  // has) and the response when the read fails; destroying the stream closes
+  // the handle it was made from.
+  pipeline(opened.handle.createReadStream({ start: 0 }), response, () => undefined);
   return true;
 }
 
