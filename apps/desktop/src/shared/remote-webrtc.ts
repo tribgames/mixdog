@@ -113,8 +113,8 @@ export interface RemoteWebrtcFingerprint {
   value: string;
 }
 
-/** RTCIceCandidateInit as it travels. Under the relay-only policy every
- *  candidate is a TURN `typ relay` one (or the empty end-of-candidates line). */
+/** RTCIceCandidateInit as it travels: a host, srflx, prflx or relay
+ *  candidate in strict RFC 8839 syntax, or the empty end-of-candidates line. */
 export interface RemoteWebrtcCandidate {
   candidate: string;
   sdpMid: string | null;
@@ -129,21 +129,15 @@ export interface RemoteWebrtcIceServer {
   credential?: string;
 }
 
-/** One path, through this deployment's own TURN: both ends build their
- *  RTCPeerConnection with `iceTransportPolicy: 'relay'`, so neither gathers
- *  nor tries host, srflx or prflx candidates. Without a TURN server there is
- *  no WebRTC; the JPEG relay view is the fallback. */
-export const REMOTE_WEBRTC_ICE_TRANSPORT_POLICY = 'relay' as const;
+/** Direct first, this deployment's TURN as the fallback: both ends gather and
+ *  try host, srflx, prflx and relay candidates, and ICE's own pair priorities
+ *  prefer a direct pair over a relayed one (docs/remote-webrtc.md). When no
+ *  pair works, the JPEG relay view stays. */
+export const REMOTE_WEBRTC_ICE_TRANSPORT_POLICY = 'all' as const;
 
-/** Whether `servers` holds a TURN server with credentials: WebRTC needs one. */
-export function remoteWebrtcHasTurn(servers: readonly RemoteWebrtcIceServer[]): boolean {
-  return servers.some(
-    (server) =>
-      !!server.username &&
-      !!server.credential &&
-      server.urls.some((url) => url.startsWith('turn:') || url.startsWith('turns:'))
-  );
-}
+/** The policies an offer may carry: hosts before direct-first sent `'relay'`
+ *  (TURN only); the phone applies whichever its host sent. */
+export type RemoteWebrtcIceTransportPolicy = typeof REMOTE_WEBRTC_ICE_TRANSPORT_POLICY | 'relay';
 
 // ---------------------------------------------------------------------------
 // Transport state machine (desktop-authoritative, per viewer)
@@ -209,7 +203,8 @@ export type RemoteWebrtcCloseReason =
   | 'superseded'
   /** This side cannot serve the source, codec or version. */
   | 'unsupported'
-  /** No TURN server (with credentials) is available: JPEG stays. */
+  /** Sent only by hosts before direct-first ICE, when no TURN server was
+   *  available; still understood (JPEG stays). */
   | 'turn-unavailable'
   /** Offer/answer/ICE/DTLS did not complete within the negotiation bound. */
   | 'negotiation-timeout'
@@ -259,7 +254,7 @@ export type RemoteWebrtcDesktopSignal =
       fingerprints: RemoteWebrtcFingerprint[];
       iceServers: RemoteWebrtcIceServer[];
       /** The phone must build its peer connection with this policy. */
-      iceTransportPolicy: typeof REMOTE_WEBRTC_ICE_TRANSPORT_POLICY;
+      iceTransportPolicy: RemoteWebrtcIceTransportPolicy;
       geometry: RemoteWebrtcGeometry;
       inputEpoch: number;
     })
@@ -541,6 +536,12 @@ export interface RemoteWebrtcCandidatePairStats {
   availableOutgoingBitrate?: number;
 }
 
+/** Which path the selected pair settled on: `relay` when either end is a TURN
+ *  relay candidate, `direct` otherwise (host, srflx or prflx on both ends). */
+export function remoteWebrtcCandidatePath(pair: RemoteWebrtcCandidatePairStats): 'direct' | 'relay' {
+  return pair.localType === 'relay' || pair.remoteType === 'relay' ? 'relay' : 'direct';
+}
+
 /** The sender's view (outbound-rtp + media-source + its own capture counters). */
 export interface RemoteWebrtcSenderStats {
   connectionId: string;
@@ -772,7 +773,9 @@ export function remoteWebrtcCertificateMatches(
   }
 }
 
-function sdp(value: unknown): string {
+/** An SDP blob as signaled: a string of at most 64 KiB starting `v=0`, never
+ *  ice-lite. Returns it unchanged; throws on anything else. */
+export function parseRemoteWebrtcSdp(value: unknown): string {
   const text = boundedText(value, MAX_SDP_LENGTH, 'sdp');
   if (!text.startsWith('v=0')) fail('sdp');
   // Both ends run full ICE.
@@ -780,13 +783,91 @@ function sdp(value: unknown): string {
   return text;
 }
 
-function candidate(value: unknown): RemoteWebrtcCandidate | null {
+/** RFC 8839 §5.1 candidate-attribute: foundation, component, transport,
+ *  priority, address, port, type, the optional related address and port, then
+ *  name/value extensions (`generation`, `ufrag`, `network-id`, `tcptype`…). */
+const CANDIDATE_LINE = new RegExp(
+  '^candidate:[A-Za-z0-9+/]{1,32} (\\d{1,3}) (udp|tcp) (\\d{1,10}) (\\S+) (\\d{1,5}) typ (?:host|srflx|prflx|relay)' +
+    '(?: raddr (\\S+) rport (\\d{1,5}))?((?: (?!raddr |rport |typ )[a-z][a-z0-9-]{0,31} [\\x21-\\x7e]{1,256})*)$',
+  'iu'
+);
+
+/** RFC 6544 §4.5 tcp-type values. */
+const TCP_TYPES: ReadonlySet<string> = new Set(['active', 'passive', 'so']);
+
+/** A TCP candidate carries exactly one `tcptype` of a known value, a UDP one
+ *  none. `extensions` is the matched ` name value` run; neither name nor value
+ *  holds a space, so its fields alternate name, value. */
+function tcpTypeFits(transport: string, extensions: string): boolean {
+  const fields = extensions.split(' ').slice(1);
+  const tcpTypes: string[] = [];
+  for (let index = 0; index < fields.length; index += 2) {
+    if (fields[index]!.toLowerCase() === 'tcptype') tcpTypes.push(fields[index + 1]!.toLowerCase());
+  }
+  return transport.toLowerCase() === 'tcp'
+    ? tcpTypes.length === 1 && TCP_TYPES.has(tcpTypes[0]!)
+    : tcpTypes.length === 0;
+}
+
+function ipv4Address(text: string): boolean {
+  const parts = text.split('.');
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/u.test(part) && Number(part) <= 255);
+}
+
+function ipv6Address(text: string): boolean {
+  if (!/^[0-9A-Fa-f:.]{2,45}$/u.test(text)) return false;
+  // An embedded IPv4 address may only be the last 32 bits of the text itself
+  // (RFC 4291 §2.2): checked there, then counted as the two groups it stands
+  // for, so a dotted group anywhere else fails the hex check below.
+  const tail = text.slice(text.lastIndexOf(':') + 1);
+  const embedded = tail.includes('.');
+  if (embedded && !ipv4Address(tail)) return false;
+  const hex = embedded ? `${text.slice(0, text.length - tail.length)}0:0` : text;
+  const halves = hex.split('::');
+  if (halves.length > 2) return false;
+  const groups = halves.flatMap((half) => (half ? half.split(':') : []));
+  if (!groups.every((group) => /^[0-9A-Fa-f]{1,4}$/u.test(group))) return false;
+  return halves.length === 2 ? groups.length < 8 : groups.length === 8;
+}
+
+/** An IP address, or the `.local` name a browser puts in place of a private
+ *  host address (mDNS, draft-ietf-mmusic-mdns-ice-candidates). */
+function candidateAddress(text: string): boolean {
+  return (
+    ipv4Address(text) ||
+    ipv6Address(text) ||
+    /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.){1,4}local$/iu.test(text)
+  );
+}
+
+/** Whether `line` is one well-formed RFC 8839 candidate attribute value of type
+ *  host, srflx, prflx or relay: component 1–256, 32-bit priority, an IPv4/IPv6
+ *  address or mDNS `.local` name, ports ≤ 65535, `tcptype` exactly on TCP. The
+ *  empty end-of-candidates line is not a candidate line. */
+export function isRemoteWebrtcCandidateLine(line: string): boolean {
+  const match = CANDIDATE_LINE.exec(line);
+  if (!match) return false;
+  const [, component, transport, priority, address, port, relatedAddress, relatedPort, extensions] = match;
+  return (
+    tcpTypeFits(transport!, extensions!) &&
+    Number(component) >= 1 &&
+    Number(component) <= 256 &&
+    Number(priority) <= 0xffff_ffff &&
+    candidateAddress(address) &&
+    Number(port) <= 65_535 &&
+    (relatedAddress === undefined || (candidateAddress(relatedAddress) && Number(relatedPort) <= 65_535))
+  );
+}
+
+/** A signaled `RTCIceCandidateInit`: `null` (end of all candidates), or a line
+ *  that is empty (end of one generation) or passes
+ *  `isRemoteWebrtcCandidateLine`, with bounded `sdpMid` / `sdpMLineIndex`
+ *  (at least one) and `usernameFragment`. Throws on anything else. */
+export function parseRemoteWebrtcCandidate(value: unknown): RemoteWebrtcCandidate | null {
   if (value === null) return null;
   const input = record(value, 'candidate');
   const line = boundedText(input.candidate, MAX_CANDIDATE_LENGTH, 'candidate');
-  // An empty line is the per-generation end-of-candidates marker; any other
-  // must be a TURN relay candidate (RFC 8839 §5.1 `typ relay`).
-  if (line && (!line.startsWith('candidate:') || !/ typ relay(?: |$)/u.test(line))) fail('candidate');
+  if (line && !isRemoteWebrtcCandidateLine(line)) fail('candidate');
   const nullable = <T>(field: unknown, read: (field: unknown) => T): T | null =>
     field === null || field === undefined ? null : read(field);
   const candidateInit: RemoteWebrtcCandidate = {
@@ -799,7 +880,11 @@ function candidate(value: unknown): RemoteWebrtcCandidate | null {
   return candidateInit;
 }
 
-function iceServers(value: unknown): RemoteWebrtcIceServer[] {
+/** A signaled ICE server list (empty allowed, at most `MAX_ICE_SERVERS`):
+ *  each entry's `urls` is normalized to an array (a scalar becomes one
+ *  element) of 1–`MAX_ICE_URLS` stun:/stuns:/turn:/turns: URIs; `username` and
+ *  `credential` are kept when given, bounded. Throws on anything else. */
+export function parseRemoteWebrtcIceServers(value: unknown): RemoteWebrtcIceServer[] {
   if (!Array.isArray(value) || value.length > MAX_ICE_SERVERS) fail('ice servers');
   return value.map((entry) => {
     const input = record(entry, 'ice server');
@@ -821,16 +906,9 @@ function iceServers(value: unknown): RemoteWebrtcIceServer[] {
   });
 }
 
-/** An offer's ICE servers: they must include TURN, the only path allowed. */
-function turnServers(value: unknown): RemoteWebrtcIceServer[] {
-  const servers = iceServers(value);
-  if (!remoteWebrtcHasTurn(servers)) fail('ice servers (no TURN)');
-  return servers;
-}
-
-function relayPolicy(value: unknown): typeof REMOTE_WEBRTC_ICE_TRANSPORT_POLICY {
-  if (value !== REMOTE_WEBRTC_ICE_TRANSPORT_POLICY) fail('ice transport policy');
-  return REMOTE_WEBRTC_ICE_TRANSPORT_POLICY;
+function transportPolicy(value: unknown): RemoteWebrtcIceTransportPolicy {
+  if (value !== REMOTE_WEBRTC_ICE_TRANSPORT_POLICY && value !== 'relay') fail('ice transport policy');
+  return value as RemoteWebrtcIceTransportPolicy;
 }
 
 function closeReason(value: unknown): RemoteWebrtcCloseReason {
@@ -875,12 +953,12 @@ export function parseRemoteWebrtcClientSignal(value: unknown): RemoteWebrtcClien
     case 'resize-request':
       return { ...sourceRef(input), type: 'resize-request', resize: resize(input.resize) };
     case 'answer': {
-      const answer = { sdp: sdp(input.sdp), fingerprints: fingerprints(input.fingerprints) };
+      const answer = { sdp: parseRemoteWebrtcSdp(input.sdp), fingerprints: fingerprints(input.fingerprints) };
       assertRemoteWebrtcSdpFingerprints(answer.sdp, answer.fingerprints);
       return { ...connectionRef(input), type: 'answer', ...answer };
     }
     case 'candidate':
-      return { ...connectionRef(input), type: 'candidate', candidate: candidate(input.candidate) };
+      return { ...connectionRef(input), type: 'candidate', candidate: parseRemoteWebrtcCandidate(input.candidate) };
     case 'media-ready':
       return {
         ...connectionRef(input),
@@ -919,20 +997,21 @@ export function parseRemoteWebrtcDesktopSignal(value: unknown): RemoteWebrtcDesk
     case 'geometry':
       return { ...sourceRef(input), type: 'geometry', geometry: normalizeRemoteWebrtcGeometry(input.geometry) };
     case 'offer': {
-      const offer = { sdp: sdp(input.sdp), fingerprints: fingerprints(input.fingerprints) };
+      const offer = { sdp: parseRemoteWebrtcSdp(input.sdp), fingerprints: fingerprints(input.fingerprints) };
       assertRemoteWebrtcSdpFingerprints(offer.sdp, offer.fingerprints);
       return {
         ...connectionRef(input),
         type: 'offer',
         ...offer,
-        iceServers: turnServers(input.iceServers),
-        iceTransportPolicy: relayPolicy(input.iceTransportPolicy),
+        // Any list, even an empty one: host candidates alone connect on one LAN.
+        iceServers: parseRemoteWebrtcIceServers(input.iceServers),
+        iceTransportPolicy: transportPolicy(input.iceTransportPolicy),
         geometry: normalizeRemoteWebrtcGeometry(input.geometry),
         inputEpoch: positiveInteger(input.inputEpoch, 'input epoch'),
       };
     }
     case 'candidate':
-      return { ...connectionRef(input), type: 'candidate', candidate: candidate(input.candidate) };
+      return { ...connectionRef(input), type: 'candidate', candidate: parseRemoteWebrtcCandidate(input.candidate) };
     case 'promote':
       return {
         ...connectionRef(input),

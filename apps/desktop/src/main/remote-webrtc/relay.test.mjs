@@ -51,7 +51,7 @@ const offer = {
   sdp: SDP,
   fingerprints: [{ algorithm: 'sha-256', value: HEX }],
   iceServers: [{ urls: ['turn:t.example:3478'], username: 'u', credential: 'p' }],
-  iceTransportPolicy: 'relay',
+  iceTransportPolicy: 'all',
   geometry,
   inputEpoch: 1,
 };
@@ -371,6 +371,21 @@ test('a screen source and its display list need the screen grant', async () => {
 
 test('a desktop signal that breaks the contract never reaches the phone', async () => {
   const f = fixture();
-  await assert.rejects(f.relay.send('c1', { ...offer, iceTransportPolicy: 'all' }));
+  await assert.rejects(f.relay.send('c1', { ...offer, iceTransportPolicy: 'none' }));
+  await assert.rejects(
+    f.relay.send('c1', {
+      ...ref,
+      type: 'candidate',
+      candidate: { candidate: 'candidate:1 1 udp 1 evil.example.com 1 typ host', sdpMid: '0' },
+    })
+  );
   assert.deepEqual(f.sent, []);
+  // A direct-first offer and a host candidate do pass.
+  await f.relay.send('c1', offer);
+  await f.relay.send('c1', {
+    ...ref,
+    type: 'candidate',
+    candidate: { candidate: 'candidate:1 1 udp 2122260223 192.168.0.10 50001 typ host', sdpMid: '0' },
+  });
+  assert.equal(f.sent.length, 2);
 });

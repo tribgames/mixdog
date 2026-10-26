@@ -39,7 +39,7 @@ const offerBody = (generation, extra = {}) => ({
   sdp: sdp(DESKTOP_FP),
   fingerprints: [DESKTOP_FP],
   iceServers: turn,
-  iceTransportPolicy: 'relay',
+  iceTransportPolicy: 'all',
   geometry: geometry(),
   inputEpoch: 1,
   ...extra,
@@ -206,21 +206,26 @@ async function connect(h, generation = 1) {
   await settle();
 }
 
-test('the offer is answered relay-only through TURN with this side’s fingerprints; early candidates wait', async () => {
+test('the offer is answered direct-first with this side’s fingerprints; early candidates of every type wait', async () => {
   const h = harness();
   h.viewer.start();
   assert.deepEqual(h.signals('ready')[0].receiveCodecs, ['video/VP8', 'video/H264']);
   h.viewer.handle(offer(1));
-  // A candidate before the remote description is set waits for it.
-  h.viewer.handle(
-    signal(1, { type: 'candidate', candidate: { candidate: 'candidate:1 1 udp 1 203.0.113.9 3478 typ relay', sdpMid: '0' } })
-  );
+  // Candidates before the remote description is set wait for it: a host
+  // (mDNS name), a server-reflexive and a relay one.
+  for (const line of [
+    'candidate:1 1 udp 2122260223 0a1b2c3d-4e5f-4061-8172-839405162738.local 54321 typ host generation 0',
+    'candidate:2 1 udp 1686052607 198.51.100.4 40000 typ srflx raddr 0.0.0.0 rport 0 generation 0',
+    'candidate:3 1 udp 1 203.0.113.9 3478 typ relay',
+  ]) {
+    h.viewer.handle(signal(1, { type: 'candidate', candidate: { candidate: line, sdpMid: '0' } }));
+  }
   await settle();
   const peer = h.peers[0];
-  assert.equal(peer.configuration.iceTransportPolicy, 'relay', 'every path goes through the VPS TURN server');
+  assert.equal(peer.configuration.iceTransportPolicy, 'all', 'direct pairs first, the TURN server as the fallback');
   assert.deepEqual(peer.configuration.iceServers, turn);
   assert.equal(peer.remote.sdp, sdp(DESKTOP_FP));
-  assert.equal(peer.added.length, 1, 'the queued candidate was added after the description');
+  assert.equal(peer.added.length, 3, 'the queued candidates were added after the description');
   const [answer] = h.signals('answer');
   assert.deepEqual(answer.fingerprints, [PHONE_FP]);
   assert.equal(answer.connectionId, id(1));
@@ -228,16 +233,59 @@ test('the offer is answered relay-only through TURN with this side’s fingerpri
   assert.equal(h.viewer.state, 'negotiating');
 });
 
-test('only a relay-only offer through TURN reaches a peer; without TURN the JPEG view stays', async () => {
-  // The phone drops (never builds a peer for) an offer allowing direct paths
-  // or naming no TURN server with credentials.
-  assert.equal(readRemoteWebrtcDesktopSignal(offerBody(1, { iceTransportPolicy: 'all' })), null);
+test('a STUN-only or server-less offer still builds a peer; an older host’s relay policy is applied as sent', async () => {
+  for (const iceServers of [[{ urls: ['stun:stun.mixdog.test:3478'] }], []]) {
+    const h = harness();
+    h.viewer.start();
+    h.viewer.handle(offer(1, { iceServers }));
+    await settle();
+    assert.deepEqual(h.peers[0].configuration, { iceServers, iceTransportPolicy: 'all' });
+    assert.equal(h.signals('answer').length, 1);
+  }
+  const older = harness();
+  older.viewer.start();
+  older.viewer.handle(offer(1, { iceTransportPolicy: 'relay' }));
+  await settle();
+  assert.equal(older.peers[0].configuration.iceTransportPolicy, 'relay');
+  // Malformed policies and candidates never reach a peer.
   assert.equal(readRemoteWebrtcDesktopSignal(offerBody(1, { iceTransportPolicy: undefined })), null);
-  assert.equal(readRemoteWebrtcDesktopSignal(offerBody(1, { iceServers: [{ urls: ['stun:stun.mixdog.test:3478'] }] })), null);
-  assert.equal(readRemoteWebrtcDesktopSignal(offerBody(1, { iceServers: [{ urls: ['turns:turn.mixdog.test:443'] }] })), null);
+  assert.equal(readRemoteWebrtcDesktopSignal(offerBody(1, { iceTransportPolicy: 'none' })), null);
+  assert.equal(
+    readRemoteWebrtcDesktopSignal({
+      v: 1,
+      source,
+      connectionId: id(1),
+      generation: 1,
+      type: 'candidate',
+      candidate: { candidate: 'candidate:1 1 udp 1 203.0.113.9 3478 typ relay\r\na=x', sdpMid: '0' },
+    }),
+    null
+  );
+});
 
-  // A host without TURN closes instead of offering: JPEG keeps input, and the
-  // retry waits for the desktop's cooldown.
+test('ICE that finds no working pair falls back to the JPEG view; relay input works again', async () => {
+  const h = harness();
+  h.viewer.start();
+  h.viewer.handle(offer(1));
+  await settle();
+  const peer = h.peers[0];
+  peer.connectionState = 'failed';
+  peer.iceConnectionState = 'failed';
+  peer.onconnectionstatechange();
+  await settle();
+  assert.equal(h.signals('close').at(-1).reason, 'ice-failed');
+  assert.equal(peer.closed, true);
+  assert.equal(h.viewer.owner, 'relay');
+  assert.notEqual(h.viewer.state, 'webrtc');
+  // The desktop answers with its close: the JPEG view stays, no timer retry.
+  h.viewer.handle(signal(1, { type: 'close', reason: 'ice-failed' }));
+  assert.equal(h.viewer.state, 'cooldown');
+  h.route(click('mousePressed'));
+  await settle();
+  assert.equal(h.wire.at(-1).relay, 'pointer');
+});
+
+test('a close from an older host without TURN keeps the JPEG view and relay input', async () => {
   const h = harness();
   await connect(h);
   h.viewer.handle(signal(1, { type: 'close', reason: 'turn-unavailable', retryAfterMs: 60_000 }));
@@ -806,7 +854,7 @@ test('every adopted geometry is acknowledged, the offer’s too, even at a gener
   assert.equal(h.viewer.geometry.generation, 2);
 });
 
-test('turn-unavailable before any offer: JPEG stays, nothing retries until the view or relay comes back', async () => {
+test('an older host’s turn-unavailable before any offer: JPEG stays, nothing retries until the view or relay comes back', async () => {
   const h = harness();
   h.viewer.start();
   h.viewer.handle(signal(1, { type: 'close', reason: 'turn-unavailable' }));

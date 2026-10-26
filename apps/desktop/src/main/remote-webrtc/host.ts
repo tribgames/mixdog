@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 import {
   REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
   parseRemoteWebrtcClientSignal,
+  remoteWebrtcCandidatePath,
   remoteWebrtcSourceKey,
   type RemoteWebrtcChannelPush,
   type RemoteWebrtcDesktopSignal,
@@ -169,8 +170,10 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
     });
   }
 
-  /** One measurement line: the sender's view, the capture counters, and the
-   *  phone's own report when it sent one. */
+  /** One measurement line: the sender's view, the capture counters, the
+   *  phone's own report when it sent one, and the path the connection is on
+   *  (`direct` or `relay`, from the selected candidate pair; ICE may move it
+   *  to a better pair later, which the next sample shows). */
   async function measure(entry: ViewerEntry, event: string, receiver?: RemoteWebrtcReceiverStats): Promise<void> {
     const connectionId = entry.viewer.connectionId;
     if (!connectionId) return;
@@ -184,7 +187,13 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
           framesSuperseded: feed?.framesSuperseded ?? 0,
         }
       : null;
-    deps.report(event, { source: entry.sourceKey, sender: stats, ...(receiver ? { receiver } : {}) });
+    const pair = stats?.candidatePair ?? receiver?.candidatePair;
+    deps.report(event, {
+      source: entry.sourceKey,
+      ...(pair ? { path: remoteWebrtcCandidatePath(pair) } : {}),
+      sender: stats,
+      ...(receiver ? { receiver } : {}),
+    });
   }
 
   function createViewer(clientId: string, source: RemoteWebrtcVideoSource): ViewerEntry {

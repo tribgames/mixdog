@@ -10,7 +10,6 @@ import {
   REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
   REMOTE_WEBRTC_VERSION,
   canRemoteWebrtcTransition,
-  remoteWebrtcHasTurn,
   parseRemoteWebrtcChannelFromClient,
   remoteWebrtcCertificateMatches,
   remoteWebrtcSdpFingerprints,
@@ -153,20 +152,10 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
     pendingReady = null;
     generation += 1;
     const id = effects.newConnectionId();
-    if (!remoteWebrtcHasTurn(iceServers)) {
-      // WebRTC runs only through this deployment's TURN: without one the
-      // phone is told at once, and the JPEG relay view simply stays.
-      effects.signal({
-        v: REMOTE_WEBRTC_VERSION,
-        source,
-        connectionId: id,
-        generation,
-        type: 'close',
-        reason: 'turn-unavailable',
-      });
-      return;
-    }
-    connection = { id, generation, iceServers, offered: false, answer: null };
+    // Attempted with whatever ICE servers there are, none included: direct
+    // pairs need no TURN (host candidates alone connect on one LAN), and a
+    // failed attempt ends in the JPEG view that is showing meanwhile.
+    connection ={ id, generation, iceServers, offered: false, answer: null };
     move('negotiating');
     arm(REMOTE_WEBRTC_NEGOTIATION_TIMEOUT_MS, () => fail('negotiation-timeout'));
     effects.open({ connectionId: connection.id, iceServers, receiveCodecs });

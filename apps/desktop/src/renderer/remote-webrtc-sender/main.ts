@@ -2,7 +2,8 @@
  * The live-view sender (hidden trusted window, see main/remote-webrtc/sender-window.ts).
  * Per source: one canvas-generated video track, fed the newest picture main
  * hands over at the locked pixel size. Per connection: one RTCPeerConnection
- * through TURN only, with the reliable ordered input channel. Electron's
+ * (direct paths first, TURN as the fallback), with the reliable ordered input
+ * channel. Electron's
  * WebRTC encodes; which encoder actually runs is reported, never assumed.
  */
 import {
@@ -236,8 +237,10 @@ async function open(command: Extract<RemoteWebrtcSenderCommand, { type: 'open' }
 }
 
 const CANDIDATE_TYPES: ReadonlySet<string> = new Set(['host', 'srflx', 'prflx', 'relay']);
-const candidateType = (value: unknown): RemoteWebrtcCandidateType =>
-  (CANDIDATE_TYPES.has(String(value)) ? value : 'relay') as RemoteWebrtcCandidateType;
+/** A pair is reported only with both types known: a guessed type would
+ *  misstate the path (direct vs relay). */
+const candidateType = (value: unknown): RemoteWebrtcCandidateType | null =>
+  CANDIDATE_TYPES.has(String(value)) ? (value as RemoteWebrtcCandidateType) : null;
 
 async function stats(connectionId: string, requestId: number): Promise<void> {
   const connection = connections.get(connectionId);
@@ -254,10 +257,12 @@ async function stats(connectionId: string, requestId: number): Promise<void> {
       const selected = report.get(entry.selectedCandidatePairId);
       const local = selected && report.get(selected.localCandidateId);
       const remote = selected && report.get(selected.remoteCandidateId);
-      if (selected && local && remote) {
+      const localType = local && candidateType(local.candidateType);
+      const remoteType = remote && candidateType(remote.candidateType);
+      if (selected && localType && remoteType) {
         pair = {
-          localType: candidateType(local.candidateType),
-          remoteType: candidateType(remote.candidateType),
+          localType,
+          remoteType,
           protocol: local.protocol === 'tcp' ? 'tcp' : 'udp',
           ...(local.relayProtocol ? { relayProtocol: local.relayProtocol } : {}),
           ...(typeof selected.currentRoundTripTime === 'number'

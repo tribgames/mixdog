@@ -156,8 +156,35 @@ refuses to run without them.
   line per issued credential with the device prefix; `ice-servers refused
   cause=rate-limited` shows the limit being hit. Raise it if a legitimate
   device is refused.
-- Not decided here (needs the VPS bandwidth plan and a measured session): coturn
-  `total-quota`, `max-bps`, `bps-capacity`.
+
+### Relay load: no coturn limits
+
+coturn's `max-bps`, `bps-capacity` and `total-quota` are deliberately not set
+(the template comment says the same):
+
+- **One stream is already bounded.** The sender sets no `maxBitrate`, so
+  libwebrtc's default ceiling applies: 2500 kbit/s above 960×540
+  (`GetMaxDefaultVideoBitrateKbps`, `video/config/encoder_stream_factory.cc`).
+- **The VPS has measured headroom.** A capacity run (coturn 4.18.0 in Docker
+  limited to this VPS's shape, 1 vCPU / 961 MB, this template, UDP relay,
+  1200-byte packets) was loss-free at ~99 Mbit/s egress (20 × 4.8 Mbit/s: 12%
+  CPU, ≤19 MiB) — about 40 streams at the default ceiling. Loss began past that
+  (375 Mbit/s: 2%; 426 Mbit/s: 34% at ~91% CPU; socket `RcvbufErrors`). The real
+  VPS's margin is unknown (±50%).
+- **Most views go direct** (`docs/remote-webrtc.md`) and never touch this server.
+- **A cap would not cut VPS load.** A view refused here falls back to the JPEG
+  view, which runs over the relay on this same VPS.
+- **`bps-capacity` does not fit.** It is an admission budget: every ALLOCATE
+  reserves its `max-bps` (WebRTC sends no BANDWIDTH attribute), relayed or not
+  (`allocate_bps`, `src/apps/relay/netengine.c`; past it `486`,
+  `src/server/ns_turn_server.c`), and coturn exits if it is set without
+  `max-bps` (`src/apps/relay/mainrelay.c`). With ~6 allocations per view held for
+  the connection's life, ~100 Mbit/s admitted only about 3 relay-capable views.
+
+Watch the real load instead (`journalctl -u mixdog-coturn`, the host's egress
+counters) and revisit with measurements. A `user-quota` refusal (`486`) or an
+unreachable TURN server leaves that end without relay candidates: ICE still
+tries the direct pairs, and if none works the JPEG view stays.
 
 ### Provision
 

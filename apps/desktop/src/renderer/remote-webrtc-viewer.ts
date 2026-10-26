@@ -12,6 +12,7 @@ import {
   readRemoteWebrtcScreenCursor,
   readRemoteWebrtcScreenStatus,
   readRemoteWebrtcScreenVideo,
+  remoteWebrtcCandidatePath,
   remoteWebrtcCertificateMatches,
   remoteWebrtcSdpFingerprints,
   remoteWebrtcSourceKey,
@@ -363,6 +364,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
         ` decoded=${stats.frameWidth ?? '?'}x${stats.frameHeight ?? '?'}` +
         ` frames=${stats.framesDecoded}/${stats.framesReceived} dropped=${stats.framesDropped}` +
         ` jitterBufferMs=${stats.jitterBufferDelayMs?.toFixed(1) ?? '?'} freezes=${stats.freezeCount ?? '?'}` +
+        ` path=${pair ? remoteWebrtcCandidatePath(pair) : '?'}` +
         ` pair=${pair ? `${pair.localType}/${pair.remoteType}/${pair.protocol}` : '?'}` +
         ` pairRttMs=${pair?.currentRoundTripTimeMs?.toFixed(1) ?? '?'}` +
         ` inputRttMs=${stats.inputRoundTripMs?.toFixed(1) ?? '-'} inputVisibleMs=${stats.inputToVisibleMs?.toFixed(1) ?? '-'}`
@@ -481,8 +483,8 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     if (current) teardown(current);
     acceptGeometry(offer.geometry);
     epoch = offer.inputEpoch;
-    // One path through the deployment's TURN server: the offer's policy
-    // (relay-only; the contract refuses any other, and an offer without TURN).
+    // The offer's policy: `all` (direct pairs first, the deployment's TURN as
+    // the fallback), or `relay` from a host before direct-first.
     const peer = options.createPeer({ iceServers: offer.iceServers, iceTransportPolicy: offer.iceTransportPolicy });
     const attempt: Attempt = {
       connectionId: offer.connectionId,
@@ -724,7 +726,8 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
         if (fresh(signal)) acceptOffer(signal);
         return;
       }
-      // A close of an attempt the desktop ended before offering (no TURN).
+      // A close of an attempt the desktop ended before offering (an older
+      // host without TURN, or one that could not start the attempt).
       if (signal.type === 'close' && fresh(signal)) {
         seen.add(signal.connectionId);
         known = { connectionId: signal.connectionId, generation: signal.generation };

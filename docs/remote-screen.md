@@ -569,8 +569,15 @@ network, a malformed or hostile message, and another local account or process.
 
 Mitigations:
 
-- The relay never sees pixels or input: the peer connection is direct, with
-  DTLS fingerprints bound inside the E2EE envelope per `remote-webrtc.md`.
+- The relay never sees pixels or input: the peer connection goes direct when
+  ICE finds a direct pair and through this deployment's TURN server otherwise
+  (`remote-webrtc.md`, "Path: direct first, TURN as the fallback"); either way
+  it is DTLS-SRTP end to end, with the DTLS fingerprints bound inside the E2EE
+  envelope, so TURN only forwards ciphertext.
+- A paired phone learns the PC's ICE candidates (its public address, and its
+  local addresses unless they are mDNS names) and the PC the phone's; both
+  travel only inside the E2EE channel. See `remote-webrtc.md` for why that is
+  accepted for paired devices.
 - Every data-channel message is validated and bounded by the contract's parser
   before it reaches the injector.
 - Capture and control are open only to a paired client over an established

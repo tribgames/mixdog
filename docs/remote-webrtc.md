@@ -1,8 +1,8 @@
 # Remote live view over WebRTC
 
 The phone's view of a desktop browser page (later also the whole screen) as a
-remote-desktop stream: WebRTC video through this deployment's TURN server,
-locked geometry, input on a reliable data channel, and automatic fallback to
+remote-desktop stream: WebRTC video on a direct path when ICE finds one and
+through this deployment's TURN server otherwise, locked geometry, input on a reliable data channel, and automatic fallback to
 the JPEG-over-relay view. The wire contract is
 `apps/desktop/src/shared/remote-webrtc.ts` (version `REMOTE_WEBRTC_VERSION`);
 this page explains how its pieces fit.
@@ -20,19 +20,153 @@ this page explains how its pieces fit.
 A host advertises the contract with `browserWebrtc: 1` in its E2EE challenge.
 A phone without it, or a host without it, stays on JPEG.
 
-## One path: TURN only
+## Path: direct first, TURN as the fallback
 
-Both ends build their peer connection with `iceTransportPolicy: 'relay'`; the
-offer carries `iceTransportPolicy: 'relay'` and the phone must apply it. No
-host, srflx or prflx candidate is gathered or accepted: a candidate signal must
-be a `typ relay` line (or the empty end-of-candidates line). An offer is valid
-only with at least one `turn:`/`turns:` server with credentials.
+Both ends build their peer connection with `iceTransportPolicy: 'all'`
+(`REMOTE_WEBRTC_ICE_TRANSPORT_POLICY`); the offer carries it and the phone
+applies the policy the offer names. Host, srflx, prflx and relay candidates are
+all gathered and accepted. A candidate signal is validated strictly against the
+RFC 8839 §5.1 grammar (foundation, component 1–256, `udp`/`tcp`, 32-bit
+priority, address, port ≤ 65535, `typ host|srflx|prflx|relay`, optional
+`raddr`/`rport`, then name/value extensions, with exactly one `tcptype
+active|passive|so` on a TCP candidate and none on a UDP one); the address must
+be an IPv4 or IPv6 address (an embedded IPv4 only as the last 32 bits) or an
+mDNS `.local` name — never another host name, which would
+make the receiver resolve a name the sender chose. The empty line stays the
+end-of-candidates marker.
+
+The fallback chain is **direct → TURN → JPEG**:
+
+1. **Direct.** ICE pairs every candidate; when conditions are otherwise
+   comparable it prefers a direct pair (below). Same Wi-Fi connects host↔host;
+   across networks srflx/prflx pairs connect wherever the NATs allow it.
+2. **TURN.** The ICE servers still come from `resolveRemoteIceServers()`: this
+   deployment's STUN and, when the relay can issue credentials, its TURN. A
+   relay candidate has the lowest type preference, so a relayed pair is chosen
+   mainly when no direct pair works (strict/symmetric NAT, UDP blocked). It is
+   not guaranteed to lose otherwise: ICE ranks pair state (writable, receiving)
+   and network preference/cost before candidate priority, so a relayed pair on
+   a better network or in a better state can stay selected.
+3. **JPEG.** If no pair works, ICE fails (`ice-failed`) or the attempt runs past
+   the negotiation bound (`negotiation-timeout`); the desktop closes it and the
+   JPEG view, which stayed up throughout, simply remains. This is unchanged from
+   the relay-only design.
+
+An offer needs no TURN server, and not even a STUN one: the desktop attempts
+with whatever list resolved, the empty one included. Host candidates alone
+connect a phone on the same LAN; when no pair works the attempt costs one
+bounded negotiation while the JPEG view is showing, and its `close` carries no
+`retryAfterMs`, so nothing loops. `turn-unavailable` is therefore no longer
+sent; the phone still understands it from an older host (the phone's renderer
+is served by the relay and may be newer than the host), and applies an older
+host's `relay` policy as sent.
+
+**Rollout order:** deploy the phone page to the relay together with the
+desktop update, or before it. An older phone page rejects an `all` offer, so
+against a new host it never builds a peer: the attempt ends in
+`negotiation-timeout` and that phone stays on the JPEG view.
+
+### Why ICE needs no "wait for a direct pair" step
+
+Nothing here waits before accepting a relayed pair, because libwebrtc already
+prefers and moves to a direct pair (webrtc.googlesource.com/src, main):
+
+- Candidate type preferences (`p2p/base/p2p_constants.h`, `IcePriorityValue`):
+  host 126, prflx 110, srflx 100, relay 0–3, so by pair priority a relayed
+  pair ranks below a direct one; host candidates also exist at once, while a relay candidate
+  needs a TURN allocation round trip first (~150 ms to this deployment from
+  Korea).
+- The controlling agent (the desktop: it makes the offer) re-sorts its pairs
+  whenever a pair's state changes (`P2PTransportChannel`, switch reason
+  `CONNECT_STATE_CHANGE`) and switches the selected pair when the top one is
+  writable and better: `BasicIceController::ShouldSwitchConnection` →
+  `CompareConnections` in `p2p/base/basic_ice_controller.cc`. That order is
+  connection state first (`CompareConnectionStates`: writable, write state,
+  receiving), then `CompareConnectionCandidates`: network preference, VPN
+  preference and network cost (`CompareCandidatePairNetworks`), and only then
+  pair priority; a tie switches only for an RTT gain of at least 10 ms. So a
+  direct pair that becomes writable and receiving after a relayed one was
+  selected takes over, on the same DTLS transport and without renegotiation,
+  when both are on comparable networks — the usual case, both ends' TURN
+  traffic leaving through the same interface as their direct traffic. It is a
+  preference, not a guarantee.
+- Its default nomination (`NominationMode::SEMI_AGGRESSIVE`,
+  `p2p/base/ice_transport_internal.h`) nominates any pair better than the
+  selected one (`GetUseCandidateAttr`), so the controlled side (the phone)
+  follows the switch.
+- Candidates trickle: a pair formed from a late remote candidate is checked and
+  considered as it arrives (`NEW_CONNECTION_FROM_REMOTE_CANDIDATE`). Continual
+  gathering is not needed for the initial choice.
+
+A separate-transport race (a relay connection held back for a few seconds while
+a direct attempt runs) only matters when the fallback is a different transport
+that would otherwise win; here the fallback is inside ICE, and the out-of-band
+fallback (JPEG) is already on screen until promotion.
+
+### Why TURN-only was chosen before, and how each reason is handled
+
+The relay-only design was chosen for **one predictable path**: the same
+behaviour on Wi-Fi and LTE, with the costs acknowledged at the time (VPS
+bandwidth for every view, extra delay even on one Wi-Fi). It also had a side
+effect of **not exposing addresses** to the phone. Now:
+
+- *Predictability* is kept where it matters: the protocol, security checks,
+  state machine and fallback are identical on every path, and the path taken is
+  recorded on every measurement (below). Only latency differs — which is the
+  point: through the Los Angeles VPS (~152 ms RTT from Korea) the relay adds
+  about 300 ms of input-to-photon delay that a direct path avoids, and the VPS
+  carries only the views that need it.
+- *Address exposure* is accepted for paired devices; see the next section.
+- *VPS bandwidth* drops because most views now go direct; the relayed ones are
+  bounded per stream by libwebrtc's default ~2.5 Mbit/s ceiling, and the VPS ran
+  loss-free to ~100 Mbit/s (about 40 such streams) in a capacity run. No coturn
+  bandwidth or allocation cap is set: a refused view would fall back to the JPEG
+  view on the same VPS, so it would move the load rather than cut it
+  (`apps/relay/deploy/README.md`, "Relay load: no coturn limits"). If TURN cannot
+  allocate (unreachable, or the per-device `user-quota` refuses with `486`), that
+  end has no relay candidate and the attempt connects directly or ends in the
+  JPEG view.
+
+### IP exposure
+
+Candidates travel only inside the E2EE relay channel, so the relay never reads
+them; the STUN/TURN server sees the public addresses, as it did before. A
+**paired** device learns the other end's addresses:
+
+- The phone learns the PC's public address (srflx), its relay address, and its
+  host candidates. Chromium replaces private host addresses with random mDNS
+  `.local` names when the page has no camera/microphone permission
+  (`WebRtcHideLocalIpsWithMdns`); with that permission it sends the raw
+  addresses. Electron runs the same check through the session's permission
+  check handler (electron/electron#25082: without a handler Electron answered
+  "granted", so local addresses showed). The sender window lives in the default
+  session, whose check handler grants `media` only to the routed app windows
+  (`main/permission-policy.ts`), so by that reading the sender's host candidates
+  are mDNS names; this is not yet confirmed on a running build, and the
+  conclusion below does not depend on it.
+- The PC learns the phone's public address (on LTE usually a carrier NAT
+  address) and its host candidates — `.local` names in the phone's browser,
+  which has no camera/microphone permission.
+
+Conclusion: acceptable. Pairing is the user's explicit approval of that device
+on this PC, the device already holds the E2EE channel and (with screen access)
+control of the PC, and a LAN address is not a credential. An unpaired device or
+the relay learns nothing new. All interfaces are offered, a VPN's included, so
+an overlay network the two share can carry a direct path too.
+
+### Path in stats and diagnostics
+
+The selected candidate pair (`RemoteWebrtcCandidatePairStats`: both candidate
+types, protocol, relay protocol, RTT) is in the sender's and the phone's
+stats; a pair is reported only when both types are known. The desktop's
+`remote-webrtc-promoted` and `remote-webrtc-stats` diagnostics carry
+`path: 'direct' | 'relay'` (`remoteWebrtcCandidatePath`: `relay` when either end
+is a relay candidate), and the phone's log line carries `path=`. Since ICE may
+move a connection to a direct pair after promotion, each later `stats` sample
+shows the path at that moment.
 
 The service resolves the ICE servers afresh for every `ready` (one per
-connection attempt; the credential cache decides reuse). When that yields no
-TURN server, the desktop answers `ready` at once with `close` /
-`turn-unavailable` and the JPEG view simply stays — the emergency fallback, as
-it is when relay negotiation fails.
+connection attempt; the credential cache decides reuse).
 
 ## Ids and ordering
 
@@ -58,7 +192,7 @@ source the client does not stream (`browserRemoteStream` subscription).
    desktop first sends the locked `geometry`; the phone answers `geometry-ack`
    for every geometry it adopts (from `geometry` or from an offer).
 2. The desktop answers with `offer`: SDP, its DTLS fingerprints, the ICE
-   servers, the relay policy, the locked geometry and the current relay epoch.
+   servers, the ICE transport policy, the locked geometry and the current relay epoch.
    The desktop created the data channel `mixdog-input` before the offer.
 3. The phone sends `answer` with its fingerprints; both sides trickle
    `candidate` (`null` = end of candidates).
@@ -75,8 +209,7 @@ source the client does not stream (`browserRemoteStream` subscription).
 
 The desktop never retries on a timer. Every attempt ends with `close`:
 `retryAfterMs: 0` when another attempt is welcome (the viewer had reached
-`webrtc`, or was superseded), absent when not (the path never worked, or no
-TURN). A demotion ends with that `close` once the phone's `demote-ack` arrives.
+`webrtc`, or was superseded), absent when not (the path never worked). A demotion ends with that `close` once the phone's `demote-ack` arrives.
 `viewer-left` closes without a demotion. The phone's only automatic retry is
 `ready` after a `close` with `retryAfterMs`; otherwise a new stream or relay
 connection is a new viewer.
@@ -89,7 +222,8 @@ signaled set (SHA-256 or stronger). Once DTLS is up, the sender reads the peer
 certificate from `getStats()` (`RTCCertificateStats` of the transport's remote
 certificate) and main requires it to be one the E2EE answer named; otherwise
 `fingerprint-mismatch` and JPEG. The phone does the same for the desktop's
-certificate. The relay (or TURN) therefore cannot substitute a certificate.
+certificate. Neither the relay nor TURN can therefore substitute a
+certificate, on a direct path or a relayed one.
 
 ## Geometry lock
 
@@ -339,8 +473,8 @@ Logged as `remote-webrtc-*` diagnostics:
 - `promoted` and `stats`: sender stats (`RemoteWebrtcSenderStats`): codec and
   `encoderImplementation` as reported at runtime (never assumed hardware),
   encode time, frames captured / superseded / encoded / sent, quality
-  limitation, the selected candidate pair (always `relay` locally under this
-  policy), with the phone's receiver stats when it sent them.
+  limitation, the selected candidate pair and the `path` it means (`direct` or
+  `relay`), with the phone's receiver stats when it sent them.
 - `state`: every transition with generation and epoch.
 - Input → visible latency on a real phone: input `sentAt` → `input-ack`
   (round trip, desktop queue and dispatch time) → first presented frame whose

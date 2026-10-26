@@ -43,6 +43,8 @@ for octet in ${PUBLIC_IP//./ }; do ((10#$octet <= 255)); done
 # 0 is coturn's own "no quota"; the issue limit has no such value.
 [[ "$USER_QUOTA" =~ ^[0-9]+$ ]] || usage
 [[ "$ISSUE_LIMIT" =~ ^[1-9][0-9]*$ ]] || usage
+# shellcheck source=render-turnserver-conf.sh
+source "$(cd "$(dirname "$0")" && pwd)/render-turnserver-conf.sh"
 [[ "$(id -u)" = 0 ]]
 command -v nft >/dev/null || {
 	echo "[coturn] nft is not installed. Install the nftables package (check that nftables.service is not enabled with a config that flushes the ruleset) and rerun." >&2
@@ -125,17 +127,11 @@ fi
 printf 'TURN_AUTH_SECRET=%s\nTURN_HOST=%s\nTURN_PORT=%s\nTURN_TLS_PORT=%s\nTURN_ISSUE_LIMIT=%s\n' \
 	"$SECRET" "$DOMAIN" "$TURN_PORT" "$TURN_TLS_PORT" "$ISSUE_LIMIT" | write_private "$ENV_FILE" root:root 0600
 
-# Substitution happens in bash, not in sed/awk arguments, so the secret never
-# appears in a process listing.
-CONF="$(<"$SRC_DIR/turnserver.conf.template")"
-CONF="${CONF//@TURN_PORT@/$TURN_PORT}"
-CONF="${CONF//@TURN_TLS_PORT@/$TURN_TLS_PORT}"
-CONF="${CONF//@TURN_MIN_PORT@/$TURN_MIN_PORT}"
-CONF="${CONF//@TURN_MAX_PORT@/$TURN_MAX_PORT}"
-CONF="${CONF//@TURN_PUBLIC_IP@/$PUBLIC_IP}"
-CONF="${CONF//@TURN_REALM@/$DOMAIN}"
-CONF="${CONF//@TURN_USER_QUOTA@/$USER_QUOTA}"
-CONF="${CONF//@TURN_AUTH_SECRET@/$SECRET}"
+TURN_PUBLIC_IP="$PUBLIC_IP"
+TURN_REALM="$DOMAIN"
+TURN_USER_QUOTA="$USER_QUOTA"
+TURN_AUTH_SECRET="$SECRET"
+CONF="$(render_turnserver_conf "$SRC_DIR/turnserver.conf.template")"
 printf '%s\n' "$CONF" | write_private "$CONF_DIR/turnserver.conf" root:turnserver 0640
 
 EGRESS="$(<"$SRC_DIR/egress.nft.template")"

@@ -90,5 +90,16 @@ userdb=/var/lib/mixdog-coturn/turndb
 log-file=stdout
 simple-log
 
-# Not set, on purpose: `total-quota`, `max-bps` and `bps-capacity` need this
-# host's bandwidth plan and a measured session size; see the deploy README.
+# Not set, on purpose: `max-bps`, `bps-capacity` and `total-quota` (deploy
+# README, "Relay load"):
+# - one stream is already bounded: the sender sets no maxBitrate, so libwebrtc's
+#   default ceiling applies, ~2.5 Mbit/s above 960x540
+#   (video/config/encoder_stream_factory.cc GetMaxDefaultVideoBitrateKbps);
+# - a capacity run of this template (coturn 4.18.0, 1 vCPU / 961 MB, UDP relay)
+#   was loss-free up to ~100 Mbit/s egress, about 40 such streams;
+# - most views now go direct and never touch this server;
+# - a view refused here falls back to the JPEG view, which runs over the relay
+#   on this same VPS, so a TURN cap would move the load, not cut it;
+# - `bps-capacity` reserves `max-bps` for every allocation, relayed or not
+#   (netengine.c allocate_bps; ~6 allocations per view), so at ~100 Mbit/s it
+#   admitted only about 3 relay-capable views.

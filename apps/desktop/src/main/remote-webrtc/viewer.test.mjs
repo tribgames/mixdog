@@ -147,25 +147,40 @@ const POINTER = {
   documentId: 'p1:1',
 };
 
-test('the offer carries the SDP fingerprints, TURN-only policy, locked geometry and the relay epoch', () => {
+test('the offer carries the SDP fingerprints, the direct-first policy, locked geometry and the relay epoch', () => {
   const h = harness();
   h.viewer.ready(['video/VP8'], TURN);
   assert.equal(h.viewer.state, 'negotiating');
   h.viewer.senderOffer(h.sender[0][1], SDP);
   const offer = h.last('offer');
   assert.deepEqual(offer.fingerprints, [{ algorithm: 'sha-256', value: HEX_A }]);
-  assert.equal(offer.iceTransportPolicy, 'relay');
+  assert.equal(offer.iceTransportPolicy, 'all');
   assert.deepEqual(offer.iceServers, TURN);
   assert.deepEqual(offer.geometry, geometry);
   assert.equal(offer.inputEpoch, 1);
 });
 
-test('without a TURN server the phone is told at once and the JPEG view stays', () => {
+test('without a TURN server (STUN only, or no server at all) a direct attempt still starts', () => {
+  for (const servers of [[{ urls: ['stun:turn.example:3478'] }], []]) {
+    const h = harness();
+    h.viewer.ready(['video/VP8'], servers);
+    assert.equal(h.viewer.state, 'negotiating');
+    assert.equal(h.sender[0][0], 'open', 'a peer connection is opened');
+    h.viewer.senderOffer(h.sender[0][1], SDP);
+    assert.deepEqual(h.last('offer').iceServers, servers);
+    assert.equal(h.last('close'), undefined);
+  }
+});
+
+test('ICE that finds no working pair ends in the JPEG view, with no automatic retry', () => {
   const h = harness();
-  h.viewer.ready(['video/VP8'], [{ urls: ['stun:turn.example:3478'] }]);
-  assert.equal(h.viewer.state, 'relay');
-  assert.deepEqual(h.sender, [], 'no peer connection is opened');
-  assert.equal(h.last('close').reason, 'turn-unavailable');
+  h.connect();
+  h.viewer.senderFailed(h.ref().connectionId, 'ice-failed');
+  assert.equal(h.viewer.state, 'cooldown');
+  const close = h.last('close');
+  assert.equal(close.reason, 'ice-failed');
+  assert.equal(close.retryAfterMs, undefined, 'the path never worked: no new attempt until the view comes back');
+  assert.deepEqual(h.sender.at(-1), ['close', h.ref().connectionId]);
 });
 
 test('stale generations and foreign connections are discarded', () => {

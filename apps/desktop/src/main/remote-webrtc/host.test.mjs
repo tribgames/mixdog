@@ -58,6 +58,70 @@ test('a demotion the phone caused by closing reaches it before the answer to tha
   assert.equal(answered, true);
 });
 
+test('the promoted and stats diagnostics record the path the selected candidate pair settled on', async () => {
+  const commands = [];
+  const signals = [];
+  const reports = [];
+  let emit = () => {};
+  const host = createRemoteWebrtcHost({
+    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sendSignal: (_clientId, signal) => {
+      signals.push(signal);
+      return Promise.resolve();
+    },
+    sources: () => ({
+      source,
+      start() {},
+      stop() {},
+      page: () => ({ documentId: 'p1:1', geometry }),
+      dispatch: async () => {},
+    }),
+    report: (event, data) => reports.push([event, data]),
+  });
+  // STUN only: the attempt still opens, under the direct-first policy.
+  await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source, type: 'ready', receiveCodecs: ['video/VP8'] }, [
+    { urls: ['stun:t.example:3478'] },
+  ]);
+  const open = commands.find((command) => command.type === 'open');
+  assert.equal(open.iceTransportPolicy, 'all');
+  emit({ type: 'offer', connectionId: open.connectionId, sdp: SDP });
+  const offer = signals.find((signal) => signal.type === 'offer');
+  const ref = { v: REMOTE_WEBRTC_VERSION, source, connectionId: offer.connectionId, generation: offer.generation };
+  await host.signal('c1', { ...ref, type: 'answer', sdp: SDP, fingerprints: [{ algorithm: 'sha-256', value: HEX }] });
+  emit({ type: 'connected', connectionId: open.connectionId, remoteCertificate: { fingerprint: HEX, fingerprintAlgorithm: 'sha-256' } });
+  await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source, type: 'geometry-ack', geometryGeneration: 1 });
+  host.frame('browser:s1', { documentId: 'p1:1', geometry, mimeType: 'image/jpeg', data: 'AA' });
+  const frame = commands.find((command) => command.type === 'frame');
+  emit({ type: 'frame-done', sourceKey: 'browser:s1', frameId: frame.frameId, ok: true });
+  await host.signal('c1', { ...ref, type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  const promote = signals.find((signal) => signal.type === 'promote');
+  await host.signal('c1', { ...ref, type: 'promote-ack', inputEpoch: promote.inputEpoch });
+  const answerStats = (candidatePair) => {
+    const request = commands.filter((command) => command.type === 'stats').at(-1);
+    emit({
+      type: 'stats',
+      connectionId: open.connectionId,
+      requestId: request.requestId,
+      stats: { connectionId: open.connectionId, generation: 0, at: 1, framesEncoded: 1, framesSent: 1, totalEncodeTimeMs: 1, bytesSent: 1, candidatePair },
+    });
+  };
+  answerStats({ localType: 'srflx', remoteType: 'host', protocol: 'udp' });
+  await flush();
+  const promoted = reports.find(([event]) => event === 'promoted')[1];
+  assert.equal(promoted.path, 'direct');
+  assert.equal(promoted.sender.candidatePair.localType, 'srflx');
+  // A later sample on a relayed pair says so.
+  const channelStats = JSON.stringify({
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'stats',
+    stats: { connectionId: open.connectionId, generation: offer.generation, at: 2, framesReceived: 1, framesDecoded: 1, framesDropped: 0, totalDecodeTimeMs: 1 },
+  });
+  emit({ type: 'channel', connectionId: open.connectionId, text: channelStats, receivedAt: 2 });
+  answerStats({ localType: 'relay', remoteType: 'srflx', protocol: 'udp', relayProtocol: 'udp' });
+  await flush();
+  assert.equal(reports.filter(([event]) => event === 'stats').at(-1)[1].path, 'relay');
+});
+
 test('a captured source switches to a drawn track for raw pictures and back, and hears each delivery', async () => {
   const screen = { kind: 'screen', screenId: '1' };
   const commands = [];
