@@ -211,6 +211,152 @@ test('a desktop that refuses the owner connection receives no fill', { timeout: 
   }
 });
 
+// A bridge whose /owner handler is the test's; every other request is answered ok.
+async function withOwnerBridge(onOwner, run) {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-saved-login-handshake-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  const seen = [];
+  const owners = [];
+  const server = createServer((request, response) => {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      if (request.url === '/owner') {
+        owners.push(response);
+        onOwner(response, owners.length);
+        return;
+      }
+      seen.push(JSON.parse(body));
+      const payload = JSON.stringify({ ok: true, value: { text: '{"ok":true}' } });
+      response.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) });
+      response.end(payload);
+    });
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await writeFile(
+      join(directory, 'computer-bridge.json'),
+      `${JSON.stringify({ version: 1, port: server.address().port, token: 't' })}\n`
+    );
+    await run({ seen, owners });
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+const fillArgs = {
+  action: 'saved_login',
+  input: { window_id: 'hwnd:0x1', savedAccount: 'a@b.c', field: 'password' },
+};
+const answerOwner = (response) => {
+  response.writeHead(200, { 'content-type': 'application/json' });
+  response.write('{"ok":true}\n');
+};
+const until = async (condition) => {
+  while (!condition()) await new Promise((r) => setTimeout(r, 5));
+};
+const STILL_PENDING = Symbol('still pending');
+const settledWithin = (promise, ms) =>
+  Promise.race([promise, new Promise((resolve) => setTimeout(resolve, ms, STILL_PENDING))]);
+
+test('an unanswered owner handshake fails at the bridge request timeout and the next fill attaches afresh', {
+  timeout: 10_000,
+}, async (t) => {
+  const timers = [];
+  t.mock.method(AbortSignal, 'timeout', (ms) => {
+    const controller = new AbortController();
+    timers.push({ ms, controller });
+    return controller.signal;
+  });
+  let answer = false;
+  await withOwnerBridge(
+    (response) => {
+      if (answer) answerOwner(response);
+    },
+    async ({ seen, owners }) => {
+      const first = executeComputerTool(fillArgs, { sessionId: 'handshake-timeout', turnId: 1 });
+      await until(() => owners.length === 1);
+      assert.equal(await settledWithin(first, 100), STILL_PENDING, 'the handshake is unanswered');
+      timers[0].controller.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+      const result = await first;
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /did not answer the owner attachment.*no input was sent/);
+      assert.equal(
+        seen.some((command) => command.action === 'fill_saved_login'),
+        false
+      );
+      // The timed-out handshake left no shared state: the next fill opens a new one.
+      answer = true;
+      const retried = await executeComputerTool(fillArgs, { sessionId: 'handshake-timeout', turnId: 2 });
+      assert.notEqual(retried.isError, true);
+      assert.equal(owners.length, 2, 'a second owner connection was opened');
+      assert.ok(seen.some((command) => command.action === 'fill_saved_login'));
+      // The handshake is bounded by the same timeout bridge requests use.
+      const requestTimeouts = new Set(timers.map((timer) => timer.ms));
+      assert.equal(requestTimeouts.size, 1, 'handshake and requests share one timeout');
+      assert.equal(timers[0].ms, [...requestTimeouts][0]);
+    }
+  );
+});
+
+test('a caller abort ends only that caller\'s wait, never the shared owner connection', {
+  timeout: 10_000,
+}, async () => {
+  let held = null;
+  await withOwnerBridge(
+    (response) => {
+      held = response;
+    },
+    async ({ seen, owners }) => {
+      const abortedCaller = new AbortController();
+      const first = executeComputerTool(fillArgs, {
+        sessionId: 'abort-one',
+        turnId: 1,
+        signal: abortedCaller.signal,
+      });
+      const second = executeComputerTool(fillArgs, { sessionId: 'abort-two', turnId: 1 });
+      await until(() => owners.length === 1);
+      assert.equal(await settledWithin(second, 100), STILL_PENDING);
+      abortedCaller.abort();
+      const cancelled = await settledWithin(first, 1000);
+      assert.notEqual(cancelled, STILL_PENDING, 'the aborted caller settles promptly');
+      assert.match(cancelled.content[0].text, /aborted/);
+      // The other caller still waits on the same handshake; nothing was sent.
+      assert.equal(await settledWithin(second, 100), STILL_PENDING);
+      assert.equal(owners.length, 1);
+      assert.equal(
+        seen.some((command) => command.action === 'fill_saved_login'),
+        false
+      );
+      // The desktop answers: the surviving caller proceeds on that connection.
+      answerOwner(held);
+      const filled = await second;
+      assert.notEqual(filled.isError, true);
+      // An abort after the connection is established leaves it open for later fills.
+      const late = new AbortController();
+      late.abort();
+      const lateResult = await executeComputerTool(fillArgs, { sessionId: 'abort-late', turnId: 1, signal: late.signal });
+      assert.match(lateResult.content[0].text, /aborted/);
+      assert.equal(held.destroyed || held.socket?.destroyed, false, 'the owner connection stays open');
+      const after = await executeComputerTool(fillArgs, { sessionId: 'abort-after', turnId: 1 });
+      assert.notEqual(after.isError, true);
+      assert.equal(owners.length, 1, 'still one owner connection');
+    }
+  );
+});
+
+test('a saved-login fill does not bound the account name beyond the request budget', () => {
+  const account = 'a'.repeat(400);
+  assert.equal(validateComputerToolArgs(args({ savedAccount: account, field: 'username' })), null);
+  assert.doesNotMatch(JSON.stringify(TOOL_DEFS[0].inputSchema), /"maxLength":320/);
+  assert.equal(toComputerHostCommand(args({ savedAccount: account, field: 'username' })).saved_account, account);
+});
+
 test('a saved-login refusal sends the agent to the user secret handoff', () => {
   const input = args({ savedAccount: 'a@b.c', field: 'password' });
   for (const message of [

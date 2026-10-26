@@ -308,13 +308,9 @@ async function executeComputerToolInner(rawArgs, context, note) {
   }
   const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
   if (releaseError) return releaseError;
-  if (savedLoginTurn && !(await attachSavedLoginOwner(discovery))) {
-    return computerErrorResult(
-      formatComputerToolError(
-        'saved_login_unavailable: the desktop did not accept this runtime as the owner of its saved-login fills; no input was sent',
-        args
-      )
-    );
+  if (savedLoginTurn) {
+    const ownerError = await savedLoginOwnerError(discovery, sessionId, args, context);
+    if (ownerError) return ownerError;
   }
   trackComputerSession(sessionId, command);
   // Recorded before the request leaves: the fill may arm its protection even
@@ -521,19 +517,58 @@ export async function finishComputerTurn(sessionId, turnId) {
   await settleSavedLoginTurn(id, Number(turnId));
 }
 
+// Returns the error result that ends a saved-login call whose owner connection
+// is not attached, or null to proceed. Nothing was sent in any of these cases.
+async function savedLoginOwnerError(discovery, sessionId, args, context) {
+  let attached;
+  try {
+    attached = await attachSavedLoginOwner(discovery, context.signal);
+  } catch (error) {
+    if (context.signal?.aborted) return cancelledComputerResult(sessionId, false);
+    return computerErrorResult(
+      formatComputerToolError(
+        `saved_login_unavailable: the desktop did not answer the owner attachment (${error.name}); no input was sent`,
+        args
+      )
+    );
+  }
+  if (attached) return null;
+  return computerErrorResult(
+    formatComputerToolError(
+      'saved_login_unavailable: the desktop did not accept this runtime as the owner of its saved-login fills; no input was sent',
+      args
+    )
+  );
+}
+
 /** Open (or reuse) this runtime's owner connection to `discovery`'s bridge:
- *  true once the desktop answered it, false when it refused or is unreachable. */
-function attachSavedLoginOwner(discovery) {
+ *  true once the desktop answered it, false when it refused or is unreachable.
+ *  The shared handshake is bounded by the bridge request timeout (rejecting
+ *  with its TimeoutError and resetting the shared state); each caller's wait
+ *  also ends on its own `signal` without closing the shared connection. */
+function attachSavedLoginOwner(discovery, signal) {
   const current = savedLoginOwner;
-  if (current && current.port === discovery.port && current.token === discovery.token) return current.attached;
+  if (current && current.port === discovery.port && current.token === discovery.token) {
+    return waitForComputerRelease(current.attached, signal);
+  }
   current?.request.destroy();
   const owner = { port: discovery.port, token: discovery.token, request: null, attached: null };
-  owner.attached = new Promise((resolve) => {
+  owner.attached = new Promise((resolve, reject) => {
     const body = JSON.stringify({ runtime_id: SAVED_LOGIN_OWNER_ID, pid: process.pid });
+    const handshake = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
     const forget = () => {
+      handshake.removeEventListener('abort', onHandshakeTimeout);
       if (savedLoginOwner === owner) savedLoginOwner = null;
       resolve(false);
     };
+    // Rejects first, so the callers see the timeout; forgetting at once lets
+    // the next fill attach afresh instead of waiting on the closing socket.
+    function onHandshakeTimeout() {
+      reject(handshake.reason);
+      forget();
+      owner.request.destroy();
+    }
+    handshake.addEventListener('abort', onHandshakeTimeout, { once: true });
     owner.request = httpRequest(
       {
         host: '127.0.0.1',
@@ -551,7 +586,10 @@ function attachSavedLoginOwner(discovery) {
           forget();
           return;
         }
-        response.once('data', () => resolve(true));
+        response.once('data', () => {
+          handshake.removeEventListener('abort', onHandshakeTimeout);
+          resolve(true);
+        });
       }
     );
     owner.request.once('socket', (socket) => socket.unref());
@@ -560,7 +598,7 @@ function attachSavedLoginOwner(discovery) {
     owner.request.end(body);
   });
   savedLoginOwner = owner;
-  return owner.attached;
+  return waitForComputerRelease(owner.attached, signal);
 }
 
 function cancelDeferredComputerSessionRelease(sessionId) {

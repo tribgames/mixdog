@@ -28,7 +28,6 @@ import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 
 export type SavedLoginField = 'username' | 'password';
 const SAVED_LOGIN_FIELDS: readonly string[] = ['username', 'password'];
-const MAX_ACCOUNT_LENGTH = 320;
 
 /** One saved value for a checked page, with the only names the agent sees. */
 export interface SavedLoginValue {
@@ -80,7 +79,7 @@ export function assertSavedLoginAvailable(
     );
   }
   const account = typeof command.saved_account === 'string' ? command.saved_account.trim() : '';
-  if (!account || account.length > MAX_ACCOUNT_LENGTH) {
+  if (!account) {
     throw new Error('invalid_input: saved_account must name a saved login');
   }
   if (!String(command.window_id || '').trim()) {
