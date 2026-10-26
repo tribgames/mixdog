@@ -50,10 +50,15 @@ export async function acquireZoomShot(
   const gnomeSource = parseGnomeShellSourceId(frame.sourceId);
   if (gnomeSource) {
     try {
-      const shot = await captureGnomeShellSource(gnomeSource, { width: Math.round(base.width), height: Math.round(base.height) });
+      const shot = await captureGnomeShellSource(gnomeSource, {
+        width: Math.round(base.width),
+        height: Math.round(base.height),
+      });
       return { shot, sourceId: frame.sourceId };
     } catch (error) {
-      throw new Error(`stale_frame: exact capture source is unavailable (${frame.id}): ${error instanceof Error ? error.message : error}`);
+      throw new Error(
+        `stale_frame: exact capture source is unavailable (${frame.id}): ${error instanceof Error ? error.message : error}`
+      );
     }
   }
   // Native coordinates are physical pixels on Windows and Linux but points on

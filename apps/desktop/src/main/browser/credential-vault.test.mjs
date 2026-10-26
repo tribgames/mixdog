@@ -566,10 +566,16 @@ test('two Chrome-imported siblings: the one Chrome used last wins, whatever the 
 test('a re-import carrying an older Chrome date never lowers the stored one', async (t) => {
   const { dir, vault } = makeVault(t);
   const chrome = (username, lastUsedAt) => ({ url: NAVER, username, password: `pw-${username}`, lastUsedAt });
-  await vault.mergeImport('chrome', [chrome('tempest1033', 1_700_000_000_000), chrome('ghdnghdn131', 1_650_000_000_000)]);
+  await vault.mergeImport('chrome', [
+    chrome('tempest1033', 1_700_000_000_000),
+    chrome('ghdnghdn131', 1_650_000_000_000),
+  ]);
   assert.equal(await firstUsername(vault), 'tempest1033');
   // A stale export (older dates for both) must not reorder them or lower the dates.
-  await vault.mergeImport('chrome', [chrome('tempest1033', 1_600_000_000_000), chrome('ghdnghdn131', 1_649_000_000_000)]);
+  await vault.mergeImport('chrome', [
+    chrome('tempest1033', 1_600_000_000_000),
+    chrome('ghdnghdn131', 1_649_000_000_000),
+  ]);
   assert.equal(await firstUsername(vault), 'tempest1033');
   assert.deepEqual(
     stored(dir)

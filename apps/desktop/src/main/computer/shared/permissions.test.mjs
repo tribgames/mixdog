@@ -8,8 +8,14 @@ function readiness(overrides) {
     session: 'wayland',
     desktop: 'gnome',
     capabilities: {
-      capture: { state: 'unknown' }, windows: ready, accessibility: ready, semanticActions: ready,
-      pointer: ready, keyboard: ready, clipboard: { ...ready, optional: true }, ocr: { ...ready, optional: true },
+      capture: { state: 'unknown' },
+      windows: ready,
+      accessibility: ready,
+      semanticActions: ready,
+      pointer: ready,
+      keyboard: ready,
+      clipboard: { ...ready, optional: true },
+      ocr: { ...ready, optional: true },
       ...overrides,
     },
   };

@@ -147,12 +147,14 @@ function loginRows(setup: unknown): DesktopSshServerLogin[] {
     const id = optionalText(entry.id);
     if (!id) return null;
     // Reported as the server states it; the actions follow `fromEnvironment` alone.
-    const credentialSource = kind === 'api' ? CREDENTIAL_SOURCES.find((known) => known === entry.credentialSource) : undefined;
+    const credentialSource =
+      kind === 'api' ? CREDENTIAL_SOURCES.find((known) => known === entry.credentialSource) : undefined;
     // An environment key with nothing stored is read-only; a stored key can still be changed or
     // logged out. A custom provider with a key variable takes no key saved here.
     const fromEnvironment =
       kind === 'api' &&
-      ((entry.env === true && entry.stored !== true) || (entry.custom === true && optionalText(entry.apiKeyEnv) !== null));
+      ((entry.env === true && entry.stored !== true) ||
+        (entry.custom === true && optionalText(entry.apiKeyEnv) !== null));
     return {
       id,
       name: optionalText(entry.name) ?? id,

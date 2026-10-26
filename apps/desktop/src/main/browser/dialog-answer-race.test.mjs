@@ -26,7 +26,7 @@ test('concurrent answers dispatch once and completion cannot erase a replacement
   assert.equal(record.pendingDialog, replacement);
 });
 
-test("a prompt keeps its full default only when a person accepted it untouched, never on equal text", async () => {
+test('a prompt keeps its full default only when a person accepted it untouched, never on equal text', async () => {
   const bodies = [];
   const record = {};
   const service = createBrowserDialogReport({

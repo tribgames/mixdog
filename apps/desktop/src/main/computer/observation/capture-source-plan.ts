@@ -11,6 +11,8 @@ import { captureGnomeShellSource } from './gnome-shell-capture';
 import { electronWindowForNativeId } from './window-handles';
 import { computerCaptureSize } from '../../../../../../src/runtime/computer-bridge/capture-size.mjs';
 
+/** Ceiling for one GNOME Shell screenshot; above the 10 s gdbus call timeout
+ *  (gnome-helper.ts) so the helper's own timeout error surfaces first. */
 const GNOME_SHELL_CAPTURE_TIMEOUT_MS = 12_000;
 
 export interface CaptureSourceRequest {
@@ -54,10 +56,16 @@ async function gnomeShellSurface(request: CaptureSourceRequest): Promise<Surface
   }
   const size = preserveResolution ? { width, height } : computerCaptureSize(width, height, maxWidth);
   try {
-    const image = await withTimeout(captureGnomeShellSource(source, size), GNOME_SHELL_CAPTURE_TIMEOUT_MS, 'capture_timeout: GNOME shell capture');
+    const image = await withTimeout(
+      captureGnomeShellSource(source, size),
+      GNOME_SHELL_CAPTURE_TIMEOUT_MS,
+      'capture_timeout: GNOME shell capture'
+    );
     return { image, sourceId: gnomeShellSourceId(source), sourceName: sourceTitle || sourceType, route: 'composited' };
   } catch (error) {
-    throw error instanceof CaptureSourceError ? error : new CaptureSourceError(error instanceof Error ? error.message : String(error));
+    throw error instanceof CaptureSourceError
+      ? error
+      : new CaptureSourceError(error instanceof Error ? error.message : String(error));
   }
 }
 

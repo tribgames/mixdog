@@ -41,8 +41,7 @@ test('rounding follows the supplied rendering path, not any later acceleration r
   const bounds = { width: 1281, height: 721 };
   let accelerationReported = true;
   const startupSharedTexture = true;
-  const pixels = () =>
-    browserFramePixels(owner(bounds, bounds), true, startupSharedTexture, screen(1.25));
+  const pixels = () => browserFramePixels(owner(bounds, bounds), true, startupSharedTexture, screen(1.25));
   const before = pixels();
   accelerationReported = false;
   assert.equal(accelerationReported, false);

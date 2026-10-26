@@ -3,6 +3,10 @@
 import type { NativeImage, WebContents } from 'electron';
 import type { BrowserScreenshotCapture } from './screenshot';
 
+/** How long a stream keeps its retained pixels after the last pane read: long
+ *  enough to bridge consecutive polls, short enough to drop them promptly. */
+const STREAM_IDLE_MS = 2500;
+
 export function createBrowserDisplayStream(
   encode: (image: NativeImage) => BrowserScreenshotCapture | Promise<BrowserScreenshotCapture>
 ) {
@@ -71,7 +75,7 @@ export function createBrowserDisplayStream(
     clearTimeout(stream.idle);
     // No pane reads means no retained pixels or display listeners. Do not
     // stop Chromium painting: independent agent observations still need it.
-    stream.idle = setTimeout(() => stream!.close(), 2500);
+    stream.idle = setTimeout(() => stream!.close(), STREAM_IDLE_MS);
     stream.idle.unref();
     if (stream.key !== key) {
       stream.key = key;

@@ -5,6 +5,7 @@ import type { CaptureEngineHost } from './capture';
 /** A launched window is listed before its content finishes laying out: Paint
  *  shows 89 accessible elements half a second in and 114 once settled. */
 const LAUNCH_LAYOUT_POLL_MS = 200;
+/** Ten polls: four times the half second the Paint example above needed. */
 const LAUNCH_LAYOUT_BUDGET_MS = 2_000;
 
 export type LaunchLayoutHost = Pick<CaptureEngineHost, 'assertExecutionNotAborted' | 'sessionIdFor'> &

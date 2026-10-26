@@ -78,7 +78,10 @@ function browserPage(url, html) {
       case 'DOM.describeNode': {
         const node = objects.get(params.objectId);
         let id = [...nodeIds].find(([, known]) => known === node)?.[0];
-        if (!id) nodeIds.set((id = nodeIds.size + 1), node);
+        if (!id) {
+          id = nodeIds.size + 1;
+          nodeIds.set(id, node);
+        }
         return { node: { backendNodeId: id } };
       }
       case 'DOM.resolveNode': {

@@ -11,13 +11,20 @@ import {
   watchGnomeStopSignal,
 } from './gnome-helper.ts';
 
-const GNOME_WAYLAND = { WAYLAND_DISPLAY: 'wayland-0', XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'ubuntu:GNOME' };
+const GNOME_WAYLAND = {
+  WAYLAND_DISPLAY: 'wayland-0',
+  XDG_SESSION_TYPE: 'wayland',
+  XDG_CURRENT_DESKTOP: 'ubuntu:GNOME',
+};
 
 test('only GNOME on Wayland uses the helper; X11, KDE, sway and other platforms keep Electron', () => {
   assert.equal(usesGnomeHelper(GNOME_WAYLAND, 'linux'), true);
   assert.equal(usesGnomeHelper(GNOME_WAYLAND, 'win32'), false);
   assert.equal(usesGnomeHelper(GNOME_WAYLAND, 'darwin'), false);
-  assert.equal(usesGnomeHelper({ DISPLAY: ':0', XDG_SESSION_TYPE: 'x11', XDG_CURRENT_DESKTOP: 'GNOME' }, 'linux'), false);
+  assert.equal(
+    usesGnomeHelper({ DISPLAY: ':0', XDG_SESSION_TYPE: 'x11', XDG_CURRENT_DESKTOP: 'GNOME' }, 'linux'),
+    false
+  );
   assert.equal(usesGnomeHelper({ ...GNOME_WAYLAND, XDG_CURRENT_DESKTOP: 'KDE' }, 'linux'), false);
   assert.equal(usesGnomeHelper({ ...GNOME_WAYLAND, SWAYSOCK: '/run/sway' }, 'linux'), false);
 });
@@ -44,9 +51,24 @@ test('a screenshot is one D-Bus call to our own interface, written under XDG_RUN
   assert.equal(String(png), 'png:/run/user/1000/mixdog-shot-abc.png');
   assert.deepEqual(calls.run, [
     [
-      'call', '--session', '--timeout', '10', '--dest', 'org.gnome.Shell', '--object-path', '/io/mixdog/Windows',
-      '--method', 'io.mixdog.Windows.Screenshot', '--',
-      "'stage'", '0', '0', '0', '0', '0', "'/run/user/1000/mixdog-shot-abc.png'",
+      'call',
+      '--session',
+      '--timeout',
+      '10',
+      '--dest',
+      'org.gnome.Shell',
+      '--object-path',
+      '/io/mixdog/Windows',
+      '--method',
+      'io.mixdog.Windows.Screenshot',
+      '--',
+      "'stage'",
+      '0',
+      '0',
+      '0',
+      '0',
+      '0',
+      "'/run/user/1000/mixdog-shot-abc.png'",
     ],
   ]);
   assert.deepEqual(calls.removed, ['/run/user/1000/mixdog-shot-abc.png']);
@@ -55,7 +77,15 @@ test('a screenshot is one D-Bus call to our own interface, written under XDG_RUN
 test('areas pass their (possibly negative) rectangle and windows their 64-bit id; nothing prompts through a portal', async () => {
   const area = shotDeps();
   await gnomeShellScreenshot({ kind: 'area', x: -1920, y: 0, width: 1920, height: 1080 }, area.deps);
-  assert.deepEqual(area.calls.run[0].slice(-7), ["'area'", '0', '-1920', '0', '1920', '1080', "'/run/user/1000/mixdog-shot-abc.png'"]);
+  assert.deepEqual(area.calls.run[0].slice(-7), [
+    "'area'",
+    '0',
+    '-1920',
+    '0',
+    '1920',
+    '1080',
+    "'/run/user/1000/mixdog-shot-abc.png'",
+  ]);
   const window = shotDeps();
   await gnomeShellScreenshot({ kind: 'window', id: 18446744073709551615n }, window.deps);
   assert.deepEqual(window.calls.run[0].slice(-7, -4), ["'window'", '18446744073709551615', '0']);
@@ -77,7 +107,10 @@ test('window ids and capture source ids round-trip', () => {
   const window = { kind: 'window', handle: 3752752537n };
   assert.equal(gnomeShellSourceId(window), 'gnome-shell:window:3752752537');
   assert.deepEqual(parseGnomeShellSourceId('gnome-shell:window:3752752537'), window);
-  assert.deepEqual(parseGnomeShellSourceId('gnome-shell:screen:2528732444'), { kind: 'screen', displayId: '2528732444' });
+  assert.deepEqual(parseGnomeShellSourceId('gnome-shell:screen:2528732444'), {
+    kind: 'screen',
+    displayId: '2528732444',
+  });
   assert.equal(parseGnomeShellSourceId('screen:0:0'), null);
   assert.equal(parseGnomeShellSourceId('gnome-shell:window:abc'), null);
 });
@@ -111,10 +144,16 @@ test('the Stop signal calls the stop path once per signal, however the output is
   let stops = 0;
   const stop = watchGnomeStopSignal(() => (stops += 1), deps);
   const [monitor] = state.spawned;
-  monitor.stdout.emit('data', Buffer.from('Monitoring signals on object /io/mixdog/Windows owned by org.gnome.Shell\n'));
+  monitor.stdout.emit(
+    'data',
+    Buffer.from('Monitoring signals on object /io/mixdog/Windows owned by org.gnome.Shell\n')
+  );
   monitor.stdout.emit('data', '/io/mixdog/Windows: io.mixdog.Win');
   assert.equal(stops, 0);
-  monitor.stdout.emit('data', 'dows.StopRequested ()\n/io/mixdog/Windows: org.freedesktop.DBus.Properties.PropertiesChanged ()\n');
+  monitor.stdout.emit(
+    'data',
+    'dows.StopRequested ()\n/io/mixdog/Windows: org.freedesktop.DBus.Properties.PropertiesChanged ()\n'
+  );
   assert.equal(stops, 1);
   monitor.stdout.emit('data', '/io/mixdog/Windows: io.mixdog.Windows.StopRequested ()\n');
   assert.equal(stops, 2);
@@ -153,13 +192,28 @@ test('the indicator is one SetIndicator call with the spec as a GVariant string,
   const { gnomeSetIndicator, gvariantString } = await import('./gnome-helper.ts');
   assert.equal(gvariantString(`it's a \\ path`), `'it\\'s a \\\\ path'`);
   const calls = [];
-  await gnomeSetIndicator({ visible: true, title: '컴퓨터 사용 중', hint: "Stop Ctrl+Alt+Esc" }, async (args) => (calls.push(args), ''));
+  await gnomeSetIndicator({ visible: true, title: '컴퓨터 사용 중', hint: 'Stop Ctrl+Alt+Esc' }, async (args) => {
+    calls.push(args);
+    return '';
+  });
   assert.deepEqual(calls[0].slice(0, 10), [
-    'call', '--session', '--timeout', '5', '--dest', 'org.gnome.Shell', '--object-path', '/io/mixdog/Windows',
-    '--method', 'io.mixdog.Windows.SetIndicator',
+    'call',
+    '--session',
+    '--timeout',
+    '5',
+    '--dest',
+    'org.gnome.Shell',
+    '--object-path',
+    '/io/mixdog/Windows',
+    '--method',
+    'io.mixdog.Windows.SetIndicator',
   ]);
   assert.equal(calls[0][10], '--');
-  assert.deepEqual(JSON.parse(calls[0][11].slice(1, -1)), { visible: true, title: '컴퓨터 사용 중', hint: 'Stop Ctrl+Alt+Esc' });
+  assert.deepEqual(JSON.parse(calls[0][11].slice(1, -1)), {
+    visible: true,
+    title: '컴퓨터 사용 중',
+    hint: 'Stop Ctrl+Alt+Esc',
+  });
 });
 
 test('every screenshot gets its own file and is read only after the shell call has finished writing it', async () => {
@@ -174,14 +228,24 @@ test('every screenshot gets its own file and is read only after the shell call h
     },
     runtimeDir: '/run/user/1000',
     newId: () => `id${++id}`,
-    read: (path) => (events.push(`read ${path}`), Buffer.from(path)),
+    read: (path) => {
+      events.push(`read ${path}`);
+      return Buffer.from(path);
+    },
     remove: (path) => events.push(`remove ${path}`),
   };
   const first = await gnomeShellScreenshot({ kind: 'stage' }, deps);
   const second = await gnomeShellScreenshot({ kind: 'stage' }, deps);
-  assert.notEqual(String(first), String(second), 'a later shot can never be served from an earlier shot\'s file');
-  assert.deepEqual(events.filter((event) => !event.startsWith('run ')), [
-    'written', 'read /run/user/1000/mixdog-shot-id1.png', 'remove /run/user/1000/mixdog-shot-id1.png',
-    'written', 'read /run/user/1000/mixdog-shot-id2.png', 'remove /run/user/1000/mixdog-shot-id2.png',
-  ]);
+  assert.notEqual(String(first), String(second), "a later shot can never be served from an earlier shot's file");
+  assert.deepEqual(
+    events.filter((event) => !event.startsWith('run ')),
+    [
+      'written',
+      'read /run/user/1000/mixdog-shot-id1.png',
+      'remove /run/user/1000/mixdog-shot-id1.png',
+      'written',
+      'read /run/user/1000/mixdog-shot-id2.png',
+      'remove /run/user/1000/mixdog-shot-id2.png',
+    ]
+  );
 });

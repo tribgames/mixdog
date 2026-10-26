@@ -1,5 +1,8 @@
 import type { ChildProcess } from 'node:child_process';
 
+/** Product limit on resident PowerShell workers (one process each, counting
+ *  retiring ones and the warm spare); `assertComputerWorkerCapacity` caps any
+ *  override at 32. */
 export const MAX_COMPUTER_WORKERS = 8;
 
 // A worker killed mid UI Automation call can take seconds to unwind; giving

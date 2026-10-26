@@ -6,7 +6,13 @@ const BUNDLED = '/app/resources/gnome-extension/mixdog-windows@mixdog.io';
 const USER_DIR = '/home/u/.local/share/gnome-shell/extensions/mixdog-windows@mixdog.io';
 const SYSTEM_DIR = '/usr/share/gnome-shell/extensions/mixdog-windows@mixdog.io';
 
-function harness({ files = {}, extensions = "['dash-to-dock@x.com']", desktop = 'ubuntu:GNOME', platform = 'linux', failRun = false } = {}) {
+function harness({
+  files = {},
+  extensions = "['dash-to-dock@x.com']",
+  desktop = 'ubuntu:GNOME',
+  platform = 'linux',
+  failRun = false,
+} = {}) {
   const state = { files: { ...files }, extensions, copies: 0, commands: [], logs: [] };
   const deps = {
     platform,
@@ -56,7 +62,11 @@ test('setup is idempotent: nothing is copied or written the second time', async 
 
 test('a user copy with a different version is replaced; the same version is kept', async () => {
   const { state, deps } = harness({
-    files: { [`${BUNDLED}/metadata.json`]: meta(2), [`${USER_DIR}/metadata.json`]: meta(1), [`${USER_DIR}/extension.js`]: '//' },
+    files: {
+      [`${BUNDLED}/metadata.json`]: meta(2),
+      [`${USER_DIR}/metadata.json`]: meta(1),
+      [`${USER_DIR}/extension.js`]: '//',
+    },
     extensions: `['${GNOME_EXTENSION_UUID}']`,
   });
   await syncGnomeExtension(true, BUNDLED, deps);
@@ -67,7 +77,9 @@ test('a user copy with a different version is replaced; the same version is kept
 });
 
 test('a system-wide copy (the .deb) is never copied over; it is only enabled', async () => {
-  const { state, deps } = harness({ files: { [`${BUNDLED}/metadata.json`]: meta(1), [`${SYSTEM_DIR}/metadata.json`]: meta(1) } });
+  const { state, deps } = harness({
+    files: { [`${BUNDLED}/metadata.json`]: meta(1), [`${SYSTEM_DIR}/metadata.json`]: meta(1) },
+  });
   await syncGnomeExtension(true, BUNDLED, deps);
   assert.equal(state.copies, 0);
   assert.ok(state.extensions.includes(GNOME_EXTENSION_UUID));

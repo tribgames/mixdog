@@ -38,7 +38,12 @@ test("diagnostics from the browser's own components are not page content", () =>
   created('viewer', 1, 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai');
   created(undefined, 1, 'http://a.test');
   const consoleCall = (sessionId, executionContextId) =>
-    onConsoleApiCalled(state, guest, { type: 'error', args: [{ type: 'string', value: 'boom' }], executionContextId }, sessionId);
+    onConsoleApiCalled(
+      state,
+      guest,
+      { type: 'error', args: [{ type: 'string', value: 'boom' }], executionContextId },
+      sessionId
+    );
   const exception = (sessionId, executionContextId) =>
     onExceptionThrown(state, guest, { exceptionDetails: { text: 'thrown', executionContextId } }, sessionId);
   consoleCall('viewer', 1);

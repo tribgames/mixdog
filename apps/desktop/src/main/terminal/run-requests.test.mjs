@@ -41,7 +41,10 @@ function fakeDaemon(initial = []) {
 
 test('a claimed reveal reports shown and cannot be claimed twice', async () => {
   const sent = [];
-  const runs = createTerminalRunRequests((request) => (sent.push(request), true));
+  const runs = createTerminalRunRequests((request) => {
+    sent.push(request);
+    return true;
+  });
   const shown = runs.reveal({ sessionId: 's1', terminalId: 'session-terminal:s1' }, 1000);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].terminalId, 'session-terminal:s1');
@@ -53,14 +56,20 @@ test('a claimed reveal reports shown and cannot be claimed twice', async () => {
 
 test('an unclaimed reveal reports background after the wait, and a late claim is refused', async () => {
   const sent = [];
-  const runs = createTerminalRunRequests((request) => (sent.push(request), true));
+  const runs = createTerminalRunRequests((request) => {
+    sent.push(request);
+    return true;
+  });
   assert.equal(await runs.reveal({ sessionId: 's1' }, 10), false);
   assert.equal(runs.claim(sent[0].requestId), false);
 });
 
 test('no window reports background at once without leaving a claimable request', async () => {
   const sent = [];
-  const runs = createTerminalRunRequests((request) => (sent.push(request), false));
+  const runs = createTerminalRunRequests((request) => {
+    sent.push(request);
+    return false;
+  });
   assert.equal(await runs.reveal({ sessionId: 's1' }, 60_000), false);
   assert.equal(runs.claim(sent[0].requestId), false);
 });
@@ -153,7 +162,11 @@ test('paired phones get the reveal without any path or ack id, while the desktop
   const toPhones = [];
   let runs;
   const dispatch = createTerminalRunDispatch({
-    sendToWindow: (request) => (toWindow.push(request), queueMicrotask(() => runs.claim(request.requestId)), true),
+    sendToWindow: (request) => {
+      toWindow.push(request);
+      queueMicrotask(() => runs.claim(request.requestId));
+      return true;
+    },
     relay: (request) => toPhones.push(request),
   });
   runs = createTerminalRunRequests(dispatch);

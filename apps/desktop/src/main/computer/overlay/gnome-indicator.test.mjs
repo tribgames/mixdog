@@ -3,7 +3,15 @@ import test from 'node:test';
 import { createGnomeIndicator, indicatorSpec, INDICATOR_REFRESH_MS } from './gnome-indicator.ts';
 
 const presentation = (over = {}) => ({
-  visible: true, sessionIds: ['s'], title: 'Computer in use', accent: '#58a6ff', paused: false, resumable: false, generation: 0, attention: false, ...over,
+  visible: true,
+  sessionIds: ['s'],
+  title: 'Computer in use',
+  accent: '#58a6ff',
+  paused: false,
+  resumable: false,
+  generation: 0,
+  attention: false,
+  ...over,
 });
 
 function harness({ failSend = false } = {}) {
@@ -13,7 +21,10 @@ function harness({ failSend = false } = {}) {
       state.sent.push(spec);
       if (failSend) throw new Error('gdbus: no such object');
     },
-    setInterval: (callback, ms) => (state.timers.push({ callback, ms, cleared: false }), state.timers.at(-1)),
+    setInterval: (callback, ms) => {
+      state.timers.push({ callback, ms, cleared: false });
+      return state.timers.at(-1);
+    },
     clearInterval: (timer) => (timer.cleared = true),
     warn: (message) => state.warns.push(message),
   };
@@ -22,7 +33,12 @@ function harness({ failSend = false } = {}) {
 
 test('the pill carries the overlay title, accent, paused/attention state and the Stop hint (Korean wording for ko)', () => {
   assert.deepEqual(indicatorSpec(presentation(), 'en'), {
-    visible: true, title: 'Computer in use', hint: 'Stop Ctrl+Alt+Esc', accent: '#58a6ff', paused: false, attention: false,
+    visible: true,
+    title: 'Computer in use',
+    hint: 'Stop Ctrl+Alt+Esc',
+    accent: '#58a6ff',
+    paused: false,
+    attention: false,
   });
   assert.equal(indicatorSpec(presentation({ paused: true, title: '대기 중' }), 'ko-KR').hint, '중단 Ctrl+Alt+Esc');
   assert.deepEqual(indicatorSpec(presentation({ visible: false }), 'en'), { visible: false });

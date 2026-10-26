@@ -40,7 +40,7 @@ const realDeps: GnomeExtensionDeps = {
   run: (command, args) =>
     new Promise((resolve, reject) => {
       execFile(command, args, { timeout: 5000, windowsHide: true }, (error, stdout) =>
-        error ? reject(error) : resolve(String(stdout)),
+        error ? reject(error) : resolve(String(stdout))
       );
     }),
   log: (message) => console.warn(`[gnome-extension] ${message}`),
@@ -92,14 +92,16 @@ async function setEnabled(deps: GnomeExtensionDeps, enabled: boolean): Promise<v
 export async function syncGnomeExtension(
   enabled: boolean,
   bundledDir: string,
-  deps: GnomeExtensionDeps = realDeps,
+  deps: GnomeExtensionDeps = realDeps
 ): Promise<void> {
   if (deps.platform !== 'linux' || !/gnome/i.test(deps.env.XDG_CURRENT_DESKTOP || '')) return;
   try {
     if (enabled && !installFiles(deps, bundledDir)) return;
     await setEnabled(deps, enabled);
   } catch (error) {
-    deps.log(`${enabled ? 'setup' : 'disable'} failed: ${error instanceof Error ? error.message.split('\n')[0] : 'unknown error'}`);
+    deps.log(
+      `${enabled ? 'setup' : 'disable'} failed: ${error instanceof Error ? error.message.split('\n')[0] : 'unknown error'}`
+    );
   }
 }
 

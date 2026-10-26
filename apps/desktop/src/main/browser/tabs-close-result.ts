@@ -47,6 +47,8 @@ export async function controlSessionTab(
   else return closeSessionTab(tabs, sessionId, control.tabId);
 }
 
+/** How long a close waits for the pane to drop the tab before reporting it
+ *  still open, and how often it looks (a cheap in-memory list read). */
 const CLOSE_SETTLE_MS = 1_500;
 const CLOSE_POLL_MS = 25;
 

@@ -343,12 +343,7 @@ export class CredentialVault {
       };
       return accounts
         .map((account) => ({ ...account, match: sameness(account.login.username) }))
-        .sort(
-          (a, b) =>
-            b.match - a.match ||
-            recency(b.login) - recency(a.login) ||
-            b.index - a.index
-        )
+        .sort((a, b) => b.match - a.match || recency(b.login) - recency(a.login) || b.index - a.index)
         .map(({ login, match }) => ({
           id: login.id,
           label: maskedCredentialLabel(login.username),

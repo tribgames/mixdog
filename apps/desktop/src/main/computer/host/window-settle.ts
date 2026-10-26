@@ -17,6 +17,8 @@ import {
 } from '../shared/window-transition';
 import type { InputResolutionHost } from './input-resolution';
 
+/** How long a launch settle waits for a successor window (a launcher that
+ *  hands off to another process), polling every 100 ms. */
 const LAUNCH_SUCCESSOR_TIMEOUT_MS = 4_000;
 const LAUNCH_POLL_INTERVAL_MS = 100;
 /** A modal dialog is created after the action returns, so one scan taken at

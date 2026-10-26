@@ -16,6 +16,8 @@ import { PausedComputerWork, pausedWorkReply } from './pending-work';
 import type { PointerHold } from './pointer-hold';
 import { isComputerRecoveryRead } from './recovery-reads';
 
+/** Longest a request waits while the queue is paused before it is refused,
+ *  so a stuck pause cannot hold a tool call open. */
 const MAX_PAUSE_WAIT_MS = 15_000;
 
 export function createComputerCommandQueue(options: {
@@ -35,7 +37,7 @@ export function createComputerCommandQueue(options: {
   const budget = createComputerCommandBudget();
   const pauseWaitMs = options.pauseWaitMs ?? MAX_PAUSE_WAIT_MS;
   if (!Number.isFinite(pauseWaitMs) || pauseWaitMs < 0 || pauseWaitMs > MAX_PAUSE_WAIT_MS) {
-    throw new Error('computer_pause_wait_invalid: paused request wait must be 0..15000ms');
+    throw new Error(`computer_pause_wait_invalid: paused request wait must be 0..${MAX_PAUSE_WAIT_MS}ms`);
   }
   const gate = createPauseGate(coordinator, sessionAbortEpochs);
   const lane = createForegroundLane(coordinator);

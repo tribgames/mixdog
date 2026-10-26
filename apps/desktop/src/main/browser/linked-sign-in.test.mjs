@@ -19,8 +19,14 @@ registerHooks({
   },
 });
 
-const { authorizationRequest, createBrowserLinkedSignIns, FLOW_TTL_MS, linkedSignInFor, linkedSignInId, linkedSignInLine } =
-  await import('./linked-sign-in.ts');
+const {
+  authorizationRequest,
+  createBrowserLinkedSignIns,
+  FLOW_TTL_MS,
+  linkedSignInFor,
+  linkedSignInId,
+  linkedSignInLine,
+} = await import('./linked-sign-in.ts');
 const { LINKED_SIGN_IN_FILE_NAME, LinkedSignInStore } = await import('./linked-sign-in-store.ts');
 
 const seal = (plaintext) => Buffer.from(plaintext, 'utf8').reverse();
@@ -38,7 +44,8 @@ function memoryStore() {
     },
     async record(input) {
       const id = linkedSignInId(input.site, input.provider);
-      links.set(id, { id, ...input, lastUsedAt: (clock += 1) });
+      clock += 1;
+      links.set(id, { id, ...input, lastUsedAt: clock });
     },
   };
 }
@@ -130,7 +137,8 @@ test('a field that cannot be read never fails the action: expected losses are si
   const { linked, tab } = setup({ refs: { e1: 'Email or phone' }, onError: (error) => errors.push(error.message) });
   const guest = tab(60);
   toGoogleChooser(guest, 'https://chatgpt.com/', OPENAI_CB);
-  const fill = (readField, signal) => linked.beforeAction(guest, 'fill', { ref: 'e1', text: 'a@gmail.com' }, readField, signal);
+  const fill = (readField, signal) =>
+    linked.beforeAction(guest, 'fill', { ref: 'e1', text: 'a@gmail.com' }, readField, signal);
 
   await fill(async () => {
     throw new Error('ref e1 is stale or unknown; take a fresh snapshot first');
@@ -275,7 +283,12 @@ test('nine open requests in one tab are all honored, the first included', async 
 
 test('requests leave on expiry and with their tab', async () => {
   const store = memoryStore();
-  await store.record({ site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: 'a@gmail.com' });
+  await store.record({
+    site: 'chatgpt.com',
+    redirectHost: 'auth.openai.com',
+    provider: 'google.com',
+    identity: 'a@gmail.com',
+  });
   let clock = 1_000;
   const { linked, tab } = setup({ store, now: () => clock });
   const line = (guest, turnId) => linked.replyLine({ guest, sessionId: 's', turnId });
@@ -305,7 +318,11 @@ test('the reply-line memory has no count cap and goes with its turn or session',
     pages.push(page);
     assert.match(await linked.replyLine({ guest: page, sessionId: 's', turnId: 1 }), /^Linked sign-in: /);
   }
-  assert.equal(await linked.replyLine({ guest: pages[0], sessionId: 's', turnId: 1 }), '', 'the first of 600 is remembered');
+  assert.equal(
+    await linked.replyLine({ guest: pages[0], sessionId: 's', turnId: 1 }),
+    '',
+    'the first of 600 is remembered'
+  );
   linked.finishTurn('s', 1);
   assert.match(await linked.replyLine({ guest: pages[0], sessionId: 's', turnId: 1 }), /^Linked sign-in: /);
   linked.forgetSession('s');
@@ -349,7 +366,8 @@ test('a store read that ends after the session was released gives no line and le
   assert.match(await linked.replyLine({ guest: page, sessionId: 's', turnId: 2 }), /^Linked sign-in: chatgpt\.com /);
 });
 test('nested continue / return_to / next addresses are followed to any depth, and a cycle ends', () => {
-  const request = 'https://kauth.example.com/oauth/authorize?client_id=K&redirect_uri=https%3A%2F%2Fsite.example%2Fcb&state=ST';
+  const request =
+    'https://kauth.example.com/oauth/authorize?client_id=K&redirect_uri=https%3A%2F%2Fsite.example%2Fcb&state=ST';
   let address = request;
   const keys = ['continue', 'return_to', 'next'];
   for (let depth = 0; depth < 6; depth += 1) {
@@ -360,7 +378,14 @@ test('nested continue / return_to / next addresses are followed to any depth, an
   assert.equal(found?.state, 'ST');
   assert.equal(found?.redirect?.href, 'https://site.example/cb');
   // An address that names itself, or two that name each other, stops.
-  assert.equal(authorizationRequest(new URL('https://login.example.com/a?next=https%3A%2F%2Flogin.example.com%2Fa%3Fnext%3Dhttps%253A%252F%252Flogin.example.com%252Fa')), null);
+  assert.equal(
+    authorizationRequest(
+      new URL(
+        'https://login.example.com/a?next=https%3A%2F%2Flogin.example.com%2Fa%3Fnext%3Dhttps%253A%252F%252Flogin.example.com%252Fa'
+      )
+    ),
+    null
+  );
   assert.equal(authorizationRequest(new URL('https://login.example.com/a?next=%2Fa%3Fnext%3D%252Fa')), null);
 });
 

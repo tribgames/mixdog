@@ -281,9 +281,7 @@ export async function fillSavedLogin(
       JSON.stringify(value).slice(1, -1),
     ]);
     if (!registry.rememberSavedLogin(turn, spellings)) {
-      throw new Error(
-        'saved_login_refused: the password could not be registered for redaction; no input was sent'
-      );
+      throw new Error('saved_login_refused: the password could not be registered for redaction; no input was sent');
     }
     const guard = { ...turn, windowId: String(target.window_id || ''), pid: String(target.pid || '') };
     if (!registry.armSavedLoginPixels(guard)) {

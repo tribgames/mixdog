@@ -13,8 +13,7 @@ export const OVERLAY_PILL_HEIGHT = 50;
 export type OverlayKind = 'computer' | 'remote';
 
 // A phone outline (24px grid), stroked in the accent.
-const PHONE_ICON =
-  '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>';
+const PHONE_ICON = '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>';
 
 const STOP_ICON_PATH =
   'M8.5 6h7a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 6 15.5v-7A2.5 2.5 0 0 1 8.5 6z';

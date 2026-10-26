@@ -54,7 +54,10 @@ test('listeners hear which turn finished and which session was released', () => 
   registry.beginTurn('s', 4);
   registry.finishTurn('s', 4);
   registry.forgetTurn('s');
-  assert.deepEqual(heard, [['finished', 's', 4], ['forgotten', 's']]);
+  assert.deepEqual(heard, [
+    ['finished', 's', 4],
+    ['forgotten', 's'],
+  ]);
 });
 
 test('visible guests, active targets, and waiters are isolated by session', async () => {

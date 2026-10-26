@@ -65,7 +65,11 @@ test('a phone fit changes only the device metrics and gives back exactly the one
 
   calls.length = 0;
   await emulation.unfitMetrics(guest);
-  assert.deepEqual(calls, [{ method: 'Emulation.setDeviceMetricsOverride', params: prior }], 'the exact metrics before');
+  assert.deepEqual(
+    calls,
+    [{ method: 'Emulation.setDeviceMetricsOverride', params: prior }],
+    'the exact metrics before'
+  );
 
   // The agent's overrides are still in force: a later agent change to one of
   // their groups keeps its siblings, which only holds while nothing reset them.

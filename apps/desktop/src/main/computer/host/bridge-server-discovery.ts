@@ -4,6 +4,8 @@ import type { createBridgeDiscovery } from '../../bridge/discovery-file';
 import { createBridgeDiscoveryRecord, sameBridgeDiscovery } from '../../bridge/discovery-ownership';
 import type { BridgeServerHost, BridgeServerState } from './bridge-server-contract';
 
+/** How often the discovery record is refreshed while the bridge server runs:
+ *  one cheap file write a minute. */
 const HEARTBEAT_MS = 60_000;
 
 type Discovery = ReturnType<typeof createBridgeDiscovery>;

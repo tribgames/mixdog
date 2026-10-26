@@ -81,7 +81,7 @@ test('an approval covers only its own repeat; a request no veto claimed never an
   assert.ok(leave.pending(page));
 });
 
-test('leaving runs the request\'s own repeat when only part of it ran at first', () => {
+test("leaving runs the request's own repeat when only part of it ran at first", () => {
   const leave = createBrowserLeaveConfirmation();
   const page = {};
   const runs = [];
@@ -146,7 +146,16 @@ function guardedPage() {
       if (browserDocumentId(state, page) !== documentId) throw new Error('Browser page changed; input was not sent.');
     });
   };
-  const pointer = (phase) => ({ type: 'pointer', phase, x: 5, y: 6, button: 'left', buttons: 1, modifiers: 0, clickCount: 1 });
+  const pointer = (phase) => ({
+    type: 'pointer',
+    phase,
+    x: 5,
+    y: 6,
+    button: 'left',
+    buttons: 1,
+    modifiers: 0,
+    clickCount: 1,
+  });
   return { leave, state, page, sent, skipped, input, pointer };
 }
 
@@ -191,7 +200,7 @@ test('a replay that fails takes its approval with it; a later unrelated veto is 
   assert.equal(f.leave.pending(f.page), null);
 });
 
-test('a person\'s click on a link the page vetoes is asked about; leaving clicks it again past the veto', async () => {
+test("a person's click on a link the page vetoes is asked about; leaving clicks it again past the veto", async () => {
   const f = guardedPage();
   await f.input(f.pointer('mousePressed'));
   await f.input({ ...f.pointer('mouseReleased'), buttons: 0 });

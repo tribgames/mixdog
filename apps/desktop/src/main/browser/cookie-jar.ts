@@ -28,6 +28,9 @@ export interface BrowserCookieJar {
   flushStore(): Promise<void>;
 }
 
+/** One cookie-storage CDP command; past this the target is torn down and re-attached. */
+const COOKIE_COMMAND_TIMEOUT_MS = 10_000;
+
 const CHROME_SAME_SITE: Partial<Record<string, 'no_restriction' | 'lax' | 'strict'>> = {
   None: 'no_restriction',
   Lax: 'lax',
@@ -204,7 +207,7 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
         return await Promise.race([
           target().then((owner) => owner.webContents.debugger.sendCommand(method, params) as Promise<T>),
           new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error('Cookie storage command timed out.')), 10_000);
+            timer = setTimeout(() => reject(new Error('Cookie storage command timed out.')), COOKIE_COMMAND_TIMEOUT_MS);
           }),
         ]);
       } catch (error) {

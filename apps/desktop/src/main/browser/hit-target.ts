@@ -4,6 +4,10 @@ import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import type { BrowserCdpPort } from './cdp';
 
+/** A hit guard removes itself this long after arming if input never reaches
+ *  the stop call (a dropped command must not leave page listeners behind). */
+const GUARD_LIFETIME_MS = 5000;
+
 export const BROWSER_HIT_GUARD = `function(token, stop) {
   const view = this.ownerDocument.defaultView;
   const guards = view.__mixdogHitGuards ||= new Map();
@@ -54,7 +58,7 @@ export const BROWSER_HIT_GUARD = `function(token, stop) {
     try { current = owner.frameElement; } catch { current = null; }
     if (!current) break;
   }
-  const timer = view.setTimeout(() => guard.cleanup(), 5000);
+  const timer = view.setTimeout(() => guard.cleanup(), ${GUARD_LIFETIME_MS});
   guard.cleanup = () => {
     view.clearTimeout(timer);
     for (const {owner, listener} of listeners) {

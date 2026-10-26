@@ -2,6 +2,10 @@ import type { WebContents } from 'electron';
 import type { BrowserFrameHost } from './document-frames';
 import { createBrowserReadPool, settleBrowserReads } from './parallel-read';
 
+/** An injected wait observer disconnects itself after this long if it is never
+ *  closed: the 30 s wait ceiling (`timeoutMs` in command.ts) plus 5 s. */
+const WAIT_OBSERVER_LIFETIME_MS = 35000;
+
 const binding = '__mixdogWaitChanged';
 let nextId = 0;
 
@@ -110,7 +114,7 @@ export async function observeBrowserDocumentChanges(
         document.removeEventListener('change', notify, true);
         if (globalThis.__mixdogWaitObserver === state) delete globalThis.__mixdogWaitObserver;
       }};
-      const timer = setTimeout(() => state.close(), 35000);
+      const timer = setTimeout(() => state.close(), ${WAIT_OBSERVER_LIFETIME_MS});
       globalThis.__mixdogWaitObserver = state;
       for (const root of (${roots})()) {
         observer.observe(root, {subtree: true, childList: true, attributes: true, characterData: true});

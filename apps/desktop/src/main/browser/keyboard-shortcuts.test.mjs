@@ -50,7 +50,10 @@ test('Command+A supplies the macOS editor select-all command without typing or c
   const downs = events.filter((event) => event.type === 'rawKeyDown');
   assert.deepEqual(downs[0].commands, process.platform === 'darwin' ? ['selectAll'] : undefined);
   assert.equal(downs[1].commands, undefined);
-  assert.equal(events.some((event) => event.type === 'char'), false);
+  assert.equal(
+    events.some((event) => event.type === 'char'),
+    false
+  );
 });
 
 test('punctuation presses carry their real key codes and only Shift still types', async () => {

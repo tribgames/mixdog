@@ -148,6 +148,13 @@ function chromeExecutableCandidates(explicit?: string): string[] {
   ].filter(Boolean);
 }
 
+/** `tasklist` lists processes in well under a second; this only bounds a hang. */
+const TASKLIST_TIMEOUT_MS = 5_000;
+/** One PowerShell start (Add-Type compile) plus the WM_CLOSE posts. */
+const CLOSE_REQUEST_TIMEOUT_MS = 10_000;
+/** How often the wait for Chrome to exit re-lists its processes. */
+const CHROME_EXIT_POLL_MS = 200;
+
 function chromeUserDataDirectory(): string {
   const local = String(process.env.LOCALAPPDATA || '');
   if (!local) throw new Error('Chrome profile location is unavailable on this Windows account.');
@@ -157,7 +164,7 @@ function chromeUserDataDirectory(): string {
 async function browserProcessIds(tasklist: string, imageName: string): Promise<number[]> {
   const { stdout } = await execFileAsync(tasklist, ['/FI', `IMAGENAME eq ${imageName}`, '/FO', 'CSV', '/NH'], {
     windowsHide: true,
-    timeout: 5_000,
+    timeout: TASKLIST_TIMEOUT_MS,
     maxBuffer: 256 * 1024,
   });
   return stdout
@@ -217,7 +224,7 @@ $processIds = [uint32[]](ConvertFrom-Json -InputObject $env:MIXDOG_BROWSER_IMPOR
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', closeScript],
       {
         windowsHide: true,
-        timeout: 10_000,
+        timeout: CLOSE_REQUEST_TIMEOUT_MS,
         maxBuffer: 256 * 1024,
         env: {
           ...process.env,
@@ -233,7 +240,7 @@ $processIds = [uint32[]](ConvertFrom-Json -InputObject $env:MIXDOG_BROWSER_IMPOR
   const deadline = Date.now() + Math.max(1_000, Math.min(120_000, target.timeoutMs ?? CHROME_CLOSE_TIMEOUT_MS));
   while (Date.now() < deadline) {
     if (!(await browserProcessIds(tasklist, target.imageName)).length) return;
-    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+    await new Promise((resolveWait) => setTimeout(resolveWait, CHROME_EXIT_POLL_MS));
   }
   if (closeRequestFailed) {
     throw new Error('Browser close request failed.');

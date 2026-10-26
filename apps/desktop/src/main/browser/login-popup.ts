@@ -30,9 +30,12 @@ import {
 import { builtPreloadPath } from './preload-path';
 import type { BrowserUrlPolicy } from './url-policy';
 
+/** Height in px of the status bar under the page (the `.bar` style below);
+ *  the page view gets the rest of the window. */
 const BAR_HEIGHT = 56;
 const CONTROL_CHANNEL = 'browser-login-control';
 const STATE_CHANNEL = 'browser-login-state';
+/** How long the "Signed in" status stays readable before the window closes. */
 const AUTO_CLOSE_DELAY_MS = 1_500;
 const pausedStatus = (): string =>
   nativeT('The agent is paused. Once you finish signing in, it continues with this account.');

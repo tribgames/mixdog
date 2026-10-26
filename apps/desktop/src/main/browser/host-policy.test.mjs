@@ -30,7 +30,10 @@ test('URL policy reads the private-network flag and trimmed domain list from the
   });
   delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
   delete process.env.MIXDOG_BROWSER_ALLOWED_DOMAINS;
-  assert.deepEqual(browserUrlPolicyFromEnvironment({ remote: true }), { allowPrivateNetwork: false, allowedDomains: [] });
+  assert.deepEqual(browserUrlPolicyFromEnvironment({ remote: true }), {
+    allowPrivateNetwork: false,
+    allowedDomains: [],
+  });
 });
 
 test('private networks are allowed for a local session and blocked for a remote one unless the env forces them', (t) => {

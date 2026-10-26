@@ -22,7 +22,10 @@ export function createTurnMemory() {
     /** The memory of turn `turnId` of `sessionId`. */
     turn(sessionId: string, turnId: number): TurnMemory {
       let turns = bySession.get(sessionId);
-      if (!turns) bySession.set(sessionId, (turns = new Map()));
+      if (!turns) {
+        turns = new Map();
+        bySession.set(sessionId, turns);
+      }
       const keys = turns.get(turnId) ?? new Set<string>();
       turns.set(turnId, keys);
       const live = () => bySession.get(sessionId)?.get(turnId) === keys;

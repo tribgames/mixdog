@@ -217,7 +217,10 @@ test('a secret that contains or spans marker text is still redacted, and redacti
   const registry = createSavedLoginRegistry();
   const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
   assert.equal(registry.rememberSavedLogin(turn, ['pass[saved login]word', 'a']), true);
-  assert.equal(twice((text) => registry.redact(text), 'x pass[saved login]word a [saved login]'), 'x [saved login] [saved login] [saved login]');
+  assert.equal(
+    twice((text) => registry.redact(text), 'x pass[saved login]word a [saved login]'),
+    'x [saved login] [saved login] [saved login]'
+  );
 
   const inputs = createSecretInputs();
   inputs.remember('s1', 'prefix[redacted]suffix');
@@ -244,7 +247,10 @@ test('a replacement that rebuilds a secret is redacted again until none shows ou
   const registry = createSavedLoginRegistry();
   const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
   assert.equal(registry.rememberSavedLogin(turn, ['a[saved login]']), true);
-  assert.equal(twice((text) => registry.redact(text), 'aa[saved login] x'), '[saved login] x');
+  assert.equal(
+    twice((text) => registry.redact(text), 'aa[saved login] x'),
+    '[saved login] x'
+  );
 
   // A secret that only partly overlaps a marker takes it in whole; none is left broken.
   const partial = createSessionSecrets();

@@ -66,7 +66,10 @@ function runBackend({ shown = true } = {}) {
       return { text: '', cursor: 99, reset: false };
     },
     write: (id, data) => log.push(['write', id, data]),
-    revealTerminal: async (sessionId, target) => (log.push(['reveal', sessionId, target.id]), shown),
+    revealTerminal: async (sessionId, target) => {
+      log.push(['reveal', sessionId, target.id]);
+      return shown;
+    },
     startTerminal: (sessionId) => {
       log.push(['start', sessionId]);
       tabs[sessionId] = [{ tab: 1, id: `session-terminal:${sessionId}`, shell: 'sh', running: true, cwd: null }];

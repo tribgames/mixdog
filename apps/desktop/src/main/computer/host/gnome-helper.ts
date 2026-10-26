@@ -16,7 +16,9 @@ const DESTINATION = 'org.gnome.Shell';
 const OBJECT_PATH = '/io/mixdog/Windows';
 const INTERFACE = 'io.mixdog.Windows';
 const STOP_SIGNAL = `${INTERFACE}.StopRequested`;
+/** gdbus `--timeout` for one call to the Shell extension; the process gets 5 s more. */
 const CALL_TIMEOUT_SECONDS = 10;
+/** Backoff between restarts of the stop-signal monitor, capped at the last step. */
 const RESTART_DELAYS_MS = [1000, 3000, 10000, 30000];
 
 /** Pixels the extension can take: the whole stage, one area of it, or one window by its shell id. */
@@ -37,8 +39,20 @@ export interface GnomeShotDeps {
 const realShotDeps: GnomeShotDeps = {
   run: (args) =>
     new Promise((resolve, reject) => {
-      execFile('gdbus', args, { timeout: (CALL_TIMEOUT_SECONDS + 5) * 1000, windowsHide: true }, (error, stdout, stderr) =>
-        error ? reject(new Error(String(stderr || error.message).trim().split('\n')[0])) : resolve(String(stdout)),
+      execFile(
+        'gdbus',
+        args,
+        { timeout: (CALL_TIMEOUT_SECONDS + 5) * 1000, windowsHide: true },
+        (error, stdout, stderr) =>
+          error
+            ? reject(
+                new Error(
+                  String(stderr || error.message)
+                    .trim()
+                    .split('\n')[0]
+                )
+              )
+            : resolve(String(stdout))
       );
     }),
   get runtimeDir() {
@@ -50,7 +64,10 @@ const realShotDeps: GnomeShotDeps = {
 };
 
 /** GNOME Wayland is the one session whose pixels and Stop chord go through the extension. */
-export function usesGnomeHelper(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+export function usesGnomeHelper(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): boolean {
   if (platform !== 'linux') return false;
   const session = detectSession(env);
   return session === 'wayland' && detectDesktop(env, session) === 'gnome';
@@ -80,15 +97,28 @@ export function gnomeWindowHandle(windowId: string): bigint | null {
 }
 
 function screenshotArgs(target: GnomeShotTarget, path: string): string[] {
-  const { x, y, width, height } =
-    target.kind === 'area' ? target : { x: 0, y: 0, width: 0, height: 0 };
+  const { x, y, width, height } = target.kind === 'area' ? target : { x: 0, y: 0, width: 0, height: 0 };
   const id = target.kind === 'window' ? target.id : 0n;
   return [
-    'call', '--session', '--timeout', String(CALL_TIMEOUT_SECONDS),
-    '--dest', DESTINATION, '--object-path', OBJECT_PATH, '--method', `${INTERFACE}.Screenshot`,
+    'call',
+    '--session',
+    '--timeout',
+    String(CALL_TIMEOUT_SECONDS),
+    '--dest',
+    DESTINATION,
+    '--object-path',
+    OBJECT_PATH,
+    '--method',
+    `${INTERFACE}.Screenshot`,
     // "--" so a negative coordinate (a monitor left of the primary) is a value, not an option.
-    '--', `'${target.kind}'`, String(id), String(Math.round(x)), String(Math.round(y)),
-    String(Math.round(width)), String(Math.round(height)), `'${path}'`,
+    '--',
+    `'${target.kind}'`,
+    String(id),
+    String(Math.round(x)),
+    String(Math.round(y)),
+    String(Math.round(width)),
+    String(Math.round(height)),
+    `'${path}'`,
   ];
 }
 
@@ -96,7 +126,10 @@ function screenshotArgs(target: GnomeShotTarget, path: string): string[] {
  * The PNG bytes of `target`, taken inside the shell process. The file lives
  * under XDG_RUNTIME_DIR (user-private) just long enough to be read back.
  */
-export async function gnomeShellScreenshot(target: GnomeShotTarget, deps: GnomeShotDeps = realShotDeps): Promise<Buffer> {
+export async function gnomeShellScreenshot(
+  target: GnomeShotTarget,
+  deps: GnomeShotDeps = realShotDeps
+): Promise<Buffer> {
   if (!deps.runtimeDir) throw new Error('XDG_RUNTIME_DIR is not set');
   const path = join(deps.runtimeDir, `mixdog-shot-${deps.newId()}.png`);
   try {
@@ -129,8 +162,18 @@ export async function gnomeSetIndicator(
   run: (args: string[]) => Promise<string> = realShotDeps.run
 ): Promise<void> {
   await run([
-    'call', '--session', '--timeout', '5', '--dest', DESTINATION, '--object-path', OBJECT_PATH,
-    '--method', `${INTERFACE}.SetIndicator`, '--', gvariantString(JSON.stringify(spec)),
+    'call',
+    '--session',
+    '--timeout',
+    '5',
+    '--dest',
+    DESTINATION,
+    '--object-path',
+    OBJECT_PATH,
+    '--method',
+    `${INTERFACE}.SetIndicator`,
+    '--',
+    gvariantString(JSON.stringify(spec)),
   ]);
 }
 

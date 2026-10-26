@@ -29,7 +29,13 @@ globalThis.displays = [
 globalThis.decode = (buffer) => {
   const [width, height] = String(buffer).split('x').map(Number);
   const image = { width, height, getSize: () => ({ width: image.width, height: image.height }), isEmpty: () => !width };
-  image.resize = ({ width: w, height: h }) => ({ ...image, width: w, height: h, getSize: () => ({ width: w, height: h }), resized: true });
+  image.resize = ({ width: w, height: h }) => ({
+    ...image,
+    width: w,
+    height: h,
+    getSize: () => ({ width: w, height: h }),
+    resized: true,
+  });
   return image;
 };
 
@@ -38,17 +44,27 @@ const { buildCapturePlan } = await import('./capture-source-plan.ts');
 
 function shooter(png) {
   const targets = [];
-  return { targets, shoot: async (target) => (targets.push(target), Buffer.from(png)) };
+  return {
+    targets,
+    shoot: async (target) => {
+      targets.push(target);
+      return Buffer.from(png);
+    },
+  };
 }
 
-test('a screen is the display\'s own area of the shell (negative origins included), scaled to the asked size', async () => {
+test("a screen is the display's own area of the shell (negative origins included), scaled to the asked size", async () => {
   const { targets, shoot } = shooter('1920x1080');
   const image = await captureGnomeShellSource({ kind: 'screen', displayId: '2' }, { width: 960, height: 540 }, shoot);
   assert.deepEqual(targets, [{ kind: 'area', x: -1280, y: 0, width: 1280, height: 800 }]);
   assert.deepEqual(image.getSize(), { width: 960, height: 540 });
   assert.equal(image.resized, true);
   // Already the asked size: untouched.
-  const same = await captureGnomeShellSource({ kind: 'screen', displayId: '1' }, { width: 1920, height: 1080 }, shooter('1920x1080').shoot);
+  const same = await captureGnomeShellSource(
+    { kind: 'screen', displayId: '1' },
+    { width: 1920, height: 1080 },
+    shooter('1920x1080').shoot
+  );
   assert.equal(same.resized, undefined);
 });
 
@@ -95,10 +111,16 @@ test('on GNOME Wayland the composited backend never reaches desktopCapturer; els
     maxWidth: 1280,
     attempts: [],
   };
-  const composited = () => buildCapturePlan({ nativeSurfaceBackends: [] }, request).find((entry) => entry.backend === 'composited');
+  const composited = () =>
+    buildCapturePlan({ nativeSurfaceBackends: [] }, request).find((entry) => entry.backend === 'composited');
   try {
     Object.defineProperty(process, 'platform', { value: 'linux' });
-    Object.assign(process.env, { WAYLAND_DISPLAY: 'wayland-0', XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'ubuntu:GNOME', XDG_RUNTIME_DIR: '' });
+    Object.assign(process.env, {
+      WAYLAND_DISPLAY: 'wayland-0',
+      XDG_SESSION_TYPE: 'wayland',
+      XDG_CURRENT_DESKTOP: 'ubuntu:GNOME',
+      XDG_RUNTIME_DIR: '',
+    });
     // No runtime dir: the helper call fails before anything else, and the portal is untouched.
     await assert.rejects(composited().acquire(), /capture_source_unavailable: .*XDG_RUNTIME_DIR/);
     assert.equal(globalThis.portalCalls, 0, 'GNOME Wayland must not use the portal');
