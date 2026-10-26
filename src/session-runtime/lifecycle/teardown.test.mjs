@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -137,6 +137,50 @@ test('the summary row a close queues is on disk when the close resolves', async 
     assert.match(readSummaryLogText(summaryIndexPath()), /sess_teardown_summary/);
   } finally {
     f.cleanup();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a stuck summary store does not hold the close: it reports what is pending, cleans up, and keeps the op queued', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-teardown-stuck-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  const { _upsertSessionSummary, settleSummaryIndexWrites, summaryIndexPath } = await import(
+    '../../runtime/agent/orchestrator/session/store-summary-index.mjs'
+  );
+  const { readSummaryLogText } = await import('../../runtime/agent/orchestrator/session/store-summary-log.mjs');
+  const { registerLiveSession } = await import('../../runtime/shared/staged-update.mjs');
+  const lockPath = `${summaryIndexPath()}.lock`;
+  // Own pid + foreign token: a live holder that is never reclaimed.
+  writeFileSync(lockPath, `${process.pid} ${Date.now()} foreign-holder\n`);
+  registerLiveSession();
+  const livePid = join(root, 'live-sessions', `${process.pid}.pid`);
+  assert.equal(existsSync(livePid), true);
+  const warnings = [];
+  const onWarning = (warning) => warnings.push(warning);
+  process.on('warning', onWarning);
+  const f = fixture({
+    session: { id: 'sess_teardown_stuck', messages: [{ role: 'user', content: 'hi' }] },
+    onCloseSurface: (session) => _upsertSessionSummary(session),
+    withTeardownDeadline: shortDeadline,
+  });
+  try {
+    assert.equal(await f.teardown.close('cli-exit'), true);
+    await new Promise((resolve) => setImmediate(resolve));
+    const pending = warnings.filter((warning) => warning.code === 'TEARDOWN_PERSISTENCE_PENDING');
+    assert.equal(pending.length, 1);
+    assert.match(pending[0].message, /summary index \(sessions: sess_teardown_stuck\)/);
+    assert.equal(existsSync(livePid), false, 'the live-session pid file is released');
+    // Not dropped: once the store is writable again the op lands.
+    unlinkSync(lockPath);
+    assert.equal(await settleSummaryIndexWrites({ ids: ['sess_teardown_stuck'] }), true);
+    assert.match(readSummaryLogText(summaryIndexPath()), /sess_teardown_stuck/);
+  } finally {
+    process.off('warning', onWarning);
+    f.cleanup();
+    rmSync(lockPath, { force: true });
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });

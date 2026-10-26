@@ -30,6 +30,7 @@ import {
 import { withFileLockSync } from '../../../shared/atomic-file.mjs';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 import { envFlag } from '../../../shared/env.mjs';
+import { createSharedAbortable } from '../../../shared/abort-race.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
 
 let _pgProc = null;
@@ -51,7 +52,7 @@ async function _getPgProc() {
 /** @type {{ port: number, pgdata: string, runtimeDir: string, proc: unknown } | null} */
 let _live = null;
 /** Dedup: one ensure coroutine at a time. */
-let _ensureInFlight = null;
+let _ensureShared = null;
 /** Per-process flag — postgresql.conf reconcile attempted once per supervisor. */
 let _v2ReconcileTried = false;
 /** Set by stopOwnedPgForShutdown: this process is exiting, no further ensure. */
@@ -542,7 +543,7 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
   return null;
 }
 
-// ── Internal: full ensure logic (runs exclusively via _ensureInFlight) ────────
+// ── Internal: full ensure logic (runs exclusively via _ensureShared) ──────────
 
 function _pgdataDir(dataDir) {
   return join(dataDir, 'pgdata');
@@ -555,13 +556,15 @@ export function pgClusterExists(dataDir) {
   return existsSync(join(_pgdataDir(dataDir), 'PG_VERSION'));
 }
 
-async function _doEnsure(dataDir) {
+async function _doEnsure(dataDir, signal) {
   const { healthcheckPg } = await _getPgProc();
   const pgdata = _pgdataDir(dataDir);
 
   // Resolve runtimeDir via runtime-fetcher (cache-hits immediately when already downloaded).
   const { ensureRuntime } = await import('../runtime-fetcher.mjs');
-  const { runtimeDir } = await ensureRuntime(dataDir);
+  const { runtimeDir } = await ensureRuntime(dataDir, { signal });
+  // Cancelled while installing: start no cluster for callers that are gone.
+  signal.throwIfAborted();
 
   // One-shot v2 conf reconcile — idempotent. Covers attach paths (in-process
   // fast path / cross-process active-instance reuse) where startPg is never
@@ -713,10 +716,15 @@ async function _doEnsure(dataDir) {
  * Concurrent calls are deduplicated — exactly one spawn/recover sequence runs
  * at a time; additional callers await the same promise.
  *
+ * `signal` (optional) withdraws this caller: the shared ensure is cancelled
+ * (its runtime install included) only once every caller has withdrawn and
+ * none joined without a signal (createSharedAbortable).
+ *
  * @param {string} dataDir  Mixdog data directory.
+ * @param {{ signal?: AbortSignal }} [opts]
  * @returns {Promise<{ host: string, port: number, runtimeDir: string, pgdataDir: string }>}
  */
-export function ensurePgInstance(dataDir) {
+export function ensurePgInstance(dataDir, { signal = null } = {}) {
   // Once this process began stopping the cluster it owns, nothing may start
   // or re-attach one: a late connection-loss recovery would otherwise bring a
   // postmaster back up right after the stop and leave it running past exit.
@@ -727,12 +735,15 @@ export function ensurePgInstance(dataDir) {
   // in-process fast path — so this is the one place the sweep cannot be
   // skipped. Latched internally, so repeated calls schedule it only once.
   scheduleOrphanTempPostmasterSweep();
-  if (!_ensureInFlight) {
-    _ensureInFlight = _doEnsure(dataDir).finally(() => {
-      _ensureInFlight = null;
+  if (!_ensureShared) {
+    const shared = createSharedAbortable((sharedSignal) => _doEnsure(dataDir, sharedSignal), {
+      onSettled: () => {
+        if (_ensureShared === shared) _ensureShared = null;
+      },
     });
+    _ensureShared = shared;
   }
-  return _ensureInFlight;
+  return _ensureShared.join(signal);
 }
 
 /**
@@ -779,7 +790,7 @@ export async function stopPgForShutdown() {
     return;
   }
   const snap = _live;
-  _ensureInFlight = null;
+  _ensureShared = null;
   try {
     const { stopPg } = await _getPgProc();
     await stopPg({ runtimeDir: snap.runtimeDir, pgdataDir: snap.pgdata });
@@ -865,10 +876,11 @@ export async function stopOwnedPgForShutdown({ timeoutMs = 6_000 } = {}) {
   // publishes its cluster only when it settles; stopping before that would
   // miss the postmaster it is about to own. Bounded: a cold first start can
   // be a download.
-  if (_ensureInFlight) {
+  const inFlight = _ensureShared?.promise;
+  if (inFlight) {
     let timer = null;
     await Promise.race([
-      _ensureInFlight.catch(() => {}),
+      inFlight.catch(() => {}),
       new Promise((resolveWait) => {
         timer = setTimeout(resolveWait, timeoutMs);
         timer.unref?.();

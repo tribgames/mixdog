@@ -1,7 +1,7 @@
 import { createWriteStream, rmSync } from 'node:fs';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { sleep } from './sleep.mjs';
+import { sleepUnlessAborted } from './abort-race.mjs';
 
 export const MAX_NATIVE_BINARY_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 const DEFAULT_RETRY_DELAYS_MS = [1000, 3000, 9000];
@@ -118,13 +118,17 @@ export async function downloadToFileWithRetry(
     timeoutMs = 180_000,
     retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
     onRetry = null,
+    // Cancels the request, its body and any retry wait; rejects with its reason.
+    signal = null,
   } = {}
 ) {
   const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
   let lastError;
   for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    signal?.throwIfAborted();
     try {
-      const response = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const response = await fetchFn(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
       try {
         if (!response.ok) throw new DownloadHttpError(response.status, httpLabel, url);
         return await streamResponseToFile(response, destPath, {
@@ -142,12 +146,13 @@ export async function downloadToFileWithRetry(
         }
       }
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
       if (error instanceof DownloadHttpError && error.terminal) throw error;
       const delayMs = retryDelaysMs[attempt];
       if (delayMs === undefined) break;
       onRetry?.({ attempt: attempt + 1, delayMs, error });
-      await sleep(delayMs);
+      await sleepUnlessAborted(delayMs, signal);
     }
   }
   throw lastError;

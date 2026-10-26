@@ -50,6 +50,95 @@ export async function runAbortable(signal, task, fallback) {
   });
 }
 
+/** Resolves after `ms`, or rejects with the abort reason once `signal` aborts. */
+export function sleepUnlessAborted(ms, signal) {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(abortReason(signal));
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortReason(signal));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * One operation that several callers await. `start(signal)` runs once, when
+ * the first caller that still wants it joins — a live signal, or none — so a
+ * caller that is already aborted starts nothing. Its signal aborts only when
+ * every caller that joined with a signal has aborted and no caller joined
+ * without one (such a caller keeps it running). The caller whose abort cancels
+ * the work waits for the work to settle, its cleanup included, so nothing it
+ * started outlives it; any other aborted caller stops waiting at once and
+ * leaves the work to the callers still on it. `onSettled(failed)` runs once
+ * the started work settles; `promise` is that work, null until started.
+ */
+export function createSharedAbortable(start, { onSettled = null } = {}) {
+  const controller = new AbortController();
+  let waiting = 0;
+  let pinned = false;
+  let promise = null;
+  const begin = () => {
+    if (!promise) {
+      promise = Promise.resolve().then(() => start(controller.signal));
+      promise.then(
+        () => onSettled?.(false),
+        () => onSettled?.(true)
+      );
+    }
+    return promise;
+  };
+  return {
+    get promise() {
+      return promise;
+    },
+    join(signal) {
+      if (!signal) {
+        pinned = true;
+        return begin();
+      }
+      if (signal.aborted) return Promise.reject(abortReason(signal));
+      waiting += 1;
+      const work = begin();
+      return new Promise((resolve, reject) => {
+        const onAbort = () => {
+          waiting -= 1;
+          const reason = abortReason(signal);
+          if (waiting > 0 || pinned) {
+            reject(reason);
+            return;
+          }
+          controller.abort(reason);
+          work.then(
+            () => reject(reason),
+            () => reject(reason)
+          );
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        work.then(
+          (value) => {
+            if (signal.aborted) return;
+            signal.removeEventListener('abort', onAbort);
+            waiting -= 1;
+            resolve(value);
+          },
+          (error) => {
+            if (signal.aborted) return;
+            signal.removeEventListener('abort', onAbort);
+            waiting -= 1;
+            reject(error);
+          }
+        );
+      });
+    },
+  };
+}
+
 /**
  * Bound best-effort cleanup without cancelling the underlying work. The
  * detached promise remains observed and may still finish in the background.

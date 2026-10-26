@@ -70,6 +70,18 @@ test('overlapping flushes keep batches in record order', async () => {
   );
 });
 
+test('settlement includes the compaction a flush scheduled', async () => {
+  // Past the compaction thresholds (8 MiB and 1.5 x 5000 events).
+  const pad = 'x'.repeat(1100);
+  const lines = Array.from({ length: 8000 }, (_, index) => JSON.stringify({ ts: Date.now(), inputTokens: index, pad }));
+  writeFileSync(usagePath, `${lines.join('\n')}\n`);
+  record(1, 'compacted');
+  await settleGatewayUsageWrites();
+  const stored = readJsonl(usagePath);
+  assert.equal(stored.length, 5000, 'the store was rewritten before settlement resolved');
+  assert.equal(stored.at(-1).requestKind, 'compacted');
+});
+
 test('process exit writes still-pending usage events synchronously', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-route-meta-exit-'));
   try {

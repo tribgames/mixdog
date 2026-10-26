@@ -56,7 +56,10 @@ test('same dataDir shares in-flight init and runs locked DDL once', async () => 
   gate.resolve();
   assert.equal(await first, await second);
   assert.equal(calls.ensure.length, 1);
-  assert.deepEqual(calls.ensure[0], { dataDir: '/a', opts: { schema: 'scheduler' } });
+  assert.equal(calls.ensure[0].dataDir, '/a');
+  assert.equal(calls.ensure[0].opts.schema, 'scheduler');
+  // Callers that passed no signal keep the shared init running.
+  assert.equal(calls.ensure[0].opts.signal.aborted, false);
   assert.deepEqual(calls.lock, [{ dataDir: '/a' }]);
   assert.deepEqual(calls.exec, [{ dataDir: '/a', sql: 'DDL-SCHEDULER' }]);
 });

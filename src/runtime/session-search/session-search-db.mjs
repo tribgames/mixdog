@@ -114,10 +114,10 @@ async function insertRows(queryable, rows) {
 
 /** Idempotent append of a transcript's searchable messages; returns the count
  *  of newly stored rows. Re-sending an already stored message is a no-op. */
-export async function appendSessionSearchMessages(sessionId, messages, { dataDir } = {}) {
+export async function appendSessionSearchMessages(sessionId, messages, { dataDir, signal } = {}) {
   const rows = sessionSearchRows(sessionId, messages);
   if (rows.length === 0) return 0;
-  const db = await getDb(dataDir);
+  const db = await getDb(dataDir, { signal });
   return insertRows(db, rows);
 }
 
@@ -143,11 +143,11 @@ export async function replaceSessionSearchMessages(
   plainMessages,
   redactedMessages,
   redactText,
-  { dataDir } = {}
+  { dataDir, signal } = {}
 ) {
   const rows = sessionSearchRows(sessionId, redactedMessages);
   const previous = new Set(sessionSearchRows(sessionId, plainMessages).map((row) => row.sourceRef));
-  const db = await getDb(dataDir);
+  const db = await getDb(dataDir, { signal });
   return db.transaction(async (tx) => {
     const { rows: stored } = await tx.query(
       `SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
@@ -177,8 +177,8 @@ export async function replaceSessionSearchMessages(
   });
 }
 
-export async function deleteSessionSearchMessages(sessionId, { dataDir } = {}) {
-  const db = await getDb(dataDir);
+export async function deleteSessionSearchMessages(sessionId, { dataDir, signal } = {}) {
+  const db = await getDb(dataDir, { signal });
   await db.query(`DELETE FROM session_search.messages WHERE session_id = $1`, [sessionId]);
   await db.query(`DELETE FROM session_search.backfill WHERE session_id = $1`, [sessionId]);
 }

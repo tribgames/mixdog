@@ -36,30 +36,65 @@ function logFailure(what, error) {
   } catch {}
 }
 
-/** sessionId → tail of the session's write queue (see serialized). Present
- *  only while a write of the session is queued or running. */
+/** sessionId → { tail, controller }: the tail of the session's write queue
+ *  (see serialized) and the lifetime its writes run under (closeSessionSearch
+ *  aborts it). Present only while a write of the session is queued or running. */
 const writeQueues = new Map();
 
-/** Runs `task` once every earlier task of `sessionId` has settled; the task's
- *  own promise is returned, so its failure reaches the caller to report. The
- *  queue moves on past a failed task: that failure is the caller's, not the
- *  next write's. */
+/** The reason a closed session's writes stop with; never reported as a failure. */
+class SessionSearchClosedError extends Error {
+  constructor(sessionId) {
+    super(`session search writes of ${sessionId} closed`);
+    this.name = 'AbortError';
+  }
+}
+
+const reportUnlessClosed = (what) => (error) => {
+  if (!(error instanceof SessionSearchClosedError)) logFailure(what, error);
+};
+
+/** Runs `task(signal)` once every earlier task of `sessionId` has settled; the
+ *  task's own promise is returned, so its failure reaches the caller to report.
+ *  The queue moves on past a failed task: that failure is the caller's, not the
+ *  next write's. `signal` is the session's write lifetime. */
 function serialized(sessionId, task) {
-  const run = (writeQueues.get(sessionId) ?? Promise.resolve()).then(task);
+  const queue = writeQueues.get(sessionId);
+  const controller = queue && !queue.controller.signal.aborted ? queue.controller : new AbortController();
+  // A write cancelled while queued never starts (rejects with the close reason).
+  const run = (queue?.tail ?? Promise.resolve()).then(() => {
+    controller.signal.throwIfAborted();
+    return task(controller.signal);
+  });
   const tail = run.then(
     () => {},
     () => {}
   );
-  writeQueues.set(sessionId, tail);
+  const entry = { tail, controller };
+  writeQueues.set(sessionId, entry);
   tail.then(() => {
-    if (writeQueues.get(sessionId) === tail) writeQueues.delete(sessionId);
+    if (writeQueues.get(sessionId) === entry) writeQueues.delete(sessionId);
   });
   return run;
 }
 
+/**
+ * Stops the session's search writes for a runtime close: the queued ones never
+ * start and the running one is cancelled — a PostgreSQL runtime install or
+ * start it is waiting on included, once no other writer still waits on it
+ * (createSharedAbortable). Resolves when the queue has settled, so nothing this
+ * session issued writes into the data dir afterwards. The rows are derived:
+ * the stored-session backfill restores what a cancelled write left out.
+ */
+export async function closeSessionSearch(sessionId) {
+  const queue = writeQueues.get(sessionId);
+  if (!queue) return;
+  queue.controller.abort(new SessionSearchClosedError(sessionId));
+  await queue.tail;
+}
+
 /** Stores `messages`, the transcript as it was when the turn was ingested, as
  *  the session's search rows; runs in the session's write queue. */
-async function storeTranscript(sessionId, messages) {
+async function storeTranscript(sessionId, messages, signal) {
   // A turn always grows the transcript; an unchanged length means nothing
   // new. This is only a shortcut: the insert itself is idempotent.
   const length = messages.length;
@@ -72,9 +107,11 @@ async function storeTranscript(sessionId, messages) {
   // replaced in one transaction instead of only appending.
   const redacted = redactSensitiveMessages(sessionId, messages);
   if (version && last?.version !== version) {
-    await replaceSessionSearchMessages(sessionId, messages, redacted, (text) => redactSensitiveText(sessionId, text));
+    await replaceSessionSearchMessages(sessionId, messages, redacted, (text) => redactSensitiveText(sessionId, text), {
+      signal,
+    });
   } else {
-    await appendSessionSearchMessages(sessionId, redacted);
+    await appendSessionSearchMessages(sessionId, redacted, { signal });
   }
   if (lastIngested.size >= LAST_INGESTED_LIMIT) lastIngested.clear();
   lastIngested.set(sessionId, { length, version });
@@ -90,8 +127,8 @@ export function ingestSessionTurn(session) {
     // The write runs after the session's earlier ones, so it keeps the
     // transcript of this call: compaction may rewrite the live array before then.
     const transcript = messages.slice();
-    serialized(sessionId, () => storeTranscript(sessionId, transcript)).catch((error) =>
-      logFailure(`ingest ${sessionId}`, error)
+    serialized(sessionId, (signal) => storeTranscript(sessionId, transcript, signal)).catch(
+      reportUnlessClosed(`ingest ${sessionId}`)
     );
   } catch (error) {
     logFailure('ingest', error);
@@ -101,14 +138,10 @@ export function ingestSessionTurn(session) {
 /** Best-effort removal of a deleted session's search rows, after the
  *  session's pending writes. Never throws. */
 export async function forgetSessionSearch(sessionId) {
-  try {
-    await serialized(sessionId, async () => {
-      lastIngested.delete(sessionId);
-      await deleteSessionSearchMessages(sessionId);
-    });
-  } catch (error) {
-    logFailure(`delete ${sessionId}`, error);
-  }
+  await serialized(sessionId, async (signal) => {
+    lastIngested.delete(sessionId);
+    await deleteSessionSearchMessages(sessionId, { signal });
+  }).catch(reportUnlessClosed(`delete ${sessionId}`));
 }
 
 async function loadStoreDeps() {

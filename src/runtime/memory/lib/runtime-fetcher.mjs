@@ -158,8 +158,9 @@ function runtimePaths(verDir) {
 // Download with retry
 // ---------------------------------------------------------------------------
 
-async function downloadWithRetry(url, destPath, expectedBytes) {
+async function downloadWithRetry(url, destPath, expectedBytes, signal) {
   return downloadToFileWithRetry(url, destPath, {
+    signal,
     maxBytes: expectedBytes,
     expectedBytes,
     label: 'memory runtime download',
@@ -532,11 +533,12 @@ function publishRuntimeDir(runtimeBaseDir, stagingDir, key, sha256) {
  * staging lock, ending with the stale-version GC. Returns the installed
  * runtime-{version} directory.
  */
-async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, version, pkey }) {
+async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, version, pkey, signal }) {
   // tar is only required for the download/extract path. Probe here (not at
   // ensureRuntime entry) so a machine without tar can still reuse an
   // already-extracted, sha-matching cached runtime via the fast path.
   await probeTar();
+  signal?.throwIfAborted();
 
   __mixdogMemoryLog(`[runtime-fetcher] downloading runtime ${version} for ${pkey} (~${size} bytes) …\n`);
 
@@ -566,7 +568,7 @@ async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, versio
               `[runtime-fetcher] retrying runtime download from fallback release repo — ${candidateUrl}\n`
             );
           }
-          await downloadWithRetry(candidateUrl, tarPath, size);
+          await downloadWithRetry(candidateUrl, tarPath, size, signal);
           await verifySha256(tarPath, sha256);
           downloadOk = true;
           break;
@@ -575,9 +577,12 @@ async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, versio
           try {
             rmSync(tarPath, { force: true });
           } catch {}
+          // A cancelled install tries no fallback repository.
+          signal?.throwIfAborted();
         }
       }
       if (!downloadOk && lastDownloadErr) throw lastDownloadErr;
+      signal?.throwIfAborted();
       await _extractRuntimeTarGz(tarPath, stagingDir, stagingDir);
     } finally {
       try {
@@ -590,6 +595,11 @@ async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, versio
         rmSync(stagingDir, { recursive: true, force: true });
       } catch {}
       throw new Error(`[runtime-fetcher] download or verify failed for ${version}`);
+    }
+    // Cancelled after the extract: drop the unpublished tree, publish nothing.
+    if (signal?.aborted) {
+      rmSync(stagingDir, { recursive: true, force: true });
+      signal.throwIfAborted();
     }
 
     // Stamp sha256 inside staging dir.
@@ -615,6 +625,11 @@ async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, versio
     gcRuntimeDir(runtimeBaseDir, key);
   } finally {
     releaseStagingLock(stagingLock);
+    // Publishing is synchronous past the last cancellation check, so an
+    // aborted signal here means nothing was published.
+    if (signal?.aborted) {
+      __mixdogMemoryLog(`[runtime-fetcher] install of ${version} cancelled; its staging was removed\n`);
+    }
   }
 
   __mixdogMemoryLog(`[runtime-fetcher] runtime ready at ${verDir}\n`);
@@ -631,7 +646,10 @@ export const _runtimeLayoutInternals = {
   runtimeInstallKey,
 };
 
-export async function ensureRuntime(dataDir) {
+/** `signal` cancels a download/install in progress: its retry waits end, its
+ *  partial files and staging lock are removed and nothing is published, so the
+ *  next call starts a fresh install. */
+export async function ensureRuntime(dataDir, { signal = null } = {}) {
   const key = resolve(dataDir);
   if (runtimeCache.has(key)) return runtimeCache.get(key);
 
@@ -655,7 +673,7 @@ export async function ensureRuntime(dataDir) {
 
   const verDir =
     cachedRuntimeDir(runtimeBaseDir, version, sha256) ??
-    (await installRuntimeVersion({ runtimeBaseDir, url, sha256, size, version, pkey }));
+    (await installRuntimeVersion({ runtimeBaseDir, url, sha256, size, version, pkey, signal }));
 
   const result = { runtimeDir: verDir, ...runtimePaths(verDir), version };
   runtimeCache.set(key, result);

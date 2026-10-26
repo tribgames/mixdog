@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getEventListeners } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,4 +105,16 @@ test('saves during a scheduled retry wait for it; settle resolves only after per
     assert.equal(rows.length, 21);
     assert.equal(rows.find((r) => r.id === 'a')?.updatedAt, 25);
     assert.equal(summaryLockFailureStats().total, before + 1);
+  }));
+
+test('settles sharing one long-lived signal leave no abort listener behind once they land', () =>
+  withDataDir(async () => {
+    _writeSummaryIndex([]);
+    const lifetime = new AbortController();
+    for (let i = 0; i < 5; i++) {
+      _upsertSessionSummaryRow(row(`r${i}`, 40 + i, 'r'));
+      assert.equal(await settleSummaryIndexWrites({ ids: [`r${i}`], signal: lifetime.signal }), true);
+    }
+    assert.equal(getEventListeners(lifetime.signal, 'abort').length, 0);
+    assert.equal(catalog().length, 5);
   }));

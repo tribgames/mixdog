@@ -307,10 +307,17 @@ function refreshUsageView() {
 
 // Bounded compaction: keep the newest MAX_USAGE_EVENTS lines. Runs in the
 // background under the store lock (appenders take it too, so no append is lost).
-let compactRunning = false;
-async function compactUsageStore(store) {
-  if (compactRunning) return;
-  compactRunning = true;
+let compactRunning = null; // the compaction in flight
+let compactTimer = null; // a compaction scheduled to run
+let compactStore = null;
+function compactUsageStore(store) {
+  compactRunning ??= runUsageCompaction(store).finally(() => {
+    compactRunning = null;
+  });
+  return compactRunning;
+}
+
+async function runUsageCompaction(store) {
   try {
     await withFileLock(usageLockPath(store), async () => {
       const lines = (await readFile(store, 'utf8')).split('\n').filter(l => l.trim());
@@ -319,8 +326,6 @@ async function compactUsageStore(store) {
     });
   } catch {
     // Compaction is best effort; the next flush retries.
-  } finally {
-    compactRunning = false;
   }
 }
 
@@ -330,8 +335,13 @@ function maybeScheduleCompaction(store) {
   } catch {
     return;
   }
-  const t = setTimeout(() => { void compactUsageStore(store); }, 1000);
-  t.unref?.();
+  if (compactTimer) return;
+  compactStore = store;
+  compactTimer = setTimeout(() => {
+    compactTimer = null;
+    void compactUsageStore(store);
+  }, 1000);
+  compactTimer.unref?.();
 }
 
 function takePendingUsageBatch() {
@@ -357,8 +367,12 @@ function flushGatewayUsageEvents() {
   const flush = withFileLock(usageLockPath(store), async () => {
     await mkdir(dirname(store), { recursive: true });
     await appendFile(store, data);
-  }).then(() => maybeScheduleCompaction(store)).catch(() => {
-    // Local telemetry must never affect the routed model call.
+  }).then(() => maybeScheduleCompaction(store)).catch((error) => {
+    // Local telemetry must never affect the routed model call, but a lost
+    // batch is reported rather than settled as written.
+    try {
+      process.stderr.write(`[statusline] gateway usage events not saved: ${error?.message || error}\n`);
+    } catch {}
   });
   usageFlushTail = Promise.all([usageFlushTail, flush]).then(() => {});
   return usageFlushTail;
@@ -378,9 +392,17 @@ function flushGatewayUsageEventsSync() {
   }
 }
 
-/** Resolves once every recorded usage event has been handed to disk. */
-export function settleGatewayUsageWrites() {
-  return flushGatewayUsageEvents();
+/** Resolves once every recorded usage event has been handed to disk and the
+ *  compaction those writes scheduled (run now instead of on its timer) or
+ *  started has rewritten the store. */
+export async function settleGatewayUsageWrites() {
+  await flushGatewayUsageEvents();
+  if (compactTimer) {
+    clearTimeout(compactTimer);
+    compactTimer = null;
+    void compactUsageStore(compactStore);
+  }
+  await compactRunning;
 }
 
 function scheduleGatewayUsageFlush() {

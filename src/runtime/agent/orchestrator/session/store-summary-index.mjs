@@ -391,31 +391,58 @@ const _pendingRemovals = new Set(); // ids to drop (upsert/removal are mutually 
 let _summaryRetryTimer = null;
 let _summaryFlushScheduled = false;
 let _summaryFlushInflight = 0;
-const _summarySettleWaiters = new Set();
+// Ids whose ops the async flush in flight took (they are requeued if it fails).
+const _inflightSummaryIds = new Set();
+const _summarySettleWaiters = new Set(); // { ids: string[]|null, resolve }
 
 export function _hasUnsettledSummaryOps() {
   return _pendingUpserts.size > 0 || _pendingRemovals.size > 0 || _summaryFlushScheduled || _summaryFlushInflight > 0;
 }
 
+/** The ids among `ids` whose summary ops are queued or being written. */
+export function pendingSummaryIndexIds(ids) {
+  return ids.filter((id) => _pendingUpserts.has(id) || _pendingRemovals.has(id) || _inflightSummaryIds.has(id));
+}
+
+function _waiterSettled({ ids }) {
+  return ids ? pendingSummaryIndexIds(ids).length === 0 : !_hasUnsettledSummaryOps();
+}
+
 function _notifySummarySettled() {
-  if (_hasUnsettledSummaryOps()) return;
-  for (const resolve of _summarySettleWaiters) resolve();
-  _summarySettleWaiters.clear();
+  for (const waiter of _summarySettleWaiters) {
+    if (_waiterSettled(waiter)) waiter.settle(true);
+  }
 }
 
 /**
- * Resolves once every queued summary-index mutation has landed and no flush
- * is scheduled or in flight — from then on this process no longer touches
- * the index, its lock or its temp files. Callers are told a save/sweep is
- * done before its deferred index flush runs, so an owner that removes or
- * switches the data dir awaits this first. A flush refused by a held lock
- * (an overlapping flush of this process, or another process) stays queued
- * and settles when its retry lands.
+ * Resolves true once the queued summary-index mutations have landed — of
+ * `ids` only when given, else every one with no flush scheduled or in flight;
+ * from then on this process no longer touches the index for them. Callers
+ * are told a save/sweep is done before its deferred index flush runs, so an
+ * owner that removes or switches the data dir awaits this first. A flush
+ * refused by a held lock (an overlapping flush of this process, or another
+ * process) stays queued and settles when its retry lands. When `signal`
+ * aborts first it resolves false and stops waiting; the ops stay queued.
  */
-export function settleSummaryIndexWrites() {
-  if (!_hasUnsettledSummaryOps()) return Promise.resolve();
+export function settleSummaryIndexWrites({ ids = null, signal = null } = {}) {
+  const waiter = { ids, settle: null };
+  if (_waiterSettled(waiter)) return Promise.resolve(true);
+  if (signal?.aborted) return Promise.resolve(false);
   _summaryRetryTimer?.ref?.();
-  return new Promise((resolve) => _summarySettleWaiters.add(resolve));
+  return new Promise((resolve) => {
+    const onAbort = () => waiter.settle(false);
+    // The one exit, landed or abandoned: the waiter and its abort listener
+    // both go, so a long-lived signal collects nothing per settle.
+    waiter.settle = (landed) => {
+      if (!_summarySettleWaiters.delete(waiter)) return;
+      signal?.removeEventListener('abort', onAbort);
+      // Only an awaited settlement keeps the process alive for the retry.
+      if (_summarySettleWaiters.size === 0) _summaryRetryTimer?.unref?.();
+      resolve(landed);
+    };
+    _summarySettleWaiters.add(waiter);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function _scheduleSummaryRetry() {
@@ -498,11 +525,14 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
     return;
   }
   _summaryFlushInflight++;
+  const taken = [...upserts.keys(), ...removals];
+  for (const id of taken) _inflightSummaryIds.add(id);
   withFileLock(`${path}.lock`, () => _appendSummaryOpsLocked(path, text), { timeoutMs: SUMMARY_LOCK_TIMEOUT_MS })
     .then(() => _sweepStaleSummaryTempOnce(path))
     .catch(requeue)
     .finally(() => {
       _summaryFlushInflight--;
+      for (const id of taken) _inflightSummaryIds.delete(id);
       if (_pendingUpserts.size > 0 || _pendingRemovals.size > 0) _scheduleSummaryFlush();
       _notifySummarySettled();
     });

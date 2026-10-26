@@ -91,6 +91,7 @@ function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
 
 import { resolve } from 'node:path';
 import { ensurePgInstance as supervisorEnsure, stopOwnedPgForShutdown } from './supervisor.mjs';
+import { createSharedAbortable } from '../../../shared/abort-race.mjs';
 
 export { installOwnedPgExitStop, pgClusterExists } from './supervisor.mjs';
 
@@ -488,12 +489,15 @@ export async function ensurePgInstance(dataDir, opts = {}) {
   const key = instanceKey(dataDir, schema);
 
   if (instances.has(key)) return instances.get(key);
-  if (opening.has(key)) return opening.get(key);
+  // `opts.signal` withdraws this caller; the shared open is cancelled once
+  // every caller has (createSharedAbortable).
+  if (opening.has(key)) return opening.get(key).join(opts.signal);
 
-  const promise = (async () => {
+  const shared = createSharedAbortable(async (signal) => {
     // 1. Let supervisor-pg own PG startup and health-checking.
     //    Returns { host, port, runtimeDir, pgdataDir }.
-    const { host, port, runtimeDir, pgdataDir } = await supervisorEnsure(dataDir);
+    const { host, port, runtimeDir, pgdataDir } = await supervisorEnsure(dataDir, { signal });
+    signal.throwIfAborted();
 
     // 2. Connect via node-postgres; auto-create the mixdog database if absent.
     const { default: pg } = await import('pg');
@@ -552,14 +556,14 @@ export async function ensurePgInstance(dataDir, opts = {}) {
     const result = { db, pool: pgPool, host, port, runtimeDir, pgdataDir };
     instances.set(key, result);
     return result;
-  })();
+  }, {
+    onSettled: () => {
+      if (opening.get(key) === shared) opening.delete(key);
+    },
+  });
 
-  opening.set(key, promise);
-  try {
-    return await promise;
-  } finally {
-    opening.delete(key);
-  }
+  opening.set(key, shared);
+  return shared.join(opts.signal);
 }
 
 // ---------------------------------------------------------------------------

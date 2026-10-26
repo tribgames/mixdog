@@ -5,6 +5,17 @@
  * close, all-settled for a full one.
  */
 import { releaseComputerSession } from '../../../runtime/computer-bridge/client.mjs';
+import {
+  pendingSummaryIndexIds,
+  settleSummaryIndexWrites,
+} from '../../../runtime/agent/orchestrator/session/store-summary-index.mjs';
+import { settleGatewayUsageWrites } from '../../../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
+import { closeSessionSearch } from '../../../runtime/session-search/session-search-ingest.mjs';
+
+// How long a close waits for a stop that owns files (memory, goals, and the
+// close's own persistence): briefly for a detached close, longer for a full one.
+const DETACHED_FILE_STOP_MS = 1500;
+const FULL_FILE_STOP_MS = 5500;
 
 export function startRuntimeStops(deps, reason, { detach, isProcessExit }) {
   const { mcpClient, getMcpScopeId, closePatchRuntimeIfLoaded, getMemoryModPromise, setMemoryModPromise } = deps;
@@ -66,8 +77,8 @@ export async function settleDetached(withTeardownDeadline, stops) {
   const bounded = [
     [stops.channelStop, 300],
     [stops.shellJobsStop, 300],
-    [stops.memoryStop, 1500],
-    [stops.goalStop, 1500],
+    [stops.memoryStop, DETACHED_FILE_STOP_MS],
+    [stops.goalStop, DETACHED_FILE_STOP_MS],
   ];
   for (const [stop, deadlineMs] of bounded) {
     try {
@@ -79,14 +90,49 @@ export async function settleDetached(withTeardownDeadline, stops) {
   }
 }
 
+/**
+ * The close's deferred data-dir writes, under the file-stop deadline: this
+ * session's summary-index ops (every queued op when no session is closing),
+ * the buffered gateway usage events with their compaction, and this session's
+ * session-search writes (cancelled, PostgreSQL install included). Past the
+ * deadline the close stops waiting and reports what is still pending; those
+ * writes stay queued and land later.
+ */
+export async function settlePersistence(withTeardownDeadline, { detach, closingSessionId }) {
+  const ids = closingSessionId ? [closingSessionId] : null;
+  const giveUp = new AbortController();
+  const pending = new Set(['summary index', 'gateway usage', 'session search']);
+  const track = (name, work) =>
+    Promise.resolve(work).then((settled) => {
+      if (settled !== false) pending.delete(name);
+    });
+  const settled = await withTeardownDeadline(
+    Promise.all([
+      track('summary index', settleSummaryIndexWrites({ ids, signal: giveUp.signal })),
+      track('gateway usage', settleGatewayUsageWrites()),
+      track('session search', closingSessionId ? closeSessionSearch(closingSessionId) : null),
+    ]).then(() => true),
+    detach ? DETACHED_FILE_STOP_MS : FULL_FILE_STOP_MS,
+    false
+  );
+  if (settled) return;
+  giveUp.abort();
+  const detail = [...pending].map((name) =>
+    name === 'summary index' && ids ? `summary index (sessions: ${pendingSummaryIndexIds(ids).join(', ')})` : name
+  );
+  process.emitWarning(`close persistence incomplete; still pending: ${detail.join('; ')}`, {
+    code: 'TEARDOWN_PERSISTENCE_PENDING',
+  });
+}
+
 export async function settleAll(withTeardownDeadline, stops) {
   await Promise.allSettled([
     withTeardownDeadline(stops.channelStop, 5500, false),
     withTeardownDeadline(stops.mcpStop, 1500, false),
     withTeardownDeadline(stops.openaiWsStop, 1500, false),
     withTeardownDeadline(stops.patchStop, 1500, false),
-    withTeardownDeadline(stops.memoryStop, 5500, false),
-    withTeardownDeadline(stops.goalStop, 5500, false),
+    withTeardownDeadline(stops.memoryStop, FULL_FILE_STOP_MS, false),
+    withTeardownDeadline(stops.goalStop, FULL_FILE_STOP_MS, false),
     withTeardownDeadline(stops.shellJobsStop, 1500, false),
     withTeardownDeadline(stops.nativeToolStop, 1500, false),
     withTeardownDeadline(stops.computerStop, 1500, false),

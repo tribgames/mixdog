@@ -7,13 +7,17 @@
  */
 import { SessionClosedError } from '../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { forgetSessionSaveBaseline } from '../../runtime/agent/orchestrator/session/store/save-worker.mjs';
-import { settleSummaryIndexWrites } from '../../runtime/agent/orchestrator/session/store-summary-index.mjs';
-import { settleGatewayUsageWrites } from '../../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
 import { flushAllIndexWrites } from '../services/agent-tool/index-write-queue.mjs';
 import { PROCESS_RESTART_FAILURE } from '../services/agent-tool/worker-index/row-liveness.mjs';
 import { unregisterLiveSession } from '../../runtime/shared/staged-update.mjs';
 import { abortRuntime, closeCanonicalSession, closeOwnSession, dispatchSessionEnd } from './teardown/session-close.mjs';
-import { settleAll, settleDetached, startRuntimeStops, startWorkStops } from './teardown/runtime-stops.mjs';
+import {
+  settleAll,
+  settleDetached,
+  settlePersistence,
+  startRuntimeStops,
+  startWorkStops,
+} from './teardown/runtime-stops.mjs';
 
 const CLOSE_ALL_DEADLINE_MS = 5000;
 const PROCESS_EXIT_REASON = /exit|quit|shutdown|sighup|sigint|sigterm/;
@@ -245,14 +249,22 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     else await settleAll(withTeardownDeadline, stops);
     // Reported closed only once the barrier is on disk (closeSessionAsync),
     // and its write control is released only after that.
-    const ok = await ownClose;
-    // The session went away (idle eviction included): free its save baselines.
-    if (scope.closingSessionId) forgetSessionSaveBaseline(scope.closingSessionId, { releaseWriteControl: true });
-    // The close's saves and turns queued buffered data-dir writes (summary
-    // index ops, gateway usage events) that flush on later ticks. Land them
-    // now: once close resolves, nothing this runtime started writes into the
-    // data dir.
-    await Promise.all([settleSummaryIndexWrites(), settleGatewayUsageWrites()]);
+    let ok = false;
+    try {
+      ok = await ownClose;
+      // The session went away (idle eviction included): free its save baselines.
+      if (scope.closingSessionId) forgetSessionSaveBaseline(scope.closingSessionId, { releaseWriteControl: true });
+      // The close's saves and turns queued buffered data-dir writes (summary
+      // index ops, gateway usage events, session-search writes) that run on
+      // later ticks: land or cancel them under the teardown deadline.
+      await settlePersistence(withTeardownDeadline, scope);
+    } finally {
+      finishClose(scope);
+    }
+    return ok;
+  }
+
+  function finishClose(scope) {
     // Self-update stages in the background and swaps on the next clean launch
     // (see staged-update.mjs) — nothing installs at shutdown. On a real
     // process exit we just drop this session's live-refcount pid file so a
@@ -264,7 +276,6 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
         /* advisory refcount only */
       }
     }
-    return ok;
   }
 
   return {
