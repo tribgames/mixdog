@@ -4,40 +4,43 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
-Benachrichtigungssteuerungen mit Ruhezeiten und Stummschaltungen, gespeicherte Anmeldungen, die sich selbst ausfüllen, und automatisches Prompt-Cache-Aufwärmen hinzugefügt.
+Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbessert sowie das Agenten-Harness optimiert, um überflüssige Prüfungen zu überspringen und Aufgaben schneller abzuschließen.
 
 ### Neue Funktionen
 
-- **Benachrichtigungssteuerung** — Gerätespezifische Benachrichtigungseinstellungen, Gesprächsstummschaltungen, Ruhezeiten und Fehlerbenachrichtigungen unter Einstellungen → Benachrichtigungen hinzugefügt, mit Zulassen auf Genehmigungsbenachrichtigungen, bei denen der PC einmalig erlaubt (#221, thanks @dislight1123).
-- **Von Bots delegierte Arbeit** — Eine Live-Zeile pro Aufgabe unter der Antwort für Arbeiten hinzugefügt, die ein Bot an andere Sitzungen delegiert, abschließend mit einer einzelnen Abschlusskarte.
+- **Remote-PC-Bildschirm** — Anzeigen und Steuern Ihres PC-Bildschirms von Ihrem Smartphone über eine direkte WebRTC-Verbindung mit Sondertasten und einer Status-Pille auf dem PC hinzugefügt.
+- **PC-Zugriff** — Optionaler Zugriff auf Administratorabfragen, den Sperrbildschirm und `Ctrl`+`Alt`+`Del` von Ihrem Smartphone hinzugefügt, einmalig in der Computer Use-Einrichtung oder mit Ihrem Windows-Passwort genehmigt.
+- **Browser-Live-Ansicht** — Streaming des In-App-Browsers auf Ihr Smartphone über WebRTC hinzugefügt, wobei übernommene Seiten an Ihren Bildschirm angepasst werden und direktes Tippen über Ihre Smartphone-Tastatur möglich ist.
+- **Benachrichtigungssteuerung** — Gerätespezifische Benachrichtigungseinstellungen, Gesprächsstummschaltungen, Ruhezeiten und Fehlerbenachrichtigungen unter Einstellungen → Benachrichtigungen hinzugefügt, mit Zulassen bei Genehmigungsbenachrichtigungen (#221, thanks @dislight1123).
+- **Von Bots delegierte Arbeit** — Eine Live-Zeile pro Aufgabe unter der Antwort für Arbeiten hinzugefügt, die ein Bot delegiert, die den Fortschritt anzeigt und es Ihnen ermöglicht, Fragen im Chat zu beantworten.
 - **Gespeicherte Anmeldungen** — Automatische Anmeldung mit gespeicherten Logins und Einmalcodes unter Einstellungen → Authentifizierung hinzugefügt, ohne dass das Modell die Geheimnisse jemals sieht.
 - **Chrome-Login-Import** — Import gespeicherter Chrome-Logins einschließlich neuerer App-gebundener verschlüsselter Anmeldungen in die überarbeitete Anmeldeseite mit einem Schalter für Gespeichert/Angemeldet bleiben hinzugefügt.
 - **Anmeldung über Ihre E-Mail** — Öffnen von Anmeldelinks und Ausfüllen von Codes aus Ihrer verifizierten E-Mail hinzugefügt, wobei gespeichert wird, welchen Identitätsanbieter jede Website verwendet hat.
 - **Gespeicherte Logins in Chrome und Edge** — Automatisches Ausfüllen gespeicherter Logins durch Computer Use in Ihrem eigenen Chrome oder Edge hinzugefügt, ohne sie dem Modell offenzulegen.
-- **Prompt-Cache-Aufwärmen** — Prompt-Cache-Aufwärmen für Anthropic-Modelle hinzugefügt, standardmäßig aktiviert unter Einstellungen → Kontext, das lernt, wann Sie zu jeder Unterhaltung zurückkehren, und einen Bot vor seinem nächsten geplanten Durchlauf aufwärmt.
+- **Prompt-Cache-Aufwärmen** — Automatisches Prompt-Cache-Aufwärmen für Anthropic-Modelle unter Einstellungen → Kontext hinzugefügt, das Ihre Rückkehrgewohnheiten lernt und Bots vor geplanten Ausführungen vorwärmt.
 - **Weitere Google-Verbindungen** — Verbinden weiterer Google-Konten mit Gmail, Calendar und Drive hinzugefügt, mit Auswahl des Kontos pro Anfrage und klarer Anmeldeaufforderung.
-- **Smartphone-Dock per Wischen schließen** — Schließen des Smartphone-Seitendocks durch Wegwischen über den Inhalt, nicht nur über die Kante, hinzugefügt.
 
 ### Änderungen
 
+- Agenten so geändert, dass sie einmal nach allen Bearbeitungen statt während der Aufgabe verifizieren, unabhängige Tool-Aufrufe gemeinsam ausführen und Fortschritts-Updates kurz halten.
 - Einstellungen in vier Bereiche aufgeteilt: Grundlagen, KI-Verhalten, Integrationen und Support.
+- Das Sitzungsmenü so geändert, dass Sie auswählen können, welche Seitenleistenabschnitte angezeigt werden sollen.
 - Tippen, Sitzungs- und Tab-Wechsel, Suche, Einstellungen, Seitenpanels, Terminal und Änderungen so geändert, dass sie sich sofort öffnen, mit flüssigeren Statusanimationen.
 - Genehmigungen aus von Bots delegierten Sitzungen so geändert, dass sie in jedem Chat erscheinen, der auf sie wartet, mit demselben Wortlaut und denselben Tasten auf jeder Genehmigungskarte.
-- Sitzungs- und Bot-Zeilen so geändert, dass sie ein gelbes Dreieck für ein Warten auf Genehmigung, ein Fragezeichensymbol für eine Frage und die Anzahl der wartenden Aufgaben eines Bots anzeigen.
+- Sitzungs- und Bot-Zeilen so geändert, dass sie ein bernsteinfarbenes Dreieck für ein Warten auf Genehmigung, ein Fragezeichensymbol für eine Frage und die Anzahl wartender Arbeiten anzeigen.
 - Bot-Aufgabensitzungen und Sub-Agenten so geändert, dass sie einen eigenen Ungelesen-Punkt tragen, der zusammen mit dem Chat gelesen wird, an den sie berichten.
 - Ein gekoppeltes Smartphone so geändert, dass es Dateien auf dieselbe Weise wie der PC liest, in der Vorschau anzeigt, herunterlädt und öffnet.
-- Die `@`-Dateiauswahl so geändert, dass kurze, flache Pfade zuerst aufgeführt werden, mit kürzlich bearbeiteten Arbeiten geöffnet wird und Dateien in verknüpften Ordnern sowie über das alte Scanlimit hinaus gefunden werden (#228, thanks @reeves-ai-lch).
+- Die `@`-Dateiauswahl so geändert, dass kurze, flache Pfade zuerst aufgeführt werden, mit kürzlich bearbeiteten Arbeiten geöffnet wird und Dateien in verknüpften Ordnern gefunden werden (#228, thanks @reeves-ai-lch).
 - Visualize so geändert, dass Seiten aus jedem lokalen Ordner geöffnet werden und Indexseiten nach ihrem Ordner benannt werden.
 - Das Nutzungs-Popup und die angeheftete Nutzungsleiste so geändert, dass jedes Limit als eine Zeile über einer Leiste in voller Breite angezeigt wird.
-- Das shell-Werkzeug so geändert, dass es einen optionalen Arbeitsordner akzeptiert, sodass Befehle nicht mehr mit `cd` beginnen.
-- Das shell-Werkzeug so geändert, dass es Befehle ablehnt, die mit einem sleep von 2 Sekunden oder mehr beginnen, und stattdessen auf `background:true` und `task wait` hinweist.
-- Agenten-Terminalausführungen und Browser-Seiten so geändert, dass sie ihren Tab auf dem PC und gekoppelten Geräten öffnen und Transkriptzeilen genau diesen Tab öffnen.
+- Das shell-Werkzeug so geändert, dass es ein optionales Arbeitsverzeichnis akzeptiert und Pausen von 2 Sekunden oder mehr ablehnt.
+- Agenten-Terminalausführungen und Browser-Seiten so geändert, dass sie ihren Tab auf dem PC und gekoppelten Geräten anzeigen, direkt geöffnet aus Transkriptzeilen.
 - Browser Use so geändert, dass Hintergrundseiten pro Sitzung begrenzt und nach Beendigung eines Zugs geschlossen werden.
 - Wiederholungs-Wartezeiten so geändert, dass sie einen festen Grund und einen Live-Countdown anstelle des reinen Fehlertexts anzeigen.
-- Bot-Chats so geändert, dass keine Karte mit geänderten Dateien unter einer Antwort angezeigt wird und Antwortzeit sowie Übergabe sich eine Zeile teilen.
+- Bot-Chats so geändert, dass keine Karte mit geänderten Dateien unter einer Antwort angezeigt wird, weit auseinanderliegende Nachrichten getrennt werden und sich Übergabe und Zeit eine Zeile teilen.
 - Die Sprachenliste so geändert, dass Koreanisch unter seinem eigenen Namen angezeigt wird.
 - Mixys regelmäßigen Check-in so geändert, dass er standardmäßig stündlich ausgeführt wird, wobei das Intervall unter Einstellungen → Bots gewählt werden kann.
-- Den Smartphone-Drawer und das „Thinking“-Schimmern so angepasst, dass sie flüssiger animiert werden.
+- Das Smartphone-Seitendock so angepasst, dass es sich durch Wischen an beliebiger Stelle auf dem Sheet schließt, und Drawer-Zeilen sowie das Textschimmern flüssiger animiert werden.
 
 ### Fehlerbehebungen
 
@@ -62,6 +65,8 @@ Benachrichtigungssteuerungen mit Ruhezeiten und Stummschaltungen, gespeicherte A
 - Behoben: Das Smartphone-Agenten-Panel zeigte einen doppelten Profil-Titel über seinen eigenen Tabs an.
 - Behoben: Die Ansicht „Änderungen“ des Seitenpanels trug den Titel Profil, nachdem dort zuletzt das Profil eines Bots geöffnet war.
 - Behoben: Die Sitzungsliste und der Chat auf Android-Smartphones froren nach schnellem Scrollen ein und sprangen anschließend.
+- Behoben: Seitenleisten-Abschnittsüberschriften blieben nach einem Klick hervorgehoben, und ihr Spinner wurde ausgeblendet, während die Menüschaltfläche angezeigt wurde.
+- Behoben: Beim Komprimieren einer Unterhaltung gingen aktuelle Skills und Regeln verloren, anstatt sie aus den aktiven Quellen neu aufzubauen.
 
 ## v1.3.5 - 2026-10-24
 

@@ -4,64 +4,69 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
-Aggiunti controlli delle notifiche con orari di silenzio e silenziamenti, accessi salvati che si compilano automaticamente e preriscaldamento automatico della cache dei prompt.
+Migliorato il lavoro remoto dal telefono insieme a Browser Use e Computer Use e ottimizzato l'harness degli agenti per saltare i controlli ridondanti e completare il lavoro più velocemente.
 
 ### Nuove funzionalità
 
-- **Controlli delle notifiche** — Aggiunte impostazioni di notifica per dispositivo, silenziamento delle conversazioni, orari di silenzio e notifiche di errore in Impostazioni → Notifiche, con Consenti sulle notifiche di approvazione in cui il PC autorizza una sola volta (#221, thanks @dislight1123).
-- **Lavoro delegato dai bot** — Aggiunta una riga in tempo reale per attività sotto la risposta per il lavoro che un bot delega ad altre sessioni, terminando con una singola scheda di completamento.
-- **Accessi salvati** — Aggiunto l’accesso automatico con credenziali salvate e codici monouso gestito in Impostazioni → Autenticazione, senza che il modello veda mai i dati segreti.
-- **Importazione accessi da Chrome** — Aggiunta l’importazione degli accessi salvati di Chrome, compresi quelli crittografati associati alle app più recenti, nella pagina degli Accessi rinnovata con un selettore per salvare/mantenere l’accesso.
-- **Accesso dalla tua email** — Aggiunta l’apertura dei link di accesso e la compilazione dei codici dalla tua email verificata, memorizzando il provider di identità utilizzato da ciascun sito.
+- **Schermo PC remoto** — Aggiunta la visualizzazione e il controllo dello schermo del PC dal telefono tramite una connessione diretta WebRTC con tasti speciali e un indicatore di stato a pillola sul PC.
+- **Accesso al PC** — Aggiunto l'accesso opzionale alle richieste dell'amministratore, alla schermata di blocco e a `Ctrl`+`Alt`+`Del` dal telefono, approvato una volta nella configurazione di Computer Use o con la password di Windows.
+- **Visualizzazione live del browser** — Aggiunto lo streaming del browser in-app sul telefono tramite WebRTC, con adattamento delle pagine di controllo allo schermo e digitazione diretta dalla tastiera dello smartphone.
+- **Controlli delle notifiche** — Aggiunte impostazioni di notifica per dispositivo, silenziamento delle conversazioni, orari di silenzio e notifiche di errore in Impostazioni → Notifiche, con Consenti sulle notifiche di approvazione (#221, thanks @dislight1123).
+- **Lavoro delegato dai bot** — Aggiunta una riga in tempo reale per attività sotto la risposta per il lavoro che un bot delega, che mostra l'avanzamento e consente di rispondere alle domande nella chat.
+- **Accessi salvati** — Aggiunto l'accesso automatico con credenziali salvate e codici monouso, gestito in Impostazioni → Autenticazione, senza che il modello veda mai i dati segreti.
+- **Importazione accessi da Chrome** — Aggiunta l'importazione degli accessi salvati di Chrome, compresi quelli crittografati associati alle app più recenti, nella pagina Accessi rinnovata con un selettore per salvare/mantenere l'accesso.
+- **Accesso dalla tua email** — Aggiunta l'apertura dei link di accesso e la compilazione dei codici dalla tua email verificata, memorizzando il provider di identità utilizzato da ciascun sito.
 - **Accessi salvati in Chrome ed Edge** — Aggiunta la compilazione degli accessi salvati nel tuo Chrome o Edge tramite Computer Use senza esporli al modello.
-- **Preriscaldamento della cache dei prompt** — Aggiunto il preriscaldamento della cache dei prompt per i modelli Anthropic, attivo per impostazione predefinita in Impostazioni → Contesto, che apprende quando ritorni a ciascuna conversazione e prepara un bot prima della sua successiva esecuzione pianificata.
-- **Più connessioni Google** — Aggiunta la connessione di più account Google a Gmail, Calendar e Drive, scegliendo l’account per ciascuna richiesta con un chiaro avviso di accesso.
-- **Chiusura del dock del telefono tramite scorrimento** — Aggiunta la chiusura del dock laterale del telefono scorrendo dal suo contenuto e non solo dal bordo.
+- **Preriscaldamento della cache dei prompt** — Aggiunto il preriscaldamento automatico della cache dei prompt per i modelli Anthropic in Impostazioni → Contesto, che apprende le abitudini di ritorno e prepara i bot prima delle esecuzioni pianificate.
+- **Più connessioni Google** — Aggiunta la connessione di più account Google a Gmail, Calendar e Drive, scegliendo l'account per ciascuna richiesta con un chiaro avviso di accesso.
 
 ### Modifiche
 
-- Riorganizzate le Impostazioni in quattro sezioni: Base, Comportamento dell’IA, Integrazioni e Supporto.
-- Digitazione, cambio di sessione e scheda, Cerca, Impostazioni, pannelli laterali, terminale e Modifiche ora si aprono istantaneamente, con animazioni di stato più fluide.
-- Le approvazioni provenienti da sessioni delegate dai bot ora compaiono in ogni chat in attesa, con lo stesso testo e gli stessi tasti su ogni scheda di approvazione.
-- Le righe di sessioni e bot ora mostrano un triangolo ambra per l’attesa di approvazione, un punto interrogativo per una domanda e il conteggio dei lavori in attesa del bot.
-- Le sessioni di attività dei bot e i sotto-agenti ora hanno un proprio punto di non letto, che viene contrassegnato come letto insieme alla chat a cui fanno riferimento.
-- Un telefono associato ora legge, visualizza in anteprima, scarica e apre i file esattamente come fa il PC.
-- Il selettore di file `@` ora elenca prima i percorsi brevi e poco profondi, si apre con i lavori recenti e trova file nelle cartelle collegate oltre il vecchio limite di scansione (#228, thanks @reeves-ai-lch).
-- Visualize ora apre pagine da qualsiasi cartella locale, denominando le pagine indice con il nome della loro cartella.
-- Il popup di utilizzo e la barra di utilizzo fissata ora mostrano ciascun limite come una riga sopra una barra a larghezza intera.
-- Lo strumento shell ora accetta una cartella di lavoro facoltativa, eliminando la necessità che i comandi inizino con `cd`.
-- Lo strumento shell ora rifiuta i comandi che iniziano con uno sleep di 2 secondi o superiore, rimandando a `background:true` e `task wait`.
-- Le esecuzioni del terminale dell’agente e le pagine del browser ora aprono la relativa scheda sul PC e sui dispositivi associati, e le righe della cronologia aprono esattamente quella scheda.
-- Browser Use ora limita le pagine in background per sessione e le chiude al termine di un turno.
-- Le attese di ripetizione ora mostrano un motivo predefinito e un conto alla rovescia in tempo reale al posto del messaggio di errore non elaborato.
-- Le chat dei bot non mostrano più la scheda dei file modificati sotto una risposta, e l’orario della risposta e il passaggio di consegne condividono un’unica riga.
-- L’elenco delle lingue ora mostra il coreano con il proprio nome nativo.
-- Il controllo periodico di Mixy ora viene eseguito ogni ora per impostazione predefinita, con l’intervallo selezionabile in Impostazioni → Bot.
-- Regolate le animazioni del cassetto del telefono e dell’effetto "pensando" per renderle più fluide.
+- Modificati gli agenti per verificare una sola volta al termine di tutte le modifiche anziché a metà attività, eseguire insieme le chiamate agli strumenti indipendenti e mantenere brevi gli aggiornamenti di avanzamento.
+- Modificate le Impostazioni dividendole in quattro sezioni: Base, Comportamento dell'IA, Integrazioni e Supporto.
+- Modificato il menu Sessioni per consentire di scegliere quali sezioni della barra laterale visualizzare.
+- Modificati digitazione, cambio di sessione e scheda, Cerca, Impostazioni, pannelli laterali, terminale e Modifiche per aprirsi istantaneamente, con animazioni di stato più fluide.
+- Modificate le approvazioni provenienti da sessioni delegate dai bot per comparire in ogni chat in attesa, con lo stesso testo e gli stessi tasti su ogni scheda di approvazione.
+- Modificate le righe di sessioni e bot per mostrare un triangolo ambra per l'attesa di approvazione, un'icona a punto interrogativo per una domanda e il conteggio dei lavori in attesa.
+- Modificate le sessioni di attività dei bot e i sotto-agenti per avere un proprio punto di non letto, contrassegnato come letto insieme alla chat a cui fanno riferimento.
+- Modificato il telefono associato per leggere, visualizzare in anteprima, scaricare e aprire i file esattamente come fa il PC.
+- Modificato il selettore di file `@` per elencare prima i percorsi poco profondi, aprirsi con i lavori recenti e trovare file nelle cartelle collegate (#228, thanks @reeves-ai-lch).
+- Modificato Visualize per aprire pagine da qualsiasi cartella locale, denominando le pagine indice con il nome della loro cartella.
+- Modificati il popup di utilizzo e la barra di utilizzo fissata per mostrare ciascun limite come una riga sopra una barra a larghezza intera.
+- Modificato lo strumento shell per accettare una cartella di lavoro facoltativa e rifiutare comandi di sospensione sleep di 2 secondi o più.
+- Modificate le esecuzioni del terminale dell'agente e le pagine del browser per mostrare la relativa scheda sul PC e sui dispositivi associati, aprendosi direttamente dalle righe della trascrizione.
+- Modificato Browser Use per limitare le pagine in background per sessione e chiuderle al termine di un turno.
+- Modificate le attese dei tentativi per mostrare un motivo prestabilito e un conto alla rovescia in tempo reale al posto del testo dell'errore non elaborato.
+- Modificate le chat dei bot per non mostrare alcuna scheda dei file modificati sotto una risposta, separare i messaggi distanti e condividere una sola riga per passaggio di consegne e orario.
+- Modificato l'elenco delle lingue per mostrare il coreano con il proprio nome nativo.
+- Modificato il controllo periodico di Mixy per essere eseguito ogni ora per impostazione predefinita, con l'intervallo selezionabile in Impostazioni → Bot.
+- Regolata la chiusura del dock laterale del telefono scorrendo in qualsiasi punto del riquadro, con un'animazione più fluida per le righe del cassetto e gli effetti shimmer del testo.
 
 ### Correzioni di bug
 
-- Corretta la perdita del layout dei pannelli divisi al ripristino dell’archiviazione locale dell’app.
-- Corretto lo spostamento di bordi, separatori e colori dei pannelli all’apertura o chiusura di un pannello laterale.
+- Corretta la perdita del layout a riquadri divisi quando viene reimpostata la memoria locale dell'app.
+- Corretto lo spostamento di bordi dei pannelli, divisori e colori all'apertura o alla chiusura di un pannello laterale.
 - Corretta la scomparsa del contenuto del cassetto del telefono durante lo scorrimento di chiusura.
-- Corretto il bot fissato che si spostava dall’estremità destra della casella di input dopo la chiusura di un pannello laterale e le chat che scendevano di una riga all’apertura.
-- Corretta la riga di un bot che non ruotava né mostrava punti di non letto mentre le sue sessioni di attività erano in esecuzione.
-- Corretto il clic su una notifica desktop che lasciava la barra laterale sulla sessione precedente o non produceva alcun effetto se la finestra era nascosta.
-- Corretta la risposta a una scheda di domanda al termine di una chat che impediva alla cronologia di seguire la risposta.
-- Corrette le sessioni di attività create con un modello esplicito che fallivano con l’errore "service is not defined".
-- Corretto il controllo periodico di Mixy che veniva eseguito mentre l’applicazione desktop era ancora in uso.
+- Corretto il bot fissato che lasciava l'estremità destra del compositore dopo la chiusura di un pannello laterale e le chat che scendevano di una riga all'apertura.
+- Corretta la riga di un bot che non ruotava né mostrava punti di non letto mentre le sue sessioni di attività lavorano.
+- Corretto il clic su una notifica desktop che lasciava la barra laterale sulla sessione precedente o non produceva alcun effetto con la finestra nascosta.
+- Corretta la risposta a una scheda di domanda al termine di una chat che impediva alla trascrizione di seguire la risposta.
+- Corrette le sessioni di attività create con un modello esplicito che fallivano con "service is not defined".
+- Corretto il controllo periodico di Mixy che veniva eseguito mentre l'app desktop era ancora in uso.
 - Corretto Computer Use che digitava in finestre che si portavano autonomamente in primo piano e scriveva in campi di sola lettura o disattivati.
 - Corrette le password salvate più lunghe di 4.096 caratteri che venivano troncate e i dati segreti più corti di quattro caratteri che non venivano mascherati nelle chat.
 - Corretta la perdita del tentativo in coda di un turno fallito e della scelta delle abilità di una routine dopo un riavvio (#229, thanks @22nsuk).
-- Corretto il ripristino automatico della quota tramite SSH che leggeva la quota del server anziché quella del PC quando quest’ultimo manteneva l’accesso (#232, thanks @22nsuk).
+- Corretto il ripristino automatico della quota tramite SSH che leggeva la quota del server anziché quella del PC quando quest'ultimo manteneva l'accesso (#232, thanks @22nsuk).
 - Corretto `Option`+`Left`/`Right` che non spostava il cursore per parola nei campi di testo su macOS (#230, thanks @wudys).
 - Corretta la selezione del contesto del profilo di un agente che non veniva conservata (#226, thanks @22nsuk) e Cursor che falliva su conflitti di contesto memorizzati (#225, thanks @22nsuk).
 - Corretta una sessione di attività in attesa visualizzata come bloccata e un account connettore disattivato che non poteva essere riattivato.
-- Corretta la perdita della ripetizione in caso di errore di sessione scaduta e il pannello del browser che mostrava una pagina vuota dopo la chiusura dell’ultima pagina.
-- Corretto l’errore "This conversation has no such attachment." al clic su un allegato in conversazioni lunghe o compattate.
+- Corretta la perdita della ripetizione in caso di errore di sessione scaduta e il pannello del browser che mostrava una pagina vuota dopo la chiusura dell'ultima pagina.
+- Corretto l'errore "This conversation has no such attachment." al clic su un allegato in conversazioni lunghe o compattate.
 - Corretto il pannello degli agenti sul telefono che mostrava un titolo Profilo duplicato sopra le proprie schede.
-- Corretta la vista Modifiche del pannello laterale intitolata Profilo dopo che il profilo di un bot era stato aperto per l’ultima volta lì.
-- Corretto il blocco e il successivo salto dell’elenco delle sessioni e della chat su telefoni Android dopo uno scorrimento veloce.
+- Corretta la vista Modifiche del pannello laterale intitolata Profilo dopo che il profilo di un bot era stato aperto per l'ultima volta lì.
+- Corretto il blocco e il successivo salto dell'elenco delle sessioni e della chat su telefoni Android dopo uno scorrimento veloce.
+- Corrette le intestazioni di sezione della barra laterale che rimanevano evidenziate dopo un clic e il relativo indicatore di caricamento che scompariva mentre veniva mostrato il pulsante del menu.
+- Corretta la compattazione di una conversazione che perdeva le abilità e le regole correnti anziché ricostruirle dalle fonti attive.
 
 ## v1.3.5 - 2026-10-24
 

@@ -5,40 +5,43 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
-Ajout de contrôles des notifications avec heures de tranquillité et mises en sourdine, d’identifiants enregistrés qui se renseignent automatiquement, et du préchauffage automatique du cache d’instructions.
+Amélioration du travail à distance depuis votre téléphone avec Browser Use et Computer Use, et optimisation de l’environnement des agents pour ignorer les vérifications redondantes et terminer le travail plus rapidement.
 
 ### Nouvelles fonctionnalités
 
-- **Contrôles des notifications** — Ajout des paramètres de notification par appareil, de la mise en sourdine des conversations, des heures de tranquillité et des notifications d’erreur sous Réglages → Notifications, avec Autoriser sur les notifications d’approbation pour lesquelles le PC autorise en une fois (#221, thanks @dislight1123).
-- **Tâches déléguées par des bots** — Ajout d’une ligne en direct par tâche sous la réponse pour le travail qu’un bot délègue à d’autres sessions, se concluant par une carte récapitulative unique.
+- **Écran du PC à distance** — Ajout de l’affichage et du contrôle de l’écran de votre PC depuis votre téléphone via une connexion WebRTC directe avec touches spéciales et pastille d’état sur le PC.
+- **Accès au PC** — Ajout d’un accès optionnel aux invites d’administration, à l’écran de verrouillage et à `Ctrl`+`Alt`+`Del` depuis votre téléphone, approuvé une fois lors de la configuration de Computer Use ou avec votre mot de passe Windows.
+- **Vue en direct du navigateur** — Ajout de la diffusion du navigateur intégré sur votre téléphone via WebRTC, adaptant les pages prises en main à votre écran avec saisie directe depuis votre clavier mobile.
+- **Contrôles des notifications** — Ajout des paramètres de notification par appareil, de la mise en sourdine des conversations, des heures de tranquillité et des notifications d’erreur sous Réglages → Notifications, avec Autoriser sur les notifications d’approbation (#221, thanks @dislight1123).
+- **Tâches déléguées par des bots** — Ajout d’une ligne en direct par travail sous la réponse pour les tâches qu’un bot délègue, affichant la progression et vous permettant de répondre aux questions dans la discussion.
 - **Identifiants enregistrés** — Ajout de la connexion automatique avec identifiants enregistrés et codes à usage unique sous Réglages → Authentification, sans que le modèle ne voie jamais les secrets.
 - **Importation des identifiants Chrome** — Ajout de l’importation des identifiants enregistrés de Chrome, y compris ceux chiffrés récents liés aux applications, dans la page Identifiants repensée avec un bouton pour enregistrer/rester connecté.
 - **Connexion depuis votre messagerie** — Ajout de l’ouverture des liens de connexion et du remplissage automatique des codes issus de votre messagerie vérifiée, avec mémorisation du fournisseur d’identité utilisé par chaque site.
 - **Identifiants enregistrés dans Chrome et Edge** — Ajout du remplissage automatique des identifiants enregistrés dans votre propre navigateur Chrome ou Edge par Computer Use, sans les exposer au modèle.
-- **Préchauffage du cache d’instructions** — Ajout du préchauffage du cache d’instructions pour les modèles Anthropic, activé par défaut sous Réglages → Contexte, apprenant quand vous revenez à chaque conversation et préchauffant un bot avant sa prochaine exécution planifiée.
+- **Préchauffage du cache d’instructions** — Ajout du préchauffage automatique du cache d’instructions pour les modèles Anthropic sous Réglages → Contexte, apprenant vos habitudes de retour et préchauffant les bots avant les exécutions planifiées.
 - **Davantage de connexions Google** — Ajout de la connexion de comptes Google supplémentaires à Gmail, Calendar et Drive, avec choix du compte par requête et invite de connexion claire.
-- **Fermeture du dock mobile par balayage** — Ajout de la fermeture du dock latéral sur téléphone en balayant son contenu, et plus seulement son bord.
 
 ### Modifications
 
+- Modification des agents pour vérifier en une seule fois après toutes les modifications plutôt qu’au milieu d’une tâche, exécuter conjointement les appels d’outils indépendants et garder les mises à jour de progression concises.
 - Réorganisation de Réglages en quatre sections : Essentiel, Comportement de l’IA, Intégrations et Assistance.
+- Modification du menu Sessions pour vous permettre de choisir les sections de la barre latérale à afficher.
 - Modification de la saisie, du changement de session et d’onglet, de la Recherche, des Réglages, des panneaux latéraux, du terminal et de Modifications pour s’ouvrir instantanément, avec des animations d’état plus fluides.
 - Modification des approbations des sessions déléguées par des bots afin qu’elles apparaissent dans chaque discussion en attente, avec le même libellé et les mêmes raccourcis sur chaque carte d’approbation.
-- Modification des lignes de sessions et de bots pour afficher un triangle ambré pour une attente d’approbation, une icône de point d’interrogation pour une question, et le nombre de tâches en attente d’un bot.
+- Modification des lignes de sessions et de bots pour afficher un triangle ambré pour une attente d’approbation, une icône de point d’interrogation pour une question, et le décompte des travaux en attente.
 - Modification des sessions de tâches des bots et des sous-agents pour porter leur propre point d’élément non lu, marqué comme lu conjointement avec la discussion à laquelle ils rapportent.
 - Modification du téléphone jumelé pour lire, prévisualiser, télécharger et ouvrir les fichiers de la même manière que le PC.
-- Modification du sélecteur de fichiers `@` pour lister d’abord les chemins courts et peu profonds, s’ouvrir sur les travaux récents et trouver des fichiers dans les dossiers liés au-delà de l’ancienne limite d’analyse (#228, thanks @reeves-ai-lch).
+- Modification du sélecteur de fichiers `@` pour classer d’abord les chemins peu profonds, s’ouvrir avec les travaux récents et trouver des fichiers dans les dossiers liés (#228, thanks @reeves-ai-lch).
 - Modification de Visualize pour ouvrir des pages depuis n’importe quel dossier local, en nommant les pages d’index d’après leur dossier.
 - Modification de la fenêtre contextuelle d’utilisation et du rail d’utilisation épinglé pour afficher chaque limite sous la forme d’une ligne au-dessus d’une barre pleine largeur.
-- Modification de l’outil shell pour accepter un dossier de travail facultatif, afin que les commandes ne commencent plus par `cd`.
-- Modification de l’outil shell pour refuser une commande débutant par une pause sleep de 2 secondes ou plus, orientant plutôt vers `background:true` et `task wait`.
-- Modification des lancements de terminal d’agent et des pages de navigateur pour ouvrir leur onglet sur le PC et les appareils jumelés, et des lignes de transcription pour ouvrir exactement cet onglet.
+- Modification de l’outil shell pour accepter un répertoire de travail facultatif et refuser les pauses de 2 secondes ou plus.
+- Modification des exécutions de terminal d’agent et des pages de navigateur pour afficher leur onglet sur le PC et les appareils jumelés, ouverts directement depuis les lignes de transcription.
 - Modification de Browser Use pour plafonner le nombre de pages en arrière-plan par session et les fermer une fois un tour terminé.
-- Modification des attentes de nouvelle tentative pour afficher une raison fixe et un compte à rebours en direct plutôt que le message d’erreur brut.
-- Modification des discussions de bots pour ne plus afficher de carte de fichiers modifiés sous une réponse, tandis que l’heure de réponse et le passage de relais partagent une seule ligne.
+- Modification des attentes de nouvelle tentative pour afficher une raison fixe et un compte à rebours en direct plutôt que le texte brut de l’erreur.
+- Modification des discussions de bots pour ne plus afficher de carte de fichiers modifiés sous une réponse, séparer les messages distants et partager une seule ligne pour le relais et l’heure.
 - Modification de la liste des langues pour afficher le coréen sous son propre nom.
 - Modification du point régulier de Mixy pour s’exécuter par défaut toutes les heures, avec un intervalle sélectionnable sous Réglages → Bots.
-- Ajustement du tiroir sur téléphone et du scintillement de réflexion pour une animation plus fluide.
+- Ajustement du dock latéral sur téléphone pour se fermer en balayant n’importe où sur le panneau, avec des animations plus fluides pour les lignes du tiroir et les scintillements du texte.
 
 ### Corrections de bugs
 
@@ -63,6 +66,8 @@ Ajout de contrôles des notifications avec heures de tranquillité et mises en s
 - Correction du panneau d’agent sur mobile affichant un titre Profil en double au-dessus de ses propres onglets.
 - Correction de la vue Modifications du panneau latéral intitulée Profil après qu’un profil de bot y a été ouvert en dernier.
 - Correction de la liste des sessions et de la discussion sur téléphones Android qui se figeaient après un défilement rapide puis sautaient.
+- Correction des en-têtes de section de la barre latérale qui restaient en surbrillance après un clic, et de leur indicateur de chargement masqué alors que le bouton de menu apparaissait.
+- Correction du compactage d’une conversation qui supprimait les compétences et règles actuelles au lieu de les reconstruire depuis les sources actives.
 
 ## v1.3.5 - 2026-10-24
 

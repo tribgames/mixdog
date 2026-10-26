@@ -5,40 +5,43 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
-Se añadieron controles de notificaciones con horas de silencio y silenciamientos, inicios de sesión guardados que se completan automáticamente y preparación previa automática de la caché de instrucciones.
+Se mejoró el trabajo remoto desde el teléfono junto con Browser Use y Computer Use, y se optimizó el entorno de agentes para omitir comprobaciones redundantes y completar el trabajo más rápido.
 
 ### Nuevas funciones
 
-- **Controles de notificaciones** — Se añadieron ajustes de notificaciones por dispositivo, silenciamientos de conversaciones, horas de silencio y notificaciones de error en Configuración → Notificaciones, con Permitir en las notificaciones de aprobación donde el PC autoriza una vez (#221, thanks @dislight1123).
-- **Trabajo delegado por bots** — Se añadió una línea en vivo por tarea bajo la respuesta para el trabajo que un bot delega a otras sesiones, finalizando en una única tarjeta de conclusión.
+- **Pantalla remota del PC** — Se añadió la visualización y el control de la pantalla de tu PC desde el teléfono mediante una conexión WebRTC directa con teclas especiales y una píldora de estado en el PC.
+- **Acceso al PC** — Se añadió el acceso opcional a avisos de administrador, la pantalla de bloqueo y `Ctrl`+`Alt`+`Del` desde tu teléfono, aprobado una vez en la configuración de Computer Use o con tu contraseña de Windows.
+- **Vista en vivo del navegador** — Se añadió la transmisión del navegador integrado a tu teléfono a través de WebRTC, adaptando las páginas asumidas a tu pantalla y permitiendo escribir directamente desde el teclado móvil.
+- **Controles de notificaciones** — Se añadieron ajustes de notificaciones por dispositivo, silenciamientos de conversaciones, horas de silencio y notificaciones de error en Configuración → Notificaciones, con Permitir en las notificaciones de aprobación (#221, thanks @dislight1123).
+- **Trabajo delegado por bots** — Se añadió una línea en vivo por tarea bajo la respuesta para el trabajo que un bot delega, mostrando el progreso y permitiéndote responder preguntas en el chat.
 - **Inicios de sesión guardados** — Se añadió el inicio de sesión automático con credenciales guardadas y códigos de un solo uso, gestionado en Configuración → Autenticación, sin que el modelo vea nunca los datos secretos.
 - **Importación de inicios de sesión de Chrome** — Se añadió la importación de inicios de sesión guardados de Chrome, incluidos los cifrados vinculados a aplicaciones más recientes, en la página de Inicios de sesión rediseñada con un interruptor para guardar/mantener sesión iniciada.
 - **Inicio de sesión desde tu correo** — Se añadió la apertura de enlaces de inicio de sesión y el llenado de códigos desde tu correo verificado, recordando qué proveedor de identidad utilizó cada sitio.
 - **Inicios de sesión guardados en Chrome y Edge** — Se añadió la función para que Computer Use complete un inicio de sesión guardado en tu propio Chrome o Edge sin exponerlo al modelo.
-- **Preparación de la caché de instrucciones** — Se añadió la preparación previa de la caché de instrucciones para modelos de Anthropic, activada por defecto en Configuración → Contexto, aprendiendo cuándo regresas a cada conversación y preparando un bot antes de su próxima ejecución programada.
+- **Preparación de la caché de instrucciones** — Se añadió la preparación previa automática de la caché de instrucciones para modelos de Anthropic en Configuración → Contexto, aprendiendo tus hábitos de regreso y preparando los bots antes de las ejecuciones programadas.
 - **Más conexiones de Google** — Se añadió la conexión de más cuentas de Google a Gmail, Calendar y Drive, eligiendo la cuenta por solicitud, con un aviso de inicio de sesión claro.
-- **Cierre del dock del teléfono deslizando** — Se añadió el cierre del dock lateral del teléfono al deslizar desde su contenido, no solo desde su borde.
 
 ### Cambios
 
+- Se modificaron los agentes para verificar una sola vez tras todas las ediciones en lugar de a mitad de tarea, ejecutar llamadas a herramientas independientes de forma conjunta y mantener breves las actualizaciones de progreso.
 - Se reorganizó Configuración en cuatro secciones: Básico, Comportamiento de la IA, Integraciones y Soporte.
+- Se modificó el menú Sesiones para permitir elegir qué secciones de la barra lateral mostrar.
 - La escritura, el cambio de sesión y de pestaña, Buscar, Configuración, los paneles laterales, la terminal y Cambios se cambiaron para abrirse instantáneamente, con animaciones de estado más fluidas.
 - Las aprobaciones de sesiones delegadas por bots ahora aparecen en cada chat que las esté esperando, con la misma redacción y teclas en cada tarjeta de aprobación.
-- Las filas de sesiones y bots ahora muestran un triángulo ámbar para esperas de aprobación, un icono de pregunta para dudas y el recuento de tareas pendientes de un bot.
+- Las filas de sesiones y bots ahora muestran un triángulo ámbar para esperas de aprobación, un icono de pregunta para dudas y el recuento de tareas pendientes.
 - Las sesiones de tareas de bots y los subagentes ahora llevan su propio punto de no leído, marcándose como leídos junto con el chat al que informan.
 - Un teléfono vinculado ahora lee, previsualiza, descarga y abre archivos de la misma manera que el PC.
-- El selector de archivos `@` ahora enumera primero las rutas cortas y poco profundas, se abre con el trabajo reciente y encuentra archivos en carpetas vinculadas superando el límite anterior de escaneo (#228, thanks @reeves-ai-lch).
+- El selector de archivos `@` ahora enumera primero las rutas poco profundas, se abre con el trabajo reciente y encuentra archivos en carpetas vinculadas (#228, thanks @reeves-ai-lch).
 - Visualize ahora abre páginas desde cualquier carpeta local, nombrando las páginas de índice según su carpeta.
 - La ventana emergente de uso y la barra de uso anclada ahora muestran cada límite como una línea sobre una barra de ancho completo.
-- La herramienta shell ahora admite una carpeta de trabajo opcional, por lo que los comandos ya no comienzan con `cd`.
-- La herramienta shell ahora rechaza comandos que comiencen con una pausa de 2 segundos o más, indicando el uso de `background:true` y `task wait` en su lugar.
-- Las ejecuciones de terminal de agentes y las páginas del navegador ahora abren su pestaña en el PC y dispositivos vinculados, y las líneas de transcripción abren exactamente esa pestaña.
+- Se modificó la herramienta shell para admitir un directorio de trabajo opcional y rechazar pausas de 2 segundos o más.
+- Se modificaron las ejecuciones de terminal de agentes y las páginas del navegador para mostrar su pestaña en el PC y en dispositivos vinculados, abriéndose directamente desde las líneas de transcripción.
 - Browser Use ahora limita las páginas en segundo plano por sesión y las cierra al finalizar un turno.
 - Las esperas de reintento ahora muestran un motivo fijo y una cuenta regresiva en vivo en lugar del texto del error sin procesar.
-- Los chats de bots ya no muestran tarjetas de archivos modificados bajo las respuestas, y la hora de respuesta y el traspaso comparten una misma línea.
+- Los chats de bots ahora no muestran tarjetas de archivos modificados bajo una respuesta, separan mensajes distantes y comparten una sola línea para el traspaso y la hora.
 - La lista de idiomas ahora muestra el coreano con su propio nombre.
 - La revisión periódica de Mixy ahora se ejecuta cada hora por defecto, pudiendo seleccionarse el intervalo en Configuración → Bots.
-- Se ajustaron el cajón del teléfono y el brillo de "pensando" para animarse con mayor fluidez.
+- Se ajustó el dock lateral del teléfono para cerrarse deslizando en cualquier parte del panel, y se animaron con más fluidez las filas del cajón y el brillo del texto.
 
 ### Correcciones de errores
 
@@ -63,6 +66,8 @@ Se añadieron controles de notificaciones con horas de silencio y silenciamiento
 - Se corrigió que el panel de agentes en el teléfono mostrara un título de Perfil duplicado sobre sus propias pestañas.
 - Se corrigió que la vista Cambios del panel lateral tuviera el título Perfil después de haber abierto allí el perfil de un bot.
 - Se corrigió que la lista de sesiones y el chat en teléfonos Android se congelaran y dieran saltos tras deslizar rápidamente la pantalla.
+- Se corrigió que los encabezados de sección de la barra lateral permanecieran resaltados tras hacer clic, y que su indicador de carga se ocultara mientras se mostraba el botón de menú.
+- Se corrigió que al compactar una conversación se descartaran las habilidades y reglas actuales en lugar de reconstruirlas a partir de fuentes activas.
 
 ## v1.3.5 - 2026-10-24
 

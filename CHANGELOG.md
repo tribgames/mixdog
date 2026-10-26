@@ -5,40 +5,43 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-Added notification controls with quiet hours and mutes, saved sign-ins that fill themselves in, and automatic prompt-cache warming.
+Improved remote work from your phone together with Browser Use and Computer Use, and streamlined the agent harness to skip redundant checks and finish work faster.
 
 ### New features
 
-- **Notification controls** — Added per-device notification settings, conversation mutes, quiet hours and error notifications under Settings → Notifications, with Allow on approval notifications where the PC allows once (#221, thanks @dislight1123).
-- **Bot-delegated work** — Added one live line per job under the reply for work a bot delegates to other sessions, ending in a single completion card.
+- **Remote PC screen** — Added viewing and controlling your PC screen from your phone over a direct WebRTC connection with special keys and an on-PC status pill.
+- **PC access** — Added optional access to administrator prompts, the lock screen and `Ctrl`+`Alt`+`Del` from your phone, approved once in Computer Use setup or with your Windows password.
+- **Browser live view** — Added streaming the in-app browser to your phone over WebRTC, fitting takeover pages to your screen with direct typing from your mobile keyboard.
+- **Notification controls** — Added per-device notification settings, conversation mutes, quiet hours and error notifications under Settings → Notifications, with Allow on approval notifications (#221, thanks @dislight1123).
+- **Bot-delegated work** — Added one live line per job under the reply for work a bot delegates, showing progress and letting you answer questions in chat.
 - **Saved sign-ins** — Added automatic sign-in with saved logins and one-time codes, managed under Settings → Authentication, without the model ever seeing the secrets.
 - **Chrome login import** — Added importing Chrome saved logins, including newer app-bound encrypted ones, into the rebuilt Logins page with a saved/stay-signed-in switch.
 - **Sign-in from your mail** — Added opening sign-in links and filling codes from your verified mail, and remembering which identity provider each site used.
 - **Saved login in Chrome and Edge** — Added Computer Use filling a saved login into your own Chrome or Edge without exposing it to the model.
-- **Prompt-cache warming** — Added prompt-cache warming for Anthropic models, on by default under Settings → Context, learning when you return to each conversation and warming a bot ahead of its next scheduled run.
+- **Prompt-cache warming** — Added automatic prompt-cache warming for Anthropic models under Settings → Context, learning your return habits and warming bots ahead of scheduled runs.
 - **More Google connections** — Added connecting more Google accounts to Gmail, Calendar and Drive, choosing the account per request, with a clear sign-in prompt.
-- **Swipe-to-close phone dock** — Added closing the phone side dock by swiping it away from its content, not just its edge.
 
 ### Changes
 
+- Changed agents to verify once after all edits instead of mid-task, run independent tool calls together, and keep progress updates short.
 - Changed Settings into four sections: Basics, AI behavior, Integrations and Support.
+- Changed the Sessions menu to let you choose which sidebar sections to show.
 - Changed typing, session and tab switching, Search, Settings, side panels, the terminal and Changes to open instantly, with smoother status animations.
 - Changed approvals from bot-delegated sessions to appear in every chat waiting on them, with the same wording and keys on every approval card.
-- Changed session and bot rows to show an amber triangle for an approval wait, a question icon for a question, and a bot's waiting work count.
+- Changed session and bot rows to show an amber triangle for an approval wait, a question icon for a question, and waiting work counts.
 - Changed bot task sessions and sub-agents to carry their own unread dot, read together with the chat they report to.
 - Changed a paired phone to read, preview, download and open files the same way the PC does.
-- Changed the `@` file picker to list short, shallow paths first, open with recent work, and find files in linked folders and past the old scan limit (#228, thanks @reeves-ai-lch).
+- Changed the `@` file picker to rank shallow paths first, open with recent work, and find files in linked folders (#228, thanks @reeves-ai-lch).
 - Changed Visualize to open pages from any local folder, naming index pages by their folder.
 - Changed the usage popup and pinned usage rail to show each limit as one line over a full-width bar.
-- Changed the shell tool to take an optional working folder, so commands no longer start with `cd`.
-- Changed the shell tool to refuse a command that starts with a sleep of 2 seconds or more, pointing to `background:true` and `task wait` instead.
-- Changed agent terminal runs and browser pages to open their tab on the PC and paired devices, and transcript lines to open that exact tab.
+- Changed the shell tool to accept an optional working directory and refuse sleeps of 2 seconds or more.
+- Changed agent terminal runs and browser pages to reveal their tab on the PC and paired devices, opened directly from transcript lines.
 - Changed Browser Use to cap background pages per session and close them after a turn finishes.
 - Changed retry waits to show a fixed reason and a live countdown instead of raw error text.
-- Changed bot chats to show no changed-files card under a reply, and a reply's time and hand-off to share one line.
+- Changed bot chats to show no changed-files card under a reply, separate distant messages, and share one line for hand-off and time.
 - Changed the language list to show Korean by its own name.
 - Changed Mixy's regular check-in to run every hour by default, with the interval selectable under Settings → Bots.
-- Adjusted the phone drawer and the "thinking" shimmer to animate more smoothly.
+- Adjusted the phone side dock to close by swiping anywhere on the sheet, and animated drawer rows and text shimmers more smoothly.
 
 ### Bug fixes
 
@@ -63,6 +66,8 @@ Added notification controls with quiet hours and mutes, saved sign-ins that fill
 - Fixed the phone agent panel showing a duplicate Profile title above its own tabs.
 - Fixed the side panel's Changes view being titled Profile after a bot's profile was last open there.
 - Fixed the session list and chat on Android phones freezing after a fling and then jumping.
+- Fixed sidebar section headers remaining highlighted after a click, and their spinner hiding while the menu button showed.
+- Fixed compacting a conversation dropping current skills and rules instead of rebuilding them from active sources.
 
 ## v1.3.5 - 2026-10-24
 

@@ -4,40 +4,43 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
-Đã thêm các tùy chọn kiểm soát thông báo với giờ yên tĩnh và tắt tiếng, tính năng tự động điền thông tin đăng nhập đã lưu, và tự động làm ấm bộ nhớ đệm lời nhắc.
+Cải thiện khả năng làm việc từ xa từ điện thoại cùng với Browser Use và Computer Use, đồng thời tinh gọn agent harness để bỏ qua các bước kiểm tra thừa và hoàn thành công việc nhanh hơn.
 
 ### Tính năng mới
 
-- **Kiểm soát thông báo** — Đã thêm cài đặt thông báo theo từng thiết bị, tắt tiếng cuộc trò chuyện, giờ yên tĩnh và thông báo lỗi trong Cài đặt → Thông báo, kèm theo nút Cho phép trên thông báo phê duyệt khi PC cho phép một lần (#221, thanks @dislight1123).
-- **Công việc do bot ủy quyền** — Đã thêm một dòng tiến trình trực tiếp cho mỗi công việc bên dưới câu trả lời đối với các tác vụ mà bot ủy quyền sang phiên khác, kết thúc bằng một thẻ hoàn thành duy nhất.
+- **Màn hình PC từ xa** — Đã thêm tính năng xem và điều khiển màn hình PC từ điện thoại của bạn qua kết nối WebRTC trực tiếp với các phím đặc biệt và viên trạng thái trên PC.
+- **Truy cập PC** — Đã thêm quyền truy cập tùy chọn vào lời nhắc quản trị viên, màn hình khóa và `Ctrl`+`Alt`+`Del` từ điện thoại của bạn, được phê duyệt một lần trong phần thiết lập Computer Use hoặc bằng mật khẩu Windows của bạn.
+- **Xem trực tiếp trình duyệt** — Đã thêm tính năng truyền phát trình duyệt trong ứng dụng tới điện thoại của bạn qua WebRTC, điều chỉnh các trang tiếp quản cho vừa màn hình kèm khả năng gõ trực tiếp từ bàn phím di động.
+- **Kiểm soát thông báo** — Đã thêm cài đặt thông báo theo từng thiết bị, tắt tiếng cuộc trò chuyện, giờ yên tĩnh và thông báo lỗi trong Cài đặt → Thông báo, kèm theo Cho phép trên thông báo phê duyệt (#221, thanks @dislight1123).
+- **Công việc do bot ủy quyền** — Đã thêm một dòng trực tiếp cho mỗi công việc bên dưới câu trả lời đối với các tác vụ mà bot ủy quyền, hiển thị tiến độ và cho phép bạn trả lời câu hỏi trong cuộc trò chuyện.
 - **Thông tin đăng nhập đã lưu** — Đã thêm tính năng tự động đăng nhập bằng thông tin lưu sẵn và mã dùng một lần, được quản lý trong Cài đặt → Xác thực mà mô hình không bao giờ nhìn thấy thông tin bảo mật.
 - **Nhập thông tin đăng nhập Chrome** — Đã thêm tính năng nhập thông tin đăng nhập đã lưu trên Chrome, bao gồm cả các thông tin đăng nhập mã hóa liên kết ứng dụng mới hơn, vào trang Đăng nhập được thiết kế lại với công tắc lưu/duy trì đăng nhập.
 - **Đăng nhập từ email của bạn** — Đã thêm tính năng mở liên kết đăng nhập và điền mã từ email đã xác minh của bạn, đồng thời ghi nhớ nhà cung cấp danh tính mà mỗi trang web đã sử dụng.
 - **Thông tin đăng nhập đã lưu trong Chrome và Edge** — Đã thêm khả năng Computer Use tự điền thông tin đăng nhập đã lưu vào chính Chrome hoặc Edge của bạn mà không để lộ cho mô hình.
-- **Làm ấm bộ nhớ đệm lời nhắc** — Đã thêm tính năng làm ấm bộ nhớ đệm lời nhắc cho các mô hình Anthropic, bật theo mặc định trong Cài đặt → Ngữ cảnh, tự học thời điểm bạn quay lại từng cuộc trò chuyện và làm ấm bot trước lần chạy theo lịch tiếp theo.
+- **Làm ấm bộ nhớ đệm lời nhắc** — Đã thêm tính năng tự động làm ấm bộ nhớ đệm lời nhắc cho các mô hình Anthropic trong Cài đặt → Ngữ cảnh, học thói quen quay lại của bạn và làm ấm bot trước các lần chạy theo lịch trình.
 - **Thêm kết nối Google** — Đã thêm tính năng kết nối nhiều tài khoản Google vào Gmail, Calendar và Drive, chọn tài khoản cho từng yêu cầu với lời nhắc đăng nhập rõ ràng.
-- **Vuốt để đóng dock điện thoại** — Đã thêm tính năng vuốt để đóng dock bên trên điện thoại từ vùng nội dung, không chỉ từ phần cạnh viền.
 
 ### Thay đổi
 
+- Đã thay đổi các agent để xác minh một lần sau tất cả chỉnh sửa thay vì giữa nhiệm vụ, chạy các lệnh gọi công cụ độc lập cùng nhau và giữ cho các cập nhật tiến độ ngắn gọn.
 - Đã chia Cài đặt thành bốn phần: Cơ bản, Hành vi AI, Tích hợp và Hỗ trợ.
-- Đã thay đổi thao tác gõ phím, chuyển đổi phiên và thẻ, Tìm kiếm, Cài đặt, các bảng bên, cửa sổ dòng lệnh và Thay đổi để mở ngay lập tức, với hiệu ứng hoạt họa trạng thái mượt mà hơn.
-- Đã thay đổi các yêu cầu phê duyệt từ phiên ủy quyền của bot để hiển thị trong mọi cuộc trò chuyện đang chờ, với cùng từ ngữ và phím tắt trên mỗi thẻ phê duyệt.
-- Đã thay đổi các hàng phiên và bot để hiển thị biểu tượng tam giác màu hổ phách khi chờ phê duyệt, biểu tượng dấu hỏi cho câu hỏi và số lượng công việc đang chờ của bot.
+- Đã thay đổi menu Phiên để cho phép bạn chọn phần thanh bên nào sẽ hiển thị.
+- Đã thay đổi thao tác gõ phím, chuyển đổi phiên và thẻ, Tìm kiếm, Cài đặt, các bảng bên, terminal và Thay đổi để mở ngay lập tức, với hiệu ứng hoạt họa trạng thái mượt mà hơn.
+- Đã thay đổi các yêu cầu phê duyệt từ phiên ủy quyền của bot để hiển thị trong mọi cuộc trò chuyện đang chờ, với cùng từ ngữ và phím trên mỗi thẻ phê duyệt.
+- Đã thay đổi các hàng phiên và bot để hiển thị biểu tượng tam giác màu hổ phách khi chờ phê duyệt, biểu tượng dấu hỏi cho câu hỏi và số lượng công việc đang chờ.
 - Đã thay đổi các phiên tác vụ của bot và agent phụ để có dấu chấm chưa đọc riêng, được đánh dấu đã đọc cùng với cuộc trò chuyện mà chúng báo cáo.
 - Đã thay đổi để điện thoại được ghép nối đọc, xem trước, tải xuống và mở tệp tương tự như trên PC.
-- Đã thay đổi bộ chọn tệp `@` để liệt kê các đường dẫn ngắn, nông trước, mở với các tệp làm việc gần đây và tìm tệp trong các thư mục liên kết vượt qua giới hạn quét cũ (#228, thanks @reeves-ai-lch).
-- Đã thay đổi Visualize để mở các trang từ bất kỳ thư mục cục bộ nào, đặt tên trang chỉ mục theo tên thư mục tương ứng.
+- Đã thay đổi bộ chọn tệp `@` để xếp hạng các đường dẫn nông trước, mở với các tệp làm việc gần đây và tìm tệp trong các thư mục liên kết (#228, thanks @reeves-ai-lch).
+- Đã thay đổi Visualize để mở các trang từ bất kỳ thư mục cục bộ nào, đặt tên trang chỉ mục theo thư mục của chúng.
 - Đã thay đổi cửa sổ bật lên mức sử dụng và thanh ghim mức sử dụng để hiển thị từng giới hạn thành một dòng phía trên thanh có chiều rộng đầy đủ.
-- Đã thay đổi công cụ shell để nhận thư mục làm việc tùy chọn, giúp các lệnh không còn phải bắt đầu bằng `cd`.
-- Đã thay đổi công cụ shell để từ chối các lệnh bắt đầu bằng lệnh sleep từ 2 giây trở lên, hướng dẫn sử dụng `background:true` và `task wait` thay thế.
-- Đã thay đổi các lần chạy terminal của agent và trang trình duyệt để mở thẻ tương ứng trên PC cùng thiết bị được ghép nối, và các dòng nhật ký sẽ mở chính xác thẻ đó.
-- Đã thay đổi Browser Use để giới hạn số trang chạy ngầm trên mỗi phiên và đóng chúng lại sau khi một lượt hoàn tất.
+- Đã thay đổi công cụ shell để chấp nhận thư mục làm việc tùy chọn và từ chối các lệnh sleep từ 2 giây trở lên.
+- Đã thay đổi các lần chạy terminal của agent và trang trình duyệt để hiển thị thẻ của chúng trên PC và thiết bị được ghép nối, được mở trực tiếp từ các dòng bản ghi.
+- Đã thay đổi Browser Use để giới hạn số trang chạy nền trên mỗi phiên và đóng chúng lại sau khi một lượt kết thúc.
 - Đã thay đổi thời gian chờ thử lại để hiển thị lý do cố định và đếm ngược trực tiếp thay vì đoạn văn bản lỗi thô.
-- Đã thay đổi cuộc trò chuyện với bot để không hiển thị thẻ tệp bị thay đổi bên dưới câu trả lời, đồng thời thời gian trả lời và bàn giao cùng chia sẻ một dòng.
+- Đã thay đổi cuộc trò chuyện với bot để không hiển thị thẻ tệp bị thay đổi bên dưới câu trả lời, tách các tin nhắn cách xa nhau và chia sẻ một dòng cho thời gian và chuyển giao.
 - Đã thay đổi danh sách ngôn ngữ để hiển thị tiếng Hàn bằng chính tên bản ngữ của nó.
 - Đã thay đổi tính năng kiểm tra định kỳ của Mixy để chạy mỗi giờ theo mặc định, với khoảng thời gian có thể tùy chọn trong Cài đặt → Bot.
-- Đã điều chỉnh ngăn kéo trên điện thoại và hiệu ứng lấp lánh "suy nghĩ" để chuyển động mượt mà hơn.
+- Đã điều chỉnh dock bên của điện thoại để đóng bằng cách vuốt vào bất kỳ vị trí nào trên trang, đồng thời tạo hiệu ứng động mượt mà hơn cho các hàng trong ngăn kéo và ánh lấp lánh văn bản.
 
 ### Sửa lỗi
 
@@ -45,23 +48,25 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 - Đã sửa lỗi cạnh bảng, đường phân cách và màu sắc bị dịch chuyển khi mở hoặc đóng bảng bên.
 - Đã sửa lỗi nội dung trong ngăn kéo của điện thoại bị biến mất trong khi đang trượt đóng.
 - Đã sửa lỗi bot được ghim bị lệch khỏi cạnh phải của khung nhập văn bản sau khi đóng bảng bên, và các cuộc trò chuyện bị tụt xuống một dòng khi truy cập.
-- Đã sửa lỗi hàng của bot không quay hoặc không hiển thị dấu chấm chưa đọc trong khi các phiên tác vụ đang hoạt động.
+- Đã sửa lỗi hàng của bot không quay hoặc không hiển thị dấu chấm chưa đọc trong khi các phiên tác vụ của nó đang hoạt động.
 - Đã sửa lỗi nhấp vào thông báo trên máy tính khiến thanh bên vẫn ở phiên trước đó hoặc không phản hồi khi cửa sổ bị ẩn.
-- Đã sửa lỗi trả lời thẻ câu hỏi ở cuối cuộc trò chuyện khiến bản ghi không còn cuộn theo câu trả lời.
+- Đã sửa lỗi trả lời thẻ câu hỏi ở cuối cuộc trò chuyện khiến bản ghi ngừng cuộn theo câu trả lời.
 - Đã sửa lỗi các phiên tác vụ được tạo với mô hình rõ ràng bị thất bại với lỗi "service is not defined".
-- Đã sửa lỗi tính năng kiểm tra định kỳ của Mixy vẫn chạy trong khi bạn đang sử dụng ứng dụng trên máy tính.
-- Đã sửa lỗi Computer Use gõ vào các cửa sổ tự động nổi lên trên cùng và nhập vào các trường chỉ đọc hoặc bị vô hiệu hóa.
-- Đã sửa lỗi mật khẩu đã lưu dài hơn 4.096 ký tự bị cắt ngắn và các chuỗi bí mật ngắn hơn bốn ký tự không được che trong cuộc trò chuyện.
+- Đã sửa lỗi tính năng kiểm tra định kỳ của Mixy vẫn chạy trong khi bạn vẫn đang sử dụng ứng dụng máy tính.
+- Đã sửa lỗi Computer Use gõ phím vào các cửa sổ tự đưa lên trên cùng và ghi vào các trường chỉ đọc hoặc bị vô hiệu hóa.
+- Đã sửa lỗi mật khẩu đã lưu dài hơn 4.096 ký tự bị cắt ngắn và các thông tin bí mật ngắn hơn bốn ký tự không được che trong cuộc trò chuyện.
 - Đã sửa lỗi lượt thử lại trong hàng đợi của một lượt thất bại và lựa chọn kỹ năng của quy trình bị mất sau khi khởi động lại (#229, thanks @22nsuk).
 - Đã sửa lỗi tính năng tự động tiếp tục hạn ngạch qua SSH đọc hạn ngạch của máy chủ thay vì của PC khi PC đang giữ phiên đăng nhập (#232, thanks @22nsuk).
 - Đã sửa lỗi phím tắt `Option`+`Left`/`Right` không di chuyển theo từng từ trong các trường văn bản trên macOS (#230, thanks @wudys).
 - Đã sửa lỗi lựa chọn ngữ cảnh của hồ sơ agent không được giữ lại (#226, thanks @22nsuk) và Cursor bị lỗi khi xảy ra xung đột ngữ cảnh được lưu trữ (#225, thanks @22nsuk).
 - Đã sửa lỗi phiên tác vụ đang chờ hiển thị là bị đình trệ và tài khoản kết nối bị vô hiệu hóa không thể bật lại được.
 - Đã sửa lỗi mất lần thử lại khi gặp lỗi hết hạn đăng nhập trong lượt làm việc, và bảng trình duyệt hiển thị trang trống sau khi đóng trang cuối cùng.
-- Đã sửa lỗi nhấp vào tệp đính kèm trong cuộc trò chuyện dài hoặc đã nén bị báo lỗi "This conversation has no such attachment.".
+- Đã sửa lỗi nhấp vào tệp đính kèm trong cuộc trò chuyện dài hoặc đã nén bị báo lỗi "This conversation has no such attachment."
 - Đã sửa lỗi bảng agent trên điện thoại hiển thị tiêu đề Hồ sơ bị trùng lặp phía trên các thẻ của chính nó.
 - Đã sửa lỗi khung hiển thị Thay đổi của bảng bên có tiêu đề là Hồ sơ sau khi hồ sơ của một bot vừa được mở ở đó trước đó.
 - Đã sửa lỗi danh sách phiên và cuộc trò chuyện trên điện thoại Android bị đơ sau thao tác vuốt nhanh rồi nhảy vị trí.
+- Đã sửa lỗi tiêu đề mục trên thanh bên vẫn được làm nổi bật sau khi nhấp, và biểu tượng xoay của chúng bị ẩn trong khi nút menu hiển thị.
+- Đã sửa lỗi việc nén cuộc trò chuyện làm mất các kỹ năng và quy tắc hiện tại thay vì xây dựng lại chúng từ các nguồn đang hoạt động.
 
 ## v1.3.5 - 2026-10-24
 
