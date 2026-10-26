@@ -5,11 +5,16 @@ import test from 'node:test';
 import {
   createScreenHelperGrants,
   createScreenHelperInstall,
+  EMPTY_SCREEN_HELPER_FORM,
   readScreenHelperBlock,
   screenBlockReason,
   screenGrantSurfaceActive,
+  screenHelperAsksAccount,
+  screenHelperFormReady,
   screenHelperPanel,
+  submitScreenHelperForm,
 } from './remote-screen-helper.ts';
+import { CREDUI_MAX_PASSWORD_LENGTH, CREDUI_MAX_USERNAME_LENGTH } from '../shared/remote-webrtc.ts';
 import { readRemoteWebrtcScreenStatus } from '../shared/remote-webrtc.ts';
 import { generateSecureDesktopControllerKey, secureDesktopGrantPayload } from '../shared/secure-desktop-grant.ts';
 
@@ -411,6 +416,118 @@ test("no screen session asks for the helper by itself: the only request is the b
   assert.deepEqual(sent, [], 'nothing goes out until the person presses the button');
   assert.equal(await requestInstall(), true);
   assert.deepEqual(sent, [{ v: 1, kind: 'screen-helper-install', publicKey: 'PUB' }]);
+});
+
+test('a request refused only because the PC was busy keeps the action and says to try again; it is not this phone’s own request in progress', () => {
+  for (const offer of ['install', 'update']) {
+    assert.deepEqual(screenHelperPanel(block({ offer, outcome: 'busy' }), false), {
+      action: offer,
+      busy: false,
+      lines: [{ kind: 'copy', id: 'busy' }],
+    });
+    // Unlike the PC's own prompt open for this phone, which removes it.
+    assert.equal(screenHelperPanel(block({ offer, outcome: 'in-progress' }), false).action, null);
+  }
+  // No offer, nothing to press: unchanged.
+  assert.equal(screenHelperPanel(block({ offer: 'none', outcome: 'busy' }), false).action, null);
+});
+
+test('the password sheet asks for an account name only when the PC says its account is not an administrator', () => {
+  assert.equal(screenHelperAsksAccount(block({ accountIsAdmin: false })), true);
+  assert.equal(screenHelperAsksAccount(block({ accountIsAdmin: true })), false);
+  assert.equal(screenHelperAsksAccount(block()), false, 'an older PC does not say: the password only');
+  assert.equal(screenHelperAsksAccount(null), false, 'before the first status');
+  // Recovery: a PC that did not say, then answered not-admin, reveals the field,
+  // and it stays once shown even when the next answer is another refusal.
+  assert.equal(screenHelperAsksAccount(block({ outcome: 'not-admin' })), true);
+  assert.equal(screenHelperAsksAccount(block({ outcome: 'bad-credentials' })), false);
+  assert.equal(screenHelperAsksAccount(block({ outcome: 'bad-credentials' }), true), true);
+
+  // The status the PC pushed carries the field through the shared reader to the sheet.
+  const text = (accountIsAdmin) =>
+    JSON.stringify({
+      v: 1,
+      kind: 'screen-status',
+      status: {
+        state: 'secure-desktop',
+        helper: 'missing',
+        control: false,
+        helperInfo: block({ offer: 'install', ...(accountIsAdmin === undefined ? {} : { accountIsAdmin }) }),
+      },
+    });
+  for (const [said, asks] of [
+    [false, true],
+    [true, false],
+    [undefined, false],
+  ]) {
+    assert.equal(screenHelperAsksAccount(readScreenHelperBlock(readRemoteWebrtcScreenStatus(text(said)).status)), asks);
+  }
+});
+
+test('a submit needs a bounded password (and the account name when asked), sends exactly that, and always empties the password', () => {
+  const form = (patch = {}) => ({ ...EMPTY_SCREEN_HELPER_FORM, ...patch });
+
+  // Password only: no account name rides along, even if one was typed before.
+  assert.equal(screenHelperFormReady(form(), false), false, 'nothing typed');
+  assert.equal(screenHelperFormReady(form({ password: 'pw' }), false), true);
+  assert.deepEqual(submitScreenHelperForm(form({ password: 'pw', user: 'stale' }), false), {
+    credential: { password: 'pw' },
+    form: { password: '', user: 'stale' },
+  });
+
+  // With the account field: the name is required, trimmed, bounded and sent.
+  assert.equal(screenHelperFormReady(form({ password: 'pw' }), true), false, 'the name is missing');
+  assert.equal(screenHelperFormReady(form({ password: 'pw', user: '   ' }), true), false);
+  assert.deepEqual(submitScreenHelperForm(form({ password: 'pw', user: ' PC\\admin ' }), true), {
+    credential: { password: 'pw', user: 'PC\\admin' },
+    form: { password: '', user: ' PC\\admin ' },
+  });
+
+  // Bounded like the wire: one more than Windows allows is not submitted.
+  const long = 'a'.repeat(CREDUI_MAX_PASSWORD_LENGTH + 1);
+  assert.equal(screenHelperFormReady(form({ password: 'a'.repeat(CREDUI_MAX_PASSWORD_LENGTH) }), false), true);
+  assert.equal(screenHelperFormReady(form({ password: long }), false), false);
+  assert.equal(
+    screenHelperFormReady(form({ password: 'pw', user: 'u'.repeat(CREDUI_MAX_USERNAME_LENGTH) }), true),
+    true
+  );
+  assert.equal(
+    screenHelperFormReady(form({ password: 'pw', user: 'u'.repeat(CREDUI_MAX_USERNAME_LENGTH + 1) }), true),
+    false
+  );
+
+  // Not ready: nothing is sent and the form is untouched.
+  const typed = form({ password: long });
+  assert.deepEqual(submitScreenHelperForm(typed, false), { credential: null, form: typed });
+});
+
+test('the sheet’s request carries the Windows password: an install offer as an install, an update offer as an enroll', async () => {
+  const sent = [];
+  const request = createScreenHelperInstall({
+    ensureKey: async () => ({ publicKey: 'PUB' }),
+    send: (message) => sent.push(message) > 0,
+  });
+  const credential = { password: 'pw' };
+  assert.equal(await request('install', credential), true);
+  assert.equal(await request('update', { password: 'pw2', user: 'PC\\admin' }), true);
+  assert.deepEqual(sent, [
+    { v: 1, kind: 'screen-helper-install', publicKey: 'PUB', credential: { password: 'pw' } },
+    { v: 1, kind: 'screen-helper-enroll', publicKey: 'PUB', credential: { password: 'pw2', user: 'PC\\admin' } },
+  ]);
+  // Both survive the shared encoder/reader (bounds and all).
+  const {
+    encodeRemoteWebrtcScreenHelperInstall,
+    encodeRemoteWebrtcScreenHelperEnroll,
+    parseRemoteWebrtcChannelFromClient,
+  } = await import('../shared/remote-webrtc.ts');
+  const key = (await generateSecureDesktopControllerKey()).publicKey;
+  assert.deepEqual(
+    parseRemoteWebrtcChannelFromClient(encodeRemoteWebrtcScreenHelperInstall(key, { credential })).credential,
+    credential
+  );
+  assert.doesNotThrow(() =>
+    encodeRemoteWebrtcScreenHelperEnroll(key, { credential: { password: 'pw2', user: 'PC\\admin' } })
+  );
 });
 
 test('only a shown, visible screen pane may sign a grant', () => {

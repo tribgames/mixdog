@@ -20,7 +20,12 @@ import {
   type RefObject,
 } from 'react';
 
-import type { RemoteScreenDisplaySummary, RemoteScreenInput } from '../shared/remote-webrtc';
+import {
+  CREDUI_MAX_PASSWORD_LENGTH,
+  CREDUI_MAX_USERNAME_LENGTH,
+  type RemoteScreenDisplaySummary,
+  type RemoteScreenInput,
+} from '../shared/remote-webrtc';
 import { ProgressSpinner } from './ProgressSpinner';
 import { ErrorNotice } from './ErrorNotice';
 import { ScreenHeaderRow, ScreenStateCard } from './RemoteScreenChrome';
@@ -29,8 +34,13 @@ import type { DockAction } from './pane-dock-chrome';
 import { useCompositionFinisher } from './remote-composition';
 import { createScreenGestureAdapter, type ScreenInputMode } from './remote-screen-gesture';
 import {
+  EMPTY_SCREEN_HELPER_FORM,
   screenBlockReason,
+  screenHelperAsksAccount,
+  screenHelperFormReady,
   screenHelperPanel,
+  submitScreenHelperForm,
+  type ScreenHelperForm,
   type ScreenHelperLine,
   type ScreenHelperPanel,
 } from './remote-screen-helper';
@@ -122,6 +132,8 @@ function helperLineText(line: ScreenHelperLine): string {
       return t('That Windows account is disabled on the PC.');
     case 'policy-blocked':
       return t('A policy on the PC blocked that sign-in.');
+    case 'busy':
+      return t('Another request is in progress on the PC. Try again in a moment.');
   }
 }
 
@@ -156,11 +168,125 @@ function BlockedNote({
         {panel.action && (
           <div className="remote-screen-actions">
             <button type="button" className="remote-screen-primary" disabled={panel.busy} onClick={onInstall}>
-              {panel.action === 'update' ? t('Approve access again') : t('Request access on the PC')}
+              {panel.action === 'update' ? t('Approve access again') : t('Approve PC access')}
             </button>
           </div>
         )}
       </div>
+    </>
+  );
+}
+
+/** The Windows-password sheet the blocked view's button opens (design/mockups/
+ *  remote-screen-helper-install): the password, and the account name only when
+ *  the PC's signed-in account is not an administrator. */
+function AccessSheet({
+  asksAccount,
+  busy,
+  form,
+  lines,
+  notSent,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  asksAccount: boolean;
+  busy: boolean;
+  form: ScreenHelperForm;
+  lines: ScreenHelperLine[];
+  notSent: boolean;
+  onChange(form: ScreenHelperForm): void;
+  onSubmit(): void;
+  onCancel(): void;
+}) {
+  const wrong = lines.some((line) => line.id === 'bad-credentials');
+  return (
+    <>
+      <div className="remote-screen-scrim" aria-hidden="true" onClick={busy ? undefined : onCancel} />
+      <form
+        className="remote-screen-sheet"
+        role="dialog"
+        aria-label={t('Approve PC access')}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="remote-screen-grab" aria-hidden="true" />
+        <h3>{t('Approve PC access')}</h3>
+        {asksAccount ? (
+          <>
+            <p className="remote-screen-sheet-error">
+              {t(
+                'The account signed in on the PC is not an administrator. Enter an administrator account name and password.'
+              )}
+            </p>
+            <label className="remote-screen-field">
+              <span>{t('Administrator account name')}</span>
+              <input
+                type="text"
+                value={form.user}
+                maxLength={CREDUI_MAX_USERNAME_LENGTH}
+                disabled={busy}
+                placeholder={t('Account name')}
+                aria-label={t('Administrator account name')}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                onChange={(event) => onChange({ ...form, user: event.target.value })}
+              />
+            </label>
+          </>
+        ) : (
+          <p>
+            {t(
+              'Enter the Windows password you use to sign in to the PC once, and you can also handle administrator prompts, the lock screen and Ctrl+Alt+Del from your phone.'
+            )}
+          </p>
+        )}
+        <label className="remote-screen-field">
+          <span>{t('Windows password')}</span>
+          <input
+            type="password"
+            value={form.password}
+            maxLength={CREDUI_MAX_PASSWORD_LENGTH}
+            disabled={busy}
+            aria-label={t('Windows password')}
+            aria-invalid={wrong ? true : undefined}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            onChange={(event) => onChange({ ...form, password: event.target.value })}
+          />
+        </label>
+        {lines.map((line) => (
+          <p key={line.id} className="remote-screen-sheet-error" role="status">
+            {helperLineText(line)}
+          </p>
+        ))}
+        {notSent && (
+          <p className="remote-screen-sheet-error" role="status">
+            {t('The request could not be sent to the PC.')}
+          </p>
+        )}
+        <p>
+          {t(
+            'Use your password, not a PIN. If you sign in with a Microsoft account, it is that account’s password. The password is not saved.'
+          )}
+        </p>
+        <div className="remote-screen-sheet-buttons">
+          <button type="button" disabled={busy} onClick={onCancel}>
+            {t('Cancel')}
+          </button>
+          <button
+            type="submit"
+            className="remote-screen-primary"
+            disabled={busy || !screenHelperFormReady(form, asksAccount)}
+          >
+            {busy ? t('Checking…') : t('Approve')}
+          </button>
+        </div>
+      </form>
     </>
   );
 }
@@ -257,12 +383,48 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   const [helperNotSent, setHelperNotSent] = useState(false);
   const screen = useRemoteScreen({ api, screenId: display.screenId, onInputRejected: () => setNotSent(true) });
   const { view, send, retry, geometry, installHelper } = screen;
-  const requestHelper = useCallback(() => {
+  const blocked = view.kind === 'blocked' ? view : null;
+  // The Windows-password sheet: opened by the blocked view's button, closed by
+  // Cancel, by an answer that leaves nothing to ask (done, declined, …) and
+  // when the secure screen is gone. The typed password lives only here, and is
+  // emptied by every submit.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [form, setForm] = useState<ScreenHelperForm>(EMPTY_SCREEN_HELPER_FORM);
+  const panel = screenHelperPanel(screen.helper, screen.helperPending, screen.status?.helper);
+  const [accountSeen, setAccountSeen] = useState(false);
+  const asksAccount = screenHelperAsksAccount(screen.helper, accountSeen);
+  useEffect(() => {
+    if (asksAccount) setAccountSeen(true);
+  }, [asksAccount]);
+  const sheetShown = sheetOpen && blocked !== null && panel.action !== null;
+  useEffect(() => {
+    if (sheetOpen && !sheetShown) {
+      setSheetOpen(false);
+      setForm(EMPTY_SCREEN_HELPER_FORM);
+    }
+  }, [sheetOpen, sheetShown]);
+  const openSheet = useCallback(() => {
     setHelperNotSent(false);
-    void installHelper().then((sent) => {
+    setForm(EMPTY_SCREEN_HELPER_FORM);
+    setSheetOpen(true);
+  }, []);
+  const closeSheet = useCallback(() => {
+    setSheetOpen(false);
+    setForm(EMPTY_SCREEN_HELPER_FORM);
+    setHelperNotSent(false);
+  }, []);
+  const action = panel.action;
+  const busy = panel.busy;
+  const submitSheet = useCallback(() => {
+    if (!action || busy) return;
+    const { credential, form: next } = submitScreenHelperForm(form, asksAccount);
+    if (!credential) return;
+    setForm(next);
+    setHelperNotSent(false);
+    void installHelper(action, credential).then((sent) => {
       if (!sent) setHelperNotSent(true);
     });
-  }, [installHelper]);
+  }, [action, busy, form, asksAccount, installHelper]);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const pictureRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
@@ -298,7 +460,9 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   stampRef.current = screen.cursorStamp;
   const adapter = useMemo(() => createScreenGestureAdapter({ size: () => sizeRef.current }), []);
   // The trackpad cursor starts from where the PC reports its own.
-  const cursorStore = useMemo(() => createScreenCursorStore(
+  const cursorStore = useMemo(
+    () =>
+      createScreenCursorStore(
         () => pcCursorRef.current(),
         () => stampRef.current()
       ),
@@ -319,7 +483,8 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
         event.stopPropagation();
         const { key, code, keyCode, isComposing } = event.nativeEvent;
         const { ctrlKey, altKey, metaKey, shiftKey } = event;
-        if (text.keyDown({ key, code, keyCode, isComposing, ctrlKey, altKey, metaKey, shiftKey })) event.preventDefault();
+        if (text.keyDown({ key, code, keyCode, isComposing, ctrlKey, altKey, metaKey, shiftKey }))
+          event.preventDefault();
       },
       onKeyUp: () => text.keyUp(),
       onInput: (event: FormEvent<HTMLTextAreaElement>) =>
@@ -384,8 +549,7 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
       (special): DockAction => ({
         id: `key-${special.id}`,
         label: special.label,
-        detail:
-          special.needsHelper && screen.status?.helper !== 'active' ? t('Needs access on the PC') : undefined,
+        detail: special.needsHelper && screen.status?.helper !== 'active' ? t('Needs access on the PC') : undefined,
         disabled: !controlling,
         onSelect: () => sendAll(screenSpecialKeyInputs(special.id)),
       })
@@ -404,7 +568,6 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   if (view.kind === 'live') {
     toolbarText = t(view.control ? '{{size}} · Controlling' : '{{size}} · View only', { size: toolbarText });
   }
-  const blocked = view.kind === 'blocked' ? view : null;
   const showPicture = view.kind === 'live' || blocked !== null;
 
   if (view.kind === 'stopped') {
@@ -467,8 +630,9 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
           <BlockedNote
             view={blocked}
             reason={screenBlockReason(blocked, screen.helper)}
-            panel={screenHelperPanel(screen.helper, screen.helperPending, screen.status?.helper)}
-            onInstall={requestHelper}
+            // The sheet carries the lines while it is open.
+            panel={sheetShown ? { ...panel, lines: [] } : panel}
+            onInstall={openSheet}
           />
         )}
         {view.kind === 'connecting' && (
@@ -479,7 +643,11 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
         )}
         {view.kind === 'failed' && (
           <ScreenStateCard>
-            <ErrorNotice error={t('The connection to the PC ended.')} title={t('Could not connect to PC screen')} role="status" />
+            <ErrorNotice
+              error={t('The connection to the PC ended.')}
+              title={t('Could not connect to PC screen')}
+              role="status"
+            />
             <div className="remote-screen-actions">
               <button type="button" className="remote-screen-primary" onClick={retry}>
                 {t('Try again')}
@@ -490,10 +658,12 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
             </div>
           </ScreenStateCard>
         )}
-        {(notSent || helperNotSent) && (
+        {(notSent || (helperNotSent && !sheetShown)) && (
           <div className="browser-remote-status">
             <ErrorNotice
-              error={helperNotSent ? t('The request could not be sent to the PC.') : t('Input was not sent.')}
+              error={
+                helperNotSent && !sheetShown ? t('The request could not be sent to the PC.') : t('Input was not sent.')
+              }
               role="status"
               onDismiss={() => {
                 setNotSent(false);
@@ -509,6 +679,18 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
           handlers={composition.handlers}
           visible={bar.visible}
           enabled={bar.enabled}
+        />
+      )}
+      {sheetShown && (
+        <AccessSheet
+          asksAccount={asksAccount}
+          busy={busy}
+          form={form}
+          lines={panel.lines}
+          notSent={helperNotSent}
+          onChange={setForm}
+          onSubmit={submitSheet}
+          onCancel={closeSheet}
         />
       )}
     </div>

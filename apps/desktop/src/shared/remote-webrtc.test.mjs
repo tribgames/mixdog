@@ -41,7 +41,10 @@ import { generateSecureDesktopControllerKey, signSecureDesktopGrant } from './se
 test('screen-keys: an ordered combo of distinct keys, bounded', () => {
   const ctrl = { vk: 0xa2, scan: 0x1d, extended: false };
   const c = { vk: 0x43, scan: 0x2e, extended: false };
-  assert.deepEqual(parseRemoteScreenInput({ type: 'screen-keys', keys: [ctrl, c] }), { type: 'screen-keys', keys: [ctrl, c] });
+  assert.deepEqual(parseRemoteScreenInput({ type: 'screen-keys', keys: [ctrl, c] }), {
+    type: 'screen-keys',
+    keys: [ctrl, c],
+  });
   assert.deepEqual(parseRemoteScreenInput({ type: 'screen-keys', keys: [{ vk: 0x43, scan: 0x2e }] }).keys, [c]);
   for (const keys of [
     [],
@@ -103,9 +106,7 @@ test('an answer is accepted only when its SDP names exactly the signaled fingerp
       /fingerprint/u
     );
   }
-  assert.throws(() =>
-    assertRemoteWebrtcSdpFingerprints(sdpWith(HEX_A), [{ algorithm: 'sha-256', value: HEX_B }])
-  );
+  assert.throws(() => assertRemoteWebrtcSdpFingerprints(sdpWith(HEX_A), [{ algorithm: 'sha-256', value: HEX_B }]));
   // SHA-1 is refused outright.
   assert.throws(() =>
     parseRemoteWebrtcClientSignal({
@@ -130,7 +131,10 @@ test('ready may state a video limit within the contract bound', () => {
 test('the connected certificate must be one the E2EE channel delivered', () => {
   const declared = [{ algorithm: 'sha-256', value: HEX_A }];
   assert.equal(remoteWebrtcCertificateMatches(declared, { fingerprintAlgorithm: 'sha-256', fingerprint: HEX_A }), true);
-  assert.equal(remoteWebrtcCertificateMatches(declared, { fingerprintAlgorithm: 'sha-256', fingerprint: HEX_B }), false);
+  assert.equal(
+    remoteWebrtcCertificateMatches(declared, { fingerprintAlgorithm: 'sha-256', fingerprint: HEX_B }),
+    false
+  );
   assert.equal(remoteWebrtcCertificateMatches(declared, {}), false);
 });
 
@@ -146,7 +150,9 @@ test('the desktop offer carries ICE servers, locked geometry and the relay epoch
     inputEpoch: 1,
   };
   const read = readRemoteWebrtcDesktopSignal(offer);
-  assert.deepEqual(read?.iceServers, [{ urls: ['turn:turn.example:3478?transport=udp'], username: 'u', credential: 'p' }]);
+  assert.deepEqual(read?.iceServers, [
+    { urls: ['turn:turn.example:3478?transport=udp'], username: 'u', credential: 'p' },
+  ]);
   assert.equal(read?.iceTransportPolicy, 'all');
   // Direct first: STUN only, or no server at all (one LAN), is still an offer.
   assert.deepEqual(
@@ -281,7 +287,15 @@ test('the path is relay when either end of the selected pair is a TURN relay can
 
 test('channel input is the document-bound page input set, never a dialog answer', () => {
   const envelope = (control) =>
-    JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'input', epoch: 2, seq: 7, geometryGeneration: 1, sentAt: 5, control });
+    JSON.stringify({
+      v: REMOTE_WEBRTC_VERSION,
+      kind: 'input',
+      epoch: 2,
+      seq: 7,
+      geometryGeneration: 1,
+      sentAt: 5,
+      control,
+    });
   const key = parseRemoteWebrtcChannelFromClient(envelope({ type: 'key', key: 'Enter', documentId: 'p1:2' }));
   assert.deepEqual([key.epoch, key.seq, key.control.type], [2, 7, 'key']);
   assert.throws(() =>
@@ -291,7 +305,16 @@ test('channel input is the document-bound page input set, never a dialog answer'
   );
   assert.throws(() => parseRemoteWebrtcChannelFromClient(envelope({ type: 'key', key: 'Enter', documentId: 'x' })));
   assert.throws(() => parseRemoteWebrtcChannelFromClient('{'));
-  const ack = { v: REMOTE_WEBRTC_VERSION, kind: 'input-ack', epoch: 2, seq: 7, outcome: 'applied', sentAt: 5, queuedMs: 1, dispatchMs: 2 };
+  const ack = {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'input-ack',
+    epoch: 2,
+    seq: 7,
+    outcome: 'applied',
+    sentAt: 5,
+    queuedMs: 1,
+    dispatchMs: 2,
+  };
   assert.deepEqual(readRemoteWebrtcChannelFromDesktop(JSON.stringify(ack)), ack);
   assert.equal(readRemoteWebrtcChannelFromDesktop(JSON.stringify({ ...ack, outcome: 'maybe' })), null);
 });
@@ -301,14 +324,29 @@ test('screen sources: screen-input on the channel, a document-less media-ready, 
   const media = { type: 'media-ready', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 };
   assert.equal(parseRemoteWebrtcClientSignal({ ...screenRef, ...media, documentId: null }).documentId, null);
   assert.throws(() => parseRemoteWebrtcClientSignal({ ...screenRef, ...media, documentId: 'p1:1' }));
-  assert.throws(() => parseRemoteWebrtcClientSignal({ ...ref, ...media, documentId: null }), 'a page needs its document');
+  assert.throws(
+    () => parseRemoteWebrtcClientSignal({ ...ref, ...media, documentId: null }),
+    'a page needs its document'
+  );
 
   const envelope = (control) =>
-    JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-input', epoch: 1, seq: 1, geometryGeneration: 1, sentAt: 0, control });
-  const key = parseRemoteWebrtcChannelFromClient(envelope({ type: 'screen-key', action: 'down', vk: 0x41, scan: 0x1e }));
+    JSON.stringify({
+      v: REMOTE_WEBRTC_VERSION,
+      kind: 'screen-input',
+      epoch: 1,
+      seq: 1,
+      geometryGeneration: 1,
+      sentAt: 0,
+      control,
+    });
+  const key = parseRemoteWebrtcChannelFromClient(
+    envelope({ type: 'screen-key', action: 'down', vk: 0x41, scan: 0x1e })
+  );
   assert.deepEqual(key.control, { type: 'screen-key', action: 'down', vk: 0x41, scan: 0x1e, extended: false });
   assert.equal(parseRemoteWebrtcChannelFromClient(envelope({ type: 'screen-release' })).control.type, 'screen-release');
-  assert.throws(() => parseRemoteWebrtcChannelFromClient(envelope({ type: 'screen-pointer', action: 'move', x: 5000, y: 0 })));
+  assert.throws(() =>
+    parseRemoteWebrtcChannelFromClient(envelope({ type: 'screen-pointer', action: 'move', x: 5000, y: 0 }))
+  );
   assert.throws(() => parseRemoteWebrtcChannelFromClient(envelope({ type: 'key', key: 'Enter', documentId: 'p1:1' })));
 
   const helperInfo = { offer: 'install', outcome: null, detail: null, issue: null, secure: 'uac' };
@@ -317,7 +355,12 @@ test('screen sources: screen-input on the channel, a document-less media-ready, 
     readRemoteWebrtcScreenStatus(JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-status', status }))?.status,
     status
   );
-  assert.equal(readRemoteWebrtcScreenStatus(JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-status', status: { ...status, state: 'x' } })), null);
+  assert.equal(
+    readRemoteWebrtcScreenStatus(
+      JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-status', status: { ...status, state: 'x' } })
+    ),
+    null
+  );
 });
 
 test('screen-status helper block: every offer, outcome and issue; bounded detail; strict otherwise', () => {
@@ -347,6 +390,7 @@ test('screen-status helper block: every offer, outcome and issue; bounded detail
     'account-locked',
     'account-disabled',
     'policy-blocked',
+    'busy',
   ]) {
     assert.deepEqual(read({ ...base, outcome, detail: 'why' }), { ...base, outcome, detail: 'why' });
   }
@@ -359,7 +403,10 @@ test('screen-status helper block: every offer, outcome and issue; bounded detail
   ]);
   for (const issue of REMOTE_SCREEN_HELPER_ISSUES) assert.deepEqual(read({ ...base, issue }), { ...base, issue });
   for (const secure of ['lock', 'uac']) assert.deepEqual(read({ ...base, secure }), { ...base, secure });
-  assert.equal(read({ ...base, detail: 'x'.repeat(MAX_REMOTE_SCREEN_HELPER_DETAIL) }).detail.length, MAX_REMOTE_SCREEN_HELPER_DETAIL);
+  assert.equal(
+    read({ ...base, detail: 'x'.repeat(MAX_REMOTE_SCREEN_HELPER_DETAIL) }).detail.length,
+    MAX_REMOTE_SCREEN_HELPER_DETAIL
+  );
   for (const bad of [
     { offer: 'maybe' },
     { offer: undefined },
@@ -382,13 +429,31 @@ test('screen-status helper block: every offer, outcome and issue; bounded detail
   // Null stays the explicit "none" of the nullable members.
   assert.deepEqual(read({ ...base, outcome: null, issue: null, secure: null }), base);
 
+  // `accountIsAdmin` is optional: both values round-trip, absent stays absent
+  // (an older PC), and anything but a boolean is refused.
+  for (const accountIsAdmin of [true, false]) {
+    assert.deepEqual(read({ ...base, accountIsAdmin }), { ...base, accountIsAdmin });
+  }
+  assert.equal('accountIsAdmin' in read(base), false, 'absent is not read as false');
+  assert.equal('accountIsAdmin' in read({ ...base, accountIsAdmin: null }), false);
+  for (const bad of ['yes', 1, 0, ['true'], {}]) {
+    assert.equal(read({ ...base, accountIsAdmin: bad }), null, JSON.stringify(bad));
+  }
+
   // The status's own enums: strings only; `in-use` is a helper state.
   const status = (over) =>
     readRemoteWebrtcScreenStatus(
       JSON.stringify({
         v: REMOTE_WEBRTC_VERSION,
         kind: 'screen-status',
-        status: { state: 'secure-desktop', reason: 'lock', helper: 'in-use', control: false, helperInfo: base, ...over },
+        status: {
+          state: 'secure-desktop',
+          reason: 'lock',
+          helper: 'in-use',
+          control: false,
+          helperInfo: base,
+          ...over,
+        },
       })
     );
   assert.equal(status({}).status.helper, 'in-use');
@@ -403,7 +468,13 @@ test('helper grants: challenge, grant and install messages, strict and bounded; 
   assert.match(CHALLENGE, /[+/]/u, 'the standard alphabet, not base64url');
   // Desktop: the challenge for the current run; the phone reads it back.
   const challenge = remoteWebrtcScreenHelperChallenge(4, { nonce: NONCE, challenge: CHALLENGE });
-  assert.deepEqual(challenge, { v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-challenge', epoch: 4, nonce: NONCE, challenge: CHALLENGE });
+  assert.deepEqual(challenge, {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-challenge',
+    epoch: 4,
+    nonce: NONCE,
+    challenge: CHALLENGE,
+  });
   assert.deepEqual(readRemoteWebrtcScreenHelperChallenge(JSON.stringify(challenge)), challenge);
   const badNonces = [
     '',
@@ -417,14 +488,25 @@ test('helper grants: challenge, grant and install messages, strict and bounded; 
     42,
   ];
   for (const nonce of badNonces) {
-    assert.throws(() => remoteWebrtcScreenHelperChallenge(4, { nonce, challenge: CHALLENGE }), TypeError, String(nonce));
-    assert.throws(() => remoteWebrtcScreenHelperChallenge(4, { nonce: NONCE, challenge: nonce }), TypeError, String(nonce));
+    assert.throws(
+      () => remoteWebrtcScreenHelperChallenge(4, { nonce, challenge: CHALLENGE }),
+      TypeError,
+      String(nonce)
+    );
+    assert.throws(
+      () => remoteWebrtcScreenHelperChallenge(4, { nonce: NONCE, challenge: nonce }),
+      TypeError,
+      String(nonce)
+    );
     assert.equal(readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, nonce })), null);
   }
   for (const epoch of [0, -1, 1.5, '4']) {
     assert.throws(() => remoteWebrtcScreenHelperChallenge(epoch, { nonce: NONCE, challenge: CHALLENGE }), TypeError);
   }
-  assert.equal(readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, kind: 'screen-helper-grant' })), null);
+  assert.equal(
+    readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, kind: 'screen-helper-grant' })),
+    null
+  );
   assert.equal(readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, v: 2 })), null);
 
   // Phone: a real controller key and a real signature of that challenge.
@@ -432,7 +514,11 @@ test('helper grants: challenge, grant and install messages, strict and bounded; 
   const signature = await signSecureDesktopGrant(key.privateKey, { nonce: NONCE, challenge: CHALLENGE }, 4);
   const grant = { epoch: 4, challenge: CHALLENGE, signature };
   const grantText = encodeRemoteWebrtcScreenHelperGrant(grant);
-  assert.deepEqual(parseRemoteWebrtcChannelFromClient(grantText), { v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-grant', ...grant });
+  assert.deepEqual(parseRemoteWebrtcChannelFromClient(grantText), {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-grant',
+    ...grant,
+  });
   const installText = encodeRemoteWebrtcScreenHelperInstall(key.publicKey);
   assert.deepEqual(parseRemoteWebrtcChannelFromClient(installText), {
     v: REMOTE_WEBRTC_VERSION,
@@ -464,10 +550,18 @@ test('helper grants: challenge, grant and install messages, strict and bounded; 
     compressed,
     7,
   ]) {
-    assert.throws(parsed({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey }), TypeError, String(publicKey));
+    assert.throws(
+      parsed({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey }),
+      TypeError,
+      String(publicKey)
+    );
     assert.throws(() => encodeRemoteWebrtcScreenHelperInstall(publicKey), TypeError, String(publicKey));
   }
-  assert.throws(parsed({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-challenge', ...grant, nonce: NONCE }), TypeError, 'a desktop message');
+  assert.throws(
+    parsed({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-challenge', ...grant, nonce: NONCE }),
+    TypeError,
+    'a desktop message'
+  );
   assert.throws(parsed({ ...grantMessage, kind: 'screen-helper-grants' }), TypeError);
 });
 
@@ -499,7 +593,12 @@ test('helper install/enroll/revoke carry optional keys and a credential, bounded
   ]) {
     assert.deepEqual(read(encode(key.publicKey)), { v: REMOTE_WEBRTC_VERSION, kind, publicKey: key.publicKey });
     const withCredential = read(encode(key.publicKey, { credential: { password: 'x' } }));
-    assert.deepEqual(withCredential, { v: REMOTE_WEBRTC_VERSION, kind, publicKey: key.publicKey, credential: { password: 'x' } });
+    assert.deepEqual(withCredential, {
+      v: REMOTE_WEBRTC_VERSION,
+      kind,
+      publicKey: key.publicKey,
+      credential: { password: 'x' },
+    });
     // A user-less credential is accepted (the PC resolves its own account).
     assert.equal(withCredential.credential.user, undefined);
     // The wrong reader, or input dispatch, does not accept it.
@@ -509,7 +608,7 @@ test('helper install/enroll/revoke carry optional keys and a credential, bounded
 
   // A `user` omitted is fine; an empty one is dropped, not kept.
   const noUser = parseRemoteWebrtcChannelFromClient(
-    encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { credential: { password: 'pw', user: '' } }),
+    encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { credential: { password: 'pw', user: '' } })
   );
   assert.equal(noUser.credential.user, undefined);
 
@@ -518,21 +617,34 @@ test('helper install/enroll/revoke carry optional keys and a credential, bounded
   const longPassword = 'a'.repeat(CREDUI_MAX_PASSWORD_LENGTH + 1);
   const longUser = 'u'.repeat(CREDUI_MAX_USERNAME_LENGTH + 1);
   const tooManyKeys = Array.from({ length: MAX_REMOTE_SCREEN_HELPER_KEYS + 1 }, () => other.publicKey);
-  assert.throws(() => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: longPassword } }), TypeError);
-  assert.throws(() => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: 'pw', user: longUser } }), TypeError);
+  assert.throws(
+    () => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: longPassword } }),
+    TypeError
+  );
+  assert.throws(
+    () => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: 'pw', user: longUser } }),
+    TypeError
+  );
   assert.throws(() => encodeRemoteWebrtcScreenHelperEnroll(key.publicKey, { credential: { password: '' } }), TypeError);
   assert.throws(() => encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { keys: tooManyKeys }), TypeError);
   assert.throws(() => encodeRemoteWebrtcScreenHelperInstall(key.publicKey, { keys: ['not-a-key'] }), TypeError);
   // The reader rejects a malformed enroll (over-long password, bad key) as null.
   assert.equal(
     readRemoteWebrtcScreenHelperEnroll(
-      JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-enroll', publicKey: key.publicKey, credential: { password: longPassword } }),
+      JSON.stringify({
+        v: REMOTE_WEBRTC_VERSION,
+        kind: 'screen-helper-enroll',
+        publicKey: key.publicKey,
+        credential: { password: longPassword },
+      })
     ),
-    null,
+    null
   );
   assert.equal(
-    readRemoteWebrtcScreenHelperEnroll(JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-enroll', publicKey: 'not-a-key' })),
-    null,
+    readRemoteWebrtcScreenHelperEnroll(
+      JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-enroll', publicKey: 'not-a-key' })
+    ),
+    null
   );
 
   // The credential never rides back to the phone: the status reader (desktop →
@@ -547,7 +659,7 @@ test('helper install/enroll/revoke carry optional keys and a credential, bounded
         control: false,
         helperInfo: { offer: 'install', outcome: 'bad-credentials', detail: null, issue: null, secure: null },
       },
-    }),
+    })
   );
   assert.equal(status.status.helperInfo.outcome, 'bad-credentials');
   assert.ok(!JSON.stringify(status).includes('password'));

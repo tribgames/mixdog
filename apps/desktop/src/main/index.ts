@@ -159,6 +159,7 @@ import { createSecureDesktopAdapter } from './remote-screen/secure-desktop-adapt
 import { createSecureDesktopHelper } from './remote-screen/secure-desktop-helper';
 import { createSecureDesktopClient, secureDesktopInstallerFor, type SecureDesktopInstaller } from './secure-desktop';
 import { createPcAccess, pendingRevokesFile, type PcAccess } from './pc-access';
+import { createAccountAdminCheck } from './secure-desktop/account-admin';
 import {
   REMOTE_CONTROLLER_KEY_DELIVERED_EVENT,
   REMOTE_CONTROLLER_KEYS_OWED_EVENT,
@@ -1469,6 +1470,9 @@ function secureDesktopInstaller(): SecureDesktopInstaller {
   return sharedSecureDesktopInstaller;
 }
 
+/** Whether the Windows account running this app is an administrator. */
+const accountIsAdmin = createAccountAdminCheck();
+
 /** Windows "PC access" (main/pc-access.ts): the readiness row's install and
  *  enroll, the delegated enroll of a delivered key, and the revoke on unpair. */
 let pcAccess: PcAccess | null = null;
@@ -2318,6 +2322,12 @@ function installLocalWindowFeatures(
                   adapter: () => createSecureDesktopAdapter(createSecureDesktopClient({ environment })),
                   installer: secureDesktopInstaller(),
                 }),
+                // The phone's Windows-password fallback goes through the same
+                // PC access queue as Approve (revocation rules included).
+                pcAccess: {
+                  accountIsAdmin,
+                  approveWithCredential: (request) => windowsPcAccess()!.approveWithCredential(request),
+                },
                 indicator: createPillScreenIndicator,
               };
             })()

@@ -10,6 +10,7 @@ import {
   isRemoteWebrtcPageInput,
   readRemoteWebrtcChannelFromDesktop,
   encodeRemoteWebrtcScreenHelperGrant,
+  encodeRemoteWebrtcScreenHelperEnroll,
   encodeRemoteWebrtcScreenHelperInstall,
   readRemoteWebrtcScreenCursor,
   readRemoteWebrtcScreenHelperChallenge,
@@ -415,7 +416,11 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       // Answered at once or not at all (a grant lapses in seconds), and never
       // for a session that has ended or a browser source.
       if (!ended && options.source.kind === 'screen') {
-        options.screenHelperChallenge?.({ epoch: challenge.epoch, nonce: challenge.nonce, challenge: challenge.challenge });
+        options.screenHelperChallenge?.({
+          epoch: challenge.epoch,
+          nonce: challenge.nonce,
+          challenge: challenge.challenge,
+        });
       }
       return;
     }
@@ -423,7 +428,8 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     if (cursor) {
       // Pixels of an older (or not yet adopted) geometry point somewhere else,
       // and so do those of a session that has ended (a lingering connection).
-      if (!ended && geometry && cursor.generation === geometry.generation) options.screenCursor?.({ x: cursor.x, y: cursor.y });
+      if (!ended && geometry && cursor.generation === geometry.generation)
+        options.screenCursor?.({ x: cursor.x, y: cursor.y });
       return;
     }
     const ack = readRemoteWebrtcChannelFromDesktop(data);
@@ -831,7 +837,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     get videoEpoch(): number | null {
       return videoRun?.epoch ?? null;
     },
-    /** A secure-desktop helper message (an install request, a signed grant)
+    /** A secure-desktop helper message (an install or enroll request, a signed grant)
      *  on the verified channel of a screen source. Never queued: a grant that
      *  cannot go now is useless a moment later. False when it did not go. */
     sendHelperMessage(message: ScreenHelperClientMessage): boolean {
@@ -840,12 +846,14 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       if (options.source.kind !== 'screen' || !attempt?.verified || channel?.readyState !== 'open') return false;
       let text: string;
       try {
-        text =
-          message.kind === 'screen-helper-install'
-            ? encodeRemoteWebrtcScreenHelperInstall(message.publicKey)
-            : encodeRemoteWebrtcScreenHelperGrant(message);
+        if (message.kind === 'screen-helper-install') {
+          text = encodeRemoteWebrtcScreenHelperInstall(message.publicKey, { credential: message.credential });
+        } else if (message.kind === 'screen-helper-enroll') {
+          text = encodeRemoteWebrtcScreenHelperEnroll(message.publicKey, { credential: message.credential });
+        } else text = encodeRemoteWebrtcScreenHelperGrant(message);
       } catch {
-        // Malformed (not a controller key, not a canonical grant): never sent.
+        // Malformed (not a controller key, not a canonical grant, an over-long
+        // password or account name): never sent.
         return false;
       }
       try {

@@ -25,7 +25,8 @@ import {
   type RemoteScreenVideoPath,
   type RemoteWebrtcGeometry,
 } from '../../shared/remote-webrtc';
-import { installOfferFor, type SecureDesktopGrantChallenge } from '../secure-desktop';
+import { installOfferFor, type SecureDesktopCredential, type SecureDesktopGrantChallenge } from '../secure-desktop';
+import type { PcAccessCredentialResult } from '../pc-access';
 import {
   lockScreenGeometry,
   screenGeometryChanged,
@@ -108,6 +109,50 @@ export type ScreenSourceEvent =
    *  deadline): they were dropped. */
   | { type: 'release-dropped'; clientId: string; screenId: string; backend: ScreenInputBackendId; count: number };
 
+/** "PC access" as a screen session uses it for the phone's Windows-password
+ *  request (main/pc-access.ts; Windows only). */
+export interface ScreenPcAccess {
+  /** Whether the account signed in on the PC is an administrator; null when
+   *  that could not be told. */
+  accountIsAdmin(): Promise<boolean | null>;
+  /** The PC access install-or-enroll authorized by the phone's password:
+   *  `clientId` is this session's paired phone, `publicKey` its controller key. */
+  approveWithCredential(request: {
+    clientId: string;
+    publicKey: string;
+    credential: SecureDesktopCredential;
+    /** Aborted when the session ends: a request not yet with the installer is
+     *  cancelled before it is. */
+    signal?: AbortSignal;
+  }): Promise<PcAccessCredentialResult>;
+}
+
+/** The outcomes the phone is told: the delegated path's refusals are PC-side
+ *  only (never part of a phone's request), so they read as `failed`. `busy`
+ *  (another phone's password request was running) goes through as it is. */
+type PhoneOutcome = Exclude<
+  PcAccessCredentialResult['outcome'],
+  'delegation-disabled' | 'delegation-denied' | 'service-unreachable'
+>;
+const phoneOutcome = (outcome: PcAccessCredentialResult['outcome']): PhoneOutcome =>
+  outcome === 'delegation-disabled' || outcome === 'delegation-denied' || outcome === 'service-unreachable'
+    ? 'failed'
+    : outcome;
+
+/** Empty a credential in place: nothing of it stays reachable from here. */
+function wipeCredential(credential: SecureDesktopCredential): void {
+  credential.password = '';
+  delete credential.user;
+}
+
+/** A diagnostic for the phone's status that does not quote what the phone
+ *  typed (an installer or bridge message may echo its input). */
+function safeDetail(detail: string | undefined, credential: SecureDesktopCredential): string | undefined {
+  if (detail === undefined) return undefined;
+  const secrets = [credential.password, credential.user].filter((secret): secret is string => !!secret);
+  return secrets.some((secret) => detail.includes(secret)) ? 'the request failed' : detail;
+}
+
 interface ScreenSourceDeps {
   clientId: string;
   clientLabel: string;
@@ -120,6 +165,9 @@ interface ScreenSourceDeps {
    *  when not installed), with its install state and request. It serves one
    *  session at a time (`ownedElsewhere()`). */
   secureDesktop: SecureDesktopLease;
+  /** PC access, for the phone's Windows-password request; absent: that request
+   *  is answered `unavailable`. */
+  pcAccess?: ScreenPcAccess;
   indicator: ScreenIndicator;
   /** Start/stop and transitions are logged; no input content is ever logged. */
   log(event: ScreenSourceEvent): void;
@@ -149,7 +197,6 @@ interface ScreenStartResult {
   geometry: RemoteWebrtcGeometry;
   status: RemoteScreenStatus;
 }
-
 
 interface ScreenStopOptions {
   /** Bound of this stop as a whole (watchdog plus closing the host), instead
@@ -228,6 +275,13 @@ export interface RemoteScreenSource {
    *  controller key (running and paired): at most one UAC prompt on the PC.
    *  The outcome and the new offer land in the status. */
   requestHelperInstall(controllerKey: string): void;
+  /** The viewer asks for the same with the Windows password it typed (running
+   *  and paired; no UAC prompt on the PC): routed through PC access, so every
+   *  revocation rule holds. One request at a time per session: another while
+   *  one runs is dropped. The outcome and the new offer land in the status;
+   *  the credential is neither logged, stored nor echoed, and is emptied once
+   *  the call ended. */
+  requestHelperCredential(controllerKey: string, credential: SecureDesktopCredential): void;
   /** Ends the session: stops capture, releases all input. Idempotent: a later
    *  call returns the first one's promise, and a shorter `deadlineMs` in it
    *  moves the running stop's absolute deadline earlier (never later). */
@@ -286,6 +340,16 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
    */
   let helperFacts: ScreenHelperFacts = { offer: 'none', outcome: null, detail: null, issue: null };
   let installTurn = 0;
+  /** The password request of this session that is with PC access (one at a
+   *  time), until it settles or the session ends. */
+  let credentialRequest: { credential: SecureDesktopCredential; abort: AbortController } | null = null;
+  /** Cancel the request (a queued one never reaches the installer) and wipe its
+   *  password. The request's own settlement then drops its result. */
+  const endCredentialRequest = (): void => {
+    if (!credentialRequest) return;
+    credentialRequest.abort.abort();
+    wipeCredential(credentialRequest.credential);
+  };
   /**
    * The installed service was stopped and could not be started (after a
    * reboot it is registered but stopped). `ensureService` asks the helper to
@@ -365,8 +429,9 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     helperOwnedElsewhere: deps.secureDesktop.ownedElsewhere(),
   });
 
-  const emitStatus = (next: RemoteScreenStatus): void => {
+  const emitStatus = (next: RemoteScreenStatus, force = false): void => {
     if (
+      !force &&
       next.state === status.state &&
       next.reason === status.reason &&
       next.helper === status.helper &&
@@ -382,14 +447,16 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     for (const listener of statusListeners) listener(next);
   };
 
-  const publishStatus = (): void => {
+  const publishStatus = (force = false): void => {
     if (!running || !decision) return;
-    emitStatus(screenStatusFor(decision, paired(), helperVideo, helperFacts));
+    emitStatus(screenStatusFor(decision, paired(), helperVideo, helperFacts), force);
   };
 
-  const setHelperFacts = (next: Partial<ScreenHelperFacts>): void => {
+  /** `force`: pushed even when nothing changed, for an answer the phone waits
+   *  on (a wrong password answered twice reads the same twice). */
+  const setHelperFacts = (next: Partial<ScreenHelperFacts>, force = false): void => {
     helperFacts = { ...helperFacts, ...next };
-    publishStatus();
+    publishStatus(force);
   };
 
   const setIssue = (issue: RemoteScreenHelperIssue | null): void => {
@@ -397,8 +464,8 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   };
 
   /** An install-state answer, applied unless a later check or request started. */
-  const installAnswer = (turn: number, next: Partial<ScreenHelperFacts>): void => {
-    if (running && turn === installTurn) setHelperFacts(next);
+  const installAnswer = (turn: number, next: Partial<ScreenHelperFacts>, force = false): void => {
+    if (running && turn === installTurn) setHelperFacts(next, force);
   };
 
   const setHelperVideo = (delivering: boolean): void => {
@@ -499,7 +566,8 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
       void stop('display-removed');
       return;
     }
-    if (mapping && plan && !screenGeometryChanged(mapping, display) && plan.sourceId === display.captureSourceId) return;
+    if (mapping && plan && !screenGeometryChanged(mapping, display) && plan.sourceId === display.captureSourceId)
+      return;
     lock(display);
     if (geometry && plan) {
       for (const listener of geometryListeners) listener({ plan, geometry });
@@ -558,7 +626,10 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     subscriptions.push(deps.secureDesktop.onFrame(onHelperFrame));
     subscriptions.push(
       deps.secureDesktop.onDesktopChanged(() => {
-        helperFacts = { ...helperFacts, issue: helperIssueAfterChange(helperFacts.issue, deps.secureDesktop.connected()) };
+        helperFacts = {
+          ...helperFacts,
+          issue: helperIssueAfterChange(helperFacts.issue, deps.secureDesktop.connected()),
+        };
         refreshDecision();
       })
     );
@@ -580,13 +651,19 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
       })
     );
     const turn = ++installTurn;
-    void deps.secureDesktop
-      .installState()
-      .then((state) => {
-        installAnswer(turn, { offer: installOfferFor(state) });
-        // A current install whose service is stopped (after a reboot).
-        if (running && state === 'installed' && !deps.secureDesktop.connected()) ensureService();
-      });
+    void deps.secureDesktop.installState().then((state) => {
+      installAnswer(turn, { offer: installOfferFor(state) });
+      // A current install whose service is stopped (after a reboot).
+      if (running && state === 'installed' && !deps.secureDesktop.connected()) ensureService();
+    });
+    // Whether the PC's signed-in account is an administrator (the phone's
+    // password sheet asks for an account name only when it is not).
+    void deps.pcAccess?.accountIsAdmin().then(
+      (admin) => {
+        if (running && admin !== null) setHelperFacts({ accountIsAdmin: admin });
+      },
+      () => undefined
+    );
 
     // The input host is the injector and also the local UAC / lock detector:
     // a session cannot proceed without it.
@@ -648,27 +725,30 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
    */
   const startCursorSampling = (): void => {
     let reading = false;
-    const timer = setInterval(() => {
-      const current = host;
-      if (reading || !running || !current || !mapping || !decision || decisionUsesHelper(decision)) return;
-      reading = true;
-      const sample = cursorSample;
-      void current
-        .command({ op: 'cursor' })
-        .then((fields) => {
-          if (!running || sample !== cursorSample || !decision || decisionUsesHelper(decision) || !mapping) return;
-          const at = fields.length === 2 ? screenPointToVideo(mapping, Number(fields[0]), Number(fields[1])) : null;
-          if (!at) return;
-          const next = { x: at.x, y: at.y, generation: mapping.generation };
-          if (cursor && cursor.x === next.x && cursor.y === next.y && cursor.generation === next.generation) return;
-          cursor = next;
-          for (const listener of cursorListeners) listener(next);
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          reading = false;
-        });
-    }, Math.ceil(1000 / maxFrameRate));
+    const timer = setInterval(
+      () => {
+        const current = host;
+        if (reading || !running || !current || !mapping || !decision || decisionUsesHelper(decision)) return;
+        reading = true;
+        const sample = cursorSample;
+        void current
+          .command({ op: 'cursor' })
+          .then((fields) => {
+            if (!running || sample !== cursorSample || !decision || decisionUsesHelper(decision) || !mapping) return;
+            const at = fields.length === 2 ? screenPointToVideo(mapping, Number(fields[0]), Number(fields[1])) : null;
+            if (!at) return;
+            const next = { x: at.x, y: at.y, generation: mapping.generation };
+            if (cursor && cursor.x === next.x && cursor.y === next.y && cursor.generation === next.generation) return;
+            cursor = next;
+            for (const listener of cursorListeners) listener(next);
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            reading = false;
+          });
+      },
+      Math.ceil(1000 / maxFrameRate)
+    );
     timer.unref?.();
     subscriptions.push(() => clearInterval(timer));
   };
@@ -679,8 +759,12 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
    * later. When it passes: during the release step the host is killed and the
    * router abandoned; while the host closes, its graceful stop is cut short.
    */
-  let stopDeadline: { at: number; timer?: ReturnType<typeof setTimeout>; passed: boolean; waiters: Set<() => void> } | null =
-    null;
+  let stopDeadline: {
+    at: number;
+    timer?: ReturnType<typeof setTimeout>;
+    passed: boolean;
+    waiters: Set<() => void>;
+  } | null = null;
 
   const armStopDeadline = (): void => {
     const deadline = stopDeadline;
@@ -727,6 +811,10 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     // and capture ends now (the sender drops its track on the stop signal).
     running = false;
     stopReason = reason;
+    // A password outstanding for this session ends with it: still queued, it is
+    // cancelled before the installer is reached; already dispatched, it finishes
+    // and its result is dropped. Either way no copy stays here.
+    endCredentialRequest();
     router.cancel();
     subscriptions.splice(0).forEach((off) => off());
     emitStatus({ state: 'stopped', reason, helper: status.helper, control: false, helperInfo: status.helperInfo });
@@ -831,7 +919,11 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     requestHelperInstall(controllerKey) {
       if (!running || !paired()) return;
       const turn = ++installTurn;
-      const answer = (outcome: ScreenHelperFacts['outcome'], detail: string | undefined, offer?: ScreenHelperFacts['offer']) =>
+      const answer = (
+        outcome: ScreenHelperFacts['outcome'],
+        detail: string | undefined,
+        offer?: ScreenHelperFacts['offer']
+      ) =>
         installAnswer(turn, {
           outcome,
           detail: detail === undefined ? null : detail.slice(0, MAX_REMOTE_SCREEN_HELPER_DETAIL),
@@ -841,6 +933,59 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
         (result) => answer(result.outcome, result.detail, installOfferFor(result.state)),
         (error: unknown) => answer('failed', error instanceof Error ? error.message : String(error))
       );
+    },
+    requestHelperCredential(controllerKey, credential) {
+      // Whatever happens, no copy of the password outlives this request.
+      const wipe = (): void => wipeCredential(credential);
+      if (!running || !paired() || credentialRequest) {
+        wipe();
+        return;
+      }
+      const turn = ++installTurn;
+      // Forced: a wrong password answered twice is the same status twice, and
+      // the phone is waiting for each answer.
+      const answer = (outcome: ScreenHelperFacts['outcome'], detail?: string, offer?: ScreenHelperFacts['offer']) =>
+        installAnswer(
+          turn,
+          {
+            outcome,
+            detail: detail === undefined ? null : detail.slice(0, MAX_REMOTE_SCREEN_HELPER_DETAIL),
+            ...(offer ? { offer } : {}),
+          },
+          true
+        );
+      if (!deps.pcAccess) {
+        wipe();
+        answer('unavailable');
+        return;
+      }
+      const request = { credential, abort: new AbortController() };
+      credentialRequest = request;
+      // The error text never reaches the phone or a log: only a fixed line
+      // (an installer or bridge message may quote what it was given).
+      void deps.pcAccess
+        .approveWithCredential({
+          clientId: deps.clientId,
+          publicKey: controllerKey,
+          credential,
+          signal: request.abort.signal,
+        })
+        .then(
+          (result) =>
+            // A session that ended meanwhile has no one to tell.
+            request.abort.signal.aborted
+              ? undefined
+              : answer(
+                  phoneOutcome(result.outcome),
+                  safeDetail(result.detail, credential),
+                  installOfferFor(result.state)
+                ),
+          () => (request.abort.signal.aborted ? undefined : answer('failed', 'the request could not be completed'))
+        )
+        .finally(() => {
+          if (credentialRequest === request) credentialRequest = null;
+          wipe();
+        });
     },
     stop,
     released: () => stopping ?? Promise.resolve(),

@@ -265,6 +265,70 @@ html:has(.remote-screen-overlay) {
   line-height: var(--mx-line-meta);
 }
 
+/* The Windows-password sheet of the blocked view (design/mockups/
+   remote-screen-helper-install): the monitor sheet's surface, a field in the
+   settings input grammar, and touch-height buttons. */
+.remote-screen-field {
+  display: grid;
+  gap: 6px;
+  margin: 0 8px 12px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+
+.remote-screen-field input {
+  height: var(--mx-touch-main);
+  padding: 0 12px;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-workspace-sheet);
+  color: var(--mx-text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.remote-screen-field input:disabled {
+  opacity: 0.6;
+}
+
+.remote-screen-field input[aria-invalid="true"] {
+  border-color: var(--mx-danger);
+}
+
+.remote-screen-sheet p.remote-screen-sheet-error {
+  color: var(--mx-danger);
+}
+
+.remote-screen-sheet-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.remote-screen-sheet-buttons button {
+  min-width: 88px;
+  height: var(--mx-touch-main);
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  cursor: pointer;
+}
+
+.remote-screen-sheet-buttons .remote-screen-primary {
+  background: var(--mx-text);
+  color: var(--mx-bg-base);
+}
+
+.remote-screen-sheet-buttons button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .remote-screen-list {
   border-radius: var(--mx-radius-xl);
   box-shadow: var(--mx-card-outline);

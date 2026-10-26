@@ -443,7 +443,11 @@ export type RemoteScreenHelperInstallOutcome =
   | 'logon-type-denied'
   | 'account-locked'
   | 'account-disabled'
-  | 'policy-blocked';
+  | 'policy-blocked'
+  /** The PC was busy with another phone's password request and ran nothing:
+   *  transient, the phone may try again (unlike `in-progress`, which is this
+   *  request's own prompt still open on the PC). */
+  | 'busy';
 
 /** The helper's advisory codes the phone is told about
  *  (native/mixdog-secure-desktop/docs/ipc-spec.md, "Error codes"). */
@@ -478,6 +482,12 @@ export interface RemoteScreenHelperInfo {
   /** Which secure screen is up: the lock / sign-in screen, or an elevation
    *  prompt; null on the ordinary desktop or when it can't be told. */
   secure: 'lock' | 'uac' | null;
+  /** Whether the account signed in on the PC is an administrator: when it is
+   *  not, the phone's Windows-password sheet also asks for an administrator
+   *  account name (the PC cannot use its own account then). Absent when the
+   *  PC did not say (an older PC, or the check failed): the phone asks for the
+   *  password only. */
+  accountIsAdmin?: boolean;
 }
 
 /** A screen source's state, pushed on the data channel as `screen-status`. */
@@ -1135,9 +1145,17 @@ export function parseRemoteWebrtcClientSignal(value: unknown): RemoteWebrtcClien
         pixelHeight: evenPixels(input.pixelHeight, 'media height'),
       };
     case 'promote-ack':
-      return { ...connectionRef(input), type: 'promote-ack', inputEpoch: positiveInteger(input.inputEpoch, 'input epoch') };
+      return {
+        ...connectionRef(input),
+        type: 'promote-ack',
+        inputEpoch: positiveInteger(input.inputEpoch, 'input epoch'),
+      };
     case 'demote-ack':
-      return { ...connectionRef(input), type: 'demote-ack', inputEpoch: positiveInteger(input.inputEpoch, 'input epoch') };
+      return {
+        ...connectionRef(input),
+        type: 'demote-ack',
+        inputEpoch: positiveInteger(input.inputEpoch, 'input epoch'),
+      };
     case 'close':
       return {
         ...connectionRef(input),
@@ -1314,7 +1332,12 @@ export function parseRemoteWebrtcChannelFromClient(text: unknown): RemoteWebrtcC
     sentAt: count(input.sentAt, 'input time'),
   };
   if (input.kind === 'screen-input') {
-    return { v: REMOTE_WEBRTC_VERSION, kind: 'screen-input', ...envelope, control: parseRemoteScreenInput(input.control) };
+    return {
+      v: REMOTE_WEBRTC_VERSION,
+      kind: 'screen-input',
+      ...envelope,
+      control: parseRemoteScreenInput(input.control),
+    };
   }
   if (input.kind !== 'input') fail('channel message kind');
   const control = record(input.control, 'input');
@@ -1414,6 +1437,7 @@ const HELPER_OUTCOMES: ReadonlySet<string> = new Set([
   'account-locked',
   'account-disabled',
   'policy-blocked',
+  'busy',
 ]);
 const HELPER_ISSUES: ReadonlySet<string> = new Set(REMOTE_SCREEN_HELPER_ISSUES);
 const SECURE_SCREENS: ReadonlySet<string> = new Set(['lock', 'uac']);
@@ -1440,7 +1464,15 @@ function helperInfo(value: unknown): RemoteScreenHelperInfo {
     detail: input.detail === null ? null : boundedText(input.detail, MAX_REMOTE_SCREEN_HELPER_DETAIL, 'helper detail'),
     issue: nullableMember<RemoteScreenHelperIssue>(input.issue, HELPER_ISSUES, 'helper issue'),
     secure: nullableMember<'lock' | 'uac'>(input.secure, SECURE_SCREENS, 'secure screen'),
+    ...(input.accountIsAdmin === undefined || input.accountIsAdmin === null
+      ? {}
+      : { accountIsAdmin: booleanField(input.accountIsAdmin, 'account admin') }),
   };
+}
+
+function booleanField(value: unknown, what: string): boolean {
+  if (typeof value !== 'boolean') fail(what);
+  return value as boolean;
 }
 
 /** A `screen-status` channel message from the desktop, as the phone receives it. */
@@ -1596,17 +1628,15 @@ export function encodeRemoteWebrtcScreenHelperGrant(grant: RemoteScreenHelperGra
  *  credential field, or too many keys. */
 export function encodeRemoteWebrtcScreenHelperInstall(
   publicKey: string,
-  options: { keys?: string[]; credential?: RemoteScreenHelperCredential } = {},
+  options: { keys?: string[]; credential?: RemoteScreenHelperCredential } = {}
 ): string {
-  return JSON.stringify(
-    helperInstallMessage({ publicKey, keys: options.keys, credential: options.credential }),
-  );
+  return JSON.stringify(helperInstallMessage({ publicKey, keys: options.keys, credential: options.credential }));
 }
 
 /** Phone: the channel text of a `screen-helper-enroll`. */
 export function encodeRemoteWebrtcScreenHelperEnroll(
   publicKey: string,
-  options: { credential?: RemoteScreenHelperCredential } = {},
+  options: { credential?: RemoteScreenHelperCredential } = {}
 ): string {
   return JSON.stringify(helperEnrollMessage({ publicKey, credential: options.credential }));
 }
@@ -1614,7 +1644,7 @@ export function encodeRemoteWebrtcScreenHelperEnroll(
 /** Phone: the channel text of a `screen-helper-revoke`. */
 export function encodeRemoteWebrtcScreenHelperRevoke(
   publicKey: string,
-  options: { credential?: RemoteScreenHelperCredential } = {},
+  options: { credential?: RemoteScreenHelperCredential } = {}
 ): string {
   return JSON.stringify(helperRevokeMessage({ publicKey, credential: options.credential }));
 }

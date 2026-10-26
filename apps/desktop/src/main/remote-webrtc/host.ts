@@ -271,6 +271,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       frameSeen: (epoch) => source.frameSeen?.(epoch),
       helperGrant: (grant) => source.helperGrant?.(grant),
       helperInstall: (controllerKey) => source.helperInstall?.(controllerKey),
+      helperCredential: (controllerKey, credential) => source.helperCredential?.(controllerKey, credential),
       promoted: () => {
         for (const message of source.channelState?.() ?? []) entry.viewer.push(JSON.stringify(message));
       },
@@ -474,7 +475,10 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
           // A larger video limit than the stream's frame bound widens the
           // capture before the offer, which then carries the new geometry.
           if (signal.videoLimit) source.videoLimit?.(signal.videoLimit);
-          entry.viewer.ready(signal.receiveCodecs, Array.isArray(iceServers) ? (iceServers as RemoteWebrtcIceServer[]) : []);
+          entry.viewer.ready(
+            signal.receiveCodecs,
+            Array.isArray(iceServers) ? (iceServers as RemoteWebrtcIceServer[]) : []
+          );
           return;
         case 'geometry-ack':
           entry.viewer.geometryAck(signal.geometryGeneration);

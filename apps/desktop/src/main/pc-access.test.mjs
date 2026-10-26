@@ -196,6 +196,213 @@ test('Approve new phone: one UAC enroll of every missing phone, the pending revo
   assert.deepEqual(kept.keys, [KEY_OLD]);
 });
 
+const CREDENTIAL = { password: 'pw-secret', user: 'PC\\admin' };
+const asPhone = (clientId, publicKey) => ({ clientId, publicKey, credential: CREDENTIAL });
+
+test('a phone’s Windows password installs like Approve: every paired key, the pending revokes in the same call, cleared on success', async () => {
+  const installer = fakeInstaller();
+  const pending = memoryPending([KEY_OLD]);
+  const access = pcAccessOver(installer, { pending });
+  const result = await access.approveWithCredential(asPhone('a', KEY_A));
+  assert.deepEqual(installer.calls, [['install', [KEY_A, KEY_B], { revoke: [KEY_OLD], credential: CREDENTIAL }]]);
+  // The outcome is the installer's, its state relative to this phone's key.
+  assert.deepEqual(result, { outcome: 'installed', state: 'installed' });
+  assert.deepEqual(pending.keys, []);
+
+  // An outdated install is replaced the same way, with no phone in the key set but the paired ones.
+  const outdated = fakeInstaller({ state: 'outdated' });
+  await pcAccessOver(outdated).approveWithCredential(asPhone('b', KEY_B));
+  assert.deepEqual(outdated.calls, [['install', [KEY_A, KEY_B], { revoke: [], credential: CREDENTIAL }]]);
+});
+
+test('a phone’s Windows password enrolls the missing phones in one call, the pending revokes with them', async () => {
+  const installer = fakeInstaller({ state: 'installed' });
+  const pending = memoryPending([KEY_OLD]);
+  const result = await pcAccessOver(installer, { pending }).approveWithCredential(asPhone('b', KEY_B));
+  assert.deepEqual(installer.calls, [['enroll', [KEY_A, KEY_B], { revoke: [KEY_OLD], credential: CREDENTIAL }]]);
+  assert.deepEqual(result, { outcome: 'enrolled', state: 'installed' });
+  assert.deepEqual(pending.keys, []);
+
+  // Only what the install lacks; the phone already enrolled is answered enrolled with no call.
+  const one = fakeInstaller({ state: 'installed', enrolled: [KEY_A] });
+  await pcAccessOver(one).approveWithCredential(asPhone('b', KEY_B));
+  assert.deepEqual(one.calls, [['enroll', [KEY_B], { revoke: [], credential: CREDENTIAL }]]);
+  const done = fakeInstaller({ state: 'installed', enrolled: [KEY_A, KEY_B] });
+  assert.deepEqual(await pcAccessOver(done).approveWithCredential(asPhone('a', KEY_A)), {
+    outcome: 'enrolled',
+    state: 'installed',
+  });
+  assert.deepEqual(done.calls, []);
+});
+
+test('unknown revocations are resolved by the credential install exactly as by Approve; a pending one is never enrolled over', async () => {
+  const unknown = memoryPending([KEY_OLD], 77);
+  const installer = fakeInstaller({ state: 'installed', enrolled: [KEY_A, KEY_B] });
+  await pcAccessOver(installer, { pending: unknown }).approveWithCredential(asPhone('a', KEY_A));
+  assert.deepEqual(
+    installer.calls,
+    [['install', [KEY_A, KEY_B], { revoke: [KEY_OLD], credential: CREDENTIAL }]],
+    'the full key set from the current pairings is written; nothing is enrolled by a smaller call'
+  );
+  assert.deepEqual([unknown.keys, unknown.unknown], [[], null]);
+
+  // The service’s owed revocations are taken over first, then applied with it.
+  const service = fakeService({ owed: [KEY_GONE], unknown: 0 });
+  const owing = fakeInstaller({ state: 'installed' });
+  const pending = memoryPending();
+  await pcAccessOver(owing, { pending, service }).approveWithCredential(asPhone('a', KEY_A));
+  assert.deepEqual(owing.calls, [['enroll', [KEY_A, KEY_B], { revoke: [KEY_GONE], credential: CREDENTIAL }]]);
+  assert.deepEqual(service.settled, [[[KEY_GONE], 0]]);
+  assert.deepEqual(pending.keys, []);
+
+  // A phone whose own key waits to be revoked is refused, not enrolled.
+  const blocked = fakeInstaller({ state: 'installed' });
+  const waiting = memoryPending([KEY_B]);
+  const refused = await pcAccessOver(blocked, { pending: waiting }).approveWithCredential(asPhone('b', KEY_B));
+  assert.equal(refused.outcome, 'failed');
+  assert.deepEqual(blocked.calls, []);
+  assert.deepEqual(waiting.keys, [KEY_B]);
+});
+
+test('a refused or failed credential call keeps every pending revocation, and the installer’s outcome reaches the phone', async () => {
+  for (const outcome of [
+    'bad-credentials',
+    'not-admin',
+    'logon-type-denied',
+    'account-locked',
+    'account-disabled',
+    'policy-blocked',
+    'failed',
+    'in-progress',
+  ]) {
+    for (const state of ['not-installed', 'installed']) {
+      const installer = fakeInstaller({ state, answers: { install: outcome, enroll: outcome } });
+      const pending = memoryPending([KEY_OLD], 5);
+      const result = await pcAccessOver(installer, { pending }).approveWithCredential(asPhone('a', KEY_A));
+      assert.equal(result.outcome, outcome, `${state}: ${outcome}`);
+      // The offer follows from the phone’s own key: still installing, or still not enrolled.
+      assert.equal(result.state, state === 'installed' ? 'not-enrolled' : 'not-installed');
+      assert.deepEqual([pending.keys, pending.unknown], [[KEY_OLD], 5], `${state}: ${outcome} keeps the record`);
+    }
+  }
+  // Another Windows account’s install, or none available: nothing is run.
+  for (const state of ['other-user', 'unavailable']) {
+    const installer = fakeInstaller({ state });
+    assert.deepEqual(await pcAccessOver(installer).approveWithCredential(asPhone('a', KEY_A)), {
+      outcome: state,
+      state,
+    });
+    assert.deepEqual(installer.calls, [], state);
+  }
+});
+
+test('only a phone paired now, under the key it delivered, may use its password: nothing else reaches the installer', async () => {
+  const installer = fakeInstaller();
+  const access = pcAccessOver(installer);
+  for (const [clientId, publicKey] of [
+    ['gone', KEY_GONE], // unpaired
+    ['a', KEY_B], // another phone’s key
+    ['stranger', KEY_A], // not a paired client
+    ['a', KEY_OLD], // a key it never delivered
+  ]) {
+    const result = await access.approveWithCredential(asPhone(clientId, publicKey));
+    assert.equal(result.outcome, 'failed', `${clientId}`);
+  }
+  assert.deepEqual(installer.calls, []);
+  // The service unreachable: refused with an error, nothing run.
+  const down = fakeService();
+  down.down = true;
+  await assert.rejects(pcAccessOver(installer, { service: down }).approveWithCredential(asPhone('a', KEY_A)));
+  assert.deepEqual(installer.calls, []);
+});
+
+test('one password request at a time, queued behind other PC access work', async () => {
+  const gate = deferred();
+  const installer = fakeInstaller({ answers: { install: () => gate.promise.then(() => 'bad-credentials') } });
+  const access = pcAccessOver(installer);
+  const first = access.approveWithCredential(asPhone('a', KEY_A));
+  await ticks();
+  const second = await access.approveWithCredential(asPhone('b', KEY_B));
+  assert.equal(second.outcome, 'busy', 'answered, not queued, and not another request’s own in-progress');
+  assert.equal(installer.calls.length, 1);
+  gate.resolve();
+  assert.equal((await first).outcome, 'bad-credentials');
+  // Free again once it ended.
+  installer.installState = 'not-installed';
+  gate.resolve();
+  assert.equal((await access.approveWithCredential(asPhone('b', KEY_B))).outcome, 'bad-credentials');
+
+  // It waits behind an Approve already running (the one serialized queue).
+  const hold = deferred();
+  const slow = fakeInstaller({ answers: { install: () => hold.promise.then(() => 'installed') } });
+  const queued = pcAccessOver(slow);
+  const approving = queued.approve();
+  await ticks();
+  const credential = queued.approveWithCredential(asPhone('a', KEY_A));
+  await ticks();
+  assert.equal(slow.calls.length, 1, 'not started until Approve ended');
+  hold.resolve();
+  assert.deepEqual(await approving, { outcome: 'done' });
+  assert.equal((await credential).outcome, 'enrolled', 'by then the Approve had installed every paired key');
+  assert.equal(slow.calls.length, 1);
+});
+
+test('a password request whose session ended while it was queued never reaches the installer; one already dispatched finishes', async () => {
+  const hold = deferred();
+  const slow = fakeInstaller({ answers: { install: () => hold.promise.then(() => 'installed') } });
+  const access = pcAccessOver(slow);
+  const approving = access.approve();
+  await ticks();
+  const session = new AbortController();
+  const queued = access.approveWithCredential({ ...asPhone('a', KEY_A), signal: session.signal });
+  await ticks();
+  session.abort();
+  hold.resolve();
+  await approving;
+  const result = await queued;
+  assert.equal(result.outcome, 'failed');
+  assert.match(result.detail, /session ended/);
+  assert.equal(slow.calls.length, 1, 'only the Approve’s install ran; the credential never went to the installer');
+  assert.ok(slow.calls.every(([, , options]) => !options.credential));
+  // The busy latch is free again.
+  const next = await access.approveWithCredential(asPhone('b', KEY_B));
+  assert.equal(next.outcome, 'enrolled');
+
+  // Aborted after the installer was reached: the call runs to its end.
+  const gate = deferred();
+  const dispatched = fakeInstaller({ answers: { install: () => gate.promise.then(() => 'installed') } });
+  const late = new AbortController();
+  const running = pcAccessOver(dispatched).approveWithCredential({ ...asPhone('a', KEY_A), signal: late.signal });
+  await ticks();
+  assert.equal(dispatched.calls.length, 1);
+  late.abort();
+  gate.resolve();
+  assert.equal((await running).outcome, 'installed');
+});
+
+test('an installer that throws with the password in its message leaks it nowhere PC access writes', async (t) => {
+  const lines = [];
+  for (const method of ['log', 'info', 'warn', 'error', 'debug']) {
+    t.mock.method(console, method, (...args) => lines.push(args.map(String).join(' ')));
+  }
+  const installer = fakeInstaller({
+    answers: {
+      install: () => {
+        throw new Error(`logon failed for ${CREDENTIAL.user} password ${CREDENTIAL.password}`);
+      },
+    },
+  });
+  const pending = memoryPending([KEY_OLD]);
+  const access = pcAccessOver(installer, { pending });
+  await assert.rejects(access.approveWithCredential(asPhone('a', KEY_A)));
+  assert.deepEqual(pending.keys, [KEY_OLD], 'the record stays');
+  assert.deepEqual(lines, [], 'nothing was logged on the credential path');
+  // And the queue is usable afterwards.
+  installer.installState = 'not-installed';
+  const again = pcAccessOver(fakeInstaller());
+  assert.equal((await again.approveWithCredential(asPhone('a', KEY_A))).outcome, 'installed');
+});
+
 test('every paired phone enrolled is ready; another account’s or an unavailable service prompts nothing', async () => {
   const done = fakeInstaller({ state: 'installed', enrolled: [KEY_A, KEY_B] });
   assert.deepEqual(await pcAccessOver(done).readiness(), { state: 'ready' });

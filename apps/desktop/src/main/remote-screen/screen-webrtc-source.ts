@@ -32,7 +32,8 @@
  * to the phone as `screen-helper-challenge` with the current run, and the
  * phone's `screen-helper-grant` is relayed only when it names the current
  * run. The phone's `screen-helper-install` reaches the source's install
- * request.
+ * request; with a Windows-password `credential` (and for its
+ * `screen-helper-enroll`) it reaches the source's credential request instead.
  */
 import {
   REMOTE_WEBRTC_VERSION,
@@ -257,5 +258,6 @@ export function createScreenWebrtcSource(
       screen.helperGrant(signed);
     },
     helperInstall: (controllerKey) => screen.requestHelperInstall(controllerKey),
+    helperCredential: (controllerKey, credential) => screen.requestHelperCredential(controllerKey, credential),
   };
 }

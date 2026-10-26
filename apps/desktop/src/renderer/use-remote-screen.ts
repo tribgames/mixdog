@@ -73,8 +73,8 @@ export function useRemoteScreen({
     send: (message, origin) => origin.sendHelperMessage(message),
   });
   const grants = grantsRef.current;
-  // The helper is asked for only by the button (the PC's own setup, or the
-  // phone's blocked-state sheet); a screen session never asks by itself.
+  // The helper is asked for only by the phone's password sheet (the other way
+  // is the PC's own Computer Use setup); a screen session never asks by itself.
   const requestInstall = useMemo(
     () =>
       createScreenHelperInstall({
@@ -83,12 +83,18 @@ export function useRemoteScreen({
       }),
     [keys]
   );
-  const installHelper = useCallback(async (): Promise<boolean> => {
-    setHelperPending(true);
-    const sent = await requestInstall();
-    if (!sent) setHelperPending(false);
-    return sent;
-  }, [requestInstall]);
+  const installHelper = useCallback(
+    async (
+      action: Parameters<typeof requestInstall>[0],
+      credential: Parameters<typeof requestInstall>[1]
+    ): Promise<boolean> => {
+      setHelperPending(true);
+      const sent = await requestInstall(action, credential);
+      if (!sent) setHelperPending(false);
+      return sent;
+    },
+    [requestInstall]
+  );
   useEffect(() => {
     if (!helperPending) return undefined;
     const timer = window.setTimeout(() => setHelperPending(false), HELPER_REQUEST_WAIT_MS);
@@ -219,8 +225,9 @@ export function useRemoteScreen({
     helper: readScreenHelperBlock(status),
     /** An install / update request was sent and the PC has not answered. */
     helperPending,
-    /** The button: enroll this phone's key and ask the PC to install (or
-     *  update) the helper. False when the request could not be sent. */
+    /** The password sheet's submit: enroll this phone's key and ask the PC to
+     *  install (or update) the helper with the typed Windows password. False
+     *  when the request could not be sent. */
     installHelper,
     /** The PC cursor in video pixels, or null until it is reported. */
     cursor: cursor.read,

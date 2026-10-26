@@ -22,6 +22,10 @@
 // damaged, full, or an unpaired phone's key could not be read, the
 // revocations are "unknown": nothing is enrolled until an elevated install,
 // which writes the full key set from the current pairings, resolves it.
+// The phone's Windows password (`approveWithCredential`, docs/remote-screen.md
+// "PC access from the phone") is Approve's twin for when nobody is at the PC:
+// the same decisions in the same queue, authorized by a batch logon instead of
+// a UAC prompt.
 // Whether a key is enrolled is the bridge's `check --controller-key`:
 // `installed` while that key is enrolled in a current install, `not-enrolled`
 // (exit 7) when the current install lacks it.
@@ -34,6 +38,7 @@ import type { RemoteControllerKeyRecord, RemoteControllerKeysOwed } from '../sha
 import { MAX_REMOTE_SCREEN_HELPER_KEYS } from '../shared/remote-webrtc';
 import { isSecureDesktopControllerKey } from '../shared/secure-desktop-grant';
 import type { SecureDesktopInstaller } from './secure-desktop';
+import type { SecureDesktopCredential } from './secure-desktop/client';
 import type { SecureDesktopKeyChangeResult } from './secure-desktop/install-request';
 
 /** The installer operations this module drives (one shared instance, so its
@@ -60,10 +65,34 @@ export interface PcAccessPendingRevokes {
   settle(keys: readonly string[], unknown?: number | null): Promise<void>;
 }
 
+/** What a password request ends with: the installer's result, or `busy` when
+ *  another phone's password request was running and nothing was run (the
+ *  phone may simply ask again; not an answer about its own request). */
+export type PcAccessCredentialResult = Omit<SecureDesktopKeyChangeResult, 'outcome'> & {
+  outcome: SecureDesktopKeyChangeResult['outcome'] | 'busy';
+};
+
 export interface PcAccess {
   readiness(): Promise<DesktopPcAccessReadiness>;
   /** The readiness row's Approve: install, or enroll the missing phones. */
   approve(): Promise<DesktopPcAccessApproval>;
+  /**
+   * The phone's fallback when nobody is at the PC: the same install-or-enroll
+   * as `approve`, authorized by the Windows password the phone typed (the
+   * service's batch-logon path, no UAC prompt) instead of a prompt. Refused
+   * (`failed`) unless `clientId` is a phone paired now that delivered exactly
+   * `publicKey`. The outcome is the installer's (`bad-credentials`,
+   * `not-admin`, … included), its `state` relative to `publicKey`. The
+   * credential is passed to the installer and kept nowhere.
+   */
+  approveWithCredential(request: {
+    clientId: string;
+    publicKey: string;
+    credential: SecureDesktopCredential;
+    /** Aborted when the phone's session ends: a request still queued (not yet
+     *  with the installer) then runs nothing; one already dispatched finishes. */
+    signal?: AbortSignal;
+  }): Promise<PcAccessCredentialResult>;
   /** A paired phone delivered its key: enroll it through delegation unless a
    *  pending revocation blocks it. */
   delivered(publicKey: string): Promise<'enrolled' | 'nothing' | 'blocked' | 'delegation-disabled' | 'failed'>;
@@ -84,6 +113,9 @@ const APPROVED = new Set(['installed', 'updated', 'enrolled']);
 const PASSED_ON = new Set(['declined', 'failed', 'in-progress', 'other-user', 'unavailable']);
 /** Delegated refusals only an elevated Approve fixes (not a transient one). */
 const NEEDS_ELEVATION = new Set(['delegation-disabled', 'delegation-denied']);
+
+const CANCELLED = 'the phone’s session ended before the request ran';
+const CREDENTIAL_BUSY = 'another phone password request is already running on the PC';
 
 /** The row's answer for an installer outcome; anything the UAC path should
  *  not produce reads as failed, naming it in the (English, log-only) detail. */
@@ -136,6 +168,8 @@ export function createPcAccess(deps: {
   const needsElevation = new Set<string>();
   /** Keys with a delegated enroll queued or running (the row waits for it). */
   const inFlight = new Map<string, number>();
+  /** A phone's password request is queued or running (`approveWithCredential`). */
+  let credentialBusy = false;
 
   /** Keys of the phones paired now: not unpaired, not waiting to be revoked. */
   const pairedKeys = async (revoking: readonly string[]): Promise<string[]> => {
@@ -184,6 +218,65 @@ export function createPcAccess(deps: {
     if (state === 'not-installed' || state === 'unavailable' || state === 'other-user') return 'pending';
     return (await drainDelegated(owed.keys)) ? 'pending' : 'revoked';
   };
+  /**
+   * The one authorized install-or-enroll, for Approve (UAC, no `credential`)
+   * and for a phone's Windows password (`credential`, with the `phone` that
+   * sent it): the same state decisions and the same revocation rules, so the
+   * credential path bypasses none of them. Every recorded revoke (and any an
+   * unknown record lost) is applied in the same call, and the pending record
+   * is cleared only once that call succeeded. Call inside `serial`.
+   */
+  const authorize = async (
+    credential?: SecureDesktopCredential,
+    phone?: { clientId: string; publicKey: string },
+    signal?: AbortSignal
+  ): Promise<SecureDesktopKeyChangeResult | 'nothing-to-do'> => {
+    const state = await installer.state();
+    if (state === 'unavailable' || state === 'other-user') return { outcome: state, state };
+    // The request's session ended while it waited in the queue: nothing runs.
+    const cancelled = (): SecureDesktopKeyChangeResult | null =>
+      signal?.aborted ? { outcome: 'failed', state, detail: CANCELLED } : null;
+    const early = cancelled();
+    if (early) return early;
+    await absorb();
+    const owed = await pending.read();
+    // Only the phone this connection is, still paired, under the key it delivered.
+    if (
+      phone &&
+      (owed.keys.includes(phone.publicKey) ||
+        !(await deps.keys()).some(
+          (record) => record.clientId === phone.clientId && record.publicKey === phone.publicKey && !record.unpaired
+        ))
+    ) {
+      return { outcome: 'failed', state, detail: 'this phone is not paired on this PC under that access key' };
+    }
+    const options = (revoke: readonly string[]) => ({ revoke, ...(credential ? { credential } : {}) });
+    if (!isInstalled(state) || owed.unknown !== null) {
+      // The install writes exactly these keys: every recorded revoke, and
+      // any an unknown record lost, is applied.
+      const keys = await pairedKeys(owed.keys);
+      const late = cancelled();
+      if (late) return late;
+      const result = await installer.install(keys, options(owed.keys));
+      if (APPROVED.has(result.outcome)) {
+        await pending.settle(owed.keys, owed.unknown);
+        needsElevation.clear();
+      }
+      return result;
+    }
+    const missing = await missingKeys(owed.keys);
+    if (!missing.length) return 'nothing-to-do';
+    const late = cancelled();
+    if (late) return late;
+    // One authorized call for every missing phone: the bridge applies the
+    // revokes and the enrolls in one key-set write, both or neither.
+    const result = await installer.enroll(missing, options(owed.keys));
+    if (APPROVED.has(result.outcome)) {
+      await pending.settle(owed.keys);
+      for (const key of missing) needsElevation.delete(key);
+    }
+    return result;
+  };
   const deliver = async (publicKey: string) => {
     await absorb();
     const owed = await pending.read();
@@ -221,31 +314,27 @@ export function createPcAccess(deps: {
     },
     approve: () =>
       serial(async (): Promise<DesktopPcAccessApproval> => {
-        const state = await installer.state();
-        if (state === 'unavailable' || state === 'other-user') return { outcome: state };
-        await absorb();
-        const owed = await pending.read();
-        if (!isInstalled(state) || owed.unknown !== null) {
-          // The install writes exactly these keys: every recorded revoke, and
-          // any an unknown record lost, is applied.
-          const result = await installer.install(await pairedKeys(owed.keys), { revoke: owed.keys });
-          if (APPROVED.has(result.outcome)) {
-            await pending.settle(owed.keys, owed.unknown);
-            needsElevation.clear();
-          }
-          return approvalOf(result);
-        }
-        const missing = await missingKeys(owed.keys);
-        if (!missing.length) return { outcome: 'nothing-to-do' };
-        // One elevated call for every missing phone: the bridge applies the
-        // revokes and the enrolls in one key-set write, both or neither.
-        const result = await installer.enroll(missing, { revoke: owed.keys });
-        if (APPROVED.has(result.outcome)) {
-          await pending.settle(owed.keys);
-          for (const key of missing) needsElevation.delete(key);
-        }
-        return approvalOf(result);
+        const result = await authorize();
+        return result === 'nothing-to-do' ? { outcome: 'nothing-to-do' } : approvalOf(result);
       }),
+    approveWithCredential: async ({ clientId, publicKey, credential, signal }): Promise<PcAccessCredentialResult> => {
+      // One password request at a time, from any phone: another is answered,
+      // not queued (a guess is never stored for later).
+      if (credentialBusy) {
+        return { outcome: 'busy', state: await installer.state(publicKey), detail: CREDENTIAL_BUSY };
+      }
+      credentialBusy = true;
+      try {
+        return await serial(async (): Promise<SecureDesktopKeyChangeResult> => {
+          const result = await authorize(credential, { clientId, publicKey }, signal);
+          // Whatever the call enrolled, the answer is about this phone.
+          const state = await installer.state(publicKey);
+          return result === 'nothing-to-do' ? { outcome: 'enrolled', state } : { ...result, state };
+        });
+      } finally {
+        credentialBusy = false;
+      }
+    },
     delivered: (publicKey) => {
       inFlight.set(publicKey, (inFlight.get(publicKey) ?? 0) + 1);
       return serial(() => deliver(publicKey)).finally(() => {

@@ -85,8 +85,10 @@ Desktop → phone on the same channel (not input-acked, not epoch-bound):
   `detail` (its diagnostic, at most `MAX_REMOTE_SCREEN_HELPER_DETAIL` = 256
   characters, or null), `issue` (`grant_key_missing | grant_expired |
   input_failed | desktop_unavailable | sas_disabled_by_policy`, or null) and
-  `secure` (`'lock' | 'uac' | null`); see "Helper install and control
-  grants".
+  `secure` (`'lock' | 'uac' | null`), and the optional `accountIsAdmin`
+  (boolean: whether the PC's signed-in account is an administrator; absent
+  when not told, which an older PC never does); see "Helper install and
+  control grants".
 - `screen-helper-challenge`: `{ v, kind: 'screen-helper-challenge', epoch,
   nonce, challenge }`, a helper grant challenge to sign for video run
   `epoch`. Built by `remoteWebrtcScreenHelperChallenge`, read on the phone by
@@ -134,7 +136,13 @@ Phone → desktop, not input (never acked, never gated by the input epoch):
 - `screen-helper-install`: `{ v, kind: 'screen-helper-install', publicKey }`,
   install or update the helper enrolling this controller key; the phone builds
   the text with `encodeRemoteWebrtcScreenHelperInstall`.
-- Both are validated by `parseRemoteWebrtcChannelFromClient` and are a
+- Either may carry `credential: { password, user? }` (the phone's Windows
+  password, no UAC prompt on the PC; see "PC access") and the install also
+  `keys`; `screen-helper-enroll` (`{ v, kind, publicKey, credential? }`) is
+  read by `readRemoteWebrtcScreenHelperEnroll` where
+  `parseRemoteWebrtcChannelFromClient` refuses it, and is handled like the
+  install.
+- All are validated on the PC and are a
   contract violation on a browser source. Encodings: `nonce`, `challenge` (16
   bytes) and `signature` (64-byte P-256 `r ‖ s`) are canonical padded base64,
   the helper's own wire encoding and what `signSecureDesktopGrant`
@@ -641,8 +649,48 @@ moment when someone can approve it:
   notification). Only a phone paired now is enrolled (its record present and
   not unpaired). Nothing happens while the service is not installed for this
   account. Every pending revoke is first applied through delegation; if one
-  does not run, or the revocations are unknown, nothing is enrolled. The
-  phone's own Windows-password `enroll` stays the remote fallback.
+  does not run, or the revocations are unknown, nothing is enrolled.
+- **From the phone with a Windows password** (the fallback when nobody is at
+  the PC; no UAC prompt). The blocked secure-screen view's button ("Approve PC
+  access", or "Approve access again" for an update) opens a bottom sheet with
+  one password field (design/mockups/remote-screen-helper-install). The
+  account field appears only when the PC says its signed-in account is not an
+  administrator: `helperInfo.accountIsAdmin` (optional on the wire; absent, an
+  older PC or a failed check, means the password only). The PC reads it from
+  the process token's groups (`whoami /groups`, `main/secure-desktop/
+  account-admin.ts`), once per run. Submit sends `screen-helper-install` (an
+  `install` offer) or `screen-helper-enroll` (an `update` offer) with
+  `credential: {password, user?}` (`user` only when the account field was
+  shown); the PC treats both kinds the same, since it decides install or enroll
+  from its own state. The password field is emptied by every submit.
+  - **Routed through PC access.** `viewer.ts` hands a message with a
+    `credential` to `helperCredential`, then `RemoteScreenSource.
+    requestHelperCredential` (running and paired only; one request at a time
+    per session; the install's extra `keys` are ignored), then
+    `PcAccess.approveWithCredential` in the same serialized queue as Approve.
+    It is `approve` with the credential in place of UAC and nothing else
+    changed: not installed (or outdated, or the revocations unknown) →
+    `install(keys of the current pairings, {revoke: pending, credential})`;
+    installed with phones missing → `enroll(missing, {revoke: pending,
+    credential})`; nothing missing → `enrolled`. The owed revocations are
+    taken over first, the pending record is cleared only by a successful call,
+    and one password request at a time is accepted PC-wide (another is
+    answered `busy`, not queued: nothing ran, the offer stands, and the
+    phone shows a "try again in a moment" line and keeps its button; unlike
+    `in-progress`, which is a prompt open on the PC). The request is refused (`failed`)
+    unless the session's client is a phone paired now whose delivered key is
+    exactly the one sent, and not one awaiting revocation.
+  - **The answer** is `helperInfo.outcome` (`installed`, `updated`,
+    `enrolled`, or `bad-credentials`, `not-admin`, `logon-type-denied`,
+    `account-locked`, `account-disabled`, `policy-blocked`, `failed`, …) with
+    the offer relative to the phone's key, pushed even when it equals the last
+    status (a wrong password twice reads the same twice). The phone shows the
+    fixed copy for it inside the sheet and keeps the sheet for a refusal.
+  - **The password** rides the verified, encrypted channel, is bounded
+    (`CREDUI_MAX_PASSWORD_LENGTH`, `CREDUI_MAX_USERNAME_LENGTH`), goes to the
+    bridge's stdin only (`runSecureDesktopWithLogon`), is never logged,
+    persisted or echoed in any message, and the source empties its copy once
+    the call ended.
 - **Unpair on the PC** (Settings → Connection → Remove) is one transaction
   in the same queue as every enrollment, approval and revoke, so no
   delivery or drain runs in the middle of it. The phone's key is read and
@@ -678,8 +726,8 @@ moment when someone can approve it:
   the full key set from the current pairings, resolves it (a loss recorded
   while that install ran stays unknown).
 - **No automatic request.** A phone screen session never asks for the helper
-  by itself; only the phone's blocked-state button sends
-  `screen-helper-install`.
+  by itself; only the phone's password sheet (opened by the blocked-state
+  button) sends `screen-helper-install` or `screen-helper-enroll`.
 
 ### Helper video
 
@@ -1262,6 +1310,8 @@ The main wiring is done (see "Main wiring"). Still open:
   helper path until it does).
 - Phone: sign each `screen-helper-challenge` and answer
   `screen-helper-grant`; offer the install from `helperInfo.offer` and send
-  `screen-helper-install` with its controller key.
+  `screen-helper-install` (or `-enroll`) with its controller key and the
+  typed Windows `credential` (plus `user` when `helperInfo.accountIsAdmin` is
+  `false`).
 - Phone: consume `screen-cursor` (trackpad anchor) and send `screen-keys`
   for shortcuts.

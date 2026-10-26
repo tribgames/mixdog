@@ -11,6 +11,7 @@ import {
   REMOTE_WEBRTC_VERSION,
   canRemoteWebrtcTransition,
   parseRemoteWebrtcChannelFromClient,
+  readRemoteWebrtcScreenHelperEnroll,
   remoteWebrtcCertificateMatches,
   remoteWebrtcSdpFingerprints,
   type RemoteWebrtcCandidate,
@@ -24,7 +25,9 @@ import {
   type RemoteWebrtcIceServer,
   type RemoteWebrtcPageInput,
   type RemoteScreenHelperGrant,
+  type RemoteScreenHelperCredential,
   type RemoteWebrtcReceiverStats,
+  type RemoteWebrtcScreenHelperEnrollMessage,
   type RemoteWebrtcSourceInput,
   type RemoteWebrtcSource,
   type RemoteWebrtcTransportState,
@@ -78,6 +81,9 @@ interface RemoteWebrtcViewerEffects {
   helperGrant?(grant: RemoteScreenHelperGrant): void;
   /** The phone asks for a screen's secure-desktop helper, with its key. */
   helperInstall?(controllerKey: string): void;
+  /** The phone asks for the same with its Windows password (an install or
+   *  enroll carrying a `credential`): no UAC prompt on the PC. */
+  helperCredential?(controllerKey: string, credential: RemoteScreenHelperCredential): void;
   /** The connection was promoted: its channel is open for desktop pushes. */
   promoted?(): void;
 }
@@ -160,7 +166,7 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
     // Attempted with whatever ICE servers there are, none included: direct
     // pairs need no TURN (host candidates alone connect on one LAN), and a
     // failed attempt ends in the JPEG view that is showing meanwhile.
-    connection ={ id, generation, iceServers, offered: false, answer: null };
+    connection = { id, generation, iceServers, offered: false, answer: null };
     move('negotiating');
     arm(REMOTE_WEBRTC_NEGOTIATION_TIMEOUT_MS, () => fail('negotiation-timeout'));
     effects.open({ connectionId: connection.id, iceServers, receiveCodecs });
@@ -458,23 +464,31 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
     /** A data-channel message of this connection. */
     channel(connectionId: string, text: string, receivedAt: number): void {
       if (connection?.id !== connectionId || (state !== 'promoting' && state !== 'webrtc')) return;
-      let message: RemoteWebrtcChannelFromClient;
+      let message: RemoteWebrtcChannelFromClient | RemoteWebrtcScreenHelperEnrollMessage;
       try {
         message = parseRemoteWebrtcChannelFromClient(text);
       } catch {
-        fail('protocol-error');
-        return;
+        // `screen-helper-enroll` is not input: it has its own reader. Anything
+        // else that did not parse ends the connection (the text is not kept:
+        // it may carry a password).
+        const enroll = readRemoteWebrtcScreenHelperEnroll(text);
+        if (!enroll) {
+          fail('protocol-error');
+          return;
+        }
+        message = enroll;
       }
       if (message.kind === 'stats') {
         effects.receiverStats?.(message.stats);
         return;
       }
-      // A screen's receipt evidence, helper grant and install request: not
-      // input, so not gated by the input epoch and never acked.
+      // A screen's receipt evidence, helper grant and install or enroll
+      // request: not input, so not gated by the input epoch and never acked.
       if (
         message.kind === 'screen-frame-seen' ||
         message.kind === 'screen-helper-grant' ||
-        message.kind === 'screen-helper-install'
+        message.kind === 'screen-helper-install' ||
+        message.kind === 'screen-helper-enroll'
       ) {
         if (source.kind !== 'screen') {
           fail('protocol-error');
@@ -483,6 +497,10 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
         if (message.kind === 'screen-frame-seen') effects.frameSeen?.(message.epoch);
         else if (message.kind === 'screen-helper-grant') {
           effects.helperGrant?.({ epoch: message.epoch, challenge: message.challenge, signature: message.signature });
+        } else if (message.credential) {
+          // The phone's Windows password: no UAC prompt on the PC. The install's
+          // extra `keys` are not used: PC access enrolls the phones paired now.
+          effects.helperCredential?.(message.publicKey, message.credential);
         } else effects.helperInstall?.(message.publicKey);
         return;
       }

@@ -14,7 +14,14 @@ const SDP = `v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sh
 const TURN = [{ urls: ['turn:turn.example:3478'], username: 'u', credential: 'p' }];
 const BROWSER = { kind: 'browser', sessionId: 's1' };
 const source = BROWSER;
-const geometry = { generation: 1, cssWidth: 400, cssHeight: 300, deviceScaleFactor: 1, pixelWidth: 400, pixelHeight: 300 };
+const geometry = {
+  generation: 1,
+  cssWidth: 400,
+  cssHeight: 300,
+  deviceScaleFactor: 1,
+  pixelWidth: 400,
+  pixelHeight: 300,
+};
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 /** `dispatch`: an extra step every dispatch awaits (to hold one in flight).
@@ -61,6 +68,7 @@ function harness({ dispatch, of: source = BROWSER } = {}) {
     frameSeen: (epoch) => seen.push(epoch),
     helperGrant: (grant) => seen.push(['grant', grant]),
     helperInstall: (controllerKey) => seen.push(['install', controllerKey]),
+    helperCredential: (controllerKey, credential) => seen.push(['credential', controllerKey, { ...credential }]),
   });
   const last = (type) => signals.filter((signal) => signal.type === type).at(-1);
   const ref = () => {
@@ -88,12 +96,36 @@ function harness({ dispatch, of: source = BROWSER } = {}) {
   const promote = () => {
     connect();
     viewer.geometryAck(1);
-    viewer.signal({ ...ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+    viewer.signal({
+      ...ref(),
+      type: 'media-ready',
+      documentId: 'p1:1',
+      geometryGeneration: 1,
+      pixelWidth: 400,
+      pixelHeight: 300,
+    });
     const epoch = last('promote').inputEpoch;
     viewer.signal({ ...ref(), type: 'promote-ack', inputEpoch: epoch });
     return epoch;
   };
-  return { viewer, signals, sender, dispatched, acks, released, timers, page, last, ref, fire, input, connect, promote, promotions, seen };
+  return {
+    viewer,
+    signals,
+    sender,
+    dispatched,
+    acks,
+    released,
+    timers,
+    page,
+    last,
+    ref,
+    fire,
+    input,
+    connect,
+    promote,
+    promotions,
+    seen,
+  };
 }
 
 test('a screen viewer’s frame-seen reaches the source ungated and unacked; on a browser source it is a violation', () => {
@@ -103,7 +135,14 @@ test('a screen viewer’s frame-seen reaches the source ungated and unacked; on 
   screen.viewer.channel(screen.ref().connectionId, seenOf(1), 0);
   assert.deepEqual(screen.seen, [], 'not before the channel is up');
   screen.viewer.geometryAck(1);
-  screen.viewer.signal({ ...screen.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  screen.viewer.signal({
+    ...screen.ref(),
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   // Promoting: input would be held behind the barrier; the evidence is not input.
   screen.viewer.channel(screen.ref().connectionId, seenOf(3), 0);
   assert.deepEqual(screen.seen, [3]);
@@ -117,15 +156,84 @@ test('a screen viewer’s frame-seen reaches the source ungated and unacked; on 
   assert.equal(browser.last('demote').reason, 'protocol-error');
 });
 
+test('an install or enroll with a Windows password reaches the source’s credential request; the password is never acked or sent back, and a bad one is a violation', () => {
+  const publicKey = Buffer.from([4, ...new Array(64).fill(7)]).toString('base64url');
+  const text = (kind, extra = {}) => JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind, publicKey, ...extra });
+  const screen = harness({ of: { kind: 'screen', screenId: '1' } });
+  screen.connect();
+  screen.viewer.geometryAck(1);
+  screen.viewer.signal({
+    ...screen.ref(),
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
+  const id = () => screen.ref().connectionId;
+  screen.viewer.channel(id(), text('screen-helper-install', { credential: { password: 'pw-1' } }), 0);
+  screen.viewer.channel(id(), text('screen-helper-enroll', { credential: { password: 'pw-2', user: 'PC\\admin' } }), 0);
+  // The install’s extra keys are not the PC’s to enroll: only the sender’s key goes on.
+  screen.viewer.channel(
+    id(),
+    text('screen-helper-install', { keys: [publicKey], credential: { password: 'pw-3' } }),
+    0
+  );
+  assert.deepEqual(screen.seen, [
+    ['credential', publicKey, { password: 'pw-1' }],
+    ['credential', publicKey, { password: 'pw-2', user: 'PC\\admin' }],
+    ['credential', publicKey, { password: 'pw-3' }],
+  ]);
+  // Without a credential the existing request stands, and an enroll is the same request.
+  screen.seen.length = 0;
+  screen.viewer.channel(id(), text('screen-helper-install'), 0);
+  screen.viewer.channel(id(), text('screen-helper-enroll'), 0);
+  assert.deepEqual(screen.seen, [
+    ['install', publicKey],
+    ['install', publicKey],
+  ]);
+  assert.deepEqual(screen.acks, [], 'never acked, nothing echoed');
+  assert.equal(screen.viewer.state, 'promoting');
+  assert.ok(
+    !JSON.stringify([screen.signals, screen.sender, screen.acks]).includes('pw-'),
+    'the password goes nowhere else'
+  );
+
+  // An over-long password, or an enroll that is not a controller key, ends the channel.
+  const long = text('screen-helper-enroll', { credential: { password: 'a'.repeat(257) } });
+  screen.viewer.channel(id(), long, 0);
+  assert.equal(screen.last('demote').reason, 'protocol-error');
+
+  // On a browser source they are a violation, and nothing is handed on.
+  for (const kind of ['screen-helper-install', 'screen-helper-enroll']) {
+    const browser = harness();
+    browser.promote();
+    browser.viewer.channel(browser.ref().connectionId, text(kind, { credential: { password: 'pw-4' } }), 0);
+    assert.deepEqual(browser.seen, []);
+    assert.equal(browser.last('demote').reason, 'protocol-error');
+  }
+});
+
 test('a screen viewer’s helper grant and install request reach the source ungated and unacked; on a browser source they are a violation', () => {
-  const grant = { epoch: 2, challenge: Buffer.alloc(16, 2).toString('base64'), signature: Buffer.alloc(64, 3).toString('base64') };
+  const grant = {
+    epoch: 2,
+    challenge: Buffer.alloc(16, 2).toString('base64'),
+    signature: Buffer.alloc(64, 3).toString('base64'),
+  };
   const publicKey = Buffer.from([4, ...new Array(64).fill(7)]).toString('base64url');
   const grantText = JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-grant', ...grant });
   const installText = JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey });
   const screen = harness({ of: { kind: 'screen', screenId: '1' } });
   screen.connect();
   screen.viewer.geometryAck(1);
-  screen.viewer.signal({ ...screen.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  screen.viewer.signal({
+    ...screen.ref(),
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   // Promoting: input would wait behind the barrier; these are not input.
   screen.viewer.channel(screen.ref().connectionId, grantText, 0);
   screen.viewer.channel(screen.ref().connectionId, installText, 0);
@@ -136,7 +244,11 @@ test('a screen viewer’s helper grant and install request reach the source unga
   assert.deepEqual(screen.acks, [], 'never acked');
   assert.equal(screen.viewer.state, 'promoting');
   // A malformed one ends the channel like any contract violation.
-  screen.viewer.channel(screen.ref().connectionId, JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey: 'x' }), 0);
+  screen.viewer.channel(
+    screen.ref().connectionId,
+    JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey: 'x' }),
+    0
+  );
   assert.equal(screen.last('demote').reason, 'protocol-error');
 
   for (const text of [grantText, installText]) {
@@ -156,7 +268,14 @@ test('desktop pushes reach the channel only while it is up; promotion announces 
   h.viewer.push(JSON.stringify(push));
   assert.deepEqual(h.acks, [], 'nothing before promotion: the phone’s channel may not be open');
   h.viewer.geometryAck(1);
-  h.viewer.signal({ ...h.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  h.viewer.signal({
+    ...h.ref(),
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   assert.equal(h.promotions.count, 1);
   h.viewer.push(JSON.stringify(push));
   assert.deepEqual(h.acks, [push], 'sent while promoting');
@@ -253,7 +372,14 @@ test('negotiation is bounded; a failure before promotion goes straight back with
 test('promotion needs a frame of the current document and the acknowledged geometry', () => {
   const h = harness();
   h.connect();
-  const media = { ...h.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 };
+  const media = {
+    ...h.ref(),
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  };
   h.viewer.signal(media);
   assert.equal(h.viewer.state, 'connected', 'geometry not acknowledged yet');
   h.viewer.geometryAck(1);
@@ -272,7 +398,14 @@ test('channel input waits behind the promote-ack barrier, then runs once and in 
   const h = harness();
   h.connect();
   h.viewer.geometryAck(1);
-  h.viewer.signal({ ...h.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  h.viewer.signal({
+    ...h.ref(),
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   const id = h.ref().connectionId;
   h.viewer.channel(id, h.input(2, 1, TEXT('a')), 0);
   h.viewer.channel(id, h.input(2, 2, TEXT('b')), 0);

@@ -4,13 +4,16 @@
 // phone signs for the helper's challenges. Pure and dependency-injected: the
 // key store, the viewer's channel and the pane's visibility are passed in, so
 // each rule is tested on plain objects.
-import type {
-  RemoteScreenHelperGrant,
-  RemoteScreenHelperInfo,
-  RemoteScreenHelperInstallOutcome,
-  RemoteScreenHelperIssue,
-  RemoteScreenHelperState,
-  RemoteScreenStatus,
+import {
+  CREDUI_MAX_PASSWORD_LENGTH,
+  CREDUI_MAX_USERNAME_LENGTH,
+  type RemoteScreenHelperCredential,
+  type RemoteScreenHelperGrant,
+  type RemoteScreenHelperInfo,
+  type RemoteScreenHelperInstallOutcome,
+  type RemoteScreenHelperIssue,
+  type RemoteScreenHelperState,
+  type RemoteScreenStatus,
 } from '../shared/remote-webrtc';
 import { signSecureDesktopGrant, type SecureDesktopControllerKey } from '../shared/secure-desktop-grant';
 import type { ScreenBlockReason, ScreenView } from './remote-screen-state';
@@ -111,6 +114,11 @@ export function screenHelperPanel(
       // A success: no line, and nothing left to press.
       action = null;
       break;
+    case 'busy':
+      // Another phone's password request was running and nothing ran for this
+      // one: say so, and leave the action so it can ask again.
+      lines.push({ kind: 'copy', id: 'busy' });
+      break;
     case 'bad-credentials':
     case 'not-admin':
     case 'logon-type-denied':
@@ -131,11 +139,23 @@ export function screenHelperPanel(
 // --- install request --------------------------------------------------------
 
 /** Phone → PC: enroll this phone's controller key and install (or update) the
- *  helper. Sent only when the person presses the button. */
+ *  helper. Sent only when the person submits the Windows-password sheet,
+ *  which is what `credential` is (the PC then shows no prompt). */
 export interface ScreenHelperInstallMessage {
   v: 1;
   kind: 'screen-helper-install';
   publicKey: string;
+  credential?: RemoteScreenHelperCredential;
+}
+
+/** Phone → PC: the same for an installed helper that lacks this phone's key.
+ *  The PC decides from its own state whether that is an install or an enroll,
+ *  so either message gets the same handling. */
+export interface ScreenHelperEnrollMessage {
+  v: 1;
+  kind: 'screen-helper-enroll';
+  publicKey: string;
+  credential?: RemoteScreenHelperCredential;
 }
 
 /** Phone → PC: the signed answer to one helper challenge. */
@@ -144,24 +164,84 @@ export interface ScreenHelperGrantMessage extends RemoteScreenHelperGrant {
   kind: 'screen-helper-grant';
 }
 
-export type ScreenHelperClientMessage = ScreenHelperInstallMessage | ScreenHelperGrantMessage;
+export type ScreenHelperClientMessage =
+  | ScreenHelperInstallMessage
+  | ScreenHelperEnrollMessage
+  | ScreenHelperGrantMessage;
 
-/** The button's request: the pairing's key (made now if this is the first
- *  use), then its public half to the PC. False when either step failed, so a
- *  key that could not be kept is never enrolled. */
+/** The sheet's request: the pairing's key (made now if this is the first
+ *  use), then its public half to the PC with the typed Windows password (the
+ *  password sheet always sends one; without it the PC asks on its own screen). An
+ *  `update` offer goes as an enroll, an `install` offer as an install. False
+ *  when either step failed, so a key that could not be kept is never enrolled. */
 export function createScreenHelperInstall(deps: {
   ensureKey(): Promise<Pick<SecureDesktopControllerKey, 'publicKey'>>;
-  send(message: ScreenHelperInstallMessage): boolean;
+  send(message: ScreenHelperInstallMessage | ScreenHelperEnrollMessage): boolean;
 }) {
-  return async function requestInstall(): Promise<boolean> {
+  return async function requestInstall(
+    action: NonNullable<ScreenHelperPanel['action']> = 'install',
+    credential?: RemoteScreenHelperCredential
+  ): Promise<boolean> {
     let key: Pick<SecureDesktopControllerKey, 'publicKey'>;
     try {
       key = await deps.ensureKey();
     } catch {
       return false;
     }
-    return deps.send({ v: 1, kind: 'screen-helper-install', publicKey: key.publicKey });
+    return deps.send({
+      v: 1,
+      kind: action === 'update' ? 'screen-helper-enroll' : 'screen-helper-install',
+      publicKey: key.publicKey,
+      ...(credential ? { credential } : {}),
+    });
   };
+}
+
+// --- the Windows-password sheet ----------------------------------------------
+
+/** What the sheet's fields hold. */
+export interface ScreenHelperForm {
+  password: string;
+  user: string;
+}
+
+export const EMPTY_SCREEN_HELPER_FORM: ScreenHelperForm = { password: '', user: '' };
+
+/** The sheet's account field appears when the PC says its signed-in account is
+ *  not an administrator (it cannot use that account then), or once the PC's
+ *  answer was `not-admin` (the recovery when it did not say). `revealed` keeps
+ *  the field once shown, so a later answer (a wrong password) does not take it
+ *  away. Otherwise, including a PC that does not say, the password only: the PC
+ *  uses its own account. */
+export function screenHelperAsksAccount(block: ScreenHelperBlock | null, revealed = false): boolean {
+  return revealed || block?.accountIsAdmin === false || block?.outcome === 'not-admin';
+}
+
+/** A submit needs a password within Windows' bound, and the account name
+ *  (within its bound) when the sheet asks for one. */
+export function screenHelperFormReady(form: ScreenHelperForm, asksAccount: boolean): boolean {
+  if (!form.password || form.password.length > CREDUI_MAX_PASSWORD_LENGTH) return false;
+  if (!asksAccount) return true;
+  const user = form.user.trim();
+  return user.length > 0 && user.length <= CREDUI_MAX_USERNAME_LENGTH;
+}
+
+/**
+ * Pressing 승인: the credential to send (null while the form is not ready: the
+ * form stays as it is) and the form after it. The password field is always
+ * emptied by a submit, whatever the answer will be: a wrong one is typed
+ * again, a right one is not needed again, and none stays in the page. The
+ * account name stays for the next try. Without the account field the
+ * credential carries no name (the PC uses its own account).
+ */
+export function submitScreenHelperForm(
+  form: ScreenHelperForm,
+  asksAccount: boolean
+): { credential: RemoteScreenHelperCredential | null; form: ScreenHelperForm } {
+  if (!screenHelperFormReady(form, asksAccount)) return { credential: null, form };
+  const credential: RemoteScreenHelperCredential = { password: form.password };
+  if (asksAccount) credential.user = form.user.trim();
+  return { credential, form: { ...form, password: '' } };
 }
 
 // --- control grants ---------------------------------------------------------

@@ -5,6 +5,7 @@
  */
 import type {
   RemoteScreenCapturePlan,
+  RemoteScreenHelperCredential,
   RemoteScreenHelperGrant,
   RemoteWebrtcChannelPush,
   RemoteWebrtcClientSignal,
@@ -110,6 +111,10 @@ export interface RemoteWebrtcVideoSource {
   /** The viewer's phone asks for the secure-desktop helper, enrolling its
    *  controller key (`screen-helper-install`). */
   helperInstall?(controllerKey: string): void;
+  /** The same with the Windows password the phone typed (`screen-helper-install`
+   *  or `-enroll` with a `credential`): the PC needs no UAC answer. The source
+   *  empties `credential` once it is done with it. */
+  helperCredential?(controllerKey: string, credential: RemoteScreenHelperCredential): void;
 }
 
 /** The paired client a signal came from, and that signal's type. A screen

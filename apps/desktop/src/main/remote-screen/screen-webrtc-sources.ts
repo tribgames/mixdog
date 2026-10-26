@@ -24,7 +24,11 @@
  *   cleared, and every later resolve or access update is refused. Once every
  *   session released, the secure-desktop client (owned here) is disposed.
  */
-import type { RemoteScreenDisplaySummary, RemoteWebrtcClientSignal, RemoteWebrtcSource } from '../../shared/remote-webrtc';
+import type {
+  RemoteScreenDisplaySummary,
+  RemoteWebrtcClientSignal,
+  RemoteWebrtcSource,
+} from '../../shared/remote-webrtc';
 import { remoteWebrtcSourceKey } from '../../shared/remote-webrtc';
 import type { RemoteWebrtcSourceSink, RemoteWebrtcVideoSource } from '../remote-webrtc/source';
 import { summarizeScreenDisplay } from './screen-geometry';
@@ -35,6 +39,7 @@ import {
   type RemoteScreenSource,
   type ScreenDisplayProvider,
   type ScreenIndicator,
+  type ScreenPcAccess,
   type ScreenSourceEvent,
 } from './screen-source';
 import { createScreenWebrtcSource } from './screen-webrtc-source';
@@ -94,6 +99,9 @@ export interface RemoteScreenSourcesDeps {
    *  helper at a time); owned here, disposed at close once every session
    *  released (their releases may go through it). */
   secureDesktop: SecureDesktopHelper;
+  /** PC access for a phone's Windows-password request (every session uses
+   *  this one: the single serialized queue of main/pc-access.ts). */
+  pcAccess?: ScreenPcAccess;
   /** A fresh on-PC indicator per session. */
   indicator(): ScreenIndicator;
   /** The WebRTC host (geometry, capture renewal, end of a session). */
@@ -133,7 +141,10 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
     notify(clientId);
   };
 
-  function create(clientId: string, source: Extract<RemoteWebrtcSource, { kind: 'screen' }>): RemoteWebrtcVideoSource | null {
+  function create(
+    clientId: string,
+    source: Extract<RemoteWebrtcSource, { kind: 'screen' }>
+  ): RemoteWebrtcVideoSource | null {
     const granted = access.get(clientId);
     if (!granted?.paired) return null;
     // The session belongs to the connection its access was decided for: the
@@ -166,6 +177,7 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
       },
       createInputHost: deps.createInputHost,
       secureDesktop: lease,
+      pcAccess: deps.pcAccess,
       indicator: deps.indicator(),
       log: deps.log,
       sampleCursor: true,
