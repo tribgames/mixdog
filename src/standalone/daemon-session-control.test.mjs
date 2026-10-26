@@ -919,12 +919,14 @@ test("a bot sets the effort only of the task sessions it created; a coding sessi
   assert.equal((await f.run({ action: 'send', session_id: 'sess_user_1', prompt: 'more' }, bot)).accepted, true);
 });
 
-test("an unattended bot run sets the effort only of the task sessions its bot created", async () => {
+test('an unattended bot run sets the effort only of the task sessions its bot created', async () => {
   const f = effortFixture();
   // A schedule run of bot "a": no conversation to report to, but still bot "a".
   const run = { id: 'sess_run_1', owner: 'cli', sourceType: 'schedule', ownerAgentId: 'a', messages: [] };
-  const handler = createWorkspaceToolHandlers({ rt: { session: run, config: {} }, executeSessionControl: f.run })
-    .session;
+  const handler = createWorkspaceToolHandlers({
+    rt: { session: run, config: {} },
+    executeSessionControl: f.run,
+  }).session;
   const send = async (args) =>
     JSON.parse(await handler({ action: 'send', ...args }, { callerCtx: { callerSessionId: run.id }, callerCwd: '/p' }));
   await assert.rejects(
@@ -949,8 +951,10 @@ test("a user's own coding session sends to Mixy's chat and to any bot as before,
   });
   // A coding task session the user started: its turn carries no bot's chain.
   const coding = { id: 'sess_task_x', owner: 'user', sourceType: 'lead', agent: 'lead', messages: [] };
-  const handler = createWorkspaceToolHandlers({ rt: { session: coding, config: {} }, executeSessionControl: execute })
-    .session;
+  const handler = createWorkspaceToolHandlers({
+    rt: { session: coding, config: {} },
+    executeSessionControl: execute,
+  }).session;
   const send = async (target) =>
     JSON.parse(
       await handler(
@@ -973,10 +977,8 @@ test("a user's own coding session sends to Mixy's chat and to any bot as before,
   );
 });
 
-test('A → B → A is refused: B, in the turn A started, sends neither to A nor to A\'s room seat, nor to its own seat', async (t) => {
-  const { createAskTranscriptMeta } = await import(
-    '../runtime/agent/orchestrator/session/manager/ask-session.mjs'
-  );
+test("A → B → A is refused: B, in the turn A started, sends neither to A nor to A's room seat, nor to its own seat", async (t) => {
+  const { createAskTranscriptMeta } = await import('../runtime/agent/orchestrator/session/manager/ask-session.mjs');
   const { stampTurnHop } = await import('../runtime/shared/bot-hops.mjs');
   const { registerAgentRoomHost } = await import('../runtime/shared/agent-room-host.mjs');
   const { roomMemberSessionId, roomSessionId } = await import('../runtime/agent/orchestrator/session/agent-room.mjs');

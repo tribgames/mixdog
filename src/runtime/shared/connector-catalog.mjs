@@ -217,7 +217,8 @@ export function connectorAccountsOf(cfg) {
   if (!isRecord(cfg) || !Array.isArray(cfg.accounts)) return [];
   if (!connectorMultiAccount(connectorById(connectorOfServer(cfg)))) return [];
   return cfg.accounts.filter(
-    (account) => isRecord(account) && typeof account.name === 'string' && account.name && typeof account.url === 'string'
+    (account) =>
+      isRecord(account) && typeof account.name === 'string' && account.name && typeof account.url === 'string'
   );
 }
 
@@ -281,8 +282,15 @@ export function mergeConnectorAccountServers(input) {
         accounts.push(account);
       }
     }
-    const { type: _type, url: _url, headers: _headers, oauthClientId: _client, accounts: _accounts, enabled: _enabled, ...rest } =
-      servers[target];
+    const {
+      type: _type,
+      url: _url,
+      headers: _headers,
+      oauthClientId: _client,
+      accounts: _accounts,
+      enabled: _enabled,
+      ...rest
+    } = servers[target];
     for (const name of order) delete servers[name];
     const off = order.every((name) => input[name].enabled === false);
     servers[target] = {

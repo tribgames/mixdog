@@ -34,7 +34,11 @@ function fakeAccount(name, email, { fail = null, appPassword = true } = {}) {
         seen.push(message);
         if (fail) throw fail;
         if (message.method === 'initialize') {
-          return { jsonrpc: '2.0', id: message.id, result: { instructions: connectorAccountsInstructions([{ email }]) } };
+          return {
+            jsonrpc: '2.0',
+            id: message.id,
+            result: { instructions: connectorAccountsInstructions([{ email }]) },
+          };
         }
         return { jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: `${email} did it` }] } };
       },
@@ -125,7 +129,11 @@ test('account selection: the only account by default; several need one named, an
 
   const named = await both.call('archive_emails', { ids: ['1'], account: ' B@Gmail.com ' });
   assert.equal(named.text, `${B} did it`);
-  assert.deepEqual(second.seen.at(-1).params, { name: 'archive_emails', arguments: { ids: ['1'] } }, '`account` is not forwarded');
+  assert.deepEqual(
+    second.seen.at(-1).params,
+    { name: 'archive_emails', arguments: { ids: ['1'] } },
+    '`account` is not forwarded'
+  );
   assert.equal(first.seen.length, 1, 'the other account is never asked');
   // The account name works too; an unknown one is refused with the list.
   assert.equal((await both.call('search_emails', { account: 'gmail' })).text, `${A} did it`);
@@ -196,7 +204,10 @@ test('each account calls Gmail with its own app password, through the real MCP c
   const client = new Client({ name: 'test', version: '0' });
   await client.connect(
     new StreamableHTTPClientTransport(new URL(connectorAccountsUrl('gmail')), {
-      fetch: withConnectorAccountsMcp({ connector: 'gmail', accounts: [accountOf('gmail', A), accountOf('gmail-2', B)] }),
+      fetch: withConnectorAccountsMcp({
+        connector: 'gmail',
+        accounts: [accountOf('gmail', A), accountOf('gmail-2', B)],
+      }),
     })
   );
   t.after(() => client.close());

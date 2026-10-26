@@ -134,7 +134,13 @@ export async function appendSessionSearchMessages(sessionId, messages, { dataDir
  *  no message to derive an identity from; its replacement gets a fresh random
  *  id, so no two rows ever merge and no id is derived from the plaintext.
  *  Returns the count of deleted rows. */
-export async function replaceSessionSearchMessages(sessionId, plainMessages, redactedMessages, redactText, { dataDir } = {}) {
+export async function replaceSessionSearchMessages(
+  sessionId,
+  plainMessages,
+  redactedMessages,
+  redactText,
+  { dataDir } = {}
+) {
   const rows = sessionSearchRows(sessionId, redactedMessages);
   const previous = new Set(sessionSearchRows(sessionId, plainMessages).map((row) => row.sourceRef));
   const db = await getDb(dataDir);

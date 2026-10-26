@@ -50,10 +50,7 @@ test('real shell descriptions name only the selected editing tool', () => {
       false
     );
     const shell = surface.find((tool) => tool.name === 'shell');
-    assert.match(
-      shell.description,
-      new RegExp(`→${selected}; git→git \\(-C <dir> for other folders\\)`)
-    );
+    assert.match(shell.description, new RegExp(`→${selected}; git→git \\(-C <dir> for other folders\\)`));
     assert.doesNotMatch(shell.description, /edit\/apply_patch|apply_patch or edit/);
     if (selected === 'edit') assert.doesNotMatch(shell.description, /apply_patch/);
     // No description on the surface names the dialect the session cannot call.

@@ -206,7 +206,10 @@ test('shared tool rules keep their section order and the destructive-action cont
 test('agent common policy keeps the Lead brief subordinate to safety and approval rules', () => {
   const rules = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
   assert.match(rules, /^# Agent$/m);
-  assert.match(rules, /not\s+exceptions to tool, safety, approval or verification rules\. Lead owns user\s+approval\./i);
+  assert.match(
+    rules,
+    /not\s+exceptions to tool, safety, approval or verification rules\. Lead owns user\s+approval\./i
+  );
   assert.doesNotMatch(rules, /overrides\s+any internal rule/i);
   // The retrieval profile shares the same contract plus its read-only line.
   const retrieval = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), profile: 'retrieval' });
@@ -464,7 +467,10 @@ test("the heartbeat profile offers Mixy's hidden session only the session and se
   );
   const session = { id: 'sess_daemon_hb', schemaAllowedTools };
   for (const name of ['shell', 'read', 'grep', 'browser', 'web_fetch', 'agent', 'mcp__demo__tool']) {
-    assert.match(String(preDispatchDenyForSession(session, { name })), /not available on this session's schema allowlist/);
+    assert.match(
+      String(preDispatchDenyForSession(session, { name })),
+      /not available on this session's schema allowlist/
+    );
   }
   assert.equal(preDispatchDenyForSession(session, { name: 'session' }), null);
   assert.equal(preDispatchDenyForSession(session, { name: 'setup' }), null);

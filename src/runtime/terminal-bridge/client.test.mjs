@@ -51,7 +51,10 @@ async function withBridge(handler, run) {
 }
 
 test('terminal tool is a short deferred-pool definition with a run action', () => {
-  assert.deepEqual(TOOL_DEFS.map((tool) => tool.name), ['terminal']);
+  assert.deepEqual(
+    TOOL_DEFS.map((tool) => tool.name),
+    ['terminal']
+  );
   const schema = TOOL_DEFS[0].inputSchema;
   assert.deepEqual(schema.properties.action.enum, ['list', 'read', 'run']);
   assert.equal(schema.properties.command.type, 'string');
@@ -155,11 +158,17 @@ test('run of an elevating command needs runtime approval; model args cannot gran
       assert.equal(injected.isError, true);
       assert.equal(requests.length, 0);
 
-      const truthy = await executeTerminalTool({ action: 'run', command }, { sessionId: 's1', elevationApproved: 'yes' });
+      const truthy = await executeTerminalTool(
+        { action: 'run', command },
+        { sessionId: 's1', elevationApproved: 'yes' }
+      );
       assert.equal(truthy.isError, true);
       assert.equal(requests.length, 0);
 
-      const allowed = await executeTerminalTool({ action: 'run', command }, { sessionId: 's1', elevationApproved: true });
+      const allowed = await executeTerminalTool(
+        { action: 'run', command },
+        { sessionId: 's1', elevationApproved: true }
+      );
       assert.equal(allowed.isError, undefined);
       assert.equal(requests.length, 1);
       assert.equal(requests[0].body.command, command);
@@ -319,7 +328,10 @@ test('availability follows a fresh discovery file', async () => {
 test('read output over the byte cap drops the oldest lines and keeps the newest', async () => {
   const raw = Array.from({ length: 400 }, (_, i) => `${i} ${'x'.repeat(300)}`).join('\r\n');
   await withBridge(
-    () => ({ ok: true, value: { id: 'session-terminal:s1', tab: 1, shell: 'sh', running: true, raw, cursor: raw.length } }),
+    () => ({
+      ok: true,
+      value: { id: 'session-terminal:s1', tab: 1, shell: 'sh', running: true, raw, cursor: raw.length },
+    }),
     async () => {
       const result = await executeTerminalTool({ action: 'read', lines: 400 }, { sessionId: 's1' });
       const text = result.content[0].text;
@@ -351,7 +363,18 @@ test('list and read format bridge values, send the session and honour the since 
       if (tab === 3) return { ok: false, error: 'no terminal tab 3' };
       if (tab === 4) {
         const big = `${Array.from({ length: 60 }, (_, i) => `build line ${i}`).join('\r\n')}\r\n`;
-        return { ok: true, value: { id: 'session-terminal:s1:4', tab, shell: 'sh', running: true, raw: big, cursor: big.length + 50, reset: true } };
+        return {
+          ok: true,
+          value: {
+            id: 'session-terminal:s1:4',
+            tab,
+            shell: 'sh',
+            running: true,
+            raw: big,
+            cursor: big.length + 50,
+            reset: true,
+          },
+        };
       }
       return {
         ok: true,
@@ -389,12 +412,18 @@ test('list and read format bridge values, send the session and honour the since 
       assert.match(none.content[0].text, /\nTerminal \(partial\): session-terminal:s1:2 .* cursor=9\nno new output$/);
       assert.equal(requests.at(-1).body.since, 9);
 
-      const paged = await executeTerminalTool({ action: 'read', tab: 2, lines: 1, offset_lines: 1 }, { sessionId: 's1' });
+      const paged = await executeTerminalTool(
+        { action: 'read', tab: 2, lines: 1, offset_lines: 1 },
+        { sessionId: 's1' }
+      );
       assert.match(paged.content[0].text, /\nTerminal \(partial\): .*\nlines 2-2 of 3\nb$/);
       assert.equal(requests.at(-1).body.offset_lines, undefined);
 
       const grep = await executeTerminalTool({ action: 'read', tab: 2, grep: 'B' }, { sessionId: 's1' });
-      assert.match(grep.content[0].text, /\nTerminal \(partial\): .*\n1 of 1 matches for "B" in lines 1-3 of 3\n1: a\n2: b\n3: c$/);
+      assert.match(
+        grep.content[0].text,
+        /\nTerminal \(partial\): .*\n1 of 1 matches for "B" in lines 1-3 of 3\n1: a\n2: b\n3: c$/
+      );
 
       const gapped = await executeTerminalTool({ action: 'read', tab: 4, lines: 2 }, { sessionId: 's1' });
       assert.match(gapped.content[0].text, /lines 59-60 of 60\nbuild line 58\nbuild line 59$/);

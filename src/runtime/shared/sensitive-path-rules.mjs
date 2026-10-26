@@ -150,13 +150,7 @@ function secretFileName(name) {
 // (tool results, shell output, media), which stay reachable; only the files
 // and folders that carry provider tokens, API keys, pairing and bridge secrets
 // are denied.
-const MIXDOG_SECRET_DIRECTORIES = new Set([
-  'secrets',
-  'mcp-oauth',
-  'provider-accounts',
-  'relay-data',
-  'dev-profile',
-]);
+const MIXDOG_SECRET_DIRECTORIES = new Set(['secrets', 'mcp-oauth', 'provider-accounts', 'relay-data', 'dev-profile']);
 const MIXDOG_SECRET_FILE =
   /^\.?(mixdog-config|provider-accounts|relay-hook-device|auth\.json|[a-z0-9-]+-oauth(-credentials)?\.json|[a-z0-9-]+-bridge\.json)/;
 const MIXDOG_SECRET_EXTENSIONS = new Set(['.dpapi', '.token']);

@@ -51,7 +51,10 @@ test('a failure without a schedule code carries neither its code nor its details
     isChannelsDegraded: () => false,
     lifecycle: {
       reloadRuntimeConfig: async () => {
-        throw Object.assign(new Error('config unreadable'), { code: 'EACCES', details: { privateToken: 'tok_secret' } });
+        throw Object.assign(new Error('config unreadable'), {
+          code: 'EACCES',
+          details: { privateToken: 'tok_secret' },
+        });
       },
     },
   });

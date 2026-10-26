@@ -19,12 +19,21 @@ import {
   PWSH,
 } from './_shared.mjs';
 import { previewSessionTools } from '../../src/runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
-import { bindShellKind, buildShellRoutingRules } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import {
+  bindShellKind,
+  buildShellRoutingRules,
+} from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 
 test('shell execution policy matches sync-first background-task parity', () => {
   assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 60_000);
   const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-  assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'cwd', 'timeout_ms', 'wait_ms', 'background']);
+  assert.deepEqual(Object.keys(shellTool.inputSchema.properties), [
+    'command',
+    'cwd',
+    'timeout_ms',
+    'wait_ms',
+    'background',
+  ]);
   assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
   assert.match(
     shellTool.description,
@@ -190,23 +199,41 @@ test('C: the shell text follows the resolved shell kind, not only the platform',
   assert.ok(bound.description.includes(buildShellRoutingRules(other)));
   assert.ok(!bound.description.includes(buildShellRoutingRules(own)));
   assert.equal(/PowerShell:/.test(bound.inputSchema.properties.command.description), other === 'powershell');
-  assert.match(bound.inputSchema.properties.command.description, other === 'powershell' ? /no Bash heredocs/ : /^Command\. Bash:/);
+  assert.match(
+    bound.inputSchema.properties.command.description,
+    other === 'powershell' ? /no Bash heredocs/ : /^Command\. Bash:/
+  );
   // One bound copy per kind, so a session's shell bytes never move between turns.
   assert.equal(bindShellKind(shell, other), bound);
   const turn = () => JSON.stringify(previewSessionTools('full', [], {}).find((tool) => tool.name === 'shell'));
   assert.equal(turn(), turn());
   // The static tool is untouched and only the shell tool is rebound.
   assert.ok(shell.description.includes(buildShellRoutingRules(own)));
-  assert.equal(bindShellKind(BUILTIN_TOOLS.find((tool) => tool.name === 'read'), other).name, 'read');
+  assert.equal(
+    bindShellKind(
+      BUILTIN_TOOLS.find((tool) => tool.name === 'read'),
+      other
+    ).name,
+    'read'
+  );
 });
 
 test('C: shell description carries the long-running command guidance from the real budgets', () => {
   const shell = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-  assert.match(shell.description, /Holds 60s; then, or on input\/task notification, backgrounds with task_id \(command keeps running\)\./);
-  assert.match(shell.description, /Completion is automatic; never poll, and never sleep\/poll-loop inside the shell \(background:true or wait_ms instead; for an external job, background a command that exits when it ends\)\. Result needed now: task wait\./);
+  assert.match(
+    shell.description,
+    /Holds 60s; then, or on input\/task notification, backgrounds with task_id \(command keeps running\)\./
+  );
+  assert.match(
+    shell.description,
+    /Completion is automatic; never poll, and never sleep\/poll-loop inside the shell \(background:true or wait_ms instead; for an external job, background a command that exits when it ends\)\. Result needed now: task wait\./
+  );
   assert.match(shell.description, /Known-long finite run: wait_ms up to 600000\./);
   assert.match(shell.description, /Independent long runs, servers\/watchers: background:true; cancel them when done\./);
-  assert.match(shell.inputSchema.properties.wait_ms.description, /Usually omit; for a long finite command needed next, set up to 600000\./);
+  assert.match(
+    shell.inputSchema.properties.wait_ms.description,
+    /Usually omit; for a long finite command needed next, set up to 600000\./
+  );
 });
 
 test('C: git startup state reports repository presence, not just the binary', () => {

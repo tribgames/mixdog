@@ -233,8 +233,7 @@ export const BROWSER_INPUT_FIELDS = {
     downloadId: {
       type: 'string',
       maxLength: 100,
-      description:
-        'downloads only: d1/d2 ID; omitted: wait pins the newest (or next), attach the newest completed.',
+      description: 'downloads only: d1/d2 ID; omitted: wait pins the newest (or next), attach the newest completed.',
     },
     wait: { type: 'boolean', description: 'downloads only: wait up to timeoutMs for completion.' },
     attach: { type: 'boolean', description: 'downloads only: attach the completed file (≤ 8 MiB) to the result.' },

@@ -132,10 +132,7 @@ test('a schedule runner that throws synchronously still releases the name', asyn
   s.scheduleRunner = () => {
     throw new Error('runner exploded');
   };
-  await assert.rejects(
-    s.fireTimedPrompt({ name: 'a' }, 'p', { awaitDispatch: true }),
-    /runner exploded/
-  );
+  await assert.rejects(s.fireTimedPrompt({ name: 'a' }, 'p', { awaitDispatch: true }), /runner exploded/);
   assert.equal(s.running.has('a'), false, 'an awaited fire releases it');
   assert.equal(await s.fireTimedPrompt({ name: 'a' }, 'p'), true);
   await new Promise((resolve) => setImmediate(resolve));

@@ -123,42 +123,50 @@ function migrateAgentFiles(dataDir, merged, outcome) {
     }
     for (const entry of entries) {
       const file = join(dataDir, store, entry.name, 'agent.json');
-      attempt(file, () => {
-        const manifest = readJsonFile(file);
-        if (!isRecord(manifest) || manifest.connectors == null) return;
-        const next = mapMergedConnectorPolicy(parseConnectorPolicy(manifest.connectors), merged);
-        if (!next) return;
-        const value = storedValue(next);
-        if (value) manifest.connectors = value;
-        else delete manifest.connectors;
-        writeJsonAtomicSync(file, manifest, { backup: true });
-        outcome.agents.push(`${store}/${entry.name}`);
-      }, outcome);
+      attempt(
+        file,
+        () => {
+          const manifest = readJsonFile(file);
+          if (!isRecord(manifest) || manifest.connectors == null) return;
+          const next = mapMergedConnectorPolicy(parseConnectorPolicy(manifest.connectors), merged);
+          if (!next) return;
+          const value = storedValue(next);
+          if (value) manifest.connectors = value;
+          else delete manifest.connectors;
+          writeJsonAtomicSync(file, manifest, { backup: true });
+          outcome.agents.push(`${store}/${entry.name}`);
+        },
+        outcome
+      );
     }
   }
 }
 
 function migrateProjectFile(dataDir, merged, outcome) {
   const file = join(dataDir, PROJECT_CONNECTORS_FILE);
-  attempt(file, () => {
-    withFileLockSync(`${file}.lock`, () => {
-      const document = readJsonFile(file);
-      const projects = document?.projects;
-      if (!isRecord(projects)) return;
-      const changed = [];
-      for (const [root, entry] of Object.entries(projects)) {
-        if (!isRecord(entry) || !Array.isArray(entry.off)) continue;
-        const next = mapMergedConnectorPolicy({ off: entry.off.map(String), tools: {} }, merged);
-        if (!next) continue;
-        if (next.off.length) projects[root] = { ...entry, off: next.off };
-        else delete projects[root];
-        changed.push(root);
-      }
-      if (!changed.length) return;
-      writeJsonAtomicSync(file, document, { lock: false, backup: true });
-      outcome.projects.push(...changed);
-    });
-  }, outcome);
+  attempt(
+    file,
+    () => {
+      withFileLockSync(`${file}.lock`, () => {
+        const document = readJsonFile(file);
+        const projects = document?.projects;
+        if (!isRecord(projects)) return;
+        const changed = [];
+        for (const [root, entry] of Object.entries(projects)) {
+          if (!isRecord(entry) || !Array.isArray(entry.off)) continue;
+          const next = mapMergedConnectorPolicy({ off: entry.off.map(String), tools: {} }, merged);
+          if (!next) continue;
+          if (next.off.length) projects[root] = { ...entry, off: next.off };
+          else delete projects[root];
+          changed.push(root);
+        }
+        if (!changed.length) return;
+        writeJsonAtomicSync(file, document, { lock: false, backup: true });
+        outcome.projects.push(...changed);
+      });
+    },
+    outcome
+  );
 }
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -177,7 +185,9 @@ function renameToolPattern(value, renames) {
 /** A condition `Tool(arguments)`: only the tool part is an identifier. */
 function renameCondition(value, renames) {
   const open = value.indexOf('(');
-  return open < 0 ? renameToolPattern(value, renames) : renameToolPattern(value.slice(0, open), renames) + value.slice(open);
+  return open < 0
+    ? renameToolPattern(value, renames)
+    : renameToolPattern(value.slice(0, open), renames) + value.slice(open);
 }
 
 /** Renames in the hook structures of `document` (in place); true when any changed. */
@@ -226,18 +236,25 @@ function migrateHookFiles(dataDir, merged, outcome) {
     merged.flatMap(({ name, from }) => from.filter((server) => server !== name).map((gone) => [gone, name]))
   );
   for (const file of [join(dataDir, 'hooks.json'), join(dataDir, 'hooks', 'hooks.json')]) {
-    attempt(file, () => {
-      const document = readJsonFile(file);
-      if (!isRecord(document) && !Array.isArray(document)) return;
-      if (!renameInHooks(document, renames)) return;
-      writeJsonAtomicSync(file, document, { backup: true });
-      outcome.hooks.push(file);
-    }, outcome);
+    attempt(
+      file,
+      () => {
+        const document = readJsonFile(file);
+        if (!isRecord(document) && !Array.isArray(document)) return;
+        if (!renameInHooks(document, renames)) return;
+        writeJsonAtomicSync(file, document, { backup: true });
+        outcome.hooks.push(file);
+      },
+      outcome
+    );
   }
 }
 
 const validGroup = (group) =>
-  isRecord(group) && typeof group.name === 'string' && Array.isArray(group.from) && group.from.every((n) => typeof n === 'string');
+  isRecord(group) &&
+  typeof group.name === 'string' &&
+  Array.isArray(group.from) &&
+  group.from.every((n) => typeof n === 'string');
 
 /** Maps every per-server setting of `dataDir` onto the surviving servers of
  *  `merged` (this start's merge, [] to only retry) plus any still pending from

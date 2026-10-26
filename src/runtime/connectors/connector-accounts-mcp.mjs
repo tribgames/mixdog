@@ -19,7 +19,6 @@ const PROTOCOL_VERSION = '2025-06-18';
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
-const textResult = (value) => ({ content: [{ type: 'text', text: value }] });
 const errorResult = (message) => ({ content: [{ type: 'text', text: message }], isError: true });
 
 // account name → `{ email, error, authRequired }` as the last connect or call
@@ -99,7 +98,11 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
   const callable = connectorTools(connector, accounts, { hidden: true });
   const record = (account, state) => {
     if (state.email) account.email = state.email;
-    health.set(account.name, { email: account.email, error: state.error || '', authRequired: state.authRequired === true });
+    health.set(account.name, {
+      email: account.email,
+      error: state.error || '',
+      authRequired: state.authRequired === true,
+    });
   };
   const failure = (account, error) => {
     const state = { error: error?.message || String(error), authRequired: error?.authRequired === true };
@@ -126,7 +129,11 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
       const states = await Promise.all(accounts.map(probe));
       if (!states.some((state) => !state.error)) {
         const first = states[0];
-        return { jsonrpc: '2.0', id, error: { code: -32001, message: first?.error || `No ${service} account is connected` } };
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32001, message: first?.error || `No ${service} account is connected` },
+        };
       }
       return reply({
         protocolVersion: text(params?.protocolVersion) || PROTOCOL_VERSION,

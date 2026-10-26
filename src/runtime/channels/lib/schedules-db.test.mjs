@@ -83,10 +83,7 @@ const ownershipTest = async () => {
   assert.doesNotMatch(queryCalls.at(-1).sql, /\b(model|workflow|run_as_agent)\b/, 'legacy columns are not selected');
 
   queryRows = [{ name: 'daily', prompt: 'p', owner_agent_id: 'lead' }];
-  await upsertSchedule(
-    { name: 'daily', prompt: 'p', whenCron: '0 9 * * *' },
-    { dataDir: '/sched-owner' }
-  );
+  await upsertSchedule({ name: 'daily', prompt: 'p', whenCron: '0 9 * * *' }, { dataDir: '/sched-owner' });
   let call = queryCalls.at(-1);
   assert.match(call.sql, /owner_agent_id = EXCLUDED\.owner_agent_id/);
   assert.doesNotMatch(call.sql, /\b(model|workflow|run_as_agent)\b/, 'legacy columns are not written');

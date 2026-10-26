@@ -71,7 +71,8 @@ test('shell, edit, and task keep their execution contracts', () => {
   }
   const shellProps = shellTool?.inputSchema?.properties || {};
   if (
-    JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'cwd', 'timeout_ms', 'wait_ms', 'background']) ||
+    JSON.stringify(Object.keys(shellProps)) !==
+      JSON.stringify(['command', 'cwd', 'timeout_ms', 'wait_ms', 'background']) ||
     shellProps.command?.minLength !== undefined
   ) {
     throw new Error(

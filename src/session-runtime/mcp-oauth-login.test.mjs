@@ -339,7 +339,9 @@ test('a reconnect that needs no login completes immediately and a failure before
   await assert.rejects(down.begin('remote'), /fetch failed/);
 });
 
-test('a status read with `since` follows each step as it happens: browser → connecting → tools → complete', { timeout: 5_000 }, async () => {
+test('a status read with `since` follows each step as it happens: browser → connecting → tools → complete', {
+  timeout: 5_000,
+}, async () => {
   let launch;
   let finish;
   const peers = [];

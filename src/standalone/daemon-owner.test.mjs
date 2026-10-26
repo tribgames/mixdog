@@ -225,8 +225,7 @@ test('the probe is given the smaller of the probe timeout and the caller budget'
     seen.push(timeoutMs);
     return { pid: 0, timedOut: true };
   };
-  const prove = (options) =>
-    proveDaemonOwner(owner, { discoveryPath, now: NOW, staleMs: STALE, probe, ...options });
+  const prove = (options) => proveDaemonOwner(owner, { discoveryPath, now: NOW, staleMs: STALE, probe, ...options });
   assert.deepEqual(await prove({ timeoutMs: 2000, budgetMs: 60 }), { pid: process.pid, verdict: 'unknown' });
   assert.deepEqual(await prove({ timeoutMs: 2000, budgetMs: 5000 }), { pid: process.pid, verdict: 'dead' });
   assert.deepEqual(await prove({ timeoutMs: 2000 }), { pid: process.pid, verdict: 'dead' });

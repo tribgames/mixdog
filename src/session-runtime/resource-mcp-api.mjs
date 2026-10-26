@@ -200,7 +200,9 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     },
     onComplete: (name) =>
       sync.announce('mcp', {
-        detail: { mcpChanges: [{ name: accountTarget(resolveMcpCatalog().servers, name)?.serverName || name, enabled: true }] },
+        detail: {
+          mcpChanges: [{ name: accountTarget(resolveMcpCatalog().servers, name)?.serverName || name, enabled: true }],
+        },
       }),
   });
   /** The effective config of a server that signs in with MCP OAuth (HTTP/SSE
@@ -356,7 +358,9 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     const cfg = serverName ? servers[serverName] : null;
     const same =
       cfg && address
-        ? connectorAccountsOf(cfg).find((account) => gmailAppPasswordAccount(connectorAccountServer(cfg, account)) === address)
+        ? connectorAccountsOf(cfg).find(
+            (account) => gmailAppPasswordAccount(connectorAccountServer(cfg, account)) === address
+          )
         : null;
     if (same) {
       await storeGmailAppPassword(input, accountCfg, true);
@@ -399,7 +403,9 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
    *  app password or own client, as an edit of its one-account server was. */
   async function saveConnectorAccount(servers, target, input) {
     const { serverName, cfg, account, accountCfg } = target;
-    const { config } = normalizeMcpServerInput(mergedServerInput({ ...input, name: account.name }, accountCfg, account.name));
+    const { config } = normalizeMcpServerInput(
+      mergedServerInput({ ...input, name: account.name }, accountCfg, account.name)
+    );
     const next = mergeMcpServerConfig(accountCfg, config);
     next.connector = cfg.connector;
     await storeOAuthClientSecret(input, next, accountCfg);
@@ -455,14 +461,18 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
       const config = getConfig();
       const { servers, merged } = mergeConnectorAccountServers(mcpServersOf(config));
       // Also retries, without a merge, what an earlier start could not migrate.
-      const settings = migrateMergedConnectorServers(deps.cfgMod?.getPluginData?.() || deps.STANDALONE_DATA_DIR, merged);
+      const settings = migrateMergedConnectorServers(
+        deps.cfgMod?.getPluginData?.() || deps.STANDALONE_DATA_DIR,
+        merged
+      );
       if (!merged.length) return merged;
       // Neither migrated nor recorded for a retry: merging again next start is the retry.
       if (settings.unrecorded && settings.failed.length) return [];
       let next = { ...config, mcpServers: servers };
       const scoped = extensionScopesFromConfig(config).mcp;
       for (const { name, from } of merged) {
-        for (const gone of from) if (gone !== name && Object.hasOwn(scoped, gone)) next = withExtensionScope(next, 'mcp', gone, null);
+        for (const gone of from)
+          if (gone !== name && Object.hasOwn(scoped, gone)) next = withExtensionScope(next, 'mcp', gone, null);
       }
       saveConfigAndAdopt(next);
       return merged;
@@ -537,7 +547,7 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
           let revoked = true;
           for (const accountCfg of account.signOut) {
             forgetConnectorAccountHealth(accountCfg.name);
-            revoked = ((await clearMcpServerOAuth(accountCfg, { revoke: true })) || {}).revoked === true && revoked;
+            revoked = (await clearMcpServerOAuth(accountCfg, { revoke: true }))?.revoked === true && revoked;
           }
           const status = await sync.reconnectMcpAndAnnounce({
             only: account.serverName,

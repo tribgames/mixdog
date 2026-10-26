@@ -43,9 +43,20 @@ async function withBridge(handler, run) {
 }
 
 test('visualize tool-defs schema exposes action + input and the usage guidance', () => {
-  assert.deepEqual(TOOL_DEFS.map((tool) => tool.name), ['visualize']);
+  assert.deepEqual(
+    TOOL_DEFS.map((tool) => tool.name),
+    ['visualize']
+  );
   const schema = TOOL_DEFS[0].inputSchema;
-  assert.deepEqual(schema.properties.action.enum, ['open', 'close', 'annotate', 'capture', 'export', 'check', 'inspect']);
+  assert.deepEqual(schema.properties.action.enum, [
+    'open',
+    'close',
+    'annotate',
+    'capture',
+    'export',
+    'check',
+    'inspect',
+  ]);
   assert.equal(schema.properties.input.type, 'object');
   assert.equal(schema.properties.input.properties.targets.maxItems, 3);
   assert.deepEqual(schema.required, ['action']);
@@ -65,14 +76,27 @@ test('open takes inline content as an alternative to targets', () => {
   assert.match(TOOL_DEFS[0].description, /Prefer inline content for diagrams, charts and quick sketches/);
   assert.match(TOOL_DEFS[0].description, /write a file for real mockups/);
 
-  const ok = validateVisualizeArgs({ action: 'open', input: { content: { kind: 'mermaid', source: 'graph TD;A-->B', title: 'Flow' } } });
+  const ok = validateVisualizeArgs({
+    action: 'open',
+    input: { content: { kind: 'mermaid', source: 'graph TD;A-->B', title: 'Flow' } },
+  });
   assert.equal(ok.ok, true);
-  const both = validateVisualizeArgs({ action: 'open', input: { targets: ['a.html'], content: { kind: 'svg', source: '<svg/>' } } });
+  const both = validateVisualizeArgs({
+    action: 'open',
+    input: { targets: ['a.html'], content: { kind: 'svg', source: '<svg/>' } },
+  });
   assert.match(both.error, /either input\.targets or input\.content/);
-  assert.match(validateVisualizeArgs({ action: 'open', input: { content: { kind: 'gif', source: 'x' } } }).error, /kind must be one of/);
-  assert.match(validateVisualizeArgs({ action: 'open', input: { content: { kind: 'svg', source: ' ' } } }).error, /non-empty/);
   assert.match(
-    validateVisualizeArgs({ action: 'open', input: { content: { kind: 'svg', source: 'x'.repeat(512 * 1024 + 1) } } }).error,
+    validateVisualizeArgs({ action: 'open', input: { content: { kind: 'gif', source: 'x' } } }).error,
+    /kind must be one of/
+  );
+  assert.match(
+    validateVisualizeArgs({ action: 'open', input: { content: { kind: 'svg', source: ' ' } } }).error,
+    /non-empty/
+  );
+  assert.match(
+    validateVisualizeArgs({ action: 'open', input: { content: { kind: 'svg', source: 'x'.repeat(512 * 1024 + 1) } } })
+      .error,
     /at most 512 KiB/
   );
 });
@@ -98,9 +122,15 @@ test('validateVisualizeArgs checks per-action input', () => {
   assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['a.html'] } }).ok, true);
   assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['a.html', 'b.html'] } }).ok, true);
   assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['http://localhost:3000'] } }).ok, true);
-  assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['http://localhost:3000', 'a.html'] } }).ok, false);
+  assert.equal(
+    validateVisualizeArgs({ action: 'open', input: { targets: ['http://localhost:3000', 'a.html'] } }).ok,
+    false
+  );
   assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['a.html', 'https://x.dev'] } }).ok, false);
-  assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['http://a.dev', 'http://b.dev'] } }).ok, false);
+  assert.equal(
+    validateVisualizeArgs({ action: 'open', input: { targets: ['http://a.dev', 'http://b.dev'] } }).ok,
+    false
+  );
   assert.equal(validateVisualizeArgs({ action: 'annotate', input: { clear: true } }).ok, false);
   assert.equal(validateVisualizeArgs({ action: 'capture', input: { tab: 't1', output: 'x.jpg' } }).ok, false);
   assert.equal(validateVisualizeArgs({ action: 'capture', input: { tab: 't1', output: 'x.png' } }).ok, true);
@@ -120,10 +150,28 @@ test('validateVisualizeArgs checks per-action input', () => {
   // inspect: a tab, an optional viewport in whole px, an optional scoping selector.
   assert.equal(validateVisualizeArgs({ action: 'inspect' }).ok, false);
   assert.equal(validateVisualizeArgs({ action: 'inspect', input: { tab: 'v1' } }).ok, true);
-  assert.equal(validateVisualizeArgs({ action: 'inspect', input: { tab: 'v1', viewport: { width: 375, height: 812 }, selector: 'main' } }).ok, true);
+  assert.equal(
+    validateVisualizeArgs({
+      action: 'inspect',
+      input: { tab: 'v1', viewport: { width: 375, height: 812 }, selector: 'main' },
+    }).ok,
+    true
+  );
   assert.equal(validateVisualizeArgs({ action: 'inspect', input: { tab: 'v1', viewport: { width: 375 } } }).ok, true);
-  for (const viewport of [{ height: 800 }, { width: 100 }, { width: 5000 }, { width: 375.5 }, { width: 375, height: 10 }, '375', []]) {
-    assert.equal(validateVisualizeArgs({ action: 'inspect', input: { tab: 'v1', viewport } }).ok, false, JSON.stringify(viewport));
+  for (const viewport of [
+    { height: 800 },
+    { width: 100 },
+    { width: 5000 },
+    { width: 375.5 },
+    { width: 375, height: 10 },
+    '375',
+    [],
+  ]) {
+    assert.equal(
+      validateVisualizeArgs({ action: 'inspect', input: { tab: 'v1', viewport } }).ok,
+      false,
+      JSON.stringify(viewport)
+    );
   }
   assert.equal(validateVisualizeArgs({ action: 'inspect', input: { tab: 'v1', selector: '' } }).ok, false);
   assert.equal(validateVisualizeArgs({ action: 'inspect', input: { tab: 'v1', selector: 'x'.repeat(501) } }).ok, false);
@@ -137,11 +185,15 @@ test('the tool schema and description cover inspect', () => {
 });
 
 test('executeVisualizeTool returns the bridge text with its page problems section', async () => {
-  const text = 'Checked tab v1.\nPage problems on tab v1 (1):\n- exception: Uncaught Error: x (app.js:2)\nFix these before reporting.';
+  const text =
+    'Checked tab v1.\nPage problems on tab v1 (1):\n- exception: Uncaught Error: x (app.js:2)\nFix these before reporting.';
   await withBridge(
     () => ({ ok: true, text, tabs: [{ id: 'v1', label: 'Page', kind: 'html', target: 'a.html' }] }),
     async (requests) => {
-      const result = await executeVisualizeTool({ action: 'check', input: { tab: 'v1' } }, { sessionId: 's1', cwd: '/proj' });
+      const result = await executeVisualizeTool(
+        { action: 'check', input: { tab: 'v1' } },
+        { sessionId: 's1', cwd: '/proj' }
+      );
       assert.equal(result.isError, undefined);
       assert.match(result.content[0].text, /^Checked tab v1\.\nPage problems on tab v1 \(1\):/);
       assert.deepEqual(requests[0].body, { sessionId: 's1', cwd: '/proj', action: 'check', input: { tab: 'v1' } });
@@ -155,10 +207,7 @@ test('executeVisualizeTool posts { sessionId, cwd, action, input } with bearer a
     async (requests) => {
       assert.equal(visualizeBridgeAvailableSync(), true);
       const input = { targets: ['a.html'], label: 'Page' };
-      const result = await executeVisualizeTool(
-        { action: 'open', input },
-        { sessionId: 's1', cwd: '/proj' }
-      );
+      const result = await executeVisualizeTool({ action: 'open', input }, { sessionId: 's1', cwd: '/proj' });
       assert.equal(result.isError, undefined);
       assert.match(result.content[0].text, /Opened\nt1 html Page → a\.html/);
       assert.deepEqual(requests[0].body, { sessionId: 's1', cwd: '/proj', action: 'open', input });
@@ -181,7 +230,11 @@ test("executeVisualizeTool stamps the host's owner session as a structured field
         executeVisualizeTool({ action: 'open', input: { targets: ['a.html'] } }, { sessionId, cwd: '/proj' });
       const child = await open('sess_child');
       assert.deepEqual(child.toolMeta, { code: 'visualize_owner', missing: [], ownerSessionId: 'sess_lead' });
-      assert.match(child.content[0].text, /Shown in the side panel of session sess_lead/, 'the note stays for the model');
+      assert.match(
+        child.content[0].text,
+        /Shown in the side panel of session sess_lead/,
+        'the note stays for the model'
+      );
       const own = await open('s1');
       assert.equal(own.toolMeta, undefined, 'prose naming a session is no stamp');
       assert.equal((await open('sess_odd')).toolMeta, undefined, 'a malformed id is no stamp');
@@ -191,14 +244,20 @@ test("executeVisualizeTool stamps the host's owner session as a structured field
 
 test('executeVisualizeTool surfaces capture path and bridge errors', async () => {
   await withBridge(
-    (body) => (body.action === 'capture' ? { ok: true, text: 'Captured', path: 'out.png' } : { ok: false, error: 'Error: no such tab' }),
+    (body) =>
+      body.action === 'capture'
+        ? { ok: true, text: 'Captured', path: 'out.png' }
+        : { ok: false, error: 'Error: no such tab' },
     async () => {
       const captured = await executeVisualizeTool(
         { action: 'capture', input: { tab: 't1', output: 'out.png' } },
         { sessionId: 's1', cwd: '/proj' }
       );
       assert.match(captured.content[0].text, /path: out\.png/);
-      const failed = await executeVisualizeTool({ action: 'close', input: { tab: 'zz' } }, { sessionId: 's1', cwd: '/proj' });
+      const failed = await executeVisualizeTool(
+        { action: 'close', input: { tab: 'zz' } },
+        { sessionId: 's1', cwd: '/proj' }
+      );
       assert.equal(failed.isError, true);
       assert.equal(failed.content[0].text, 'Error: no such tab');
     }

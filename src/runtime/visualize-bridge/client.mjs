@@ -39,12 +39,14 @@ export function validateVisualizeArgs(args) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
     return { ok: false, error: 'visualize arguments must be an object' };
   }
-  if (!ACTIONS.has(args.action)) return { ok: false, error: 'action must be open, close, annotate, capture, export, check, or inspect' };
+  if (!ACTIONS.has(args.action))
+    return { ok: false, error: 'action must be open, close, annotate, capture, export, check, or inspect' };
   const input = args.input ?? {};
   if (typeof input !== 'object' || Array.isArray(input)) return { ok: false, error: 'input must be an object' };
   if (args.action === 'open' && input.content != null) {
     const content = input.content;
-    if (input.targets != null) return { ok: false, error: 'open takes either input.targets or input.content, not both' };
+    if (input.targets != null)
+      return { ok: false, error: 'open takes either input.targets or input.content, not both' };
     if (typeof content !== 'object' || Array.isArray(content)) {
       return { ok: false, error: 'open input.content must be { kind, source, title? }' };
     }
@@ -80,7 +82,10 @@ export function validateVisualizeArgs(args) {
       return { ok: false, error: 'open input.version must be a positive integer (a kept version number)' };
     }
   }
-  if (['annotate', 'capture', 'export', 'check', 'inspect'].includes(args.action) && (typeof input.tab !== 'string' || !input.tab)) {
+  if (
+    ['annotate', 'capture', 'export', 'check', 'inspect'].includes(args.action) &&
+    (typeof input.tab !== 'string' || !input.tab)
+  ) {
     return { ok: false, error: `${args.action} requires input.tab` };
   }
   if (args.action === 'inspect') {
@@ -93,7 +98,10 @@ export function validateVisualizeArgs(args) {
         !sized(viewport.width, 200, 3000) ||
         (viewport.height != null && !sized(viewport.height, 200, 4000))
       ) {
-        return { ok: false, error: 'inspect input.viewport must be { width: 200-3000, height?: 200-4000 } in whole pixels' };
+        return {
+          ok: false,
+          error: 'inspect input.viewport must be { width: 200-3000, height?: 200-4000 } in whole pixels',
+        };
       }
     }
     if (selector != null && (typeof selector !== 'string' || !selector.trim() || selector.length > 500)) {
@@ -104,7 +112,8 @@ export function validateVisualizeArgs(args) {
     return { ok: false, error: 'capture requires input.output ending in .png' };
   }
   if (args.action === 'export') {
-    if (input.format !== 'png' && input.format !== 'pdf') return { ok: false, error: 'export requires input.format png or pdf' };
+    if (input.format !== 'png' && input.format !== 'pdf')
+      return { ok: false, error: 'export requires input.format png or pdf' };
     if (typeof input.output !== 'string' || !new RegExp('\\.' + input.format + '$', 'i').test(input.output.trim())) {
       return { ok: false, error: `export requires input.output ending in .${input.format}` };
     }
@@ -161,7 +170,11 @@ export async function executeVisualizeTool(args, options = {}) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const timeout = AbortSignal.timeout(validated.action === 'export' ? EXPORT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     try {
-      result = await requestBridge(discovery, payload, options.signal ? AbortSignal.any([timeout, options.signal]) : timeout);
+      result = await requestBridge(
+        discovery,
+        payload,
+        options.signal ? AbortSignal.any([timeout, options.signal]) : timeout
+      );
       break;
     } catch (error) {
       if (error?.name === 'TimeoutError') return toolError('visualize bridge timed out');
@@ -176,7 +189,9 @@ export async function executeVisualizeTool(args, options = {}) {
   }
   const { body, status } = result;
   if (!body?.ok) {
-    return toolError(String(body?.error || `visualize bridge request failed (HTTP ${status})`).replace(/^Error:\s*/, ''));
+    return toolError(
+      String(body?.error || `visualize bridge request failed (HTTP ${status})`).replace(/^Error:\s*/, '')
+    );
   }
   // The host ran it for another session's panel: the owner rides as a field
   // (toolMeta, kept with the stored result), never only as prose.

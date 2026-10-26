@@ -104,8 +104,20 @@ test('a newly marked sensitive value replaces the stored rows that hold it, in o
     0,
     storedRows.length,
     ...live,
-    { source_ref: `session:${id}:gone-a`, ordinal: 0, role: 'assistant', ts: '1700000000000', content: 'Earlier: 682419' },
-    { source_ref: `session:${id}:gone-b`, ordinal: 3, role: 'assistant', ts: '1700000005000', content: 'Earlier: 682419' }
+    {
+      source_ref: `session:${id}:gone-a`,
+      ordinal: 0,
+      role: 'assistant',
+      ts: '1700000000000',
+      content: 'Earlier: 682419',
+    },
+    {
+      source_ref: `session:${id}:gone-b`,
+      ordinal: 3,
+      role: 'assistant',
+      ts: '1700000005000',
+      content: 'Earlier: 682419',
+    }
   );
   rememberSensitiveValues(id, [
     { name: 'browser', arguments: { action: 'fill', input: { ref: 'p1-s1-e3', text: '682419', sensitive: true } } },
@@ -138,7 +150,11 @@ test('a newly marked sensitive value replaces the stored rows that hold it, in o
     id,
     session.messages.map((message) => ({ ...message, content: message.content.replace('682419', '[redacted]') }))
   );
-  assert.deepEqual(refs.slice(0, 3), redactedRows.map((row) => row.sourceRef), "the transcript's rows by their identity");
+  assert.deepEqual(
+    refs.slice(0, 3),
+    redactedRows.map((row) => row.sourceRef),
+    "the transcript's rows by their identity"
+  );
 
   queries.length = 0;
   ingestSessionTurn(session);

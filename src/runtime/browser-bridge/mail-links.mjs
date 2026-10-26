@@ -50,7 +50,8 @@ function authenticatedSender(head) {
   const { dmarc, dkim } = head.authentication || {};
   if (dmarc?.result === 'pass' && hostOf(dmarc.from) === host) return host;
   const site = siteOf(host);
-  const signed = Array.isArray(dkim) && dkim.some((sig) => sig?.result === 'pass' && siteOf(hostOf(sig.domain)) === site);
+  const signed =
+    Array.isArray(dkim) && dkim.some((sig) => sig?.result === 'pass' && siteOf(hostOf(sig.domain)) === site);
   return site && signed ? host : '';
 }
 

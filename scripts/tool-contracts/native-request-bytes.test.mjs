@@ -34,7 +34,10 @@ test('the HEAD fixture exercises every native-visible path', () => {
     assert.doesNotMatch(bp2, /<mcp-instructions>/);
     assert.match(bp2, /^- mcp__github: /m);
     // The server's instruction text arrives with its first loaded tool.
-    assert.match(JSON.parse(scenario.loadToolResults.load).mcpInstructions, /^## github\nPrefer list_issues before create_issue\.$/);
+    assert.match(
+      JSON.parse(scenario.loadToolResults.load).mcpInstructions,
+      /^## github\nPrefer list_issues before create_issue\.$/
+    );
     assert.ok(scenario.first.tools.some(([name]) => name === 'load_tool'));
     assert.ok(
       scenario.afterLoad.tools.length > scenario.first.tools.length || scenario.afterLoad.state.discovered.length

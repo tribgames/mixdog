@@ -50,7 +50,9 @@ export async function beginBrowserTurn(sessionId, turnId) {
     { sessionId, turnId, action: 'begin_turn' }
   );
   if (result.status !== 200 || result.body?.ok === false || result.body?.error) {
-    throw new Error(`Browser turn start failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected start'}`);
+    throw new Error(
+      `Browser turn start failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected start'}`
+    );
   }
 }
 

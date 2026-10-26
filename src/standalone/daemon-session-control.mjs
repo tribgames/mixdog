@@ -35,12 +35,15 @@ const TOP_CURSOR = encodeCatalogCursor({ id: '', lastUsedAt: Number.MAX_SAFE_INT
  *  process, or a pool row still running or queued (worker index
  *  status/stage); `agents` — the Leads such an Agent session works for. */
 async function storedLiveWork() {
-  const [{ inFlightSessionActivity }, { listStoredAgentWorkersAsync }, { hasPendingAgentWork, sessionsWithPendingWork }] =
-    await Promise.all([
-      import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
-      import('../runtime/agent/orchestrator/session/store-agent-worker-rows.mjs'),
-      import('../runtime/shared/pending-agent-work.mjs'),
-    ]);
+  const [
+    { inFlightSessionActivity },
+    { listStoredAgentWorkersAsync },
+    { hasPendingAgentWork, sessionsWithPendingWork },
+  ] = await Promise.all([
+    import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
+    import('../runtime/agent/orchestrator/session/store-agent-worker-rows.mjs'),
+    import('../runtime/shared/pending-agent-work.mjs'),
+  ]);
   const { working, agentWorking } = inFlightSessionActivity();
   const pool = await listStoredAgentWorkersAsync({ runningSessionIds: working });
   const now = Date.now();
@@ -62,7 +65,9 @@ async function storedCatalogRow(sessionId) {
 
 /** The stored title of `sessionId` (its session record), or null. */
 async function storedTitle(sessionId) {
-  const { readStoredSessionTranscript } = await import('../runtime/agent/orchestrator/session/store-summary-reader.mjs');
+  const { readStoredSessionTranscript } = await import(
+    '../runtime/agent/orchestrator/session/store-summary-reader.mjs'
+  );
   return (await readStoredSessionTranscript(sessionId, { metadataOnly: true }))?.title || null;
 }
 

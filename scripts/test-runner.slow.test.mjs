@@ -620,22 +620,24 @@ test('the force-exit guard leaves CommonJS entries unobserved and keeps the exit
   const direct = (file, extra = {}) => {
     const env = { ...process.env, NODE_TEST_CONTEXT: 'child-v8', ...extra };
     delete env.MIXDOG_TEST_CONCURRENCY;
-    const result = spawnSync(
-      process.execPath,
-      ['--test-force-exit', '--import', spawnLedgerUrl, file],
-      { cwd, env, encoding: 'utf8', timeout: 10_000 }
-    );
+    const result = spawnSync(process.execPath, ['--test-force-exit', '--import', spawnLedgerUrl, file], {
+      cwd,
+      env,
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
     assert.ifError(result.error);
     return result;
   };
   const viaNodeTest = (file) => {
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;
-    const result = spawnSync(
-      process.execPath,
-      ['--test', '--test-force-exit', '--import', spawnLedgerUrl, file],
-      { cwd, env, encoding: 'utf8', timeout: 20_000 }
-    );
+    const result = spawnSync(process.execPath, ['--test', '--test-force-exit', '--import', spawnLedgerUrl, file], {
+      cwd,
+      env,
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
     assert.ifError(result.error);
     return result;
   };

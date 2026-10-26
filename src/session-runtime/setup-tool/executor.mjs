@@ -303,7 +303,10 @@ async function featureStatus(rt, getConfig) {
 }
 
 async function mediaDefaults(rt) {
-  const [pins, ...rows] = await Promise.all([rt.getMediaPins(), ...MEDIA_KINDS.map((kind) => rt.getMediaDefault(kind))]);
+  const [pins, ...rows] = await Promise.all([
+    rt.getMediaPins(),
+    ...MEDIA_KINDS.map((kind) => rt.getMediaDefault(kind)),
+  ]);
   const fieldsOf = (row, fields) => (row ? Object.fromEntries(fields.map((field) => [field, row[field]])) : null);
   return {
     // The default generator (Settings → Built-in → Media generation); null = Auto.
@@ -633,10 +636,13 @@ const SETUP_ACTION_HANDLERS = {
   set_system_shell: (rt, args) => rt.setSystemShell({ command: clean(args.command) }),
   set_auto_update: (rt, args) => rt.setAutoUpdate(requireBoolean(args.enabled)),
   set_ai_session_titles: (rt, args) => rt.setAiSessionTitles(requireBoolean(args.enabled)),
-  set_quota_auto_resume: async (rt, args) => ({ quotaAutoResume: await rt.setQuotaAutoResume(requireBoolean(args.enabled)) }),
+  set_quota_auto_resume: async (rt, args) => ({
+    quotaAutoResume: await rt.setQuotaAutoResume(requireBoolean(args.enabled)),
+  }),
   set_model_preferences: async (rt, args) => {
     const change = { model: requireText(args.model, 'model') };
-    for (const key of ['hidden', 'favorite']) if (Object.hasOwn(args, key)) change[key] = requireBoolean(args[key], key);
+    for (const key of ['hidden', 'favorite'])
+      if (Object.hasOwn(args, key)) change[key] = requireBoolean(args[key], key);
     if (Object.keys(change).length === 1) throw new Error('hidden or favorite is required');
     return rt.setModelPreferences(requireText(args.provider, 'provider'), [change]);
   },

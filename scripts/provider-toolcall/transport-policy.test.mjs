@@ -243,7 +243,6 @@ test('stream progress excludes transport and response acknowledgements from visi
     }),
     'tool'
   );
-
 });
 
 test('responses transport policy: _gateTransportMode down-shifts per capability', () => {

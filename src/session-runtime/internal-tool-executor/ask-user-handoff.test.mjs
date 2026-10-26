@@ -332,7 +332,11 @@ test('a secret is bound at request time: no page or no field never asks; a compu
   };
   assert.equal(await runAskUserHandoff(browser, { hook, sessionId: 's', inputs: { page: page(null) } }), 'blocked');
   assert.equal(
-    await runAskUserHandoff(browser, { hook, sessionId: 's', inputs: { page: page({ origin: 'https://a.example', form: '' }) } }),
+    await runAskUserHandoff(browser, {
+      hook,
+      sessionId: 's',
+      inputs: { page: page({ origin: 'https://a.example', form: '' }) },
+    }),
     'no_field'
   );
   assert.deepEqual(asked, [], 'the user is never asked for a value with nowhere to go');
@@ -344,7 +348,10 @@ test('a secret is bound at request time: no page or no field never asks; a compu
     await runAskUserHandoff(browser, {
       hook,
       sessionId: 's',
-      inputs: { page: page({ origin: 'https://a.example', form: 'otp', length: 8 }), browser: async () => 'page_changed' },
+      inputs: {
+        page: page({ origin: 'https://a.example', form: 'otp', length: 8 }),
+        browser: async () => 'page_changed',
+      },
     }),
     'page_changed'
   );
@@ -409,7 +416,11 @@ test('a computer secret without an exact window and field is refused at request 
     { kind: 'secret', surface: 'computer', field: 'PIN', window_id: 'hwnd:0x2', ref: '"e7"' },
   ]) {
     const validated = validateAskUserHandoff({ handoff });
-    assert.equal(await runAskUserHandoff(validated, { hook, sessionId: 's', inputs }), 'no_field', JSON.stringify(handoff));
+    assert.equal(
+      await runAskUserHandoff(validated, { hook, sessionId: 's', inputs }),
+      'no_field',
+      JSON.stringify(handoff)
+    );
   }
   assert.deepEqual(asked, [], 'the user is never asked for a value with no confirmed field');
   assert.deepEqual(calls, [], 'nothing is bound or typed');
@@ -437,7 +448,13 @@ test('a computer secret without an exact window and field is refused at request 
 test('a login takeover carries its masked saved logins to the card; never more than ids and labels', async (t) => {
   sinks(t);
   const login = validateAskUserHandoff({
-    handoff: { kind: 'takeover', surface: 'browser', purpose: 'login', url: 'https://dart.fss.or.kr/', instructions: 'x' },
+    handoff: {
+      kind: 'takeover',
+      surface: 'browser',
+      purpose: 'login',
+      url: 'https://dart.fss.or.kr/',
+      instructions: 'x',
+    },
   });
   let asked;
   let bindId = '';

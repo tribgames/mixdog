@@ -266,7 +266,7 @@ for (const bulk of [false, true]) {
         forgetTerminalSession() {},
         removeWorkerRow() {},
         markReleased() {},
-        agentSessionEntries:() => [{ tag: 'worker', session: worker }],
+        agentSessionEntries: () => [{ tag: 'worker', session: worker }],
         flushWorkerIndexMutations() {},
         writeWorkerRows: (update) => update(new Map(), new Map()),
       },

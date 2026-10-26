@@ -142,7 +142,8 @@ test('the links are the exact targets the mail writes: HTML hyperlinks and RFC 3
   // A URI in text ends only where URI characters end: sentence punctuation is
   // one of them, a quote or an angle bracket is not.
   const text = `Confirm here: ${LINK}.\nOr <${LINK}&step=2> or "${LINK}&step=3"`;
-  const html = '<a href="/relative">x</a><a href="mailto:a@b.example">y</a><a href=\'http://alternativeto.net/x\'>z</a>';
+  const html =
+    '<a href="/relative">x</a><a href="mailto:a@b.example">y</a><a href=\'http://alternativeto.net/x\'>z</a>';
   const mail = await readEmail([SITE], SITE_AUTH, { text, html });
   assert.deepEqual(JSON.parse(mail.split('\n\n')[0]).links, [
     'http://alternativeto.net/x',
@@ -209,7 +210,11 @@ test('only a single From mailbox that Gmail authenticated counts, however the he
   const refused = [
     ['a bare then a named address', [attacker, victim], victimDmarc],
     ['a named then a bare address', [victim, attacker], victimDmarc],
-    ['a group', [[null, null, atom('Victim'), null], box(null, 'support', 'victim.example'), [null, null, null, null]], victimDmarc],
+    [
+      'a group',
+      [[null, null, atom('Victim'), null], box(null, 'support', 'victim.example'), [null, null, null, null]],
+      victimDmarc,
+    ],
     ['an encoded name with a verdict for the name', [disguised], victimDmarc],
     ['DMARC fail', [victim], ar('dkim=fail header.d=victim.example; dmarc=fail (p=REJECT) header.from=victim.example')],
     ['DMARC none', [victim], ar('spf=pass smtp.mailfrom=victim.example; dmarc=none header.from=victim.example')],

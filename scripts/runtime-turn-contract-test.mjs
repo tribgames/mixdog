@@ -21,11 +21,7 @@ import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
 import { createTagRegistry } from '../src/standalone/agent-tool/tag-registry.mjs';
 import { WORKER_INDEX_FILE } from '../src/standalone/agent-tool/tool-def.mjs';
-import {
-  presentErrorText,
-  retryStatusLine,
-  isCancelLikeError,
-} from '../src/runtime/shared/err-text.mjs';
+import { presentErrorText, retryStatusLine, isCancelLikeError } from '../src/runtime/shared/err-text.mjs';
 import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
 import { createContextState } from '../src/tui/session/context-state.mjs';

@@ -1,13 +1,6 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawnSync } from 'node:child_process';
-import fs, {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -238,7 +231,12 @@ test('a too-large file is listed with its counts while the other files keep thei
   const byPath = Object.fromEntries(snapshot.files.map((file) => [file.path, file]));
   assert.deepEqual(Object.keys(byPath), ['a.txt', 'big.txt', 'c.txt']);
   assert.deepEqual(
-    [byPath['big.txt'].additions, byPath['big.txt'].deletions, byPath['big.txt'].patchOmitted, byPath['big.txt'].reason],
+    [
+      byPath['big.txt'].additions,
+      byPath['big.txt'].deletions,
+      byPath['big.txt'].patchOmitted,
+      byPath['big.txt'].reason,
+    ],
     [120_000, 1, true, 'too_large']
   );
   assert.equal(byPath['a.txt'].patchOmitted, undefined);
@@ -260,7 +258,11 @@ test('a too-large file is listed with its counts while the other files keep thei
   });
   // A file outside the recording session's scope is never read.
   assert.deepEqual(
-    await resumeTurnWorktreeFilePatch(repo, snapshot.baselineTree, { paths: ['a.txt'], path: 'big.txt', maxBytes: 1e7 }),
+    await resumeTurnWorktreeFilePatch(repo, snapshot.baselineTree, {
+      paths: ['a.txt'],
+      path: 'big.txt',
+      maxBytes: 1e7,
+    }),
     { patch: '' }
   );
   // Every target is authorized on its own: an owned rename source never

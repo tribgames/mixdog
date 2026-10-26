@@ -102,4 +102,3 @@ export function idleAutoClearDue({ cfg, activityAt, at, runtime }) {
   if (!cfg?.enabled || !activityAt || at - activityAt < cfg.idleMs) return false;
   return !contextUsageBelowThreshold(runtime, Number(cfg.minContextPercent ?? 10));
 }
-

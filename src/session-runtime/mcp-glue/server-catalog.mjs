@@ -213,7 +213,13 @@ export function createMcpServerCatalog({
 
   function mcpStatus() {
     if (envFlag('MIXDOG_DISABLE_MCP')) {
-      return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0, googleClient: Boolean(googleOAuthClient()) };
+      return {
+        servers: [],
+        configuredCount: 0,
+        connectedCount: 0,
+        failedCount: 0,
+        googleClient: Boolean(googleOAuthClient()),
+      };
     }
     const catalog = resolveCatalog();
     const servers = statusRows(catalog);

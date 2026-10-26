@@ -233,7 +233,8 @@ function gmailAuthentication(headers) {
       ])
     );
     const result = method[2].toLowerCase();
-    if (method[1].toLowerCase() === 'dmarc' && !verdict.dmarc) verdict.dmarc = { result, from: props['header.from'] || '' };
+    if (method[1].toLowerCase() === 'dmarc' && !verdict.dmarc)
+      verdict.dmarc = { result, from: props['header.from'] || '' };
     // Only the signing domain d= counts toward the From domain (RFC 7489
     // §3.1.1); the agent identity i= is not an alignment identifier.
     if (method[1].toLowerCase() === 'dkim' && props['header.d']) {
