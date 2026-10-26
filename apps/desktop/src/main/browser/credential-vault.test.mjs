@@ -18,11 +18,7 @@ registerHooks({
   },
 });
 
-const {
-  CredentialVault,
-  maskedCredentialLabel,
-  secureOrigin,
-} = await import('./credential-vault.ts');
+const { CredentialVault, maskedCredentialLabel, secureOrigin } = await import('./credential-vault.ts');
 const { VAULT_FILE_NAME } = await import('./credential-vault.ts');
 
 const seal = (plaintext) => Buffer.from(plaintext, 'utf8').reverse();
@@ -99,14 +95,15 @@ test('usernames that differ only by case are separate logins: save, import and a
     ]),
     4
   );
-  assert.deepEqual(
-    passwordsByUsername(stored(dir).filter((row) => row.url.startsWith(origin))),
-    { Alice: 'pw-Alice-2', alice: 'pw-alice-2', ALICE: 'pw-ALICE' }
-  );
-  assert.deepEqual(
-    passwordsByUsername(stored(dir).filter((row) => row.url === 'https://batch.example.com/login')),
-    { Bob: 'pw-Bob', bob: 'pw-bob' }
-  );
+  assert.deepEqual(passwordsByUsername(stored(dir).filter((row) => row.url.startsWith(origin))), {
+    Alice: 'pw-Alice-2',
+    alice: 'pw-alice-2',
+    ALICE: 'pw-ALICE',
+  });
+  assert.deepEqual(passwordsByUsername(stored(dir).filter((row) => row.url === 'https://batch.example.com/login')), {
+    Bob: 'pw-Bob',
+    bob: 'pw-bob',
+  });
 
   // A fresh instance on the same file (a restart) reads all of them as distinct logins.
   const reopened = new CredentialVault({ userDataDirectory: dir, seal, unseal });
@@ -142,7 +139,10 @@ test('a prefilled identifier ranks the exact username before a case variant of a
   assert.equal(guess[0].label, maskedCredentialLabel('pat@example.com'));
   // An exact match, a lone case variant and no identifier at all are never ambiguous.
   for (const prefilled of ['Pat@Example.com', 'pat@example.com', '']) {
-    assert.ok((await vault.preferredAccountsFor(origin, prefilled)).every((account) => account.ambiguous === undefined), prefilled);
+    assert.ok(
+      (await vault.preferredAccountsFor(origin, prefilled)).every((account) => account.ambiguous === undefined),
+      prefilled
+    );
   }
   await vault.upsert({ origin, username: 'other@example.com', password: 'pw-other', source: 'chat' });
   assert.deepEqual(
@@ -151,13 +151,23 @@ test('a prefilled identifier ranks the exact username before a case variant of a
     'one case variant is the identifier'
   );
   const mixed = await vault.preferredAccountsFor(origin, 'PAT@example.com');
-  assert.deepEqual(mixed.map(({ ambiguous }) => ambiguous), [true, true, undefined], 'only the tied variants are marked');
+  assert.deepEqual(
+    mixed.map(({ ambiguous }) => ambiguous),
+    [true, true, undefined],
+    'only the tied variants are marked'
+  );
 });
 
 test('a case variant saved again is a login of its own, with the same password or another; nothing is overwritten', async (t) => {
   const { dir, vault } = makeVault(t);
   const origin = 'https://other.example.com';
-  await vault.upsert({ origin, username: 'Pat@example.com', password: 'pw-1', source: 'chat', totpSecret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' });
+  await vault.upsert({
+    origin,
+    username: 'Pat@example.com',
+    password: 'pw-1',
+    source: 'chat',
+    totpSecret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+  });
   const [first] = await vault.list();
   await vault.update(first.id, { note: 'the first account' });
   await vault.upsert({ origin, username: 'pat@example.com', password: 'pw-2', source: 'chat' });
@@ -197,23 +207,36 @@ test('case variants of a prefilled identifier are ambiguous for any identifier, 
     t.mock.timers.tick(3);
   }
   await vault.upsert({ origin: 'https://lone.example.com', username: 'pat', password: 'pw-lone', source: 'chat' });
-  const ids = Object.fromEntries((await vault.list()).filter((login) => login.origin === origin).map((login) => [login.username, login.id]));
+  const ids = Object.fromEntries(
+    (await vault.list()).filter((login) => login.origin === origin).map((login) => [login.username, login.id])
+  );
   const rank = async (site, prefilled) =>
     (await vault.preferredAccountsFor(site, prefilled)).map(({ id, ambiguous }) => [id, ambiguous]);
 
-  assert.deepEqual(await rank(origin, 'PAT'), [
-    [ids.pat, true],
-    [ids.Pat, true],
-    [ids.zed, undefined],
-  ], 'the case variants come first and are marked, though zed was saved last');
-  assert.deepEqual((await rank(origin, 'pAt')).map(([, ambiguous]) => ambiguous), [true, true, undefined], 'any casing of it');
+  assert.deepEqual(
+    await rank(origin, 'PAT'),
+    [
+      [ids.pat, true],
+      [ids.Pat, true],
+      [ids.zed, undefined],
+    ],
+    'the case variants come first and are marked, though zed was saved last'
+  );
+  assert.deepEqual(
+    (await rank(origin, 'pAt')).map(([, ambiguous]) => ambiguous),
+    [true, true, undefined],
+    'any casing of it'
+  );
   // An exact username is the identifier: no mark, and it is first.
   assert.deepEqual((await rank(origin, 'Pat'))[0], [ids.Pat, undefined]);
   assert.ok((await rank(origin, 'Pat')).every(([, ambiguous]) => ambiguous === undefined));
   assert.deepEqual((await rank(origin, 'pat'))[0], [ids.pat, undefined]);
   // No identifier, or one that matches nothing, marks nothing.
   for (const prefilled of ['', 'nobody']) {
-    assert.ok((await rank(origin, prefilled)).every(([, ambiguous]) => ambiguous === undefined), prefilled);
+    assert.ok(
+      (await rank(origin, prefilled)).every(([, ambiguous]) => ambiguous === undefined),
+      prefilled
+    );
   }
   // One variant alone is no ambiguity, and ranks as it always did (not as a match).
   const lone = await vault.preferredAccountsFor('https://lone.example.com', 'PAT');
@@ -233,7 +256,9 @@ test('re-saving an imported login with a note saves password and note together u
   };
   const vault = new CredentialVault({ userDataDirectory: dir, seal: countingSeal, unseal });
   // A Chrome row is keyed by its sign-in URL, not by the origin.
-  await vault.mergeImport('chrome', [{ url: 'https://example.com/login', username: 'alice', password: 'old', note: 'from chrome' }]);
+  await vault.mergeImport('chrome', [
+    { url: 'https://example.com/login', username: 'alice', password: 'old', note: 'from chrome' },
+  ]);
   const [imported] = await vault.list();
 
   writes = 0;
@@ -371,7 +396,10 @@ test('concurrent transactions across instances never lose a write', async (t) =>
   const after = await a.list();
   assert.equal(after.length, 20);
   assert.ok(!after.some((entry) => entry.id === list[0].id), 'the delete stuck');
-  assert.ok(after.some((entry) => entry.origin === 'https://site99.test'), 'the concurrent add stuck');
+  assert.ok(
+    after.some((entry) => entry.origin === 'https://site99.test'),
+    'the concurrent add stuck'
+  );
 });
 
 test('an existing vault written in the old format still opens', async (t) => {
@@ -419,7 +447,11 @@ test('auto sign-in ranks accounts: the identifier prefilled on the page, then th
   assert.equal((await vault.preferredAccountsFor(origin))[0].id, ids['first@example.com']);
   // A prefilled identifier wins over both: exact, case-insensitive for an email.
   assert.equal((await vault.preferredAccountsFor(origin, 'SECOND@example.com'))[0].id, ids['second@example.com']);
-  assert.equal((await vault.preferredAccountsFor(origin, 'second@example'))[0].id, ids['first@example.com'], 'not a prefix match');
+  assert.equal(
+    (await vault.preferredAccountsFor(origin, 'second@example'))[0].id,
+    ids['first@example.com'],
+    'not a prefix match'
+  );
   // Only metadata is stored for it, never a secret; a paused origin offers nothing.
   assert.deepEqual((await vault.list())[0], { ...(await vault.list())[0], hasPassword: true });
   await vault.pauseOrigin(origin);
@@ -435,7 +467,12 @@ test('a stored authenticator key makes the current code on the host, for its own
     source: 'chat',
     totpSecret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
   });
-  await vault.upsert({ origin: 'https://shop.example.com', username: 'nokey@example.com', password: 'pw-2', source: 'chat' });
+  await vault.upsert({
+    origin: 'https://shop.example.com',
+    username: 'nokey@example.com',
+    password: 'pw-2',
+    source: 'chat',
+  });
   const ids = Object.fromEntries((await vault.list()).map((login) => [login.username, login.id]));
   // RFC 6238 test vector (SHA1, 20-byte key "12345678901234567890"), T = 59 s: 94287082 → 6 digits 287082.
   assert.equal(await vault.totpCodeFor(ids['me@example.com'], 'https://shop.example.com', 59_000), '287082');

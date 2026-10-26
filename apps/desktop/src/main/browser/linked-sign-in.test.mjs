@@ -105,7 +105,12 @@ function setup({ store = memoryStore(), refs = {}, fields = {} } = {}) {
 }
 
 const records = (store) =>
-  [...store.links.values()].map(({ site, redirectHost, provider, identity }) => ({ site, redirectHost, provider, identity }));
+  [...store.links.values()].map(({ site, redirectHost, provider, identity }) => ({
+    site,
+    redirectHost,
+    provider,
+    identity,
+  }));
 
 const OPENAI_CB = 'https://auth.openai.com/api/accounts/callback/google';
 const googleAuthorize = (redirect, state = 'G0OGLE', extra = '') =>
@@ -156,7 +161,11 @@ test('Google OIDC inside a site auth server: the state round trip records the ac
   }
   // Google's page while a verified flow from chatgpt.com is open names it.
   assert.equal(linkedSignInLine(linkedSignInFor(saved, googleChooser(OPENAI_CB), ['chatgpt.com'])), line);
-  assert.equal(linkedSignInFor(saved, 'https://appleid.apple.com/auth/authorize', ['chatgpt.com']), null, 'not its provider');
+  assert.equal(
+    linkedSignInFor(saved, 'https://appleid.apple.com/auth/authorize', ['chatgpt.com']),
+    null,
+    'not its provider'
+  );
 });
 
 test('a page whose address merely names a recorded site in its parameters gets no line', async () => {
@@ -168,7 +177,10 @@ test('a page whose address merely names a recorded site in its parameters gets n
   own.go([`https://fake-idp.example/authorize?client_id=x&redirect_uri=${enc(cb)}&response_type=code&state=OWN`]);
   own.go(['https://fake-idp.example/approve', `${cb}?code=C0DE&state=OWN`, 'https://evil.example/']);
   await flush();
-  assert.deepEqual(records(store).map((link) => link.site), ['evil.example']);
+  assert.deepEqual(
+    records(store).map((link) => link.site),
+    ['evil.example']
+  );
   // The reviewer probe: a victim page carrying an authorization-shaped query for evil.example.
   const probe = `https://victim.example/?client_id=x&redirect_uri=${enc(cb)}&state=s`;
   const victim = tab(91);
@@ -178,7 +190,9 @@ test('a page whose address merely names a recorded site in its parameters gets n
   assert.equal(linkedSignInFor([...store.links.values()], probe), null);
   // Even on fake-idp.example's own page: no verified flow from evil.example in this tab.
   const bare = tab(92);
-  bare.go([`https://fake-idp.example/authorize?client_id=x&redirect_uri=${enc(cb)}&response_type=code&state=NEW`], { by: null });
+  bare.go([`https://fake-idp.example/authorize?client_id=x&redirect_uri=${enc(cb)}&response_type=code&state=NEW`], {
+    by: null,
+  });
   assert.equal(await linked.replyLine({ guest: bare, sessionId: 's', turnId: 1 }), '');
   // With one (started on evil.example's page in this tab) it is named there.
   const again = tab(93);
@@ -195,11 +209,19 @@ test('GitHub OAuth: recorded with no account when the agent named none', async (
   const guest = tab(2);
   const callback = 'https://vercel.com/api/registration/login-with-github';
   guest.go(['https://vercel.com/login'], { by: null });
-  guest.go([`https://github.com/login/oauth/authorize?client_id=Iv1.abc&redirect_uri=${enc(callback)}&scope=user&state=GH5`]);
+  guest.go([
+    `https://github.com/login/oauth/authorize?client_id=Iv1.abc&redirect_uri=${enc(callback)}&scope=user&state=GH5`,
+  ]);
   // Authorize: a form post GitHub answers with the redirect.
-  guest.go(['https://github.com/login/oauth/authorize', `${callback}?code=C0DE&state=GH5`, 'https://vercel.com/dashboard']);
+  guest.go([
+    'https://github.com/login/oauth/authorize',
+    `${callback}?code=C0DE&state=GH5`,
+    'https://vercel.com/dashboard',
+  ]);
   await flush();
-  assert.deepEqual(records(store), [{ site: 'vercel.com', redirectHost: 'vercel.com', provider: 'github.com', identity: '' }]);
+  assert.deepEqual(records(store), [
+    { site: 'vercel.com', redirectHost: 'vercel.com', provider: 'github.com', identity: '' },
+  ]);
   assert.equal(linkedSignInLine(records(store)[0]), 'Linked sign-in: vercel.com last signed in with GitHub');
 });
 
@@ -222,7 +244,9 @@ test('X OAuth 1.0a: the same oauth_token with a verifier, back on the site; the 
     'https://app.example.com/home',
   ]);
   await flush();
-  assert.deepEqual(records(store), [{ site: 'example.com', redirectHost: 'app.example.com', provider: 'x.com', identity: '@tempest' }]);
+  assert.deepEqual(records(store), [
+    { site: 'example.com', redirectHost: 'app.example.com', provider: 'x.com', identity: '@tempest' },
+  ]);
   assert.equal(linkedSignInLine(records(store)[0]), 'Linked sign-in: example.com last signed in with X as @tempest');
 });
 
@@ -244,7 +268,9 @@ test('Apple form_post: the state comes back in the posted form', async () => {
   bare.go([authorize.replace('so.notion', 'so.notion2')]);
   bare.go([callback, 'https://www.notion.so/']);
   await flush();
-  assert.deepEqual(records(store), [{ site: 'notion.so', redirectHost: 'www.notion.so', provider: 'apple.com', identity: 'me@icloud.com' }]);
+  assert.deepEqual(records(store), [
+    { site: 'notion.so', redirectHost: 'www.notion.so', provider: 'apple.com', identity: 'me@icloud.com' },
+  ]);
 });
 
 test('Kakao: a request carried in the provider continue address completes the same way', async () => {
@@ -257,7 +283,9 @@ test('Kakao: a request carried in the provider continue address completes the sa
   await guest.act('click', { ref: 'go' });
   guest.go([authorize, `${callback}?code=C0DE&state=KKO`, 'https://www.example.kr/me']);
   await flush();
-  assert.deepEqual(records(store), [{ site: 'example.kr', redirectHost: 'www.example.kr', provider: 'kakao.com', identity: '' }]);
+  assert.deepEqual(records(store), [
+    { site: 'example.kr', redirectHost: 'www.example.kr', provider: 'kakao.com', identity: '' },
+  ]);
   assert.equal(linkedSignInLine(records(store)[0]), 'Linked sign-in: example.kr last signed in with Kakao');
 });
 
@@ -272,7 +300,9 @@ test('no protocol proof, no record', async () => {
   done(other, `${callback}?code=C0DE&state=OTHER`);
   const stateless = tab(11);
   stateless.go(['https://www.notion.so/login'], { by: null });
-  stateless.go([`https://accounts.google.com/o/oauth2/v2/auth?client_id=1&redirect_uri=${enc(callback)}&response_type=code`]);
+  stateless.go([
+    `https://accounts.google.com/o/oauth2/v2/auth?client_id=1&redirect_uri=${enc(callback)}&response_type=code`,
+  ]);
   done(stateless, `${callback}?code=C0DE`);
   // The provider answered with an error, or with no code / token.
   const refused = tab(12);
@@ -342,7 +372,9 @@ test('a popup with no site page behind it records nothing, even from a fake prov
   // and a fake code, and the victim page commits.
   const victim = 'https://victim.example/welcome';
   const popup = tab(70);
-  popup.go([`https://fake-idp.example/authorize?client_id=x&redirect_uri=${enc(victim)}&response_type=code&state=FAKE`]);
+  popup.go([
+    `https://fake-idp.example/authorize?client_id=x&redirect_uri=${enc(victim)}&response_type=code&state=FAKE`,
+  ]);
   popup.go(['https://fake-idp.example/approve', `${victim}?code=FAKE&state=FAKE`]);
   // The same with a real provider: still no S page, no record.
   const real = tab(71);
@@ -393,7 +425,10 @@ test('only a POST a form_post request waits for is read, its size counted before
   fits.go([callback, 'https://www.notion.so/'], { body: 'state=OK&code=C0DE' });
   assert.equal(copies, 1);
   await flush();
-  assert.deepEqual(records(store).map((link) => link.provider), ['apple.com']);
+  assert.deepEqual(
+    records(store).map((link) => link.provider),
+    ['apple.com']
+  );
 });
 
 test('the account is only what the agent clicked or typed on the provider pages, as an email or @handle', async () => {
@@ -428,7 +463,10 @@ test('the account is only what the agent clicked or typed on the provider pages,
   await guest.act('type', { ref: 'unread', text: 'unknown@example.com' }); // its attributes unread
   await guest.act('hover', { ref: 'field' });
   await guest.act('click', { ref: 'next' });
-  guest.go([`${callback}?code=C0DE&state=G0OGLE&login_hint=forged%40gmail.com&authuser=forged%40gmail.com`, 'https://www.notion.so/']);
+  guest.go([
+    `${callback}?code=C0DE&state=G0OGLE&login_hint=forged%40gmail.com&authuser=forged%40gmail.com`,
+    'https://www.notion.so/',
+  ]);
   // Typing on the site's own page (not the provider's) names no account either.
   const site = tab(31);
   site.go(['https://www.notion.so/login'], { by: null });
@@ -436,12 +474,20 @@ test('the account is only what the agent clicked or typed on the provider pages,
   site.go([googleAuthorize(callback, 'S2')]);
   site.go([`${callback}?code=C0DE&state=S2`, 'https://www.notion.so/']);
   await flush();
-  assert.deepEqual(records(store).map((link) => link.identity), ['']);
+  assert.deepEqual(
+    records(store).map((link) => link.identity),
+    ['']
+  );
 });
 
 test('the reply line: once per page and site per turn, for that page only', async () => {
   const store = memoryStore();
-  await store.record({ site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: 'a@gmail.com' });
+  await store.record({
+    site: 'chatgpt.com',
+    redirectHost: 'auth.openai.com',
+    provider: 'google.com',
+    identity: 'a@gmail.com',
+  });
   await store.record({ site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'github.com', identity: '' });
   const { linked, tab } = setup({ store });
   const page = fakeGuest(40);
@@ -483,7 +529,10 @@ test('records persist sealed, one per site and provider, with nothing but the ac
   guest.go(['https://chatgpt.com/'], { by: null });
   guest.go([googleAuthorize(OPENAI_CB, 'ST4TE', '&login_hint=hint%40gmail.com'), googleChooser(OPENAI_CB, 'ST4TE')]);
   await guest.act('click', { ref: 'e7' });
-  guest.go([`${OPENAI_CB}?code=4%2F0S3CR3T-CODE&state=ST4TE#access_token=S3CR3T-TOKEN&id_token=S3CR3T-ID`, 'https://chatgpt.com/']);
+  guest.go([
+    `${OPENAI_CB}?code=4%2F0S3CR3T-CODE&state=ST4TE#access_token=S3CR3T-TOKEN&id_token=S3CR3T-ID`,
+    'https://chatgpt.com/',
+  ]);
   await flush();
   await store.list();
   const file = join(dir, LINKED_SIGN_IN_FILE_NAME);
@@ -492,7 +541,13 @@ test('records persist sealed, one per site and provider, with nothing but the ac
   assert.deepEqual(JSON.parse(plain), {
     version: 1,
     links: [
-      { site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'google.com', identity: 'tempest1033@gmail.com', lastUsedAt: 5_001 },
+      {
+        site: 'chatgpt.com',
+        redirectHost: 'auth.openai.com',
+        provider: 'google.com',
+        identity: 'tempest1033@gmail.com',
+        lastUsedAt: 5_001,
+      },
     ],
   });
   assert.doesNotMatch(readFileSync(file, 'latin1'), /tempest1033/, 'sealed at rest');
@@ -526,7 +581,10 @@ test('records persist sealed, one per site and provider, with nothing but the ac
   // Delete one; clear-all takes the file and its last good copy.
   assert.equal(await again.remove(linkedSignInId('chatgpt.com', 'google.com')), true);
   assert.equal(await again.remove(linkedSignInId('chatgpt.com', 'google.com')), false);
-  assert.deepEqual((await open().list()).map((link) => link.site), ['example.com', 'x.dev']);
+  assert.deepEqual(
+    (await open().list()).map((link) => link.site),
+    ['example.com', 'x.dev']
+  );
   assert.ok(existsSync(`${file}.bak`));
   await again.clear();
   assert.deepEqual(readdirSync(dir), []);

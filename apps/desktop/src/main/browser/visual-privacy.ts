@@ -24,8 +24,10 @@ export function protectSecretNodes(guest: WebContents, nodes: readonly number[])
 }
 
 /** CDP's answer when a backend node no longer exists (DOM.resolveNode). */
-const NODE_GONE = /No node with given id found|Could not find node with given id|Node with given id does not belong to the document/i;
-const HOLDS_VALUE ='function() { return this instanceof HTMLInputElement && this.isConnected && String(this.value || "") !== ""; }';
+const NODE_GONE =
+  /No node with given id found|Could not find node with given id|Node with given id does not belong to the document/i;
+const HOLDS_VALUE =
+  'function() { return this instanceof HTMLInputElement && this.isConnected && String(this.value || "") !== ""; }';
 
 export type BrowserVisualPrivacy = (guest: WebContents, signal?: AbortSignal) => Promise<() => Promise<void>>;
 
@@ -78,7 +80,10 @@ export function createBrowserVisualPrivacy(host: {
           let objectId = '';
           try {
             const resolved = await host.cdp.call<{ object?: { objectId?: string } }>(
-              guest, 'DOM.resolveNode', { backendNodeId, objectGroup }, signal
+              guest,
+              'DOM.resolveNode',
+              { backendNodeId, objectGroup },
+              signal
             );
             objectId = String(resolved.object?.objectId || '');
           } catch (error) {
@@ -93,8 +98,10 @@ export function createBrowserVisualPrivacy(host: {
           let answer: { result?: { value?: unknown }; exceptionDetails?: unknown };
           try {
             answer = await host.cdp.call(
-              guest, 'Runtime.callFunctionOn',
-              { objectId, functionDeclaration: HOLDS_VALUE, returnByValue: true }, signal
+              guest,
+              'Runtime.callFunctionOn',
+              { objectId, functionDeclaration: HOLDS_VALUE, returnByValue: true },
+              signal
             );
           } catch (error) {
             if (signal?.aborted) throw error;

@@ -237,7 +237,10 @@ export function createLinkedSignInTracker(now: () => number = Date.now) {
   const pages = new Map<unknown, PageTrack>();
   const track = (key: unknown): PageTrack => {
     let entry = pages.get(key);
-    if (!entry) pages.set(key, (entry = { committed: '', hops: [], flows: [] }));
+    if (!entry) {
+      entry = { committed: '', hops: [], flows: [] };
+      pages.set(key, entry);
+    }
     entry.flows = entry.flows.filter((flow) => now() - flow.at <= FLOW_TTL_MS);
     return entry;
   };
@@ -312,8 +315,12 @@ export function createLinkedSignInTracker(now: () => number = Date.now) {
     const done = entry.flows.filter((flow) => hops.some((hop, index) => completes(flow, hop, index)));
     const flow = done.at(-1);
     if (!flow) return null;
-    const redirectHost = (flow.redirect ?? hops.find((hop, index) => completes(flow, hop, index))!.url).hostname.toLowerCase();
-    entry.flows = entry.flows.filter((other) => !done.includes(other) && other.provider !== registrableHost(redirectHost));
+    const redirectHost = (
+      flow.redirect ?? hops.find((hop, index) => completes(flow, hop, index))!.url
+    ).hostname.toLowerCase();
+    entry.flows = entry.flows.filter(
+      (other) => !done.includes(other) && other.provider !== registrableHost(redirectHost)
+    );
     // Only S's sign-in, and only once it landed back on S in this tab: the
     // site is never taken from the callback or redirect_uri alone.
     const site = registrableHost(flow.siteHost);
@@ -342,7 +349,12 @@ export function createLinkedSignInTracker(now: () => number = Date.now) {
   /** The latest open request of tab `key` whose provider serves `url`. */
   const flowOn = (key: unknown, url: string): Flow | undefined => {
     const at = httpUrl(url);
-    return at ? pages.get(key)?.flows.filter((flow) => flow.provider === siteOf(at)).at(-1) : undefined;
+    return at
+      ? pages
+          .get(key)
+          ?.flows.filter((flow) => flow.provider === siteOf(at))
+          .at(-1)
+      : undefined;
   };
 
   /** Whether tab `key` at `url` is on the provider's pages of an open request. */

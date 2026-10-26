@@ -111,7 +111,7 @@ test('the approval notification opens the top-level chat: the owner session, a t
   assert.equal(approvalSurfaceSessionId('sess_unknown', delegation), 'sess_unknown');
 });
 
-test("a group-room member is its bot like the home chat; its sub-agents are no bot; cards dock in the room log", async () => {
+test('a group-room member is its bot like the home chat; its sub-agents are no bot; cards dock in the room log', async () => {
   const roomId = 'abc123';
   const member = roomMemberSessionId(roomId, 'agent-12c3dee5bf');
   const gone = roomMemberSessionId(roomId, 'agent-gone');
@@ -252,7 +252,9 @@ test('a sub-agent session the roster lists surfaces in its owner, not itself (li
   assert.equal(roster.find((row) => row.id === worker)?.agentSession, true);
   const live = {
     sessions: () => roster,
-    agentPool: () => [{ sessionId: worker, ownerSessionId: lead, parentSessionId: lead, agent: 'worker', cwd: 'C:\\work' }],
+    agentPool: () => [
+      { sessionId: worker, ownerSessionId: lead, parentSessionId: lead, agent: 'worker', cwd: 'C:\\work' },
+    ],
     listAgents: delegation.listAgents,
   };
   assert.equal(approvalSurfaceSessionId(worker, live), lead);

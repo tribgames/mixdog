@@ -61,12 +61,15 @@ test('Computer Use is blocked only by a screen takeover', async () => {
   const screen = { id: 'c1', kind: 'takeover', takeover: { surface: 'computer', target: 'Solve the CAPTCHA' } };
   assert.equal(gate.onSessionState({ sessionId: 'C', snapshot: { toolApproval: screen } }), 'computer');
   assert.equal(await gate.ready('C', 'c1'), true);
-  assert.throws(() => beginComputerOperation(), (error) => {
-    assert.match(error.message, /human-only approval is pending/);
-    assert.match(error.message, /Solve the CAPTCHA/);
-    assert.match(error.message, /shown a card/);
-    return true;
-  });
+  assert.throws(
+    () => beginComputerOperation(),
+    (error) => {
+      assert.match(error.message, /human-only approval is pending/);
+      assert.match(error.message, /Solve the CAPTCHA/);
+      assert.match(error.message, /shown a card/);
+      return true;
+    }
+  );
   gate.beginOperation('B').release();
   gate.onSessionState({ sessionId: 'C', snapshot: { toolApproval: null } });
   await tick();

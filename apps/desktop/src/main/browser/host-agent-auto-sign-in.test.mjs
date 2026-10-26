@@ -34,10 +34,15 @@ function fixture({ allow = true } = {}) {
     sessions: { sessionIdForGuest: (page) => (page === guest ? 'sess_home_banker' : undefined) },
   };
   const tools = { credentialFill: { fillCredentialInGuest: async () => ({}) }, input: { pressKey: async () => {} } };
-  const deps = browserAutoSignInDeps(base, tools, () => true, async (origin) => {
-    vaultCalls.push(origin);
-    return [];
-  });
+  const deps = browserAutoSignInDeps(
+    base,
+    tools,
+    () => true,
+    async (origin) => {
+      vaultCalls.push(origin);
+      return [];
+    }
+  );
   return { deps, guest, asked, profileCalls, vaultCalls };
 }
 
@@ -85,10 +90,17 @@ test('through the real approval dialog: an ask policy shows no card, a block sti
       profileImporter: {},
       documents: {},
       state: { pageId: () => 'p1', for: () => ({ documentGeneration: 1 }) },
-      approvals: createBrowserActionApproval({ ask: (request, signal) => requestBrowserApproval(window, request, signal) }),
+      approvals: createBrowserActionApproval({
+        ask: (request, signal) => requestBrowserApproval(window, request, signal),
+      }),
       sessions: { sessionIdForGuest: () => 'sess_home_banker' },
     };
-    const deps = browserAutoSignInDeps(base, { credentialFill: {}, input: {} }, () => true, async () => []);
+    const deps = browserAutoSignInDeps(
+      base,
+      { credentialFill: {}, input: {} },
+      () => true,
+      async () => []
+    );
     await deps.approveSubmit(guest);
     assert.equal(sent.length, 0, 'no approval card for the saved sign-in');
     blocked.add('banker\nbrowser_submit');

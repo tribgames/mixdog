@@ -313,13 +313,23 @@ test('a brief reply keeps its budget when the earlier look skipped most of the p
   assert.match(text, /Not previously reported: 152 element\(s\); showing 5/);
   const listed = text.split('\n').filter((line) => /^\s+\[p1-s2-e\d+\]/.test(line));
   assert.equal(listed.length, 5);
-  assert.ok(listed.every((line) => line.includes(']*')), 'the ones in view come first');
+  assert.ok(
+    listed.every((line) => line.includes(']*')),
+    'the ones in view come first'
+  );
   assert.match(text, /147 more not listed/);
   assert.ok(text.length < 1_500);
 });
 
 test('an empty secret field shows no value; a filled one only says it is redacted', () => {
-  const field = (extra) => ({ ref: 'p1-s1-e1', role: 'textbox', name: 'Password', tag: 'input', sensitive: true, ...extra });
+  const field = (extra) => ({
+    ref: 'p1-s1-e1',
+    role: 'textbox',
+    name: 'Password',
+    tag: 'input',
+    sensitive: true,
+    ...extra,
+  });
   const empty = formatSnapshot(payload({ elements: [field({})], totalElements: 1 }), diagnostics());
   assert.match(empty, /\[p1-s1-e1\] textbox "Password"$/m);
   assert.doesNotMatch(empty, /REDACTED/);

@@ -143,8 +143,8 @@ export async function fillSecretInput(
     // A bound element gone or changed (stale) is no field: nothing was typed.
     if (!result.filled) return { text: 'no_field' };
     if (save && binding.form === 'login' && username) {
-      await (host.saveLogin || saveChatLogin)({ origin: binding.origin, username, password: value }).catch(
-        (error) => console.warn('[secret-input] saving the chat login failed:', (error as Error)?.message || error)
+      await (host.saveLogin || saveChatLogin)({ origin: binding.origin, username, password: value }).catch((error) =>
+        console.warn('[secret-input] saving the chat login failed:', (error as Error)?.message || error)
       );
     }
     return { text: 'entered' };
@@ -190,7 +190,8 @@ export async function fillBoundLogin(
   registry: SecretInputs = secretInputs
 ): Promise<BrowserCredentialFillResult> {
   const binding = registry.binding(fillId);
-  const guest = binding?.sessionId === sessionId && binding.form === 'login' ? host.pageById(sessionId, binding.pageId) : null;
+  const guest =
+    binding?.sessionId === sessionId && binding.form === 'login' ? host.pageById(sessionId, binding.pageId) : null;
   const url = guest && !guest.isDestroyed() ? guest.getURL() : '';
   // A refusal is an answer the card words itself, never a raw error.
   const pageChanged: BrowserCredentialFillResult = {
@@ -198,7 +199,7 @@ export async function fillBoundLogin(
     passwordFilled: false,
     reason: 'page-changed',
   };
-  if (!guest || !binding || !binding.document || httpsOrigin(url) !== binding.origin) return pageChanged;
+  if (!guest || !binding?.document || httpsOrigin(url) !== binding.origin) return pageChanged;
   // Bound to no element at request time: nothing to fill.
   const unfillable: BrowserCredentialFillResult = {
     usernameFilled: false,
@@ -394,7 +395,9 @@ export async function handoffPageFacts(
     // The page moved while its logins were read: nothing is bound or offered.
     if (!onOrigin(guest) || (await host.document(guest, signal)) !== document) return { accounts: [] };
     const binding = { sessionId, pageId: host.pageId(guest), document, origin, form: 'login' as const, targets };
-    return { accounts: accounts.length && registry.bind(text('request_id'), binding, LOGIN_FILL_BINDING_MS) ? accounts : [] };
+    return {
+      accounts: accounts.length && registry.bind(text('request_id'), binding, LOGIN_FILL_BINDING_MS) ? accounts : [],
+    };
   }
   if (!guest || guest.isDestroyed()) return {};
   const url = guest.getURL();

@@ -82,7 +82,14 @@ test("a login takeover's saved logins are offered and bound only for a page on i
     accounts: async () => [{ id: CREDENTIAL, label: 'd•••m' }],
   });
   assert.deepEqual(
-    await handoffPageFacts(host(page(at)), 's1', 'login_accounts', { url: 'https://bank.example/signin', request_id: BIND }, undefined, inputs),
+    await handoffPageFacts(
+      host(page(at)),
+      's1',
+      'login_accounts',
+      { url: 'https://bank.example/signin', request_id: BIND },
+      undefined,
+      inputs
+    ),
     { accounts: [{ id: CREDENTIAL, label: 'd•••m' }] }
   );
   assert.deepEqual(inputs.binding(BIND), {
@@ -95,7 +102,14 @@ test("a login takeover's saved logins are offered and bound only for a page on i
   });
   const other = 'secret_login-9876543210';
   assert.deepEqual(
-    await handoffPageFacts(host(page({ url: EVIL })), 's1', 'login_accounts', { url: LOGIN, request_id: other }, undefined, inputs),
+    await handoffPageFacts(
+      host(page({ url: EVIL })),
+      's1',
+      'login_accounts',
+      { url: LOGIN, request_id: other },
+      undefined,
+      inputs
+    ),
     { accounts: [] },
     'the session page is elsewhere: nothing to fill, nothing offered'
   );
@@ -112,7 +126,10 @@ test('the saved-login fill goes to the bound page only, and a navigation after t
       form: 'login',
       targets: TARGETS,
     });
-  const selected = { getURL: () => 'https://bank.example/elsewhere', isDestroyed: () => assert.fail('never the selected tab') };
+  const selected = {
+    getURL: () => 'https://bank.example/elsewhere',
+    isDestroyed: () => assert.fail('never the selected tab'),
+  };
   const pages = (bound) => (_session, pageId) => (pageId === 'p1' ? bound : selected);
 
   // A navigation while the vault is read.
@@ -124,7 +141,14 @@ test('the saved-login fill goes to the bound page only, and a navigation after t
     at.url = EVIL;
   });
   await pageChanged(
-    fillBoundLogin({ pageById: pages(page(at)), useCredential: v.useCredential, fill: iso.fill.fillSecretField }, 's1', BIND, CREDENTIAL, undefined, inputs)
+    fillBoundLogin(
+      { pageById: pages(page(at)), useCredential: v.useCredential, fill: iso.fill.fillSecretField },
+      's1',
+      BIND,
+      CREDENTIAL,
+      undefined,
+      inputs
+    )
   );
   assert.deepEqual(v.reads, [[LOGIN, CREDENTIAL]], 'the vault was asked for the checked page');
   assert.deepEqual(iso.sent, [], 'nothing was dispatched');
@@ -135,7 +159,14 @@ test('the saved-login fill goes to the bound page only, and a navigation after t
     if (method === 'Page.createIsolatedWorld') at.url = EVIL;
   });
   await pageChanged(
-    fillBoundLogin({ pageById: pages(page(at)), useCredential: vault().useCredential, fill: iso.fill.fillSecretField }, 's1', BIND, CREDENTIAL, undefined, inputs)
+    fillBoundLogin(
+      { pageById: pages(page(at)), useCredential: vault().useCredential, fill: iso.fill.fillSecretField },
+      's1',
+      BIND,
+      CREDENTIAL,
+      undefined,
+      inputs
+    )
   );
   assert.equal(iso.credentialsSent(), false, 'no credential reached the new origin');
 
@@ -143,11 +174,25 @@ test('the saved-login fill goes to the bound page only, and a navigation after t
   at = { url: EVIL };
   v = vault();
   await pageChanged(
-    fillBoundLogin({ pageById: pages(page(at)), useCredential: v.useCredential, fill: iso.fill.fillSecretField }, 's1', BIND, CREDENTIAL, undefined, inputs)
+    fillBoundLogin(
+      { pageById: pages(page(at)), useCredential: v.useCredential, fill: iso.fill.fillSecretField },
+      's1',
+      BIND,
+      CREDENTIAL,
+      undefined,
+      inputs
+    )
   );
   at = { url: LOGIN };
   await pageChanged(
-    fillBoundLogin({ pageById: pages(page(at)), useCredential: v.useCredential, fill: iso.fill.fillSecretField }, 's2', BIND, CREDENTIAL, undefined, inputs)
+    fillBoundLogin(
+      { pageById: pages(page(at)), useCredential: v.useCredential, fill: iso.fill.fillSecretField },
+      's2',
+      BIND,
+      CREDENTIAL,
+      undefined,
+      inputs
+    )
   );
   assert.deepEqual(v.reads, [], 'the vault is not read for a page that cannot take the login');
 
@@ -166,7 +211,14 @@ test('the saved-login fill goes to the bound page only, and a navigation after t
   assert.equal(inputs.binding(BIND), null);
   inputs = createSecretInputs();
   await pageChanged(
-    fillBoundLogin({ pageById: pages(page(at)), useCredential: vault().useCredential, fill: iso.fill.fillSecretField }, 's1', BIND, CREDENTIAL, undefined, inputs),
+    fillBoundLogin(
+      { pageById: pages(page(at)), useCredential: vault().useCredential, fill: iso.fill.fillSecretField },
+      's1',
+      BIND,
+      CREDENTIAL,
+      undefined,
+      inputs
+    ),
     'never bound: no page to fill'
   );
   // A failure that is no page change (a login of another site, say) stays an error.
@@ -193,7 +245,13 @@ test('the saved-login fill goes to the bound page only, and a navigation after t
 
 test('the saved-login fill refuses a login bound to no element, and answers a stale one as unfillable', async () => {
   const inputs = createSecretInputs();
-  inputs.bind(BIND, { sessionId: 's1', pageId: 'p1', document: DOCUMENT, origin: 'https://bank.example', form: 'login' });
+  inputs.bind(BIND, {
+    sessionId: 's1',
+    pageId: 'p1',
+    document: DOCUMENT,
+    origin: 'https://bank.example',
+    form: 'login',
+  });
   const iso = isolatedFill();
   const v = vault();
   const unfillable = { usernameFilled: false, passwordFilled: false, reason: 'password-field-unavailable' };

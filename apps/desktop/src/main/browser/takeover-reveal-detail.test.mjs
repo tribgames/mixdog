@@ -15,9 +15,16 @@ test("a takeover's surface request names the handed-over page, and no page once 
     title: 'Sign in',
   });
   // The handed-over page closed: the request names none, never another tab.
-  assert.deepEqual(browserOpenRequest('child', 'handoff', takeoverRevealDetail(null, () => 'p1')), {
-    sessionId: 'child',
-    reveal: true,
-    handoff: true,
-  });
+  assert.deepEqual(
+    browserOpenRequest(
+      'child',
+      'handoff',
+      takeoverRevealDetail(null, () => 'p1')
+    ),
+    {
+      sessionId: 'child',
+      reveal: true,
+      handoff: true,
+    }
+  );
 });

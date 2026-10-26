@@ -81,59 +81,60 @@ export function createBrowserAgentBridge(options: {
   let startedAt = 0;
   const server = new BrowserBridgeServer<BrowserCommand>({
     dataDirectory: bridgeDiscoveryDirectory,
-    execute: (command, signal) => guarded(command, signal, (command, signal) => {
-      const { session_id, turn_id, internalStep, unattended_run, unattended_agent, mail_link, ...input } = command;
-      if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
-      // Runtime-only lifecycle messages: deliberately absent from tool schemas.
-      if (command.action === 'begin_turn') {
-        assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
-        options.beginTurn(browserSessionId(session_id), Number(turn_id));
-        return { text: 'Browser turn started.' };
-      }
-      // Every other command, list_tabs and status included, is activity.
-      if (command.action !== 'finish_turn') options.beginTurn(browserSessionId(session_id), Number(turn_id) || 0);
-      if (command.action === 'finish_turn') {
-        const owner = browserSessionId(session_id);
-        assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
-        const aborted = (input as Record<string, unknown>).aborted === true;
-        const pending = pendingSessionWork(`session:${owner}:`, chains, pendingReads);
-        return Promise.allSettled(pending).then(() => ({
-          text: `Browser task cleanup complete: ${options.finishTurn(owner, Number(turn_id), { aborted })} temporary page(s) closed.`,
-        }));
-      }
-      // Runtime-only: fill the secret the user handed this desktop for the
-      // request (secret-input.ts); the reply is 'provided' or 'skipped' only.
-      if (command.action === 'secret_input') {
-        const requestId = String((input as Record<string, unknown>).request_id || '');
-        return options.secretInput(browserSessionId(session_id), requestId, signal);
-      }
-      // Runtime-only: bind a secret request to its page, list a sign-in page's
-      // masked saved logins, or say where a page is now; no value moves.
-      if (HANDOFF_PAGE_ACTIONS.has(String(command.action))) {
-        return options.handoffPage(
-          browserSessionId(session_id),
-          String(command.action),
-          input as Record<string, unknown>,
+    execute: (command, signal) =>
+      guarded(command, signal, (command, signal) => {
+        const { session_id, turn_id, internalStep, unattended_run, unattended_agent, mail_link, ...input } = command;
+        if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
+        // Runtime-only lifecycle messages: deliberately absent from tool schemas.
+        if (command.action === 'begin_turn') {
+          assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
+          options.beginTurn(browserSessionId(session_id), Number(turn_id));
+          return { text: 'Browser turn started.' };
+        }
+        // Every other command, list_tabs and status included, is activity.
+        if (command.action !== 'finish_turn') options.beginTurn(browserSessionId(session_id), Number(turn_id) || 0);
+        if (command.action === 'finish_turn') {
+          const owner = browserSessionId(session_id);
+          assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
+          const aborted = (input as Record<string, unknown>).aborted === true;
+          const pending = pendingSessionWork(`session:${owner}:`, chains, pendingReads);
+          return Promise.allSettled(pending).then(() => ({
+            text: `Browser task cleanup complete: ${options.finishTurn(owner, Number(turn_id), { aborted })} temporary page(s) closed.`,
+          }));
+        }
+        // Runtime-only: fill the secret the user handed this desktop for the
+        // request (secret-input.ts); the reply is 'provided' or 'skipped' only.
+        if (command.action === 'secret_input') {
+          const requestId = String((input as Record<string, unknown>).request_id || '');
+          return options.secretInput(browserSessionId(session_id), requestId, signal);
+        }
+        // Runtime-only: bind a secret request to its page, list a sign-in page's
+        // masked saved logins, or say where a page is now; no value moves.
+        if (HANDOFF_PAGE_ACTIONS.has(String(command.action))) {
+          return options.handoffPage(
+            browserSessionId(session_id),
+            String(command.action),
+            input as Record<string, unknown>,
+            signal
+          );
+        }
+        const validated = validateBrowserToolArgs(input);
+        if (!validated.ok) throw new Error(validated.error);
+        return options.execute(
+          {
+            ...validated.input,
+            action: validated.action,
+            session_id,
+            turn_id,
+            // Runtime-set (client.mjs), outside the tool schema: a schedule/webhook run.
+            ...(unattended_run === true ? { unattended_run: true, unattended_agent } : {}),
+            // Runtime-set (mail-links.mjs), outside the tool schema: a navigate URL
+            // the runtime read in a mail; url-policy.ts checks it against the URL.
+            ...(mail_link !== undefined ? { mail_link } : {}),
+          },
           signal
         );
-      }
-      const validated = validateBrowserToolArgs(input);
-      if (!validated.ok) throw new Error(validated.error);
-      return options.execute(
-        {
-          ...validated.input,
-          action: validated.action,
-          session_id,
-          turn_id,
-          // Runtime-set (client.mjs), outside the tool schema: a schedule/webhook run.
-          ...(unattended_run === true ? { unattended_run: true, unattended_agent } : {}),
-          // Runtime-set (mail-links.mjs), outside the tool schema: a navigate URL
-          // the runtime read in a mail; url-policy.ts checks it against the URL.
-          ...(mail_link !== undefined ? { mail_link } : {}),
-        },
-        signal
-      );
-    }),
+      }),
     redactError: redactBrowserText,
     onReady: () => {
       options.onDiagnostic?.('browser-bridge-ready', {

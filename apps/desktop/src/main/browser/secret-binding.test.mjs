@@ -27,7 +27,11 @@ function browserPage(url, html) {
   const load = (nextUrl, nextHtml) => {
     page.dom?.window.close();
     page.url = nextUrl;
-    page.dom = new JSDOM(`<!doctype html>${nextHtml}`, { runScripts: 'outside-only', pretendToBeVisual: true, url: nextUrl });
+    page.dom = new JSDOM(`<!doctype html>${nextHtml}`, {
+      runScripts: 'outside-only',
+      pretendToBeVisual: true,
+      url: nextUrl,
+    });
     for (const input of page.dom.window.document.querySelectorAll('input')) {
       input.getBoundingClientRect = () => ({ left: 0, top: 0, right: 40, bottom: 30, width: 40, height: 30 });
     }
@@ -62,7 +66,9 @@ function browserPage(url, html) {
         const window = contexts.get(params.executionContextId);
         if (window !== page.dom.window) throw new Error('Cannot find context with specified id');
         const fn = window.eval(`(${params.functionDeclaration})`);
-        const value = await fn(...params.arguments.map((arg) => ('objectId' in arg ? objects.get(arg.objectId) : arg.value)));
+        const value = await fn(
+          ...params.arguments.map((arg) => ('objectId' in arg ? objects.get(arg.objectId) : arg.value))
+        );
         return { result: params.returnByValue ? { value: JSON.parse(JSON.stringify(value ?? null)) } : remote(value) };
       }
       case 'Runtime.getProperties': {
@@ -120,7 +126,12 @@ function browserPage(url, html) {
 }
 
 /** Bind `requestId` for `sessionId` at request time, then hand it the card's value. */
-async function bindAndProvide(page, inputs, value = SENTINEL, { sessionId = 's1', field = '', requestId = REQUEST } = {}) {
+async function bindAndProvide(
+  page,
+  inputs,
+  value = SENTINEL,
+  { sessionId = 's1', field = '', requestId = REQUEST } = {}
+) {
   const facts = await handoffPageFacts(
     page.facts(),
     sessionId,
@@ -137,7 +148,8 @@ async function bindAndProvide(page, inputs, value = SENTINEL, { sessionId = 's1'
 function quietConsole(t) {
   return ['log', 'info', 'warn', 'error', 'debug'].map((name) => t.mock.method(console, name, () => {}));
 }
-const logged = (mocks, secret) => mocks.some((mock) => mock.mock.calls.some((call) => JSON.stringify(call.arguments).includes(secret)));
+const logged = (mocks, secret) =>
+  mocks.some((mock) => mock.mock.calls.some((call) => JSON.stringify(call.arguments).includes(secret)));
 
 test('a takeover holds only its own session: its secret is refused before the value is taken, another session’s is entered', async (t) => {
   const gate = createTakeoverGate();
@@ -179,7 +191,11 @@ test('a secret bound on /login is refused after a navigation, same origin or sam
     assert.deepEqual(await bindAndProvide(page, inputs), { origin: 'https://bank.example', form: 'login' });
     inputs.provide(`${REQUEST}-username`, 'data-team');
     page.load(next, LOGIN_FORM);
-    assert.deepEqual(await fillSecretInput(page.fills(), 's1', REQUEST, undefined, inputs), { text: 'page_changed' }, next);
+    assert.deepEqual(
+      await fillSecretInput(page.fills(), 's1', REQUEST, undefined, inputs),
+      { text: 'page_changed' },
+      next
+    );
     assert.equal(page.value('#pw'), '', `${next}: nothing typed into the new document`);
     assert.equal(page.value('#user'), '');
     assert.equal(page.reached(SENTINEL), false, 'the value never left this process');
@@ -240,7 +256,14 @@ async function bindLogin(html, focus = '') {
   const page = browserPage(LOGIN, html);
   const inputs = createSecretInputs();
   if (focus) page.document().querySelector(focus).focus();
-  const offered = await handoffPageFacts(page.facts(), 's1', 'login_accounts', { url: LOGIN, request_id: BIND }, undefined, inputs);
+  const offered = await handoffPageFacts(
+    page.facts(),
+    's1',
+    'login_accounts',
+    { url: LOGIN, request_id: BIND },
+    undefined,
+    inputs
+  );
   const fill = {
     pageById: () => page.guest,
     useCredential: savedVault,
@@ -268,12 +291,19 @@ test('a saved login goes only to the elements bound at request time: moved focus
   form.outerHTML = form.outerHTML;
   layOut(doc);
   doc.querySelector('#pw').focus();
-  assert.deepEqual(await click(), { usernameFilled: false, passwordFilled: false, reason: 'password-field-unavailable' });
+  assert.deepEqual(await click(), {
+    usernameFilled: false,
+    passwordFilled: false,
+    reason: 'password-field-unavailable',
+  });
   for (const id of ['#pw', '#user']) assert.equal(page.value(id), '', id);
 });
 
 test('several password fields still get the saved-login offer: bound to the focused one, else the first', async () => {
-  for (const [focus, filled, other] of [['#pw2', 'pw2', 'pw'], ['', 'pw', 'pw2']]) {
+  for (const [focus, filled, other] of [
+    ['#pw2', 'pw2', 'pw'],
+    ['', 'pw', 'pw2'],
+  ]) {
     const { page, offered, click } = await bindLogin(ONE_FORM + SECOND_FORM, focus);
     assert.deepEqual(offered, { accounts: [{ id: CREDENTIAL, label: 'd•••m' }] });
     assert.equal((await click()).passwordFilled, true);
@@ -289,13 +319,23 @@ test('several password fields still get the saved-login offer: bound to the focu
 test('without a label the secret goes to the focused field, else the first of the requested kind', async () => {
   const html =
     '<form><input id="a" autocomplete="one-time-code" maxlength="6"><input id="b" autocomplete="one-time-code" maxlength="6"></form>';
-  for (const [focus, filled, other] of [['#b', 'b', 'a'], ['', 'a', 'b']]) {
+  for (const [focus, filled, other] of [
+    ['#b', 'b', 'a'],
+    ['', 'a', 'b'],
+  ]) {
     const page = browserPage(LOGIN, html);
     const inputs = createSecretInputs();
     if (focus) page.document().querySelector(focus).focus();
-    assert.deepEqual(await bindAndProvide(page, inputs, '482190'), { origin: 'https://bank.example', form: 'otp', length: 6 });
+    assert.deepEqual(await bindAndProvide(page, inputs, '482190'), {
+      origin: 'https://bank.example',
+      form: 'otp',
+      length: 6,
+    });
     // Focus moving meanwhile does not redirect it.
-    page.document().querySelector(focus ? '#a' : '#b').focus();
+    page
+      .document()
+      .querySelector(focus ? '#a' : '#b')
+      .focus();
     assert.deepEqual(await fillSecretInput(page.fills(), 's1', REQUEST, undefined, inputs), { text: 'entered' });
     assert.equal(page.value(`#${filled}`), '482190', focus || 'first');
     assert.equal(page.value(`#${other}`), '');
@@ -303,7 +343,9 @@ test('without a label the secret goes to the focused field, else the first of th
 });
 
 test('a saved login fills its username into the best-ranked candidate of the password form', async () => {
-  let { page, click } = await bindLogin('<form><input id="a" name="whatever" type="text"><input id="pw" type="password"></form>');
+  let { page, click } = await bindLogin(
+    '<form><input id="a" name="whatever" type="text"><input id="pw" type="password"></form>'
+  );
   assert.deepEqual(await click(), { usernameFilled: true, passwordFilled: true });
   assert.equal(page.value('#a'), 'data-team', 'a lone candidate is the username');
   ({ page, click } = await bindLogin(
@@ -344,7 +386,10 @@ test('a two-step sign-in: the username page offers and fills the username, the p
   // Step 1: a username-only page. The login is offered; only the username is typed, the takeover stays open.
   let { page, inputs, offered, click } = await bindLogin(USER_STEP);
   assert.deepEqual(offered, { accounts: [{ id: CREDENTIAL, label: 'd•••m' }] });
-  assert.deepEqual(inputs.binding(BIND).targets.map((target) => target.type), ['email']);
+  assert.deepEqual(
+    inputs.binding(BIND).targets.map((target) => target.type),
+    ['email']
+  );
   assert.deepEqual(await click(), { usernameFilled: true, passwordFilled: false });
   assert.equal(page.value('#user'), 'data-team');
   assert.equal(page.reached(SENTINEL), false, 'the password never reaches the username page');
@@ -373,7 +418,11 @@ test('a two-step sign-in: the username page offers and fills the username, the p
   ({ page, click } = await bindLogin(USER_STEP));
   await click();
   page.load('https://bank.example/done', '<input id="q" type="search">');
-  assert.deepEqual(await click(), { usernameFilled: false, passwordFilled: false, reason: 'password-field-unavailable' });
+  assert.deepEqual(await click(), {
+    usernameFilled: false,
+    passwordFilled: false,
+    reason: 'password-field-unavailable',
+  });
   assert.equal(page.reached(SENTINEL), false);
   // ...and one that left the origin is refused as a page change.
   ({ page, click } = await bindLogin(USER_STEP));
@@ -432,7 +481,9 @@ test('a secret is bound to an https page only, loopback included: an http page i
 });
 
 test('a code split over one box per digit is protected in captures by the boxes themselves, once the host filled them', async () => {
-  const boxes = Array.from({ length: 6 }, (_, n) => `<input id="d${n + 1}" inputmode="numeric" maxlength="1">`).join('');
+  const boxes = Array.from({ length: 6 }, (_, n) => `<input id="d${n + 1}" inputmode="numeric" maxlength="1">`).join(
+    ''
+  );
   const page = browserPage(LOGIN, `<form>${boxes}</form>`);
   const inputs = createSecretInputs();
   const privacy = createBrowserVisualPrivacy({
@@ -443,7 +494,11 @@ test('a code split over one box per digit is protected in captures by the boxes 
   });
   // Before the host filled anything, a capture goes through.
   await (await privacy(page.guest))();
-  assert.deepEqual(await bindAndProvide(page, inputs, '482190'), { origin: 'https://bank.example', form: 'otp', length: 6 });
+  assert.deepEqual(await bindAndProvide(page, inputs, '482190'), {
+    origin: 'https://bank.example',
+    form: 'otp',
+    length: 6,
+  });
   assert.deepEqual(await fillSecretInput(page.fills(), 's1', REQUEST, undefined, inputs), { text: 'entered' });
   assert.equal([1, 2, 3, 4, 5, 6].map((n) => page.value(`#d${n}`)).join(''), '482190');
   // Filled by the host: the capture is refused, before and after it is taken.
@@ -457,9 +512,10 @@ test('a code split over one box per digit is protected in captures by the boxes 
   await (await privacy(page.guest))();
 });
 
-
 test('only a confirmed missing node clears a protected box: any other CDP failure withholds the capture', async () => {
-  const boxes = Array.from({ length: 6 }, (_, n) => `<input id="d${n + 1}" inputmode="numeric" maxlength="1">`).join('');
+  const boxes = Array.from({ length: 6 }, (_, n) => `<input id="d${n + 1}" inputmode="numeric" maxlength="1">`).join(
+    ''
+  );
   const page = browserPage(LOGIN, `<form>${boxes}</form>`);
   const inputs = createSecretInputs();
   await bindAndProvide(page, inputs, '482190');
@@ -468,20 +524,35 @@ test('only a confirmed missing node clears a protected box: any other CDP failur
     createBrowserVisualPrivacy({
       state: { peek: () => undefined },
       documents: { pageText: async () => '', collect: async () => [], revision: async () => ({}) },
-      cdp: { call: async (target, method, params, signal) => fail(method) ?? page.cdp.call(target, method, params, signal) },
+      cdp: {
+        call: async (target, method, params, signal) => fail(method) ?? page.cdp.call(target, method, params, signal),
+      },
     });
   const failing = (method, error) => (name) => {
     if (name === method) throw error;
     return undefined;
   };
   // A resolution failure that is no "node gone": the boxes may still hold the code.
-  for (const error of [new Error('Target closed'), new Error('Session with given id not found'), new Error('Internal error')]) {
-    await assert.rejects(guardWith(failing('DOM.resolveNode', error))(page.guest), /Visual output withheld/, error.message);
+  for (const error of [
+    new Error('Target closed'),
+    new Error('Session with given id not found'),
+    new Error('Internal error'),
+  ]) {
+    await assert.rejects(
+      guardWith(failing('DOM.resolveNode', error))(page.guest),
+      /Visual output withheld/,
+      error.message
+    );
   }
   // So does a failed or excepting evaluation, and a resolution with no object.
-  await assert.rejects(guardWith(failing('Runtime.callFunctionOn', new Error('Cannot find context')))(page.guest), /Visual output withheld/);
   await assert.rejects(
-    guardWith((name) => (name === 'Runtime.callFunctionOn' ? { exceptionDetails: { text: 'boom' } } : undefined))(page.guest),
+    guardWith(failing('Runtime.callFunctionOn', new Error('Cannot find context')))(page.guest),
+    /Visual output withheld/
+  );
+  await assert.rejects(
+    guardWith((name) => (name === 'Runtime.callFunctionOn' ? { exceptionDetails: { text: 'boom' } } : undefined))(
+      page.guest
+    ),
     /Visual output withheld/
   );
   await assert.rejects(

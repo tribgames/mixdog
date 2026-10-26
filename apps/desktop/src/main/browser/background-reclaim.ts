@@ -136,7 +136,12 @@ export function createBackgroundReclaimer(host: BackgroundReclaimHost) {
     for (const item of sessions.allBackgroundEntries()) {
       const [owner, name, entry] = item;
       if (entry.window.isDestroyed()) continue;
-      pages.push({ sessionId: owner, name, lastUsedAt: entry.lastUsedAt, blocker: evictionBlocker(owner, name, entry) });
+      pages.push({
+        sessionId: owner,
+        name,
+        lastUsedAt: entry.lastUsedAt,
+        blocker: evictionBlocker(owner, name, entry),
+      });
       entries.set(`${owner}\0${name}`, item);
     }
     for (const { sessionId: owner, name } of planBackgroundAdmission({ sessionId, adding, pages, now })) {

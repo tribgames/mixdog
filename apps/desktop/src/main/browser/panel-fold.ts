@@ -57,12 +57,7 @@ export function createBrowserPanelFold(host: {
   /** Pane `pane` of shell `sender` started (`true`) or stopped reading the
    *  session's pages. A shell that reloads, crashes or closes reports no
    *  stop, so its panes are dropped then. */
-  function panelShown(
-    sessionId: string,
-    shown: boolean,
-    sender: Pick<WebContents, 'id' | 'on'>,
-    pane: string
-  ): void {
+  function panelShown(sessionId: string, shown: boolean, sender: Pick<WebContents, 'id' | 'on'>, pane: string): void {
     if (!watchedSenders.has(sender)) {
       watchedSenders.add(sender);
       const id = sender.id;

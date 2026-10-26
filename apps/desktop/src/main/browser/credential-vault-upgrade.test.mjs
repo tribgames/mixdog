@@ -52,7 +52,12 @@ test('entries the vault cannot use are never offered, and a save writes only the
   assert.deepEqual(await vault.accountsFor('http://plain.example.com'), []);
 
   assert.equal(await vault.mergeImport('csv', [{ url: 'https://csv.example.com', username: 'c', password: 'p' }]), 1);
-  assert.deepEqual(stored().map((entry) => entry.username).sort(), ['c', 'ok']);
+  assert.deepEqual(
+    stored()
+      .map((entry) => entry.username)
+      .sort(),
+    ['c', 'ok']
+  );
 });
 
 test('logins differing only by username case, as v1.3.5 and the current build wrote them, load and survive a save', async (t) => {
@@ -87,7 +92,11 @@ test('logins differing only by username case, as v1.3.5 and the current build wr
   assert.equal(await vault.mergeImport('chrome', [{ url: login, username: 'Alice', password: 'pw-Alice-2' }]), 1);
   const rows = stored();
   assert.equal(rows.length, 5);
-  for (const row of written) assert.ok(rows.some((entry) => entry.id === row.id), 'ids are kept');
+  for (const row of written)
+    assert.ok(
+      rows.some((entry) => entry.id === row.id),
+      'ids are kept'
+    );
   const password = (id) => rows.find((entry) => entry.id === id).password;
   assert.equal(password(written[0].id), 'pw-Alice-2');
   assert.equal(password(written[1].id), 'pw-alice');
@@ -106,8 +115,14 @@ test('an unreadable vault rejects every read and write and the file is left as i
   await assert.rejects(vault.list(), opened);
   await assert.rejects(vault.accountsFor('https://ok.example.com'), opened);
   await assert.rejects(vault.preferredAccountsFor('https://ok.example.com'), opened);
-  await assert.rejects(vault.upsert({ origin: 'https://n.example.com', username: 'n', password: 'p', source: 'chat' }), opened);
-  await assert.rejects(vault.mergeImport('chrome', [{ url: 'https://n.example.com', username: 'n', password: 'p' }]), opened);
+  await assert.rejects(
+    vault.upsert({ origin: 'https://n.example.com', username: 'n', password: 'p', source: 'chat' }),
+    opened
+  );
+  await assert.rejects(
+    vault.mergeImport('chrome', [{ url: 'https://n.example.com', username: 'n', password: 'p' }]),
+    opened
+  );
   await assert.rejects(vault.markUsed(usable.id), opened);
   await assert.rejects(vault.remove(usable.id), opened);
   await assert.rejects(vault.pauseOrigin('https://ok.example.com'), opened);
@@ -119,8 +134,14 @@ test('a document that is not a vault is not an empty vault: a save rejects and k
   const { file, vault, write } = makeVault(t);
   write({ version: 2, logins: [usable] });
   const before = readFileSync(file);
-  await assert.rejects(vault.mergeImport('csv', [{ url: 'https://n.example.com', username: 'n', password: 'p' }]), /could not be opened/);
-  await assert.rejects(vault.upsert({ origin: 'https://n.example.com', username: 'n', password: 'p', source: 'chat' }), /could not be opened/);
+  await assert.rejects(
+    vault.mergeImport('csv', [{ url: 'https://n.example.com', username: 'n', password: 'p' }]),
+    /could not be opened/
+  );
+  await assert.rejects(
+    vault.upsert({ origin: 'https://n.example.com', username: 'n', password: 'p', source: 'chat' }),
+    /could not be opened/
+  );
   assert.deepEqual(readFileSync(file), before);
 });
 

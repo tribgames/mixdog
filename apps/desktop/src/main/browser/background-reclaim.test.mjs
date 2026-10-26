@@ -48,7 +48,12 @@ function harness() {
 
 /** 23 pages of kept sessions, leaving one slot below the 24-page ceiling. */
 function fillKept(h) {
-  for (const [session, count] of [['k0', 6], ['k1', 6], ['k2', 6], ['k3', 5]]) {
+  for (const [session, count] of [
+    ['k0', 6],
+    ['k1', 6],
+    ['k2', 6],
+    ['k3', 5],
+  ]) {
     for (let index = 0; index < count; index++) h.add(session, `p${index}`, { keepAlive: true });
   }
 }
@@ -58,7 +63,10 @@ test('a session may hold six background pages; the error names its count', () =>
   for (let index = 0; index < 5; index++) h.add('mine', `p${index}`);
   assert.doesNotThrow(() => h.reclaimer.admit('mine'));
   h.add('mine', 'p5');
-  assert.throws(() => h.reclaimer.admit('mine'), /this session already has 6 background tabs open \(at most 6 per session\)/);
+  assert.throws(
+    () => h.reclaimer.admit('mine'),
+    /this session already has 6 background tabs open \(at most 6 per session\)/
+  );
   assert.doesNotThrow(() => h.reclaimer.admit('someone-else'));
 });
 

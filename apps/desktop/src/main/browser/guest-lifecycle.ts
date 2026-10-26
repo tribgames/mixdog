@@ -239,7 +239,8 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     holdsUnfinishedWork: (guest) => {
       const record = state.peek(guest);
       return Boolean(
-        record && (record.userInput || record.pendingDialog || record.pendingFileChooser || record.sensitiveValues?.size)
+        record &&
+          (record.userInput || record.pendingDialog || record.pendingFileChooser || record.sensitiveValues?.size)
       );
     },
     documentGeneration: (guest) => state.peek(guest)?.documentGeneration ?? 0,

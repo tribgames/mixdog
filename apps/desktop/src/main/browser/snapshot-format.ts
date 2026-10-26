@@ -226,11 +226,13 @@ function briefLines(
     if (brief.unseen.length) {
       // A brief reply keeps its small budget however much of the page the
       // earlier look skipped: a count, and the few the caller can see now.
-      const shown = [...brief.unseen.filter((el) => el.inViewport), ...brief.unseen.filter((el) => !el.inViewport)].slice(
-        0,
-        BRIEF_UNSEEN_SHOWN
+      const shown = [
+        ...brief.unseen.filter((el) => el.inViewport),
+        ...brief.unseen.filter((el) => !el.inViewport),
+      ].slice(0, BRIEF_UNSEEN_SHOWN);
+      lines.push(
+        `Not previously reported: ${brief.unseen.length} element(s); showing ${shown.length} (* = in viewport):`
       );
-      lines.push(`Not previously reported: ${brief.unseen.length} element(s); showing ${shown.length} (* = in viewport):`);
       for (const el of shown) lines.push(elementLine(el));
       if (brief.unseen.length > shown.length) {
         lines.push(

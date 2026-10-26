@@ -206,7 +206,10 @@ export class CredentialVault {
     }
     // A document that is not the vault's shape must not read as an empty
     // vault: the next save would replace it.
-    if (parsed !== null && !(typeof parsed === 'object' && Array.isArray((parsed as { credentials?: unknown }).credentials))) {
+    if (
+      parsed !== null &&
+      !(typeof parsed === 'object' && Array.isArray((parsed as { credentials?: unknown }).credentials))
+    ) {
       throw new Error('The stored browser credential vault could not be opened.');
     }
     const entries = parsed ? (parsed as { credentials: unknown[] }).credentials : [];
@@ -308,11 +311,16 @@ export class CredentialVault {
       const accounts = (await this.load())
         .map((login, index) => ({ login, index }))
         .filter(({ login }) => secureOrigin(login.url) === wanted && login.password && login.autoSignIn);
-      const variants = new Set(accounts.filter(({ login }) => folded(login.username)).map(({ login }) => login.username));
+      const variants = new Set(
+        accounts.filter(({ login }) => folded(login.username)).map(({ login }) => login.username)
+      );
       const ambiguous = variants.size > 1 && !accounts.some(({ login }) => login.username === typed);
       // The exact username first; an email also matches ignoring case, after it.
-      const sameness = (username: string) =>
-        !typed ? 0 : username === typed ? 2 : folded(username) && (ambiguous || typed.includes('@')) ? 1 : 0;
+      const sameness = (username: string) => {
+        if (!typed) return 0;
+        if (username === typed) return 2;
+        return folded(username) && (ambiguous || typed.includes('@')) ? 1 : 0;
+      };
       return accounts
         .map((account) => ({ ...account, match: sameness(account.login.username) }))
         .sort(
@@ -446,10 +454,7 @@ export class CredentialVault {
     login.url = origin;
     login.username = username;
     const nextId = loginId(origin, username);
-    if (
-      nextId !== login.id &&
-      logins.some((candidate) => candidate !== login && candidate.id === nextId)
-    ) {
+    if (nextId !== login.id && logins.some((candidate) => candidate !== login && candidate.id === nextId)) {
       throw new Error('A login for that site and username already exists.');
     }
     login.id = nextId;
@@ -604,10 +609,6 @@ export function upsertVaultLogin(entry: VaultLoginEntry): Promise<void> {
   return vault().upsert(entry);
 }
 
-export function vaultAccountsFor(origin: string): Promise<Array<{ id: string; label: string }>> {
-  return vault().accountsFor(origin);
-}
-
 export function vaultAutoSignInAccounts(origin: string, prefilled = ''): Promise<VaultSignInAccount[]> {
   return vault().preferredAccountsFor(origin, prefilled);
 }
@@ -618,20 +619,4 @@ export function vaultTotpCode(id: string, origin: string): Promise<string> {
 
 export function markVaultLoginUsed(id: string): Promise<void> {
   return vault().markUsed(id);
-}
-
-export function listVaultLogins(): Promise<VaultLoginSummary[]> {
-  return vault().list();
-}
-
-export function updateVaultLogin(id: string, patch: VaultLoginUpdate): Promise<void> {
-  return vault().update(id, patch);
-}
-
-export function deleteVaultLogin(id: string): Promise<boolean> {
-  return vault().remove(id);
-}
-
-export function pauseVaultOrigin(origin: string): Promise<void> {
-  return vault().pauseOrigin(origin);
 }

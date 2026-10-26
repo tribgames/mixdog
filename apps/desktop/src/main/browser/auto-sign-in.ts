@@ -225,7 +225,8 @@ const SUBMIT_WAIT_MS = 15_000;
  *  submitted on, before that page counts as the answer. */
 const SETTLED_READINGS = 2;
 /** An address that still says sign-in, verification or a challenge. */
-const SIGN_IN_ADDRESS = /log[-_.]?[io]n|sign[-_.]?[io]n|auth|sso|session|challenge|verif|two[-_]?factor|2fa|mfa|passkey|webauthn/i;
+const SIGN_IN_ADDRESS =
+  /log[-_.]?[io]n|sign[-_.]?[io]n|auth|sso|session|challenge|verif|two[-_]?factor|2fa|mfa|passkey|webauthn/i;
 
 function signInAddress(url: string): boolean {
   try {
@@ -290,7 +291,13 @@ export interface BrowserAutoSignInDeps {
    *  The code is a secret like the password and goes nowhere else. */
   code?: {
     value: (url: string, id: string) => Promise<string>;
-    fill: (guest: WebContents, code: string, signal?: AbortSignal, boundUrl?: string, document?: string) => Promise<boolean>;
+    fill: (
+      guest: WebContents,
+      code: string,
+      signal?: AbortSignal,
+      boundUrl?: string,
+      document?: string
+    ) => Promise<boolean>;
   };
   collect: <T>(guest: WebContents, expression: string, signal?: AbortSignal) => Promise<T[]>;
   invalidate: (guest: WebContents) => void;
@@ -321,8 +328,11 @@ function submitGuard(guest: WebContents, url: string): () => void {
 }
 
 /** Whether the form of `phase` is on the page. */
-const formThere = (now: SignInState, phase: Phase): boolean =>
-  phase === 'username' ? now.username && !now.password : phase === 'code' ? now.code && !now.password : now.password;
+const formThere = (now: SignInState, phase: Phase): boolean => {
+  if (phase === 'username') return now.username && !now.password;
+  if (phase === 'code') return now.code && !now.password;
+  return now.password;
+};
 /** Whether a challenge stands in the way of `phase` (a code is the code step's own field). */
 const challenged = (now: SignInState, phase: Phase): boolean => (phase === 'code' ? now.captcha : now.challenge);
 
@@ -333,6 +343,12 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const frames = await deps.collect<SignInState>(guest, SIGN_IN_STATE, signal);
     const any = (key: 'password' | 'challenge' | 'wording' | 'code' | 'captcha' | 'username' | 'sent' | 'error') =>
       frames.some((frame) => frame?.[key] === true);
+    // Any unsolved widget in any frame holds the whole page.
+    const checkOf = (): SignInState['check'] => {
+      if (frames.some((frame) => frame?.check === 'pending')) return 'pending';
+      if (frames.some((frame) => frame?.check === 'solved')) return 'solved';
+      return 'none';
+    };
     return {
       password: any('password'),
       challenge: any('challenge'),
@@ -342,13 +358,10 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       username: any('username'),
       sent: any('sent'),
       error: any('error'),
-      identifier: String(frames.find((frame) => typeof frame?.identifier === 'string' && frame.identifier)?.identifier || ''),
-      // Any unsolved widget in any frame holds the whole page.
-      check: frames.some((frame) => frame?.check === 'pending')
-        ? 'pending'
-        : frames.some((frame) => frame?.check === 'solved')
-          ? 'solved'
-          : 'none',
+      identifier: String(
+        frames.find((frame) => typeof frame?.identifier === 'string' && frame.identifier)?.identifier || ''
+      ),
+      check: checkOf(),
     };
   };
 
@@ -384,7 +397,12 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
    *  its token (a widget that vanished without one is not a success). */
   const mayGoOn = (now: SignInState, seen: { check: boolean }, phase: Phase): boolean => {
     if (now.check !== 'none') seen.check = true;
-    return formThere(now, phase) && !challenged(now, phase) && now.check !== 'pending' && (!seen.check || now.check === 'solved');
+    return (
+      formThere(now, phase) &&
+      !challenged(now, phase) &&
+      now.check !== 'pending' &&
+      (!seen.check || now.check === 'solved')
+    );
   };
 
   /** Waits for the page's human check: up to the wait bound while a token is
@@ -494,14 +512,18 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     try {
       const parsed = new URL(startUrl);
       if (parsed.protocol === 'https:') origin = parsed.origin;
-    } catch {}
+    } catch {
+      // An unparseable address has no origin; handled just below.
+    }
     if (!origin) return null;
     const key = `${input.sessionId}\0${input.turnId}\0${origin}`;
     if (attempted.has(key)) return null;
     const initial = await read(guest, signal);
     if (!initial) return null;
     const before = initial.now;
-    const first: Phase | null = before.password ? 'password' : before.username ? 'username' : null;
+    let first: Phase | null = null;
+    if (before.password) first = 'password';
+    else if (before.username) first = 'username';
     if (!first || before.challenge) return null;
     // An unreadable vault only means no saved login can be used: the page the
     // command opened stays as it is, and the sign-in is left to the user.
@@ -589,7 +611,13 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
             // Nothing is awaited between this check and the fill call.
             guardPage('The page changed before stored credential input; input was not sent.');
             if (phase === 'username') {
-              return deps.fill(guest, { username: credential.username, password: '' }, signal, 'username', bound || undefined);
+              return deps.fill(
+                guest,
+                { username: credential.username, password: '' },
+                signal,
+                'username',
+                bound || undefined
+              );
             }
             return deps.fill(
               guest,

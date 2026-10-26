@@ -78,7 +78,11 @@ function fixture({ reveal = async () => 'shown', target = null, ensure, autoSign
     ...(linkedSignIn ? { linkedSignIn } : {}),
     services: {
       cdp: { waitForIdle: async () => {}, guestDebugger: async () => {} },
-      reply: { dialogResult: () => null, refRecoveryFor: () => undefined, snapshotResult: async () => ({ text: 'ok' }) },
+      reply: {
+        dialogResult: () => null,
+        refRecoveryFor: () => undefined,
+        snapshotResult: async () => ({ text: 'ok' }),
+      },
       settle: {},
       state: { invalidateInteraction() {} },
       urls: {
@@ -115,7 +119,11 @@ test('a saved-login sign-in on open runs first and rides along; the reply is sti
     'Shown in the browser panel: page p1 — Report (https://example.test/report).\n\n' +
       'Saved sign-in: signed in to dart.example with its saved login (the password never left the host).'
   );
-  assert.deepEqual(signedIn.calls, [['sign-in'], ['reveal', 's', 1]], 'the reveal shows the page as the sign-in left it');
+  assert.deepEqual(
+    signedIn.calls,
+    [['sign-in'], ['reveal', 's', 1]],
+    'the reveal shows the page as the sign-in left it'
+  );
 
   const needsUser = fixture({
     reveal: async () => 'pending',
@@ -125,7 +133,10 @@ test('a saved-login sign-in on open runs first and rides along; the reply is sti
   });
   const handoff = await needsUser.run({ action: 'open', session_id: 's', turn_id: 1 });
   assert.match(handoff.text, /^Not on screen yet: page p1 — Report/);
-  assert.match(handoff.text, /\n\nSaved sign-in: the site still needs the user at dart\.example: one try did not finish\.$/);
+  assert.match(
+    handoff.text,
+    /\n\nSaved sign-in: the site still needs the user at dart\.example: one try did not finish\.$/
+  );
 
   // No sign-in: the placement alone.
   const none = await fixture({ autoSignIn: async () => null }).run({ action: 'open', session_id: 's', turn_id: 1 });
@@ -160,13 +171,25 @@ test('a linked sign-in line leads the reply, follows an open placement, and skip
   );
 
   calls.length = 0;
-  const step = await fixture({ linkedSignIn }).run({ action: 'snapshot', session_id: 's', turn_id: 3, internalStep: true });
+  const step = await fixture({ linkedSignIn }).run({
+    action: 'snapshot',
+    session_id: 's',
+    turn_id: 3,
+    internalStep: true,
+  });
   assert.doesNotMatch(step.text, /Linked sign-in/);
-  assert.deepEqual(calls.map(([kind]) => kind), ['before']);
+  assert.deepEqual(
+    calls.map(([kind]) => kind),
+    ['before']
+  );
 
   // No line to give, or a store that cannot be read: the reply as it was.
   for (const replyLine of [async () => '', async () => Promise.reject(new Error('vault unreadable'))]) {
-    const quiet = await fixture({ linkedSignIn: { beforeAction() {}, replyLine } }).run({ action: 'snapshot', session_id: 's', turn_id: 3 });
+    const quiet = await fixture({ linkedSignIn: { beforeAction() {}, replyLine } }).run({
+      action: 'snapshot',
+      session_id: 's',
+      turn_id: 3,
+    });
     assert.equal(quiet.text, 'ok');
   }
 });
@@ -184,8 +207,24 @@ test('a page that closes while the reveal waits is a failure, not a pending reve
     pageId: (candidate) => `p${candidate.id}`,
     waitUntilShown: wait,
   });
-  assert.equal(await revealBrowserPage(host(async () => false), 's', guest, 10), 'pending');
-  assert.equal(await revealBrowserPage(host(async () => true), 's', guest, 10), 'shown');
+  assert.equal(
+    await revealBrowserPage(
+      host(async () => false),
+      's',
+      guest,
+      10
+    ),
+    'pending'
+  );
+  assert.equal(
+    await revealBrowserPage(
+      host(async () => true),
+      's',
+      guest,
+      10
+    ),
+    'shown'
+  );
   await assert.rejects(
     revealBrowserPage(
       host(async () => {
@@ -327,7 +366,12 @@ test('an open with no page to show fails and leaves no blank behind', async () =
     f.calls,
     [
       ['discard', 's', 9],
-      ['failure', 's', 'Could not show a page: no page is open in this conversation; navigate to one first.', undefined],
+      [
+        'failure',
+        's',
+        'Could not show a page: no page is open in this conversation; navigate to one first.',
+        undefined,
+      ],
     ],
     'the page it made is closed, never revealed, and the shell hears why'
   );
@@ -383,7 +427,11 @@ test('"보기" shows that exact tab without making, keeping or claiming a page',
       createDisplayTab() {},
       closeDisplayTab() {},
     },
-    agentFollow: { isPaused: () => false, pause: (id) => follow.push(['pause', id]), resume: (id) => follow.push(['resume', id]) },
+    agentFollow: {
+      isPaused: () => false,
+      pause: (id) => follow.push(['pause', id]),
+      resume: (id) => follow.push(['resume', id]),
+    },
     currentGuest: () => null,
     lifecycle: { claimPage: () => assert.fail('a view is not a claim'), replacementPage: () => null },
     pageId: (guest) => `p${guest.id}`,
@@ -401,7 +449,11 @@ test('"보기" shows that exact tab without making, keeping or claiming a page',
     currentGuest: (id) => sessions.currentGuest(id),
     state: {},
     retainGuest: () => assert.fail('nothing is kept'),
-    queue: { executeLocal: () => assert.fail('no queued input'), interruptForLocal: () => assert.fail('the agent keeps working'), holdLocal() {} },
+    queue: {
+      executeLocal: () => assert.fail('no queued input'),
+      interruptForLocal: () => assert.fail('the agent keeps working'),
+      holdLocal() {},
+    },
     control: async (sessionId, input) => {
       controls.push([sessionId, input.tabId]);
       strip.select(sessionId, input.tabId, input.follow);

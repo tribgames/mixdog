@@ -37,7 +37,9 @@ function secretPage(html) {
       }
       const targets = bound ? [...bound] : [];
       const { value, username } = request;
-      return plain(await fill({ form: bound?.form || request.form, value, username, types: bound?.types || '' }, ...targets));
+      return plain(
+        await fill({ form: bound?.form || request.form, value, username, types: bound?.types || '' }, ...targets)
+      );
     },
     value: (selector) => dom.window.document.querySelector(selector).value,
   };
@@ -162,11 +164,17 @@ test('request time may rank: the named field, else the focused one, else the fir
   assert.deepEqual(await ids({}), ['pw'], 'no kind asked: a password, then a new password, then a code');
   // Several password fields: the focused one, else the first.
   const two = '<form><input id="p1" type="password"></form><form><input id="p2" type="password"></form>';
-  for (const [focus, expected] of [['#p2', ['p2']], ['', ['p1']]]) {
+  for (const [focus, expected] of [
+    ['#p2', ['p2']],
+    ['', ['p1']],
+  ]) {
     const page = secretPage(two);
     try {
       if (focus) page.dom.window.document.querySelector(focus).focus();
-      assert.deepEqual([...(await page.pick({ form: 'login' }))].map((element) => element.id), expected);
+      assert.deepEqual(
+        [...(await page.pick({ form: 'login' }))].map((element) => element.id),
+        expected
+      );
     } finally {
       page.dom.window.close();
     }
@@ -191,16 +199,30 @@ test("a login's username is the best-ranked candidate of the password's own form
   });
   // The best of several.
   assert.deepEqual(
-    (await run(`<form><input id="n" name="note" type="text"><input id="u" name="userid" autocomplete="username" type="text">${pw}</form>`)).ids,
+    (
+      await run(
+        `<form><input id="n" name="note" type="text"><input id="u" name="userid" autocomplete="username" type="text">${pw}</form>`
+      )
+    ).ids,
     ['pw', 'u']
   );
   // Search, url and checkbox inputs are no username: password only.
-  for (const other of ['<input id="x" type="search" name="user">', '<input id="x" type="url">', '<input id="x" type="checkbox">']) {
+  for (const other of [
+    '<input id="x" type="search" name="user">',
+    '<input id="x" type="url">',
+    '<input id="x" type="checkbox">',
+  ]) {
     assert.deepEqual((await run(`<form>${other}${pw}</form>`)).form, 'password', other);
   }
   // Another form's input is not a candidate; without a form element the document is the scope.
-  assert.deepEqual((await run(`<form><input id="u" type="text">${pw}</form><form><input id="o" name="user" type="text"></form>`)).ids, ['pw', 'u']);
-  assert.deepEqual((await run(`<input id="a" type="text"><input id="b" name="email" type="text">${pw}`)).ids, ['pw', 'b']);
+  assert.deepEqual(
+    (await run(`<form><input id="u" type="text">${pw}</form><form><input id="o" name="user" type="text"></form>`)).ids,
+    ['pw', 'u']
+  );
+  assert.deepEqual((await run(`<input id="a" type="text"><input id="b" name="email" type="text">${pw}`)).ids, [
+    'pw',
+    'b',
+  ]);
 });
 
 test("a sign-in's username-only first step binds the username field alone; other pages and other requests bind none", async () => {
@@ -219,7 +241,11 @@ test("a sign-in's username-only first step binds the username field alone; other
     types: 'email',
   });
   assert.equal(await run('<input id="q" type="search">', { form: 'login' }), null, 'no username candidate: none');
-  assert.equal(await run('<form><input id="u" type="email"></form>', {}), null, 'only a sign-in request binds a username');
+  assert.equal(
+    await run('<form><input id="u" type="email"></form>', {}),
+    null,
+    'only a sign-in request binds a username'
+  );
   assert.equal(await run('<form><input id="u" type="email"></form>', { form: 'otp' }), null);
   // The username step's field is filled as a username: the one bound element, nothing else.
   const page = secretPage('<form><input id="u" type="email"><input id="o" type="text"></form>');
@@ -281,7 +307,8 @@ test('a secret goes only to the elements bound at request time: moved focus, a r
     const bound = await page.pick({ form: 'otp', hint: 'code' });
     assert.deepEqual([...bound], [doc.querySelector('#code')], 'request time answers the element itself');
     assert.equal(bound.types, 'text');
-    const fill = async (request, ...targets) => plain(await page.fill({ form: 'otp', types: 'text', ...request }, ...targets));
+    const fill = async (request, ...targets) =>
+      plain(await page.fill({ form: 'otp', types: 'text', ...request }, ...targets));
     // The user (or the page) moves focus to another code field meanwhile.
     doc.querySelector('#other').focus();
     assert.deepEqual(await fill({ value: '482190' }, ...bound), { filled: true });
@@ -582,7 +609,8 @@ test('an automatic fill is pinned to the main-frame document: a same-address swa
   });
   const guest = { getURL: () => 'https://bank.example/login', isDestroyed: () => false };
   const credential = { username: 'data-team', password: SENTINEL };
-  const typed = () => sent.some(({ method, params }) => method === 'Runtime.callFunctionOn' && JSON.stringify(params).includes(SENTINEL));
+  const typed = () =>
+    sent.some(({ method, params }) => method === 'Runtime.callFunctionOn' && JSON.stringify(params).includes(SENTINEL));
   // Unchanged: filled.
   assert.equal((await service.fillCredentialInGuest(guest, credential, undefined, '')).passwordFilled, true);
   // The document is swapped (same address, new loader) while the world is made.
@@ -590,7 +618,10 @@ test('an automatic fill is pinned to the main-frame document: a same-address swa
   page.onSent = (method) => {
     if (method === 'Page.createIsolatedWorld') page.loaderId = 'L2';
   };
-  await assert.rejects(service.fillCredentialInGuest(guest, credential, undefined, ''), (error) => error.name === 'BrowserPageChangedError');
+  await assert.rejects(
+    service.fillCredentialInGuest(guest, credential, undefined, ''),
+    (error) => error.name === 'BrowserPageChangedError'
+  );
   assert.equal(typed(), false);
   // A step bound to the document it was read on refuses another one at once.
   page.onSent = () => {};
@@ -600,5 +631,8 @@ test('an automatic fill is pinned to the main-frame document: a same-address swa
     (error) => error.name === 'BrowserPageChangedError'
   );
   assert.equal(typed(), false);
-  assert.equal((await service.fillCredentialInGuest(guest, credential, undefined, '', false, 'main:L2')).passwordFilled, true);
+  assert.equal(
+    (await service.fillCredentialInGuest(guest, credential, undefined, '', false, 'main:L2')).passwordFilled,
+    true
+  );
 });

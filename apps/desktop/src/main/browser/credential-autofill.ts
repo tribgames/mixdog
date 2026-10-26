@@ -423,7 +423,9 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
       signal?.throwIfAborted();
       if (response.exceptionDetails) {
         const detail =
-          response.exceptionDetails.exception?.description || response.exceptionDetails.text || 'credential fill failed';
+          response.exceptionDetails.exception?.description ||
+          response.exceptionDetails.text ||
+          'credential fill failed';
         throw new Error(redactText(guest, detail.split('\n')[0]));
       }
       return response.result;
@@ -520,7 +522,9 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
       }>('Runtime.getProperties', { objectId: picked.objectId, ownProperties: true });
       const own = (name: string) => properties.find((property) => property.name === name)?.value;
       const form = String(own('form')?.value || '');
-      const types = String(own('types')?.value || '').split(' ').filter(Boolean);
+      const types = String(own('types')?.value || '')
+        .split(' ')
+        .filter(Boolean);
       if (!SECRET_FORMS.has(form) || !types.length) return { form: '' };
       const targets: BrowserSecretTarget[] = [];
       for (const [index, type] of types.entries()) {

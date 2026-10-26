@@ -163,7 +163,13 @@ test('a sensitive fill registers its code before the page sees it; no reply or l
     const toolkit = createBrowserRefActions({
       rememberSecret: (guest, value) => rememberForSession({ sessionIdForGuest: () => session }, guest, value),
     });
-    const command = { action: 'fill', ref: 'p1-s1-e3', text: CODE, session_id: session, ...(sensitive ? { sensitive } : {}) };
+    const command = {
+      action: 'fill',
+      ref: 'p1-s1-e3',
+      text: CODE,
+      session_id: session,
+      ...(sensitive ? { sensitive } : {}),
+    };
     const context = {
       guest: {},
       command,
@@ -182,7 +188,9 @@ test('a sensitive fill registers its code before the page sees it; no reply or l
     };
     const signal = new AbortController().signal;
     const reply = await guardBrowserSecrets(command, signal, () => formActions.fill(context));
-    const next = await guardBrowserSecrets({ action: 'snapshot', session_id: session }, signal, async () => ({ text: page }));
+    const next = await guardBrowserSecrets({ action: 'snapshot', session_id: session }, signal, async () => ({
+      text: page,
+    }));
     return { registeredFirst, reply: reply.text, next: next.text };
   };
 

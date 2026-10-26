@@ -53,7 +53,8 @@ async function runFixture(softwareRendering) {
 }
 
 const FIT = 0.3944;
-const close = (actual, expected, label) => assert.ok(Math.abs(actual - expected) <= 1, `${label}: ${actual} vs ${expected}`);
+const close = (actual, expected, label) =>
+  assert.ok(Math.abs(actual - expected) <= 1, `${label}: ${actual} vs ${expected}`);
 
 for (const softwareRendering of [false, true]) {
   const rendering = softwareRendering ? 'software' : 'GPU';

@@ -29,7 +29,16 @@ function fixture({
   onObserve,
 } = {}) {
   const page = { url, password: true, challenge: false, wording: false, check: 'none' };
-  const calls = { suggestions: [], fills: 0, submits: 0, sent: 0, credentials: [], probes: 0, approvals: 0, observed: 0 };
+  const calls = {
+    suggestions: [],
+    fills: 0,
+    submits: 0,
+    sent: 0,
+    credentials: [],
+    probes: 0,
+    approvals: 0,
+    observed: 0,
+  };
   const guest = { isDestroyed: () => false, getURL: () => page.url, isLoading: () => false };
   const signIn = createBrowserAutoSignIn({
     enabled: () => enabled,
@@ -332,7 +341,9 @@ test('probe: no suppression and no sharing across widgets', () => {
   assert.equal(probe(TURNSTILE_DONE + '<div class="cf-turnstile"></div>').check, 'pending');
   // One loose token does not fill two containers.
   assert.equal(
-    probe('<div class="cf-turnstile"></div><div class="cf-turnstile"></div><input type="hidden" name="cf-turnstile-response" value="tok">').check,
+    probe(
+      '<div class="cf-turnstile"></div><div class="cf-turnstile"></div><input type="hidden" name="cf-turnstile-response" value="tok">'
+    ).check,
     'pending'
   );
   // A solved other provider does not cover a pending one.
@@ -361,15 +372,26 @@ test('probe: a bare site key, a script and widget frames are no evidence', () =>
   assert.equal(probe('<div data-sitekey="k"></div><button data-sitekey="k">Go</button>').check, 'none');
   assert.equal(probe('<script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>').check, 'none');
   assert.equal(probe('<script src="https://www.google.com/recaptcha/api.js?render=k"></script>').check, 'none');
-  assert.equal(probe('<iframe src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/if/x"></iframe>').check, 'none');
+  assert.equal(
+    probe('<iframe src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/if/x"></iframe>').check,
+    'none'
+  );
   assert.equal(probe('<iframe src="https://www.google.com/recaptcha/api2/anchor?k=1"></iframe>').challenge, false);
 });
 
 test('probe: an image challenge frame or a generic CAPTCHA frame is a hand-off', () => {
   assert.equal(probe('<iframe src="https://www.google.com/recaptcha/api2/bframe?k=1"></iframe>').challenge, true);
-  assert.equal(probe('<iframe src="https://newassets.hcaptcha.com/captcha/v1/x/static/hcaptcha.html#frame=challenge"></iframe>').challenge, true);
+  assert.equal(
+    probe('<iframe src="https://newassets.hcaptcha.com/captcha/v1/x/static/hcaptcha.html#frame=challenge"></iframe>')
+      .challenge,
+    true
+  );
   assert.equal(probe('<iframe src="https://x.test/captcha/img"></iframe>').challenge, true);
-  assert.equal(probe('<iframe style="display:none" src="https://x.test/captcha/img"></iframe>').challenge, false, 'a hidden one is no challenge shown');
+  assert.equal(
+    probe('<iframe style="display:none" src="https://x.test/captcha/img"></iframe>').challenge,
+    false,
+    'a hidden one is no challenge shown'
+  );
   assert.equal(probe(TURNSTILE_EMPTY).challenge, false);
 });
 
@@ -451,8 +473,15 @@ function flow({ pages, suggestions, code, approveSubmit, afterLast = {}, onObser
   let index = 0;
   const log = { fills: [], codes: [], submits: 0, used: [], prefilled: [], credentialIds: [], codeValueCalls: 0 };
   const defaults = {
-    password: false, challenge: false, wording: false, check: 'none', code: false, captcha: false,
-    username: false, identifier: '', sent: false,
+    password: false,
+    challenge: false,
+    wording: false,
+    check: 'none',
+    code: false,
+    captcha: false,
+    username: false,
+    identifier: '',
+    sent: false,
   };
   const at = () => pages[Math.min(index, pages.length - 1)];
   const guest = {
@@ -626,7 +655,10 @@ test('a one-time code after the password is made on the host and typed with a st
     assert.deepEqual(f.log.codes, []);
     assert.equal(f.log.codeValueCalls, 0, 'no code is even made');
   }
-  const wrong = flow({ pages: [{ state: { password: true } }, CODE_PAGE, CODE_PAGE, CODE_PAGE], code: { value: CODE } });
+  const wrong = flow({
+    pages: [{ state: { password: true } }, CODE_PAGE, CODE_PAGE, CODE_PAGE],
+    code: { value: CODE },
+  });
   assert.ok(handedOff(await wrong.run()));
   assert.equal(wrong.log.submits, 2, 'never a second code');
 });
@@ -635,7 +667,7 @@ test('the sign-in submit still goes through the approval policy: a block sends n
   const f = flow({
     pages: [USER_PAGE, PASSWORD_PAGE, SIGNED_IN],
     approveSubmit: async () => {
-      throw new Error('blocked by this bot\'s permission');
+      throw new Error("blocked by this bot's permission");
     },
   });
   assert.ok(handedOff(await f.run()));
@@ -645,7 +677,11 @@ test('the sign-in submit still goes through the approval policy: a block sends n
 // The real probe for the new steps.
 function domAt(url, html) {
   const dom = new JSDOM(`<!doctype html><title>Page</title><body>${html}</body>`, { url, runScripts: 'outside-only' });
-  Object.defineProperty(dom.window.HTMLElement.prototype, 'innerText', { get() { return this.textContent; } });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'innerText', {
+    get() {
+      return this.textContent;
+    },
+  });
   dom.window.Element.prototype.getBoundingClientRect = () => ({ width: 100, height: 20 });
   return dom;
 }
@@ -656,11 +692,30 @@ test('probe: a username-only step is one username/email field alone on a page th
   assert.equal(state('https://shop.example.com/login', email).username, true);
   assert.equal(state('https://shop.example.com/signin?next=/', '<input name="username" type="text">').username, true);
   assert.equal(state('https://shop.example.com/blog', email).username, false, 'a newsletter box on a content page');
-  assert.equal(state('https://shop.example.com/blog', '<input name="x" autocomplete="username">').username, true, 'explicit autocomplete');
-  assert.equal(state('https://shop.example.com/login', email + '<input name="q" type="search">').username, false, 'not alone');
-  assert.equal(state('https://shop.example.com/login', '<input name="nickname" type="text">').username, false, 'not an identifier');
-  assert.equal(state('https://shop.example.com/login', email + '<input type="password">').username, false, 'a password page');
-  assert.equal(state('https://shop.example.com/login', '<input type="email" name="email" value="me@example.com">').identifier, 'me@example.com');
+  assert.equal(
+    state('https://shop.example.com/blog', '<input name="x" autocomplete="username">').username,
+    true,
+    'explicit autocomplete'
+  );
+  assert.equal(
+    state('https://shop.example.com/login', email + '<input name="q" type="search">').username,
+    false,
+    'not alone'
+  );
+  assert.equal(
+    state('https://shop.example.com/login', '<input name="nickname" type="text">').username,
+    false,
+    'not an identifier'
+  );
+  assert.equal(
+    state('https://shop.example.com/login', email + '<input type="password">').username,
+    false,
+    'a password page'
+  );
+  assert.equal(
+    state('https://shop.example.com/login', '<input type="email" name="email" value="me@example.com">').identifier,
+    'me@example.com'
+  );
 });
 
 test('probe: a code field, one box per digit, and a code sent by SMS', () => {
@@ -671,9 +726,15 @@ test('probe: a code field, one box per digit, and a code sent by SMS', () => {
   assert.equal(split.captcha, false);
   assert.equal(state('https://shop.example.com/verify', '<input autocomplete="one-time-code">').code, true);
   assert.equal(state('https://shop.example.com/verify', '<input name="q">').code, false);
-  const sms = domAt('https://shop.example.com/verify', '<input autocomplete="one-time-code"><p>We sent a text message with a code.</p>');
+  const sms = domAt(
+    'https://shop.example.com/verify',
+    '<input autocomplete="one-time-code"><p>We sent a text message with a code.</p>'
+  );
   assert.equal(sms.window.eval(SIGN_IN_STATE).sent, true);
-  const app = domAt('https://shop.example.com/verify', '<input autocomplete="one-time-code"><p>Open your authenticator app. Text message is off.</p>');
+  const app = domAt(
+    'https://shop.example.com/verify',
+    '<input autocomplete="one-time-code"><p>Open your authenticator app. Text message is off.</p>'
+  );
   assert.equal(app.window.eval(SIGN_IN_STATE).sent, false);
 });
 
@@ -683,18 +744,29 @@ test('probe: an email field alone is no sign-in evidence; a form that says sign 
   assert.equal(at('/about', field('type="email" autocomplete="email"')), false, 'autocomplete email alone');
   assert.equal(at('/about', field('type="email" name="email"')), false, 'an email box with no context');
   assert.equal(at('/news', field('type="email" name="email"', 'Subscribe')), false, 'a newsletter form');
-  assert.equal(at('/login', field('type="email" name="email"', 'Subscribe to our newsletter')), false, 'subscribe beats the URL');
+  assert.equal(
+    at('/login', field('type="email" name="email"', 'Subscribe to our newsletter')),
+    false,
+    'subscribe beats the URL'
+  );
   assert.equal(at('/about', field('type="email" name="email"', 'Sign up')), false);
   assert.equal(at('/about', field('type="email" name="email"', 'Log in')), true, 'its own form says log in');
   assert.equal(at('/about', field('type="email" name="email"', '로그인')), true);
   assert.equal(at('/login', field('type="email" name="email"')), true, 'the page says sign in');
   assert.equal(at('/about', field('type="text" autocomplete="username"')), true, 'autocomplete username');
   assert.equal(at('/about', '<h1>Log in</h1><input type="email" name="email">'), true, 'a heading, no form');
-  assert.equal(at('/about', '<nav><button>Log in</button></nav><input type="email" name="email">'), false, 'a nav button is not context');
+  assert.equal(
+    at('/about', '<nav><button>Log in</button></nav><input type="email" name="email">'),
+    false,
+    'a nav button is not context'
+  );
 });
 
 test('a newsletter form with one email field and a saved login for the origin: nothing is filled or submitted', async () => {
-  const dom = domAt('https://shop.example.com/blog/post', '<form><input type="email" name="email" autocomplete="email"><button>Subscribe</button></form>');
+  const dom = domAt(
+    'https://shop.example.com/blog/post',
+    '<form><input type="email" name="email" autocomplete="email"><button>Subscribe</button></form>'
+  );
   const calls = { fills: 0, submits: 0, approvals: 0, credentials: 0 };
   const signIn = createBrowserAutoSignIn({
     enabled: () => true,
@@ -717,7 +789,12 @@ test('a newsletter form with one email field and a saved login for the origin: n
     invalidate: () => {},
   });
   const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/blog/post' };
-  const reply = await signIn.afterCommand({ guest, sessionId: 's', turnId: 1, observe: async () => ({ text: 'page' }) });
+  const reply = await signIn.afterCommand({
+    guest,
+    sessionId: 's',
+    turnId: 1,
+    observe: async () => ({ text: 'page' }),
+  });
   assert.equal(reply, null);
   assert.deepEqual(calls, { fills: 0, submits: 0, approvals: 0, credentials: 0 });
 });
@@ -742,16 +819,32 @@ test('every automatic step is bound to the main-frame document its state was rea
       humanCheck: { waitMs: 20, graceMs: 5, pollMs: 2, stepMs: 10, submitMs: 10 },
     });
   const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login', isLoading: () => false };
-  const run = (signIn, turnId) => signIn.afterCommand({ guest, sessionId: 's', turnId, observe: async () => ({ text: 'page' }) });
+  const run = (signIn, turnId) =>
+    signIn.afterCommand({ guest, sessionId: 's', turnId, observe: async () => ({ text: 'page' }) });
   // The same document before and after the probe: the fill is bound to it.
-  await run(make(() => 'main:L1'), 1);
+  await run(
+    make(() => 'main:L1'),
+    1
+  );
   assert.equal(fills[0], 'main:L1');
   // A document swapped while the state was read is no reading: nothing is filled.
   fills.length = 0;
-  assert.equal(await run(make(() => `main:L${++reads}`), 2), null);
+  assert.equal(
+    await run(
+      make(() => `main:L${++reads}`),
+      2
+    ),
+    null
+  );
   assert.deepEqual(fills, []);
   // A browser that reports no document leaves nothing to bind to: nothing is filled.
-  assert.equal(await run(make(() => ''), 3), null);
+  assert.equal(
+    await run(
+      make(() => ''),
+      3
+    ),
+    null
+  );
   assert.deepEqual(fills, []);
   void documents;
 });
@@ -759,8 +852,16 @@ test('every automatic step is bound to the main-frame document its state was rea
 test('a sign-up or subscribe form never qualifies, even with autocomplete="username"', async () => {
   const html = '<form><input autocomplete="username"><button>Sign up</button></form>';
   assert.equal(state('https://shop.example.com/login', html).username, false);
-  assert.equal(state('https://shop.example.com/about', '<form><input autocomplete="username"><button>Subscribe</button></form>').username, false);
-  assert.equal(state('https://shop.example.com/about', '<form><input autocomplete="username"><button>Continue</button></form>').username, true);
+  assert.equal(
+    state('https://shop.example.com/about', '<form><input autocomplete="username"><button>Subscribe</button></form>')
+      .username,
+    false
+  );
+  assert.equal(
+    state('https://shop.example.com/about', '<form><input autocomplete="username"><button>Continue</button></form>')
+      .username,
+    true
+  );
   const dom = domAt('https://shop.example.com/login', html);
   const calls = { fills: 0, submits: 0 };
   const signIn = createBrowserAutoSignIn({
@@ -778,13 +879,17 @@ test('a sign-up or subscribe form never qualifies, even with autocomplete="usern
     invalidate: () => {},
   });
   const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login' };
-  assert.equal(await signIn.afterCommand({ guest, sessionId: 's', turnId: 1, observe: async () => ({ text: 'page' }) }), null);
+  assert.equal(
+    await signIn.afterCommand({ guest, sessionId: 's', turnId: 1, observe: async () => ({ text: 'page' }) }),
+    null
+  );
   assert.deepEqual(calls, { fills: 0, submits: 0 });
 });
 
 // ---- The site's answer: a script that submits late, a redirect chain, a refusal ----
 
-const NAVER_LOGIN = 'https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fnid.naver.com%2Fuser2%2Fhelp%2FmyInfoV2';
+const NAVER_LOGIN =
+  'https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fnid.naver.com%2Fuser2%2Fhelp%2FmyInfoV2';
 const NAVER_FORM =
   '<form id="frmNIDLogin"><input type="text" name="id" value="me"><input type="password" name="pw"><button>로그인</button></form>';
 
@@ -855,7 +960,12 @@ test('a site that submits by its own script and redirects seconds later is repor
       later(350, () => (page.throwOnce = true));
       later(500, () => go('https://nid.naver.com/login/sso/finalize.nhn?url=x', '', 'doc-3', true));
       later(800, () =>
-        go(MY_INFO, '<h1>내정보</h1><p>[보안기능] 새로운 환경에서 로그인 되었습니다</p><p>2단계 인증 사용 중</p>', 'doc-4', false)
+        go(
+          MY_INFO,
+          '<h1>내정보</h1><p>[보안기능] 새로운 환경에서 로그인 되었습니다</p><p>2단계 인증 사용 중</p>',
+          'doc-4',
+          false
+        )
       );
     },
   });

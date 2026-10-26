@@ -23,7 +23,10 @@ const MIN_SECRET_BYTES = 10;
 
 /** RFC 4648 base32, case-insensitive; spaces, hyphens and `=` padding are ignored. */
 export function decodeBase32(value: string): Buffer {
-  const text = value.replace(/[\s-]+/g, '').replace(/=+$/, '').toUpperCase();
+  const text = value
+    .replace(/[\s-]+/g, '')
+    .replace(/=+$/, '')
+    .toUpperCase();
   if (!text || !/^[A-Z2-7]+$/.test(text)) throw new TypeError('The authenticator key is not valid base32.');
   const bytes: number[] = [];
   let buffer = 0;

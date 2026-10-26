@@ -48,13 +48,18 @@ test('a plain key and an otpauth address both parse; the address sets digits, pe
   // base32 of the RFC seed "12345678901234567890".
   const key = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
   const plain = parseTotpSecret(` ${key.toLowerCase()} `);
-  assert.deepEqual({ ...plain, secret: plain.secret.toString('ascii') }, {
-    secret: '12345678901234567890',
-    digits: 6,
-    period: 30,
-    algorithm: 'SHA1',
-  });
-  const uri = parseTotpSecret(`otpauth://totp/Example:me@example.com?secret=${key}&issuer=Example&digits=8&period=60&algorithm=sha256`);
+  assert.deepEqual(
+    { ...plain, secret: plain.secret.toString('ascii') },
+    {
+      secret: '12345678901234567890',
+      digits: 6,
+      period: 30,
+      algorithm: 'SHA1',
+    }
+  );
+  const uri = parseTotpSecret(
+    `otpauth://totp/Example:me@example.com?secret=${key}&issuer=Example&digits=8&period=60&algorithm=sha256`
+  );
   assert.equal(uri.digits, 8);
   assert.equal(uri.period, 60);
   assert.equal(uri.algorithm, 'SHA256');

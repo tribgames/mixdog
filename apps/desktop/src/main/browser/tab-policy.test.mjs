@@ -70,7 +70,10 @@ test('at the global ceiling the least recently used evictable page of another se
     ...facts('d', 5),
     { sessionId: 'e', name: 'held', lastUsedAt: 1, blocker: 'turn in progress' },
   ];
-  assert.throws(() => planBackgroundAdmission({ sessionId: 'd', adding: 1, pages: ownOnly, now: 5_000 }), /none can be reclaimed/);
+  assert.throws(
+    () => planBackgroundAdmission({ sessionId: 'd', adding: 1, pages: ownOnly, now: 5_000 }),
+    /none can be reclaimed/
+  );
 });
 
 test('nothing evictable lists the blocking owners with idle ages', () => {

@@ -89,7 +89,10 @@ export class LinkedSignInStore {
 
   private async load(): Promise<LinkedSignIn[]> {
     if (this.cache) return this.cache;
-    if (!existsSync(this.file)) return (this.cache = []);
+    if (!existsSync(this.file)) {
+      this.cache = [];
+      return this.cache;
+    }
     if (this.usesSafeStorage && !safeStorage.isEncryptionAvailable()) {
       throw new Error('Windows credential encryption is unavailable.');
     }
@@ -110,7 +113,8 @@ export class LinkedSignInStore {
       const link = parseLink(entry);
       if (link) links.set(link.id, link);
     }
-    return (this.cache = [...links.values()]);
+    this.cache = [...links.values()];
+    return this.cache;
   }
 
   private async save(links: LinkedSignIn[]): Promise<void> {
@@ -173,7 +177,9 @@ export class LinkedSignInStore {
         throw error;
       });
       const copies = entries.filter((entry) => entry === `${name}.bak` || entry.startsWith(`${name}.corrupt-`));
-      await Promise.all([this.file, ...copies.map((entry) => join(directory, entry))].map((path) => rm(path, { force: true })));
+      await Promise.all(
+        [this.file, ...copies.map((entry) => join(directory, entry))].map((path) => rm(path, { force: true }))
+      );
       this.cache = [];
     });
   }

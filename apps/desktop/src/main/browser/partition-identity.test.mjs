@@ -62,9 +62,7 @@ registerHooks({
       ? {
           url:
             'data:text/javascript,' +
-            encodeURIComponent(
-              'export const { app, session, ipcMain } = globalThis.partitionIdentityFixture;'
-            ),
+            encodeURIComponent('export const { app, session, ipcMain } = globalThis.partitionIdentityFixture;'),
           shortCircuit: true,
         }
       : next(specifier, context);

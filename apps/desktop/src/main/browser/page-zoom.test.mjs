@@ -35,7 +35,11 @@ test("the pane's zoom stays with its page, across its documents, and never reach
   const agent = page();
   setBrowserPageZoom(pane, 0.3944);
   assert.deepEqual(pane.set, [0.3944]);
-  assert.equal(browserPageZoomAtDocumentStart(pane, partition), 0.3944, "the pane's page keeps its zoom on its next document");
+  assert.equal(
+    browserPageZoomAtDocumentStart(pane, partition),
+    0.3944,
+    "the pane's page keeps its zoom on its next document"
+  );
   assert.equal(browserPageZoomAtDocumentStart(agent, partition), 1, 'a hidden page of the same site stays at 100%');
 });
 

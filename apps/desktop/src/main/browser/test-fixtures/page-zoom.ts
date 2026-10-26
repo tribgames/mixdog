@@ -99,7 +99,11 @@ async function run(): Promise<void> {
       const control = page();
       await control.guest.loadURL(`${otherSite}/control`);
       await pause(300);
-      const first = { agent: await measure(agent.guest), control: await measure(control.guest), pane: await measure(pane.guest) };
+      const first = {
+        agent: await measure(agent.guest),
+        control: await measure(control.guest),
+        pane: await measure(pane.guest),
+      };
       // The pane's page moves on within the site, and the pane zooms it again.
       await pane.guest.loadURL(`${site}/pane-next`);
       const keptOnNavigation = pane.guest.getZoomFactor();
@@ -123,10 +127,13 @@ async function run(): Promise<void> {
   console.log(`PAGE_ZOOM_RESULT ${JSON.stringify(results)}`);
 }
 
-void app.whenReady().then(run).then(
-  () => app.exit(0),
-  (error) => {
-    console.error(error);
-    app.exit(1);
-  }
-);
+void app
+  .whenReady()
+  .then(run)
+  .then(
+    () => app.exit(0),
+    (error) => {
+      console.error(error);
+      app.exit(1);
+    }
+  );

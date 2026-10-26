@@ -42,8 +42,15 @@ async function signInWith(t, usernames, identifier) {
   ];
   let index = 0;
   const defaults = {
-    password: false, challenge: false, wording: false, check: 'none', code: false, captcha: false,
-    username: false, identifier: '', sent: false,
+    password: false,
+    challenge: false,
+    wording: false,
+    check: 'none',
+    code: false,
+    captcha: false,
+    username: false,
+    identifier: '',
+    sent: false,
   };
   const signIn = createBrowserAutoSignIn({
     enabled: () => true,

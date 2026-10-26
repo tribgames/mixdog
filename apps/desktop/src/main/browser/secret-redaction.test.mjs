@@ -15,7 +15,10 @@ test('a page that echoes the filled password returns [redacted] to the model, wh
       text: `URL: https://shop.example/account\n- textbox "Password" value=${PASSWORD}\nconsole: ${PASSWORD}`,
     });
     const reply = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-echo' }, signal, page);
-    assert.equal(reply.text, 'URL: https://shop.example/account\n- textbox "Password" value=[redacted]\nconsole: [redacted]');
+    assert.equal(
+      reply.text,
+      'URL: https://shop.example/account\n- textbox "Password" value=[redacted]\nconsole: [redacted]'
+    );
     // An error message travels the same way.
     await assert.rejects(
       guardBrowserSecrets({ action: 'evaluate', session_id: 's-echo' }, signal, async () => {
@@ -24,15 +27,21 @@ test('a page that echoes the filled password returns [redacted] to the model, wh
       (error) => error.message === 'ReferenceError near [redacted]'
     );
     // Another session is untouched, and so is output without the secret.
-    const other = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-other' }, signal, async () => ({ text: PASSWORD }));
+    const other = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-other' }, signal, async () => ({
+      text: PASSWORD,
+    }));
     assert.equal(other.text, PASSWORD);
-    const plain = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-echo' }, signal, async () => ({ text: 'hello' }));
+    const plain = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-echo' }, signal, async () => ({
+      text: 'hello',
+    }));
     assert.equal(plain.text, 'hello');
   } finally {
     secretInputs.forget('s-echo');
   }
   // Cleared when the session ends.
-  const after = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-echo' }, signal, async () => ({ text: PASSWORD }));
+  const after = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-echo' }, signal, async () => ({
+    text: PASSWORD,
+  }));
   assert.equal(after.text, PASSWORD);
 });
 
@@ -61,7 +70,10 @@ test("the toolkit's credential fill registers a typed secret with the owning ses
     redactText: (_guest, value) => String(value),
   };
   const guest = { getURL: () => 'https://shop.example/login', isDestroyed: () => false };
-  const sessions = { sessionIdForGuest: (page) => (page === guest ? 's-toolkit' : undefined), currentGuest: () => guest };
+  const sessions = {
+    sessionIdForGuest: (page) => (page === guest ? 's-toolkit' : undefined),
+    currentGuest: () => guest,
+  };
   const cdp = {
     call: async (_guest, method, params) => {
       if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main', loaderId: 'L1' } } };
@@ -74,18 +86,26 @@ test("the toolkit's credential fill registers a typed secret with the owning ses
   const service = createBrowserCredentialFill(browserCredentialFillHost(state, cdp, sessions));
   const base = { document: 'main:L1', url: 'https://shop.example/login' };
   try {
-    await service.fillSecretField(guest, { ...base, form: 'username', value: 'data-team', targets: [{ node: 1, type: 'email' }] });
+    await service.fillSecretField(guest, {
+      ...base,
+      form: 'username',
+      value: 'data-team',
+      targets: [{ node: 1, type: 'email' }],
+    });
     assert.deepEqual(secretInputs.secretsOf('s-toolkit'), [], 'a username is no secret');
     assert.deepEqual([...remembered], []);
-    await service.fillSecretField(guest, { ...base, form: 'password', value: PW, targets: [{ node: 2, type: 'password' }] });
+    await service.fillSecretField(guest, {
+      ...base,
+      form: 'password',
+      value: PW,
+      targets: [{ node: 2, type: 'password' }],
+    });
     assert.deepEqual(secretInputs.secretsOf('s-toolkit'), [PW], 'the session now knows it');
     assert.deepEqual([...remembered], [PW], 'and so does the page');
     // Any later output of that session hides it, never the username.
-    const reply = await guardBrowserSecrets(
-      { action: 'snapshot', session_id: 's-toolkit' },
-      signal,
-      async () => ({ text: `signed in as data-team; password echo ${PW}` })
-    );
+    const reply = await guardBrowserSecrets({ action: 'snapshot', session_id: 's-toolkit' }, signal, async () => ({
+      text: `signed in as data-team; password echo ${PW}`,
+    }));
     assert.equal(reply.text, 'signed in as data-team; password echo [redacted]');
   } finally {
     secretInputs.forget('s-toolkit');

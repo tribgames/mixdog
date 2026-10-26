@@ -47,7 +47,12 @@ interface BrowserCommandRunnerHost {
   /** Linked sign-in memory (linked-sign-in.ts): the account a click or typing
    *  on a provider's page names, and the `Linked sign-in:` line of a reply. */
   linkedSignIn?: {
-    beforeAction(guest: WebContents, action: string, command: BrowserCommand, signal?: AbortSignal): Promise<void> | void;
+    beforeAction(
+      guest: WebContents,
+      action: string,
+      command: BrowserCommand,
+      signal?: AbortSignal
+    ): Promise<void> | void;
     replyLine: ReturnType<typeof createBrowserLinkedSignIns>['replyLine'];
   };
 }

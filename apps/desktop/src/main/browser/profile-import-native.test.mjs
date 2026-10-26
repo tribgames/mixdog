@@ -115,16 +115,11 @@ const executableSha256 = createHash('sha256').update(readFileSync(executable)).d
 /** Runs one fake-child mode and records the transport key the function made. */
 async function run(mode, extraArgs = []) {
   const created = [];
-  const outcome = await readEncryptedChildJson(
-    executable,
-    [script, mode, ...extraArgs],
-    executableSha256,
-    () => {
-      const key = randomBytes(32);
-      created.push({ key, original: Buffer.from(key) });
-      return key;
-    }
-  ).then(
+  const outcome = await readEncryptedChildJson(executable, [script, mode, ...extraArgs], executableSha256, () => {
+    const key = randomBytes(32);
+    created.push({ key, original: Buffer.from(key) });
+    return key;
+  }).then(
     (value) => ({ value }),
     (error) => ({ error })
   );

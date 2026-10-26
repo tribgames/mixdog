@@ -27,7 +27,10 @@ const mail = (address, link) =>
 /** The runtime's browser client against the real desktop bridge, whose
  *  navigate admits URLs exactly as actions/navigation.ts does. */
 async function withBridge(t) {
-  const admission = createBrowserUrlAdmission({ policy: {}, lookupAddresses: async () => [{ address: '93.184.216.34' }] });
+  const admission = createBrowserUrlAdmission({
+    policy: {},
+    lookupAddresses: async () => [{ address: '93.184.216.34' }],
+  });
   const seen = [];
   const { promise: ready, resolve } = Promise.withResolvers();
   const bridge = createBrowserAgentBridge({

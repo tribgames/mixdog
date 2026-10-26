@@ -63,7 +63,7 @@ function fixture(holdMs = 30) {
   return { sessions, hides, fold, owner, paneRead, background, created: () => created };
 }
 
-test('a shown page that closes itself, the session\'s last, folds the panel', () => {
+test("a shown page that closes itself, the session's last, folds the panel", () => {
   const f = fixture();
   const at = f.background('s', 'at', 'https://alternativeto.net/manage-item/');
   f.sessions.selectGuest('s', at.guest);
@@ -164,9 +164,11 @@ test('a reloaded shell leaves no phantom pane: its remounted pane closing ends t
     await assert.rejects(gone, /its panel is closing/);
     // Another shell's pane still shows its session: that fold holds.
     let settled = false;
-    kept.catch(() => {}).finally(() => {
-      settled = true;
-    });
+    kept
+      .catch(() => {})
+      .finally(() => {
+        settled = true;
+      });
     await new Promise((resolve) => setTimeout(resolve, 5));
     assert.equal(settled, false, event);
     g.fold.panelShown('u', false, other, '1');
