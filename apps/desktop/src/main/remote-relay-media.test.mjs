@@ -261,7 +261,14 @@ test('a backlogged socket holds the stream back and an abort ends it quietly', a
   mock.timers.enable({ apis: ['setTimeout'] });
   t.after(() => mock.timers.reset());
   const { assetId } = file('slow.mp4', 300_000);
-  const { lane, sent } = await makeLane({ backlog: 1e9 });
+  // The pump reads the backlog on every poll, so the count is how many polls it has run.
+  let polls = 0;
+  const { lane, sent } = await makeLane({
+    backlog: () => {
+      polls += 1;
+      return 1e9;
+    },
+  });
   const serving = lane.serve({
     id: 'slow',
     assetId,
@@ -274,9 +281,11 @@ test('a backlogged socket holds the stream back and an abort ends it quietly', a
   const chunks = () => sent.filter((envelope) => envelope.type === 'media-chunk').length;
   await waitUntil(() => chunks() === 1, 'the first chunk before the backlog holds the stream');
   // Several backpressure polls pass with the socket still backlogged: no further chunk.
+  await waitUntil(() => polls > 0, 'the pump to meet the backlog');
   for (let poll = 0; poll < 5; poll += 1) {
+    const before = polls;
     mock.timers.tick(50);
-    for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+    await waitUntil(() => polls > before, 'the pump to poll the backlog again');
   }
   assert.equal(chunks(), 1);
   lane.abort('slow');
