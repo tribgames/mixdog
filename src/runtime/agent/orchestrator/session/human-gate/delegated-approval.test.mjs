@@ -1636,7 +1636,7 @@ test("a handed-off session's question shows in the chat handing it work, apart f
   }
 });
 
-test("a handed-off question comes back in a reloaded chat runtime, and after a restart once the stored watches are read", async () => {
+test('a handed-off question comes back in a reloaded chat runtime, and after a restart once the stored watches are read', async () => {
   const ports = handoffPorts();
   const task = sessionQueue('sess_dlg_task1');
   let home = sessionQueue(HOME);
@@ -1655,7 +1655,10 @@ test("a handed-off question comes back in a reloaded chat runtime, and after a r
     home.api.adoptDelegatedApprovals();
     const [shown] = home.state().handoffQuestions;
     assert.equal(shown.id, task.state().toolApproval.id);
-    assert.equal(home.api.finishToolApproval(shown.id, true, 'answered by user', '', [{ selected: ['All five'] }]), true);
+    assert.equal(
+      home.api.finishToolApproval(shown.id, true, 'answered by user', '', [{ selected: ['All five'] }]),
+      true
+    );
     assert.equal((await answer).approved, true);
   } finally {
     endHandoff('atask_qr1');
@@ -1678,7 +1681,10 @@ test('daemon start reads the stored watches: a question asked after the restart 
     const answer = ask(task, 'sess_dlg_task1');
     const [shown] = home.state().handoffQuestions;
     assert.equal(shown.id, task.state().toolApproval.id);
-    assert.equal(home.api.finishToolApproval(shown.id, true, 'answered by user', '', [{ selected: ['All five'] }]), true);
+    assert.equal(
+      home.api.finishToolApproval(shown.id, true, 'answered by user', '', [{ selected: ['All five'] }]),
+      true
+    );
     assert.equal((await answer).approved, true);
     assert.deepEqual(home.state().handoffQuestions, []);
   } finally {

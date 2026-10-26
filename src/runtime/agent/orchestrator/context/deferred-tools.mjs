@@ -5,6 +5,7 @@
 // prompts can shed it.
 import { connectorTrigger } from '../../../shared/connector-triggers.mjs';
 import { parseMcpToolName, titleCaseMcpServer } from '../../../shared/tool-primitives.mjs';
+import { SKILL_TRIGGER_LISTING_MAX } from '../../../shared/skill-document.mjs';
 import { isToolBridgeEnabled, TOOL_BRIDGE_GUIDANCE } from '../runtime-core/tool-exposure.mjs';
 
 export function compactPromptManifestText(value, max = 250) {
@@ -77,7 +78,8 @@ function hasDeferredToolManifestBlock(text) {
  * wire tools). Each entry is either a bare name string or `{ name, description }`;
  * output lines are `- name: description` (description omitted when absent),
  * mirroring the available-skills manifest so the model calls deferred tools
- * directly. Descriptions are compacted and stripped of `<`/`>`.
+ * directly. Descriptions are compacted to the skill listing's trigger cap
+ * (skill-document.mjs SKILL_TRIGGER_LISTING_MAX) and stripped of `<`/`>`.
  * Empty pool → '' (caller omits the block).
  */
 export function buildDeferredToolManifest(entries) {
@@ -91,7 +93,7 @@ export function buildDeferredToolManifest(entries) {
     const description =
       typeof entry === 'string'
         ? ''
-        : compactPromptManifestText(String(entry?.description || '').replace(/[<>]/g, ''), 100);
+        : compactPromptManifestText(String(entry?.description || '').replace(/[<>]/g, ''), SKILL_TRIGGER_LISTING_MAX);
     list.push({ name, description });
   }
   if (!list.length) return '';
@@ -190,7 +192,7 @@ export function mcpServerLines(servers, instructions) {
     if (!label) continue;
     const trigger = compactPromptManifestText(
       String(mcpServerTrigger(server, tools, instructions)).replace(/[<>]/g, ''),
-      100
+      SKILL_TRIGGER_LISTING_MAX
     );
     lines.push({ label, trigger });
   }

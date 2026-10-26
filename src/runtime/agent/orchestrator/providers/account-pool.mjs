@@ -1,5 +1,6 @@
 import {
   ACCOUNT_PROVIDERS,
+  MAX_ACCOUNTS,
   accountScopedSessionId,
   readProviderAccountPool,
   chooseProviderAccount,
@@ -524,7 +525,8 @@ function poolSend(providerName, account) {
     // refusal held only for this model's family.
     let switched = false;
     let refusalScoped = false;
-    while (ledger.attempted.size < 20 && sends < 20) {
+    // One try per connectable account at most (provider-accounts.mjs MAX_ACCOUNTS).
+    while (ledger.attempted.size < MAX_ACCOUNTS && sends < MAX_ACCOUNTS) {
       options.signal?.throwIfAborted();
       const pool = readProviderAccountPool(providerName);
       if (!pool.accounts.length) {

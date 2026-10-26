@@ -129,7 +129,12 @@ test('messages queued hours apart and drained together keep their stored times l
   const h = homes(t, ['sess_home_lead']);
   const at = [Date.UTC(2026, 9, 19, 3, 0), Date.UTC(2026, 9, 19, 6, 0)];
   for (const [n, time] of at.entries()) {
-    await h.deps.queue.add('sess_home_lead', { runId: `heartbeat_${n}`, kind: 'agent-message', text: `check-in ${n}`, at: time });
+    await h.deps.queue.add('sess_home_lead', {
+      runId: `heartbeat_${n}`,
+      kind: 'agent-message',
+      text: `check-in ${n}`,
+      at: time,
+    });
   }
   await createAgentHomeDelivery(h.deps).drain('sess_home_lead');
   // Live: the notices as the open thread's surface shows them.
@@ -141,13 +146,20 @@ test('messages queued hours apart and drained together keep their stored times l
     pushItem: (item) => live.push(item),
     replaceItems: (rows) => rows,
   });
-  for (const [, { text, tone, ...options }] of h.notices) surface.pushNotice(text, tone, { ...options, transcript: true });
-  const restored = restoreTranscriptItems(h.sessions.get('sess_home_lead').messages, { sessionId: 'sess_home_lead' }).slice(1);
+  for (const [, { text, tone, ...options }] of h.notices)
+    surface.pushNotice(text, tone, { ...options, transcript: true });
+  const restored = restoreTranscriptItems(h.sessions.get('sess_home_lead').messages, {
+    sessionId: 'sess_home_lead',
+  }).slice(1);
   assert.deepEqual(
     live.map((item) => [item.kind, item.at, item.posted]),
     restored.map((item) => [item.kind, item.at, item.posted])
   );
-  assert.deepEqual(live.map((item) => item.at), at, 'the stored times, hours apart, in both views');
+  assert.deepEqual(
+    live.map((item) => item.at),
+    at,
+    'the stored times, hours apart, in both views'
+  );
 });
 
 test('a long task reply reaches the waking agent with its lines, cut at a line boundary and marked', async (t) => {
@@ -298,7 +310,12 @@ test("progress updates wake nobody and land before the bot's next turn, once and
   const delivery = createAgentHomeDelivery(h.deps);
   const task = { taskSessionId: 'sess_task_1', title: 'Parser', target: 'session' };
   for (const n of [1, 2, 3]) {
-    await delivery.enqueueTask('lead', { ...task, runId: `send_1_progress_turn_${n}`, status: 'working', text: `update ${n}` });
+    await delivery.enqueueTask('lead', {
+      ...task,
+      runId: `send_1_progress_turn_${n}`,
+      status: 'working',
+      text: `update ${n}`,
+    });
   }
   await delivery.enqueueTask('lead', { ...task, runId: 'send_2_end', status: 'completed', text: 'other final' });
   await delivery.drain('sess_home_lead');
@@ -356,7 +373,11 @@ test('past the queue limit, the prelude announces the omitted updates before the
   await delivery.postBeforeTurn('sess_home_lead');
   const thread = h.sessions.get('sess_home_lead').messages;
   const shown = () =>
-    thread.slice(1).map((message) => (message.meta.routine.omitted ? `omitted ${message.meta.routine.omitted}` : message.meta.routine.summary));
+    thread
+      .slice(1)
+      .map((message) =>
+        message.meta.routine.omitted ? `omitted ${message.meta.routine.omitted}` : message.meta.routine.summary
+      );
   assert.deepEqual(shown(), ['omitted 2', 'update 3', 'update 4'], 'the notice first, then the survivors');
   assert.equal(await queue.omitted('sess_home_lead'), null, 'retired with the rows it announced');
   assert.deepEqual(await queue.items('sess_home_lead'), []);
@@ -394,7 +415,12 @@ test('the prelude racing the idle drain posts every row and notice exactly once'
     h.state.busy = true;
     const delivery = createAgentHomeDelivery(h.deps);
     for (const n of [1, 2, 3, 4, 5]) {
-      await delivery.enqueueTask('lead', { ...task, runId: `s_progress_t${n}`, status: 'working', text: `update ${n}` });
+      await delivery.enqueueTask('lead', {
+        ...task,
+        runId: `s_progress_t${n}`,
+        status: 'working',
+        text: `update ${n}`,
+      });
     }
     await delivery.enqueueTask('lead', { ...task, runId: 's_end', status: 'completed', text: 'final' });
     await delivery.drain('sess_home_lead');
@@ -551,7 +577,12 @@ test('a final report whose answer is still queued as progress carries it instead
   h.state.busy = true;
   const delivery = createAgentHomeDelivery(h.deps);
   const task = { taskSessionId: 'sess_task_1', title: 'Parser' };
-  await delivery.enqueueTask('lead', { ...task, runId: 'send_1_progress_turn_1', status: 'working', text: 'All done.' });
+  await delivery.enqueueTask('lead', {
+    ...task,
+    runId: 'send_1_progress_turn_1',
+    status: 'working',
+    text: 'All done.',
+  });
   await delivery.enqueueTask('lead', {
     ...task,
     runId: 'send_1_end',

@@ -841,7 +841,9 @@ test('migration reports an unreadable agents directory and keeps the mapping pen
     process.stderr.write = origWrite;
   }
   assert.deepEqual(denied.failed, [join(dataDir, 'agents'), join(dataDir, 'bots')]);
-  assert.deepEqual(JSON.parse(readFileSync(pending, 'utf8')), { merged: [{ name: 'gmail', from: ['gmail', 'gmail-2'] }] });
+  assert.deepEqual(JSON.parse(readFileSync(pending, 'utf8')), {
+    merged: [{ name: 'gmail', from: ['gmail', 'gmail-2'] }],
+  });
 
   // The next start finds no such directory: nothing to migrate, record cleared.
   const missing = migrateMergedConnectorServers(dataDir, [], { readdir: refuse('ENOENT') });
@@ -884,7 +886,10 @@ test('an account turns on and off by its own flag and its server reconnects; the
   assert.deepEqual(h.rowFlags(), [undefined, false, undefined]);
 
   // Editing a disabled account never turns it on.
-  await h.api.saveMcpServer({ ...gmailAppPasswordServerInput('gmail-2', OTHER, OTHER_PASSWORD), originalName: 'gmail-2' });
+  await h.api.saveMcpServer({
+    ...gmailAppPasswordServerInput('gmail-2', OTHER, OTHER_PASSWORD),
+    originalName: 'gmail-2',
+  });
   assert.deepEqual(h.flags(), [undefined, false, undefined]);
   assert.deepEqual(h.live(), ['gmail', 'gmail-3']);
 
@@ -927,7 +932,10 @@ test('an account turns on and off by its own flag and its server reconnects; the
 });
 
 test('the account that shares its server’s name turns on with that name; turning it off is turning off the connector', async (t) => {
-  const h = accountsHarness(t, [{ ...appPasswordAccount('gmail', EMAIL), enabled: false }, appPasswordAccount('gmail-2', OTHER)]);
+  const h = accountsHarness(t, [
+    { ...appPasswordAccount('gmail', EMAIL), enabled: false },
+    appPasswordAccount('gmail-2', OTHER),
+  ]);
   assert.deepEqual(h.live(), ['gmail-2']);
 
   await h.api.setMcpServerEnabled('gmail', true);
@@ -940,7 +948,10 @@ test('the account that shares its server’s name turns on with that name; turni
 });
 
 test('turning off the last live account turns its server off, and turning an account on turns it back on', async (t) => {
-  const h = accountsHarness(t, [{ ...appPasswordAccount('gmail', EMAIL), enabled: false }, appPasswordAccount('gmail-2', OTHER)]);
+  const h = accountsHarness(t, [
+    { ...appPasswordAccount('gmail', EMAIL), enabled: false },
+    appPasswordAccount('gmail-2', OTHER),
+  ]);
   await h.api.setMcpServerEnabled('gmail-2', false);
   assert.equal(h.server().enabled, false);
   assert.deepEqual(h.flags(), [false, false]);

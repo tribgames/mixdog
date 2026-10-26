@@ -285,8 +285,14 @@ const settledAcrossPrefixes = (id, text) => {
   for (let length = 0; length <= text.length; length += 1) {
     const settled = redactSettledText(id, text.slice(0, length));
     const at = `${JSON.stringify(text.slice(0, length))} of ${JSON.stringify(text)}`;
-    assert.ok(settled.startsWith(previous), `${JSON.stringify(settled)} does not continue ${JSON.stringify(previous)} at ${at}`);
-    assert.ok(redacted.startsWith(settled), `${JSON.stringify(settled)} shows what ${JSON.stringify(redacted)} hides at ${at}`);
+    assert.ok(
+      settled.startsWith(previous),
+      `${JSON.stringify(settled)} does not continue ${JSON.stringify(previous)} at ${at}`
+    );
+    assert.ok(
+      redacted.startsWith(settled),
+      `${JSON.stringify(settled)} shows what ${JSON.stringify(redacted)} hides at ${at}`
+    );
     previous = settled;
   }
   return previous;
@@ -296,7 +302,8 @@ test('settled streaming text only ever grows, and holds back what later text can
   // A value that starts with a marker: the marker is held until the value is whole, and after it.
   const suffixed = 'sensitive-settled-suffixed';
   markFill(suffixed, '[redacted]suffix');
-  for (const text of ['[redacted]', '[redacted]s', '[redacted]suffix']) assert.equal(redactSettledText(suffixed, text), '');
+  for (const text of ['[redacted]', '[redacted]s', '[redacted]suffix'])
+    assert.equal(redactSettledText(suffixed, text), '');
   assert.equal(settledAcrossPrefixes(suffixed, 'pw [redacted]suffix tail'), 'pw [redacted] tail');
 
   // A replacement that joins the text before it: that text is held too.

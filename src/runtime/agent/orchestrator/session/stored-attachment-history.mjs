@@ -4,7 +4,8 @@
 // against this, not against a transcript window (a tail plus the pages paged
 // in), which no longer holds rows a compaction moved into the archive.
 
-const pick = (entry, keys) => Object.fromEntries(keys.filter((key) => entry?.[key] != null).map((key) => [key, entry[key]]));
+const pick = (entry, keys) =>
+  Object.fromEntries(keys.filter((key) => entry?.[key] != null).map((key) => [key, entry[key]]));
 const picked = (list, keys) => (Array.isArray(list) ? list.map((entry) => pick(entry, keys)) : []);
 
 /** The rows of `items` that name attachments, reduced to the fields the

@@ -1344,7 +1344,11 @@ test('after a restart, re-arm uses the durable touch and drops one inside the le
   });
   touches.record('sess_home_bot-a', { touchAt: now - 20 * MINUTE, ttlMs: 5 * MINUTE, promptTokens: 70_000 });
   touches.record('sess_home_bot-b', { touchAt: now - 5 * MINUTE, ttlMs: HOUR, promptTokens: 70_000 });
-  touches.record('sess_home_bot-d', { touchAt: now - HOUR + CACHE_WARM_LEAD_MS - 1, ttlMs: HOUR, promptTokens: 70_000 });
+  touches.record('sess_home_bot-d', {
+    touchAt: now - HOUR + CACHE_WARM_LEAD_MS - 1,
+    ttlMs: HOUR,
+    promptTokens: 70_000,
+  });
   let providersReady = 0;
   _setCacheWarmDepsForTest({
     now: () => h.clock,

@@ -126,7 +126,10 @@ export function createConnectorAccountEdits({
       ...serverFields,
       accounts: connectorAccountsOf(cfg).map((entry) =>
         entry.name === account.name
-          ? { ...connectorAccountEntry(account.name, next), ...(connectorAccountEnabled(entry) ? {} : { enabled: false }) }
+          ? {
+              ...connectorAccountEntry(account.name, next),
+              ...(connectorAccountEnabled(entry) ? {} : { enabled: false }),
+            }
           : entry
       ),
     };

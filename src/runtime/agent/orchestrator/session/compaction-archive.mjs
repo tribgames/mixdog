@@ -235,7 +235,12 @@ export function readCompactionArchivePage(storeDir, sessionId, range = {}) {
  *  walk never holds more than one segment. True when the walk completed;
  *  false when the archive was absent or unreadable (the visits made so far
  *  are then incomplete). */
-export function visitCompactionArchive(storeDir, sessionId, { after = 0, before = Number.POSITIVE_INFINITY } = {}, visit) {
+export function visitCompactionArchive(
+  storeDir,
+  sessionId,
+  { after = 0, before = Number.POSITIVE_INFINITY } = {},
+  visit
+) {
   return withArchive(storeDir, sessionId, false, async (entries, load) => {
     for (const entry of entries) {
       const { seq, count } = entry.head;

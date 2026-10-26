@@ -445,10 +445,12 @@ test('a computer secret without an exact window and field is refused at request 
   assert.deepEqual(calls, []);
 });
 
-test('a code length is the bound field\'s own, or absent; every saved login is presented', () => {
+test("a code length is the bound field's own, or absent; every saved login is presented", () => {
   const otp = (length) =>
-    humanRequestFields({ kind: 'secret', secret: { requestId: 'r', form: 'otp', ...(length === undefined ? {} : { length }) } })
-      .secret;
+    humanRequestFields({
+      kind: 'secret',
+      secret: { requestId: 'r', form: 'otp', ...(length === undefined ? {} : { length }) },
+    }).secret;
   for (const length of [2, 4, 8, 12]) assert.equal(otp(length).length, length);
   for (const length of [undefined, 0, -1, 6.5, '6']) assert.equal('length' in otp(length), false, String(length));
   const accounts = Array.from({ length: 20 }, (_, index) => ({ id: `c${index}`, label: `a•••${index}` }));

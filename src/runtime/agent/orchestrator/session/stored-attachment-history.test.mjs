@@ -145,7 +145,7 @@ test('a cleared or capped archive stays excluded, as for a window', async () => 
   assert.deepEqual(await historyIds('sess_hist_no_archive'), [hash('f')]);
 });
 
-test('only this session\'s own stored record answers; an absent or foreign one yields nothing', async () => {
+test("only this session's own stored record answers; an absent or foreign one yields nothing", async () => {
   store('sess_hist_own', { recent: hash('9') });
   store('sess_hist_other', { recent: hash('8') });
   assert.deepEqual(await historyIds('sess_hist_own'), [hash('9')]);

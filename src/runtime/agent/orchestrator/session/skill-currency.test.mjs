@@ -32,10 +32,11 @@ async function withSkills(run) {
   const write = (name, body, dependency = null) => {
     const dir = join(root, 'skills', name);
     mkdirSync(dir, { recursive: true });
-    const dependencies = dependency
-      ? `dependencies:\n  tools:\n    - type: tool\n      value: ${dependency}\n`
-      : '';
-    writeFileSync(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: Skill ${name}.\n${dependencies}---\n${body}\n`);
+    const dependencies = dependency ? `dependencies:\n  tools:\n    - type: tool\n      value: ${dependency}\n` : '';
+    writeFileSync(
+      join(dir, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: Skill ${name}.\n${dependencies}---\n${body}\n`
+    );
     invalidateSkillsCache(root);
   };
   const remove = (name) => {

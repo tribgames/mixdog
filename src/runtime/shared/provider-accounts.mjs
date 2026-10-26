@@ -15,7 +15,7 @@ export const ACCOUNT_PROVIDERS = Object.freeze([
   'antigravity-oauth',
   'opencode-go-oauth',
 ]);
-const MAX_ACCOUNTS = 20;
+export const MAX_ACCOUNTS = 20;
 // `dataDir` defaults to this process's data dir; an isolated runtime passes
 // the host's dir explicitly while its own MIXDOG_DATA_DIR points elsewhere.
 const file = (dataDir = resolvePluginData()) => join(dataDir, 'provider-accounts.json');

@@ -1,4 +1,9 @@
-import { sessionListOutput, sessionReadOutput, SESSION_TOOL_OUTPUT_BYTES } from './session-tool-output.mjs';
+import {
+  sessionListOutput,
+  sessionReadOutput,
+  SESSION_TITLE_LIMIT,
+  SESSION_TOOL_OUTPUT_BYTES,
+} from './session-tool-output.mjs';
 import { createAgentTaskSessions, taskSessionPendingWork } from '../session-runtime/agent-task-sessions.mjs';
 import { createBotStatus, scanCatalog, scopedBot } from '../session-runtime/bot-status.mjs';
 import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
@@ -241,7 +246,7 @@ export function createSessionControl({
     const title = await readTitle(sessionId);
     return {
       sessionId,
-      title: title ? escapeHarnessTags(truncateToolText(title, 160)) : null,
+      title: title ? escapeHarnessTags(truncateToolText(title, SESSION_TITLE_LIMIT)) : null,
       cwd: snapshot.cwd ?? null,
       provider: snapshot.provider ?? null,
       model: snapshot.model ?? null,

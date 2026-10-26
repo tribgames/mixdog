@@ -363,19 +363,13 @@ function pagedService(items, { retained = Infinity } = {}) {
     },
   };
 }
-/** `count` messages (each followed by a tool call), ids from `first`; message 0 is the early warning. */
-function longTranscript(count, first = 0) {
-  const items = [];
-  for (let i = first; i < first + count; i += 1) {
-    items.push({ id: `m${i}`, kind: i % 2 ? 'assistant' : 'user', text: i === 0 ? 'WARNING: backup failed' : `message ${i}` });
-    items.push({ id: `t${i}`, kind: 'tool', name: 'shell' });
-  }
-  return items;
-}
-
 test('a review reads one page, takes the latest 12 after the cursor, and counts what it left out', async () => {
   const msgs = (count, first = 0) =>
-    Array.from({ length: count }, (_, i) => ({ id: `m${first + i}`, kind: i % 2 ? 'assistant' : 'user', text: `message ${first + i}` }));
+    Array.from({ length: count }, (_, i) => ({
+      id: `m${first + i}`,
+      kind: i % 2 ? 'assistant' : 'user',
+      text: `message ${first + i}`,
+    }));
   const before = { id: 'before', kind: 'user', text: 'earlier' };
   // 48 messages after the cursor: one page is enough to know there are more.
   const big = pagedService([before, ...msgs(48)]);
@@ -446,7 +440,10 @@ test('a long interval: one call with the latest 12 messages, the line says how m
 });
 
 test('a cursor that cannot be found is reported as incomplete coverage even with 12 or fewer messages, and a NOTHING verdict keeps the line', async (t) => {
-  const items = [{ id: 'm1', kind: 'user', text: 'one' }, { id: 'm2', kind: 'assistant', text: 'two' }];
+  const items = [
+    { id: 'm1', kind: 'user', text: 'one' },
+    { id: 'm2', kind: 'assistant', text: 'two' },
+  ];
   const transcript = pagedService(items);
   const h = harness(t, {
     readTail: (id, options) => readSessionTail(transcript, id, options),
@@ -460,7 +457,10 @@ test('a cursor that cannot be found is reported as incomplete coverage even with
   h.state.facts = facts({ sessions: [{ ...activity.sessions[0], title: 'Report v2' }] });
   h.advance();
   await h.tick();
-  assert.match(h.calls.decide[0].digest[0], /; older messages since the last check could not be found, so some were not reviewed$/);
+  assert.match(
+    h.calls.decide[0].digest[0],
+    /; older messages since the last check could not be found, so some were not reviewed$/
+  );
   assert.equal(readJson(h.path).reviews.sess_lead_1.head, 'n1');
 });
 

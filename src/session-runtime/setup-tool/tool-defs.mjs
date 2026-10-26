@@ -307,7 +307,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         accountId: {
           type: 'string',
           description:
-            'forget_provider_auth: OAuth account id from status providers with detail:true; required when the provider has several accounts. set_media_default: optional account of the OAuth lane to pin; omitted = the lane provider\'s selected account.',
+            "forget_provider_auth: OAuth account id from status providers with detail:true; required when the provider has several accounts. set_media_default: optional account of the OAuth lane to pin; omitted = the lane provider's selected account.",
         },
         providerAccount: {
           type: 'object',

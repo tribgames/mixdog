@@ -518,16 +518,7 @@ async function lastUsedSessionRoute(sessionService) {
  *  on every state change of `runtime`), `stop` ends the wait. */
 function followTaskToFinal(
   { loadSession, owedResults, deliverCompletion, pendingWork, settleMs, pollMs, log },
-  {
-    sessionId,
-    runId,
-    runtime,
-    immediate = null,
-    wakeOwed = false,
-    finish,
-    interim = null,
-    progressedThrough = '',
-  }
+  { sessionId, runId, runtime, immediate = null, wakeOwed = false, finish, interim = null, progressedThrough = '' }
 ) {
   // The chain's ended answers, oldest first, `{ id, status, text }`; runId's
   // own is `immediate` when this process saw it. `latest`: turnChain's.
@@ -1189,29 +1180,29 @@ export function createAgentTaskSessions({
     // tried again at the follow's next check); `report` logs it instead.
     const deliverReport = (status, text = '', { approvalId = '', answerId = '' } = {}) =>
       Promise.resolve(beforeReport).then(async () =>
-          deliverWithRetries({ deliver, retryDelaysMs, log }, origin.agentId, sessionId, {
-            runId: turnReportRunId(sessionId, id, status, { approvalId, answerId }),
-            taskSessionId: sessionId,
-            title: origin.title,
-            status,
-            text,
-            ...target,
-            ...(origin.hop > 0 ? { hop: origin.hop } : {}),
-            ...roomFrom(origin.sessionId),
-            // A progress update moves this send's durable mark to its turn
-            // (agent-home-delivery.mjs enqueueTask), in the same write.
-            ...(status === 'working' ? { progressWatchId: id, answerId } : {}),
-            // A turn's end brings back the files it produced, when the agent
-            // may receive them (reportOrigin `textOnly`).
-            ...(status === 'blocked' || status === 'working'
-              ? {}
-              : {
-                  watchId: id,
-                  ...(sendIds.length > 1 ? { watchIds: sendIds } : {}),
-                  ...progressOf(id, answerId),
-                  ...(origin.textOnly ? {} : await artifactFields(sessionId, id, runtime)),
-                }),
-          })
+        deliverWithRetries({ deliver, retryDelaysMs, log }, origin.agentId, sessionId, {
+          runId: turnReportRunId(sessionId, id, status, { approvalId, answerId }),
+          taskSessionId: sessionId,
+          title: origin.title,
+          status,
+          text,
+          ...target,
+          ...(origin.hop > 0 ? { hop: origin.hop } : {}),
+          ...roomFrom(origin.sessionId),
+          // A progress update moves this send's durable mark to its turn
+          // (agent-home-delivery.mjs enqueueTask), in the same write.
+          ...(status === 'working' ? { progressWatchId: id, answerId } : {}),
+          // A turn's end brings back the files it produced, when the agent
+          // may receive them (reportOrigin `textOnly`).
+          ...(status === 'blocked' || status === 'working'
+            ? {}
+            : {
+                watchId: id,
+                ...(sendIds.length > 1 ? { watchIds: sendIds } : {}),
+                ...progressOf(id, answerId),
+                ...(origin.textOnly ? {} : await artifactFields(sessionId, id, runtime)),
+              }),
+        })
       );
     const report = (status, text = '', options = {}) =>
       deliverReport(status, text, options).catch((error) =>

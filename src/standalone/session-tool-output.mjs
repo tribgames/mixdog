@@ -7,6 +7,8 @@ import { summarizeToolResult } from '../runtime/shared/tool-result-summary.mjs';
 import { TOOL_OUTPUT_PAGE_BYTES, TOOL_OUTPUT_TAIL_BYTES } from '../runtime/shared/tool-output-budget.mjs';
 
 export const SESSION_TOOL_OUTPUT_BYTES = TOOL_OUTPUT_TAIL_BYTES;
+// A session title as the session tool quotes it, listed or read.
+export const SESSION_TITLE_LIMIT = 160;
 const MESSAGE_TEXT_LIMIT = 2000;
 const LIST_PREVIEW_LIMIT = 100;
 const outputBytes = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -29,7 +31,7 @@ export function sessionListOutput(page, limit, { rich = true, cursorOf = encodeC
     const working = row.working === true || row.agentWorking === true ? { working: true } : {};
     const base = {
       id: row.id,
-      ...(title ? { title: escapeHarnessTags(truncateToolText(title, 160)) } : {}),
+      ...(title ? { title: escapeHarnessTags(truncateToolText(title, SESSION_TITLE_LIMIT)) } : {}),
       ...(status ? { status } : {}),
       ...(row.cwd ? { cwd: row.cwd } : {}),
       ...(row.archived === true ? { archived: true } : {}),

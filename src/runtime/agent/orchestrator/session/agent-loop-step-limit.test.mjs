@@ -31,7 +31,10 @@ async function run(id, reply) {
   return { sends, result, messages };
 }
 
-const call = (n) => ({ content: `step ${n}`, toolCalls: [{ id: `c${n}`, name: 'probe', arguments: { path: 'a.txt' } }] });
+const call = (n) => ({
+  content: `step ${n}`,
+  toolCalls: [{ id: `c${n}`, name: 'probe', arguments: { path: 'a.txt' } }],
+});
 const finalTurn = { content: 'final answer', toolCalls: [], stopReason: 'end_turn' };
 
 for (const id of ['sess-uncapped-failing', 'sess-uncapped-replay']) {

@@ -304,7 +304,7 @@ test('an unanswered owner handshake fails at the bridge request timeout and the 
   );
 });
 
-test('a caller abort ends only that caller\'s wait, never the shared owner connection', {
+test("a caller abort ends only that caller's wait, never the shared owner connection", {
   timeout: 10_000,
 }, async () => {
   let held = null;
@@ -340,7 +340,11 @@ test('a caller abort ends only that caller\'s wait, never the shared owner conne
       // An abort after the connection is established leaves it open for later fills.
       const late = new AbortController();
       late.abort();
-      const lateResult = await executeComputerTool(fillArgs, { sessionId: 'abort-late', turnId: 1, signal: late.signal });
+      const lateResult = await executeComputerTool(fillArgs, {
+        sessionId: 'abort-late',
+        turnId: 1,
+        signal: late.signal,
+      });
       assert.match(lateResult.content[0].text, /aborted/);
       assert.equal(held.destroyed || held.socket?.destroyed, false, 'the owner connection stays open');
       const after = await executeComputerTool(fillArgs, { sessionId: 'abort-after', turnId: 1 });

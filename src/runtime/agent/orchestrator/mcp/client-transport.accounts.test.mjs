@@ -182,9 +182,7 @@ async function recordingAccountServer(t) {
       const message = JSON.parse(body);
       requests.push(message.method);
       res.setHeader('Content-Type', 'application/json');
-      res.end(
-        JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: 'ok' }] } })
-      );
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: 'ok' }] } }));
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -259,7 +257,9 @@ test('a connector whose every account is disabled does not connect', (t) => {
     () =>
       createMcpTransport({
         name: 'gmail',
-        cfg: accountsCfg([{ name: 'gmail', url: 'http://127.0.0.1:1/mcp', headers: { 'x-api-key': 'k' }, enabled: false }]),
+        cfg: accountsCfg([
+          { name: 'gmail', url: 'http://127.0.0.1:1/mcp', headers: { 'x-api-key': 'k' }, enabled: false },
+        ]),
         sdk: { StreamableHTTPClientTransport, SSEClientTransport },
         log: () => {},
       }),

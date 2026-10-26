@@ -203,9 +203,9 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
     for (const one of batch) {
       if (one?.method === 'notifications/cancelled') inflight.get(one.params?.requestId)?.abort();
     }
-    const replies = (
-      await Promise.all(batch.map((one) => (one?.id === undefined ? null : rpc(one, signal))))
-    ).filter(Boolean);
+    const replies = (await Promise.all(batch.map((one) => (one?.id === undefined ? null : rpc(one, signal))))).filter(
+      Boolean
+    );
     if (!replies.length) return new Response(null, { status: 202 });
     return json(200, Array.isArray(message) ? replies : replies[0]);
   };

@@ -27,11 +27,20 @@ test('every released session stays released, however many there are', async (t) 
   const ids = Array.from({ length: 501 }, (_, index) => `sess_${index}`);
   const store = createReleasedStore(file);
   store.mark(ids);
-  assert.ok(ids.every((id) => store.isReleased(id)), 'released before the write lands');
+  assert.ok(
+    ids.every((id) => store.isReleased(id)),
+    'released before the write lands'
+  );
   await store.flush();
-  assert.ok(ids.every((id) => store.isReleased(id)), 'released once persisted');
+  assert.ok(
+    ids.every((id) => store.isReleased(id)),
+    'released once persisted'
+  );
   const reopened = createReleasedStore(file);
-  assert.ok(ids.every((id) => reopened.isReleased(id)), 'released for a store reading the file');
+  assert.ok(
+    ids.every((id) => reopened.isReleased(id)),
+    'released for a store reading the file'
+  );
 });
 
 test('a missing file is an empty store', (t) => {

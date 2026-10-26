@@ -91,7 +91,11 @@ test('closing a session cancels its PostgreSQL runtime install and its queued wr
   ingestSessionTurn(turn(2));
   ingestSessionTurn(turn(3));
   await retrying;
-  assert.equal(stagingEntries().filter((name) => name.endsWith('.lock')).length, 1, 'the install holds its staging lock');
+  assert.equal(
+    stagingEntries().filter((name) => name.endsWith('.lock')).length,
+    1,
+    'the install holds its staging lock'
+  );
 
   await closeSessionSearch('sess_search_close');
   assert.equal(logged(CANCELLED), 1, 'the install was cancelled before the close resolved');

@@ -385,7 +385,9 @@ function persistPending(id) {
   // Jobs of an unrecovered sidecar are unknown here: rewriting or removing it
   // would drop them.
   if (!recovered.has(id)) {
-    writeStderrBestEffort(`[session] compaction archive pending sidecar not rewritten before it was read (sess=${id})\n`);
+    writeStderrBestEffort(
+      `[session] compaction archive pending sidecar not rewritten before it was read (sess=${id})\n`
+    );
     return false;
   }
   const path = pendingSidecarPath(getStoreDir(), id);

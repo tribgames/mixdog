@@ -98,9 +98,19 @@ const ALLOWED_SLEEPS = [
 test('a leading whole-second sleep of 2 s or more is refused with the Mixdog alternatives', () => {
   for (const [command, shellType, seconds] of REFUSED_SLEEPS) {
     const out = guard(command, shellType);
-    assert.match(out.failure ?? '', /^Error: \[shell-tool-failed\] Blocked: the leading sleep of \d+ s was not run\./, command);
+    assert.match(
+      out.failure ?? '',
+      /^Error: \[shell-tool-failed\] Blocked: the leading sleep of \d+ s was not run\./,
+      command
+    );
     assert.ok(out.failure.includes(`sleep of ${seconds} s was not run`), `${command}: ${out.failure}`);
-    for (const part of ['background:true', 'arrives automatically', 'task wait', 'do not poll', 'under 2 seconds is allowed']) {
+    for (const part of [
+      'background:true',
+      'arrives automatically',
+      'task wait',
+      'do not poll',
+      'under 2 seconds is allowed',
+    ]) {
       assert.ok(out.failure.includes(part), `${command}: ${part}`);
     }
   }
@@ -372,7 +382,8 @@ test('a leading sleep is refused before hooks, approvals and execution', async (
   const seen = [];
   const hookSession = { id: 'misuse-sleep', cwd: session };
   const hooks = { beforeToolHook: (input) => seen.push(input), toolApprovalHook: () => seen.push('approval') };
-  const sleepCommand = resolveShellFor('default').shellType === POWERSHELL ? 'Start-Sleep 50; echo ran' : 'sleep 50; echo ran';
+  const sleepCommand =
+    resolveShellFor('default').shellType === POWERSHELL ? 'Start-Sleep 50; echo ran' : 'sleep 50; echo ran';
   const out = await executeTool('shell', { command: sleepCommand }, session, hookSession.id, hookSession, hooks);
   assert.match(textOf(out), /Blocked: the leading sleep of 50 s was not run\./);
   assert.deepEqual(seen, []);

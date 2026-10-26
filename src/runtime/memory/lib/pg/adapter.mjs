@@ -493,74 +493,77 @@ export async function ensurePgInstance(dataDir, opts = {}) {
   // every caller has (createSharedAbortable).
   if (opening.has(key)) return opening.get(key).join(opts.signal);
 
-  const shared = createSharedAbortable(async (signal) => {
-    // 1. Let supervisor-pg own PG startup and health-checking.
-    //    Returns { host, port, runtimeDir, pgdataDir }.
-    const { host, port, runtimeDir, pgdataDir } = await supervisorEnsure(dataDir, { signal });
-    signal.throwIfAborted();
+  const shared = createSharedAbortable(
+    async (signal) => {
+      // 1. Let supervisor-pg own PG startup and health-checking.
+      //    Returns { host, port, runtimeDir, pgdataDir }.
+      const { host, port, runtimeDir, pgdataDir } = await supervisorEnsure(dataDir, { signal });
+      signal.throwIfAborted();
 
-    // 2. Connect via node-postgres; auto-create the mixdog database if absent.
-    const { default: pg } = await import('pg');
+      // 2. Connect via node-postgres; auto-create the mixdog database if absent.
+      const { default: pg } = await import('pg');
 
-    const PG_USER = 'postgres';
-    const PG_DB = 'mixdog';
+      const PG_USER = 'postgres';
+      const PG_DB = 'mixdog';
 
-    const adminPool = new pg.Pool({
-      host,
-      port,
-      user: PG_USER,
-      database: 'postgres',
-      password: '',
-      max: 1,
-      idleTimeoutMillis: 5_000,
-    });
-    installPoolErrorHandler(adminPool, 'admin-pool');
-    try {
-      // CREATE DATABASE cannot run inside a transaction, so guard the
-      // check-then-create with a session-level advisory lock held on a single
-      // dedicated client. Concurrent first-boot workers block on the same
-      // cluster-global key here and only one issues the CREATE; the rest see
-      // the row present after the holder releases. Released in finally.
-      await withClusterAdvisoryLock(adminPool, ADVISORY_OBJID_CREATE_DB, 'create-db', async (adminClient) => {
-        const r = await adminClient.query(`SELECT 1 FROM pg_database WHERE datname = $1`, [PG_DB]);
-        if (r.rows.length === 0) {
-          await adminClient.query(`CREATE DATABASE ${PG_DB}`);
-          __mixdogMemoryLog(`[pg-adapter] created database ${PG_DB}\n`);
-        }
+      const adminPool = new pg.Pool({
+        host,
+        port,
+        user: PG_USER,
+        database: 'postgres',
+        password: '',
+        max: 1,
+        idleTimeoutMillis: 5_000,
       });
-    } finally {
-      await adminPool.end();
-    }
+      installPoolErrorHandler(adminPool, 'admin-pool');
+      try {
+        // CREATE DATABASE cannot run inside a transaction, so guard the
+        // check-then-create with a session-level advisory lock held on a single
+        // dedicated client. Concurrent first-boot workers block on the same
+        // cluster-global key here and only one issues the CREATE; the rest see
+        // the row present after the holder releases. Released in finally.
+        await withClusterAdvisoryLock(adminPool, ADVISORY_OBJID_CREATE_DB, 'create-db', async (adminClient) => {
+          const r = await adminClient.query(`SELECT 1 FROM pg_database WHERE datname = $1`, [PG_DB]);
+          if (r.rows.length === 0) {
+            await adminClient.query(`CREATE DATABASE ${PG_DB}`);
+            __mixdogMemoryLog(`[pg-adapter] created database ${PG_DB}\n`);
+          }
+        });
+      } finally {
+        await adminPool.end();
+      }
 
-    // 3. Production pool.
-    const pgPool = new pg.Pool({
-      host,
-      port,
-      user: PG_USER,
-      database: PG_DB,
-      password: '',
-      max: 5,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000,
-    });
-    installPoolErrorHandler(pgPool, `pool:${schema}`, {
-      onConnectionLoss: () => _recoverPgConnection(dataDir, schema),
-    });
+      // 3. Production pool.
+      const pgPool = new pg.Pool({
+        host,
+        port,
+        user: PG_USER,
+        database: PG_DB,
+        password: '',
+        max: 5,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 10_000,
+      });
+      installPoolErrorHandler(pgPool, `pool:${schema}`, {
+        onConnectionLoss: () => _recoverPgConnection(dataDir, schema),
+      });
 
-    // 4. Bootstrap extensions + schemas once (idempotent).
-    await bootstrapInstance(pgPool, resolve(dataDir));
+      // 4. Bootstrap extensions + schemas once (idempotent).
+      await bootstrapInstance(pgPool, resolve(dataDir));
 
-    // 5. Build the compat db shim.
-    const db = makeCompatDb(pgPool, schema, dataDir);
+      // 5. Build the compat db shim.
+      const db = makeCompatDb(pgPool, schema, dataDir);
 
-    const result = { db, pool: pgPool, host, port, runtimeDir, pgdataDir };
-    instances.set(key, result);
-    return result;
-  }, {
-    onSettled: () => {
-      if (opening.get(key) === shared) opening.delete(key);
+      const result = { db, pool: pgPool, host, port, runtimeDir, pgdataDir };
+      instances.set(key, result);
+      return result;
     },
-  });
+    {
+      onSettled: () => {
+        if (opening.get(key) === shared) opening.delete(key);
+      },
+    }
+  );
 
   opening.set(key, shared);
   return shared.join(opts.signal);

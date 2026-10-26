@@ -504,7 +504,10 @@ test('a busy chain answering repeatedly posts each answer once as progress, waki
     w.pool.push(worker('running'), { ...worker('running'), tag: 'reviewer', sessionId: 'sess_agent_rev' });
     first.options.onSettled({ status: 'done', result: { content: INTERIM } });
     await pump(p.delivery);
-    const answers = ['Worker reported: parser done; Reviewer is checking.', 'Reviewer asked for a fix; Worker is on it.'];
+    const answers = [
+      'Worker reported: parser done; Reviewer is checking.',
+      'Reviewer asked for a fix; Worker is on it.',
+    ];
     for (const answer of answers) {
       await wokenTurn(w, p, answer);
       await pump(p.delivery);

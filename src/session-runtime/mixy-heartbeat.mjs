@@ -637,8 +637,7 @@ export function createMixyHeartbeat({
   // Milliseconds between checks, read at every tick so a changed setting applies at once.
   intervalMs = async () =>
     normalizeHeartbeatIntervalMinutes(
-      (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false })
-        .heartbeatIntervalMinutes
+      (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeatIntervalMinutes
     ) * 60_000,
   userTurnAt = () => lastUserTurnAt,
   appInputAt = () => lastAppInputAt,

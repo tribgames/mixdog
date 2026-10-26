@@ -63,7 +63,10 @@ export interface ConnectorAccountEntry {
 }
 export function connectorAccountsUrl(id: string): string;
 export function connectorAccountsOf(cfg: unknown): ConnectorAccountEntry[];
-export function connectorAccountServer(cfg: Record<string, unknown>, account: ConnectorAccountEntry): Record<string, unknown>;
+export function connectorAccountServer(
+  cfg: Record<string, unknown>,
+  account: ConnectorAccountEntry
+): Record<string, unknown>;
 export function connectorAccountServers(cfg: unknown): Record<string, unknown>[];
 export function connectorAccountEnabled(account: ConnectorAccountEntry): boolean;
 export function connectorLiveAccountServers(cfg: unknown): Record<string, unknown>[];
