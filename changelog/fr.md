@@ -5,6 +5,65 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Ajout de contrôles des notifications avec heures de tranquillité et mises en sourdine, d’identifiants enregistrés qui se renseignent automatiquement, et du préchauffage automatique du cache d’instructions.
+
+### Nouvelles fonctionnalités
+
+- **Contrôles des notifications** — Ajout des paramètres de notification par appareil, de la mise en sourdine des conversations, des heures de tranquillité et des notifications d’erreur sous Réglages → Notifications, avec Autoriser sur les notifications d’approbation pour lesquelles le PC autorise en une fois (#221, thanks @dislight1123).
+- **Tâches déléguées par des bots** — Ajout d’une ligne en direct par tâche sous la réponse pour le travail qu’un bot délègue à d’autres sessions, se concluant par une carte récapitulative unique.
+- **Identifiants enregistrés** — Ajout de la connexion automatique avec identifiants enregistrés et codes à usage unique sous Réglages → Authentification, sans que le modèle ne voie jamais les secrets.
+- **Importation des identifiants Chrome** — Ajout de l’importation des identifiants enregistrés de Chrome, y compris ceux chiffrés récents liés aux applications, dans la page Identifiants repensée avec un bouton pour enregistrer/rester connecté.
+- **Connexion depuis votre messagerie** — Ajout de l’ouverture des liens de connexion et du remplissage automatique des codes issus de votre messagerie vérifiée, avec mémorisation du fournisseur d’identité utilisé par chaque site.
+- **Identifiants enregistrés dans Chrome et Edge** — Ajout du remplissage automatique des identifiants enregistrés dans votre propre navigateur Chrome ou Edge par Computer Use, sans les exposer au modèle.
+- **Préchauffage du cache d’instructions** — Ajout du préchauffage du cache d’instructions pour les modèles Anthropic, activé par défaut sous Réglages → Contexte, apprenant quand vous revenez à chaque conversation et préchauffant un bot avant sa prochaine exécution planifiée.
+- **Davantage de connexions Google** — Ajout de la connexion de comptes Google supplémentaires à Gmail, Calendar et Drive, avec choix du compte par requête et invite de connexion claire.
+- **Fermeture du dock mobile par balayage** — Ajout de la fermeture du dock latéral sur téléphone en balayant son contenu, et plus seulement son bord.
+
+### Modifications
+
+- Réorganisation de Réglages en quatre sections : Essentiel, Comportement de l’IA, Intégrations et Assistance.
+- Modification de la saisie, du changement de session et d’onglet, de la Recherche, des Réglages, des panneaux latéraux, du terminal et de Modifications pour s’ouvrir instantanément, avec des animations d’état plus fluides.
+- Modification des approbations des sessions déléguées par des bots afin qu’elles apparaissent dans chaque discussion en attente, avec le même libellé et les mêmes raccourcis sur chaque carte d’approbation.
+- Modification des lignes de sessions et de bots pour afficher un triangle ambré pour une attente d’approbation, une icône de point d’interrogation pour une question, et le nombre de tâches en attente d’un bot.
+- Modification des sessions de tâches des bots et des sous-agents pour porter leur propre point d’élément non lu, marqué comme lu conjointement avec la discussion à laquelle ils rapportent.
+- Modification du téléphone jumelé pour lire, prévisualiser, télécharger et ouvrir les fichiers de la même manière que le PC.
+- Modification du sélecteur de fichiers `@` pour lister d’abord les chemins courts et peu profonds, s’ouvrir sur les travaux récents et trouver des fichiers dans les dossiers liés au-delà de l’ancienne limite d’analyse (#228, thanks @reeves-ai-lch).
+- Modification de Visualize pour ouvrir des pages depuis n’importe quel dossier local, en nommant les pages d’index d’après leur dossier.
+- Modification de la fenêtre contextuelle d’utilisation et du rail d’utilisation épinglé pour afficher chaque limite sous la forme d’une ligne au-dessus d’une barre pleine largeur.
+- Modification de l’outil shell pour accepter un dossier de travail facultatif, afin que les commandes ne commencent plus par `cd`.
+- Modification de l’outil shell pour refuser une commande débutant par une pause sleep de 2 secondes ou plus, orientant plutôt vers `background:true` et `task wait`.
+- Modification des lancements de terminal d’agent et des pages de navigateur pour ouvrir leur onglet sur le PC et les appareils jumelés, et des lignes de transcription pour ouvrir exactement cet onglet.
+- Modification de Browser Use pour plafonner le nombre de pages en arrière-plan par session et les fermer une fois un tour terminé.
+- Modification des attentes de nouvelle tentative pour afficher une raison fixe et un compte à rebours en direct plutôt que le message d’erreur brut.
+- Modification des discussions de bots pour ne plus afficher de carte de fichiers modifiés sous une réponse, tandis que l’heure de réponse et le passage de relais partagent une seule ligne.
+- Modification de la liste des langues pour afficher le coréen sous son propre nom.
+- Modification du point régulier de Mixy pour s’exécuter par défaut toutes les heures, avec un intervalle sélectionnable sous Réglages → Bots.
+- Ajustement du tiroir sur téléphone et du scintillement de réflexion pour une animation plus fluide.
+
+### Corrections de bugs
+
+- Correction de la perte de disposition des volets scindés lors de la réinitialisation du stockage local de l’application.
+- Correction du décalage des bordures, séparateurs et couleurs des panneaux lors de l’ouverture ou de la fermeture d’un panneau latéral.
+- Correction du contenu du tiroir mobile qui disparaissait pendant son animation de fermeture.
+- Correction du bot épinglé qui quittait l’extrémité droite de la zone de saisie après la fermeture d’un panneau latéral, et des discussions qui descendaient d’une ligne à l’ouverture.
+- Correction de la ligne d’un bot qui ne tournait pas ou n’affichait pas de point de non-lu pendant l’exécution de ses sessions de tâches.
+- Correction du clic sur une notification de bureau qui laissait la barre latérale sur la session précédente ou ne faisait rien lorsque la fenêtre était masquée.
+- Correction de la réponse à une carte de question à la fin d’une discussion qui empêchait la transcription de suivre la réponse.
+- Correction des sessions de tâches créées avec un modèle explicite qui échouaient avec "service is not defined".
+- Correction du point régulier de Mixy qui s’exécutait alors que vous utilisiez encore l’application de bureau.
+- Correction de Computer Use qui écrivait dans des fenêtres passant au premier plan toutes seules et dans des champs en lecture seule ou désactivés.
+- Correction des mots de passe enregistrés de plus de 4 096 caractères qui étaient tronqués, et des secrets de moins de quatre caractères qui apparaissaient non masqués dans les discussions.
+- Correction de la perte d’une tentative en file d’attente pour un tour ayant échoué, ainsi que du choix de compétence d’une routine après un redémarrage (#229, thanks @22nsuk).
+- Correction de la reprise automatique de quota par SSH qui lisait le quota du serveur au lieu de celui du PC lorsque le PC détenait la session connectée (#232, thanks @22nsuk).
+- Correction de `Option`+`Left`/`Right` qui ne déplaçait pas le curseur mot par mot dans les champs de texte sous macOS (#230, thanks @wudys).
+- Correction de la sélection de contexte d’un profil d’agent qui n’était pas conservée (#226, thanks @22nsuk), et de l’échec de Cursor lors de conflits de contexte stocké (#225, thanks @22nsuk).
+- Correction d’une session de tâche en attente marquée comme bloquée et d’un compte de connecteur désactivé qui ne pouvait pas être réactivé.
+- Correction de la perte de nouvelle tentative lors d’une erreur de session expirée, et du panneau de navigateur affichant une page vierge après la fermeture de son dernier onglet.
+- Correction du clic sur une pièce jointe dans une conversation longue ou compressée qui échouait avec "This conversation has no such attachment.".
+- Correction du panneau d’agent sur mobile affichant un titre Profil en double au-dessus de ses propres onglets.
+- Correction de la vue Modifications du panneau latéral intitulée Profil après qu’un profil de bot y a été ouvert en dernier.
+- Correction de la liste des sessions et de la discussion sur téléphones Android qui se figeaient après un défilement rapide puis sautaient.
+
 ## v1.3.5 - 2026-10-24
 
 Ajout des réactions emoji, des vérifications régulières et des connexions aux modèles sur serveur SSH, avec des connecteurs Google vérifiés, des balayages de volets sur téléphone et des correctifs étendus.

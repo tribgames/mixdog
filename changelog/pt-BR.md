@@ -4,6 +4,65 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Adicionados controles de notificação com horário de silêncio e silenciamentos, logins salvos que se autopreenchem e aquecimento automático de cache de prompts.
+
+### Novos recursos
+
+- **Controles de notificação** — Adicionadas configurações de notificação por dispositivo, silenciamento de conversas, horários de silêncio e notificações de erro em Configurações → Notificações, com Permitir em notificações de aprovação nas quais o PC autoriza de uma vez (#221, thanks @dislight1123).
+- **Trabalho delegado por bots** — Adicionada uma linha em tempo real por tarefa abaixo da resposta para trabalhos que um bot delega a outras sessões, finalizando em um único cartão de conclusão.
+- **Logins salvos** — Adicionado o login automático com credenciais salvas e códigos de uso único gerenciados em Configurações → Autenticação, sem que o modelo veja os dados secretos.
+- **Importação de logins do Chrome** — Adicionada a importação de logins salvos do Chrome, incluindo os criptografados vinculados a aplicativos mais recentes, na página de Logins remodelada com um alternador de salvar/manter conectado.
+- **Login a partir do seu e-mail** — Adicionada a abertura de links de login e o preenchimento de códigos a partir do seu e-mail verificado, lembrando qual provedor de identidade cada site utilizou.
+- **Logins salvos no Chrome e Edge** — Adicionado o preenchimento por Computer Use de um login salvo no seu próprio Chrome ou Edge sem expô-lo ao modelo.
+- **Aquecimento de cache de prompts** — Adicionado aquecimento de cache de prompts para modelos Anthropic, ativado por padrão em Configurações → Contexto, aprendendo quando você retorna a cada conversa e aquecendo um bot antes de sua próxima execução agendada.
+- **Mais conexões Google** — Adicionada a conexão de mais contas Google ao Gmail, Calendar e Drive, escolhendo a conta por solicitação, com uma solicitação de login clara.
+- **Fechar dock do celular por deslizamento** — Adicionado o fechamento do dock lateral no celular deslizando a partir do seu conteúdo, e não apenas da borda.
+
+### Alterações
+
+- Reorganizadas as Configurações em quatro seções: Básico, Comportamento da IA, Integrações e Suporte.
+- Digitação, alternância de sessões e abas, Busca, Configurações, painéis laterais, terminal e Alterações alterados para abrir instantaneamente, com animações de status mais suaves.
+- Aprovações de sessões delegadas por bots alteradas para aparecer em todos os chats que aguardam por elas, com a mesma redação e atalhos em cada cartão de aprovação.
+- Linhas de sessões e bots alteradas para exibir um triângulo âmbar para espera de aprovação, um ícone de interrogação para perguntas e a contagem de tarefas pendentes de um bot.
+- Sessões de tarefas de bots e subagentes alteradas para ter seu próprio ponto de não lido, marcado como lido junto com o chat ao qual respondem.
+- Telefone emparelhado alterado para ler, pré-visualizar, baixar e abrir arquivos da mesma forma que o PC.
+- Seletor de arquivos `@` alterado para listar primeiro caminhos curtos e rasos, abrir com trabalhos recentes e encontrar arquivos em pastas vinculadas além do antigo limite de varredura (#228, thanks @reeves-ai-lch).
+- Visualize alterado para abrir páginas a partir de qualquer pasta local, nomeando páginas de índice pelo nome da pasta.
+- Popup de uso e barra de uso fixada alterados para exibir cada limite como uma linha sobre uma barra de largura total.
+- Ferramenta shell alterada para receber uma pasta de trabalho opcional, de modo que os comandos não comecem mais com `cd`.
+- Ferramenta shell alterada para recusar comandos que comecem com uma pausa de 2 segundos ou mais, direcionando para `background:true` e `task wait`.
+- Execuções de terminal de agentes e páginas de navegador alteradas para abrir suas abas no PC e em dispositivos emparelhados, e linhas de histórico abrem exatamente essa aba.
+- Browser Use alterado para limitar as páginas em segundo plano por sessão e fechá-las após o término de um turno.
+- Esperas de nova tentativa alteradas para exibir um motivo fixo e uma contagem regressiva em tempo real em vez do texto de erro bruto.
+- Chats de bots alterados para não exibir cartão de arquivos modificados sob uma resposta, e o horário da resposta e a transferência compartilham uma única linha.
+- Lista de idiomas alterada para exibir o coreano pelo seu próprio nome.
+- Verificação periódica do Mixy alterada para rodar a cada hora por padrão, com intervalo selecionável em Configurações → Bots.
+- Gaveta do celular e efeito de "pensando" ajustados para animar de forma mais suave.
+
+### Correções de bugs
+
+- Corrigida a perda de layout de painéis divididos quando o armazenamento local do aplicativo é redefinido.
+- Corrigido o deslocamento de bordas, divisores e cores de painéis ao abrir ou fechar um painel lateral.
+- Corrigido o desaparecimento do conteúdo da gaveta do celular durante o fechamento por deslizamento.
+- Corrigido o bot fixado que saía da extremidade direita do campo de entrada após o fechamento de um painel lateral, e chats caindo uma linha ao entrar.
+- Corrigida a linha de um bot que não girava nem exibia pontos de não lido enquanto suas sessões de tarefas trabalhavam.
+- Corrigido o clique em uma notificação da área de trabalho que mantinha a barra lateral na sessão anterior ou não fazia nada com a janela oculta.
+- Corrigida a resposta a um cartão de pergunta no final de um chat que impedia o histórico de acompanhar a resposta.
+- Corrigidas sessões de tarefas criadas com um modelo explícito que falhavam com "service is not defined".
+- Corrigida a verificação periódica do Mixy que era executada enquanto o aplicativo de desktop ainda estava em uso.
+- Corrigido Computer Use digitando em janelas que se sobrepunham sozinhas e escrevendo em campos somente leitura ou desativados.
+- Corrigidas senhas salvas com mais de 4.096 caracteres que eram truncadas e dados secretos com menos de quatro caracteres que ficavam sem máscara nos chats.
+- Corrigida a perda de uma nova tentativa enfileirada de um turno com falha e da escolha de habilidade de uma rotina após a reinicialização (#229, thanks @22nsuk).
+- Corrigida a retomada automática de cota via SSH que lia a cota do servidor em vez da do PC quando o PC mantinha o login (#232, thanks @22nsuk).
+- Corrigido `Option`+`Left`/`Right` que não se movia por palavras em campos de texto no macOS (#230, thanks @wudys).
+- Corrigida a seleção de contexto do perfil de um agente que não era preservada (#226, thanks @22nsuk) e falhas do Cursor em conflitos de contexto armazenado (#225, thanks @22nsuk).
+- Corrigida uma sessão de tarefas em espera exibida como travada e uma conta de conector desativada que não podia ser reativada.
+- Corrigida a perda de nova tentativa em erro de turno por login expirado e o painel do navegador exibindo uma página em branco após fechar sua última página.
+- Corrigido o erro "This conversation has no such attachment." ao clicar em um anexo em conversas longas ou compactadas.
+- Corrigido o painel do agente no celular exibindo um título Perfil duplicado acima de suas próprias abas.
+- Corrigida a visualização Alterações do painel lateral intitulada Perfil após o perfil de um bot ter sido aberto lá pela última vez.
+- Corrigida a lista de sessões e o chat em celulares Android travando após rolagem rápida e saltando em seguida.
+
 ## v1.3.5 - 2026-10-24
 
 Adicionadas reações com emojis, revisões regulares e logins de modelos em servidor SSH, com conectores verificados do Google, gestos de deslizar gavetas no celular e amplas correções.

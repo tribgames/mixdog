@@ -5,6 +5,65 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se añadieron controles de notificaciones con horas de silencio y silenciamientos, inicios de sesión guardados que se completan automáticamente y preparación previa automática de la caché de instrucciones.
+
+### Nuevas funciones
+
+- **Controles de notificaciones** — Se añadieron ajustes de notificaciones por dispositivo, silenciamientos de conversaciones, horas de silencio y notificaciones de error en Configuración → Notificaciones, con Permitir en las notificaciones de aprobación donde el PC autoriza una vez (#221, thanks @dislight1123).
+- **Trabajo delegado por bots** — Se añadió una línea en vivo por tarea bajo la respuesta para el trabajo que un bot delega a otras sesiones, finalizando en una única tarjeta de conclusión.
+- **Inicios de sesión guardados** — Se añadió el inicio de sesión automático con credenciales guardadas y códigos de un solo uso, gestionado en Configuración → Autenticación, sin que el modelo vea nunca los datos secretos.
+- **Importación de inicios de sesión de Chrome** — Se añadió la importación de inicios de sesión guardados de Chrome, incluidos los cifrados vinculados a aplicaciones más recientes, en la página de Inicios de sesión rediseñada con un interruptor para guardar/mantener sesión iniciada.
+- **Inicio de sesión desde tu correo** — Se añadió la apertura de enlaces de inicio de sesión y el llenado de códigos desde tu correo verificado, recordando qué proveedor de identidad utilizó cada sitio.
+- **Inicios de sesión guardados en Chrome y Edge** — Se añadió la función para que Computer Use complete un inicio de sesión guardado en tu propio Chrome o Edge sin exponerlo al modelo.
+- **Preparación de la caché de instrucciones** — Se añadió la preparación previa de la caché de instrucciones para modelos de Anthropic, activada por defecto en Configuración → Contexto, aprendiendo cuándo regresas a cada conversación y preparando un bot antes de su próxima ejecución programada.
+- **Más conexiones de Google** — Se añadió la conexión de más cuentas de Google a Gmail, Calendar y Drive, eligiendo la cuenta por solicitud, con un aviso de inicio de sesión claro.
+- **Cierre del dock del teléfono deslizando** — Se añadió el cierre del dock lateral del teléfono al deslizar desde su contenido, no solo desde su borde.
+
+### Cambios
+
+- Se reorganizó Configuración en cuatro secciones: Básico, Comportamiento de la IA, Integraciones y Soporte.
+- La escritura, el cambio de sesión y de pestaña, Buscar, Configuración, los paneles laterales, la terminal y Cambios se cambiaron para abrirse instantáneamente, con animaciones de estado más fluidas.
+- Las aprobaciones de sesiones delegadas por bots ahora aparecen en cada chat que las esté esperando, con la misma redacción y teclas en cada tarjeta de aprobación.
+- Las filas de sesiones y bots ahora muestran un triángulo ámbar para esperas de aprobación, un icono de pregunta para dudas y el recuento de tareas pendientes de un bot.
+- Las sesiones de tareas de bots y los subagentes ahora llevan su propio punto de no leído, marcándose como leídos junto con el chat al que informan.
+- Un teléfono vinculado ahora lee, previsualiza, descarga y abre archivos de la misma manera que el PC.
+- El selector de archivos `@` ahora enumera primero las rutas cortas y poco profundas, se abre con el trabajo reciente y encuentra archivos en carpetas vinculadas superando el límite anterior de escaneo (#228, thanks @reeves-ai-lch).
+- Visualize ahora abre páginas desde cualquier carpeta local, nombrando las páginas de índice según su carpeta.
+- La ventana emergente de uso y la barra de uso anclada ahora muestran cada límite como una línea sobre una barra de ancho completo.
+- La herramienta shell ahora admite una carpeta de trabajo opcional, por lo que los comandos ya no comienzan con `cd`.
+- La herramienta shell ahora rechaza comandos que comiencen con una pausa de 2 segundos o más, indicando el uso de `background:true` y `task wait` en su lugar.
+- Las ejecuciones de terminal de agentes y las páginas del navegador ahora abren su pestaña en el PC y dispositivos vinculados, y las líneas de transcripción abren exactamente esa pestaña.
+- Browser Use ahora limita las páginas en segundo plano por sesión y las cierra al finalizar un turno.
+- Las esperas de reintento ahora muestran un motivo fijo y una cuenta regresiva en vivo en lugar del texto del error sin procesar.
+- Los chats de bots ya no muestran tarjetas de archivos modificados bajo las respuestas, y la hora de respuesta y el traspaso comparten una misma línea.
+- La lista de idiomas ahora muestra el coreano con su propio nombre.
+- La revisión periódica de Mixy ahora se ejecuta cada hora por defecto, pudiendo seleccionarse el intervalo en Configuración → Bots.
+- Se ajustaron el cajón del teléfono y el brillo de "pensando" para animarse con mayor fluidez.
+
+### Correcciones de errores
+
+- Se corrigió la pérdida del diseño de paneles divididos al restablecer el almacenamiento local de la aplicación.
+- Se corrigió el desplazamiento de bordes, divisores y colores de paneles al abrir o cerrar un panel lateral.
+- Se corrigió la desaparición del contenido del cajón del teléfono mientras se desliza para cerrarse.
+- Se corrigió que el bot anclado se desplazara del extremo derecho del cuadro de entrada tras cerrar un panel lateral y que los chats cayeran una línea al entrar.
+- Se corrigió que la fila de un bot no girara ni mostrara puntos de no leído mientras sus sesiones de tareas trabajaban.
+- Se corrigió que al hacer clic en una notificación de escritorio la barra lateral se quedara en la sesión anterior o no hiciera nada si la ventana estaba oculta.
+- Se corrigió que al responder a una tarjeta de pregunta al final de un chat la transcripción dejara de seguir a la respuesta.
+- Se corrigió que las sesiones de tareas creadas con un modelo explícito fallaran con "service is not defined".
+- Se corrigió que la revisión periódica de Mixy se ejecutara mientras aún se utilizaba la aplicación de escritorio.
+- Se corrigió que Computer Use escribiera en ventanas que se superponían solas y en campos de solo lectura o deshabilitados.
+- Se corrigieron contraseñas guardadas de más de 4.096 caracteres que se truncaban y secretos de menos de cuatro caracteres que quedaban sin ocultar en los chats.
+- Se corrigió la pérdida de un reintento en cola de un turno fallido y la elección de habilidad de una rutina tras reiniciar (#229, thanks @22nsuk).
+- Se corrigió que la reanudación automática de cuota por SSH leyera la cuota del servidor en lugar de la del PC cuando este último mantenía la sesión (#232, thanks @22nsuk).
+- Se corrigió que `Option`+`Left`/`Right` no se moviera por palabras en campos de texto en macOS (#230, thanks @wudys).
+- Se corrigió que la selección de contexto del perfil de un agente no se conservara (#226, thanks @22nsuk) y que Cursor fallara por conflictos de contexto almacenado (#225, thanks @22nsuk).
+- Se corrigió que una sesión de tareas en espera figurara como bloqueada y que no se pudiera volver a activar una cuenta de conector deshabilitada.
+- Se corrigió la pérdida del reintento en errores de turno por caducidad de inicio de sesión y que el panel del navegador mostrara una página en blanco tras cerrar la última página.
+- Se corrigió el error "This conversation has no such attachment." al hacer clic en un adjunto en conversaciones largas o compactadas.
+- Se corrigió que el panel de agentes en el teléfono mostrara un título de Perfil duplicado sobre sus propias pestañas.
+- Se corrigió que la vista Cambios del panel lateral tuviera el título Perfil después de haber abierto allí el perfil de un bot.
+- Se corrigió que la lista de sesiones y el chat en teléfonos Android se congelaran y dieran saltos tras deslizar rápidamente la pantalla.
+
 ## v1.3.5 - 2026-10-24
 
 Se agregaron reacciones con emojis, revisiones periódicas e inicio de sesión de modelos en servidores SSH, con conectores verificados de Google, deslizamientos de paneles en teléfonos y amplias correcciones.

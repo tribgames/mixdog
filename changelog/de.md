@@ -4,6 +4,65 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Benachrichtigungssteuerungen mit Ruhezeiten und Stummschaltungen, gespeicherte Anmeldungen, die sich selbst ausfüllen, und automatisches Prompt-Cache-Aufwärmen hinzugefügt.
+
+### Neue Funktionen
+
+- **Benachrichtigungssteuerung** — Gerätespezifische Benachrichtigungseinstellungen, Gesprächsstummschaltungen, Ruhezeiten und Fehlerbenachrichtigungen unter Einstellungen → Benachrichtigungen hinzugefügt, mit Zulassen auf Genehmigungsbenachrichtigungen, bei denen der PC einmalig erlaubt (#221, thanks @dislight1123).
+- **Von Bots delegierte Arbeit** — Eine Live-Zeile pro Aufgabe unter der Antwort für Arbeiten hinzugefügt, die ein Bot an andere Sitzungen delegiert, abschließend mit einer einzelnen Abschlusskarte.
+- **Gespeicherte Anmeldungen** — Automatische Anmeldung mit gespeicherten Logins und Einmalcodes unter Einstellungen → Authentifizierung hinzugefügt, ohne dass das Modell die Geheimnisse jemals sieht.
+- **Chrome-Login-Import** — Import gespeicherter Chrome-Logins einschließlich neuerer App-gebundener verschlüsselter Anmeldungen in die überarbeitete Anmeldeseite mit einem Schalter für Gespeichert/Angemeldet bleiben hinzugefügt.
+- **Anmeldung über Ihre E-Mail** — Öffnen von Anmeldelinks und Ausfüllen von Codes aus Ihrer verifizierten E-Mail hinzugefügt, wobei gespeichert wird, welchen Identitätsanbieter jede Website verwendet hat.
+- **Gespeicherte Logins in Chrome und Edge** — Automatisches Ausfüllen gespeicherter Logins durch Computer Use in Ihrem eigenen Chrome oder Edge hinzugefügt, ohne sie dem Modell offenzulegen.
+- **Prompt-Cache-Aufwärmen** — Prompt-Cache-Aufwärmen für Anthropic-Modelle hinzugefügt, standardmäßig aktiviert unter Einstellungen → Kontext, das lernt, wann Sie zu jeder Unterhaltung zurückkehren, und einen Bot vor seinem nächsten geplanten Durchlauf aufwärmt.
+- **Weitere Google-Verbindungen** — Verbinden weiterer Google-Konten mit Gmail, Calendar und Drive hinzugefügt, mit Auswahl des Kontos pro Anfrage und klarer Anmeldeaufforderung.
+- **Smartphone-Dock per Wischen schließen** — Schließen des Smartphone-Seitendocks durch Wegwischen über den Inhalt, nicht nur über die Kante, hinzugefügt.
+
+### Änderungen
+
+- Einstellungen in vier Bereiche aufgeteilt: Grundlagen, KI-Verhalten, Integrationen und Support.
+- Tippen, Sitzungs- und Tab-Wechsel, Suche, Einstellungen, Seitenpanels, Terminal und Änderungen so geändert, dass sie sich sofort öffnen, mit flüssigeren Statusanimationen.
+- Genehmigungen aus von Bots delegierten Sitzungen so geändert, dass sie in jedem Chat erscheinen, der auf sie wartet, mit demselben Wortlaut und denselben Tasten auf jeder Genehmigungskarte.
+- Sitzungs- und Bot-Zeilen so geändert, dass sie ein gelbes Dreieck für ein Warten auf Genehmigung, ein Fragezeichensymbol für eine Frage und die Anzahl der wartenden Aufgaben eines Bots anzeigen.
+- Bot-Aufgabensitzungen und Sub-Agenten so geändert, dass sie einen eigenen Ungelesen-Punkt tragen, der zusammen mit dem Chat gelesen wird, an den sie berichten.
+- Ein gekoppeltes Smartphone so geändert, dass es Dateien auf dieselbe Weise wie der PC liest, in der Vorschau anzeigt, herunterlädt und öffnet.
+- Die `@`-Dateiauswahl so geändert, dass kurze, flache Pfade zuerst aufgeführt werden, mit kürzlich bearbeiteten Arbeiten geöffnet wird und Dateien in verknüpften Ordnern sowie über das alte Scanlimit hinaus gefunden werden (#228, thanks @reeves-ai-lch).
+- Visualize so geändert, dass Seiten aus jedem lokalen Ordner geöffnet werden und Indexseiten nach ihrem Ordner benannt werden.
+- Das Nutzungs-Popup und die angeheftete Nutzungsleiste so geändert, dass jedes Limit als eine Zeile über einer Leiste in voller Breite angezeigt wird.
+- Das shell-Werkzeug so geändert, dass es einen optionalen Arbeitsordner akzeptiert, sodass Befehle nicht mehr mit `cd` beginnen.
+- Das shell-Werkzeug so geändert, dass es Befehle ablehnt, die mit einem sleep von 2 Sekunden oder mehr beginnen, und stattdessen auf `background:true` und `task wait` hinweist.
+- Agenten-Terminalausführungen und Browser-Seiten so geändert, dass sie ihren Tab auf dem PC und gekoppelten Geräten öffnen und Transkriptzeilen genau diesen Tab öffnen.
+- Browser Use so geändert, dass Hintergrundseiten pro Sitzung begrenzt und nach Beendigung eines Zugs geschlossen werden.
+- Wiederholungs-Wartezeiten so geändert, dass sie einen festen Grund und einen Live-Countdown anstelle des reinen Fehlertexts anzeigen.
+- Bot-Chats so geändert, dass keine Karte mit geänderten Dateien unter einer Antwort angezeigt wird und Antwortzeit sowie Übergabe sich eine Zeile teilen.
+- Die Sprachenliste so geändert, dass Koreanisch unter seinem eigenen Namen angezeigt wird.
+- Mixys regelmäßigen Check-in so geändert, dass er standardmäßig stündlich ausgeführt wird, wobei das Intervall unter Einstellungen → Bots gewählt werden kann.
+- Den Smartphone-Drawer und das „Thinking“-Schimmern so angepasst, dass sie flüssiger animiert werden.
+
+### Fehlerbehebungen
+
+- Behoben: Das Split-Pane-Layout ging verloren, wenn der lokale Speicher der App zurückgesetzt wurde.
+- Behoben: Panel-Kanten, Trennlinien und Farben verschoben sich beim Öffnen oder Schließen eines Seitenpanels.
+- Behoben: Der Inhalt des Smartphone-Drawers verschwand, während er zugeschoben wurde.
+- Behoben: Der angeheftete Bot verließ das rechte Ende des Eingabefelds nach dem Schließen eines Seitenpanels, und Chats sanken beim Betreten um eine Zeile nach unten.
+- Behoben: Die Zeile eines Bots drehte sich nicht oder zeigte keine Ungelesen-Punkte an, während seine Aufgabensitzungen arbeiteten.
+- Behoben: Beim Klicken auf eine Desktop-Benachrichtigung blieb die Seitenleiste auf der vorherigen Sitzung stehen oder tat bei ausgeblendetem Fenster nichts.
+- Behoben: Das Beantworten einer Fragekarte am Ende eines Chats verhinderte, dass das Transkript der Antwort folgte.
+- Behoben: Mit einem expliziten Modell erstellte Aufgabensitzungen schlugen mit "service is not defined" fehl.
+- Behoben: Mixys regelmäßiger Check-in wurde ausgeführt, während die Desktop-App noch verwendet wurde.
+- Behoben: Computer Use tippte in Fenster, die sich selbst in den Vordergrund drängten, und schrieb in schreibgeschützte oder deaktivierte Felder.
+- Behoben: Gespeicherte Passwörter länger als 4.096 Zeichen wurden abgeschnitten, und Geheimnisse kürzer als vier Zeichen blieben in Chats unmaskiert.
+- Behoben: Ein eingereihter Wiederholungsversuch eines fehlgeschlagenen Zugs sowie die Skill-Auswahl einer Routine gingen nach einem Neustart verloren (#229, thanks @22nsuk).
+- Behoben: Die automatische Kontingentfortsetzung über SSH las das Serverkontingent anstelle des PC-Kontingents aus, wenn der PC die Anmeldung hielt (#232, thanks @22nsuk).
+- Behoben: `Option`+`Left`/`Right` bewegte sich in Textfeldern unter macOS nicht wortweise (#230, thanks @wudys).
+- Behoben: Die Kontextauswahl eines Agentenprofils wurde nicht beibehalten (#226, thanks @22nsuk), und Cursor schlug bei gespeicherten Kontextkonflikten fehl (#225, thanks @22nsuk).
+- Behoben: Eine wartende Aufgabensitzung wurde als blockiert angezeigt, und ein deaktiviertes Konnektorkonto konnte nicht wieder aktiviert werden.
+- Behoben: Bei einem Fehler wegen abgelaufener Anmeldung ging der Wiederholungsversuch verloren, und das Browser-Panel zeigte nach Schließen der letzten Seite eine leere Seite an.
+- Behoben: Das Klicken auf einen Anhang in einer langen oder komprimierten Unterhaltung schlug mit "This conversation has no such attachment." fehl.
+- Behoben: Das Smartphone-Agenten-Panel zeigte einen doppelten Profil-Titel über seinen eigenen Tabs an.
+- Behoben: Die Ansicht „Änderungen“ des Seitenpanels trug den Titel Profil, nachdem dort zuletzt das Profil eines Bots geöffnet war.
+- Behoben: Die Sitzungsliste und der Chat auf Android-Smartphones froren nach schnellem Scrollen ein und sprangen anschließend.
+
 ## v1.3.5 - 2026-10-24
 
 Emoji-Reaktionen, regelmäßige Check-ins und SSH-Server-Modell-Logins hinzugefügt, mit verifizierten Google-Konnektoren, Drawer-Wischgesten auf dem Smartphone und umfassenden Fehlerbehebungen.

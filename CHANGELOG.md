@@ -5,6 +5,65 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Added notification controls with quiet hours and mutes, saved sign-ins that fill themselves in, and automatic prompt-cache warming.
+
+### New features
+
+- **Notification controls** — Added per-device notification settings, conversation mutes, quiet hours and error notifications under Settings → Notifications, with Allow on approval notifications where the PC allows once (#221, thanks @dislight1123).
+- **Bot-delegated work** — Added one live line per job under the reply for work a bot delegates to other sessions, ending in a single completion card.
+- **Saved sign-ins** — Added automatic sign-in with saved logins and one-time codes, managed under Settings → Authentication, without the model ever seeing the secrets.
+- **Chrome login import** — Added importing Chrome saved logins, including newer app-bound encrypted ones, into the rebuilt Logins page with a saved/stay-signed-in switch.
+- **Sign-in from your mail** — Added opening sign-in links and filling codes from your verified mail, and remembering which identity provider each site used.
+- **Saved login in Chrome and Edge** — Added Computer Use filling a saved login into your own Chrome or Edge without exposing it to the model.
+- **Prompt-cache warming** — Added prompt-cache warming for Anthropic models, on by default under Settings → Context, learning when you return to each conversation and warming a bot ahead of its next scheduled run.
+- **More Google connections** — Added connecting more Google accounts to Gmail, Calendar and Drive, choosing the account per request, with a clear sign-in prompt.
+- **Swipe-to-close phone dock** — Added closing the phone side dock by swiping it away from its content, not just its edge.
+
+### Changes
+
+- Changed Settings into four sections: Basics, AI behavior, Integrations and Support.
+- Changed typing, session and tab switching, Search, Settings, side panels, the terminal and Changes to open instantly, with smoother status animations.
+- Changed approvals from bot-delegated sessions to appear in every chat waiting on them, with the same wording and keys on every approval card.
+- Changed session and bot rows to show an amber triangle for an approval wait, a question icon for a question, and a bot's waiting work count.
+- Changed bot task sessions and sub-agents to carry their own unread dot, read together with the chat they report to.
+- Changed a paired phone to read, preview, download and open files the same way the PC does.
+- Changed the `@` file picker to list short, shallow paths first, open with recent work, and find files in linked folders and past the old scan limit (#228, thanks @reeves-ai-lch).
+- Changed Visualize to open pages from any local folder, naming index pages by their folder.
+- Changed the usage popup and pinned usage rail to show each limit as one line over a full-width bar.
+- Changed the shell tool to take an optional working folder, so commands no longer start with `cd`.
+- Changed the shell tool to refuse a command that starts with a sleep of 2 seconds or more, pointing to `background:true` and `task wait` instead.
+- Changed agent terminal runs and browser pages to open their tab on the PC and paired devices, and transcript lines to open that exact tab.
+- Changed Browser Use to cap background pages per session and close them after a turn finishes.
+- Changed retry waits to show a fixed reason and a live countdown instead of raw error text.
+- Changed bot chats to show no changed-files card under a reply, and a reply's time and hand-off to share one line.
+- Changed the language list to show Korean by its own name.
+- Changed Mixy's regular check-in to run every hour by default, with the interval selectable under Settings → Bots.
+- Adjusted the phone drawer and the "thinking" shimmer to animate more smoothly.
+
+### Bug fixes
+
+- Fixed the split-pane layout being lost when the app's local storage is reset.
+- Fixed panel edges, dividers and colours shifting when a side panel opens or closes.
+- Fixed the phone drawer's content disappearing while it slides closed.
+- Fixed the pinned bot leaving the composer's right end after a side panel closed, and chats dropping by a line on entry.
+- Fixed a bot's row not spinning or taking unread dots while its task sessions work.
+- Fixed clicking a desktop notification leaving the sidebar on the previous session, or doing nothing with the window hidden.
+- Fixed answering a question card at the end of a chat stopping the transcript from following the reply.
+- Fixed task sessions created with an explicit model failing with "service is not defined".
+- Fixed Mixy's regular check-in running while you were still using the desktop app.
+- Fixed Computer Use typing into windows that raise themselves, and writing into read-only or disabled fields.
+- Fixed saved passwords longer than 4,096 characters being cut short, and secrets shorter than four characters going unmasked in chats.
+- Fixed a queued retry of a failed turn, and a routine's skill choice, being lost after a restart (#229, thanks @22nsuk).
+- Fixed quota auto-resume over SSH reading the server's quota instead of the PC's when the PC holds the sign-in (#232, thanks @22nsuk).
+- Fixed `Option`+`Left`/`Right` not moving by word in text fields on macOS (#230, thanks @wudys).
+- Fixed an agent profile's context selection not being preserved (#226, thanks @22nsuk), and Cursor failing on stored context conflicts (#225, thanks @22nsuk).
+- Fixed a waiting task session reading as stalled, and a disabled connector account that could not be turned back on.
+- Fixed a sign-in-expired turn error losing its retry, and the browser panel showing a blank page after its last page closed.
+- Fixed clicking an attachment in a long or compacted conversation failing with "This conversation has no such attachment."
+- Fixed the phone agent panel showing a duplicate Profile title above its own tabs.
+- Fixed the side panel's Changes view being titled Profile after a bot's profile was last open there.
+- Fixed the session list and chat on Android phones freezing after a fling and then jumping.
+
 ## v1.3.5 - 2026-10-24
 
 Added emoji reactions, regular check-ins and SSH server model logins, with verified Google connectors, phone drawer swipes and broad fixes.
