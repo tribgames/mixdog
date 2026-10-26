@@ -26,6 +26,7 @@ export function createIdleGapStore({
   windowMs,
   minMs,
   now = () => Date.now(),
+  log = (line) => process.stderr.write(`[cache-warm] ${line}\n`),
 } = {}) {
   let sessions = null;
   let writing = Promise.resolve();
@@ -66,7 +67,9 @@ export function createIdleGapStore({
       .then(() => writeJsonAtomicAsync(filePath(), { version: 1, sessions: out }, { compact: true }));
     return writing;
   };
-  const scheduleFlush = () => void flush().catch(() => {});
+  // A failed write is reported; the next flush recovers the queue and writes.
+  const scheduleFlush = () =>
+    void flush().catch((err) => log(`idle-gap store write failed (${filePath()}): ${err?.message || err}`));
   return {
     /** The session went idle: its last real request used the cache at `at`. */
     open(sessionId, at) {

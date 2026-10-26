@@ -27,7 +27,10 @@ function validTouch(value) {
 }
 
 /** A touch store backed by `path` (default: the data dir's file). */
-export function createPromptCacheTouchStore(path = () => join(resolvePluginData(), PROMPT_CACHE_TOUCH_FILE)) {
+export function createPromptCacheTouchStore(
+  path = () => join(resolvePluginData(), PROMPT_CACHE_TOUCH_FILE),
+  { log = (line) => process.stderr.write(`[cache-warm] ${line}\n`) } = {}
+) {
   let touches = null;
   let warmUses = null;
   let writing = Promise.resolve();
@@ -69,7 +72,9 @@ export function createPromptCacheTouchStore(path = () => join(resolvePluginData(
       );
     return writing;
   };
-  const scheduleFlush = () => void flush().catch(() => {});
+  // A failed write is reported; the next flush recovers the queue and writes.
+  const scheduleFlush = () =>
+    void flush().catch((err) => log(`touch store write failed (${filePath()}): ${err?.message || err}`));
   return {
     /** The session's last confirmed touch, or null. */
     get(sessionId) {

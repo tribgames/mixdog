@@ -6,7 +6,7 @@ import './loop/test-isolation.mjs';
 // gaps says the expected miss outweighs the warms. The provider's warm mode
 // and its account gate are covered in providers/cache-warm-admission.test.mjs.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -1419,6 +1419,66 @@ test('the touch store survives a reload, drops expired entries and keeps a warm 
     reloaded.forgetWarmUse('expired');
     await reloaded.flush();
     assert.equal(createPromptCacheTouchStore(path).lastWarmUse('expired'), 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A path whose parent is a regular file: every write to it fails.
+function unwritablePath(dir) {
+  const blocker = join(dir, 'blocker');
+  writeFileSync(blocker, '');
+  return join(blocker, 'store.json');
+}
+
+test('the touch store reports a failed write with its path and still writes the next flush', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cache-touch-fail-'));
+  try {
+    const good = join(dir, 'touches.json');
+    const bad = unwritablePath(dir);
+    let current = good;
+    let reported;
+    const failed = new Promise((resolve) => {
+      reported = resolve;
+    });
+    const store = createPromptCacheTouchStore(() => current, { log: reported });
+    store.ids();
+    current = bad;
+    store.record('first', { touchAt: Date.now(), ttlMs: HOUR, promptTokens: 5 });
+    const line = await failed;
+    assert.ok(line.includes(bad), 'the diagnostic names the store path');
+    current = good;
+    store.record('second', { touchAt: Date.now(), ttlMs: HOUR, promptTokens: 5 });
+    await store.flush();
+    const reloaded = createPromptCacheTouchStore(good);
+    assert.ok(reloaded.get('first') && reloaded.get('second'), 'the in-memory state reaches disk');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the idle-gap store reports a failed write with its path and still writes the next flush', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cache-gaps-fail-'));
+  try {
+    const good = join(dir, 'gaps.json');
+    const bad = unwritablePath(dir);
+    let current = good;
+    let reported;
+    const failed = new Promise((resolve) => {
+      reported = resolve;
+    });
+    const options = { lookbackMs: 24 * HOUR, windowMs: HOUR, minMs: MINUTE };
+    const store = createIdleGapStore({ ...options, path: () => current, log: reported });
+    store.openAt('first');
+    current = bad;
+    store.open('first', Date.now());
+    const line = await failed;
+    assert.ok(line.includes(bad), 'the diagnostic names the store path');
+    current = good;
+    store.open('second', Date.now());
+    await store.flush();
+    const reloaded = createIdleGapStore({ ...options, path: good });
+    assert.ok(reloaded.openAt('first') && reloaded.openAt('second'), 'the in-memory state reaches disk');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
