@@ -61,8 +61,10 @@ async function mount(t, { phone }) {
   return { render, aside, end, document, slide: (value) => (sliding = value) };
 }
 
+// On the phone the drawer's inert is owned by its panel (WorkbenchSidePanel),
+// never by the sidebar inside it (session-sidebar.tsx); these drive the panel.
 test('phone: a closing drawer stays non-inert with focus moved out until the slide ends', async (t) => {
-  const { render, aside, end, document, slide } = await mount(t, { phone: true });
+  const { render, aside, end, document, slide } = await mountPanel(t, { phone: true });
   await render(true);
   assert.equal(aside().hasAttribute('inert'), false);
   document.getElementById('inside').focus();
@@ -71,20 +73,20 @@ test('phone: a closing drawer stays non-inert with focus moved out until the sli
   await render(false);
   assert.equal(aside().hasAttribute('inert'), false, 'not inert mid-slide');
   assert.equal(aside().getAttribute('aria-hidden'), 'true');
-  assert.equal(aside().dataset.state, 'closed');
+  assert.equal(aside().hidden, true);
   assert.equal(aside().contains(document.activeElement), false, 'focus left the drawer');
   await end('transitionend');
   assert.equal(aside().hasAttribute('inert'), true);
 });
 
 test('phone: open clears inert when the slide ends; a re-open mid-close stays interactive', async (t) => {
-  const { render, aside, end, slide } = await mount(t, { phone: true });
+  const { render, aside, end, slide } = await mountPanel(t, { phone: true });
   await render(false);
   assert.equal(aside().hasAttribute('inert'), true, 'settled closed drawer is inert');
   slide(true);
   await render(true);
   assert.equal(aside().hasAttribute('inert'), true, 'inert is not flipped in the first frame');
-  assert.equal(aside().getAttribute('aria-hidden'), 'false');
+  assert.equal(aside().hasAttribute('aria-hidden'), false);
   await end('transitionend');
   assert.equal(aside().hasAttribute('inert'), false);
   await render(false);
@@ -92,11 +94,11 @@ test('phone: open clears inert when the slide ends; a re-open mid-close stays in
   await end('transitioncancel');
   await end('transitionend');
   assert.equal(aside().hasAttribute('inert'), false, 'cancelled close never lands inert');
-  assert.equal(aside().dataset.state, 'open');
+  assert.equal(aside().hidden, false);
 });
 
 test('phone: with no slide running the flip is immediate', async (t) => {
-  const { render, aside } = await mount(t, { phone: true });
+  const { render, aside } = await mountPanel(t, { phone: true });
   await render(true);
   await render(false);
   assert.equal(aside().hasAttribute('inert'), true);
@@ -105,7 +107,7 @@ test('phone: with no slide running the flip is immediate', async (t) => {
 });
 
 test('phone: a reversal\'s cancel of the old slide does not settle while the replacement runs', async (t) => {
-  const { render, aside, end, slide } = await mount(t, { phone: true });
+  const { render, aside, end, slide } = await mountPanel(t, { phone: true });
   await render(false);
   slide(true);
   await render(true);
@@ -174,7 +176,11 @@ async function mountPanel(t, { phone }) {
                   sliding ? [Object.assign(new CSSTransition(), { transitionProperty: 'transform', playState: 'running' })] : [];
             },
           },
+          React.createElement('nav', { key: 'rail', className: 'activity-rail' }, [
+            React.createElement('button', { key: 'r', type: 'button', 'data-side-view': 'sessions' }, 'rail'),
+          ]),
           React.createElement(WorkbenchSidePanel, {
+            key: 'panel',
             side: 'left',
             open,
             groups: [['sessions']],
@@ -209,12 +215,13 @@ test('the sidebar follows a layout flip with unchanged props', async (t) => {
   await render(false);
   assert.equal(aside().hasAttribute('inert'), true);
   await flipMarker(document, true);
-  assert.equal(aside().hasAttribute('inert'), true, 'phone: a settled closed drawer stays inert');
+  assert.equal(aside().hasAttribute('inert'), false, 'phone: the drawer panel owns inert, not the sidebar');
   slide(true);
   await render(true);
-  assert.equal(aside().hasAttribute('inert'), true, 'phone: open waits for the slide end');
   await end('transitionend');
-  assert.equal(aside().hasAttribute('inert'), false);
+  await render(false);
+  assert.equal(aside().hasAttribute('inert'), false, 'phone: the sidebar never takes inert itself');
+  await render(true);
   await flipMarker(document, false);
   slide(true);
   await render(false);
