@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 
-// The jump itself lives inside EditorPane's Monaco-bound body, which only the
-// slow browser lane can mount, so the contract is pinned across the two files
-// that produce and consume a reveal request.
+// The jump itself lives in EditorPane's reveal hook, so the contract is pinned
+// across the two files that produce and consume a reveal request.
 const navigation = readFileSync(new URL('./use-editor-navigation.ts', import.meta.url), 'utf8');
-const pane = readFileSync(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8');
+const pane = readFileSync(new URL('./use-editor-reveal-request.ts', import.meta.url), 'utf8');
 
 test('a reveal request keys its jump on the requested line, not on the wall-clock nonce alone', () => {
   // Every reveal is stamped with Date.now(), so two jumps raised in the same

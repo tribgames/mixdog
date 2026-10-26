@@ -53,11 +53,13 @@ test('an unsupported action (no provider / read-only) is reported, not silently 
 
 test('the pane gates Format on the provider claim, reruns on claim changes and toasts the outcome', () => {
   const pane = readFileSync(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8');
+  const commands = readFileSync(new URL('./use-editor-document-commands.ts', import.meta.url), 'utf8');
   const session = readFileSync(new URL('./use-editor-lsp-session.ts', import.meta.url), 'utf8');
-  assert.match(pane, /hasLspProviderFeature\(editorFormat\.languageId, 'formatting'\)/);
+  assert.match(pane, /useEditorDocumentCommands\(\{[^}]*languageId: editorFormat\.languageId/);
+  assert.match(commands, /hasLspProviderFeature\(languageId, 'formatting'\)/);
   const sideChrome = readFileSync(new URL('./use-editor-side-chrome.ts', import.meta.url), 'utf8');
   assert.match(sideChrome, /formattingAvailable && sideEditable \? formatDocument/);
-  assert.match(pane, /Document is already formatted\./);
+  assert.match(commands, /Document is already formatted\./);
   assert.match(
     session,
     /documentFormatterAvailable\(state\.capabilities, hasLspProviderFeature\(languageId, 'formatting'\)\)/

@@ -125,7 +125,7 @@ export function preferredFlyoutWidth(pane: RouteSheetPane): number | undefined {
 type RouteModelParameter = NonNullable<DesktopModelOption['modelParameterOptions']>[number];
 
 /** Trailing check mark of the selected option in every radio pane. */
-function RouteSelectionCheck() {
+export function RouteSelectionCheck() {
   return (
     <span className="route-selection-check">
       <Check size={14} aria-hidden="true" />

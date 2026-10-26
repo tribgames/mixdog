@@ -436,6 +436,74 @@ test('pasted Markdown the editor cannot represent is inserted as literal text, n
   assert.equal(f.content().querySelectorAll('h2').length, 1, 'supported Markdown still converts');
 });
 
+test('typing / opens the block menu that arrows step and Escape closes; :code opens emoji that Enter inserts', async (t) => {
+  const { filterEmoji } = await import('./rich-markdown-commands.ts');
+  const f = await mount(t, '# Hello\n\nBody.\n');
+  const key = (name) =>
+    act(async () => {
+      f.content().dispatchEvent(
+        new f.dom.window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })
+      );
+    });
+  const menu = () => f.doc.querySelector('.rich-markdown-suggest');
+  const selectedIndex = () =>
+    [...menu().querySelectorAll('[role="option"]')].findIndex((node) => node.getAttribute('aria-selected') === 'true');
+  await act(async () => {
+    f.editor().chain().focus('end').insertContent(' /').run();
+  });
+  assert.ok(menu(), 'the block menu opens');
+  assert.equal(menu().getAttribute('aria-label'), 'Insert block');
+  assert.equal(selectedIndex(), 0);
+  await key('ArrowDown');
+  assert.equal(selectedIndex(), 1);
+  await key('ArrowUp');
+  await key('ArrowUp');
+  assert.equal(selectedIndex(), menu().querySelectorAll('[role="option"]').length - 1, 'ArrowUp wraps');
+  await key('Escape');
+  assert.equal(menu(), null);
+
+  await act(async () => {
+    f.editor().chain().focus('end').insertContent(' :smile').run();
+  });
+  assert.equal(menu().getAttribute('aria-label'), 'Emoji');
+  const [, emoji] = filterEmoji('smile')[0];
+  await key('Enter');
+  assert.equal(menu(), null);
+  assert.equal(f.model.getValue(), `# Hello\n\nBody. / ${emoji}\n`);
+});
+
+test('Ctrl+K links the selection through the prompt; an empty link value removes it again', async (t) => {
+  const f = await mount(t, 'Hello world.\n');
+  const editor = f.editor();
+  const setter = Object.getOwnPropertyDescriptor(f.dom.window.HTMLInputElement.prototype, 'value').set;
+  const linkPrompt = async (value) => {
+    await act(async () => {
+      f.content().dispatchEvent(
+        new f.dom.window.KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true })
+      );
+    });
+    const form = f.doc.querySelector('.rich-markdown-prompt');
+    assert.ok(form, 'the link prompt opens');
+    const input = form.querySelector('input');
+    await act(async () => {
+      setter.call(input, value);
+      input.dispatchEvent(new f.dom.window.Event('input', { bubbles: true }));
+    });
+    await act(async () => form.querySelector('button[type="submit"]').click());
+    assert.equal(f.doc.querySelector('.rich-markdown-prompt'), null);
+  };
+  await act(async () => {
+    editor.commands.setTextSelection({ from: 7, to: 12 });
+  });
+  await linkPrompt('https://x.test');
+  assert.equal(f.model.getValue(), 'Hello [world](https://x.test).\n');
+  await act(async () => {
+    editor.commands.setTextSelection(9);
+  });
+  await linkPrompt('');
+  assert.equal(f.model.getValue(), 'Hello world.\n');
+});
+
 test('pasted literal text keeps its empty lines', async (t) => {
   const f = await mount(t, '# Hello\n\nBody.\n');
   await act(async () => {

@@ -3,21 +3,14 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DownloadSessionContext } from './project-file-download';
-import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
-import { showDesktopToast } from './desktop-toasts';
-import { hasLspProviderFeature } from './editor-lsp-providers';
-import { documentFormatterAvailable, runFormatDocument } from './editor-format-document';
-import { monaco } from './monaco-setup';
 import { EditorBreadcrumbs } from './editor-breadcrumbs';
-import type { DockAction } from './pane-dock-chrome';
-import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
+import { useZoomBarVisible } from './zoom-bar-pref';
 import type { SideFileChrome } from './side-surface-strip';
 import { SideFileStatusRow, sideFileHasFooter } from './side-file-status-row';
-import { editorSurfaceOptions } from './editor-side-options';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { useEditorCallHierarchy } from './editor-call-hierarchy';
-import { armMonoFontRemeasure, MIXDOG_EDITOR_SCROLLBAR } from './editor-monaco-bootstrap';
+import { armMonoFontRemeasure } from './editor-monaco-bootstrap';
 import { EditorPaneDocumentSurface } from './editor-pane-document';
 import {
   EditorPaneAlerts,
@@ -54,58 +47,10 @@ import { useEditorModelBinding } from './use-editor-model-binding';
 import { useEditorMountSession } from './use-editor-mount-session';
 import { useEditorLspSession } from './use-editor-lsp-session';
 import { ProjectRecoveryNotice } from './ProjectRecoveryNotice';
-
-/** The user's editor settings expressed as Monaco construction options; every
- *  value the settings do not own is a deliberate default. */
-function monacoEditorOptions(
-  editorSettings: DesktopEditorSettings,
-  wordWrapOverride: DesktopEditorSettings['wordWrap'] | null
-): import('monaco-editor').editor.IStandaloneEditorConstructionOptions {
-  return {
-    fontSize: editorSettings.fontSize,
-    lineHeight: editorSettings.lineHeight,
-    fontFamily: editorSettings.fontFamily,
-    readOnly: false,
-    domReadOnly: false,
-    wordWrap: wordWrapOverride ?? editorSettings.wordWrap,
-    wordWrapColumn: editorSettings.wordWrapColumn,
-    minimap: {
-      enabled: editorSettings.minimapEnabled,
-      /* Default editor behavior. */
-      size: 'proportional',
-      showSlider: 'mouseover',
-    },
-    stickyScroll: { enabled: editorSettings.stickyScrollEnabled },
-    scrollbar: MIXDOG_EDITOR_SCROLLBAR,
-    automaticLayout: false,
-    scrollBeyondLastLine: true,
-    renderWhitespace: editorSettings.renderWhitespace,
-    bracketPairColorization: {
-      enabled: editorSettings.bracketPairColorization,
-      /* Default text-model behavior. */
-      independentColorPoolPerBracketType: false,
-    },
-    guides: {
-      bracketPairs: editorSettings.bracketPairGuides,
-      bracketPairsHorizontal: 'active',
-      highlightActiveBracketPair: true,
-      indentation: true,
-    },
-    inlayHints: { enabled: editorSettings.inlayHintsEnabled },
-    formatOnPaste: editorSettings.formatOnPaste,
-    formatOnType: editorSettings.formatOnType,
-    glyphMargin: true,
-    folding: true,
-    showFoldingControls: 'mouseover',
-    lineNumbersMinChars: 5,
-    overviewRulerLanes: 3,
-    renderLineHighlight: 'line',
-    padding: { top: 4, bottom: 4 },
-    fixedOverflowWidgets: true,
-    /* Hide the lightbulb on empty lines. */
-    lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.OnCode },
-  };
-}
+import { editorPaneMonacoOptions } from './editor-pane-monaco-options';
+import { useEditorRevealRequest } from './use-editor-reveal-request';
+import { useEditorDocumentCommands } from './use-editor-document-commands';
+import { editorBreadcrumbMenuActions } from './editor-pane-breadcrumb-actions';
 
 export default function EditorPane({
   projectPath,
@@ -376,27 +321,14 @@ export default function EditorPane({
     lightTheme,
     editorRef,
   });
-  // The reveal nonce is a wall-clock stamp, so two jumps raised in the same
-  // millisecond carry the same one. The line this body reads therefore keys the
-  // jump as well; the nonce still re-runs a repeat jump to the same line.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the jump is keyed on the requested line, column and nonce (pinned by editor-reveal-request.test.mjs) rather than the reveal object, and `load ? 1 : 0` re-runs it once when the file first loads without re-running on every content reload.
-  useEffect(() => {
-    if (!reveal || !load) return;
-    const editor = editorRef.current;
-    if (!editor) return;
-    const column = reveal.column && reveal.column > 0 ? reveal.column : 1;
-    editor.setPosition({ lineNumber: reveal.line, column });
-    editor.revealPositionInCenter({ lineNumber: reveal.line, column });
-    if (autoFocusRef.current) editor.focus();
-    onNavigationLocationRef.current?.(relPath, reveal.line, column);
-  }, [reveal?.line, reveal?.column, reveal?.nonce, load ? 1 : 0, relPath]);
-  const revealBreadcrumbSymbol = useCallback((item: EditorOutlineItem) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    editor.setPosition({ lineNumber: item.line, column: Math.max(1, item.column) });
-    editor.revealLineInCenter(item.line);
-    editor.focus();
-  }, []);
+  const revealBreadcrumbSymbol = useEditorRevealRequest({
+    editorRef,
+    reveal,
+    load,
+    relPath,
+    autoFocusRef,
+    onNavigationLocationRef,
+  });
   const bindEditorModel = useEditorModelBinding({
     projectPath,
     relPath,
@@ -465,24 +397,11 @@ export default function EditorPane({
     releaseAnsiOutput,
     releaseQuickDiff,
   });
-  const formattingAvailable = documentFormatterAvailable(
-    lspCapabilities.current,
-    hasLspProviderFeature(editorFormat.languageId, 'formatting')
-  );
-  const formatDocument = useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    void runFormatDocument(editor).then((outcome) => {
-      if (outcome === 'unchanged')
-        showDesktopToast(t('Document is already formatted.'), 'info', { scope: 'editor-format' });
-      else if (outcome === 'unavailable') {
-        showDesktopToast(t('No formatter is available for this file.'), 'warn', { scope: 'editor-format' });
-      }
-    });
-  }, []);
-  const gotoLine = useCallback(() => {
-    void editorRef.current?.getAction('editor.action.gotoLine')?.run();
-  }, []);
+  const { formattingAvailable, formatDocument, gotoLine } = useEditorDocumentCommands({
+    editorRef,
+    lspCapabilities: lspCapabilities.current,
+    languageId: editorFormat.languageId,
+  });
   useZoomBarVisible();
   const zoomable = preview?.kind === 'image' || Boolean(documentPreview);
   const fileChrome = useEditorSideChrome({
@@ -515,12 +434,21 @@ export default function EditorPane({
     onSideChrome,
   });
   const breadcrumbPreview = viewKind === 'svg' ? null : preview;
-  const breadcrumbMenuActions: DockAction[] =
-    formattingAvailable && load && !load.binary && !load.tooLarge && !preview && !documentPreview && !load.readOnly
-      ? [{ id: 'format', label: t('Format Document'), onSelect: formatDocument }]
-      : [];
-  // Zoomable previews (image, SVG, PDF/Office pages) carry the shared zoom-bar toggle.
-  if (zoomable) breadcrumbMenuActions.push(zoomBarAction(true));
+  const breadcrumbMenuActions = editorBreadcrumbMenuActions({
+    formattingAvailable,
+    load,
+    preview,
+    documentPreview,
+    zoomable,
+    formatDocument,
+  });
+  const saveFile = () => {
+    void save();
+  };
+  const revertFile = () => {
+    void revertFromDisk();
+  };
+  const openExternally = () => void openEditorFileExternally(projectPath, relPath, accessToken, downloadSessionId);
   const editorBreadcrumbs = onSideChrome ? null : (
     <EditorBreadcrumbs
       projectPath={projectPath}
@@ -535,12 +463,8 @@ export default function EditorPane({
       outline={breadcrumbOutline}
       menuActions={breadcrumbMenuActions}
       viewControls={fileChrome}
-      onSave={() => {
-        void save();
-      }}
-      onRevert={() => {
-        void revertFromDisk();
-      }}
+      onSave={saveFile}
+      onRevert={revertFile}
       onOpenAt={onOpenAt}
       onFocusEditor={() => editorRef.current?.focus()}
       onRevealSymbol={revealBreadcrumbSymbol}
@@ -569,7 +493,7 @@ export default function EditorPane({
         mediaRef={mediaRef}
         onComplete={completePreview}
         onFail={failPreview}
-        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken, downloadSessionId)}
+        onOpen={openExternally}
       />
     );
   }
@@ -602,15 +526,15 @@ export default function EditorPane({
         }
         active={active}
         onRetry={documentError ? reload : undefined}
-        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken, downloadSessionId)}
+        onOpen={openExternally}
       />
     );
   }
-  const baseOptions = monacoEditorOptions(editorSettings, wordWrapOverride);
-  const options = {
-    ...editorSurfaceOptions(baseOptions, wordWrapOverride, { side: Boolean(onSideChrome), phone: phoneLayout }),
+  const options = editorPaneMonacoOptions(editorSettings, wordWrapOverride, {
+    side: Boolean(onSideChrome),
+    phone: phoneLayout,
     readOnly: Boolean(load.readOnly),
-  };
+  });
   // Main tab only: the footer is the last row of the workspace sheet, below the
   // pane's Problems panel (PaneWorkspace's footer slot); without a slot it closes
   // the editor pane itself.
@@ -630,13 +554,9 @@ export default function EditorPane({
           revertError={revertError}
           onRestoreBackup={restoreConflictingBackup}
           onDiscardBackup={discardPendingBackup}
-          onReload={() => {
-            void revertFromDisk();
-          }}
+          onReload={revertFile}
           onKeepEdits={keepEdits}
-          onRetrySave={() => {
-            void save();
-          }}
+          onRetrySave={saveFile}
         />
         {saveError && (
           <ProjectRecoveryNotice
@@ -670,9 +590,7 @@ export default function EditorPane({
           onComplete={completePreview}
           onFail={failPreview}
           onOpenFile={onOpenFile}
-          onSave={() => {
-            void save();
-          }}
+          onSave={saveFile}
           onRichHeldChange={setRichHeld}
           onMount={onMonacoMount}
           onRelease={releaseEditorSurface}
