@@ -50,7 +50,9 @@ export function createChannelsRuntimeLoader({ log, onLoaded = () => {}, setOwner
     if (ctx && BINDING_TOOLS.has(name)) {
       try {
         setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd });
-      } catch {}
+      } catch {
+        // Binding context is advisory; the tool call still runs without it.
+      }
     }
     return module.handleToolCall(name, args || {});
   }

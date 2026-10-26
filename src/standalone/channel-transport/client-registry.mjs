@@ -64,7 +64,9 @@ export function createClientRegistry({
     replays.forgetFor(token);
     try {
       c.sse?.end?.();
-    } catch {}
+    } catch {
+      // The stream may already be closed by the peer.
+    }
     return c;
   }
 
@@ -174,7 +176,9 @@ export function createClientRegistry({
     if (typeof onClientRegistered === 'function') {
       try {
         onClientRegistered({ token, leadPid: pid, cwd: cwd || null });
-      } catch {}
+      } catch {
+        // The registered-client hook must not fail the registration itself.
+      }
     }
     // Token replacement never crosses leadPid boundaries. Registration is
     // otherwise transport-only, including same-pid fresh attaches.

@@ -109,7 +109,9 @@ export async function runAskUserHandoff(handoff, { hook, sessionId, toolCallId, 
         { request_id: requestId, ...(identity.tab ? { tab: identity.tab } : {}), field: handoff.field },
         { signal }
       );
-      const outcome = !facts?.origin ? 'blocked' : facts.form ? '' : 'no_field';
+      let outcome = '';
+      if (!facts?.origin) outcome = 'blocked';
+      else if (!facts.form) outcome = 'no_field';
       if (outcome) {
         await recordHumanDecision(gate, { response: outcome });
         return outcome;

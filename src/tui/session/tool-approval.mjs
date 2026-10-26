@@ -64,12 +64,11 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     // An explicit `timeoutMs: null` means no wait limit (no timer, no expiry);
     // any other missing/invalid value falls back to the session default,
     // which is itself no limit unless the runtime configures one.
-    const requestTimeoutMs =
-      input?.timeoutMs === null
-        ? null
-        : Number.isFinite(Number(input?.timeoutMs)) && Number(input.timeoutMs) > 0
-          ? Number(input.timeoutMs)
-          : defaultTimeoutMs;
+    let requestTimeoutMs = defaultTimeoutMs;
+    if (input?.timeoutMs === null) requestTimeoutMs = null;
+    else if (Number.isFinite(Number(input?.timeoutMs)) && Number(input.timeoutMs) > 0) {
+      requestTimeoutMs = Number(input.timeoutMs);
+    }
     return {
       id,
       name: String(input?.name || input?.tool_name || 'tool'),
@@ -119,7 +118,9 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     }
     try {
       entry.resolve(result);
-    } catch {}
+    } catch {
+      // The requester's resolver must not break settling the queue.
+    }
   }
   /** Hand a copy's answer to the queue that owns the request; false when the
    *  owner had already settled it. */

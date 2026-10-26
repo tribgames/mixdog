@@ -432,7 +432,9 @@ const LABEL_MAX = 225;
 
 /** The distinct message ids of `args.ids` (an array, or one id). */
 function messageIds(args) {
-  const raw = Array.isArray(args.ids) ? args.ids : args.ids == null ? [] : [args.ids];
+  let raw = [];
+  if (Array.isArray(args.ids)) raw = args.ids;
+  else if (args.ids != null) raw = [args.ids];
   const ids = [...new Set(raw.map((id) => text(id)))];
   if (!ids.length || ids.some((id) => !id)) throw new ToolInputError('ids must list ids from search_emails');
   if (ids.length > MANAGE_MAX) throw new ToolInputError(`At most ${MANAGE_MAX} emails per call; got ${ids.length}.`);
@@ -662,7 +664,9 @@ const TOOLS = [
         const parts = textParts(message.bodyStructure);
         const plain = parts.plain ? await partText(client, message.uid, parts.plain, READ_BYTES) : null;
         const html = parts.html ? await partText(client, message.uid, parts.html, READ_BYTES) : null;
-        const body = plain ? plain.value.trim() : html ? htmlText(html.value) : '';
+        let body = '';
+        if (plain) body = plain.value.trim();
+        else if (html) body = htmlText(html.value);
         const links = messageLinks(plain, await htmlLinks(html?.value));
         const head = {
           id: message.emailId || id,

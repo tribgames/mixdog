@@ -63,7 +63,9 @@ export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi,
         if (typeof beforeWake === 'function') {
           try {
             await beforeWake(ownerSessionId);
-          } catch {}
+          } catch {
+            // The pre-wake hook is best-effort; the wake proceeds without it.
+          }
           if (cleanSessionId(getCurrentSessionId()) !== ownerSessionId || !ownerOpen(ownerSessionId)) return;
         }
         // The wake continues the user turn that launched the worker, so its

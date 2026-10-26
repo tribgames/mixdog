@@ -147,7 +147,9 @@ const callArguments = (call) => {
  *  no task. Empty when the turn recorded none. */
 function consumedTaskIds(message) {
   const recorded = message?.meta?.transcript?.consumedExecutionIds;
-  const ids = Array.isArray(recorded) ? recorded : message?.meta?.execution?.id ? [message.meta.execution.id] : [];
+  let ids = [];
+  if (Array.isArray(recorded)) ids = recorded;
+  else if (message?.meta?.execution?.id) ids = [message.meta.execution.id];
   return ids.map((id) => (id ? agentTaskIdOfExecution(id) : null));
 }
 

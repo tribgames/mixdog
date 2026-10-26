@@ -165,14 +165,18 @@ export function turnOptionsForBatch(batch, steering) {
       for (const entry of batch) {
         try {
           entry.onToolResult?.(message);
-        } catch {}
+        } catch {
+          // One submitter's callback must not stop the batch's other entries.
+        }
       }
     },
     onSettled: (detail) => {
       for (const entry of batch) {
         try {
           entry.onSettled?.(detail);
-        } catch {}
+        } catch {
+          // One submitter's callback must not stop the batch's other entries.
+        }
       }
     },
   };
@@ -249,7 +253,9 @@ export function createDrainLoop(
       if (entry.id) submissions.forget(entry.id);
       try {
         entry.onSettled?.({ status: 'rejected', reason: 'session-closed', result: null, session: null });
-      } catch {}
+      } catch {
+        // A throwing callback must not leave the remaining entries unsettled.
+      }
     }
   }
 

@@ -262,12 +262,12 @@ function oldestRowsOverCap(rows) {
 function formatRun(value) {
   const cursor = Number.isSafeInteger(value?.cursor) ? value.cursor : 0;
   const tab = value?.tab !== undefined ? ` tab=${value.tab}` : '';
-  const where =
-    value?.shown === true
-      ? 'The terminal is shown in the desktop window.'
-      : value?.shown === false
-        ? 'The terminal is not shown in the desktop window right now (a paired phone may still show it); it keeps running.'
-        : '';
+  let where = '';
+  if (value?.shown === true) where = 'The terminal is shown in the desktop window.';
+  else if (value?.shown === false) {
+    where =
+      'The terminal is not shown in the desktop window right now (a paired phone may still show it); it keeps running.';
+  }
   return [
     `Terminal run: ${value?.id || `tab ${value?.tab}`} · ${tabLabel(value)} · cursor=${cursor}`,
     `Command sent to the side terminal. Read its output with action=read${tab} since=${cursor}.`,

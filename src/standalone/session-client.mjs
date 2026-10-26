@@ -274,7 +274,9 @@ async function replaceLowerDaemon(discovery, initialHealth, { log, onUpgradeWait
   const notify = (state) => {
     try {
       onUpgradeWait?.({ state, ...info });
-    } catch {}
+    } catch {
+      // A throwing progress callback must not abort the upgrade wait.
+    }
   };
   const done = () => {
     notify('done');
