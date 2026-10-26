@@ -80,6 +80,10 @@ function harness({
   const renamed = [];
   /** Every input a supervisor step was given. */
   const decisions = [];
+  /** Every [session, archived] an archive change was asked for. */
+  const archived = [];
+  /** Every [session, approval id, decision] an approval was sent with. */
+  const approvals = [];
   let failures = appendFails;
   const rooms = createAgentRooms({
     store: {
@@ -159,13 +163,18 @@ function harness({
       aborts.push(id);
       await onAbort(id);
     },
-    approve: async () => true,
+    approve: async (...args) => {
+      approvals.push(args);
+      return true;
+    },
     deleteSession: async (id) => {
       deleted.push(id);
       sessions.delete(id);
       if (deleteFails) throw new Error('locked');
     },
-    setArchived: async () => {},
+    setArchived: async (id, value) => {
+      archived.push([id, value]);
+    },
     startOver: async (id) => {
       resets.push(['startOver', id]);
       return 'sess_archived_room';
@@ -204,6 +213,8 @@ function harness({
     renamed,
     sessions,
     createStarted,
+    archived,
+    approvals,
   };
 }
 
@@ -1731,6 +1742,43 @@ const latch = () => {
   });
   return { closed, open };
 };
+
+test("an approval the room shows reaches the speaking member's session only under its own id", async () => {
+  let approved = false;
+  const h = harness({
+    snapshotGate: async (_id, snapshot) => {
+      if (!approved) Object.assign(snapshot, { busy: true, items: [], toolApproval: { id: 'ap1' } });
+    },
+  });
+  const { sessionId, roomId } = await room(h);
+  assert.equal(await h.rooms.approve(sessionId, 'ap1', 'allow'), false, 'nothing runs yet');
+  await h.rooms.send(sessionId, '/ask Release status?');
+  await until(() => h.rooms.decorate(sessionId, { items: [] }).toolApproval?.id === 'ap1');
+  assert.equal(await h.rooms.approve(sessionId, 'other', 'allow'), false, 'another id is refused');
+  approved = true;
+  assert.equal(await h.rooms.approve(sessionId, 'ap1', 'allow'), true);
+  assert.deepEqual(h.approvals, [[roomMemberSessionId(roomId, h.prompts[0].agentId), 'ap1', 'allow']]);
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.log.map((row) => row.kind),
+    ['user', 'speech']
+  );
+});
+
+test('leaving a room stops its talk and archives its log; an unknown room is refused', async () => {
+  const turn = gated(['rel']);
+  const h = harness({ script: turn.script });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, '/ask Release status?');
+  await until(() => h.prompts.length === 1);
+  await h.rooms.leave(roomId);
+  turn.release();
+  await h.idle(roomId);
+  assert.deepEqual(h.archived, [[sessionId, true]]);
+  assert.ok(h.aborts.includes(roomMemberSessionId(roomId, 'rel')), 'the speaking member is stopped');
+  assert.ok(!h.log.some((row) => row.kind === 'speech'), 'its answer is not posted');
+  await assert.rejects(h.rooms.leave('nope'));
+});
 
 test('a submission the daemon accepts after Stop is aborted before the room is released', async (t) => {
   const gate = gated(['rel']);
