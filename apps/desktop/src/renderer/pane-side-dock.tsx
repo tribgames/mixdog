@@ -1324,6 +1324,7 @@ function PaneDockChromeRow({
   diff,
   diffView,
   panelTitle,
+  titleHidden,
   leafId,
   renderDiffHeaderControls,
   onClose,
@@ -1332,6 +1333,9 @@ function PaneDockChromeRow({
   diff: PaneSideDockDiff | null;
   diffView: ReturnType<typeof useDiffViewState>;
   panelTitle: string;
+  /** The panel body names itself (the agent panel's own tabs): the row keeps
+   *  its controls (⋯ switch, ×) and drops the repeated title. */
+  titleHidden: boolean;
   leafId: string;
   renderDiffHeaderControls?: () => ReactNode;
   onClose(): void;
@@ -1341,7 +1345,7 @@ function PaneDockChromeRow({
     <DockHeaderRow
       className="pane-side-dock-chrome"
       actions={diffShowing ? undefined : panelActions}
-      ariaLabel={diffShowing ? t('Changes') : undefined}
+      ariaLabel={diffShowing ? t('Changes') : titleHidden ? panelTitle : undefined}
       left={
         diffShowing && diff ? (
           <>
@@ -1353,7 +1357,7 @@ function PaneDockChromeRow({
             </div>
             {renderDiffHeaderControls?.() ?? <DiffHeaderControls {...diffView} />}
           </>
-        ) : (
+        ) : titleHidden ? null : (
           <span className="dock-header-title">{panelTitle}</span>
         )
       }
@@ -1799,6 +1803,7 @@ function renderPaneDockHeader(
       diff={entry.diff}
       diffView={diffView}
       panelTitle={activeDescriptor?.title ?? activeDescriptor?.label ?? ''}
+      titleHidden={mobileSheet && titleRoot === 'routines' && !diffShowing}
       leafId={leafId}
       renderDiffHeaderControls={renderDiffHeaderControls}
       onClose={onClose}
