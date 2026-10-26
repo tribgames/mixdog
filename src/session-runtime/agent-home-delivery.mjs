@@ -10,7 +10,9 @@
  * enqueue adds nothing and a crash between posting and dequeuing never posts
  * twice (the posted message id is derived from the run id). One drainer per
  * home appends every queued result FIFO once the thread is idle; posting never
- * starts a turn. A home thread that does not exist yet keeps its results
+ * starts a turn. Rows that wake nobody (a task session's progress updates,
+ * among others) also post right before any turn of the thread starts
+ * (postBeforeTurn), so that turn reads them ahead of its prompt. A home thread that does not exist yet keeps its results
  * queued until it does; a deleted owner's results move to Mixy's home. Each
  * home keeps at most ROUTINE_LIMITS.homeQueueLimit results (the oldest drop
  * behind one "n omitted" notice), and posted run ids stay in a ledger so a
@@ -80,6 +82,16 @@ function deliveredRow(item, messageId) {
   return { ...row, message: postedMessage(row.message) };
 }
 
+/** A task report past the round-trip cap with another agent's own thread:
+ *  each wake could answer the other agent again without end. */
+const taskWakeCapped = (item) =>
+  (isAgentHomeSessionId(item.taskSessionId) || isRoomThreadSessionId(item.taskSessionId)) &&
+  (item.round || 0) > TASK_LOOP_CAP;
+
+/** Whether queued `item` wakes the agent once posted: a task turn's end (not
+ *  its start, a wait for the user or a progress update), unless capped. */
+const wakesAgent = (item) => item.kind === 'agent-task' && item.roundTrip === true && !taskWakeCapped(item);
+
 function queuedRow(item, messageId) {
   // The agent's own words from a turn it ran elsewhere (mixy-heartbeat.mjs):
   // one ordinary reply of the agent in its thread.
@@ -92,14 +104,9 @@ function queuedRow(item, messageId) {
     return { message, notice: heldRequestNotice(message) };
   }
   if (item.kind === 'agent-task') {
-    // A turn's end (not its start or a wait for the user) wakes the agent —
-    // except past the round-trip cap with another agent's own thread, where
-    // each wake could answer the other agent again without end.
-    const capped =
-      (isAgentHomeSessionId(item.taskSessionId) || isRoomThreadSessionId(item.taskSessionId)) &&
-      (item.round || 0) > TASK_LOOP_CAP;
+    const capped = taskWakeCapped(item);
     const message = agentTaskMessage({ ...item, messageId, ...(capped ? { woken: false } : {}) });
-    return { message, notice: routineResultNotice(message), wake: item.roundTrip === true && !capped };
+    return { message, notice: routineResultNotice(message), wake: wakesAgent(item) };
   }
   const message = routineResultMessage({ ...item, messageId });
   return { message, notice: routineResultNotice(message) };
@@ -277,6 +284,25 @@ function withDequeued(doc, homeId, runIds, omitted) {
   return { ...doc, homes, omitted: omittedNow, delivered };
 }
 
+/** `{ doc, item }`: task report `item` for `homeId` and the `doc` it joins,
+ *  so that a final report never repeats progress update `progressRunId` that
+ *  carried the same answer. Posted (`posted`: the thread holds it, or the
+ *  ledger says so), the final report points to it instead of repeating its
+ *  text (the row's one-line summary stays); only queued, that update is
+ *  dropped and the final report carries the answer in its place. */
+function withoutRepeatedProgress(doc, homeId, item, posted) {
+  const { progressRunId, ...report } = item;
+  if (!progressRunId) return { doc, item };
+  if (posted || (doc.delivered[homeId] || []).includes(progressRunId)) {
+    const { text: _text, textChars: _textChars, ...rest } = report;
+    return { doc, item: { ...rest, text: '', answerAbove: true } };
+  }
+  const queued = doc.homes[homeId] || [];
+  if (!queued.some((row) => row.runId === progressRunId)) return { doc, item: report };
+  const homes = { ...doc.homes, [homeId]: queued.filter((row) => row.runId !== progressRunId) };
+  return { doc: { ...doc, homes }, item: report };
+}
+
 /** The persisted queue at `filePath`: `{ homes: { [homeSessionId]: item[] },
  *  omitted: { [homeSessionId]: { id, count } }, delivered: { [homeSessionId]:
  *  runId[] } }`. A home keeps at most `limit` items: past it the oldest drop,
@@ -443,9 +469,14 @@ export function createRoutineResultQueue(
       return (await read()).omitted[homeId] || null;
     },
     /** Queue `item` for `homeId`; `unwatch` (run ids) drops those watches in the
-     *  same write, also when the item was queued or posted before. */
-    async add(homeId, item, { unwatch = [] } = {}) {
-      await update((doc) => {
+     *  same write, also when the item was queued or posted before.
+     *  `progressPosted`: the thread holds the progress update a final report
+     *  names (withoutRepeatedProgress). `progressed` (`{ runId, turnId }`):
+     *  watch `runId` reported turn `turnId` as progress — its durable mark,
+     *  stored in the same write (agent-task-sessions.mjs progressedThrough). */
+    async add(homeId, queued, { unwatch = [], progressPosted = false, progressed = null } = {}) {
+      await update((stored) => {
+        const { doc, item } = withoutRepeatedProgress(stored, homeId, queued, progressPosted);
         let next = null;
         if (item.roundTrip !== true) next = appended(doc, homeId, [item]);
         else {
@@ -463,11 +494,19 @@ export function createRoutineResultQueue(
             next = { ...next, rounds: { ...doc.rounds, [homeId]: counted } };
           }
         }
-        const dropped = unwatch.filter((runId) => doc.watches[runId]);
-        if (!dropped.length) return next ?? undefined;
-        const watches = { ...doc.watches };
-        for (const runId of dropped) delete watches[runId];
-        return { ...(next || doc), watches };
+        let watches = doc.watches;
+        const marked = progressed?.turnId && watches[progressed.runId];
+        if (marked && marked.progressed !== progressed.turnId) {
+          watches = { ...watches, [progressed.runId]: { ...marked, progressed: progressed.turnId } };
+        }
+        const dropped = unwatch.filter((runId) => watches[runId]);
+        if (dropped.length) {
+          watches = { ...watches };
+          for (const runId of dropped) delete watches[runId];
+        }
+        const base = next || doc;
+        if (watches === doc.watches) return base === stored ? undefined : base;
+        return { ...base, watches };
       });
     },
     /** Keep `watch` ({ runId, agentId, homeSessionId, taskSessionId, title,
@@ -624,6 +663,9 @@ function homeProvenDeleted(homeId, agentPresence, roomPresence) {
   return Boolean(roomId) && roomPresence(roomId) === 'deleted';
 }
 
+// Task report statuses that post a row and wake nobody.
+const QUIET_TASK_STATUSES = new Set(['started', 'blocked', 'working']);
+
 /** The queued item of one task report (enqueueTask). */
 function taskReportItem({
   runId,
@@ -637,6 +679,7 @@ function taskReportItem({
   hop = 0,
   watchId = '',
   watchIds = [],
+  progressRunId = '',
 }) {
   // The model-facing reply keeps its lines up to REPLY_LIMIT; the row's
   // one-line summary is derived from it (agentTaskMessage).
@@ -660,7 +703,12 @@ function taskReportItem({
     ...(watchIds.length > 1 ? { sendIds: watchIds.map(String) } : {}),
     // The files the turn produced (handoff-attachments.mjs collectTurnArtifacts).
     ...(Array.isArray(files) && files.length ? { files, ...(omitted > 0 ? { omitted } : {}) } : {}),
-    roundTrip: status !== 'started' && status !== 'blocked',
+    // The progress update that carried this final report's answer, if one
+    // did: the queue keeps the answer from being repeated (withoutRepeatedProgress).
+    ...(progressRunId ? { progressRunId: String(progressRunId) } : {}),
+    // Only a turn's end wakes the agent and counts a round trip: not its
+    // start, a wait for the user, or a progress update (status 'working').
+    roundTrip: !QUIET_TASK_STATUSES.has(status),
     ...(hop > 0 ? { hop } : {}),
     at: Date.now(),
   };
@@ -919,7 +967,7 @@ function createQueueDrops({ queue, log, homeAgent, homeDeleted, sessionDeleted }
 
 /** The durable intake of a home: each enqueue persists its row for the home
  *  thread, then starts draining it, and resolves once it is queued. */
-function createHomeEnqueue(queue, drain) {
+function createHomeEnqueue(queue, drain, { postingFor, postedIn }) {
   /** Persist `result` ({ runId, kind, ok, text, runSessionId }) of a schedule
    *  or webhook `row` for its owner's home, then start draining it. Resolves
    *  once it is queued. */
@@ -957,7 +1005,22 @@ function createHomeEnqueue(queue, drain) {
     const unwatch = [...new Set([watchId, ...watchIds].filter(Boolean).map(String))];
     // A room member's own work reports to its member session, never its home.
     const target = roomMemberOfSession(from)?.agentId === agentId ? from : homeId;
-    await queue.add(target, item, { unwatch });
+    if (item.progressRunId) {
+      // Whether its answer already went out as that progress update is
+      // decided in the thread's posting turn, against the thread itself: a
+      // row being posted (or posted before a crash, not dequeued yet) counts
+      // as posted, never as still queued.
+      await postingFor(target, async () =>
+        queue.add(target, item, { unwatch, progressPosted: postedIn(target, item.progressRunId) })
+      );
+    } else {
+      // A progress update moves its send's watch mark (`progressed`) to the
+      // turn it carries, in the same write: a restart never reports it again.
+      const progressed = report.progressWatchId
+        ? { runId: String(report.progressWatchId), turnId: String(report.answerId || '') }
+        : null;
+      await queue.add(target, item, { unwatch, progressed });
+    }
     void drain(target);
     return target;
   }
@@ -1071,11 +1134,98 @@ export function createAgentHomeDelivery({
     busyRetryMs,
     missingRetryMs,
   });
-  const intake = createHomeEnqueue(queue, drain);
+  // Per thread, one posting turn at a time: push queued rows, save the
+  // thread, dequeue them (the drain, the turn prelude), and a final report's
+  // check whether its answer already went out as a progress update. No pass
+  // ever dequeues rows another pushed but has not saved yet, and a row being
+  // posted is never mistaken for one still queued.
+  const postingChains = new Map();
+  function postingFor(homeId, fn) {
+    const run = (postingChains.get(homeId) || Promise.resolve()).then(fn);
+    const tail = run.then(
+      () => {},
+      () => {}
+    );
+    postingChains.set(homeId, tail);
+    void tail.then(() => {
+      if (postingChains.get(homeId) === tail) postingChains.delete(homeId);
+    });
+    return run;
+  }
+  /** Whether queued row `runId` is in thread `homeId` (posted, saved or not). */
+  const postedIn = (homeId, runId) => {
+    const messages = loadSession(homeId)?.messages;
+    const messageId = messageIdOf(runId);
+    return Array.isArray(messages) && messages.some((message) => message?.meta?.transcript?.messageId === messageId);
+  };
+  const intake = createHomeEnqueue(queue, drain, { postingFor, postedIn });
   const { watchTask, recover } = createHomeBookkeeping({ queue, log, homeDeleted, sessionDeleted, drain });
 
-  /** Post every queued result of `homeId` if its thread is idle; else retry later. */
+  /** Append `items` (and the omission notice `omitted`) not posted before to
+   *  `homeId`'s thread `session`, store it and show the new rows live.
+   *  Returns the run ids owed a wake (postQueuedRows). Nothing awaits before
+   *  the push, so no turn can start in between. */
+  async function postRows(homeId, session, items, omitted) {
+    if (!Array.isArray(session.messages)) session.messages = [];
+    const { fresh, toWake } = postQueuedRows(session, items, omitted);
+    heldLive.forget(items);
+    // The caller dequeues `items` (and `omitted`) next: the thread holding
+    // them is saved first, also when an earlier pass pushed them but its save
+    // failed (they are in the thread in memory, not on disk).
+    if (items.length || omitted) {
+      if (fresh.length) session.updatedAt = Date.now();
+      await saveSession(session);
+    }
+    for (const { message, notice } of fresh) {
+      const { messageId, at } = message.meta.transcript;
+      noticeLive(live, log, homeId, { ...notice, messageId, at });
+    }
+    return toWake;
+  }
+
+  /** Right before a turn of thread `homeId` takes its prompt (whatever started
+   *  it: the user, a routine, a wake): post its queued rows that wake nobody —
+   *  progress updates of the sessions its agent handed work to, start and wait
+   *  lines, held requests, routine results — in queue order, so the turn reads
+   *  them before its prompt. Rows that wake the agent stay for the drain after
+   *  the turn, which posts them and wakes it as before. The caller starts the
+   *  turn, so the thread's busy state is its own. Rows the queue dropped past
+   *  its limit are announced first by the "n omitted" notice, retired in the
+   *  same write that dequeues the posted rows (as the drain does). It runs
+   *  in the thread's posting turn (postingFor), never beside the drain's. A
+   *  failure is logged; the turn goes on and the drain posts the rows later. */
+  async function postBeforeTurn(homeId) {
+    try {
+      await postingFor(homeId, async () => {
+        const items = (await queue.items(homeId)).filter((item) => !wakesAgent(item));
+        const omitted = await queue.omitted(homeId);
+        if (!items.length && !omitted) return;
+        const session = loadSession(homeId);
+        if (!session || session.closed === true) return;
+        await postRows(homeId, session, items, omitted);
+        await queue.remove(
+          homeId,
+          items.map((item) => item.runId),
+          omitted
+        );
+      });
+    } catch (error) {
+      log(`posting the rows owed before a turn of ${homeId} failed: ${error?.message || error}`);
+    }
+  }
+
+  /** Post every queued result of `homeId` if its thread is idle, in its
+   *  posting turn, then wake the agent for what it owes; else retry later.
+   *  The wake runs outside the posting turn: the turn it starts posts first
+   *  (postBeforeTurn). */
   async function drainOnce(homeId) {
+    const session = await postingFor(homeId, () => postIdle(homeId));
+    if (session) await relay.wakeOwed(homeId, session);
+  }
+
+  /** drainOnce's posting: the thread it posted to; nothing when nothing is
+   *  owed or the pass ends here (moved, busy, missing, dropped). */
+  async function postIdle(homeId) {
     const items = await queue.items(homeId);
     const omitted = await queue.omitted(homeId);
     const owed = owesWake(await queue.wakes(homeId));
@@ -1107,17 +1257,7 @@ export function createAgentHomeDelivery({
       }
       return later(homeId, missingRetryMs);
     }
-    if (!Array.isArray(session.messages)) session.messages = [];
-    const { fresh, toWake } = postQueuedRows(session, items, omitted);
-    heldLive.forget(items);
-    if (fresh.length) {
-      session.updatedAt = Date.now();
-      await saveSession(session);
-      for (const { message, notice } of fresh) {
-        const { messageId, at } = message.meta.transcript;
-        noticeLive(live, log, homeId, { ...notice, messageId, at });
-      }
-    }
+    const toWake = await postRows(homeId, session, items, omitted);
     // Dequeuing and owing the wake are one write: no restart between posting
     // and waking loses the wake.
     const { overflowed } = await queue.remove(
@@ -1127,7 +1267,7 @@ export function createAgentHomeDelivery({
       { wake: toWake }
     );
     if (overflowed) log(`${homeId} is at its wake cap: ${overflowed} result(s) ride the next wake as a count`);
-    await relay.wakeOwed(homeId, session);
+    return session;
   }
 
   /** The single drainer of `homeId`; a call during a pass runs one more pass. */
@@ -1169,6 +1309,7 @@ export function createAgentHomeDelivery({
     ...intake,
     announce,
     drain,
+    postBeforeTurn,
     recover,
     watchTask,
     unwatchTask: (runId) => queue.unwatch(runId),
@@ -1274,6 +1415,15 @@ export async function resetAgentTaskRounds(homeId) {
 /** The reporting turns whose report was not queued yet. */
 export async function agentTaskWatches() {
   return (await processDelivery()).taskWatches();
+}
+
+/** The session turn prelude (session-turn-prelude.mjs) of the daemon: before a
+ *  turn of an agent's home thread or a room member session starts, its queued
+ *  rows that wake nobody post first (postBeforeTurn). Null for any other
+ *  session: nothing to wait for. */
+export function postBeforeAgentTurn(sessionId) {
+  if (!isAgentHomeSessionId(sessionId) && !roomMemberOfSession(sessionId)) return null;
+  return processDelivery().then((delivery) => delivery.postBeforeTurn(sessionId));
 }
 
 /** Daemon start: post the results an earlier process left queued. */

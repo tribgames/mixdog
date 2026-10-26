@@ -17,6 +17,7 @@ import { PROMPT_ORIGIN_AGENT_REPORT, PROMPT_ORIGIN_CHANNEL } from '../../../runt
 import { ACTIVE_TURN_RECHECK_MS, createBlockedDrainRetry } from './drain-retry.mjs';
 import { createClosedQueueSettler } from './drain-closed-queue.mjs';
 import { createEnqueue } from './drain-enqueue.mjs';
+import { sessionTurnPrelude } from '../../../runtime/shared/session-turn-prelude.mjs';
 
 function earliestSubmittedAt(batch) {
   const earliest = batch.reduce((min, entry) => {
@@ -323,6 +324,16 @@ export function createDrainLoop(
         // after a long idle is compacted first; the wake runs regardless.
         if (autoClearBeforeWake && batch.every((entry) => COMPLETION_WAKE_MODES.has(entry.mode))) {
           await autoClearBeforeWake();
+          if (flags.drainEpoch !== drainEpoch || admission() !== 'open' || getState().commandBusy) {
+            queue.requeueEntriesFront(batch);
+            return;
+          }
+        }
+        // Rows owed to this thread before its next prompt (a bot's progress
+        // updates from the sessions it handed work to) land first.
+        const prelude = sessionTurnPrelude(bag.runtime?.id);
+        if (prelude) {
+          await prelude.catch((error) => tuiDebug(`turn prelude failed: ${error?.message || error}`));
           if (flags.drainEpoch !== drainEpoch || admission() !== 'open' || getState().commandBusy) {
             queue.requeueEntriesFront(batch);
             return;

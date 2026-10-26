@@ -77,7 +77,12 @@ import { createStoredSessionViews } from './daemon-stored-session-views.mjs';
 import * as quotaResumeStore from '../runtime/shared/quota-resume-store.mjs';
 import { registerWorktreeCacheCleanups } from '../runtime/shared/worktrees/cache-cleanups.mjs';
 import { createInlineSessionRuntimeHost } from './session-runtime-inline-host.mjs';
-import { recoverScheduleResults, setAgentHomeLiveSurface } from '../session-runtime/agent-home-delivery.mjs';
+import {
+  postBeforeAgentTurn,
+  recoverScheduleResults,
+  setAgentHomeLiveSurface,
+} from '../session-runtime/agent-home-delivery.mjs';
+import { setSessionTurnPrelude } from '../runtime/shared/session-turn-prelude.mjs';
 import { recoverRoutineDeliveries } from '../session-runtime/owned-automation-run.mjs';
 import { getStandaloneMemoryRuntime } from '../session-runtime/services/memory-runtime-proxy.mjs';
 import { registerTranscriptPurgeHook } from '../session-runtime/session-transcript-purge.mjs';
@@ -1032,6 +1037,9 @@ async function main() {
       (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,
     abort: (sessionId) => sessionService.abortSession({ sessionId }),
   });
+  // A bot's next turn, whatever starts it, first reads the progress updates
+  // queued for its thread (they wake nobody on their own).
+  setSessionTurnPrelude(postBeforeAgentTurn);
   // Mixy's heartbeat check (user-set interval) (mixy-heartbeat.mjs), on an unref'd timer.
   import('../session-runtime/mixy-heartbeat.mjs')
     .then(({ startMixyHeartbeat }) =>

@@ -76,6 +76,8 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   const agentTasks = [];
   const wakes = [];
   const logs = [];
+  // Every report a process handed to the delivery, across boots.
+  const sent = [];
   function boot(overrides = {}) {
     const { materialize, ...taskOverrides } = overrides;
     const calls = [];
@@ -121,7 +123,10 @@ function world(t, { settleMs = 0, wake = null } = {}) {
     });
     const api = createAgentTaskSessions({
       getSessionService: () => service,
-      deliver: (agentId, report) => delivery.enqueueTask(agentId, report),
+      deliver: (agentId, report) => {
+        sent.push(report);
+        return delivery.enqueueTask(agentId, report);
+      },
       watches: {
         add: (watch) => delivery.watchTask(watch),
         list: () => delivery.taskWatches(),
@@ -152,9 +157,29 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   }
   const task = () => records.get(TASK);
   const reports = () => home.messages.filter((message) => message.meta?.routine?.kind === 'task');
-  const ended = () => reports().filter((message) => !['started', 'blocked'].includes(message.meta.routine.status));
+  // A turn's end; progress updates (status 'working') are not one.
+  const ended = () =>
+    reports().filter((message) => !['started', 'blocked', 'working'].includes(message.meta.routine.status));
+  const progress = () => reports().filter((message) => message.meta.routine.status === 'working');
   const watchIds = async () => (await createRoutineResultQueue(file).watches()).map((watch) => watch.runId);
-  return { file, home, records, pool, agentTasks, wakes, logs, boot, task, reports, ended, watchIds };
+  const watches = async () => createRoutineResultQueue(file).watches();
+  return {
+    file,
+    home,
+    records,
+    pool,
+    agentTasks,
+    wakes,
+    logs,
+    sent,
+    boot,
+    task,
+    reports,
+    ended,
+    progress,
+    watchIds,
+    watches,
+  };
 }
 
 const worker = (status, extra = {}) => ({
@@ -446,37 +471,291 @@ test('two watchers of one task session each report their own chain, once', async
   assert.equal(texts.filter((text) => text.includes('Docs are next')).length, 1);
 });
 
-test('agent work pending past the cap reports the latest answer as still in progress, then the final one', async (t) => {
+// ---- every answer of a busy chain is a progress update that wakes nobody ----
+
+/** The task-output text of a stored report row; '' when it carries none. */
+const reportText = (message) => message.content.match(/<task-output[^>]*>\n([\s\S]*?)\n<\/task-output>/)?.[1] ?? '';
+
+/** The answer `w`'s final report gives: its own text, or that of the
+ *  progress update above it when it already carried the answer. */
+const finalAnswer = (w) => {
+  const [end] = w.ended();
+  return /final answer is its latest progress update above/.test(end.content)
+    ? reportText(w.progress().at(-1))
+    : reportText(end);
+};
+
+/** Whether any report row of `w` (progress or end) carries `text`. */
+const anyReportHas = (w, text) => w.reports().some((message) => message.content.includes(text));
+
+test('a busy chain answering repeatedly posts each answer once as progress, waking nobody, then wakes once for the final', async (t) => {
+  for (const kind of ['create', 'send']) {
+    const w = world(t);
+    const p = w.boot();
+    let first;
+    if (kind === 'create') {
+      await p.api.create({ brief: 'Refactor' }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+      [first] = p.submits();
+    } else {
+      first = await sentRequest(w, p);
+    }
+    w.task().messages.push(...turnRows(first.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+    // Two agents: the first reports twice (a Reviewer re-run), the second stays busy.
+    w.pool.push(worker('running'), { ...worker('running'), tag: 'reviewer', sessionId: 'sess_agent_rev' });
+    first.options.onSettled({ status: 'done', result: { content: INTERIM } });
+    await pump(p.delivery);
+    const answers = ['Worker reported: parser done; Reviewer is checking.', 'Reviewer asked for a fix; Worker is on it.'];
+    for (const answer of answers) {
+      await wokenTurn(w, p, answer);
+      await pump(p.delivery);
+    }
+    p.emit();
+    // A completion barrier, not a guess: the rows cross locked file writes.
+    // A dropped answer never reaches the count, so the exact check still fails.
+    await waitFor(p.delivery, () => w.progress().length >= 3);
+    await pump(p.delivery);
+    assert.deepEqual(
+      w.progress().map(reportText),
+      [INTERIM, ...answers],
+      `${kind}: every answer, once, in order (log: ${w.logs.join(' | ')})`
+    );
+    for (const row of w.progress()) {
+      assert.match(row.content, /progress update — still working; this is NOT its final answer/);
+      assert.equal(row.meta.transcript.posted, true, 'a posted row');
+    }
+    assert.deepEqual(w.ended(), [], `${kind}: no end while its agents work`);
+    assert.equal(w.wakes.length, 0, `${kind}: the bot is never woken for progress`);
+    assert.equal((await w.watchIds()).length, 1, `${kind}: the watch stays for the final report`);
+    // Every agent is done: the woken turn's answer is final and wakes the bot once.
+    w.pool.splice(0, 2, worker('completed'), { ...worker('completed'), tag: 'reviewer', sessionId: 'sess_agent_rev' });
+    await wokenTurn(w, p, FINAL);
+    await waitFor(p.delivery, () => w.ended().length && w.wakes.length);
+    await pump(p.delivery);
+    assert.deepEqual(
+      w.ended().map((message) => message.meta.routine.status),
+      ['completed']
+    );
+    assert.equal(reportText(w.ended()[0]), FINAL);
+    assert.equal(w.progress().length, 3, `${kind}: the final answer is no progress update`);
+    assert.equal(w.wakes.length, 1);
+    assert.match(w.wakes[0].prompt, new RegExp(FINAL));
+    assert.equal(w.wakes[0].prompt.includes(INTERIM), false, 'the wake carries the final report alone');
+    assert.deepEqual(await w.watchIds(), []);
+  }
+});
+
+test('answers that end inside one check window are each reported, in order, once — also across a restart', async (t) => {
+  const woken = (n, answer) =>
+    turnRows(`it_wake_${n}`, answer, {
+      source: 'task-notification',
+      prompt: notificationPrompt(['task_agent_1']),
+      consumed: ['task_agent_1'],
+    });
+  const progressSent = (w, from = 0) =>
+    w.sent
+      .slice(from)
+      .filter((report) => report.status === 'working')
+      .map((report) => report.text);
+
+  // One process: the brief's answer and three woken turns are all stored
+  // before the follow-up's first check, which therefore sees them at once.
+  const v = world(t);
+  const p = v.boot();
+  const request = await sentRequest(v, p);
+  v.task().messages.push(
+    ...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }),
+    ...woken(1, 'A1'),
+    ...woken(2, 'A2'),
+    ...woken(3, 'A3')
+  );
+  v.pool.push(worker('running'));
+  request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await waitFor(p.delivery, () => v.progress().length >= 4);
+  p.emit();
+  await pump(p.delivery);
+  assert.deepEqual(progressSent(v), [INTERIM, 'A1', 'A2', 'A3'], 'each handed over once, in chain order');
+  assert.deepEqual(v.progress().map(reportText), [INTERIM, 'A1', 'A2', 'A3'], 'each posted once, in order');
+  assert.equal(v.wakes.length, 0);
+  assert.equal((await v.watches())[0].progressed, 'it_wake_3', 'the durable mark names the last one reported');
+
+  // Across a restart: the first process reports up to A1; A2 and A3 end
+  // together while the daemon is down.
   const w = world(t);
-  const p = w.boot({ pendingCapMs: 50 });
+  const first = w.boot();
+  const sent = await sentRequest(w, first);
+  w.task().messages.push(...turnRows(sent.options.id, INTERIM, { spawns: ['task_agent_1'] }), ...woken(1, 'A1'));
+  w.pool.push(worker('running'));
+  sent.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await waitFor(first.delivery, () => w.progress().length >= 2);
+  await pump(first.delivery);
+  assert.deepEqual(w.progress().map(reportText), [INTERIM, 'A1']);
+  assert.equal((await w.watches())[0].progressed, 'it_wake_1');
+  w.task().messages.push(...woken(2, 'A2'), ...woken(3, 'A3'));
+  const before = w.sent.length;
+  const second = w.boot();
+  // Recovery's first check reports (and queues) before it resolves.
+  assert.equal(await second.api.recover(), 1);
+  assert.deepEqual(progressSent(w, before), ['A2', 'A3'], 'only the turns past the durable mark, in order');
+  await waitFor(second.delivery, () => w.progress().length >= 4);
+  await pump(second.delivery);
+  assert.deepEqual(w.progress().map(reportText), [INTERIM, 'A1', 'A2', 'A3'], 'each posted once, in order');
+  assert.equal((await w.watches())[0].progressed, 'it_wake_3');
+  // The chain's last turn then ends with nothing pending: the final report.
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, second, FINAL);
+  await waitFor(second.delivery, () => w.ended().length && w.wakes.length);
+  assert.equal(finalAnswer(w), FINAL);
+  assert.equal(w.progress().length, 4, 'no update twice');
+  assert.equal(w.wakes.length, 1);
+});
+
+test('a progress update that cannot be queued holds the later ones; a restart delivers them once, in order', async (t) => {
+  const woken = (n, answer) =>
+    turnRows(`it_wake_${n}`, answer, {
+      source: 'task-notification',
+      prompt: notificationPrompt(['task_agent_1']),
+      consumed: ['task_agent_1'],
+    });
+  const w = world(t);
+  let first = null;
+  first = w.boot({
+    // A1's update can never be queued in this process (every try fails).
+    deliver: async (agentId, report) => {
+      if (report.runId.endsWith('_progress_it_wake_1')) throw new Error('queue file locked');
+      w.sent.push(report);
+      return first.delivery.enqueueTask(agentId, report);
+    },
+  });
+  const request = await sentRequest(w, first);
+  w.task().messages.push(...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  request.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await waitFor(first.delivery, () => w.progress().length >= 1);
+  const failures = () => w.logs.filter((line) => /progress update of sess_task_1 failed/.test(line)).length;
+  // A1 ends: its update fails.
+  w.task().messages.push(...woken(1, 'A1'));
+  first.emit();
+  await waitFor(first.delivery, () => failures() >= 1);
+  // A2 ends: it waits behind A1, which is tried again and fails again.
+  w.task().messages.push(...woken(2, 'A2'));
+  first.emit();
+  await waitFor(first.delivery, () => failures() >= 2);
+  await pump(first.delivery);
+  const progressTexts = (from = 0) =>
+    w.sent
+      .slice(from)
+      .filter((report) => report.status === 'working')
+      .map((report) => report.text);
+  assert.deepEqual(progressTexts(), [INTERIM], 'nothing goes out past the failed update');
+  assert.deepEqual(w.progress().map(reportText), [INTERIM]);
+  assert.equal((await w.watches())[0].progressed, request.options.id, 'the mark stays on the last update queued');
+  // The daemon restarts: recovery resumes right after the mark.
+  const before = w.sent.length;
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 1);
+  assert.deepEqual(progressTexts(before), ['A1', 'A2'], 'A1, then A2, each once');
+  await waitFor(second.delivery, () => w.progress().length >= 3);
+  await pump(second.delivery);
+  assert.deepEqual(w.progress().map(reportText), [INTERIM, 'A1', 'A2']);
+  assert.equal((await w.watches())[0].progressed, 'it_wake_2');
+  assert.equal(w.wakes.length, 0);
+});
+
+test('the chain walk is linear in the transcript: no turn rescans what came before', () => {
+  const readsPerMessage = (turnCount) => {
+    const rows = turnRows('a', 'interim', { spawns: ['task_agent_1'] });
+    for (let n = 1; n <= turnCount; n += 1) {
+      rows.push(
+        ...turnRows(`it_${n}`, `answer ${n}`, {
+          source: 'task-notification',
+          prompt: notificationPrompt(['task_agent_1']),
+          consumed: ['task_agent_1'],
+        })
+      );
+    }
+    let reads = 0;
+    const counted = new Proxy(rows, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    assert.equal(latestTurnOutcome(counted, 'a').id, `it_${turnCount}`);
+    return reads / rows.length;
+  };
+  const small = readsPerMessage(50);
+  const large = readsPerMessage(1000);
+  assert.ok(large <= 6, `${large.toFixed(2)} reads per message at 1000 turns`);
+  assert.ok(large <= small + 0.5, `per-message reads stay flat (${small.toFixed(2)} → ${large.toFixed(2)})`);
+});
+
+test('a final answer that already went out as progress is not repeated by the final report', async (t) => {
+  const w = world(t);
+  const p = w.boot();
   await p.api.create({ brief: 'Refactor' }, { callerSessionId: HOME, callerAgentId: 'bot1' });
   const [brief] = p.submits();
   w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
   w.pool.push(worker('running'));
   brief.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await waitFor(p.delivery, () => w.progress().length >= 1);
   await pump(p.delivery);
-  assert.deepEqual(w.ended(), []);
-  await new Promise((resolve) => setTimeout(resolve, 80));
-  p.emit();
-  await waitFor(p.delivery, () => w.ended().length);
-  const [progress] = w.ended();
-  assert.equal(progress.meta.routine.status, 'working');
-  assert.match(progress.content, /Still in progress/);
-  assert.match(progress.content, /Two agents are on it/);
-  assert.equal(w.wakes.length, 1, 'the bot is told');
-  assert.equal((await w.watchIds()).length, 1, 'the watch stays for the final report');
-  p.emit();
-  await pump(p.delivery);
-  assert.equal(w.ended().length, 1, 'reported in progress once');
+  assert.deepEqual(w.progress().map(reportText), [INTERIM]);
+  // The agent ends with no turn of the Lead after it: that answer is final.
   w.pool[0] = worker('completed');
-  await wokenTurn(w, p, FINAL);
-  await waitFor(p.delivery, () => w.ended().length === 2);
-  assert.deepEqual(
-    w.ended().map((message) => message.meta.routine.status),
-    ['working', 'completed']
-  );
-  assert.match(w.ended()[1].content, new RegExp(FINAL));
-  assert.deepEqual(await w.watchIds(), []);
+  p.emit();
+  await waitFor(p.delivery, () => w.ended().length && w.wakes.length);
+  await pump(p.delivery);
+  const [end] = w.ended();
+  assert.equal(end.meta.routine.status, 'completed');
+  assert.equal(end.content.includes(INTERIM), false, 'the answer is not repeated');
+  assert.match(end.content, /final answer is its latest progress update above/);
+  assert.equal(end.meta.routine.summary, INTERIM, 'the row keeps its one-line summary');
+  assert.equal(w.wakes.length, 1, 'the end still wakes the bot');
+  assert.deepEqual(w.progress().map(reportText), [INTERIM], 'posted once');
+  assert.ok(w.home.messages.indexOf(w.progress()[0]) < w.home.messages.indexOf(end), 'the update comes first');
+});
+
+test('a restart between progress updates posts each one once', async (t) => {
+  const w = world(t);
+  const first = w.boot();
+  await first.api.create({ brief: 'Refactor', title: 'Parser' }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+  const [brief] = first.submits();
+  w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  brief.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(first.delivery);
+  await wokenTurn(w, first, 'Halfway there.');
+  await waitFor(first.delivery, () => w.progress().length >= 2);
+  await pump(first.delivery);
+  assert.deepEqual(w.progress().map(reportText), [INTERIM, 'Halfway there.']);
+  // The daemon stops; the next start re-attaches the watch and sees the same latest answer.
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 1);
+  await pump(second.delivery);
+  second.emit();
+  await pump(second.delivery);
+  assert.deepEqual(w.progress().map(reportText), [INTERIM, 'Halfway there.'], 'nothing posts twice');
+  assert.equal(w.wakes.length, 0);
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, second, FINAL);
+  await waitFor(second.delivery, () => w.ended().length && w.wakes.length);
+  assert.equal(reportText(w.ended()[0]), FINAL);
+  assert.equal(w.progress().length, 2);
+  assert.equal(w.wakes.length, 1);
+});
+
+test('a send whose turn reports nothing posts no progress either', async (t) => {
+  const w = world(t);
+  const p = w.boot();
+  await p.api.create({ brief: 'quiet', notify: false }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+  const [brief] = p.submits();
+  w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  brief.options.onSettled?.({ status: 'done', result: { content: INTERIM } });
+  await wokenTurn(w, p, 'Halfway there.');
+  await pump(p.delivery);
+  assert.deepEqual(w.reports(), []);
+  assert.equal(w.wakes.length, 0);
 });
 
 // ---- the report waits on its own chain, never on other work in the session ----
@@ -501,9 +780,9 @@ async function sentRequest(w, p, prompt = 'check the scheduler', agentId = 'bot1
   return p.submits()[before];
 }
 
-test("a request answered while the user's own later turns keep agents working reports at once, never in progress", async (t) => {
+test("a request answered while the user's own later turns keep agents working reports at once, with only its own answers", async (t) => {
   const w = world(t);
-  const p = w.boot({ pendingCapMs: 40 });
+  const p = w.boot();
   const request = await sentRequest(w, p);
   w.task().messages.push(...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }));
   w.pool.push(worker('running'));
@@ -519,16 +798,17 @@ test("a request answered while the user's own later turns keep agents working re
   w.pool[0] = worker('completed');
   await wokenTurn(w, p, FINAL);
   await waitFor(p.delivery, () => w.ended().length);
-  // Past the progress cap, with the user's agent still running, nothing more.
+  // With the user's agent still running, nothing more.
   await new Promise((resolve) => setTimeout(resolve, 80));
   p.emit();
   await pump(p.delivery);
   assert.deepEqual(
-    w.ended().map((message) => [message.meta.routine.status, message.content.includes('Still in progress')]),
-    [['completed', false]]
+    w.ended().map((message) => message.meta.routine.status),
+    ['completed']
   );
   assert.match(w.ended()[0].content, new RegExp(FINAL));
   assert.equal(w.ended()[0].content.includes('My agent'), false);
+  assert.deepEqual(w.progress().map(reportText), [INTERIM], "the user's own turn is never the request's progress");
   assert.deepEqual(await w.watchIds(), [], 'the watch closes');
   assert.equal(p.listeners.size, 0);
 });
@@ -693,7 +973,7 @@ test('two bots sending to one session each report when their own chain ends', as
 
 test("a chain agent's sub-agents hold the report; the user's agents never do", async (t) => {
   const w = world(t, { settleMs: 0 });
-  const p = w.boot({ pendingCapMs: 60_000 });
+  const p = w.boot();
   const request = await sentRequest(w, p);
   w.task().messages.push(
     ...turnRows(request.options.id, INTERIM, { spawns: ['task_agent_1'] }),
@@ -804,8 +1084,8 @@ test("after a restart, a chain agent's child result owed to the Lead holds the r
     w.ended().map((message) => message.meta.routine.status),
     ['completed']
   );
-  assert.match(w.ended()[0].content, new RegExp(FINAL), "the chain's proven answer");
-  assert.equal(w.ended()[0].content.includes('CHILD ANSWER'), false);
+  assert.equal(finalAnswer(w), FINAL, "the chain's proven answer");
+  assert.equal(anyReportHas(w, 'CHILD ANSWER'), false);
   assert.deepEqual(await w.watchIds(), []);
 });
 
@@ -842,8 +1122,8 @@ test("a child spawned by a user task in the chain's reused agent session is neve
   await waitFor(p.delivery, () => w.ended().length);
   await pump(p.delivery);
   assert.equal(w.ended().length, 1);
-  assert.match(w.ended()[0].content, new RegExp(FINAL), "the chain's own answer");
-  assert.equal(w.ended()[0].content.includes('C ANSWER'), false);
+  assert.equal(finalAnswer(w), FINAL, "the chain's own answer");
+  assert.equal(anyReportHas(w, 'C ANSWER'), false);
   const closure = chainClosure(TASK, ['task_agent_1'], { pool: w.pool, agentTasks: w.agentTasks });
   assert.deepEqual([...closure.taskIds], ['task_agent_1'], 'C is not owned');
   assert.equal(closure.sessions.has('sess_agent_c'), true, 'C only holds the report');
@@ -889,8 +1169,8 @@ test("a task the user sends to the chain's agent is never the chain's: its woken
   await waitFor(p.delivery, () => w.ended().length);
   await pump(p.delivery);
   assert.equal(w.ended().length, 1);
-  assert.match(w.ended()[0].content, new RegExp(FINAL), "the chain's own answer");
-  assert.equal(w.ended()[0].content.includes('USER B ANSWER'), false);
+  assert.equal(finalAnswer(w), FINAL, "the chain's own answer");
+  assert.equal(anyReportHas(w, 'USER B ANSWER'), false);
   assert.deepEqual(
     [...chainClosure(TASK, ['task_agent_1'], { pool: w.pool, agentTasks: w.agentTasks }).taskIds],
     ['task_agent_1'],
@@ -1031,10 +1311,10 @@ test("an unrelated task's woken answer in the quiet period never replaces the re
   assert.equal(w.ended()[0].content.includes('Unrelated'), false);
 });
 
-test('missing provenance never reports success: the report waits, bounded by the progress cap', async (t) => {
+test('missing provenance never reports success: the report waits, its answer posted as progress', async (t) => {
   for (const missing of ['woken turn names no task', 'agent call recorded no task ids']) {
     const w = world(t);
-    const p = w.boot({ pendingCapMs: 60 });
+    const p = w.boot();
     await p.api.create({ brief: 'Refactor' }, { callerSessionId: HOME, callerAgentId: 'bot1' });
     const [brief] = p.submits();
     if (missing === 'woken turn names no task') {
@@ -1062,14 +1342,12 @@ test('missing provenance never reports success: the report waits, bounded by the
     await pump(p.delivery);
     assert.deepEqual(w.ended(), [], `${missing}: nothing is reported as completed`);
     assert.equal((await w.watchIds()).length, 1, `${missing}: the watch is kept`);
-    await new Promise((resolve) => setTimeout(resolve, 90));
     p.emit();
-    await waitFor(p.delivery, () => w.ended().length);
-    assert.deepEqual(
-      w.ended().map((message) => message.meta.routine.status),
-      ['working'],
-      `${missing}: past the cap it reports in progress, never completed`
-    );
+    await waitFor(p.delivery, () => w.progress().length);
+    await pump(p.delivery);
+    assert.deepEqual(w.progress().map(reportText), [INTERIM], `${missing}: the chain's answer, as progress`);
+    assert.deepEqual(w.ended(), [], `${missing}: never completed`);
+    assert.equal(w.wakes.length, 0, `${missing}: nobody is woken`);
     assert.equal((await w.watchIds()).length, 1);
   }
 });
@@ -1406,9 +1684,9 @@ function storedWokenTurn(checkpointId, answer, entries) {
   ];
 }
 
-test('the woken turn the runtime stores names what it consumed: its answer is reported, never "still in progress"', async (t) => {
+test('the woken turn the runtime stores names what it consumed: its answer is the final report, never progress', async (t) => {
   const w = world(t);
-  const p = w.boot({ pendingCapMs: 40 });
+  const p = w.boot();
   await p.api.create({ brief: 'Refactor' }, { callerSessionId: HOME, callerAgentId: 'bot1' });
   const [brief] = p.submits();
   w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
@@ -1426,15 +1704,16 @@ test('the woken turn the runtime stores names what it consumed: its answer is re
   p.state.busy = false;
   p.emit();
   await waitFor(p.delivery, () => w.ended().length);
-  // Past the progress cap nothing more is said.
+  // Nothing more is said later.
   await new Promise((resolve) => setTimeout(resolve, 80));
   p.emit();
   await pump(p.delivery);
   assert.deepEqual(
-    w.ended().map((message) => [message.meta.routine.status, message.content.includes('Still in progress')]),
-    [['completed', false]]
+    w.ended().map((message) => message.meta.routine.status),
+    ['completed']
   );
   assert.match(w.ended()[0].content, /Done\./);
+  assert.deepEqual(w.progress().map(reportText), [INTERIM], 'only the answer given while the agent ran');
   assert.deepEqual(await w.watchIds(), []);
 });
 

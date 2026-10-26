@@ -44,23 +44,33 @@ function HandoffLineView({
   what,
   waiting,
   asking = false,
+  progress = '',
 }: {
   sessionId: string;
   member: ReturnType<typeof useHandoffTarget>['member'];
   what: string;
   waiting: boolean;
   asking?: boolean;
+  progress?: string;
 }) {
   let state: 'working' | 'approval' | 'question' = 'working';
   if (waiting) state = asking ? 'question' : 'approval';
   const label = { working: t('Working'), approval: t('Approval needed'), question: t('Answer needed') }[state];
+  // While it works, the session's latest progress update stands for "Working",
+  // one line that ellipsizes like the name.
+  const update = state === 'working' ? progress : '';
   return (
     <div className="mx-chat-routine-failed mx-handoff-line" role="status" data-state={state}>
       <span className="mx-bot-sent-dot" aria-hidden="true" />
       {member && <RoomMemberFace member={member} className="mx-bot-sent-face" />}
       <span className="mx-handoff-what">
         <span className="mx-handoff-name">{what}</span>
-        <span className="mx-handoff-state">{` · ${label}`}</span>
+        <span className="mx-handoff-state">{update ? ' · ' : ` · ${label}`}</span>
+        {update && (
+          <span className="mx-handoff-name" title={update}>
+            {update}
+          </span>
+        )}
       </span>
       <span aria-hidden="true">·</span>
       <button type="button" onClick={() => openTaskSession(sessionId)}>
@@ -81,7 +91,14 @@ export function AgentHandoffLine({ handoff }: { handoff: Omit<Handoff, 'id' | 's
     what = handoff.agentId ? t('Sent to {{name}}', { name }) : t('Session send: Sent to {{name}}', { name });
   }
   return (
-    <HandoffLineView sessionId={handoff.sessionId} member={member} what={what} waiting={waiting} asking={asking} />
+    <HandoffLineView
+      sessionId={handoff.sessionId}
+      member={member}
+      what={what}
+      waiting={waiting}
+      asking={asking}
+      progress={handoff.progress}
+    />
   );
 }
 

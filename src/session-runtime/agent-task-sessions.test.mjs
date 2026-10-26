@@ -902,6 +902,9 @@ test('only turns the origin agent starts report back, ended or waiting for the u
       target: 'session',
       hop: 1,
       watchId: foreign.options.id,
+      // The progress update that would have carried this answer: the send's
+      // own turn (its submission id) answered, so it names that turn.
+      progressRunId: `${foreign.options.id}_progress_${foreign.options.id}`,
     },
   ]);
   // Every reporting turn was watched durably; a coding session's send was not.
@@ -1860,6 +1863,7 @@ test('a report that cannot be queued is retried in-process, delivered once, and 
     const delivered = [];
     const removed = [];
     let calls = 0;
+    const logs = [];
     const tasks = createAgentTaskSessions({
       getSessionService: () => ({
         materializeSession: async () => ({ getState: () => ({}), subscribe: () => () => {} }),
@@ -1879,11 +1883,17 @@ test('a report that cannot be queued is retried in-process, delivered once, and 
       // A task turn's end is its final answer at once here (no agent work, no quiet period).
       pendingWork: async () => false,
       settleMs: 0,
-      log: () => {},
+      log: (line) => logs.push(line),
     });
     await tasks.send('sess_task_1', 'go', { agentId: 'a', sessionId: 'sess_home_a', title: 'T', notify: true });
     submits[0].options.onSettled({ status: 'done', result: { content: 'ok' } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The report's tries are over once it is delivered, or once the last
+    // failure is logged (`report of … failed:`, never a "retrying" line).
+    const settled = () => delivered.length > 0 || logs.some((line) => /^report of sess_task_1 failed: /.test(line));
+    for (const end = Date.now() + 10_000; !settled() && Date.now() < end; ) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.ok(settled(), `the report's tries ended in time (${calls} so far): ${logs.join(' | ')}`);
     return { calls, delivered, removed };
   };
   const once = await run(1);

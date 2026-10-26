@@ -2,6 +2,7 @@ import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSessionFlow } from './session-flow.mjs';
+import { setSessionTurnPrelude } from '../../runtime/shared/session-turn-prelude.mjs';
 
 const tick = () => new Promise(setImmediate);
 
@@ -135,6 +136,43 @@ test('a drained prompt row is attributed to the device that submitted it', async
   await tick();
   assert.equal(f.items[0].id, 'p1');
   assert.deepEqual(f.items[0].extra, { device: 'Pixel' });
+});
+
+test("the session's turn prelude lands before the prompt row and the turn, which waits for it", async (t) => {
+  t.after(() => setSessionTurnPrelude(null));
+  const f = fixture({ busy: false });
+  const preludes = [];
+  let release;
+  setSessionTurnPrelude((sessionId) => {
+    preludes.push(sessionId);
+    return new Promise((resolve) => {
+      release = () => {
+        f.items.push({ text: 'progress update', id: 'posted', kind: 'notice' });
+        resolve();
+      };
+    });
+  });
+  assert.equal(f.flow.enqueue('how is it going?', { id: 'p1' }), true);
+  await tick();
+  assert.deepEqual(preludes, ['session-drain-recheck']);
+  assert.deepEqual(f.turns, [], 'the turn waits for its prelude');
+  assert.deepEqual(f.items, []);
+  release();
+  await tick();
+  await tick();
+  assert.deepEqual(
+    f.items.map((item) => item.id),
+    ['posted', 'p1']
+  );
+  assert.deepEqual(
+    f.turns.map((turn) => String(turn.content)),
+    ['how is it going?']
+  );
+  // A session the prelude owes nothing (null) starts at once.
+  setSessionTurnPrelude(() => null);
+  assert.equal(f.flow.enqueue('next', { id: 'p2' }), true);
+  await tick();
+  assert.equal(f.turns.length, 2);
 });
 
 test('a bot message and a user message queued together run as separate turns, each with its own sender', async () => {

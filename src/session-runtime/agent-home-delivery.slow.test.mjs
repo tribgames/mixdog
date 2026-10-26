@@ -280,6 +280,301 @@ test('a home thread mid-turn is never interrupted: results wait in the queue and
   assert.deepEqual(h.saved, ['sess_home_lead'], 'both appended in one save');
 });
 
+test("progress updates wake nobody and land before the bot's next turn, once and in order, across a restart", async (t) => {
+  const { path, queue } = tempQueue(t);
+  const h = homes(t, ['sess_home_lead'], { queue });
+  const wakes = [];
+  const live = () => ({
+    busy: () => false,
+    notice: (id, notice) => h.notices.push([id, notice]),
+    wake: async (id, prompt) => {
+      wakes.push(prompt);
+      return true;
+    },
+  });
+  h.deps.live = live;
+  // The bot's own turn runs while the session it sent work to keeps answering.
+  h.state.busy = true;
+  const delivery = createAgentHomeDelivery(h.deps);
+  const task = { taskSessionId: 'sess_task_1', title: 'Parser', target: 'session' };
+  for (const n of [1, 2, 3]) {
+    await delivery.enqueueTask('lead', { ...task, runId: `send_1_progress_turn_${n}`, status: 'working', text: `update ${n}` });
+  }
+  await delivery.enqueueTask('lead', { ...task, runId: 'send_2_end', status: 'completed', text: 'other final' });
+  await delivery.drain('sess_home_lead');
+  const thread = h.sessions.get('sess_home_lead').messages;
+  assert.equal(thread.length, 1, 'nothing posts into a busy thread');
+  // The daemon restarts; then the user's message starts the bot's next turn.
+  const after = createAgentHomeDelivery({ ...h.deps, queue: createRoutineResultQueue(path) });
+  await after.postBeforeTurn('sess_home_lead');
+  thread.push({ role: 'user', content: 'how is it going?' });
+  const rows = () => thread.filter((message) => message.meta?.routine?.kind === 'task');
+  assert.deepEqual(
+    thread.slice(1).map((message) => message.meta?.routine?.summary ?? message.content),
+    ['update 1', 'update 2', 'update 3', 'how is it going?'],
+    'every progress update, in order, before the prompt'
+  );
+  for (const row of rows()) {
+    assert.equal(row.meta.routine.status, 'working');
+    assert.equal(row.meta.transcript.posted, true);
+    assert.match(row.content, /progress update — still working; this is NOT its final answer/);
+  }
+  assert.deepEqual(wakes, [], 'progress wakes nobody');
+  assert.deepEqual(
+    (await queue.items('sess_home_lead')).map((item) => item.runId),
+    ['send_2_end'],
+    'a report that wakes the bot waits for the drain after the turn'
+  );
+  // Another restart, another turn start, and the drain after the turn: no copy.
+  const again = createAgentHomeDelivery({ ...h.deps, queue: createRoutineResultQueue(path) });
+  await again.postBeforeTurn('sess_home_lead');
+  await again.enqueueTask('lead', { ...task, runId: 'send_1_progress_turn_2', status: 'working', text: 'update 2' });
+  h.state.busy = false;
+  await again.drain('sess_home_lead');
+  assert.deepEqual(
+    rows().map((message) => message.meta.routine.summary),
+    ['update 1', 'update 2', 'update 3', 'other final'],
+    'each posts once; the end posts after the prompt'
+  );
+  assert.equal(wakes.length, 1, 'the end wakes the bot');
+  assert.match(wakes[0], /other final/);
+  assert.equal(wakes[0].includes('update 1'), false, 'the wake carries no progress');
+  assert.deepEqual(await queue.items('sess_home_lead'), []);
+});
+
+test('past the queue limit, the prelude announces the omitted updates before the surviving ones, once', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'routine-results-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const queue = createRoutineResultQueue(join(dir, 'routine-results.json'), { limit: 2 });
+  const h = homes(t, ['sess_home_lead'], { queue });
+  h.state.busy = true;
+  const delivery = createAgentHomeDelivery(h.deps);
+  const task = { taskSessionId: 'sess_task_1', title: 'Parser' };
+  const update = (n) => ({ ...task, runId: `send_1_progress_turn_${n}`, status: 'working', text: `update ${n}` });
+  for (const n of [1, 2, 3, 4]) await delivery.enqueueTask('lead', update(n));
+  assert.deepEqual(await queue.omitted('sess_home_lead'), { id: 'omit_send_1_progress_turn_1', count: 2 });
+  await delivery.postBeforeTurn('sess_home_lead');
+  const thread = h.sessions.get('sess_home_lead').messages;
+  const shown = () =>
+    thread.slice(1).map((message) => (message.meta.routine.omitted ? `omitted ${message.meta.routine.omitted}` : message.meta.routine.summary));
+  assert.deepEqual(shown(), ['omitted 2', 'update 3', 'update 4'], 'the notice first, then the survivors');
+  assert.equal(await queue.omitted('sess_home_lead'), null, 'retired with the rows it announced');
+  assert.deepEqual(await queue.items('sess_home_lead'), []);
+  // An omission-only queue still posts its notice before the next turn.
+  await delivery.enqueueTask('lead', update(5));
+  await delivery.enqueueTask('lead', update(6));
+  await delivery.enqueueTask('lead', update(7));
+  await queue.remove('sess_home_lead', ['send_1_progress_turn_6', 'send_1_progress_turn_7']);
+  assert.deepEqual(await queue.items('sess_home_lead'), []);
+  assert.equal((await queue.omitted('sess_home_lead')).count, 1);
+  await delivery.postBeforeTurn('sess_home_lead');
+  assert.deepEqual(shown(), ['omitted 2', 'update 3', 'update 4', 'omitted 1']);
+  assert.equal(await queue.omitted('sess_home_lead'), null);
+  // The idle drain afterwards adds nothing.
+  h.state.busy = false;
+  await delivery.drain('sess_home_lead');
+  await delivery.postBeforeTurn('sess_home_lead');
+  assert.equal(thread.length, 5);
+});
+
+test('the prelude racing the idle drain posts every row and notice exactly once', async (t) => {
+  // Both passes join the thread's posting turn (postingFor) synchronously,
+  // in call order, so the two start orders are every interleaving there is;
+  // more rounds only repeat them (at ~25 locked queue writes each).
+  for (let round = 0; round < 2; round += 1) {
+    const dir = mkdtempSync(join(tmpdir(), 'routine-results-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'routine-results.json');
+    const queue = createRoutineResultQueue(path, { limit: 3 });
+    const h = homes(t, ['sess_home_lead'], { queue });
+    const wakes = [];
+    h.deps.live = () => ({ busy: () => false, notice: () => {}, wake: async (id, prompt) => wakes.push(prompt) });
+    const task = { taskSessionId: 'sess_task_1', title: 'Parser' };
+    // Queued while the thread was busy: 5 updates (3 dropped past the limit) and a final.
+    h.state.busy = true;
+    const delivery = createAgentHomeDelivery(h.deps);
+    for (const n of [1, 2, 3, 4, 5]) {
+      await delivery.enqueueTask('lead', { ...task, runId: `s_progress_t${n}`, status: 'working', text: `update ${n}` });
+    }
+    await delivery.enqueueTask('lead', { ...task, runId: 's_end', status: 'completed', text: 'final' });
+    await delivery.drain('sess_home_lead');
+    h.state.busy = false;
+    // The thread goes idle (its drain posts) just as a turn starts (the
+    // prelude posts): both read the same queue, in either order.
+    const passes = [() => delivery.drain('sess_home_lead'), () => delivery.postBeforeTurn('sess_home_lead')];
+    if (round % 2) passes.reverse();
+    await Promise.all(passes.map((pass) => pass()));
+    await delivery.drain('sess_home_lead');
+    const ids = h.sessions
+      .get('sess_home_lead')
+      .messages.slice(1)
+      .map((message) => message.meta.transcript.messageId);
+    assert.deepEqual(new Set(ids).size, ids.length, `round ${round}: nothing twice`);
+    assert.deepEqual(
+      [...ids].sort(),
+      ['routine_omit_s_progress_t1', 'routine_s_end', 'routine_s_progress_t4', 'routine_s_progress_t5'].sort(),
+      `round ${round}: nothing dropped (the final and the survivors, after the notice)`
+    );
+    assert.equal(ids[0], 'routine_omit_s_progress_t1', `round ${round}: the notice comes first`);
+    assert.deepEqual(await queue.items('sess_home_lead'), []);
+    assert.equal(await queue.omitted('sess_home_lead'), null);
+    assert.equal(wakes.length, 1, `round ${round}: the final wakes once`);
+  }
+});
+
+/** Mixy's home over the queue file at `path` whose saves wait until the test
+ *  settles them. `persisted` is the thread as a restart loads it: a save
+ *  snapshots the thread when called and lands it there once resolved. */
+function deferredHome(path, persisted) {
+  const live = structuredClone(persisted);
+  const saves = [];
+  const deps = {
+    loadSession: (id) => (id === live.id ? live : null),
+    saveSession: (session) => {
+      const snapshot = structuredClone(session);
+      return new Promise((resolve, reject) => {
+        saves.push({
+          resolve: () => {
+            Object.assign(persisted, snapshot);
+            resolve();
+          },
+          reject,
+        });
+      });
+    },
+    turnInFlight: () => false,
+    queue: createRoutineResultQueue(path),
+    live: () => ({ busy: () => false, notice: () => {} }),
+    retryLater: () => {},
+    log: () => {},
+  };
+  return { live, saves, deps };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Waits (bounded) until `done()` holds. */
+async function until(done, ms = 20_000) {
+  for (const end = Date.now() + ms; !done() && Date.now() < end; ) await sleep(5);
+  assert.ok(done(), 'condition reached in time');
+}
+const postedIds = (messages) => messages.slice(1).map((message) => message.meta.transcript.messageId);
+
+test('a crash or failed save while a progress update is being posted never loses it; it posts once', async (t) => {
+  for (const mode of ['crash', 'failed save']) {
+    const { path } = tempQueue(t);
+    const persisted = { id: 'sess_home_lead', messages: [{ role: 'user', content: 'hi' }], generation: 1 };
+    const first = deferredHome(path, persisted);
+    const delivery = createAgentHomeDelivery(first.deps);
+    const update = { taskSessionId: 'sess_task_1', title: 'Parser', status: 'working', text: 'update 1' };
+    await delivery.enqueueTask('lead', { ...update, runId: 'send_1_progress_turn_1' });
+    // The idle drain pushed the update and waits on its save; a turn starts meanwhile.
+    await until(() => first.saves.length === 1);
+    assert.deepEqual(postedIds(first.live.messages), ['routine_send_1_progress_turn_1']);
+    let preludeDone = false;
+    const prelude = delivery.postBeforeTurn('sess_home_lead').then(() => {
+      preludeDone = true;
+    });
+    await sleep(50);
+    assert.equal(preludeDone, false, `${mode}: the prelude waits for the posting in flight`);
+    assert.equal(first.saves.length, 1, `${mode}: no other pass saves or dequeues beside it`);
+    const queued = async () => (await createRoutineResultQueue(path).items('sess_home_lead')).map((item) => item.runId);
+    assert.deepEqual(await queued(), ['send_1_progress_turn_1'], `${mode}: still queued while unsaved`);
+    if (mode === 'crash') {
+      // The daemon dies before that save lands: the next start loads the thread as saved.
+      const second = deferredHome(path, persisted);
+      assert.deepEqual(postedIds(second.live.messages), [], 'the update never reached disk');
+      const restarted = createAgentHomeDelivery(second.deps);
+      const posting = restarted.postBeforeTurn('sess_home_lead');
+      await until(() => second.saves.length === 1);
+      second.saves[0].resolve();
+      await posting;
+      await restarted.drain('sess_home_lead');
+      assert.deepEqual(postedIds(second.live.messages), ['routine_send_1_progress_turn_1'], 'posted once');
+    } else {
+      // The save fails: the drain's pass ends; the prelude saves the pushed row
+      // itself before it dequeues it.
+      first.saves[0].reject(new Error('disk full'));
+      await until(() => first.saves.length === 2);
+      assert.deepEqual(await queued(), ['send_1_progress_turn_1'], 'not dequeued before its save lands');
+      first.saves[1].resolve();
+      await prelude;
+      await delivery.drain('sess_home_lead');
+      assert.deepEqual(postedIds(first.live.messages), ['routine_send_1_progress_turn_1'], 'posted once');
+    }
+    assert.deepEqual(postedIds(persisted.messages), ['routine_send_1_progress_turn_1'], `${mode}: saved once`);
+    assert.deepEqual(await queued(), [], `${mode}: dequeued once saved`);
+  }
+});
+
+test('a final report arriving while its answer is being posted as progress never repeats that answer', async (t) => {
+  const { path } = tempQueue(t);
+  const persisted = { id: 'sess_home_lead', messages: [{ role: 'user', content: 'hi' }], generation: 1 };
+  const h = deferredHome(path, persisted);
+  const wakes = [];
+  h.deps.live = () => ({ busy: () => false, notice: () => {}, wake: async (id, prompt) => wakes.push(prompt) });
+  const delivery = createAgentHomeDelivery(h.deps);
+  const task = { taskSessionId: 'sess_task_1', title: 'Parser', text: 'All done.' };
+  await delivery.enqueueTask('lead', { ...task, runId: 'send_1_progress_turn_1', status: 'working' });
+  await until(() => h.saves.length === 1);
+  assert.deepEqual(postedIds(h.live.messages), ['routine_send_1_progress_turn_1'], 'pushed, its save pending');
+  const final = delivery.enqueueTask('lead', {
+    ...task,
+    runId: 'send_1_end',
+    status: 'completed',
+    progressRunId: 'send_1_progress_turn_1',
+  });
+  await sleep(50);
+  assert.deepEqual(
+    (await createRoutineResultQueue(path).items('sess_home_lead')).map((item) => item.runId),
+    ['send_1_progress_turn_1'],
+    'the final waits for the posting in flight'
+  );
+  h.saves[0].resolve();
+  await final;
+  await until(() => h.saves.length === 2);
+  h.saves[1].resolve();
+  await until(() => wakes.length === 1);
+  const rows = h.live.messages.filter((message) => message.meta?.routine?.kind === 'task');
+  assert.deepEqual(
+    rows.map((message) => message.meta.routine.status),
+    ['working', 'completed']
+  );
+  assert.equal(rows.filter((message) => message.content.includes('All done.')).length, 1, 'the answer shows once');
+  assert.match(rows[1].content, /final answer is its latest progress update above/);
+  assert.equal(rows[1].meta.routine.summary, 'All done.', 'the card keeps its one-line summary');
+});
+
+test('a final report whose answer is still queued as progress carries it instead, posted once', async (t) => {
+  const h = homes(t, ['sess_home_lead']);
+  const wakes = [];
+  h.deps.live = () => ({ busy: () => false, notice: () => {}, wake: async (id, prompt) => wakes.push(prompt) });
+  h.state.busy = true;
+  const delivery = createAgentHomeDelivery(h.deps);
+  const task = { taskSessionId: 'sess_task_1', title: 'Parser' };
+  await delivery.enqueueTask('lead', { ...task, runId: 'send_1_progress_turn_1', status: 'working', text: 'All done.' });
+  await delivery.enqueueTask('lead', {
+    ...task,
+    runId: 'send_1_end',
+    status: 'completed',
+    text: 'All done.',
+    progressRunId: 'send_1_progress_turn_1',
+  });
+  assert.deepEqual(
+    (await h.deps.queue.items('sess_home_lead')).map((item) => [item.runId, item.text]),
+    [['send_1_end', 'All done.']]
+  );
+  h.state.busy = false;
+  await delivery.drain('sess_home_lead');
+  const rows = h.sessions.get('sess_home_lead').messages.slice(1);
+  assert.deepEqual(
+    rows.map((message) => message.meta.routine.status),
+    ['completed']
+  );
+  assert.match(rows[0].content, /All done\./);
+  assert.equal(wakes.length, 1);
+  assert.match(wakes[0], /All done\./);
+});
+
 test('a home thread that does not exist yet keeps its result queued until it does', async (t) => {
   const h = homes(t, []);
   const delivery = createAgentHomeDelivery(h.deps);

@@ -139,6 +139,9 @@ export type Handoff = {
   agentId: string;
   name: string;
   created: boolean;
+  /** The first line of the session's latest progress update since this
+   *  hand-off (a hidden `working` report), shown by its line while it works. */
+  progress?: string;
 };
 
 /** The handoffs of one stored tool item, in call order. A running call, an
@@ -181,6 +184,13 @@ function handoffsOf(items: readonly TranscriptItem[]): Handoff[] {
 }
 
 const TASK_REPORT_ENDED = new Set(['completed', 'failed', 'cancelled']);
+
+/** A progress update's line (routine-result.mjs agentTaskMessage `line`;
+ *  an older row has only its one-line summary). */
+function progressLineOf(record: Record<string, unknown>): string {
+  const line = typeof record.line === 'string' && record.line ? record.line : record.summary;
+  return typeof line === 'string' ? line.trim() : '';
+}
 
 /** The terminal task report rows of one session: whether one names no send
  *  (an older report), and the sends the others name. */
@@ -270,12 +280,16 @@ function handoffIndexOf(rows: readonly TranscriptRowModel[]): HandoffIndex {
   const waits = new Map<number, string>();
   const waited = new Set<string>();
   const hiddenReports = new Set<number>();
+  // Per session, the latest progress update after the row the walk is at.
+  const progress = new Map<string, string>();
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at];
     if (row._tag === 'AssistantPart') {
       const record = row.item.kind === 'notice' ? asRecord(row.item.routine) : null;
       if (record?.kind !== 'task') continue;
       const sessionId = typeof record.sessionId === 'string' ? record.sessionId : '';
+      const line = record.status === 'working' ? progressLineOf(record) : '';
+      if (line && sessionId && !progress.has(sessionId)) progress.set(sessionId, line);
       // Only the latest wait of a session that has not ended since can show.
       if (record.status === 'blocked' && sessionId && !waited.has(sessionId) && !after.has(sessionId)) {
         waited.add(sessionId);
@@ -286,7 +300,12 @@ function handoffIndexOf(rows: readonly TranscriptRowModel[]): HandoffIndex {
       continue;
     }
     if (row._tag !== 'ToolActivity') continue;
-    const open = handoffsOf(row.items).filter((handoff) => !handoffEnded(answered, after, handoff));
+    const open = handoffsOf(row.items)
+      .filter((handoff) => !handoffEnded(answered, after, handoff))
+      .map((handoff) => {
+        const line = progress.get(handoff.sessionId);
+        return line ? { ...handoff, progress: line } : handoff;
+      });
     if (!open.length) continue;
     for (const handoff of open) lineSessions.add(handoff.sessionId);
     const turn = turns.get(row.turnKey) ?? [];

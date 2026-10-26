@@ -7,8 +7,13 @@
  * Only turns the origin agent starts (the brief, a later `send` from it)
  * report: when such a turn ends its result is queued durably for the agent's
  * home (agent-home-delivery.mjs), which posts it and wakes the agent once to
- * relay it. A turn blocked on the user's answer or approval posts one faint
- * line instead; the card stays in the task session for the user.
+ * relay it. The session's other answers in that chain (given while work it
+ * handed to its agents still runs) are queued as progress updates that wake
+ * nobody: the agent reads them before its next turn, whatever starts it
+ * (agent-home-delivery.mjs postBeforeTurn), and the final report never
+ * repeats one that already carried its answer. A turn blocked on the user's
+ * answer or approval posts one faint line instead; the card stays in the task
+ * session for the user.
  *
  * An agent's send to any other session reports the same way, by an origin for
  * that send only (reportOrigin). Every reporting turn is also watched durably
@@ -109,7 +114,13 @@ export function submissionIdsOf(message) {
 export function submissionOutcome(messages, runId) {
   const list = Array.isArray(messages) ? messages : [];
   const start = list.findIndex((message) => submissionIdsOf(message).includes(runId));
-  if (start < 0) return null;
+  return start < 0 ? null : outcomeFrom(list, start);
+}
+
+/** submissionOutcome of the turn whose prompt is `list[start]`, read in
+ *  place: the scan stops at that turn's end (its completion, an
+ *  interruption, or the next turn's prompt). */
+function outcomeFrom(list, start) {
   for (let index = start; index < list.length; index += 1) {
     const message = list[index];
     const completion = message?.meta?.transcript?.completion;
@@ -171,7 +182,9 @@ export function latestTurnOutcome(messages, runId) {
   return chain && { id: chain.id, outcome: chain.outcome, at: chain.at, ambiguous: chain.ambiguous };
 }
 
-/** latestTurnOutcome with what a report's wait needs besides: `taskIds`, the
+/** latestTurnOutcome with what a report's wait needs besides: `answers`,
+ *  every turn of the chain that recorded its end, oldest first (`{ id,
+ *  status, text }`: its submission id and submissionOutcome); `taskIds`, the
  *  agent tasks the chain's turns started — the only tasks proven the chain's
  *  — and `busyIsOthers`: the session's last stored turn is one outside the
  *  chain that recorded no end yet, and a stored turn took the result of every
@@ -194,6 +207,8 @@ function turnChain(messages, runId) {
   // The turn the walk is in: where its prompt is stored and its submission id.
   let turnAt = start;
   let turnId = runId;
+  // Every turn of the chain, in order: where its prompt is stored, its id.
+  const turns = [{ at: start, id: runId }];
   for (let index = start; index < list.length; index += 1) {
     const message = list[index];
     const checkpointId = index > start && message?.role === 'user' ? message.meta?.transcript?.checkpointId : '';
@@ -216,6 +231,7 @@ function turnChain(messages, runId) {
         inChain = true;
         at = turnAt;
         id = turnId;
+        if (turns.at(-1).id !== turnId) turns.push({ at: turnAt, id: turnId });
       } else if (!delivered.length || delivered.includes(null)) {
         ambiguous = true;
       }
@@ -234,14 +250,27 @@ function turnChain(messages, runId) {
     if (Array.isArray(message.agentTaskIds)) for (const taskId of message.agentTaskIds) started.add(String(taskId));
     else if (message.toolKind !== 'error') ambiguous = true;
   }
-  const turn = list.slice(at);
-  const ended = turn.find((message) => message?.meta?.transcript?.completion);
-  const last = turnId === id ? null : submissionOutcome(list.slice(turnAt), turnId);
+  // Read in place, never on copied suffixes: each chain turn's outcome scan
+  // stops at that turn's end, so the turns' scans cover disjoint stretches
+  // and the whole walk stays linear in the transcript.
+  let ended = null;
+  for (let index = at; index < list.length && !ended; index += 1) {
+    if (list[index]?.meta?.transcript?.completion) ended = list[index];
+  }
+  const last = turnId === id ? null : outcomeFrom(list, turnAt);
+  const answers = [];
+  let outcome = null;
+  for (const chainTurn of turns) {
+    const turnOutcome = outcomeFrom(list, chainTurn.at);
+    if (chainTurn.at === at) outcome = turnOutcome;
+    if (turnOutcome !== 'open') answers.push({ id: chainTurn.id, ...turnOutcome });
+  }
   return {
     id,
-    outcome: submissionOutcome(turn, id),
+    outcome,
     at: Number(ended?.meta?.transcript?.at) || 0,
     ambiguous,
+    answers,
     taskIds: started,
     busyIsOthers: last === 'open' && [...started].every((taskId) => taken.has(taskId)),
   };
@@ -406,9 +435,6 @@ const LOST_TEXT = 'The message never ran: the app restarted before its turn star
 const GONE_TEXT = 'The session no longer exists.';
 const RESUME_FAILED_TEXT =
   'The agent task session could not continue after the app restarted: its agents’ results never reached it. Check that session.';
-const PENDING_CAP_MS = 30 * 60_000;
-const STILL_WORKING_TEXT =
-  'Still in progress: its agents are still working 30+ minutes after this answer. This is the latest answer; the final one is reported when they finish.';
 // Deliveries of a restarted task session's queued agent results before its
 // report gives up as RESUME_FAILED_TEXT.
 const OWED_WAKE_TRIES = 3;
@@ -479,27 +505,63 @@ async function lastUsedSessionRoute(sessionService) {
  *  without the provenance to tell (no stored turn, `ambiguous`) the whole
  *  session must be idle with none pending. `immediate` is runId's own end,
  *  when this process saw it.
- *  `finish(status, text)` runs once; `check` re-evaluates (call it on every
- *  state change of `runtime`), `stop` ends the wait. */
+ *  Every other answer of the chain — each ended turn a later turn of the
+ *  chain followed, and the latest while its work still runs or its
+ *  provenance is missing — goes to `interim({ id, status, text })` once, in
+ *  chain order (`id`: the submission of the turn that gave it): a progress
+ *  update, which wakes nobody. Every check lists all the chain's ended turns,
+ *  so answers that end close together are each reported. `progressedThrough`:
+ *  the last turn an earlier process reported (the watch's durable mark):
+ *  it and the turns before it are not reported again.
+ *  `finish(status, text, answerId)` runs once (`answerId`: the turn whose
+ *  answer it is, none for a report of no turn); `check` re-evaluates (call it
+ *  on every state change of `runtime`), `stop` ends the wait. */
 function followTaskToFinal(
-  { loadSession, owedResults, deliverCompletion, pendingWork, settleMs, pollMs, pendingCapMs, log },
-  { sessionId, runId, runtime, immediate = null, wakeOwed = false, finish, progress = null }
+  { loadSession, owedResults, deliverCompletion, pendingWork, settleMs, pollMs, log },
+  {
+    sessionId,
+    runId,
+    runtime,
+    immediate = null,
+    wakeOwed = false,
+    finish,
+    interim = null,
+    progressedThrough = '',
+  }
 ) {
-  let progressed = false;
-  let pendingSince = 0;
-  // Agent work still pending `pendingCapMs` after the chain's latest turn
-  // ended: `progress(text)` reports that answer once, marked still in
-  // progress, and the wait for the final one goes on. `latest`: the chain's
-  // latest turn (turnChain).
-  async function reportProgress(latest) {
-    if (progressed || typeof progress !== 'function') return;
-    let end = latest?.outcome && latest.outcome !== 'open' ? latest.outcome : null;
-    if (immediate && (!latest || latest.id === runId)) end = immediate;
-    if (!end) return;
-    pendingSince ||= Date.now();
-    if (Date.now() - (latest?.at || pendingSince) < pendingCapMs) return;
-    progressed = true;
-    await progress(`${STILL_WORKING_TEXT}\n\n${end.text}`);
+  // The chain's ended answers, oldest first, `{ id, status, text }`; runId's
+  // own is `immediate` when this process saw it. `latest`: turnChain's.
+  const answersOf = (latest) => {
+    const stored = latest?.answers || [];
+    if (!immediate) return stored;
+    return [{ id: runId, ...immediate }, ...stored.filter((answer) => answer.id !== runId)];
+  };
+  // The answers already handed to `interim`, by turn.
+  const interimIds = new Set();
+  /** Hand `answer` to `interim` once; false when that failed (logged): it is
+   *  tried again at the next check, and no later answer goes out before it. */
+  async function reportInterim(answer) {
+    if (!answer?.id || !String(answer.text || '').trim() || typeof interim !== 'function') return true;
+    if (interimIds.has(answer.id)) return true;
+    try {
+      await interim(answer);
+    } catch (error) {
+      log(`progress update of ${sessionId} failed, retried at the next check: ${error?.message || error}`);
+      return false;
+    }
+    interimIds.add(answer.id);
+    return true;
+  }
+  /** Report, in order, every one of `answers` past the durable mark but
+   *  `held` (the final candidate, reported only when it proves not final);
+   *  false, stopping there, at the first that could not be queued. */
+  async function reportEarlier(answers, held) {
+    const through = progressedThrough ? answers.findIndex((answer) => answer.id === progressedThrough) : -1;
+    for (const [index, answer] of answers.entries()) {
+      if (index <= through) interimIds.add(answer.id);
+      else if (answer !== held && !(await reportInterim(answer))) return false;
+    }
+    return true;
   }
   let done = false;
   let checking = false;
@@ -560,6 +622,14 @@ function followTaskToFinal(
     const latest = turnChain(stored?.messages, runId);
     // The chain's agent tasks; null (the whole session) without its provenance.
     const taskIds = latest && !latest.ambiguous ? latest.taskIds : null;
+    // Every answer of the chain but its latest turn's is no final one: each
+    // goes out as progress, whatever the session does now.
+    const answers = answersOf(latest);
+    const latestId = latest ? latest.id : runId;
+    const answer = answers.at(-1)?.id === latestId ? answers.at(-1) : null;
+    // An answer that could not be queued holds the chain (later answers, the
+    // final report) until a later check queues it: the poll retries it.
+    if (!(await reportEarlier(answers, answer))) return null;
     // A busy session may run the chain's turn unless that turn is provably another's.
     const busy = Boolean(runtime?.getState?.()?.busy);
     if (busy && !(taskIds && latest.busyIsOthers)) return null;
@@ -568,18 +638,16 @@ function followTaskToFinal(
       if (woke !== undefined) return woke;
     }
     if (await pendingWork(sessionId, { taskIds })) {
-      await reportProgress(latest);
+      await reportInterim(answer);
       return null;
     }
     if (!stored && !immediate) return { key: 'gone', status: 'cancelled', text: GONE_TEXT };
     // Provenance the chain needs is missing: its answer may not be final.
     if (latest?.ambiguous) {
-      await reportProgress(latest);
+      await reportInterim(answer);
       return null;
     }
-    if (immediate && (!latest || latest.id === runId)) return { key: runId, ...immediate };
-    if (!latest?.outcome || latest.outcome === 'open') return null;
-    return { key: `${latest.id}:${latest.outcome.status}`, ...latest.outcome };
+    return answer && { key: `${answer.id}:${answer.status}`, ...answer };
   }
   async function check() {
     if (done) return;
@@ -605,7 +673,7 @@ function followTaskToFinal(
           arm(candidateAt + settleMs - Date.now());
         } else {
           stop();
-          await finish(end.status, end.text);
+          await finish(end.status, end.text, end.id);
         }
       } while (again && !done);
     } finally {
@@ -763,7 +831,7 @@ async function rearmTaskWatch(
   // The turn that answers: the watched submission's own, or the one it
   // follows (a room member's turn under another submission id).
   const turnId = watch.follows || watch.runId;
-  const finish = async (status, text = '') =>
+  const finish = async (status, text = '', answerId = '') =>
     deliver(watch.agentId, {
       runId: `${watch.runId}_end`,
       taskSessionId: sessionId,
@@ -774,6 +842,7 @@ async function rearmTaskWatch(
       ...(watch.hop > 0 ? { hop: watch.hop } : {}),
       ...roomFrom(watch.homeSessionId),
       watchId: watch.runId,
+      ...progressOf(watch.runId, answerId),
       ...(watch.textOnly || text === GONE_TEXT || text === LOST_TEXT ? {} : await artifactFields(sessionId, turnId)),
     });
   if (!(await loadSession(sessionId))) return finish('cancelled', GONE_TEXT);
@@ -819,21 +888,25 @@ async function rearmTaskWatch(
             runId: turnId,
             runtime,
             wakeOwed: true,
-            progress: (text) =>
+            // The turns an earlier process already reported as progress.
+            progressedThrough: watch.progressed || '',
+            interim: (answer) =>
               deliver(watch.agentId, {
-                runId: `${watch.runId}_progress`,
+                runId: progressRunId(watch.runId, answer.id),
                 taskSessionId: sessionId,
                 title: watch.title,
                 status: 'working',
-                text,
+                text: answer.text,
+                progressWatchId: watch.runId,
+                answerId: answer.id,
                 ...(watch.target === 'session' ? { target: 'session' } : {}),
                 ...(watch.hop > 0 ? { hop: watch.hop } : {}),
                 ...roomFrom(watch.homeSessionId),
               }),
-            finish: async (status, text) => {
+            finish: async (status, text, answerId) => {
               done = true;
               unsubscribe();
-              await finish(status, text);
+              await finish(status, text, answerId);
             },
           });
         } else if (end) {
@@ -897,12 +970,23 @@ function createSendSettlement(log) {
   return { join, nextSeq };
 }
 
-/** The queue row of send `id`'s report of `status`. 'working': a
- *  still-in-progress answer (followToFinal), not the end. A wait for approval
- *  belongs to the target session, not to this send: every watcher of it names
- *  the same row, so it posts once. */
-const turnReportRunId = (sessionId, id, status, approvalId) =>
-  status === 'blocked' ? `${sessionId}_${approvalId}_blocked` : `${id}_${{ working: 'progress' }[status] || 'end'}`;
+/** The queue row of send `id`'s progress update carrying the answer of turn
+ *  `answerId` (followToFinal `interim`): one per answer, across restarts. */
+const progressRunId = (id, answerId) => `${id}_progress_${answerId}`;
+
+/** The queue row of send `id`'s report of `status`. 'working': a progress
+ *  update (progressRunId), not the end. A wait for approval belongs to the
+ *  target session, not to this send: every watcher of it names the same row,
+ *  so it posts once. */
+const turnReportRunId = (sessionId, id, status, { approvalId = '', answerId = '' } = {}) => {
+  if (status === 'blocked') return `${sessionId}_${approvalId}_blocked`;
+  return status === 'working' ? progressRunId(id, answerId) : `${id}_end`;
+};
+
+/** The report fields naming the progress update that may have carried the
+ *  final answer of turn `answerId` already (the queue then does not repeat
+ *  it); none for a report of no turn. */
+const progressOf = (id, answerId) => (answerId ? { progressRunId: progressRunId(id, answerId) } : {});
 
 /** The handler of send `id`'s task-session state: a wait for the user's
  *  approval reports blocked once; a later, different one reports again. */
@@ -920,7 +1004,7 @@ function approvalWaitReporter(id, report) {
     // waiting: that turn's own watcher reports it.
     if ((state.queued || []).some((entry) => entry?.id === id)) return;
     reportedApproval = approvalId;
-    void report('blocked', '', approvalId);
+    void report('blocked', '', { approvalId });
   };
 }
 
@@ -1050,9 +1134,6 @@ export function createAgentTaskSessions({
   owedResults = owedAgentResults,
   deliverCompletion = null,
   settleAgentResults = async () => {},
-  // Pending agent work this long after the latest answer reports that answer
-  // as still in progress (once); the final report still follows.
-  pendingCapMs = PENDING_CAP_MS,
   log = (line) => process.stderr.write(`mixdog task sessions: ${line}\n`),
 }) {
   /** The report fields of turn `runId`'s files; none when it produced none. */
@@ -1074,10 +1155,7 @@ export function createAgentTaskSessions({
   };
 
   const followToFinal = (follow) =>
-    followTaskToFinal(
-      { loadSession, owedResults, deliverCompletion, pendingWork, settleMs, pollMs, pendingCapMs, log },
-      follow
-    );
+    followTaskToFinal({ loadSession, owedResults, deliverCompletion, pendingWork, settleMs, pollMs, log }, follow);
 
   const settlement = createSendSettlement(log);
 
@@ -1106,11 +1184,13 @@ export function createAgentTaskSessions({
     // A report that cannot be queued is retried in this process; when every try
     // fails the durable watch stays and restart recovery delivers it (the queue
     // dedupes by runId, so a retry never posts twice).
-    const report = (status, text = '', approvalId = '') =>
-      Promise.resolve(beforeReport)
-        .then(async () =>
+    // `answerId`: the turn whose answer a progress update or the end carries.
+    // `deliverReport` rejects once every try failed (a progress update is
+    // tried again at the follow's next check); `report` logs it instead.
+    const deliverReport = (status, text = '', { approvalId = '', answerId = '' } = {}) =>
+      Promise.resolve(beforeReport).then(async () =>
           deliverWithRetries({ deliver, retryDelaysMs, log }, origin.agentId, sessionId, {
-            runId: turnReportRunId(sessionId, id, status, approvalId),
+            runId: turnReportRunId(sessionId, id, status, { approvalId, answerId }),
             taskSessionId: sessionId,
             title: origin.title,
             status,
@@ -1118,6 +1198,9 @@ export function createAgentTaskSessions({
             ...target,
             ...(origin.hop > 0 ? { hop: origin.hop } : {}),
             ...roomFrom(origin.sessionId),
+            // A progress update moves this send's durable mark to its turn
+            // (agent-home-delivery.mjs enqueueTask), in the same write.
+            ...(status === 'working' ? { progressWatchId: id, answerId } : {}),
             // A turn's end brings back the files it produced, when the agent
             // may receive them (reportOrigin `textOnly`).
             ...(status === 'blocked' || status === 'working'
@@ -1125,11 +1208,15 @@ export function createAgentTaskSessions({
               : {
                   watchId: id,
                   ...(sendIds.length > 1 ? { watchIds: sendIds } : {}),
+                  ...progressOf(id, answerId),
                   ...(origin.textOnly ? {} : await artifactFields(sessionId, id, runtime)),
                 }),
           })
-        )
-        .catch((error) => log(`report of ${sessionId} failed: ${error?.message || error}`));
+      );
+    const report = (status, text = '', options = {}) =>
+      deliverReport(status, text, options).catch((error) =>
+        log(`report of ${sessionId} failed: ${error?.message || error}`)
+      );
     let unwatch = () => {};
     // Set once the turn ended completed: the report waits for the final answer.
     let follow = null;
@@ -1151,11 +1238,12 @@ export function createAgentTaskSessions({
         runId: id,
         runtime,
         immediate: { status, text },
-        finish: async (endStatus, endText) => {
+        finish: async (endStatus, endText, answerId) => {
           unwatch();
-          await report(endStatus, endText);
+          await report(endStatus, endText, { answerId });
         },
-        progress: (progressText) => report('working', progressText),
+        // Each other answer of its chain: a progress update that wakes nobody.
+        interim: (answer) => deliverReport('working', answer.text, { answerId: answer.id }),
       });
       follow.check();
     };
