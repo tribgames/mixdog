@@ -34,6 +34,8 @@ export const DESKTOP_CAPABILITIES = [
   'setCacheWarmingEnabled',
   'getHeartbeatSettings',
   'setHeartbeatEnabled',
+  // setHeartbeatInterval(minutes): minutes between Mixy's heartbeat checks, one of a fixed set.
+  'setHeartbeatInterval',
   'noteUserInput',
   'getReactionSettings',
   'setReactionsEnabled',

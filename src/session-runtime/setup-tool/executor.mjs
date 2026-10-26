@@ -7,6 +7,10 @@ import { builtinFeatureActive } from '../../runtime/agent/orchestrator/runtime-c
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
 import { AUTO_EFFORT_BASES } from '../../runtime/agent/orchestrator/providers/auto-effort.mjs';
 import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
+import {
+  normalizeHeartbeatIntervalMinutes,
+  requireHeartbeatIntervalMinutes,
+} from '../../runtime/shared/heartbeat-interval.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
 import { executeExtendedSetupAction, publicAutomation, publicHookRule, validateMcpInput } from './extended-actions.mjs';
@@ -48,7 +52,9 @@ const ACTION_APPLIES_TO = {
   set_ai_session_titles: 'titles generated from now on; existing titles are unchanged',
   set_quota_auto_resume: 'subsequent usage-limit stops; turning it off cancels pending resumes',
   set_model_preferences: 'the /model picker and model management lists',
-  set_heartbeat_enabled: "Mixy's next heartbeat check (every 30 minutes); no restart required",
+  set_heartbeat_enabled: "Mixy's next heartbeat check; no restart required",
+  set_heartbeat_interval:
+    "Mixy's heartbeat from the next tick: the next check is due the new interval after the last one; no restart required",
   set_reactions_enabled:
     "bots' chats; while off a reaction is refused at once and new chats are not offered the tool; reactions already left stay visible",
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',
@@ -296,7 +302,10 @@ async function featureStatus(rt, getConfig) {
     browser: { active: builtinFeatureActive(config, 'browser') },
     computer: { active: builtinFeatureActive(config, 'computer') },
     terminal: { active: builtinFeatureActive(config, 'terminal') },
-    heartbeat: { enabled: config?.heartbeat !== false },
+    heartbeat: {
+      enabled: config?.heartbeat !== false,
+      intervalMinutes: normalizeHeartbeatIntervalMinutes(config?.heartbeatIntervalMinutes),
+    },
     reactions: { enabled: config?.reactions !== false },
     voice: rt.getVoiceStatus ? voiceFeatureStatus(await rt.getVoiceStatus()) : null,
   };
@@ -647,6 +656,7 @@ const SETUP_ACTION_HANDLERS = {
     return rt.setModelPreferences(requireText(args.provider, 'provider'), [change]);
   },
   set_heartbeat_enabled: (rt, args) => rt.setHeartbeatEnabled(requireBoolean(args.enabled)),
+  set_heartbeat_interval: (rt, args) => rt.setHeartbeatInterval(requireHeartbeatIntervalMinutes(args.minutes)),
   set_reactions_enabled: (rt, args) => rt.setReactionsEnabled(requireBoolean(args.enabled)),
   set_worktree_settings: (rt, args) => rt.setWorktreeSettings(args.worktree),
   forget_provider_auth: async (rt, args) => {

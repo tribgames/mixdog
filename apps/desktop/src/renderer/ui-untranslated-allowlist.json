@@ -244,6 +244,7 @@
     },
     "fr": {
       "Position": "same spelling for a position in French UI",
+      "30 minutes": "same spelling in French",
       "Ports": "same spelling for network ports in French UI",
       "Conversations": "same spelling in French",
       "{{count}} conversations": "same spelling in French",

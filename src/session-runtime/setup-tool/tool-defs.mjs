@@ -6,6 +6,10 @@ import {
 } from './settings-contract.mjs';
 import { MEDIA_KINDS } from '../../runtime/media/tool-defs.mjs';
 import { INSTRUCTION_FILES_MODES } from '../../runtime/shared/instruction-files-mode.mjs';
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+  HEARTBEAT_INTERVAL_CHOICES,
+} from '../../runtime/shared/heartbeat-interval.mjs';
 import { AUTO_EFFORT_BASES } from '../../runtime/agent/orchestrator/providers/auto-effort.mjs';
 import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
 import { CONNECTOR_IDS } from '../../runtime/shared/connector-catalog.mjs';
@@ -104,6 +108,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_quota_auto_resume: 'enabled',
   set_model_preferences: 'provider model hidden? favorite?',
   set_heartbeat_enabled: 'enabled',
+  set_heartbeat_interval: 'minutes',
   set_reactions_enabled: 'enabled',
   forget_provider_auth: 'name accountId?',
   set_provider_account: 'name providerAccount',
@@ -349,6 +354,11 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           minimum: 0,
           maximum: 86400,
           description: 'set_local_idle_ttl: unload after this many idle seconds, 0 disables; default 3600.',
+        },
+        minutes: {
+          type: 'integer',
+          enum: [...HEARTBEAT_INTERVAL_CHOICES],
+          description: `set_heartbeat_interval: minutes between Mixy's heartbeat checks; default ${DEFAULT_HEARTBEAT_INTERVAL_MINUTES}.`,
         },
         query: { type: 'string', description: 'search_local_models: Hugging Face GGUF search query.' },
         repository: { type: 'string', description: 'inspect_hf_model: public Hugging Face owner/model repository.' },

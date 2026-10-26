@@ -65,13 +65,15 @@ function harness(
   const interval = limits?.intervalMs ?? INTERVAL;
   const path = join(tempDir(t), 'heartbeat.json');
   let clock = T0;
-  const state = { facts: activity, routeKey: 'fake/tiny/', enabled: true, userTurnAt: 0, ...initial };
+  const state = { facts: activity, routeKey: 'fake/tiny/', enabled: true, userTurnAt: 0, interval, ...initial };
   const calls = { collect: [], decide: [], review: [], readTail: [], wake: [], notify: [], logs: [] };
   const build = (overrides = {}) =>
     createMixyHeartbeat({
       now: () => clock,
       path,
       isEnabled: async () => state.enabled,
+      // The configured interval, live: a test changes `state.interval`.
+      intervalMs: async () => state.interval,
       userTurnAt: () => state.userTurnAt,
       // The module's process-wide app input time stays out of every harness.
       appInputAt: () => 0,
@@ -122,8 +124,8 @@ function harness(
   };
 }
 
-test('checks run every 30 minutes by default, never sooner', async (t) => {
-  assert.equal(INTERVAL, 30 * MINUTE);
+test('checks run every hour by default, never sooner', async (t) => {
+  assert.equal(INTERVAL, 60 * MINUTE);
   const h = harness(t);
   await h.arm();
   assert.equal(await h.tick(), 'nothing');
@@ -131,6 +133,35 @@ test('checks run every 30 minutes by default, never sooner', async (t) => {
   assert.equal(await h.tick(), 'waiting');
   h.advance(MINUTE);
   assert.equal(await h.tick(), 'unchanged');
+});
+
+test('a configured interval drives the due time, and a change applies live from the last check', async (t) => {
+  const h = harness(t, { limits: Object.freeze({ ...HEARTBEAT_LIMITS, intervalMs: 4 * HOUR }) });
+  await h.arm();
+  assert.equal(await h.tick(), 'nothing');
+  h.advance(4 * HOUR - MINUTE);
+  assert.equal(await h.tick(), 'waiting');
+  // Shortened live: the last check was 4h - 1min ago, so it is due at once.
+  h.state.interval = 30 * MINUTE;
+  assert.equal(await h.tick(), 'unchanged');
+  // Lengthened live: the next one is counted from that check.
+  h.state.interval = 2 * HOUR;
+  h.advance(2 * HOUR - MINUTE);
+  assert.equal(await h.tick(), 'waiting');
+  h.advance(MINUTE);
+  assert.equal(await h.tick(), 'unchanged');
+});
+
+test('only the fixed choices are an interval: absent and invalid values read as an hour', async () => {
+  const { normalizeHeartbeatIntervalMinutes } = await import('../runtime/shared/heartbeat-interval.mjs');
+  for (const bad of [undefined, null, 0, 45, -30, '60', 30.5, NaN, Infinity, {}, []]) {
+    assert.equal(normalizeHeartbeatIntervalMinutes(bad), 60, String(bad));
+  }
+  for (const good of [30, 60, 120, 240]) assert.equal(normalizeHeartbeatIntervalMinutes(good), good);
+});
+
+test('the polling tick is no longer than the smallest interval', () => {
+  assert.ok(HEARTBEAT_LIMITS.tickMs <= 30 * MINUTE);
 });
 
 test('an unchanged digest makes no Maintainer call; its "nothing" wakes no one; an empty digest stops too', async (t) => {
@@ -304,6 +335,8 @@ test('a review reads only the items after its cursor when the window holds it, a
   assert.deepEqual(await readSessionTail(service, 's', { after: '2' }), {
     rows: ['user: "new question"', 'assistant: "new answer"'],
     head: '4',
+    skipped: 0,
+    exact: true,
   });
   assert.equal(
     (await readSessionTail(service, 's', { after: '99' })).rows.length,
@@ -311,6 +344,144 @@ test('a review reads only the items after its cursor when the window holds it, a
     'a cursor out of the window reads it all'
   );
   assert.deepEqual((await readSessionTail(service, 's', { after: '4' })).rows, []);
+});
+
+/** A session service over a growing item list, paged like readTranscriptRange
+ *  (offset from the newest item, `limit` items, oldest first, `hasOlder`). */
+function pagedService(items, { retained = Infinity } = {}) {
+  const calls = [];
+  return {
+    items,
+    calls,
+    readSession: async ({ transcriptRange: { offset, limit } }) => {
+      calls.push({ offset, limit });
+      const kept = items.slice(-retained);
+      if (offset >= kept.length && kept.length < items.length) throw new Error('history is not retained');
+      const end = Math.max(0, kept.length - offset);
+      const start = Math.max(0, end - limit);
+      return { range: { items: kept.slice(start, end), hasOlder: start > 0 || kept.length < items.length } };
+    },
+  };
+}
+/** `count` messages (each followed by a tool call), ids from `first`; message 0 is the early warning. */
+function longTranscript(count, first = 0) {
+  const items = [];
+  for (let i = first; i < first + count; i += 1) {
+    items.push({ id: `m${i}`, kind: i % 2 ? 'assistant' : 'user', text: i === 0 ? 'WARNING: backup failed' : `message ${i}` });
+    items.push({ id: `t${i}`, kind: 'tool', name: 'shell' });
+  }
+  return items;
+}
+
+test('a review reads one page, takes the latest 12 after the cursor, and counts what it left out', async () => {
+  const msgs = (count, first = 0) =>
+    Array.from({ length: count }, (_, i) => ({ id: `m${first + i}`, kind: i % 2 ? 'assistant' : 'user', text: `message ${first + i}` }));
+  const before = { id: 'before', kind: 'user', text: 'earlier' };
+  // 48 messages after the cursor: one page is enough to know there are more.
+  const big = pagedService([before, ...msgs(48)]);
+  const tail = await readSessionTail(big, 's', { after: 'before' });
+  assert.equal(tail.rows.length, 12);
+  assert.equal(tail.rows.at(-1), 'assistant: "message 47"');
+  assert.equal(tail.head, 'm47');
+  assert.deepEqual([tail.skipped, tail.exact], [28, false], 'at least the 28 more in the page read');
+  assert.deepEqual(big.calls, [{ offset: 0, limit: 40 }], 'one page, the backlog is not read through');
+  // The cursor in the page: the count is exact.
+  const some = await readSessionTail(pagedService([before, ...msgs(20)]), 's', { after: 'before' });
+  assert.deepEqual([some.rows.length, some.skipped, some.exact], [12, 8, true]);
+  // A cursor that is nowhere, however few messages remain: unknown gap.
+  const lost = await readSessionTail(pagedService(msgs(5)), 's', { after: 'gone' });
+  assert.deepEqual([lost.rows.length, lost.skipped, lost.exact], [5, -1, false]);
+  // Cursor not in a page with older items beyond it: a lower bound, not an unknown gap.
+  const beyond = await readSessionTail(pagedService(msgs(48), { retained: 5 }), 's', { after: 'before' });
+  assert.deepEqual([beyond.skipped, beyond.exact], [0, false]);
+  // No cursor: the latest page, and older history is said to exist.
+  const fresh = await readSessionTail(pagedService(msgs(48)), 's');
+  assert.deepEqual([fresh.rows.length, fresh.exact], [12, false]);
+  assert.equal((await readSessionTail(pagedService(msgs(5)), 's')).exact, true);
+});
+
+test('a tool-only backlog costs one read per session per beat, however long', async (t) => {
+  const items = [{ id: 'before', kind: 'user', text: 'earlier' }];
+  const transcript = pagedService(items);
+  const h = harness(t, {
+    readTail: (id, options) => readSessionTail(transcript, id, options),
+    review: () => ({ action: 'nothing' }),
+  });
+  await h.arm();
+  assert.equal(await h.tick(), 'nothing');
+  for (let i = 0; i < 4000; i += 1) items.push({ id: `t${i}`, kind: 'tool', name: 'shell' });
+  items.push({ id: 'last', kind: 'user', text: 'one message' });
+  transcript.calls.length = 0;
+  h.state.facts = facts({ sessions: [{ ...activity.sessions[0], title: 'Report v2' }] });
+  h.advance();
+  await h.tick();
+  assert.equal(transcript.calls.length, 1, 'exactly one read');
+  assert.deepEqual(transcript.calls[0], { offset: 0, limit: 40 });
+  assert.match(h.calls.decide[0].digest[0], /; older messages since the last check may not have been reviewed$/);
+  assert.equal(readJson(h.path).reviews.sess_lead_1.head, 'last');
+});
+
+test('a long interval: one call with the latest 12 messages, the line says how many older ones were not reviewed, the cursor moves to the newest', async (t) => {
+  const items = [{ id: 'before', kind: 'user', text: 'earlier' }];
+  const transcript = pagedService(items);
+  const h = harness(t, {
+    limits: Object.freeze({ ...HEARTBEAT_LIMITS, intervalMs: 4 * HOUR }),
+    readTail: (id, options) => readSessionTail(transcript, id, options),
+    review: () => ({ action: 'nothing' }),
+  });
+  await h.arm();
+  assert.equal(await h.tick(), 'nothing');
+  assert.equal(readJson(h.path).reviews.sess_lead_1.head, 'before');
+  h.calls.review.length = 0;
+  for (let i = 0; i < 48; i += 1) items.push({ id: `m${i}`, kind: i % 2 ? 'assistant' : 'user', text: `message ${i}` });
+  h.state.facts = facts({ sessions: [{ ...activity.sessions[0], title: 'Report v2' }] });
+  h.advance();
+  assert.equal(await h.tick(), 'nothing');
+  assert.equal(h.calls.review.length, 1, 'one call for the session');
+  assert.equal(h.calls.review[0].transcript.length, 12);
+  assert.equal(h.calls.review[0].transcript[0], 'user: "message 36"');
+  assert.equal(h.calls.decide.length, 1, 'the verdict was NOTHING but the line stayed');
+  assert.match(h.calls.decide[0].digest[0], /; at least 28 older messages since the last check were not reviewed$/);
+  assert.equal(readJson(h.path).reviews.sess_lead_1.head, 'm47');
+});
+
+test('a cursor that cannot be found is reported as incomplete coverage even with 12 or fewer messages, and a NOTHING verdict keeps the line', async (t) => {
+  const items = [{ id: 'm1', kind: 'user', text: 'one' }, { id: 'm2', kind: 'assistant', text: 'two' }];
+  const transcript = pagedService(items);
+  const h = harness(t, {
+    readTail: (id, options) => readSessionTail(transcript, id, options),
+    review: () => ({ action: 'nothing' }),
+  });
+  await h.arm();
+  assert.equal(await h.tick(), 'nothing');
+  assert.equal(h.calls.decide.length, 0, 'a first look at a short session: nothing to report, the line dropped');
+  // The session is compacted: the old cursor is gone.
+  items.splice(0, items.length, { id: 'n1', kind: 'user', text: 'after compaction' });
+  h.state.facts = facts({ sessions: [{ ...activity.sessions[0], title: 'Report v2' }] });
+  h.advance();
+  await h.tick();
+  assert.match(h.calls.decide[0].digest[0], /; older messages since the last check could not be found, so some were not reviewed$/);
+  assert.equal(readJson(h.path).reviews.sess_lead_1.head, 'n1');
+});
+
+test('the default readTail forwards the cursor: the second check reads only what came after the first', async (t) => {
+  const items = [{ id: 'a1', kind: 'user', text: 'first' }];
+  const transcript = pagedService(items);
+  const reviews = [];
+  const h = harness(t, {
+    review: ({ transcript: rows }) => {
+      reviews.push(rows);
+      return { action: 'note', text: 'seen' };
+    },
+  });
+  h.restart({ readTail: undefined, getSessionService: () => transcript });
+  await h.arm();
+  assert.equal(await h.tick(), 'nothing');
+  items.push({ id: 'a2', kind: 'assistant', text: 'second' });
+  h.state.facts = facts({ sessions: [{ ...activity.sessions[0], title: 'Report v2' }] });
+  h.advance();
+  await h.tick();
+  assert.deepEqual(reviews, [['user: "first"'], ['assistant: "second"']]);
 });
 
 test('reviews keep a cursor and note per session: an unchanged session costs no call, a changed one sees its note', async (t) => {
@@ -1046,9 +1217,15 @@ test('setup turns the heartbeat off and on and status features reports it', asyn
   assert.equal(off.heartbeat, false);
   assert.equal(config.heartbeat, false);
   assert.deepEqual(config.profile, { title: 'kept' });
-  assert.deepEqual((await run({}, { action: 'status', domain: 'features' })).heartbeat, { enabled: false });
+  assert.deepEqual((await run({}, { action: 'status', domain: 'features' })).heartbeat, {
+    enabled: false,
+    intervalMinutes: 60,
+  });
   await run(api, { action: 'set_heartbeat_enabled', enabled: true });
-  assert.deepEqual((await run({}, { action: 'status', domain: 'features' })).heartbeat, { enabled: true });
+  assert.deepEqual((await run({}, { action: 'status', domain: 'features' })).heartbeat, {
+    enabled: true,
+    intervalMinutes: 60,
+  });
   await assert.rejects(run(api, { action: 'set_heartbeat_enabled', enabled: 'no' }), /boolean/);
 });
 
@@ -1135,6 +1312,7 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
       log: () => {},
       // The week's script is written in 2-hour checks.
       limits: TWO_HOURLY,
+      intervalMs: async () => TWO_HOURLY.intervalMs,
     });
   let heartbeat = build();
   const wakeReply = () => 'WAKE\n- daily-news keeps failing';

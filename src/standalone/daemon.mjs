@@ -1032,7 +1032,7 @@ async function main() {
       (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,
     abort: (sessionId) => sessionService.abortSession({ sessionId }),
   });
-  // Mixy's 30-minute heartbeat check (mixy-heartbeat.mjs), on an unref'd timer.
+  // Mixy's heartbeat check (user-set interval) (mixy-heartbeat.mjs), on an unref'd timer.
   import('../session-runtime/mixy-heartbeat.mjs')
     .then(({ startMixyHeartbeat }) =>
       startMixyHeartbeat({ getSessionService: () => sessionService, log: (line) => log(`heartbeat: ${line}`) })

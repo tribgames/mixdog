@@ -113,10 +113,13 @@ export function createSessionSettingsApi(bag) {
       return await runtime.setAiSessionTitles?.(enabled);
     }),
     getHeartbeatSettings: () => {
-      return runtime.getHeartbeatSettings?.() || { heartbeat: true };
+      return runtime.getHeartbeatSettings?.() || { heartbeat: true, intervalMinutes: 60 };
     },
     setHeartbeatEnabled: withCommandLock(async (enabled) => {
       return await runtime.setHeartbeatEnabled?.(enabled);
+    }),
+    setHeartbeatInterval: withCommandLock(async (minutes) => {
+      return await runtime.setHeartbeatInterval?.(minutes);
     }),
     // The desktop app reports the user's latest in-app input time: Mixy's
     // heartbeat waits for 30 quiet minutes (mixy-heartbeat.mjs noteUserInput).

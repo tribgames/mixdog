@@ -1,6 +1,7 @@
 /**
- * Mixy's heartbeat: every 30 minutes, one check of what happened since the
- * last one, in three stages that each stop as early as they can.
+ * Mixy's heartbeat: at the user's chosen interval (heartbeatIntervalMinutes,
+ * 30 min / 1 h / 2 h / 4 h, default 1 h, read live at each tick), one check of
+ * what happened since the last one, in three stages that each stop as early as they can.
  *  1. Collect (no model): a bounded digest of what happened in the interval:
  *     sessions the user talks in with new activity (Lead sessions, bot chats,
  *     group rooms; never Mixy's own chat, the heartbeat's hidden sessions,
@@ -13,11 +14,13 @@
  *     still fails (once when it switched itself off); a success closes it.
  *  2. Gate: a digest equal to the last check's, or an empty one, ends the
  *     check. Otherwise the Maintainer model reviews each session and task
- *     line in its own call over that session's messages since its last
- *     review (tool calls left out), given that review's note (a few at a
- *     time; a session with no new item keeps its note without a call; a line
- *     it finds nothing in is dropped, its note is appended, a failed read or
- *     review keeps the line as collected), then answers once on the reviewed
+ *     line in its own call over the latest 12 of that session's messages
+ *     since its last review (tool calls left out), given that review's note
+ *     (a few at a time; the cursor then moves to the newest item and the line
+ *     says how many older messages went unreviewed, or that its cursor was
+ *     not found; a session with no new item keeps its note without a call; a
+ *     line it finds nothing in is dropped unless it says that, its note is
+ *     appended, a failed read or review keeps the line as collected), then answers once on the reviewed
  *     digest with Mixy's last delivered message of the past day
  *     (heartbeat-completion.mjs). Without one
  *     (it is off by default), after a
@@ -67,6 +70,10 @@ import { roomIdOfSession, roomMemberOfSession } from '../runtime/agent/orchestra
 import { isRootLeadSession } from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+  normalizeHeartbeatIntervalMinutes,
+} from '../runtime/shared/heartbeat-interval.mjs';
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
 import {
   HEARTBEAT_QUIET,
@@ -78,7 +85,8 @@ import { activityOf, isWorking, quotedText, scanCatalog, sessionBotOf } from './
 
 const HOUR = 60 * 60_000;
 export const HEARTBEAT_LIMITS = Object.freeze({
-  intervalMs: 30 * 60_000,
+  // The default interval; the setting decides (see `intervalMs` in createMixyHeartbeat).
+  intervalMs: DEFAULT_HEARTBEAT_INTERVAL_MINUTES * 60_000,
   firstTickMs: 60_000,
   tickMs: 5 * 60_000,
   idleMs: 30 * 60_000,
@@ -94,14 +102,21 @@ const MAX_UNRELEASED = 20;
 const MAX_LINES = { routine: 10, task: 8, session: 8 };
 const TEXT_LIMIT = 120;
 const DIGEST_LIMIT = 4000;
-/** A review reads a session's latest TAIL_ITEMS transcript items and keeps
- *  their last TAIL_MESSAGES user and assistant messages, each cut to
- *  TAIL_TEXT_LIMIT; this many reviews run at once. */
+/** A review reads a session's latest TAIL_ITEMS transcript items and takes
+ *  the latest TAIL_MESSAGES user and assistant messages after its cursor, each
+ *  cut to TAIL_TEXT_LIMIT, in one model call; this many reviews run at once. */
 const TAIL_ITEMS = 40;
 const TAIL_MESSAGES = 12;
 const TAIL_TEXT_LIMIT = 400;
 const REVIEWS_AT_ONCE = 4;
 const NOTE_LIMIT = 300;
+/** What a digest line says of the messages a review left out (readSessionTail). */
+function skippedNote({ skipped = 0, exact = true } = {}) {
+  if (skipped < 0) return 'older messages since the last check could not be found, so some were not reviewed';
+  if (skipped === 0) return exact ? '' : 'older messages since the last check may not have been reviewed';
+  const count = `${exact ? '' : 'at least '}${skipped}`;
+  return `${count} older message${skipped === 1 && exact ? '' : 's'} since the last check ${skipped === 1 && exact ? 'was' : 'were'} not reviewed`;
+}
 /** Each reviewed session's cursor (its newest item) and note, kept this long
  *  and at most this many. */
 const REVIEW_TTL_MS = 7 * 24 * HOUR;
@@ -479,24 +494,33 @@ export function isQuietReply(reply) {
 }
 
 /** Session `id`'s latest conversation for a review, oldest first:
- *  `{ rows, head }`, a line per user or assistant message (tool calls left
- *  out; at most TAIL_MESSAGES, the newest), only those after item `after`
- *  when the window holds it, and `head` the id of its newest item ('' when
- *  the items carry none). Rejects when the session cannot be read. */
+ *  `{ rows, head, skipped, exact }`. One read of the latest TAIL_ITEMS items
+ *  (never more, however many tool calls they hold); `rows` is a line per
+ *  user or assistant message (tool calls left out), the newest TAIL_MESSAGES
+ *  after item `after` in that page. `skipped` is the number of older messages
+ *  in the page left unreviewed: exact when the cursor is in the page, else a
+ *  lower bound (`exact` false) when older items lie beyond the page; a
+ *  supplied cursor absent from a page with nothing older is `-1` (it was
+ *  compacted away: the gap is unknown). `head` is the id of the newest item
+ *  ('' when the items carry none). Rejects when the session cannot be read. */
 export async function readSessionTail(service, id, { after = '' } = {}) {
   if (typeof service?.readSession !== 'function') throw new Error('the session service is not running');
   const { range } = await service.readSession({ sessionId: id, transcriptRange: { offset: 0, limit: TAIL_ITEMS } });
   const items = range?.items || [];
+  const hasOlder = range?.hasOlder === true;
   const ids = items.map((item) => (item?.id == null ? '' : String(item.id)));
   const head = ids.findLast(Boolean) || '';
   const seen = after ? ids.lastIndexOf(after) : -1;
-  const rows = [];
+  const all = [];
   for (const item of items.slice(seen + 1)) {
     if (item?.kind !== 'user' && item?.kind !== 'assistant') continue;
     const text = quotedText(item.text, TAIL_TEXT_LIMIT);
-    if (text) rows.push(`${item.kind}: "${text}"`);
+    if (text) all.push(`${item.kind}: "${text}"`);
   }
-  return { rows: rows.slice(-TAIL_MESSAGES), head };
+  const rows = all.slice(-TAIL_MESSAGES);
+  const skipped = all.length - rows.length;
+  if (after && seen < 0 && !hasOlder) return { rows, head, skipped: -1, exact: false };
+  return { rows, head, skipped, exact: after ? seen >= 0 : !hasOlder };
 }
 
 /** Run `work` on every row, at most `limit` at once. */
@@ -610,6 +634,12 @@ export function createMixyHeartbeat({
   path = defaultStatePath(),
   isEnabled = async () =>
     (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeat !== false,
+  // Milliseconds between checks, read at every tick so a changed setting applies at once.
+  intervalMs = async () =>
+    normalizeHeartbeatIntervalMinutes(
+      (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false })
+        .heartbeatIntervalMinutes
+    ) * 60_000,
   userTurnAt = () => lastUserTurnAt,
   appInputAt = () => lastAppInputAt,
   getSessionService = () => null,
@@ -623,7 +653,7 @@ export function createMixyHeartbeat({
     (await import('../runtime/agent/orchestrator/agent-runtime/heartbeat-completion.mjs')).reviewHeartbeatSession(
       input
     ),
-  readTail = (id) => readSessionTail(getSessionService(), id),
+  readTail = (id, options) => readSessionTail(getSessionService(), id, options),
   release = closeHiddenSession,
   // `hooks`: how the hidden session is closed, and where a failed close goes.
   wake = (input, hooks) => wakeMixy(input, { getSessionService, log, ...hooks }),
@@ -704,9 +734,15 @@ export function createMixyHeartbeat({
     const lines = [...digest.lines];
     const dropped = new Set();
     const cursors = {};
-    const apply = (index, note) => {
-      if (!note) dropped.add(index);
-      else lines[index] = `${lines[index]}; reviewed: "${quotedText(note, NOTE_LIMIT)}"`;
+    // A line whose older messages went unreviewed is never dropped as
+    // "nothing": it says so, as the overflow lines count what they leave out.
+    const apply = (index, note, skipped = '') => {
+      if (!note && !skipped) {
+        dropped.add(index);
+        return;
+      }
+      const noted = note ? `${lines[index]}; reviewed: "${quotedText(note, NOTE_LIMIT)}"` : lines[index];
+      lines[index] = skipped ? `${noted}; ${skipped}` : noted;
     };
     await eachLimited(digest.subjects, REVIEWS_AT_ONCE, async ({ index, id }) => {
       const prior = state.reviews[id];
@@ -718,6 +754,8 @@ export function createMixyHeartbeat({
           apply(index, prior.note);
           return;
         }
+        // The latest messages since the cursor, in one call; the cursor then
+        // moves to the newest item, and what lay before them is said so.
         result = await review({ line: digest.lines[index], transcript: tail.rows, previous: prior?.note || '' });
       } catch (error) {
         log(`review of ${id} failed: ${errorText(error)}`);
@@ -725,7 +763,7 @@ export function createMixyHeartbeat({
       }
       if (result?.action === 'nothing' || result?.action === 'note') {
         const note = result.action === 'note' ? result.text : '';
-        apply(index, note);
+        apply(index, note, skippedNote(tail));
         if (tail.head) cursors[id] = { head: tail.head, note };
       } else if (result?.action !== 'unmanaged') log(`review of ${id}: unusable reply`);
     });
@@ -831,7 +869,7 @@ export function createMixyHeartbeat({
       }
       // Checks are due by the last one begun; a check left unhandled keeps
       // its watermark, so the next one collects its changes again.
-      if (at - Math.max(state.lastBeatAt, state.lastAttemptAt) < limits.intervalMs) return 'waiting';
+      if (at - Math.max(state.lastBeatAt, state.lastAttemptAt) < (await intervalMs())) return 'waiting';
       // The user's latest operation: a turn they sent or an input in the
       // desktop app, as this process saw it or the state file kept it (it
       // survives a crash or restart).

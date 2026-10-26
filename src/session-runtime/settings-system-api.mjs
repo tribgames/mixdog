@@ -1,5 +1,10 @@
 // Automation worker status, the system shell, self-update, Mixy's heartbeat
 // and bots' reactions settings.
+import {
+  normalizeHeartbeatIntervalMinutes,
+  requireHeartbeatIntervalMinutes,
+} from '../runtime/shared/heartbeat-interval.mjs';
+
 export function createSystemSettings({
   getConfig,
   saveConfigAndAdopt,
@@ -51,10 +56,17 @@ export function createSystemSettings({
       return this.getUpdateSettings();
     },
     getHeartbeatSettings() {
-      return { heartbeat: getConfig()?.heartbeat !== false };
+      return {
+        heartbeat: getConfig()?.heartbeat !== false,
+        intervalMinutes: normalizeHeartbeatIntervalMinutes(getConfig()?.heartbeatIntervalMinutes),
+      };
     },
     setHeartbeatEnabled(enabled) {
       saveConfigAndAdopt({ ...getConfig(), heartbeat: enabled === true });
+      return this.getHeartbeatSettings();
+    },
+    setHeartbeatInterval(minutes) {
+      saveConfigAndAdopt({ ...getConfig(), heartbeatIntervalMinutes: requireHeartbeatIntervalMinutes(minutes) });
       return this.getHeartbeatSettings();
     },
     getReactionSettings() {

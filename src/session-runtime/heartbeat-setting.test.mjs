@@ -90,8 +90,8 @@ test('the heartbeat setting end to end over the real config file: setup, stored 
     // Default: on, nothing stored.
     assert.equal(loadConfig({ secrets: false }).heartbeat, true);
     assert.equal(Object.hasOwn(stored(), 'heartbeat'), false);
-    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true });
-    assert.deepEqual(await features(), { enabled: true });
+    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
+    assert.deepEqual(await features(), { enabled: true, intervalMinutes: 60 });
     assert.equal(await heartbeat.tick(), 'armed');
     clock += 2 * HOUR;
 
@@ -100,8 +100,8 @@ test('the heartbeat setting end to end over the real config file: setup, stored 
     assert.equal(off.heartbeat, false);
     assert.equal(stored().heartbeat, false, 'only the opt-out is stored');
     assert.equal(loadConfig({ secrets: false }).heartbeat, false);
-    assert.deepEqual(await features(), { enabled: false });
-    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false });
+    assert.deepEqual(await features(), { enabled: false, intervalMinutes: 60 });
+    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false, intervalMinutes: 60 });
     assert.equal(stored().profile.title, 'Kept');
     for (let step = 0; step < 6; step += 1) {
       clock += 2 * HOUR;
@@ -118,8 +118,8 @@ test('the heartbeat setting end to end over the real config file: setup, stored 
     const on = await setup({ action: 'set_heartbeat_enabled', enabled: true });
     assert.equal(on.heartbeat, true);
     assert.equal(Object.hasOwn(stored(), 'heartbeat'), false, 'turning it on removes the stored key');
-    assert.deepEqual(await features(), { enabled: true });
-    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true });
+    assert.deepEqual(await features(), { enabled: true, intervalMinutes: 60 });
+    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
     assert.equal(stored().profile.title, 'Kept');
     assert.equal(await heartbeat.tick(), 'nothing');
     assert.deepEqual(calls, { collect: 1, decide: 1, wake: 0 });
@@ -150,16 +150,16 @@ test('the session surface forwards the heartbeat setting, and reads on when the 
       }
     );
   const api = createSessionApi(bag(settings));
-  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true });
-  assert.deepEqual(await api.setHeartbeatEnabled(false), { heartbeat: false });
+  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
+  assert.deepEqual(await api.setHeartbeatEnabled(false), { heartbeat: false, intervalMinutes: 60 });
   assert.equal(config.heartbeat, false);
-  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false });
-  assert.deepEqual(await api.setHeartbeatEnabled(true), { heartbeat: true });
-  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true });
+  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false, intervalMinutes: 60 });
+  assert.deepEqual(await api.setHeartbeatEnabled(true), { heartbeat: true, intervalMinutes: 60 });
+  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
   // Only a literal true turns it on: the setter never guesses from a truthy value.
-  assert.deepEqual(settings.setHeartbeatEnabled('yes'), { heartbeat: false });
+  assert.deepEqual(settings.setHeartbeatEnabled('yes'), { heartbeat: false, intervalMinutes: 60 });
   // A runtime without the setting reads as on.
-  assert.deepEqual(createSessionApi(bag({})).getHeartbeatSettings(), { heartbeat: true });
+  assert.deepEqual(createSessionApi(bag({})).getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
 });
 
 // In its own process: noteUserTurn moves a process-wide time that only grows.
@@ -232,5 +232,99 @@ test('the daemon timers run the check: first tick after a minute arms, a turn th
   assert.equal(collects, 1, 'the user has been quiet for 30 minutes: the check runs');
   stop();
   `
+  );
+});
+
+test('the heartbeat interval end to end over the real config file: default, setup, stored key, validation, live tick', () => {
+  runIsolated(
+    'mixdog-heartbeat-interval-',
+    `
+    import assert from 'node:assert/strict';
+    import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    import { loadConfig, saveConfig } from './src/runtime/agent/orchestrator/config.mjs';
+    import { createSettingsApi } from './src/session-runtime/settings-api.mjs';
+    import { createSetupToolExecutor } from './src/session-runtime/setup-tool/executor.mjs';
+    import { createMixyHeartbeat } from './src/session-runtime/mixy-heartbeat.mjs';
+
+    const dir = process.env.MIXDOG_DATA_DIR;
+    const configPath = join(dir, 'mixdog-config.json');
+    const stored = () => (existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')).agent ?? {} : {});
+    const api = createSettingsApi({
+      getConfig: () => loadConfig({ secrets: false }),
+      saveConfigAndAdopt: (next) => saveConfig(next),
+    });
+    const setup = async (args, facade = api) =>
+      JSON.parse(
+        await createSetupToolExecutor({ getApi: () => facade, getConfig: () => loadConfig({ secrets: false }) }).execute(args, {})
+      );
+    const MINUTE = 60_000;
+    let clock = Date.UTC(2026, 0, 1, 9);
+    let collects = 0;
+    // Only the interval is the default: the real config.
+    const heartbeat = createMixyHeartbeat({
+      now: () => clock,
+      path: join(dir, 'heartbeat.json'),
+      userTurnAt: () => 0,
+      appInputAt: () => 0,
+      isEnabled: async () => true,
+      collect: async () => {
+        collects += 1;
+        return { sessions: [], tasks: [], approvals: 0, routines: [] };
+      },
+      routeKey: async () => '',
+      notify: async () => {},
+      log: () => {},
+    });
+
+    // With no config file at all the interval reads as the default (the tick below runs on it).
+    assert.equal(api.getHeartbeatSettings().intervalMinutes, 60);
+    saveConfig({ ...loadConfig({ secrets: false }), profile: { title: 'Kept', language: 'ko' } });
+    assert.equal(loadConfig({ secrets: false }).heartbeatIntervalMinutes, 60);
+    assert.equal(Object.hasOwn(stored(), 'heartbeatIntervalMinutes'), false, 'the default is not stored');
+    assert.equal(api.getHeartbeatSettings().intervalMinutes, 60);
+    assert.equal(await heartbeat.tick(), 'armed');
+    clock += 59 * MINUTE;
+    assert.equal(await heartbeat.tick(), 'waiting', 'default: not before an hour');
+
+    // Longer through the setup tool: the check due at one hour now waits for four.
+    const set = await setup({ action: 'set_heartbeat_interval', minutes: 240 });
+    assert.equal(set.intervalMinutes, 240);
+    assert.equal(stored().heartbeatIntervalMinutes, 240);
+    assert.equal((await setup({ action: 'status', domain: 'features' }, {})).heartbeat.intervalMinutes, 240);
+    clock += 2 * MINUTE;
+    assert.equal(await heartbeat.tick(), 'waiting');
+    assert.equal(collects, 0);
+    clock += 3 * 60 * MINUTE;
+    assert.equal(await heartbeat.tick(), 'empty');
+    assert.equal(collects, 1);
+
+    // Shorter: due 30 minutes after that check.
+    api.setHeartbeatInterval(30);
+    assert.equal(stored().heartbeatIntervalMinutes, 30);
+    clock += 29 * MINUTE;
+    assert.equal(await heartbeat.tick(), 'waiting');
+    clock += MINUTE;
+    assert.equal(await heartbeat.tick(), 'unchanged', 'an empty digest again: a check ran');
+    assert.equal(collects, 2);
+
+    // Refused values change nothing.
+    for (const bad of [45, 0, -60, '60', 60.5, null, undefined, NaN]) {
+      await assert.rejects(setup({ action: 'set_heartbeat_interval', minutes: bad }), /./, String(bad));
+      assert.throws(() => api.setHeartbeatInterval(bad), /one of 30, 60, 120, 240/, String(bad));
+    }
+    assert.equal(stored().heartbeatIntervalMinutes, 30);
+
+    // A hand-edited value outside the choices reads as the default, and is not kept.
+    const raw = JSON.parse(readFileSync(configPath, 'utf8'));
+    raw.agent.heartbeatIntervalMinutes = 7;
+    writeFileSync(configPath, JSON.stringify(raw));
+    assert.equal(loadConfig({ secrets: false }).heartbeatIntervalMinutes, 60);
+    assert.equal(api.getHeartbeatSettings().intervalMinutes, 60);
+
+    // Back to the default removes the key.
+    api.setHeartbeatInterval(60);
+    assert.equal(Object.hasOwn(stored(), 'heartbeatIntervalMinutes'), false);
+    `
   );
 });

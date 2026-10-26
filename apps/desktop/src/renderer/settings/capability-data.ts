@@ -269,7 +269,7 @@ const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 export function invalidateCapabilitySettings(api: CapabilityApi, capability?: DesktopCapability): void {
   if (capability && READ_CAPABILITY_SET.has(capability)) return;
   settingsCacheEntry(api).epoch += 1;
-  if (capability === 'setHeartbeatEnabled') for (const listener of [...heartbeatListeners]) listener();
+  if (capability === 'setHeartbeatEnabled' || capability === 'setHeartbeatInterval') for (const listener of [...heartbeatListeners]) listener();
 }
 
 const heartbeatListeners = new Set<() => void>();

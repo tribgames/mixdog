@@ -41,6 +41,10 @@ import {
   removeRetiredAgentFields,
 } from './config-storage.mjs';
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+  normalizeHeartbeatIntervalMinutes,
+} from '../../shared/heartbeat-interval.mjs';
 import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
 import { normalizeWorktreeSettings } from '../../shared/worktrees/settings.mjs';
 import { normalizePluginMcpIntents } from './runtime-core/plugin-mcp.mjs';
@@ -295,8 +299,11 @@ export function loadConfig(options = {}) {
         recap: recapConfig,
         // The model may title the session (session tool, action=rename); default on.
         aiSessionTitles: raw.aiSessionTitles !== false,
-        // Mixy's 2-hourly heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
+        // Mixy's heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
         heartbeat: raw.heartbeat !== false,
+        // Minutes between its checks, one of a fixed set (shared/heartbeat-interval.mjs);
+        // anything else reads as the default.
+        heartbeatIntervalMinutes: normalizeHeartbeatIntervalMinutes(raw.heartbeatIntervalMinutes),
         // Prompt-cache warming (session/cache-warm.mjs); default on.
         promptCacheWarming: promptCacheWarmingSetting(raw),
         // Bots may leave an emoji reaction on the user's message (react tool); default on.
@@ -485,6 +492,10 @@ function buildAgentSaveBuilder(config) {
     else delete next.aiSessionTitles;
     if (config.heartbeat === false) next.heartbeat = false;
     else delete next.heartbeat;
+    // Only a non-default choice is stored.
+    const heartbeatMinutes = normalizeHeartbeatIntervalMinutes(config.heartbeatIntervalMinutes);
+    if (heartbeatMinutes !== DEFAULT_HEARTBEAT_INTERVAL_MINUTES) next.heartbeatIntervalMinutes = heartbeatMinutes;
+    else delete next.heartbeatIntervalMinutes;
     if (config.reactions === false) next.reactions = false;
     else delete next.reactions;
     // The earlier target list is migrated on load (promptCacheWarmingSetting)

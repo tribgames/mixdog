@@ -4,6 +4,10 @@
 // Every overlay option lives here, the same ones its right-click menu shows,
 // kept in sync through main.
 import { useState } from 'react';
+import {
+  HEARTBEAT_INTERVAL_CHOICES,
+  normalizeHeartbeatIntervalMinutes,
+} from '../../../../../src/runtime/shared/heartbeat-interval.mjs';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { record } from '../record-utils';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
@@ -20,7 +24,16 @@ import { t } from '../i18n';
 import { useMixyCreated } from '../mixy-first';
 import { ActionButton, Group, SelectRow, ToggleRow } from './capability-controls';
 
-const SCALE_OPTIONS = DESKTOP_PET_SCALES.map((scale) => ({ value: String(scale), label: `${scale}%` }));
+const INTERVAL_LABELS: Record<number, () => string> = {
+  30: () => t('30 minutes'),
+  60: () => t('1 hour'),
+  120: () => t('2 hours'),
+  240: () => t('4 hours'),
+};
+const HEARTBEAT_INTERVAL_OPTIONS = () =>
+  HEARTBEAT_INTERVAL_CHOICES.map((minutes) => ({ value: String(minutes), label: INTERVAL_LABELS[minutes]() }));
+
+const SCALE_OPTIONS =DESKTOP_PET_SCALES.map((scale) => ({ value: String(scale), label: `${scale}%` }));
 
 function DesktopPetToggle() {
   const config = useDesktopPetConfig();
@@ -123,11 +136,18 @@ export function BotsPanel({ data, pending, run }: PanelContext) {
         <ToggleRow
           title={t('Regular check-ins')}
           description={t(
-            'Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.'
+            'Regularly checks your bots and sessions and lets you know only when something needs attention.'
           )}
           checked={record(data.heartbeat).heartbeat !== false}
           disabled={busy}
           onChange={(enabled) => void run('setHeartbeatEnabled', [enabled])}
+        />
+        <SelectRow
+          title={t('Check-in interval')}
+          value={String(normalizeHeartbeatIntervalMinutes(record(data.heartbeat).intervalMinutes))}
+          disabled={busy}
+          options={HEARTBEAT_INTERVAL_OPTIONS()}
+          onChange={(value) => void run('setHeartbeatInterval', [Number(value)])}
         />
         <ToggleRow
           title={t('Reactions')}

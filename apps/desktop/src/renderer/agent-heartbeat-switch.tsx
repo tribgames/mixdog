@@ -64,7 +64,7 @@ export function HeartbeatSwitch({ api, active }: { api: HeartbeatSwitchApi | und
           <b>{title}</b>
           <small>
             {t(
-              'Every 30 minutes, checks your bots and sessions and lets you know only when something needs attention.'
+              'Regularly checks your bots and sessions and lets you know only when something needs attention.'
             )}
           </small>
         </span>

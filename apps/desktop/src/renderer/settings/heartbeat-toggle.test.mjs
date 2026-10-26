@@ -18,7 +18,7 @@ function mount(t) {
   const render = (data, pending = '') =>
     act(async () => root.render(React.createElement(BotsPanel, { data, pending, run, api })));
   const toggle = () => dom.window.document.querySelector(`input[aria-label="${translate('Regular check-ins')}"]`);
-  return { render, toggle, runs };
+  return { render, toggle, runs, document: dom.window.document, window: dom.window };
 }
 
 /** The settings data the panel gets for the heartbeat section: the real section
@@ -62,4 +62,27 @@ test('the switch reads on before the setting has loaded, and cannot be flipped w
   assert.equal(toggle().disabled, true);
   await act(async () => toggle().click());
   assert.deepEqual(runs, []);
+});
+
+test('the Check-in interval select shows the stored choice, offers 30 min / 1 h / 2 h / 4 h, and writes setHeartbeatInterval', async (t) => {
+  const { render, runs, document, window } = mount(t);
+  const doc = () => document;
+  const picker = () => doc().querySelector(`[aria-label="${translate('Check-in interval')}"]`);
+  const options = () => [...doc().querySelectorAll('[role="option"]')].map((o) => o.textContent.trim());
+  // Not yet loaded, or a value outside the choices: the default, an hour.
+  await render({});
+  assert.equal(picker().textContent.trim(), translate('1 hour'));
+  await render({ heartbeat: { heartbeat: true, intervalMinutes: 7 } });
+  assert.equal(picker().textContent.trim(), translate('1 hour'));
+  await render({ heartbeat: { heartbeat: true, intervalMinutes: 240 } });
+  assert.equal(picker().textContent.trim(), translate('4 hours'));
+  await act(async () => picker().click());
+  assert.deepEqual(options(), [translate('30 minutes'), translate('1 hour'), translate('2 hours'), translate('4 hours')]);
+  const two = [...doc().querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === translate('2 hours'));
+  await act(async () => two.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })));
+  await act(async () => two.click());
+  assert.deepEqual(runs, [['setHeartbeatInterval', [120]]]);
+  // A write in flight blocks it, as the other rows.
+  await render({ heartbeat: { heartbeat: true, intervalMinutes: 120 } }, 'setRecapEnabled');
+  assert.equal(picker().disabled, true);
 });

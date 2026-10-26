@@ -66,6 +66,7 @@ import {
   type DesktopPetState,
   type DesktopPetTheme,
 } from '../shared/desktop-pet';
+import { HEARTBEAT_INTERVAL_CHOICES } from '../../../../src/runtime/shared/heartbeat-interval.mjs';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
@@ -409,6 +410,7 @@ const CAPABILITY_ARITY = {
   setCacheWarmingEnabled: [1, 1],
   getHeartbeatSettings: [0, 0],
   setHeartbeatEnabled: [1, 1],
+  setHeartbeatInterval: [1, 1],
   noteUserInput: [1, 1],
   getReactionSettings: [0, 0],
   setReactionsEnabled: [1, 1],
@@ -1309,6 +1311,9 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
   }
   if (capability === 'noteUserInput' && (typeof args[0] !== 'number' || !Number.isFinite(args[0]) || args[0] <= 0)) {
     throw new TypeError('noteUserInput requires a positive time in milliseconds.');
+  }
+  if (capability === 'setHeartbeatInterval' && !HEARTBEAT_INTERVAL_CHOICES.includes(args[0] as number)) {
+    throw new TypeError(`setHeartbeatInterval requires ${HEARTBEAT_INTERVAL_CHOICES.join(', ')} minutes.`);
   }
   if (capability === 'setInstructionFiles' && !['all', 'agents', 'claude', 'off'].includes(args[0] as string)) {
     throw new TypeError('setInstructionFiles requires all, agents, claude, or off.');

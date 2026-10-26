@@ -54,7 +54,7 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getRecapSettings: { enabled: true },
   getSessionTitleSettings: { aiSessionTitles: true },
   getCacheWarmingSettings: { enabled: true },
-  getHeartbeatSettings: { heartbeat: true },
+  getHeartbeatSettings: { heartbeat: true, intervalMinutes: 60 },
   getReactionSettings: { reactions: true },
   getChannelSetup: {
     webhook: { status: 'Not configured' },

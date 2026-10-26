@@ -36,7 +36,7 @@ test('the settings page reads the heartbeat section with the getter, which is re
     /not read-only/
   );
   // The screenshot host answers the section too, in the shape the panel reads.
-  assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: true });
+  assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: true, intervalMinutes: 60 });
 });
 
 test('getHeartbeatSettings takes no argument; setHeartbeatEnabled takes exactly one boolean', () => {
@@ -65,4 +65,22 @@ test('getHeartbeatSettings takes no argument; setHeartbeatEnabled takes exactly 
   assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabled' }), TypeError);
   assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabled', args: ['yes'] }), /boolean/);
   assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabledX', args: [true] }), TypeError);
+});
+
+test('setHeartbeatInterval is a configure capability taking exactly one of the fixed minute choices', () => {
+  assert.equal(DESKTOP_CAPABILITIES.includes('setHeartbeatInterval'), true);
+  assert.equal(DESKTOP_READ_CAPABILITIES.includes('setHeartbeatInterval'), false);
+  assert.equal(SESSION_CONFIGURE_ACTIONS.includes('setHeartbeatInterval'), true);
+  assert.equal(SESSION_READ_ACTIONS.includes('setHeartbeatInterval'), false);
+  assert.throws(
+    () => requiredDesktopCapabilityReadRequests([{ capability: 'setHeartbeatInterval', args: [60] }]),
+    /not read-only/
+  );
+  assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: true, intervalMinutes: 60 });
+  for (const minutes of [30, 60, 120, 240]) {
+    assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setHeartbeatInterval', args: [minutes] }).args, [minutes]);
+  }
+  for (const args of [[], [45], [0], [-30], ['60'], [60.5], [null], [NaN], [Infinity], [{}], [60, 60]]) {
+    assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatInterval', args }), TypeError, JSON.stringify(args));
+  }
 });

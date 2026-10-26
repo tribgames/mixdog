@@ -245,6 +245,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'setRecapEnabled',
   'setAiSessionTitles',
   'setHeartbeatEnabled',
+  'setHeartbeatInterval',
   'noteUserInput',
   'setReactionsEnabled',
   'setLeadAppearance',
