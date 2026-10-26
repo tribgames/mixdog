@@ -52,7 +52,26 @@ export function remoteBrowserDriveViewport(
   };
 }
 
-/** Live-view size a client asks for, in device pixels. */
+/** A viewport to emulate, held to the bounds the pane's own presets use. */
+function normalizeDriveViewport(input: Record<string, unknown>): DesktopRemoteBrowserViewport {
+  const { width, height, deviceScaleFactor } = input;
+  const dimension = (value: unknown): value is number =>
+    Number.isSafeInteger(value) && Number(value) >= MIN_DRIVE_DIMENSION && Number(value) <= MAX_DRIVE_DIMENSION;
+  if (!dimension(width) || !dimension(height)) {
+    throw new TypeError('remote browser viewport size is invalid.');
+  }
+  if (
+    typeof deviceScaleFactor !== 'number' ||
+    !Number.isFinite(deviceScaleFactor) ||
+    deviceScaleFactor < MIN_DRIVE_SCALE ||
+    deviceScaleFactor > MAX_DRIVE_SCALE
+  ) {
+    throw new TypeError('remote browser viewport scale is invalid.');
+  }
+  return { width, height, deviceScaleFactor };
+}
+
+/** Live-view size a client asks for, in device pixels, and a take-over's fit. */
 export function normalizeRemoteBrowserStreamOptions(value: unknown): DesktopRemoteBrowserStreamOptions {
   const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const dimension = (name: 'maxWidth' | 'maxHeight'): number => {
@@ -62,7 +81,15 @@ export function normalizeRemoteBrowserStreamOptions(value: unknown): DesktopRemo
     }
     return Math.round(number);
   };
-  return { maxWidth: dimension('maxWidth'), maxHeight: dimension('maxHeight') };
+  const options: DesktopRemoteBrowserStreamOptions = { maxWidth: dimension('maxWidth'), maxHeight: dimension('maxHeight') };
+  if (input.fit === null) {
+    // An explicit release of the subscription's take-over.
+    options.fit = null;
+  } else if (input.fit !== undefined) {
+    if (typeof input.fit !== 'object') throw new TypeError('remote browser stream fit is invalid.');
+    options.fit = normalizeDriveViewport(input.fit as Record<string, unknown>);
+  }
+  return options;
 }
 
 export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrowserControl {
@@ -88,21 +115,7 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     return { type, tabId: input.tabId };
   }
   if (type === 'viewport') {
-    const { width, height, deviceScaleFactor } = input;
-    const dimension = (value: unknown): value is number =>
-      Number.isSafeInteger(value) && Number(value) >= MIN_DRIVE_DIMENSION && Number(value) <= MAX_DRIVE_DIMENSION;
-    if (!dimension(width) || !dimension(height)) {
-      throw new TypeError('remote browser viewport size is invalid.');
-    }
-    if (
-      typeof deviceScaleFactor !== 'number' ||
-      !Number.isFinite(deviceScaleFactor) ||
-      deviceScaleFactor < MIN_DRIVE_SCALE ||
-      deviceScaleFactor > MAX_DRIVE_SCALE
-    ) {
-      throw new TypeError('remote browser viewport scale is invalid.');
-    }
-    return { type, width, height, deviceScaleFactor };
+    return { type, ...normalizeDriveViewport(input) };
   }
   if (
     type === 'pointer' ||

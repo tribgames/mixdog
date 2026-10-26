@@ -209,6 +209,23 @@ test('stream options are bounded and rounded', () => {
   ]) {
     assert.throws(() => normalizeRemoteBrowserStreamOptions(bad), /stream max/);
   }
+  const fit = { width: 411, height: 782, deviceScaleFactor: 2.625 };
+  assert.deepEqual(normalizeRemoteBrowserStreamOptions({ maxWidth: 1080, maxHeight: 2100, fit, extra: 1 }), {
+    maxWidth: 1080,
+    maxHeight: 2100,
+    fit,
+  });
+  assert.deepEqual(normalizeRemoteBrowserStreamOptions({ maxWidth: 1080, maxHeight: 2100, fit: null }), {
+    maxWidth: 1080,
+    maxHeight: 2100,
+    fit: null,
+  });
+  for (const bad of ['once', 1, { ...fit, width: 100 }, { ...fit, height: 411.5 }, { ...fit, deviceScaleFactor: 9 }]) {
+    assert.throws(
+      () => normalizeRemoteBrowserStreamOptions({ maxWidth: 1080, maxHeight: 2100, fit: bad }),
+      /stream fit|viewport/
+    );
+  }
 });
 
 test('remote browser taps map through contain sizing and ignore letterbox space', () => {

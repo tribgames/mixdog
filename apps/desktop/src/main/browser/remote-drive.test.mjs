@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MOBILE_CHROME_USER_AGENT } from '../../shared/remote-browser.ts';
 import { createBrowserRemoteDrive } from './remote-drive.ts';
 
 function fixture({ pane = { size: { width: 1200, height: 800 }, zoom: 0.75 } } = {}) {
@@ -16,6 +15,10 @@ function fixture({ pane = { size: { width: 1200, height: 800 }, zoom: 0.75 } } =
     getURL() {
       return this.url;
     },
+    zoom: 1.25,
+    getZoomFactor() {
+      return this.zoom;
+    },
     reload() {
       log.push(['reload', id]);
     },
@@ -26,9 +29,15 @@ function fixture({ pane = { size: { width: 1200, height: 800 }, zoom: 0.75 } } =
     emulate: async (guest, config) => {
       log.push(['emulate', guest.id, config]);
     },
+    fitMetrics: async (guest, viewport) => {
+      log.push(['fit', guest.id, viewport]);
+    },
+    unfitMetrics: async (guest) => {
+      log.push(['unfit', guest.id]);
+    },
     drivingChanged: (sessionId, driving) => log.push(['driving', sessionId, driving]),
   });
-  return { drive, log, makeGuest };
+  return { drive, log, makeGuest, pane };
 }
 
 const PHONE = { width: 390, height: 780, deviceScaleFactor: 3 };
@@ -41,39 +50,40 @@ const IPHONE_PRESET = {
   userAgent: 'iPhone UA',
 };
 
-test('a driving phone sizes the page and emulates a mobile device; a new user agent reloads once', async () => {
+test('a fit lays the phone metrics over the page only: no preset emulation, no reload', async () => {
   const { drive, log, makeGuest } = fixture();
   const guest = makeGuest(1);
   await drive.apply('s', guest, PHONE);
   assert.deepEqual(log, [
     ['driving', 's', true],
     ['geometry', 1, { width: 390, height: 780 }, 1],
-    [
-      'emulate',
-      1,
-      {
-        width: 390,
-        height: 780,
-        deviceScaleFactor: 3,
-        mobile: true,
-        touch: true,
-        userAgent: MOBILE_CHROME_USER_AGENT,
-      },
-    ],
-    ['reload', 1],
+    ['fit', 1, PHONE],
   ]);
   assert.equal(drive.driven(guest), true);
-  // Re-applied for a new document: no second announcement, no reload loop.
+  // Re-applied for a new document: no second announcement, still no reload.
   log.length = 0;
   await drive.apply('s', guest, PHONE);
   assert.deepEqual(
     log.map(([kind]) => kind),
-    ['geometry', 'emulate']
+    ['geometry', 'fit']
   );
+
+  // The page's zoom before the fit comes back, and its metrics, nothing else.
+  log.length = 0;
+  await drive.restore(guest);
+  assert.deepEqual(log, [
+    ['geometry', 1, { width: 1200, height: 800 }, 1.25],
+    ['unfit', 1],
+    ['driving', 's', false],
+  ]);
+  assert.equal(drive.driven(guest), false);
+  log.length = 0;
+  await drive.restore(guest);
+  assert.deepEqual(log, [], 'restoring twice changes nothing');
 });
 
-test('the pane preset is held while driven and restored afterwards, reloading only for a changed agent', async () => {
-  const { drive, log, makeGuest } = fixture();
+test('a pane preset or zoom chosen during the fit wins when it ends', async () => {
+  const { drive, log, makeGuest, pane } = fixture();
   const guest = makeGuest(1);
   await drive.configurePane(guest, IPHONE_PRESET);
   assert.deepEqual(log, [['emulate', 1, IPHONE_PRESET]]);
@@ -81,39 +91,28 @@ test('the pane preset is held while driven and restored afterwards, reloading on
   log.length = 0;
   const desktop = { width: null, height: null, deviceScaleFactor: 1, mobile: false, touch: false, userAgent: null };
   await drive.configurePane(guest, desktop);
+  pane.zoom = 0.5;
   assert.deepEqual(log, [], 'the pane choice waits while the phone drives');
 
   await drive.restore(guest);
   assert.deepEqual(log, [
-    ['geometry', 1, { width: 1200, height: 800 }, 0.75],
+    ['geometry', 1, { width: 1200, height: 800 }, 0.5],
+    ['unfit', 1],
     ['emulate', 1, desktop],
-    ['reload', 1],
     ['driving', 's', false],
   ]);
-  assert.equal(drive.driven(guest), false);
-  log.length = 0;
-  await drive.restore(guest);
-  assert.deepEqual(log, [], 'restoring twice changes nothing');
-
-  // A pane already on the same mobile agent keeps its page loaded both ways.
-  const other = makeGuest(2);
-  await drive.configurePane(other, { ...IPHONE_PRESET, userAgent: MOBILE_CHROME_USER_AGENT });
-  await drive.apply('s', other, PHONE);
-  await drive.restore(other);
   assert.equal(log.filter(([kind]) => kind === 'reload').length, 0);
 });
 
-test('a page without pane choices returns to no emulation; a destroyed page only ends the drive', async () => {
+test('a page without pane choices gets its own zoom back; a destroyed page only ends the drive', async () => {
   const { drive, log, makeGuest } = fixture({ pane: {} });
   const guest = makeGuest(1);
-  guest.url = 'about:blank';
   await drive.apply('s', guest, PHONE);
-  assert.equal(log.filter(([kind]) => kind === 'reload').length, 0, 'a blank page has nothing to reload');
   log.length = 0;
   await drive.restore(guest);
   assert.deepEqual(log, [
-    ['geometry', 1, undefined, undefined],
-    ['emulate', 1, { width: null, height: null, deviceScaleFactor: 1, mobile: false, touch: false, userAgent: null }],
+    ['geometry', 1, undefined, 1.25],
+    ['unfit', 1],
     ['driving', 's', false],
   ]);
 

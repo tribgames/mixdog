@@ -44,6 +44,16 @@ export async function stopRun(cdp: Pick<BrowserGuestCdp, 'call'>, stream: Pick<R
   if (!run.guest.isDestroyed()) await cdp.call(run.guest, 'Page.stopScreencast').catch(() => undefined);
 }
 
+/** The page's visible viewport at its own device pixels (no clip, so no
+ *  emulation override and nothing the PC pane could see flicker). */
+export async function captureViewportScreenshot(cdp: Pick<BrowserGuestCdp, 'call'>, guest: WebContents) {
+  const shot = await cdp.call<{ data?: string }>(guest, 'Page.captureScreenshot', {
+    format: 'jpeg',
+    quality: STREAM_JPEG_QUALITY,
+  });
+  return shot.data ?? '';
+}
+
 /** Capture the run's first image directly, for a page that never repaints.
  *  `queue` receives the image and the CSS viewport it depicts. */
 export async function captureFirstFrame(
@@ -98,6 +108,8 @@ export async function startScreencastRun(
     documentId,
     size,
     view: null,
+    shooting: false,
+    dirty: false,
     detachGuest: () => {
       for (const name of PAGE_EVENTS) (guest as NodeJS.EventEmitter).removeListener(name, handlers.onPageEvent);
     },
@@ -123,6 +135,7 @@ export async function startScreencastRun(
     await cdp.call(guest, 'Page.startScreencast', {
       format: 'jpeg',
       quality: STREAM_JPEG_QUALITY,
+      // The bound the stream started with: renewals never restart the capture.
       maxWidth: stream.options.maxWidth,
       maxHeight: stream.options.maxHeight,
     });

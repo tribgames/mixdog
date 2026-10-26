@@ -2170,6 +2170,19 @@ function installLocalWindowFeatures(
     publishRemoteImportProgress: async (progress) => {
       await localService.invokeDesktopOperation('browserRemoteImportProgress', [progress]);
     },
+    // The WebRTC live view: signals to one phone go through the service's
+    // relay; the peer connections run in a hidden sender window.
+    remoteWebrtc: {
+      sendSignal: (clientId, signal) =>
+        localService.invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal]),
+      senderPage: (() => {
+        const { developmentUrl, rendererUrl } = resolveRendererTarget();
+        return {
+          developmentUrl: developmentUrl ? rendererUrl.href : undefined,
+          file: join(import.meta.dirname, '../renderer/remote-webrtc-sender.html'),
+        };
+      })(),
+    },
     onSurfaceRequest: (request) => {
       void localService.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
     },
@@ -2651,6 +2664,7 @@ if (!app.requestSingleInstanceLock()) {
       });
       // Sleep pauses the server links: no attempts, no failure shown.
       powerMonitor.on('suspend', () => {
+        void localService.invokeDesktopOperation('remoteAccessSuspend', []).catch(() => {});
         for (const connection of connectionPool.list()) connection.link?.suspend();
       });
       // A dead network is otherwise noticed only by the ping cycle: redial the

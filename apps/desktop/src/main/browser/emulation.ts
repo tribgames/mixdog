@@ -12,6 +12,7 @@ import {
   applyIdentityOverrides,
   applyPreferenceOverrides,
   applyViewportOverride,
+  type BrowserDeviceMetrics,
   resetEmulation,
 } from './emulation-overrides';
 import { validateEmulationCommand } from './emulation-validation';
@@ -40,6 +41,11 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
     ['colorScheme', 'reducedMotion'],
   ] as const;
   const retainedOverrides = new WeakMap<WebContents, Partial<BrowserCommand>>();
+  /** The device metrics an emulate command last left on each guest (absent:
+   *  none) — what a phone's fit lays over and gives back. */
+  const baseMetrics = new WeakMap<WebContents, BrowserDeviceMetrics>();
+  /** Guests a phone's fit currently lays out. */
+  const fitted = new WeakSet<WebContents>();
 
   async function configureEmulation(
     guest: WebContents,
@@ -65,10 +71,12 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
       if (command.reset) {
         await resetEmulation(cdp, guest, signal);
         retainedOverrides.delete(guest);
+        baseMetrics.delete(guest);
         applied.push('reset');
       }
       if (validated.hasViewport) {
-        const { label, viewport } = await applyViewportOverride(cdp, guest, command, signal);
+        const { label, viewport, metrics } = await applyViewportOverride(cdp, guest, command, signal);
+        baseMetrics.set(guest, metrics);
         applied.push(label);
         onViewportChanged?.(guest, viewport);
       } else if (command.reset) {
@@ -111,5 +119,59 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
     };
   }
 
-  return { applyEmulation, configureEmulation };
+  /** Run one device-metrics change with presentation held, then report it. */
+  async function changeMetrics(guest: WebContents, run: () => Promise<{ width: number; height: number } | null>) {
+    const finish = host.beginViewportChange?.(guest);
+    try {
+      const viewport = await run();
+      onViewportChanged?.(guest, viewport);
+      invalidateInteractionState(guest);
+    } finally {
+      finish?.();
+    }
+  }
+
+  /** A phone's fit: only the device metrics change — size and scale factor,
+   *  keeping the guest's mobile flag — and no other emulation domain (user
+   *  agent, touch, locale, geolocation, headers, media, CPU, network) is reset
+   *  or touched. `unfitMetrics` gives back exactly the metrics before it. */
+  async function fitMetrics(
+    guest: WebContents,
+    viewport: { width: number; height: number; deviceScaleFactor: number }
+  ): Promise<void> {
+    const base = baseMetrics.get(guest);
+    const landscape = viewport.width > viewport.height;
+    await changeMetrics(guest, async () => {
+      await cdp.call(guest, 'Emulation.setDeviceMetricsOverride', {
+        width: viewport.width,
+        height: viewport.height,
+        deviceScaleFactor: viewport.deviceScaleFactor,
+        mobile: base?.mobile ?? false,
+        screenWidth: viewport.width,
+        screenHeight: viewport.height,
+        screenOrientation: landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 },
+      } satisfies BrowserDeviceMetrics);
+      return { width: viewport.width, height: viewport.height };
+    });
+    // Only an applied fit has metrics to give back.
+    fitted.add(guest);
+  }
+
+  /** The fit ended: the metrics an emulate command last set come back (an
+   *  agent's change during the fit included), or none. */
+  async function unfitMetrics(guest: WebContents): Promise<void> {
+    if (!fitted.has(guest)) return;
+    fitted.delete(guest);
+    const base = baseMetrics.get(guest);
+    await changeMetrics(guest, async () => {
+      if (!base) {
+        await cdp.call(guest, 'Emulation.clearDeviceMetricsOverride', {});
+        return null;
+      }
+      await cdp.call(guest, 'Emulation.setDeviceMetricsOverride', base);
+      return { width: base.width, height: base.height };
+    });
+  }
+
+  return { applyEmulation, configureEmulation, fitMetrics, unfitMetrics };
 }

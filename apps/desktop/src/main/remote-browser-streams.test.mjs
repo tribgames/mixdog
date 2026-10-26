@@ -56,6 +56,123 @@ test('a client gets one frame in flight; the newest replaces superseded ones aft
   assert.equal(f.sent.length, 2, 'nothing newer to send');
 });
 
+test('a take-over joining an unfitted stream is shown no picture until the fitted layout’s first one', (t) => {
+  const f = fixture(t);
+  const FIT = { width: 411, height: 782, deviceScaleFactor: 2.625 };
+  // A watcher streams the agent's page as it is.
+  f.streams.subscribe('c1', 's', SIZE);
+  f.streams.publish(frame(1));
+  f.streams.acknowledge('c1', 's', 1);
+
+  // The take-over joins: the cached unfitted frame goes out as facts only.
+  f.streams.subscribe('c2', 's', { ...SIZE, fit: FIT });
+  assert.deepEqual(f.requests.at(-1), ['s', { ...SIZE, fit: FIT }], 'the desktop is asked to fit');
+  const first = f.sent.filter(([id]) => id === 'c2').at(-1)[1].payload;
+  assert.equal(first.image, undefined);
+  assert.deepEqual([first.width, first.height, first.viewportWidth, first.viewportHeight], [0, 0, 0, 0]);
+  assert.equal(first.documentId, 'p1:1', 'the page facts still arrive');
+  f.streams.acknowledge('c2', 's', 1);
+
+  // A late unfitted picture, and a facts frame inheriting it: still no picture.
+  f.streams.publish(frame(2));
+  f.streams.acknowledge('c2', 's', 2);
+  f.streams.publish(frame(3, { image: undefined, title: 'x', fitSettled: true }));
+  f.streams.acknowledge('c2', 's', 3);
+  for (const [, message] of f.sent.filter(([id]) => id === 'c2')) {
+    assert.equal(message.payload.image, undefined, `frame ${message.payload.seq} shows no unfitted picture`);
+  }
+
+  // The fitted layout's first picture is the first one it sees, and pictures flow from then on.
+  f.streams.publish(frame(4, { viewportWidth: 411, viewportHeight: 782, fitSettled: true }));
+  assert.equal(f.sent.at(-1)[0], 'c2');
+  assert.equal(f.sent.at(-1)[1].payload.image.data, 'img4');
+  f.streams.acknowledge('c2', 's', 4);
+  f.streams.publish(frame(5, { fitSettled: true }));
+  assert.equal(f.sent.filter(([id]) => id === 'c2').at(-1)[1].payload.image.data, 'img5');
+  // The watcher is never held back.
+  assert.ok(f.sent.filter(([id]) => id === 'c1').every(([, message]) => message.payload.image));
+});
+
+test('take-over intent lasts for the subscription: a renewal omitting fit keeps it; fit: null or the end releases it', (t) => {
+  const f = fixture(t);
+  const FIT = { width: 411, height: 782, deviceScaleFactor: 2.625 };
+  f.streams.subscribe('c1', 's', SIZE);
+  // fit → omitted → fit: every request to the desktop keeps the same fit.
+  f.streams.subscribe('c2', 's', { ...SIZE, fit: FIT });
+  f.streams.subscribe('c2', 's', SIZE);
+  f.streams.subscribe('c2', 's', { ...SIZE, fit: FIT });
+  f.streams.subscribe('c1', 's', SIZE);
+  assert.deepEqual(
+    f.requests.slice(1).map(([, options]) => options.fit),
+    [FIT, FIT, FIT, FIT],
+    'no request without the fit: no restore, no re-fit'
+  );
+  assert.equal(f.streams.awaitingFit('c2', 's'), true, 'the wait is not reset either');
+
+  // An explicit release ends it while the subscription stays.
+  f.streams.subscribe('c2', 's', { ...SIZE, fit: null });
+  assert.deepEqual(f.requests.at(-1), ['s', SIZE]);
+  assert.equal(f.streams.awaitingFit('c2', 's'), false);
+  f.streams.subscribe('c2', 's', SIZE);
+  assert.deepEqual(f.requests.at(-1), ['s', SIZE], 'a released take-over stays released');
+
+  // So does the subscription's end.
+  f.streams.subscribe('c2', 's', { ...SIZE, fit: FIT });
+  assert.deepEqual(f.requests.at(-1), ['s', { ...SIZE, fit: FIT }]);
+  f.streams.unsubscribe('c2', 's');
+  assert.deepEqual(f.requests.at(-1), ['s', SIZE]);
+});
+
+test('a fit that failed ends a take-over’s wait: it is shown the page as when watching', (t) => {
+  const f = fixture(t);
+  f.streams.subscribe('c2', 's', { ...SIZE, fit: { width: 411, height: 782, deviceScaleFactor: 2.625 } });
+  f.streams.publish(frame(1));
+  assert.equal(f.sent.at(-1)[1].payload.image, undefined);
+  assert.equal(f.streams.awaitingFit('c2', 's'), true);
+  f.streams.acknowledge('c2', 's', 1);
+  f.streams.publish(frame(2, { fitFailed: true }));
+  assert.equal(f.sent.at(-1)[1].payload.image.data, 'img2');
+  assert.equal(f.sent.at(-1)[1].payload.fitFailed, true);
+  assert.equal(f.streams.awaitingFit('c2', 's'), false, 'its WebRTC view may be promoted as a watcher’s');
+});
+
+test('while WebRTC owns a client view its frames carry facts only; resuming resends the newest picture', (t) => {
+  const f = fixture(t);
+  f.streams.subscribe('c1', 's', SIZE);
+  f.streams.subscribe('c2', 's', SIZE);
+  assert.equal(f.streams.subscribed('c1', 's'), true);
+  assert.equal(f.streams.subscribed('c3', 's'), false);
+  f.streams.setImages('c1', 's', false);
+  f.streams.publish(frame(1));
+  const toC1 = f.sent.filter(([id]) => id === 'c1').map(([, m]) => m.payload);
+  const toC2 = f.sent.filter(([id]) => id === 'c2').map(([, m]) => m.payload);
+  assert.deepEqual([toC1[0].seq, toC1[0].image, toC1[0].documentId], [1, undefined, 'p1:1']);
+  assert.equal(toC2[0].image.data, 'img1', 'another viewer keeps its JPEG view');
+  f.streams.acknowledge('c1', 's', 1);
+  f.streams.setImages('c1', 's', true);
+  const resumed = f.sent.filter(([id]) => id === 'c1').at(-1)[1].payload;
+  assert.equal(resumed.image.data, 'img1', 'the JPEG view returns without waiting for a repaint');
+});
+
+test('a dropped subscription is reported, per client and session', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const dropped = [];
+  const streams = createBrowserRemoteStreams({
+    isLive: () => true,
+    send: async () => {},
+    request: async () => {},
+    onDrop: (clientId, sessionId) => dropped.push([clientId, sessionId]),
+  });
+  streams.subscribe('c1', 's', SIZE);
+  streams.unsubscribe('c1', 's');
+  streams.subscribe('c2', 's', SIZE);
+  t.mock.timers.tick(4_000);
+  assert.deepEqual(dropped, [
+    ['c1', 's'],
+    ['c2', 's'],
+  ]);
+});
+
 test('an unacknowledged frame is superseded after 1.5s', (t) => {
   const f = fixture(t);
   f.streams.subscribe('c1', 's', SIZE);
@@ -72,6 +189,14 @@ test('clients are paced independently and a metadata-only frame keeps the waitin
   f.streams.subscribe('c1', 's', SIZE);
   f.streams.subscribe('c2', 's', { maxWidth: 1200, maxHeight: 400 });
   assert.deepEqual(f.requests.at(-1), ['s', { maxWidth: 1200, maxHeight: 600 }], 'largest request wins');
+  // A take-over's fit reaches the desktop with the request: the earliest one.
+  const fit = { width: 411, height: 782, deviceScaleFactor: 2.625 };
+  f.streams.subscribe('c3', 's', { ...SIZE, fit });
+  f.streams.subscribe('c4', 's', { ...SIZE, fit: { ...fit, width: 360 } });
+  assert.deepEqual(f.requests.at(-1), ['s', { maxWidth: 1200, maxHeight: 600, fit }]);
+  f.streams.unsubscribe('c3', 's');
+  f.streams.unsubscribe('c4', 's');
+  assert.deepEqual(f.requests.at(-1), ['s', { maxWidth: 1200, maxHeight: 600 }], 'watchers carry no fit');
   f.streams.publish(frame(1));
   f.streams.acknowledge('c2', 's', 1);
   f.streams.publish(frame(2));

@@ -41,6 +41,55 @@ test('an emulated locale is also the language the page asks servers for', async 
   assert.deepEqual(cleared.calls[1].params, { userAgent: 'Fixture/1.0' });
 });
 
+test('a phone fit changes only the device metrics and gives back exactly the ones before it', async () => {
+  const { calls, emulation, guest } = recordingEmulation();
+  // The agent's own emulation: a device size, a locale, a position and headers.
+  await emulation.configureEmulation(guest, { width: 1280, height: 720, deviceScaleFactor: 1.5, mobile: true });
+  await emulation.configureEmulation(guest, { locale: 'ko-KR' });
+  await emulation.configureEmulation(guest, { latitude: 37.5, longitude: 127 });
+  await emulation.configureEmulation(guest, { headers: { 'X-Agent': '1' } });
+  const prior = calls.find((call) => call.method === 'Emulation.setDeviceMetricsOverride').params;
+
+  calls.length = 0;
+  await emulation.fitMetrics(guest, { width: 411, height: 782, deviceScaleFactor: 2.625 });
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ['Emulation.setDeviceMetricsOverride'],
+    'no reset and no other domain is touched'
+  );
+  assert.deepEqual(
+    [calls[0].params.width, calls[0].params.height, calls[0].params.deviceScaleFactor, calls[0].params.mobile],
+    [411, 782, 2.625, true],
+    'the guest keeps its mobile flag'
+  );
+
+  calls.length = 0;
+  await emulation.unfitMetrics(guest);
+  assert.deepEqual(calls, [{ method: 'Emulation.setDeviceMetricsOverride', params: prior }], 'the exact metrics before');
+
+  // The agent's overrides are still in force: a later agent change to one of
+  // their groups keeps its siblings, which only holds while nothing reset them.
+  calls.length = 0;
+  await emulation.configureEmulation(guest, { userAgent: 'Agent/3.0' });
+  assert.deepEqual(calls.find((call) => call.method === 'Network.setUserAgentOverride').params, {
+    userAgent: 'Agent/3.0',
+    acceptLanguage: 'ko-KR',
+  });
+  assert.ok(!calls.some((call) => /clear/.test(call.method)));
+
+  // No metrics before the fit: they are cleared again afterwards. A second
+  // unfit changes nothing.
+  const bare = recordingEmulation();
+  await bare.emulation.fitMetrics(bare.guest, { width: 411, height: 782, deviceScaleFactor: 2.625 });
+  bare.calls.length = 0;
+  await bare.emulation.unfitMetrics(bare.guest);
+  await bare.emulation.unfitMetrics(bare.guest);
+  assert.deepEqual(
+    bare.calls.map((call) => call.method),
+    ['Emulation.clearDeviceMetricsOverride']
+  );
+});
+
 test('emulation validates compound input before attaching CDP or partially resetting the page', async () => {
   let cdpCalls = 0;
   const emulation = createBrowserEmulation({

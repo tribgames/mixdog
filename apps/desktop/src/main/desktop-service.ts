@@ -838,12 +838,24 @@ function createServiceOperationRouter({
         else await remote.start();
         return null;
       }
+      // The OS is about to sleep: nothing the relay client timed before this
+      // point can be trusted afterwards (TURN credentials).
+      case 'remoteAccessSuspend':
+        remote.relay()?.suspend();
+        return null;
       // The window process's live Browser Use frames and explicit reveal/hide
       // requests. Frames are paced per client by the relay; an open request is
       // a desktop event the relay forwards to every paired client.
       case 'browserRemoteFrame':
         remote.relay()?.publishBrowserFrame(operationArgs[0] as DesktopRemoteBrowserStreamFrame);
         return null;
+      // The window's WebRTC signal to one phone (validated by the relay side).
+      case 'browserRemoteWebrtcSignal': {
+        const relay = remote.relay();
+        if (!relay) throw new Error('Remote access is not running.');
+        await relay.sendBrowserWebrtcSignal(String(operationArgs[0] || ''), operationArgs[1]);
+        return null;
+      }
       case 'browserRemoteTabs':
         remote.relay()?.publishBrowserTabs(operationArgs[0] as DesktopRemoteBrowserTab[]);
         return null;

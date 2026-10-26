@@ -10,13 +10,15 @@ async function settle() {
   for (let index = 0; index < 8; index++) await flush();
 }
 
-function fixture(t, { tabs, dialog, leave } = {}) {
+function fixture(t, { tabs, dialog, leave, pixelRatio, screenshot } = {}) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const state = new BrowserGuestStateStore();
   const changes = [];
   const frames = [];
   const calls = [];
   const dispatched = [];
+  const geometries = [];
+  const pictures = [];
   const ports = new Map();
   /** The viewport each page is rendered at, and an optional hold on restores. */
   const viewports = new Map();
@@ -53,9 +55,16 @@ function fixture(t, { tabs, dialog, leave } = {}) {
       },
       call: async (guest, method, params) => {
         calls.push([guest.id, method, params]);
+        // The page's layout metrics: its device pixel ratio, when a test sets one.
+        if (method === 'Page.getLayoutMetrics' && pixelRatio) {
+          return { cssVisualViewport: { clientWidth: 100 }, visualViewport: { clientWidth: 100 * pixelRatio } };
+        }
+        if (method === 'Page.captureScreenshot' && screenshot) return { data: screenshot };
         return {};
       },
     },
+    geometryChanged: (sessionId, geometry) => geometries.push([sessionId, geometry]),
+    captured: (sessionId, picture) => pictures.push([sessionId, picture]),
     ensureGuest: async () => current.guest,
     currentGuest: () => current.guest,
     viewerChanged: (sessionId, active) => changes.push([sessionId, active]),
@@ -67,20 +76,30 @@ function fixture(t, { tabs, dialog, leave } = {}) {
     drive: {
       apply: async (sessionId, guest, viewport) => {
         calls.push([guest.id, 'drive.apply', { sessionId, ...viewport }]);
+        // Something happens while this apply runs (once), then it may fail
+        // after having changed the page partway.
+        const during = gates.duringApply;
+        gates.duringApply = undefined;
+        during?.();
+        if (gates.applyFails) {
+          viewports.set(guest.id, 'partial');
+          gates.applyFails = false;
+          throw new Error('the page refused its metrics');
+        }
         viewports.set(guest.id, 'phone');
       },
-      restore: async (guest) => {
-        calls.push([guest.id, 'drive.restore']);
+      restore: async (guest, options = {}) => {
+        calls.push([guest.id, options.reload ? 'drive.restore+reload' : 'drive.restore']);
         await gates.restore;
         viewports.set(guest.id, 'pane');
       },
     },
   });
-  const screencastFrame = (guest, ackId = 1) =>
+  const screencastFrame = (guest, ackId = 1, viewport = { deviceWidth: 400, deviceHeight: 300 }) =>
     ports.get(guest).emit('message', {}, 'Page.screencastFrame', {
       data: 'AAAA',
       sessionId: ackId,
-      metadata: { deviceWidth: 400, deviceHeight: 300 },
+      metadata: viewport,
     });
   const advance = async (ms) => {
     t.mock.timers.tick(ms);
@@ -95,6 +114,8 @@ function fixture(t, { tabs, dialog, leave } = {}) {
     dispatched,
     viewports,
     gates,
+    geometries,
+    pictures,
     a,
     b,
     current,
@@ -311,13 +332,41 @@ const methods = (f, guestId) =>
     .filter(([id, method]) => id === guestId && !['Page.screencastFrameAck', 'Page.getLayoutMetrics'].includes(method))
     .map(([, method]) => method);
 
-test('a phone viewport drives the streamed page before a fresh screencast, once per page and document', async (t) => {
+test('the phone viewport and renewals are presentation: the page keeps its geometry and capture', async (t) => {
   const f = fixture(t);
   await f.remote.remoteBrowserStream('s', SIZE);
   f.screencastFrame(f.a);
   await settle();
   f.calls.length = 0;
+  // The keyboard and rotation resend a viewport and a smaller bound.
   await f.remote.remoteBrowserControl('s', PHONE);
+  await f.remote.remoteBrowserControl('s', { ...PHONE, height: 400 });
+  await f.remote.remoteBrowserStream('s', { maxWidth: 800, maxHeight: 300 });
+  await f.advance(200);
+  assert.deepEqual(methods(f, 1), [], 'no drive, no re-layout, no screencast restart');
+  assert.deepEqual(
+    f.geometries.map(([, geometry]) => geometry.generation),
+    [1],
+    'one geometry generation, locked from the first frame'
+  );
+  assert.deepEqual(f.geometries[0][1], {
+    generation: 1,
+    cssWidth: 400,
+    cssHeight: 300,
+    deviceScaleFactor: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
+});
+
+test('an explicit fit-client resize drives the page before a fresh screencast, once per page and document', async (t) => {
+  const f = fixture(t);
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a);
+  await settle();
+  f.calls.length = 0;
+  const RESIZE = { mode: 'fit-client', cssWidth: 390, cssHeight: 780, deviceScaleFactor: 3 };
+  await f.remote.resize('s', RESIZE);
   assert.deepEqual(methods(f, 1), ['Page.stopScreencast', 'drive.apply', 'Page.startScreencast']);
   assert.deepEqual(f.calls.find(([, method]) => method === 'drive.apply')[2], {
     sessionId: 's',
@@ -346,9 +395,9 @@ test('a phone viewport drives the streamed page before a fresh screencast, once 
   assert.ok(f.frames.at(-1).image);
   assert.equal(f.frames.at(-1).viewportWidth, 400);
 
-  // The same viewport again (each renewal resends it) changes nothing.
+  // The same resize again changes nothing.
   f.calls.length = 0;
-  await f.remote.remoteBrowserControl('s', PHONE);
+  await f.remote.resize('s', RESIZE);
   await f.advance(200);
   assert.deepEqual(methods(f, 1), []);
 
@@ -365,59 +414,243 @@ test('a phone viewport drives the streamed page before a fresh screencast, once 
   assert.deepEqual(methods(f, 2), ['drive.apply', 'Page.startScreencast']);
   assert.ok(methods(f, 1).includes('drive.restore'));
 
-  // An explicit stop hands the page back to its pane.
+  // An explicit stop hands the page back to its pane, without a reload.
   f.calls.length = 0;
   await f.remote.remoteBrowserStream('s', null);
   await settle();
   assert.deepEqual(methods(f, 2), ['Page.stopScreencast', 'drive.restore']);
 });
 
-test('a lapsed lease restores the driven page; a viewport without a stream is dropped', async (t) => {
+test('a page resize returns the page geometry without a reload; so does a lapsed lease', async (t) => {
   const f = fixture(t);
-  await f.remote.remoteBrowserControl('s', PHONE);
+  await f.remote.resize('s', { mode: 'fit-client', cssWidth: 390, cssHeight: 780, deviceScaleFactor: 3 });
   assert.deepEqual(methods(f, 1), [], 'no stream, no drive');
 
   await f.remote.remoteBrowserStream('s', SIZE);
-  await f.remote.remoteBrowserControl('s', PHONE);
+  await f.remote.resize('s', { mode: 'fit-client', cssWidth: 390, cssHeight: 780, deviceScaleFactor: 3 });
   assert.ok(methods(f, 1).includes('drive.apply'));
+  f.calls.length = 0;
+  await f.remote.resize('s', { mode: 'page' });
+  assert.deepEqual(methods(f, 1), ['drive.restore', 'Page.stopScreencast', 'Page.startScreencast']);
+
+  await f.remote.resize('s', { mode: 'fit-client', cssWidth: 390, cssHeight: 780, deviceScaleFactor: 3 });
   f.calls.length = 0;
   await f.advance(4_000);
   assert.deepEqual(f.changes.at(-1), ['s', false]);
   assert.deepEqual(methods(f, 1), ['Page.stopScreencast', 'drive.restore']);
+  assert.equal(f.geometries.at(-1)[1], null, 'the ended stream retires its geometry');
 
-  // A renewed stream is not driven until the client sends its viewport again.
+  // A renewed stream keeps the page geometry: nothing drives it.
   f.calls.length = 0;
   await f.remote.remoteBrowserStream('s', SIZE);
   assert.deepEqual(methods(f, 1), ['Page.startScreencast']);
-  await f.remote.remoteBrowserControl('s', PHONE);
-  assert.ok(methods(f, 1).includes('drive.apply'));
 });
 
-test('a stream restarted while the previous one still restores the pane ends at the phone viewport', async (t) => {
+test('a take-over fits the page once, before the first frame, and keeps it until the stream ends', async (t) => {
+  const f = fixture(t);
+  const FIT = { width: 411, height: 782, deviceScaleFactor: 2.625 };
+  const TAKEOVER = { maxWidth: 1080, maxHeight: 2100, fit: FIT };
+  await f.remote.remoteBrowserStream('s', TAKEOVER);
+  // The fit is emulated before the screencast starts: no frame or geometry
+  // of the unfitted page exists.
+  assert.deepEqual(methods(f, 1), ['drive.apply', 'Page.startScreencast']);
+  assert.deepEqual(f.calls.find(([, method]) => method === 'drive.apply')[2], { sessionId: 's', ...FIT });
+  assert.deepEqual(f.geometries, []);
+  assert.ok(f.frames.every((frame) => !frame.image));
+  f.screencastFrame(f.a, 1, { deviceWidth: 411, deviceHeight: 782 });
+  await f.advance(100);
+  assert.deepEqual(
+    f.geometries.map(([, geometry]) => [geometry.generation, geometry.cssWidth, geometry.cssHeight]),
+    [[1, 411, 782]],
+    'the first geometry is the fitted one'
+  );
+  assert.equal(f.frames.find((frame) => frame.image).viewportWidth, 411);
+  assert.equal(f.frames.find((frame) => frame.image).fitSettled, true, 'marked as the settled layout');
+
+  // Locked: the keyboard's viewport, renewals with another fit and a smaller
+  // bound change nothing.
+  f.calls.length = 0;
+  await f.remote.remoteBrowserControl('s', { type: 'viewport', width: 411, height: 400, deviceScaleFactor: 2.625 });
+  await f.remote.remoteBrowserStream('s', { ...TAKEOVER, fit: { ...FIT, height: 400 } });
+  await f.remote.remoteBrowserStream('s', { maxWidth: 1080, maxHeight: 1000, fit: { ...FIT, width: 360 } });
+  await f.advance(200);
+  assert.deepEqual(methods(f, 1), [], 'no re-fit, no re-layout, no capture restart');
+  assert.equal(f.geometries.length, 1);
+
+  // The stream ends: the pane's own emulation comes back, without a reload.
+  await f.remote.remoteBrowserStream('s', null);
+  await settle();
+  assert.deepEqual(methods(f, 1), ['Page.stopScreencast', 'drive.restore']);
+  assert.ok(!f.calls.some(([, method]) => /reload/.test(method)));
+});
+
+test('a take-over joining a watched stream fits it; only the fitted capture is marked settled', async (t) => {
+  const f = fixture(t);
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a, 1);
+  await f.advance(100);
+  const before = f.frames.length;
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', { ...SIZE, fit: { width: 411, height: 782, deviceScaleFactor: 2.625 } });
+  assert.deepEqual(methods(f, 1), ['Page.stopScreencast', 'drive.apply', 'Page.startScreencast']);
+  // Until the fitted capture's first picture, nothing is marked settled.
+  await f.advance(200);
+  assert.ok(f.frames.slice(before).every((frame) => !frame.fitSettled));
+  f.screencastFrame(f.a, 3, { deviceWidth: 411, deviceHeight: 782 });
+  await f.advance(100);
+  const settled = f.frames.slice(before).filter((frame) => frame.fitSettled);
+  assert.ok(settled.some((frame) => frame.image));
+  assert.ok(settled.every((frame) => frame.viewportWidth === 411));
+});
+
+test('when the last take-over leaves, the page gets its metrics back and the watcher keeps streaming', async (t) => {
+  const f = fixture(t);
+  const FIT = { width: 411, height: 782, deviceScaleFactor: 2.625 };
+  // Take-over and watcher: the service passes the fit while the take-over subscribes.
+  await f.remote.remoteBrowserStream('s', { ...SIZE, fit: FIT });
+  f.screencastFrame(f.a, 1, { deviceWidth: 411, deviceHeight: 782 });
+  await f.advance(100);
+  assert.equal(f.viewports.get(1), 'phone');
+
+  // The take-over leaves; the watcher's renewal carries no fit.
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', SIZE);
+  await settle();
+  assert.deepEqual(methods(f, 1), ['drive.restore', 'Page.stopScreencast', 'Page.startScreencast']);
+  assert.equal(f.viewports.get(1), 'pane', 'the agent’s page has its own metrics again');
+  f.screencastFrame(f.a, 2);
+  await f.advance(100);
+  assert.deepEqual(f.changes, [['s', true]], 'the stream never stopped');
+  const last = f.frames.at(-1);
+  assert.ok(last.image && last.viewportWidth === 400, 'the watcher streams the page as it is');
+  assert.equal(last.fitSettled, undefined);
+  assert.deepEqual(
+    f.geometries.map(([, geometry]) => geometry.cssWidth),
+    [411, 400],
+    'a new geometry generation for the unfitted page'
+  );
+
+  // A later take-over fits once more.
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', { ...SIZE, fit: FIT });
+  assert.ok(methods(f, 1).includes('drive.apply'));
+
+  // An explicit resize the person chose is kept when the take-over leaves.
+  await f.remote.resize('s', { mode: 'fit-client', cssWidth: 390, cssHeight: 780, deviceScaleFactor: 3 });
+  await settle();
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', SIZE);
+  await settle();
+  assert.deepEqual(methods(f, 1), [], 'the explicit fit stays');
+});
+
+test('a fit that cannot be applied is reported as failed, never as settled', async (t) => {
+  const f = fixture(t);
+  f.gates.applyFails = true;
+  await f.remote.remoteBrowserStream('s', { ...SIZE, fit: { width: 411, height: 782, deviceScaleFactor: 2.625 } });
+  // Given up: the page is restored and captured as it is.
+  assert.deepEqual(methods(f, 1), ['drive.apply', 'drive.restore', 'Page.startScreencast']);
+  f.screencastFrame(f.a, 1);
+  await f.advance(100);
+  const imaged = f.frames.filter((frame) => frame.image);
+  assert.ok(imaged.length > 0);
+  for (const frame of f.frames) {
+    assert.equal(frame.fitSettled, undefined, 'an unfitted picture is never marked settled');
+  }
+  assert.equal(imaged.at(-1).fitFailed, true, 'the take-over learns the fit will not come');
+  assert.equal(imaged.at(-1).viewportWidth, 400);
+  // Renewals do not retry it in a loop.
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', { ...SIZE, fit: { width: 411, height: 782, deviceScaleFactor: 2.625 } });
+  await f.advance(200);
+  assert.deepEqual(methods(f, 1), []);
+});
+
+test('a fit that fails after the fit changed is still undone before the newer fit applies', async (t) => {
+  const f = fixture(t);
+  // While the take-over's fit is being applied, the person asks for another
+  // fit; then the first apply fails having changed the page partway.
+  f.gates.applyFails = true;
+  f.gates.duringApply = () =>
+    void f.remote.resize('s', { mode: 'fit-client', cssWidth: 390, cssHeight: 780, deviceScaleFactor: 3 });
+  await f.remote.remoteBrowserStream('s', { ...SIZE, fit: { width: 411, height: 782, deviceScaleFactor: 2.625 } });
+  await settle();
+  const drive = f.calls.filter(([, method]) => method.startsWith('drive.'));
+  assert.deepEqual(
+    drive.map(([, method, params]) => (params ? `${method}:${params.width}` : method)),
+    ['drive.apply:411', 'drive.restore', 'drive.apply:390'],
+    'the partial apply is restored first, then the newer fit applies'
+  );
+  assert.equal(f.viewports.get(1), 'phone');
+  f.screencastFrame(f.a, 1, { deviceWidth: 390, deviceHeight: 780 });
+  await f.advance(100);
+  assert.equal(f.frames.filter((frame) => frame.image).at(-1).fitSettled, true, 'the newer fit applied');
+  assert.ok(f.frames.every((frame) => !frame.fitFailed), 'a stale failure is not reported');
+});
+
+test('watching never fits the page; an explicit page resize locks out a later take-over fit', async (t) => {
   const f = fixture(t);
   await f.remote.remoteBrowserStream('s', SIZE);
   await f.remote.remoteBrowserControl('s', PHONE);
-  assert.equal(f.viewports.get(1), 'phone');
-
-  // The old stream's restore is still in flight when the phone streams again.
-  let release;
-  f.gates.restore = new Promise((resolve) => (release = resolve));
-  await f.remote.remoteBrowserStream('s', null);
-  const restarted = f.remote.remoteBrowserStream('s', SIZE);
-  const driven = f.remote.remoteBrowserControl('s', PHONE);
-  await settle();
-  release();
-  await Promise.all([restarted, driven]);
-  await settle();
-  assert.equal(f.viewports.get(1), 'phone', 'the stale restore did not undo the new stream');
-
-  // Unchanged renewals keep it.
   await f.remote.remoteBrowserStream('s', SIZE);
-  await f.remote.remoteBrowserControl('s', PHONE);
+  f.screencastFrame(f.a);
   await f.advance(200);
-  assert.equal(f.viewports.get(1), 'phone');
+  assert.ok(!methods(f, 1).includes('drive.apply'), 'a watcher keeps the agent’s page geometry');
+  assert.ok(f.frames.some((frame) => frame.image));
+  assert.ok(f.frames.every((frame) => !frame.fitSettled), 'an undecided layout is never marked settled');
+  await f.remote.remoteBrowserStream('s', null);
+  await settle();
+
+  // A person who chose the page geometry keeps it.
+  await f.remote.remoteBrowserStream('s', SIZE);
+  await f.remote.resize('s', { mode: 'page' });
+  f.calls.length = 0;
+  await f.remote.remoteBrowserStream('s', { ...SIZE, fit: { width: 411, height: 782, deviceScaleFactor: 2.625 } });
+  await f.advance(200);
+  assert.deepEqual(methods(f, 1), []);
 });
 
+test('a page re-laid out on the PC locks a new geometry generation; generations never repeat across streams', async (t) => {
+  const f = fixture(t);
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a, 1);
+  await f.advance(100);
+  f.screencastFrame(f.a, 2, { deviceWidth: 500, deviceHeight: 300 });
+  await f.advance(100);
+  assert.deepEqual(
+    f.geometries.map(([, geometry]) => [geometry.generation, geometry.cssWidth]),
+    [
+      [1, 400],
+      [2, 500],
+    ]
+  );
+  await f.remote.remoteBrowserStream('s', null);
+  await settle();
+  await f.remote.remoteBrowserStream('s', SIZE);
+  f.screencastFrame(f.a, 3);
+  await f.advance(100);
+  assert.equal(f.geometries.at(-1)[1].generation, 3);
+});
+
+test('a page with more device pixels than CSS pixels is captured at its device pixels', async (t) => {
+  // A 2.625× page whose device pixels fit the client's bound: screenshots, not
+  // the CSS-sized screencast picture, carry the frames.
+  const f = fixture(t, { pixelRatio: 2.625, screenshot: 'SHOT' });
+  await f.remote.remoteBrowserStream('s', { maxWidth: 1080, maxHeight: 2100 });
+  f.screencastFrame(f.a, 1, { deviceWidth: 411, deviceHeight: 782 });
+  await f.advance(100);
+  const geometry = f.geometries.at(-1)[1];
+  assert.deepEqual([geometry.pixelWidth, geometry.pixelHeight, geometry.deviceScaleFactor], [1078, 2052, 2.625]);
+  assert.ok(f.calls.some(([, method]) => method === 'Page.captureScreenshot'));
+  const imaged = f.frames.filter((frame) => frame.image);
+  assert.equal(imaged.at(-1).image.data, 'SHOT', 'the screencast picture itself is not sent');
+  assert.equal(imaged.at(-1).viewportWidth, 411);
+  assert.deepEqual(
+    f.pictures.map(([, picture]) => picture.data),
+    ['SHOT'],
+    'the WebRTC sender is fed the same picture'
+  );
+});
 async function advance100(f) {
   await f.advance(100);
 }

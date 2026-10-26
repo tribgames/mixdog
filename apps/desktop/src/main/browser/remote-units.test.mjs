@@ -89,6 +89,40 @@ test('schedulePublish sends the newest frame once and holds the next until the s
   assert.deepEqual(sent, [1, 3]);
 });
 
+test('a hand-off the service never answers reopens the gate after the relay ack window', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const sent = [];
+  const settles = [];
+  // Every hand-off hangs, until the test settles it late.
+  const publish = (frame) => {
+    sent.push(frame.seq);
+    return new Promise((resolve) => settles.push(resolve));
+  };
+  const stream = {
+    pending: { seq: 1 },
+    publishing: false,
+    publishTimer: null,
+    lastPublishedAt: Number.NEGATIVE_INFINITY,
+  };
+  schedulePublish(stream, publish);
+  stream.pending = { seq: 2 };
+  schedulePublish(stream, publish);
+  t.mock.timers.tick(1_499);
+  assert.deepEqual(sent, [1], 'still within the ack window');
+  t.mock.timers.tick(1);
+  assert.deepEqual(sent, [1, 2], 'the newest frame goes instead of waiting for ever');
+  // The stale hand-off settling late must not reopen the gate for the newer one.
+  stream.pending = { seq: 3 };
+  settles[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(100);
+  assert.deepEqual(sent, [1, 2]);
+  settles[1]();
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(100);
+  assert.deepEqual(sent, [1, 2, 3]);
+});
+
 test('isPageInputControl accepts only input controls', () => {
   for (const type of ['pointer', 'wheel', 'text', 'key', 'composition', 'composition-end']) {
     assert.equal(isPageInputControl({ type }), true);

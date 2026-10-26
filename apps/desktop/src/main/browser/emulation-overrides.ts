@@ -38,7 +38,7 @@ export async function applyViewportOverride(
   guest: WebContents,
   command: BrowserCommand,
   signal?: AbortSignal
-): Promise<{ label: string; viewport: { width: number; height: number } }> {
+): Promise<{ label: string; viewport: { width: number; height: number }; metrics: BrowserDeviceMetrics }> {
   const width = Math.min(3840, Math.max(200, Math.trunc(command.width as number)));
   const height = Math.min(3840, Math.max(200, Math.trunc(command.height as number)));
   const deviceScaleFactor = Math.min(
@@ -46,25 +46,33 @@ export async function applyViewportOverride(
     Math.max(0.5, Number.isFinite(command.deviceScaleFactor) ? Number(command.deviceScaleFactor) : 1)
   );
   const landscape = command.orientation === 'landscape';
-  await cdp.call(
-    guest,
-    'Emulation.setDeviceMetricsOverride',
-    {
-      width,
-      height,
-      deviceScaleFactor,
-      mobile: command.mobile === true,
-      screenWidth: width,
-      screenHeight: height,
-      screenOrientation: landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 },
-    },
-    signal
-  );
+  const metrics: BrowserDeviceMetrics = {
+    width,
+    height,
+    deviceScaleFactor,
+    mobile: command.mobile === true,
+    screenWidth: width,
+    screenHeight: height,
+    screenOrientation: landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 },
+  };
+  await cdp.call(guest, 'Emulation.setDeviceMetricsOverride', metrics, signal);
   return {
     label: `${width}x${height}@${deviceScaleFactor}${command.mobile ? ' mobile' : ''}`,
     viewport: { width, height },
+    metrics,
   };
 }
+
+/** The parameters of one `Emulation.setDeviceMetricsOverride`. */
+export type BrowserDeviceMetrics = {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  mobile: boolean;
+  screenWidth: number;
+  screenHeight: number;
+  screenOrientation: { type: 'landscapePrimary' | 'portraitPrimary'; angle: number };
+};
 
 /** A locale only JavaScript reports leaves requests asking for the old
  *  language, so the page negotiates content the emulation contradicts. A

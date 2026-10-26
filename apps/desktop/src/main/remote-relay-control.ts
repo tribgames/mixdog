@@ -13,8 +13,9 @@ interface PendingControlRequest {
 
 export interface RelayControlRequests {
   request<T>(type: string, payload?: Record<string, unknown>): Promise<T>;
-  /** Settles the request a `clients-list` / `client-revoked` envelope answers.
-   *  Returns false when the envelope is not a control answer at all. */
+  /** Settles the request a `clients-list` / `client-revoked` / `ice-servers`
+   *  envelope answers. Returns false when the envelope is not a control answer
+   *  at all. */
   settle(envelope: Record<string, unknown>): boolean;
   /** Fails every waiting request: the leg closed or the relay disconnected. */
   rejectAll(message: string): void;
@@ -46,13 +47,18 @@ export function createRelayControlRequests(deps: {
         deps.sendEnvelope({ type, requestId, ...payload });
       }),
     settle: (envelope) => {
-      if (envelope.type !== 'clients-list' && envelope.type !== 'client-revoked') return false;
+      if (envelope.type !== 'clients-list' && envelope.type !== 'client-revoked' && envelope.type !== 'ice-servers') {
+        return false;
+      }
       const requestId = String(envelope.requestId || '');
       const waiting = pending.get(requestId);
       if (!waiting) return true;
       pending.delete(requestId);
       clearTimeout(waiting.timer);
-      if (envelope.ok === false) {
+      if (envelope.type === 'ice-servers') {
+        // A refusal carries the relay's STUN URL, so the whole answer is the value.
+        waiting.resolve(envelope);
+      } else if (envelope.ok === false) {
         waiting.reject(new Error(String(envelope.error || 'Relay device request failed.')));
       } else {
         waiting.resolve(envelope.type === 'clients-list' ? envelope.clients : envelope.ok);

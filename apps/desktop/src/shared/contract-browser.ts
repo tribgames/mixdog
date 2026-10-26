@@ -307,6 +307,15 @@ export type DesktopBrowserPageControl = DesktopBrowserPageAction & { documentId:
 export interface DesktopRemoteBrowserStreamOptions {
   maxWidth: number;
   maxHeight: number;
+  /** A take-over: fit the page to this viewport (the phone pane's CSS box and
+   *  device pixel ratio) once, before the stream's first frame, by viewport
+   *  emulation only (no user agent switch, no reload); the fit then stays
+   *  locked until the stream ends. Absent (watching): the page keeps its own
+   *  geometry. Hosts that predate it ignore it. The take-over lasts for the
+   *  subscription: a renewal that omits `fit` keeps it; `fit: null` releases
+   *  it explicitly (the page gets its own geometry back once no take-over
+   *  holds it), as does the subscription's end. */
+  fit?: DesktopRemoteBrowserViewport | null;
 }
 
 /** One pushed live frame of a session's visible page. A client receives its
@@ -326,6 +335,19 @@ export interface DesktopRemoteBrowserStreamFrame extends DesktopRemoteBrowserFra
   /** The page dialog the local pane offers; the client answers it with an
    *  `answer-dialog` control for this frame's document. */
   dialog?: DesktopBrowserPageDialog;
+  /** The picture described is of the stream's settled layout: its fit was
+   *  decided (a take-over's fit applied, or an explicit resize) and the
+   *  capture already runs at it. The service shows a take-over subscriber no
+   *  picture before such a frame, so its screen never jumps from the
+   *  unfitted page to the fitted one. A take-over phone waits for this
+   *  marker (on a host advertising `browserFit`), not for a matching size. */
+  fitSettled?: true;
+  /** The fit the stream asked for could not be applied (the page refused its
+   *  metrics, or the host cannot emulate it): the page keeps its own geometry
+   *  and no `fitSettled` frame will come. A waiting take-over stops waiting
+   *  and shows the page as when watching; the service sends it pictures
+   *  again from this frame on. Present on a host advertising `browserFit`. */
+  fitFailed?: true;
 }
 
 /** Human page input from a paired client: the local pane's own input set and
@@ -336,9 +358,9 @@ export type DesktopRemoteBrowserPageInput = Extract<
   { type: 'pointer' | 'wheel' | 'text' | 'key' | 'composition' | 'composition-end' | 'answer-dialog' }
 > & { documentId: string };
 
-/** The phone pane's content box in CSS pixels and its device pixel ratio: a
- * host advertising `browserDrive` renders the streamed page at this size as a
- * mobile page while the client streams it. */
+/** The phone pane's content box in CSS pixels and its device pixel ratio: the
+ * viewport a take-over stream (`fit`) or an explicit fit-client resize
+ * emulates for the streamed page. */
 export interface DesktopRemoteBrowserViewport {
   width: number;
   height: number;

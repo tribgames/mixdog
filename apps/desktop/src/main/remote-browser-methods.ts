@@ -23,6 +23,12 @@ const BROWSER_REMOTE_METHOD_NAMES = [
   'credentialFill',
   'importSources',
   'importStart',
+  // WebRTC live view (main/remote-webrtc/relay.ts): a phone's validated signal
+  // with the client it came from, and a viewer's departure.
+  'webrtcSignal',
+  'webrtcViewerLeft',
+  // The whole-PC screen source's display list (authorized by the service).
+  'screenDisplays',
 ] as const;
 
 export type BrowserRemoteMethod = (typeof BROWSER_REMOTE_METHOD_NAMES)[number];
@@ -45,6 +51,9 @@ type BrowserRemoteHost = Pick<
   | 'browserCredentialFill'
   | 'browserImportSources'
   | 'browserImport'
+  | 'remoteWebrtcSignal'
+  | 'remoteWebrtcViewerLeft'
+  | 'remoteScreenDisplays'
 >;
 
 /** Window-process end of a daemon `browserRemote` request. */
@@ -75,6 +84,14 @@ export async function runBrowserRemoteRequest(
       return host.browserImportSources();
     case 'importStart':
       return host.browserImport(args[0] as Parameters<BrowserRemoteHost['browserImport']>[0]);
+    // args[0] is the relay client id here, not a session.
+    case 'webrtcSignal':
+      return host.remoteWebrtcSignal(String(args[0] ?? ''), args[1], args[2]);
+    case 'webrtcViewerLeft':
+      return host.remoteWebrtcViewerLeft(String(args[0] ?? ''), String(args[1] ?? ''));
+    case 'screenDisplays':
+      if (!host.remoteScreenDisplays) throw new Error('Remote screen is unavailable.');
+      return host.remoteScreenDisplays();
   }
 }
 

@@ -14,6 +14,7 @@ import {
 import { hostname } from 'node:os';
 import { createRemoteStateLane } from './remote-state-lane';
 import { MIXDOG_DESKTOP_CLIENT_BROWSER } from '../shared/remote-trust';
+import { REMOTE_WEBRTC_VERSION } from '../shared/remote-webrtc';
 import type { RemoteClientClaim, RemoteClaimDecision } from './remote-relay-claim';
 import type { RelayClientCallOutcome } from './remote-relay-client-calls';
 import type { RelayClientRegistry, RelayClientState, SendEncryptedFrame } from './remote-relay-clients';
@@ -112,6 +113,8 @@ function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, crede
     routeAutoEffort: 1 as const,
     visualize: 1 as const,
     fileDownloads: 1 as const,
+    browserWebrtc: REMOTE_WEBRTC_VERSION,
+    browserFit: 1 as const,
     // Only when the relay can deliver: a renderer calls registerNativePush
     // on hosts that advertise it.
     ...(deps.nativePushSupported?.() ? { nativePush: 1 as const } : {}),

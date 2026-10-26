@@ -14,6 +14,13 @@ import {
 } from './remote-call-queue';
 import { filterSessionIds, requiredSessionId } from './desktop-state';
 import { normalizeRemoteBrowserStreamOptions } from '../shared/remote-browser';
+import {
+  REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD,
+  REMOTE_WEBRTC_SIGNAL_METHOD,
+  parseRemoteWebrtcRelayInputOrder,
+} from '../shared/remote-webrtc';
+import type { RemoteRelayInputOrder } from './remote-webrtc/input-order';
+import { remoteWebrtcSignalIsBarrier, type RemoteWebrtcRelay } from './remote-webrtc/relay';
 import type { createBrowserRemoteStreams } from './remote-browser-streams';
 import type { createBrowserRemoteTabSubscribers } from './remote-browser-tabs';
 import type { createRemoteMethods } from './remote-methods';
@@ -72,6 +79,20 @@ export function remoteCallQueueKey(method: string, statName: string): string {
 
 const SEARCH_SUPERSEDED = 'Search superseded by a newer query.';
 
+const RELAY_PAGE_INPUT: ReadonlySet<string> = new Set([
+  'pointer',
+  'wheel',
+  'text',
+  'key',
+  'composition',
+  'composition-end',
+]);
+
+/** A `browserRemoteControl` argument that is document-bound page input. */
+function isRelayPageInput(control: unknown): boolean {
+  return RELAY_PAGE_INPUT.has(String((control as { type?: unknown } | null)?.type ?? ''));
+}
+
 /** A file-name search's newest-wins scope: the same root and the same result
  *  shape (limit, ignored files, folders), so one surface's keystrokes replace
  *  each other while another surface's (or another root's) search stands. */
@@ -123,6 +144,10 @@ export interface RelayClientCallDeps {
   browserStreams: Pick<ReturnType<typeof createBrowserRemoteStreams>, 'subscribe' | 'unsubscribe' | 'acknowledge'>;
   /** Main-workspace browser tab watchers, per client. */
   browserTabs: Pick<ReturnType<typeof createBrowserRemoteTabSubscribers>, 'watch'>;
+  /** WebRTC live-view signaling and its input-ownership gate, per client. */
+  webrtc?: Pick<RemoteWebrtcRelay, 'accept' | 'forward' | 'relayInputAllowed' | 'screenDisplays'>;
+  /** Ordered relay input state, per client × session. */
+  relayInputOrder?: Pick<RemoteRelayInputOrder, 'admit' | 'failed'>;
   /** A departed phone's lanes, claimed by the resume token it presents. */
   takeParkedViews?(token: string): ParkedRelayViews | null;
 }
@@ -248,6 +273,130 @@ export function createRelayClientCallDispatch(
         }
       }
       return {};
+    }
+    // WebRTC live-view signaling: client-bound, validated and gated here, at
+    // decode time. The two input-ownership acks run as general-lane writes so
+    // they reach the window behind every relay call decoded before them.
+    if (call?.method === REMOTE_WEBRTC_SIGNAL_METHOD && Array.isArray(call.params)) {
+      const reply = async (ok: boolean, error?: unknown): Promise<void> => {
+        if (typeof call.id !== 'number' || !deps.attached(clientId, client)) return;
+        await deps.sendEncryptedFrame(
+          clientId,
+          ok
+            ? { id: call.id, ok: true, value: null }
+            : { id: call.id, ok: false, error: error instanceof Error ? error.message : String(error) }
+        );
+      };
+      const webrtc = deps.webrtc;
+      let signal: ReturnType<RemoteWebrtcRelay['accept']>;
+      try {
+        if (!webrtc) throw new TypeError('Remote WebRTC is unavailable.');
+        signal = webrtc.accept(clientId, call.params[0]);
+      } catch (error) {
+        await reply(false, error);
+        return {};
+      }
+      const run = () =>
+        webrtc.forward(clientId, signal).then(
+          () => reply(true),
+          (error: unknown) => reply(false, error)
+        );
+      if (!remoteWebrtcSignalIsBarrier(signal)) {
+        void run();
+        return {};
+      }
+      const execution = client.callQueue.run(REMOTE_WEBRTC_SIGNAL_METHOD, run);
+      void execution.catch(() => undefined);
+      return { execution };
+    }
+    // The displays a phone may view as a screen source, for a granted client only.
+    if (call?.method === REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD) {
+      const webrtc = deps.webrtc;
+      const execution = (async () => {
+        try {
+          if (!webrtc) throw new TypeError('Remote WebRTC is unavailable.');
+          const value = await webrtc.screenDisplays(clientId);
+          if (typeof call.id === 'number' && deps.attached(clientId, client)) {
+            await deps.sendEncryptedFrame(clientId, { id: call.id, ok: true, value });
+          }
+        } catch (error) {
+          if (typeof call.id === 'number' && deps.attached(clientId, client)) {
+            await deps.sendEncryptedFrame(clientId, {
+              id: call.id,
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      })();
+      return { execution };
+    }
+    // While WebRTC owns (or is handing back) this client's input for a session,
+    // its relay page input is refused here, in decode order.
+    if (
+      call?.method === 'browserRemoteControl' &&
+      Array.isArray(call.params) &&
+      typeof call.params[0] === 'string' &&
+      isRelayPageInput(call.params[1]) &&
+      deps.webrtc &&
+      !deps.webrtc.relayInputAllowed(clientId, call.params[0])
+    ) {
+      if (typeof call.id === 'number') {
+        await deps.sendEncryptedFrame(clientId, {
+          id: call.id,
+          ok: false,
+          error: 'Remote Browser Use input belongs to the WebRTC channel; input was not sent.',
+        });
+      }
+      return {};
+    }
+    // Ordered relay input (RemoteWebrtcRelayInputOrder): judged where it
+    // executes — general-lane writes run one at a time in decode order — so a
+    // failed control poisons its run before anything behind it is admitted.
+    if (
+      call?.method === 'browserRemoteControl' &&
+      Array.isArray(call.params) &&
+      call.params[2] !== undefined &&
+      deps.relayInputOrder
+    ) {
+      const inputOrder = deps.relayInputOrder;
+      const params = call.params;
+      const refuse = async (error: unknown): Promise<void> => {
+        if (typeof call.id !== 'number' || !deps.attached(clientId, client)) return;
+        await deps.sendEncryptedFrame(clientId, {
+          id: call.id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      };
+      let order: ReturnType<typeof parseRemoteWebrtcRelayInputOrder>;
+      let sessionId: string;
+      try {
+        order = parseRemoteWebrtcRelayInputOrder(params[2]);
+        sessionId = requiredSessionId(params[0]);
+      } catch (error) {
+        await refuse(error);
+        return {};
+      }
+      const methods = typeof deps.methods === 'function' ? deps.methods(clientId, client) : deps.methods;
+      const execution = client.callQueue.run('browserRemoteControl', async () => {
+        if (!deps.attached(clientId, client)) return;
+        const verdict = inputOrder.admit(clientId, sessionId, order);
+        if (!verdict.dispatch) {
+          await refuse(verdict.error);
+          return;
+        }
+        const response = await executeRemoteFrame(
+          methods,
+          JSON.stringify({ id: call.id, method: 'browserRemoteControl', params: [params[0], params[1]] })
+        );
+        if (response && 'ok' in response && response.ok === false) inputOrder.failed(clientId, sessionId, order);
+        if (response !== undefined && deps.attached(clientId, client)) {
+          await deps.sendEncryptedFrame(clientId, response);
+        }
+      });
+      void execution.catch(() => undefined);
+      return { execution };
     }
     if (call?.method === 'browserRemoteStreamAck' && Array.isArray(call.params)) {
       const [sessionId, seq] = call.params;

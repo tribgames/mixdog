@@ -7,7 +7,9 @@ import type {
   DesktopRemoteBrowserStreamOptions,
   DesktopRemoteBrowserViewport,
 } from '../../shared/contract';
+import type { RemoteWebrtcGeometry } from '../../shared/remote-webrtc';
 import type { BrowserGuestCdp } from './cdp';
+import type { RemoteLockedGeometry } from './remote-geometry';
 import type { BrowserGuestStateStore } from './guest-state';
 import type { BrowserLeaveConfirmation } from './leave-confirmation';
 import type { BrowserRemoteDrive } from './remote-drive';
@@ -35,10 +37,24 @@ export interface BrowserRemoteControlHost {
   dispatchPageInput(guest: WebContents, input: DesktopBrowserPageControl, assertCurrent: () => void): Promise<void>;
   /** Hands one frame to the service, which paces it per client. */
   publishFrame(frame: DesktopRemoteBrowserStreamFrame): Promise<void>;
-  /** Renders a streamed page at the client's viewport, and restores the pane's. */
+  /** The stream locked a new geometry generation (start, PC-side change, or
+   *  an explicit resize); null once the stream ended. */
+  geometryChanged?(sessionId: string, geometry: RemoteWebrtcGeometry | null): void;
+  /** Every captured picture of the current document at the locked geometry,
+   *  for the WebRTC sender (latest-only on its side). */
+  captured?(sessionId: string, picture: RemoteCapturedPicture): void;
+  /** Renders a streamed page at the client's explicitly requested viewport,
+   *  and restores the pane's. */
   drive?: Pick<BrowserRemoteDrive, 'apply' | 'restore'>;
   /** The session's tab strip, the very one the local pane shows and drives. */
   tabs?: SessionTabStrip;
+}
+
+export interface RemoteCapturedPicture {
+  documentId: string;
+  geometry: RemoteWebrtcGeometry;
+  mimeType: 'image/jpeg';
+  data: string;
 }
 
 /** Follows guest, tab and document changes while streaming. */
@@ -61,6 +77,9 @@ export interface ScreencastRun {
   view: PictureView | null;
   detachGuest(): void;
   firstFrameTimer: ReturnType<typeof setTimeout> | null;
+  /** Screenshot capture: one in flight, and whether the page repainted since. */
+  shooting: boolean;
+  dirty: boolean;
 }
 
 export interface RemoteStream {
@@ -77,16 +96,32 @@ export interface RemoteStream {
   lastPublishedAt: number;
   publishTimer: ReturnType<typeof setTimeout> | null;
   publishing: boolean;
-  /** The viewport the client drives the page at, once it sent one. */
+  /** The viewport the page is fitted to — a take-over's `fit`, or an explicit
+   *  fit-client `resize-request`; null keeps the page's own geometry. */
   viewport: DesktopRemoteBrowserViewport | null;
+  /** Who decided the page's layout: nobody yet (`undecided`: the page as it
+   *  is, and a take-over's `fit` may still apply), a take-over (`takeover`:
+   *  its fit holds while any take-over subscribes, and is undone when the
+   *  last one leaves), or the person's explicit resize (`explicit`: kept for
+   *  the stream's life). */
+  layout: 'undecided' | 'takeover' | 'explicit';
+  /** The fit the layout asked for could not be applied: the page keeps its
+   *  own geometry, and frames say so (`fitFailed`) until the layout changes. */
+  fitFailed: boolean;
   /** The page and document that viewport was last applied to. */
   driven: { guest: WebContents; documentId: string; key: string } | null;
+  /** The locked geometry; null until the page's first frame described it. */
+  geometry: RemoteLockedGeometry | null;
+  /** The page's device pixel ratio, read when a run starts; null if unreadable. */
+  pixelRatio: number | null;
 }
 
 export const viewportKey = (viewport: DesktopRemoteBrowserViewport): string =>
   `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}`;
 
-/** Frame size plus driven viewport: a change to either restarts the screencast. */
+/** The frame bound the stream started with, plus an explicitly driven
+ *  viewport: a change to either restarts the screencast. Renewals keep the
+ *  bound they started with, and the client's own viewport never drives. */
 export const sizeKey = (stream: Pick<RemoteStream, 'options' | 'viewport'>): string =>
   `${stream.options.maxWidth}x${stream.options.maxHeight}${stream.viewport ? `:${viewportKey(stream.viewport)}` : ''}`;
 
@@ -110,7 +145,11 @@ export function createRemoteStream(
     publishTimer: null,
     publishing: false,
     viewport: null,
+    layout: 'undecided',
+    fitFailed: false,
     driven: null,
+    geometry: null,
+    pixelRatio: null,
   };
   created.watch.unref?.();
   return created;

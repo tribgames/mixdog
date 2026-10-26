@@ -79,6 +79,14 @@ export interface RelayE2EEChallenge {
    *  `resolveLocalPaths`/`readLocalFile` to project and assistant-linked
    *  files. Absent on an older host: downloads report `host-too-old`. */
   fileDownloads?: 1;
+  /** This host serves the live view over WebRTC (shared/remote-webrtc.ts,
+   *  value = REMOTE_WEBRTC_VERSION). Absent on an older host: JPEG only. */
+  browserWebrtc?: 1;
+  /** This host fits a take-over's page (`fit` on the stream request) and marks
+   *  frames of the fitted layout `fitSettled: true` (shared/remote-webrtc.ts
+   *  REMOTE_BROWSER_FIT_CAPABILITY). Absent on an older host: `fit` is ignored
+   *  and no frame is ever marked, so a phone must not wait for one. */
+  browserFit?: 1;
 }
 
 interface RelayE2EEHello {

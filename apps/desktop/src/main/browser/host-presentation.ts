@@ -24,6 +24,7 @@ import { createPageInputDispatcher } from './page-surface-control';
 import { createBrowserPresentationReads } from './presentation-reads';
 import { createBrowserRemoteControl } from './remote-control';
 import { createBrowserRemoteDrive } from './remote-drive';
+import type { BrowserRemoteControlHost } from './remote-stream';
 import { createBrowserRemoteTabs } from './remote-tabs';
 import { followBrowserDisplayScale } from './scale-follower';
 import type { BrowserSessionRegistry } from './session-registry';
@@ -96,9 +97,12 @@ function createBrowserHostRemoteControl(options: {
   dispatchInput: Toolkit['dispatchInput'];
   dialogOwner: (guest: WebContents) => WebContents | null;
   publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
+  remoteMedia?: Pick<BrowserRemoteControlHost, 'geometryChanged' | 'captured'>;
 }) {
   const { state, cdp, leave, urls } = options;
   return createBrowserRemoteControl({
+    geometryChanged: options.remoteMedia?.geometryChanged,
+    captured: options.remoteMedia?.captured,
     tabs: options.sessionTabs,
     dialog: (guest) => options.prompts.describe(guest).dialog,
     drive: options.remoteDrive,
@@ -156,6 +160,8 @@ export function createBrowserHostPresentation(options: {
   chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
   publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
   publishRemoteTabs?: (tabs: DesktopRemoteBrowserTab[]) => Promise<void>;
+  /** The WebRTC live view's taps on remote streams (geometry, pictures). */
+  remoteMedia?: Pick<BrowserRemoteControlHost, 'geometryChanged' | 'captured'>;
   onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
 }) {
   const { window, lifecycle, tools } = options;
@@ -168,6 +174,8 @@ export function createBrowserHostPresentation(options: {
     emulate: async (guest, config) => {
       await tools.emulation.configureEmulation(guest, browserViewportEmulation(config));
     },
+    fitMetrics: (guest, viewport) => tools.emulation.fitMetrics(guest, viewport),
+    unfitMetrics: (guest) => tools.emulation.unfitMetrics(guest),
     drivingChanged: (sessionId, driving) =>
       sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, {
         sessionId,
@@ -219,6 +227,7 @@ export function createBrowserHostPresentation(options: {
     dispatchInput: tools.dispatchInput,
     dialogOwner,
     publishRemoteFrame: options.publishRemoteFrame,
+    remoteMedia: options.remoteMedia,
   });
   const remoteTabs = createBrowserRemoteTabs({
     sessionIds: () => sessions.sessionIds(),

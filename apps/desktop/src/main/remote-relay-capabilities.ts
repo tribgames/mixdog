@@ -28,6 +28,8 @@ export interface RelayConnectionCaps {
   /** The relay owns the Web Push sender identity (`webPush: 1`): browser push
    *  goes through it, never straight to the push service. */
   relayWebPush(): boolean;
+  /** The relay can issue TURN credentials (`ice: 1`): ICE servers come from it. */
+  relayIce(): boolean;
   resetRelayConnectionCaps(): void;
   relayFrameLimit(): number;
   relayUplinkLimits(): RelayUplinkCeilings;
@@ -51,6 +53,9 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
   // Relay-owned Web Push. False on an older relay, which leaves this desktop
   // on its legacy direct send. Per connection, like every learned relay cap.
   let relayWebPush = false;
+  // The relay issues TURN credentials (a self-operated coturn is provisioned
+  // beside it). False on an older relay or one without coturn.
+  let relayIce = false;
   // The relay's per-frame ceiling as this desktop knows it. `relay-capabilities`
   // declares it at handshake; a `frame-too-large` notice proves a smaller one.
   // The effective limit is the smallest known value, so this leg's own check is
@@ -88,6 +93,7 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
     advertisedRoutingCaps = '';
     relayNativePlatforms = [];
     relayWebPush = false;
+    relayIce = false;
   };
   /** What a phone may put on the wire for this connection, as advertised to
    *  the browser: the relay's published ceilings, bounded by any smaller
@@ -160,6 +166,7 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
         : [];
     if (relayNativePlatforms.length > 0) deps.rebindNativePush();
     relayWebPush = envelope.webPush === 1;
+    relayIce = envelope.ice === 1;
     // The relay republishes on change; a phone already attached is held
     // to whatever it was told in its handshake until this reaches it.
     republishRoutingCaps();
@@ -176,6 +183,7 @@ export function createRelayConnectionCaps(deps: RelayConnectionCapsDeps): RelayC
     relayBinaryFrames: () => relayBinaryFrames,
     relayNativePlatforms: () => relayNativePlatforms,
     relayWebPush: () => relayWebPush,
+    relayIce: () => relayIce,
     resetRelayConnectionCaps,
     relayFrameLimit,
     relayUplinkLimits,

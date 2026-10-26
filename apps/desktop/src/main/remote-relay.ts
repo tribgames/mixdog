@@ -39,6 +39,11 @@ import { createRelayEncryptedDelivery } from './remote-relay-delivery';
 import { createPairCodeManager, type PairCodeState, type PairCodeUnsupported } from './remote-pair-code';
 import { createRelayEnvelopeDispatcher } from './remote-relay-envelope';
 import { createRelayWebPush } from './remote-relay-web-push';
+import { bindRemoteIceServers, createRemoteIceServers, resolveRemoteIceServers } from './remote-ice-servers';
+import { createScreenAccessSettingsStore } from './remote-screen/screen-access-settings';
+import { decideScreenPermission } from './remote-screen/screen-permission';
+import { createRemoteRelayInputOrder } from './remote-webrtc/input-order';
+import { createRemoteWebrtcRelay } from './remote-webrtc/relay';
 import {
   createRevocationDrain,
   loadOrCreateDevice,
@@ -116,6 +121,8 @@ export interface RemoteRelayHandle {
   readonly clientCount: number;
   /** A live Browser Use frame from the desktop, paced to each subscribed client. */
   publishBrowserFrame(frame: DesktopRemoteBrowserStreamFrame): void;
+  /** The window's WebRTC signal to one client (shared/remote-webrtc.ts). */
+  sendBrowserWebrtcSignal(clientId: string, signal: unknown): Promise<void>;
   /** The main-workspace browser tab list, pushed to every watching client. */
   publishBrowserTabs(tabs: DesktopRemoteBrowserTab[]): void;
   publishBrowserImportProgress(progress: DesktopBrowserImportProgress): void;
@@ -130,6 +137,10 @@ export interface RemoteRelayHandle {
   /** System resume: the socket is likely half-dead after sleep — drop it and
    *  redial immediately instead of waiting for the ping cycle to notice. */
   resume(): void;
+  /** System suspend (also run on resume): the TURN credential cache and any
+   *  issuance still in flight are dropped, because no age counted across a
+   *  sleep can be trusted (remote-ice-servers.ts). */
+  suspend(): void;
   /** Delete this install's authenticated registration from the relay. */
   revoke(): Promise<void>;
   close(): Promise<void>;
@@ -246,6 +257,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sendEnvelope,
     connected: connection.connected,
   });
+  // STUN/TURN for phone ↔ PC WebRTC: issued by this relay, read through
+  // resolveRemoteIceServers() (remote-ice-servers.ts) while this client runs.
+  const iceServers = createRemoteIceServers({
+    request: () =>
+      caps.relayIce()
+        ? control.request<Record<string, unknown>>('ice-servers-request')
+        : Promise.resolve(null),
+  });
+  const unbindIceServers = bindRemoteIceServers(iceServers);
   // With zero phones the relay would drop every broadcast on the floor anyway,
   // so the desktop goes quiet instead of streaming state upstream 24/7 — the
   // relay lane then costs keepalive bytes only. Each join restarts the delta
@@ -308,7 +328,42 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       if (!options.browserRemote) return Promise.reject(new TypeError('Remote Browser Use is unavailable.'));
       return options.browserRemote('stream', [sessionId, streamOptions]);
     },
+    onDrop: (clientId, sessionId) => browserWebrtc.viewerLeft(clientId, sessionId),
   });
+  // WebRTC live view: signaling to and from the window process's sender, and
+  // the decode-order input gate. A viewer is a client streaming the session.
+  const browserWebrtc = createRemoteWebrtcRelay({
+    subscribed: (clientId, sessionId) => browserStreams.subscribed(clientId, sessionId),
+    awaitingFit: (clientId, sessionId) => browserStreams.awaitingFit(clientId, sessionId),
+    // Whole-PC screen: the switch and this paired client's grant (keyed by its
+    // relay credential), read live; the channel is E2EE by construction here.
+    screenAuthorized: async (clientId) => {
+      const client = clients.get(clientId);
+      if (!client?.channel) return false;
+      const [enabled, grant] = await Promise.all([
+        screenAccess.isEnabled(),
+        screenAccess.grantFor(client.credentialId || `connection:${clientId}`),
+      ]);
+      return decideScreenPermission('view', { enabled, pairedE2EE: true, grant }).allowed;
+    },
+    screenDisplays: () =>
+      options.browserRemote
+        ? options.browserRemote('screenDisplays', [])
+        : Promise.reject(new TypeError('Remote screen is unavailable.')),
+    setImages: (clientId, sessionId, enabled) => browserStreams.setImages(clientId, sessionId, enabled),
+    resolveIceServers: resolveRemoteIceServers,
+    forward: (clientId, signal, servers) => {
+      if (!options.browserRemote) return Promise.reject(new TypeError('Remote Browser Use is unavailable.'));
+      return options.browserRemote('webrtcSignal', [clientId, signal, servers ?? null]);
+    },
+    viewerLeft: (clientId, sourceKey) =>
+      options.browserRemote ? options.browserRemote('webrtcViewerLeft', [clientId, sourceKey]) : Promise.resolve(),
+    send: (clientId, payload) => sendEncryptedFrame(clientId, payload, false),
+  });
+  // The whole-PC screen switch and per-client grants.
+  const screenAccess = createScreenAccessSettingsStore(options.userDataPath);
+  // Pipelined relay page input (`browserRemoteControl` with an order).
+  const relayInputOrder = createRemoteRelayInputOrder();
   const browserTabs = createBrowserRemoteTabSubscribers({
     isLive: (clientId) => Boolean(clients.get(clientId)?.channel),
     send: (clientId, payload) => sendEncryptedFrame(clientId, payload, false),
@@ -400,6 +455,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sendEncryptedFrame,
     browserStreams,
     browserTabs,
+    webrtc: browserWebrtc,
+    relayInputOrder,
     acknowledgePaintProbe: sessionStates.acknowledgeFrame,
     resyncClient: sessionWiring.resyncClient,
     recordCall: remoteCallStats.record,
@@ -437,6 +494,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     onWebPushResult: relayWebPush.onResult,
     onClientClose: (clientId) => {
       // The phone's leg dropped, not its pairing: its lanes wait briefly.
+      relayInputOrder.dropClient(clientId);
       if (clients.remove(clientId, true)) options.onClientCountChanged?.();
     },
     onMedia: (envelope) => routeRelayMediaEnvelope(mediaLane, envelope),
@@ -487,6 +545,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         .request<DesktopRemoteClientInfo[]>('list-clients')
         .then((remoteClients) => (Array.isArray(remoteClients) ? remoteClients : [])),
     publishBrowserFrame: (frame) => browserStreams.publish(frame),
+    sendBrowserWebrtcSignal: (clientId, signal) => browserWebrtc.send(clientId, signal),
     publishBrowserTabs: (tabs) => browserTabs.publish(tabs),
     publishBrowserImportProgress: (progress) =>
       broadcastEncrypted({ event: REMOTE_BROWSER_IMPORT_PROGRESS_EVENT, payload: progress }, false),
@@ -510,7 +569,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       sessionSubscriptions.forgetClient(clientId);
       clients.dropParkedViews();
     },
-    resume: connection.resume,
+    resume: () => {
+      iceServers.invalidate();
+      connection.resume();
+    },
+    suspend: () => iceServers.invalidate(),
     revoke: (): Promise<void> => {
       clients.dropParkedViews();
       fileDownloads.revokeAll();
@@ -520,6 +583,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     close: async (): Promise<void> => {
       if (connection.closed()) return;
       connection.beginClose();
+      unbindIceServers();
       socketDiagnostics.stop();
       fileDownloads.revokeAll();
       deviceMethods.clearFileGrants();
