@@ -136,6 +136,12 @@ const markdownProcessor = unified()
   .use(rehypeHighlight)
   .use(trimTrailingCodeNewline)
   .use(linkifyLocalPaths);
+// Freezing runs every plugin's attacher once (rehype-highlight registers its
+// grammars), which the first parse otherwise did inside the commit that showed
+// it: a phone back from the background spent ~44 ms of one resumed task (4x
+// CPU) on it. The module loads ahead of that commit (preloadSyncMarkdownParser),
+// so the attachers run here, in the load.
+markdownProcessor.freeze();
 
 export function parseMarkdownToHast(text: string): MarkdownAstRoot {
   const parsed = markdownProcessor.parse(String(text ?? ''));
