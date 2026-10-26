@@ -8,11 +8,11 @@
 // judged on every read, not only when the file changes.
 import { readFileSync, statSync } from 'node:fs';
 
+import { parseJsonText } from '../../../../runtime/shared/atomic-file.mjs';
 import { createIndexWriteQueue } from '../index-write-queue.mjs';
 import { TAG_TOMBSTONE_TTL_MS } from '../worker-rows.mjs';
 
 export const RELEASED_FILE = 'agent-workers-released.json';
-const MAX_RELEASED = 500;
 
 /** id → epoch ms of every entry of a raw document (expired ones included). */
 function parseReleased(doc) {
@@ -24,7 +24,7 @@ function parseReleased(doc) {
   );
 }
 
-/** The next document: unexpired entries plus the mutator's changes, newest first. */
+/** The next document: unexpired entries plus the mutator's changes. */
 function rewriteReleased(cur, mutator) {
   const cutoff = Date.now() - TAG_TOMBSTONE_TTL_MS;
   const entries = new Map();
@@ -32,8 +32,7 @@ function rewriteReleased(cur, mutator) {
     if (at >= cutoff) entries.set(sessionId, new Date(at).toISOString());
   }
   mutator(entries);
-  const newest = [...entries].sort((a, b) => Date.parse(b[1]) - Date.parse(a[1])).slice(0, MAX_RELEASED);
-  return { version: 1, released: Object.fromEntries(newest) };
+  return { version: 1, released: Object.fromEntries(entries) };
 }
 
 /** `file` may be null (no data dir): reads are empty and writes are no-ops. */
@@ -66,19 +65,33 @@ export function createReleasedStore(file) {
       return projected.at;
     }
     if (!file) return new Map();
+    // Only a missing file is an empty store; any other read error propagates
+    // (queue.write reports it and queues nothing; a reader sees it thrown).
     let st;
     try {
       st = statSync(file);
-    } catch {
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
       cache = null;
       return new Map();
     }
     if (!dirty && cache && cache.mtimeMs === st.mtimeMs && cache.size === st.size) return cache.at;
     let parsed = null;
+    let text = null;
     try {
-      parsed = JSON.parse(readFileSync(file, 'utf8'));
-    } catch {
-      parsed = null;
+      text = readFileSync(file, 'utf8');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (text !== null) {
+      try {
+        parsed = parseJsonText(text);
+      } catch (error) {
+        // Left on disk and reported; the next save moves it aside to
+        // `<file>.corrupt-<ts>` (atomic-file's damaged-state recovery) instead
+        // of overwriting it.
+        process.stderr.write(`[released-store] ${file} is malformed (${error.message}); markers unreadable\n`);
+      }
     }
     cache = { mtimeMs: st.mtimeMs, size: st.size, doc: parsed, at: parseReleased(parsed) };
     dirty = false;
