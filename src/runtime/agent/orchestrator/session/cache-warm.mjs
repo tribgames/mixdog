@@ -72,22 +72,35 @@ import { PROMPT_ORIGIN_AGENT_REPORT, PROMPT_ORIGIN_CHANNEL, promptOriginOf } fro
 export const CACHE_WARM_SOURCE = 'cache-warm';
 
 // The refresh keeps at least this much of the entry's lifetime unused, for
-// the warm to land before it expires.
+// the warm to land before it expires. UNSOURCED: introduced with the first
+// warmer (git fe0271047, "min(0.9 x TTL, TTL - 10 s)") with no derivation.
+// The docs only fix the lifetime: it is measured from the start of the
+// request that writes or reads the entry (Anthropic prompt-caching docs,
+// "How prompt caching works"), so what a warm needs is to reach the provider
+// before that point; the measured latency of a chain's own warms
+// (planCacheWarm `latencyMs`) replaces this floor once known.
 export const CACHE_WARM_EXPIRY_MARGIN_MS = 10_000;
 // Share of the lifetime after which the refresh goes out at the latest
-// unless the lead below allows later.
+// unless the lead below allows later. UNSOURCED: same commit, no derivation
+// or measurement is recorded for 0.9.
 export const CACHE_WARM_REFRESH_SHARE = 0.9;
 // A refresh may wait until this long before expiry: in a 7-day sample of
 // hourly routine fires, cache misses inside the 1h lifetime appeared only at
-// 3588–3597 s after the previous call, so 60 s ahead stays clear of them.
+// 3588–3597 s after the previous call, so 60 s ahead stays clear of them
+// (git 795bb9e36's message; the sample itself is not kept in the repo).
 export const CACHE_WARM_LEAD_MS = 60_000;
 // The idle stretch returns are learned over: 12 h after the session's last
-// real call — the window the maintainer's 7-day audit of idle returns
-// validated. A longer gap is recorded as censored there, and no warm serves
-// a return beyond it.
+// real call. Origin: the 7-day ledger measurement of idle-return chances
+// (git 39efd623e, which first stated it) covered returns within 12 h of a
+// session's last real call, "with the auto-clear window lifted to 12 h"; the
+// per-session learner (git d284ef970) kept that window and attributed it to a
+// "maintainer audit" that no commit or doc records beyond that measurement.
+// A longer gap is recorded as censored there, and no warm serves a return
+// beyond it.
 export const IDLE_RETURN_MEASURED_WINDOW_MS = 12 * 60 * 60 * 1000;
 // The period a session's idle gaps are kept and learned from: the last 7
-// days, the measurement period the maintainer validated.
+// days — the length of the same ledger measurement (git 39efd623e,
+// fe0271047: "a 7-day ledger sample"); no further derivation is recorded.
 export const IDLE_RETURN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 // z of a two-sided 95% normal interval (the 0.975 standard normal quantile),
 // for the Wilson score bound.
@@ -241,20 +254,45 @@ async function defaultEnabled() {
 
 // Per-token dollars of a cache read, a cache write of `ttlMs`'s tier and an
 // output token for the request's model, from the pricing catalog (null when
-// unpriced).
-async function defaultPrices(request, ttlMs) {
-  const { priceUsage } = await import('../../../shared/llm/cost.mjs');
+// unpriced), at the rates of a prompt of `promptTokens`: a model priced by
+// prompt length charges cache reads and writes at the tier that length falls
+// in (Anthropic prompt-caching docs, Pricing: "On a model priced by prompt
+// length, cache reads and cache writes count toward a request's prompt
+// length"), and the warm's one output token at that tier too. The request's
+// own service tier prices it as the real send was (fast mode: the provider's
+// builder sends `speed: 'fast'` under exactly these conditions,
+// providers/anthropic-api-request.mjs, anthropic-oauth.mjs).
+export async function defaultPrices(request, ttlMs, promptTokens) {
+  const [{ priceUsage }, { supportsAnthropicFastMode }, { fastModeAvailable }] = await Promise.all([
+    import('../../../shared/llm/cost.mjs'),
+    import('../../../shared/llm/anthropic-betas.mjs'),
+    import('../providers/anthropic-fast-mode.mjs'),
+  ]);
   const MILLION = 1_000_000;
-  const base = { model: request.model, provider: request.provider.name, inputTokensInclusive: false };
-  const per = (tokens) => {
-    const cost = priceUsage({ ...base, ...tokens }).costUsd;
-    return cost === null || cost === undefined ? null : Number(cost) / MILLION;
+  const fast = request.opts?.fast === true && supportsAnthropicFastMode(request.model) && fastModeAvailable();
+  const base = {
+    model: request.model,
+    provider: request.provider.name,
+    inputTokensInclusive: false,
+    ...(fast ? { requestServiceTier: 'fast' } : {}),
   };
+  // The per-million rates of a request using exactly `tokens` (null when any
+  // used slot is unpriced); a request of promptTokens prompt tokens in all.
+  const ratesOf = (tokens) => {
+    const priced = priceUsage({ ...base, ...tokens });
+    return priced.costUsd === null || priced.costUsd === undefined ? null : priced.rates;
+  };
+  const perToken = (rates, key) => (rates ? rates[key] / MILLION : null);
   const oneHour = ttlMs >= ANTHROPIC_TAIL_LIFETIME_MS['1h'];
+  const readRates = ratesOf({ cacheReadTokens: promptTokens, outputTokens: 1 });
+  const writeRates = ratesOf({
+    cacheWriteTokens: promptTokens,
+    ...(oneHour ? { cacheWrite1hTokens: promptTokens } : {}),
+  });
   return {
-    read: per({ cacheReadTokens: MILLION }),
-    write: per({ cacheWriteTokens: MILLION, ...(oneHour ? { cacheWrite1hTokens: MILLION } : {}) }),
-    output: per({ outputTokens: MILLION }),
+    read: perToken(readRates, 'cacheReadCostPerM'),
+    write: perToken(writeRates, oneHour ? 'cacheWrite1hCostPerM' : 'cacheWriteCostPerM'),
+    output: perToken(readRates, 'outputCostPerM'),
   };
 }
 
@@ -374,7 +412,7 @@ async function planFor(sessionId, chain, at) {
     lastCallAt: deps.gaps().openAt(sessionId),
     gaps: deps.gaps().gaps(sessionId),
     promptTokens: chain.promptTokens,
-    prices: await deps.prices(chain.request, chain.ttlMs),
+    prices: await deps.prices(chain.request, chain.ttlMs, chain.promptTokens),
     latencyMs: chain.latencyMs,
   });
 }

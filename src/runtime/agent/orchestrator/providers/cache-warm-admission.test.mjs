@@ -228,6 +228,40 @@ test('a warm leaves no abort listener on the caller signal, sent or skipped', as
   );
 });
 
+test('a failure to record a warm’s refusal is reported scrubbed, and the warm’s own error still rejects', async () => {
+  await account('acct-record');
+  const oauth = oauthProvider();
+  const send = cacheWarmSend(REQUEST);
+  const recordRateLimit = providerAdmissionScheduler.recordRateLimit;
+  const write = process.stderr.write;
+  const lines = [];
+  providerAdmissionScheduler.recordRateLimit = () => {
+    throw new Error('state write failed for sk-ant-secret123');
+  };
+  process.stderr.write = (line) => {
+    lines.push(String(line));
+    return true;
+  };
+  try {
+    await withFetch(
+      async () => new Response('{"type":"error","error":{"type":"overloaded_error"}}', { status: 529 }),
+      async () => {
+        await assert.rejects(
+          oauth.sendCacheWarm(send.messages, send.model, send.tools, send.opts, { accountId: idOf('acct-record') }),
+          (error) => error.status === 529
+        );
+      }
+    );
+  } finally {
+    providerAdmissionScheduler.recordRateLimit = recordRateLimit;
+    process.stderr.write = write;
+  }
+  const report = lines.find((line) => line.includes('[anthropic-cache-warm] refusal record failed'));
+  assert.ok(report, 'the recording failure is reported');
+  assert.match(report, /state write failed/);
+  assert.doesNotMatch(report, /secret123/);
+});
+
 test('the account gate fails closed: unknown account, no fresh reading, a block or a full window skip', async () => {
   const instance = { name: 'anthropic-oauth', credentials: { accountId: 'gate' } };
   await account('acct-ok');

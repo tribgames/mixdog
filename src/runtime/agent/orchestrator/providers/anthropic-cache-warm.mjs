@@ -15,6 +15,7 @@ import { updateTurnUsage } from './anthropic-sse-turn/turn-state.mjs';
 import { _anthropicSseError } from './anthropic-sse.mjs';
 import { anthropicQuotaError } from './anthropic-oauth-request/initial-status.mjs';
 import { cacheWarmAccountBlock, cacheWarmBlockedError, recordCacheWarmRefusal } from './cache-warm-admission.mjs';
+import { scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 
 const SSE_LABELS = Object.freeze({ display: 'Anthropic cache warm' });
 
@@ -143,11 +144,18 @@ export async function sendAnthropicCacheWarm({
       },
     });
   } catch (error) {
+    // The warm's own error is what the caller needs; a failure to persist the
+    // refusal (quota / roster state) is reported, scrubbed, like the other
+    // credential and account-state write failures of the Anthropic providers.
     await recordCacheWarmRefusal(providerName, instance, error, {
       accountId,
       model,
       aborted: Boolean(callerSignal?.aborted),
-    }).catch(() => {});
+    }).catch((recordError) => {
+      process.stderr.write(
+        `[anthropic-cache-warm] refusal record failed: ${scrubOAuthSecrets(recordError?.message || String(recordError)).slice(0, 200)}\n`
+      );
+    });
     throw error;
   } finally {
     callerSignal?.removeEventListener?.('abort', onCallerAbort);
