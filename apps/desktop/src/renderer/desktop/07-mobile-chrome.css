@@ -815,10 +815,13 @@ html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame {
 /* A closing panel (WorkbenchSidePanel marks `data-closing` on the close commit
    and clears it when the frame's transform transition ends) stays displayed
    while the sheet slides out, so the content leaves with it. Closed otherwise:
-   the panel is display:none and costs no layout. It is already inert and
-   aria-hidden during the slide. */
+   the panel is display:none and costs no layout. It is aria-hidden during the
+   slide, and inert once it ends. */
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .workbench-side-panel[hidden][data-closing="true"] {
   display: flex;
+  /* Not clickable at once; `inert` follows when the slide ends
+     (session-sidebar-drawer-inert.ts). */
+  pointer-events: none;
 }
 html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame > .workbench-side-panel[hidden] {
   display: flex;
@@ -856,6 +859,12 @@ html[data-mixdog-mobile-tabs]
 }
 html[data-mixdog-mobile-tabs] .session-sidebar-resize {
   display: none;
+}
+/* A closing phone drawer is not clickable at once; `inert` follows when the
+   slide ends (session-sidebar-drawer-inert.ts), as flipping it mid-slide
+   restyles the whole sidebar. */
+html[data-mixdog-mobile-tabs] .session-sidebar[data-state="closed"] {
+  pointer-events: none;
 }
 
 /* ── Drawer inset system ── ONE horizontal grammar for every drawer page. The

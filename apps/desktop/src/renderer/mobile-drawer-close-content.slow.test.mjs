@@ -23,12 +23,11 @@ const ENTRY = `
         React.createElement(
           'div',
           { className: 'sidebar-drawer-frame', 'data-state': open ? 'open' : 'closed', 'data-motion': motion },
-          React.createElement('nav', { className: 'activity-rail' }),
+          React.createElement('nav', { className: 'activity-rail' }, React.createElement('button', { type: 'button', 'data-side-view': 'sessions' }, 'rail')),
           React.createElement(WorkbenchSidePanel, {
             side: 'left',
             open,
             motion,
-            embedded: true,
             groups: [['sessions']],
             activeRoot: 'sessions',
             descriptors,
@@ -49,21 +48,25 @@ const PROBES = `
   window.snap = () => {
     const frame = frameEl();
     const panel = panelEl();
-    const button = document.getElementById('inside');
-    // Focus the button afresh: an element that held focus before it went inert
-    // keeps it until the browser's focus fixup, which says nothing about reach.
-    document.activeElement?.blur();
-    button.focus();
     return {
       left: Math.round(frame.getBoundingClientRect().left),
       frameVisibility: getComputedStyle(frame).visibility,
       display: getComputedStyle(panel).display,
+      pointerEvents: getComputedStyle(panel).pointerEvents,
       closing: panel.dataset.closing ?? null,
       hidden: panel.hidden,
       inert: panel.inert,
       ariaHidden: panel.getAttribute('aria-hidden'),
-      focused: document.activeElement === button,
+      focusInside: panel.contains(document.activeElement),
     };
+  };
+  // Focus the button afresh: an element that held focus before it went inert
+  // keeps it until the browser's focus fixup, which says nothing about reach.
+  window.tryFocus = () => {
+    document.activeElement?.blur();
+    const button = document.getElementById('inside');
+    button.focus();
+    return document.activeElement === button;
   };
   // Samples every frame from the close commit until the panel is display:none.
   window.closeAndSample = async () => {
@@ -142,7 +145,7 @@ test('a closing drawer keeps its content on every slide frame, then drops out of
   const open = await page.evaluate(() => snap());
   assert.equal(open.display, 'flex');
   assert.equal(open.frameVisibility, 'visible');
-  assert.equal(open.focused, true, 'the open drawer content takes focus');
+  assert.equal(await page.evaluate(() => tryFocus()), true, 'the open drawer content takes focus');
 
   const samples = await page.evaluate(() => closeAndSample());
   const sliding = samples.slice(0, -1);
@@ -152,22 +155,24 @@ test('a closing drawer keeps its content on every slide frame, then drops out of
   for (const [index, sample] of sliding.entries()) {
     assert.equal(sample.display, 'flex', `frame ${index}: the content is displayed`);
     assert.equal(sample.closing, 'true', `frame ${index}: marked closing`);
-    // Semantic closure is immediate and the closing content is not exposed.
+    // Semantic closure is immediate, but `inert` waits for the slide's end
+    // (flipping it restyles the whole subtree): pointer-events:none and
+    // aria-hidden cover the slide, and focus has left the drawer.
     assert.deepEqual(
-      [sample.hidden, sample.inert, sample.ariaHidden, sample.focused],
-      [true, true, 'true', false],
-      `frame ${index}: hidden, inert, aria-hidden and unfocusable from the close commit`
+      [sample.hidden, sample.inert, sample.ariaHidden, sample.pointerEvents, sample.focusInside],
+      [true, false, 'true', 'none', false],
+      `frame ${index}: hidden, aria-hidden, pointer-events:none, focus out, not yet inert`
     );
   }
   const end = samples.at(-1);
   assert.equal(end.display, 'none', 'after the transition the panel is out of layout');
   assert.equal(end.closing, null, 'the closing mark is cleared');
   await page.evaluate(() => settle());
-  const rest = await page.evaluate(() => snap());
+  const rest = await page.evaluate(() => ({ ...snap(), focusable: tryFocus() }));
   assert.deepEqual(
-    [rest.display, rest.frameVisibility, rest.focused],
-    ['none', 'hidden', false],
-    'the closed drawer is display:none, visibility:hidden and not focusable'
+    [rest.display, rest.frameVisibility, rest.inert, rest.focusable],
+    ['none', 'hidden', true, false],
+    'the settled closed drawer is display:none, visibility:hidden, inert and not focusable'
   );
 });
 
@@ -180,14 +185,16 @@ test('reopening mid-close keeps the content and the open state', async (t) => {
     setDrawer(true);
     const afterReopen = snap();
     await settle();
-    return { midway, afterReopen, rest: snap() };
+    return { midway, afterReopen, rest: { ...snap(), focusable: tryFocus() } };
   });
   assert.ok(result.midway.left < 0 && result.midway.left > -300, 'the reopen interrupts a slide in progress');
   assert.equal(result.midway.display, 'flex');
+  assert.equal(result.midway.inert, false, 'the interrupted close never went inert');
   assert.equal(result.afterReopen.display, 'flex');
   assert.equal(result.afterReopen.closing, null, 'a reopen clears the closing mark');
+  assert.equal(result.afterReopen.inert, false);
   assert.deepEqual(
-    [result.rest.display, result.rest.left, result.rest.frameVisibility, result.rest.inert, result.rest.focused],
+    [result.rest.display, result.rest.left, result.rest.frameVisibility, result.rest.inert, result.rest.focusable],
     ['flex', 0, 'visible', false, true]
   );
 });
@@ -210,7 +217,7 @@ test('reduced motion leaves no closing mark behind', async (t) => {
   assert.equal(samples.at(-1).closing, null);
   const rest = await page.evaluate(async () => {
     await settle();
-    return snap();
+    return { ...snap(), focusable: tryFocus() };
   });
-  assert.deepEqual([rest.display, rest.frameVisibility, rest.focused], ['none', 'hidden', false]);
+  assert.deepEqual([rest.display, rest.frameVisibility, rest.inert, rest.focusable], ['none', 'hidden', true, false]);
 });

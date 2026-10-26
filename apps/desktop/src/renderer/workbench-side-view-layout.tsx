@@ -10,6 +10,8 @@ import {
   type ReactNode,
 } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { usePhoneDrawerInert } from './session-sidebar-drawer-inert';
+import { usePhoneSurfaceMarked } from './mobile-surface';
 import {
   DESKTOP_SIDEBAR_DEFAULT_WIDTH,
   DESKTOP_SIDEBAR_MIN_WIDTH,
@@ -665,6 +667,11 @@ export function WorkbenchSidePanel({
   // reopen, and is never set when no transform transition is running (instant
   // close, reduced motion, a close that already finished).
   const panelRef = useRef<HTMLElement | null>(null);
+  // On the phone the drawer panel takes `inert` when that slide ends, not at
+  // its start (session-sidebar-drawer-inert.ts); the CSS keeps a closing panel
+  // from taking pointer events meanwhile.
+  const drawerPhone = usePhoneSurfaceMarked() && !embedded;
+  usePhoneDrawerInert(panelRef, open, drawerPhone, Boolean(root) && groups.length > 0);
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel) return undefined;
@@ -741,7 +748,7 @@ export function WorkbenchSidePanel({
       data-closing={exiting && !open ? 'true' : undefined}
       hidden={!open}
       aria-hidden={open ? undefined : true}
-      inert={open ? undefined : true}
+      inert={open || drawerPhone ? undefined : true}
       style={
         {
           '--workbench-side-panel-width': `${effectiveWidth}px`,

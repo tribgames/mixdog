@@ -7,6 +7,8 @@ import { projectIdentity } from './project-catalog-cache';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
+import { usePhoneDrawerInert } from './session-sidebar-drawer-inert';
+import { usePhoneSurfaceMarked } from './mobile-surface';
 import type { NavigationSelection } from './nav-types';
 import {
   RECENT_SESSION_INITIAL_ROWS,
@@ -714,6 +716,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   if (!panelActive) sessionsMounted.current = true;
   const hasSessionSurface = sessionsMounted.current;
   const recentScrollerRef = useRef<HTMLDivElement | null>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const phone = usePhoneSurfaceMarked();
+  usePhoneDrawerInert(sidebarRef, open, phone);
   // The catalog holds still under a reader's scroll: no re-sort or row move
   // lands until it ends (see useHeldDuringUserScroll).
   const sessions = useHeldDuringUserScroll(recentScrollerRef, liveSessions);
@@ -1026,9 +1031,10 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   return (
     <aside
       id="session-sidebar"
+      ref={sidebarRef}
       className={`sidebar session-sidebar ${open ? 'open' : ''}`}
       data-state={open ? 'open' : 'closed'}
-      inert={!open}
+      inert={phone ? undefined : !open}
       aria-hidden={!open}
       aria-label={t('Session manager')}
       style={
