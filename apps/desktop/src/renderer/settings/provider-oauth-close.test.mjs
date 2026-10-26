@@ -56,7 +56,9 @@ function daemon({ accounts }) {
     },
     api: {
       async readCapabilities(requests) {
-        return Promise.all(requests.map(async ({ capability, args }) => ({ ok: true, value: await answer(capability, args) })));
+        return Promise.all(
+          requests.map(async ({ capability, args }) => ({ ok: true, value: await answer(capability, args) }))
+        );
       },
       async invokeCapability({ capability, args }) {
         return { value: await answer(capability, args), snapshot: null };
@@ -83,7 +85,9 @@ async function openCompletedSignIn(t, { accounts }) {
     host.release();
     await act(async () => root.unmount());
   });
-  await act(async () => root.render(React.createElement(CapabilitySettings, { api: host.api, category: 'providers', active: true })));
+  await act(async () =>
+    root.render(React.createElement(CapabilitySettings, { api: host.api, category: 'providers', active: true }))
+  );
   await settle(50);
   const add = document.querySelector('button[aria-label="Add account"]');
   assert.ok(add, 'the GPT card offers Add account');
@@ -125,7 +129,7 @@ test('Close still works while another settings mutation keeps the page busy', as
   assert.equal(dialog(), null, 'Close closes it even while the page is busy');
 });
 
-const EXISTING ={ id: 'a0', label: 'First GPT', authenticated: true };
+const EXISTING = { id: 'a0', label: 'First GPT', authenticated: true };
 const ADDED = { id: 'a1', label: 'Second GPT', authenticated: true };
 
 const dismissals = {
@@ -155,4 +159,3 @@ for (const [name, dismiss] of Object.entries(dismissals)) {
     assert.ok(document.querySelector('[data-account-id="a1"]'), 'the list shows the new account');
   });
 }
-

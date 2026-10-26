@@ -138,12 +138,15 @@ export function useSessionPaneSurfaces() {
 
   /** The session's own browser/terminal (or none): any child surface its
    *  dock showed gives way. */
-  const setSessionSideSurface = useCallback((sessionId: string, surface: SessionSideSurface | null) => {
-    if (surface === 'browser') browserAutoRevealSuppressed.current.delete(sessionId);
-    setPanelViewFront(sessionId, false);
-    setSessionSurfaceSources((current) => withSessionSurfaceSource(current, sessionId, null));
-    setSessionSideSurfaces((current) => withSessionSideSurface(current, sessionId, surface));
-  }, [setPanelViewFront]);
+  const setSessionSideSurface = useCallback(
+    (sessionId: string, surface: SessionSideSurface | null) => {
+      if (surface === 'browser') browserAutoRevealSuppressed.current.delete(sessionId);
+      setPanelViewFront(sessionId, false);
+      setSessionSurfaceSources((current) => withSessionSurfaceSource(current, sessionId, null));
+      setSessionSideSurfaces((current) => withSessionSideSurface(current, sessionId, surface));
+    },
+    [setPanelViewFront]
+  );
 
   /** A child session's terminal revealed in the dock of `hostSessionId`, the
    *  conversation of its owner chain on screen. (A child's browser page shows

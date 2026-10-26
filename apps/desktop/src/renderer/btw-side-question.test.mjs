@@ -18,13 +18,16 @@ function harness() {
   const calls = [];
   const pending = [];
   const states = [];
-  const controller = createBtwController((request) => {
-    calls.push(request);
-    if (request.capability === 'cancelSide') return Promise.resolve({ value: {} });
-    const call = deferred();
-    pending.push(call);
-    return call.promise;
-  }, (state) => states.push(state));
+  const controller = createBtwController(
+    (request) => {
+      calls.push(request);
+      if (request.capability === 'cancelSide') return Promise.resolve({ value: {} });
+      const call = deferred();
+      pending.push(call);
+      return call.promise;
+    },
+    (state) => states.push(state)
+  );
   return { controller, calls, pending, states };
 }
 

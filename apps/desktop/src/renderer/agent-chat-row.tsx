@@ -4,7 +4,15 @@
 // the run's last bubble, a date pill where the day changes. Tool rounds and
 // notices stay compact rows in the bubble column.
 import { Link2, Timer } from 'lucide-react';
-import { cloneElement, isValidElement, type ReactElement, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { AgentHandoffBlock } from './agent-task-line';
 import type { RoomMemberLabel } from './agent-room-parts';
 import { RoomMemberFace } from './agent-room-parts';

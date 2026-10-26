@@ -55,9 +55,14 @@ test('the owner conversation shows the child page under its name, and a failed o
     await act(async () => root.render(React.createElement(Lines)));
     await act(async () => recordChildSurfacePeek('lead', peek()));
     await act(async () =>
-      recordChildSurfacePeek('lead', peek({ childSessionId: 'sub-2', childName: '검토', tabId: '', failed: '정책에 막힌 주소', at: 160 }))
+      recordChildSurfacePeek(
+        'lead',
+        peek({ childSessionId: 'sub-2', childName: '검토', tabId: '', failed: '정책에 막힌 주소', at: 160 })
+      )
     );
-    await act(async () => recordChildSurfacePeek('lead', peek({ childSessionId: 'sub-3', surface: 'terminal', tabId: '', title: '' })));
+    await act(async () =>
+      recordChildSurfacePeek('lead', peek({ childSessionId: 'sub-3', surface: 'terminal', tabId: '', title: '' }))
+    );
     assert.equal(shown.length, 3);
     const [browser, failed, terminal] = host.querySelector('.transcript-child-surface-peeks').children;
     assert.match(browser.textContent, /시장 조사/);

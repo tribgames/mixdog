@@ -242,66 +242,66 @@ export function SourceControlBranchPicker({
                           rowTitle = t('Checked out in an external worktree: {{path}}', { path: held?.path ?? '' });
                         } else if (holder) rowTitle = t('Open the session that uses this branch');
                         return (
-                        <div
-                          className="dock-scm-branch-row"
-                          data-current={branch.current || undefined}
-                          data-occupancy={holder ? 'session' : external ? 'external' : undefined}
-                          key={`${branch.remote}:${branch.name}`}
-                          {...rowContextMenu(t('Actions for branch {{value0}}', { value0: branch.name }), () =>
-                            branchMenuItems(branch)
-                          )}
-                        >
-                          <button
-                            type="button"
-                            className="dock-scm-branch-main"
-                            disabled={
-                              Boolean(busy) || branch.current || Boolean(status.operation) || (external && !mergeMode)
-                            }
-                            title={rowTitle}
-                            onClick={() => {
-                              if (mergeMode) onMerge(branch);
-                              else checkoutOrOpen(branch);
-                            }}
+                          <div
+                            className="dock-scm-branch-row"
+                            data-current={branch.current || undefined}
+                            data-occupancy={holder ? 'session' : external ? 'external' : undefined}
+                            key={`${branch.remote}:${branch.name}`}
+                            {...rowContextMenu(t('Actions for branch {{value0}}', { value0: branch.name }), () =>
+                              branchMenuItems(branch)
+                            )}
                           >
-                            {branch.current ? (
-                              <Check size={14} aria-hidden="true" />
-                            ) : (
-                              <GitBranch size={14} aria-hidden="true" />
-                            )}
-                            <span>{branch.name}</span>
-                            {holder || external ? (
-                              <small className="dock-scm-branch-mark">{holder ? t('In use') : t('External')}</small>
-                            ) : (
-                              (branch.lastCommitRelative || (!branch.remote && branch.upstream)) && (
-                                <small>{branch.lastCommitRelative || branch.upstream}</small>
-                              )
-                            )}
-                          </button>
-                          {!branch.remote && (
-                            <>
-                              <button
-                                type="button"
-                                className="dock-scm-branch-action"
-                                aria-label={t('Rename branch {{value0}}', { value0: branch.name })}
-                                disabled={Boolean(busy)}
-                                onClick={() => onRename(branch)}
-                              >
-                                {t('Rename')}
-                              </button>
-                              {!branch.current && (
+                            <button
+                              type="button"
+                              className="dock-scm-branch-main"
+                              disabled={
+                                Boolean(busy) || branch.current || Boolean(status.operation) || (external && !mergeMode)
+                              }
+                              title={rowTitle}
+                              onClick={() => {
+                                if (mergeMode) onMerge(branch);
+                                else checkoutOrOpen(branch);
+                              }}
+                            >
+                              {branch.current ? (
+                                <Check size={14} aria-hidden="true" />
+                              ) : (
+                                <GitBranch size={14} aria-hidden="true" />
+                              )}
+                              <span>{branch.name}</span>
+                              {holder || external ? (
+                                <small className="dock-scm-branch-mark">{holder ? t('In use') : t('External')}</small>
+                              ) : (
+                                (branch.lastCommitRelative || (!branch.remote && branch.upstream)) && (
+                                  <small>{branch.lastCommitRelative || branch.upstream}</small>
+                                )
+                              )}
+                            </button>
+                            {!branch.remote && (
+                              <>
                                 <button
                                   type="button"
-                                  className="dock-scm-branch-action danger"
-                                  aria-label={t('Delete branch {{value0}}', { value0: branch.name })}
+                                  className="dock-scm-branch-action"
+                                  aria-label={t('Rename branch {{value0}}', { value0: branch.name })}
                                   disabled={Boolean(busy)}
-                                  onClick={() => onDelete(branch)}
+                                  onClick={() => onRename(branch)}
                                 >
-                                  {t('Delete')}
+                                  {t('Rename')}
                                 </button>
-                              )}
-                            </>
-                          )}
-                        </div>
+                                {!branch.current && (
+                                  <button
+                                    type="button"
+                                    className="dock-scm-branch-action danger"
+                                    aria-label={t('Delete branch {{value0}}', { value0: branch.name })}
+                                    disabled={Boolean(busy)}
+                                    onClick={() => onDelete(branch)}
+                                  >
+                                    {t('Delete')}
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         );
                       })}
                     </section>

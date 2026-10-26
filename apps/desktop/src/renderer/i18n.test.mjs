@@ -116,7 +116,8 @@ test('a disambiguated key never shows its "Island:" context in any language', ()
   for (const locale of locales) {
     const catalog = JSON.parse(readFileSync(new URL(`./locales/${locale}.json`, import.meta.url), 'utf8'));
     for (const [key, value] of Object.entries(catalog)) {
-      if (key.startsWith('Island: ') && /^(Island|島|アイランド|아일랜드)\s*[:：]/.test(value)) leaked.push(`${locale}: ${key}`);
+      if (key.startsWith('Island: ') && /^(Island|島|アイランド|아일랜드)\s*[:：]/.test(value))
+        leaked.push(`${locale}: ${key}`);
     }
   }
   assert.deepEqual(leaked, []);

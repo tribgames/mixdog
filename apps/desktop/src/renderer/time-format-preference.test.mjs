@@ -110,7 +110,9 @@ test('the settings row reloads only after a saved change; a failed write shows a
   const { DisplayPanel } = await import('./settings/general-panel.tsx');
   const { t: translate } = await import('./i18n.ts');
   setTimeFormat('system');
-  await act(async () => root.render(React.createElement(DisplayPanel, { data: {}, pending: '', run: async () => {}, api: {} })));
+  await act(async () =>
+    root.render(React.createElement(DisplayPanel, { data: {}, pending: '', run: async () => {}, api: {} }))
+  );
   const document = dom.window.document;
   const pick = async (label) => {
     await act(async () => document.querySelector(`button[aria-label="${translate('Time format')}"]`).click());

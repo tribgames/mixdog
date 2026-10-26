@@ -91,7 +91,9 @@ test('a room rename updates the room config with the trimmed name; cancel, empty
   const { calls, asked } = await setup(t, answer);
   const { agentRoomMenuItems } = await import('./agent-profile-actions.ts');
   const run = async () => {
-    agentRoomMenuItems({ id: 'r1', name: 'Release' }).find((entry) => entry.id === 'room-rename').onSelect();
+    agentRoomMenuItems({ id: 'r1', name: 'Release' })
+      .find((entry) => entry.id === 'room-rename')
+      .onSelect();
     await wait();
   };
   await run();

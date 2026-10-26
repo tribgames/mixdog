@@ -307,7 +307,11 @@ test('a failed refresh behind stale figures shows the error and keeps the stale 
   await render({ surface: 'stats', open: true, onClose() {}, api });
   assert.equal(document.querySelector('[role="alert"]').textContent, 'refresh offline');
   assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K', 'stale figures stay visible');
-  assert.equal(document.querySelector('.stats-refresh-status'), null, 'the finished refresh no longer reads as in progress');
+  assert.equal(
+    document.querySelector('.stats-refresh-status'),
+    null,
+    'the finished refresh no longer reads as in progress'
+  );
 });
 
 test('unmeasured Cursor usage is not displayed as zero cache, zero hit rate or a confirmed cost', async (context) => {

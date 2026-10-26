@@ -938,7 +938,8 @@ test('the desktop refuses its own oversize frame instead of sending it', async (
     session.handle.publishBrowserImportProgress({ phase: 'oversize', pad });
     const told = await phone.nextEvent(RELAY_PAYLOAD_REJECTED_EVENT);
     assert.equal(told.payload.limit, 1 * MB);
-    assert.ok(told.payload.bytes > 1 * MB, `refused frame measured ${told.payload.bytes} bytes`);  });
+    assert.ok(told.payload.bytes > 1 * MB, `refused frame measured ${told.payload.bytes} bytes`);
+  });
 });
 
 test('an unattributed refusal reaches the desktop UI as a toast with the sizes, naming no call', async () => {
@@ -994,14 +995,20 @@ test('delivery withholds a frame past the ceiling: it is never written, and only
   });
   // Delivery of the oversize push has completed (awaited) before the sentinel
   // is sent, so a frame that was going to be written already has been.
-  await delivery.broadcastEncryptedAsync({ event: 'push', payload: { phase: 'oversize', pad: 'p'.repeat(8_192) } }, false);
+  await delivery.broadcastEncryptedAsync(
+    { event: 'push', payload: { phase: 'oversize', pad: 'p'.repeat(8_192) } },
+    false
+  );
   await delivery.broadcastEncryptedAsync({ event: 'push', payload: { phase: 'sentinel' } }, false);
   assert.equal(
     writes.some((frame) => frame.includes('oversize') && frame.includes('pppp')),
     false,
     'the oversize frame was never written'
   );
-  assert.ok(writes.some((frame) => frame.includes('sentinel')), 'the small frame after it is written');
+  assert.ok(
+    writes.some((frame) => frame.includes('sentinel')),
+    'the small frame after it is written'
+  );
   assert.ok(
     writes.some((frame) => frame.includes(RELAY_PAYLOAD_REJECTED_EVENT)),
     'the client is told through the small notice'
@@ -1009,7 +1016,8 @@ test('delivery withholds a frame past the ceiling: it is never written, and only
   assert.ok(writes.every((frame) => frame.length < 4_096));
 });
 
-test('the fallback formula is explicit about assuming the worst', () => {  // The relay routes by a 36-byte randomUUID; the fallback charges 64, which
+test('the fallback formula is explicit about assuming the worst', () => {
+  // The relay routes by a 36-byte randomUUID; the fallback charges 64, which
   // can only make its ceiling smaller than the relay's.
   assert.equal(payloadLimit.RELAY_FALLBACK_CLIENT_ID_BYTES, 64);
   assert.equal(payloadLimit.RELAY_JSON_ESCAPE_WORST_CASE, 6);

@@ -36,7 +36,8 @@ function noteWindowSuccess(taskKey: string, groupKey: string, at: number) {
   if (!groups) {
     groups = new Map();
     windowSuccesses.set(taskKey, groups);
-    if (windowSuccesses.size > MAX_REMEMBERED_TASKS) windowSuccesses.delete(windowSuccesses.keys().next().value as string);
+    if (windowSuccesses.size > MAX_REMEMBERED_TASKS)
+      windowSuccesses.delete(windowSuccesses.keys().next().value as string);
   }
   if (groups.get(groupKey) === at) return;
   groups.set(groupKey, at);

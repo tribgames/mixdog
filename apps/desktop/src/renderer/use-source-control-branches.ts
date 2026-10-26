@@ -1,12 +1,7 @@
 // Branch state for the dock: the branch list and resolved default branch,
 // and the portaled picker's open/query/merge-mode state.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  DesktopBranchMenu,
-  DesktopBranchOccupancy,
-  DesktopGitBranch,
-  DesktopGitStatus,
-} from '../shared/contract';
+import type { DesktopBranchMenu, DesktopBranchOccupancy, DesktopGitBranch, DesktopGitStatus } from '../shared/contract';
 import { invokeWorktree } from './worktree-branch-model';
 import { useImmediateOverlayClickGuard } from './immediate-overlay';
 import type { ScmContextMenuState } from './ScmContextMenu';

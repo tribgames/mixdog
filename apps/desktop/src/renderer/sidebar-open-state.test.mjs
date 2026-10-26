@@ -31,7 +31,7 @@ test('absent entries use the default: open, except Archived', () => {
   for (const id of ['projects', 'favorites', 'recent', 'automations']) {
     assert.equal(isOpen({}, id, SECTION_OPEN_DEFAULTS[id]), true);
   }
-  assert.equal(isOpen({ 'toString': false }, 'constructor'), true);
+  assert.equal(isOpen({ toString: false }, 'constructor'), true);
 });
 
 test('toggle stores the resolved value of the explicit choice', () => {

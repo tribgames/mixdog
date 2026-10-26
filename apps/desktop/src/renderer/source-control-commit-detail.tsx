@@ -15,8 +15,7 @@ export function formatCommitDate(iso: string): string {
   if (!Number.isFinite(date.getTime())) return iso;
   const pad = (value: number) => String(value).padStart(2, '0');
   return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    clockText(date, uiFormatLocale())
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` + clockText(date, uiFormatLocale())
   );
 }
 
@@ -82,7 +81,10 @@ export function SourceControlCommitDetail({
               <span className="dock-scm-commit-author" title={detail.email}>
                 <span>{detailAuthor || unknownAuthor()}</span>
               </span>
-              <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString(uiFormatLocale(), timeFormatOptions())}>
+              <time
+                dateTime={detail.authoredAt}
+                title={new Date(detail.authoredAt).toLocaleString(uiFormatLocale(), timeFormatOptions())}
+              >
                 {formatCommitDate(detail.authoredAt)}
               </time>
               <span className="dock-scm-commit-sha" title={detail.hash}>

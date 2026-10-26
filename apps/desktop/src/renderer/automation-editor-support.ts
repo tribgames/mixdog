@@ -33,6 +33,7 @@ export function automationProjectOptions(
       label: project.alias?.trim() || project.name?.trim() || project.path,
     })),
   ];
-  if (automationDraftCwd(cwd) && !options.some((option) => option.value === cwd)) options.push({ value: cwd, label: cwd });
+  if (automationDraftCwd(cwd) && !options.some((option) => option.value === cwd))
+    options.push({ value: cwd, label: cwd });
   return options;
 }

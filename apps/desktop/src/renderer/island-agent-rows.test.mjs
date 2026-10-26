@@ -3,7 +3,14 @@ import test from 'node:test';
 import { agentActivityGroups, islandAgentRows } from './agent-activity-model.ts';
 
 const LEAD = 'lead-island';
-const lead = { tag: `lead:${LEAD}`, sessionId: LEAD, ownerSessionId: LEAD, agent: 'lead', status: 'idle', stage: 'idle' };
+const lead = {
+  tag: `lead:${LEAD}`,
+  sessionId: LEAD,
+  ownerSessionId: LEAD,
+  agent: 'lead',
+  status: 'idle',
+  stage: 'idle',
+};
 const child = (id, extra = {}) => ({
   tag: id,
   sessionId: id,

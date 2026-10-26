@@ -116,7 +116,8 @@ test('the thumbnail slot keeps its size when the picture arrives late, at any si
     await tab.evaluate((u, s) => window.__deliver(u, { title: `Title of ${u}`, thumbnail: s }), url, shot);
     if (name === 'broken') {
       await tab.waitForFunction(
-        () => !document.querySelector('.transcript-browser-page-thumb img') &&
+        () =>
+          !document.querySelector('.transcript-browser-page-thumb img') &&
           document.querySelector('.transcript-browser-page-thumb svg')
       );
     } else {

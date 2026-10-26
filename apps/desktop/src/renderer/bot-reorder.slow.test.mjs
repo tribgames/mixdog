@@ -86,7 +86,9 @@ const DRAG = (selector, fromId, toId, release) => {
   // from the pointer's half of the row).
   const clientY = Math.round(to.getBoundingClientRect().top + 2);
   const fire = (type, el) =>
-    el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: 100, clientY }));
+    el.dispatchEvent(
+      new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: 100, clientY })
+    );
   window.__drag = { fire, from, to };
   fire('dragstart', from);
   fire('dragenter', to);

@@ -53,11 +53,19 @@ test('a group sits where its most recently active member does', () => {
 
 test('a cyclic inheritance chain does not loop', () => {
   const rows = [row('a', { inheritedFromSessionId: 'b' }), row('b', { inheritedFromSessionId: 'a' })];
-  assert.equal(groupForkRows(rows).reduce((count, group) => count + 1 + group.forks.length, 0), 2);
+  assert.equal(
+    groupForkRows(rows).reduce((count, group) => count + 1 + group.forks.length, 0),
+    2
+  );
 });
 
 test('the visible limit never cuts a group', () => {
-  const rows = [row('a'), row('f1', { inheritedFromSessionId: 'a', createdAt: 2 }), row('f2', { inheritedFromSessionId: 'a', createdAt: 3 }), row('z')];
+  const rows = [
+    row('a'),
+    row('f1', { inheritedFromSessionId: 'a', createdAt: 2 }),
+    row('f2', { inheritedFromSessionId: 'a', createdAt: 3 }),
+    row('z'),
+  ];
   assert.deepEqual(shape(groupForkRows(rows, 1)), [['a', ['f1', 'f2']]]);
   assert.deepEqual(shape(groupForkRows(rows, 4)), [
     ['a', ['f1', 'f2']],
@@ -166,7 +174,12 @@ const dragRow = (document, window, source, target) => {
   };
   const from = document.querySelector(`[data-session-id="${source}"]`);
   const to = document.querySelector(`[data-session-id="${target}"]`);
-  return { dragover: () => fire(to, 'dragover'), start: () => fire(from, 'dragstart'), drop: () => fire(to, 'drop'), end: () => fire(from, 'dragend') };
+  return {
+    dragover: () => fire(to, 'dragover'),
+    start: () => fire(from, 'dragstart'),
+    drop: () => fire(to, 'drop'),
+    end: () => fire(from, 'dragend'),
+  };
 };
 
 test('dragging an original after another session moves its whole group there', async (t) => {

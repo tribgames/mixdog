@@ -99,9 +99,7 @@ export function mergeAuthRows(
       linked: { id: link.id, provider: linkedProviderLabel(link.provider) },
     });
   }
-  return rows.sort(
-    (a, b) => a.host.localeCompare(b.host) || (a.username || '').localeCompare(b.username || '')
-  );
+  return rows.sort((a, b) => a.host.localeCompare(b.host) || (a.username || '').localeCompare(b.username || ''));
 }
 
 /** 전체 / 비밀번호 저장 / 로그인 유지만 counts, a password row and a

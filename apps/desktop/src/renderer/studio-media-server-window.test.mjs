@@ -18,15 +18,21 @@ const { SERVER_FILE_REVEAL_EVENT } = await import('./server-transfers.tsx');
  *  resolves to a Project entry or a one-file grant. */
 function serverWindow(t, { grant = false } = {}) {
   const calls = { local: [], resolved: [], reveals: [], copied: [], confirms: [] };
-  const assetPath = grant
-    ? '/root/.mixdog-remote/user-data/media/assets/a.png'
-    : '/srv/repo/media/a.png';
+  const assetPath = grant ? '/root/.mixdog-remote/user-data/media/assets/a.png' : '/srv/repo/media/a.png';
   window.mixdogDesktop = {
     connection: { kind: 'ssh' },
     resolveLocalPaths: async (paths) => {
       calls.resolved.push(...paths);
       return grant
-        ? [{ absolutePath: paths[0], projectPath: '/root/.mixdog-remote/user-data/media/assets', relPath: 'a.png', accessToken: 'grant-1', dir: false }]
+        ? [
+            {
+              absolutePath: paths[0],
+              projectPath: '/root/.mixdog-remote/user-data/media/assets',
+              relPath: 'a.png',
+              accessToken: 'grant-1',
+              dir: false,
+            },
+          ]
         : [{ absolutePath: paths[0], projectPath: '/srv/repo', relPath: 'media/a.png', dir: false }];
     },
   };
@@ -57,7 +63,7 @@ function serverWindow(t, { grant = false } = {}) {
   return { api, calls, assetPath };
 }
 
-test('a server window offers download-and-open for a Studio asset, never this PC\'s viewer', async (t) => {
+test("a server window offers download-and-open for a Studio asset, never this PC's viewer", async (t) => {
   const { api, calls, assetPath } = serverWindow(t);
   await openMediaAssetFromWindow(api, 'asset-1');
   assert.deepEqual(calls.resolved, [assetPath]);
@@ -83,7 +89,7 @@ test('a server window copies the server path of an asset outside any Project', a
   assert.deepEqual(calls.local, []);
 });
 
-test('a local window keeps opening Studio assets with this PC\'s apps', async (t) => {
+test("a local window keeps opening Studio assets with this PC's apps", async (t) => {
   const { api, calls } = serverWindow(t);
   window.mixdogDesktop.connection = { kind: 'local' };
   await openMediaAssetFromWindow(api, 'asset-1');

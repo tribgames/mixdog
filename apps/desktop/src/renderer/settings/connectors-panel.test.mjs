@@ -649,7 +649,12 @@ test('one Gmail server holding several accounts: one row per account, each added
     accounts: [
       { name: 'gmail', email: 'me@gmail.com', appPassword: { account: 'me@gmail.com' } },
       { name: 'gmail-2', email: 'work@gmail.com', appPassword: { account: 'work@gmail.com' } },
-      { name: 'gmail-3', email: '', appPassword: { account: 'team@gmail.com' }, error: 'GMAIL_APP_PASSWORD_MISSING: x' },
+      {
+        name: 'gmail-3',
+        email: '',
+        appPassword: { account: 'team@gmail.com' },
+        error: 'GMAIL_APP_PASSWORD_MISSING: x',
+      },
     ],
   };
   const live = [gmail];
@@ -699,7 +704,8 @@ test('one Gmail server holding several accounts: one row per account, each added
   );
   await click(rowOf(pane.host, 'gmail').querySelector('button'));
   const dialog = document.body.querySelector('.connectors-detail-dialog');
-  for (const address of ['me@gmail.com', 'work@gmail.com', 'team@gmail.com']) assert.match(dialog.textContent, new RegExp(address));
+  for (const address of ['me@gmail.com', 'work@gmail.com', 'team@gmail.com'])
+    assert.match(dialog.textContent, new RegExp(address));
   const menus = dialog.querySelectorAll('.extensions-item .row-overflow-trigger');
   assert.equal(menus.length, 3, 'one ⋯ menu per account');
   await act(async () => menus[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
@@ -815,7 +821,9 @@ test('Google Calendar and Drive sign-ins tell the user to check every box; other
     const pane = await render(
       React.createElement(CategoryPanel, {
         category: 'connectors',
-        context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+        context: panelContext({
+          data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] },
+        }),
       })
     );
     const text = rowOf(pane.host, id).textContent;
@@ -866,7 +874,11 @@ test('a scopeNotGranted failure row shows the short instruction whole, with the 
   const scope = row.querySelector('.connectors-row-scope');
   assert.equal(scope.textContent, 'More access needed');
   assert.match(scope.title, /check the access box on the Google screen before Continue\.$/);
-  assert.equal(row.querySelector('.sidebar-resource-title > b').title, 'Google Calendar', 'the full name is the tooltip');
+  assert.equal(
+    row.querySelector('.sidebar-resource-title > b').title,
+    'Google Calendar',
+    'the full name is the tooltip'
+  );
   await pane.unmount();
 
   // Sidebar rule (structure the CSS keys on): the name is one <b> with its
@@ -876,7 +888,11 @@ test('a scopeNotGranted failure row shows the short instruction whole, with the 
   assert.equal(row.querySelectorAll('.utilities-row-copy > small').length, 1);
   assert.equal(status.firstElementChild.className, 'sidebar-resource-tag');
   assert.equal(status.querySelectorAll('.connectors-row-line').length, 1);
-  assert.equal(row.querySelector('.sidebar-resource-title .sidebar-resource-tag'), null, 'badge is not on the name line');
+  assert.equal(
+    row.querySelector('.sidebar-resource-title .sidebar-resource-tag'),
+    null,
+    'badge is not on the name line'
+  );
 
   // The row keys on the failure kind, not on the summary text: after the UI
   // language changes, the stored (English) summary no longer equals the
@@ -888,7 +904,9 @@ test('a scopeNotGranted failure row shows the short instruction whole, with the 
     const korean = await render(
       React.createElement(CategoryPanel, {
         category: 'connectors',
-        context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+        context: panelContext({
+          data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] },
+        }),
       })
     );
     const koScope = korean.host.querySelector('[data-connector-row="google-calendar"] .connectors-row-scope');
@@ -925,7 +943,9 @@ test('the full step (chat card, detail note) carries the whole Google notice; on
   assert.equal(step.querySelector('.connectors-row-hint').textContent, notice);
   assert.match(step.textContent, /Sign in in your browser…/);
   await full.unmount();
-  const compact = await render(React.createElement(ConnectorStep, { view, connector: 'google-calendar', compact: true }));
+  const compact = await render(
+    React.createElement(ConnectorStep, { view, connector: 'google-calendar', compact: true })
+  );
   const one = compact.host.querySelector('.connectors-row-step');
   assert.equal(one.dataset.compact, 'true');
   assert.equal(one.querySelectorAll('.connectors-row-step-text').length, 1);
@@ -1069,7 +1089,9 @@ test('a connector with accounts opens its detail even when its first account nee
   const gmailDetail = document.body.querySelector('.connectors-detail-dialog');
   assert.ok(gmailDetail, 'the detail opens');
   assert.equal(document.body.querySelector('[aria-labelledby="connectors-gmail-app-password-title"]'), null);
-  await click([...gmailDetail.querySelectorAll('.extensions-item button')].find((node) => node.textContent.trim() === 'Connect'));
+  await click(
+    [...gmailDetail.querySelectorAll('.extensions-item button')].find((node) => node.textContent.trim() === 'Connect')
+  );
   await settle();
   assert.ok(document.body.querySelector('input[name="gmail-app-password"]'), 'the app-password dialog opens');
   await pane.unmount();
@@ -1094,10 +1116,7 @@ test('a custom MCP server cannot take a connector account name; the refusal name
     document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   });
   assert.deepEqual(sent, [], 'nothing is sent');
-  assert.match(
-    document.body.textContent,
-    /The name "gmail-2" is used by a Gmail account\. Choose another name\./
-  );
+  assert.match(document.body.textContent, /The name "gmail-2" is used by a Gmail account\. Choose another name\./);
   assert.doesNotMatch(document.body.textContent, /already exists/);
   await create.unmount();
 });

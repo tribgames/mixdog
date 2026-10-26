@@ -57,10 +57,7 @@ export function useBorrowedBrowserTab(viewerSessionId: string): BorrowedBrowserT
 
 /** The viewer's strip while it shows a borrowed page: that one tab, titled
  *  under its owner; empty once the owner no longer has it. */
-export function borrowedStripTabs(
-  ownerTabs: readonly DesktopBrowserTab[],
-  tab: BorrowedBrowserTab
-): BrowserStripTab[] {
+export function borrowedStripTabs(ownerTabs: readonly DesktopBrowserTab[], tab: BorrowedBrowserTab): BrowserStripTab[] {
   const page = ownerTabs.find((candidate) => candidate.id === tab.tabId);
   return page ? [{ ...page, active: true, owner: tab.ownerName }] : [];
 }

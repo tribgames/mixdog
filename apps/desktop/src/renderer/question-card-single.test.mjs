@@ -7,9 +7,24 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://mi
 dom.window.Element.prototype.scrollIntoView = () => {};
 dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 const decisions = [];
-dom.window.mixdogDesktop = { resolveToolApprovalForSession: async (_session, _id, decision) => (decisions.push(decision), true) };
-for (const key of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLButtonElement', 'Element', 'Node', 'navigator']) {
-  Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom.window : key === 'document' ? dom.window.document : dom.window[key] });
+dom.window.mixdogDesktop = {
+  resolveToolApprovalForSession: async (_session, _id, decision) => (decisions.push(decision), true),
+};
+for (const key of [
+  'window',
+  'document',
+  'HTMLElement',
+  'HTMLInputElement',
+  'HTMLTextAreaElement',
+  'HTMLButtonElement',
+  'Element',
+  'Node',
+  'navigator',
+]) {
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    value: key === 'window' ? dom.window : key === 'document' ? dom.window.document : dom.window[key],
+  });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { default: React, act } = await import('react');
@@ -19,9 +34,24 @@ const { transcriptRowNode } = await import('./conversation-support.tsx');
 const { useConversationApprovals } = await import('./use-conversation-approvals.tsx');
 
 const questions = [
-  { question: 'Which?', header: 'W', multi_select: true, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] },
+  {
+    question: 'Which?',
+    header: 'W',
+    multi_select: true,
+    options: [
+      { label: 'A', description: '' },
+      { label: 'B', description: '' },
+    ],
+  },
 ];
-const askUser = (id, result) => ({ kind: 'tool', id: `item-${id}`, callId: id, name: 'ask_user', args: { questions }, result });
+const askUser = (id, result) => ({
+  kind: 'tool',
+  id: `item-${id}`,
+  callId: id,
+  name: 'ask_user',
+  args: { questions },
+  result,
+});
 
 /** Mounts the conversation rows for a changing snapshot; `answerQuestion` reads the latest hook result. */
 async function mountRows(first) {
@@ -89,7 +119,11 @@ test('a remounted card (its call moved to another row) keeps the picks; an expli
     const named = { id: 'ap-3', kind: 'question', toolCallId: 'c-late', args: { questions } };
     await ui.show({ ...base, items: later, toolApproval: named });
     assert.equal(ui.doc.querySelectorAll('.question-card').length, 0);
-    await ui.show({ ...base, items: [...later, { kind: 'assistant', id: 'a2', text: 'x' }, askUser('c-late', null)], toolApproval: named });
+    await ui.show({
+      ...base,
+      items: [...later, { kind: 'assistant', id: 'a2', text: 'x' }, askUser('c-late', null)],
+      toolApproval: named,
+    });
     assert.equal(ui.doc.querySelectorAll('.question-card').length, 1);
   } finally {
     await ui.done();
@@ -101,14 +135,18 @@ const clickFirstOption = (ui) =>
     ui.doc.querySelector('.question-option').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   );
 
-test('after this device\'s accepted answer, a row move leaves no enabled card and no second submit', async () => {
+test("after this device's accepted answer, a row move leaves no enabled card and no second submit", async () => {
   decisions.length = 0;
   const approval = { id: 'ap-4', kind: 'question', args: { questions } };
   const base = { sessionId: 's', busy: true, toolApproval: approval };
   const ui = await mountRows({ ...base, items: [askUser('c1', null)] });
   try {
     await clickFirstOption(ui);
-    await act(async () => ui.doc.querySelector('button[data-action="send"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+    await act(async () =>
+      ui.doc
+        .querySelector('button[data-action="send"]')
+        .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    );
     assert.equal(decisions.length, 1);
     // The snapshot still holds the accepted approval; its card's row moves.
     const moved = [askUser('c1', null), { kind: 'assistant', id: 'a1', text: 'again' }, askUser('c2', null)];
@@ -130,7 +168,11 @@ test('a reissued approval id (after the accepted one left the snapshot, result r
   const ui = await mountRows({ ...base, items: [askUser('c1', null)], toolApproval: approval });
   try {
     await clickFirstOption(ui);
-    await act(async () => ui.doc.querySelector('button[data-action="send"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+    await act(async () =>
+      ui.doc
+        .querySelector('button[data-action="send"]')
+        .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    );
     assert.equal(decisions.length, 1);
     await ui.show({ ...base, items: [askUser('c1', null)], toolApproval: approval });
     assert.equal(ui.state.approvals.answerQuestion, null, 'still suppressed while the same instance is pending');
@@ -175,7 +217,11 @@ test('drafts start empty for a new approval id; a composer answer after the expl
 test('a question left without a result does not get a second card that wipes the picks of the pending one', async () => {
   decisions.length = 0;
   // An older ask_user never got its result; the pending approval belongs to the newer call.
-  const items = [askUser('call-old', null), { kind: 'assistant', id: 'a1', text: 'asking again' }, askUser('call-new', null)];
+  const items = [
+    askUser('call-old', null),
+    { kind: 'assistant', id: 'a1', text: 'asking again' },
+    askUser('call-new', null),
+  ];
   const snapshot = {
     sessionId: 's',
     busy: true,

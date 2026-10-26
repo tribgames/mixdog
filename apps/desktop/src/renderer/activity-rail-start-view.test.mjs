@@ -128,7 +128,15 @@ test('reordering the pins moves the start view of the next launch to the new top
   await first.end();
 
   // The same call the rail's drag-and-drop makes, then a reload with a stale local cache.
-  await host.updateActivityRailPins(['projects', 'sessions', 'agents', 'schedules', 'workflows', 'extensions', 'skills']);
+  await host.updateActivityRailPins([
+    'projects',
+    'sessions',
+    'agents',
+    'schedules',
+    'workflows',
+    'extensions',
+    'skills',
+  ]);
   window.localStorage.setItem(PINS_KEY, JSON.stringify(DEFAULT_ORDER));
   const second = await launch(host);
   assert.equal(second.railTop(), 'projects');
@@ -150,7 +158,10 @@ test('a stored layout that disagrees with the pins cannot decide the start view'
 test('an unpinned view never leads, even first in the layout', async (t) => {
   const launch = setup(t);
   window.localStorage.setItem(LAYOUT_MIGRATION_KEY, '1');
-  window.localStorage.setItem(LAYOUT_KEY, JSON.stringify({ left: [['sessions'], ['agents'], ['projects']], right: [] }));
+  window.localStorage.setItem(
+    LAYOUT_KEY,
+    JSON.stringify({ left: [['sessions'], ['agents'], ['projects']], right: [] })
+  );
   const app = await launch(fakeHost(['projects', 'agents']));
   assert.equal(app.railTop(), 'projects');
   assert.equal(app.active(), 'projects');

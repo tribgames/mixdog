@@ -351,7 +351,11 @@ test('fetchProviderModels does not memoize an empty answer', async () => {
   assert.deepEqual(await fetchProviderModels(api, { quick: false }), []);
   assert.equal((await fetchProviderModels(api, { quick: false }))[0].model, CATALOG[0].model);
   assert.equal(answers, 2);
-  assert.equal((await fetchProviderModels(api, { quick: false }))[0].model, CATALOG[0].model, 'a real answer is memoized');
+  assert.equal(
+    (await fetchProviderModels(api, { quick: false }))[0].model,
+    CATALOG[0].model,
+    'a real answer is memoized'
+  );
   assert.equal(answers, 2);
 });
 

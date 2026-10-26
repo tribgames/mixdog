@@ -6,12 +6,7 @@
 import { ChevronUp, RotateCcw } from 'lucide-react';
 
 import type { VisualizeTabView } from '../shared/visualize';
-import {
-  tweakChanges,
-  tweakColorInputValue,
-  tweakValueOf,
-  type VisualizeTweak,
-} from '../shared/visualize-tweaks';
+import { tweakChanges, tweakColorInputValue, tweakValueOf, type VisualizeTweak } from '../shared/visualize-tweaks';
 import { t } from './i18n';
 import { setVisualizeTweakSet, visualizePaneFile } from './visualize-feedback-store';
 import {
@@ -75,7 +70,9 @@ function TweakControl({
             onChange={(event) => onChange(event.currentTarget.checked)}
           />
         )}
-        {tweak.type === 'color' || tweak.type === 'range' ? <span className="visualize-tweak-value">{shown}</span> : null}
+        {tweak.type === 'color' || tweak.type === 'range' ? (
+          <span className="visualize-tweak-value">{shown}</span>
+        ) : null}
       </span>
       <button
         type="button"
@@ -109,7 +106,10 @@ export function VisualizeTweaksDrawer({
       version: visualizeTweakVersion(tab, pane),
     }))
     .filter((section) => section.tweaks.length > 0)
-    .map((section) => ({ ...section, values: visualizeTweakValues(sessionId, tab.id, section.index, section.version) }));
+    .map((section) => ({
+      ...section,
+      values: visualizeTweakValues(sessionId, tab.id, section.index, section.version),
+    }));
   if (!sections.length) return null;
   const moved = sections.some((section) => tweakChanges(section.tweaks, section.values).length > 0);
   const use = () => {

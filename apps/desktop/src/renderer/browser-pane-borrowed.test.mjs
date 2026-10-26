@@ -32,7 +32,14 @@ const { PANE_DOCK_CLOSE_EVENT } = await import('./pane-dock-chrome.tsx');
 const wait = (ms = 10) => new Promise((resolve) => setTimeout(resolve, ms));
 const flush = () => act(async () => wait(120));
 
-const OWNER_TAB = { id: 'p4', title: 'OpenDART', url: 'https://opendart.example/', active: true, loading: false, kind: 'page' };
+const OWNER_TAB = {
+  id: 'p4',
+  title: 'OpenDART',
+  url: 'https://opendart.example/',
+  active: true,
+  loading: false,
+  kind: 'page',
+};
 
 /** The bot conversation `conv` showing task session `task`'s tab p4. */
 async function mountBorrowed() {
@@ -225,7 +232,9 @@ test("a paired client's borrowed dock closes through the viewer's own dock", asy
   document.body.append(host);
   const root = createRoot(host);
   const render = () =>
-    act(async () => root.render(React.createElement(BrowserPane, { sessionId: 'conv', active: true, foreground: true })));
+    act(async () =>
+      root.render(React.createElement(BrowserPane, { sessionId: 'conv', active: true, foreground: true }))
+    );
   const live = () => streams.filter(([, options]) => options).map(([sessionId]) => sessionId);
   try {
     await render();

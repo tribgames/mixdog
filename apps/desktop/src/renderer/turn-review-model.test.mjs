@@ -92,7 +92,14 @@ test('grouped cards and write calls count across two turns', () => {
       { kind: 'turndone', id: 'd1' },
       { kind: 'user', id: 'u2', text: 'edit' },
       aggregate('a1', 'README.md', 'Patch|Editing|Edited|file|files'),
-      { kind: 'tool', id: 'w2', name: 'write', args: { file_path: 'bad.txt', content: 'x' }, result: 'Error', isError: true },
+      {
+        kind: 'tool',
+        id: 'w2',
+        name: 'write',
+        args: { file_path: 'bad.txt', content: 'x' },
+        result: 'Error',
+        isError: true,
+      },
     ],
     'C:\\demo\\cart-service'
   );

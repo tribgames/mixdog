@@ -479,7 +479,11 @@ test('server logins: a custom provider asks before it is deleted; keyless and en
   assert.match(document.querySelector('.conn-dialog').textContent, /Remove Gateway and its saved API key/);
   await click(buttonNamed(document, 'Delete'));
   await settle();
-  assert.deepEqual(calls[1], ['remove', HOST.id, 'custom-b'], 'a keyless custom provider is removed after confirmation');
+  assert.deepEqual(
+    calls[1],
+    ['remove', HOST.id, 'custom-b'],
+    'a keyless custom provider is removed after confirmation'
+  );
 });
 
 test('server logins: a server whose credential storage is unsafe shows its repair hint and folder, secret-free', async (t) => {
@@ -515,8 +519,22 @@ test('server logins: only an environment key with nothing stored is read-only; a
     logins: {
       ...SERVER_LOGINS,
       providers: [
-        { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true, credentialSource: 'environment', fromEnvironment: true },
-        { id: 'xai', name: 'xAI', kind: 'api', signedIn: true, credentialSource: 'private-file', storedInPrivateFile: true },
+        {
+          id: 'openai',
+          name: 'OpenAI',
+          kind: 'api',
+          signedIn: true,
+          credentialSource: 'environment',
+          fromEnvironment: true,
+        },
+        {
+          id: 'xai',
+          name: 'xAI',
+          kind: 'api',
+          signedIn: true,
+          credentialSource: 'private-file',
+          storedInPrivateFile: true,
+        },
         { id: 'groq', name: 'Groq', kind: 'api', signedIn: true, credentialSource: 'environment' },
       ],
     },
@@ -524,9 +542,15 @@ test('server logins: only an environment key with nothing stored is read-only; a
   await click(buttonNamed(document, 'Manage server logins'));
   await settle();
   const [env, file, shadowed] = document.querySelectorAll('.ssh-login-row');
-  assert.deepEqual([...shadowed.querySelectorAll('button')].map((b) => b.textContent), ['Change', 'Log out']);
+  assert.deepEqual(
+    [...shadowed.querySelectorAll('button')].map((b) => b.textContent),
+    ['Change', 'Log out']
+  );
   assert.equal(env.querySelector('small').textContent, 'API key · from the server’s environment');
   assert.equal(env.querySelectorAll('button').length, 0, 'the environment key is read-only');
   assert.equal(file.querySelector('small').textContent, 'API key · stored in a private file');
-  assert.deepEqual([...file.querySelectorAll('button')].map((b) => b.textContent), ['Change', 'Log out']);
+  assert.deepEqual(
+    [...file.querySelectorAll('button')].map((b) => b.textContent),
+    ['Change', 'Log out']
+  );
 });

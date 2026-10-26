@@ -586,7 +586,12 @@ test('diff line numbers keep 4.5:1 on every row background in both themes', asyn
         .join('')}
     </div>
   `);
-  for (const file of ['./ui/tokens.css', './desktop/01-tokens.css', './desktop/25-scm-dock.css', './desktop/27-search-review.css']) {
+  for (const file of [
+    './ui/tokens.css',
+    './desktop/01-tokens.css',
+    './desktop/25-scm-dock.css',
+    './desktop/27-search-review.css',
+  ]) {
     await page.addStyleTag({ content: await readFile(new URL(file, import.meta.url), 'utf8') });
   }
   const rows = [];
@@ -632,7 +637,9 @@ test('diff line numbers keep 4.5:1 on every row background in both themes', asyn
     }, theme);
     rows.push(...measured.map((row) => ({ theme, ...row })));
   }
-  const report = rows.map((row) => `${row.theme} ${row.id} ${row.ink} on ${row.bg} = ${contrast(row.ink, row.bg).toFixed(2)}`);
+  const report = rows.map(
+    (row) => `${row.theme} ${row.id} ${row.ink} on ${row.bg} = ${contrast(row.ink, row.bg).toFixed(2)}`
+  );
   t.diagnostic(report.join('\n'));
   for (const row of rows) {
     if (row.id.endsWith('-mk')) continue;

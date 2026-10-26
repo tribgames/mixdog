@@ -202,9 +202,15 @@ test('an inactive same-session sibling with an older signal never suppresses the
     return { value: { supported: true, files: [], patch: `sibling-${calls}` } };
   });
   const id = 'sibling';
-  await view.renderAll([{ sessionId: id, revision: 'r0' }, { sessionId: id, revision: 'r0', active: false }]);
+  await view.renderAll([
+    { sessionId: id, revision: 'r0' },
+    { sessionId: id, revision: 'r0', active: false },
+  ]);
   assert.equal(calls, 1);
-  await view.renderAll([{ sessionId: id, revision: 'r1' }, { sessionId: id, revision: 'r0', active: false }]);
+  await view.renderAll([
+    { sessionId: id, revision: 'r1' },
+    { sessionId: id, revision: 'r0', active: false },
+  ]);
   await view.advance(500);
   assert.equal(calls, 2);
   assert.match(view.text(), /sibling-2/);
@@ -318,7 +324,10 @@ test('an unchanged background poll neither flips loading nor re-renders; a chang
     await refresh(true, true);
   });
   assert.match(view.text(), /different/);
-  assert.ok(frames.slice(rendered).every((frame) => frame.loading === false), 'background polls never flip loading');
+  assert.ok(
+    frames.slice(rendered).every((frame) => frame.loading === false),
+    'background polls never flip loading'
+  );
 });
 
 test("a new session never presents the previous session's diff or an unconfirmed empty result", async (t) => {

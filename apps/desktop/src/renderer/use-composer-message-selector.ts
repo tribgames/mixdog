@@ -58,7 +58,10 @@ export function useComposerMessageSelector({
       try {
         value = asRecord(await invokeCapability<RecordValue>('rewindToItem', [messageId]));
       } catch (error) {
-        showNotice(error instanceof Error && error.message ? error.message : t('Could not restore that message.'), 'error');
+        showNotice(
+          error instanceof Error && error.message ? error.message : t('Could not restore that message.'),
+          'error'
+        );
         return;
       }
       const text = String(value?.text || '');

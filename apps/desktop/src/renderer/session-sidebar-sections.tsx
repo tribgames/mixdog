@@ -910,11 +910,7 @@ export function archivedSection({
       aria-label={t('Archived sessions')}
       {...reorderTarget(headerProps)}
     >
-      <div
-        className="sidebar-category-header"
-        {...reorderHandle(headerProps)}
-        {...rowOverflowHostProps()}
-      >
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
@@ -929,34 +925,34 @@ export function archivedSection({
             unreadLabel={t('{{name}} has new activity', { name: t('Archived') })}
           />
         </button>
-        {(
-        <RowOverflowMenu
-          label={t('Actions')}
-          items={[
-            {
-              id: 'restore-all',
-              label: t('Restore all'),
-              disabled: actionsDisabled,
-              onSelect: onRestoreAll,
-            },
-            {
-              id: 'delete-all-archived',
-              label: t('Delete all archived sessions'),
-              danger: true,
-              separatorBefore: true,
-              disabled: actionsDisabled,
-              children: [
-                {
-                  id: 'confirm-delete-all-archived',
-                  label: t('Confirm delete'),
-                  danger: true,
-                  onSelect: onDeleteAll,
-                },
-              ],
-            },
-          ]}
-        />
-        )}
+        {
+          <RowOverflowMenu
+            label={t('Actions')}
+            items={[
+              {
+                id: 'restore-all',
+                label: t('Restore all'),
+                disabled: actionsDisabled,
+                onSelect: onRestoreAll,
+              },
+              {
+                id: 'delete-all-archived',
+                label: t('Delete all archived sessions'),
+                danger: true,
+                separatorBefore: true,
+                disabled: actionsDisabled,
+                children: [
+                  {
+                    id: 'confirm-delete-all-archived',
+                    label: t('Confirm delete'),
+                    danger: true,
+                    onSelect: onDeleteAll,
+                  },
+                ],
+              },
+            ]}
+          />
+        }
       </div>
       {open && (
         <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>

@@ -307,7 +307,14 @@ test('appearance timeFormat, sidePanelPosition, font sizes, ligatures and chatTe
   );
   const status = await prefs.read();
   assert.deepEqual(
-    [status.timeFormat, status.sidePanelPosition, status.uiScale, status.codeSize, status.codeLigatures, status.chatTextSize],
+    [
+      status.timeFormat,
+      status.sidePanelPosition,
+      status.uiScale,
+      status.codeSize,
+      status.codeLigatures,
+      status.chatTextSize,
+    ],
     ['24h', 'bottom', 1.15, 16, false, 'extra-large']
   );
   await prefs.write({ timeFormat: '12h', sidePanelPosition: 'auto', uiScale: 0.85, codeSize: 10, codeLigatures: true });
@@ -362,7 +369,10 @@ function petFixture({ created = true } = {}) {
     },
     setDesktopPetOption: async (name, value) => {
       calls.push([name, value]);
-      config = { ...config, ...(value && exclusive.includes(name) ? { pinned: false, pinnedHere: false, onScreen: false } : {}) };
+      config = {
+        ...config,
+        ...(value && exclusive.includes(name) ? { pinned: false, pinnedHere: false, onScreen: false } : {}),
+      };
       config[name] = value;
       return { ...config };
     },
@@ -425,7 +435,10 @@ test('botOverlay applies every field through the pet API and status desktop read
   };
   assert.deepEqual(result.botOverlay, expected);
   const after = await status();
-  assert.deepEqual({ ...after, scales: undefined, representativeBot: undefined }, { ...expected, scales: undefined, representativeBot: undefined });
+  assert.deepEqual(
+    { ...after, scales: undefined, representativeBot: undefined },
+    { ...expected, scales: undefined, representativeBot: undefined }
+  );
   // Position mirrors the Settings select: a placement turns itself on; "free" turns the current one off.
   calls.length = 0;
   await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'free' } } });
@@ -434,7 +447,10 @@ test('botOverlay applies every field through the pet API and status desktop read
   calls.length = 0;
   await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'pinnedHere' } } });
   await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'pinnedHere', enabled: true } } });
-  assert.deepEqual(calls, [['pinnedHere', true], ['enabled', true]]);
+  assert.deepEqual(calls, [
+    ['pinnedHere', true],
+    ['enabled', true],
+  ]);
   assert.equal((await status()).position, 'pinnedHere');
   assert.equal((await status()).enabled, true);
   await run({ action: 'set_desktop_settings', desktop: { botOverlay: { position: 'pinned' } } });
@@ -454,9 +470,15 @@ test('botOverlay failing after earlier writes reports them as saved with the sta
       desktop: { botOverlay: { enabled: false, keepAbove: true, collapsed: true, scale: 80 } },
     }),
     (error) => {
-      assert.match(error.message, /Could not save botOverlay\. Already saved: botOverlay\.enabled, botOverlay\.keepAbove\./);
+      assert.match(
+        error.message,
+        /Could not save botOverlay\. Already saved: botOverlay\.enabled, botOverlay\.keepAbove\./
+      );
       assert.match(error.message, /pet window gone/);
-      assert.match(error.message, /Current botOverlay: .*"enabled":false.*"keepAbove":true.*"collapsed":false.*"scale":100/);
+      assert.match(
+        error.message,
+        /Current botOverlay: .*"enabled":false.*"keepAbove":true.*"collapsed":false.*"scale":100/
+      );
       return true;
     }
   );

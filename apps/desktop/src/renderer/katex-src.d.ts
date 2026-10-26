@@ -5,7 +5,7 @@ declare module 'katex/src/fontMetrics.ts' {
   export function getCharacterMetrics(
     character: string,
     font: string,
-    mode: 'math' | 'text',
+    mode: 'math' | 'text'
   ): { depth: number; height: number; italic: number; skew: number; width: number } | null | undefined;
 }
 

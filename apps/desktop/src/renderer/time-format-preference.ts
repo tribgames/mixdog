@@ -7,8 +7,7 @@ const TIME_FORMAT_KEY = 'mixdog.desktop.time-format.v1';
 const CHANGE_EVENT = 'mixdog:time-format-changed';
 let fallbackFormat: TimeFormat = 'system';
 
-const isTimeFormat = (value: unknown): value is TimeFormat =>
-  value === 'system' || value === '12h' || value === '24h';
+const isTimeFormat = (value: unknown): value is TimeFormat => value === 'system' || value === '12h' || value === '24h';
 
 export function getTimeFormat(): TimeFormat {
   try {

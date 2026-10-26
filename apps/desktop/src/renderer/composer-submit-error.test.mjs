@@ -69,7 +69,10 @@ test('error params are whitelisted strings, and the relay redacts them like the 
   const file = Object.assign(new Error('x'), { code: 'ENOENT', details: { name: 'C:/secret/path.txt' } });
   assert.equal(overIpc(file).details, undefined);
   assert.equal((await overRelay(file)).details, undefined);
-  const error = Object.assign(new Error('x'), { code: 'ROOM_MEMBER_SWITCHED_OFF', details: { name: 'my-secret-value' } });
+  const error = Object.assign(new Error('x'), {
+    code: 'ROOM_MEMBER_SWITCHED_OFF',
+    details: { name: 'my-secret-value' },
+  });
   const frame = await executeRemoteFrame(
     {
       invokeCapability: async () => {

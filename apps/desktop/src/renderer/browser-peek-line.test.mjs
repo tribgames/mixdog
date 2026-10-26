@@ -31,7 +31,11 @@ test('a saved-login sign-in leaves one faint line naming the site, nothing else'
 const SHOWN = 'Shown in the browser panel: page p4 — Quarterly (report) (https://dart.example/main.do).';
 const PENDING =
   "Not on screen yet: page p6 — (untitled) (https://dart.example/list) is kept in this conversation's browser panel, which is not visible now; it appears when the user opens that panel. Do not tell the user it is on screen.";
-const opened = (id, text, extra = {}) => ({ ...call(id, 'browser', { action: 'open', input: {} }), result: text, ...extra });
+const opened = (id, text, extra = {}) => ({
+  ...call(id, 'browser', { action: 'open', input: {} }),
+  result: text,
+  ...extra,
+});
 
 test('only a successful open leaves a page: shown or pending, with its tab id', () => {
   assert.deepEqual(browserOpenedPage([opened('o', SHOWN)]), {
@@ -46,12 +50,19 @@ test('only a successful open leaves a page: shown or pending, with its tab id', 
   });
   // A failed open, a refused URL, and browser work that opened nothing leave none.
   assert.equal(
-    browserOpenedPage([opened('f', 'Error: Could not show the page in the browser panel: desktop window is unavailable', { isError: true })]),
+    browserOpenedPage([
+      opened('f', 'Error: Could not show the page in the browser panel: desktop window is unavailable', {
+        isError: true,
+      }),
+    ]),
     null
   );
   assert.equal(browserOpenedPage([opened('f2', SHOWN, { isError: true })]), null);
   assert.equal(browserOpenedPage([call('c', 'browser', { action: 'click', input: { ref: 'e1' } })]), null);
-  assert.equal(browserOpenedPage([{ ...call('n', 'browser', { action: 'navigate', input: {} }), result: SHOWN }]), null);
+  assert.equal(
+    browserOpenedPage([{ ...call('n', 'browser', { action: 'navigate', input: {} }), result: SHOWN }]),
+    null
+  );
   // A row from another session names its owner.
   assert.deepEqual(browserOpenedPage([opened('o', SHOWN, { ownerSessionId: 'task-1', ownerName: '예측' })]), {
     tabId: 'p4',
@@ -154,7 +165,9 @@ test('a failed open leaves no line; a successful one reveals its tab by id, load
 
     // A draft has no pane to open.
     await act(async () =>
-      root.render(React.createElement(BrowserPeekLine, { sessionId: 'new-task', page: { tabId: 'p4', title: 'A', url: '' } }))
+      root.render(
+        React.createElement(BrowserPeekLine, { sessionId: 'new-task', page: { tabId: 'p4', title: 'A', url: '' } })
+      )
     );
     assert.equal(peek(), null);
   } finally {
@@ -176,7 +189,13 @@ test("another session's page opens in this conversation's panel under its owner'
   const stopReveal = onBrowserPageRevealRequested((request) => revealed.push(request.sessionId));
   const root = createRoot(dom.window.document.getElementById('root'));
   try {
-    const page = { tabId: 'p4', title: 'OpenDART', url: 'https://opendart.example/', ownerSessionId: 'task-1', ownerName: '예측' };
+    const page = {
+      tabId: 'p4',
+      title: 'OpenDART',
+      url: 'https://opendart.example/',
+      ownerSessionId: 'task-1',
+      ownerName: '예측',
+    };
     await act(async () => root.render(React.createElement(BrowserPeekLine, { sessionId: 'bot-home', page })));
     const line = dom.window.document.querySelector('.transcript-browser-peek');
     assert.equal(line.textContent, 'Browser·예측·OpenDART·View');
@@ -210,10 +229,14 @@ test("another session's page opens in this conversation's panel under its owner'
 
     // The viewer's own page clears the borrowed one.
     await act(async () =>
-      root.render(React.createElement(BrowserPeekLine, { sessionId: 'bot-home', page: { tabId: 'p1', title: 'Own', url: '' } }))
+      root.render(
+        React.createElement(BrowserPeekLine, { sessionId: 'bot-home', page: { tabId: 'p1', title: 'Own', url: '' } })
+      )
     );
     await act(async () =>
-      dom.window.document.querySelector('.transcript-browser-peek').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      dom.window.document
+        .querySelector('.transcript-browser-peek')
+        .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     );
     assert.equal(borrowedBrowserTab('bot-home'), null);
   } finally {

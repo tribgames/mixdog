@@ -145,7 +145,7 @@ test("switching sessions in a pane never queues the entry read behind the previo
   await reply(2);
 });
 
-test("re-entering a session never lets its superseded read overwrite the newer answer", async (t) => {
+test('re-entering a session never lets its superseded read overwrite the newer answer', async (t) => {
   const pending = [];
   const requests = [];
   const { dom, root } = installReviewDom(t, {
@@ -203,7 +203,12 @@ test("an outgoing session's answer never suppresses the incoming session's ident
   const render = (sessionId, extra = []) =>
     act(async () =>
       root.render(
-        React.createElement(TurnReviewBar, { items: [prompt, edit('same'), ...extra], sessionId, active: true, busy: true })
+        React.createElement(TurnReviewBar, {
+          items: [prompt, edit('same'), ...extra],
+          sessionId,
+          active: true,
+          busy: true,
+        })
       )
     );
   const reply = (index, files) =>

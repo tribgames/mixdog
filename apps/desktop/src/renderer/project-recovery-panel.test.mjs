@@ -6,7 +6,11 @@ import { JSDOM } from 'jsdom';
 import { ProjectRecoveryPanel, recoveryMayRestore } from './ProjectRecoveryPanel.tsx';
 import { ProjectRecoverySurface } from './ProjectRecoverySurface.tsx';
 import { ProjectRecoveryNotice } from './ProjectRecoveryNotice.tsx';
-import { requiredProjectRecoveryRequest, recoveryFailureCode, recoveryFailureRecord } from '../shared/project-recovery.ts';
+import {
+  requiredProjectRecoveryRequest,
+  recoveryFailureCode,
+  recoveryFailureRecord,
+} from '../shared/project-recovery.ts';
 const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 const id = '12345678-abcd-abcd-abcd-123456789abc';
@@ -272,9 +276,8 @@ test('the Files recovery surface stays absent on a host without the API', async 
   assert.equal(ui.document.querySelector('details'), null);
 });
 
-
 test('stable recovery hints survive IPC wrappers without granting path authority', () => {
-  assert.equal(recoveryFailureCode(new Error("Error invoking remote method: RECOVERY_BUSY: wait")), 'RECOVERY_BUSY');
+  assert.equal(recoveryFailureCode(new Error('Error invoking remote method: RECOVERY_BUSY: wait')), 'RECOVERY_BUSY');
   assert.equal(recoveryFailureCode(new Error('storage full prose')), null);
   assert.equal(recoveryFailureRecord(new Error(`failed\n[file-recovery] ${id}`)), id);
   for (const message of ['failed', '[file-recovery] ../x', `failed\n[file-recovery] ${id}/../x`])
@@ -298,7 +301,9 @@ test('a coded mutation failure invalidates approval and gives an actionable reas
 test('closed discovery ignores the old project and old host responses', async (t) => {
   const old = deferred();
   const ui = await mount(t, {}, ProjectRecoverySurface, (window) => {
-    window.mixdogDesktop = { projectRecovery: (project) => project === '/project-a' ? old.promise : Promise.resolve({ records: [] }) };
+    window.mixdogDesktop = {
+      projectRecovery: (project) => (project === '/project-a' ? old.promise : Promise.resolve({ records: [] })),
+    };
   });
   await ui.render({ projectPath: '/project-b' });
   await act(async () => old.resolve({ records: [detail] }));
@@ -314,11 +319,22 @@ test('closed discovery ignores the old project and old host responses', async (t
 
 test('capacity and missing-folder notices distinguish retained and resolved records', async (t) => {
   const ui = await mount(t, {}, ProjectRecoverySurface, (window) => {
-    window.mixdogDesktop = { projectRecovery: async () => ({
-      records: [detail], rootAvailable: false,
-      storage: { usedRecords: 20, maxRecords: 20, unresolvedRecords: 18, resolvedRecords: 2,
-        payloadBytes: 1048576, unknownSizeRecords: 1, maxBatchBytes: 16777216, maxBatchFiles: 100 },
-    }) };
+    window.mixdogDesktop = {
+      projectRecovery: async () => ({
+        records: [detail],
+        rootAvailable: false,
+        storage: {
+          usedRecords: 20,
+          maxRecords: 20,
+          unresolvedRecords: 18,
+          resolvedRecords: 2,
+          payloadBytes: 1048576,
+          unknownSizeRecords: 1,
+          maxBatchBytes: 16777216,
+          maxBatchFiles: 100,
+        },
+      }),
+    };
   });
   await act(async () => {
     const element = ui.document.querySelector('details');
@@ -334,25 +350,37 @@ test('capacity and missing-folder notices distinguish retained and resolved reco
 
 test('batch failure affordance opens the exact record only after a user click', async (t) => {
   const calls = [];
-  const ui = await mount(t, { message: `batch failed\n[file-recovery] ${id}`, onOpenFile() {} }, ProjectRecoveryNotice, (window) => {
-    window.mixdogDesktop = { projectRecovery: async (project, input) => {
-      calls.push([project, input]);
-      return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
-    } };
-  });
+  const ui = await mount(
+    t,
+    { message: `batch failed\n[file-recovery] ${id}`, onOpenFile() {} },
+    ProjectRecoveryNotice,
+    (window) => {
+      window.mixdogDesktop = {
+        projectRecovery: async (project, input) => {
+          calls.push([project, input]);
+          return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
+        },
+      };
+    }
+  );
   assert.equal(calls.length, 0);
   await ui.click('Inspect file recovery');
   assert.ok(calls.some(([, input]) => input.action === 'inspect' && input.id === id));
-  assert.equal(calls.some(([, input]) => ['discard', 'restore'].includes(input.action)), false);
+  assert.equal(
+    calls.some(([, input]) => ['discard', 'restore'].includes(input.action)),
+    false
+  );
 });
 
 test('focus refresh failure never reports zero records as a successful inventory', async (t) => {
   let failed = false;
   const ui = await mount(t, {}, ProjectRecoverySurface, (window) => {
-    window.mixdogDesktop = { projectRecovery: async () => {
-      if (failed) throw new Error('offline');
-      return { records: [detail] };
-    } };
+    window.mixdogDesktop = {
+      projectRecovery: async () => {
+        if (failed) throw new Error('offline');
+        return { records: [detail] };
+      },
+    };
   });
   assert.match(ui.document.querySelector('summary').textContent, /1/);
   failed = true;
@@ -365,20 +393,30 @@ test('focus refresh failure never reports zero records as a successful inventory
 
 for (const source of ['focus', 'folder']) {
   test(`open recovery ${source} refresh replaces the visible list and invalidates inspection`, async (t) => {
-    let records = [detail], folderChanged;
+    let records = [detail],
+      folderChanged;
     const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
       window.mixdogDesktop = {
         projectRecovery: async (_project, input) => ({ records, ...(input.action === 'inspect' ? { detail } : {}) }),
-        subscribeFolderChanges: (callback) => { folderChanged = callback; return () => {}; },
+        subscribeFolderChanges: (callback) => {
+          folderChanged = callback;
+          return () => {};
+        },
       };
     });
     await ui.click('Inspect');
     assert.ok(ui.button('Restore'));
-    records = [{ ...detail, id: '22345678-abcd-abcd-abcd-123456789abc' }, { ...detail, id: '32345678-abcd-abcd-abcd-123456789abc' }];
+    records = [
+      { ...detail, id: '22345678-abcd-abcd-abcd-123456789abc' },
+      { ...detail, id: '32345678-abcd-abcd-abcd-123456789abc' },
+    ];
     if (source === 'folder') t.mock.timers.enable({ apis: ['setTimeout'] });
     await act(async () => {
       if (source === 'focus') window.dispatchEvent(new window.Event('focus'));
-      else { folderChanged('/project-a'); t.mock.timers.tick(250); }
+      else {
+        folderChanged('/project-a');
+        t.mock.timers.tick(250);
+      }
     });
     assert.equal(ui.button('Restore'), undefined);
     assert.equal([...ui.document.querySelectorAll('button')].filter((b) => b.textContent === 'Inspect').length, 2);
@@ -389,10 +427,12 @@ for (const source of ['focus', 'folder']) {
 test('an unavailable automatic refresh clears open controls and permits an explicit retry', async (t) => {
   let failed = false;
   const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
-    window.mixdogDesktop = { projectRecovery: async (_project, input) => {
-      if (failed) throw new Error('RECOVERY_MANUAL_INSPECTION: unknown entry');
-      return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
-    } };
+    window.mixdogDesktop = {
+      projectRecovery: async (_project, input) => {
+        if (failed) throw new Error('RECOVERY_MANUAL_INSPECTION: unknown entry');
+        return { records: [detail], ...(input.action === 'inspect' ? { detail } : {}) };
+      },
+    };
   });
   await ui.click('Inspect');
   failed = true;
@@ -410,8 +450,9 @@ test('an inspect response preceding automatic discovery cannot revive an old app
   const old = deferred();
   let records = [detail];
   const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
-    window.mixdogDesktop = { projectRecovery: async (_project, input) =>
-      input.action === 'inspect' ? old.promise : { records } };
+    window.mixdogDesktop = {
+      projectRecovery: async (_project, input) => (input.action === 'inspect' ? old.promise : { records }),
+    };
   });
   await ui.click('Inspect');
   records = [];
@@ -427,12 +468,14 @@ test('automatic refresh does not reopen an initial record after explicit discard
   const requests = [];
   const ui = await mount(t, { initialRecordId: id }, ProjectRecoverySurface, (window) => {
     overrideConfirmAction(() => true);
-    window.mixdogDesktop = { projectRecovery: async (_project, input) => {
-      requests.push(input);
-      if (input.action === 'discard') records = [];
-      if (input.action === 'inspect' && !records.length) throw new Error('RECOVERY_UNAVAILABLE: discarded');
-      return { records, ...(input.action === 'inspect' ? { detail } : {}) };
-    } };
+    window.mixdogDesktop = {
+      projectRecovery: async (_project, input) => {
+        requests.push(input);
+        if (input.action === 'discard') records = [];
+        if (input.action === 'inspect' && !records.length) throw new Error('RECOVERY_UNAVAILABLE: discarded');
+        return { records, ...(input.action === 'inspect' ? { detail } : {}) };
+      },
+    };
   });
   assert.ok(ui.button('Delete'));
   await ui.click('Delete');

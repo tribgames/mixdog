@@ -245,7 +245,7 @@ export function AgentCreateDialog({
     [values.quickProviderModels, values.providerSetup]
   );
   const providerNames = useMemo(() => customProviderDisplayNames(values.providerSetup), [values.providerSetup]);
-  const { pending, error, setError, run }= useSidebarCapabilityRunner({
+  const { pending, error, setError, run } = useSidebarCapabilityRunner({
     api,
     completeMutation,
     toastScope: 'workflow',

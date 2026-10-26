@@ -54,12 +54,17 @@ export function VisualizeSource({
   if (error) return <div className="visualize-empty">{error}</div>;
   if (!loaded) return <div className="visualize-empty">{t('Loading…')}</div>;
   const copy = () => {
-    void navigator.clipboard?.writeText(text).then(() => setCopied(true), () => {});
+    void navigator.clipboard?.writeText(text).then(
+      () => setCopied(true),
+      () => {}
+    );
   };
   return (
     <div className="visualize-source" data-visualize-source="">
       <div className="visualize-source-bar">
-        <span className="visualize-source-note">{loaded.truncated ? t('The source is long; showing only the start.') : ''}</span>
+        <span className="visualize-source-note">
+          {loaded.truncated ? t('The source is long; showing only the start.') : ''}
+        </span>
         <button
           type="button"
           className="visualize-source-copy"
@@ -78,7 +83,9 @@ export function VisualizeSource({
               {number + 1}
             </span>
             <code>
-              {line.length ? line.map((token, at) => <Token key={`${at}:${token.text.length}`} token={token} />) : '\u200b'}
+              {line.length
+                ? line.map((token, at) => <Token key={`${at}:${token.text.length}`} token={token} />)
+                : '\u200b'}
             </code>
           </div>
         ))}

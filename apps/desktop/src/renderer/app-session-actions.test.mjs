@@ -252,7 +252,13 @@ test('closeSessionPaneTabs never falls back to the deleted session open in other
   });
   // Other pane shows A as active with B behind it: B is the post-deletion active.
   assert.deepEqual(
-    closeSessionPaneTabs('a', [leaf('l', ['a'], 'a'), leaf('m', ['a', 'b'], 'a')], 'l', [{ key: 'session:b', title: 'B' }], close),
+    closeSessionPaneTabs(
+      'a',
+      [leaf('l', ['a'], 'a'), leaf('m', ['a', 'b'], 'a')],
+      'l',
+      [{ key: 'session:b', title: 'B' }],
+      close
+    ),
     { selection: { kind: 'session', id: 'b' }, title: 'B' }
   );
   // A open in three panes: skip panes left empty, use the first surviving active tab.

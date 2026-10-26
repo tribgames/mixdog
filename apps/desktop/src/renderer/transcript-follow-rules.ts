@@ -251,12 +251,7 @@ export function judgeScrollEvent(input: {
   // moving down, is the reader's own arrival: nothing would reconsider it
   // once the window closes.
   const writeExplains = input.atWrittenTop || (input.inWriteWindow && !(input.top > input.previousTop));
-  if (
-    !gesture &&
-    !writeExplains &&
-    input.lastDirection > 0 &&
-    input.distance <= REPIN_PX
-  ) {
+  if (!gesture && !writeExplains && input.lastDirection > 0 && input.distance <= REPIN_PX) {
     return 'pin';
   }
   if (!input.pinned || !(input.top < input.previousTop) || input.distance <= END_TOLERANCE_PX) return 'none';

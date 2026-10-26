@@ -1215,8 +1215,7 @@ function ToolApprovalCard({
   const resolvingRef = useRef(false);
   const edited = model.editable.length > 0 && text !== model.payload;
   // A value is only ever handed to this PC; a paired phone has no such path.
-  const secretEntry =
-    typeof window !== 'undefined' && typeof window.mixdogDesktop?.provideSecretInput === 'function';
+  const secretEntry = typeof window !== 'undefined' && typeof window.mixdogDesktop?.provideSecretInput === 'function';
   const owner = useOwnerChip(approval, hostSessionId, approvalChainLabel(approval.chain));
   const handsOver = model.kind === 'secret' || model.kind === 'takeover';
   const rows = approvalCardRows(model, {

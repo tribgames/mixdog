@@ -19,13 +19,7 @@ import { scrimDismiss } from '../scrim-dismiss';
 import { ScmContextMenu, type ScmContextMenuState } from '../ScmContextMenu';
 import { BrowserImportDialog } from '../BrowserImportDialog';
 import { ActionButton, Group, SettingsConfirmDialog, ToggleRow } from './capability-controls';
-import {
-  type AuthFilter,
-  type AuthRow,
-  authCounts,
-  filterAuthRows,
-  mergeAuthRows,
-} from './auth-rows';
+import { type AuthFilter, type AuthRow, authCounts, filterAuthRows, mergeAuthRows } from './auth-rows';
 import { loginSavePayload } from './auth-login-draft';
 
 type AuthApi = Partial<DesktopApi>;
@@ -120,15 +114,12 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
     }
   };
 
-  const toggleSetting = (
-    key: 'browserAutoSignIn' | 'saveChatLogins',
-    next: boolean,
-    set: (value: boolean) => void
-  ) => {
+  const toggleSetting = (key: 'browserAutoSignIn' | 'saveChatLogins', next: boolean, set: (value: boolean) => void) => {
     set(next);
     void Promise.resolve(api.updateSetting?.(key, next))
       .then((settings) => {
-        if (settings) set(key === 'browserAutoSignIn' ? settings.browserAutoSignIn !== false : settings.saveChatLogins !== false);
+        if (settings)
+          set(key === 'browserAutoSignIn' ? settings.browserAutoSignIn !== false : settings.saveChatLogins !== false);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   };
@@ -158,7 +149,11 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
       });
     }
     if (row.cookies > 0) {
-      items.push({ id: 'signout', label: t('Sign out'), onSelect: () => void run(() => api.browserSignOutSite?.(row.host) ?? Promise.resolve()) });
+      items.push({
+        id: 'signout',
+        label: t('Sign out'),
+        onSelect: () => void run(() => api.browserSignOutSite?.(row.host) ?? Promise.resolve()),
+      });
     }
     if (row.loginId) {
       items.push({
@@ -236,7 +231,9 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
           <p className="settings-empty">{t('Loading…')}</p>
         ) : noLogins ? (
           <p className="settings-empty">
-            {t('No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).')}
+            {t(
+              'No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).'
+            )}
           </p>
         ) : shown.length === 0 ? (
           <p className="settings-empty">{t('No saved logins yet.')}</p>
@@ -250,9 +247,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
                 <span className="auth-row-copy">
                   <b>{row.host}</b>
                   <small>
-                    {row.linked && (
-                      <span className="auth-pill auth-pill-linked">{row.linked.provider}</span>
-                    )}
+                    {row.linked && <span className="auth-pill auth-pill-linked">{row.linked.provider}</span>}
                     {row.username ? <span className="auth-user">{row.username}</span> : null}
                     {row.hasPassword && (
                       <span className="auth-pill auth-pill-key">
@@ -260,7 +255,9 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
                       </span>
                     )}
                     {row.hasTotp && <span className="auth-pill auth-pill-otp">{t('Authenticator key')}</span>}
-                    {row.cookies > 0 && <span className="auth-pill">{t('Cookies {{count}}', { count: row.cookies })}</span>}
+                    {row.cookies > 0 && (
+                      <span className="auth-pill">{t('Cookies {{count}}', { count: row.cookies })}</span>
+                    )}
                     {row.loggedOut && <span className="auth-pill auth-pill-off">{t('Signed out')}</span>}
                     <span className="auth-source">· {sourceText(row)}</span>
                   </small>
@@ -374,7 +371,14 @@ function LoginDialog({
   login: DesktopVaultLogin | null;
   busy: boolean;
   onClose(): void;
-  onSave(input: { id?: string; origin: string; username: string; password?: string; totpSecret?: string; note?: string }): void;
+  onSave(input: {
+    id?: string;
+    origin: string;
+    username: string;
+    password?: string;
+    totpSecret?: string;
+    note?: string;
+  }): void;
 }) {
   const titleId = useId();
   const [site, setSite] = useState(() => (login ? login.origin.replace(/^https?:\/\//, '') : ''));

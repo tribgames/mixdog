@@ -216,7 +216,9 @@ test('a failed login shows its error in the wait dialog', async () => {
     await act(async () => {
       document.querySelector('.extensions-mcp-dialog .extensions-action').click();
     });
-    await waitFor(() => /Failed/.test(document.querySelector('.settings-oauth-dialog .settings-oauth-wait')?.textContent ?? ''));
+    await waitFor(() =>
+      /Failed/.test(document.querySelector('.settings-oauth-dialog .settings-oauth-wait')?.textContent ?? '')
+    );
     const dialog = document.querySelector('.settings-oauth-dialog');
     assert.ok(dialog, 'the dialog stays open on failure');
     assert.match(dialog.querySelector('.settings-oauth-wait').textContent, /Failed/);

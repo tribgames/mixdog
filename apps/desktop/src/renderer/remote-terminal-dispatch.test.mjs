@@ -4,7 +4,7 @@ import { REMOTE_TERMINAL_RUN_EVENT } from '../shared/terminal-command.ts';
 import { createRemoteApi } from './remote-shim-api.ts';
 import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
 
-test('a relayed terminal reveal reaches the phone\'s listeners, authenticated and well-formed only', async () => {
+test("a relayed terminal reveal reaches the phone's listeners, authenticated and well-formed only", async () => {
   await withShim({}, async ({ ctx, dial }) => {
     const api = createRemoteApi(ctx);
     const leg = await dial({ ready: publishedCeilings(4096, 4096) });
@@ -28,7 +28,10 @@ test('a relayed terminal reveal reaches the phone\'s listeners, authenticated an
       payload: { sessionId: 's2', requestId: 'ack', tabs: [{ id: 3, tab: 'x' }] },
     });
     // A path in a relayed tab is never adopted.
-    await leg.deliver({ event: REMOTE_TERMINAL_RUN_EVENT, payload: { ...reveal, tabs: [{ id: 'session-terminal:s1:2', tab: 2, cwd: '/secret' }] } });
+    await leg.deliver({
+      event: REMOTE_TERMINAL_RUN_EVENT,
+      payload: { ...reveal, tabs: [{ id: 'session-terminal:s1:2', tab: 2, cwd: '/secret' }] },
+    });
     assert.deepEqual(runs, [reveal, { sessionId: 's2' }, reveal]);
 
     off();
@@ -36,4 +39,3 @@ test('a relayed terminal reveal reaches the phone\'s listeners, authenticated an
     assert.equal(runs.length, 3);
   });
 });
-

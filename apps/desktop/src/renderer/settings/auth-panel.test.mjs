@@ -5,7 +5,10 @@ import React, { act } from 'react';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { AuthPanel } from './auth-panel.tsx';
 
-const DOM = { rootId: 'root', expose: ['HTMLElement', 'HTMLInputElement', 'Node', 'KeyboardEvent', 'Event', 'CustomEvent', 'MouseEvent'] };
+const DOM = {
+  rootId: 'root',
+  expose: ['HTMLElement', 'HTMLInputElement', 'Node', 'KeyboardEvent', 'Event', 'CustomEvent', 'MouseEvent'],
+};
 const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)));
 
 function makeApi() {
@@ -126,7 +129,12 @@ test('the "stay signed in only" option is hidden when its count is zero', async 
 });
 
 test('with no logins: primary Import, an import hint, no switch or search, settings kept', async (t) => {
-  const api = { ...makeApi(), browserVaultLogins: async () => [], browserSignedInSites: async () => [], browserProfileImportSources: async () => [] };
+  const api = {
+    ...makeApi(),
+    browserVaultLogins: async () => [],
+    browserSignedInSites: async () => [],
+    browserProfileImportSources: async () => [],
+  };
   const dom = await mount(t, api);
   const doc = dom.window.document;
   const buttons = [...doc.querySelectorAll('.auth-tools button')];
@@ -161,7 +169,14 @@ test('linked sign-ins list with the cookie-only logins: provider pill, identity,
       identity: 'tempest1033@gmail.com',
       lastUsedAt: 2,
     },
-    { id: 'd'.repeat(24), site: 'vercel.com', redirectHost: 'vercel.com', provider: 'github.com', identity: '', lastUsedAt: 1 },
+    {
+      id: 'd'.repeat(24),
+      site: 'vercel.com',
+      redirectHost: 'vercel.com',
+      provider: 'github.com',
+      identity: '',
+      lastUsedAt: 1,
+    },
   ];
   const deleted = [];
   let cleared = 0;
@@ -186,7 +201,8 @@ test('linked sign-ins list with the cookie-only logins: provider pill, identity,
   assert.ok(options()[1].textContent.endsWith('3'), options()[1].textContent);
   await act(async () => options()[1].click());
   assert.deepEqual(rowHosts(doc), ['chatgpt.com', 'naver.com', 'vercel.com']);
-  const row = (host) => [...doc.querySelectorAll('.auth-row')].find((entry) => entry.querySelector('b').textContent === host);
+  const row = (host) =>
+    [...doc.querySelectorAll('.auth-row')].find((entry) => entry.querySelector('b').textContent === host);
   const chatgpt = row('chatgpt.com');
   assert.equal(chatgpt.querySelector('.auth-pill-linked').textContent, 'Google');
   assert.equal(chatgpt.querySelector('.auth-user').textContent, 'tempest1033@gmail.com');

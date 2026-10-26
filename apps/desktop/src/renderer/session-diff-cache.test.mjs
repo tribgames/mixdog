@@ -157,7 +157,9 @@ test('a forced read invalidates omitted-file patches even when counts and metada
         return {
           value: {
             supported: true,
-            files: [{ path: 'big.txt', status: 'M', additions: 5, deletions: 1, patchOmitted: true, reason: 'too_large' }],
+            files: [
+              { path: 'big.txt', status: 'M', additions: 5, deletions: 1, patchOmitted: true, reason: 'too_large' },
+            ],
             patch: '',
           },
         };

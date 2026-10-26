@@ -106,7 +106,11 @@ function isDelimiterRow(line: string): boolean {
  *  table instead of continuing it. */
 function startsBlock(line: string): boolean {
   return (
-    HEADING.test(line) || LIST_START.test(line) || FENCE_LINE.test(line) || THEMATIC_BREAK.test(line) || HTML_BLOCK.test(line)
+    HEADING.test(line) ||
+    LIST_START.test(line) ||
+    FENCE_LINE.test(line) ||
+    THEMATIC_BREAK.test(line) ||
+    HTML_BLOCK.test(line)
   );
 }
 

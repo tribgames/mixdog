@@ -29,9 +29,7 @@ const { SchedulesPane } = await import('./SchedulesView.tsx');
 test('the edit dialog name is enabled, and a changed name saves old name + newName', async () => {
   resetSidebarReferenceCache();
   updateSidebarReference('channelSetup', {
-    schedules: [
-      { name: 'daily-report', whenCron: '0 9 * * *', instructions: 'Report', enabled: true, owner: 'lead' },
-    ],
+    schedules: [{ name: 'daily-report', whenCron: '0 9 * * *', instructions: 'Report', enabled: true, owner: 'lead' }],
     webhooks: [],
   });
   updateSidebarReference('projects', []);
@@ -56,9 +54,7 @@ test('the edit dialog name is enabled, and a changed name saves old name + newNa
     assert.equal(input.maxLength, 64);
     const submit = () =>
       act(async () =>
-        document
-          .querySelector('form')
-          .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+        document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
       );
     input.value = 'morning-report';
     await submit();
@@ -97,9 +93,7 @@ async function saveOneShot(whenAt, edit) {
     await act(async () => document.querySelector('.routines-open').click());
     edit();
     await act(async () =>
-      document
-        .querySelector('form')
-        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+      document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
     );
     assert.equal(saves.length, 1);
     return saves[0];
@@ -148,9 +142,7 @@ test('saving an edit without changing the name carries no newName', async () => 
     await act(async () => root.render(React.createElement(SchedulesPane, { api, active: true })));
     await act(async () => document.querySelector('.routines-open').click());
     await act(async () =>
-      document
-        .querySelector('form')
-        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+      document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
     );
     assert.equal(saves[0].name, 'daily-report');
     assert.equal(Object.hasOwn(saves[0], 'newName'), false);
@@ -158,4 +150,3 @@ test('saving an edit without changing the name carries no newName', async () => 
     await act(async () => root.unmount());
   }
 });
-

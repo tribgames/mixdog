@@ -23,13 +23,22 @@ import {
 } from './visualize-tweaks-store.ts';
 import { tweakChanges } from '../shared/visualize-tweaks.ts';
 
-installTestDom(null, { html: '<html><body></body></html>', jsdom: { url: 'https://mixdog.test/' }, expose: ['sessionStorage'] });
+installTestDom(null, {
+  html: '<html><body></body></html>',
+  jsdom: { url: 'https://mixdog.test/' },
+  expose: ['sessionStorage'],
+});
 
 const block = JSON.stringify([
   { id: 'accent', label: 'Accent', type: 'color', var: '--accent', default: '#3b82f6' },
   { id: 'size', type: 'range', var: '--size', min: 10, max: 20, step: 2, unit: 'px', default: 14 },
 ]);
-const tab = { id: 'v1', label: 'Mockup', panes: [{ kind: 'html' }, { kind: 'html', version: 2 }], versions: [{ n: 1 }, { n: 3 }] };
+const tab = {
+  id: 'v1',
+  label: 'Mockup',
+  panes: [{ kind: 'html' }, { kind: 'html', version: 2 }],
+  versions: [{ n: 1 }, { n: 3 }],
+};
 
 test('a page report sets or clears the pane controls; a malformed block yields its reason', () => {
   resetVisualizeTweakStore();
@@ -73,7 +82,10 @@ test('"Use these values" queues one chip per pane that rides with the next messa
   const set = { tabId: 'v1', tabLabel: 'Mockup', pane: 0, file: 'design/a.html', changes };
   setVisualizeTweakSet('s1', set);
   assert.equal(visualizeFeedbackPending(visualizeFeedbackFor('s1')), true);
-  assert.equal(visualizeTweaksChip(visualizeFeedbackFor('s1').tweaks), '🎚 accent: #2f6fed (was #3b82f6), size: 18px (was 14px)');
+  assert.equal(
+    visualizeTweaksChip(visualizeFeedbackFor('s1').tweaks),
+    '🎚 accent: #2f6fed (was #3b82f6), size: 18px (was 14px)'
+  );
   // A new set for the same pane replaces it; no changes drops it.
   setVisualizeTweakSet('s1', { ...set, changes: [changes[0]] });
   assert.equal(visualizeFeedbackFor('s1').tweaks.length, 1);
@@ -89,7 +101,10 @@ test('"Use these values" queues one chip per pane that rides with the next messa
   // Queued while the message travelled: stays for the next one.
   setVisualizeTweakSet('s1', { ...set, pane: 1 });
   consumeVisualizeFeedback('s1', sent);
-  assert.deepEqual(visualizeFeedbackFor('s1').tweaks.map((entry) => entry.pane), [1]);
+  assert.deepEqual(
+    visualizeFeedbackFor('s1').tweaks.map((entry) => entry.pane),
+    [1]
+  );
   setVisualizeTweakSet('s1', { ...set, pane: 1, changes: [] });
   assert.equal(visualizeFeedbackPending(visualizeFeedbackFor('s1')), false);
 });

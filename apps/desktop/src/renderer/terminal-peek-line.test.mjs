@@ -4,7 +4,11 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
-import { activeSessionTerminalId, getSessionTerminalTabs, releaseSessionTerminalTabs } from './session-terminal-tabs.ts';
+import {
+  activeSessionTerminalId,
+  getSessionTerminalTabs,
+  releaseSessionTerminalTabs,
+} from './session-terminal-tabs.ts';
 import { onTerminalRevealRequested } from './terminal-command-request.ts';
 import { desktopToolActivityTerminalRuns } from './transcript-tool-core.ts';
 import { TerminalPeekLines } from './terminal-peek-line.tsx';
@@ -25,7 +29,14 @@ test('only a run whose reply names its terminal leaves a card; a pending call le
   const items = [
     run('a', 'npm test', REPLY('session-terminal:sess-1:2')),
     { ...run('b', 'ls', 'Error: no terminal tab 5'), isError: true },
-    { kind: 'tool', id: 'c', name: 'terminal', args: { action: 'read', tab: 1 }, result: 'Terminal: x', completedAt: 1 },
+    {
+      kind: 'tool',
+      id: 'c',
+      name: 'terminal',
+      args: { action: 'read', tab: 1 },
+      result: 'Terminal: x',
+      completedAt: 1,
+    },
     { kind: 'tool', id: 'd', name: 'terminal', args: { action: 'run', command: 'pwd' }, completedAt: 0 },
   ];
   assert.deepEqual(desktopToolActivityTerminalRuns(items), [
@@ -62,9 +73,7 @@ test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab a
       stop = onTerminalRevealRequested((sessionId) => revealed.push(sessionId));
     });
     try {
-      await act(async () =>
-        root.render(React.createElement(ToolActivityGroup, { items, disclosureScope: sid }))
-      );
+      await act(async () => root.render(React.createElement(ToolActivityGroup, { items, disclosureScope: sid })));
       const card = dom.window.document.querySelector('.transcript-terminal-peek');
       assert.ok(card, 'the tool group carries a terminal card');
       assert.equal(card.textContent, 'Terminal·npm test·View');
@@ -72,7 +81,10 @@ test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab a
       await act(async () => card.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
       assert.deepEqual(revealed, [sid]);
       assert.equal(activeSessionTerminalId(sid), `session-terminal:${sid}:2`);
-      assert.deepEqual(getSessionTerminalTabs(sid).tabs.map((tab) => tab.n), [1, 2]);
+      assert.deepEqual(
+        getSessionTerminalTabs(sid).tabs.map((tab) => tab.n),
+        [1, 2]
+      );
 
       // A draft has no dock to open.
       await act(async () => root.render(React.createElement(TerminalPeekLines, { items, sessionId: 'new-task' })));
@@ -90,5 +102,3 @@ test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab a
     dom.window.close();
   }
 });
-
-

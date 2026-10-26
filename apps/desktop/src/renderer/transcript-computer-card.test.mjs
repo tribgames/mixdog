@@ -37,23 +37,20 @@ test('a refusal naming windows opens the notice; a later window call that worked
   });
   // The card reads the structured meta, never the message text.
   assert.equal(
-    desktopToolComputerReadinessNotice([call('a', { action: 'list_windows' }, { result: REFUSAL('windows'), isError: true })]),
+    desktopToolComputerReadinessNotice([
+      call('a', { action: 'list_windows' }, { result: REFUSAL('windows'), isError: true }),
+    ]),
     null
   );
   // A vision capture that worked says nothing about the window helper.
-  assert.equal(
-    desktopToolComputerReadinessNotice([refused('a'), call('b', { action: 'screenshot' })]).ready,
-    false
-  );
+  assert.equal(desktopToolComputerReadinessNotice([refused('a'), call('b', { action: 'screenshot' })]).ready, false);
   assert.equal(
     desktopToolComputerReadinessNotice([refused('a'), call('b', { action: 'focus_window', window_id: 'w1' })]).ready,
     true
   );
   assert.equal(
-    desktopToolComputerReadinessNotice([
-      refused('a'),
-      call('b', JSON.stringify({ action: 'capture', app: 'Files' })),
-    ]).ready,
+    desktopToolComputerReadinessNotice([refused('a'), call('b', JSON.stringify({ action: 'capture', app: 'Files' }))])
+      .ready,
     true
   );
   // Still refused afterwards: not ready.

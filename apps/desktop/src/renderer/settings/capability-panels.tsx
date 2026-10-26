@@ -25,15 +25,7 @@ import { SkinPanel } from './skin-panel';
 import { BotsPanel } from './desktop-pet-toggle';
 import { NotificationsPanel } from './notification-panel';
 
-import {
-  ActionButton,
-  AutoSaveRow,
-  Group,
-  ListEmpty,
-  ResourceRow,
-  SelectRow,
-  ToggleRow,
-} from './capability-controls';
+import { ActionButton, AutoSaveRow, Group, ListEmpty, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import {
   durationTextInput,
   formatDuration,

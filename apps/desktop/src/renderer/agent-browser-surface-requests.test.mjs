@@ -186,7 +186,9 @@ test('a child browser reveal opens its page as a borrowed tab in the owner dock,
   assert.equal(shell.surfaces.sessionSideSurfaces.get('boss'), 'browser');
   assert.deepEqual(borrowedBrowserTab('boss'), { ownerSessionId: 'kid-1', ownerName: '시장 조사', tabId: 'p3' });
   assert.deepEqual(
-    shell.peeksOf('boss').map(({ childSessionId, childName, tabId, title, failed }) => [childSessionId, childName, tabId, title, failed]),
+    shell
+      .peeksOf('boss')
+      .map(({ childSessionId, childName, tabId, title, failed }) => [childSessionId, childName, tabId, title, failed]),
     [['kid-1', '시장 조사', 'p3', '공시 검색', '']]
   );
   // A failed open: its line says why, and nothing opens.
@@ -253,7 +255,11 @@ test("a child's login hand-off opens its handed-over page in the delegating conv
   await act(async () => shell.surfaces.dismissBrowserSurface(id('boss')));
   await shell.send({ sessionId: id('kid-1'), reveal: true, handoff: true, tabId: 'p9', title: 'Sign in' });
   assert.deepEqual(shell.selections, [['pane-a', 'browser']]);
-  assert.deepEqual(borrowedBrowserTab(id('boss')), { ownerSessionId: id('kid-1'), ownerName: '시장 조사', tabId: 'p9' });
+  assert.deepEqual(borrowedBrowserTab(id('boss')), {
+    ownerSessionId: id('kid-1'),
+    ownerName: '시장 조사',
+    tabId: 'p9',
+  });
 });
 
 test("closing the owner's dock drops the child page it borrowed, so the dock reopens on its own browser", async (t) => {

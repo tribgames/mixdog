@@ -132,7 +132,14 @@ test('the verb pool follows the active language and updates on a switch', async 
     assert.equal(late(101_000, 59_000), '다시 연결하는 중… 1/5 · 59초 후 재시도');
     await i18n.changeLanguage('en');
     const english = (now) =>
-      activityVerb({ mode: 'reconnecting', runtimeVerb: published, retryKey: 'en', retryInMs: 210_000, anchor: 1, now });
+      activityVerb({
+        mode: 'reconnecting',
+        runtimeVerb: published,
+        retryKey: 'en',
+        retryInMs: 210_000,
+        anchor: 1,
+        now,
+      });
     assert.equal(english(1_000), 'Rate limited by the provider · retry 1/5 in 210s');
     assert.equal(english(2_000), 'Rate limited by the provider · retry 1/5 in 209s');
     assert.equal(english(211_000), 'Rate limited by the provider · retry 1/5');

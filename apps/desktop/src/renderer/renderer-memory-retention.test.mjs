@@ -6,7 +6,10 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { deleteSessionImagePreviews } from './image-preview-store.ts';
 import { totalBudgetedChars } from './renderer-cache-budget.ts';
 import { createSessionLaneStore } from './session-lane-store.ts';
-import { createTranscriptSnapshotDecorator, sharedTranscriptSnapshotDecorator } from './snapshot-transcript-decoration.ts';
+import {
+  createTranscriptSnapshotDecorator,
+  sharedTranscriptSnapshotDecorator,
+} from './snapshot-transcript-decoration.ts';
 import { createTranscriptIdentityReconciler } from './transcript-identity.ts';
 import { loadAttachmentThumbnail } from './transcript-row.tsx';
 import { CompletionStatus, completionActivityKey } from './transcript-status.tsx';
@@ -34,10 +37,16 @@ test('identity stays stable across tail-window frames with the reduced baseline 
   reconciler.reconcile({ sessionId: 's', items: rows(0, 40, 'a') });
   // A tail window from another id namespace adopts the displayed ids.
   const windowed = reconciler.reconcile({ sessionId: 's', items: rows(20, 40, 'b') });
-  assert.deepEqual(ids(windowed), rows(20, 40, 'a').map((item) => item.id));
+  assert.deepEqual(
+    ids(windowed),
+    rows(20, 40, 'a').map((item) => item.id)
+  );
   // The merged superset survives: the full frame in the other namespace still adopts every id.
   const full = reconciler.reconcile({ sessionId: 's', items: rows(0, 40, 'c') });
-  assert.deepEqual(ids(full), rows(0, 40, 'a').map((item) => item.id));
+  assert.deepEqual(
+    ids(full),
+    rows(0, 40, 'a').map((item) => item.id)
+  );
   // A streaming append keeps ids and the same array arriving again is a no-op.
   const appended = rows(0, 41, 'd');
   assert.deepEqual(ids(reconciler.reconcile({ sessionId: 's', items: appended })), [
@@ -68,8 +77,16 @@ test('a 750-char common prefix with different endings never aligns, in either di
   const A = `${prefix}Task A long version`;
   const B = `${prefix}Task B`;
   const rowsOf = (text, tag, count = 120) =>
-    Array.from({ length: count }, (_, i) => ({ id: `${tag}${i}`, kind: i % 2 ? 'tool' : 'user', name: 'read', text: i === 0 ? text : `q${i}` }));
-  for (const [baseText, incomingText] of [[A, B], [B, A]]) {
+    Array.from({ length: count }, (_, i) => ({
+      id: `${tag}${i}`,
+      kind: i % 2 ? 'tool' : 'user',
+      name: 'read',
+      text: i === 0 ? text : `q${i}`,
+    }));
+  for (const [baseText, incomingText] of [
+    [A, B],
+    [B, A],
+  ]) {
     const reconciler = createTranscriptIdentityReconciler();
     reconciler.reconcile({ sessionId: 's', items: rowsOf(baseText, 'a') });
     // Tail window whose first row is the other text: it must keep its own id.
@@ -78,14 +95,20 @@ test('a 750-char common prefix with different endings never aligns, in either di
     const fresh = createTranscriptIdentityReconciler();
     fresh.reconcile({ sessionId: 's', items: rowsOf(baseText, 'a') });
     const full = fresh.reconcile({ sessionId: 's', items: rowsOf(incomingText, 'c') });
-    assert.ok(ids(full).every((id, i) => id === `c${i}`), 'a different history keeps every id');
+    assert.ok(
+      ids(full).every((id, i) => id === `c${i}`),
+      'a different history keeps every id'
+    );
   }
 });
 
 test('a long streaming prefix still aligns to its grown text', () => {
   const prefix = 'streamed answer '.repeat(80);
   const reconciler = createTranscriptIdentityReconciler();
-  reconciler.reconcile({ sessionId: 's', items: [{ id: 'a1', kind: 'assistant', text: `${prefix}${'x'.repeat(700)}` }] });
+  reconciler.reconcile({
+    sessionId: 's',
+    items: [{ id: 'a1', kind: 'assistant', text: `${prefix}${'x'.repeat(700)}` }],
+  });
   const grown = reconciler.reconcile({
     sessionId: 's',
     items: [{ id: 'z9', kind: 'assistant', text: `${prefix}${'x'.repeat(900)}` }],
@@ -99,7 +122,10 @@ test('every visible lane (9+) keeps stable row ids while sources alternate', () 
   for (const sessionId of lanes) reconciler.reconcile({ sessionId, items: rows(0, 12, `${sessionId}-a`) });
   for (const sessionId of lanes) {
     const next = reconciler.reconcile({ sessionId, items: rows(4, 12, `${sessionId}-b`) });
-    assert.deepEqual(ids(next), rows(4, 12, `${sessionId}-a`).map((item) => item.id));
+    assert.deepEqual(
+      ids(next),
+      rows(4, 12, `${sessionId}-a`).map((item) => item.id)
+    );
   }
 });
 
@@ -124,7 +150,8 @@ test('the decorator forgets a session and its failure scope; scopes are on the s
   const fresh = decorator.decorate({ sessionId: 's', items: failed('c') });
   assert.deepEqual(ids(fresh), ['c0', 'c1']);
   assert.equal(fresh.failedTurnKeys.length, 1);
-  for (let index = 0; index < 30; index += 1) decorator.decorate({ sessionId: `many-${index}`, items: failed(`m${index}`) });
+  for (let index = 0; index < 30; index += 1)
+    decorator.decorate({ sessionId: `many-${index}`, items: failed(`m${index}`) });
   assert.equal(decorator.decorate({ sessionId: 's', items: failed('c') }).failedTurnKeys.length, 1);
 
   sharedTranscriptSnapshotDecorator.decorate({ sessionId: 'shared', items: failed('z') });

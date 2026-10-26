@@ -11,7 +11,16 @@ const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)))
 
 function mount(t, stored) {
   const { dom, root } = installTestDom(t, {
-    expose: ['HTMLElement', 'HTMLInputElement', 'Element', 'Node', 'MouseEvent', 'Event', 'KeyboardEvent', 'CustomEvent'],
+    expose: [
+      'HTMLElement',
+      'HTMLInputElement',
+      'Element',
+      'Node',
+      'MouseEvent',
+      'Event',
+      'KeyboardEvent',
+      'CustomEvent',
+    ],
     rootId: 'root',
   });
   const calls = [];
@@ -54,7 +63,16 @@ test('an open profile follows the switch when Settings changes it', async (t) =>
 
 function mountDeferred(t) {
   const { dom, root } = installTestDom(t, {
-    expose: ['HTMLElement', 'HTMLInputElement', 'Element', 'Node', 'MouseEvent', 'Event', 'KeyboardEvent', 'CustomEvent'],
+    expose: [
+      'HTMLElement',
+      'HTMLInputElement',
+      'Element',
+      'Node',
+      'MouseEvent',
+      'Event',
+      'KeyboardEvent',
+      'CustomEvent',
+    ],
     rootId: 'root',
   });
   const pending = [];

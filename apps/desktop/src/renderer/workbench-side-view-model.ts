@@ -241,10 +241,7 @@ export function moveWorkbenchSideView(
  * feature-gated view never leads). The pins store owns this order; the rail
  * and the start view both read it here.
  */
-export function pinnedRailViews(
-  pins: readonly string[],
-  shown: readonly WorkbenchSideViewId[]
-): WorkbenchSideViewId[] {
+export function pinnedRailViews(pins: readonly string[], shown: readonly WorkbenchSideViewId[]): WorkbenchSideViewId[] {
   const present = new Set<string>(shown);
   return pins.filter((id): id is WorkbenchSideViewId => present.has(id));
 }

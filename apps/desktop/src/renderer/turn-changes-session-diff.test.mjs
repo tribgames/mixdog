@@ -102,7 +102,13 @@ test('opening the pane by a file request joins the one initial read instead of q
     gates[0].resolve({
       value: {
         supported: true,
-        files: ['src/a.ts', 'src/b.ts'].map((path) => ({ path, status: 'M', additions: 1, deletions: 1, binary: false })),
+        files: ['src/a.ts', 'src/b.ts'].map((path) => ({
+          path,
+          status: 'M',
+          additions: 1,
+          deletions: 1,
+          binary: false,
+        })),
         patch: ['src/a.ts', 'src/b.ts'].map(patchFor).join(''),
       },
     });

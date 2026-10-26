@@ -6,7 +6,10 @@ import { localizeOAuthFailure } from './oauth-failure-copy';
 import { errorSummary } from './ErrorNotice.tsx';
 import { pasteErrorText } from './settings/oauth-login-flow.tsx';
 import { SUPPORTED_UI_LANGUAGES } from '../shared/ui-language';
-import { DEVIN_OAUTH_FAILURE_CODES, exchangeDevinCode } from '../../../../src/runtime/agent/orchestrator/providers/devin-auth.mjs';
+import {
+  DEVIN_OAUTH_FAILURE_CODES,
+  exchangeDevinCode,
+} from '../../../../src/runtime/agent/orchestrator/providers/devin-auth.mjs';
 
 const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
 const english = (code) => `${code}: some English sentence (127.0.0.1:59653)`;
@@ -66,12 +69,15 @@ test('a coded failure is worded by its code, an uncoded one is left alone', asyn
   await i18n.changeLanguage('ko');
   try {
     const raw = new Error(
-      'Error invoking remote method \'x\': Error: DEVIN_OAUTH_CALLBACK_PORT_IN_USE: Callback port 127.0.0.1:59653 is already in use.'
+      "Error invoking remote method 'x': Error: DEVIN_OAUTH_CALLBACK_PORT_IN_USE: Callback port 127.0.0.1:59653 is already in use."
     );
     const summary = errorSummary(raw);
     assert.equal(summary, 'Devin 로그인에 필요한 로컬 포트를 다른 프로그램이 사용 중입니다.');
     assert.notEqual(summary, i18n.t('Something went wrong.'));
-    assert.match(pasteErrorText(new Error(english('DEVIN_OAUTH_STATE_MISMATCH'))), /^붙여넣은 주소는 다른 Devin 로그인에 속합니다\. /);
+    assert.match(
+      pasteErrorText(new Error(english('DEVIN_OAUTH_STATE_MISMATCH'))),
+      /^붙여넣은 주소는 다른 Devin 로그인에 속합니다\. /
+    );
     assert.equal(localizeOAuthFailure('DEVIN_OAUTH_UNKNOWN_CODE: x'), null);
     assert.equal(localizeOAuthFailure('[devin-oauth] callback port in use'), null);
   } finally {

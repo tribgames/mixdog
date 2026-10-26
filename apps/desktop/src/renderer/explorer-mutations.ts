@@ -64,7 +64,9 @@ export async function trashExplorerEntries(
   const { api, projectPath, rels, options } = request;
   const results = await Promise.allSettled(
     rels.map((rel) =>
-      Promise.resolve(options ? api?.trashProjectEntry?.(projectPath, rel, options) : api?.trashProjectEntry?.(projectPath, rel))
+      Promise.resolve(
+        options ? api?.trashProjectEntry?.(projectPath, rel, options) : api?.trashProjectEntry?.(projectPath, rel)
+      )
     )
   );
   const rejection = results.find((result) => result.status === 'rejected');

@@ -63,7 +63,7 @@
   gap: 6px;
   min-width: 0;
 }
-.visualize-tweak-input input[type='range'] {
+.visualize-tweak-input input[type="range"] {
   flex: 1 1 auto;
   min-width: 60px;
 }

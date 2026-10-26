@@ -23,7 +23,8 @@ async function mount(t, sessionId, reply) {
       if (request.capability === 'getSessionReviewFilePatch') {
         reads.push(request.args);
         const [file] = request.args;
-        if (file === 'gone-wild.txt') return { value: { supported: true, path: file, patch: '', patchOmitted: true, reason: 'too_large' } };
+        if (file === 'gone-wild.txt')
+          return { value: { supported: true, path: file, patch: '', patchOmitted: true, reason: 'too_large' } };
         return { value: { supported: true, path: file, patch: patchFor(file, `-a\n+lazy ${file}\n`) } };
       }
       return { value: null };

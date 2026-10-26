@@ -51,8 +51,7 @@ export function useUnreadViewedSession({
   unreadViewedSessionRef.current = unreadViewedSessionId;
   // Every other visible pane is read like the focused one. The phone shows a
   // single pane, whose sheet and sidebar rule above already decides.
-  const otherSessionIds = (ids: readonly string[]) =>
-    mobile ? [] : ids.filter((id) => id !== unreadViewedSessionId);
+  const otherSessionIds = (ids: readonly string[]) => (mobile ? [] : ids.filter((id) => id !== unreadViewedSessionId));
   const screenSessionIds = useScreenSessionIds();
   screenSessionIdsRef.current = otherSessionIds(screenSessionIds);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Window focus must recheck unread state even when session data is unchanged; screenSessionIds re-runs it on a pane report.

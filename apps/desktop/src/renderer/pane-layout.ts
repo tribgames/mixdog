@@ -136,7 +136,11 @@ export function paneActiveSessionIds(leaves: readonly PaneLeaf[], focusedLeafId 
 /** Pane sessions actually on screen. A single-pane carousel (narrow shell, a
  *  tree whose floors do not fit, the phone) shows only the focused leaf; the
  *  others are hidden, so nobody reads them. */
-export function paneScreenSessionIds(leaves: readonly PaneLeaf[], focusedLeafId: string, singlePane: boolean): string[] {
+export function paneScreenSessionIds(
+  leaves: readonly PaneLeaf[],
+  focusedLeafId: string,
+  singlePane: boolean
+): string[] {
   if (!singlePane) return paneActiveSessionIds(leaves, focusedLeafId);
   const leaf = leaves.find((entry) => entry.id === focusedLeafId) ?? leaves[0];
   const active = leaf ? paneActiveSelection(leaf) : null;

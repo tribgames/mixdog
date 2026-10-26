@@ -98,7 +98,6 @@ test('relay notifications reach the paired client and notify uses the remote met
   });
 });
 
-
 test('a local window provider invalidation re-reads references without forcing them', async () => {
   resetSidebarReferenceCache();
   const previous = globalThis.window;
@@ -140,8 +139,13 @@ for (const event of ['mixdog:remote-reconnected', 'mixdog:remote-state-gap']) {
     const api = {
       invokeCapability: async ({ capability, args }) => {
         calls.push({ capability, args });
-        return { value: { managedByClient: true, unavailable: !connected,
-          oauth: connected ? [{ id: 'openai-oauth', usable: true }] : [] } };
+        return {
+          value: {
+            managedByClient: true,
+            unavailable: !connected,
+            oauth: connected ? [{ id: 'openai-oauth', usable: true }] : [],
+          },
+        };
       },
       listProviderModels: async (options) => {
         calls.push({ models: options });

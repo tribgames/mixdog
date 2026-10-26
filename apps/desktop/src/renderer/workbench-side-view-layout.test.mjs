@@ -354,7 +354,13 @@ test('the start view is always the rail first button, for any pins and layout', 
     { left: [...views].reverse().map((id) => [id]), right: [] },
     { left: [['workflows', 'projects'], ['sessions'], ['agents']], right: [] },
   ];
-  const pinLists = [[], ['projects'], ['projects', 'sessions'], ['search', 'workflows', 'agents'], [...views].reverse()];
+  const pinLists = [
+    [],
+    ['projects'],
+    ['projects', 'sessions'],
+    ['search', 'workflows', 'agents'],
+    [...views].reverse(),
+  ];
   for (const layout of layouts) {
     for (const pins of pinLists) {
       const rail = pinnedRailViews(pins, layout.left.flat());

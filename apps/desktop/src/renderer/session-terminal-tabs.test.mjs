@@ -163,7 +163,7 @@ test('terminal cwd follows the workspace root; a root change opens a new tab, ne
   releaseSessionTerminalTabs(sid);
 });
 
-test('adopting main\'s terminals adds the missing tabs in order and keeps the active tab', () => {
+test("adopting main's terminals adds the missing tabs in order and keeps the active tab", () => {
   const sid = 'tabs-adopt';
   const first = sessionTerminalId(sid);
   adoptSessionTerminalTabs(sid, [
@@ -174,7 +174,13 @@ test('adopting main\'s terminals adds the missing tabs in order and keeps the ac
     { id: `${first}:0`, tab: 0 },
   ]);
   const { tabs, activeId, nextN } = getSessionTerminalTabs(sid);
-  assert.deepEqual(tabs.map((tab) => [tab.id, tab.cwd]), [[first, undefined], [`${first}:3`, '/c']]);
+  assert.deepEqual(
+    tabs.map((tab) => [tab.id, tab.cwd]),
+    [
+      [first, undefined],
+      [`${first}:3`, '/c'],
+    ]
+  );
   assert.equal(activeId, first);
   assert.equal(nextN, 4);
   assert.equal(openSessionTerminalTab(sid).id, `${first}:4`);

@@ -25,7 +25,11 @@ export function requestVisualizeElementPin(request: VisualizeElementPinRequest, 
 }
 
 /** The pending request, once, if it is for this pane and still fresh. */
-export function takeVisualizeElementPin(tabId: string, pane: number, now = performance.now()): VisualizeElementPinRequest | null {
+export function takeVisualizeElementPin(
+  tabId: string,
+  pane: number,
+  now = performance.now()
+): VisualizeElementPinRequest | null {
   const request = pending;
   if (!request || request.tabId !== tabId || request.pane !== pane) return null;
   pending = null;

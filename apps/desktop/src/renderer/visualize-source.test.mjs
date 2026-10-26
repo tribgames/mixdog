@@ -21,10 +21,13 @@ test('only HTML pages and inline content have a source; binary kinds do not', ()
 
 test('languages follow the inline kind; Mermaid has none', () => {
   assert.equal(visualizeSourceLanguage(undefined), 'xml');
-  assert.deepEqual(
-    ['html', 'svg', 'chart', 'markdown', 'mermaid'].map(visualizeSourceLanguage),
-    ['xml', 'xml', 'json', 'markdown', '']
-  );
+  assert.deepEqual(['html', 'svg', 'chart', 'markdown', 'mermaid'].map(visualizeSourceLanguage), [
+    'xml',
+    'xml',
+    'json',
+    'markdown',
+    '',
+  ]);
 });
 
 test('highlighted lines keep every character, split on newlines, and carry token classes', () => {
@@ -32,7 +35,10 @@ test('highlighted lines keep every character, split on newlines, and carry token
   const lines = highlightSourceLines(source, 'xml');
   assert.deepEqual(text(lines), ['<div class="a">', '  <b>hi</b>', '</div>']);
   const classes = lines.flat().flatMap((token) => token.classes);
-  assert.ok(classes.some((className) => className.includes('hljs-tag')), 'markup is highlighted');
+  assert.ok(
+    classes.some((className) => className.includes('hljs-tag')),
+    'markup is highlighted'
+  );
   assert.ok(classes.some((className) => className.includes('hljs-string')));
 });
 

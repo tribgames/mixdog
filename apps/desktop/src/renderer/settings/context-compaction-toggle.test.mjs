@@ -101,7 +101,8 @@ test('auto-clear idle windows name a custom provider by its registered name, bui
   }
 });
 
-const warmSwitch = () => document.querySelector('input[type="checkbox"][aria-label="Keep the Anthropic prompt cache warm"]');
+const warmSwitch = () =>
+  document.querySelector('input[type="checkbox"][aria-label="Keep the Anthropic prompt cache warm"]');
 
 test('cache warming: one switch, on by default, with the learning note; saves on/off', async () => {
   const calls = [];

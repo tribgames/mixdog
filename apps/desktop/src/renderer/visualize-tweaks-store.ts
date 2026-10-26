@@ -43,7 +43,12 @@ export function useVisualizeTweaksRevision(): number {
 }
 
 /** A page reported its `mx-tweaks` block text (null: it has none). */
-export function setVisualizeTweakDefs(sessionId: string, tabId: string, pane: number, raw: string | null): VisualizeTweakDefs | null {
+export function setVisualizeTweakDefs(
+  sessionId: string,
+  tabId: string,
+  pane: number,
+  raw: string | null
+): VisualizeTweakDefs | null {
   const key = paneKey(sessionId, tabId, pane);
   const next = raw === null ? null : parseVisualizeTweaks(raw);
   const map = new Map(defs);
@@ -60,7 +65,12 @@ export function visualizePaneTweaks(sessionId: string, tabId: string, pane: numb
   return found && 'tweaks' in found ? found.tweaks : [];
 }
 
-export function visualizeTweakValues(sessionId: string, tabId: string, pane: number, version: number): Record<string, string> {
+export function visualizeTweakValues(
+  sessionId: string,
+  tabId: string,
+  pane: number,
+  version: number
+): Record<string, string> {
   return values.get(valuesKey(sessionId, tabId, pane, version)) ?? {};
 }
 
@@ -89,7 +99,13 @@ export function setVisualizeTweakValue(
 }
 
 /** Back to the defaults: one control, or all of the pane's. */
-export function resetVisualizeTweaks(sessionId: string, tabId: string, pane: number, version: number, id?: string): void {
+export function resetVisualizeTweaks(
+  sessionId: string,
+  tabId: string,
+  pane: number,
+  version: number,
+  id?: string
+): void {
   const key = valuesKey(sessionId, tabId, pane, version);
   const current = values.get(key);
   if (!current) return;

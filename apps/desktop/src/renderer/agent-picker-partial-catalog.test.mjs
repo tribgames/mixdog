@@ -211,7 +211,8 @@ test('a missing provider setup is read again until a real one arrives, then filt
 
 test('closing and reopening the editor discards a response still in flight from the previous open', async (t) => {
   let releaseStale;
-  const stale = () => new Promise((resolve) => (releaseStale = () => resolve(withAuth({ ...SETUP, oauth: [SETUP.oauth[0]] }, true))));
+  const stale = () =>
+    new Promise((resolve) => (releaseStale = () => resolve(withAuth({ ...SETUP, oauth: [SETUP.oauth[0]] }, true))));
   const { calls, options, render, openPicker, settle } = await openAgentPicker(t, {
     cached: [],
     answers: [ALL],

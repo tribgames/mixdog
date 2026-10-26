@@ -74,7 +74,15 @@ export function connectorAccountRows(servers: readonly Row[]): Row[] {
         ...(account.appPassword ? { appPassword: account.appPassword } : {}),
         ...(account.ownClient === true ? { ownClient: true } : {}),
         connected,
-        status: off ? server.status : connected ? 'connected' : authRequired ? 'sign-in required' : error ? 'failed' : server.status,
+        status: off
+          ? server.status
+          : connected
+            ? 'connected'
+            : authRequired
+              ? 'sign-in required'
+              : error
+                ? 'failed'
+                : server.status,
         error: authRequired ? null : error || server.error || null,
         ...(authRequired && !off ? { authRequired: true } : {}),
       };

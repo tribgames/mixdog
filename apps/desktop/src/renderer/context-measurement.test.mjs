@@ -117,9 +117,7 @@ test('a model switch repaints the context card, which only offers compaction', (
   const switched = { ...spoken, model: 'claude-sonnet-4-6' };
   assert.equal(desktopHeaderSnapshotsEqual(spoken, switched), false);
   const cardText = (snapshot) =>
-    JSDOM.fragment(
-      renderToStaticMarkup(React.createElement(ContextUsageIndicator, { snapshot }))
-    ).textContent;
+    JSDOM.fragment(renderToStaticMarkup(React.createElement(ContextUsageIndicator, { snapshot }))).textContent;
   assert.ok(cardText(switched).includes(t('Compact context')));
   assert.ok(cardText(spoken).includes(t('Compact context')));
 });

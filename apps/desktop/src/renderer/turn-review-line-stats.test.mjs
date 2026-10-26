@@ -17,10 +17,20 @@ test('island segment accumulates across turns and survives a new turn with an em
       }),
     },
   });
-  const diff = (file) =>
-    `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1,2 @@\n a\n+b\n`;
-  const edit = (id, file) => ({ kind: 'tool', id, name: 'edit', args: { file_path: file }, result: 'ok', uiDiff: diff(file) });
-  const turn1 = [{ kind: 'user', id: 'u1', text: 'create' }, edit('e1', 'mx-island-check.txt'), { kind: 'turndone', id: 'd1' }];
+  const diff = (file) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1,2 @@\n a\n+b\n`;
+  const edit = (id, file) => ({
+    kind: 'tool',
+    id,
+    name: 'edit',
+    args: { file_path: file },
+    result: 'ok',
+    uiDiff: diff(file),
+  });
+  const turn1 = [
+    { kind: 'user', id: 'u1', text: 'create' },
+    edit('e1', 'mx-island-check.txt'),
+    { kind: 'turndone', id: 'd1' },
+  ];
   const turn2 = [...turn1, { kind: 'user', id: 'u2', text: 'append' }];
   // The island's Changes read the session's lane, like the Changes pane.
   const { defaultSessionLaneStore } = await import('./session-lane-store.ts');

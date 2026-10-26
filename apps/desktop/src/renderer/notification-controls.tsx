@@ -66,10 +66,7 @@ function targetName(target: NotificationTarget): string {
  *  None when the host has no per-conversation controls. */
 export function notificationMenuItems(
   target: NotificationTarget,
-  {
-    separated = false,
-    now = Date.now(),
-  }: { separated?: boolean; now?: number } = {}
+  { separated = false, now = Date.now() }: { separated?: boolean; now?: number } = {}
 ): ScmContextMenuItem[] {
   if (!conversationNotificationsAvailable()) return [];
   void refreshConversationNotifications();

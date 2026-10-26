@@ -37,7 +37,8 @@ const listeners = new Set<() => void>();
  *  reveal). A deleted child's surfaces leave it; their lines stay as history. */
 const revealOrder = new Map<string, number>();
 let revealSeq = 0;
-const surfaceKey = (childSessionId: string, surface: ChildSurfacePeek['surface']) => `${surface}\u0000${childSessionId}`;
+const surfaceKey = (childSessionId: string, surface: ChildSurfacePeek['surface']) =>
+  `${surface}\u0000${childSessionId}`;
 
 const sameSurface = (childSessionId: string, surface: ChildSurfacePeek['surface']) => (entry: ChildSurfacePeek) =>
   entry.childSessionId === childSessionId && entry.surface === surface;

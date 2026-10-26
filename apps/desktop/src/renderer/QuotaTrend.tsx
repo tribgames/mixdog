@@ -340,10 +340,7 @@ export function QuotaTrend({
       hour: '2-digit',
       minute: '2-digit',
       ...timeFormatOptions(),
-    }).formatRange(
-      new Date(start),
-      new Date(end)
-    );
+    }).formatRange(new Date(start), new Date(end));
   const slotTitle = (slot: Row) =>
     trendPeriodLabel({
       fromMs: statsNumber(slot.fromMs),

@@ -35,11 +35,14 @@ test('rows merge a login with its site cookies, and a cookie-only site stands al
   assert.equal(notion.loggedOut, true);
   // naver.com is cookie-only: no password row, no secrets.
   const naver = rows.find((row) => row.host === 'naver.com');
-  assert.deepEqual({ hasPassword: naver.hasPassword, cookies: naver.cookies, loginId: naver.loginId }, {
-    hasPassword: false,
-    cookies: 8,
-    loginId: undefined,
-  });
+  assert.deepEqual(
+    { hasPassword: naver.hasPassword, cookies: naver.cookies, loginId: naver.loginId },
+    {
+      hasPassword: false,
+      cookies: 8,
+      loginId: undefined,
+    }
+  );
 });
 
 test('counts partition the list and the filters select their rows', () => {

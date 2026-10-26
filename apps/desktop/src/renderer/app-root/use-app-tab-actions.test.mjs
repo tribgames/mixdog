@@ -228,7 +228,9 @@ test("a session's last visualize tab closing clears its visualize view", async (
     host: { onVisualizeChanged: () => () => {} },
   });
   const tab = { id: 'v1', label: 'index.html', kind: 'html', panes: [], versions: [{ n: 1 }] };
-  await act(async () => applyVisualizeEvent({ sessionId: 'vz', state: { sessionId: 'vz', tabs: [tab], active: 'v1' } }));
+  await act(async () =>
+    applyVisualizeEvent({ sessionId: 'vz', state: { sessionId: 'vz', tabs: [tab], active: 'v1' } })
+  );
   await act(async () => revealVisualizeTab('vz', 'v1'));
   assert.equal(shell.surfaces.sessionPanelViews.get('vz'), 'visualize');
   await act(async () =>

@@ -88,4 +88,3 @@ test('settings paint the root, persist on this device, and reset clears every pr
   assert.equal(window.localStorage.getItem('mixdog.desktop.fonts.v1'), null);
   stop();
 });
-

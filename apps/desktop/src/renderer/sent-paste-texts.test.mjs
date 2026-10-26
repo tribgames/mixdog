@@ -107,7 +107,11 @@ async function renderRow(item) {
   const root = createRoot(host);
   await act(async () =>
     root.render(
-      React.createElement(MarkdownSessionContext.Provider, { value: 's1' }, React.createElement(TranscriptRow, { item }))
+      React.createElement(
+        MarkdownSessionContext.Provider,
+        { value: 's1' },
+        React.createElement(TranscriptRow, { item })
+      )
     )
   );
   return { host, unmount: () => act(async () => root.unmount()) };
@@ -134,7 +138,9 @@ test('a literal marker with an unrelated id next to real pastes shows verbatim; 
     ['one\ntwo'],
     'only the real paste is inlined'
   );
-  const plain = [...host.querySelectorAll('.message-body p:not(.message-pasted-text)')].map((entry) => entry.textContent);
+  const plain = [...host.querySelectorAll('.message-body p:not(.message-pasted-text)')].map(
+    (entry) => entry.textContent
+  );
   assert.deepEqual(plain, [literal]);
   await unmount();
 });
@@ -160,7 +166,10 @@ test('a file chip whose name holds a marker character shows its real name and ke
   );
   const { host, unmount } = await renderRow(item);
   const cards = [...host.querySelectorAll('.attachment-card')];
-  assert.ok(cards.some((card) => card.textContent.includes(name)), 'the card shows the real name');
+  assert.ok(
+    cards.some((card) => card.textContent.includes(name)),
+    'the card shows the real name'
+  );
   await unmount();
   const { extractEscapedFileMarkers, extractPastedTextMarkers } = await import('./transcript-attachments.tsx');
   const { sentFileSource } = await import('./attachment-menu.ts');
@@ -183,7 +192,14 @@ test('marker characters in text, a file marker and a real paste together', async
   const pasteToken = '[Pasted text #2 +2 lines]';
   registerSentAttachments('m9', [
     { token: fileToken, kind: 'text', name, mimeType: 'text/plain', data: 'FILEDATA' },
-    { token: pasteToken, kind: 'text', name: 'Pasted text · 2 lines', mimeType: 'text/plain', data: 'one\ntwo', paste: true },
+    {
+      token: pasteToken,
+      kind: 'text',
+      name: 'Pasted text · 2 lines',
+      mimeType: 'text/plain',
+      data: 'one\ntwo',
+      paste: true,
+    },
   ]);
   const body = 'see \uE0000\uE001 and \uE002 0';
   const { host, unmount } = await renderRow({

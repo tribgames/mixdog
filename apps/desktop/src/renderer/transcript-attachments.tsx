@@ -101,19 +101,16 @@ export function extractPastedTextMarkers(
   let order = 0;
   // A restored paste whose line count was not worked out reads `[Pasted text #n]`.
   const source = escapeInlineSentinels(String(text || ''));
-  const stripped = source.replace(
-    / ?(\[Pasted text #\d+(?: \+(\d+) lines)?\]) ?/g,
-    (_match, token, lines) => {
-      const at = order++;
-      if (inlineTexts[at] !== undefined) return `\n${PASTE_INLINE_OPEN}${at}${PASTE_INLINE_CLOSE}\n`;
-      chips.push(
-        lines === undefined
-          ? { name: 'Pasted text', token, lines: null }
-          : { name: `Pasted text · ${lines} lines`, token, lines: Number(lines) }
-      );
-      return ' ';
-    }
-  );
+  const stripped = source.replace(/ ?(\[Pasted text #\d+(?: \+(\d+) lines)?\]) ?/g, (_match, token, lines) => {
+    const at = order++;
+    if (inlineTexts[at] !== undefined) return `\n${PASTE_INLINE_OPEN}${at}${PASTE_INLINE_CLOSE}\n`;
+    chips.push(
+      lines === undefined
+        ? { name: 'Pasted text', token, lines: null }
+        : { name: `Pasted text · ${lines} lines`, token, lines: Number(lines) }
+    );
+    return ' ';
+  });
   if (order === 0) return { text: source, chips };
   const cleaned = stripped
     .split(/\r?\n/)
@@ -133,8 +130,7 @@ export function extractTweaksLines(text: string): { text: string; lines: string[
   for (const line of String(text || '').split('\n')) {
     if (line.startsWith(`${VISUALIZE_TWEAKS_MARK} `)) {
       lines.push(unescapeInlineSentinels(line.slice(VISUALIZE_TWEAKS_MARK.length + 1).trim()));
-    }
-    else kept.push(line);
+    } else kept.push(line);
   }
   return lines.length ? { text: kept.join('\n').trim(), lines } : { text, lines };
 }

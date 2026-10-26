@@ -35,10 +35,15 @@ test('typing a new key, or removing it, sends the change', () => {
 test('an empty (or whitespace-only) key field with no removal omits totpSecret', () => {
   // The type-then-clear case is exercised end-to-end through the dialog in
   // auth-panel.test.mjs; here the payload rule itself: empty + not cleared omits.
-  assert.ok(!('totpSecret' in loginSavePayload({ ...base, id: 'a'.repeat(24), totpSecret: '   ', totpCleared: false })));
+  assert.ok(
+    !('totpSecret' in loginSavePayload({ ...base, id: 'a'.repeat(24), totpSecret: '   ', totpCleared: false }))
+  );
 });
 
 test('adding a login sends the key only when one was entered', () => {
   assert.ok(!('totpSecret' in loginSavePayload({ ...base, password: 'pw' })));
-  assert.equal(loginSavePayload({ ...base, password: 'pw', totpSecret: ' JBSWY3DPEHPK3PXP ' }).totpSecret, 'JBSWY3DPEHPK3PXP');
+  assert.equal(
+    loginSavePayload({ ...base, password: 'pw', totpSecret: ' JBSWY3DPEHPK3PXP ' }).totpSecret,
+    'JBSWY3DPEHPK3PXP'
+  );
 });

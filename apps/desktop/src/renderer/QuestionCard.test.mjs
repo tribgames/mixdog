@@ -5,8 +5,21 @@ import { JSDOM } from 'jsdom';
 // react-dom decides at import time whether a DOM exists, so the globals come first.
 const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://mixdog.test/' });
 dom.window.Element.prototype.scrollIntoView = () => {};
-for (const key of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLButtonElement', 'Element', 'Node', 'navigator']) {
-  Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom.window : key === 'document' ? dom.window.document : dom.window[key] });
+for (const key of [
+  'window',
+  'document',
+  'HTMLElement',
+  'HTMLInputElement',
+  'HTMLTextAreaElement',
+  'HTMLButtonElement',
+  'Element',
+  'Node',
+  'navigator',
+]) {
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    value: key === 'window' ? dom.window : key === 'document' ? dom.window.document : dom.window[key],
+  });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { default: React, act } = await import('react');
@@ -14,8 +27,24 @@ const { createRoot } = await import('react-dom/client');
 const { QuestionCard } = await import('./QuestionCard.tsx');
 
 const questions = [
-  { question: 'Which?', header: 'W', multi_select: true, recommended: 0, options: [{ label: 'A', description: 'da' }, { label: 'B', description: '' }] },
-  { question: 'Keep?', header: 'K', options: [{ label: 'Yes', description: '' }, { label: 'No', description: '' }] },
+  {
+    question: 'Which?',
+    header: 'W',
+    multi_select: true,
+    recommended: 0,
+    options: [
+      { label: 'A', description: 'da' },
+      { label: 'B', description: '' },
+    ],
+  },
+  {
+    question: 'Keep?',
+    header: 'K',
+    options: [
+      { label: 'Yes', description: '' },
+      { label: 'No', description: '' },
+    ],
+  },
 ];
 
 async function mount(render) {
@@ -65,7 +94,9 @@ test('step buttons: a multi-select advances by click, Previous goes back, the la
     await ui.type(ui.doc.querySelector('.question-other input'), 'mine');
     assert.equal(ui.button('send').textContent, 'Send');
     await ui.click(ui.button('send'));
-    assert.deepEqual(decisions, [{ approved: true, answers: [{ selected: ['A', 'B'] }, { selected: [], text: 'mine' }] }]);
+    assert.deepEqual(decisions, [
+      { approved: true, answers: [{ selected: ['A', 'B'] }, { selected: [], text: 'mine' }] },
+    ]);
   } finally {
     await ui.done();
   }

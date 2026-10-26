@@ -203,7 +203,6 @@ test('a file over the 10 MB cap keeps the too-large fallback', async () => {
   }
 });
 
-
 test('invalidly encoded text is read-only, cannot restore a backup or save even via conversion', async (t) => {
   const fs = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
@@ -260,7 +259,6 @@ test('the read-only notice distinguishes encoding failures from the legacy size 
   }
 });
 
-
 for (const action of ['keepEdits', 'revertFromDisk']) {
   for (const reason of ['encoding', 'size']) {
     test(`${action} refuses a newly ${reason}-read-only disk without discarding edits or changing the save baseline`, async (t) => {
@@ -280,7 +278,9 @@ for (const action of ['keepEdits', 'revertFromDisk']) {
         readProjectFile: async () => disk,
         readEditorBackup: async () => null,
         writeEditorBackup: async () => undefined,
-        deleteEditorBackup: async () => { backupDeletes++; },
+        deleteEditorBackup: async () => {
+          backupDeletes++;
+        },
         writeProjectFile: async (_project, _rel, content, expected) => {
           writes.push({ content, expected });
           return writeProjectTextFileIn(folder, 'a.txt', content, expected);

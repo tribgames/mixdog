@@ -124,7 +124,9 @@ test('a build without the Google client shows the own-client note and never star
   // With the user's own client on a server, the sign-in is offered again.
   handlers = {
     mcpStatus: () => ({
-      servers: [{ name: 'google-drive', connector: 'google-drive', enabled: true, authRequired: true, ownClient: true }],
+      servers: [
+        { name: 'google-drive', connector: 'google-drive', enabled: true, authRequired: true, ownClient: true },
+      ],
       googleClient: false,
     }),
   };
@@ -146,7 +148,10 @@ test('another account is judged on its own client, not on a sibling that has one
     getMcpOAuthLoginStatus: () => ({ flowId: 'f', state: 'pending' }),
     cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
   };
-  await assert.rejects(connectCatalogConnector(calendar, '', null, { server: 'google-calendar-2' }), /your own Google client/);
+  await assert.rejects(
+    connectCatalogConnector(calendar, '', null, { server: 'google-calendar-2' }),
+    /your own Google client/
+  );
   await assert.rejects(connectCatalogConnector(calendar, '', null, { add: true }), /your own Google client/);
   assert.equal(started(), 0, 'neither a reconnect of the bare account nor a new account starts a login');
   await connectCatalogConnector(calendar, '', null, { server: 'google-calendar' });
@@ -156,7 +161,8 @@ test('another account is judged on its own client, not on a sibling that has one
 });
 
 test('the chat card keeps failure text whole: the status is one <small> the CSS lets wrap', async () => {
-  const long = 'The connection failed because the server answered with a very long explanation that must stay readable.';
+  const long =
+    'The connection failed because the server answered with a very long explanation that must stay readable.';
   calls.length = 0;
   handlers = {
     mcpStatus: () => ({

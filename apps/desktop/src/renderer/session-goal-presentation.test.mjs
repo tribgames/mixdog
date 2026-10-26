@@ -252,9 +252,8 @@ test('closing the drawer drops an armed Stop confirmation', async () => {
   const dismissers = {
     Escape: () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
     'outside pointerdown': () => document.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true })),
-    'Close button': () => host.querySelector('.composer-island-close').dispatchEvent(
-      new window.MouseEvent('click', { bubbles: true })
-    ),
+    'Close button': () =>
+      host.querySelector('.composer-island-close').dispatchEvent(new window.MouseEvent('click', { bubbles: true })),
   };
   try {
     await act(async () => {

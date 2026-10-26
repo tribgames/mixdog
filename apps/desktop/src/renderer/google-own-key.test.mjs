@@ -115,7 +115,9 @@ test('one Calendar server holding accounts: a new account and the key reach acco
   const [write] = more.calls.filter(([c]) => c !== 'mcpStatus');
   assert.equal(write[1][0].url, 'https://calendar.mixdog.invalid/mcp?account=google-calendar-3');
 
-  const back = host([{ ...calendar, accounts: [calendar.accounts[0], { ...calendar.accounts[1], authRequired: true }] }]);
+  const back = host([
+    { ...calendar, accounts: [calendar.accounts[0], { ...calendar.accounts[1], authRequired: true }] },
+  ]);
   await revertGoogleOwnKey(back.invoke);
   assert.deepEqual(
     back.calls.filter(([c]) => c !== 'mcpStatus').map(([c, a]) => [c, a[0]?.name ?? a[0]]),
@@ -128,6 +130,9 @@ test('one Calendar server holding accounts: a new account and the key reach acco
   );
 
   const config = (value) => async () => ({ config: value });
-  assert.equal(await usesGoogleOwnKey(config({ accounts: [{ name: 'a' }, { name: 'b', oauthClientId: ID }] }), 'x'), true);
+  assert.equal(
+    await usesGoogleOwnKey(config({ accounts: [{ name: 'a' }, { name: 'b', oauthClientId: ID }] }), 'x'),
+    true
+  );
   assert.equal(await usesGoogleOwnKey(config({ accounts: [{ name: 'a' }] }), 'x'), false);
 });

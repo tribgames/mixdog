@@ -31,13 +31,18 @@ for (const mode of ['capture-failure', 'capture-pending', 'decode-failure']) {
       sessionId: 's',
       update: (value) => pixels.push(value),
       updateMetadata: (value) => metadata.push(value),
-      prepare: async () => { if (mode === 'decode-failure') throw new Error('decode failed'); },
+      prepare: async () => {
+        if (mode === 'decode-failure') throw new Error('decode failed');
+      },
       failure: (error) => assert.fail(error),
       api: {
         browserPageMetadata: async () => facts,
         browserPageFrame: async () => {
           if (mode === 'capture-failure') throw new Error('capture failed');
-          if (mode === 'capture-pending') return new Promise((resolve) => { finish = resolve; });
+          if (mode === 'capture-pending')
+            return new Promise((resolve) => {
+              finish = resolve;
+            });
           return frame();
         },
         browserPageControl: async (_session, action) => {
@@ -55,7 +60,10 @@ for (const mode of ['capture-failure', 'capture-pending', 'decode-failure']) {
     await node.closeTab('p1');
     assert.equal(node.getWebContentsId(), 1);
     assert.deepEqual(node.getTabs(), facts.tabs);
-    assert.deepEqual(sent.map(({ type }) => type), ['navigate', 'new-tab', 'close-tab']);
+    assert.deepEqual(
+      sent.map(({ type }) => type),
+      ['navigate', 'new-tab', 'close-tab']
+    );
     assert.ok(sent.every(({ documentId }) => documentId === facts.documentId));
     assert.equal(client.frame(), null);
     assert.equal(pixels.length, 0);
@@ -77,22 +85,44 @@ test('new native metadata cannot retarget input from old visible pixels or publi
     api: {
       browserPageFrame: async () => frame(),
       browserPageMetadata: async () => latest,
-      browserPageControl: async (_session, action) => { sent.push(action); },
+      browserPageControl: async (_session, action) => {
+        sent.push(action);
+      },
     },
   });
   await client.poll();
   latest = frame('p2:1');
   await client.pollMetadata();
-  await client.control({ type: 'pointer', phase: 'mousePressed', x: 10, y: 20, button: 'left', buttons: 1, modifiers: 0, clickCount: 1 });
+  await client.control({
+    type: 'pointer',
+    phase: 'mousePressed',
+    x: 10,
+    y: 20,
+    button: 'left',
+    buttons: 1,
+    modifiers: 0,
+    clickCount: 1,
+  });
   await client.control({ type: 'wheel', x: 10, y: 20, deltaX: 0, deltaY: 40 });
   await client.control({ type: 'text', text: 'old visible document' });
   await client.control({ type: 'resize', width: 600, height: 400 });
-  assert.deepEqual(sent.map(({ documentId }) => documentId), ['p1:1', 'p1:1', 'p1:1', 'p2:1']);
+  assert.deepEqual(
+    sent.map(({ documentId }) => documentId),
+    ['p1:1', 'p1:1', 'p1:1', 'p2:1']
+  );
   client.dispose();
   const updates = [];
   const parked = createBrowserPageClient({
-    sessionId: 'parked', update() {}, updateMetadata: (value) => updates.push(value), failure() {},
-    api: { browserPageMetadata: () => new Promise((resolve) => { finish = resolve; }) },
+    sessionId: 'parked',
+    update() {},
+    updateMetadata: (value) => updates.push(value),
+    failure() {},
+    api: {
+      browserPageMetadata: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    },
   });
   const read = parked.pollMetadata();
   parked.dispose();
@@ -105,7 +135,9 @@ test('new native metadata cannot retarget input from old visible pixels or publi
 test('a same-address reload that clears the fault between two samples clears the failure overlay', async () => {
   let latest = { ...frame(), fault: 'renderer crashed (exit 5)' };
   const client = createBrowserPageClient({
-    sessionId: 's', update() {}, failure: (error) => assert.fail(error),
+    sessionId: 's',
+    update() {},
+    failure: (error) => assert.fail(error),
     api: { browserPageMetadata: async () => latest },
   });
   const node = new EventTarget();
@@ -143,7 +175,9 @@ test('a same-address reload that clears the fault between two samples clears the
 
 test('a pixel read without a native metadata read attaches the page', async () => {
   const client = createBrowserPageClient({
-    sessionId: 's', update() {}, failure: (error) => assert.fail(error),
+    sessionId: 's',
+    update() {},
+    failure: (error) => assert.fail(error),
     api: { browserPageFrame: async () => frame() },
   });
   const node = new EventTarget();
@@ -168,7 +202,9 @@ test('a delayed pixel capture never rolls back a newer dialog, and unchanged met
   t.after(() => dom.window.close());
   // What the view renders: whatever was last handed to setFrame.
   let shown = null;
-  const setFrame = (value) => { shown = value; };
+  const setFrame = (value) => {
+    shown = value;
+  };
   const presentation = createBrowserPixelPresentation({
     container: () => dom.window.document.getElementById('pixels'),
     image: { current: null },
@@ -188,7 +224,11 @@ test('a delayed pixel capture never rolls back a newer dialog, and unchanged met
     api: {
       browserPageMetadata: async () => facts,
       browserPageFrame: (_session, known) =>
-        known === undefined ? Promise.resolve(pixel('one')) : new Promise((resolve) => { finish = resolve; }),
+        known === undefined
+          ? Promise.resolve(pixel('one'))
+          : new Promise((resolve) => {
+              finish = resolve;
+            }),
     },
   });
   await client.pollMetadata();
@@ -210,11 +250,18 @@ test('a stalled pixel read does not block metadata refresh after a tab change', 
   let facts = frame();
   let finish;
   const client = createBrowserPageClient({
-    sessionId: 's', update() {}, failure: (error) => assert.fail(error),
+    sessionId: 's',
+    update() {},
+    failure: (error) => assert.fail(error),
     api: {
       browserPageMetadata: async () => facts,
-      browserPageFrame: () => new Promise((resolve) => { finish = resolve; }),
-      browserPageControl: async () => { facts = frame('p2:1'); },
+      browserPageFrame: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      browserPageControl: async () => {
+        facts = frame('p2:1');
+      },
     },
   });
   const capture = client.poll();
@@ -232,7 +279,10 @@ test('pixel cadence and native geometry do not republish unchanged chrome facts'
   const updates = [];
   let id = 0;
   const client = createBrowserPageClient({
-    sessionId: 's', update() {}, updateMetadata: (value) => updates.push(value), failure() {},
+    sessionId: 's',
+    update() {},
+    updateMetadata: (value) => updates.push(value),
+    failure() {},
     api: {
       browserPageMetadata: async () => ({ ...frame(), frameId: 'native' }),
       browserPageFrame: async () => ({ ...frame(), frameId: `pixel-${++id}`, width: 1600, height: 1200 }),
@@ -250,15 +300,30 @@ test('pixel cadence and native geometry do not republish unchanged chrome facts'
 test('hover before the first pixels never loops through metadata bootstrap', async () => {
   let reads = 0;
   const client = createBrowserPageClient({
-    sessionId: 's', update() {}, failure: (error) => assert.fail(error),
+    sessionId: 's',
+    update() {},
+    failure: (error) => assert.fail(error),
     api: {
-      browserPageMetadata: async () => { reads++; return frame(); },
+      browserPageMetadata: async () => {
+        reads++;
+        return frame();
+      },
       browserPageControl: async () => assert.fail('undisplayed hover must not be sent'),
     },
   });
-  await assert.rejects(client.control({
-    type: 'pointer', phase: 'mouseMoved', x: 1, y: 1, button: 'none', buttons: 0, modifiers: 0, clickCount: 0,
-  }), /Browser page is attaching/);
+  await assert.rejects(
+    client.control({
+      type: 'pointer',
+      phase: 'mouseMoved',
+      x: 1,
+      y: 1,
+      button: 'none',
+      buttons: 0,
+      modifiers: 0,
+      clickCount: 0,
+    }),
+    /Browser page is attaching/
+  );
   assert.equal(reads, 0);
   client.dispose();
 });

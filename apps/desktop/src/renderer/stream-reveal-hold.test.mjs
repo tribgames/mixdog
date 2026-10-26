@@ -154,7 +154,9 @@ test('paced: a streaming table never paints a partial row; prose stays word by w
   assert.equal(paced(`${table}## Head\nprose wor`), `${table}## Head\nprose wor`, 'prose after a heading');
   // Held iff the real parser renders the line as a table row.
   const isRow = (node, word) =>
-    node.tagName === 'tr' ? JSON.stringify(node).includes(word) : (node.children ?? []).some((child) => isRow(child, word));
+    node.tagName === 'tr'
+      ? JSON.stringify(node).includes(word)
+      : (node.children ?? []).some((child) => isRow(child, word));
   for (const [source, word] of [
     ['| a | b |\n| - | - |\n| c | d |\n---\nprose wor', 'prose'],
     ['| a | b |\n| - | - |\n| c | d |\n> q\nprose wor', 'prose'],

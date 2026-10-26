@@ -210,7 +210,11 @@ test('⋯ row menu: a scrolling key from the trigger closes it; the menu keys an
   assert.ok(document.querySelector('.row-overflow-menu'), "the menu's own End key closed it");
   trigger.focus();
   await press('PageDown');
-  assert.equal(document.querySelector('.row-overflow-menu'), null, 'PageDown from the trigger scrolled the list under it');
+  assert.equal(
+    document.querySelector('.row-overflow-menu'),
+    null,
+    'PageDown from the trigger scrolled the list under it'
+  );
 
   for (const key of ['ArrowDown', 'Home', 'PageUp']) {
     await pointerOpen(trigger);

@@ -52,7 +52,9 @@ test('a Git root picks its Changes source in the toolbar; each source lists, emp
   assert.deepEqual(diffs, [['C:/pane-repo', 'src/a.ts', false, 'uncommitted']]);
   assert.ok(view.q('.session-diff-section .inline-diff'));
 
-  await act(async () => trigger.dispatchEvent(new view.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  await act(async () =>
+    trigger.dispatchEvent(new view.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  );
   const options = [...view.document.querySelectorAll('.mx-menu [role="option"]')];
   assert.deepEqual(
     options.map((option) => option.textContent),
@@ -150,7 +152,10 @@ test('an uncapped set reads all patches in one batch; deleted files start folded
         batches.push(files.map((file) => file.path));
         // One changed line past 1 MiB.
         const long = `diff --git a/long.txt b/long.txt\n--- a/long.txt\n+++ b/long.txt\n@@ -0,0 +1 @@\n+${'y'.repeat(1024 * 1024 + 1)}\n`;
-        const patches = files.map((file) => ({ path: file.path, patch: file.path === 'long.txt' ? long : patchFor(file.path) }));
+        const patches = files.map((file) => ({
+          path: file.path,
+          patch: file.path === 'long.txt' ? long : patchFor(file.path),
+        }));
         return { patches, omitted: [] };
       },
       invokeCapability: async () => ({ value: null }),

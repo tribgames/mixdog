@@ -157,7 +157,6 @@ test('the shared answer expires and provider changes drop it', async (t) => {
   assert.equal(api.calls.length, 3);
 });
 
-
 test('a slow pre-refresh catalog cannot replace the forced shared answer', async () => {
   const replies = [];
   const api = { listProviderModels: () => new Promise((resolve) => replies.push(resolve)) };

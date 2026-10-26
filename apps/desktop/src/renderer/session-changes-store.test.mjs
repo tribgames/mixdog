@@ -287,9 +287,7 @@ test('a session-source refresh adopts a file whose patch moved while its counts 
   }));
   const states = {};
   const Probe = probes(states);
-  await act(async () =>
-    view.root.render(h(Probe, { name: 'a', cwd: 'C:/patch', sessionId: 's-patch', active: true }))
-  );
+  await act(async () => view.root.render(h(Probe, { name: 'a', cwd: 'C:/patch', sessionId: 's-patch', active: true })));
   await view.settle(200);
   assert.match(states.a.rows[0].parts[0].patch, /\+y\n/);
   line = 'z';

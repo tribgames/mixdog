@@ -336,7 +336,9 @@ function clearExpiryTimers(): void {
 function storeSidebarReference(key: SidebarReferenceKey, value: unknown): void {
   const now = clock();
   const expiresAt =
-    key === 'quickProviderModels' && Array.isArray(value) ? (partialModelCatalogExpiry(value, now) ?? undefined) : undefined;
+    key === 'quickProviderModels' && Array.isArray(value)
+      ? (partialModelCatalogExpiry(value, now) ?? undefined)
+      : undefined;
   entries.set(key, { value, updatedAt: now, invalid: false, expiresAt });
   clearTimeout(expiryTimers.get(key));
   expiryTimers.delete(key);

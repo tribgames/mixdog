@@ -423,7 +423,9 @@ test('after a resize input is refused, not mis-mapped, until pixels at the new s
 
     // The host resized the page: its facts describe no picture yet (0×0).
     await act(async () =>
-      state.listener(streamFrame({ seq: 2, image: undefined, width: 0, height: 0, viewportWidth: 0, viewportHeight: 0 }))
+      state.listener(
+        streamFrame({ seq: 2, image: undefined, width: 0, height: 0, viewportWidth: 0, viewportHeight: 0 })
+      )
     );
     await flush();
     assert.equal(document.querySelector('.browser-remote-content img').getAttribute('src'), src, 'the old image stays');
@@ -448,7 +450,7 @@ test('after a resize input is refused, not mis-mapped, until pixels at the new s
     await flush();
     const sent = pageInput();
     assert.deepEqual(
-      sent.map((input) => input.type === 'wheel' ? 'wheel' : input.phase),
+      sent.map((input) => (input.type === 'wheel' ? 'wheel' : input.phase)),
       ['mousePressed', 'mouseReleased', 'wheel']
     );
     assert.deepEqual([sent[0].x, sent[0].y], [60, 30], 'mapped through the new picture');
@@ -974,7 +976,11 @@ test('a leave confirmation on the page is shown over it and answered for its doc
     assert.equal(content.contains(card), false, 'never inside the input surface, so a tap on it is not page input');
 
     const buttons = () => [...document.querySelectorAll('.browser-page-prompt button')];
-    await act(async () => buttons().find((button) => button.textContent === 'Leave').click());
+    await act(async () =>
+      buttons()
+        .find((button) => button.textContent === 'Leave')
+        .click()
+    );
     await flush();
     const answers = () => state.controls.filter(({ input }) => input.type === 'answer-dialog');
     assert.deepEqual(answers().at(-1), {
@@ -988,11 +994,22 @@ test('a leave confirmation on the page is shown over it and answered for its doc
     );
 
     // A new question is a new card; staying answers it so.
-    await act(async () => state.listener(streamFrame({ seq: 3, image: undefined, dialog: { ...leaving, id: 'leave_2' } })));
+    await act(async () =>
+      state.listener(streamFrame({ seq: 3, image: undefined, dialog: { ...leaving, id: 'leave_2' } }))
+    );
     await flush();
-    await act(async () => buttons().find((button) => button.textContent === 'Cancel').click());
+    await act(async () =>
+      buttons()
+        .find((button) => button.textContent === 'Cancel')
+        .click()
+    );
     await flush();
-    assert.deepEqual(answers().at(-1).input, { type: 'answer-dialog', requestId: 'leave_2', accept: false, documentId: 'd1' });
+    assert.deepEqual(answers().at(-1).input, {
+      type: 'answer-dialog',
+      requestId: 'leave_2',
+      accept: false,
+      documentId: 'd1',
+    });
 
     // Once the host stops offering it, the card goes.
     await act(async () => state.listener(streamFrame({ seq: 4, image: undefined })));

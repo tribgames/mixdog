@@ -55,12 +55,7 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
    *  conversation of the chain shows a child's page the one way the
    *  transcript line does: as that page's borrowed tab in its own panel
    *  (browser-pane-borrowed-tab), so only a reveal naming its page can. */
-  const reveal = (
-    sessionId: string,
-    chain: readonly string[],
-    page: RevealedPage | null,
-    park: boolean
-  ): boolean => {
+  const reveal = (sessionId: string, chain: readonly string[], page: RevealedPage | null, park: boolean): boolean => {
     const target = surfaceRevealTarget(owners, chain, focusedLeafId);
     const own = target.leafId !== null && target.sessionId === sessionId;
     const borrowed = !own && target.leafId !== null && page !== null;

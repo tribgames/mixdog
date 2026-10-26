@@ -31,17 +31,51 @@ test('a media-session change refreshes an SVG preview URL without touching its u
       size: 1,
     }),
   };
-  const model = { value: '<svg>disk</svg>', setValue(v) { this.value = v; }, getValue() { return this.value; } };
+  const model = {
+    value: '<svg>disk</svg>',
+    setValue(v) {
+      this.value = v;
+    },
+    getValue() {
+      return this.value;
+    },
+  };
   const ref = (current) => ({ current });
   let dirty = false;
   let previewState = null;
   const noop = () => undefined;
-  const stable = { notifyReady: noop, readModel: () => model, markDirty: (d) => { dirty = d; }, deleteBackup: async () => undefined, resetDocument: () => 0, setError: noop, setSaveError: noop, setRevertError: noop, setPreviewLoaded: noop, setPreviewError: noop, setRecovery: noop, setDiskChanged: noop, setContentRevision: noop, setDocumentPreview: noop, setDocumentError: noop, setDocumentOfficeMissing: noop };
+  const stable = {
+    notifyReady: noop,
+    readModel: () => model,
+    markDirty: (d) => {
+      dirty = d;
+    },
+    deleteBackup: async () => undefined,
+    resetDocument: () => 0,
+    setError: noop,
+    setSaveError: noop,
+    setRevertError: noop,
+    setPreviewLoaded: noop,
+    setPreviewError: noop,
+    setRecovery: noop,
+    setDiskChanged: noop,
+    setContentRevision: noop,
+    setDocumentPreview: noop,
+    setDocumentError: noop,
+    setDocumentOfficeMissing: noop,
+  };
   function Probe() {
     const [preview, setPreview] = React.useState(null);
     previewState = preview;
     const [load, setLoad] = React.useState(null);
-    const refs = React.useRef({ loaded: ref(false), readOnly: ref(false), mtime: ref(0), disk: ref(''), text: ref(''), generation: ref(0) });
+    const refs = React.useRef({
+      loaded: ref(false),
+      readOnly: ref(false),
+      mtime: ref(0),
+      disk: ref(''),
+      text: ref(''),
+      generation: ref(0),
+    });
     useEditorSessionLoad({
       ...stable,
       api,
@@ -63,7 +97,9 @@ test('a media-session change refreshes an SVG preview URL without touching its u
     return null;
   }
   const root = createRoot(document.querySelector('main'));
-  t.after(async () => { await act(async () => root.unmount()); });
+  t.after(async () => {
+    await act(async () => root.unmount());
+  });
   const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
   await act(async () => root.render(React.createElement(Probe)));
   await settle();
@@ -79,4 +115,3 @@ test('a media-session change refreshes an SVG preview URL without touching its u
   assert.equal(dirty, true);
   assert.equal(reads, readsBefore, 'the source is not read again');
 });
-
