@@ -417,6 +417,62 @@ async function authenticate(client, pipe, desktop = 'Default') {
   return connected;
 }
 
+test('v4: grant challenges surface, grants / video runs / sas reach the helper, and the lock state is tracked', async () => {
+  const pipe = makePipePair();
+  const client = createSecureDesktopClient({
+    environment: WIN_ENV,
+    readState: () => STATE,
+    createConnection: () => pipe.clientTransport,
+  });
+  const challenges = [];
+  const desktops = [];
+  client.on('grant-challenge', (challenge) => challenges.push(challenge));
+  client.on('desktop-changed', (desktop, session, locked) => desktops.push({ desktop, session, locked }));
+  await authenticate(client, pipe);
+  assert.equal(client.session().locked, undefined, 'unknown lock state is absent');
+
+  const nonce = generateNonce();
+  const challenge = generateNonce();
+  pipe.sendToClient(encodeControl({ type: 'grant-challenge', nonce, challenge }));
+  pipe.sendToClient(encodeControl({ type: 'desktop-changed', desktop: 'Winlogon', session: 3, locked: true }));
+  await settle();
+  assert.deepEqual(challenges, [{ nonce, challenge }]);
+  assert.deepEqual(desktops, [{ desktop: 'Winlogon', session: 3, locked: true }]);
+  assert.equal(client.session().locked, true);
+  pipe.sendToClient(encodeControl({ type: 'desktop-changed', desktop: 'Winlogon', session: 3 }));
+  await settle();
+  assert.equal('locked' in client.session(), false, 'an unknown state replaces a known one');
+
+  const before = pipe.received.length;
+  client.setVideoRun(5);
+  await client.sendGrant({ challenge, epoch: 5, signature: 'c2ln' });
+  await client.sas();
+  await settle();
+  assert.deepEqual(
+    pipe.received.slice(before).map((frame) => frame.message),
+    [
+      { type: 'video-run', epoch: 5 },
+      { type: 'grant', challenge, epoch: 5, signature: 'c2ln' },
+      { type: 'sas' },
+    ],
+  );
+  client.close();
+  await assert.rejects(client.sas(), /not connected/);
+});
+
+test('v4 messages are schema-checked', () => {
+  for (const json of [
+    '{"type":"grant-challenge","nonce":1,"challenge":"c"}',
+    '{"type":"grant","challenge":"c","epoch":-1,"signature":"s"}',
+    '{"type":"grant","challenge":"c","epoch":1.5,"signature":"s"}',
+    '{"type":"video-run","epoch":"1"}',
+    '{"type":"desktop-changed","desktop":"Default","session":1,"locked":"yes"}',
+  ]) {
+    assert.throws(() => decodeBody(rawControl(json).subarray(4)), /malformed/, json);
+  }
+  assert.deepEqual(decodeBody(rawControl('{"type":"sas"}').subarray(4)).message, { type: 'sas' });
+});
+
 test('session() is undefined until authenticated and again after the connection ends', async () => {
   const pipe = makePipePair();
   const client = createSecureDesktopClient({

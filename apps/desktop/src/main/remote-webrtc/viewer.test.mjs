@@ -59,6 +59,8 @@ function harness({ dispatch, of: source = BROWSER } = {}) {
       promotions.count += 1;
     },
     frameSeen: (epoch) => seen.push(epoch),
+    helperGrant: (grant) => seen.push(['grant', grant]),
+    helperInstall: (controllerKey) => seen.push(['install', controllerKey]),
   });
   const last = (type) => signals.filter((signal) => signal.type === type).at(-1);
   const ref = () => {
@@ -113,6 +115,37 @@ test('a screen viewer’s frame-seen reaches the source ungated and unacked; on 
   browser.viewer.channel(browser.ref().connectionId, seenOf(1), 0);
   assert.deepEqual(browser.seen, []);
   assert.equal(browser.last('demote').reason, 'protocol-error');
+});
+
+test('a screen viewer’s helper grant and install request reach the source ungated and unacked; on a browser source they are a violation', () => {
+  const grant = { epoch: 2, challenge: Buffer.alloc(16, 2).toString('base64'), signature: Buffer.alloc(64, 3).toString('base64') };
+  const publicKey = Buffer.from([4, ...new Array(64).fill(7)]).toString('base64url');
+  const grantText = JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-grant', ...grant });
+  const installText = JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey });
+  const screen = harness({ of: { kind: 'screen', screenId: '1' } });
+  screen.connect();
+  screen.viewer.geometryAck(1);
+  screen.viewer.signal({ ...screen.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  // Promoting: input would wait behind the barrier; these are not input.
+  screen.viewer.channel(screen.ref().connectionId, grantText, 0);
+  screen.viewer.channel(screen.ref().connectionId, installText, 0);
+  assert.deepEqual(screen.seen, [
+    ['grant', grant],
+    ['install', publicKey],
+  ]);
+  assert.deepEqual(screen.acks, [], 'never acked');
+  assert.equal(screen.viewer.state, 'promoting');
+  // A malformed one ends the channel like any contract violation.
+  screen.viewer.channel(screen.ref().connectionId, JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey: 'x' }), 0);
+  assert.equal(screen.last('demote').reason, 'protocol-error');
+
+  for (const text of [grantText, installText]) {
+    const browser = harness();
+    browser.promote();
+    browser.viewer.channel(browser.ref().connectionId, text, 0);
+    assert.deepEqual(browser.seen, []);
+    assert.equal(browser.last('demote').reason, 'protocol-error');
+  }
 });
 
 test('desktop pushes reach the channel only while it is up; promotion announces it once', () => {

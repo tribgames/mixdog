@@ -20,7 +20,13 @@
  * it to the `SecureDesktopClient` interface this switch needs; tests drive a
  * mock of it.
  */
-import type { RemoteScreenHelperState, RemoteScreenStatus } from '../../shared/remote-webrtc';
+import {
+  REMOTE_SCREEN_HELPER_ISSUES,
+  type RemoteScreenHelperInfo,
+  type RemoteScreenHelperIssue,
+  type RemoteScreenHelperState,
+  type RemoteScreenStatus,
+} from '../../shared/remote-webrtc';
 import type { ScreenBgraFrame } from './screen-geometry';
 import type { ScreenHostCommand } from './screen-input-host';
 import type { ScreenLocalDesktop } from './screen-input-host';
@@ -120,12 +126,22 @@ export interface ScreenSwitchInputs {
   helperInstalled: boolean;
   helperConnected: boolean;
   helperDesktop: SecureDesktopKind | null;
+  /** The helper's WTS session lock state (`locked()`); null when it reports
+   *  none or isn't connected. */
+  helperLocked: boolean | null;
+  /** The installed service was found stopped and could not be started
+   *  (`ensureRunning` answered not running); a connection supersedes it. */
+  helperServiceDown?: boolean;
+  /** Another session holds the helper (secure-desktop-helper.ts, "One
+   *  holder"): this one can't use it until the hold passes. */
+  helperOwnedElsewhere?: boolean;
 }
 
 const helperState = (inputs: ScreenSwitchInputs): RemoteScreenHelperState => {
   if (!inputs.helperInstalled) return 'missing';
+  if (inputs.helperOwnedElsewhere) return 'in-use';
   if (inputs.helperConnected) return 'active';
-  return 'starting';
+  return inputs.helperServiceDown ? 'failed' : 'starting';
 };
 
 /**
@@ -134,17 +150,25 @@ const helperState = (inputs: ScreenSwitchInputs): RemoteScreenHelperState => {
  * session with the input desktop still readable is an elevation prompt that
  * elevated in place on the ordinary desktop: the view is live, but the prompt
  * does not take remote input without the helper.
+ *
+ * Lock screen vs UAC (both on the one `Winlogon` desktop): the helper's WTS
+ * lock state decides whenever it reports one, before the local LogonUI check
+ * (LogonUI also draws the Ctrl+Alt+Del screen of an unlocked session). Not
+ * locked is UAC when a consent prompt runs, else an unnamed secure screen.
  */
 export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDecision {
   const helper = helperState(inputs);
+  // Connected and this session's to use (not held by another session).
+  const usable = inputs.helperConnected && !inputs.helperOwnedElsewhere;
   const local = inputs.local;
   const onSecure =
     local !== null && (local.inputDesktop === null || normalizeDesktopName(local.inputDesktop) === 'winlogon');
-  const locked = local !== null && local.logonUi && !onSecure;
+  const lockScreen = local !== null && (inputs.helperLocked ?? local.logonUi);
+  const locked = lockScreen && !onSecure;
 
   if (onSecure) {
-    const reason: RemoteScreenStatus['reason'] = local?.logonUi ? 'lock' : local?.consent ? 'uac' : 'secure';
-    if (inputs.helperInstalled && inputs.helperConnected && inputs.helperDesktop !== null &&
+    const reason: RemoteScreenStatus['reason'] = lockScreen ? 'lock' : local?.consent ? 'uac' : 'secure';
+    if (inputs.helperInstalled && usable && inputs.helperDesktop !== null &&
       normalizeDesktopName(inputs.helperDesktop) !== 'default'
     ) {
       return { mode: 'helper', helper, helperActive: true, status: 'secure-desktop', reason };
@@ -161,7 +185,7 @@ export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDeci
   // Ordinary desktop. An in-place elevation prompt (or the lock UI while the
   // input desktop is still readable) is live but un-actionable without a helper.
   if (local?.consent || locked) {
-    if (inputs.helperInstalled && inputs.helperConnected) {
+    if (inputs.helperInstalled && usable) {
       // The helper can act even for an in-place prompt; keep it warm so a jump
       // to the secure desktop has frames already flowing.
       return { mode: 'default', helper, helperActive: true, status: 'elevation-prompt', reason: locked ? 'lock' : 'uac' };
@@ -178,6 +202,9 @@ export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDeci
   return { mode: 'default', helper, helperActive: false, status: 'live' };
 }
 
+/** The status's helper block besides what the decision says (`secure`). */
+export type ScreenHelperFacts = Omit<RemoteScreenHelperInfo, 'secure'>;
+
 /** The status pushed to the phone for a decision, with whether this viewer
  *  may currently control. Control is refused on `blocked` (nothing can act),
  *  on `elevation-prompt` without a helper, and on `helper` until the helper's
@@ -186,7 +213,8 @@ export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDeci
 export function screenStatusFor(
   decision: ScreenSourceDecision,
   controlGranted: boolean,
-  helperVideo: boolean
+  helperVideo: boolean,
+  helper: ScreenHelperFacts
 ): RemoteScreenStatus {
   const control =
     controlGranted &&
@@ -198,7 +226,31 @@ export function screenStatusFor(
     ...(decision.reason ? { reason: decision.reason } : {}),
     helper: decision.helper,
     control,
+    helperInfo: {
+      ...helper,
+      secure: decision.reason === 'lock' || decision.reason === 'uac' ? decision.reason : null,
+    },
   };
+}
+
+/** A helper advisory code the phone is told about; null for the others
+ *  (handshake failures close the connection; a refused grant is followed by
+ *  the next challenge). */
+export function screenHelperIssue(code: string): RemoteScreenHelperIssue | null {
+  return (REMOTE_SCREEN_HELPER_ISSUES as readonly string[]).includes(code) ? (code as RemoteScreenHelperIssue) : null;
+}
+
+/** The issue still standing after the helper's connection or desktop changed
+ *  (connected, the input desktop switched, disconnected, or the adapter was
+ *  rebuilt by an install): every report of the desktop it was about ends
+ *  (`desktop_unavailable` ends at the next `desktop-changed`), while
+ *  `grant_key_missing` describes the install and stands as long as the
+ *  connection to it does. */
+export function helperIssueAfterChange(
+  issue: RemoteScreenHelperIssue | null,
+  connected: boolean
+): RemoteScreenHelperIssue | null {
+  return issue === 'grant_key_missing' && connected ? issue : null;
 }
 
 /** Whether a decision takes frames and input from the helper rather than the

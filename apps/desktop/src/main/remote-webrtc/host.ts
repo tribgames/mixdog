@@ -269,6 +269,8 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       },
       receiverStats: (stats) => void measure(entry, 'stats', stats),
       frameSeen: (epoch) => source.frameSeen?.(epoch),
+      helperGrant: (grant) => source.helperGrant?.(grant),
+      helperInstall: (controllerKey) => source.helperInstall?.(controllerKey),
       promoted: () => {
         for (const message of source.channelState?.() ?? []) entry.viewer.push(JSON.stringify(message));
       },

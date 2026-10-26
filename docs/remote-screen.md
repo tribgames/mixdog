@@ -27,7 +27,8 @@ displays, picks one, and streams it the same way it streams a browser page.
 | `apps/desktop/src/main/remote-screen/screen-webrtc-sources.ts` | The window process's screen sessions for the WebRTC host: per-connection access, resolve, close (see "Main wiring"). |
 | `apps/desktop/src/main/remote-screen/screen-access-publisher.ts` | Service side: sends each relay connection's access (grant / deny) to the window. |
 | `apps/desktop/src/main/remote-screen/screen-electron.ts` | Electron pieces: displays with capture ids, the input host factory, the on-PC indicator (the remote-control pill). |
-| `apps/desktop/src/main/remote-screen/secure-desktop-adapter.ts` | Adapts the real secure-desktop client (`main/secure-desktop/`, protocol v3) to the switch's `SecureDesktopClient` interface. |
+| `apps/desktop/src/main/remote-screen/secure-desktop-adapter.ts` | Adapts the real secure-desktop client (`main/secure-desktop/`, protocol v4) to the switch's `SecureDesktopClient` interface, plus the grant, lock-state and issue surface. |
+| `apps/desktop/src/main/remote-screen/secure-desktop-helper.ts` | `SecureDesktopHelper`: the adapter every session shares, rebuilt after an install, plus the install state and the phone's install request (see "Helper install and control grants"). |
 | `apps/desktop/src/main/remote-screen/screen-selfcheck.mjs` | A local self-check that needs no phone and doesn't touch the cursor. It runs no capture and injects nothing; input goes through a recording backend. |
 
 ## Contract fold-in
@@ -74,7 +75,22 @@ Desktop → phone on the same channel (not input-acked, not epoch-bound):
 
 - `screen-status`: `{ v, kind: 'screen-status', status: RemoteScreenStatus }`,
   pushed on every status change (from the source's `onStatus`), including the
-  final `stopped`.
+  final `stopped`. `status.helper` is `not-needed | active | starting |
+  missing | failed | in-use` (`failed`: an installed service that could not
+  be started; `in-use`: another viewer's session holds the helper, see "One
+  holder"). `status.helperInfo` (`RemoteScreenHelperInfo`, required) is
+  the secure-desktop helper block: `offer` (`'install' | 'update' | 'none'`),
+  `outcome` (this session's last install request: `installed | updated |
+  declined | failed | in-progress | other-user | unavailable`, or null),
+  `detail` (its diagnostic, at most `MAX_REMOTE_SCREEN_HELPER_DETAIL` = 256
+  characters, or null), `issue` (`grant_key_missing | grant_expired |
+  input_failed | desktop_unavailable | sas_disabled_by_policy`, or null) and
+  `secure` (`'lock' | 'uac' | null`); see "Helper install and control
+  grants".
+- `screen-helper-challenge`: `{ v, kind: 'screen-helper-challenge', epoch,
+  nonce, challenge }`, a helper grant challenge to sign for video run
+  `epoch`. Built by `remoteWebrtcScreenHelperChallenge`, read on the phone by
+  `readRemoteWebrtcScreenHelperChallenge`. Never in the promotion snapshot.
 - `screen-cursor`: `{ v, kind: 'screen-cursor', x, y, generation }`, the PC
   cursor in whole video pixels of geometry `generation`. The cursor stays
   baked into the video; this only anchors trackpad mode. It is sampled
@@ -91,7 +107,9 @@ Desktop → phone on the same channel (not input-acked, not epoch-bound):
   (or across a new geometry) is dropped when it completes, and the
   promotion snapshot carries no cursor while the helper serves.
 - `screen-video`: `{ v, kind: 'screen-video', epoch, path }`, `epoch` a
-  positive integer increasing per session, `path` `'capture' | 'helper'`: video
+  positive integer increasing per session and unique across sessions (one
+  helper-wide counter; it is also the epoch the helper is given, see "What
+  guarantees revocation"), `path` `'capture' | 'helper'`: video
   run `epoch` of that path is on the track from now on (see "Video runs and
   control"). Read with `readRemoteWebrtcScreenVideo`.
 - All of them go only to a channel that is up (`promoting` or `webrtc`); a
@@ -110,6 +128,20 @@ Phone → desktop, not input (never acked, never gated by the input epoch):
   source it is a contract violation. The receipt identifies the announced
   run, not the provenance of the presented pixels (see "Video runs and
   control" for the accepted limits).
+- `screen-helper-grant`: `{ v, kind: 'screen-helper-grant', epoch, challenge,
+  signature }`, the phone's answer to a `screen-helper-challenge`; the phone
+  builds the text with `encodeRemoteWebrtcScreenHelperGrant`.
+- `screen-helper-install`: `{ v, kind: 'screen-helper-install', publicKey }`,
+  install or update the helper enrolling this controller key; the phone builds
+  the text with `encodeRemoteWebrtcScreenHelperInstall`.
+- Both are validated by `parseRemoteWebrtcChannelFromClient` and are a
+  contract violation on a browser source. Encodings: `nonce`, `challenge` (16
+  bytes) and `signature` (64-byte P-256 `r ‖ s`) are canonical padded base64,
+  the helper's own wire encoding and what `signSecureDesktopGrant`
+  (`shared/secure-desktop-grant.ts`) takes and returns, so nothing is
+  re-encoded on either side; `publicKey` is unpadded base64url of the 65-byte
+  uncompressed point (`isSecureDesktopControllerKey`). `epoch` is a positive
+  integer.
 
 ## Capture
 
@@ -356,7 +388,8 @@ and decides the source as a pure function. `secure-desktop-adapter.ts` adapts
 the real client to that interface (`index.ts` plugs it in):
 
 - **Not installed:** the adapter is `NO_SECURE_DESKTOP` (not installed), so a
-  secure desktop stays blocked. Installing is not built here.
+  secure desktop stays blocked until the paired phone asks for the install
+  (see "Helper install and control grants").
 - **Connection:** dialled on the first `setActive(true)` (not awaited, so the
   input queue never waits on it); a wanted activation is sent once the
   handshake completes. While activation is wanted, a lost or refused
@@ -379,6 +412,14 @@ the real client to that interface (`index.ts` plugs it in):
 
 The decision:
 
+- **Lock screen vs UAC.** Both are on the one `Winlogon` desktop. The
+  helper's WTS lock state (`locked()`) decides whenever it reports one,
+  before the local `LogonUI` check (LogonUI also draws an unlocked session's
+  Ctrl+Alt+Del screen): locked is `lock`; not locked is `uac` while
+  `consent.exe` runs, else `secure`. Without a lock state (unknown, or the
+  helper not connected) LogonUI means `lock`, as before. On the readable
+  desktop an unlocked session's LogonUI is no prompt at all. A change of the
+  lock state alone arrives as `desktop-changed`.
 - **Secure desktop up.** The input-desktop watcher can't open the input
   desktop, or the desktop is `winlogon`. That covers UAC on the secure desktop,
   Ctrl+Alt+Del, and the lock/sign-in screen. If the helper is installed and
@@ -411,6 +452,145 @@ The decision:
 - **Deactivation.** When the desktop returns, the router switches back to
   `desktop`. The helper's presses are released through the helper first, then
   it is deactivated.
+
+### Helper install and control grants
+
+**Install on demand** (`secure-desktop-helper.ts`). The screen sources hold a
+`SecureDesktopHelper`: the current adapter plus the install state and request;
+each session sees it through its own `SecureDesktopLease` (`lease()`, let go
+once the session released). The phone's `screen-helper-install` reaches
+`RemoteScreenSource.requestHelperInstall` (running and paired only), which
+checks the install state for the phone's key, then calls the installer's
+`request(publicKey)` (main/secure-desktop/install-request.ts: at most one UAC
+prompt, joining a request already running; nothing is single-flighted here).
+
+- **No prompt after a refusal.** One UAC prompt per phone request, and no
+  retry after the PC refused: a `declined` outcome latches in the helper
+  (PC side, every session), and from then on each install request answers
+  `declined` with the detail `DECLINED_ON_PC` ("refused on the PC; restart
+  Mixdog on the PC before asking again") and launches nothing. An app
+  restart clears it (the helper lives with the main window); it stands in
+  for the local action on the PC that should clear it, without a settings
+  UI for now.
+The result lands in the status: `outcome`, `detail` (cut to 256 characters),
+and the offer from its install state, which is relative to the phone's key.
+A request that rejects (the bridge could not be run) reports `failed` with
+its message. An answer to a request (or check) after a later one of the
+session started counts for nothing.
+
+- **Offer.** Each session start checks the install state without a key
+  (the phone names its key only when it asks) and maps it with
+  `installOfferFor`: `not-installed` → `install`, `outdated` → `update`
+  (also a helper enrolled with no key or another phone's, once the phone's
+  own request checked relative to its key), anything else → `none`. Before
+  the check answers it is `none`.
+- **Rebuilt after an install, only when it changed.** A client reads the
+  install state (its secret) once, when it is built, so an `installed` or
+  `updated` outcome builds a fresh client and adapter, as install-request.ts
+  requires, but only when the install changed: not when the state for the
+  phone's key was already `installed` (current, enrolling that key) before
+  the request and the adapter knows an install (the installer answers
+  `installed` then without a prompt), and not when the adapter was rebuilt
+  since the request began (a request another session joined ends with the
+  same install; a rebuild by a state check happens only once an install is
+  there). So does a check that reads `installed` while the adapter reports
+  not installed (an install that finished after its request had answered
+  `in-progress`). The swap keeps every listener, applies the holder's
+  activation and declared run to the new adapter, fires `onDesktopChanged`
+  so each session re-decides, and disposes the old one.
+
+**One holder** (helper ownership). The helper serves one session at a time,
+so several sessions (phones, displays) can't invalidate each other's runs
+and grants:
+
+- The session that activates it first holds it. Only the holder's video
+  runs are declared, only its grants and input reach the helper, and only
+  it hears the helper's frames, challenges and issues.
+- Another session that needs the helper meanwhile reads `ownedElsewhere()`
+  and decides through the switch's `helperOwnedElsewhere`: status
+  `helper: 'in-use'` with no control (blocked on the secure desktop, an
+  un-actionable prompt in place), its runs not declared, its grants
+  dropped (`sendGrant` refuses), its input refused, and no challenge of
+  the helper's reaches its phone. It waits, in the order it asked.
+- The hold passes when the holder deactivates the helper (its switch, after
+  its presses were released through it) or its session ends (the stop
+  deactivates it; the lease is let go once it released): to the first
+  waiting session or, with nobody waiting, the helper is deactivated.
+  Every session re-decides when the holder changes.
+
+**What guarantees revocation.** A declaration alone does not: the helper
+ends its grant on `video-run` only when the epoch differs from its current
+one; re-declaring the same epoch changes nothing (`GrantBook::set_epoch`,
+native/mixdog-secure-desktop/src/security.rs). Two things do:
+
+- **Deactivation, on every handover.** Taking the hold is always, in this
+  order on the one connection: control off (on a handover: the helper
+  releases everything it holds and revokes its live grant and every open
+  challenge, helper.rs), the new holder's fresh run declared (`onHold`:
+  its screen adapter starts a new run on the path it is on, minted and
+  declared), control on (a challenge for the new epoch is due at once).
+  Nothing of the new holder reaches the helper before the revoke, and
+  nothing of the previous one counts after it, whatever the epochs.
+- **Epochs unique app-wide.** Every run of every session takes its epoch
+  from one helper-wide counter that only rises (`mintVideoRun`, through the
+  source's `nextVideoRun`), so no two sessions' runs share one. The run is
+  also what the phone is shown (`screen-video`, its challenges) and signs:
+  the phone signs only a challenge whose epoch is the run it was shown
+  (remote-screen-helper.ts), so the helper epoch and the run are one
+  number rather than a mapping.
+
+The lease mirrors the helper's gate so nothing is relayed that the helper
+would have to refuse: a grant passes only from the holder, for the epoch it
+declared in this hold, naming a challenge forwarded to it since (the
+latest 4: one every 2 s, each kept through an age of 6 s inclusive), each
+challenge once; the holder's
+input passes only once such a grant was relayed. A rebuilt adapter (a new
+connection) starts over. The helper stays the authority on a grant's
+lifetime.
+
+**Stopped service** (after a reboot the service is registered but stopped).
+A lease's `ensureRunning` calls the installer's `ensureRunning()`:
+an unelevated start with no prompt, for a current install only. Sessions
+asking together share one attempt, and a connected helper needs none. A
+session asks at start when its install-state check reads `installed` and
+the helper isn't connected, and each time it activates the helper while not
+connected (the moment the helper is needed). The answer re-decides through
+the switch's `helperServiceDown`: installed but not running (or a start that
+rejected) is status `helper: 'failed'`; a running answer is `starting` again
+(the adapter, dialling while activation is wanted, reaches it on its next
+reconnect); a connection is `active` whatever was answered. An answer after
+a later attempt started counts for nothing.
+
+**Control grants** (helper protocol v4, ipc-spec "Control grants"). The
+helper injects only under a grant the paired phone signed:
+
+- **Runs.** Every video run of the holder is declared to the helper with
+  `setVideoRun` (the first once the session runs, each later one when it
+  starts: path change, watchdog stall, lost channel, and a fresh one when
+  the session takes the hold). A run of a new epoch ends the helper's live
+  grant, so a grant never outlives the picture it was given for; across
+  sessions the explicit deactivation above is what revokes.
+- **Challenge → phone.** Each `onGrantChallenge` (while control is active:
+  at once, then every 2 s), while the session runs and is paired, goes to
+  the viewer as `screen-helper-challenge` with the current run's `epoch`.
+  A malformed one (the helper's pipe admits any process of the PC user) is
+  never forwarded. Not in `channelState()`: a challenge lives 6 s and the
+  next comes sooner.
+- **Grant → helper.** A `screen-helper-grant` is relayed with `sendGrant`
+  only when its `epoch` is the current run and the session runs and is
+  paired; otherwise it is dropped (the helper would refuse it anyway).
+- **Issues.** `onHelperIssue` codes in `REMOTE_SCREEN_HELPER_ISSUES`
+  (`screenHelperIssue`) become the status's `issue` while this session has
+  the helper active; other codes are not the phone's (handshake failures
+  close the connection; a refused grant is followed by the next
+  challenge). An issue ends when the helper is deactivated (its own lapse
+  report after that is ignored), at a helper change (connect, desktop
+  switch, disconnect, rebuild: `helperIssueAfterChange`; `desktop_unavailable`
+  ends at the next `desktop-changed` per the spec) except
+  `grant_key_missing`, which describes the install and stands while
+  connected, and `grant_expired` once the next grant for the run was relayed.
+- **`secure`** in the block is the decision's reason when it is `lock` or
+  `uac`, else null.
 
 ### Helper video
 
@@ -621,7 +801,12 @@ returns a `RemoteWebrtcVideoSource` for `{ kind: 'screen', screenId }`:
   run, `delivered(epoch)` (the host, per drawn picture) and
   `frameSeen(epoch)` (the viewer, per `screen-frame-seen`) decide
   `setHelperVideo`, and `release()` starts a new run; see "Video runs and
-  control".
+  control". Every run is declared with `screen.setVideoRun`.
+- `onHelperChallenge` pushes `screen-helper-challenge` with the current run;
+  `helperGrant(grant)` (the viewer, per `screen-helper-grant`) relays it
+  through `screen.helperGrant` only for the current run, and
+  `helperInstall(publicKey)` (per `screen-helper-install`) calls
+  `screen.requestHelperInstall`; see "Helper install and control grants".
 
 ### Main wiring
 
@@ -731,8 +916,10 @@ it; Windows only):
   events and before each screen `ready`); the input host in the app-data
   folder Computer Use's host uses; the indicator as the remote-control pill
   (`createPillScreenIndicator` over `showRemoteScreenIndicator`, given the
-  viewed display's Electron id). The secure-desktop client is the real one
-  through `createSecureDesktopAdapter`.
+  viewed display's Electron id). The secure-desktop helper is
+  `createSecureDesktopHelper` over the real client (`createSecureDesktopAdapter`
+  per build) and the bundled bridge's installer
+  (`secureDesktopInstallerFor`).
 
 ### The underlying source interface
 
@@ -742,7 +929,9 @@ it; Windows only):
 `cursor()` / `onCursor` (with `sampleCursor`), `onGeometry`, `onStop`, `handleInput(input, geometryGeneration)` →
 `'applied' | 'rejected'`, `releaseInput()` (idempotent; valid before, during and
 after stop), `setHelperVideo(delivering)` (see "No blind control"),
-`videoPath()` / `onVideoPath` (see "Helper video"),
+`videoPath()` / `onVideoPath` (see "Helper video"), `setVideoRun(epoch)`,
+`onHelperChallenge`, `helperGrant(grant)` and
+`requestHelperInstall(publicKey)` (see "Helper install and control grants"),
 `stop(reason, { deadlineMs? })` (idempotent; a later call
 returns the first one's promise), and `released()`. `released()`
 resolves once shutdown is done: releases delivered or dropped, and backends
@@ -907,6 +1096,48 @@ sources (Node's own type stripping can't, e.g. parameter properties):
   every sender onto the drawn track and stops the capture only after;
   `installed` waits for every sender; a capture replaces it again; a draw
   abandons a capture still opening).
+- Helper install and grants: `shared/remote-webrtc.test.mjs` (the status
+  block with every offer, outcome and issue, its bounded detail and strict
+  members; challenge, grant and install messages with a real Web Crypto key
+  and signature, wrong lengths, base64url or non-canonical encodings, wrong
+  kinds), `secure-desktop-switch.test.mjs` (`helperServiceDown` reads
+  `failed`, superseded by a connection; lock vs UAC precedence of the
+  helper's lock state over LogonUI; the block with every offer, outcome and
+  issue and `secure`; which codes are issues and which survive a change),
+  `screen-source.test.mjs` (each challenge pushed with the current run, a
+  grant relayed only for the current run, every run declared, malformed
+  challenges never forwarded, nothing after the session; the install request
+  forwarded with its key, outcome, bounded detail and offer in the status, a
+  rejected request `failed`, an earlier answer not applied over a later one;
+  issues only while the helper is active and their ends; lock vs UAC through
+  the source; a stopped service started at session start and when the helper
+  is needed, `failed` when it can't start or the start rejects, `active`
+  once connected, never for an install that isn't current or a connected
+  helper; two sessions on one helper: the second reads `in-use` without
+  control, declares nothing, hears no challenge, its grant and input are
+  refused; each challenge pushed with the epoch the helper was given; the
+  hold passes when the holder's session ends, a fresh, higher epoch
+  declared and the helper active again, deactivated after the last),
+  `secure-desktop-helper.test.mjs` (`ensureRunning` through the
+  installer, one shared attempt, none while connected; the request with its key;
+  installed/updated rebuild the adapter once, keeping listeners, run and
+  activation; other outcomes don't; a request for a key already installed
+  and current keeps the live adapter, an update or a stale adapter
+  rebuilds; after one decline two more requests from other sessions answer
+  `declined` with `DECLINED_ON_PC` and launch nothing; one holder: only its
+  runs, grants, input, frames, challenges and issues, runs minted from one
+  counter, every take ordered deactivate (on a handover), fresh run,
+  activate, on deactivation and on dispose, deactivated with nobody
+  waiting; a handover where both sessions declare run 1: the successor's
+  input refused until it relays its own grant for a new challenge, a
+  grant for another run refused, a challenge used once; the previous
+  holder's open challenges dead after the handover for both phones; a check
+  reading installed beside a not-installed adapter rebuilds; dispose),
+  `secure-desktop-switch.test.mjs` also (`in-use`: blocked, no control,
+  still wanted), `shared/remote-webrtc.test.mjs` also (status enums are
+  strings only: one-element arrays refused; null kept), `remote-webrtc/viewer.test.mjs`
+  (grant and install reach the source while promoting, unacked; a violation
+  on a browser source or when malformed).
 
 Manual, local, phone-free:
 
@@ -933,8 +1164,15 @@ The main wiring is done (see "Main wiring"). Still open:
     `dispatch`. Today the adapter uses the current generation, relying on the
     host's own check against the acknowledged one;
   - an `app-quit` stop reason (`user` stands in).
-- Secure desktop: the helper's install flow (not built here).
+- Secure desktop:
+  - verify the install request, the rebuild and the grant relay on a PC with
+    the bridge shipped (UAC prompt, enrolled key, live grants);
+  - a local action on the PC (settings) to clear a latched decline; an app
+    restart does today.
 - Phone: send `screen-frame-seen` per `screen-video` run (no control on the
   helper path until it does).
+- Phone: sign each `screen-helper-challenge` and answer
+  `screen-helper-grant`; offer the install from `helperInfo.offer` and send
+  `screen-helper-install` with its controller key.
 - Phone: consume `screen-cursor` (trackpad anchor) and send `screen-keys`
   for shortcuts.

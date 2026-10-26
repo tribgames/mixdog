@@ -47,6 +47,12 @@ function fakeScreen(over = {}) {
       videoPath: () => 'capture',
       onVideoPath: () => () => {},
       setHelperVideo: () => {},
+      setVideoRun: () => {},
+      nextVideoRun: () => (state.runs = (state.runs ?? 0) + 1),
+      onHelperHold: () => () => {},
+      onHelperChallenge: () => () => {},
+      helperGrant: () => {},
+      requestHelperInstall: () => {},
     },
   };
 }

@@ -5,6 +5,7 @@
  */
 import type {
   RemoteScreenCapturePlan,
+  RemoteScreenHelperGrant,
   RemoteWebrtcChannelPush,
   RemoteWebrtcClientSignal,
   RemoteWebrtcGeometry,
@@ -104,6 +105,11 @@ export interface RemoteWebrtcVideoSource {
   /** The viewer's phone rendered a frame of video run `epoch`
    *  (`screen-frame-seen`). */
   frameSeen?(epoch: number): void;
+  /** The viewer's phone signed a helper challenge (`screen-helper-grant`). */
+  helperGrant?(grant: RemoteScreenHelperGrant): void;
+  /** The viewer's phone asks for the secure-desktop helper, enrolling its
+   *  controller key (`screen-helper-install`). */
+  helperInstall?(controllerKey: string): void;
 }
 
 /** The paired client a signal came from, and that signal's type. A screen

@@ -8,6 +8,7 @@ import {
   stopScreenSourcesForQuit,
 } from './screen-source.ts';
 import { createScreenWebrtcSource, HELPER_FRAME_INTERVAL_MS, helperVideoStallMs } from './screen-webrtc-source.ts';
+import { createSecureDesktopHelper } from './secure-desktop-helper.ts';
 
 const display = {
   screenId: '1',
@@ -117,13 +118,35 @@ function mockHost() {
 function mockSecureDesktop(over = {}) {
   const frameListeners = new Set();
   const desktopListeners = new Set();
+  const challengeListeners = new Set();
+  const issueListeners = new Set();
+  const listen = (set, listener) => {
+    set.add(listener);
+    return () => set.delete(listener);
+  };
   const state = {
     installed: false,
     connected: false,
     desktop: null,
     session: 1,
+    /** The helper's WTS lock state while connected. */
+    locked: null,
     active: false,
     sent: [],
+    /** Declared video runs, relayed grants, and install requests' keys. */
+    runs: [],
+    grants: [],
+    installs: [],
+    installState: 'unavailable',
+    /** What an install request ends with (an Error: it rejects). */
+    installResult: { outcome: 'unavailable', state: 'unavailable' },
+    /** What `ensureRunning` answers (an Error: it rejects), and how often it was asked. */
+    service: { installed: true, running: true },
+    ensures: 0,
+    /** Another session holds the helper (a lease's view). */
+    ownedElsewhere: false,
+    /** The helper-wide run counter (`mintVideoRun`). */
+    minted: 0,
     ...over,
   };
   return {
@@ -133,6 +156,7 @@ function mockSecureDesktop(over = {}) {
       connected: () => state.connected,
       desktop: () => state.desktop,
       session: () => (state.connected ? state.session : null),
+      locked: () => (state.connected ? state.locked : null),
       setActive: async (active) => {
         state.active = active;
       },
@@ -140,15 +164,30 @@ function mockSecureDesktop(over = {}) {
         if (state.hang) await new Promise(() => {});
         state.sent.push(command);
       },
+      setVideoRun: (epoch) => state.runs.push(epoch),
+      ownedElsewhere: () => state.ownedElsewhere,
+      mintVideoRun: () => ++state.minted,
+      onHold: () => () => {},
+      sendGrant: async (grant) => {
+        state.grants.push(grant);
+      },
+      installState: async () => state.installState,
+      requestInstall: async (controllerKey) => {
+        state.installs.push(controllerKey);
+        if (state.installResult instanceof Error) throw state.installResult;
+        return state.installResult;
+      },
+      ensureRunning: async () => {
+        state.ensures += 1;
+        if (state.service instanceof Error) throw state.service;
+        return state.service;
+      },
       latestFrame: () => null,
-      onFrame(listener) {
-        frameListeners.add(listener);
-        return () => frameListeners.delete(listener);
-      },
-      onDesktopChanged(listener) {
-        desktopListeners.add(listener);
-        return () => desktopListeners.delete(listener);
-      },
+      onFrame: (listener) => listen(frameListeners, listener),
+      onDesktopChanged: (listener) => listen(desktopListeners, listener),
+      onGrantChallenge: (listener) => listen(challengeListeners, listener),
+      onHelperIssue: (listener) => listen(issueListeners, listener),
+      dispose: () => {},
     },
     emitFrame(frame) {
       for (const listener of frameListeners) listener(frame);
@@ -156,6 +195,12 @@ function mockSecureDesktop(over = {}) {
     emitDesktop(desktop) {
       state.desktop = desktop;
       for (const listener of desktopListeners) listener(desktop);
+    },
+    emitChallenge(challenge) {
+      for (const listener of challengeListeners) listener(challenge);
+    },
+    emitIssue(code) {
+      for (const listener of issueListeners) listener(code);
     },
   };
 }
@@ -186,7 +231,9 @@ function mockIndicator() {
 function build(over = {}) {
   const displays = mockDisplays(over.displays);
   const host = mockHost();
-  const secure = mockSecureDesktop(over.secure);
+  // `over.sharedSecure` / `over.lease`: one helper several sessions share,
+  // each through its own lease.
+  const secure = over.sharedSecure ?? mockSecureDesktop(over.secure);
   const indicator = mockIndicator();
   const log = [];
   const authListeners = new Set();
@@ -213,7 +260,7 @@ function build(over = {}) {
     },
     shutdownDeadlineMs: over.shutdownDeadlineMs ?? 1_000,
     createInputHost: () => host.host,
-    secureDesktop: secure.client,
+    secureDesktop: over.lease ?? secure.client,
     indicator: indicator.indicator,
     log: (event) => log.push(event),
     sampleCursor: over.sampleCursor,
@@ -387,6 +434,317 @@ test('an acknowledgement or a seen from an earlier run never grants control in a
   await env.source.stop('user');
 });
 
+const NONCE = Buffer.alloc(16, 1).toString('base64');
+const CHALLENGE = Buffer.alloc(16, 2).toString('base64');
+const SIGNATURE = Buffer.alloc(64, 3).toString('base64');
+const CONTROLLER_KEY = Buffer.from([4, ...new Array(64).fill(7)]).toString('base64url');
+
+test('helper grants: each challenge goes to the phone with the current run, only a grant for the current run is relayed, every run is declared', async () => {
+  const env = build({ secure: { installed: true, connected: true, desktop: 'winlogon' } });
+  env.host.control.reachable = false;
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  env.adapter.start();
+  await flush();
+  const challenges = () =>
+    env.pushes.filter(([, message]) => message.kind === 'screen-helper-challenge').map(([, message]) => message);
+  const grant = (epoch) => ({ epoch, challenge: CHALLENGE, signature: SIGNATURE });
+  assert.deepEqual(env.secure.state.runs, [1], 'the first run, once the session runs');
+  env.secure.emitChallenge({ nonce: NONCE, challenge: CHALLENGE });
+  assert.deepEqual(challenges(), [{ v: 1, kind: 'screen-helper-challenge', epoch: 1, nonce: NONCE, challenge: CHALLENGE }]);
+  assert.equal(
+    env.adapter.channelState().some((message) => message.kind === 'screen-helper-challenge'),
+    false,
+    'never in the promotion snapshot'
+  );
+
+  // The lock screen: run 2 on the helper, declared at once.
+  env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await flush();
+  assert.deepEqual(env.secure.state.runs, [1, 2]);
+  env.secure.emitChallenge({ nonce: NONCE, challenge: CHALLENGE });
+  assert.equal(challenges().at(-1).epoch, 2);
+  // Signed for run 1: not relayed. For run 2: relayed as it came.
+  env.adapter.helperGrant(grant(1));
+  await flush();
+  assert.deepEqual(env.secure.state.grants, []);
+  env.adapter.helperGrant(grant(2));
+  await flush();
+  assert.deepEqual(env.secure.state.grants, [grant(2)]);
+
+  // The channel goes: run 3, declared; run 2's grant is no longer relayed.
+  await env.adapter.release();
+  assert.deepEqual(env.secure.state.runs, [1, 2, 3]);
+  env.adapter.helperGrant(grant(2));
+  await flush();
+  assert.equal(env.secure.state.grants.length, 1);
+
+  // A malformed challenge never reaches the phone.
+  for (const nonce of ['AAAA', NONCE.replace('==', ''), Buffer.alloc(17).toString('base64'), Buffer.alloc(16, 0xff).toString('base64url')]) {
+    env.secure.emitChallenge({ nonce, challenge: CHALLENGE });
+  }
+  assert.equal(challenges().length, 2);
+
+  // After the session nothing passes either way.
+  await env.source.stop('user');
+  env.secure.emitChallenge({ nonce: NONCE, challenge: CHALLENGE });
+  env.adapter.helperGrant(grant(3));
+  await flush();
+  assert.equal(challenges().length, 2);
+  assert.equal(env.secure.state.grants.length, 1);
+});
+
+test('two sessions, one helper: the holder’s runs and grants only; the other reads in-use without control; the hold passes when the holder ends', async () => {
+  const secure = mockSecureDesktop({ installed: true, connected: true, desktop: 'winlogon' });
+  const helper = createSecureDesktopHelper({
+    adapter: () => secure.client,
+    installer: {
+      state: async () => 'installed',
+      request: async () => ({ outcome: 'installed', state: 'installed' }),
+      ensureRunning: async () => ({ installed: true, running: true }),
+    },
+  });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const [first, second] = [0, 1].map(() => build({ sharedSecure: secure, lease: helper.lease() }));
+  for (const env of [first, second]) {
+    env.host.control.reachable = false;
+    env.adapter.start();
+  }
+  await flush();
+  const grant = (epoch) => ({ epoch, challenge: CHALLENGE, signature: SIGNATURE });
+  const challenges = (env) => env.pushes.filter(([, message]) => message.kind === 'screen-helper-challenge');
+  assert.deepEqual(secure.state.runs, [], 'nobody holds it: no run declared');
+
+  // The lock screen: the first session to activate the helper holds it.
+  first.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await flush();
+  const firstRun = secure.state.runs.at(-1);
+  assert.deepEqual(secure.state.runs, [firstRun], 'its run, declared');
+  assert.equal(first.source.status().helper, 'active');
+  second.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await flush();
+  assert.deepEqual(second.source.status(), {
+    state: 'secure-desktop',
+    reason: 'lock',
+    helper: 'in-use',
+    control: false,
+    helperInfo: second.source.status().helperInfo,
+  });
+  assert.deepEqual(secure.state.runs, [firstRun], 'the waiting session declares nothing');
+  assert.equal(secure.state.active, true);
+
+  // Challenges reach the holder's phone only; the other's grant is dropped.
+  secure.emitChallenge({ nonce: NONCE, challenge: CHALLENGE });
+  assert.equal(challenges(first).length, 1);
+  assert.equal(challenges(first)[0][1].epoch, firstRun, 'carrying the epoch the helper was given');
+  assert.equal(challenges(second).length, 0);
+  // Straight to the source (past the adapter's own run check): the lease refuses it.
+  second.source.helperGrant(grant(firstRun));
+  await flush();
+  assert.deepEqual(secure.state.grants, [], 'cannot disturb the holder’s grant');
+  first.adapter.helperGrant(grant(firstRun));
+  await flush();
+  assert.deepEqual(secure.state.grants, [grant(firstRun)]);
+  // Its input can't reach the helper either.
+  assert.equal(await second.source.handleInput(keyA, 1), 'rejected');
+  assert.equal(secure.state.sent.length, 0);
+
+  // The holder's session ends: the waiting one holds it, its run declared at
+  // once (ending the first phone's grant), and the helper never went inactive.
+  await first.source.stop('user');
+  await flush();
+  assert.equal(second.source.status().helper, 'active');
+  const secondRun = secure.state.runs.at(-1);
+  assert.ok(secondRun > firstRun, 'a fresh epoch from the one helper-wide counter');
+  assert.equal(secure.state.active, true);
+  secure.emitChallenge({ nonce: NONCE, challenge: CHALLENGE });
+  assert.equal(challenges(second).at(-1)[1].epoch, secondRun, 'the epoch the helper was given');
+  assert.equal(challenges(first).length, 1);
+  // The first phone's grant (its run, an earlier challenge) is dead.
+  first.source.helperGrant(grant(firstRun));
+  await flush();
+  assert.deepEqual(secure.state.grants, [grant(firstRun)]);
+  second.adapter.helperGrant(grant(secondRun));
+  await flush();
+  assert.deepEqual(secure.state.grants, [grant(firstRun), grant(secondRun)]);
+  await second.source.stop('user');
+  await flush();
+  assert.equal(secure.state.active, false, 'the last holder let go');
+});
+
+test('the install request is forwarded with the phone’s key; its outcome, detail and the offer reach the status', async () => {
+  const env = build({ secure: { installState: 'not-installed' } });
+  await env.source.start();
+  await tick();
+  const pushed = () =>
+    env.pushes.filter(([, message]) => message.kind === 'screen-status').map(([, message]) => message.status.helperInfo);
+  const info = (over = {}) => ({ offer: 'install', outcome: null, detail: null, issue: null, secure: null, ...over });
+  // The check answered while the start was in flight: its offer is in the
+  // start's own status (sent at promotion), not a pushed change.
+  assert.deepEqual(env.source.status().helperInfo, info(), 'the start check offers the install');
+  const answer = async (result) => {
+    env.secure.state.installResult = result;
+    env.adapter.helperInstall(CONTROLLER_KEY);
+    await tick();
+  };
+  await answer({ outcome: 'declined', state: 'not-installed' });
+  assert.deepEqual(env.secure.state.installs, [CONTROLLER_KEY], 'with its key, as it came');
+  assert.deepEqual(pushed().at(-1), info({ outcome: 'declined' }));
+  await answer({ outcome: 'in-progress', state: 'not-installed', detail: 'x'.repeat(300) });
+  assert.deepEqual(pushed().at(-1), info({ outcome: 'in-progress', detail: 'x'.repeat(256) }), 'the detail, bounded');
+  await answer({ outcome: 'updated', state: 'installed' });
+  assert.deepEqual(pushed().at(-1), info({ offer: 'none', outcome: 'updated' }));
+  await answer(new Error('could not launch the bridge'));
+  assert.deepEqual(pushed().at(-1), info({ offer: 'none', outcome: 'failed', detail: 'could not launch the bridge' }));
+
+  // An answer to an earlier request is not applied over a later one's.
+  let finish;
+  env.secure.client.requestInstall = (controllerKey) => {
+    env.secure.state.installs.push(controllerKey);
+    return env.secure.state.installs.length === 5
+      ? new Promise((resolve) => (finish = resolve))
+      : Promise.resolve({ outcome: 'other-user', state: 'other-user' });
+  };
+  env.adapter.helperInstall(CONTROLLER_KEY);
+  env.adapter.helperInstall(CONTROLLER_KEY);
+  await tick();
+  finish({ outcome: 'installed', state: 'installed' });
+  await tick();
+  assert.deepEqual(pushed().at(-1), info({ offer: 'none', outcome: 'other-user' }));
+
+  await env.source.stop('user');
+  env.adapter.helperInstall(CONTROLLER_KEY);
+  assert.equal(env.secure.state.installs.length, 6, 'not after the session');
+});
+
+test('a stopped service (after a reboot) is started at session start and when the helper is needed; one that can’t start shows as failed', async () => {
+  // A current install, its service not running: nothing connects.
+  const env = build({
+    secure: { installed: true, connected: false, installState: 'installed', service: { installed: true, running: false } },
+  });
+  await env.source.start();
+  await tick();
+  assert.equal(env.secure.state.ensures, 1, 'at session start');
+  assert.equal(env.source.status().helper, 'failed');
+  assert.equal(env.source.status().state, 'live', 'the ordinary desktop is unaffected');
+
+  // The lock screen needs the helper: started again, and now it runs.
+  env.secure.state.service = { installed: true, running: true };
+  env.host.control.reachable = false;
+  env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await tick();
+  assert.equal(env.secure.state.ensures, 2, 'when the helper is needed');
+  assert.equal(env.secure.state.active, true);
+  assert.equal(env.source.status().helper, 'starting', 'running: the adapter reaches it on its next dial');
+  const pushed = env.pushes.filter(([, message]) => message.kind === 'screen-status').map(([, message]) => message.status.helper);
+  assert.equal(pushed.at(-1), 'starting', 'pushed to the phone');
+
+  // It connects: active, and nothing more is started.
+  env.secure.state.connected = true;
+  env.secure.emitDesktop('winlogon');
+  await tick();
+  assert.equal(env.source.status().helper, 'active');
+  assert.equal(env.secure.state.ensures, 2);
+  await env.source.stop('user');
+
+  // An attempt that rejects could not bring it up either.
+  const rejected = build({
+    secure: { installed: true, connected: false, installState: 'installed', service: new Error('start failed') },
+  });
+  await rejected.source.start();
+  await tick();
+  assert.equal(rejected.secure.state.ensures, 1);
+  assert.equal(rejected.source.status().helper, 'failed');
+  await rejected.source.stop('user');
+
+  // Not for an install that isn't current (the offer covers it), nor while connected.
+  for (const secure of [
+    { installed: false, installState: 'not-installed' },
+    { installed: true, installState: 'outdated' },
+    { installed: true, connected: true, desktop: 'default', installState: 'installed' },
+  ]) {
+    const other = build({ secure });
+    await other.source.start();
+    await tick();
+    assert.equal(other.secure.state.ensures, 0, JSON.stringify(secure));
+    await other.source.stop('user');
+  }
+});
+
+test('helper issues: the phone hears the listed codes while the helper is active, until what they report ends', async () => {
+  const env = build({ secure: { installed: true, connected: true, desktop: 'default' } });
+  await env.source.start();
+  const issue = () => env.source.status().helperInfo.issue;
+  const pushedIssue = () =>
+    env.pushes.filter(([, message]) => message.kind === 'screen-status').at(-1)[1].status.helperInfo.issue;
+  env.secure.emitIssue('input_failed');
+  assert.equal(issue(), null, 'not while this session has the helper inactive');
+
+  // The lock screen: the helper serves.
+  env.host.control.reachable = false;
+  env.secure.state.desktop = 'winlogon';
+  env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await tick();
+  for (const code of ['grant_key_missing', 'grant_expired', 'input_failed', 'desktop_unavailable', 'sas_disabled_by_policy']) {
+    env.secure.emitIssue(code);
+    assert.equal(issue(), code);
+    assert.equal(pushedIssue(), code, 'pushed');
+  }
+  env.secure.emitIssue('grant_bad_signature');
+  env.secure.emitIssue('capture_failed');
+  assert.equal(issue(), 'sas_disabled_by_policy', 'other codes are not the phone’s');
+
+  // The helper's desktop changed: a report about the desktop ends …
+  env.secure.emitDesktop('winlogon');
+  assert.equal(issue(), null);
+  // … the missing key stands while connected, and ends with the connection.
+  env.secure.emitIssue('grant_key_missing');
+  env.secure.emitDesktop('winlogon');
+  assert.equal(issue(), 'grant_key_missing');
+  env.secure.state.connected = false;
+  env.secure.emitDesktop(null);
+  assert.equal(issue(), null);
+  env.secure.state.connected = true;
+  env.secure.emitDesktop('winlogon');
+  await tick();
+
+  // A lapsed grant ends once the next grant for the run was relayed.
+  env.secure.emitIssue('grant_expired');
+  env.adapter.helperGrant({ epoch: env.secure.state.runs.at(-1), challenge: CHALLENGE, signature: SIGNATURE });
+  await tick();
+  assert.equal(env.secure.state.grants.length, 1);
+  assert.equal(issue(), null);
+
+  // Deactivated (the ordinary desktop again): it ends, and the helper's own
+  // lapse report after it is not the phone's concern.
+  env.secure.emitIssue('input_failed');
+  env.host.control.reachable = true;
+  env.secure.state.desktop = 'default';
+  env.host.emitDesktop({ inputDesktop: 'Default', consent: false, logonUi: false });
+  await tick();
+  assert.equal(env.secure.state.active, false);
+  assert.equal(issue(), null);
+  env.secure.emitIssue('grant_expired');
+  assert.equal(issue(), null);
+  await env.source.stop('user');
+});
+
+test('lock screen vs UAC: the helper’s lock state decides before LogonUI', async () => {
+  const env = build({ secure: { installed: true, connected: true, desktop: 'winlogon', locked: false } });
+  env.host.control.reachable = false;
+  await env.source.start();
+  // LogonUI runs, but the helper reports the session unlocked: the consent prompt.
+  env.host.emitDesktop({ inputDesktop: null, consent: true, logonUi: true });
+  await tick();
+  assert.equal(env.source.status().reason, 'uac');
+  assert.equal(env.source.status().helperInfo.secure, 'uac');
+  // A change of the lock state alone arrives as a desktop change.
+  env.secure.state.locked = true;
+  env.secure.emitDesktop('winlogon');
+  assert.equal(env.source.status().reason, 'lock');
+  assert.equal(env.source.status().helperInfo.secure, 'lock');
+  await env.source.stop('user');
+});
+
 const CTRL = { vk: 0xa2, scan: 0x1d, extended: false };
 const KEY_C = { vk: 0x43, scan: 0x2e, extended: false };
 
@@ -419,9 +777,16 @@ test('the status is pushed on each change, and a promoted channel gets the curre
   const before = statuses().length;
   env.host.emitDesktop({ inputDesktop: 'Default', consent: true, logonUi: false });
   await tick();
-  assert.deepEqual(statuses().slice(before), [{ state: 'elevation-prompt', reason: 'uac', helper: 'missing', control: false }]);
+  const prompt = {
+    state: 'elevation-prompt',
+    reason: 'uac',
+    helper: 'missing',
+    control: false,
+    helperInfo: { offer: 'none', outcome: null, detail: null, issue: null, secure: 'uac' },
+  };
+  assert.deepEqual(statuses().slice(before), [prompt]);
   assert.deepEqual(env.adapter.channelState(), [
-    { v: 1, kind: 'screen-status', status: { state: 'elevation-prompt', reason: 'uac', helper: 'missing', control: false } },
+    { v: 1, kind: 'screen-status', status: prompt },
     { v: 1, kind: 'screen-video', epoch: 1, path: 'capture' },
   ]);
   assert.equal(env.pushes.every(([key]) => key === 'screen:1'), true);
@@ -429,7 +794,10 @@ test('the status is pushed on each change, and a promoted channel gets the curre
   assert.equal(statuses().at(-1).state, 'stopped', 'the stop is pushed too');
 });
 
-test('the cursor is sampled once per frame interval, in video pixels, and pushed only on change', async () => {
+test('the cursor is sampled once per frame interval, in video pixels, and pushed only on change', async (t) => {
+  // The sampling interval on the mock clock: the cadence is checked exactly,
+  // whatever the machine's load.
+  t.mock.timers.enable({ apis: ['setInterval'] });
   const env = build({
     sampleCursor: true,
     maxFrameRate: 100,
@@ -438,23 +806,38 @@ test('the cursor is sampled once per frame interval, in video pixels, and pushed
   env.host.control.cursor = [-3840 + 1920, 1080];
   const { geometry } = await env.source.start();
   const cursors = () => env.pushes.filter(([, message]) => message.kind === 'screen-cursor').map(([, message]) => message);
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  const reads = () => env.host.control.cursorReads ?? 0;
+  /** Advance the clock and let the read it started complete. */
+  const advance = async (ms) => {
+    t.mock.timers.tick(ms);
+    await tick();
+  };
+  // 100 fps: one read per 10 ms frame interval.
+  await advance(9);
+  assert.equal(reads(), 0, 'not before the first interval');
+  await advance(1);
+  assert.equal(reads(), 1);
   // 3840×2160 physical streams as 3840×2160 video pixels (within the bound).
   assert.deepEqual(cursors(), [{ v: 1, kind: 'screen-cursor', x: 1920, y: 1080, generation: geometry.generation }]);
-  assert.ok(env.host.control.cursorReads >= 2, 'sampled again, but unchanged positions are not pushed');
+  await advance(10);
+  await advance(10);
+  assert.equal(reads(), 3, 'sampled once per interval');
+  assert.equal(cursors().length, 1, 'sampled again, but unchanged positions are not pushed');
   // x ≥ 0 is the display to the right of this one.
   env.host.control.cursor = [10, 5];
-  await new Promise((resolve) => setTimeout(resolve, 40));
+  await advance(10);
+  assert.equal(reads(), 4);
   assert.equal(cursors().length, 1, 'a cursor on another display is not pushed');
   env.host.control.cursor = [-3840, 0];
-  await new Promise((resolve) => setTimeout(resolve, 40));
+  await advance(10);
   assert.deepEqual(cursors().at(-1), { v: 1, kind: 'screen-cursor', x: 0, y: 0, generation: geometry.generation });
   assert.deepEqual(env.adapter.channelState().at(-1), cursors().at(-1), 'a promoted channel gets the last one');
   assert.deepEqual(env.host.control.attempts, [], 'sampling injects nothing');
   await env.source.stop('user');
-  const reads = env.host.control.cursorReads;
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  assert.equal(env.host.control.cursorReads, reads, 'sampling ends with the session');
+  const before = reads();
+  await advance(10);
+  await advance(10);
+  assert.equal(reads(), before, 'sampling ends with the session');
   assert.equal(env.source.cursor(), null);
 });
 
@@ -500,7 +883,13 @@ test('on the helper path control waits for the helper video to reach the viewer,
   env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
   await tick();
   // Helper attached, no video: view-blocked, not blind control.
-  assert.deepEqual(lastPushed(), { state: 'secure-desktop', reason: 'lock', helper: 'active', control: false });
+  assert.deepEqual(lastPushed(), {
+    state: 'secure-desktop',
+    reason: 'lock',
+    helper: 'active',
+    control: false,
+    helperInfo: { offer: 'none', outcome: null, detail: null, issue: null, secure: 'lock' },
+  });
   assert.equal(await env.source.handleInput(keyA, geometry.generation), 'rejected');
   assert.deepEqual(env.secure.state.sent, []);
   // The video starts: control.

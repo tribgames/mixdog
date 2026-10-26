@@ -4,7 +4,19 @@ import test from 'node:test';
 import { REMOTE_WEBRTC_VERSION } from '../../shared/remote-webrtc.ts';
 import { createRemoteWebrtcHost } from '../remote-webrtc/host.ts';
 import { createRemoteScreenSources, parseRemoteScreenAccess } from './screen-webrtc-sources.ts';
-import { NO_SECURE_DESKTOP } from './secure-desktop-switch.ts';
+import { createSecureDesktopAdapter } from './secure-desktop-adapter.ts';
+import { createSecureDesktopHelper } from './secure-desktop-helper.ts';
+
+/** The helper of a PC without it (the bridge not shipped). */
+const noHelper = () =>
+  createSecureDesktopHelper({
+    adapter: () => createSecureDesktopAdapter({ available: false }),
+    installer: {
+      state: async () => 'unavailable',
+      request: async () => ({ outcome: 'unavailable', state: 'unavailable' }),
+      ensureRunning: async () => ({ installed: false, running: false }),
+    },
+  });
 
 const TURN = [{ urls: ['turn:t.example:3478'], username: 'u', credential: 'p' }];
 const screen = { kind: 'screen', screenId: '1' };
@@ -86,7 +98,7 @@ function build(over = {}) {
       hosts += 1;
       return mockInputHost(injected);
     },
-    secureDesktop: over.secureDesktop ?? NO_SECURE_DESKTOP,
+    secureDesktop: over.secureDesktop ?? noHelper(),
     indicator: () => ({
       show: (view) => indicator.push(['show', view.clientLabel, view.controlling]),
       update: () => {},
@@ -261,7 +273,7 @@ test('app quit releases held input and stops every session within the quit budge
 
 test('close disposes the secure-desktop client once, after every session released', async () => {
   const disposals = [];
-  const env = build({ secureDesktop: { ...NO_SECURE_DESKTOP, dispose: () => disposals.push(keyUps(env).length) } });
+  const env = build({ secureDesktop: { ...noHelper(), dispose: () => disposals.push(keyUps(env).length) } });
   await holdingA(env);
   const quitting = env.screens.stopForQuit();
   assert.deepEqual(disposals, [], 'not while a session still releases');

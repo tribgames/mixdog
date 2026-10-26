@@ -48,15 +48,35 @@ export interface ServerHello {
   session: number;
   /** Real input desktop name (`Default`, `Winlogon`, …). */
   desktop: DesktopName;
+  /** The session's lock state from WTS (the lock screen vs UAC, which share
+   *  the `Winlogon` desktop); absent when Windows reports it unknown. */
+  locked?: boolean;
 }
 
 /** The authenticated session as it stands now: the server hello, with
- *  `desktop` and `session` kept current by `desktop-changed`. */
+ *  `desktop`, `session` and `locked` kept current by `desktop-changed`. */
 export type SecureDesktopSession = ServerHello;
+
+/** A helper challenge for the paired phone to sign (protocol v4). */
+export interface SecureDesktopGrantChallenge {
+  /** The connection's handshake server nonce (base64, 16 bytes). */
+  nonce: string;
+  /** One-shot challenge (base64, 16 bytes). */
+  challenge: string;
+}
+
+/** The phone's answer to a challenge, relayed unchanged. */
+export interface SecureDesktopGrant {
+  challenge: string;
+  epoch: number;
+  /** Base64 of the 64-byte P-256 `r ‖ s` signature. */
+  signature: string;
+}
 
 export interface SecureDesktopEvents {
   frame: (header: FrameHeader, pixels: Buffer) => void;
-  'desktop-changed': (desktop: DesktopName, session: number) => void;
+  'desktop-changed': (desktop: DesktopName, session: number, locked: boolean | undefined) => void;
+  'grant-challenge': (challenge: SecureDesktopGrantChallenge) => void;
   error: (code: string, message: string) => void;
   close: () => void;
 }
@@ -108,6 +128,7 @@ export class SecureDesktopClient {
   private readonly handlers: { [K in keyof SecureDesktopEvents]: Set<SecureDesktopEvents[K]> } = {
     frame: new Set(),
     'desktop-changed': new Set(),
+    'grant-challenge': new Set(),
     error: new Set(),
     close: new Set(),
   };
@@ -289,6 +310,7 @@ export class SecureDesktopClient {
           version: message.version,
           session: message.session,
           desktop: message.desktop,
+          ...(message.locked === undefined ? {} : { locked: message.locked }),
         };
         this.current = hello;
         if (this.pendingConnect) {
@@ -299,9 +321,18 @@ export class SecureDesktopClient {
       }
       case 'desktop-changed':
         if (this.current) {
-          this.current = { ...this.current, desktop: message.desktop, session: message.session };
+          this.current = {
+            protocol: this.current.protocol,
+            version: this.current.version,
+            desktop: message.desktop,
+            session: message.session,
+            ...(message.locked === undefined ? {} : { locked: message.locked }),
+          };
         }
-        this.emit('desktop-changed', message.desktop, message.session);
+        this.emit('desktop-changed', message.desktop, message.session, message.locked);
+        break;
+      case 'grant-challenge':
+        this.emit('grant-challenge', { nonce: message.nonce, challenge: message.challenge });
         break;
       case 'error':
         this.emit('error', message.code, message.message);
@@ -335,6 +366,30 @@ export class SecureDesktopClient {
    * holds — while control is inactive, in place and without movement.
    */
   sendInput(event: InputEvent): Promise<void> {
+    return this.sendBounded({ type: 'input', event });
+  }
+
+  /** Declare the video run (the app's epoch) the phone is being shown. A
+   *  grant names the run it was signed for; another run ends the live grant. */
+  setVideoRun(epoch: number): void {
+    this.send({ type: 'video-run', epoch });
+  }
+
+  /** Relay the phone's signed answer to a `grant-challenge`. The helper
+   *  verifies it against the enrolled phone key; the app cannot forge one. */
+  sendGrant(grant: SecureDesktopGrant): Promise<void> {
+    return this.sendBounded({ type: 'grant', challenge: grant.challenge, epoch: grant.epoch, signature: grant.signature });
+  }
+
+  /** Ask for Ctrl+Alt+Del (the service presses it). Settles like `sendInput`;
+   *  a refusal (`grant_required`, `sas_disabled_by_policy`) arrives as `error`. */
+  sas(): Promise<void> {
+    return this.sendBounded({ type: 'sas' });
+  }
+
+  /** Write one authenticated message, settling in bounded time (see
+   *  `sendInput`). */
+  private sendBounded(message: ControlMessage): Promise<void> {
     const connection = this.connection;
     if (!connection || this.handshake.stage !== 'done') {
       return Promise.reject(new Error('not connected'));
@@ -354,7 +409,7 @@ export class SecureDesktopClient {
         this.inputDeadlineMs,
       );
       this.pendingInputs.add(settle);
-      connection.write(encodeControl({ type: 'input', event }), (error?: Error | null) => settle(error));
+      connection.write(encodeControl(message), (error?: Error | null) => settle(error));
     });
   }
 
@@ -428,40 +483,190 @@ function parseStatus(stdout: string): SecureDesktopStatus {
 export async function secureDesktopStatus(environment: SecureDesktopEnvironment): Promise<SecureDesktopStatus> {
   if (environment.platform !== 'win32') return { installed: false, running: false };
   try {
-    const { stdout } = await execFileAsync(secureDesktopExePath(environment), ['status'], {
-      windowsHide: true,
-      timeout: 15_000,
-    });
+    // No wrapper timeout: `status` is local work (an SCM query and a file
+    // read) that waits on nothing external.
+    const { stdout } = await execFileAsync(secureDesktopExePath(environment), ['status'], { windowsHide: true });
     return parseStatus(stdout);
   } catch {
     return { installed: false, running: false };
   }
 }
 
-/** Run an elevated subcommand (one UAC prompt) and wait for it to finish. */
-async function elevate(environment: SecureDesktopEnvironment, verbArgument: string): Promise<void> {
+/** Exit code of an elevated run whose UAC prompt was declined
+ *  (`ERROR_CANCELLED`). */
+export const ELEVATION_DECLINED_EXIT = 1223;
+/** The bridge's own exit codes: another elevated install is already running… */
+export const SECURE_DESKTOP_BUSY_EXIT = 75;
+/** …the service is installed for a different Windows account (nothing changed)… */
+export const SECURE_DESKTOP_OTHER_USER_EXIT = 4;
+/** …the image was refused: not a pinned, signed, unrevoked release build… */
+export const SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT = 5;
+/** …and its certificate revocation status could not be determined in time. */
+export const SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT = 6;
+
+/**
+ * Run `file args`, resolving its exit code; a spawn failure (or, when
+ * `timeout` is given, a kill at that timeout) rejects.
+ */
+async function exitCodeOf(file: string, args: string[], timeout?: number): Promise<number> {
+  try {
+    await execFileAsync(file, args, { windowsHide: true, timeout });
+    return 0;
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'number') return code;
+    throw error;
+  }
+}
+
+/** The `error` of the bridge's last JSON line, when it printed one. */
+function bridgeError(stdout: unknown): string | undefined {
+  if (typeof stdout !== 'string') return undefined;
+  const line = stdout
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .pop();
+  try {
+    const parsed = line ? (JSON.parse(line) as { error?: unknown }) : undefined;
+    return typeof parsed?.error === 'string' ? parsed.error : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the bundled bridge would pass the elevated install's image check. */
+export type SecureDesktopImageCheck = { ok: true } | { ok: false; detail: string };
+
+/**
+ * Run the bridge's unelevated `verify-image`: the same pinned-signer check the
+ * elevated `install` applies to itself. Lets a request that is bound to be
+ * refused (an unpinned dev build, an unsigned or foreign image) fail with the
+ * reason instead of showing a UAC prompt first. Not a security boundary — the
+ * elevated install re-verifies.
+ */
+export async function verifySecureDesktopImage(
+  environment: SecureDesktopEnvironment,
+): Promise<SecureDesktopImageCheck> {
+  if (environment.platform !== 'win32') return { ok: false, detail: 'the secure-desktop helper is Windows-only' };
+  try {
+    // No wrapper timeout: its external waits are limited inside — the online
+    // revocation retrieval (20 s cumulative) and each single chain-building
+    // fetch (Windows' default per-URL retrieval timeout, 15 s, a configurable
+    // policy value; not a limit on the whole check); the rest is local work.
+    await execFileAsync(secureDesktopExePath(environment), ['verify-image'], { windowsHide: true });
+    return { ok: true };
+  } catch (error) {
+    const detail = bridgeError((error as { stdout?: unknown }).stdout);
+    return { ok: false, detail: detail ?? (error instanceof Error ? error.message : String(error)) };
+  }
+}
+
+/**
+ * Run an elevated subcommand (one UAC prompt) and wait for it. PowerShell's
+ * `Start-Process -Verb RunAs -PassThru` launches through `ShellExecuteEx` with
+ * `SEE_MASK_NOCLOSEPROCESS` and keeps the elevated process handle, and the
+ * wrapper exits only after `WaitForExit` on it — so the returned promise
+ * settles exactly when the launched elevation has finished (there is
+ * deliberately no timeout that would abandon a still-running child). Resolves
+ * the bridge's exit code, or `ELEVATION_DECLINED_EXIT` when the prompt was
+ * declined; rejects only when it could not be launched.
+ */
+export async function elevateSecureDesktop(
+  environment: SecureDesktopEnvironment,
+  verbArgument: 'install' | 'uninstall',
+  extraArguments: readonly string[] = [],
+): Promise<number> {
   const exe = secureDesktopExePath(environment);
-  const command =
-    `$p = Start-Process -FilePath '${exe.replace(/'/g, "''")}' ` +
-    `-ArgumentList '${verbArgument}' -Verb RunAs -WindowStyle Hidden -PassThru; ` +
-    `$p.WaitForExit(); exit $p.ExitCode`;
-  await execFileAsync(
-    'powershell',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command],
-    { windowsHide: true, timeout: 120_000 },
-  );
+  const quote = (value: string) => `'${value.replace(/'/g, "''")}'`;
+  const argumentList = [verbArgument, ...extraArguments].map(quote).join(',');
+  const command = [
+    'try {',
+    `  $p = Start-Process -FilePath ${quote(exe)} -ArgumentList @(${argumentList}) ` +
+      '-Verb RunAs -WindowStyle Hidden -PassThru -ErrorAction Stop',
+    '} catch {',
+    '  $e = $_.Exception',
+    '  while ($e) {',
+    `    if ($e -is [ComponentModel.Win32Exception] -and $e.NativeErrorCode -eq ${ELEVATION_DECLINED_EXIT}) { exit ${ELEVATION_DECLINED_EXIT} }`,
+    '    $e = $e.InnerException',
+    '  }',
+    '  [Console]::Error.WriteLine($_.Exception.Message)',
+    '  exit 1',
+    '}',
+    // Holding the handle keeps ExitCode readable after the process exits.
+    '$null = $p.Handle',
+    '$p.WaitForExit()',
+    'exit $p.ExitCode',
+  ].join('\n');
+  return exitCodeOf('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command]);
 }
 
-/** Install and start the service. One UAC prompt. Returns the resulting status. */
-export async function installSecureDesktop(environment: SecureDesktopEnvironment): Promise<SecureDesktopStatus> {
-  if (environment.platform !== 'win32') return { installed: false, running: false };
-  await elevate(environment, 'install');
-  return secureDesktopStatus(environment);
+/** Whether the installed service matches the bundled bridge, from its
+ *  unelevated `check` (exit 0 current / 1 missing / 2 stale / 4 other-user).
+ *  `other-user` is a service another Windows account installed. */
+export type SecureDesktopInstallState =
+  | 'installed'
+  | 'outdated'
+  | 'not-installed'
+  | 'other-user'
+  | 'unavailable';
+
+export function installStateFromCheckExit(exitCode: number): SecureDesktopInstallState {
+  switch (exitCode) {
+    case 0:
+      return 'installed';
+    case 1:
+      return 'not-installed';
+    case 2:
+      return 'outdated';
+    case 4:
+      return 'other-user';
+    default:
+      return 'unavailable';
+  }
 }
 
-/** Stop and remove the service and all state. One UAC prompt. */
-export async function uninstallSecureDesktop(environment: SecureDesktopEnvironment): Promise<SecureDesktopStatus> {
+/** Run the bridge's `check`. Never elevates. `unavailable` off Windows, when
+ *  the bridge is not shipped, or when the state cannot be determined. With a
+ *  phone's `controllerKey`, an install that does not enroll that key reads as
+ *  `outdated` (its update re-enrolls the asking phone). */
+export async function secureDesktopInstallState(
+  environment: SecureDesktopEnvironment,
+  controllerKey?: string,
+): Promise<SecureDesktopInstallState> {
+  if (environment.platform !== 'win32') return 'unavailable';
+  const args = controllerKey === undefined ? ['check'] : ['check', '--controller-key', controllerKey];
+  try {
+    // No wrapper timeout: `check` is local work (an SCM query and file reads)
+    // that waits on nothing external.
+    return installStateFromCheckExit(await exitCodeOf(secureDesktopExePath(environment), args));
+  } catch {
+    return 'unavailable';
+  }
+}
+
+/**
+ * Start the installed demand-start service without elevation (the install
+ * granted the installing user start rights). Used to bring the service back up
+ * after a reboot when a remote session needs it — never installs or prompts.
+ * Returns whether it is running afterwards.
+ */
+export async function startSecureDesktopService(
+  environment: SecureDesktopEnvironment,
+): Promise<SecureDesktopStatus> {
   if (environment.platform !== 'win32') return { installed: false, running: false };
-  await elevate(environment, 'uninstall');
-  return secureDesktopStatus(environment);
+  try {
+    // No wrapper timeout: `start` ends by the documented checkpoint/wait-hint
+    // pattern (stalled, settled or running), which has no fixed cap to mirror:
+    // by design it keeps waiting for as long as the checkpoint keeps advancing.
+    const { stdout } = await execFileAsync(secureDesktopExePath(environment), ['start'], {
+      windowsHide: true,
+    });
+    return parseStatus(stdout);
+  } catch (error) {
+    const stdout = (error as { stdout?: unknown }).stdout;
+    // `start` exits non-zero when it could not reach a running state; it still
+    // printed its JSON, so parse that rather than guess.
+    return typeof stdout === 'string' ? parseStatus(stdout) : { installed: false, running: false };
+  }
 }

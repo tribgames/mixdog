@@ -5,23 +5,47 @@
  * consent, lock / sign-in screen) — through the LocalSystem helper.
  *
  * Everything is a no-op when the service is not installed, and nothing installs
- * automatically: the UI layer calls `installSecureDesktop` (one UAC prompt)
- * only on explicit user opt-in.
+ * automatically (not on app install, update or start): the remote-screen
+ * wiring calls `SecureDesktopInstaller.request()` (one UAC prompt) only when
+ * the paired phone asks for the helper. The app uninstaller removes it.
  */
 
 export {
+  ELEVATION_DECLINED_EXIT,
+  SECURE_DESKTOP_BUSY_EXIT,
+  SECURE_DESKTOP_OTHER_USER_EXIT,
+  SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT,
+  SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT,
   SecureDesktopClient,
   createSecureDesktopClient,
-  installSecureDesktop,
+  elevateSecureDesktop,
+  installStateFromCheckExit,
+  secureDesktopInstallState,
   secureDesktopStatus,
-  uninstallSecureDesktop,
+  startSecureDesktopService,
+  verifySecureDesktopImage,
   type SecureDesktopClientOptions,
+  type SecureDesktopImageCheck,
+  type SecureDesktopInstallState,
   type SecureDesktopEvents,
+  type SecureDesktopGrant,
+  type SecureDesktopGrantChallenge,
   type SecureDesktopSession,
   type SecureDesktopStatus,
   type SecureDesktopTransport,
   type ServerHello,
 } from './client';
+export {
+  createSecureDesktopInstaller,
+  installOfferFor,
+  secureDesktopInstallerFor,
+  type SecureDesktopInstallOffer,
+  type SecureDesktopInstallOutcome,
+  type SecureDesktopInstallResult,
+  type SecureDesktopInstaller,
+  type SecureDesktopInstallerOptions,
+  type SecureDesktopInstallerPort,
+} from './install-request';
 export {
   SERVICE_PIPE_NAME,
   secureDesktopExePath,

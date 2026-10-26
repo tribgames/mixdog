@@ -23,6 +23,7 @@ import {
   type RemoteWebrtcGeometry,
   type RemoteWebrtcIceServer,
   type RemoteWebrtcPageInput,
+  type RemoteScreenHelperGrant,
   type RemoteWebrtcReceiverStats,
   type RemoteWebrtcSourceInput,
   type RemoteWebrtcSource,
@@ -73,6 +74,10 @@ export interface RemoteWebrtcViewerEffects {
   receiverStats?(stats: RemoteWebrtcReceiverStats): void;
   /** The phone rendered a frame of the screen's video run `epoch`. */
   frameSeen?(epoch: number): void;
+  /** The phone signed a screen's helper challenge. */
+  helperGrant?(grant: RemoteScreenHelperGrant): void;
+  /** The phone asks for a screen's secure-desktop helper, with its key. */
+  helperInstall?(controllerKey: string): void;
   /** The connection was promoted: its channel is open for desktop pushes. */
   promoted?(): void;
 }
@@ -464,14 +469,21 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
         effects.receiverStats?.(message.stats);
         return;
       }
-      // Receipt evidence of a screen's video run: not input, so not gated by
-      // the input epoch and never acked.
-      if (message.kind === 'screen-frame-seen') {
+      // A screen's receipt evidence, helper grant and install request: not
+      // input, so not gated by the input epoch and never acked.
+      if (
+        message.kind === 'screen-frame-seen' ||
+        message.kind === 'screen-helper-grant' ||
+        message.kind === 'screen-helper-install'
+      ) {
         if (source.kind !== 'screen') {
           fail('protocol-error');
           return;
         }
-        effects.frameSeen?.(message.epoch);
+        if (message.kind === 'screen-frame-seen') effects.frameSeen?.(message.epoch);
+        else if (message.kind === 'screen-helper-grant') {
+          effects.helperGrant?.({ epoch: message.epoch, challenge: message.challenge, signature: message.signature });
+        } else effects.helperInstall?.(message.publicKey);
         return;
       }
       // Page input is a browser source's; screen input a screen's.

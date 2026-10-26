@@ -38,7 +38,7 @@ import {
   type ScreenSourceEvent,
 } from './screen-source';
 import { createScreenWebrtcSource } from './screen-webrtc-source';
-import type { SecureDesktopClient } from './secure-desktop-switch';
+import type { SecureDesktopHelper } from './secure-desktop-helper';
 
 /** One relay client's screen access, as the service decides it. */
 export interface RemoteScreenAccess {
@@ -90,9 +90,10 @@ export interface RemoteScreenSourcesDeps {
   /** The displays, with a refresh of their capture source ids. */
   displays: ScreenDisplayProvider & { refresh(): Promise<void>; dispose?(): void };
   createInputHost(): ScreenInputHost;
-  /** Shared by every session; owned here, disposed at close once every
-   *  session released (their releases may go through it). */
-  secureDesktop: SecureDesktopClient;
+  /** Shared by every session, each through its own lease (one holds the
+   *  helper at a time); owned here, disposed at close once every session
+   *  released (their releases may go through it). */
+  secureDesktop: SecureDesktopHelper;
   /** A fresh on-PC indicator per session. */
   indicator(): ScreenIndicator;
   /** The WebRTC host (geometry, capture renewal, end of a session). */
@@ -143,6 +144,9 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
       return current?.connection === connection ? current : null;
     };
     const key = remoteWebrtcSourceKey(source);
+    // The session's hold on the shared helper; let go once it released (its
+    // releases may go through the helper), or when it never started.
+    const lease = deps.secureDesktop.lease();
     const screen = createRemoteScreenSource({
       clientId,
       clientLabel: granted.label,
@@ -161,7 +165,7 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
         },
       },
       createInputHost: deps.createInputHost,
-      secureDesktop: deps.secureDesktop,
+      secureDesktop: lease,
       indicator: deps.indicator(),
       log: deps.log,
       sampleCursor: true,
@@ -173,6 +177,7 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
         sink: deps.sink,
         onStartError: (error) => {
           forget();
+          void screen.released().finally(() => lease.dispose());
           deps.log({ type: 'start-failed', clientId, screenId: source.screenId, error: String(error) });
         },
       }),
@@ -187,7 +192,10 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
       // `released()` is the running stop once this listener has returned.
       void Promise.resolve()
         .then(() => screen.released())
-        .finally(() => unreleased.delete(screen));
+        .finally(() => {
+          unreleased.delete(screen);
+          lease.dispose();
+        });
     });
     session.video.start();
     return session.video;

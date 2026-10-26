@@ -156,7 +156,8 @@ import {
   createPillScreenIndicator,
 } from './remote-screen/screen-electron';
 import { createSecureDesktopAdapter } from './remote-screen/secure-desktop-adapter';
-import { createSecureDesktopClient } from './secure-desktop';
+import { createSecureDesktopHelper } from './remote-screen/secure-desktop-helper';
+import { createSecureDesktopClient, secureDesktopInstallerFor } from './secure-desktop';
 import { modelProxyRuntimeLoader } from './model-proxy-host';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
@@ -2197,25 +2198,28 @@ function installLocalWindowFeatures(
       // The whole-PC screen source (Windows: its injector is the Windows input
       // host). The secure-desktop helper plugs in through its client; when it
       // is not installed the adapter reports so and the secure desktop stays
-      // blocked.
+      // blocked until the paired phone asks for it to be installed, after
+      // which a fresh client is built.
       screens:
         process.platform === 'win32'
-          ? {
-              displays: createElectronScreenDisplays(),
-              createInputHost: createElectronScreenInputHost,
-              secureDesktop: createSecureDesktopAdapter(
-                createSecureDesktopClient({
-                  environment: {
-                    isPackaged: app.isPackaged,
-                    platform: process.platform,
-                    resourcesPath: process.resourcesPath,
-                    cwd: process.cwd(),
-                    programData: process.env.ProgramData,
-                  },
-                })
-              ),
-              indicator: createPillScreenIndicator,
-            }
+          ? (() => {
+              const environment = {
+                isPackaged: app.isPackaged,
+                platform: process.platform,
+                resourcesPath: process.resourcesPath,
+                cwd: process.cwd(),
+                programData: process.env.ProgramData,
+              };
+              return {
+                displays: createElectronScreenDisplays(),
+                createInputHost: createElectronScreenInputHost,
+                secureDesktop: createSecureDesktopHelper({
+                  adapter: () => createSecureDesktopAdapter(createSecureDesktopClient({ environment })),
+                  installer: secureDesktopInstallerFor(environment),
+                }),
+                indicator: createPillScreenIndicator,
+              };
+            })()
           : undefined,
     },
     onSurfaceRequest: (request) => {

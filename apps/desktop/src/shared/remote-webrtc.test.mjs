@@ -12,6 +12,12 @@ import {
   readRemoteWebrtcScreenCursor,
   readRemoteWebrtcScreenStatus,
   readRemoteWebrtcScreenVideo,
+  readRemoteWebrtcScreenHelperChallenge,
+  remoteWebrtcScreenHelperChallenge,
+  encodeRemoteWebrtcScreenHelperGrant,
+  encodeRemoteWebrtcScreenHelperInstall,
+  REMOTE_SCREEN_HELPER_ISSUES,
+  MAX_REMOTE_SCREEN_HELPER_DETAIL,
   parseRemoteScreenInput,
   MAX_REMOTE_SCREEN_COMBO_KEYS,
   remoteWebrtcCandidatePath,
@@ -23,6 +29,7 @@ import {
   parseRemoteWebrtcIceServers,
   parseRemoteWebrtcSdp,
 } from './remote-webrtc.ts';
+import { generateSecureDesktopControllerKey, signSecureDesktopGrant } from './secure-desktop-grant.ts';
 
 test('screen-keys: an ordered combo of distinct keys, bounded', () => {
   const ctrl = { vk: 0xa2, scan: 0x1d, extended: false };
@@ -297,12 +304,148 @@ test('screen sources: screen-input on the channel, a document-less media-ready, 
   assert.throws(() => parseRemoteWebrtcChannelFromClient(envelope({ type: 'screen-pointer', action: 'move', x: 5000, y: 0 })));
   assert.throws(() => parseRemoteWebrtcChannelFromClient(envelope({ type: 'key', key: 'Enter', documentId: 'p1:1' })));
 
-  const status = { state: 'secure-desktop', reason: 'uac', helper: 'missing', control: false };
+  const helperInfo = { offer: 'install', outcome: null, detail: null, issue: null, secure: 'uac' };
+  const status = { state: 'secure-desktop', reason: 'uac', helper: 'missing', control: false, helperInfo };
   assert.deepEqual(
     readRemoteWebrtcScreenStatus(JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-status', status }))?.status,
     status
   );
   assert.equal(readRemoteWebrtcScreenStatus(JSON.stringify({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-status', status: { ...status, state: 'x' } })), null);
+});
+
+test('screen-status helper block: every offer, outcome and issue; bounded detail; strict otherwise', () => {
+  const base = { offer: 'none', outcome: null, detail: null, issue: null, secure: null };
+  const read = (helperInfo) =>
+    readRemoteWebrtcScreenStatus(
+      JSON.stringify({
+        v: REMOTE_WEBRTC_VERSION,
+        kind: 'screen-status',
+        status: { state: 'secure-desktop', reason: 'lock', helper: 'missing', control: false, helperInfo },
+      })
+    )?.status.helperInfo ?? null;
+  for (const offer of ['install', 'update', 'none']) assert.deepEqual(read({ ...base, offer }), { ...base, offer });
+  for (const outcome of ['installed', 'updated', 'declined', 'failed', 'in-progress', 'other-user', 'unavailable']) {
+    assert.deepEqual(read({ ...base, outcome, detail: 'why' }), { ...base, outcome, detail: 'why' });
+  }
+  assert.deepEqual(REMOTE_SCREEN_HELPER_ISSUES, [
+    'grant_key_missing',
+    'grant_expired',
+    'input_failed',
+    'desktop_unavailable',
+    'sas_disabled_by_policy',
+  ]);
+  for (const issue of REMOTE_SCREEN_HELPER_ISSUES) assert.deepEqual(read({ ...base, issue }), { ...base, issue });
+  for (const secure of ['lock', 'uac']) assert.deepEqual(read({ ...base, secure }), { ...base, secure });
+  assert.equal(read({ ...base, detail: 'x'.repeat(MAX_REMOTE_SCREEN_HELPER_DETAIL) }).detail.length, MAX_REMOTE_SCREEN_HELPER_DETAIL);
+  for (const bad of [
+    { offer: 'maybe' },
+    { offer: undefined },
+    { outcome: 'done' },
+    { outcome: undefined },
+    { detail: 'x'.repeat(MAX_REMOTE_SCREEN_HELPER_DETAIL + 1) },
+    { detail: 5 },
+    { issue: 'grant_required' },
+    { issue: 'grant_bad_signature' },
+    { secure: 'secure' },
+    // A one-element array stringifies to its member: still not a string.
+    { offer: ['install'] },
+    { outcome: ['declined'] },
+    { issue: ['input_failed'] },
+    { secure: ['lock'] },
+  ]) {
+    assert.equal(read({ ...base, ...bad }), null, JSON.stringify(bad));
+  }
+  assert.equal(read(undefined), null, 'the block is required');
+  // Null stays the explicit "none" of the nullable members.
+  assert.deepEqual(read({ ...base, outcome: null, issue: null, secure: null }), base);
+
+  // The status's own enums: strings only; `in-use` is a helper state.
+  const status = (over) =>
+    readRemoteWebrtcScreenStatus(
+      JSON.stringify({
+        v: REMOTE_WEBRTC_VERSION,
+        kind: 'screen-status',
+        status: { state: 'secure-desktop', reason: 'lock', helper: 'in-use', control: false, helperInfo: base, ...over },
+      })
+    );
+  assert.equal(status({}).status.helper, 'in-use');
+  for (const bad of [{ state: ['live'] }, { helper: ['active'] }, { reason: ['lock'] }, { helper: 'busy' }]) {
+    assert.equal(status(bad), null, JSON.stringify(bad));
+  }
+});
+
+test('helper grants: challenge, grant and install messages, strict and bounded; real keys and signatures pass', async () => {
+  const NONCE = Buffer.alloc(16, 1).toString('base64');
+  const CHALLENGE = Buffer.alloc(16, 0xfb).toString('base64');
+  assert.match(CHALLENGE, /[+/]/u, 'the standard alphabet, not base64url');
+  // Desktop: the challenge for the current run; the phone reads it back.
+  const challenge = remoteWebrtcScreenHelperChallenge(4, { nonce: NONCE, challenge: CHALLENGE });
+  assert.deepEqual(challenge, { v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-challenge', epoch: 4, nonce: NONCE, challenge: CHALLENGE });
+  assert.deepEqual(readRemoteWebrtcScreenHelperChallenge(JSON.stringify(challenge)), challenge);
+  const badNonces = [
+    '',
+    'AAAA',
+    NONCE.replace('==', ''),
+    Buffer.alloc(15).toString('base64'),
+    Buffer.alloc(17).toString('base64'),
+    Buffer.alloc(16, 0xfb).toString('base64url'),
+    // Not canonical: the last group's low bits set.
+    `${NONCE.slice(0, 21)}B==`,
+    42,
+  ];
+  for (const nonce of badNonces) {
+    assert.throws(() => remoteWebrtcScreenHelperChallenge(4, { nonce, challenge: CHALLENGE }), TypeError, String(nonce));
+    assert.throws(() => remoteWebrtcScreenHelperChallenge(4, { nonce: NONCE, challenge: nonce }), TypeError, String(nonce));
+    assert.equal(readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, nonce })), null);
+  }
+  for (const epoch of [0, -1, 1.5, '4']) {
+    assert.throws(() => remoteWebrtcScreenHelperChallenge(epoch, { nonce: NONCE, challenge: CHALLENGE }), TypeError);
+  }
+  assert.equal(readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, kind: 'screen-helper-grant' })), null);
+  assert.equal(readRemoteWebrtcScreenHelperChallenge(JSON.stringify({ ...challenge, v: 2 })), null);
+
+  // Phone: a real controller key and a real signature of that challenge.
+  const key = await generateSecureDesktopControllerKey();
+  const signature = await signSecureDesktopGrant(key.privateKey, { nonce: NONCE, challenge: CHALLENGE }, 4);
+  const grant = { epoch: 4, challenge: CHALLENGE, signature };
+  const grantText = encodeRemoteWebrtcScreenHelperGrant(grant);
+  assert.deepEqual(parseRemoteWebrtcChannelFromClient(grantText), { v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-grant', ...grant });
+  const installText = encodeRemoteWebrtcScreenHelperInstall(key.publicKey);
+  assert.deepEqual(parseRemoteWebrtcChannelFromClient(installText), {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-install',
+    publicKey: key.publicKey,
+  });
+
+  const parsed = (message) => () => parseRemoteWebrtcChannelFromClient(JSON.stringify(message));
+  const grantMessage = JSON.parse(grantText);
+  for (const bad of [
+    { signature: signature.slice(0, -2) },
+    { signature: Buffer.alloc(63).toString('base64') },
+    { signature: Buffer.alloc(65).toString('base64') },
+    { signature: Buffer.from(signature, 'base64').toString('base64url') },
+    { challenge: 'AAAA' },
+    { challenge: undefined },
+    { epoch: 0 },
+    { epoch: '4' },
+  ]) {
+    assert.throws(parsed({ ...grantMessage, ...bad }), TypeError, JSON.stringify(bad));
+    assert.throws(() => encodeRemoteWebrtcScreenHelperGrant({ ...grant, ...bad }), TypeError, JSON.stringify(bad));
+  }
+  const compressed = Buffer.from([2, ...new Array(64).fill(7)]).toString('base64url');
+  for (const publicKey of [
+    '',
+    key.publicKey.slice(0, -1),
+    `${key.publicKey}A`,
+    Buffer.from(key.publicKey, 'base64url').toString('base64'),
+    compressed,
+    7,
+  ]) {
+    assert.throws(parsed({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey }), TypeError, String(publicKey));
+    assert.throws(() => encodeRemoteWebrtcScreenHelperInstall(publicKey), TypeError, String(publicKey));
+  }
+  assert.throws(parsed({ v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-challenge', ...grant, nonce: NONCE }), TypeError, 'a desktop message');
+  assert.throws(parsed({ ...grantMessage, kind: 'screen-helper-grants' }), TypeError);
 });
 
 test('the transport machine keeps JPEG until WebRTC owns the view and has no input owner mid-demotion', () => {

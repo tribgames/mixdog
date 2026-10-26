@@ -12,15 +12,20 @@
  * on-PC indicator, the log) is injected, so the source is exercised without a
  * live desktop.
  */
-import type {
-  RemoteScreenCapturePlan,
-  RemoteScreenDisplaySummary,
-  RemoteScreenInput,
-  RemoteScreenStatus,
-  RemoteScreenStopReason,
-  RemoteScreenVideoPath,
-  RemoteWebrtcGeometry,
+import {
+  MAX_REMOTE_SCREEN_HELPER_DETAIL,
+  type RemoteScreenCapturePlan,
+  type RemoteScreenDisplaySummary,
+  type RemoteScreenHelperGrant,
+  type RemoteScreenHelperInfo,
+  type RemoteScreenHelperIssue,
+  type RemoteScreenInput,
+  type RemoteScreenStatus,
+  type RemoteScreenStopReason,
+  type RemoteScreenVideoPath,
+  type RemoteWebrtcGeometry,
 } from '../../shared/remote-webrtc';
+import { installOfferFor, type SecureDesktopGrantChallenge } from '../secure-desktop';
 import {
   lockScreenGeometry,
   screenGeometryChanged,
@@ -42,13 +47,16 @@ import {
   type ScreenLocalDesktop,
 } from './screen-input-host';
 import { ScreenInputRouter, type ScreenInputBackendId } from './screen-input-router';
+import type { SecureDesktopLease } from './secure-desktop-helper';
 import {
   decideScreenSource,
   decisionUsesHelper,
+  helperIssueAfterChange,
+  screenHelperIssue,
   screenStatusFor,
   secureDesktopIdentity,
+  type ScreenHelperFacts,
   type ScreenSourceDecision,
-  type SecureDesktopClient,
 } from './secure-desktop-switch';
 
 /**
@@ -108,8 +116,10 @@ export interface ScreenSourceDeps {
   authorization: ScreenViewerAuthorization;
   /** The Windows input host for the ordinary desktop (started with the session). */
   createInputHost(): ScreenInputHost;
-  /** The secure-desktop helper client (a no-op shell when not installed). */
-  secureDesktop: SecureDesktopClient;
+  /** This session's lease on the shared secure-desktop helper (a no-op shell
+   *  when not installed), with its install state and request. It serves one
+   *  session at a time (`ownedElsewhere()`). */
+  secureDesktop: SecureDesktopLease;
   indicator: ScreenIndicator;
   /** Start/stop and transitions are logged; no input content is ever logged. */
   log(event: ScreenSourceEvent): void;
@@ -198,6 +208,27 @@ export interface RemoteScreenSource {
    * through.
    */
   setHelperVideo(delivering: boolean): void;
+  /** Declares the video run the viewer is shown to the helper (protocol v4:
+   *  its grants are signed for it; one of another epoch ends the live grant).
+   *  Declared only while this session holds the helper. */
+  setVideoRun(epoch: number): void;
+  /** The epoch for a new video run: unique across every session (one
+   *  helper-wide counter, only rising), so no session's run can be taken for
+   *  another's by the helper. */
+  nextVideoRun(): number;
+  /** This session has just taken the helper's hold (the previous holder's
+   *  grant revoked): the viewer starts a fresh run now, before the helper is
+   *  activated for it. */
+  onHelperHold(listener: () => void): () => void;
+  /** Each helper grant challenge, while running and paired, for the viewer
+   *  to sign. */
+  onHelperChallenge(listener: (challenge: SecureDesktopGrantChallenge) => void): () => void;
+  /** Relays the viewer's signed grant to the helper (running and paired). */
+  helperGrant(grant: RemoteScreenHelperGrant): void;
+  /** The viewer asks for the helper to be installed or updated, enrolling its
+   *  controller key (running and paired): at most one UAC prompt on the PC.
+   *  The outcome and the new offer land in the status. */
+  requestHelperInstall(controllerKey: string): void;
   /** Ends the session: stops capture, releases all input. Idempotent: a later
    *  call returns the first one's promise, and a shorter `deadlineMs` in it
    *  moves the running stop's absolute deadline earlier (never later). */
@@ -244,7 +275,36 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   let helperVideo = false;
   let videoPath: ScreenVideoPath = 'capture';
   const videoPathListeners = new Set<(path: ScreenVideoPath) => void>();
-  let status: RemoteScreenStatus = { state: 'live', helper: 'not-needed', control: false };
+  /**
+   * The status's helper block besides the decision. The offer comes from the
+   * install-state check at start (without a key: the phone names its key only
+   * when it asks) and from each install request of this session (relative to
+   * its key); a check or request answered after a later one started counts
+   * for nothing (`installTurn`). The issue is the helper's latest reportable
+   * code while this session has it active; it ends when the helper is
+   * deactivated, at a helper change (`helperIssueAfterChange`), and
+   * `grant_expired` once the next grant was relayed.
+   */
+  let helperFacts: ScreenHelperFacts = { offer: 'none', outcome: null, detail: null, issue: null };
+  let installTurn = 0;
+  /**
+   * The installed service was stopped and could not be started (after a
+   * reboot it is registered but stopped). `ensureService` asks the helper to
+   * start it at session start when the install is current, and each time the
+   * helper is activated while not connected; the answer shows as helper
+   * `failed` in the status until a connection (`active`) or a later start
+   * succeeds. An answer after a later attempt started counts for nothing.
+   */
+  let serviceDown = false;
+  let serviceTurn = 0;
+  const challengeListeners = new Set<(challenge: SecureDesktopGrantChallenge) => void>();
+  const holdListeners = new Set<() => void>();
+  let status: RemoteScreenStatus = {
+    state: 'live',
+    helper: 'not-needed',
+    control: false,
+    helperInfo: { ...helperFacts, secure: null },
+  };
   let cursor: ScreenCursor | null = null;
   /** Bumped by a new geometry and by a switch to the helper: a cursor read
    *  taken before it is dropped when it completes. */
@@ -280,7 +340,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
 
   /** Input is accepted only while every gate holds at this instant. */
   const controlNow = (): boolean =>
-    running && paired() && decision !== null && screenStatusFor(decision, true, helperVideo).control;
+    running && paired() && decision !== null && screenStatusFor(decision, true, helperVideo, helperFacts).control;
 
   const planFor = (display: ScreenDisplay): RemoteScreenCapturePlan => {
     const size = screenVideoSize(display.physical);
@@ -301,6 +361,9 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     helperInstalled: deps.secureDesktop.installed(),
     helperConnected: deps.secureDesktop.connected(),
     helperDesktop: deps.secureDesktop.desktop(),
+    helperLocked: deps.secureDesktop.locked(),
+    helperServiceDown: serviceDown,
+    helperOwnedElsewhere: deps.secureDesktop.ownedElsewhere(),
   });
 
   const emitStatus = (next: RemoteScreenStatus): void => {
@@ -308,7 +371,10 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
       next.state === status.state &&
       next.reason === status.reason &&
       next.helper === status.helper &&
-      next.control === status.control
+      next.control === status.control &&
+      (Object.keys(next.helperInfo) as Array<keyof RemoteScreenHelperInfo>).every(
+        (field) => next.helperInfo[field] === status.helperInfo[field]
+      )
     ) {
       return;
     }
@@ -319,7 +385,21 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
 
   const publishStatus = (): void => {
     if (!running || !decision) return;
-    emitStatus(screenStatusFor(decision, paired(), helperVideo));
+    emitStatus(screenStatusFor(decision, paired(), helperVideo, helperFacts));
+  };
+
+  const setHelperFacts = (next: Partial<ScreenHelperFacts>): void => {
+    helperFacts = { ...helperFacts, ...next };
+    publishStatus();
+  };
+
+  const setIssue = (issue: RemoteScreenHelperIssue | null): void => {
+    if (issue !== helperFacts.issue) setHelperFacts({ issue });
+  };
+
+  /** An install-state answer, applied unless a later check or request started. */
+  const installAnswer = (turn: number, next: Partial<ScreenHelperFacts>): void => {
+    if (running && turn === installTurn) setHelperFacts(next);
   };
 
   const setHelperVideo = (delivering: boolean): void => {
@@ -333,9 +413,30 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     if (!next && running) void router.releaseAll();
   };
 
+  /** Start a stopped service; the answer re-decides (see `serviceDown`). A
+   *  rejection means it could not be brought up either. */
+  const ensureService = (): void => {
+    const turn = ++serviceTurn;
+    const answer = (down: boolean): void => {
+      if (!running || turn !== serviceTurn || down === serviceDown) return;
+      serviceDown = down;
+      // Before the start's first decision, that decision reads it.
+      if (decision) refreshDecision();
+    };
+    void deps.secureDesktop.ensureRunning().then(
+      (service) => answer(service.installed && !service.running),
+      () => answer(true)
+    );
+  };
+
   const setHelperActive = async (active: boolean): Promise<void> => {
     if (helperActive === active) return;
     helperActive = active;
+    // A deactivated helper's reports (its grant lapsing with it) are not the
+    // phone's concern.
+    if (!active) setIssue(null);
+    // The helper is needed now; after a reboot its service may be stopped.
+    if (active && !deps.secureDesktop.connected()) ensureService();
     await deps.secureDesktop.setActive(active).catch(() => {});
   };
 
@@ -456,7 +557,37 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     subscriptions.push(deps.authorization.onChange(reauthorize));
     subscriptions.push(deps.displays.onChange(renewGeometry));
     subscriptions.push(deps.secureDesktop.onFrame(onHelperFrame));
-    subscriptions.push(deps.secureDesktop.onDesktopChanged(() => refreshDecision()));
+    subscriptions.push(
+      deps.secureDesktop.onDesktopChanged(() => {
+        helperFacts = { ...helperFacts, issue: helperIssueAfterChange(helperFacts.issue, deps.secureDesktop.connected()) };
+        refreshDecision();
+      })
+    );
+    subscriptions.push(
+      deps.secureDesktop.onHelperIssue((code) => {
+        const issue = screenHelperIssue(code);
+        if (issue && running && helperActive) setIssue(issue);
+      })
+    );
+    subscriptions.push(
+      deps.secureDesktop.onGrantChallenge((challenge) => {
+        if (!running || !paired()) return;
+        for (const listener of [...challengeListeners]) listener(challenge);
+      })
+    );
+    subscriptions.push(
+      deps.secureDesktop.onHold(() => {
+        if (running) for (const listener of [...holdListeners]) listener();
+      })
+    );
+    const turn = ++installTurn;
+    void deps.secureDesktop
+      .installState()
+      .then((state) => {
+        installAnswer(turn, { offer: installOfferFor(state) });
+        // A current install whose service is stopped (after a reboot).
+        if (running && state === 'installed' && !deps.secureDesktop.connected()) ensureService();
+      });
 
     // The input host is the injector and also the local UAC / lock detector:
     // a session cannot proceed without it.
@@ -473,7 +604,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     if (!running) throw new ScreenSourceDenied(stopReason ?? 'stopped');
 
     decision = decideScreenSource(helperState());
-    status = screenStatusFor(decision, true, helperVideo);
+    status = screenStatusFor(decision, true, helperVideo, helperFacts);
     deps.indicator.show({
       clientLabel: deps.clientLabel,
       controlling: status.control,
@@ -599,7 +730,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     stopReason = reason;
     router.cancel();
     subscriptions.splice(0).forEach((off) => off());
-    emitStatus({ state: 'stopped', reason, helper: status.helper, control: false });
+    emitStatus({ state: 'stopped', reason, helper: status.helper, control: false, helperInfo: status.helperInfo });
     for (const listener of stopListeners) listener(reason);
     deps.indicator.hide();
     deps.log({ type: 'stop', ...ids, reason });
@@ -676,6 +807,42 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     handleInput,
     releaseInput: () => router.releaseAll(),
     setHelperVideo,
+    setVideoRun(epoch) {
+      if (running) deps.secureDesktop.setVideoRun(epoch);
+    },
+    nextVideoRun: () => deps.secureDesktop.mintVideoRun(),
+    onHelperHold(listener) {
+      holdListeners.add(listener);
+      return () => holdListeners.delete(listener);
+    },
+    onHelperChallenge(listener) {
+      challengeListeners.add(listener);
+      return () => challengeListeners.delete(listener);
+    },
+    helperGrant(grant) {
+      if (!running || !paired()) return;
+      void deps.secureDesktop.sendGrant(grant).then(
+        () => {
+          // The remedy for a lapsed grant was relayed; a refusal is reported anew.
+          if (running && helperFacts.issue === 'grant_expired') setIssue(null);
+        },
+        () => undefined
+      );
+    },
+    requestHelperInstall(controllerKey) {
+      if (!running || !paired()) return;
+      const turn = ++installTurn;
+      const answer = (outcome: ScreenHelperFacts['outcome'], detail: string | undefined, offer?: ScreenHelperFacts['offer']) =>
+        installAnswer(turn, {
+          outcome,
+          detail: detail === undefined ? null : detail.slice(0, MAX_REMOTE_SCREEN_HELPER_DETAIL),
+          ...(offer ? { offer } : {}),
+        });
+      void deps.secureDesktop.requestInstall(controllerKey).then(
+        (result) => answer(result.outcome, result.detail, installOfferFor(result.state)),
+        (error: unknown) => answer('failed', error instanceof Error ? error.message : String(error))
+      );
+    },
     stop,
     released: () => stopping ?? Promise.resolve(),
   };

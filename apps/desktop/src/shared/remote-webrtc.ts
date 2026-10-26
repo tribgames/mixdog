@@ -7,6 +7,7 @@
  */
 import type { DesktopRemoteBrowserPageInput } from './contract';
 import { normalizeRemoteBrowserControl } from './remote-browser';
+import { isSecureDesktopControllerKey } from './secure-desktop-grant';
 
 export const REMOTE_WEBRTC_VERSION = 1 as const;
 /** E2EE challenge flag (`RelayE2EEChallenge.browserWebrtc`): this host speaks
@@ -340,7 +341,11 @@ export type RemoteWebrtcChannelFromClient =
   /** A screen viewer rendered a frame of video run `epoch` (see
    *  `RemoteWebrtcScreenVideoMessage`): the receipt evidence that grants
    *  control on the helper path. Not input: never acked, never gated. */
-  | RemoteWebrtcScreenFrameSeenMessage;
+  | RemoteWebrtcScreenFrameSeenMessage
+  /** Screen sources only, and not input either (never acked, never gated by
+   *  the input epoch): a signed helper grant, and the install request. */
+  | RemoteWebrtcScreenHelperGrantMessage
+  | RemoteWebrtcScreenHelperInstallMessage;
 
 /** Phone → desktop: the first frame the phone presented
  *  (`requestVideoFrameCallback`) whose `metadata.receiveTime` is later than
@@ -400,7 +405,11 @@ export type RemoteScreenInput =
   /** Release every key and button this viewer holds. */
   | { type: 'screen-release' };
 
-export type RemoteScreenHelperState = 'not-needed' | 'active' | 'starting' | 'missing' | 'failed';
+/** The secure-desktop helper for this viewer: `failed` is an installed
+ *  service that could not be started; `in-use` is a helper another viewer's
+ *  session holds (it serves one at a time), so this one can't use it until
+ *  that session lets go. */
+export type RemoteScreenHelperState = 'not-needed' | 'active' | 'starting' | 'missing' | 'failed' | 'in-use';
 
 export type RemoteScreenStopReason =
   | 'user'
@@ -411,6 +420,56 @@ export type RemoteScreenStopReason =
   | 'display-removed'
   | 'error';
 
+/** What the phone may ask of the PC's secure-desktop helper: an install, an
+ *  update of an outdated one, or nothing (installed, another Windows
+ *  account's, not available on this build, or not known yet). */
+export type RemoteScreenHelperOffer = 'install' | 'update' | 'none';
+
+/** How the last install request ended (main/secure-desktop/install-request.ts). */
+export type RemoteScreenHelperInstallOutcome =
+  | 'installed'
+  | 'updated'
+  | 'declined'
+  | 'failed'
+  | 'in-progress'
+  | 'other-user'
+  | 'unavailable';
+
+/** The helper's advisory codes the phone is told about
+ *  (native/mixdog-secure-desktop/docs/ipc-spec.md, "Error codes"). */
+export type RemoteScreenHelperIssue =
+  | 'grant_key_missing'
+  | 'grant_expired'
+  | 'input_failed'
+  | 'desktop_unavailable'
+  | 'sas_disabled_by_policy';
+
+export const REMOTE_SCREEN_HELPER_ISSUES: readonly RemoteScreenHelperIssue[] = [
+  'grant_key_missing',
+  'grant_expired',
+  'input_failed',
+  'desktop_unavailable',
+  'sas_disabled_by_policy',
+];
+
+/** An install outcome's diagnostic, at most this long: the installer's own
+ *  are under 140 characters; a launch error's message is cut to it. */
+export const MAX_REMOTE_SCREEN_HELPER_DETAIL = 256;
+
+/** The secure-desktop helper part of `screen-status`. */
+export interface RemoteScreenHelperInfo {
+  offer: RemoteScreenHelperOffer;
+  /** How this session's last install request ended; null before one. */
+  outcome: RemoteScreenHelperInstallOutcome | null;
+  /** That outcome's short diagnostic (`failed`, `in-progress`); null without one. */
+  detail: string | null;
+  /** The helper's standing advisory code; null when none stands. */
+  issue: RemoteScreenHelperIssue | null;
+  /** Which secure screen is up: the lock / sign-in screen, or an elevation
+   *  prompt; null on the ordinary desktop or when it can't be told. */
+  secure: 'lock' | 'uac' | null;
+}
+
 /** A screen source's state, pushed on the data channel as `screen-status`. */
 export interface RemoteScreenStatus {
   state: 'live' | 'elevation-prompt' | 'secure-desktop' | 'stopped';
@@ -418,6 +477,7 @@ export interface RemoteScreenStatus {
   helper: RemoteScreenHelperState;
   /** Input is currently accepted from this viewer. */
   control: boolean;
+  helperInfo: RemoteScreenHelperInfo;
 }
 
 /** A display a phone may choose (`browserRemoteScreenDisplays`). */
@@ -501,11 +561,55 @@ export interface RemoteWebrtcScreenVideoMessage {
   path: RemoteScreenVideoPath;
 }
 
+/**
+ * Desktop → phone: a secure-desktop helper challenge (protocol v4 control
+ * grants) to sign for video run `epoch`, the run the desktop declared to the
+ * helper when it forwarded it. The phone signs it with
+ * `signSecureDesktopGrant(privateKey, {nonce, challenge}, epoch)`
+ * (shared/secure-desktop-grant.ts) and answers `screen-helper-grant`. Sent
+ * while the helper's control is active (at once, then every 2 s); never in
+ * the promotion snapshot (a challenge lives 5 s, the next comes sooner).
+ * `nonce` and `challenge`: 16 bytes each, canonical padded base64.
+ */
+export interface RemoteWebrtcScreenHelperChallengeMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-helper-challenge';
+  epoch: number;
+  nonce: string;
+  challenge: string;
+}
+
+/** Phone → desktop: a signed answer to `screen-helper-challenge`, relayed to
+ *  the helper only when `epoch` is the current video run. `challenge` as it
+ *  came; `signature`: the 64-byte P-256 `r ‖ s`, canonical padded base64 (what
+ *  `signSecureDesktopGrant` returns). */
+export interface RemoteWebrtcScreenHelperGrantMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-helper-grant';
+  epoch: number;
+  challenge: string;
+  signature: string;
+}
+
+/** Phone → desktop: install (or update) the secure-desktop helper, enrolling
+ *  this controller key (`generateSecureDesktopControllerKey().publicKey`:
+ *  unpadded base64url of the 65-byte uncompressed P-256 point). At most one
+ *  UAC prompt on the PC; the outcome arrives in `screen-status`. */
+export interface RemoteWebrtcScreenHelperInstallMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-helper-install';
+  publicKey: string;
+}
+
+/** A signed grant as main relays it (`screen-helper-grant` without its envelope). */
+export type RemoteScreenHelperGrant = Omit<RemoteWebrtcScreenHelperGrantMessage, 'v' | 'kind'>;
+
 /** What a source pushes to its viewer's channel (desktop → phone). */
 export type RemoteWebrtcChannelPush =
   | RemoteWebrtcScreenStatusMessage
   | RemoteWebrtcScreenCursorMessage
-  | RemoteWebrtcScreenVideoMessage;
+  | RemoteWebrtcScreenVideoMessage
+  | RemoteWebrtcScreenHelperChallengeMessage;
 
 export type RemoteWebrtcChannelFromDesktop = {
   v: typeof REMOTE_WEBRTC_VERSION;
@@ -1145,6 +1249,8 @@ export function parseRemoteWebrtcChannelFromClient(text: unknown): RemoteWebrtcC
   if (input.kind === 'screen-frame-seen') {
     return { v: REMOTE_WEBRTC_VERSION, kind: 'screen-frame-seen', epoch: positiveInteger(input.epoch, 'video epoch') };
   }
+  if (input.kind === 'screen-helper-grant') return helperGrantMessage(input);
+  if (input.kind === 'screen-helper-install') return helperInstallMessage(input);
   const envelope = {
     epoch: positiveInteger(input.epoch, 'input epoch'),
     seq: positiveInteger(input.seq, 'input seq'),
@@ -1234,7 +1340,44 @@ const SCREEN_REASONS: ReadonlySet<string> = new Set([
   'display-removed',
   'error',
 ]);
-const SCREEN_HELPER: ReadonlySet<string> = new Set(['not-needed', 'active', 'starting', 'missing', 'failed']);
+const SCREEN_HELPER: ReadonlySet<string> = new Set(['not-needed', 'active', 'starting', 'missing', 'failed', 'in-use']);
+const HELPER_OFFERS: ReadonlySet<string> = new Set(['install', 'update', 'none']);
+const HELPER_OUTCOMES: ReadonlySet<string> = new Set([
+  'installed',
+  'updated',
+  'declined',
+  'failed',
+  'in-progress',
+  'other-user',
+  'unavailable',
+]);
+const HELPER_ISSUES: ReadonlySet<string> = new Set(REMOTE_SCREEN_HELPER_ISSUES);
+const SECURE_SCREENS: ReadonlySet<string> = new Set(['lock', 'uac']);
+
+/** A string in `allowed`. Checked as a string first: `String(['x'])` is
+ *  `'x'`, so a stringified membership test would let an array through. */
+function isMember(value: unknown, allowed: ReadonlySet<string>): value is string {
+  return typeof value === 'string' && allowed.has(value);
+}
+
+/** `value` when it is null or in `allowed`; throws otherwise. */
+function nullableMember<T extends string>(value: unknown, allowed: ReadonlySet<string>, what: string): T | null {
+  if (value === null) return null;
+  if (!isMember(value, allowed)) fail(what);
+  return value as T;
+}
+
+function helperInfo(value: unknown): RemoteScreenHelperInfo {
+  const input = record(value, 'helper info');
+  if (!isMember(input.offer, HELPER_OFFERS)) fail('helper offer');
+  return {
+    offer: input.offer as RemoteScreenHelperOffer,
+    outcome: nullableMember<RemoteScreenHelperInstallOutcome>(input.outcome, HELPER_OUTCOMES, 'helper outcome'),
+    detail: input.detail === null ? null : boundedText(input.detail, MAX_REMOTE_SCREEN_HELPER_DETAIL, 'helper detail'),
+    issue: nullableMember<RemoteScreenHelperIssue>(input.issue, HELPER_ISSUES, 'helper issue'),
+    secure: nullableMember<'lock' | 'uac'>(input.secure, SECURE_SCREENS, 'secure screen'),
+  };
+}
 
 /** A `screen-status` channel message from the desktop, as the phone receives it. */
 export function readRemoteWebrtcScreenStatus(text: unknown): RemoteWebrtcScreenStatusMessage | null {
@@ -1242,8 +1385,8 @@ export function readRemoteWebrtcScreenStatus(text: unknown): RemoteWebrtcScreenS
     const input = parseChannelText(text);
     if (input.kind !== 'screen-status') return null;
     const status = record(input.status, 'screen status');
-    if (!SCREEN_STATES.has(String(status.state)) || !SCREEN_HELPER.has(String(status.helper))) return null;
-    if (status.reason !== undefined && !SCREEN_REASONS.has(String(status.reason))) return null;
+    if (!isMember(status.state, SCREEN_STATES) || !isMember(status.helper, SCREEN_HELPER)) return null;
+    if (status.reason !== undefined && !isMember(status.reason, SCREEN_REASONS)) return null;
     if (typeof status.control !== 'boolean') return null;
     return {
       v: REMOTE_WEBRTC_VERSION,
@@ -1253,11 +1396,82 @@ export function readRemoteWebrtcScreenStatus(text: unknown): RemoteWebrtcScreenS
         ...(status.reason === undefined ? {} : { reason: status.reason as NonNullable<RemoteScreenStatus['reason']> }),
         helper: status.helper as RemoteScreenHelperState,
         control: status.control,
+        helperInfo: helperInfo(status.helperInfo),
       },
     };
   } catch {
     return null;
   }
+}
+
+/** The helper's 16-byte nonce and challenge, and the phone's 64-byte P-256
+ *  `r ‖ s` signature: canonical padded base64, the helper's own wire encoding
+ *  (native/mixdog-secure-desktop/docs/ipc-spec.md) and what
+ *  `signSecureDesktopGrant` takes and returns. 16 and 64 bytes both leave one
+ *  byte over a multiple of three: a last group of two characters (the second
+ *  with its four low bits zero) and `==`. */
+const HELPER_NONCE = /^[A-Za-z0-9+/]{21}[AQgw]==$/u;
+const HELPER_SIGNATURE = /^[A-Za-z0-9+/]{85}[AQgw]==$/u;
+
+function helperBase64(value: unknown, pattern: RegExp, what: string): string {
+  if (typeof value !== 'string' || !pattern.test(value)) fail(what);
+  return value;
+}
+
+function helperChallengeMessage(input: Fields): RemoteWebrtcScreenHelperChallengeMessage {
+  return {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-challenge',
+    epoch: positiveInteger(input.epoch, 'video epoch'),
+    nonce: helperBase64(input.nonce, HELPER_NONCE, 'helper nonce'),
+    challenge: helperBase64(input.challenge, HELPER_NONCE, 'helper challenge'),
+  };
+}
+
+function helperGrantMessage(input: Fields): RemoteWebrtcScreenHelperGrantMessage {
+  return {
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-helper-grant',
+    epoch: positiveInteger(input.epoch, 'video epoch'),
+    challenge: helperBase64(input.challenge, HELPER_NONCE, 'helper challenge'),
+    signature: helperBase64(input.signature, HELPER_SIGNATURE, 'helper signature'),
+  };
+}
+
+function helperInstallMessage(input: Fields): RemoteWebrtcScreenHelperInstallMessage {
+  if (!isSecureDesktopControllerKey(input.publicKey)) fail('controller key');
+  return { v: REMOTE_WEBRTC_VERSION, kind: 'screen-helper-install', publicKey: input.publicKey };
+}
+
+/** Desktop: the `screen-helper-challenge` for a helper challenge and the
+ *  current video run; throws TypeError on a malformed one (never forwarded). */
+export function remoteWebrtcScreenHelperChallenge(
+  epoch: number,
+  challenge: { nonce: string; challenge: string }
+): RemoteWebrtcScreenHelperChallengeMessage {
+  return helperChallengeMessage({ epoch, nonce: challenge.nonce, challenge: challenge.challenge });
+}
+
+/** A `screen-helper-challenge` channel message from the desktop, as the phone receives it. */
+export function readRemoteWebrtcScreenHelperChallenge(text: unknown): RemoteWebrtcScreenHelperChallengeMessage | null {
+  try {
+    const input = parseChannelText(text);
+    return input.kind === 'screen-helper-challenge' ? helperChallengeMessage(input) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Phone: the channel text of a `screen-helper-grant`; throws TypeError on a
+ *  malformed grant. */
+export function encodeRemoteWebrtcScreenHelperGrant(grant: RemoteScreenHelperGrant): string {
+  return JSON.stringify(helperGrantMessage({ ...grant }));
+}
+
+/** Phone: the channel text of a `screen-helper-install`; throws TypeError on
+ *  a key that is not an enrollable controller key. */
+export function encodeRemoteWebrtcScreenHelperInstall(publicKey: string): string {
+  return JSON.stringify(helperInstallMessage({ publicKey }));
 }
 
 /** A `screen-cursor` channel message from the desktop, as the phone receives it. */

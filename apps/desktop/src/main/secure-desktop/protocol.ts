@@ -14,8 +14,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /** v2: mutual HMAC-SHA256 challenge-response replaced the plaintext-secret hello.
- *  v3: `desktop` is the input desktop's real object name, not a kind enum. */
-export const PROTOCOL_VERSION = 3;
+ *  v3: `desktop` is the input desktop's real object name, not a kind enum.
+ *  v4: input and `sas` need a live control grant signed by the paired phone
+ *  (`grant-challenge` / `grant` / `video-run`); `sas`; `locked` on
+ *  `server-hello` / `desktop-changed`. */
+export const PROTOCOL_VERSION = 4;
 
 /** Longest desktop name the helper can report (its 256-unit `UOI_NAME` buffer). */
 export const MAX_DESKTOP_NAME = 256;
@@ -54,10 +57,22 @@ export type ControlMessage =
   | { type: 'client-hello'; protocol: number; clientNonce: string }
   | { type: 'server-auth'; protocol: number; serverNonce: string; mac: string }
   | { type: 'client-auth'; mac: string }
-  | { type: 'server-hello'; protocol: number; version: string; session: number; desktop: DesktopName }
-  | { type: 'desktop-changed'; desktop: DesktopName; session: number }
+  /** `locked`: the session's WTS lock state; absent when Windows reports it
+   *  unknown. */
+  | { type: 'server-hello'; protocol: number; version: string; session: number; desktop: DesktopName; locked?: boolean }
+  | { type: 'desktop-changed'; desktop: DesktopName; session: number; locked?: boolean }
   | { type: 'input'; event: InputEvent }
   | { type: 'control'; active: boolean }
+  /** The video run (the app's run epoch) the phone is shown. */
+  | { type: 'video-run'; epoch: number }
+  /** A one-shot challenge for the phone to sign: `nonce` is the connection's
+   *  handshake server nonce; both base64 of 16 bytes. */
+  | { type: 'grant-challenge'; nonce: string; challenge: string }
+  /** The phone's base64 P-256 `r ‖ s` signature over the grant payload
+   *  (shared/secure-desktop-grant.ts). */
+  | { type: 'grant'; challenge: string; epoch: number; signature: string }
+  /** Ctrl+Alt+Del through the service; needs active control and a live grant. */
+  | { type: 'sas' }
   | { type: 'error'; code: string; message: string };
 
 export interface DirtyRect {
@@ -155,6 +170,16 @@ function isString(value: unknown): value is string {
   return typeof value === 'string';
 }
 
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean';
+}
+
+/** A video-run epoch: the helper's u64, bounded here to what JSON numbers
+ *  carry exactly. */
+function isEpoch(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
 function validInput(event: unknown): boolean {
   if (!isObject(event)) return false;
   const xy = isInt(event.x, I32_MIN, I32_MAX) && isInt(event.y, I32_MIN, I32_MAX);
@@ -199,16 +224,33 @@ export function validateControl(value: unknown): ControlMessage {
       ok = isString(m.mac);
       break;
     case 'server-hello':
-      ok = isInt(m.protocol, 0, U32) && isString(m.version) && isInt(m.session, 0, U32) && isDesktop(m.desktop);
+      ok =
+        isInt(m.protocol, 0, U32) &&
+        isString(m.version) &&
+        isInt(m.session, 0, U32) &&
+        isDesktop(m.desktop) &&
+        isOptionalBoolean(m.locked);
       break;
     case 'desktop-changed':
-      ok = isDesktop(m.desktop) && isInt(m.session, 0, U32);
+      ok = isDesktop(m.desktop) && isInt(m.session, 0, U32) && isOptionalBoolean(m.locked);
       break;
     case 'input':
       ok = validInput(m.event);
       break;
     case 'control':
       ok = typeof m.active === 'boolean';
+      break;
+    case 'video-run':
+      ok = isEpoch(m.epoch);
+      break;
+    case 'grant-challenge':
+      ok = isString(m.nonce) && isString(m.challenge);
+      break;
+    case 'grant':
+      ok = isString(m.challenge) && isEpoch(m.epoch) && isString(m.signature);
+      break;
+    case 'sas':
+      ok = true;
       break;
     case 'error':
       ok = isString(m.code) && isString(m.message);

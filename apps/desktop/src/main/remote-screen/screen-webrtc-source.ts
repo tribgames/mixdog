@@ -23,10 +23,21 @@
  * Anything of an older run (a late acknowledgement, a late seen) counts for
  * nothing. A phone that never sends `screen-frame-seen` never gets control
  * there.
+ *
+ * Helper control grants (protocol v4): every run is declared to the helper
+ * while this session holds it (`setVideoRun`). Run epochs are minted
+ * helper-wide (`nextVideoRun`), so no two sessions share one, and taking the
+ * hold starts a fresh run (`onHelperHold`) after the previous holder's grant
+ * was revoked (secure-desktop-helper.ts). Each helper challenge goes
+ * to the phone as `screen-helper-challenge` with the current run, and the
+ * phone's `screen-helper-grant` is relayed only when it names the current
+ * run. The phone's `screen-helper-install` reaches the source's install
+ * request.
  */
 import {
   REMOTE_WEBRTC_VERSION,
   isRemoteWebrtcPageInput,
+  remoteWebrtcScreenHelperChallenge,
   remoteWebrtcSourceKey,
   type RemoteWebrtcChannelPush,
   type RemoteWebrtcSource,
@@ -99,7 +110,8 @@ export function createScreenWebrtcSource(
 
   // Video runs (see the header).
   let path: ScreenVideoPath = 'capture';
-  let epoch = 1;
+  /** Minted helper-wide: no other session's run has this epoch. */
+  let epoch = screen.nextVideoRun();
   /** `screen-video` of the run was sent: a capture run at once, a helper run
    *  once its first frame is in the track (so what the phone renders after it
    *  is the helper's picture). */
@@ -124,14 +136,30 @@ export function createScreenWebrtcSource(
     watchdog = null;
     lastDelivery = null;
     intervals.length = 0;
-    epoch += 1;
+    epoch = screen.nextVideoRun();
     path = next;
     seen = false;
     announced = next === 'capture';
+    screen.setVideoRun(epoch);
     grant();
     if (announced) options.sink.channelPush(key, videoMessage());
   };
 
+  screen.onHelperChallenge((challenge) => {
+    let message: RemoteWebrtcChannelPush;
+    try {
+      message = remoteWebrtcScreenHelperChallenge(epoch, challenge);
+    } catch {
+      // Malformed (the helper's pipe admits any process of the PC user):
+      // never forwarded to the phone.
+      return;
+    }
+    options.sink.channelPush(key, message);
+  });
+
+  // Taking the helper's hold: a fresh run (and epoch) on the same path, so
+  // nothing the phone saw or signed before counts with the helper.
+  screen.onHelperHold(() => newRun(path));
   screen.onVideoPath((next) => {
     if (next === path) return;
     newRun(next);
@@ -160,7 +188,12 @@ export function createScreenWebrtcSource(
     start() {
       if (starting) return;
       starting = screen.start().then(
-        (result) => options.sink.geometryChanged(key, result.geometry),
+        (result) => {
+          // The first run, declared once the session runs (a later one was
+          // declared when it started).
+          screen.setVideoRun(epoch);
+          options.sink.geometryChanged(key, result.geometry);
+        },
         (error: unknown) => {
           options.sink.geometryChanged(key, null);
           options.onStartError?.(error);
@@ -217,5 +250,12 @@ export function createScreenWebrtcSource(
       seen = true;
       grant();
     },
+    helperGrant(signed) {
+      // Signed for another run: the helper would refuse it, and the phone
+      // must not be able to carry a grant across runs.
+      if (signed.epoch !== epoch) return;
+      screen.helperGrant(signed);
+    },
+    helperInstall: (controllerKey) => screen.requestHelperInstall(controllerKey),
   };
 }
