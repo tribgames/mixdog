@@ -830,7 +830,8 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .workbench-side-panel[hidd
      (session-sidebar-drawer-inert.ts). */
   pointer-events: none;
 }
-html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame > .workbench-side-panel[hidden] {
+html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame > .workbench-side-panel[hidden],
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-drawer-live] > .workbench-side-panel[hidden] {
   display: flex;
 }
 html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-backdrop {
@@ -872,6 +873,14 @@ html[data-mixdog-mobile-tabs] .session-sidebar-resize {
    restyles the whole sidebar. */
 html[data-mixdog-mobile-tabs] .session-sidebar[data-state="closed"] {
   pointer-events: none;
+}
+/* The drawer frame alone slides. The narrow-viewport `.sidebar` slide
+   (styles.css) otherwise ran a second 0.18s slide inside the frame from the
+   open commit, so the rows trailed the sheet that follows the finger: the
+   background arrived first and the text slid in after it on its own. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame .sidebar.session-sidebar {
+  transform: none;
+  transition: none;
 }
 
 /* ── Drawer inset system ── ONE horizontal grammar for every drawer page. The

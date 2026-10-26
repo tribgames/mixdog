@@ -286,6 +286,11 @@ function ownsHorizontalDrag(win: Window, start: Element): boolean {
  *  class target and dropping it starts no transition. */
 const declaresRest = (win: Window, element: Element): boolean =>
   win.getComputedStyle(element).getPropertyValue('--mx-drawer-open-transform').trim() !== '';
+/** Marks a sheet carrying the gesture's inline paint (dragged or settling), so
+ *  its stylesheet can show content that is display:none while closed: the
+ *  rows then travel with the sheet under the finger instead of appearing on
+ *  release (07-mobile-chrome.css). */
+const LIVE_PAINT_ATTRIBUTE = 'data-drawer-live';
 interface Drag {
   id: number;
   x: number;
@@ -333,6 +338,7 @@ export function installEdgeSwipe(
     painted = { element: current.element, scrim: current.drawer.backdrop?.() };
     const shift = (1 - position) * 100 * -sign(current.drawer);
     const hidden = position <= 0;
+    current.element.setAttribute(LIVE_PAINT_ATTRIBUTE, '');
     const sheet = current.element.style;
     sheet.transition = animate ? '' : 'none';
     const slid = `translateX(${shift}%)`;
@@ -347,6 +353,7 @@ export function installEdgeSwipe(
     }
   };
   const clearPaint = (element: HTMLElement, scrim: HTMLElement | null | undefined): void => {
+    element.removeAttribute(LIVE_PAINT_ATTRIBUTE);
     for (const style of [element.style, scrim?.style]) {
       if (!style) continue;
       style.removeProperty('transition');
