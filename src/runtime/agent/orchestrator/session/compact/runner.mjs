@@ -1,6 +1,7 @@
 // Rule-based Compact preserves conversation verbatim by default. A bounded
 // cumulative handoff replaces only the conversation part when requested by
 // its independent threshold policy.
+import { createHash } from 'node:crypto';
 import { estimateMessagesTokens, reconcileDedupStubs, sanitizeToolPairs } from '../context-utils.mjs';
 import { HANDOFF_TIMEOUT_MAX_MS, SUMMARY_OUTPUT_TOKENS, compactDebugLog } from './constants.mjs';
 import {
@@ -22,7 +23,7 @@ import {
 } from './messages.mjs';
 import { activeTurnContinuationMessage } from './continuation.mjs';
 import { EXECUTION_RECOVERY_SOURCE, buildExecutionTail } from './execution-tail.mjs';
-import { latestSkillBodies } from '../../context/skill-state.mjs';
+import { latestSkillBodies, skillMessageText } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
 import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
 import { carryMessageId, messageIdOf } from '../message-ids.mjs';
@@ -413,6 +414,47 @@ function prependLatestUserContext(message, prefix) {
   });
 }
 
+const LOADED_SKILL_RESULT_RE = /^Loaded (?:built-in )?skill: /;
+
+// A Skill load the retained execution tail keeps states what the skill
+// delivered then: its tool list (the native payload or the summary text). It
+// is brought to what the skill delivers now, in place, so its call stays
+// paired: a skill that no longer loads keeps a result saying so, with no tool
+// payload; a skill whose dependencies changed carries its current payload.
+// Failed loads (errors) are left as they are. `currentSkill` absent, or a
+// skill's `native` undefined (a preview), keeps the result.
+function reconcileRetainedSkillLoads(messages, currentSkill) {
+  if (!currentSkill) return messages;
+  const calls = new Map(
+    messages.flatMap((message) =>
+      message?.role === 'assistant' ? (message.toolCalls || []).map((call) => [call.id, call]) : []
+    )
+  );
+  const withoutPayload = ({ nativeToolSearch: _native, ...message }, content) => ({ ...message, content });
+  return messages.map((message) => {
+    if (message?.role !== 'tool') return message;
+    const call = calls.get(message.toolCallId);
+    const name = call?.name === 'Skill' ? String(call.arguments?.name || '').trim() : '';
+    if (!name) return message;
+    const text = contentText(message.content);
+    if (!message.nativeToolSearch && !LOADED_SKILL_RESULT_RE.test(text)) return message;
+    const skill = currentSkill(name);
+    if (skill === null) {
+      return withoutPayload(
+        message,
+        `Skill "${name}" is no longer available in this session (switched off, removed, or outside this project's scope); its instructions and tools are not active.`
+      );
+    }
+    if (skill?.native === undefined) return message;
+    if (skill.native) {
+      return nativeToolsKey(message.nativeToolSearch) === nativeToolsKey(skill.native)
+        ? message
+        : { ...message, content: skill.native.summary, nativeToolSearch: skill.native };
+    }
+    return !message.nativeToolSearch && text === skill.summary ? message : withoutPayload(message, skill.summary);
+  });
+}
+
 // The retained execution tail plus the current-turn messages that must
 // survive every compaction verbatim.
 function freshContextTail(source, budgetTokens, preserveConversation, opts) {
@@ -423,10 +465,11 @@ function freshContextTail(source, budgetTokens, preserveConversation, opts) {
     preview: opts.preview === true,
   });
   const latestUser = latestActualUserInstructionMessage(source.live);
-  const latestIndex = execution.messages.findLastIndex(
+  const executed = reconcileRetainedSkillLoads(execution.messages, opts.currentSkill);
+  const latestIndex = executed.findLastIndex(
     (message) => message.role === 'user' && message.content === latestUser?.content
   );
-  const retainedTail = execution.messages.map((message, index) =>
+  const retainedTail = executed.map((message, index) =>
     index === latestIndex ? prependLatestUserContext(message, opts.latestUserPrefix) : message
   );
   // The turn's input: the latest real request or an unanswered notification
@@ -459,11 +502,9 @@ function freshContextTail(source, budgetTokens, preserveConversation, opts) {
   };
 }
 
-// Native tool search exposes a skill's linked tools only through the executed
-// Skill result that referenced them. A restored body keeps that pair, unless
-// the retained tail already carries it, so its instructions never return
-// without the tools they require.
-function skillLoaderPair(live, bodyIndex, name, retainedCallIds) {
+// The executed Skill call (its owner message, the call and its result) that
+// delivered the body at `bodyIndex`, or null.
+function skillLoader(live, bodyIndex, name) {
   for (let index = bodyIndex - 1; index >= 0; index -= 1) {
     const result = live[index];
     if (result?.role !== 'tool') continue;
@@ -473,12 +514,52 @@ function skillLoaderPair(live, bodyIndex, name, retainedCallIds) {
         (message) => message?.role === 'assistant' && message.toolCalls?.some((c) => c.id === result.toolCallId)
       );
     const call = owner?.toolCalls.find((entry) => entry.id === result.toolCallId);
-    if (call?.name !== 'Skill' || call.arguments?.name !== name) continue;
-    if (!result.nativeToolSearch || retainedCallIds.has(result.toolCallId)) return [];
-    // The re-attached call is part of its owner message: it keeps that id.
-    return [carryMessageId({ role: 'assistant', content: '', toolCalls: [call] }, owner), result];
+    if (call?.name === 'Skill' && call.arguments?.name === name) return { owner, call, result };
   }
-  return [];
+  return null;
+}
+
+const nativeToolsKey = (native) =>
+  JSON.stringify([native?.provider || '', native?.toolReferences || [], native?.openaiTools || []]);
+
+const SKILL_RESTORE_SOURCE = 'compact-skill-restore';
+
+// Native tool search exposes a skill's linked tools only through the executed
+// Skill result that referenced them. A restored body keeps that pair, unless
+// the retained tail already carries it, so its instructions never return
+// without the tools they require. `current.native` is the payload the skill's
+// current dependencies produce (null: none to expose); the transcript pair is
+// kept while it matches, otherwise rebuilt from it. `current` absent, or its
+// `native` undefined, keeps the transcript pair as it is.
+function skillLoaderPair(live, bodyIndex, name, retainedCallIds, current) {
+  const loader = skillLoader(live, bodyIndex, name);
+  if (loader && retainedCallIds.has(loader.result.toolCallId)) return [];
+  const native = current?.native === undefined ? loader?.result.nativeToolSearch : current.native;
+  if (!native) return [];
+  // The re-attached call is part of its owner message: it keeps that id.
+  const callMessage = (call) =>
+    loader
+      ? carryMessageId({ role: 'assistant', content: '', toolCalls: [call] }, loader.owner)
+      : { role: 'assistant', content: '', toolCalls: [call], meta: { source: SKILL_RESTORE_SOURCE, synthetic: true } };
+  if (loader?.result.nativeToolSearch && nativeToolsKey(loader.result.nativeToolSearch) === nativeToolsKey(native)) {
+    return [callMessage(loader.call), loader.result];
+  }
+  // A body that arrived without a native pair still needs one now: a
+  // per-skill call id, stable across later Compacts that keep it.
+  const call = loader?.call || {
+    id: `skill-restore-${createHash('sha256').update(name).digest('hex').slice(0, 24)}`,
+    name: 'Skill',
+    arguments: { name },
+  };
+  const result = { role: 'tool', toolCallId: call.id, content: native.summary, nativeToolSearch: native };
+  return [callMessage(call), loader ? carryMessageId(result, loader.result) : result];
+}
+
+// The body to restore: the transcript copy while it is what the Skill tool
+// delivers now, else the current body.
+function currentSkillBodyMessage(message, current) {
+  if (!current || skillMessageText(message.content).trimStart() === current.body) return message;
+  return { role: 'user', content: current.body, meta: 'skill' };
 }
 
 const SKILL_RELOAD_SOURCE = 'compact-skill-reload';
@@ -491,26 +572,41 @@ function skillReloadReminder(name) {
   };
 }
 
-// Preserve complete, most-recent skill bodies from the durable transcript.
+// Restore the skills active in the transcript, each as the Skill tool would
+// deliver it now. `currentSkill(name)` (the caller's resolver) answers
+// `{ body, native, summary }` for a skill that still loads in the session, or null for
+// one switched off, outside its scope or removed: such a skill is restored
+// neither as a body nor as a reload reminder, since its instructions are no
+// longer in force. Without a resolver the transcript copies are kept.
 // Never summarize/truncate operating instructions or displace the handoff
 // and current task. An omitted body leaves a one-line reload reminder, which
 // stands through later Compacts until the skill is loaded again. Reminders
 // are charged to the same budget: every skill's reminder is reserved before
 // any body is restored, and restoring a body releases its own reminder.
-function restoreSkillBodies(live, skillBudget, retainedTail) {
+function restoreSkillBodies(live, skillBudget, retainedTail, currentSkill = null) {
   const retainedCallIds = new Set(retainedTail.filter((m) => m?.role === 'tool').map((m) => m.toolCallId));
-  const bodies = latestSkillBodies(live);
-  const loaded = new Set(bodies.map((body) => body.name));
+  const current = (name) => (currentSkill ? currentSkill(name) : undefined);
+  const loads = (name) => current(name) !== null;
+  const transcriptBodies = latestSkillBodies(live);
+  const loaded = new Set(transcriptBodies.map((body) => body.name));
+  const bodies = transcriptBodies.filter((body) => loads(body.name));
   const reload = live
-    .filter((m) => m?.meta?.source === SKILL_RELOAD_SOURCE && !loaded.has(m.meta.skill))
+    .filter((m) => m?.meta?.source === SKILL_RELOAD_SOURCE && !loaded.has(m.meta.skill) && loads(m.meta.skill))
     .map((m) => m.meta.skill);
   const reminderCost = (name) => estimateMessagesTokens([skillReloadReminder(name)]);
-  let reserved = [...new Set([...reload, ...loaded])].reduce((sum, name) => sum + reminderCost(name), 0);
+  let reserved = [...new Set([...reload, ...bodies.map((body) => body.name)])].reduce(
+    (sum, name) => sum + reminderCost(name),
+    0
+  );
   const dropped = [];
   const restoredSkills = [];
   let skillTokens = 0;
   for (const { name, message } of bodies.reverse()) {
-    const restored = [...skillLoaderPair(live, live.lastIndexOf(message), name, retainedCallIds), message];
+    const skill = current(name);
+    const restored = [
+      ...skillLoaderPair(live, live.lastIndexOf(message), name, retainedCallIds, skill),
+      currentSkillBodyMessage(message, skill),
+    ];
     const cost = estimateMessagesTokens(restored);
     const own = reminderCost(name);
     if (skillTokens + cost + reserved - own > skillBudget) {
@@ -716,7 +812,19 @@ function assertHandoffFits(summaryMessage, room) {
   }
 }
 
-export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
+// One resolution per skill per Compact: the retained tail and the restored
+// bodies read the same answer (the real pass re-arms dependencies once).
+function memoizedSkillResolver(resolve) {
+  if (!resolve) return null;
+  const known = new Map();
+  return (name) => {
+    if (!known.has(name)) known.set(name, resolve(name));
+    return known.get(name);
+  };
+}
+
+export function freshContextCompactMessages(messages, budgetTokens, options = {}) {
+  const opts = { ...options, currentSkill: memoizedSkillResolver(options.currentSkill) };
   const startedAt = Date.now();
   const targetBudget = effectiveBudget(budgetTokens, opts);
   const baseSanitized = reconcileDedupStubs(sanitizeToolPairs(messages));
@@ -756,7 +864,10 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
   const summaryContent = String(summaryMessage?.content || '');
   assertHandoffFits(summaryMessage, handoff.room);
   const skillBudget = freshSkillBudget(targetBudget, budget, [...stableHead, ...tail.volatileTail]);
-  const skills = { ...restoreSkillBodies(source.live, skillBudget, tail.volatileTail), skillBudget };
+  const skills = {
+    ...restoreSkillBodies(source.live, skillBudget, tail.volatileTail, opts.currentSkill),
+    skillBudget,
+  };
   const stablePrefixMessages = [...stableHead, ...skills.restoredSkills];
   const result = rebaseCompactedEffortConfiguration(
     baseSanitized,

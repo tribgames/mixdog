@@ -19,6 +19,7 @@ import {
 } from '../../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
 import { agentListEntries } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { markToolSurfaceMigrated } from '../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
+import { resetBp2StableContext } from '../../runtime/agent/orchestrator/context/collect.mjs';
 import {
   agentProfileRevision,
   leadRosterRevision,
@@ -209,6 +210,9 @@ export function createAgentProfileFold({
     const staged = await stagePolicy(session, identity, config, { conversation: true });
     if (getSession?.() !== session) return false;
     const before = promptPrefix(session);
+    // BP2 (profile meta, skill manifest) from current sources too; applyPolicy
+    // re-appends its deferred manifest.
+    if (typeof staged.stableContext === 'string') resetBp2StableContext(session, staged.stableContext);
     applyPolicy(session, staged);
     rewriteConversationBp3Core(session, staged.core);
     if (session.agentProfileRevision !== undefined) {
@@ -224,11 +228,19 @@ export function createAgentProfileFold({
   }
 
   /** Fold pending prompt changes (a switched workflow, a bot's moved tool
-   *  gates, changed shipped rules) when the cache is cold anyway. */
+   *  gates, changed shipped rules) when the cache is cold anyway. A
+   *  compaction rebuilds the prompt from current sources whether or not
+   *  anything is known pending (an update can change shipped rules, skills
+   *  and manifests no stamp tracks); an unchanged prompt stays byte-identical
+   *  and adds no break. */
   async function foldPromptIfCold() {
     const session = getSession?.();
+    // Scope exception: delegated worker sessions (`owner: 'agent'`) keep the
+    // prompt they were created with; they are task-scoped, and their skill
+    // bodies are still restored from current sources at Compact.
     if (!session?.id || !session.promptIdentity || isAgentOwner(session)) return false;
-    if (!foldPending(session) || !cacheCold(session)) return false;
+    const compacted = COLD_INTENTS.has(session.pendingCacheBreakIntent);
+    if (!compacted && !(foldPending(session) && cacheCold(session))) return false;
     return foldPrompt(session, PROMPT_FOLD_INTENT);
   }
 

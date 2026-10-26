@@ -7,6 +7,7 @@
 import { getProvider } from '../../providers/registry.mjs';
 import { pinSessionWireRoute } from '../../providers/wire-route.mjs';
 import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
+import { appendSkillUpdateNotices } from '../skill-update-notice.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { resolveTurnAutoEffort, turnStepAutoEffort } from './ask-turn-auto-effort.mjs';
 import { saveSessionAsync } from '../store.mjs';
@@ -272,6 +273,12 @@ export async function runAskAgentLoop({
       session.messages = filterModelVisibleSessionMessages(outgoing);
       checkpoint.schedule(true);
       notifySkillsApplied(askOpts?.onSkillsApplied, applied, userMessage);
+    }
+    // Every turn (any session, any prompt source): a loaded skill that changed
+    // since it was loaded is announced once, after the history.
+    if (appendSkillUpdateNotices(outgoing, effectiveCwd).length) {
+      session.messages = filterModelVisibleSessionMessages(outgoing);
+      checkpoint.schedule(true);
     }
     return await _api_call_with_interrupt(sessionId, (signal) =>
       agentLoop(

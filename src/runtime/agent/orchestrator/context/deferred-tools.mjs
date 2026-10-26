@@ -283,6 +283,18 @@ function resolveDeferredBp2Index(session) {
   return idx;
 }
 
+/**
+ * Give BP2 `stableContext` (profile meta + skill manifest) and no deferred
+ * manifest. The caller re-applies that manifest
+ * (applyInitialDeferredToolManifestToBp2 with `rebuild`), which appends it
+ * after the stable part exactly as session creation laid it out.
+ */
+export function resetBp2StableContext(session, stableContext) {
+  if (!Array.isArray(session?.messages)) return;
+  const idx = resolveDeferredBp2Index(session);
+  if (idx >= 0) setSystemContent(session, idx, String(stableContext || ''));
+}
+
 function writeDeferredManifestAt(session, idx, manifest, rebuild) {
   for (let i = 0; i < session.messages.length; i++) {
     if (i === idx || session.messages[i]?.role !== 'system' || typeof session.messages[i].content !== 'string')

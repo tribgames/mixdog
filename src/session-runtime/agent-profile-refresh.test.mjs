@@ -21,6 +21,7 @@ import {
 import { normalizeAgentPermissionOrNone, readMarkdownDocument } from '../runtime/shared/markdown-frontmatter.mjs';
 import { agentDefinitionExists, normalizeAgentName } from './services/agent-tool/helpers.mjs';
 import { resolveWorkerCompactPolicy } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
+import { invalidateSkillsCache } from '../runtime/agent/orchestrator/context/collect.mjs';
 
 const PACK = {
   summary: { id: 'default', name: 'Default', description: '', source: 'built-in', delegatesAgents: false },
@@ -51,7 +52,14 @@ function withDataDir(t) {
 /** An agent-mode thread as session creation builds it, with a conversation. */
 function agentThread(
   agentId,
-  { sessionMode = 'agent', id = `sess_home_${agentId}`, pack = PACK, workflow = WORKFLOW, leadWorkflowParts = {} } = {}
+  {
+    sessionMode = 'agent',
+    id = `sess_home_${agentId}`,
+    pack = PACK,
+    workflow = WORKFLOW,
+    leadWorkflowParts = {},
+    profileSkip = { claudemd: true, skills: true },
+  } = {}
 ) {
   const prompt = composeSessionSystem(
     {
@@ -62,7 +70,7 @@ function agentThread(
       coreMemoryContext: 'MEMORY',
     },
     {
-      profile: { skip: { claudemd: true, skills: true } },
+      profile: { skip: profileSkip },
       providerName: 'openai',
       modelName: 'test',
       surface: { ownerIsAgent: false, resolvedAgent: agentId, skills: [], toolsForRouting: [], ruleOmitTools: [] },
@@ -402,15 +410,48 @@ test('a saved edit rewrites at once and takes every pending change with it', asy
   assert.equal(session.pendingCacheBreakIntent, 'agent_profile');
 });
 
-test("a coding session's prompt does not follow a rules revision", async (t) => {
-  const { agentDir } = withDataDir(t);
-  writeFileSync(join(agentDir('poet'), 'AGENT.md'), 'Write poems.');
-  const session = agentThread('lead', { sessionMode: 'coding', id: 'sess_task_rules' });
-  session.rulesRevision = 'older-release';
+test("a compaction rebuilds a coding session's prompt from current rules, meta and skills; warm turns keep it", async (t) => {
+  const { dataDir } = withDataDir(t);
+  const session = agentThread('lead', {
+    sessionMode: 'coding',
+    id: 'sess_task_rules',
+    profileSkip: { claudemd: true },
+  });
+  const conversation = session.messages.slice(-2);
+  // Built before an update: older shipped rules and meta, and a skill
+  // installed since that its manifest never listed.
+  session.messages[0] = { ...session.messages[0], content: '# Tool Calls\n\nOLD_SHARED_RULE' };
+  session.messages[1] = { ...session.messages[1], content: '# Old meta\n\nOLD_META_RULE' };
+  const skillDir = join(dataDir, 'skills', 'fresh-skill');
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: fresh-skill\ndescription: Installed later.\n---\nBody.\n');
+  invalidateSkillsCache();
+  // The Goal itself is stored by session id outside the prompt; the session
+  // carries its pending post-Compact reminder.
+  const goal = { version: 1, type: 'goal_state', revision: 3, reason: 'compaction' };
+  session.pendingGoalReminder = structuredClone(goal);
+  session.goalReminderRevision = 3;
+  const refresh = refresher(session);
+  const record = JSON.stringify(session);
+
+  // A warm turn: nothing is rewritten.
+  assert.equal(await refresh.applyPendingAgentProfile(), false);
+  assert.equal(JSON.stringify(session), record);
+
   session.pendingCacheBreakIntent = 'post_turn_compaction';
-  const before = JSON.stringify(session);
-  assert.equal(await refresher(session).applyPendingAgentProfile(), false);
-  assert.equal(JSON.stringify(session), before);
+  assert.equal(await refresh.applyPendingAgentProfile(), true);
+  assert.doesNotMatch(systemText(session), /OLD_SHARED_RULE|OLD_META_RULE/);
+  assert.match(session.messages[0].content, /^# Tool Calls\n/);
+  assert.match(session.messages[1].content, /# available-skills[\s\S]*- fresh-skill/);
+  assert.deepEqual(session.messages.slice(-2), conversation, 'the conversation is untouched');
+  assert.equal(session.pendingCacheBreakIntent, 'post_turn_compaction', 'one break, tagged as the compaction');
+  assert.deepEqual(session.pendingGoalReminder, goal, 'the pending Goal reminder survives the rebuild');
+  assert.equal(session.goalReminderRevision, 3);
+
+  // Rebuilt from unchanged sources, the prompt is byte-identical: no further break.
+  const folded = prefix(session);
+  assert.equal(await refresh.applyPendingAgentProfile(), false);
+  assert.equal(prefix(session), folded);
 });
 test("a renamed Mixy is named in its thread's next prompt", async (t) => {
   const { dataDir } = withDataDir(t);

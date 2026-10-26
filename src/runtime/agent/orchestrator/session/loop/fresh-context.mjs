@@ -18,6 +18,9 @@ import { summarizeOnSharedPrefix } from '../compact/forked-summary.mjs';
 import { normalizeCompactionSummaryMode } from '../compact/summary-mode.mjs';
 import { compactionCacheWarm, lighterSubscriptionModel } from '../compact/summary-route.mjs';
 import { retireCompactionFork } from '../side-question-store.mjs';
+import { buildSkillToolEnvelope, collectSkillsCached, currentSkillDelivery } from '../../context/collect.mjs';
+import { loadSkillToolDependencies } from '../../runtime-core/skill-tool-loading.mjs';
+import { parseNativeToolSearchPayload } from './tool-helpers.mjs';
 
 // Conversation summarization triggers independently of the post-compact target:
 // at 5% of the window, capped so a large window does not carry tens of
@@ -262,11 +265,37 @@ function freshContextBudget({ compactPolicy, sessionRef, provider, compactBudget
   return { contextWindow, hardBudget, conversationInput, conversationTokens, conversationThresholdTokens };
 }
 
+// Compact restores each active skill from its current source, as the Skill
+// tool would deliver it in this session now (null: it no longer loads). The
+// real pass also re-arms the skill's current tool dependencies on the session
+// surface and answers the native tool-search payload they produce (or, with
+// none, the Skill result summary); a preview never touches the surface and
+// keeps the transcript's loader pairs.
+function currentSkillResolver(sessionRef, { preview = false } = {}) {
+  const cwd = sessionRef?.cwd || null;
+  const config = loadConfig({ secrets: false });
+  const skills = collectSkillsCached(cwd);
+  return (name) => {
+    const delivery = currentSkillDelivery(name, cwd, config, skills);
+    if (!delivery) return null;
+    if (preview) return { body: delivery.body, native: undefined };
+    const { resource } = delivery;
+    const envelope = loadSkillToolDependencies(
+      buildSkillToolEnvelope(name, resource.content, resource.dir, resource),
+      sessionRef
+    );
+    const native = parseNativeToolSearchPayload('Skill', envelope.result);
+    return { body: delivery.body, native, summary: native?.summary ?? envelope.result };
+  };
+}
+
 function freshContextBuildOptions(
-  { compactPolicy = {}, sessionId, goalReminderText, activeTurn, referenceLatestAttachments },
+  { sessionRef, compactPolicy = {}, sessionId, goalReminderText, activeTurn, referenceLatestAttachments, preview },
   budget
 ) {
   return {
+    // A sessionless call (no session gates to apply) keeps the transcript copies.
+    currentSkill: sessionRef ? currentSkillResolver(sessionRef, { preview }) : null,
     reserveTokens: compactPolicy.reserveTokens,
     maxBudgetTokens: budget.hardBudget,
     force: true,
@@ -287,7 +316,7 @@ export function previewFreshContextCompaction(input) {
   const budget = freshContextBudget(input);
   const summaryTriggered = budget.conversationTokens >= budget.conversationThresholdTokens;
   const result = freshContextCompactMessages(input.messages, input.compactBudgetTokens, {
-    ...freshContextBuildOptions(input, budget),
+    ...freshContextBuildOptions({ ...input, preview: true }, budget),
     preview: true,
     previewSummary: summaryTriggered,
   });
@@ -346,7 +375,7 @@ export async function runFreshContextCompact({
   });
   const summaryTriggered = conversationTokens >= conversationThresholdTokens;
   const buildOptions = freshContextBuildOptions(
-    { compactPolicy, sessionId, goalReminderText, activeTurn, referenceLatestAttachments },
+    { sessionRef, compactPolicy, sessionId, goalReminderText, activeTurn, referenceLatestAttachments },
     { contextWindow, hardBudget }
   );
   const build = (handoffText) =>

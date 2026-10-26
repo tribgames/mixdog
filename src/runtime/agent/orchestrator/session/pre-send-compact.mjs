@@ -430,6 +430,10 @@ function adoptCompactedTranscript(ctx, run) {
   // The compacted transcript breaks the cache anyway: a staged working-folder
   // change re-roots the system prompt now and needs no notice any more.
   if (sessionRef) applyPendingWorkspaceReroot(sessionRef, messages);
+  // The system prompt is rebuilt from current sources outside a running turn
+  // (session-runtime agent-profile-fold.mjs): the next cold point folds it in
+  // instead of adding a break to the turn that is already warm again.
+  if (sessionRef) sessionRef.promptFoldPending = true;
   resetReadStateAfterCompaction(sessionId);
   // Cross-turn receipts reference tool results that compaction just removed
   // from context; a stub for them would point at nothing. Clear in place so

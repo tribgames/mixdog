@@ -1,6 +1,7 @@
 export {
   applyInitialDeferredToolManifestToBp2,
   buildDeferredToolManifest,
+  resetBp2StableContext,
   stripDeferredToolManifestBlock,
 } from './deferred-tools.mjs';
 export {
@@ -11,11 +12,13 @@ export {
   collectPromptSkillsCached,
   collectSkills,
   collectSkillsCached,
+  currentSkillDelivery,
   filterSkillsExcludingDisabled,
   invalidateSkillsCache,
   isSkillDisabled,
   loadSkillResource,
   skillBodyPresentInSession,
+  skillLoadRefusal,
   skillMissingFeature,
   skillOutsideScope,
   skillEnabledFlags,

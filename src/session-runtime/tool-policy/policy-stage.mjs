@@ -11,9 +11,14 @@ import {
 import { deferredSurfaceModeForLead } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import {
   applyInitialDeferredToolManifestToBp2,
+  buildSkillManifest,
+  collectPromptSkillsCached,
   composeSystemPrompt,
 } from '../../runtime/agent/orchestrator/context/collect.mjs';
-import { _buildBaseRules } from '../../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+import {
+  _buildBaseRules,
+  _buildLeadMetaContext,
+} from '../../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
 import { sessionRolePromptFields } from '../../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
 import {
   delegationDisabled,
@@ -134,7 +139,12 @@ export function createPolicyStage({
             model: getRoute()?.model,
           });
     const coreMemoryContext = conversation ? '' : await leadCoreMemoryContext();
-    const { sessionMarkerCore } = composeSystemPrompt({
+    // BP2's stable part as session creation composes it
+    // (session-prompt-composition.mjs): the Lead meta context and the skill
+    // manifest of the skills in scope now.
+    const skipRules = identity.skipAgentRules || toolFreeRole;
+    const skills = schemaAllowedTools?.length === 0 ? [] : collectPromptSkillsCached(session.cwd);
+    const { sessionMarkerCore, stableSystemContext } = composeSystemPrompt({
       ...sessionRolePromptFields(identity, {
         ownerIsAgent,
         toolFreeRole,
@@ -149,6 +159,8 @@ export function createPolicyStage({
       // setting; agent mode carries none.
       instructionFilesContext:
         conversation || toolFreeRole || agentMode ? null : loadInstructionFilesContext?.(session) || null,
+      metaContext: skipRules || ownerIsAgent ? undefined : _buildLeadMetaContext({ includeOutputStyle: !agentMode }),
+      skillManifest: buildSkillManifest(skills),
     });
     return {
       workflow,
@@ -159,6 +171,8 @@ export function createPolicyStage({
       ownerIsAgent,
       baseRules,
       core: conversation ? withPresentedWorkspaceSlices(session, sessionMarkerCore) : sessionMarkerCore,
+      // Without BP1 the BP2 block cannot be located: null leaves it as it is.
+      stableContext: skipRules ? null : stableSystemContext,
     };
   }
 

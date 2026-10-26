@@ -304,6 +304,31 @@ export function skillOutsideScopeError(name) {
   return `Error: skill "${name}" is not available in this project (its project scope excludes the current folder)`;
 }
 
+/** Why the Skill tool refuses `name` at `cwd` now (missing feature, switched
+ *  off, outside the project scope), or null when nothing refuses it. `config`
+ *  and `skills` let a batch of checks share one config read and one scan. */
+export function skillLoadRefusal(name, cwd, config = null, skills = null) {
+  const missing = skillMissingFeature(name, config, skills);
+  if (missing) {
+    return `Error: skill "${name}" needs the ${missing} built-in feature, which is not installed or is switched off in Extensions → Plugin → Built-in`;
+  }
+  if (isSkillDisabled(name, config, skills)) return `Error: skill "${name}" is disabled`;
+  if (skillOutsideScope(name, cwd, config, skills)) return skillOutsideScopeError(name);
+  return null;
+}
+
+/**
+ * What the Skill tool would deliver for `name` at `cwd` now: the injected
+ * `<skill>` body and the resource it came from, or null when the skill no
+ * longer loads there (refused by skillLoadRefusal, or removed).
+ */
+export function currentSkillDelivery(name, cwd, config = null, skills = null) {
+  if (skillLoadRefusal(name, cwd, config, skills)) return null;
+  const resource = loadSkillResource(name, cwd);
+  if (!resource) return null;
+  return { body: buildSkillResultEnvelope(name, resource.content, resource.dir), resource };
+}
+
 /**
  * Skills a session may see: not switched off, feature available, and — when
  * `cwd` is given — inside the skill's (or its plugin's) project scope. Without
@@ -348,11 +373,16 @@ const _skillsCache = new Map();
 // every plain-file gate path are stat'ed on every call as before.
 const _ROOT_WATCH_LIMIT = 64;
 const _rootWatches = new Map(); // root -> { watcher, dirty, text, settled }
+// Bumped by every closed root watch; part of each cached SKILL.md text stamp.
+let _skillTextGeneration = 0;
 
 function _closeRootWatch(root) {
   const watch = _rootWatches.get(root);
   if (!watch) return;
   _rootWatches.delete(root);
+  // Any change under a skill root (or a lost watcher, or an invalidation)
+  // makes the next load re-read SKILL.md text, whatever the file stamps say.
+  _skillTextGeneration += 1;
   try {
     watch.watcher.close();
   } catch {
@@ -452,6 +482,26 @@ export function skillExecutionDir(dir, source) {
   return String(dir).replace(/([\\/])runtime\.asar(?=[\\/]|$)/, '$1runtime.asar.unpacked');
 }
 
+// SKILL.md text per catalog entry, with the stamp it was read at: the
+// file's own mtime and size (any depth) plus the skills watcher generation
+// (an edit that keeps both, e.g. inside one timestamp tick).
+const _skillFileText = new WeakMap();
+
+function skillFileText(skill) {
+  let stamp;
+  try {
+    const stat = statSync(skill.filePath);
+    stamp = `${_skillTextGeneration}:${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return null;
+  }
+  const cached = _skillFileText.get(skill);
+  if (cached?.stamp === stamp) return cached.text;
+  const text = readSafe(skill.filePath);
+  _skillFileText.set(skill, { stamp, text });
+  return text;
+}
+
 /**
  * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR};
  * ${MIXDOG_SKILL_NODE} is resolved at render time in buildSkillResultEnvelope).
@@ -462,7 +512,10 @@ export function loadSkillResource(name, cwd) {
   const skills = collectSkillsCached(cwd);
   const skill = skills.find((s) => s.name === skillName);
   if (!skill) return null;
-  const content = readSafe(skill.filePath);
+  // The catalog's freshness signature does not see every nested SKILL.md, so
+  // the text follows the file itself: one stat per load, re-read only when
+  // that file's own mtime or size moved.
+  const content = skillFileText(skill);
   if (content == null) return null;
   try {
     return {

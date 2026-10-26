@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFreshContextCompact } from './loop/fresh-context.mjs';
@@ -16,6 +16,7 @@ import { agentLoop } from './agent-loop.mjs';
 import { conversationCompactionInput, SUMMARY_PREFIX } from './compact.mjs';
 import { parseExecutionArchive } from './compact/execution-tail.mjs';
 import { withoutStampedIds } from './message-ids.test-support.mjs';
+import { invalidateSkillsCache } from '../context/collect.mjs';
 
 const summary = [
   '## Goal',
@@ -185,7 +186,15 @@ test('tool pressure alone uses rules and preserves an exact recoverable archive,
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });
+    invalidateSkillsCache();
   });
+  // Compact restores a skill only while it still loads: the skill is installed.
+  mkdirSync(join(root, 'skills', 'guide'), { recursive: true });
+  writeFileSync(
+    join(root, 'skills', 'guide', 'SKILL.md'),
+    '---\nname: guide\ndescription: Guide.\n---\nCOMPLETE_SKILL_BODY\n'
+  );
+  invalidateSkillsCache();
   const session = fixture();
   const output = 'FAILED_PARTIAL_RESULT\n'.repeat(12_000);
   session.messages.splice(
