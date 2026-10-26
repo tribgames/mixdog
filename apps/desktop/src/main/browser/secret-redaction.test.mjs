@@ -199,6 +199,35 @@ test('a secret next to a marker is still redacted', () => {
   );
 });
 
+test('a secret that contains or spans marker text is still redacted, and redacting twice is once', () => {
+  const twice = (redact, text) => {
+    const once = redact(text);
+    assert.equal(redact(once), once, `redacting twice changes ${JSON.stringify(text)}`);
+    return once;
+  };
+  const secrets = createSessionSecrets();
+  secrets.remember('s1', 'prefix[redacted]suffix');
+  secrets.remember('s1', 'e');
+  secrets.remember('s1', 'k[saved');
+  const redact = (text) => secrets.redact('s1', text);
+  assert.equal(twice(redact, 'pw=prefix[redacted]suffix'), 'pw=[redacted]');
+  assert.equal(twice(redact, 'pw=prefix[redacted]suffix e [redacted]'), 'pw=[redacted] [redacted] [redacted]');
+  assert.equal(twice(redact, 'k[saved login]'), '[redacted] login]');
+
+  const registry = createSavedLoginRegistry();
+  const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
+  assert.equal(registry.rememberSavedLogin(turn, ['pass[saved login]word', 'a']), true);
+  assert.equal(twice((text) => registry.redact(text), 'x pass[saved login]word a [saved login]'), 'x [saved login] [saved login] [saved login]');
+
+  const inputs = createSecretInputs();
+  inputs.remember('s1', 'prefix[redacted]suffix');
+  assert.equal(inputs.rememberSavedLogin(turn, ['pass[saved login]word']), true);
+  assert.equal(
+    twice((text) => inputs.redact('s1', text), 'prefix[redacted]suffix pass[saved login]word'),
+    '[redacted] [saved login]'
+  );
+});
+
 test('request bindings: a page binding and a window binding never answer for each other; bad targets bind nothing', () => {
   const inputs = createSecretInputs();
   const id = 'secret_0123456789abcdef';

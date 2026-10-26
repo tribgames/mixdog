@@ -232,13 +232,38 @@ test('a marker is opaque to redaction: twice is once, the desktop’s marker sur
   assert.deepEqual(redactSensitiveMessage(single, stored), stored);
 });
 
-test('the held tail of streaming text is plain text after the last marker, never part of a marker', () => {
+test('a value that contains or spans marker text is still redacted, and redacting twice is once', () => {
+  const id = 'sensitive-marker-contained';
+  markFill(id, 'prefix[redacted]suffix');
+  markFill(id, 'e');
+  markFill(id, 'k[saved');
+  const twice = (text) => {
+    const once = redactSensitive(id, text);
+    assert.equal(redactSensitive(id, once), once, `redacting twice changes ${JSON.stringify(text)}`);
+    return once;
+  };
+  assert.equal(twice('pw=prefix[redacted]suffix'), 'pw=[redacted]');
+  assert.equal(twice('pw=prefix[redacted]suffix e [redacted]'), 'pw=[redacted] [redacted] [redacted]');
+  assert.equal(twice('k[saved login]'), '[redacted] login]');
+  const stored = redactSensitiveMessage(id, { role: 'tool', toolCallId: 'T', content: 'pw=prefix[redacted]suffix' });
+  assert.equal(stored.content, 'pw=[redacted]');
+});
+
+test('the held tail of streaming text is never part of a marker, but is a value split across one', () => {
   const id = 'sensitive-marker-held';
   markFill(id, ']ab');
   assert.equal(redactSettledText(id, 'code [redacted]'), 'code [redacted]');
   assert.equal(redactSettledText(id, 'code [saved login]'), 'code [saved login]');
   assert.equal(redactSettledText(id, 'code [redacted] ]a'), 'code [redacted] ');
   assert.equal(redactSettledText(id, 'code ]ab and ]'), 'code [redacted] and ');
+
+  const split = 'sensitive-marker-held-split';
+  markFill(split, 'prefix[redacted]suffix');
+  assert.equal(redactSettledText(split, 'pw=prefix'), 'pw=');
+  assert.equal(redactSettledText(split, 'pw=prefix[redacted]'), 'pw=');
+  assert.equal(redactSettledText(split, 'pw=prefix[redacted]su'), 'pw=');
+  assert.equal(redactSettledText(split, 'pw=prefix[redacted]suffix'), 'pw=[redacted]');
+  assert.equal(redactSettledText(split, 'pw=[redacted]'), 'pw=[redacted]');
 });
 
 test('marking notifies the session’s listeners before returning, once per new value', () => {

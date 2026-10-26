@@ -15,10 +15,12 @@
 // first, so a shorter value never splits a longer one. Which parts of a
 // message are text is sensitive-projection.mjs's business.
 //
-// A marker is opaque to every redaction: values are replaced only in the text
-// between markers (the one written here, and the one the desktop writes for a
-// saved login, which reaches the transcript in replies), so redacting twice
-// is redacting once and a value such as `e` never rewrites a marker's letters.
+// A marker is opaque to every redaction (the one written here, and the one the
+// desktop writes for a saved login, which reaches the transcript in replies):
+// a value is matched whole against the text and replaced unless that
+// occurrence lies entirely inside a marker already there, so redacting twice
+// is redacting once and a value such as `e` never rewrites a marker's letters,
+// while a value that contains or spans marker text is still replaced.
 export const MARKER = '[redacted]';
 /** What the desktop writes for a Computer Use saved-login password
  *  (apps/desktop/src/main/secret-markers.ts). */
@@ -100,21 +102,38 @@ export function sensitiveValuesVersion(sessionId) {
   return bySession.get(sessionId)?.version || 0;
 }
 
-/** `text` with `edit` applied to each stretch between markers, the markers
- *  themselves kept as written. */
-function editBetweenMarkers(text, edit, next = 0) {
-  if (next === MARKERS.length) return edit(text);
-  const marker = MARKERS[next];
-  return text
-    .split(marker)
-    .map((part) => editBetweenMarkers(part, edit, next + 1))
-    .join(marker);
+/** [start, end) of every marker in `text`. */
+function markerSpans(text) {
+  const spans = [];
+  for (const marker of MARKERS) {
+    for (let at = text.indexOf(marker); at >= 0; at = text.indexOf(marker, at + marker.length)) {
+      spans.push([at, at + marker.length]);
+    }
+  }
+  return spans;
 }
 
+/** `text` with every spelling (longest first) replaced by MARKER, except an
+ *  occurrence lying entirely inside a marker. The markers are looked up again
+ *  for each spelling, so a later, shorter one cannot match inside a marker an
+ *  earlier one wrote. */
 function redactText(text, spellings) {
   let out = text;
   for (const spelling of spellings) {
-    if (out.includes(spelling)) out = editBetweenMarkers(out, (plain) => plain.replaceAll(spelling, MARKER));
+    const spans = markerSpans(out);
+    let next = '';
+    let copied = 0;
+    for (let at = out.indexOf(spelling); at >= 0; ) {
+      const end = at + spelling.length;
+      if (spans.some(([from, to]) => from <= at && end <= to)) {
+        at = out.indexOf(spelling, at + 1);
+      } else {
+        next += out.slice(copied, at) + MARKER;
+        copied = end;
+        at = out.indexOf(spelling, end);
+      }
+    }
+    out = next + out.slice(copied);
   }
   return out;
 }
@@ -139,18 +158,14 @@ export function redactSettledText(sessionId, text) {
   const known = bySession.get(sessionId);
   if (!known?.spellings.length || typeof text !== 'string') return text;
   const out = redactText(text, known.spellings);
-  // Only the plain text after the last marker can start a value; a marker is never held.
-  const plainFrom = Math.max(
-    ...MARKERS.map((marker) => {
-      const at = out.lastIndexOf(marker);
-      return at < 0 ? 0 : at + marker.length;
-    })
-  );
-  const tail = out.slice(plainFrom);
+  // A start of a value lying entirely inside a marker ending the text is part of
+  // the marker, not of a value: it is never held.
+  const spans = markerSpans(out);
+  const inMarker = (length) => spans.some(([from, to]) => from <= out.length - length && out.length <= to);
   let held = 0;
   for (const spelling of known.spellings) {
-    for (let length = Math.min(spelling.length - 1, tail.length); length > held; length -= 1) {
-      if (tail.endsWith(spelling.slice(0, length))) {
+    for (let length = Math.min(spelling.length - 1, out.length); length > held; length -= 1) {
+      if (out.endsWith(spelling.slice(0, length)) && !inMarker(length)) {
         held = length;
         break;
       }

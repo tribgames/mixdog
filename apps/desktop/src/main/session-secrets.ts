@@ -4,7 +4,7 @@
  * field of it may still hold focus (captures are withheld meanwhile).
  */
 
-import { REDACTED_MARKER, redactBetweenMarkers } from './secret-markers';
+import { REDACTED_MARKER, redactSecrets } from './secret-markers';
 
 export function createSessionSecrets() {
   const sessionSecrets = new Map<string, Set<string>>();
@@ -33,7 +33,7 @@ export function createSessionSecrets() {
      *  markers already in `text` (secret-markers.ts) are left as they are. */
     redact(sessionId: string, text: string): string {
       const secrets = [...(sessionSecrets.get(sessionId) || [])].sort((a, b) => b.length - a.length);
-      return redactBetweenMarkers(text, secrets, REDACTED_MARKER);
+      return redactSecrets(text, secrets, REDACTED_MARKER);
     },
     /** The session ended: its secrets and focus leave memory. */
     forget(sessionId: string): void {

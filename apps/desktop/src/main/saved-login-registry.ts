@@ -5,7 +5,7 @@
  * until the filling turn settles or its owner is proven gone.
  */
 
-import { redactBetweenMarkers, SAVED_LOGIN_MARKER } from './secret-markers';
+import { redactSecrets, SAVED_LOGIN_MARKER } from './secret-markers';
 
 /** One saved-login fill's scope: the runtime process that sent it (its owner
  *  id, src/runtime/computer-bridge/client.mjs SAVED_LOGIN_OWNER_ID), its
@@ -109,7 +109,7 @@ export function createSavedLoginRegistry() {
      *  (secret-markers.ts) are left as they are. */
     redact(text: string): string {
       const saved = [...new Set(savedLoginValues.map((entry) => entry.value))].sort((a, b) => b.length - a.length);
-      return redactBetweenMarkers(text, saved, SAVED_LOGIN_MARKER);
+      return redactSecrets(text, saved, SAVED_LOGIN_MARKER);
     },
     /** Register every spelling of a saved-login password for redaction in
      *  every session's later replies, as SAVED_LOGIN_MARKER, until `turn`
