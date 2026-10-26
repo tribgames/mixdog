@@ -2,7 +2,8 @@
 // D3; docs/remote-screen.md): the PC picture over WebRTC, the one-line remote
 // keyboard docked at the bottom, special keys and the touch strategy in ⋯,
 // and the secure-desktop / stopped states from the PC's `screen-status`.
-// Finger gestures reach it through `bindGestures` (remote-screen-gesture.ts).
+// Fingers drive the picture's viewport and the PC's pointer through
+// remote-screen-touch.ts (gestures) and remote-screen-gesture.ts (messages).
 import { Lock, Monitor, ShieldAlert, Square, X } from 'lucide-react';
 import {
   useCallback,
@@ -26,12 +27,7 @@ import { ScreenHeaderRow, ScreenStateCard } from './RemoteScreenChrome';
 import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
 import { useCompositionFinisher } from './remote-composition';
-import {
-  createScreenGestureAdapter,
-  type ScreenGestureAction,
-  type ScreenInputMode,
-  type ScreenPoint,
-} from './remote-screen-gesture';
+import { createScreenGestureAdapter, type ScreenInputMode } from './remote-screen-gesture';
 import { SCREEN_SPECIAL_KEYS, createScreenTextController, screenSpecialKeyInputs } from './remote-screen-keys';
 import {
   installScreenReleaseTriggers,
@@ -39,30 +35,26 @@ import {
   type ScreenBlockReason,
   type ScreenView,
 } from './remote-screen-state';
+import { bindScreenTouch, createScreenCursorStore } from './remote-screen-touch';
 import { useRemoteScreen } from './use-remote-screen';
+import { useScreenViewport } from './use-screen-viewport';
 
 const RELEASE: RemoteScreenInput = { type: 'screen-release' };
-
-/** What the touch layer is given to drive the stage. It returns its disposer. */
-export interface ScreenGestureTarget {
-  stage: HTMLElement;
-  video: HTMLVideoElement;
-  mode: ScreenInputMode;
-  /** One gesture action → its screen input, in order. */
-  send(action: ScreenGestureAction): void;
-  /** An interrupted long-press drag. */
-  cancel(): void;
-}
 
 export interface RemoteScreenPaneProps {
   display: RemoteScreenDisplaySummary;
   onClose(): void;
   /** The display went away: pick again (the host lists displays afresh). */
   onPickAgain(): void;
-  /** Wires the touch gestures and viewport to the stage (not built in). */
-  bindGestures?(target: ScreenGestureTarget): () => void;
-  /** Trackpad mode's cursor on the PC picture, once the PC reports it. */
-  cursorSource?(): ScreenPoint | null;
+}
+
+/** A feedback ring where input was injected; it removes itself when it ends. */
+function showRing(stage: HTMLElement, x: number, y: number, radius: number): void {
+  const ring = document.createElement('div');
+  ring.className = 'remote-screen-ring';
+  ring.style.cssText = `left:${x}px;top:${y}px;width:${radius * 2}px;height:${radius * 2}px`;
+  ring.addEventListener('animationend', () => ring.remove(), { once: true });
+  stage.appendChild(ring);
 }
 
 const BLOCK_COPY: Record<ScreenBlockReason, { icon: typeof Lock; title: string; detail: string }> = {
@@ -192,20 +184,16 @@ function ScreenKeyboardBar({
   );
 }
 
-export default function RemoteScreenPane({
-  display,
-  onClose,
-  onPickAgain,
-  bindGestures,
-  cursorSource,
-}: RemoteScreenPaneProps) {
+export default function RemoteScreenPane({ display, onClose, onPickAgain }: RemoteScreenPaneProps) {
   const api = window.mixdogDesktop;
-  const screen = useRemoteScreen({ api, screenId: display.screenId });
+  // The host refused a key, combo or text it had accepted off the channel.
+  const [notSent, setNotSent] = useState(false);
+  const screen = useRemoteScreen({ api, screenId: display.screenId, onInputRejected: () => setNotSent(true) });
   const { view, send, retry, geometry } = screen;
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const pictureRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
   const [mode, setMode] = useState<ScreenInputMode>('direct');
-  const [notSent, setNotSent] = useState(false);
   const width = geometry?.pixelWidth ?? display.pixelWidth;
   const height = geometry?.pixelHeight ?? display.pixelHeight;
 
@@ -221,7 +209,7 @@ export default function RemoteScreenPane({
         if (
           !delivered &&
           controllableRef.current &&
-          (input.type === 'screen-key' || input.type === 'screen-text')
+          (input.type === 'screen-key' || input.type === 'screen-keys' || input.type === 'screen-text')
         ) {
           setNotSent(true);
         }
@@ -231,12 +219,24 @@ export default function RemoteScreenPane({
   );
   const sizeRef = useRef({ width, height });
   sizeRef.current = { width, height };
-  const cursorRef = useRef(cursorSource);
-  cursorRef.current = cursorSource;
-  const adapter = useMemo(
-    () => createScreenGestureAdapter({ size: () => sizeRef.current, cursor: () => cursorRef.current?.() ?? null }),
+  const pcCursorRef = useRef(screen.cursor);
+  pcCursorRef.current = screen.cursor;
+  const stampRef = useRef(screen.cursorStamp);
+  stampRef.current = screen.cursorStamp;
+  const adapter = useMemo(() => createScreenGestureAdapter({ size: () => sizeRef.current }), []);
+  // The trackpad cursor starts from where the PC reports its own.
+  const cursorStore = useMemo(() => createScreenCursorStore(
+        () => pcCursorRef.current(),
+        () => stampRef.current()
+      ),
     []
   );
+  const viewport = useScreenViewport({
+    stageRef,
+    pictureRef,
+    picture: { width, height },
+    mounted: view.kind !== 'stopped',
+  });
 
   // Keyboard: text and keys, IME composition kept like the page keyboard.
   const text = useMemo(() => createScreenTextController({ emit: sendAll }), [sendAll]);
@@ -279,30 +279,33 @@ export default function RemoteScreenPane({
   // A cancelled touch bubbles up from the stage to the document.
   useEffect(() => installScreenReleaseTriggers({ document, window, stage: document }, () => releaseRef.current()), []);
 
-  const sendGesture = useCallback(
-    (action: ScreenGestureAction) => {
-      // A press on the picture commits a half-typed syllable first.
-      if (action.type === 'tap' || action.type === 'drag-start') composition.finish();
-      sendAll(adapter.screenInputFromGesture(action));
-    },
-    [adapter, sendAll, composition]
-  );
-  // The touch layer is bound only while the PC accepts control.
-  const controllable = bar.enabled;
+  // Fingers pan and zoom the picture whenever it is live; what they would
+  // send is refused by the central gate unless the PC accepts control. A new
+  // strategy rebinds, which lifts a button a long-press still held.
+  const live = view.kind === 'live';
+  const finishComposition = composition.finish;
   useEffect(() => {
     const stage = stageRef.current;
-    const video = screen.videoRef.current;
-    if (!bindGestures || !controllable || !stage || !video) return undefined;
-    return bindGestures({ stage, video, mode, send: sendGesture, cancel: () => sendGesture({ type: 'drag-cancel' }) });
-  }, [bindGestures, controllable, mode, sendGesture, screen.videoRef]);
+    if (!live || !stage) return undefined;
+    const dispose = bindScreenTouch({
+      stage,
+      mode,
+      viewport,
+      cursor: cursorStore,
+      send: (action) => sendAll(adapter.screenInputFromGesture(action)),
+      // A press on the picture commits a half-typed syllable first.
+      beforePress: finishComposition,
+      ring: (x, y, radius) => {
+        if (controllableRef.current) showRing(stage, x, y, radius);
+      },
+    });
+    return () => {
+      dispose();
+      releaseRef.current();
+    };
+  }, [live, mode, viewport, cursorStore, adapter, sendAll, finishComposition]);
 
-  const chooseMode = useCallback(
-    (next: ScreenInputMode) => {
-      sendAll(adapter.setMode(next));
-      setMode(next);
-    },
-    [adapter, sendAll]
-  );
+  const chooseMode = useCallback((next: ScreenInputMode) => setMode(next), []);
   const controlling = bar.enabled;
   const menu: DockAction[] = [
     ...SCREEN_SPECIAL_KEYS.map(
@@ -329,7 +332,6 @@ export default function RemoteScreenPane({
   if (view.kind === 'live') {
     toolbarText = t(view.control ? '{{size}} · Controlling' : '{{size}} · View only', { size: toolbarText });
   }
-  const ratio = `${width} / ${height}`;
   const blocked = view.kind === 'blocked' ? view : null;
   const showPicture = view.kind === 'live' || blocked !== null;
 
@@ -373,10 +375,12 @@ export default function RemoteScreenPane({
         onContextMenu={(event) => event.preventDefault()}
       >
         <div
-          className="remote-screen-fit"
+          ref={pictureRef}
+          className="remote-screen-picture"
           data-dim={blocked?.dim ? 'true' : 'false'}
           // Decoding (and reporting frames) under the state card until promoted.
-          style={{ '--screen-ratio': ratio, opacity: showPicture ? 1 : 0 } as CSSProperties}
+          // The viewport writes the transform.
+          style={{ width, height, opacity: showPicture ? 1 : 0 } as CSSProperties}
         >
           <video
             ref={screen.videoRef}
@@ -386,8 +390,8 @@ export default function RemoteScreenPane({
             disablePictureInPicture
             aria-hidden={showPicture ? undefined : true}
           />
-          {blocked && <BlockedNote view={blocked} />}
         </div>
+        {blocked && <BlockedNote view={blocked} />}
         {view.kind === 'connecting' && (
           <ScreenStateCard>
             <ProgressSpinner size={24} />

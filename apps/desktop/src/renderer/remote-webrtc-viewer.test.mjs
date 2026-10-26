@@ -8,6 +8,8 @@ import {
   readRemoteWebrtcDesktopSignal,
 } from '../shared/remote-webrtc.ts';
 import { createRemoteBrowserInputQueue } from './remote-browser-input.ts';
+import { createScreenCursorStore } from './remote-screen-touch.ts';
+import { createScreenCursorTracker } from './remote-screen-state.ts';
 import { readRemoteWebrtcReceiverStats } from './remote-webrtc-stats.ts';
 import { createRemoteWebrtcViewer } from './remote-webrtc-viewer.ts';
 import { remoteVideoLimit } from './remote-view-zoom.ts';
@@ -112,7 +114,7 @@ class FakePeer {
 }
 
 /** A viewer wired to a pipelined relay queue, with every wire event in order. */
-function harness({ documentId = 'p1:0', holdClose = false, refuse = null } = {}) {
+function harness({ documentId = 'p1:0', holdClose = false, refuse = null, extra = {} } = {}) {
   const wire = [];
   const heldCloses = [];
   const peers = [];
@@ -151,6 +153,7 @@ function harness({ documentId = 'p1:0', holdClose = false, refuse = null } = {})
     failure: (message) => failures.push(message),
     statsIntervalMs: 2_000,
     log() {},
+    ...extra,
     now: () => clock.now,
     timers: {
       setTimeout: (callback, ms) => {
@@ -397,6 +400,109 @@ test('a close without retryAfterMs after a demotion: no new attempt until a new 
   h.viewer.stop();
   h.viewer.start();
   assert.equal(h.signals('ready').length, 2, 'a new stream offers again');
+});
+
+test('screen-cursor reaches the screenCursor callback only at the current geometry generation', async () => {
+  const cursors = [];
+  const statuses = [];
+  const h = harness({ extra: { screenCursor: (cursor) => cursors.push(cursor), screenStatus: (s) => statuses.push(s) } });
+  const push = (message) => h.peers[0].channel.onmessage({ data: JSON.stringify({ v: 1, ...message }) });
+  await connect(h);
+  const at = (generation, x = 10, y = 20) => push({ kind: 'screen-cursor', x, y, generation });
+  at(1);
+  assert.deepEqual(cursors, [{ x: 10, y: 20 }]);
+  // Older, newer-than-adopted and malformed messages are dropped.
+  at(0);
+  at(2, 1, 1);
+  push({ kind: 'screen-cursor', x: -1, y: 5, generation: 1 });
+  push({ kind: 'screen-cursor', x: 1.5, y: 5, generation: 1 });
+  assert.equal(cursors.length, 1);
+  // Once the geometry moves on, the new generation is the one that counts.
+  h.viewer.handle(parseRemoteWebrtcDesktopSignal({ v: 1, source, type: 'geometry', geometry: geometry(2) }));
+  await settle();
+  at(1);
+  at(2, 7, 8);
+  assert.deepEqual(cursors, [
+    { x: 10, y: 20 },
+    { x: 7, y: 8 },
+  ]);
+  // A cursor never reads as a status or an ack.
+  assert.deepEqual(statuses, []);
+});
+
+test('a replacement desktop session at the same geometry generation inherits no cursor', async () => {
+  let h;
+  const tracker = createScreenCursorTracker(() => h.viewer.geometry?.generation ?? null);
+  const store = createScreenCursorStore(tracker.read, tracker.stamp);
+  h = harness({ extra: { screenCursor: tracker.set, sessionEnded: tracker.clear } });
+  const report = (x, y) =>
+    h.peers.at(-1).channel.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-cursor', x, y, generation: 1 }) });
+
+  // Hide → show: the same viewer stops and starts again; the desktop's new
+  // viewer is offered the same generation.
+  await connect(h);
+  report(10, 20);
+  store.set({ x: 800, y: 400 });
+  assert.deepEqual(tracker.read(), { x: 10, y: 20 });
+  assert.deepEqual(store.get(), { x: 800, y: 400 });
+  h.viewer.stop();
+  assert.equal(tracker.read(), null, 'stop');
+  assert.equal(store.get(), null);
+  await connect(h, 2);
+  assert.equal(h.viewer.geometry.generation, 1, 'the replacement session reuses the geometry generation');
+  assert.equal(tracker.read(), null, 'show again: nothing carried over');
+  assert.equal(store.get(), null);
+  report(30, 40);
+  assert.deepEqual(tracker.read(), { x: 30, y: 40 }, 'a fresh report is taken');
+
+  // A lost connection (retry): the same.
+  store.set({ x: 800, y: 400 });
+  h.peers.at(-1).channel.onclose();
+  assert.equal(tracker.read(), null, 'connection lost');
+  assert.equal(store.get(), null);
+});
+
+test('a screen-keys combo goes out as one screen-input message', async () => {
+  const h = harness();
+  await connect(h);
+  h.viewer.handle(signal(1, { type: 'promote', inputEpoch: 2, geometryGeneration: 1 }));
+  h.answerRelay();
+  await settle();
+  const keys = [
+    { vk: 0xa4, scan: 0x38, extended: false },
+    { vk: 0x09, scan: 0x0f, extended: false },
+  ];
+  assert.equal(h.viewer.sendInput({ type: 'screen-keys', keys }), true);
+  const sent = h.peers[0].channel.sent.filter((message) => message.kind === 'screen-input');
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].control, { type: 'screen-keys', keys });
+  assert.deepEqual(parseRemoteWebrtcChannelFromClient(JSON.stringify(sent[0])).control, { type: 'screen-keys', keys });
+});
+
+test('a screen key, combo or text queued fine but rejected by the host reaches screenInputRejected', async () => {
+  let rejected = 0;
+  const h = harness({ extra: { screenInputRejected: () => (rejected += 1) } });
+  await connect(h);
+  h.viewer.handle(signal(1, { type: 'promote', inputEpoch: 2, geometryGeneration: 1 }));
+  h.answerRelay();
+  await settle();
+  const combo = { type: 'screen-keys', keys: [{ vk: 0xa4, scan: 0x38, extended: false }, { vk: 0x09, scan: 0x0f }] };
+  assert.equal(h.viewer.sendInput(combo), true, 'the channel took it');
+  assert.equal(h.viewer.sendInput({ type: 'screen-text', text: 'a' }), true);
+  assert.equal(h.viewer.sendInput({ type: 'screen-wheel', x: 1, y: 1, deltaX: 0, deltaY: 120 }), true);
+  const seqs = h.peers[0].channel.sent.filter((message) => message.kind === 'screen-input').map((m) => m.seq);
+  const ack = (seq, outcome) =>
+    h.peers[0].channel.onmessage({
+      data: JSON.stringify({ v: 1, kind: 'input-ack', epoch: 2, seq, outcome, sentAt: 1_000, queuedMs: 0, dispatchMs: 0 }),
+    });
+  assert.equal(rejected, 0, 'nothing is said while it is only queued');
+  ack(seqs[0], 'rejected');
+  assert.equal(rejected, 1);
+  ack(seqs[1], 'applied');
+  assert.equal(rejected, 1);
+  ack(seqs[2], 'rejected');
+  assert.equal(rejected, 1, 'a refused wheel is dropped quietly');
+  assert.equal(h.failures.length, 0, 'the browser typing message is not used');
 });
 
 test('a rejected channel ack is final for that input only; later input still streams', async () => {

@@ -1,22 +1,21 @@
 // The boundary between the touch layer and the PC screen's input. The touch
 // layer (remote-touch-gestures.ts with remote-viewport.ts) decides what a
-// finger means and where on the PC picture it lands; it reports abstract
-// actions in VIDEO pixels. This adapter is the only place they become
-// `screen-pointer` / `screen-wheel` messages, in the direct or trackpad
-// strategy, and the only one that knows which button a drag holds.
+// finger means and where on the PC picture it lands (the direct or trackpad
+// strategy is the touch layer's, remote-screen-touch.ts); it reports abstract
+// actions at absolute points in VIDEO pixels. This adapter is the only place
+// they become `screen-pointer` / `screen-wheel` messages, and the only one
+// that knows which button a drag holds.
 import type { RemoteScreenButton, RemoteScreenInput } from '../shared/remote-webrtc';
 
 export type ScreenPoint = { x: number; y: number };
+/** How a finger maps to the PC: under the finger, or by moving a cursor. */
 export type ScreenInputMode = 'direct' | 'trackpad';
 
-/** What the touch layer reports. `at` is a point of the PC picture in video
- *  pixels (direct mode); trackpad mode acts at the cursor and ignores it. */
+/** What the touch layer reports, at points of the PC picture in video pixels. */
 export type ScreenGestureAction =
-  /** Hover without a button (a finger drag in direct mode; never sent in trackpad). */
+  /** The pointer moved with no button held (the trackpad cursor). */
   | { type: 'pointer-move'; at: ScreenPoint }
-  /** Trackpad: the cursor moves by this many video pixels. */
-  | { type: 'pointer-delta'; dx: number; dy: number }
-  /** Press and lift; `count` 2 is a double click. */
+  /** Press and lift `count` times at one point (1 by default). */
   | { type: 'tap'; at: ScreenPoint; button?: RemoteScreenButton; count?: 1 | 2 | 3 }
   /** A long press begins holding a button; moves follow, then end or cancel. */
   | { type: 'drag-start'; at: ScreenPoint; button?: RemoteScreenButton }
@@ -35,34 +34,24 @@ const MAX_WHEEL_UNITS = 120 * 40;
 export interface ScreenGestureAdapterOptions {
   /** The locked video size: points are kept inside it. */
   size(): { width: number; height: number } | null;
-  /** Trackpad mode's cursor on the PC picture, when the PC reports it.
-   *  Without one the adapter follows the cursor it has itself moved. */
-  cursor?(): ScreenPoint | null;
-  mode?: ScreenInputMode;
 }
 
 const clamp = (value: number, max: number): number => Math.min(max, Math.max(0, value));
-const wheelUnits = (pixels: number): number =>
-  Math.max(-MAX_WHEEL_UNITS, Math.min(MAX_WHEEL_UNITS, Math.round(pixels * SCREEN_WHEEL_UNITS_PER_PIXEL)));
+/** Whole Windows wheel units of `units`, toward zero and within the bound
+ *  (immune to the float error of a product that should be an integer). */
+const wheelUnits = (units: number): number =>
+  Math.max(-MAX_WHEEL_UNITS, Math.min(MAX_WHEEL_UNITS, Math.trunc(units + Math.sign(units) * 1e-9)));
 
 export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions) {
-  let mode: ScreenInputMode = options.mode ?? 'direct';
-  /** The cursor this adapter last moved (trackpad, no PC cursor source). */
-  let moved: ScreenPoint | null = null;
   let held: { button: RemoteScreenButton; at: ScreenPoint } | null = null;
+  /** Wheel units not yet sent: a slow swipe adds up instead of rounding away. */
+  let carry = { x: 0, y: 0 };
 
   const inside = (point: ScreenPoint): ScreenPoint => {
     const size = options.size();
     return size ? { x: clamp(point.x, size.width), y: clamp(point.y, size.height) } : point;
   };
-  /** Where the action lands: the point itself, or the trackpad cursor. */
-  const target = (at: ScreenPoint | null): ScreenPoint | null => {
-    if (mode === 'direct') return at ? inside(at) : null;
-    const known = options.cursor?.() ?? moved;
-    if (known) return inside(known);
-    const size = options.size();
-    return size ? { x: size.width / 2, y: size.height / 2 } : null;
-  };
+  const target = (at: ScreenPoint): ScreenPoint => inside(at);
   const press = (action: 'down' | 'up', button: RemoteScreenButton, at: ScreenPoint): RemoteScreenInput => ({
     type: 'screen-pointer',
     action,
@@ -81,15 +70,6 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
   };
 
   return {
-    get mode(): ScreenInputMode {
-      return mode;
-    },
-    /** Switching strategy never leaves a button held. */
-    setMode(next: ScreenInputMode): RemoteScreenInput[] {
-      if (next === mode) return [];
-      mode = next;
-      return cancel();
-    },
     /** True while a long-press drag holds a button. */
     get dragging(): boolean {
       return held !== null;
@@ -98,20 +78,11 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
     screenInputFromGesture(action: ScreenGestureAction): RemoteScreenInput[] {
       switch (action.type) {
         case 'pointer-move': {
-          if (mode !== 'direct') return [];
           const at = target(action.at);
-          return at ? [{ type: 'screen-pointer', action: 'move', x: at.x, y: at.y }] : [];
-        }
-        case 'pointer-delta': {
-          if (mode !== 'trackpad') return [];
-          const from = target(null);
-          if (!from) return [];
-          moved = inside({ x: from.x + action.dx, y: from.y + action.dy });
-          return [{ type: 'screen-pointer', action: 'move', x: moved.x, y: moved.y }];
+          return [{ type: 'screen-pointer', action: 'move', x: at.x, y: at.y }];
         }
         case 'tap': {
           const at = target(action.at);
-          if (!at) return [];
           const button = action.button ?? 'left';
           const inputs: RemoteScreenInput[] = [{ type: 'screen-pointer', action: 'move', x: at.x, y: at.y }];
           for (let index = 0; index < (action.count ?? 1); index += 1) {
@@ -122,20 +93,18 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
         case 'drag-start': {
           if (held) return [];
           const at = target(action.at);
-          if (!at) return [];
           held = { button: action.button ?? 'left', at };
           return [{ type: 'screen-pointer', action: 'move', x: at.x, y: at.y }, press('down', held.button, at)];
         }
         case 'drag-move': {
           if (!held) return [];
           const at = target(action.at);
-          if (!at) return [];
           held = { ...held, at };
           return [{ type: 'screen-pointer', action: 'move', x: at.x, y: at.y }];
         }
         case 'drag-end': {
           if (!held) return [];
-          const at = target(action.at) ?? held.at;
+          const at = target(action.at);
           const { button } = held;
           held = null;
           return [{ type: 'screen-pointer', action: 'move', x: at.x, y: at.y }, press('up', button, at)];
@@ -144,9 +113,15 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
           return cancel();
         case 'scroll': {
           const at = target(action.at);
-          if (!at) return [];
-          const deltaX = wheelUnits(action.dx);
-          const deltaY = wheelUnits(action.dy);
+          const x = carry.x + action.dx * SCREEN_WHEEL_UNITS_PER_PIXEL;
+          const y = carry.y + action.dy * SCREEN_WHEEL_UNITS_PER_PIXEL;
+          const deltaX = wheelUnits(x);
+          const deltaY = wheelUnits(y);
+          // What the bound cut off is dropped; what rounding left over is kept.
+          carry = {
+            x: Math.abs(x) > MAX_WHEEL_UNITS ? 0 : x - deltaX,
+            y: Math.abs(y) > MAX_WHEEL_UNITS ? 0 : y - deltaY,
+          };
           return deltaX || deltaY ? [{ type: 'screen-wheel', x: at.x, y: at.y, deltaX, deltaY }] : [];
         }
       }

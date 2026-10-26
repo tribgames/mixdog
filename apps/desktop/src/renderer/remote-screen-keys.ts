@@ -134,7 +134,7 @@ export interface ScreenSpecialKey {
   id: 'ctrl-alt-del' | 'print-screen' | 'escape' | 'tab' | 'win' | 'alt-tab';
   /** The English menu label (the catalog key). */
   label: string;
-  /** Pressed in this order, lifted in reverse. */
+  /** Pressed in this order, lifted in reverse (1–8 distinct keys). */
   codes: readonly string[];
   /** Menu note: the secure desktop's helper must be installed for it to work. */
   needsHelper?: boolean;
@@ -150,10 +150,18 @@ export const SCREEN_SPECIAL_KEYS: readonly ScreenSpecialKey[] = [
   { id: 'alt-tab', label: 'Alt+Tab', codes: ['AltLeft', 'Tab'] },
 ];
 
+/** A special key as one atomic `screen-keys` combo: the PC presses the keys in
+ *  order and lifts them in reverse as a single step, acked `applied` only if
+ *  every key went down and up. */
 export function screenSpecialKeyInputs(id: ScreenSpecialKey['id']): RemoteScreenInput[] {
   const special = SCREEN_SPECIAL_KEYS.find((candidate) => candidate.id === id);
   if (!special) throw new TypeError(`Unknown special key ${id}`);
-  return screenKeyChord(special.codes);
+  const keys = special.codes.map((code) => {
+    const key = remoteScreenKeyForCode(code);
+    if (!key) throw new TypeError(`No screen key for ${code}`);
+    return key;
+  });
+  return [{ type: 'screen-keys', keys }];
 }
 
 /** The phone keyboard's field: keyboard events and text in, screen input out. */

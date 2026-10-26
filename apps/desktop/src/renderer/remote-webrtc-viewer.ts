@@ -9,6 +9,7 @@ import {
   REMOTE_WEBRTC_VERSION,
   isRemoteWebrtcPageInput,
   readRemoteWebrtcChannelFromDesktop,
+  readRemoteWebrtcScreenCursor,
   readRemoteWebrtcScreenStatus,
   remoteWebrtcCertificateMatches,
   remoteWebrtcSdpFingerprints,
@@ -72,6 +73,15 @@ export interface RemoteWebrtcViewerOptions {
   stream(stream: MediaStream | null): void;
   /** A screen source's `screen-status` push (a screen source only). */
   screenStatus?(status: RemoteScreenStatus): void;
+  /** A screen source's PC cursor, in video pixels of the current geometry
+   *  (a `screen-cursor` of any other generation never arrives here). */
+  screenCursor?(cursor: { x: number; y: number }): void;
+  /** The host acknowledged a screen key, combo or text as `rejected`. */
+  screenInputRejected?(): void;
+  /** The desktop session behind the current connection ended (stop, hide,
+   *  reconnect, retry, fallback): anything it reported is void, even under
+   *  an unchanged geometry generation. */
+  sessionEnded?(): void;
   failure(message: string): void;
   /** Receiver stats cadence: the stream renewal's. */
   statsIntervalMs: number;
@@ -180,6 +190,9 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       stopStats();
       unacked.clear();
       awaitingVisible = [];
+      // The desktop session this attempt spoke for is over; a replacement may
+      // reuse the geometry generation, so what it reported is not carried over.
+      options.sessionEnded?.();
     }
     if (keepPicture && showsVideo) {
       if (!attempt.closed) {
@@ -366,10 +379,17 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     maybeMediaReady();
   };
 
-  const onChannelMessage = (data: unknown): void => {
+  const onChannelMessage = (data: unknown, ended = false): void => {
     const pushed = readRemoteWebrtcScreenStatus(data);
     if (pushed) {
       options.screenStatus?.(pushed.status);
+      return;
+    }
+    const cursor = readRemoteWebrtcScreenCursor(data);
+    if (cursor) {
+      // Pixels of an older (or not yet adopted) geometry point somewhere else,
+      // and so do those of a session that has ended (a lingering connection).
+      if (!ended && geometry && cursor.generation === geometry.generation) options.screenCursor?.({ x: cursor.x, y: cursor.y });
       return;
     }
     const ack = readRemoteWebrtcChannelFromDesktop(data);
@@ -382,8 +402,10 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     roundTrips.push(roundTrip);
     if (ack.outcome === 'rejected') {
       // A refused click or scroll is dropped quietly, as on the relay; text
-      // the page did not take is said.
-      if (browserTypingInput({ type: kind })) options.failure(REMOTE_WEBRTC_REJECTED_MESSAGE);
+      // the page did not take is said. A screen key, combo or text refused
+      // after it was queued is said by the screen pane, not the browser's.
+      if (kind === 'screen-key' || kind === 'screen-keys' || kind === 'screen-text') options.screenInputRejected?.();
+      else if (browserTypingInput({ type: kind })) options.failure(REMOTE_WEBRTC_REJECTED_MESSAGE);
       return;
     }
     // The desktop finished dispatching about one return trip before the ack
@@ -395,7 +417,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   const bindChannel = (attempt: Attempt, channel: RTCDataChannel): void => {
     attempt.channel = channel;
     channel.onopen = () => maybeMediaReady();
-    channel.onmessage = (event) => onChannelMessage(event.data);
+    channel.onmessage = (event) => onChannelMessage(event.data, attempt.closed);
     const lost = () => fail(attempt, 'channel-failed');
     channel.onclose = lost;
     channel.onerror = lost;

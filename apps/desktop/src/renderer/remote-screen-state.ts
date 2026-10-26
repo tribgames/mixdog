@@ -91,6 +91,40 @@ export function screenKeyboardBar(view: ScreenView): { present: boolean; visible
   };
 }
 
+/** The PC cursor last reported for trackpad mode, in video pixels. It is
+ *  valid only for the geometry it was reported in and only while the ordinary
+ *  desktop is shown, so a geometry change or a secure desktop / stopped status
+ *  makes it unknown again (the adapter then follows its own cursor). */
+export function createScreenCursorTracker(generation: () => number | null) {
+  let last: { x: number; y: number; generation: number } | null = null;
+  // Counts the moments every cursor held anywhere becomes meaningless.
+  let resets = 0;
+  return {
+    /** Changes whenever a cursor kept outside (the touch layer's own) goes
+     *  stale: a new geometry, a new session, a secure desktop or a stop. */
+    stamp(): string {
+      return `${resets}:${generation() ?? ''}`;
+    },
+    set(cursor: { x: number; y: number }): void {
+      const current = generation();
+      last = current === null ? null : { x: cursor.x, y: cursor.y, generation: current };
+    },
+    status(status: RemoteScreenStatus): void {
+      if (status.state === 'secure-desktop' || status.state === 'stopped') {
+        last = null;
+        resets += 1;
+      }
+    },
+    clear(): void {
+      last = null;
+      resets += 1;
+    },
+    read(): { x: number; y: number } | null {
+      return last && last.generation === generation() ? { x: last.x, y: last.y } : null;
+    },
+  };
+}
+
 /** Positive input (pointer moves and presses, wheel, key downs, text) is sent
  *  only while the view is live and the PC accepts control. Releasing is always
  *  allowed — key-ups, button-ups and `screen-release` — so control lost

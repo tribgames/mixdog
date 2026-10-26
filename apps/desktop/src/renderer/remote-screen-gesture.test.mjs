@@ -5,8 +5,8 @@ import { parseRemoteScreenInput } from '../shared/remote-webrtc.ts';
 import { createScreenGestureAdapter } from './remote-screen-gesture.ts';
 
 const SIZE = { width: 1920, height: 1080 };
-// The touch layer is not built yet: a local fake stands in for it, reporting
-// the abstract actions the adapter is specified against.
+// The adapter is specified against the abstract actions the touch layer
+// reports (remote-screen-touch.test.mjs drives it with the real one).
 const fakeTouch = (adapter) => (...actions) => actions.flatMap((action) => adapter.screenInputFromGesture(action));
 const adapterOf = (options = {}) => createScreenGestureAdapter({ size: () => SIZE, ...options });
 const pointer = (action, x, y, button) => ({
@@ -77,35 +77,22 @@ test('scroll sends WheelEvent-signed deltas in Windows wheel units, bounded', ()
   assert.deepEqual(touch({ type: 'scroll', at: { x: 5, y: 6 }, dx: 0, dy: 0 }), []);
 });
 
-test('trackpad mode moves a cursor by deltas and acts at it, ignoring the touch point', () => {
-  const adapter = adapterOf({ mode: 'trackpad' });
-  const touch = fakeTouch(adapter);
-  // No PC cursor yet: it starts at the picture's centre.
-  assert.deepEqual(touch({ type: 'pointer-delta', dx: 10, dy: -5 }), [pointer('move', 970, 535)]);
-  assert.deepEqual(touch({ type: 'pointer-move', at: { x: 1, y: 1 } }), []);
-  assert.deepEqual(touch({ type: 'tap', at: { x: 1, y: 1 } }), [
-    pointer('move', 970, 535),
-    pointer('down', 970, 535, 'left'),
-    pointer('up', 970, 535, 'left'),
+test('a slow swipe adds up: the remainder of a wheel is carried to the next', () => {
+  const touch = fakeTouch(adapterOf());
+  const scroll = (dy) => touch({ type: 'scroll', at: { x: 5, y: 6 }, dx: 0, dy });
+  // 0.5 px is 0.6 of a unit: nothing yet, then the carried 0.6 + 0.6 sends 1.
+  assert.deepEqual(scroll(0.5), []);
+  assert.deepEqual(scroll(0.5), [{ type: 'screen-wheel', x: 5, y: 6, deltaX: 0, deltaY: 1 }]);
+  // 0.2 of a unit stays; 0.5 px more is 0.8 in all: still nothing.
+  assert.deepEqual(scroll(0.5), []);
+  // Negative travel counts toward zero, not away from it.
+  const up = fakeTouch(adapterOf());
+  assert.deepEqual(up({ type: 'scroll', at: { x: 0, y: 0 }, dx: 0, dy: -1.5 }), [
+    { type: 'screen-wheel', x: 0, y: 0, deltaX: 0, deltaY: -1 },
   ]);
-  assert.deepEqual(touch({ type: 'pointer-delta', dx: 5000, dy: 5000 }), [pointer('move', 1920, 1080)]);
-  assert.deepEqual(touch({ type: 'drag-start', at: { x: 0, y: 0 } }).at(-1), pointer('down', 1920, 1080, 'left'));
 });
 
-test('trackpad mode reads the PC cursor when a source reports one', () => {
-  let cursor = { x: 400, y: 300 };
-  const touch = fakeTouch(adapterOf({ mode: 'trackpad', cursor: () => cursor }));
-  assert.deepEqual(touch({ type: 'pointer-delta', dx: 20, dy: 20 }), [pointer('move', 420, 320)]);
-  cursor = { x: 10, y: 10 };
-  assert.equal(touch({ type: 'tap', at: { x: 0, y: 0 } })[0].x, 10);
-});
-
-test('direct mode ignores relative moves, and switching mode never leaves a button held', () => {
-  const adapter = adapterOf();
-  const touch = fakeTouch(adapter);
-  assert.deepEqual(touch({ type: 'pointer-delta', dx: 5, dy: 5 }), []);
-  touch({ type: 'drag-start', at: { x: 7, y: 8 } });
-  assert.deepEqual(adapter.setMode('trackpad'), [pointer('up', 7, 8, 'left'), { type: 'screen-release' }]);
-  assert.equal(adapter.mode, 'trackpad');
-  assert.deepEqual(adapter.setMode('trackpad'), []);
+test('the adapter has no strategy of its own: points are absolute, the pointer moves without a button', () => {
+  const touch = fakeTouch(adapterOf());
+  assert.deepEqual(touch({ type: 'pointer-move', at: { x: 7, y: 8 } }), [pointer('move', 7, 8)]);
 });

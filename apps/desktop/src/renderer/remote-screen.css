@@ -42,27 +42,67 @@ html:has(.remote-screen-overlay) {
   contain: paint;
 }
 
-/* The whole screen, centred: the minimum zoom. */
-.remote-screen-fit {
-  position: relative;
-  flex: 0 1 auto;
-  width: 100%;
-  min-height: 0;
-  max-height: 100%;
-  aspect-ratio: var(--screen-ratio, 16 / 9);
+/* The picture at its own pixel size; the viewport (use-screen-viewport.ts)
+   writes `translate() scale()` from the top-left. It stays hidden until the
+   first view is set, so it never shows at the wrong place. Fingers drive the
+   stage, not the browser. */
+.remote-screen-pane > .remote-screen-stage {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
-.remote-screen-fit > video {
+.remote-screen-picture {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+  visibility: hidden;
+}
+
+.remote-screen-picture[data-ready="true"] {
+  visibility: visible;
+}
+
+.remote-screen-picture > video {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
   pointer-events: none;
 }
 
-.remote-screen-fit[data-dim="true"] > video {
+.remote-screen-picture[data-dim="true"] > video {
   filter: brightness(0.4) saturate(0.6);
+}
+
+/* Feedback where a tap or press was injected. */
+.remote-screen-ring {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--mx-text) 18%, transparent);
+  pointer-events: none;
+  animation: remote-screen-ring 320ms ease-out forwards;
+}
+
+@keyframes remote-screen-ring {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remote-screen-ring {
+    animation-duration: 1ms;
+  }
 }
 
 .remote-screen-status {
@@ -81,7 +121,9 @@ html:has(.remote-screen-overlay) {
 
 .remote-screen-badge {
   position: absolute;
+  z-index: 2;
   inset: 0;
+  pointer-events: none;
   display: grid;
   place-items: center;
 }
@@ -106,14 +148,17 @@ html:has(.remote-screen-overlay) {
 
 .remote-screen-note {
   position: absolute;
+  z-index: 2;
   left: 0;
   right: 0;
-  top: calc(100% + 16px);
+  bottom: 0;
+  background: linear-gradient(transparent, var(--mx-workspace-sheet) 55%);
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 0 24px;
+  padding: 32px 24px 16px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);

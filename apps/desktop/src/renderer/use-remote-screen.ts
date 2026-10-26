@@ -10,13 +10,24 @@ import type { RemoteScreenInput, RemoteScreenStatus } from '../shared/remote-web
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { remoteWebrtcHost } from './remote-webrtc-bridge';
 import { createRemoteWebrtcViewer, type RemoteWebrtcViewer } from './remote-webrtc-viewer';
-import { screenInputAllowed, screenView, type ScreenView } from './remote-screen-state';
+import { createScreenCursorTracker, screenInputAllowed, screenView, type ScreenView } from './remote-screen-state';
 import { STREAM_RENEW_MS } from './use-remote-browser-stream';
 import { receiveCodecs } from './use-remote-webrtc';
 
 const RELEASE: RemoteScreenInput = { type: 'screen-release' };
 
-export function useRemoteScreen({ api, screenId }: { api: DesktopApi | undefined; screenId: string }) {
+export function useRemoteScreen({
+  api,
+  screenId,
+  onInputRejected,
+}: {
+  api: DesktopApi | undefined;
+  screenId: string;
+  /** The host acknowledged a screen key, combo or text as rejected. */
+  onInputRejected?(): void;
+}) {
+  const rejectedRef = useRef(onInputRejected);
+  rejectedRef.current = onInputRejected;
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [status, setStatus] = useState<RemoteScreenStatus | null>(null);
   const [, setVersion] = useState(0);
@@ -24,11 +35,19 @@ export function useRemoteScreen({ api, screenId }: { api: DesktopApi | undefined
   const viewerRef = useRef<RemoteWebrtcViewer | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const supported = remoteWebrtcHost(api) && typeof RTCPeerConnection === 'function';
+  // The tracker reads the viewer's newest geometry, so it never answers with a
+  // cursor of an older one.
+  const cursorRef = useRef<ReturnType<typeof createScreenCursorTracker> | null>(null);
+  if (!cursorRef.current) {
+    cursorRef.current = createScreenCursorTracker(() => viewerRef.current?.geometry?.generation ?? null);
+  }
+  const cursor = cursorRef.current;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the retry trigger; the viewer follows the host and the display.
   useEffect(() => {
     if (!supported || !remoteWebrtcHost(api)) return undefined;
     setStatus(null);
+    cursor.clear();
     const viewer: RemoteWebrtcViewer = createRemoteWebrtcViewer({
       source: { kind: 'screen', screenId },
       signal: (signal) => api.remoteBrowserWebrtcSignal!(signal),
@@ -44,7 +63,13 @@ export function useRemoteScreen({ api, screenId }: { api: DesktopApi | undefined
         if (viewer.state === 'relay' && document.visibilityState !== 'hidden') viewer.start();
       },
       stream: setStream,
-      screenStatus: setStatus,
+      screenStatus: (next) => {
+        cursor.status(next);
+        setStatus(next);
+      },
+      screenCursor: cursor.set,
+      screenInputRejected: () => rejectedRef.current?.(),
+      sessionEnded: cursor.clear,
       failure: () => {},
       statsIntervalMs: STREAM_RENEW_MS,
       log: (line) => console.info(line),
@@ -114,5 +139,17 @@ export function useRemoteScreen({ api, screenId }: { api: DesktopApi | undefined
   );
   const retry = useCallback(() => setAttempt((count) => count + 1), []);
   // The viewer is a ref: its state reaches this render through `setVersion`.
-  return { videoRef, view, status, showsVideo, geometry: viewer?.geometry ?? null, send, retry };
+  return {
+    videoRef,
+    view,
+    status,
+    showsVideo,
+    geometry: viewer?.geometry ?? null,
+    send,
+    retry,
+    /** The PC cursor in video pixels, or null until it is reported. */
+    cursor: cursor.read,
+    /** Changes when a cursor kept by the touch layer goes stale. */
+    cursorStamp: cursor.stamp,
+  };
 }

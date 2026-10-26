@@ -9,7 +9,6 @@ import type { RemoteScreenDisplaySummary } from '../shared/remote-webrtc';
 import { ErrorNotice } from './ErrorNotice';
 import { ProgressSpinner } from './ProgressSpinner';
 import { ScreenHeaderRow, ScreenStateCard } from './RemoteScreenChrome';
-import type { RemoteScreenPaneProps } from './RemoteScreenPane';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { closeRemoteScreen, useRemoteScreenOpen } from './remote-screen-request';
@@ -94,7 +93,7 @@ function MonitorSheet({
   );
 }
 
-function RemoteScreenOverlay(paneOptions: Pick<RemoteScreenPaneProps, 'bindGestures' | 'cursorSource'>) {
+function RemoteScreenOverlay() {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [listing, setListing] = useState(0);
   const style = useVisibleViewportStyle();
@@ -174,7 +173,6 @@ function RemoteScreenOverlay(paneOptions: Pick<RemoteScreenPaneProps, 'bindGestu
             display={phase.display}
             onClose={closeRemoteScreen}
             onPickAgain={pickAgain}
-            {...paneOptions}
           />
         </Suspense>
       ) : (
@@ -195,6 +193,6 @@ function RemoteScreenOverlay(paneOptions: Pick<RemoteScreenPaneProps, 'bindGestu
 }
 
 /** Mounted once in the app shell; renders nothing until the view is opened. */
-export function RemoteScreenHost(options: Pick<RemoteScreenPaneProps, 'bindGestures' | 'cursorSource'>) {
-  return useRemoteScreenOpen() ? <RemoteScreenOverlay {...options} /> : null;
+export function RemoteScreenHost() {
+  return useRemoteScreenOpen() ? <RemoteScreenOverlay /> : null;
 }

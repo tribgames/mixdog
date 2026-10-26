@@ -138,29 +138,25 @@ test('an IME composition is held back and committed once at its end', () => {
   assert.equal(sent.length, 1);
 });
 
-test('the special keys are ordered down/up chords', () => {
+test('each special key is one atomic screen-keys combo, in press order', () => {
   assert.deepEqual(
     SCREEN_SPECIAL_KEYS.map((special) => special.id),
     ['ctrl-alt-del', 'print-screen', 'escape', 'tab', 'win', 'alt-tab']
   );
-  assert.deepEqual(summary(screenSpecialKeyInputs('ctrl-alt-del')), [
-    `down:${VK.ctrl}`,
-    `down:${VK.alt}`,
-    `down:${VK.del}`,
-    `up:${VK.del}`,
-    `up:${VK.alt}`,
-    `up:${VK.ctrl}`,
-  ]);
-  assert.deepEqual(summary(screenSpecialKeyInputs('alt-tab')), [
-    `down:${VK.alt}`,
-    `down:${VK.tab}`,
-    `up:${VK.tab}`,
-    `up:${VK.alt}`,
-  ]);
-  assert.deepEqual(summary(screenSpecialKeyInputs('win')), [`down:${VK.win}`, `up:${VK.win}`]);
-  assert.deepEqual(summary(screenSpecialKeyInputs('print-screen')), [`down:${VK.print}`, `up:${VK.print}`]);
-  assert.deepEqual(summary(screenSpecialKeyInputs('escape')), [`down:${VK.escape}`, `up:${VK.escape}`]);
-  assert.deepEqual(summary(screenSpecialKeyInputs('tab')), [`down:${VK.tab}`, `up:${VK.tab}`]);
+  const vks = (id) => {
+    const inputs = screenSpecialKeyInputs(id);
+    assert.equal(inputs.length, 1, `${id} is one message`);
+    assert.equal(inputs[0].type, 'screen-keys');
+    return inputs[0].keys.map((key) => key.vk);
+  };
+  assert.deepEqual(vks('ctrl-alt-del'), [VK.ctrl, VK.alt, VK.del]);
+  assert.deepEqual(vks('alt-tab'), [VK.alt, VK.tab]);
+  assert.deepEqual(vks('win'), [VK.win]);
+  assert.deepEqual(vks('print-screen'), [VK.print]);
+  assert.deepEqual(vks('escape'), [VK.escape]);
+  assert.deepEqual(vks('tab'), [VK.tab]);
+  // Keys carry vk, scan and extended (Delete is an E0 key).
+  assert.deepEqual(screenSpecialKeyInputs('ctrl-alt-del')[0].keys[2], { vk: VK.del, scan: 0x53, extended: true });
   assert.equal(SCREEN_SPECIAL_KEYS.find((special) => special.id === 'ctrl-alt-del').needsHelper, true);
   // Every chord is accepted by the contract's own parser.
   for (const special of SCREEN_SPECIAL_KEYS) {

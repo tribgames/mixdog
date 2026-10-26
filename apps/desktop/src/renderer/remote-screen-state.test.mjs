@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { screenSpecialKeyInputs } from './remote-screen-keys.ts';
+import { screenKeyChord, screenSpecialKeyInputs } from './remote-screen-keys.ts';
 import {
   chooseScreenEntry,
+  createScreenCursorTracker,
   installScreenReleaseTriggers,
   readScreenDisplays,
   screenInputAllowed,
@@ -115,12 +116,42 @@ test('the keyboard bar keeps its room from connecting through live and a reconne
   assert.equal(screenKeyboardBar({ kind: 'stopped', reason: 'other' }).present, false);
 });
 
+test('the PC cursor is known only for the geometry it was reported in, on the ordinary desktop', () => {
+  let generation = 1;
+  const tracker = createScreenCursorTracker(() => generation);
+  assert.equal(tracker.read(), null);
+  tracker.set({ x: 10, y: 20 });
+  assert.deepEqual(tracker.read(), { x: 10, y: 20 });
+  // A new geometry makes the old pixels meaningless until the PC reports again.
+  generation = 2;
+  assert.equal(tracker.read(), null);
+  tracker.set({ x: 30, y: 40 });
+  assert.deepEqual(tracker.read(), { x: 30, y: 40 });
+  // Live and elevation-prompt keep it; the secure desktop and a stop drop it.
+  tracker.status(status('live'));
+  tracker.status(status('elevation-prompt', { reason: 'uac' }));
+  assert.deepEqual(tracker.read(), { x: 30, y: 40 });
+  tracker.status(status('secure-desktop', { reason: 'lock' }));
+  assert.equal(tracker.read(), null);
+  tracker.set({ x: 1, y: 2 });
+  tracker.status(status('stopped'));
+  assert.equal(tracker.read(), null);
+  // Nothing is recorded before a geometry exists.
+  generation = null;
+  tracker.set({ x: 5, y: 5 });
+  generation = 2;
+  assert.equal(tracker.read(), null);
+  tracker.set({ x: 6, y: 7 });
+  tracker.clear();
+  assert.equal(tracker.read(), null);
+});
+
 test('control lost between press and release still lets the ups out', () => {
   const live = { kind: 'live', control: true };
   const lost = { kind: 'blocked', reason: 'uac', dim: false };
   const sent = [];
   const gated = (view, inputs) => inputs.filter((input) => screenInputAllowed(input, view)).forEach((i) => sent.push(i));
-  const chord = screenSpecialKeyInputs('alt-tab');
+  const chord = screenKeyChord(['AltLeft', 'Tab']);
   gated(live, chord.slice(0, 2));
   gated(lost, chord.slice(2));
   assert.deepEqual(sent, chord);
