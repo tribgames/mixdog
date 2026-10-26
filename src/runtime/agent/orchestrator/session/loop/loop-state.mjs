@@ -58,15 +58,6 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     // A capped turn (turn-limits.mjs): told to reply, and ended by calling tools anyway.
     turnLimitNoticed: false,
     turnLimitEnded: false,
-    // Non-convergence backstops (turn-limits.mjs): provider calls since the
-    // last tool round that produced a new result (retries and recovery
-    // re-sends included; compaction does not reset it, unlike `iterations`),
-    // consecutive tool rounds with no new result, the call+result hashes the
-    // turn has seen, and why the turn was told to reply (or null).
-    callsSinceProgress: 0,
-    noProgressRounds: 0,
-    seenToolResults: new Set(),
-    stepLimitReached: null,
     lastUsage: undefined,
     firstTurnUsage: undefined,
     response: undefined,
@@ -162,11 +153,7 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
 export function finishLoop(state) {
   const { response } = state;
   // A reaction-only turn is a successful completion, never an empty finish.
-  // A step-limit stop carries text, but the turn never reached an answer: the
-  // Lead is told it was stopped (agent-tool/render.mjs), not that it completed.
-  const terminationReason = response.stepLimitStopped
-    ? 'step_limit'
-    : classifyTerminationReason(response, { sessionAgent: state.sessionAgent });
+  const terminationReason = classifyTerminationReason(response, { sessionAgent: state.sessionAgent });
   const reactionCompleted = terminationReason === 'empty' && state.noToolTurn.reactionCompleted;
   return {
     ...response,

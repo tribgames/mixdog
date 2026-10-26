@@ -452,8 +452,7 @@ function adoptCompactedTranscript(ctx, run) {
   ctx.providerStateCleared = true;
   // Compaction starts a new loop epoch: the iteration counter restarts at 0
   // so iteration indices (traces, usage metrics, cross-turn dedup windows)
-  // count from the compacted transcript. The counter bounds nothing: the
-  // step limit counts the turn's provider calls separately (turn-limits.mjs).
+  // count from the compacted transcript.
   ctx.iterations = 0;
   // New loop epoch so persistIterationMetrics idempotency keys do not
   // collide when iteration indices restart at 1 (incl. iter 1 → iter 1).

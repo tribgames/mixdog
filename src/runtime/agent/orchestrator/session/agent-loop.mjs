@@ -13,7 +13,7 @@ import { createLoopState, finishLoop } from './loop/loop-state.mjs';
 import { clearReactionTargets } from '../runtime-core/reaction-tool-defs.mjs';
 import { applyRetryAction, beginIteration, sendProviderRequest, settleSendResult } from './loop/send-phase.mjs';
 import { runToolPhase } from './loop/tool-phase.mjs';
-import { endedWithoutReply, stepLimitResponse, stepLimitSpent } from './loop/turn-limits.mjs';
+import { endedWithoutReply } from './loop/turn-limits.mjs';
 
 // Facade re-exports: these symbols live in ./loop/ modules and are part of
 // loop.mjs's public surface (imported by scripts/tests and other runtime
@@ -63,15 +63,7 @@ async function runAgentLoop(provider, messages, model, tools, onToolCall, cwd, s
   const state = createLoopState({ provider, messages, model, tools, cwd, sendOpts });
   // Completion, cancellation, and terminal failures end execution.
   while (true) {
-    // Every provider call without progress counts toward the step limit,
-    // retries included: a turn that never converges ends here instead of
-    // burning calls (loop/turn-limits.mjs).
-    if (stepLimitSpent(state)) {
-      state.response = stepLimitResponse(state.response, state);
-      break;
-    }
     const round = await beginIteration(state);
-    state.callsSinceProgress += 1;
     const sent = await sendProviderRequest(state, round);
     if (applyRetryAction(state, sent.result)) continue;
     settleSendResult(state, round, sent);
@@ -90,7 +82,7 @@ async function runAgentLoop(provider, messages, model, tools, onToolCall, cwd, s
     // A capped turn that kept calling tools after it was told to reply ends
     // here with no reply (./loop/turn-limits.mjs).
     if (state.turnLimitEnded) {
-      state.response = endedWithoutReply(state.response, state);
+      state.response = endedWithoutReply(state.response);
       break;
     }
   }

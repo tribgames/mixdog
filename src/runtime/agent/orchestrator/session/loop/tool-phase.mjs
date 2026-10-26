@@ -10,7 +10,7 @@ import { CROSS_TURN_CAP, REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 import { markStepEffort } from './step-auto-effort.mjs';
 import { resolveExecutionToolCalls } from './tool-call-resolution.mjs';
 import { rememberSensitiveValues } from '../sensitive-values.mjs';
-import { callsAllowed, settleToolProgress, settleTurnLimits, turnLimitsOf } from './turn-limits.mjs';
+import { callsAllowed, settleTurnLimits, turnLimitsOf } from './turn-limits.mjs';
 
 function isSleepLikeToolCall(call) {
   const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
@@ -87,7 +87,6 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   // carries a runtime notice for the model, delivered after its results.
   if (response.recoveryNotice) messages.push(response.recoveryNotice);
   settleTurnLimits(state, overrun);
-  if (!overrun) settleToolProgress(state, messages.slice(resultsFrom), executionCalls);
   const toolsEndedAt = Date.now();
   // Starts the step judgment; the next request uses it if it has resolved by
   // then (send-phase.mjs applyStepEffort), else the one after.

@@ -44,8 +44,7 @@ export function createNoToolTurnResolver({
     // whether it answered that input.
     reactions: [],
     // Structured provider continuation signals honored this turn. Diagnostic
-    // only: this count bounds nothing (the turn's step limit bounds provider
-    // calls made without progress, turn-limits.mjs). A
+    // only: this count bounds nothing. A
     // text-only continuation runaway is bounded by continuationsSinceToolBatch
     // below; continuations interleaved with tool batches are not limited.
     providerContinuationCount: 0,
