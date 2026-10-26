@@ -58,20 +58,19 @@ export function shouldPublishSessionRead(
   return consumedUnread || messageCount > sharedReadCount(row);
 }
 
-/** Hops followed up a `readWith` chain (task session → bot chat, sub-agent →
- *  its session…); a cycle or a deeper chain stops there. */
-const READ_WITH_DEPTH = 8;
-
 /** Whether `id` is read when the sessions `read` says are: itself, or a
  *  session up its `readWith` chain (the chat a bot's task session reports to,
- *  the session a sub-agent works under). */
+ *  the session a sub-agent works under). The chain is followed to its end; a
+ *  session met twice closes a cycle and stops it. */
 export function readAlong(
   id: string,
   upperOf: ReadonlyMap<string, string>,
   read: (sessionId: string) => boolean
 ): boolean {
   let current = id;
-  for (let hop = 0; current && hop <= READ_WITH_DEPTH; hop += 1) {
+  const visited = new Set<string>();
+  while (current && !visited.has(current)) {
+    visited.add(current);
     if (read(current)) return true;
     current = upperOf.get(current) ?? '';
   }

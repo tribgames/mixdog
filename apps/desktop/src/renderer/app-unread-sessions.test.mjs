@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 import {
+  readAlong,
   sessionSurfaceEngaged,
   sharedReadClearsUnread,
   shouldPublishSessionRead,
@@ -398,4 +399,21 @@ test("a reply read to its end in the bot overlay clears the chat's unread mark (
     await act(async () => dom.root.unmount());
     dom.close();
   }
+});
+
+test('reading along follows a readWith chain of any length and stops at a cycle', () => {
+  const chain = new Map(Array.from({ length: 30 }, (_, index) => [`s${index}`, `s${index + 1}`]));
+  assert.equal(readAlong('s0', chain, (id) => id === 's30'), true, 'an ancestor 30 edges away');
+  assert.equal(readAlong('s0', chain, () => false), false);
+  const loop = new Map([
+    ['a', 'b'],
+    ['b', 'c'],
+    ['c', 'a'],
+  ]);
+  const seen = [];
+  assert.equal(
+    readAlong('a', loop, (id) => (seen.push(id), false)),
+    false
+  );
+  assert.deepEqual(seen, ['a', 'b', 'c']);
 });
