@@ -320,6 +320,8 @@ export default defineConfig({
           'desktop-pet': resolve(__dirname, 'src/preload/desktop-pet.ts'),
           // The hidden WebRTC live-view sender (main/remote-webrtc/sender-window.ts).
           'remote-webrtc-sender': resolve(__dirname, 'src/preload/remote-webrtc-sender.ts'),
+          // The hidden direct-transport peer host (main/remote-transport/peer-window.ts).
+          'remote-transport-peer': resolve(__dirname, 'src/preload/remote-transport-peer.ts'),
         },
         output: {
           // Sandboxed Electron preloads run through the CommonJS preload
@@ -407,6 +409,8 @@ export default defineConfig({
           'desktop-pet': resolve(__dirname, 'src/renderer/desktop-pet.html'),
           // The hidden WebRTC live-view sender window (main/remote-webrtc/sender-window.ts).
           'remote-webrtc-sender': resolve(__dirname, 'src/renderer/remote-webrtc-sender.html'),
+          // The hidden direct-transport peer host window (main/remote-transport/peer-window.ts).
+          'remote-transport-peer': resolve(__dirname, 'src/renderer/remote-transport-peer.html'),
         },
         output: {
           // React moves far less often than app code: keeping it in its own

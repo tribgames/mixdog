@@ -195,6 +195,13 @@ export const REMOTE_TRANSPORT_NEGOTIATION_TIMEOUT_MS = 39_500;
  *          per-leg queue bound (8 MiB). */
 export const REMOTE_TRANSPORT_BUFFER_LOW_BYTES = 1024 * 1024;
 export const REMOTE_TRANSPORT_BUFFER_HIGH_BYTES = RELAY_LEG_QUEUE_BYTES;
+/** Room on a direct carrier that app records leave free for the control
+ *  lane, on both ends: the low-water mark. Both channels share ONE bound,
+ *  REMOTE_TRANSPORT_BUFFER_HIGH_BYTES over their summed buffered bytes and
+ *  the control boxes held for them; app records stop this much short of it,
+ *  so acks, pongs and repairs still go out while bulk holds the rest, and
+ *  control alone is held only once the whole bound is used. */
+export const REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES = REMOTE_TRANSPORT_BUFFER_LOW_BYTES;
 /** A phone leg counts as foreground for push suppression only while its
  *  session showed authenticated liveness within this span: the phone's own
  *  dead-socket verdict (renderer/remote-shim-liveness.ts:93 25 s silence

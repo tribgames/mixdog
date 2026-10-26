@@ -12,6 +12,7 @@ import {
 import {
   REMOTE_TRANSPORT_BUFFER_HIGH_BYTES,
   REMOTE_TRANSPORT_BUFFER_LOW_BYTES,
+  REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES,
   REMOTE_TRANSPORT_ASSEMBLY_IDLE_MS,
   REMOTE_TRANSPORT_MAX_CONTROL_BOX_BYTES,
   REMOTE_TRANSPORT_MAX_CONTROL_PLAINTEXT_BYTES,
@@ -32,7 +33,6 @@ import {
   splitRemoteTransportPayload,
 } from '../shared/remote-transport.ts';
 import {
-  REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES,
   REMOTE_TRANSPORT_PHONE_OPT_IN,
   createRemoteTransportPeer,
 } from './remote-transport-peer.ts';

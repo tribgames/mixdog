@@ -12,6 +12,7 @@ import {
   REMOTE_TRANSPORT_BUFFER_LOW_BYTES,
   REMOTE_TRANSPORT_CHANNEL_LABEL,
   REMOTE_TRANSPORT_CONTROL_CHANNEL_LABEL,
+  REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES,
   REMOTE_TRANSPORT_MAX_ACK_DELAY_MS,
   REMOTE_TRANSPORT_MAX_CONTROL_BOX_BYTES,
   REMOTE_TRANSPORT_MAX_CONTROL_PLAINTEXT_BYTES,
@@ -61,15 +62,6 @@ import { remoteWebrtcPeerCertificate, remoteWebrtcSelectedPair } from './remote-
  *  byte for byte. remote-shim-state.ts copies it into `ctx.transportOptIn`,
  *  which only tests override. */
 export const REMOTE_TRANSPORT_PHONE_OPT_IN = false;
-
-/** Room on a direct carrier that app records leave free for the control
- *  lane: the low-water mark (REMOTE_TRANSPORT_BUFFER_LOW_BYTES). Both
- *  channels share ONE bound, REMOTE_TRANSPORT_BUFFER_HIGH_BYTES over their
- *  summed `bufferedAmount` and the control boxes held here; app records stop
- *  this much short of it, so acks, pongs and repairs still go out while bulk
- *  holds the rest, and control alone is held only once the whole bound is
- *  used. */
-export const REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES = REMOTE_TRANSPORT_BUFFER_LOW_BYTES;
 
 const RELAY: RemoteTransportCarrierId = 'relay';
 /** Outstanding pings remembered for RTT matching: the control anti-replay
