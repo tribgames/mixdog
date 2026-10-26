@@ -23,7 +23,8 @@ export function createTerminalBridgeBackend({
   sessionCwd,
   reveal,
 }: TerminalBridgeBackendDeps): TerminalBridgeBackend {
-  const sessionTabs = async (sessionId: string) => (await invoke('termSessionTabs', [sessionId])) as SessionTerminalTab[];
+  const sessionTabs = async (sessionId: string) =>
+    (await invoke('termSessionTabs', [sessionId])) as SessionTerminalTab[];
   return {
     sessionTabs,
     write: async (id, data) => {

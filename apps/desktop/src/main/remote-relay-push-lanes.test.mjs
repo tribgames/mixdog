@@ -55,7 +55,9 @@ test('the browser-approval sessions reach every device undroppably, and join wit
   assert.deepEqual(h.sent, [
     { payload: { event: BROWSER_APPROVAL_SESSIONS_EVENT, payload: ['sess_a', 'sess_b'] }, droppable: false },
   ]);
-  assert.deepEqual(h.pushLanes.joinFrames(), [{ event: BROWSER_APPROVAL_SESSIONS_EVENT, payload: ['sess_a', 'sess_b'] }]);
+  assert.deepEqual(h.pushLanes.joinFrames(), [
+    { event: BROWSER_APPROVAL_SESSIONS_EVENT, payload: ['sess_a', 'sess_b'] },
+  ]);
   h.emit(BROWSER_APPROVAL_SESSIONS_EVENT, []);
   assert.deepEqual(h.sent.at(-1).payload.payload, []);
   assert.deepEqual(h.pushLanes.joinFrames()[0].payload, []);

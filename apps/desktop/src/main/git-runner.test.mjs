@@ -82,7 +82,7 @@ for (const offThread of [false, true]) {
       streamNulRecords(tmpdir(), ['-c', 'alias.hang=!sleep 10', 'hang'], () => {}, { timeoutMs: 300 }),
       /timed out/
     );
-    assert.ok(Date.now() - started < 10_000,'the read settled at its deadline, not when the child ended');
+    assert.ok(Date.now() - started < 10_000, 'the read settled at its deadline, not when the child ended');
   });
 }
 

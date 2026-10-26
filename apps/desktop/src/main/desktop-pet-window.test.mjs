@@ -720,7 +720,7 @@ test('free, placement is the screen\'s, the same with or without "Keep above", n
 
 // #178: a representative bot whose look is an uploaded picture showed
 // Mixy's fixed pup: the pet window dropped the picture.
-test('the pet window reads the face\'s custom picture through main; nothing for another agent or a mascot', async () => {
+test("the pet window reads the face's custom picture through main; nothing for another agent or a mascot", async () => {
   const asked = [];
   const answer = { states: { idle: { file: 'idle-0123456789ab.png', url: 'data:image/png;base64,AAAA', poster: '' } } };
   const { window, app } = await started({
@@ -755,7 +755,11 @@ test('a picture face: kept as the look, drawn from its idle still, a mascot only
   const face = { room: false, members: [member] };
   assert.deepEqual(petMascotCells(face), [], 'a picture fills the box (no feet gap, the whole box reserved)');
   assert.deepEqual(petMascotCells(face, true), cells(pup), 'the mascot shown until it is read');
-  const idle = { file: 'idle-0123456789ab.png', url: 'data:image/gif;base64,R0lG', poster: 'data:image/png;base64,iVBO' };
+  const idle = {
+    file: 'idle-0123456789ab.png',
+    url: 'data:image/gif;base64,R0lG',
+    poster: 'data:image/png;base64,iVBO',
+  };
   assert.equal(petPictureSource(custom, { states: { idle } }), idle.poster, 'a moving picture: its first frame');
   assert.equal(petPictureSource(custom, { states: { idle: { ...idle, poster: '' } } }), idle.url);
   assert.equal(petPictureSource(custom, { states: { idle: { ...idle, file: 'idle-ffffffffffff.png' } } }), '');

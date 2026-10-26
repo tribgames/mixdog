@@ -28,6 +28,7 @@ import { petMascotCells } from '../shared/desktop-pet-art';
 import {
   clampFreePetPosition,
   clampPetPosition,
+  clampToRange,
   DESKTOP_PET_PIN_INSET,
   type DesktopPetPrefs,
   displayForPetPosition,
@@ -510,16 +511,26 @@ function hereSpot(s: PetContext): { x: number; y: number } | null {
   const shape = geometry(s);
   const target = petHerePosition(anchor, box);
   const above = shape.window.height - shape.sprite.bottom - shape.sprite.size;
-  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(min, max), Math.max(min, value));
   const inside = {
-    x: clamp(
+    x: clampToRange(
       target.x,
       content.x - shape.sprite.left,
       content.x + content.width - shape.sprite.left - shape.sprite.size
     ),
-    y: clamp(target.y, content.y - above, content.y + content.height - (shape.window.height - shape.sprite.bottom)),
+    y: clampToRange(
+      target.y,
+      content.y - above,
+      content.y + content.height - (shape.window.height - shape.sprite.bottom)
+    ),
   };
   return clampFreePetPosition(inside, shape, displayFor(s, inside).workArea);
+}
+
+/** The spot the pet follows on the app window, per its pin preference; null
+ *  when it is not pinned or the window gives none. */
+function followedSpot(s: PetContext): { x: number; y: number } | null {
+  if (s.prefs.pinned) return pinnedSpot(s);
+  return s.prefs.pinnedHere ? hereSpot(s) : null;
 }
 
 /** Composer-pinned and on screen, its sprite box over the transcript's
@@ -597,7 +608,7 @@ function layout(s: PetContext) {
     pushAppLayout(s);
     return;
   }
-  const spot = s.prefs.pinned ? pinnedSpot(s) : s.prefs.pinnedHere ? hereSpot(s) : null;
+  const spot = followedSpot(s);
   if (spot) place(s, spot);
   const show =
     s.loaded &&
@@ -966,9 +977,7 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
 
 async function createPetWindow(s: PetContext) {
   if (live(s.pet) || s.disposed) return;
-  const at =
-    (s.prefs.pinned ? pinnedSpot(s) : s.prefs.pinnedHere ? hereSpot(s) : null) ??
-    petPositionOn(homeDisplay(s), s.prefs, geometry(s));
+  const at = followedSpot(s) ?? petPositionOn(homeDisplay(s), s.prefs, geometry(s));
   s.petOwner = wantedOwner(s);
   const { flipped, x, y } = windowAt(s, at);
   s.flipped = flipped;

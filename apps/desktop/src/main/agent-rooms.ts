@@ -228,15 +228,7 @@ export function createAgentRooms(deps: AgentRoomDeps) {
   const pollMs = deps.pollMs ?? 500;
   const log = deps.log ?? ((line: string) => console.warn(`[mixdog-rooms] ${line}`));
   const records = createRoomRecords(deps);
-  const {
-    loadRecords,
-    ready: recordsReady,
-    refreshNames,
-    memberLabels,
-    persist,
-    roomOf,
-    names,
-  } = records;
+  const { loadRecords, ready: recordsReady, refreshNames, memberLabels, persist, roomOf, names } = records;
   const running = new Map<string, RunState>();
   /** Per room, the send/ask requests still on their way to route(): Stop
    *  cancels them even when no exchange runs yet. */

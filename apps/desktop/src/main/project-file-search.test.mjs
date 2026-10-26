@@ -242,9 +242,10 @@ test('a link to an excluded folder does not bypass the exclusion', async (t) => 
   }
   // Ignored files are wanted: only the default exclusions still apply.
   assert.deepEqual(await searchProjectDirectory(root, 'output', 10, { includeIgnored: true }), ['build/output.txt']);
-  assert.deepEqual(await searchProjectDirectory(root, 'latest', 10, { includeIgnored: true, includeDirectories: true }), [
-    'latest/',
-  ]);
+  assert.deepEqual(
+    await searchProjectDirectory(root, 'latest', 10, { includeIgnored: true, includeDirectories: true }),
+    ['latest/']
+  );
   assert.deepEqual(await searchProjectDirectory(root, 'vendored', 10, { includeIgnored: true }), []);
 });
 
@@ -347,7 +348,10 @@ test('a walk stopped while an ignore file is read opens no further folder', asyn
   });
   syncBuiltinESMExports();
   try {
-    assert.deepEqual(await searchProjectDirectory(root, 'needle', 10, { maxScannedEntries: 1, beyondBudgetMs: 30 }), []);
+    assert.deepEqual(
+      await searchProjectDirectory(root, 'needle', 10, { maxScannedEntries: 1, beyondBudgetMs: 30 }),
+      []
+    );
     const calls = opened.mock.callCount();
     release();
     await new Promise((resolve) => setTimeout(resolve, 50));

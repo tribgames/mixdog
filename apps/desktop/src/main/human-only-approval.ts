@@ -43,11 +43,7 @@ export function beginComputerOperation(): () => void {
  *  be able to leave: when `signal` aborts (the command was stopped) a waiting
  *  `run` is dropped and this rejects with the signal's reason. `label`: what
  *  it holds the screen for, named in Computer Use's refusal meanwhile. */
-export async function withHumanOnlyApproval<T>(
-  run: () => Promise<T>,
-  signal?: AbortSignal,
-  label = ''
-): Promise<T> {
+export async function withHumanOnlyApproval<T>(run: () => Promise<T>, signal?: AbortSignal, label = ''): Promise<T> {
   pendingLabels.push(label);
   const dropLabel = () => {
     const index = pendingLabels.indexOf(label);

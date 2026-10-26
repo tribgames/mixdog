@@ -111,7 +111,12 @@ test('a pending login without a forward is cancelled on the old attachment even 
   const sent = [];
   own.connection.client.invokeCapability = async (capability, args) => {
     sent.push([capability, args]);
-    return { value: capability === 'beginOAuthProviderLogin' ? { flowId: 'f1', provider: 'openai-oauth', state: 'pending', url: 'https://auth.example/x' } : null };
+    return {
+      value:
+        capability === 'beginOAuthProviderLogin'
+          ? { flowId: 'f1', provider: 'openai-oauth', state: 'pending', url: 'https://auth.example/x' }
+          : null,
+    };
   };
   own.connection.client.reattach = async () => {
     throw new Error('the daemon did not restart');

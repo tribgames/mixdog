@@ -39,7 +39,11 @@ export const TERMINAL_SHOWN_WAIT_MS = 1500;
 
 /** What paired clients receive: no ack id and no path (a tab's working
  *  directory is a PC path; a phone adopts the tab and binds its own root). */
-export function remoteTerminalRun({ sessionId, terminalId, tabs }: DesktopTerminalRunRequest): DesktopTerminalRunRequest {
+export function remoteTerminalRun({
+  sessionId,
+  terminalId,
+  tabs,
+}: DesktopTerminalRunRequest): DesktopTerminalRunRequest {
   return {
     sessionId,
     ...(terminalId ? { terminalId } : {}),

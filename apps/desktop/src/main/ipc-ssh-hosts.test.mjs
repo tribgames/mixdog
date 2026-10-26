@@ -461,7 +461,10 @@ test('a cancelled attempt neither saves the server nor leaves its window open', 
 test('an attempt cancelled while queued behind another on the same server pins and replaces no host key', async () => {
   const release = Promise.withResolvers();
   let inspections = 0;
-  const s = await setup({ open: () => release.promise, inspect: async () => (inspections++ === 0 ? TRUSTED : UNKNOWN_KEY) });
+  const s = await setup({
+    open: () => release.promise,
+    inspect: async () => (inspections++ === 0 ? TRUSTED : UNKNOWN_KEY),
+  });
   const first = await s.invokeFrom(s.win, 'sshInspectHostKey', 'root@queue.example.com');
   const second = await s.invokeFrom(s.other, 'sshInspectHostKey', 'root@queue.example.com');
   const running = s.invokeFrom(s.win, 'sshConnect', { attemptId: first.attemptId });
@@ -474,7 +477,10 @@ test('an attempt cancelled while queued behind another on the same server pins a
   assert.equal(done.ok, true);
   assert.equal(cancelled.ok, false);
   assert.equal(s.pins.length, 0);
-  assert.equal(s.calls.some((call) => call[0] === 'pin' || call[0] === 'replace'), false);
+  assert.equal(
+    s.calls.some((call) => call[0] === 'pin' || call[0] === 'replace'),
+    false
+  );
   assert.equal(opens(s).length, 1);
 });
 

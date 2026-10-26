@@ -787,7 +787,11 @@ test('a custom provider on the server saves its key and is removed through the c
 
   s.calls.length = 0;
   await s.handlers.saveKey('h1', CUSTOM_KEYED, '  sk-acme  ');
-  assert.deepEqual(s.calls, [['saveCustomProviderKey', [CUSTOM_KEYED, 'sk-acme']]], 'only the key travels; the provider’s settings are never resubmitted');
+  assert.deepEqual(
+    s.calls,
+    [['saveCustomProviderKey', [CUSTOM_KEYED, 'sk-acme']]],
+    'only the key travels; the provider’s settings are never resubmitted'
+  );
   assert.equal((await find(CUSTOM_KEYED)).signedIn, true, 'the refreshed list shows the saved key');
 
   s.calls.length = 0;
@@ -833,7 +837,10 @@ test('a failed key save never carries the key, and the server’s own failure is
   const failing = setup({
     answers: { saveCustomProviderKey: new TypeError('session action saveCustomProviderKey is unavailable') },
   });
-  await assert.rejects(failing.handlers.saveKey('h1', CUSTOM_KEYED, key), /session action saveCustomProviderKey is unavailable/);
+  await assert.rejects(
+    failing.handlers.saveKey('h1', CUSTOM_KEYED, key),
+    /session action saveCustomProviderKey is unavailable/
+  );
   assert.deepEqual(
     failing.calls.map(([capability]) => capability),
     ['saveCustomProviderKey'],
@@ -870,9 +877,32 @@ test('the effective credential source is carried; only an environment key with n
     answers: {
       getProviderSetup: {
         api: [
-          { id: 'openai', name: 'OpenAI', authenticated: true, stored: true, env: true, credentialSource: 'environment', detail: 'OPENAI_API_KEY' },
-          { id: 'groq', name: 'Groq', authenticated: true, stored: false, env: true, credentialSource: 'environment', detail: 'GROQ_API_KEY' },
-          { id: 'xai', name: 'xAI', authenticated: true, stored: true, credentialSource: 'private-file', detail: 'stored in private file' },
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            authenticated: true,
+            stored: true,
+            env: true,
+            credentialSource: 'environment',
+            detail: 'OPENAI_API_KEY',
+          },
+          {
+            id: 'groq',
+            name: 'Groq',
+            authenticated: true,
+            stored: false,
+            env: true,
+            credentialSource: 'environment',
+            detail: 'GROQ_API_KEY',
+          },
+          {
+            id: 'xai',
+            name: 'xAI',
+            authenticated: true,
+            stored: true,
+            credentialSource: 'private-file',
+            detail: 'stored in private file',
+          },
           { id: 'gemini', name: 'Gemini', authenticated: true, stored: true, credentialSource: 'keychain' },
           { id: 'deepseek', name: 'DeepSeek', authenticated: true, stored: true, credentialSource: 'bogus' },
         ],

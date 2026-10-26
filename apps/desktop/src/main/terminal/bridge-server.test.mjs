@@ -96,7 +96,10 @@ test('terminal run writes to the first or requested tab with the pre-write curso
   const third = await execute({ action: 'run', session_id: 'alpha', tab: 3, command: 'ls' });
   assert.equal(third.tab, 3);
   assert.deepEqual(backend.log[1], ['write', 'session-terminal:alpha:3', 'ls\r']);
-  await assert.rejects(execute({ action: 'run', session_id: 'alpha', tab: 2, command: 'ls' }), /no terminal tab 2; open tabs: 1, 3/);
+  await assert.rejects(
+    execute({ action: 'run', session_id: 'alpha', tab: 2, command: 'ls' }),
+    /no terminal tab 2; open tabs: 1, 3/
+  );
 });
 
 test('terminal run starts the first terminal itself when the session has none, shown or not', async () => {

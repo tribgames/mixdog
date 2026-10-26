@@ -92,7 +92,7 @@ test('desktopScreenState tells focused from unfocused, covered, and hidden windo
   assert.equal(await screen(), 'hidden');
 });
 
-test("desktopScreenState tells a panel on screen showing another tab from one that is not shown", async (t) => {
+test('desktopScreenState tells a panel on screen showing another tab from one that is not shown', async (t) => {
   const { window, state } = fakeWindow();
   // v1 is the panel's displayed tab; the open was of v2. The wait for v2 to
   // appear runs on fake time.

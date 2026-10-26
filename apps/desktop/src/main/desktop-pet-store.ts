@@ -234,12 +234,16 @@ export function defaultPetPosition(workArea: PetRect, size: PetSize): { x: numbe
   };
 }
 
+/** `value` within [min, max]; a range that is empty (max < min) resolves to min. */
+export function clampToRange(value: number, min: number, max: number): number {
+  return Math.min(Math.max(min, max), Math.max(min, value));
+}
+
 /** The whole window inside the work area. */
 export function clampPetPosition(point: { x: number; y: number }, size: PetSize, workArea: PetRect) {
-  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(min, max), Math.max(min, value));
   return {
-    x: Math.round(clamp(point.x, workArea.x, workArea.x + workArea.width - size.width)),
-    y: Math.round(clamp(point.y, workArea.y, workArea.y + workArea.height - size.height)),
+    x: Math.round(clampToRange(point.x, workArea.x, workArea.x + workArea.width - size.width)),
+    y: Math.round(clampToRange(point.y, workArea.y, workArea.y + workArea.height - size.height)),
   };
 }
 

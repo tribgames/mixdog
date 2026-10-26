@@ -1018,7 +1018,11 @@ test('an advertised custom provider name is trimmed, redacted and capped; empty 
     assert.equal(Object.hasOwn(providers[id], 'name'), false, `${id} advertises no name, so the server shows its id`);
     assert.equal(providers[id].type, 'custom');
   }
-  assert.equal(Object.hasOwn(providers, 'custom-blocked'), false, 'a provider the server may not use is not advertised');
+  assert.equal(
+    Object.hasOwn(providers, 'custom-blocked'),
+    false,
+    'a provider the server may not use is not advertised'
+  );
   assert.equal(JSON.stringify(providers).includes('Blocked gateway'), false);
   assert.equal(Object.hasOwn(providers.openai, 'name'), false, 'built-in providers never advertise a name');
 });

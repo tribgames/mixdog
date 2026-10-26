@@ -368,7 +368,10 @@ test('a failed turn-end step still publishes the final state, then reports the f
   assert.deepEqual(published, [[SESSION, 'v1']], 'the turn end reveals its tab (and its cards) anyway');
   assert.equal(sessions.get(SESSION).active, 'v1');
   assert.equal(holds.has(SESSION), false);
-  assert.ok(warned.some((line) => line.includes('thumbnail failed')), 'the failure is still reported');
+  assert.ok(
+    warned.some((line) => line.includes('thumbnail failed')),
+    'the failure is still reported'
+  );
 });
 
 test("the user's own panel commands apply at once during a turn", async () => {

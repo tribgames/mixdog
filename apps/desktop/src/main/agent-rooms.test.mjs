@@ -188,7 +188,23 @@ function harness({
   const idle = async (roomId) => {
     for (let i = 0; i < 2000 && rooms.isRunning(roomId); i += 1) await new Promise((r) => setImmediate(r));
   };
-  return { rooms, log, logs, prompts, saved, idle, touched, resets, decisions, created, aborts, deleted, renamed, sessions, createStarted };
+  return {
+    rooms,
+    log,
+    logs,
+    prompts,
+    saved,
+    idle,
+    touched,
+    resets,
+    decisions,
+    created,
+    aborts,
+    deleted,
+    renamed,
+    sessions,
+    createStarted,
+  };
 }
 
 /** A supervisor that hands the turn to the member after the last speaker
@@ -332,7 +348,7 @@ test('a message to a room whose last member was removed ends done with no turn a
   );
   assert.deepEqual(h.logs, []);
 });
-test('a room rename (the menu\'s update with only a name) keeps the room and retitles its log session', async () => {
+test("a room rename (the menu's update with only a name) keeps the room and retitles its log session", async () => {
   const h = harness();
   const { roomId, sessionId } = await room(h);
   const before = structuredClone(h.saved.doc.rooms[roomId]);
@@ -371,7 +387,7 @@ test('the supervisor picks every speaker; its step cap (rounds × members) ends 
   assert.deepEqual(h.log.at(-1), { ...h.log.at(-1), kind: 'cap', limit: 'rounds', rounds: 2 });
 });
 
-test("every member turn carries the newest user row its prompt shows, for a reaction to be judged against", async () => {
+test('every member turn carries the newest user row its prompt shows, for a reaction to be judged against', async () => {
   const h = harness({ decide: () => ({ action: 'unmanaged' }) });
   const { sessionId, roomId } = await room(h);
   await h.rooms.send(sessionId, '얘들아');
@@ -653,10 +669,14 @@ test('a name resolves against every member first: "/ask Bench lead" never goes t
   const h = harness({ agents, decide: () => ({ action: 'unmanaged' }) });
   const { sessionId, roomId } = await room(h, { members: ['gh', 'bench', 'benchlead'] });
   agents[3].disabled = true;
-  const off = (error) => error.code === 'ROOM_MEMBER_SWITCHED_OFF' && /"Bench lead" is switched off/.test(error.message);
+  const off = (error) =>
+    error.code === 'ROOM_MEMBER_SWITCHED_OFF' && /"Bench lead" is switched off/.test(error.message);
   await assert.rejects(h.rooms.send(sessionId, '/ask Bench lead status?'), off);
   await assert.rejects(h.rooms.send(sessionId, '/ask Bench, Bench lead status?'), off);
-  await assert.rejects(h.rooms.member(sessionId, { to: 'Bench lead', prompt: 'status?' }), /"Bench lead" .*is switched off/);
+  await assert.rejects(
+    h.rooms.member(sessionId, { to: 'Bench lead', prompt: 'status?' }),
+    /"Bench lead" .*is switched off/
+  );
   await assert.rejects(h.rooms.member(sessionId, { prompt: '@Bench lead status?' }), /"Bench lead" .*is switched off/);
   await h.idle(roomId);
   assert.deepEqual(h.prompts, [], 'nothing went to Bench');
@@ -682,7 +702,11 @@ test('a member switched off while an exchange runs gets no turn in it', async ()
     h.prompts.map((p) => p.agentId),
     ['gh', 'bench']
   );
-  assert.equal(h.log.some((row) => row.speaker === 'rel'), false, 'nothing is posted for it');
+  assert.equal(
+    h.log.some((row) => row.speaker === 'rel'),
+    false,
+    'nothing is posted for it'
+  );
 });
 
 test('a member switched off while its turn is being prepared is not submitted', async () => {
@@ -703,7 +727,11 @@ test('a member switched off while its turn is being prepared is not submitted', 
     h.prompts.map((p) => p.agentId),
     ['gh', 'bench']
   );
-  assert.equal(h.log.some((row) => row.speaker === 'rel'), false, 'nothing is posted for it');
+  assert.equal(
+    h.log.some((row) => row.speaker === 'rel'),
+    false,
+    'nothing is posted for it'
+  );
 });
 
 /** A room whose /ask turn of `gh` is held inside the final switched-off read:
@@ -775,7 +803,10 @@ test('a Stop pressed while the final switched-off read is pending never submits 
 
 test('a member removed while the final switched-off read is pending never gets its turn submitted', async () => {
   const h = await heldSwitchedOffRead((host, ids) => host.rooms.update(ids.roomId, { members: ['rel', 'bench'] }));
-  assert.equal(h.prompts.some((p) => p.agentId === 'gh'), false);
+  assert.equal(
+    h.prompts.some((p) => p.agentId === 'gh'),
+    false
+  );
 });
 
 test('a turn interrupted while the final switched-off read is pending is not submitted', async () => {
@@ -1560,7 +1591,14 @@ test("a room lists its latest message time even when the log's catalog row is ne
   await h.rooms.send(sessionId, 'hello');
   await h.idle(roomId);
   const lastAt = h.saved.doc.rooms[roomId].lastAt;
-  const touched = { id: sessionId, title: 'x', preview: '', updatedAt: lastAt + 5000, activityAt: lastAt + 9000, messageCount: 1 };
+  const touched = {
+    id: sessionId,
+    title: 'x',
+    preview: '',
+    updatedAt: lastAt + 5000,
+    activityAt: lastAt + 9000,
+    messageCount: 1,
+  };
   const [row] = h.rooms.withRooms([touched]);
   assert.equal(row.updatedAt, lastAt);
   assert.equal(row.activityAt, lastAt);
@@ -1628,7 +1666,7 @@ test('a message from another session is its sender’s row, and only the named m
   );
 });
 
-test("a member relays its own reported work in one turn of its room, with no row of the report itself", async () => {
+test('a member relays its own reported work in one turn of its room, with no row of the report itself', async () => {
   const h = harness({ decide: ROTATE });
   const { sessionId, roomId } = await room(h);
   const { settled } = await h.rooms.relay(roomMemberSessionId(roomId, 'bench'), 'REPORT: tests passed', {
@@ -1725,7 +1763,10 @@ test('a submission the daemon accepts after Stop is aborted before the room is r
   await h.idle(roomId);
   assert.equal(live, false, 'the late accepted turn was aborted');
   assert.deepEqual(ends, [{ status: 'cancelled' }]);
-  assert.deepEqual(h.log.map((row) => row.kind), ['user', 'stopped']);
+  assert.deepEqual(
+    h.log.map((row) => row.kind),
+    ['user', 'stopped']
+  );
   await ask('atask_after_stop');
   await h.idle(roomId);
   assert.deepEqual(ends.at(-1), { status: 'done', result: { content: 'answer from rel' } });
@@ -1763,7 +1804,11 @@ for (const kind of ['done answer', 'busy approval']) {
     proceed.open();
     await h.idle(roomId);
     assert.deepEqual(approvals.filter(Boolean), [], 'no approval is published after Stop');
-    assert.deepEqual(h.log.map((row) => row.kind), ['user', 'stopped'], 'no speech from the stale snapshot');
+    assert.deepEqual(
+      h.log.map((row) => row.kind),
+      ['user', 'stopped'],
+      'no speech from the stale snapshot'
+    );
     assert.deepEqual(ends, [{ status: 'cancelled' }]);
   });
 }
@@ -1810,16 +1855,28 @@ for (const kind of ['send', 'ask']) {
     await h.rooms.send(sessionId, '/ask Bench fresh', 'sub_fresh');
     await h.idle(roomId);
     const expected = kind === 'send' ? ['gh', 'bench'] : ['bench'];
-    assert.deepEqual(h.prompts.map((p) => p.agentId), expected, 'a fresh request runs normally');
+    assert.deepEqual(
+      h.prompts.map((p) => p.agentId),
+      expected,
+      'a fresh request runs normally'
+    );
     append.open();
     assert.equal(await pending, true, 'the logged row is still acknowledged');
     await h.idle(roomId);
-    assert.deepEqual(h.prompts.map((p) => p.agentId), expected, 'the stopped request starts nothing');
+    assert.deepEqual(
+      h.prompts.map((p) => p.agentId),
+      expected,
+      'the stopped request starts nothing'
+    );
     assert.equal(h.log.filter((row) => row.kind === 'user' && row.text === 'pending').length, 1);
     if (kind === 'send') {
       assert.ok(h.saved.doc.rooms[roomId].submissions.includes('sub_pending'));
       assert.equal(await h.rooms.send(sessionId, '/ask Release pending', 'sub_pending'), true);
-      assert.deepEqual(h.prompts.map((p) => p.agentId), expected, 'the retry is deduplicated');
+      assert.deepEqual(
+        h.prompts.map((p) => p.agentId),
+        expected,
+        'the retry is deduplicated'
+      );
     } else assert.deepEqual(ends, [{ status: 'cancelled' }], 'the caller settles once');
   });
 }
@@ -1971,7 +2028,7 @@ test('coalesced, then cut short: every watch ends on the turn that answered, its
   assert.deepEqual([ends.a, ends.b], [[answered], [answered]]);
 });
 
-test("a watch that cannot follow the shared turn fails every call it covers, and nothing is submitted", async () => {
+test('a watch that cannot follow the shared turn fails every call it covers, and nothing is submitted', async () => {
   const gate = gated(['gh']);
   const h = harness({ script: gate.script });
   const { sessionId, roomId } = await room(h);
@@ -1995,10 +2052,7 @@ test("a watch that cannot follow the shared turn fails every call it covers, and
   await until(() => ends.a.length && ends.b.length);
   await h.idle(roomId);
   assert.equal(h.prompts.filter((p) => p.agentId === 'rel').length, 0, 'no turn without its durable mapping');
-  assert.deepEqual(
-    [ends.a[0].status, ends.b[0].status],
-    ['failed', 'failed']
-  );
+  assert.deepEqual([ends.a[0].status, ends.b[0].status], ['failed', 'failed']);
 });
 
 test('a failed save at the start or hand-off of an exchange releases the room and fails what waited on it', async () => {
@@ -2265,7 +2319,10 @@ test('a member removed by the room settings takes its conversation with it: none
   // A delete that fails is surfaced, and the removal still applies.
   const stuck = harness({ deleteFails: true });
   const made = await room(stuck);
-  await assert.rejects(stuck.rooms.update(made.roomId, { members: ['gh', 'bench'], name: 'Renamed' }), /could not be deleted/);
+  await assert.rejects(
+    stuck.rooms.update(made.roomId, { members: ['gh', 'bench'], name: 'Renamed' }),
+    /could not be deleted/
+  );
   assert.deepEqual(stuck.saved.doc.rooms[made.roomId].members, ['gh', 'bench']);
   assert.equal(stuck.saved.doc.rooms[made.roomId].name, 'Renamed');
 });
@@ -2372,7 +2429,7 @@ test('remove surfaces a failed cleanup', async () => {
   assert.equal(h.saved.doc.rooms[roomId], undefined);
 });
 
-test("a member whose turn ended in a reaction alone takes its turn quietly: no pass row, the others still speak", async () => {
+test('a member whose turn ended in a reaction alone takes its turn quietly: no pass row, the others still speak', async () => {
   const run = async (reacted) => {
     const h = harness({
       script: (agentId) => (agentId === 'rel' ? '' : 'ok'),
@@ -2398,7 +2455,11 @@ test("a member whose turn ended in a reaction alone takes its turn quietly: no p
     ['gh', 'rel', 'bench'],
     'the reaction counted as its turn'
   );
-  assert.equal(quiet.log.some((row) => row.speaker === 'rel'), false, 'no pass row, no empty row');
+  assert.equal(
+    quiet.log.some((row) => row.speaker === 'rel'),
+    false,
+    'no pass row, no empty row'
+  );
   assert.deepEqual(
     quiet.log.filter((row) => row.kind === 'speech').map((row) => row.speaker),
     ['gh', 'bench']

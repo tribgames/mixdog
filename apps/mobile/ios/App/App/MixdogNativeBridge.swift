@@ -240,7 +240,6 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
     private static let labelsKey = "mixdog.notification.labels"
     private static let tokenKey = "mixdog.apns.token"
     private static let pendingKey = "mixdog.pending.actions"
-    private static let askedKey = "mixdog.push.asked"
 
     weak var viewController: CAPBridgeViewController?
 

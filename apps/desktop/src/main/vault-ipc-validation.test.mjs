@@ -41,7 +41,14 @@ test('a saved login from the settings page is passed on trimmed and bounded', as
   assert.deepEqual(calls, [
     [
       'save',
-      { id: ID, origin: 'https://shop.example.com', username: 'me', password: ' keep spaces ', totpSecret: 'GEZDGNBV', note: 'work' },
+      {
+        id: ID,
+        origin: 'https://shop.example.com',
+        username: 'me',
+        password: ' keep spaces ',
+        totpSecret: 'GEZDGNBV',
+        note: 'work',
+      },
     ],
   ]);
 });

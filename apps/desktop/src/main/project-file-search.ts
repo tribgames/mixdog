@@ -371,7 +371,8 @@ async function projectIndexFor(
   // LRU touch so hot roots survive the cache cap.
   projectFileIndexes.delete(key);
   projectFileIndexes.set(key, cached);
-  if (Date.now() - cached.builtAt > INDEX_TTL_MS) void buildProjectIndex(root, includeIgnored, maxScannedEntries).catch(() => undefined);
+  if (Date.now() - cached.builtAt > INDEX_TTL_MS)
+    void buildProjectIndex(root, includeIgnored, maxScannedEntries).catch(() => undefined);
   return cached;
 }
 

@@ -23,7 +23,8 @@ function fakeDaemon(initial = []) {
     calls,
     invoke: async (name, args) => {
       calls.push([name, ...args]);
-      if (name === 'termSessionTabs') return [...terminals.values()].filter((entry) => entry.id.startsWith(`session-terminal:${args[0]}`));
+      if (name === 'termSessionTabs')
+        return [...terminals.values()].filter((entry) => entry.id.startsWith(`session-terminal:${args[0]}`));
       if (name === 'termEnsure') {
         if (!terminals.has(args[0])) terminals.set(args[0], { ...tab(1, args[1]), id: args[0], written: [] });
         return { id: args[0], replay: '' };
@@ -85,9 +86,20 @@ test('a run for a session with no terminal and nothing on screen starts the proc
   const h = bridge({ windowOpen: false });
   const result = await h.execute({ action: 'run', session_id: 's1', command: 'echo hi' });
   // No pane was needed: the process exists, in the session's directory, and holds the command.
-  assert.deepEqual(h.daemon.calls.find((call) => call[0] === 'termEnsure'), ['termEnsure', 'session-terminal:s1', '/work', null]);
+  assert.deepEqual(
+    h.daemon.calls.find((call) => call[0] === 'termEnsure'),
+    ['termEnsure', 'session-terminal:s1', '/work', null]
+  );
   assert.deepEqual(h.daemon.terminals.get('session-terminal:s1').written, ['echo hi\r']);
-  assert.deepEqual(result, { id: 'session-terminal:s1', tab: 1, shell: 'sh', running: true, cwd: '/work', cursor: 5, shown: false });
+  assert.deepEqual(result, {
+    id: 'session-terminal:s1',
+    tab: 1,
+    shell: 'sh',
+    running: true,
+    cwd: '/work',
+    cursor: 5,
+    shown: false,
+  });
 });
 
 test('a failed run reveals nothing, so no empty tab opens', async () => {
@@ -108,7 +120,7 @@ test('the result says shown only when a pane claims the reveal', async () => {
   assert.equal(hidden.shown, false);
 });
 
-test('a run targets the requested tab and reveals exactly that terminal with main\'s tab list', async () => {
+test("a run targets the requested tab and reveals exactly that terminal with main's tab list", async () => {
   const daemon = fakeDaemon([tab(1, '/a'), tab(2, '/b')]);
   const h = bridge({ daemon, claimShown: true });
   const result = await h.execute({ action: 'run', session_id: 's1', tab: 2, command: 'pwd' });
@@ -154,7 +166,7 @@ test('paired phones get the reveal without any path or ack id, while the desktop
   );
   await execute({ action: 'run', session_id: 's1', tab: 2, command: 'pwd' });
   assert.equal(toWindow.length, 1);
-  assert.equal(toWindow[0].tabs[1].cwd, `${secret}\\sub`, 'the desktop window still adopts each tab\'s root');
+  assert.equal(toWindow[0].tabs[1].cwd, `${secret}\\sub`, "the desktop window still adopts each tab's root");
   assert.ok(toWindow[0].requestId);
   assert.deepEqual(toPhones, [
     {
