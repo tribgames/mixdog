@@ -32,6 +32,18 @@ export const MIN_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
 export const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_WIDTH_KEY = 'mixdog:session-sidebar-width';
 
+/** A section header's click handler. A mouse/pen/touch click (detail > 0) must
+ *  not leave DOM focus on the header: the next non-typing key (Shift, Ctrl,
+ *  arrows, Esc...) would flip that mouse-focused button to :focus-visible and
+ *  draw the focus box, with the header's ⋯ revealed by :focus-within. Keyboard
+ *  activation (detail 0) keeps focus and its ring. */
+export function toggleHeading(onToggle: () => void) {
+  return (event: React.MouseEvent<HTMLButtonElement>) => {
+    onToggle();
+    if (event.detail > 0) event.currentTarget.blur();
+  };
+}
+
 export function clampSidebarWidth(value: number) {
   return clampDesktopPanelWidth(value, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
 }
@@ -196,7 +208,7 @@ export function automationsSection({
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
           aria-expanded={open}
-          onClick={onToggleOpen}
+          onClick={toggleHeading(onToggleOpen)}
         >
           <span>{t('Automations')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -376,7 +388,7 @@ function AgentsSection({
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
           aria-expanded={open}
-          onClick={onToggleOpen}
+          onClick={toggleHeading(onToggleOpen)}
         >
           <span>{t('Bots')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -509,7 +521,7 @@ export function favoritesSection({
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
           aria-expanded={open}
-          onClick={onToggleOpen}
+          onClick={toggleHeading(onToggleOpen)}
         >
           <span>{t('Favorites')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -570,7 +582,7 @@ export function recentSection({
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
           aria-expanded={open}
-          onClick={onToggleOpen}
+          onClick={toggleHeading(onToggleOpen)}
         >
           <span>{t('Recent')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -843,7 +855,7 @@ export function projectsSection(props: ProjectsSectionProps) {
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
           aria-expanded={open}
-          onClick={onToggleOpen}
+          onClick={toggleHeading(onToggleOpen)}
         >
           <span>{t('Projects')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -915,7 +927,7 @@ export function archivedSection({
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
           aria-expanded={open}
-          onClick={onToggleOpen}
+          onClick={toggleHeading(onToggleOpen)}
         >
           <span>{t('Archived')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}

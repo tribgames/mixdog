@@ -797,3 +797,46 @@ test('the Projects header menu offers Add project, also with zero projects', asy
     restore();
   }
 });
+
+test('a pointer click on a section header releases its focus; keyboard activation keeps it', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          open: true,
+          sessions: [],
+          sessionsReady: true,
+          projects: [],
+          selection: { kind: 'new' },
+          onAddProject() {},
+          onNewTask() {},
+          onNewStudio() {},
+          onResumeSession() {},
+          async onRenameSession() {},
+          async onArchiveSession() {},
+          async onDeleteSession() {},
+        })
+      )
+    );
+    for (const label of ['Projects', 'Recent sessions']) {
+      const toggle = () => document.querySelector(`section[aria-label="${label}"] .sidebar-heading-toggle`);
+      // Keyboard activation (Enter/Space dispatch click with detail 0) keeps the focus ring target.
+      await act(async () => toggle().focus());
+      await act(async () => toggle().click());
+      assert.equal(document.activeElement, toggle(), `${label}: keyboard activation keeps focus`);
+      // A pointer click (detail 1) must not leave a mouse-focused header: a later
+      // Shift/Ctrl/arrow key would flip it to :focus-visible (the selected-looking box).
+      await act(async () => toggle().focus());
+      await act(async () =>
+        toggle().dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }))
+      );
+      assert.notEqual(document.activeElement, toggle(), `${label}: pointer click released focus`);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
