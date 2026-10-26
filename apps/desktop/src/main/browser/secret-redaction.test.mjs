@@ -111,3 +111,42 @@ test("the toolkit's credential fill registers a typed secret with the owning ses
     secretInputs.forget('s-toolkit');
   }
 });
+
+test('saved-login passwords are redacted whole, longest first, before session secrets; forget clears focus', () => {
+  const inputs = createSecretInputs();
+  const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
+  inputs.remember('s1', 'Pa55');
+  assert.equal(inputs.rememberSavedLogin(turn, ['Pa55word', 'Pa55word-long']), true);
+  assert.equal(
+    inputs.redact('s1', 'a Pa55word-long b Pa55word c Pa55'),
+    'a [saved login] b [saved login] c [redacted]'
+  );
+  assert.equal(inputs.redact('s3', 'Pa55word Pa55'), '[saved login] Pa55', 'saved logins for every session');
+  inputs.armFocus('s1');
+  inputs.clearFocus('s1');
+  assert.equal(inputs.focusArmed('s1'), false);
+  inputs.armFocus('s1');
+  inputs.forget('s1');
+  assert.equal(inputs.focusArmed('s1'), false);
+  assert.deepEqual(inputs.secretsOf('s1'), []);
+});
+
+test('request bindings: a page binding and a window binding never answer for each other; bad targets bind nothing', () => {
+  const inputs = createSecretInputs();
+  const id = 'secret_0123456789abcdef';
+  assert.equal(inputs.bindComputer(id, { sessionId: 's1', windowId: 'hwnd 0x2', ref: 'e7' }), false);
+  assert.equal(inputs.bindComputer(id, { sessionId: 's1', windowId: 'h'.repeat(129), ref: 'e7' }), false);
+  assert.equal(inputs.bindComputer(id, { sessionId: '', windowId: 'hwnd:0x2', ref: 'e7' }), false);
+  assert.equal(inputs.computerBinding(id), null);
+  assert.equal(inputs.bindComputer(id, { sessionId: 's1', windowId: 'hwnd:0x2', ref: 'e7' }), true);
+  assert.equal(inputs.binding(id), null);
+  assert.deepEqual(inputs.computerBinding(id), { sessionId: 's1', windowId: 'hwnd:0x2', ref: 'e7' });
+  assert.equal(inputs.bind('bad', { sessionId: 's1', pageId: 'p', origin: 'o', form: 'otp', document: 'd' }), false);
+  inputs.bind(id, { sessionId: 's1', pageId: 'p', origin: 'o', form: 'otp', document: 'd' });
+  assert.equal(inputs.computerBinding(id), null);
+  assert.equal(inputs.binding(id)?.pageId, 'p');
+  inputs.provide(id, 'value');
+  inputs.discard(id);
+  assert.equal(inputs.has(id), false);
+  assert.equal(inputs.binding(id), null);
+});
