@@ -1371,9 +1371,15 @@ function ToolApprovalCard({
   const primaryButton: ApprovalButton = clickOnly
     ? { ...toButton(primary, 'primary'), hint: t('Allowing takes a click; Enter does not allow.') }
     : toButton(primary, 'primary');
-  const choices = others.filter((row) => row !== denyRow).map((row) => toButton(row));
+  // A takeover's "Open" and "Import again from Chrome" are each their own
+  // full-width row on top, so its decision row stays Cancel · Done.
+  const ownRow = (row: CardRow) => row.decision === 'open' || row.decision === 'reimport';
+  const rowButtons = ['open', 'reimport'].flatMap((decision) =>
+    others.filter((row) => row.decision === decision).map((row) => ({ ...toButton(row), wide: true }))
+  );
+  const choices = others.filter((row) => row !== denyRow && !ownRow(row)).map((row) => toButton(row));
   // Every card reads deny, the choices, then the primary.
-  const buttons: ApprovalButton[] = [...denyButton, ...choices, primaryButton];
+  const buttons: ApprovalButton[] = [...rowButtons, ...denyButton, ...choices, primaryButton];
   const denyDecision = denyRow?.decision;
   let onDeny: ((reason: string) => void) | undefined;
   if (denyDecision && typeof denyDecision === 'object') {
@@ -1472,6 +1478,7 @@ function ToolApprovalCard({
       busy={disabled}
       kind={model.kind}
       agentMode={agentMode}
+      keyChips={model.kind !== 'takeover'}
     />
   );
 }

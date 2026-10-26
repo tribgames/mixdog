@@ -407,6 +407,9 @@ test('takeover: Done answers done in one step', async () => {
   try {
     assert.equal(ui.doc.querySelector('.approval-text').textContent, 'Sign in');
     assert.deepEqual(ui.rows(), ['Cancel', 'Done']);
+    // No Enter / Esc chips on a takeover, on any surface (the keys still answer it).
+    assert.equal(ui.doc.querySelector('.approval-kbd'), null);
+    assert.equal(ui.button('Cancel').getAttribute('aria-keyshortcuts'), 'Escape');
     await ui.click(ui.button('Done'));
     assert.deepEqual(c.decisions, [{ approved: true, response: 'done' }]);
   } finally {
@@ -649,7 +652,10 @@ test('a browser takeover offers "Import again from Chrome" as its own button, wh
   });
   const ui = await mount(React.createElement(MarkdownSessionContext.Provider, { value: 'sess-t' }, c.element));
   try {
-    assert.deepEqual(ui.rows(), ['Cancel', 'Import again from Chrome', 'Done']);
+    // Its own row on top; the decision row stays Cancel · Done.
+    assert.deepEqual(ui.rows(), ['Import again from Chrome', 'Cancel', 'Done']);
+    assert.equal(ui.button('Import again from Chrome').dataset.wide, 'true');
+    assert.equal(ui.doc.querySelector('.approval-buttons').style.getPropertyValue('--approval-columns'), '2');
     await ui.click(ui.button('Import again from Chrome'));
     assert.deepEqual(imports, ['sess-t']);
     assert.deepEqual(c.decisions, []);
@@ -686,13 +692,32 @@ test('a browser takeover offers "Open", which shows the exact handed-over page a
   dom.window.mixdogDesktop = { browserPageControl: async (owner, input) => selected.push([owner, input]) };
   ui = await mountCard();
   try {
-    assert.deepEqual(ui.rows(), ['Cancel', 'Open', 'Done']);
+    // 열기 is its own full-width row on top; 취소 · 완료 share the row below.
+    assert.deepEqual(ui.rows(), ['Open', 'Cancel', 'Done']);
+    assert.equal(ui.button('Open').dataset.wide, 'true');
+    assert.equal(ui.doc.querySelector('.approval-buttons').dataset.lead, 'true');
+    assert.equal(ui.doc.querySelector('.approval-buttons').style.getPropertyValue('--approval-columns'), '2');
+    assert.equal(ui.button('Done').dataset.wide, undefined);
     await ui.click(ui.button('Open'));
     assert.deepEqual(selected, [
       ['sess-t', { type: 'select-tab', tabId: 'p14', follow: 'view', documentId: 'p14:0' }],
     ]);
     assert.deepEqual(reveals, ['sess-t']);
     assert.equal(ui.rows().length, 3, 'the card stays open');
+  } finally {
+    await ui.done();
+  }
+
+  // Chrome import available too: Open, then Import, each on its own row; Cancel · Done stay a pair.
+  dom.window.mixdogDesktop = { browserPageControl: async () => {}, browserProfileImportSources: async () => [] };
+  ui = await mountCard();
+  try {
+    assert.deepEqual(ui.rows(), ['Open', 'Import again from Chrome', 'Cancel', 'Done']);
+    assert.deepEqual(
+      ui.rows().map((label) => ui.button(label).dataset.wide),
+      ['true', 'true', undefined, undefined]
+    );
+    assert.equal(ui.doc.querySelector('.approval-buttons').style.getPropertyValue('--approval-columns'), '2');
   } finally {
     await ui.done();
   }

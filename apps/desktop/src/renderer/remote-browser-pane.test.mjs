@@ -988,6 +988,12 @@ test('a chat link opened before and while the pane is mounted navigates the host
   }
 });
 
+const innerHeightDescriptor = Object.getOwnPropertyDescriptor(window, 'innerHeight');
+const restoreInnerHeight = () => {
+  if (innerHeightDescriptor) Object.defineProperty(window, 'innerHeight', innerHeightDescriptor);
+  else delete window.innerHeight;
+};
+
 test('a browserDrive host gets the content box on start and after a debounced resize; an older host never does', async () => {
   const state = fakeApi();
   let box = { width: 390, height: 700 };
@@ -1034,11 +1040,98 @@ test('a browserDrive host gets the content box on start and after a debounced re
       await act(async () => state.renew());
       await flush();
       assert.equal(viewports().length, 3);
+
+      // A desktop window made shorter with a field focused (the address bar,
+      // the composer) is a real resize: the page follows it at once.
+      const field = document.querySelector('.browser-remote-keyboard textarea');
+      const address = document.querySelector('.browser-pane-toolbar input');
+      const windowHeight = (height) =>
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+      windowHeight(800);
+      await act(async () => state.renew());
+      await flush();
+      await act(async () => address.focus());
+      box = { width: 700, height: 250 };
+      windowHeight(660);
+      await act(async () => window.dispatchEvent(new window.Event('resize')));
+      await act(async () => wait(200));
+      assert.deepEqual(viewports().at(-1)[1], { type: 'viewport', width: 700, height: 250, deviceScaleFactor: 1 });
+      assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 700, maxHeight: 250 });
+      await act(async () => address.blur());
+      box = { width: 700, height: 390 };
+      windowHeight(800);
+      await act(async () => window.dispatchEvent(new window.Event('resize')));
+      await act(async () => wait(200));
+      assert.deepEqual(viewports().at(-1)[1], { type: 'viewport', width: 700, height: 390, deviceScaleFactor: 1 });
     } finally {
       await pane.unmount();
     }
   } finally {
     window.HTMLElement.prototype.getBoundingClientRect = original;
+    restoreInnerHeight();
+  }
+});
+
+test('on a phone the soft keyboard does not resize the driven page; the field letting go does', async () => {
+  const state = fakeApi();
+  window.mixdogDesktop.remoteBrowserDrive = true;
+  let box = { width: 700, height: 390 };
+  const original = window.HTMLElement.prototype.getBoundingClientRect;
+  window.HTMLElement.prototype.getBoundingClientRect = function boundingRect() {
+    if (!this.classList.contains('browser-remote-content')) return original.call(this);
+    return { left: 0, top: 0, x: 0, y: 0, right: box.width, bottom: box.height, ...box, toJSON() {} };
+  };
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+  });
+  const windowHeight = (height) => Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+  windowHeight(800);
+  const viewports = () =>
+    state.controls.filter(({ input }) => input.type === 'viewport').map(({ input }) => input);
+  const pane = await mount();
+  try {
+    await flush();
+    assert.deepEqual(viewports().at(-1), { type: 'viewport', width: 700, height: 390, deviceScaleFactor: 1 });
+
+    // Typing: the soft keyboard only shortens the box; the page keeps its
+    // size (no re-layout, no stream restart) until the field lets go.
+    const typingFrom = viewports().length;
+    const field = document.querySelector('.browser-remote-keyboard textarea');
+    await act(async () => field.focus());
+    box = { width: 700, height: 200 };
+    windowHeight(610);
+    await act(async () => window.dispatchEvent(new window.Event('resize')));
+    await act(async () => wait(200));
+    await act(async () => state.renew());
+    await flush();
+    assert.ok(viewports().length > typingFrom, 'the renewal restated it');
+    assert.ok(
+      viewports()
+        .slice(typingFrom)
+        .every((input) => input.height === 390),
+      'never the keyboard-shortened height'
+    );
+    assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 700, maxHeight: 390 });
+    // A real change of width (rotation) still goes through while typing.
+    box = { width: 390, height: 200 };
+    await act(async () => window.dispatchEvent(new window.Event('resize')));
+    await act(async () => wait(200));
+    assert.deepEqual(viewports().at(-1), { type: 'viewport', width: 390, height: 200, deviceScaleFactor: 1 });
+    // Keyboard down with the field: the box as it is.
+    box = { width: 390, height: 700 };
+    windowHeight(800);
+    await act(async () => field.blur());
+    await act(async () => wait(200));
+    assert.deepEqual(viewports().at(-1), { type: 'viewport', width: 390, height: 700, deviceScaleFactor: 1 });
+  } finally {
+    await pane.unmount();
+    window.HTMLElement.prototype.getBoundingClientRect = original;
+    restoreInnerHeight();
+    delete window.mixdogDesktop.remoteBrowserDrive;
+    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+    else delete window.navigator.userAgent;
   }
 });
 

@@ -118,6 +118,8 @@ export interface ApprovalButton {
   /** Its tooltip and accessible description (what "Always allow" changes,
    *  why a click is required); the label otherwise. */
   hint?: string;
+  /** Its own full-width row above the others (a takeover's "Open"). */
+  wide?: boolean;
   onClick?: () => void;
 }
 
@@ -164,6 +166,8 @@ export interface ApprovalPromptProps {
   busy?: boolean;
   kind?: string;
   agentMode?: boolean;
+  /** false: no Enter / Esc chips on the buttons (the keys still answer). */
+  keyChips?: boolean;
   data?: Record<`data-${string}`, string | undefined>;
   children?: ReactNode;
 }
@@ -342,6 +346,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
     busy = false,
     kind,
     agentMode = false,
+    keyChips = true,
     data,
     children,
   } = props;
@@ -471,7 +476,10 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   }, [decided]);
 
   const left = expiresAt && !status ? t('{{left}} left', { left: clock(expiresAt - now) }) : '';
-  const columns = buttons.length > 3 ? 1 : buttons.length;
+  // A wide button takes its own row; the others share the row below it.
+  const lead = buttons.some((button) => button.wide);
+  const rowCount = buttons.filter((button) => !button.wide).length;
+  const columns = rowCount > 3 ? 1 : Math.max(1, rowCount);
   return (
     <section
       ref={ref}
@@ -564,11 +572,12 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
             <div
               className="approval-buttons"
               data-count={String(columns === 1 && buttons.length > 1 ? 'many' : buttons.length)}
+              data-lead={lead || undefined}
               style={{ '--approval-columns': columns } as CSSProperties}
             >
               {buttons.map((button, index) => {
-                const shortcut =
-                  button.deny && !onClose ? 'Esc' : index === primaryIndex && enterPresses ? 'Enter' : '';
+                const shortcut = button.deny && !onClose ? 'Esc' : index === primaryIndex && enterPresses ? 'Enter' : '';
+                const chip = keyChips ? shortcut : '';
                 // Where Enter does not allow (payment, permanent delete, an
                 // unconfirmed receiver, a file from outside the project), an
                 // allow is never activated by Enter or Space on the focused
@@ -586,6 +595,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
                     className="approval-button"
                     data-tone={button.tone}
                     data-deny={button.deny || undefined}
+                    data-wide={button.wide || undefined}
                     data-initial={index === initialIndex || undefined}
                     disabled={busy || button.disabled}
                     title={button.hint || button.label}
@@ -598,7 +608,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
                     onClick={() => press(button)}
                   >
                     <span className="approval-button-label">{button.label}</span>
-                    {shortcut && <kbd className="approval-kbd">{shortcut}</kbd>}
+                    {chip && <kbd className="approval-kbd">{chip}</kbd>}
                   </button>
                 );
               })}

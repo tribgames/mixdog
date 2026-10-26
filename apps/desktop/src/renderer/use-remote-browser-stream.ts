@@ -4,6 +4,7 @@ import type { DesktopRemoteBrowserStreamFrame } from '../shared/contract';
 import { remoteBrowserDriveViewport } from '../shared/remote-browser';
 import type { RemoteInputFrame } from './remote-browser-input-client';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
+import { isMobileDeviceSurface } from './mobile-surface';
 
 /** The desktop stops a stream that is not renewed for 4s. */
 export const STREAM_RENEW_MS = 2_000;
@@ -34,6 +35,25 @@ function inputGeometry(
     shown?.width === width &&
     shown.height === height;
   return valid ? { width, height, viewportWidth, viewportHeight } : NO_INPUT_GEOMETRY;
+}
+
+/** The visible window height: a raised soft keyboard shortens it. */
+function windowHeight(): number {
+  return window.visualViewport?.height ?? window.innerHeight;
+}
+
+/** A phone or tablet with a text field focused and the window shorter than
+ *  `sentHeight` (the height when the size was last sent): its soft keyboard
+ *  is what shortens the pane. Never on a desktop, whose window resizes. */
+function softKeyboardUp(sentHeight: number): boolean {
+  if (!isMobileDeviceSurface() || !(windowHeight() < sentHeight)) return false;
+  const active = document.activeElement as HTMLElement | null;
+  if (!active) return false;
+  if (active.tagName === 'TEXTAREA' || active.isContentEditable) return true;
+  return (
+    active.tagName === 'INPUT' &&
+    !['button', 'checkbox', 'radio', 'range', 'submit'].includes((active as HTMLInputElement).type)
+  );
 }
 
 async function decodeImage(url: string): Promise<void> {
@@ -134,8 +154,28 @@ export function useRemoteBrowserStream({
     let timer = 0;
     let resizeTimer = 0;
     let running = false;
+    /** The box last sent; kept while the soft keyboard is what shrank it. */
+    let sentBox: { width: number; height: number } | null = null;
+    /** The window height when `sentBox` was measured. */
+    let sentWindowHeight = 0;
     const renew = () => {
-      const box = contentRef.current?.getBoundingClientRect();
+      const measured = contentRef.current?.getBoundingClientRect();
+      // Typing on a phone raises the soft keyboard, which only shortens the
+      // box; like a phone browser (its layout viewport stays), the host page
+      // keeps its size instead of re-laying out and restarting the stream on
+      // every keyboard show and hide. The frame fits the shorter box meanwhile.
+      const held = Boolean(
+        sentBox &&
+          measured &&
+          measured.width === sentBox.width &&
+          measured.height < sentBox.height &&
+          softKeyboardUp(sentWindowHeight)
+      );
+      const box = held ? sentBox : measured;
+      if (!held && measured && measured.width > 0 && measured.height > 0) {
+        sentBox = { width: measured.width, height: measured.height };
+        sentWindowHeight = windowHeight();
+      }
       const scale = window.devicePixelRatio || 1;
       const options =
         box && box.width > 0 && box.height > 0
@@ -168,6 +208,8 @@ export function useRemoteBrowserStream({
     if (content) observer?.observe(content);
     window.addEventListener('resize', resized);
     window.addEventListener('orientationchange', resized);
+    // The keyboard went down with the field: the held size gives way.
+    document.addEventListener('focusout', resized);
     const begin = () => {
       if (running) return;
       running = true;
@@ -196,6 +238,7 @@ export function useRemoteBrowserStream({
       observer?.disconnect();
       window.removeEventListener('resize', resized);
       window.removeEventListener('orientationchange', resized);
+      document.removeEventListener('focusout', resized);
       end();
     };
   }, [active, api, ownerSessionId]);

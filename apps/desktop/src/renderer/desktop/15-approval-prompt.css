@@ -800,3 +800,17 @@ html[data-mixdog-mobile-tabs] .approval-button-label {
 .transcript-virtual-row-content .approval-prompt {
   max-width: none;
 }
+
+/* A wide button (a takeover's 열기) is its own full-width row on top and the
+   rest share the row below in reading order (취소 · 완료), on every surface
+   and fit. Last, so it wins over the phone, narrow and row-fit rules. */
+html .approval-prompt > .approval-buttons[data-lead][data-count] {
+  grid-template-columns: repeat(var(--approval-columns, 2), minmax(0, 1fr));
+}
+html .approval-prompt > .approval-buttons[data-lead][data-count] > .approval-button {
+  grid-column: auto;
+  order: 0;
+}
+html .approval-prompt > .approval-buttons[data-lead][data-count] > .approval-button[data-wide] {
+  grid-column: 1 / -1;
+}
