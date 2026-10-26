@@ -661,6 +661,62 @@ test('a browser takeover offers "Import again from Chrome" as its own button, wh
   }
 });
 
+test('a browser takeover offers "Open", which shows the exact handed-over page and keeps the card open', async () => {
+  const { MarkdownSessionContext } = await import('./MarkdownLink.tsx');
+  const { onBrowserPageRevealRequested } = await import('./browser-page-request.ts');
+  const previous = dom.window.mixdogDesktop;
+  const takeover = { surface: 'browser', instructions: 'Sign in', tab: 'p14' };
+  const approval = { id: 't-open', name: 'ask_user', kind: 'takeover', sessionId: 'sess-t', takeover };
+  const mountCard = (value) =>
+    mount(React.createElement(MarkdownSessionContext.Provider, { value: 'sess-t' }, card(approval).element));
+
+  // No browser panel can open here: no button.
+  dom.window.mixdogDesktop = {};
+  let ui = await mountCard();
+  try {
+    assert.deepEqual(ui.rows(), ['Cancel', 'Done']);
+  } finally {
+    await ui.done();
+  }
+
+  // Desktop: the pane's page control selects that tab, then the panel opens on it.
+  const reveals = [];
+  const stop = onBrowserPageRevealRequested((request) => reveals.push(request.sessionId));
+  const selected = [];
+  dom.window.mixdogDesktop = { browserPageControl: async (owner, input) => selected.push([owner, input]) };
+  ui = await mountCard();
+  try {
+    assert.deepEqual(ui.rows(), ['Cancel', 'Open', 'Done']);
+    await ui.click(ui.button('Open'));
+    assert.deepEqual(selected, [
+      ['sess-t', { type: 'select-tab', tabId: 'p14', follow: 'view', documentId: 'p14:0' }],
+    ]);
+    assert.deepEqual(reveals, ['sess-t']);
+    assert.equal(ui.rows().length, 3, 'the card stays open');
+  } finally {
+    await ui.done();
+  }
+
+  // A paired phone has no pane page control: the host's session tab control does the same.
+  selected.length = 0;
+  reveals.length = 0;
+  const controls = [];
+  dom.window.mixdogDesktop = {
+    remoteBrowserSessionTabs: true,
+    remoteBrowserControl: async (owner, input) => controls.push([owner, input]),
+  };
+  ui = await mountCard();
+  try {
+    await ui.click(ui.button('Open'));
+    assert.deepEqual(controls, [['sess-t', { type: 'select-tab', tabId: 'p14' }]]);
+    assert.deepEqual(reveals, ['sess-t']);
+  } finally {
+    stop();
+    dom.window.mixdogDesktop = previous;
+    await ui.done();
+  }
+});
+
 const loginTakeover = (id, extra = {}) => ({
   id,
   name: 'ask_user',

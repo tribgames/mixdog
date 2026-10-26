@@ -303,6 +303,86 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
   }
 });
 
+test('during a takeover a tap on the page raises the soft keyboard and typing reaches the page', async () => {
+  const { holdBrowserTakeover } = await import('./browser-takeover-input.ts');
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    const content = await showFrame(state);
+    // The streamed page is tab p3 of the session (metadata-only frame: the picture stays).
+    await act(async () => state.listener(streamFrame({ seq: 2, documentId: 'p3:0', image: undefined })));
+    await flush();
+    const textarea = document.querySelector('.browser-remote-keyboard textarea');
+    const tap = async (id) => {
+      const touch = (type) =>
+        content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: 50, clientY: 25 }));
+      await act(async () => touch('pointerdown'));
+      await act(async () => touch('pointerup'));
+    };
+
+    // No takeover: a tap only clicks; the keyboard stays an explicit choice.
+    await tap(1);
+    assert.notEqual(document.activeElement, textarea);
+
+    // A takeover of another session changes nothing here.
+    const other = holdBrowserTakeover('other', 'p3');
+    await tap(2);
+    assert.notEqual(document.activeElement, textarea);
+    other();
+
+    // Another tab of this session is the takeover's page, not the one shown.
+    const elsewhere = holdBrowserTakeover('s', 'p9');
+    await tap(6);
+    assert.notEqual(document.activeElement, textarea);
+    elsewhere();
+
+    // This page's takeover: the tap clicks the page, then focuses the keyboard field.
+    // The same approval mounted twice holds twice; each ends on its own.
+    const release = holdBrowserTakeover('s', 'p3');
+    const copy = holdBrowserTakeover('s', 'p3');
+    copy();
+    await flush();
+    state.controls.length = 0;
+    await tap(3);
+    await flush();
+    assert.deepEqual(
+      pointers(state).map((input) => input.phase),
+      ['mouseMoved', 'mousePressed', 'mouseReleased']
+    );
+    assert.equal(document.activeElement, textarea);
+    // A dismissed keyboard leaves the field focused: the next tap re-raises it.
+    let focused = 0;
+    textarea.addEventListener('focus', () => focused++);
+    await tap(4);
+    assert.equal(focused, 1);
+
+    // What is typed (a password included) goes to the page and nowhere else.
+    textarea.value = 'hunter2';
+    await act(async () => textarea.dispatchEvent(new window.Event('input', { bubbles: true })));
+    await flush();
+    assert.deepEqual(state.controls.at(-1), {
+      sessionId: 's',
+      input: { type: 'text', text: 'hunter2', documentId: 'p3:0' },
+    });
+    assert.equal(textarea.value, '');
+
+    // The takeover over, taps leave the keyboard alone again.
+    release();
+    await flush();
+    textarea.blur();
+    await tap(5);
+    assert.notEqual(document.activeElement, textarea);
+
+    // A handoff that named no tab covers the page as streamed.
+    const unnamed = holdBrowserTakeover('s', '');
+    await tap(7);
+    assert.equal(document.activeElement, textarea);
+    unnamed();
+  } finally {
+    await pane.unmount();
+  }
+});
+
 test('touches on the frame are cancelled so the platform cannot claim them; controls over it keep theirs', async () => {
   const state = fakeApi();
   const pane = await mount();

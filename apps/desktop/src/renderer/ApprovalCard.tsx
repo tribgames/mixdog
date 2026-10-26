@@ -22,7 +22,9 @@ import { connectorById } from '../../../../src/runtime/shared/connector-catalog.
 import { loginSiteLabel } from '../shared/login-site';
 import { SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots';
 import { agentHomeTitle } from './agent-contacts-model';
-import { requestBrowserImport } from './browser-page-request';
+import { browserPageRequestsAvailable, requestBrowserImport, revealBrowserPane } from './browser-page-request';
+import { showBrowserPage } from './browser-page-view';
+import { holdBrowserTakeover } from './browser-takeover-input';
 import { MarkdownSessionContext } from './MarkdownLink';
 import type { Approval, TranscriptItem } from './desktop-types';
 import { t } from './i18n';
@@ -327,7 +329,7 @@ type CardRow = {
   desc?: string;
   /** What the row sends; `secret` hands the typed value over,
    *  `reimport` opens the Chrome import and leaves the card open. */
-  decision: ToolApprovalDecision | 'secret' | 'reimport' | 'wait';
+  decision: ToolApprovalDecision | 'secret' | 'reimport' | 'wait' | 'open';
   /** The card's edited text rides this decision (edit-and-approve). */
   edits?: boolean;
 };
@@ -444,7 +446,16 @@ export function approvalCardRows(
     reimport = false,
     controlReady = true,
     secretEntry = true,
-  }: { agentName: string; officeLabel: string; reimport?: boolean; controlReady?: boolean; secretEntry?: boolean }
+    openPage = false,
+  }: {
+    agentName: string;
+    officeLabel: string;
+    reimport?: boolean;
+    controlReady?: boolean;
+    secretEntry?: boolean;
+    /** A browser panel can show the takeover's page ("Open"). */
+    openPage?: boolean;
+  }
 ): CardRow[] {
   const cancel: CardRow = { label: t('Cancel'), decision: { approved: false } };
   if (model.kind === 'takeover') {
@@ -455,6 +466,8 @@ export function approvalCardRows(
       : { label: t('Stopping the agent…'), decision: 'wait' };
     return [
       first,
+      // The page the takeover is about, in this device's browser panel.
+      ...(openPage && model.surface === 'browser' ? [{ label: t('Open'), decision: 'open' as const }] : []),
       // An expired sign-in can also come back from Chrome (the existing importer).
       ...(reimport && model.surface === 'browser'
         ? [{ label: t('Import again from Chrome'), decision: 'reimport' as const }]
@@ -1205,6 +1218,18 @@ function ToolApprovalCard({
   else if (action === 'rollback') officeLabel = t('Roll back');
   const takeoverSessionId = String(approval.sessionId || browserSessionId || '');
   const controlReady = useControlReady(id, takeoverSessionId, model.kind === 'takeover' && !settled);
+  // The page's owner and the conversation whose panel shows it (they differ
+  // when this chat shows a sub-session's takeover).
+  const pageViewer = hostSessionId || browserSessionId || takeoverSessionId;
+  const pageOwnerTitle = useSessionTitle(takeoverSessionId !== pageViewer ? takeoverSessionId : '', t('Another session'));
+  const browserTakeover = model.kind === 'takeover' && model.surface === 'browser' && !settled;
+  // While it waits, a phone tap on the streamed page raises the soft keyboard.
+  const takeoverTab = model.takeoverTarget?.tab ?? '';
+  useEffect(
+    () => (browserTakeover && takeoverSessionId ? holdBrowserTakeover(takeoverSessionId, takeoverTab) : undefined),
+    [browserTakeover, takeoverSessionId, takeoverTab]
+  );
+  const openPage = Boolean(pageViewer && browserPageRequestsAvailable());
   const [text, setText] = useState(model.payload);
   // A secret is never React state: the inputs hold it until submit reads them.
   const secretRef = useRef<HTMLInputElement | null>(null);
@@ -1226,8 +1251,24 @@ function ToolApprovalCard({
     reimport: Boolean(browserSessionId && window.mixdogDesktop?.browserProfileImportSources),
     controlReady,
     secretEntry,
+    openPage,
   });
   const disabled = resolving || Boolean(settled);
+
+  /** Shows the exact page the takeover is about; no named tab: the panel as it is. */
+  const openTakeoverPage = async () => {
+    setError('');
+    const tabId = model.takeoverTarget?.tab ?? '';
+    if (!tabId) return revealBrowserPane(pageViewer);
+    const shown = await showBrowserPage({
+      viewer: pageViewer,
+      owner: takeoverSessionId,
+      ownerName: pageOwnerTitle,
+      tabId,
+    });
+    if (shown.status === 'gone') setError(t('This tab is no longer open'));
+    else if (shown.status === 'failed') setError(shown.message);
+  };
 
   const decide = async (decision: ToolApprovalDecision) => {
     if (resolvingRef.current || settled) return;
@@ -1256,6 +1297,10 @@ function ToolApprovalCard({
     if (row.decision === 'wait') return;
     if (row.decision === 'reimport') {
       requestBrowserImport(browserSessionId);
+      return;
+    }
+    if (row.decision === 'open') {
+      void openTakeoverPage();
       return;
     }
     if (row.decision === 'secret') {

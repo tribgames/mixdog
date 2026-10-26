@@ -20,6 +20,8 @@ export function createRemoteTouchController(options: {
   panning(): boolean;
   pan(dx: number, dy: number): void;
   indicator?(x: number, y: number): void;
+  /** A tap was clicked into the page (inside its picture). */
+  tapped?(): void;
   longPressMs?: number;
 }) {
   type Touch = { x: number; y: number; startX: number; startY: number };
@@ -124,6 +126,7 @@ export function createRemoteTouchController(options: {
           pointer('mouseMoved', at, 'none', 0);
           pointer('mousePressed', at, 'left', 1);
           pointer('mouseReleased', at, 'left', 0);
+          options.tapped?.();
         }
         mode = 'ended';
       } else if (mode === 'drag') {

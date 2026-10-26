@@ -4,9 +4,8 @@
 // shown one, never making a page. A tab no longer open says so instead.
 import { Globe } from 'lucide-react';
 import { useState } from 'react';
-import { BROWSER_TAB_GONE_MESSAGE } from '../shared/browser-page-control';
 import { revealBrowserPane, browserPageRequestsAvailable } from './browser-page-request';
-import { clearBorrowedBrowserTab, showBorrowedBrowserTab } from './browser-pane-borrowed-tab';
+import { showBrowserPage } from './browser-page-view';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { linkOpenTarget } from './link-open-target';
@@ -187,23 +186,9 @@ export function BrowserPeekLine({ sessionId, page }: { sessionId: string; page?:
     // Show that exact tab first: one that closed (or did not survive a
     // restart) is reported here, and no panel opens onto a page made for it.
     setFailure('');
-    try {
-      await window.mixdogDesktop?.browserPageControl?.(owner, {
-        type: 'select-tab',
-        tabId: page.tabId,
-        follow: 'view',
-        documentId: `${page.tabId}:0`,
-      });
-    } catch (error) {
-      // The host's IPC wraps the message, so the missing-tab answer is matched inside it.
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes(BROWSER_TAB_GONE_MESSAGE)) setGone(true);
-      else setFailure(message);
-      return;
-    }
-    if (ownerName) showBorrowedBrowserTab(sessionId, { ownerSessionId: owner, ownerName, tabId: page.tabId });
-    else clearBorrowedBrowserTab(sessionId);
-    revealBrowserPane(sessionId, { showsTab: true });
+    const result = await showBrowserPage({ viewer: sessionId, owner, ownerName, tabId: page.tabId });
+    if (result.status === 'gone') setGone(true);
+    else if (result.status === 'failed') setFailure(result.message);
   };
   return (
     <button

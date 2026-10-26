@@ -46,6 +46,7 @@ import {
   type StreamFrameMeta,
 } from './use-remote-browser-stream';
 import { useRemoteBrowserTabs } from './use-remote-browser-tabs';
+import { browserTakeoverCovers } from './browser-takeover-input';
 import {
   BROWSER_ZOOM_MAX,
   BROWSER_ZOOM_MIN,
@@ -122,6 +123,7 @@ function useRemoteTouch({
   zoomRef,
   setPan,
   setTouchDot,
+  tapRef,
 }: {
   client: ReturnType<typeof createRemoteBrowserInputClient>;
   frameRef: RefObject<RemoteInputFrame | null>;
@@ -130,6 +132,8 @@ function useRemoteTouch({
   zoomRef: RefObject<number>;
   setPan: Dispatch<SetStateAction<{ x: number; y: number }>>;
   setTouchDot: Dispatch<SetStateAction<TouchDot | null>>;
+  /** Called after each tap that reached the page. */
+  tapRef: RefObject<() => void>;
 }) {
   /** Client pixel → page CSS pixel through the (possibly zoomed) image box. */
   const viewportPoint = useCallback(
@@ -162,6 +166,7 @@ function useRemoteTouch({
         };
       },
       send: (action) => client.fire(action),
+      tapped: () => tapRef.current(),
       panning: () => zoomRef.current > 1,
       pan: (dx, dy) => {
         const image = imageRef.current;
@@ -178,7 +183,7 @@ function useRemoteTouch({
         dotTimer = window.setTimeout(() => setTouchDot(null), TOUCH_INDICATOR_MS);
       },
     });
-  }, [client, viewportPoint, frameRef, imageRef, contentRef, zoomRef, setPan, setTouchDot]);
+  }, [client, viewportPoint, frameRef, imageRef, contentRef, zoomRef, setPan, setTouchDot, tapRef]);
 }
 
 /** Human input to the streamed page: one ordered queue to the host, the
@@ -197,7 +202,9 @@ function useRemotePageInput({
   changeZoomLevel,
   setPan,
   setTouchDot,
+  tapRef,
 }: {
+  tapRef: RefObject<() => void>;
   api: typeof window.mixdogDesktop;
   active: boolean;
   ownerSessionId: string;
@@ -247,7 +254,7 @@ function useRemotePageInput({
   const inputRef = useRef(input);
   inputRef.current = input;
 
-  const touch = useRemoteTouch({ client, frameRef, imageRef, contentRef, zoomRef, setPan, setTouchDot });
+  const touch = useRemoteTouch({ client, frameRef, imageRef, contentRef, zoomRef, setPan, setTouchDot, tapRef });
 
   // Declared before the queue effect so an unmount releases a held press
   // (and flushes coalesced motion) before the queue stops accepting input.
@@ -918,7 +925,20 @@ export default function RemoteBrowserPane({
     setStreamId(sessionId);
   }, [sessionId]);
 
+  // The user is finishing a takeover on this page: a tap on it raises the soft
+  // keyboard (the picture cannot ask for it), inside the tap's own gesture.
+  // The textarea sends what is typed to the page only (use-browser-page-input).
+  // Only for the page the takeover is about, not another tab of the session.
+  const tapRef = useRef(() => {});
+  tapRef.current = () => {
+    const field = keyboardRef.current;
+    if (!field || !browserTakeoverCovers(ownerSessionId, frameRef.current?.documentId ?? '')) return;
+    // Already focused after the keyboard was dismissed: focus again to re-raise it.
+    if (document.activeElement === field) field.blur();
+    field.focus({ preventScroll: true });
+  };
   const { inputQueue, input, touch, resetDocumentInput } = useRemotePageInput({
+    tapRef,
     api,
     active,
     ownerSessionId,
