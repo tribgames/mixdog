@@ -160,6 +160,28 @@ test('a vertical drag from the edge is left to scrolling', () => {
   env.dispose();
 });
 
+test('a vertical drag never measures the sheet, a horizontal one measures it to slide it', () => {
+  const env = setup();
+  const text = env.doc.getElementById('text');
+  let measured = 0;
+  const measure = env.frame.getBoundingClientRect;
+  env.frame.getBoundingClientRect = () => {
+    measured += 1;
+    return measure();
+  };
+  for (const x of [5, 200]) {
+    pointer(env.win, text, 'pointerdown', x, 100);
+    pointer(env.win, text, 'pointermove', x + 8, 300);
+    pointer(env.win, text, 'pointerup', x + 8, 300);
+  }
+  assert.equal(measured, 0, 'a fling is rejected before any layout read');
+  assert.deepEqual(env.calls, []);
+  drag(env, text, 5, 200, 50);
+  assert.equal(measured, 1, 'the horizontal drag binds once');
+  assert.deepEqual(env.calls, ['left:true']);
+  env.dispose();
+});
+
 test('a tap on a button at the screen edge still activates it, files panel open or not', () => {
   for (const dockOpen of [false, true]) {
     const env = setup();

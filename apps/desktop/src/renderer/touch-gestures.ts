@@ -430,9 +430,12 @@ export function installEdgeSwipe(
     if (!current.locked) {
       if (Math.abs(dx) < LOCK_PX && Math.abs(dy) < LOCK_PX) return;
       // Vertical, nothing to slide that way, or against the sheet's direction: not ours.
+      // The vertical test runs first: bind() measures the sheet (a forced layout).
       const toward =
-        bind(current, dx) && (current.base === 0 ? dx * sign(current.drawer) > 0 : dx * sign(current.drawer) < 0);
-      if (Math.abs(dy) * 1.5 > Math.abs(dx) || !toward) {
+        Math.abs(dy) * 1.5 <= Math.abs(dx) &&
+        bind(current, dx) &&
+        (current.base === 0 ? dx * sign(current.drawer) > 0 : dx * sign(current.drawer) < 0);
+      if (!toward) {
         drag = null;
         return;
       }

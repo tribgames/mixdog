@@ -6,8 +6,21 @@ import { t } from './i18n';
  *  title replaces it); on screen it reads as the localized kind, never the
  *  raw placeholder. Any other title is shown as it is. */
 export function displaySessionTitle(title: string): string {
-  return sessionTitleLabel(title, { image: t('Image'), video: t('Video'), file: t('File') });
+  return sessionTitleLabel(title, PLACEHOLDER_LABELS);
 }
+
+// Looked up on read: only the placeholder's own kind is translated.
+const PLACEHOLDER_LABELS = {
+  get image() {
+    return t('Image');
+  },
+  get video() {
+    return t('Video');
+  },
+  get file() {
+    return t('File');
+  },
+};
 
 /** `sessionSummaryTitle` for display: placeholders read as their kind. */
 export function sessionDisplayTitle(session: Parameters<typeof sessionSummaryTitle>[0], fallback?: string): string {
