@@ -69,7 +69,7 @@ test('a stored login is its own fill form and never mixes with a typed value', (
   ok('fill', { savedAccount: 'a•••a@example.test', submit: true, expect: { url: '/home' } });
   bad('fill', { savedAccount: 'ada@example.test', text: 'secret' }, /only one input target form/);
   bad('fill', { savedAccount: 'ada@example.test', ref: 'p1-s1-e1', text: 'x' }, /only one input target form/);
-  bad('fill', { savedAccount: 'a'.repeat(321) }, /savedAccount must be a string of at most 320/);
+  ok('fill', { savedAccount: 'a'.repeat(400) });
   bad('type', { savedAccount: 'ada@example.test' }, /does not accept input field\(s\): savedAccount/);
   ok('sequence', {
     steps: [

@@ -5,8 +5,6 @@
  * until the filling turn settles or its owner is proven gone.
  */
 
-import { MAX_SESSION_SECRETS, MIN_REDACTED_LENGTH } from './session-secrets';
-
 /** What replaces a Computer Use saved-login password wherever it later appears. */
 export const SAVED_LOGIN_MARKER = '[saved login]';
 /** One saved-login fill's scope: the runtime process that sent it (its owner
@@ -56,11 +54,6 @@ export interface SavedLoginOwnerProcess {
   pid: number;
   created: string;
 }
-/** The saved-login stores never evict: at capacity a new fill is refused before
- *  anything is written. The bound reuses the registry's existing secret bound
- *  (MAX_SESSION_SECRETS) rather than inventing another. */
-export const MAX_SAVED_LOGIN_ENTRIES = MAX_SESSION_SECRETS;
-
 const ownerSession = (ownerId: string, sessionId: string) => `${ownerId}\u0000${sessionId}`;
 const validFill = (fill: SavedLoginTurn): boolean =>
   Boolean(fill.sessionId) &&
@@ -73,7 +66,9 @@ const sameFill = (a: SavedLoginTurn, b: SavedLoginTurn): boolean =>
 export function createSavedLoginRegistry() {
   // Saved-login password spellings (redacted for every session) and pixel
   // guards, each kept until its own turn settles or its owner is gone;
-  // neither is ever evicted.
+  // neither is ever evicted. Neither needs a count limit: they hold only the
+  // fills still live, which the turn's settlement or the owner's proven end
+  // retires.
   const savedLoginValues: Array<SavedLoginTurn & { value: string }> = [];
   const pixelGuards: SavedLoginPixelGuard[] = [];
   // Each owner's process (id and OS creation time) and its attached
@@ -119,30 +114,28 @@ export function createSavedLoginRegistry() {
     },
     /** Register every spelling of a saved-login password for redaction in
      *  every session's later replies, as SAVED_LOGIN_MARKER, until `turn`
-     *  settles. All or nothing: false (nothing registered) when a spelling is
-     *  shorter than MIN_REDACTED_LENGTH or the store lacks room, and the
-     *  caller then writes nothing. Never evicts. */
+     *  settles, whatever their length. All or nothing: false (nothing
+     *  registered) when `turn` is no valid fill or names no spelling, and the
+     *  caller then writes nothing. Never evicts. An empty spelling hides
+     *  nothing (replacing it would mark every character boundary) and is skipped. */
     rememberSavedLogin(turn: SavedLoginTurn, spellings: readonly string[]): boolean {
       if (!validFill(turn) || !spellings.length) return false;
-      if (spellings.some((value) => value.length < MIN_REDACTED_LENGTH)) return false;
       const fresh = [...new Set(spellings)].filter(
-        (value) => !savedLoginValues.some((entry) => entry.value === value && sameFill(entry, turn))
+        (value) => value && !savedLoginValues.some((entry) => entry.value === value && sameFill(entry, turn))
       );
-      if (savedLoginValues.length + fresh.length > MAX_SAVED_LOGIN_ENTRIES) return false;
       const { sessionId, turnId, ownerId } = turn;
       for (const value of fresh) savedLoginValues.push({ sessionId, turnId, ownerId, value });
       return true;
     },
     /** Hold back pixels of `guard.windowId` and of every window of process
      *  `guard.pid` for every session until the guard's turn settles. Never
-     *  replaces or evicts a guard: false (nothing armed) at capacity, and the
-     *  caller then writes nothing. */
+     *  replaces or evicts a guard: false (nothing armed) when `guard` names no
+     *  valid fill, window or process, and the caller then writes nothing. */
     armSavedLoginPixels(guard: SavedLoginPixelGuard): boolean {
       if (!validFill(guard) || !guard.windowId || !guard.pid) return false;
       const same = (held: SavedLoginPixelGuard) =>
         sameFill(held, guard) && held.windowId.toLowerCase() === guard.windowId.toLowerCase() && held.pid === guard.pid;
       if (pixelGuards.some(same)) return true;
-      if (pixelGuards.length >= MAX_SAVED_LOGIN_ENTRIES) return false;
       pixelGuards.push({ ...guard });
       return true;
     },

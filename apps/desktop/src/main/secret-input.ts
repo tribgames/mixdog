@@ -16,7 +16,6 @@ import { createSecretRequests } from './secret-requests';
 import { createSessionSecrets } from './session-secrets';
 
 export {
-  MAX_SAVED_LOGIN_ENTRIES,
   SAVED_LOGIN_MARKER,
   type SavedLoginOwnerProcess,
   type SavedLoginPixelGuard,

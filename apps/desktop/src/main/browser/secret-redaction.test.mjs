@@ -45,17 +45,25 @@ test('a page that echoes the filled password returns [redacted] to the model, wh
   assert.equal(after.text, PASSWORD);
 });
 
-test('the registry is bounded, in memory only, and keeps no value too short to tell from page text', () => {
+test('the registry keeps every non-empty secret of a session, of any length and count, until it ends', () => {
   const inputs = createSecretInputs();
-  inputs.remember('s1', 'abc');
-  assert.deepEqual(inputs.secretsOf('s1'), [], 'a three-character value is not kept');
-  for (let n = 0; n < 100; n += 1) inputs.remember('s1', `secret-${String(n).padStart(3, '0')}`);
-  const kept = inputs.secretsOf('s1');
-  assert.equal(kept.length, 64);
-  assert.equal(kept[0], 'secret-036', 'the oldest leave first');
-  assert.equal(inputs.redact('s1', 'x secret-000 y secret-099'), 'x secret-000 y [redacted]');
+  inputs.remember('s1', '731');
+  inputs.remember('s1', '');
+  assert.deepEqual(inputs.secretsOf('s1'), ['731'], 'a three-character value is kept, an empty one is not');
+  assert.equal(inputs.redact('s1', 'cvv 731 ok'), 'cvv [redacted] ok');
+  // The 65th value (and every later one) leaves the first in place.
+  for (let n = 1; n < 100; n += 1) inputs.remember('s1', `secret-${String(n).padStart(3, '0')}`);
+  assert.equal(inputs.secretsOf('s1').length, 100);
+  assert.equal(
+    inputs.redact('s1', 'x 731 y secret-001 z secret-064 w secret-099'),
+    'x [redacted] y [redacted] z [redacted] w [redacted]'
+  );
+  // A secret holding a shorter one is replaced whole, whichever came first.
+  inputs.remember('s1', '7314242');
+  assert.equal(inputs.redact('s1', 'n 7314242 m'), 'n [redacted] m');
   inputs.forget('s1');
   assert.deepEqual(inputs.secretsOf('s1'), []);
+  assert.equal(inputs.redact('s1', 'cvv 731'), 'cvv 731');
 });
 
 import { createBrowserCredentialFill } from './credential-autofill.ts';
@@ -122,6 +130,9 @@ test('saved-login passwords are redacted whole, longest first, before session se
     'a [saved login] b [saved login] c [redacted]'
   );
   assert.equal(inputs.redact('s3', 'Pa55word Pa55'), '[saved login] Pa55', 'saved logins for every session');
+  // A short password is held too; an empty spelling hides nothing and is skipped.
+  assert.equal(inputs.rememberSavedLogin(turn, ['abc', '']), true);
+  assert.equal(inputs.redact('s3', 'abc and more'), '[saved login] and more');
   inputs.armFocus('s1');
   inputs.clearFocus('s1');
   assert.equal(inputs.focusArmed('s1'), false);

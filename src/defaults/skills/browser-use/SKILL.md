@@ -247,7 +247,7 @@ read), finish it: search the site's domain (`from:<domain> newer_than:1d`),
 read the newest mail from the site dated after the flow started, then either
 `navigate` this session's page to its confirmation link or `fill` its code into
 the page's code field with `sensitive:true` (replies, snapshots and the stored
-transcript then show it redacted; a code under 4 characters is refused). Use the
+transcript then show it redacted). Use the
 link exactly as the mail's `links` list gives it, within 30 minutes of the read:
 a URL with a token opens only when the runtime read it in a mail this session,
 over https, from one sender Gmail authenticated, on that sender's own domain —

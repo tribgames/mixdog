@@ -218,19 +218,22 @@ test('marking notifies the session’s listeners before returning, once per new 
   assert.deepEqual(seen, [1, 2]);
 });
 
-test('a sensitive fill shorter than any value redaction can tell from other text is refused', () => {
+test('a sensitive fill of any non-empty length is accepted and its value redacted; an empty one is refused', () => {
   const fill = (input) => validateBrowserToolArgs({ action: 'fill', input });
-  assert.match(fill({ ref: 'p1-s1-e3', text: '123', sensitive: true }).error, /at least 4 characters/);
-  assert.match(
+  assert.equal(fill({ ref: 'p1-s1-e3', text: '123', sensitive: true }).ok, true);
+  assert.equal(
     fill({
       fields: [
         { ref: 'p1-s1-e3', text: '1234' },
         { ref: 'p1-s1-e4', text: '12' },
       ],
       sensitive: true,
-    }).error,
-    /at least 4 characters/
+    }).ok,
+    true
   );
-  assert.equal(fill({ ref: 'p1-s1-e3', text: '1234', sensitive: true }).ok, true);
+  assert.match(fill({ ref: 'p1-s1-e3', text: '', sensitive: true }).error, /must not be empty/);
   assert.equal(fill({ ref: 'p1-s1-e3', text: '12' }).ok, true, 'an ordinary fill is unaffected');
+  const id = 'sensitive-short';
+  assert.equal(markFill(id, '731'), true);
+  assert.equal(redactSensitive(id, 'cvv 731 ok'), 'cvv [redacted] ok');
 });

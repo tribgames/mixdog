@@ -15,10 +15,6 @@
 // first, so a shorter value never splits a longer one. Which parts of a
 // message are text is sensitive-projection.mjs's business.
 export const MARKER = '[redacted]';
-/** The shortest value kept: the desktop's secret registry keeps none shorter
- *  (apps/desktop/src/main/secret-input.ts MIN_REDACTED_LENGTH), and a shorter
- *  sensitive fill is refused before it runs (browser-bridge/action-schema.mjs). */
-export const MIN_SENSITIVE_LENGTH = 4;
 /** sessionId → { version, values: Set(value), spellings: string[] (longest first) } */
 const bySession = new Map();
 /** sessionId → Set(listener) notified synchronously when the session gains a value. */
@@ -38,7 +34,7 @@ function fillValues(call) {
   if (input.sensitive !== true) return [];
   const fields = Array.isArray(input.fields) ? input.fields : [];
   return [input.text, ...fields.flatMap((field) => [field?.text, field?.value])].filter(
-    (value) => typeof value === 'string' && value.length >= MIN_SENSITIVE_LENGTH
+    (value) => typeof value === 'string' && value.length > 0
   );
 }
 

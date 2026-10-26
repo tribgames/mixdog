@@ -282,13 +282,13 @@ export async function fillSavedLogin(
     ]);
     if (!registry.rememberSavedLogin(turn, spellings)) {
       throw new Error(
-        'saved_login_refused: the password could not be registered for redaction (too short to tell from page text, or too many fills still held until their turns settle); no input was sent'
+        'saved_login_refused: the password could not be registered for redaction; no input was sent'
       );
     }
     const guard = { ...turn, windowId: String(target.window_id || ''), pid: String(target.pid || '') };
     if (!registry.armSavedLoginPixels(guard)) {
       throw new Error(
-        'saved_login_refused: too many saved-login fills are holding captures back until their turns settle; no input was sent'
+        'saved_login_refused: the browser window and process could not be identified to hold its captures back; no input was sent'
       );
     }
   }

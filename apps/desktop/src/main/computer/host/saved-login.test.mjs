@@ -41,7 +41,7 @@ const { createCommandRouter } = await import('./command-router.ts');
 const { createExecutionState } = await import('./execution-state.ts');
 const { createSessionState } = await import('../session/state.ts');
 const { computerRunRecord } = await import('../session/run-log.ts');
-const { createSecretInputs, secretInputs, MAX_SAVED_LOGIN_ENTRIES } = await import('../../secret-input.ts');
+const { createSecretInputs, secretInputs } = await import('../../secret-input.ts');
 const { createBridgeServer } = await import('./bridge-server.ts');
 const { upsertVaultLogin } = await import('../../browser/credential-vault.ts');
 
@@ -270,32 +270,14 @@ test('a username is an identifier: neither redacted nor pixel-guarded, and any l
   assert.deepEqual(registry.savedLoginPixelGuards(), []);
 });
 
-test('a password the redactor cannot hold is refused before anything is written', async () => {
-  // Too short to tell from page text (the redactor's existing minimum).
-  const short = worker();
+test('a short password is registered, guarded, typed and redacted like any other', async () => {
   const registry = createSecretInputs();
-  await assert.rejects(
-    run(savedLogins({ values: { password: 'abc' } }), short, 'password', { registry }),
-    /could not be registered for redaction.*no input was sent/
-  );
-  assert.deepEqual(actions(short), ['saved_login_check']);
-  assert.deepEqual(registry.savedLoginPixelGuards(), []);
-  // A full store refuses rather than evicting a value still needed.
-  const full = createSecretInputs();
-  for (let index = 0; index < MAX_SAVED_LOGIN_ENTRIES; index++) {
-    assert.equal(
-      full.rememberSavedLogin({ sessionId: 'other', turnId: 1, ownerId: OTHER_OWNER }, [`held-secret-${index}`]),
-      true
-    );
-  }
   const native = worker();
-  await assert.rejects(run(savedLogins(), native, 'password', { registry: full }), /could not be registered/);
-  assert.deepEqual(actions(native), ['saved_login_check']);
-  assert.equal(full.redact('x', 'held-secret-0'), '[saved login]', 'the oldest entry is still redacted');
-  assert.equal(full.redact('x', PASSWORD), PASSWORD);
-  // The generic redactor keeps its own behavior for other callers.
-  full.remember('x', 'abc');
-  assert.equal(full.redact('x', 'abc'), 'abc');
+  await run(savedLogins({ values: { password: 'abc' } }), native, 'password', { registry });
+  assert.deepEqual(actions(native), ['saved_login_check', 'saved_login_type']);
+  assert.equal(native.requests[1].text, 'abc');
+  assert.equal(registry.redact('another-session', 'echo abc'), 'echo [saved login]');
+  assert.deepEqual(registry.savedLoginPixelGuards(), [{ ...TURN, windowId: 'hwnd:0x1', pid: '4242' }]);
 });
 
 test('Auto login switched off during the vault lookup or the dispatch authorization writes nothing', async () => {
@@ -429,29 +411,6 @@ test("a settlement waits for the turn's running fill, and a newer turn outlives 
   registry.forget(SESSION);
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(registry.savedLoginPixelGuards(), []);
-});
-
-test('at guard capacity a new password fill is refused, never evicting a held guard', async () => {
-  const registry = createSecretInputs();
-  for (let index = 0; index < MAX_SAVED_LOGIN_ENTRIES; index++) {
-    const guard = {
-      sessionId: 'other',
-      turnId: 1,
-      ownerId: OTHER_OWNER,
-      windowId: `hwnd:0x${100 + index}`,
-      pid: String(index),
-    };
-    assert.equal(registry.armSavedLoginPixels(guard), true);
-  }
-  const native = worker();
-  await assert.rejects(
-    run(savedLogins(), native, 'password', { registry }),
-    /too many saved-login fills.*no input was sent/
-  );
-  assert.deepEqual(actions(native), ['saved_login_check'], 'no value was sent');
-  const guards = registry.savedLoginPixelGuards();
-  assert.equal(guards.length, MAX_SAVED_LOGIN_ENTRIES);
-  assert.equal(guards[0].windowId, 'hwnd:0x100', 'the oldest guard is still held');
 });
 
 test('a settlement shuts its turn at once: a fill accepted after it is refused, one accepted before it is waited for', async () => {

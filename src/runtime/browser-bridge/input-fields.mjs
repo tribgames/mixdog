@@ -247,7 +247,6 @@ export const BROWSER_INPUT_FIELDS = {
     sensitive: { type: 'boolean', description: 'fill: code/secret text; redacted in output and transcript.' },
     savedAccount: {
       type: 'string',
-      maxLength: 320,
       description:
         'fill: saved login (account or masked label) of this HTTPS site; fills the sign-in form, password stays on the host. No ref/target/text.',
     },
@@ -326,7 +325,7 @@ export const BROWSER_INPUT_FIELDS = {
           checked: { type: 'boolean' },
           key: { type: 'string', maxLength: 100 },
           submit: { type: 'boolean' },
-          savedAccount: { type: 'string', maxLength: 320, description: 'fill: as input.savedAccount.' },
+          savedAccount: { type: 'string', description: 'fill: as input.savedAccount.' },
           dx: { type: 'integer' },
           dy: { type: 'integer' },
           textGone: { type: 'string', maxLength: 10000 },
