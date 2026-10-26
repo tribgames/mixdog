@@ -20,6 +20,7 @@ import type { createBrowserGuestLifecycle } from './guest-lifecycle';
 import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import type { createBrowserLinkedSignIns } from './linked-sign-in';
 import { normalizeBrowserPostcondition, normalizeBrowserSettleMs } from './postcondition';
+import { redactBrowserText } from './redaction';
 import { browserSessionId, type BrowserSessionRegistry } from './session-registry';
 import { throwIfBrowserCancelled } from './settle';
 import type { createBrowserTabs } from './tabs';
@@ -55,6 +56,8 @@ interface BrowserCommandRunnerHost {
     ): Promise<void> | void;
     replyLine: ReturnType<typeof createBrowserLinkedSignIns>['replyLine'];
   };
+  /** Receives a sanitized diagnostic for a failure the reply carries on past. */
+  onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
 }
 
 /** Validate and normalize one command before any page work: the action and the
@@ -266,10 +269,21 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
                 }),
             });
       // The identity a "Continue with Google/GitHub" last used on this site.
-      const linked =
-        command.internalStep === true || !host.linkedSignIn
-          ? ''
-          : await host.linkedSignIn.replyLine({ guest, sessionId: ownerSessionId, turnId }).catch(() => '');
+      let linked = '';
+      if (command.internalStep !== true && host.linkedSignIn) {
+        try {
+          linked = await host.linkedSignIn.replyLine({ guest, sessionId: ownerSessionId, turnId });
+        } catch (error) {
+          // The reply goes out without the line either way. The one expected
+          // failure is the page closing while its record is read; any other
+          // (an unreadable store, ...) is reported, never silently dropped.
+          if (!guest.isDestroyed()) {
+            host.onDiagnostic?.('browser-linked-sign-in-reply-failed', {
+              error: redactBrowserText(error instanceof Error ? error.message : String(error)),
+            });
+          }
+        }
+      }
       // An open always answers with its placement (the transcript's "보기"
       // line reads it); a sign-in made on the way rides along as its note.
       if (opensForeground) {

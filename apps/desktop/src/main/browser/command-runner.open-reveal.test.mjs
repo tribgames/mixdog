@@ -25,7 +25,7 @@ const page = (id, url = 'https://example.test/report', title = 'Report') => ({
 
 /** A runner over a real session registry; `reveal` stands in for the
  *  lifecycle's panel reveal (guest-lifecycle revealPage). */
-function fixture({ reveal = async () => 'shown', target = null, ensure, autoSignIn, linkedSignIn } = {}) {
+function fixture({ reveal = async () => 'shown', target = null, ensure, autoSignIn, linkedSignIn, onDiagnostic } = {}) {
   const sessions = new BrowserSessionRegistry();
   const shown = page(1);
   sessions.registerVisibleGuest(shown);
@@ -76,6 +76,7 @@ function fixture({ reveal = async () => 'shown', target = null, ensure, autoSign
         }
       : {}),
     ...(linkedSignIn ? { linkedSignIn } : {}),
+    ...(onDiagnostic ? { onDiagnostic } : {}),
     services: {
       cdp: { waitForIdle: async () => {}, guestDebugger: async () => {} },
       reply: {
@@ -183,15 +184,45 @@ test('a linked sign-in line leads the reply, follows an open placement, and skip
     ['before']
   );
 
-  // No line to give, or a store that cannot be read: the reply as it was.
-  for (const replyLine of [async () => '', async () => Promise.reject(new Error('vault unreadable'))]) {
-    const quiet = await fixture({ linkedSignIn: { beforeAction() {}, replyLine } }).run({
-      action: 'snapshot',
-      session_id: 's',
-      turn_id: 3,
-    });
-    assert.equal(quiet.text, 'ok');
-  }
+  // No line to give: the reply as it was, nothing reported.
+  const diagnostics = [];
+  const none = await fixture({
+    linkedSignIn: { beforeAction() {}, replyLine: async () => '' },
+    onDiagnostic: (...args) => diagnostics.push(args),
+  }).run({ action: 'snapshot', session_id: 's', turn_id: 3 });
+  assert.equal(none.text, 'ok');
+  assert.deepEqual(diagnostics, []);
+});
+
+test('a linked sign-in failure leaves the reply as it was but is reported, except when the page closed', async () => {
+  const diagnostics = [];
+  const failing = fixture({
+    linkedSignIn: {
+      beforeAction() {},
+      replyLine: async () => {
+        throw new Error('vault unreadable');
+      },
+    },
+    onDiagnostic: (...args) => diagnostics.push(args),
+  });
+  const reply = await failing.run({ action: 'snapshot', session_id: 's', turn_id: 3 });
+  assert.equal(reply.text, 'ok');
+  assert.deepEqual(diagnostics, [['browser-linked-sign-in-reply-failed', { error: 'vault unreadable' }]]);
+
+  // The expected failure: the page closed while the record was read.
+  diagnostics.length = 0;
+  const closing = fixture({
+    linkedSignIn: {
+      beforeAction() {},
+      replyLine: async ({ guest }) => {
+        guest.destroyed = true;
+        throw new Error('Object has been destroyed');
+      },
+    },
+    onDiagnostic: (...args) => diagnostics.push(args),
+  });
+  assert.equal((await closing.run({ action: 'snapshot', session_id: 's', turn_id: 3 })).text, 'ok');
+  assert.deepEqual(diagnostics, []);
 });
 
 test('a page that closes while the reveal waits is a failure, not a pending reveal', async () => {

@@ -561,6 +561,7 @@ export function createBrowserHostAgent(options: {
       };
     },
     services,
+    onDiagnostic: options.onDiagnostic,
   });
   /** A page of the session by its page ID (shown or in the background). */
   const pageById = (sessionId: string, pageId: string): WebContents | null => {
