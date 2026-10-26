@@ -430,6 +430,85 @@ test('screen-cursor reaches the screenCursor callback only at the current geomet
   assert.deepEqual(statuses, []);
 });
 
+const screenSource = { kind: 'screen', screenId: 'screen-1' };
+async function connectScreen(h, generation = 1) {
+  h.viewer.start();
+  h.viewer.handle(offer(generation, { source: screenSource }));
+  await settle();
+  h.peers.at(-1).connect();
+  await settle();
+}
+
+test('screen-frame-seen: once per run, for a frame received after the announcement', async () => {
+  const h = harness({ extra: { source: screenSource } });
+  await connectScreen(h);
+  const channel = h.peers[0].channel;
+  const push = (message) => channel.onmessage({ data: JSON.stringify({ v: 1, ...message }) });
+  const seen = () => channel.sent.filter((message) => message.kind === 'screen-frame-seen');
+  const frame = (receiveTime) => h.viewer.framePresented({ width: 1280, height: 720, receiveTime });
+
+  frame(5_000);
+  assert.equal(seen().length, 0, 'no run announced yet');
+  h.clock.now = 2_000;
+  push({ kind: 'screen-video', epoch: 1, path: 'helper' });
+  frame(1_999);
+  frame(2_000);
+  assert.equal(seen().length, 0, 'a frame received before (or at) the announcement is no evidence');
+  h.viewer.framePresented({ width: 1280, height: 720 });
+  assert.equal(seen().length, 0, 'no receiveTime: nothing is claimed');
+  frame(2_001);
+  assert.deepEqual(seen(), [{ v: 1, kind: 'screen-frame-seen', epoch: 1 }]);
+  frame(2_500);
+  push({ kind: 'screen-video', epoch: 1, path: 'helper' });
+  frame(2_900);
+  assert.equal(seen().length, 1, 'exactly once per epoch, a repeat does not re-arm');
+
+  // A new run re-arms it; an older epoch does not.
+  h.clock.now = 3_000;
+  push({ kind: 'screen-video', epoch: 2, path: 'capture' });
+  frame(3_100);
+  assert.deepEqual(seen().at(-1), { v: 1, kind: 'screen-frame-seen', epoch: 2 });
+  assert.equal(seen().length, 2);
+  h.clock.now = 4_000;
+  push({ kind: 'screen-video', epoch: 1, path: 'helper' });
+  frame(4_100);
+  assert.equal(seen().length, 2, 'a stale epoch is ignored');
+  push({ kind: 'screen-video', epoch: 0, path: 'helper' });
+  push({ kind: 'screen-video', epoch: 3, path: 'other' });
+  frame(4_200);
+  assert.equal(seen().length, 2, 'malformed runs are ignored');
+});
+
+test('screen-frame-seen: a new session starts from nothing', async () => {
+  const h = harness({ extra: { source: screenSource } });
+  await connectScreen(h);
+  const first = h.peers[0].channel;
+  h.clock.now = 2_000;
+  first.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-video', epoch: 5, path: 'helper' }) });
+  h.viewer.stop();
+  h.viewer.framePresented({ width: 1280, height: 720, receiveTime: 2_100 });
+  assert.equal(first.sent.filter((message) => message.kind === 'screen-frame-seen').length, 0);
+  await connectScreen(h, 2);
+  const second = h.peers.at(-1).channel;
+  h.clock.now = 3_000;
+  // A restarted desktop viewer counts its epochs from the start again.
+  second.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-video', epoch: 1, path: 'capture' }) });
+  h.viewer.framePresented({ width: 1280, height: 720, receiveTime: 3_100 });
+  assert.deepEqual(second.sent.filter((message) => message.kind === 'screen-frame-seen'), [
+    { v: 1, kind: 'screen-frame-seen', epoch: 1 },
+  ]);
+});
+
+test('screen-frame-seen is never sent for a browser source', async () => {
+  const h = harness();
+  await connect(h);
+  const channel = h.peers[0].channel;
+  h.clock.now = 2_000;
+  channel.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-video', epoch: 1, path: 'helper' }) });
+  h.viewer.framePresented({ width: 1280, height: 720, receiveTime: 2_100 });
+  assert.equal(channel.sent.filter((message) => message.kind === 'screen-frame-seen').length, 0);
+});
+
 test('a replacement desktop session at the same geometry generation inherits no cursor', async () => {
   let h;
   const tracker = createScreenCursorTracker(() => h.viewer.geometry?.generation ?? null);

@@ -11,6 +11,7 @@ import {
   readRemoteWebrtcChannelFromDesktop,
   readRemoteWebrtcScreenCursor,
   readRemoteWebrtcScreenStatus,
+  readRemoteWebrtcScreenVideo,
   remoteWebrtcCertificateMatches,
   remoteWebrtcSdpFingerprints,
   remoteWebrtcSourceKey,
@@ -43,6 +44,9 @@ export interface RemoteWebrtcPresentedFrame {
   /** Remote capture time in this clock, when the sender's RTP carries it. */
   captureTime?: number;
   expectedDisplayTime?: number;
+  /** When the frame's last packet arrived, in this clock; absent where the
+   *  browser does not report it (no screen receipt is sent then). */
+  receiveTime?: number;
 }
 
 export const REMOTE_WEBRTC_SWITCHING_MESSAGE = 'Remote Browser Use connection is switching; input was not sent.';
@@ -123,6 +127,9 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   /** The newest acknowledged geometry. */
   let geometry: RemoteWebrtcGeometry | null = null;
   let presented: { width: number; height: number } | null = null;
+  /** The screen video run the desktop announced last, when (in this clock) its
+   *  announcement arrived, and whether its receipt went out. */
+  let videoRun: { epoch: number; arrivedAt: number; seen: boolean } | null = null;
   let showsVideo = false;
   let current: Attempt | null = null;
   /** The newest connection the desktop named; later signals must match it. */
@@ -190,6 +197,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       stopStats();
       unacked.clear();
       awaitingVisible = [];
+      videoRun = null;
       // The desktop session this attempt spoke for is over; a replacement may
       // reuse the geometry generation, so what it reported is not carried over.
       options.sessionEnded?.();
@@ -383,6 +391,15 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     const pushed = readRemoteWebrtcScreenStatus(data);
     if (pushed) {
       options.screenStatus?.(pushed.status);
+      return;
+    }
+    const video = readRemoteWebrtcScreenVideo(data);
+    if (video) {
+      // A run is announced once; an older (or repeated) epoch, one of a session
+      // that has ended, or any push for a browser source is not a new run.
+      if (!ended && options.source.kind === 'screen' && (!videoRun || video.epoch > videoRun.epoch)) {
+        videoRun = { epoch: video.epoch, arrivedAt: now(), seen: false };
+      }
       return;
     }
     const cursor = readRemoteWebrtcScreenCursor(data);
@@ -747,6 +764,29 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       if (presented?.width !== frame.width || presented.height !== frame.height) {
         presented = { width: frame.width, height: frame.height };
         options.changed();
+      }
+      // The receipt: the first frame received after the run's announcement.
+      const attempt = current;
+      const channel = attempt?.channel;
+      if (
+        attempt &&
+        videoRun &&
+        !videoRun.seen &&
+        frame.receiveTime !== undefined &&
+        frame.receiveTime > videoRun.arrivedAt &&
+        channel?.readyState === 'open'
+      ) {
+        videoRun.seen = true;
+        const receipt: RemoteWebrtcChannelFromClient = {
+          v: REMOTE_WEBRTC_VERSION,
+          kind: 'screen-frame-seen',
+          epoch: videoRun.epoch,
+        };
+        try {
+          channel.send(JSON.stringify(receipt));
+        } catch (error) {
+          fail(attempt, 'channel-failed', String(error));
+        }
       }
       const captured = frame.captureTime;
       if (captured !== undefined && awaitingVisible.length) {

@@ -117,6 +117,7 @@ export function useRemoteScreen({
         height: frame.height,
         captureTime: frame.captureTime,
         expectedDisplayTime: frame.expectedDisplayTime,
+        receiveTime: frame.receiveTime,
       });
       handle = video.requestVideoFrameCallback(presented);
     };
