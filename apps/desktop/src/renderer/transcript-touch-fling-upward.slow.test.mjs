@@ -49,14 +49,40 @@ const HARNESS = `
     const height = settled ? settledHeight(index) : Math.max(40, Math.round(settledHeight(index) * 0.55));
     return <div style={{ height, boxSizing: 'border-box', borderTop: '1px solid #888' }}>row {index}</div>;
   }
-  const ROWS = Array.from({ length: 1200 }, (_, index) => {
+  const BASE = Array.from({ length: 1200 }, (_, index) => {
     const key = 'row-' + index;
     return { _tag: 'TurnGap', key, turnKey: key };
   });
+  // A reply streaming in (window.startStream): the live row at the tail grows
+  // every 60 ms and a new row (a tool round) is appended every 600 ms, each
+  // tick handing the list a new row array, as the live projection does.
+  let live = { rows: 0, height: 40, ticks: 0 };
+  const liveListeners = new Set();
+  window.startStream = () => {
+    window.setInterval(() => {
+      live = { ...live, height: live.height + 18, ticks: live.ticks + 1 };
+      if (live.ticks % 10 === 0) live = { ...live, rows: live.rows + 1 };
+      window.streamTicks = live.ticks;
+      for (const listener of liveListeners) listener(live);
+    }, 60);
+  };
+  function LiveRow({ height }) {
+    return <div style={{ height, boxSizing: 'border-box', borderTop: '1px solid #888' }}>live reply</div>;
+  }
   function Harness() {
     const viewport = useRef(null), content = useRef(null);
     const scrollToEndRef = useRef(() => {}), setAnchorBottomRef = useRef(() => {});
     const follow = useTranscriptFollow({ viewport, content, sessionKey: 'upward', scrollToEndRef, setAnchorBottomRef });
+    const [stream, setStream] = useState(live);
+    useEffect(() => {
+      liveListeners.add(setStream);
+      return () => liveListeners.delete(setStream);
+    }, []);
+    const ROWS = stream.ticks === 0 ? BASE : [
+      ...BASE,
+      ...Array.from({ length: stream.rows }, (_, index) => ({ _tag: 'TurnGap', key: 'tool-' + index, turnKey: 'tool-' + index })),
+      { _tag: 'TurnGap', key: 'live', turnKey: 'live' },
+    ];
     return <div className="transcript" ref={viewport} onScroll={follow.handleScroll} onWheel={follow.handleWheel}
       onTouchStart={follow.handleTouchStart} onTouchMove={follow.handleTouchMove}
       onTouchEnd={follow.handleTouchEnd} onTouchCancel={follow.handleTouchEnd}>
@@ -66,7 +92,10 @@ const HARNESS = `
           markProgrammaticScroll={follow.markProgrammaticScroll} hasScrollGesture={follow.hasScrollGesture}
           hasTouchScroll={follow.holdsScrollCorrections} touchHoldsCorrections={follow.touchHoldsCorrections}
           onSelectionAutoScroll={follow.handleSelectionAutoScroll}
-          renderRow={(row) => <Row index={Number(row.key.slice(4))} />} />
+          renderRow={(row) =>
+            row.key === 'live' ? <LiveRow height={stream.height} />
+            : row.key.startsWith('tool-') ? <Row index={Number(row.key.slice(5)) + 1200} />
+            : <Row index={Number(row.key.slice(4))} />} />
       </div>
     </div>;
   }
@@ -145,7 +174,7 @@ function frameMotion(frames) {
   return motion;
 }
 
-test('on Android an upward touch fling through mis-estimated rows moves the rows on screen only by the fling', async (t) => {
+async function openHarness(t) {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const bundle = await build({
     stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
@@ -204,10 +233,16 @@ test('on Android an upward touch fling through mis-estimated rows moves the rows
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   const top = () => page.evaluate(() => document.querySelector('.transcript').scrollTop);
   assert.ok((await top()) > 20_000, 'the session opens at its tail');
+  return { page, cdp, top, errors };
+}
 
-  await page.evaluate(() => window.armProbe());  const marks = [];
+/** Upward flings, each left to settle; per-frame motion and each fling's own travel. */
+async function upwardFlings({ page, cdp, top }, count, beforeEach = async () => {}) {
+  await page.evaluate(() => window.armProbe());
+  const marks = [];
   let rest = 0;
-  for (let flick = 0; flick < 6; flick += 1) {
+  for (let flick = 0; flick < count; flick += 1) {
+    await beforeEach();
     marks.push(await page.evaluate(() => performance.now()));
     await fling(cdp, 1_600);
     let previous = -1;
@@ -223,13 +258,7 @@ test('on Android an upward touch fling through mis-estimated rows moves the rows
   }
   const probe = await page.evaluate(() => window.probe);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
-  assert.deepEqual(errors, []);
   const motion = frameMotion(probe.frames);
-  const backward = motion.filter((step) => step.content < -2);
-  const jumps = motion.filter((step) => Math.abs(step.shift) > 2);
-  const summary = `${probe.writes} corrections over ${motion.length} frames`;
-  assert.deepEqual(backward, [], `the rows on screen never move against the fling (${summary})`);
-  assert.deepEqual(jumps, [], `the rows on screen move only by the fling (${summary})`);
   // Each fling's own travel: the native motion with this list's writes taken out.
   const travel = marks.map(
     (mark, index) =>
@@ -237,8 +266,53 @@ test('on Android an upward touch fling through mis-estimated rows moves the rows
         .filter((step) => step.t >= mark && step.t < (marks[index + 1] ?? Number.POSITIVE_INFINITY))
         .reduce((sum, step) => sum + step.fling, 0)
   );
+  return { probe, motion, travel, rest };
+}
+
+test('on Android an upward touch fling through mis-estimated rows moves the rows on screen only by the fling', async (t) => {
+  const harness = await openHarness(t);
+  const { probe, motion, travel, rest } = await upwardFlings(harness, 6);
+  assert.deepEqual(harness.errors, []);
+  const backward = motion.filter((step) => step.content < -2);
+  const jumps = motion.filter((step) => Math.abs(step.shift) > 2);
+  const summary = `${probe.writes} corrections over ${motion.length} frames`;
+  assert.deepEqual(backward, [], `the rows on screen never move against the fling (${summary})`);
+  assert.deepEqual(jumps, [], `the rows on screen move only by the fling (${summary})`);
   assert.ok(rest > 0, 'older rows remain above after the flings');
   for (const [index, distance] of travel.entries()) {
     assert.ok(distance > 3_000, `fling ${index} ran its course (${travel.join(', ')}px)`);
+  }
+});
+
+// The phone app (APK): a fling stops "every time the transcript updates".
+// While a reply streams in at the tail (the live row grows every 60 ms, a row
+// is appended every 600 ms), each upward fling starts at the followed tail —
+// the live row on screen — and must run its course with no stop, no motion
+// against it and no jump on top of it.
+test('on Android an upward touch fling from the tail runs its course while a reply streams in', async (t) => {
+  const harness = await openHarness(t);
+  const { page } = harness;
+  await page.evaluate(() => window.startStream());
+  await wait(500);
+  const toTail = async () => {
+    // Back at the followed tail between flings, as a reader who returned there.
+    await page.evaluate(() => {
+      const viewport = document.querySelector('.transcript');
+      viewport.scrollTop = viewport.scrollHeight;
+    });
+    await wait(600);
+  };
+  const ticksBefore = await page.evaluate(() => window.streamTicks);
+  const { probe, motion, travel } = await upwardFlings(harness, 5, toTail);
+  assert.deepEqual(harness.errors, []);
+  // The reply kept streaming through the flings (a 4x-throttled main thread
+  // still ran its updates).
+  assert.ok((await page.evaluate(() => window.streamTicks)) - ticksBefore > 50, 'the reply streamed during the flings');
+  // The tail-return writes are the test's own; only frames inside a fling count.
+  const backward = motion.filter((step) => step.content < -2 && step.fling < 0);
+  const summary = `${probe.writes} writes over ${motion.length} frames`;
+  assert.deepEqual(backward, [], `the rows on screen never move against the fling (${summary})`);
+  for (const [index, distance] of travel.entries()) {
+    assert.ok(distance > 3_000, `fling ${index} ran its course while streaming (${travel.join(', ')}px)`);
   }
 });
