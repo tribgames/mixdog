@@ -18,7 +18,7 @@
 // A marker is opaque to every redaction (the one written here, and the one the
 // desktop writes for a saved login, which reaches the transcript in replies):
 // a value is matched whole against the text and replaced unless that
-// occurrence lies entirely inside a marker already there, so redacting twice
+// occurrence lies entirely inside markers already there, so redacting twice
 // is redacting once and a value such as `e` never rewrites a marker's letters,
 // while a value that contains or spans marker text is still replaced.
 export const MARKER = '[redacted]';
@@ -102,7 +102,7 @@ export function sensitiveValuesVersion(sessionId) {
   return bySession.get(sessionId)?.version || 0;
 }
 
-/** [start, end) of every marker in `text`. */
+/** [start, end) of every marker in `text`, in order. */
 function markerSpans(text) {
   const spans = [];
   for (const marker of MARKERS) {
@@ -110,31 +110,54 @@ function markerSpans(text) {
       spans.push([at, at + marker.length]);
     }
   }
-  return spans;
+  return spans.sort((a, b) => a[0] - b[0]);
 }
 
-/** `text` with every spelling (longest first) replaced by MARKER, except an
- *  occurrence lying entirely inside a marker. The markers are looked up again
- *  for each spelling, so a later, shorter one cannot match inside a marker an
- *  earlier one wrote. */
+/** `text` with each occurrence of `spelling` replaced by MARKER, except one
+ *  lying entirely inside markers. An occurrence that partly overlaps a marker
+ *  replaces that marker whole, so no marker is left broken. */
+function redactSpelling(text, spelling) {
+  const spans = markerSpans(text);
+  let next = '';
+  let copied = 0;
+  for (let at = text.indexOf(spelling); at >= 0; ) {
+    const end = at + spelling.length;
+    const touched = spans.filter(([from, to]) => from < end && at < to);
+    let reach = at;
+    for (const [from, to] of touched) {
+      if (from > reach) break;
+      reach = Math.max(reach, to);
+    }
+    if (reach >= end) {
+      at = text.indexOf(spelling, at + 1);
+      continue;
+    }
+    const from = Math.min(at, touched[0]?.[0] ?? at);
+    const to = Math.max(end, touched.at(-1)?.[1] ?? end);
+    next += text.slice(copied, from) + MARKER;
+    copied = to;
+    at = text.indexOf(spelling, to);
+  }
+  return next + text.slice(copied);
+}
+
+/** `text` with every spelling (longest first) replaced by MARKER, passes
+ *  repeated until no spelling occurs outside the markers: a replacement can
+ *  join a spelling that holds marker text (`a[redacted]`) to the text before
+ *  it, so one pass is not enough. The repetition ends without a bound: every
+ *  replacement covers at least one character outside the markers and takes in
+ *  whole every marker it touches (writing one marker, which adds no character
+ *  outside), so each replacement lowers the number of characters outside the
+ *  markers and a pass that changes nothing comes after at most that many.
+ *  The result is stable: redacting it again changes nothing, and a later,
+ *  shorter spelling cannot match inside a marker an earlier one wrote. */
 function redactText(text, spellings) {
   let out = text;
-  for (const spelling of spellings) {
-    const spans = markerSpans(out);
-    let next = '';
-    let copied = 0;
-    for (let at = out.indexOf(spelling); at >= 0; ) {
-      const end = at + spelling.length;
-      if (spans.some(([from, to]) => from <= at && end <= to)) {
-        at = out.indexOf(spelling, at + 1);
-      } else {
-        next += out.slice(copied, at) + MARKER;
-        copied = end;
-        at = out.indexOf(spelling, end);
-      }
-    }
-    out = next + out.slice(copied);
-  }
+  let before;
+  do {
+    before = out;
+    for (const spelling of spellings) out = redactSpelling(out, spelling);
+  } while (out !== before);
   return out;
 }
 
@@ -151,25 +174,84 @@ export function containsSensitive(sessionId, text) {
   return Boolean(known && typeof text === 'string' && known.spellings.some((spelling) => text.includes(spelling)));
 }
 
-/** Text that is still streaming, redacted, without the trailing part that is
- *  the start of a value and may yet complete it: what of `text` can be
- *  journaled now (manager/turn-checkpoint-journal.mjs). */
-export function redactSettledText(sessionId, text) {
-  const known = bySession.get(sessionId);
-  if (!known?.spellings.length || typeof text !== 'string') return text;
-  const out = redactText(text, known.spellings);
-  // A start of a value lying entirely inside a marker ending the text is part of
-  // the marker, not of a value: it is never held.
-  const spans = markerSpans(out);
-  const inMarker = (length) => spans.some(([from, to]) => from <= out.length - length && out.length <= to);
-  let held = 0;
-  for (const spelling of known.spellings) {
-    for (let length = Math.min(spelling.length - 1, out.length); length > held; length -= 1) {
-      if (out.endsWith(spelling.slice(0, length)) && !inMarker(length)) {
-        held = length;
+/** Where the longest tail of `text` that is a proper prefix of one of
+ *  `strings` starts; the end of `text` when there is none. */
+function pendingStart(text, strings) {
+  let start = text.length;
+  for (const string of strings) {
+    for (let length = Math.min(string.length - 1, text.length); length > text.length - start; length -= 1) {
+      if (text.endsWith(string.slice(0, length))) {
+        start = text.length - length;
         break;
       }
     }
   }
-  return held ? out.slice(0, out.length - held) : out;
+  return start;
+}
+
+/** `start`, moved left to the start of every one of `strings` that lies
+ *  across it, until none does. */
+function coverStart(text, start, strings) {
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const string of strings) {
+      for (let at = text.indexOf(string); at >= 0 && at < start; at = text.indexOf(string, at + 1)) {
+        if (start < at + string.length) {
+          start = at;
+          moved = true;
+        }
+      }
+    }
+  }
+  return start;
+}
+
+/** How much of the redacted text `out` no later text can change: the start of
+ *  the held part, `out.length` when nothing is held. Held is every part that
+ *  may still be taken into a replacement:
+ *   - the tail that starts a value (or a marker) and may yet complete it;
+ *   - the marker such a tail starts inside, which a replacement takes in whole;
+ *   - the text before the held part that would join it, once it is replaced by
+ *     a marker, into a value holding marker text, as `a` before the held part
+ *     does for `a[redacted]`; this repeats, as the joined part is held too. */
+function settledEnd(out, spellings) {
+  const spans = markerSpans(out);
+  const longest = spellings[0].length;
+  let end = pendingStart(out, [...spellings, ...MARKERS]);
+  for (let moved = true; moved; ) {
+    moved = false;
+    const marker = spans.find(([start, stop]) => start < end && end < stop);
+    if (marker) {
+      end = marker[0];
+      moved = true;
+    }
+    for (let start = Math.max(0, end - longest + 1); start < end; start += 1) {
+      const part = out.slice(start, end);
+      const joins = (spelling) =>
+        spelling.length > part.length &&
+        MARKERS.some((m) => spelling.startsWith(part + m) || (part + m).startsWith(spelling));
+      if (spellings.some(joins)) {
+        end = start;
+        moved = true;
+        break;
+      }
+    }
+  }
+  return end;
+}
+
+/** Text that is still streaming, redacted, without the part that later text
+ *  can still change: what of `text` can be journaled now
+ *  (manager/turn-checkpoint-journal.mjs). As the text grows each result starts
+ *  the next, and none shows what the finished text's redaction hides. The tail
+ *  of `text` that starts a value or a marker is cut off before redacting (a
+ *  replacement inside a half-written marker is undone when it is completed),
+ *  with every value or marker lying across the cut; settledEnd then holds
+ *  back what of the redacted rest a replacement can still reach. */
+export function redactSettledText(sessionId, text) {
+  const known = bySession.get(sessionId);
+  if (!known?.spellings.length || typeof text !== 'string') return text;
+  const pending = [...known.spellings, ...MARKERS];
+  const out = redactText(text.slice(0, coverStart(text, pendingStart(text, pending), pending)), known.spellings);
+  return out.slice(0, settledEnd(out, known.spellings));
 }

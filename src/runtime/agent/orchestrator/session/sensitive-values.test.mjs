@@ -244,26 +244,97 @@ test('a value that contains or spans marker text is still redacted, and redactin
   };
   assert.equal(twice('pw=prefix[redacted]suffix'), 'pw=[redacted]');
   assert.equal(twice('pw=prefix[redacted]suffix e [redacted]'), 'pw=[redacted] [redacted] [redacted]');
-  assert.equal(twice('k[saved login]'), '[redacted] login]');
+  assert.equal(twice('k[saved login]'), '[redacted]', 'a marker the value overlaps is taken in whole');
   const stored = redactSensitiveMessage(id, { role: 'tool', toolCallId: 'T', content: 'pw=prefix[redacted]suffix' });
   assert.equal(stored.content, 'pw=[redacted]');
 });
 
-test('the held tail of streaming text is never part of a marker, but is a value split across one', () => {
-  const id = 'sensitive-marker-held';
-  markFill(id, ']ab');
-  assert.equal(redactSettledText(id, 'code [redacted]'), 'code [redacted]');
-  assert.equal(redactSettledText(id, 'code [saved login]'), 'code [saved login]');
-  assert.equal(redactSettledText(id, 'code [redacted] ]a'), 'code [redacted] ');
-  assert.equal(redactSettledText(id, 'code ]ab and ]'), 'code [redacted] and ');
+test('a replacement that rebuilds a value is redacted again until none shows outside the markers', () => {
+  const twice = (id, text) => {
+    const once = redactSensitive(id, text);
+    assert.equal(redactSensitive(id, once), once, `redacting twice changes ${JSON.stringify(text)}`);
+    return once;
+  };
+  // The marker that replaces the second `a[redacted]` joins the `a` before it.
+  const rebuilt = 'sensitive-marker-rebuilt';
+  markFill(rebuilt, 'a[redacted]');
+  assert.equal(twice(rebuilt, 'aa[redacted]'), '[redacted]');
+  assert.equal(twice(rebuilt, 'aaaa[redacted] x'), '[redacted] x');
+  // A value that only partly overlaps a marker takes it in whole; none is left broken.
+  const partial = 'sensitive-marker-partial';
+  markFill(partial, 'd]x');
+  assert.equal(twice(partial, 'a [redacted]x'), 'a [redacted]');
+  assert.equal(twice(partial, 'a [saved login]d]x'), 'a [saved login][redacted]');
+  // A value found only across two adjacent markers is made of marker text, not of a value.
+  markFill(partial, 'd][r');
+  assert.equal(twice(partial, '[redacted][redacted]'), '[redacted][redacted]');
+  // A value that starts with a marker.
+  const prefixed = 'sensitive-marker-prefixed';
+  markFill(prefixed, '[redacted]suffix');
+  markFill(prefixed, 'e');
+  assert.equal(twice(prefixed, 'x [redacted]suffix e [redacted]'), 'x [redacted] [redacted] [redacted]');
+  // The marker written for the value joins the text after it into the value again.
+  assert.equal(twice(prefixed, '[redacted]suffixsuffix'), '[redacted]');
+});
 
-  const split = 'sensitive-marker-held-split';
-  markFill(split, 'prefix[redacted]suffix');
-  assert.equal(redactSettledText(split, 'pw=prefix'), 'pw=');
-  assert.equal(redactSettledText(split, 'pw=prefix[redacted]'), 'pw=');
-  assert.equal(redactSettledText(split, 'pw=prefix[redacted]su'), 'pw=');
-  assert.equal(redactSettledText(split, 'pw=prefix[redacted]suffix'), 'pw=[redacted]');
-  assert.equal(redactSettledText(split, 'pw=[redacted]'), 'pw=[redacted]');
+// Every prefix of `text` settled, the way a stream is journaled: each result starts the
+// next, and none shows what the whole text's redaction hides. Returns the last.
+const settledAcrossPrefixes = (id, text) => {
+  const redacted = redactSensitive(id, text);
+  let previous = '';
+  for (let length = 0; length <= text.length; length += 1) {
+    const settled = redactSettledText(id, text.slice(0, length));
+    const at = `${JSON.stringify(text.slice(0, length))} of ${JSON.stringify(text)}`;
+    assert.ok(settled.startsWith(previous), `${JSON.stringify(settled)} does not continue ${JSON.stringify(previous)} at ${at}`);
+    assert.ok(redacted.startsWith(settled), `${JSON.stringify(settled)} shows what ${JSON.stringify(redacted)} hides at ${at}`);
+    previous = settled;
+  }
+  return previous;
+};
+
+test('settled streaming text only ever grows, and holds back what later text can still turn into a value', () => {
+  // A value that starts with a marker: the marker is held until the value is whole, and after it.
+  const suffixed = 'sensitive-settled-suffixed';
+  markFill(suffixed, '[redacted]suffix');
+  for (const text of ['[redacted]', '[redacted]s', '[redacted]suffix']) assert.equal(redactSettledText(suffixed, text), '');
+  assert.equal(settledAcrossPrefixes(suffixed, 'pw [redacted]suffix tail'), 'pw [redacted] tail');
+
+  // A replacement that joins the text before it: that text is held too.
+  const rebuilt = 'sensitive-settled-rebuilt';
+  markFill(rebuilt, 'a[redacted]');
+  assert.equal(redactSettledText(rebuilt, 'xaa'), 'x');
+  assert.equal(redactSettledText(rebuilt, 'xaa[redacted'), 'x');
+  assert.equal(settledAcrossPrefixes(rebuilt, 'xaa[redacted] y'), 'x[redacted] y');
+
+  // A one-character value, in text that writes a marker letter by letter.
+  const single = 'sensitive-settled-single';
+  markFill(single, 'e');
+  assert.equal(redactSettledText(single, 'see [red'), 's[redacted][redacted] ');
+  assert.equal(
+    settledAcrossPrefixes(single, 'see [redacted] there'),
+    's[redacted][redacted] [redacted] th[redacted]r[redacted]'
+  );
+
+  // Values that overlap: a longer one that completes later takes back what a shorter one replaced.
+  const overlapping = 'sensitive-settled-overlap';
+  markFill(overlapping, 'abc');
+  markFill(overlapping, 'bcde');
+  assert.equal(redactSettledText(overlapping, 'xabc'), 'x');
+  assert.equal(settledAcrossPrefixes(overlapping, 'xabcde y'), 'xa[redacted] y');
+
+  // A value that holds marker text, and the markers the held part starts in.
+  const contained = 'sensitive-settled-contained';
+  for (const value of ['prefix[redacted]suffix', 'k[saved', 'e']) markFill(contained, value);
+  assert.equal(
+    settledAcrossPrefixes(contained, 'pw=prefix[redacted]suffix k[saved login] e'),
+    'pw=[redacted] [redacted] [redacted]'
+  );
+  const closing = 'sensitive-settled-closing';
+  markFill(closing, ']ab');
+  assert.equal(redactSettledText(closing, 'code [redacted]'), 'code ', 'a replacement would take the marker in whole');
+  assert.equal(redactSettledText(closing, 'code [saved login]'), 'code ');
+  assert.equal(redactSettledText(closing, 'code [redacted] ]a'), 'code [redacted] ');
+  assert.equal(settledAcrossPrefixes(closing, 'code [redacted] ]ab and ]'), 'code [redacted] [redacted] and ');
 });
 
 test('marking notifies the session’s listeners before returning, once per new value', () => {

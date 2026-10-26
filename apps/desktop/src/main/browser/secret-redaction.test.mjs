@@ -212,7 +212,7 @@ test('a secret that contains or spans marker text is still redacted, and redacti
   const redact = (text) => secrets.redact('s1', text);
   assert.equal(twice(redact, 'pw=prefix[redacted]suffix'), 'pw=[redacted]');
   assert.equal(twice(redact, 'pw=prefix[redacted]suffix e [redacted]'), 'pw=[redacted] [redacted] [redacted]');
-  assert.equal(twice(redact, 'k[saved login]'), '[redacted] login]');
+  assert.equal(twice(redact, 'k[saved login]'), '[redacted]', 'a marker the secret overlaps is taken in whole');
 
   const registry = createSavedLoginRegistry();
   const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
@@ -225,6 +225,53 @@ test('a secret that contains or spans marker text is still redacted, and redacti
   assert.equal(
     twice((text) => inputs.redact('s1', text), 'prefix[redacted]suffix pass[saved login]word'),
     '[redacted] [saved login]'
+  );
+});
+
+test('a replacement that rebuilds a secret is redacted again until none shows outside the markers', () => {
+  const twice = (redact, text) => {
+    const once = redact(text);
+    assert.equal(redact(once), once, `redacting twice changes ${JSON.stringify(text)}`);
+    return once;
+  };
+  // The marker that replaces the second `a[redacted]` joins the `a` before it.
+  const secrets = createSessionSecrets();
+  secrets.remember('s1', 'a[redacted]');
+  const redact = (text) => secrets.redact('s1', text);
+  assert.equal(twice(redact, 'aa[redacted]'), '[redacted]');
+  assert.equal(twice(redact, 'aaaa[redacted] x'), '[redacted] x');
+
+  const registry = createSavedLoginRegistry();
+  const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
+  assert.equal(registry.rememberSavedLogin(turn, ['a[saved login]']), true);
+  assert.equal(twice((text) => registry.redact(text), 'aa[saved login] x'), '[saved login] x');
+
+  // A secret that only partly overlaps a marker takes it in whole; none is left broken.
+  const partial = createSessionSecrets();
+  partial.remember('s1', 'd]x');
+  const redactPartial = (text) => partial.redact('s1', text);
+  assert.equal(twice(redactPartial, 'a [redacted]x'), 'a [redacted]');
+  assert.equal(twice(redactPartial, 'a [saved login]d]x'), 'a [saved login][redacted]');
+  // A secret found only across two adjacent markers is made of marker text, not of a secret.
+  partial.remember('s1', 'd][r');
+  assert.equal(twice(redactPartial, '[redacted][redacted]'), '[redacted][redacted]');
+
+  // A secret that starts with a marker.
+  const prefixed = createSessionSecrets();
+  prefixed.remember('s1', '[redacted]suffix');
+  prefixed.remember('s1', 'e');
+  const redactPrefixed = (text) => prefixed.redact('s1', text);
+  assert.equal(twice(redactPrefixed, 'x [redacted]suffix e [redacted]'), 'x [redacted] [redacted] [redacted]');
+  // The marker written for the secret joins the text after it into the secret again.
+  assert.equal(twice(redactPrefixed, '[redacted]suffixsuffix'), '[redacted]');
+
+  // Both redactors together: each leaves the other's marker alone.
+  const inputs = createSecretInputs();
+  inputs.remember('s1', 'a[redacted]');
+  assert.equal(inputs.rememberSavedLogin(turn, ['pw']), true);
+  assert.equal(
+    twice((text) => inputs.redact('s1', text), 'aa[redacted] pw [saved login]'),
+    '[redacted] [saved login] [saved login]'
   );
 });
 
