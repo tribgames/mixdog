@@ -62,13 +62,33 @@ export function useConversationFollowEffects({
   // position, so a shrink that fits inside the viewport re-arms follow instead
   // of leaving auto-scroll released with nothing left to scroll. Driven by the
   // rows commit, so virtual-core stays the only content-growth authority.
+  // The viewport is read on the next frame, not in the commit: the rows the
+  // commit mounted and the list's own writes (its spacer, a landing's offset)
+  // left layout dirty, so a read here forced a second full layout of the
+  // mounted rows inside every rows commit of a reader scrolled up (23-33 ms
+  // per commit on a phone catching up after resume). At the next frame the
+  // browser has laid them out for paint, and the check reads that layout.
+  // A transcript that fits is re-armed a frame later; nothing scrolls there.
+  const overflowCheck = useRef(0);
+  const latest = useRef({ armFollow, following });
+  latest.current = { armFollow, following };
   // biome-ignore lint/correctness/useExhaustiveDependencies: a rows commit is the trigger; the body only measures the viewport.
   useLayoutEffect(() => {
-    if (following) return;
-    const element = viewport.current;
-    if (!element) return;
-    if (element.scrollHeight - element.clientHeight > 1) return;
-    armFollow();
+    if (following || overflowCheck.current) return;
+    overflowCheck.current = window.requestAnimationFrame(() => {
+      overflowCheck.current = 0;
+      const element = viewport.current;
+      if (latest.current.following || !element) return;
+      if (element.scrollHeight - element.clientHeight > 1) return;
+      latest.current.armFollow();
+    });
   }, [armFollow, following, transcriptRows, viewport]);
+  useLayoutEffect(
+    () => () => {
+      if (overflowCheck.current) window.cancelAnimationFrame(overflowCheck.current);
+      overflowCheck.current = 0;
+    },
+    []
+  );
   return following || armedFollowSessionKey.current !== transcriptSessionKey;
 }
