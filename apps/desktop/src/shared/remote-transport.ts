@@ -38,10 +38,6 @@ export { remoteWebrtcCertificateMatches, remoteWebrtcSdpFingerprints };
 // ---------------------------------------------------------------------------
 
 export const REMOTE_TRANSPORT_VERSION = 1 as const;
-/** E2EE challenge/hello flag (`RelayE2EEChallenge.transportWebrtc`, value 1).
- *  Independent of `browserWebrtc`; effective only when both sides set it and
- *  both use binary frames (`relayE2EETransportNegotiated`). */
-export const REMOTE_TRANSPORT_CAPABILITY = 'transportWebrtc' as const;
 /** The application data channel: one per transport peer connection, created
  *  by the desktop (the offerer) before its offer; reliable and ordered. It
  *  carries kinds 1 and 2 (app records and chunks) only. */
@@ -88,7 +84,6 @@ export const REMOTE_TRANSPORT_CHUNK_BYTES = REMOTE_TRANSPORT_MAX_MESSAGE_BYTES -
  *  (`splitRemoteTransportPayload`). */
 export const REMOTE_TRANSPORT_MAX_RECORD_PLAINTEXT_BYTES = RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES;
 export const REMOTE_TRANSPORT_MAX_RECORD_BYTES = RELAY_E2EE_TRANSPORT_MAX_BOX_BYTES;
-export const REMOTE_TRANSPORT_MAX_CHUNKS = Math.ceil(REMOTE_TRANSPORT_MAX_RECORD_BYTES / REMOTE_TRANSPORT_CHUNK_BYTES);
 /** Per-leg queue bound the relay already enforces (relay-transport.mjs
  *  PHONE_QUEUE_LIMIT_BYTES / UPLINK_QUEUE_LIMIT_BYTES, 8 MiB): the most it
  *  lets accumulate for one conversation that is not draining. */
@@ -266,7 +261,10 @@ export const REMOTE_TRANSPORT_ASSEMBLY_POOL_BYTES = RELAY_DEFAULT_MAX_FRAME_BYTE
  *  (relay-transport.mjs INGRESS_WAIT_TIMEOUT_MS, 60 s). */
 export const REMOTE_TRANSPORT_ASSEMBLY_IDLE_MS = 60_000;
 
-const MAX_DETAIL = 200;
+/** Longest diagnostic detail text a close signal or peer report carries. A
+ *  Mixdog choice, not a protocol limit: enough for an ICE/DTLS failure
+ *  message, far below one control box (REMOTE_TRANSPORT_MAX_CONTROL_PLAINTEXT_BYTES). */
+export const REMOTE_TRANSPORT_MAX_DETAIL_CHARS = 200;
 
 // ---------------------------------------------------------------------------
 // Validation helpers
@@ -434,7 +432,7 @@ function parseSignalFields(value: unknown, from: 'desktop' | 'client'): RemoteTr
         ...ref,
         t: 'close',
         reason: input.reason as RemoteTransportCloseReason,
-        ...(input.detail === undefined ? {} : { detail: boundedText(input.detail, MAX_DETAIL, 'close detail') }),
+        ...(input.detail === undefined ? {} : { detail: boundedText(input.detail, REMOTE_TRANSPORT_MAX_DETAIL_CHARS,'close detail') }),
       };
     }
     default:
@@ -869,12 +867,6 @@ function boxSequence(box: Uint8Array): number {
   const raw = new DataView(box.buffer, box.byteOffset, box.byteLength).getBigUint64(4, false);
   if (raw < 1n || raw > BigInt(Number.MAX_SAFE_INTEGER)) fail('application sequence');
   return Number(raw);
-}
-
-/** The sequence an E2EE binary box was sealed under (unauthenticated until
- *  it opens; used only to place it). */
-export function remoteTransportBoxSequence(box: Uint8Array): number {
-  return boxSequence(box);
 }
 
 function prefixed(kind: number, length: number): Uint8Array {

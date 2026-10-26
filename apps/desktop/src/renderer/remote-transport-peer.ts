@@ -8,6 +8,7 @@
 // the shared stream core implements it. The PC→PC window runs this same page.
 import { RELAY_E2EE_RELAY_LANE, type RelayE2EEChannel, type RelayE2EEControlLane } from '../shared/remote-e2ee';
 import {
+  REMOTE_TRANSPORT_MAX_DETAIL_CHARS,
   REMOTE_TRANSPORT_BUFFER_HIGH_BYTES,
   REMOTE_TRANSPORT_BUFFER_LOW_BYTES,
   REMOTE_TRANSPORT_CHANNEL_LABEL,
@@ -553,7 +554,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   const failDirect = (d: Direct, why: RemoteTransportCloseReason, detail?: string): void => {
     if (direct !== d) return;
     options.log(`[mixdog-remote-transport] closing ${d.connectionId}: ${why}${detail ? ` (${detail})` : ''}`);
-    control({ ...ref(d), t: 'close', reason: why, ...(detail ? { detail: detail.slice(0, 200) } : {}) }, relayPath);
+    control({ ...ref(d), t: 'close', reason: why, ...(detail ? { detail: detail.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) } : {}) }, relayPath);
     closePeer(d, detail === 'max-message-size' ? 'message-size' : (PATH_REASONS[why] ?? 'channel-failed'));
   };
 

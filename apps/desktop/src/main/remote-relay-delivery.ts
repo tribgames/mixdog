@@ -92,10 +92,16 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
       try {
         // `droppable` only decides whether to drop BEFORE sealing; every
         // sealed record goes on the non-droppable path.
-        const bytes = await transport.send(payload, { droppable });
+        // The meter measures relay traffic: it counts each message the relay
+        // socket took, never what a direct carrier moved.
+        const bytes = await transport.send(payload, {
+          droppable,
+          onRelayWrite: (relayBytes) => {
+            const meterReport = deps.byteMeter.record(payload, relayBytes);
+            if (meterReport) reportRemoteByteWindow(meterReport);
+          },
+        });
         if (bytes === null) return;
-        const meterReport = deps.byteMeter.record(payload, bytes);
-        if (meterReport) reportRemoteByteWindow(meterReport);
         onSent?.(bytes);
       } catch (error) {
         if (error instanceof RemoteTransportOversizeError && guardOversize) {

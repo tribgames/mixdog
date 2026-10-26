@@ -118,6 +118,7 @@ import {
   REMOTE_TRANSPORT_BUFFER_HIGH_BYTES,
   REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES,
   REMOTE_TRANSPORT_MAX_CONTROL_PLAINTEXT_BYTES,
+  REMOTE_TRANSPORT_MAX_DETAIL_CHARS,
   REMOTE_TRANSPORT_MAX_MESSAGE_BYTES,
   REMOTE_TRANSPORT_NEGOTIATION_TIMEOUT_MS,
   remoteTransportCarrierFits,
@@ -213,6 +214,8 @@ interface PeerConnection {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
+/** A coordinator-minted id (16 random bytes, base64url = 22 chars); the 64
+ *  ceiling is the signal token limit (shared/remote-transport.ts `token`). */
 const CONNECTION_ID = /^[A-Za-z0-9_-]{8,64}$/u;
 const CHANNELS: ReadonlySet<string> = new Set<RemoteTransportPeerChannel>(['app', 'control']);
 const PAGE_FAILURES: ReadonlySet<string> = new Set<RemoteTransportPeerFailure>([
@@ -222,7 +225,6 @@ const PAGE_FAILURES: ReadonlySet<string> = new Set<RemoteTransportPeerFailure>([
   'protocol-error',
   'peer-host-unavailable',
 ]);
-const DETAIL_CHARS = 200;
 const LIMITS: Record<RemoteTransportPeerChannel, number> = {
   app: REMOTE_TRANSPORT_BUFFER_HIGH_BYTES - REMOTE_TRANSPORT_CONTROL_RESERVE_BYTES,
   control: REMOTE_TRANSPORT_BUFFER_HIGH_BYTES,
@@ -233,7 +235,7 @@ const isRecord = (value: unknown): value is Fields => !!value && typeof value ==
 const isCount = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const optionalText = (value: unknown): string | undefined =>
-  typeof value === 'string' ? value.slice(0, DETAIL_CHARS) : undefined;
+  typeof value === 'string' ? value.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) : undefined;
 
 /** The SDP as the transport signals it: within one control box, then the live
  *  view's strict check (docs/remote-transport.md §3 Signaling). Throws. */
@@ -492,6 +494,7 @@ export function createRemoteTransportPeerWindow(options: RemoteTransportPeerWind
       show: false,
       focusable: false,
       skipTaskbar: true,
+      // Never shown; a small fixed size, as the page renders nothing.
       width: 64,
       height: 64,
       title: 'Mixdog direct transport',

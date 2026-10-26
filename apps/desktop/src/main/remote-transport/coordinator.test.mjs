@@ -197,7 +197,6 @@ async function harness({ peerHost = null, media = null, relaySend } = {}) {
     },
     peerHost,
     media,
-    mediaDevice: 'credential-1',
     resolveIceServers: async () => {
       iceResolves += 1;
       return ICE;
@@ -437,6 +436,99 @@ test('no promotion without a pong, and none on a carrier whose max message size 
   assert.equal(small.coordinator.diagnostics().reason, 'message-size');
 });
 
+const messageBytes = (raws) => raws.reduce((sum, raw) => sum + raw.byteLength, 0);
+
+test('relay meter: a message carried on the relay reports its bytes; one carried on direct reports none', async () => {
+  const peerHost = fakePeerHost();
+  const h = await harness({ peerHost });
+  await h.ready();
+  const relayWrites = [];
+  const before = h.relay.length;
+  const total = await h.coordinator.send({ event: 'relay' }, { onRelayWrite: (bytes) => relayWrites.push(bytes) });
+  await until(() => relayWrites.length > 0, 'the relay write');
+  assert.equal(relayWrites.reduce((a, b) => a + b, 0), total);
+  assert.equal(messageBytes(h.relay.slice(before)), total);
+
+  const { peer } = await promote(h, peerHost);
+  const directWrites = [];
+  await h.coordinator.send({ event: 'direct' }, { onRelayWrite: (bytes) => directWrites.push(bytes) });
+  await until(() => peer.sent.some(({ channel }) => channel === 'app'), 'the direct write');
+  await h.advance(30);
+  assert.deepEqual(directWrites, [], 'nothing the relay carried');
+});
+
+test('relay meter: a message split across a carrier switch reports only its relay share', async () => {
+  const peerHost = fakePeerHost();
+  const h = await harness({ peerHost });
+  await h.ready();
+  const { peer, lane } = await promote(h, peerHost);
+  // Once the first record is on the direct channel it stops taking more.
+  const appSend = peer.send;
+  peer.send = (channel, message) => {
+    if (channel === 'app') peer.buffered = REMOTE_TRANSPORT_BUFFER_HIGH_BYTES;
+    return appSend(channel, message);
+  };
+  const relayWrites = [];
+  const firstSequence = h.coordinator.nextSequence();
+  const total = await h.coordinator.send(
+    { event: 'bulk', data: randomBytes(2_000_000).toString('base64') },
+    { onRelayWrite: (bytes) => relayWrites.push(bytes) }
+  );
+  assert.ok(h.coordinator.nextSequence() - firstSequence >= 3, 'several records');
+  await until(() => peer.sent.some(({ channel }) => channel === 'app'), 'the first record on direct');
+  const directBytes = messageBytes(peer.sent.filter(({ channel }) => channel === 'app').map(({ message }) => message));
+  assert.deepEqual(relayWrites, []);
+  // The client acks the direct record, then the carrier fails: the rest resumes on the relay.
+  const outstanding = h.coordinator.diagnostics().outstandingBytes;
+  peer.events.message(await h.phone.control(remoteTransportAck(firstSequence), lane));
+  await until(() => h.coordinator.diagnostics().outstandingBytes < outstanding, 'direct record acked');
+  peer.events.closed('ice-failed');
+  await h.advance(1_100);
+  await until(() => relayWrites.reduce((a, b) => a + b, 0) === total - directBytes, 'the relay share');
+  assert.ok(directBytes > 0 && directBytes < total);
+});
+
+test('relay meter: a throwing callback never disturbs delivery or rejects the write', async () => {
+  const h = await harness();
+  await h.ready();
+  const unhandled = [];
+  const onUnhandled = (error) => unhandled.push(error);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    let calls = 0;
+    const boom = () => {
+      calls += 1;
+      throw new Error('meter failed');
+    };
+    for (let i = 0; i < 3; i += 1) await h.coordinator.send({ event: 'metered', i }, { onRelayWrite: boom });
+    await until(() => calls === 3, 'every callback ran');
+    await h.coordinator.send({ event: 'after' });
+    await h.phoneReadsRelay();
+    assert.deepEqual(h.phone.messages.slice(-4), [
+      { event: 'metered', i: 0 },
+      { event: 'metered', i: 1 },
+      { event: 'metered', i: 2 },
+      { event: 'after' },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+});
+
+test('relay meter: a relay write that resolves after close() fires no callback', async () => {
+  const pending = [];
+  const h = await harness({ relaySend: (message) => new Promise((resolve) => pending.push(resolve)) });
+  const calls = [];
+  void h.coordinator.send({ event: 'late' }, { onRelayWrite: (bytes) => calls.push(bytes) });
+  await until(() => pending.length > 0, 'a relay write in flight');
+  h.coordinator.close();
+  for (const resolve of pending) resolve();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, []);
+});
+
 test('a stalled direct carrier is demoted and its unacked records resume on the relay', async () => {
   const peerHost = fakePeerHost();
   const h = await harness({ peerHost });
@@ -619,6 +711,38 @@ test('delivery: every sealed record takes the non-droppable relay path; drops ha
   const frames = writes.map((frame) => decodeRelayBinaryFrame(frame));
   assert.ok(frames.every((frame) => frame.droppable === false), 'never droppable');
   assert.deepEqual(closed, []);
+});
+
+test('delivery: the byte meter records each relay write with its payload, at the bytes the relay took', async () => {
+  const { challenge, desktopChannel } = await channels();
+  const writes = [];
+  const recorded = [];
+  const state = { channel: desktopChannel, binaryFrames: true, challenge, credentialId: 'c1' };
+  const delivery = createRelayEncryptedDelivery({
+    clients: {
+      clients: new Map([['c11e1700-0001', state]]),
+      get: () => state,
+      close() {},
+    },
+    relayBinaryFrames: () => true,
+    relayFrameLimit: () => 1 << 26,
+    sendRawAndWait: async (frame) => {
+      writes.push(frame);
+    },
+    byteMeter: {
+      record: (payload, bytes) => {
+        recorded.push({ payload, bytes });
+        return null;
+      },
+    },
+    transport: { options: { schedule: () => () => {}, log: () => {} } },
+  });
+  delivery.openTransport('c11e1700-0001', state, { deliver: () => {}, authenticated: () => {} });
+  const payload = { event: 'push', pad: 'p'.repeat(200_000) };
+  await delivery.sendEncryptedFrame('c11e1700-0001', payload);
+  await until(() => recorded.length > 0, 'a metered write');
+  await until(() => recorded.reduce((sum, entry) => sum + entry.bytes, 0) === messageBytes(writes.map((f) => decodeRelayBinaryFrame(f).data)), 'every write metered');
+  assert.ok(recorded.every((entry) => entry.payload === payload));
 });
 
 test('an authenticated suspended close makes the leg non-foreground at once, with no prior hidden report', async () => {

@@ -352,7 +352,17 @@ export interface RemoteTransportCoordinator {
    *  droppable message was dropped BEFORE sealing (window closed). Rejects
    *  with RemoteTransportOversizeError (refused before sealing) or
    *  RemoteTransportEndedError. */
-  send(payload: unknown, options?: { droppable?: boolean; stream?: string }): Promise<number | null>;
+  send(
+    payload: unknown,
+    options?: {
+      droppable?: boolean;
+      stream?: string;
+      /** Called with the bytes of each carrier message of this payload's
+       *  records once the RELAY socket took it (re-sends included; none for
+       *  messages a direct carrier moved). Can fire after `send` resolved. */
+      onRelayWrite?(bytes: number): void;
+    }
+  ): Promise<number | null>;
   /** Whether a (non-bulk) record would be admitted now. */
   canAdmit(): boolean;
   /** One carrier message as received: `relay`, or `direct:<connectionId>`. */
@@ -397,6 +407,7 @@ interface Outgoing {
   droppable: boolean;
   callId: number | null;
   wireBytes: number;
+  onRelayWrite: ((bytes: number) => void) | undefined;
   resolve(bytes: number | null): void;
   reject(error: unknown): void;
 }
@@ -500,6 +511,8 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
   };
   /** Sealed answers to calls, by the sequence of their last record, until acked. */
   const callIds = new Map<number, number>();
+  /** Relay-write callbacks of sent payloads, by record sequence, until acked. */
+  const relayWriters = new Map<number, (bytes: number) => void>();
   /** Carrier each buffered record arrived on, until it opens. */
   const arrivedOn = new Map<number, string>();
   const writableListeners = new Set<() => void>();
@@ -540,7 +553,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     });
   };
 
-  const writeRelay = (message: Uint8Array): void => {
+  const writeRelay = (message: Uint8Array, onWritten?: (bytes: number) => void): void => {
     relayInFlight += message.byteLength;
     bytesSent += message.byteLength;
     const done = (): void => {
@@ -549,13 +562,29 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     };
     // A failed write means the relay leg is gone; the registry ends every
     // session on it, so there is nothing to re-route here.
-    deps.relay.send(message).then(done, done);
+    deps.relay.send(message).then(() => {
+      try {
+        // Diagnostics only: nothing the callback does may touch delivery, and
+        // none runs once the session is closed.
+        if (!closed) onWritten?.(message.byteLength);
+      } catch {
+        // A failing meter never changes in-flight accounting or the write.
+      } finally {
+        done();
+      }
+    }, done);
   };
 
-  /** False: the direct peer refused it (nothing queued). */
-  const write = (carrier: Carrier, channel: 'app' | 'control', message: Uint8Array): boolean => {
+  /** False: the direct peer refused it (nothing queued). `onRelayWrite` runs
+   *  only for a message the relay socket took. */
+  const write = (
+    carrier: Carrier,
+    channel: 'app' | 'control',
+    message: Uint8Array,
+    onRelayWrite?: (bytes: number) => void
+  ): boolean => {
     if (carrier === RELAY) {
-      writeRelay(message);
+      writeRelay(message, onRelayWrite);
       return true;
     }
     if (!carrier.peer?.send(channel, message)) return false;
@@ -583,8 +612,9 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
         if (bufferedOf(carrier) + bytes > limit) break;
       }
       let sent = true;
+      const onRelayWrite = relayWriters.get(record.sequence);
       for (const message of messages) {
-        if (!write(carrier, 'app', message)) {
+        if (!write(carrier, 'app', message, onRelayWrite)) {
           sent = false;
           break;
         }
@@ -741,6 +771,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     const host = deps.peerHost;
     if (!host) return;
     generation += 1;
+    // 128 random bits: unguessable, 22 chars, within the signal token limit.
     const connectionId = randomBytes(16).toString('base64url');
     const state: DirectCarrier = {
       id: `direct:${connectionId}`,
@@ -894,6 +925,10 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
           for (const sequence of callIds.keys()) {
             if (sequence > through) break;
             callIds.delete(sequence);
+          }
+          for (const sequence of relayWriters.keys()) {
+            if (sequence > through) break;
+            relayWriters.delete(sequence);
           }
         }
         noteOutstanding(at);
@@ -1079,6 +1114,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
           fail('seal-failed');
           return;
         }
+        if (item.onRelayWrite) relayWriters.set(sequence, item.onRelayWrite);
         item.wireBytes += recordWireBytes(box.byteLength);
         item.index += 1;
         if (item.index === item.pieces.length) {
@@ -1094,7 +1130,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     }
   };
 
-  const send = (payload: unknown, options: { droppable?: boolean; stream?: string } = {}): Promise<number | null> => {
+  const send: RemoteTransportCoordinator['send'] = (payload, options = {}) => {
     if (closed) return Promise.reject(new RemoteTransportEndedError(ended?.reason ?? 'session-ended'));
     let pieces: unknown[];
     try {
@@ -1123,6 +1159,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
         droppable,
         callId: relayFrameCallId(payload),
         wireBytes: 0,
+        onRelayWrite: options.onRelayWrite,
         resolve,
         reject,
       });
@@ -1199,6 +1236,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     const ambiguousCallIds = [...callIds].filter(([sequence]) => sequence > acked).map(([, id]) => id);
     for (const item of queue) if (item.callId !== null) ambiguousCallIds.push(item.callId);
     callIds.clear();
+    relayWriters.clear();
     ended = { reason: endReason, ambiguousCallIds };
     const error = new RemoteTransportEndedError(endReason);
     for (const item of queue.splice(0)) item.reject(error);

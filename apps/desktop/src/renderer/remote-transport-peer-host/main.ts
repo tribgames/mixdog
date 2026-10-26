@@ -18,6 +18,7 @@ import {
   REMOTE_TRANSPORT_BUFFER_LOW_BYTES,
   REMOTE_TRANSPORT_CHANNEL_LABEL,
   REMOTE_TRANSPORT_CONTROL_CHANNEL_LABEL,
+  REMOTE_TRANSPORT_MAX_DETAIL_CHARS,
 } from '../../shared/remote-transport';
 import {
   REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
@@ -131,17 +132,16 @@ interface Connection {
 }
 
 const CANDIDATE_TYPES: ReadonlySet<string> = new Set(['host', 'srflx', 'prflx', 'relay']);
-const DETAIL_CHARS = 200;
 
 /** A string member some Chromium versions add beyond the DOM typings
  *  (`RTCIceCandidate.relayProtocol`/`url`, `RTCPeerConnectionIceEvent.url`). */
 function textField(source: object | null, name: string): string | undefined {
   if (!source || !(name in source)) return undefined;
   const value: unknown = (source as Record<string, unknown>)[name];
-  return typeof value === 'string' ? value.slice(0, DETAIL_CHARS) : undefined;
+  return typeof value === 'string' ? value.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) : undefined;
 }
 
-const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, DETAIL_CHARS);
+const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS);
 
 /** The DTLS transport's remote certificate, as RTCCertificateStats names it. */
 async function remoteCertificate(pc: RTCPeerConnection) {
@@ -183,7 +183,7 @@ export function startRemoteTransportPeerHost(env: RemoteTransportPeerHostEnv): v
   function fail(connection: Connection, reason: RemoteTransportPeerFailure, detail?: string): void {
     if (connection.done) return;
     connection.done = true;
-    emit({ type: 'failed', connectionId: connection.id, reason, ...(detail ? { detail: detail.slice(0, DETAIL_CHARS) } : {}) });
+    emit({ type: 'failed', connectionId: connection.id, reason, ...(detail ? { detail: detail.slice(0, REMOTE_TRANSPORT_MAX_DETAIL_CHARS) } : {}) });
   }
 
   function reportBuffered(connection: Connection, channel: RemoteTransportPeerChannel): void {
