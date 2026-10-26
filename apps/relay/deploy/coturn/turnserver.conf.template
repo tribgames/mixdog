@@ -1,0 +1,94 @@
+# Mixdog STUN/TURN (coturn). provision-coturn.sh renders this into
+# /etc/mixdog-coturn/turnserver.conf (root:turnserver, 0640); @NAME@ markers are
+# filled there. The rendered file holds the shared secret and is never committed.
+#
+# Every option below exists in coturn 4.5.2 (Ubuntu 22.04) and in current
+# releases, so the file does not depend on the distribution's version.
+
+# --- listeners ---------------------------------------------------------------
+# UDP+TCP on 3478 and TLS on 5349 are coturn's own defaults (turnserver.conf
+# `listening-port`, `tls-listening-port`). Port 443 stays with the relay.
+listening-port=@TURN_PORT@
+tls-listening-port=@TURN_TLS_PORT@
+cert=/etc/mixdog-coturn/tls/fullchain.pem
+pkey=/etc/mixdog-coturn/tls/privkey.pem
+
+# --- relay port range --------------------------------------------------------
+# coturn's default UDP relay range (turnserver.conf `min-port`/`max-port`),
+# written out so the firewall rule and this file name the same numbers.
+min-port=@TURN_MIN_PORT@
+max-port=@TURN_MAX_PORT@
+
+# --- public address ----------------------------------------------------------
+# Reported as XOR-RELAYED-ADDRESS in every allocation, so a peer is told an
+# address it can reach whether this host owns the address or is NAT-mapped to it.
+external-ip=@TURN_PUBLIC_IP@
+realm=@TURN_REALM@
+
+# --- authentication ----------------------------------------------------------
+# Time-limited credentials (TURN REST API): username "<expiry>:<id>", password
+# base64(HMAC-SHA1(secret, username)). The relay mints them with the same secret
+# (lib/turn-credentials.mjs). No static users exist, so there is no password to
+# leak and an expired credential stops working by itself. STUN Binding stays
+# anonymous (coturn's default) so a client without credentials can still learn
+# its address.
+use-auth-secret
+static-auth-secret=@TURN_AUTH_SECRET@
+fingerprint
+
+# Allocations one user id (= one device) may hold at once; 0 is coturn's own
+# "no quota". A deploy-time decision with no built-in value: provision-coturn.sh
+# requires it, and deploy/README.md says how to size and measure it.
+user-quota=@TURN_USER_QUOTA@
+
+# --- what a relay may reach --------------------------------------------------
+# WebRTC only needs UDP relaying; RFC 6062 TCP allocations are never used.
+no-tcp-relay
+no-multicast-peers
+# This server's OWN addresses are deliberately not listed below: two relayed
+# peers reach each other through each other's relay address on this host, so
+# the public address must stay a valid peer. But coturn's allowed-peer-ip /
+# denied-peer-ip are "ip addresses or ranges of ip addresses" (turnserver.conf)
+# with no port, so they cannot say "only the relay ports". That scoping is the
+# egress policy mixdog-coturn-egress.service installs (egress.nft.template):
+# the turnserver account may send to a local address only on the relay UDP
+# range above.
+# Loopback peers are refused explicitly (older releases allowed them by
+# default). The ranges are the non-globally-routable blocks of the IANA
+# IPv4/IPv6 Special-Purpose Address Registries (RFC 6890): relaying into them
+# would let a credential holder reach this host's loopback services, the
+# provider's private network, or its link-local metadata address (169.254.169.254).
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.0.2.0-192.0.2.255
+denied-peer-ip=192.88.99.0-192.88.99.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=198.51.100.0-198.51.100.255
+denied-peer-ip=203.0.113.0-203.0.113.255
+denied-peer-ip=240.0.0.0-255.255.255.255
+denied-peer-ip=::1
+denied-peer-ip=64:ff9b::-64:ff9b::ffff:ffff
+denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255
+denied-peer-ip=2001::-2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=2002::-2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
+# --- hardening ---------------------------------------------------------------
+no-cli
+no-software-attribute
+
+# --- runtime paths (writable via the unit's RuntimeDirectory/StateDirectory) --
+pidfile=/run/mixdog-coturn/turnserver.pid
+userdb=/var/lib/mixdog-coturn/turndb
+log-file=stdout
+simple-log
+
+# Not set, on purpose: `total-quota`, `max-bps` and `bps-capacity` need this
+# host's bandwidth plan and a measured session size; see the deploy README.

@@ -78,3 +78,138 @@ version of the main PC it is paired with (`lib/renderer-releases.mjs`).
 The transaction tests use real filesystem renames only inside a generated
 temporary directory and replace `systemctl` with a recorder. They never run
 the production installer or contact a VPS.
+
+## STUN/TURN for phone ↔ PC WebRTC (coturn)
+
+`coturn/` provisions a self-operated STUN + authenticated TURN server beside the
+relay. Nothing here runs from `deploy-release.sh`: provisioning installs a
+package, opens ports and creates a secret, so it is a separate, explicit step.
+
+- Credentials are TURN REST credentials: username `<expiry>:<opaque device id>`,
+  password `base64(HMAC-SHA1(secret, username))`, valid 24 hours
+  (draft-uberti-behave-turn-rest-00 §2.2). The secret is generated on the VPS
+  into `/etc/mixdog-relay/turn.env` (root, 0600; systemd passes it to the relay)
+  and `/etc/mixdog-coturn/turnserver.conf` (root:turnserver, 0640). It is not in
+  the repo and not readable by the relay account.
+- The relay issues credentials only on the authenticated desktop leg
+  (`ice-servers-request` → `ice-servers`, `lib/ice-legs.mjs`), only for a device
+  with at least one paired phone, at most `TURN_ISSUE_LIMIT` times per
+  credential lifetime (24 h) per device. A rate-limited answer carries
+  `retryAfterMs`; the desktop waits exactly that. The PC hands the same list to
+  its phone over the end-to-end encrypted channel.
+- Ports: `3478/udp+tcp` (STUN/TURN), `5349/tcp` (TURN over TLS, the relay's
+  certificate copied for the `turnserver` account, refreshed by a certbot hook
+  that only restarts a coturn that is running), `49152-65535/udp` (coturn's
+  default relay range). Relaying to loopback, private, link-local and other
+  non-global ranges is denied; TCP allocations and the CLI are off; the public
+  address is advertised with `external-ip`.
+- **Hairpin policy.** Two relayed endpoints reach each other through each
+  other's relay address on this host, so the host's own public address must stay
+  a valid peer. coturn's `allowed-peer-ip`/`denied-peer-ip` take addresses and
+  ranges only, no ports, so they cannot say "only the relay ports". The
+  `mixdog-coturn-egress` unit therefore loads an nftables policy
+  (`inet mixdog_coturn`, `egress.nft.template`): a packet from the `turnserver`
+  account to an address of this host is accepted only to the relay UDP range;
+  replies on flows that came in from outside pass; everything else is dropped.
+  "An address of this host" is two sets: the configured public address
+  (`ip daddr <public-ipv4>`, rendered from the provision input, the only address
+  coturn advertises as `external-ip`), so it is restricted whether the host owns
+  it or a **provider NAT maps it** to the host (then it is not a local route and
+  the hairpin would otherwise leave the host unfiltered), and every address the
+  host routes as local (`fib daddr type local`, IPv4 and IPv6: coturn does not
+  advertise those but may still allocate relay addresses on them, so this rule is
+  what restricts them). On a NAT-mapped address, relaying
+  two endpoints through each other additionally needs the provider's NAT to
+  hairpin; provisioning says which case it found, and `verify-turn.sh` tests
+  both.
+  `mixdog-coturn` requires that unit, so coturn never runs without it. The
+  egress unit also merges the range into `net.ipv4.ip_local_reserved_ports`
+  (never overwriting what is reserved there) and takes back only the part it
+  added when it stops or fails to start (ownership is recorded before the
+  sysctl is changed), so no outgoing socket of another service sits inside the
+  range (`reserved-ports.mjs`). Residual: a fixed-port UDP service of this host
+  bound inside 49152-65535 would be reachable through a relay;
+  `verify-turn.sh` fails if one exists.
+
+### Deploy-time decisions (no built-in values)
+
+These two figures depend on how many live views a deployment runs and how often
+desktops restart; the contract (`docs/remote-webrtc.md`) bounds neither the
+sources per viewer nor restarts, so there is no default. `provision-coturn.sh`
+refuses to run without them.
+
+- `--user-quota=N` → coturn `user-quota`: allocations one device (one TURN user
+  id) may hold at once; `0` is coturn's own "no quota". Each peer connection
+  gathers one relay candidate per TURN URL the relay lists (`udp`, `tcp`, and
+  `tls` when provisioned = 3), and the PC and its phone each hold one set, so one
+  live view needs about `2 × 3 = 6`; size it as
+  `6 × (concurrent live views per device you allow)`, plus room for the previous
+  set while an ICE restart replaces it. Measure: run the views you intend to
+  allow, then count the device's concurrent allocations from coturn's log of
+  successful ALLOCATE requests per user (`journalctl -u mixdog-coturn`; add
+  `verbose` to the config temporarily if the default level does not log them) and
+  set the quota to the peak plus that restart overlap.
+- `--issue-limit=N` → relay `TURN_ISSUE_LIMIT`: credential requests per device per
+  credential lifetime. A desktop asks once per lifetime and once per process
+  start, so it is the number of starts you expect from one device in 24 h plus
+  one. Measure: `journalctl -u mixdog-relay | grep 'ice-servers issued'` shows one
+  line per issued credential with the device prefix; `ice-servers refused
+  cause=rate-limited` shows the limit being hit. Raise it if a legitimate
+  device is refused.
+- Not decided here (needs the VPS bandwidth plan and a measured session): coturn
+  `total-quota`, `max-bps`, `bps-capacity`.
+
+### Provision
+
+Before the relay deploy, so the relay restarts once. Needs `nftables` installed
+(and `nftables.service`, if enabled, must not load a config that flushes the
+ruleset after boot):
+
+```bash
+scp -r apps/relay/deploy/coturn root@<vps>:/root/mixdog-coturn
+ssh root@<vps> 'bash /root/mixdog-coturn/provision-coturn.sh <relay-domain> <public-ipv4> --user-quota=<N> --issue-limit=<N>'
+```
+
+The script masks and stops the package's stock `coturn.service` (and refuses to
+continue if it, or any other process, still holds the TURN ports) before it
+installs anything, and waits for the listening sockets before it reports success.
+
+### Verify
+
+After the relay deploy (which restarts the relay with the new settings):
+
+```bash
+ssh root@<vps> 'bash /opt/mixdog-relay/deploy/coturn/verify-turn.sh <public-ipv4>'
+node apps/relay/deploy/coturn/stun-probe.mjs <relay-domain>     # from outside the VPS
+```
+
+`verify-turn.sh` checks the services, file modes, config, listeners, the egress
+policy (including that the relay range is contained in the reserved ports), then
+with `turnutils_uclient` a fresh credential (a relayed client-to-client exchange
+through the host's own address), an expired one, and where a relayed packet may
+land, always addressed to the public address: a peer inside the relay range
+(must be delivered), a peer outside it (must not be, and the policy's drop
+counter must have moved), and a loopback peer (must not). The `turnutils_uclient` runs are bounded by the RFC 8489 §6.2.1 UDP
+transaction timeout (39.5 s), so the two refusals take that long each.
+`stun-probe.mjs` retransmits on the same RFC schedule (up to 39.5 s without a
+reply).
+
+### Roll back
+
+```bash
+ssh root@<vps> 'bash /opt/mixdog-relay/deploy/coturn/deprovision-coturn.sh'
+ssh root@<vps> 'systemctl restart mixdog-relay'
+```
+
+`deprovision-coturn.sh` disables and removes both services, deletes the egress
+table, the certbot hook (a renewal can no longer start coturn), the relay
+drop-in, `/etc/mixdog-relay/turn.env`, `/etc/mixdog-coturn`, and exactly the
+parts of the port reservation and the ufw rules that provisioning added.
+Provisioning records the `ufw allow` rules it added (`ufw-owned`), whether or not
+ufw was active, and skips a rule that already existed; rollback removes the
+recorded ones whenever ufw is installed and leaves any pre-existing identical
+rule alone. Ports opened on a provider firewall are outside the scripts: close
+`3478/udp`, `3478/tcp`, `5349/tcp` and `49152-65535/udp` there. The coturn
+package stays installed with its stock unit masked. Until the relay restarts it still advertises TURN to desktops; after it,
+desktops see no `ice` capability and use no ICE servers. To rotate the secret:
+deprovision, provision again, restart the relay.

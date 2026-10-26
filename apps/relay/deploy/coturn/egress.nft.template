@@ -1,0 +1,40 @@
+# Egress policy for the coturn account (rendered by provision-coturn.sh into
+# /etc/mixdog-coturn/egress.nft, loaded by mixdog-coturn-egress.service before
+# coturn starts).
+#
+# Why: TURN relays UDP to any peer a credential holder names. coturn can deny
+# address ranges but not ports (turnserver.conf: allowed-peer-ip/denied-peer-ip
+# take "ip addresses or ranges of ip addresses"), and this host's own address
+# must remain a valid peer, because two relayed endpoints reach each other
+# through each other's relay address here. Without a port scope, a credential
+# holder could aim the relay at any UDP service on this host's public address;
+# loopback is already denied by coturn.
+#
+# What: a packet sent by the coturn account to an address of THIS host is
+# accepted only to the relay UDP range. "This host" is two sets, because a host
+# can reach itself two ways:
+#   - the configured public address (coturn's external-ip, the only address it
+#     advertises): matched by address, so it is restricted whether the host owns
+#     it or a provider NAT maps it to the host (a NAT-mapped address is not a
+#     local route here, and the hairpin leaves the host and comes back);
+#   - every address the host routes as local, either family (`fib daddr type
+#     local`): this is what covers the host's other addresses, IPv6 included.
+#     coturn does not advertise them as external-ip but may still allocate relay
+#     addresses on them, so this rule, not the list above, is what restricts them.
+# Replies on flows that arrived from outside (ct state established) are not new
+# destinations and pass, and so does everything addressed elsewhere. Per
+# nftables: `fib daddr type local` is valid in the output hook; `meta skuid`
+# matches the sending socket's owner.
+table inet mixdog_coturn
+delete table inet mixdog_coturn
+table inet mixdog_coturn {
+	chain output {
+		type filter hook output priority filter; policy accept;
+		meta skuid != @TURN_UID@ accept
+		ct state established,related accept
+		ip daddr @TURN_PUBLIC_IP@ udp dport @TURN_MIN_PORT@-@TURN_MAX_PORT@ accept
+		ip daddr @TURN_PUBLIC_IP@ counter drop
+		fib daddr type local udp dport @TURN_MIN_PORT@-@TURN_MAX_PORT@ accept
+		fib daddr type local counter drop
+	}
+}

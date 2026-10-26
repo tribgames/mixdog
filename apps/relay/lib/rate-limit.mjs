@@ -37,4 +37,13 @@ export class RateLimiter {
     this.hits.set(id, stamps);
     return true;
   }
+
+  /** Milliseconds until `allow(key)` would admit again: 0 while the key is under
+   *  its limit. A hit stops counting once a full window has passed, so the key
+   *  is admitted again when the oldest of its last `limit` hits ages out. */
+  retryAfterMs(key) {
+    const stamps = this.hits.get(String(key || 'unknown'));
+    if (!stamps || stamps.length < this.limit) return 0;
+    return Math.max(0, stamps[stamps.length - this.limit] + this.windowMs - Date.now());
+  }
 }

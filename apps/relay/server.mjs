@@ -35,6 +35,8 @@ import { createWebPushRegistry, createWebPushSender, loadOrCreateVapidKeys } fro
 import { webPushSubscriptionsFrame } from './lib/web-push-legs.mjs';
 import { handleWebPushRequest, isWebPushRequest } from './lib/web-push-http.mjs';
 import { DeviceStore, readDeviceCredentials } from './lib/device-store.mjs';
+import { createIceService } from './lib/ice-legs.mjs';
+import { turnConfigFromEnv } from './lib/turn-credentials.mjs';
 import {
   INGRESS_FREE_WINDOW_BYTES,
   INGRESS_RESERVATION_BYTES,
@@ -134,6 +136,18 @@ const WEB_PUSH_RATE_WINDOW_MS = 60_000;
 const WEB_PUSH_MUTATION_LIMIT = 20;
 const WEB_PUSH_MUTATION_WINDOW_MS = 60_000;
 
+/** TURN credential issuance (lib/ice-legs.mjs), or null when the deploy has not
+ *  provisioned coturn or its settings are unusable. A bad TURN setting must not
+ *  take the relay down: desktops simply see no `ice` capability. */
+function createRelayIce(turnEnv) {
+  try {
+    return createIceService(turnConfigFromEnv(turnEnv));
+  } catch (error) {
+    console.error('[relay] TURN credential issuance disabled:', error?.message || error);
+    return null;
+  }
+}
+
 /** Relay-owned Web Push (lib/web-push.mjs), or null when no identity could be
  *  loaded or minted: desktops then keep their legacy direct send. */
 function createRelayWebPush(relay, dataDir, fetchImpl) {
@@ -194,6 +208,7 @@ function createRelayState({
     nativeBindings: new Map(),
     nativePush: null,
     webPush: null,
+    ice: null,
     // Per-device renderer releases (see lib/renderer-releases.mjs). With no
     // registry in rendererReleasesDir this is the single rendererDir.
     renderer: createRendererCatalog({ rendererDir, releasesDir: rendererReleasesDir }),
@@ -275,6 +290,9 @@ export async function startRelay({
   nativePush = null,
   // Test injection for the push service the relay posts Web Push to.
   webPushFetch = null,
+  // TURN_AUTH_SECRET / TURN_HOST / TURN_PORT / TURN_TLS_PORT. Explicit like the
+  // other environments: only the CLI entry hands over the real one.
+  turnEnv = {},
 } = {}) {
   const feedback = await createFeedbackService({
     dataDir: resolve(dataDir),
@@ -300,6 +318,7 @@ export async function startRelay({
   relay.livenessProbeMs = livenessProbeMs;
   relay.nativePush = nativePush ?? createNativePush({ env: nativePushEnv });
   relay.webPush = createRelayWebPush(relay, dataDir, webPushFetch);
+  relay.ice = createRelayIce(turnEnv);
   const server = createListener(guardedHttpHandler(relay), tlsCert, tlsKey);
   relay.wss = new WebSocketServer({
     noServer: true,
@@ -566,6 +585,7 @@ function upgradeDesktopLeg(relay, request, rawSocket, head) {
         nativeBindings: relay.nativeBindings,
         nativeLimiter: relay.nativeLimiter,
         webPush: relay.webPush,
+        ice: relay.ice,
         maxFrameBytes: relay.maxFrameBytes,
         ingress: relay.legIngress,
         handshakeStallMs: relay.handshakeStallMs,
@@ -874,6 +894,7 @@ if (invokedDirectly) {
     tlsKey,
     feedbackEnv: process.env,
     nativePushEnv: process.env,
+    turnEnv: process.env,
   })
     .then((relay) => {
       const scheme = tlsCert && tlsKey ? 'https' : 'http';

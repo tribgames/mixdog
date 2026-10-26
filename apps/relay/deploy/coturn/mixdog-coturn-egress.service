@@ -1,0 +1,27 @@
+# systemd unit that loads the coturn egress policy and reserves the relay port
+# range (installed by provision-coturn.sh). mixdog-coturn.service Requires it:
+# coturn never runs without the policy, and stopping the policy stops coturn.
+# @NAME@ markers are filled in by the provision script.
+[Unit]
+Description=Mixdog coturn egress policy (nftables) and relay port reservation
+# nftables.service, when enabled, starts with `flush ruleset`: load after it.
+After=nftables.service
+Before=mixdog-coturn.service
+PartOf=mixdog-coturn.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Holds what this start added to ip_local_reserved_ports, for the stop to undo.
+RuntimeDirectory=mixdog-coturn-egress
+ExecStart=@NFT_BIN@ -f /etc/mixdog-coturn/egress.nft
+ExecStart=@NODE_BIN@ /etc/mixdog-coturn/reserved-ports.mjs apply @TURN_MIN_PORT@ @TURN_MAX_PORT@ /run/mixdog-coturn-egress/added
+ExecStop=@NFT_BIN@ delete table inet mixdog_coturn
+# ExecStopPost runs after a normal stop AND after a start that failed part way
+# (ExecStop does not), and before the runtime directory with the record goes
+# away, so a failed start never leaves a reservation behind. Releasing twice is
+# a no-op.
+ExecStopPost=@NODE_BIN@ /etc/mixdog-coturn/reserved-ports.mjs release /run/mixdog-coturn-egress/added
+
+[Install]
+WantedBy=multi-user.target

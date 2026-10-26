@@ -1,0 +1,41 @@
+# systemd unit for the Mixdog STUN/TURN server (installed by
+# provision-coturn.sh to /etc/systemd/system/mixdog-coturn.service).
+# The ExecStart binary is filled in from `command -v turnserver`.
+[Unit]
+Description=Mixdog STUN/TURN (coturn)
+After=network-online.target mixdog-coturn-egress.service
+Wants=network-online.target
+# The egress policy (what a relayed packet may reach on this host) is part of
+# the service: no policy, no coturn.
+Requires=mixdog-coturn-egress.service
+ConditionPathExists=/etc/mixdog-coturn/turnserver.conf
+
+[Service]
+Type=simple
+User=turnserver
+Group=turnserver
+ExecStart=@TURNSERVER_BIN@ -c /etc/mixdog-coturn/turnserver.conf
+# systemd's own restart delay (RestartSec= default, 100 ms) is kept on purpose.
+Restart=always
+RuntimeDirectory=mixdog-coturn
+StateDirectory=mixdog-coturn
+# Every listening port is above 1024: no capability is needed.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=true
+UMask=0077
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

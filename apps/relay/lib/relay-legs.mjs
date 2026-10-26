@@ -14,6 +14,7 @@ import {
   sendNativePush,
   unbindNativeToken,
 } from './native-push-legs.mjs';
+import { requestIceServers } from './ice-legs.mjs';
 import { markWebPushReady, sendWebPushFromDesktop, webPushSubscriptionsFrame } from './web-push-legs.mjs';
 import {
   MAX_FRAME_BYTES,
@@ -343,6 +344,7 @@ const DESKTOP_FRAME_HANDLERS = new Map([
   ['native-push', sendNativePush],
   ['webpush-send', sendWebPushFromDesktop],
   ['webpush-ready', markWebPushReady],
+  ['ice-servers-request', requestIceServers],
   ['frame', forwardFrame],
   ['close-client', closeClient],
   ['broadcast', broadcastFrame],
@@ -388,6 +390,7 @@ export function runDesktopLeg(context, deviceId, socket) {
     nativeBindings = null,
     nativeLimiter = null,
     webPush = null,
+    ice = null,
     handshakeStallMs = DESKTOP_HANDSHAKE_STALL_MS,
     livenessProbeMs = DESKTOP_LIVENESS_PROBE_MS,
   } = context;
@@ -413,7 +416,13 @@ export function runDesktopLeg(context, deviceId, socket) {
   // leg that changes nothing is answered with nothing, exactly as before.
   const publishCapabilities = () => {
     const leg = socket.uplinkLeg;
-    const frame = relayCapabilities(leg, maxFrameBytes, nativePushPlatforms({ nativePush }), Boolean(webPush));
+    const frame = relayCapabilities(
+      leg,
+      maxFrameBytes,
+      nativePushPlatforms({ nativePush }),
+      Boolean(webPush),
+      Boolean(ice)
+    );
     const encoded = JSON.stringify(frame);
     if (encoded === leg.published) return;
     leg.published = encoded;
@@ -436,6 +445,7 @@ export function runDesktopLeg(context, deviceId, socket) {
     nativeBindings,
     nativeLimiter,
     webPush,
+    ice,
     revoked: false,
   };
   // Existing browser legs survive a transient desktop redial. Replaying

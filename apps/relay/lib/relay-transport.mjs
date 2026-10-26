@@ -103,7 +103,7 @@ const CANONICAL_CLIENT_ID = '00000000-0000-4000-8000-000000000000';
  * the very leg state the enforcement path reads, so what is PUBLISHED is what
  * is ENFORCED, on every path, for the life of this connection.
  */
-export function relayCapabilities(leg, maxFrameBytes, nativePushPlatforms = [], webPush = false) {
+export function relayCapabilities(leg, maxFrameBytes, nativePushPlatforms = [], webPush = false, ice = false) {
   const acknowledged = leg.textFrames === true;
   const ceilings = uplinkCeilings({
     capacity: leg.capacity,
@@ -126,6 +126,9 @@ export function relayCapabilities(leg, maxFrameBytes, nativePushPlatforms = [], 
     // then delivers browser push through `webpush-send` (lib/web-push-legs.mjs)
     // instead of posting to the push service itself.
     ...(webPush ? { webPush: 1 } : {}),
+    // Present when this relay can issue TURN credentials (lib/ice-legs.mjs):
+    // the desktop asks only a relay that says so.
+    ...(ice ? { ice: 1 } : {}),
   };
 }
 
