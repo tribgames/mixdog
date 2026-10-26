@@ -19,7 +19,100 @@ const {
   outputTokensPerSecond,
   totalTokens,
   usageReadoutText,
+  textWidths,
+  FittedReadout,
 } = await import('./composer-usage-readout.tsx');
+
+// The readout measures through one canvas context for the whole module: it
+// records its font sets and measured texts (7px per character).
+const canvas = { sets: [], measured: [] };
+{
+  const context = {
+    _font: '',
+    get font() {
+      return this._font;
+    },
+    set font(value) {
+      canvas.sets.push(value);
+      this._font = value;
+    },
+    measureText: (text) => {
+      canvas.measured.push(text);
+      return { width: text.length * 7 };
+    },
+  };
+  const createElement = document.createElement.bind(document);
+  document.createElement = (name) => (name === 'canvas' ? { getContext: () => context } : createElement(name));
+}
+
+// A fit pass measures every variant's items in one font, and every resize of
+// the line runs one. Assigning the canvas `font` re-parses the shorthand each
+// time, even to its current value.
+test('a measurer measures each text once per font, setting the canvas font once per font', () => {
+  canvas.sets.length = canvas.measured.length = 0;
+  const font = 'normal 400 12px "Measure"';
+  const textWidth = textWidths();
+  const texts = ['42.1k tokens', '48 tok/s', 'Cache hit 92.0%', '·', '42.1k'];
+  for (const pass of [1, 2]) {
+    assert.deepEqual(
+      texts.map((text) => textWidth(font, text)),
+      texts.map((text) => text.length * 7),
+      `pass ${pass}`
+    );
+  }
+  assert.deepEqual(canvas.measured, texts, 'the second pass measures nothing again');
+  assert.deepEqual(canvas.sets, [font]);
+  // Another font is another width for the same text.
+  assert.equal(textWidth('italic 400 12px "Measure"', '42.1k'), 35);
+  assert.deepEqual(canvas.measured, [...texts, '42.1k']);
+});
+
+// A web font finishing its load changes every text's width, and nothing need
+// resize: the widths measured in the fallback font must not be reused.
+test('a fitted readout measures its texts again when a web font finishes loading', async (t) => {
+  const { createRoot } = await import('react-dom/client');
+  const { act } = React;
+  const fonts = new window.EventTarget();
+  Object.defineProperty(document, 'fonts', { configurable: true, value: fonts });
+  const resizes = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      resizes.push(callback);
+    }
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const line = document.createElement('div');
+  document.body.append(line);
+  const root = createRoot(line);
+  t.after(() => {
+    line.remove();
+    delete document.fonts;
+    delete globalThis.ResizeObserver;
+    delete globalThis.getComputedStyle;
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
+  canvas.measured.length = 0;
+  const variants = [[{ text: 'Load 1' }, { text: 'Load 2', separator: true }], [{ text: 'Load 1' }]];
+  await act(async () => {
+    root.render(React.createElement(FittedReadout, { variants, onClick() {}, title: 'Usage' }));
+  });
+  const once = ['Load 1', 'Load 2', '·'];
+  assert.deepEqual(canvas.measured, once);
+  // A resize measures nothing again.
+  act(() => resizes[0]());
+  assert.deepEqual(canvas.measured, once);
+  act(() => {
+    fonts.dispatchEvent(new window.Event('loadingdone'));
+  });
+  assert.deepEqual(canvas.measured, [...once, ...once], 'measured afresh in the loaded font');
+  // Unmounted, it no longer listens.
+  act(() => root.unmount());
+  fonts.dispatchEvent(new window.Event('loadingdone'));
+  assert.deepEqual(canvas.measured, [...once, ...once]);
+});
 
 // Session-cumulative totals as the runtime persists them (the speed sums
 // already hold only the calls with positive output and positive duration).

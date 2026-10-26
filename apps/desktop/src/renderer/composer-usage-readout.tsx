@@ -255,11 +255,40 @@ const ICON_GAP = 3;
 const ITEM_GAP = 8;
 
 let measureContext: CanvasRenderingContext2D | null | undefined;
-function textWidth(font: string, text: string): number {
+let measureFont = '';
+/** Canvas text width. Assigning `font` parses the shorthand every time, even
+ *  to the value it holds: set once per font, not once per string. */
+function measureTextWidth(font: string, text: string): number {
   if (measureContext === undefined) measureContext = document.createElement('canvas').getContext('2d');
   if (!measureContext) return 0;
-  measureContext.font = font;
+  if (measureFont !== font) {
+    measureContext.font = font;
+    measureFont = font;
+  }
   return measureContext.measureText(text).width;
+}
+
+/** A text width measurer that remembers what it measured. A fit pass
+ *  measures each variant's every item, and every resize of the line runs one
+ *  with the same texts: they were measured again each time (15-38 ms over a
+ *  resumed phone's first seconds). One measurer serves one set of variant
+ *  texts (a readout's fit effect, which reruns when they change), so it holds
+ *  only those texts, in one font: a new font starts it over. */
+export function textWidths(): (font: string, text: string) => number {
+  const widths = new Map<string, number>();
+  let widthsFont = '';
+  return (font, text) => {
+    if (font !== widthsFont) {
+      widths.clear();
+      widthsFont = font;
+    }
+    let width = widths.get(text);
+    if (width === undefined) {
+      width = measureTextWidth(font, text);
+      widths.set(text, width);
+    }
+    return width;
+  };
 }
 
 function ReadoutItems({ items }: { items: ReadoutItem[] }): ReactNode {
@@ -305,6 +334,7 @@ export function FittedReadout({
     const button = ref.current;
     const line = button?.parentElement;
     if (!button || !line) return undefined;
+    let textWidth = textWidths();
     const measure = () => {
       const lineStyle = getComputedStyle(line);
       const style = getComputedStyle(button);
@@ -344,7 +374,17 @@ export function FittedReadout({
     const observer = new ResizeObserver(measure);
     observer.observe(line);
     for (const child of Array.from(line.children)) if (child !== button) observer.observe(child);
-    return () => observer.disconnect();
+    // A web font that finishes loading changes the texts' widths, though
+    // neither the line nor its items may resize for it: measure afresh.
+    const onFontsLoaded = () => {
+      textWidth = textWidths();
+      measure();
+    };
+    document.fonts?.addEventListener('loadingdone', onFontsLoaded);
+    return () => {
+      observer.disconnect();
+      document.fonts?.removeEventListener('loadingdone', onFontsLoaded);
+    };
   }, [key]);
   if (!variants.length) return null;
   const index = shown < 0 ? -1 : Math.min(shown, variants.length - 1);
