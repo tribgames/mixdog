@@ -7,8 +7,12 @@
  * never mistaken for the one this request created.
  *
  * Another request's tab says nothing about this one: its tab may still be on
- * its way through a slower pane. A request the pane replaced before it got a
- * tab (the pane keeps only its latest pending address) ends with the wait.
+ * its way through a slower pane, so it never settles this waiter. A waiter
+ * settles with null only when its wait times out, it is cancelled, a new watch
+ * reuses its request id, or its session is released (or the host disposed).
+ * The pane gives no acknowledgement when it drops or replaces a request (it
+ * keeps only its latest pending address), so such a request also ends by the
+ * timeout.
  */
 export interface NewTabWatch {
   /** The new page's id, or null when this request got no tab of its own. */
