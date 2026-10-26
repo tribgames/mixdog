@@ -9,8 +9,97 @@ const DECORATIVE_LOOPS = new Set([
   'live-activity-logo-spin',
   'text-shimmer-window',
   'text-shimmer-window-copy',
-  'text-shimmer-mask',
 ]);
+
+/** The phone's shimmer has no CSS animation (22-markdown.css): WebView
+ *  re-evaluated its stepped mask animation every vsync, between steps too.
+ *  Its glint carries the same duration and `steps()` as declared CSS (the
+ *  animation's name is `none`), and the mask position follows the step index
+ *  this module writes, once per step, onto `--text-shimmer-step`. */
+const SHIMMER_GLINT = '[data-slot="text-shimmer-glint"]';
+const SHIMMER_STEP = '--text-shimmer-step';
+
+interface ShimmerMask {
+  frames: number;
+  stepMs: number;
+  /** The step index last written; -1 before the first write. */
+  step: number;
+}
+
+/** Every mounted glint; `null` while it is not driven (desktop layout, or held
+ *  by a pause rule or reduced motion). */
+const maskGlints = new Map<Element, ShimmerMask | null>();
+let maskTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** The cadence the glint's CSS declares, or `null` while its pause rules hold
+ *  it (the same rules that paused the animation: `animation-play-state`, and
+ *  reduced motion hiding the glint). The duration is read as a number: its
+ *  serialized text keeps only six digits, which drift off the timeline's grid. */
+function readShimmerMask(glint: Element): ShimmerMask | null {
+  const style = glint.ownerDocument.defaultView?.getComputedStyle(glint);
+  if (!style || style.display === 'none' || style.animationPlayState !== 'running') return null;
+  const frames = Number(/steps\((\d+)/.exec(style.animationTimingFunction)?.[1]);
+  const duration = (
+    glint as unknown as { computedStyleMap(): { get(property: string): { value: number } | undefined } }
+  )
+    .computedStyleMap()
+    .get('animation-duration')?.value;
+  if (!(frames > 0) || !duration) return null;
+  return { frames, stepMs: (duration * 1000) / frames, step: -1 };
+}
+
+/** Writes the step each driven glint is on at `now`, only where it changed.
+ *  The index counts steps from the timeline's origin, where the locked CSS
+ *  loops start: the shimmer stays on the running mark's beat. */
+function writeShimmerMasks(now: number): void {
+  for (const [glint, mask] of maskGlints) {
+    if (!mask) continue;
+    const step = Math.floor(now / mask.stepMs) % mask.frames;
+    if (step === mask.step) continue;
+    mask.step = step;
+    (glint as HTMLElement).style.setProperty(SHIMMER_STEP, String(step));
+  }
+}
+
+/** Wakes at the next step boundary of any driven glint; nothing between. */
+function scheduleShimmerMasks(): void {
+  clearTimeout(maskTimer);
+  maskTimer = undefined;
+  const now = performance.now();
+  let next = Number.POSITIVE_INFINITY;
+  for (const mask of maskGlints.values())
+    if (mask) next = Math.min(next, (Math.floor(now / mask.stepMs) + 1) * mask.stepMs);
+  if (next < Number.POSITIVE_INFINITY) maskTimer = setTimeout(tickShimmerMasks, next - now);
+}
+
+function tickShimmerMasks(): void {
+  maskTimer = undefined;
+  writeShimmerMasks(performance.now());
+  scheduleShimmerMasks();
+}
+
+/** Re-reads which glints run: on the phone layout, those no pause rule holds.
+ *  A resumed glint writes the step of the current time at once, so it lands on
+ *  the beat, and a held one keeps its pose. */
+function refreshShimmerMasks(): void {
+  const [first] = maskGlints.keys();
+  if (!first) return;
+  const phone = first.ownerDocument.documentElement.hasAttribute('data-mixdog-mobile-tabs');
+  const reads = [...maskGlints].map(([glint, previous]) => {
+    const mask = phone ? readShimmerMask(glint) : null;
+    if (mask && previous) mask.step = previous.step;
+    return [glint, mask] as const;
+  });
+  for (const [glint, mask] of reads) maskGlints.set(glint, mask);
+  writeShimmerMasks(performance.now());
+  scheduleShimmerMasks();
+}
+
+/** Whether a changed element holds or covers a mounted glint. */
+function coversShimmer(target: Element): boolean {
+  for (const glint of maskGlints.keys()) if (target.contains(glint)) return true;
+  return false;
+}
 
 /** The only elements the stylesheets run those loops on (their `animation`
  *  rules; decorative-motion-sync.test.mjs keeps the two in step): the arcs
@@ -86,6 +175,8 @@ function lockPending(): void {
   // A root mode change locks the whole page, which covers every other cause.
   const page = targets.find((target) => target === target.ownerDocument.documentElement);
   syncDecorativeLoops(...(page ? [page] : targets.filter((target) => target.isConnected)));
+  // Mounts and root modes reach the phone's shimmer here, ahead of the paint.
+  refreshShimmerMasks();
 }
 
 /** A hidden window runs no frames, and rows resumed or started meanwhile
@@ -105,9 +196,12 @@ function queueDecorativeLocks(targets: Iterable<Element>): void {
  *  held every element mounted and unmounted meanwhile, with its subtree. */
 export function lockDecorativeLoops(element: Element | null): (() => void) | undefined {
   if (!element) return undefined;
+  if (element.matches(SHIMMER_GLINT)) maskGlints.set(element, null);
   queueDecorativeLocks([element]);
   return () => {
     pendingLocks.delete(element);
+    // The last running glint leaving takes the pending timer with it.
+    if (maskGlints.delete(element)) scheduleShimmerMasks();
   };
 }
 
@@ -129,17 +223,22 @@ export function installDecorativeMotionSync(root: HTMLElement = document.documen
     if (DECORATIVE_LOOPS.has(event.animationName) && event.target instanceof Element)
       queueDecorativeLocks([event.target]);
   };
-  const onRoot = () => queueDecorativeLocks([root]);
+  const onRoot = () => {
+    queueDecorativeLocks([root]);
+    refreshShimmerMasks();
+  };
   const signals = new MutationObserver((records) => {
     const targets = new Set<Element>();
-    for (const record of records)
-      if (
-        record.target instanceof Element &&
-        record.target.isConnected &&
-        !signalHolds(record.target, record.attributeName)
-      )
-        targets.add(record.target);
+    let shimmer = false;
+    for (const record of records) {
+      if (!(record.target instanceof Element)) continue;
+      // A pause stops the phone's shimmer writes as a resume restarts them;
+      // only a signal above a mounted glint reads any style.
+      if (!shimmer && coversShimmer(record.target)) shimmer = true;
+      if (record.target.isConnected && !signalHolds(record.target, record.attributeName)) targets.add(record.target);
+    }
     queueDecorativeLocks(targets);
+    if (shimmer) refreshShimmerMasks();
   });
   // The root's inline style holds only custom properties (viewport metrics,
   // skin values) that never create an animation, and it changes on every
@@ -156,6 +255,9 @@ export function installDecorativeMotionSync(root: HTMLElement = document.documen
     if (lockFrame) cancelAnimationFrame(lockFrame);
     lockFrame = 0;
     pendingLocks.clear();
+    clearTimeout(maskTimer);
+    maskTimer = undefined;
+    maskGlints.clear();
     root.removeEventListener('animationstart', onStart, true);
     signals.disconnect();
     modes.disconnect();

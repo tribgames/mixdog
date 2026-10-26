@@ -293,7 +293,7 @@ test('every stylesheet rule that runs a decorative loop targets a loop host', as
   const { DECORATIVE_LOOP_HOSTS } = await import('./decorative-motion-sync.ts');
   const hosts = DECORATIVE_LOOP_HOSTS.split(',').map((host) => host.trim());
   const loops =
-    /animation(?:-name)?\s*:[^;{}]*\b(live-activity-arc-flow|live-activity-logo-spin|text-shimmer-window|text-shimmer-window-copy|text-shimmer-mask)\b/;
+    /animation(?:-name)?\s*:[^;{}]*\b(live-activity-arc-flow|live-activity-logo-spin|text-shimmer-window|text-shimmer-window-copy)\b/;
   const directory = new URL('./desktop/', import.meta.url);
   let rules = 0;
   for (const file of readdirSync(directory).filter((name) => name.endsWith('.css'))) {
@@ -314,5 +314,5 @@ test('every stylesheet rule that runs a decorative loop targets a loop host', as
       }
     }
   }
-  assert.ok(rules >= 5, `found ${rules} loop rules`);
+  assert.ok(rules >= 4, `found ${rules} loop rules`);
 });

@@ -86,7 +86,14 @@ function loopStates() {
         // A loop runs while any of its named animations plays.
         const running = names.some((name, index) => name !== 'none' && (plays[index] ?? plays[0]) === 'running');
         const animated = names.some((name) => name !== 'none');
-        states[loop] = { running: (states[loop]?.running ?? false) || running, animated };
+        // The phone sweep has no animation (its mask is stepped from script):
+        // the pause rules still set the play state script reads.
+        const playing = plays.some((play) => play === 'running');
+        states[loop] = {
+          running: (states[loop]?.running ?? false) || running,
+          animated,
+          playing: (states[loop]?.playing ?? false) || playing,
+        };
       }
     }
     result[section.dataset.context] = states;
@@ -131,9 +138,14 @@ test('every decorative loop holds still wherever it cannot be seen, desktop and 
         const loops = Object.entries(states[name]);
         assert.ok(loops.length > 0, `${label}: loops found`);
         for (const [loop, state] of loops) {
-          // The phone sweep moves one mask on the window; its lit copy holds.
+          // The phone sweep moves one mask on the window, stepped from script
+          // (no animation, but the play state the pause rules set); its lit
+          // copy holds.
           const expected = context.runs && !hidden && !(phone && loop.endsWith('::before'));
-          if (state.running !== expected) failures.push(`${label} ${loop} ${state.running ? 'runs' : 'holds'}`);
+          const scripted = phone && loop === '[data-slot="text-shimmer-glint"]';
+          const actual = scripted ? state.playing : state.running;
+          if (scripted && state.animated) failures.push(`${label} ${loop} runs a CSS animation`);
+          if (actual !== expected) failures.push(`${label} ${loop} ${actual ? 'runs' : 'holds'}`);
         }
         if (context.runs && !hidden) {
           for (const loop of ['.live-activity-arc-strip', '.live-activity-arcs']) {
@@ -334,10 +346,10 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   assert.ok(inkStep(3) <= Math.max(inkStep(2), inkStep(4)) * 1.5, `ink change at the seam ${inkStep(3).toFixed(1)}`);
 });
 
-test('the text sweep steps at 24 fps: one pose per frame, a whole number of frames a cycle', async (t) => {
+test('the desktop text sweep steps at 24 fps: one pose per frame, a whole number of frames a cycle', async (t) => {
   const page = await launch(t);
   const FRAME_MS = 1000 / 24;
-  for (const phone of [false, true]) {
+  for (const phone of [false]) {
     const sweeps = await page.evaluate(
       (phone, FRAME_MS) => {
         const root = document.documentElement;
@@ -350,25 +362,10 @@ test('the text sweep steps at 24 fps: one pose per frame, a whole number of fram
           const vars = getComputedStyle(shimmer);
           const number = (property) => Number(vars.getPropertyValue(property));
           const animations = glint.getAnimations({ subtree: true });
-          // The phone sweep's mask x position in px: a computed position keeps
-          // its percentage (of the box less the mask's width).
-          const maskX = (style) => {
-            const value = style.maskPosition;
-            const x = value.startsWith('calc(') ? value.slice(5, value.indexOf(')')) : value.split(' ')[0];
-            const basis = glint.getBoundingClientRect().width - Number.parseFloat(style.maskSize);
-            let px = 0;
-            for (const [, sign, number, unit] of x.matchAll(/(-\s*)?(-?[\d.]+)(%|px)/g)) {
-              const signed = (sign ? -1 : 1) * Number(number);
-              px += unit === '%' ? (signed / 100) * basis : signed;
-            }
-            return px;
-          };
           const read = () =>
             animations.map((animation) => {
               const style = getComputedStyle(glint, animation.effect.pseudoElement);
-              return animation.animationName === 'text-shimmer-mask'
-                ? maskX(style)
-                : new DOMMatrix(style.transform).m41;
+              return new DOMMatrix(style.transform).m41;
             });
           for (const animation of animations) animation.pause();
           const timings = animations.map((animation) => ({
@@ -415,7 +412,7 @@ test('the text sweep steps at 24 fps: one pose per frame, a whole number of fram
       const frames = Math.round(Math.min((cells + comet + rest) * 2.4, 76.8));
       assert.deepEqual(
         timings.map(({ name }) => name),
-        phone ? ['text-shimmer-mask'] : ['text-shimmer-window', 'text-shimmer-window-copy'],
+        ['text-shimmer-window', 'text-shimmer-window-copy'],
         label
       );
       for (const timing of timings) {
@@ -440,7 +437,7 @@ test('the text sweep steps at 24 fps: one pose per frame, a whole number of fram
         assert.ok(Math.abs(track[frames - 1] + step - to) < 2e-3, `${label}: the seam step`);
       }
       // The lit copy counter-slides in lockstep with its window.
-      if (!phone) for (const [window, copy] of poses) assert.ok(Math.abs(window + copy) < 1e-6, label);
+      for (const [window, copy] of poses) assert.ok(Math.abs(window + copy) < 1e-6, label);
     }
   }
 });
@@ -455,13 +452,7 @@ test('every loop locks to the timeline origin when it mounts or resumes, and a h
     write: false,
   });
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
-  const LOOP_NAMES = [
-    'live-activity-arc-flow',
-    'live-activity-logo-spin',
-    'text-shimmer-window',
-    'text-shimmer-window-copy',
-    'text-shimmer-mask',
-  ];
+  const LOOP_NAMES = ['live-activity-arc-flow', 'live-activity-logo-spin', 'text-shimmer-window', 'text-shimmer-window-copy'];
   const html = { band, heading };
   for (const phone of [false, true]) {
     const result = await page.evaluate(
@@ -552,8 +543,9 @@ test('every loop locks to the timeline origin when it mounts or resumes, and a h
       LOOP_NAMES
     );
     const label = phone ? 'phone' : 'desktop';
-    // The mark's two loops, and per sweep (band verb, dock heading) its window\n    // and lit copy (desktop) or its one mask (phone).
-    const loopCount = 2 + 2 * (phone ? 1 : 2);
+    // The mark's two loops, and per sweep (band verb, dock heading) its window
+    // and lit copy (desktop); the phone's masks are stepped from script.
+    const loopCount = phone ? 2 : 6;
     const locked = Array.from({ length: loopCount }, () => /:running:0$/);
     const expectAll = (states, pattern, what) => {
       assert.equal(states.length, loopCount, `${label} ${what}: ${states}`);
@@ -633,13 +625,7 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
     },
     { band, heading }
   );
-  const NAMES = [
-    'live-activity-arc-flow',
-    'live-activity-logo-spin',
-    'text-shimmer-window',
-    'text-shimmer-window-copy',
-    'text-shimmer-mask',
-  ];
+  const NAMES = ['live-activity-arc-flow', 'live-activity-logo-spin', 'text-shimmer-window', 'text-shimmer-window-copy'];
   // The page's loops once `count` of them run, all locked to the origin.
   const locked = (count) =>
     page.waitForFunction(
@@ -687,7 +673,9 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
       else delete document.documentElement.dataset.mixdogMobileTabs;
     }, phone);
   await setPhone(true);
-  await check('desktop -> phone', 4, { prePaint: true, started: 1 });
+  // The phone's masks are stepped from script: only the mark's loops remain,
+  // and nothing starts.
+  await check('desktop -> phone', 2, { prePaint: false, started: 0 });
   await setPhone(false);
   await check('phone -> desktop', 6, { prePaint: true, started: 1 });
 
@@ -742,4 +730,319 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
   );
   await check('resumed', 6, { prePaint: false, started: 0 });
   await page.evaluate(() => window.__stopSync());
+});
+
+// The phone's sweep has no CSS animation: one mask position, driven from
+// script a step at a time (decorative-motion-sync.ts).
+const RUNNING = ['visible', 'dock: open, agents view'];
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('phone: the mask position at step k is the keyframe interpolation, -band to 100% + rest, at step k of the frames', async (t) => {
+  const page = await launch(t);
+  const sweeps = await page.evaluate((RUNNING) => {
+    document.documentElement.dataset.mixdogMobileTabs = 'true';
+    document.documentElement.dataset.mixdogMotion = 'running';
+    return RUNNING.map((name) => {
+      const shimmer = document.querySelector(`[data-context="${name}"] [data-component="text-shimmer"]`);
+      const glint = shimmer.querySelector('[data-slot="text-shimmer-glint"]');
+      const vars = getComputedStyle(shimmer);
+      const number = (property) => Number(vars.getPropertyValue(property));
+      const frames = Math.round(
+        Math.min((number('--text-shimmer-cells') + number('--text-shimmer-comet') + number('--text-shimmer-rest')) * 2.4, 76.8)
+      );
+      const band = Number.parseFloat(getComputedStyle(glint).maskSize);
+      // --text-shimmer-rest-run in px.
+      const probe = document.createElement('i');
+      probe.style.cssText = 'position:absolute;width:var(--text-shimmer-rest-run)';
+      glint.append(probe);
+      const rest = probe.getBoundingClientRect().width;
+      probe.remove();
+      // A computed position keeps its percentage (of the box less the mask's width).
+      const basis = glint.getBoundingClientRect().width - band;
+      const maskX = () => {
+        const value = getComputedStyle(glint).maskPosition;
+        const x = value.startsWith('calc(') ? value.slice(5, value.indexOf(')')) : value.split(' ')[0];
+        let px = 0;
+        for (const [, sign, amount, unit] of x.matchAll(/(-\s*)?(-?[\d.]+)(%|px)/g)) {
+          const signed = (sign ? -1 : 1) * Number(amount);
+          px += unit === '%' ? (signed / 100) * basis : signed;
+        }
+        return px;
+      };
+      const positions = [];
+      for (let step = 0; step <= frames; step += 1) {
+        glint.style.setProperty('--text-shimmer-step', String(step));
+        positions.push(maskX());
+      }
+      return {
+        name,
+        frames,
+        band,
+        rest,
+        basis,
+        positions,
+        animation: getComputedStyle(glint).animationName,
+        copy: getComputedStyle(glint, '::before').animationName,
+      };
+    });
+  }, RUNNING);
+  for (const { name, frames, band, rest, basis, positions, animation, copy } of sweeps) {
+    assert.equal(animation, 'none', `${name}: the mask runs no CSS animation`);
+    assert.equal(copy, 'none', `${name}: nor does its lit copy`);
+    assert.ok(band > 0 && rest > 0 && basis > 0, `${name}: geometry measured`);
+    const from = -band;
+    const to = basis + rest;
+    positions.forEach((position, step) => {
+      const want = from + ((to - from) * step) / frames;
+      // (The computed percentage serializes to a few digits: 1/50 px.)
+      assert.ok(Math.abs(position - want) < 0.02, `${name} step ${step}: ${position} (want ${want})`);
+    });
+  }
+});
+
+/** A phone page with the sync module installed, every glint and the mark
+ *  mounted through its ref hook, and every glint's step writes recorded. */
+async function drivenPage(t, { phone }) {
+  const page = await launch(t);
+  const bundle = await build({
+    entryPoints: [new URL('./decorative-motion-sync.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
+    bundle: true,
+    format: 'iife',
+    globalName: 'motionSync',
+    write: false,
+  });
+  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const meta = await page.evaluate((phone) => {
+    const root = document.documentElement;
+    if (phone) root.dataset.mixdogMobileTabs = 'true';
+    else delete root.dataset.mixdogMobileTabs;
+    root.dataset.mixdogMotion = 'running';
+    window.__stopSync = window.motionSync.installDecorativeMotionSync();
+    window.__writes = [];
+    const watch = new MutationObserver((records) => {
+      const t = performance.now();
+      for (const { target } of records) {
+        window.__writes.push({
+          context: target.closest('[data-context]').dataset.context,
+          step: Number(target.style.getPropertyValue('--text-shimmer-step')),
+          t,
+        });
+      }
+    });
+    const meta = {};
+    for (const glint of document.querySelectorAll('[data-slot="text-shimmer-glint"]')) {
+      const shimmer = glint.closest('[data-component="text-shimmer"]');
+      const vars = getComputedStyle(shimmer);
+      const number = (property) => Number(vars.getPropertyValue(property));
+      meta[glint.closest('[data-context]').dataset.context] = Math.round(
+        Math.min((number('--text-shimmer-cells') + number('--text-shimmer-comet') + number('--text-shimmer-rest')) * 2.4, 76.8)
+      );
+      watch.observe(glint, { attributes: true, attributeFilter: ['style'] });
+      (window.__unmounts ??= new Map()).set(glint, window.motionSync.lockDecorativeLoops(glint));
+    }
+    for (const icon of document.querySelectorAll('.live-activity-icon')) window.motionSync.lockDecorativeLoops(icon);
+    return meta;
+  }, phone);
+  t.after(() => page.evaluate(() => window.__stopSync()).catch(() => {}));
+  const drain = () => page.evaluate(() => window.__writes.splice(0));
+  return { page, meta, drain };
+}
+
+const FRAME = 1000 / 24;
+const byContext = (writes) => {
+  const grouped = {};
+  for (const write of writes) (grouped[write.context] ??= []).push(write);
+  return grouped;
+};
+
+test('phone: one write per step, on the running mark\'s beat, nothing while held', async (t) => {
+  const { page, meta, drain } = await drivenPage(t, { phone: true });
+  await sleep(300);
+  await drain();
+  await sleep(1500);
+  const writes = byContext(await drain());
+  for (const name of RUNNING) {
+    const list = writes[name];
+    const frames = meta[name];
+    assert.ok(list?.length > 20, `${name}: stepping (${list?.length} writes in 1.5s)`);
+    const span = list.at(-1).t - list[0].t;
+    // One write per 1/24 s step: never two for a step, none on other frames.
+    assert.ok(list.length <= Math.ceil(span / FRAME) + 1, `${name}: ${list.length} writes over ${span}ms`);
+    list.forEach(({ step, t: time }, index) => {
+      assert.equal(step, Math.floor(time / FRAME) % frames, `${name} write ${index}: the step of its time`);
+      assert.ok(time % FRAME < FRAME * 0.75, `${name} write ${index}: ${time % FRAME}ms after the step's boundary`);
+      if (index === 0) return;
+      const advance = (step - list[index - 1].step + frames) % frames;
+      assert.ok(advance >= 1 && advance <= 2, `${name} write ${index}: advanced ${advance} steps`);
+    });
+  }
+  for (const name of Object.keys(meta).filter((name) => !RUNNING.includes(name))) {
+    assert.equal(writes[name], undefined, `${name}: held, no writes`);
+  }
+  // The mark's loops sit on the same grid: locked to the timeline origin,
+  // one step per 1/24 s, on the clock the steps above count from.
+  const mark = await page.evaluate(() => {
+    const strip = document.querySelector('[data-context="visible"] .live-activity-arc-strip');
+    const [animation] = strip.getAnimations();
+    return {
+      startTime: animation.startTime,
+      frame: animation.effect.getTiming().duration / Number(/steps\((\d+)/.exec(animation.effect.getKeyframes()[0].easing)[1]),
+      clock: Math.abs(document.timeline.currentTime - performance.now()),
+    };
+  });
+  assert.equal(mark.startTime, 0);
+  assert.ok(Math.abs(mark.frame - FRAME) < 1e-9);
+  assert.ok(mark.clock < 100, `the timeline and the writes share an origin (${mark.clock}ms apart)`);
+});
+
+test('phone: every pause rule stops the writes and the resume lands on the beat', async (t) => {
+  const { page, meta, drain } = await drivenPage(t, { phone: true });
+  const toggle = (selector, attribute, value) =>
+    page.evaluate(
+      (selector, attribute, value) => {
+        const element = document.querySelector(selector);
+        if (value === null) element.removeAttribute(attribute);
+        else element.setAttribute(attribute, value);
+      },
+      selector,
+      attribute,
+      value
+    );
+  const rootMotion = (value) =>
+    page.evaluate((value) => {
+      document.documentElement.dataset.mixdogMotion = value;
+    }, value);
+  const reduced = (value) => page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value }]);
+  const visibleRow = '[data-context="visible"] .transcript-virtual-row';
+  const cases = [
+    {
+      label: 'row outside the range',
+      scope: ['visible'],
+      hold: () => toggle(visibleRow, 'data-offscreen', 'true'),
+      release: () => toggle(visibleRow, 'data-offscreen', null),
+    },
+    {
+      label: 'conversation parked',
+      scope: ['visible'],
+      hold: () => toggle('[data-context="visible"]', 'data-conversation-parked', 'true'),
+      release: () => toggle('[data-context="visible"]', 'data-conversation-parked', null),
+    },
+    {
+      label: 'retained surface',
+      scope: ['visible'],
+      hold: () => toggle('[data-context="visible"]', 'data-retained', ''),
+      release: () => toggle('[data-context="visible"]', 'data-retained', null),
+    },
+    {
+      label: 'dock pane inactive',
+      scope: ['dock: open, agents view'],
+      hold: () => toggle('[data-context="dock: open, agents view"] .utility-dock-pane', 'data-surface-active', 'false'),
+      release: () => toggle('[data-context="dock: open, agents view"] .utility-dock-pane', 'data-surface-active', 'true'),
+    },
+    { label: 'document hidden', scope: RUNNING, hold: () => rootMotion('paused'), release: () => rootMotion('running') },
+    { label: 'reduced motion', scope: RUNNING, hold: () => reduced('reduce'), release: () => reduced('no-preference') },
+    {
+      label: 'desktop layout',
+      scope: RUNNING,
+      hold: () =>
+        page.evaluate(() => {
+          delete document.documentElement.dataset.mixdogMobileTabs;
+        }),
+      release: () =>
+        page.evaluate(() => {
+          document.documentElement.dataset.mixdogMobileTabs = 'true';
+        }),
+    },
+  ];
+  await sleep(300);
+  for (const { label, scope, hold, release } of cases) {
+    await drain();
+    await hold();
+    await sleep(100);
+    await drain();
+    await sleep(300);
+    const held = byContext(await drain());
+    for (const name of scope) assert.equal(held[name], undefined, `${label}: ${name} holds, no writes`);
+    for (const name of RUNNING.filter((name) => !scope.includes(name))) {
+      assert.ok(held[name]?.length > 3, `${label}: ${name} keeps stepping`);
+    }
+    await release();
+    await sleep(300);
+    const resumed = byContext(await drain());
+    for (const name of scope) {
+      const list = resumed[name];
+      assert.ok(list?.length > 3, `${label}: ${name} resumes (${list?.length} writes)`);
+      list.forEach(({ step, t: time }, index) => {
+        // The first write is the resume's own, wherever in the step it lands.
+        if (index === 0) {
+          const now = [Math.floor(time / FRAME), Math.floor((time - 3) / FRAME)].map((n) => n % meta[name]);
+          assert.ok(now.includes(step), `${label}: ${name} resumes on the step of its time`);
+        } else {
+          assert.equal(step, Math.floor(time / FRAME) % meta[name], `${label}: ${name} write ${index} on the beat`);
+          assert.ok(time % FRAME < FRAME * 0.75, `${label}: ${name} write ${index} on the beat`);
+        }
+      });
+    }
+  }
+});
+
+test('phone: one step timer while a glint runs; the last glint unmounting leaves none', async (t) => {
+  const { page, drain } = await drivenPage(t, { phone: true });
+  await sleep(300);
+  // Held glints (offscreen, parked, ...) and the mark own no timer: count
+  // the page's pending timeouts, which only the step timer uses. (The two
+  // running glints are 'visible' and the open dock's.)
+  await page.evaluate(() => {
+    const pending = new Set();
+    const { setTimeout: set, clearTimeout: clear } = window;
+    window.setTimeout = (callback, ...rest) => {
+      const id = set(() => {
+        pending.delete(id);
+        callback();
+      }, ...rest);
+      pending.add(id);
+      return id;
+    };
+    window.clearTimeout = (id) => {
+      pending.delete(id);
+      clear(id);
+    };
+    window.__pendingTimers = () => pending.size;
+    // Pause and resume to re-arm the timer under the counting wrappers.
+    document.documentElement.dataset.mixdogMotion = 'paused';
+  });
+  await sleep(100);
+  await page.evaluate(() => {
+    document.documentElement.dataset.mixdogMotion = 'running';
+  });
+  await sleep(100);
+  const unmount = (context) =>
+    page.evaluate((context) => {
+      const glint = document.querySelector(`[data-context="${context}"] [data-slot="text-shimmer-glint"]`);
+      window.__unmounts.get(glint)();
+      glint.remove();
+      return window.__pendingTimers();
+    }, context);
+  await drain();
+  assert.equal(await page.evaluate(() => window.__pendingTimers()), 1, 'two running glints share one timer');
+  assert.equal(await unmount('visible'), 1, 'a remaining running glint keeps exactly one timer');
+  // The rest are held by pause rules: nothing is left to wake for.
+  assert.equal(await unmount('dock: open, agents view'), 0, 'the last running glint leaves no timer');
+});
+
+test('desktop: the sweep stays on its two CSS animations, nothing is written from script', async (t) => {
+  const { page, drain } = await drivenPage(t, { phone: false });
+  await sleep(600);
+  assert.deepEqual(await drain(), []);
+  const state = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-context="visible"] [data-slot="text-shimmer-glint"]')].map((glint) => ({
+      style: glint.getAttribute('style'),
+      animations: glint
+        .getAnimations({ subtree: true })
+        .map((animation) => `${animation.animationName}:${animation.playState}`),
+    }))
+  );
+  assert.deepEqual(state, [
+    { style: null, animations: ['text-shimmer-window:running', 'text-shimmer-window-copy:running'] },
+  ]);
 });

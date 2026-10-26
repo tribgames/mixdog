@@ -1170,7 +1170,14 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
    doubled/dotted fragment between the verb and the byline) and the CJK label
    overflows the ch-based box so the copy ends in "…". Here the lit copy is
    pinned exactly over the label — no transform, no clipping glyph — and ONE
-   animation slides a mask window across it. */
+   mask window slides across it. The window is stepped from script, not by a
+   CSS animation: WebView re-evaluated the stepped animation at every vsync,
+   between its steps too (~160ms of main thread a second). Each step
+   decorative-motion-sync.ts writes the step index to --text-shimmer-step; the
+   position is the old keyframes' interpolation, from `calc(-1 * band)` (step
+   0) toward `calc(100% + rest-run)` (step `frames`, which `end` never shows).
+   The `animation` shorthand stays with the name `none`, so the script reads
+   the cadence (duration, steps) and the pause rules' play state from here. */
 html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-shimmer-glint"] {
   left: 0;
   right: 0;
@@ -1181,8 +1188,16 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   mask-repeat: no-repeat;
   -webkit-mask-size: var(--text-shimmer-band) 100%;
   mask-size: var(--text-shimmer-band) 100%;
+  --text-shimmer-mask-position: calc(
+      -1 * var(--text-shimmer-band) +
+        (100% + var(--text-shimmer-rest-run) + var(--text-shimmer-band)) * var(--text-shimmer-step, 0) /
+        var(--text-shimmer-frames)
+    )
+    0;
+  -webkit-mask-position: var(--text-shimmer-mask-position);
+  mask-position: var(--text-shimmer-mask-position);
   transform: none;
-  animation: text-shimmer-mask var(--text-shimmer-duration) steps(var(--text-shimmer-frames), end) infinite;
+  animation: none var(--text-shimmer-duration) steps(var(--text-shimmer-frames), end) infinite;
 }
 html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-shimmer-glint"]::before {
   padding: 0;
@@ -1191,16 +1206,6 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   white-space: pre;
   transform: none;
   animation: none;
-}
-@keyframes text-shimmer-mask {
-  from {
-    -webkit-mask-position: calc(-1 * var(--text-shimmer-band)) 0;
-    mask-position: calc(-1 * var(--text-shimmer-band)) 0;
-  }
-  to {
-    -webkit-mask-position: calc(100% + var(--text-shimmer-rest-run)) 0;
-    mask-position: calc(100% + var(--text-shimmer-rest-run)) 0;
-  }
 }
 .context-usage {
   position: relative;
