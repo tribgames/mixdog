@@ -17,6 +17,8 @@ const BUTTON_NAMES: Record<RemoteScreenButton, ScreenHostButton> = { left: 'left
  * a pointer/wheel whose `geometryGeneration` does not match the live mapping,
  * an out-of-bounds point, or a zero-delta wheel (the phone retries after the
  * next geometry-ack). `screen-release` is the router's concern and yields `[]`.
+ * `screen-keys` yields its key downs in order; the router presses them and
+ * releases them in reverse as one step (`ScreenInputRouter.dispatchKeys`).
  */
 export function screenInputCommands(
   input: RemoteScreenInput,
@@ -40,6 +42,8 @@ export function screenInputCommands(
     }
     case 'screen-key':
       return [{ op: 'key', vk: input.vk, scan: input.scan, extended: input.extended, down: input.action === 'down' }];
+    case 'screen-keys':
+      return input.keys.map((key) => ({ op: 'key', vk: key.vk, scan: key.scan, extended: key.extended, down: true }));
     case 'screen-text':
       return [{ op: 'text', text: input.text }];
     case 'screen-release':

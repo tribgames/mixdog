@@ -26,7 +26,8 @@ displays, picks one, and streams it the same way it streams a browser page.
 | `apps/desktop/src/main/remote-screen/screen-webrtc-source.ts` | `createScreenWebrtcSource`: adapts a `RemoteScreenSource` to the WebRTC host's `RemoteWebrtcVideoSource` (`main/remote-webrtc/source.ts`). |
 | `apps/desktop/src/main/remote-screen/screen-webrtc-sources.ts` | The window process's screen sessions for the WebRTC host: per-connection access, resolve, close (see "Main wiring"). |
 | `apps/desktop/src/main/remote-screen/screen-access-publisher.ts` | Service side: sends each relay connection's access (grant / deny) to the window. |
-| `apps/desktop/src/main/remote-screen/screen-electron.ts` | Electron pieces: displays with capture ids, the input host factory, the notification indicator. |
+| `apps/desktop/src/main/remote-screen/screen-electron.ts` | Electron pieces: displays with capture ids, the input host factory, the on-PC indicator (the remote-control pill). |
+| `apps/desktop/src/main/remote-screen/secure-desktop-adapter.ts` | Adapts the real secure-desktop client (`main/secure-desktop/`, protocol v3) to the switch's `SecureDesktopClient` interface. |
 | `apps/desktop/src/main/remote-screen/screen-selfcheck.mjs` | A local self-check that needs no phone and doesn't touch the cursor. It runs no capture and injects nothing; input goes through a recording backend. |
 
 ## Contract fold-in
@@ -42,8 +43,10 @@ module imports them and no longer defines its own copies:
 - `RemoteScreenDisplaySummary`, used by `screen-geometry.ts`;
 - the data-channel messages: the `screen-input` member of
   `RemoteWebrtcChannelFromClient`, validated by
-  `parseRemoteWebrtcChannelFromClient`, and the status push
-  `RemoteWebrtcScreenStatusMessage`.
+  `parseRemoteWebrtcChannelFromClient`, and the desktop pushes
+  (`RemoteWebrtcChannelPush`): the status `RemoteWebrtcScreenStatusMessage`
+  and the cursor `RemoteWebrtcScreenCursorMessage`, read on the phone by
+  `readRemoteWebrtcScreenStatus` and `readRemoteWebrtcScreenCursor`.
 
 `remoteScreenKeyForCode` and `openRemoteScreenCaptureTrack` stay in
 `shared/remote-screen.ts`. The `screen-input` control is a `RemoteScreenInput`:
@@ -53,8 +56,44 @@ module imports them and no longer defines its own copies:
   desktop side.
 - `screen-wheel`: x/y plus WheelEvent-signed deltas in Windows wheel units.
 - `screen-key`: `down`/`up` by virtual key + scan code + extended flag.
+- `screen-keys`: `{ keys: RemoteScreenKey[] }`, an atomic combo: 1 to
+  `MAX_REMOTE_SCREEN_COMBO_KEYS` (8) distinct keys, pressed in order and
+  released in reverse as one router step (`ScreenInputRouter.dispatchKeys`).
+  The same control check gates each press and the same press tracking
+  applies: a release point between steps still finds them. Whatever the
+  combo pressed is released even if it stops early (control lost, a cancel,
+  a failed send); a key the session already holds (a modifier the phone
+  keeps down) is neither pressed nor released. A combo types no text, so the
+  AltGr text rule doesn't apply to it; a combo that includes AltGr's keys
+  presses them like any others. Acked `applied` only when every key went
+  down and up.
 - `screen-text`: literal Unicode, bounded by `MAX_REMOTE_SCREEN_TEXT`.
 - `screen-release`: lift every key and button this viewer holds.
+
+Desktop → phone on the same channel (not input-acked, not epoch-bound):
+
+- `screen-status`: `{ v, kind: 'screen-status', status: RemoteScreenStatus }`,
+  pushed on every status change (from the source's `onStatus`), including the
+  final `stopped`.
+- `screen-cursor`: `{ v, kind: 'screen-cursor', x, y, generation }`, the PC
+  cursor in whole video pixels of geometry `generation`. The cursor stays
+  baked into the video; this only anchors trackpad mode. It is sampled
+  through the input host's cursor read-back (physical desktop pixels, the
+  pointer mapping's space) once per capture frame interval,
+  `1000 / maxFrameRate` ms (30 fps → 34 ms): the video shows at most
+  `maxFrameRate` pictures a second, so a position sampled more often can't
+  match a frame the phone shows, and one per frame keeps the anchor at most
+  a frame behind. It is pushed only when it changed, only while the cursor
+  is on the viewed display, and not while the helper serves the secure
+  desktop (the host can't read the cursor there, and a normal-desktop
+  position doesn't match the helper's picture). The switch to the helper
+  clears the cached position, a read still in flight across that switch
+  (or across a new geometry) is dropped when it completes, and the
+  promotion snapshot carries no cursor while the helper serves.
+- Both go only to a channel that is up (`promoting` or `webrtc`); a viewer's
+  channel gets the current status and the last cursor once when it is
+  promoted (`RemoteWebrtcVideoSource.channelState`), so nothing sent before
+  is missed.
 
 ## Capture
 
@@ -293,18 +332,53 @@ during or after the quit.
 
 ## Secure desktop / UAC
 
-A parallel agent (`secure-desktop-service`) ships a LocalSystem service +
-session helper with a TS client in `apps/desktop/src/main` that captures and
-injects on the secure desktop. `secure-desktop-switch.ts` imports no helper
-implementation. It depends only on the `SecureDesktopClient` interface and
-decides the source as a pure function:
+A LocalSystem service + session helper (`native/mixdog-secure-desktop/`)
+captures and injects on the secure desktop; its TS client is
+`apps/desktop/src/main/secure-desktop/`. `secure-desktop-switch.ts` imports no
+helper implementation. It depends only on the `SecureDesktopClient` interface
+and decides the source as a pure function. `secure-desktop-adapter.ts` adapts
+the real client to that interface (`index.ts` plugs it in):
+
+- **Not installed:** the adapter is `NO_SECURE_DESKTOP` (not installed), so a
+  secure desktop stays blocked. Installing is not built here.
+- **Connection:** dialled on the first `setActive(true)` (not awaited, so the
+  input queue never waits on it); a wanted activation is sent once the
+  handshake completes. While activation is wanted, a lost or refused
+  connection is dialled again after 1 s, doubling to 30 s, reset by a
+  success. Connect, desktop change and disconnect all fire
+  `onDesktopChanged`, which re-runs the decision.
+- **Identity:** `session()` and `desktop()` come from the client's
+  `session()` object (`{protocol, version, session, desktop}`), current
+  through `desktop-changed`.
+- **Input:** host commands become the protocol's `InputEvent` in the same
+  desktop pixels. A button without a position uses the last one sent (the
+  helper releases in place). The cursor read-back has no helper counterpart
+  and is refused. `sendInput` settles within the client's own deadline.
+- **Dispose:** the screen sources own the adapter and call `dispose()` when
+  they close (browser host dispose or app quit), once every session
+  released, since those releases may go through the helper. It cancels the
+  reconnect, detaches its listeners from the client and closes the
+  connection, also one still in its handshake; a connect that succeeds
+  anyway is closed when it does. Nothing dials after it.
+
+The decision:
 
 - **Secure desktop up.** The input-desktop watcher can't open the input
   desktop, or the desktop is `winlogon`. That covers UAC on the secure desktop,
   Ctrl+Alt+Del, and the lock/sign-in screen. If the helper is installed and
   attached, its frames and input take over: the router switches to `secure`.
   The old desktop's presses are released through the input host first, and
-  dropped (counted) when it can no longer reach that desktop. Without the helper, the
+  dropped (counted) when it can no longer reach that desktop.
+  **No blind control:** on the helper path control waits until the helper's
+  video actually reaches the viewer. The sender reports it through
+  `setHelperVideo(true)`; until then the status is `secure-desktop` with
+  `control: false` (the phone shows its blocked state) and the router
+  refuses every positive input. `setHelperVideo(false)` withdraws control at
+  once and releases what the viewer holds through the helper. Leaving the
+  helper path clears the report, so each helper period needs its own, and a
+  report outside it counts for nothing. Releases always go through. Today
+  nothing feeds the helper's frames to the sender, so nothing reports it:
+  with the helper installed, a secure desktop is view-blocked. Without the helper, the
   phone gets a `secure-desktop` state ("elevation prompt on the PC — approve
   there or install the helper"), never a frozen or black frame.
 - **Elevation prompt on the ordinary desktop.** `consent.exe` is running while
@@ -337,9 +411,11 @@ refused.
   below). The same check runs where the signal is
   authorized (`screenAuthorized` in `remote-relay.ts`) and in the access it
   pushes to the window. Unpaired or plaintext peers are refused.
-- **Visible on-PC indicator** while a phone controls, with a one-click stop
-  (`ScreenIndicator`). Today it is an OS notification; it is to be redesigned
-  separately.
+- **Visible on-PC indicator** while a phone views or controls, with a
+  one-click stop (`ScreenIndicator`): the remote-control pill
+  (`screen-indicator.ts`), shown on the viewed display. One pill covers every
+  phone, and its Stop ends each session. It names the phone in its tooltip
+  and doesn't distinguish viewing from controlling.
 - **Logging.** Start, stop, denial, secure-desktop transitions and dropped
   releases (as counts per backend) are logged. Input content is never logged.
 
@@ -410,6 +486,10 @@ returns a `RemoteWebrtcVideoSource` for `{ kind: 'screen', screenId }`:
   and safe at demote and again at viewer-left.
 - `onGeometry` calls `sink.geometryChanged` and then `sink.captureChanged`, so
   the sender re-opens its track. `onStop` reports `null` geometry.
+- `onStatus` and `onCursor` call `sink.channelPush` with a `screen-status` /
+  `screen-cursor` message; the host sends it to each viewer of the source
+  whose channel is up. `channelState()` returns the current status and the
+  last cursor, which the host sends when a viewer is promoted.
 
 ### Main wiring
 
@@ -512,23 +592,25 @@ it; Windows only):
   before taking the snapshot of sessions to stop, and the latch is permanent.
   Every session still running or releasing is stopped under
   `SCREEN_QUIT_BUDGET_MS`. The cached access is cleared, and from then on
-  every resolve is refused and every access update throws.
+  every resolve is refused and every access update throws. Once every
+  session released, the secure-desktop client is disposed (once).
 - **Electron pieces** (`screen-electron.ts`): displays from Electron `screen`
   with each display's `desktopCapturer` source id (refreshed on display
   events and before each screen `ready`); the input host in the app-data
-  folder Computer Use's host uses; the indicator as an OS notification
-  posted from main (names the phone; a click stops the session; to be
-  redesigned separately). The secure-desktop client is `NO_SECURE_DESKTOP` until the
-  secure-desktop service's client is plugged in through the same interface.
+  folder Computer Use's host uses; the indicator as the remote-control pill
+  (`createPillScreenIndicator` over `showRemoteScreenIndicator`, given the
+  viewed display's Electron id). The secure-desktop client is the real one
+  through `createSecureDesktopAdapter`.
 
 ### The underlying source interface
 
 `RemoteScreenSource` (`screen-source.ts`): `listDisplays()`,
 `start()` → `{ plan, geometry, status }`, `running()`, `geometry()`,
 `capturePlan()`, `status()`, `onFrame` (helper-path BGRA frames), `onStatus`,
-`onGeometry`, `onStop`, `handleInput(input, geometryGeneration)` →
+`cursor()` / `onCursor` (with `sampleCursor`), `onGeometry`, `onStop`, `handleInput(input, geometryGeneration)` →
 `'applied' | 'rejected'`, `releaseInput()` (idempotent; valid before, during and
-after stop), `stop(reason, { deadlineMs? })` (idempotent; a later call
+after stop), `setHelperVideo(delivering)` (see "No blind control"),
+`stop(reason, { deadlineMs? })` (idempotent; a later call
 returns the first one's promise), and `released()`. `released()`
 resolves once shutdown is done: releases delivered or dropped, and backends
 closed, bounded as described under "Shutdown". Its deps include an optional
@@ -646,6 +728,28 @@ sources (Node's own type stripping can't, e.g. parameter properties):
   another connection takes the id is cancelled, a mismatch alone refuses
   it, and the new connection's own `ready` is forwarded with it as origin.
 
+- Combos, pushes, cursor, adapter: `screen-input-router.test.mjs` (a combo
+  in order then reverse as one step; a held modifier stays held; control
+  lost, a cancel or a desktop change mid-combo releases or drops what it
+  pressed), `screen-source.test.mjs` (combo through the source and refused
+  without control; status pushed on change and to a promoted channel; cursor
+  sampled per frame interval, mapped to video pixels, pushed only on change
+  and on this display, ending with the session; a read in flight across a
+  switch to the helper dropped and no cursor offered while it serves; the
+  indicator gets the display; on the helper path no control without helper
+  video, control once it reaches the viewer, withdrawn with held keys
+  released when it stops, cleared when the helper path ends),
+  `secure-desktop-switch.test.mjs` (helper control needs helper video),
+  `remote-webrtc/viewer.test.mjs` (pushes only while the channel is
+  up, one promotion notice), `shared/remote-webrtc.test.mjs` (`screen-keys`
+  and `screen-cursor` validation), `secure-desktop-adapter.test.mjs` (not
+  installed is `NO_SECURE_DESKTOP`; on-demand dial, activation and session;
+  backoff while wanted; input mapping; frames; dispose while a connect is
+  pending closes the late success and leaves no listener or timer; dispose
+  cancels a reconnect and closes a live connection),
+  `screen-webrtc-sources.test.mjs` (close disposes the client once, after
+  the sessions released).
+
 Manual, local, phone-free:
 
 - Dry run that doesn't touch the cursor (no capture, no injection). It is a
@@ -665,25 +769,15 @@ Manual, local, phone-free:
 The main wiring is done (see "Main wiring"). Still open:
 
 - WebRTC host:
-  - push `RemoteWebrtcScreenStatusMessage` on the channel from `onStatus`
-    (nothing sends `screen-status` yet);
   - feed helper `onFrame` frames to the sender while the helper owns the
-    desktop (only matters once a real secure-desktop client is plugged in);
+    desktop, and report it per viewer with `setHelperVideo(true)` once they
+    reach that viewer's video (`false` when they stop). Until then a secure
+    desktop is view-blocked even with the helper installed: control stays
+    off there (see "No blind control");
   - optional: pass the input message's `geometryGeneration` through
     `dispatch`. Today the adapter uses the current generation, relying on the
     host's own check against the acknowledged one;
   - an `app-quit` stop reason (`user` stands in).
-- Secure desktop: replace `NO_SECURE_DESKTOP` in `index.ts` with the real
-  `SecureDesktopClient` from `secure-desktop-service` (protocol v3: the real
-  input desktop name, which `secure-desktop-switch.ts` compares
-  case-insensitively; a bounded `sendInput`). It is not a drop-in: its
-  `session()` returns `{protocol, version, session, desktop}` (or
-  `undefined`) and its `sendInput` takes the protocol's `InputEvent`, so a
-  small adapter to this switch's `SecureDesktopClient` interface is needed.
-  It must also deliver a release whenever the helper is attached, even while
-  capture is inactive.
-- UI (not built):
-  - the designed on-PC indicator with its stop button, redesigned separately
-    from Computer Use's (the OS notification stands in);
-  - the phone's display picker, the screen viewer itself and its
-    elevation/secure-desktop status banner.
+- Secure desktop: the helper's install flow (not built here).
+- Phone: consume `screen-cursor` (trackpad anchor) and send `screen-keys`
+  for shortcuts.

@@ -3,15 +3,19 @@
  * (main/remote-webrtc/source.ts): the sender opens a desktop-capture track from
  * `capturePlan`, a channel `screen-input` reaches the source's gated, serialized
  * input path, and geometry renewals and the end of the session reach the sink.
+ * Its status (`screen-status`) and cursor position (`screen-cursor`) are pushed
+ * on the viewer's channel on change, and both once when the channel is promoted.
  */
 import {
+  REMOTE_WEBRTC_VERSION,
   isRemoteWebrtcPageInput,
   remoteWebrtcSourceKey,
+  type RemoteWebrtcChannelPush,
   type RemoteWebrtcSource,
   type RemoteWebrtcSourceInput,
 } from '../../shared/remote-webrtc';
 import type { RemoteWebrtcSourceSink, RemoteWebrtcVideoSource } from '../remote-webrtc/source';
-import type { RemoteScreenSource } from './screen-source';
+import type { RemoteScreenSource, ScreenCursor } from './screen-source';
 
 export interface ScreenWebrtcSourceOptions {
   screenId: string;
@@ -33,6 +37,20 @@ export function createScreenWebrtcSource(
     options.sink.captureChanged(key);
   });
   screen.onStop(() => options.sink.geometryChanged(key, null));
+
+  const statusMessage = (): RemoteWebrtcChannelPush => ({
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-status',
+    status: screen.status(),
+  });
+  const cursorMessage = (cursor: ScreenCursor): RemoteWebrtcChannelPush => ({
+    v: REMOTE_WEBRTC_VERSION,
+    kind: 'screen-cursor',
+    ...cursor,
+  });
+  // A stop's own status is pushed before the sink ends the viewer.
+  screen.onStatus(() => options.sink.channelPush(key, statusMessage()));
+  screen.onCursor((cursor) => options.sink.channelPush(key, cursorMessage(cursor)));
 
   return {
     source,
@@ -61,5 +79,9 @@ export function createScreenWebrtcSource(
     },
     capturePlan: () => screen.capturePlan(),
     release: () => screen.releaseInput(),
+    channelState: () => {
+      const cursor = screen.cursor();
+      return cursor ? [statusMessage(), cursorMessage(cursor)] : [statusMessage()];
+    },
   };
 }

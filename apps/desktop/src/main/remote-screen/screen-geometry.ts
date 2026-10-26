@@ -110,6 +110,21 @@ export function mapScreenPointer(mapping: ScreenPointerMapping, x: number, y: nu
   return { x: physical.x + column, y: physical.y + row };
 }
 
+/** A desktop pixel → the video pixel showing it (the inverse of
+ *  `mapScreenPointer`, to whole pixels), or null when it is not on this
+ *  display. */
+export function screenPointToVideo(mapping: ScreenPointerMapping, x: number, y: number): { x: number; y: number } | null {
+  const { physical } = mapping;
+  const column = x - physical.x;
+  const row = y - physical.y;
+  if (!Number.isFinite(column) || !Number.isFinite(row)) return null;
+  if (column < 0 || row < 0 || column >= physical.width || row >= physical.height) return null;
+  return {
+    x: Math.min(mapping.pixelWidth - 1, Math.floor(((column + 0.5) * mapping.pixelWidth) / physical.width)),
+    y: Math.min(mapping.pixelHeight - 1, Math.floor(((row + 0.5) * mapping.pixelHeight) / physical.height)),
+  };
+}
+
 /** A raw BGRA frame and where its top-left pixel sits on the desktop. */
 export interface ScreenBgraFrame {
   width: number;

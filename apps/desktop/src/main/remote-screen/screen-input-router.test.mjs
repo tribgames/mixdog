@@ -33,6 +33,71 @@ function build() {
 
 const always = () => true;
 
+const CTRL = keyDown(0xa2, 0x1d);
+const SHIFT = keyDown(0xa0, 0x2a);
+const C = keyDown(0x43, 0x2e);
+
+test('a key combo is pressed in order and released in reverse, as one step', async () => {
+  const env = build();
+  await env.router.switchTo('desktop');
+  const combo = env.router.dispatchKeys([CTRL, SHIFT, C], always);
+  // Queued after the combo: it can't land between its presses and releases.
+  const after = env.router.dispatch([keyDown(0x41)], always);
+  assert.equal(await combo, 'applied');
+  await after;
+  assert.deepEqual(env.desktop.sent, [CTRL, SHIFT, C, keyUp(0x43, 0x2e), keyUp(0xa0, 0x2a), keyUp(0xa2, 0x1d), keyDown(0x41)]);
+  env.desktop.sent.length = 0;
+  await env.router.releaseAll();
+  assert.deepEqual(env.desktop.sent, [keyUp(0x41)], 'only the later key is still held');
+});
+
+test('a combo leaves a modifier the phone holds held', async () => {
+  const env = build();
+  await env.router.switchTo('desktop');
+  await env.router.dispatch([CTRL], always);
+  env.desktop.sent.length = 0;
+  assert.equal(await env.router.dispatchKeys([CTRL, C], always), 'applied');
+  assert.deepEqual(env.desktop.sent, [C, keyUp(0x43, 0x2e)]);
+  assert.equal(env.router.holdsInput(), true);
+});
+
+test('control lost mid-combo presses nothing more, and what it pressed is released', async () => {
+  const env = build();
+  await env.router.switchTo('desktop');
+  // Control is withdrawn once the first key is down.
+  const combo = env.router.dispatchKeys([CTRL, SHIFT, C], () => env.desktop.sent.length === 0);
+  assert.equal(await combo, 'rejected');
+  assert.deepEqual(env.desktop.sent, [CTRL, keyUp(0xa2, 0x1d)]);
+  assert.equal(env.router.holdsInput(), false);
+});
+
+test('a combo whose desktop changes mid-way sends nothing to the new one: its presses are dropped', async () => {
+  const env = build();
+  await env.router.switchTo('desktop');
+  const combo = env.router.dispatchKeys([CTRL, C], () => {
+    if (env.desktop.sent.length === 1) env.desktop.identity = { session: 2, desktop: 'default' };
+    return true;
+  });
+  assert.equal(await combo, 'rejected');
+  assert.deepEqual(env.desktop.sent, [CTRL]);
+  assert.deepEqual(env.dropped, [['desktop', 1]]);
+  assert.equal(env.router.holdsInput(), false);
+});
+
+test('a cancel during a combo still releases what it pressed', async () => {
+  const env = build();
+  await env.router.switchTo('desktop');
+  let release;
+  env.desktop.gate = new Promise((resolve) => (release = resolve));
+  const combo = env.router.dispatchKeys([CTRL, C], always);
+  await new Promise((resolve) => setImmediate(resolve));
+  env.router.cancel();
+  env.desktop.gate = null;
+  release();
+  assert.equal(await combo, 'rejected');
+  assert.deepEqual(env.desktop.sent, [CTRL, keyUp(0xa2, 0x1d)]);
+});
+
 test('releaseAll lifts every held press once and is idempotent', async () => {
   const env = build();
   await env.router.switchTo('desktop');

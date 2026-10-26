@@ -11,6 +11,7 @@ import {
   REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
   parseRemoteWebrtcClientSignal,
   remoteWebrtcSourceKey,
+  type RemoteWebrtcChannelPush,
   type RemoteWebrtcDesktopSignal,
   type RemoteWebrtcGeometry,
   type RemoteWebrtcIceServer,
@@ -223,6 +224,9 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
         if (event === 'state' && data.to === 'webrtc') void measure(entry, 'promoted');
       },
       receiverStats: (stats) => void measure(entry, 'stats', stats),
+      promoted: () => {
+        for (const message of source.channelState?.() ?? []) entry.viewer.push(JSON.stringify(message));
+      },
     });
     return entry;
   }
@@ -366,6 +370,13 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       const feed = feeds.get(sourceKey);
       const plan = feed?.captured ? feed.source.capturePlan?.() : null;
       if (plan) deps.sender.send({ type: 'source-capture', sourceKey, plan });
+    },
+
+    /** A source's desktop → phone channel message, to each of its viewers
+     *  whose channel is up. */
+    channelPush(sourceKey: string, message: RemoteWebrtcChannelPush): void {
+      const text = JSON.stringify(message);
+      for (const entry of viewers.values()) if (entry.sourceKey === sourceKey) entry.viewer.push(text);
     },
 
     dispose(): void {

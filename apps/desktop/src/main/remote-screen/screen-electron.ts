@@ -3,17 +3,18 @@
  * display list with each display's desktop-capture source id, the input
  * host process, and the on-PC indicator.
  *
- * The indicator is an OS notification posted from the main process (no
- * renderer UI): it names the phone and whether it views or controls, and a
- * click on it stops the session. It is posted again when control is granted or
- * withdrawn, and closed when the session ends.
+ * The indicator is the on-PC remote-control pill (screen-indicator.ts): one
+ * pill for every phone, on the viewed display, whose Stop ends each session.
+ * It names the phone in its tooltip; it does not distinguish viewing from
+ * controlling.
  */
 import { spawn } from 'node:child_process';
 
-import { desktopCapturer, Notification, screen } from 'electron';
+import { desktopCapturer, screen } from 'electron';
 
 import { mixdogDataDirectory } from '../computer/shared/common';
 import type { ScreenDisplay } from './screen-geometry';
+import { showRemoteScreenIndicator, type RemoteScreenIndicatorHandle } from './screen-indicator';
 import { createScreenInputHost, type ScreenInputHost } from './screen-input-host';
 import type { ScreenDisplayProvider, ScreenIndicator } from './screen-source';
 
@@ -78,40 +79,25 @@ export function createElectronScreenInputHost(): ScreenInputHost {
   return createScreenInputHost({ directory: mixdogDataDirectory(), spawn });
 }
 
-/** The OS-notification indicator (see the header). */
-export function createNotificationScreenIndicator(): ScreenIndicator {
-  let view: { clientLabel: string; controlling: boolean; onStop: () => void } | null = null;
-  let posted: Notification | null = null;
-  const post = (): void => {
-    posted?.close();
-    posted = null;
-    if (!view || !Notification.isSupported()) return;
-    const current = view;
-    const notification = new Notification({
-      title: current.controlling ? 'Your phone is controlling this PC' : 'Your phone is viewing this PC',
-      body: `${current.clientLabel} — click to stop.`,
-      silent: true,
-    });
-    notification.on('click', () => {
-      if (view === current) current.onStop();
-    });
-    notification.show();
-    posted = notification;
-  };
+/** One session's place on the remote-control pill (see the header). */
+export function createPillScreenIndicator(): ScreenIndicator {
+  let handle: RemoteScreenIndicatorHandle | null = null;
   return {
-    show(next) {
-      view = { ...next };
-      post();
+    show({ clientLabel, screenId, onStop }) {
+      handle?.close();
+      const displayId = Number(screenId);
+      handle = showRemoteScreenIndicator({
+        deviceLabel: clientLabel,
+        onStop,
+        // The Electron display id the session views (`String(display.id)`).
+        ...(Number.isSafeInteger(displayId) ? { displayId } : {}),
+      });
     },
-    update({ controlling }) {
-      if (!view || view.controlling === controlling) return;
-      view = { ...view, controlling };
-      post();
-    },
+    // The pill does not show viewing versus controlling.
+    update: () => undefined,
     hide() {
-      view = null;
-      posted?.close();
-      posted = null;
+      handle?.close();
+      handle = null;
     },
   };
 }

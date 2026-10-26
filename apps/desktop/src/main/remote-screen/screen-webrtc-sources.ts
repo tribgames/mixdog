@@ -21,7 +21,8 @@
  * - Close (`stopForQuit`, `dispose`): latched synchronously and permanently.
  *   Every session still running or releasing is stopped within
  *   `SCREEN_QUIT_BUDGET_MS` (`stopScreenSourcesForQuit`), the cached access is
- *   cleared, and every later resolve or access update is refused.
+ *   cleared, and every later resolve or access update is refused. Once every
+ *   session released, the secure-desktop client (owned here) is disposed.
  */
 import type { RemoteScreenDisplaySummary, RemoteWebrtcClientSignal, RemoteWebrtcSource } from '../../shared/remote-webrtc';
 import { remoteWebrtcSourceKey } from '../../shared/remote-webrtc';
@@ -89,6 +90,8 @@ export interface RemoteScreenSourcesDeps {
   /** The displays, with a refresh of their capture source ids. */
   displays: ScreenDisplayProvider & { refresh(): Promise<void>; dispose?(): void };
   createInputHost(): ScreenInputHost;
+  /** Shared by every session; owned here, disposed at close once every
+   *  session released (their releases may go through it). */
   secureDesktop: SecureDesktopClient;
   /** A fresh on-PC indicator per session. */
   indicator(): ScreenIndicator;
@@ -161,6 +164,7 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
       secureDesktop: deps.secureDesktop,
       indicator: deps.indicator(),
       log: deps.log,
+      sampleCursor: true,
     });
     const session: Session = {
       clientId,
@@ -190,12 +194,13 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
   }
 
   /** Latches closed (synchronously, before the shutdown snapshot), stops every
-   *  session under the quit budget, and clears the cached access. */
+   *  session under the quit budget, clears the cached access, and disposes
+   *  the secure-desktop client once every session released. */
   function close(): Promise<void> {
     if (!closing) {
       // Latched before the snapshot: nothing a stop triggers can open a session.
       closing = true;
-      closed = stopScreenSourcesForQuit(unreleased);
+      closed = stopScreenSourcesForQuit(unreleased).finally(() => deps.secureDesktop.dispose());
       sessions.clear();
       access.clear();
       accessListeners.clear();

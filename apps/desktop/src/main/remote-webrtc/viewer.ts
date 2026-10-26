@@ -72,6 +72,8 @@ export interface RemoteWebrtcViewerEffects {
   clearTimer(handle: unknown): void;
   report(event: string, data: Record<string, unknown>): void;
   receiverStats?(stats: RemoteWebrtcReceiverStats): void;
+  /** The connection was promoted: its channel is open for desktop pushes. */
+  promoted?(): void;
 }
 
 interface Connection {
@@ -311,6 +313,11 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
     get generation(): number {
       return connection?.generation ?? 0;
     },
+    /** A desktop → phone channel message: sent while the channel is up
+     *  (promoting or webrtc), dropped otherwise. */
+    push(text: string): void {
+      if (connection && (state === 'promoting' || state === 'webrtc')) effects.channelSend(connection.id, text);
+    },
     /** Settles once every queued channel input has been dispatched (tests, teardown). */
     settled: (): Promise<void> => dispatchChain,
 
@@ -379,6 +386,8 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
           lastSeq = 0;
           move('promoting');
           effects.signal({ ...ref(), type: 'promote', inputEpoch: epoch, geometryGeneration: geometry.generation });
+          // Both ends' channel is open (the phone sends media-ready only then).
+          effects.promoted?.();
           return;
         }
         case 'promote-ack': {

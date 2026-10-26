@@ -5,6 +5,7 @@
  */
 import type {
   RemoteScreenCapturePlan,
+  RemoteWebrtcChannelPush,
   RemoteWebrtcClientSignal,
   RemoteWebrtcGeometry,
   RemoteWebrtcSourceInput,
@@ -31,6 +32,10 @@ export interface RemoteWebrtcSourceSink {
   frame(sourceKey: string, picture: RemoteWebrtcPicture): void;
   /** A captured source's plan changed (display changed): reopen its track. */
   captureChanged(sourceKey: string): void;
+  /** A desktop → phone channel message (a screen's status or cursor) to each
+   *  viewer of the source whose channel is up (promoting or webrtc); dropped
+   *  for the others, which get `channelState()` when they promote. */
+  channelPush(sourceKey: string, message: RemoteWebrtcChannelPush): void;
 }
 
 export interface RemoteWebrtcVideoSource {
@@ -59,6 +64,9 @@ export interface RemoteWebrtcVideoSource {
    *  key and button this source holds for the viewer. Without it, the host
    *  dispatches the mouse releases the viewer tracked. */
   release?(): Promise<void>;
+  /** What a channel gets when it is promoted (a screen: its status and
+   *  cursor), before any later `channelPush`. */
+  channelState?(): RemoteWebrtcChannelPush[];
 }
 
 /** The paired client a signal came from, and that signal's type. A screen

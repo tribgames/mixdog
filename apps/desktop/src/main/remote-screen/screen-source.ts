@@ -23,6 +23,7 @@ import type {
 import {
   lockScreenGeometry,
   screenGeometryChanged,
+  screenPointToVideo,
   screenVideoSize,
   summarizeScreenDisplay,
   fitScreenFrame,
@@ -81,7 +82,8 @@ export interface ScreenViewerAuthorization {
 /** The on-PC indicator shown while a phone views or controls, with its
  *  one-click stop. */
 export interface ScreenIndicator {
-  show(view: { clientLabel: string; controlling: boolean; onStop: () => void }): void;
+  /** `screenId`: the viewed display (Electron's display id, as text). */
+  show(view: { clientLabel: string; controlling: boolean; screenId: string; onStop: () => void }): void;
   update(view: { controlling: boolean }): void;
   hide(): void;
 }
@@ -110,6 +112,9 @@ export interface ScreenSourceDeps {
   /** Start/stop and transitions are logged; no input content is ever logged. */
   log(event: ScreenSourceEvent): void;
   maxFrameRate?: number;
+  /** Sample the cursor position for the phone (`onCursor`); see
+   *  `startCursorSampling` for the rate. */
+  sampleCursor?: boolean;
   /**
    * Shutdown watchdog, started the moment `stop` is called. When it fires,
    * the input host is killed and every pending send is abandoned, so a backend
@@ -122,6 +127,8 @@ export interface ScreenSourceDeps {
 }
 
 type ScreenVideoFrame = { width: number; height: number; pixels: Uint8Array };
+/** The cursor in video pixels of geometry `generation`. */
+export type ScreenCursor = { x: number; y: number; generation: number };
 type ScreenGeometryRenewal = { plan: RemoteScreenCapturePlan; geometry: RemoteWebrtcGeometry };
 
 export interface ScreenStartResult {
@@ -156,6 +163,12 @@ export interface RemoteScreenSource {
    *  ordinary-desktop path produces its own MediaStream from the capture plan. */
   onFrame(listener: (frame: ScreenVideoFrame) => void): () => void;
   onStatus(listener: (status: RemoteScreenStatus) => void): () => void;
+  /** The last sampled cursor position for the current geometry; null before
+   *  one, after a geometry change or a switch to the helper until the next
+   *  sample, while the helper serves the secure desktop, or when not running. */
+  cursor(): ScreenCursor | null;
+  /** A changed cursor position (`sampleCursor` only). */
+  onCursor(listener: (cursor: ScreenCursor) => void): () => void;
   /** A new locked geometry (display changed); the sender renews capture. */
   onGeometry(listener: (result: ScreenGeometryRenewal) => void): () => void;
   /** The session ended (any cause: indicator stop, revoke, display removed,
@@ -166,6 +179,16 @@ export interface RemoteScreenSource {
   /** Lift every key and button this viewer holds (demote, viewer-left,
    *  `screen-release`). Idempotent, and valid before, during and after stop. */
   releaseInput(): Promise<void>;
+  /**
+   * The sender reports whether the helper's frames (`onFrame`) reach this
+   * viewer's video now. While the helper serves the secure desktop, control
+   * waits for it: without the picture the phone would act on a desktop it
+   * can't see. `true` counts only while the helper serves (leaving it clears
+   * the report, so each helper period needs its own). `false` withdraws
+   * control at once and releases what the viewer holds. Releases always go
+   * through.
+   */
+  setHelperVideo(delivering: boolean): void;
   /** Ends the session: stops capture, releases all input. Idempotent: a later
    *  call returns the first one's promise, and a shorter `deadlineMs` in it
    *  moves the running stop's absolute deadline earlier (never later). */
@@ -208,7 +231,14 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   let local: ScreenLocalDesktop | null = null;
   let decision: ScreenSourceDecision | null = null;
   let helperActive = false;
+  /** The helper's video reaches this viewer (`setHelperVideo`). */
+  let helperVideo = false;
   let status: RemoteScreenStatus = { state: 'live', helper: 'not-needed', control: false };
+  let cursor: ScreenCursor | null = null;
+  /** Bumped by a new geometry and by a switch to the helper: a cursor read
+   *  taken before it is dropped when it completes. */
+  let cursorSample = 0;
+  const cursorListeners = new Set<(cursor: ScreenCursor) => void>();
 
   // Every press is held by the backend that injected it; input, backend
   // switches and releases share one serialized, cancellable queue.
@@ -239,7 +269,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
 
   /** Input is accepted only while every gate holds at this instant. */
   const controlNow = (): boolean =>
-    running && paired() && decision !== null && screenStatusFor(decision, true).control;
+    running && paired() && decision !== null && screenStatusFor(decision, true, helperVideo).control;
 
   const planFor = (display: ScreenDisplay): RemoteScreenCapturePlan => {
     const size = screenVideoSize(display.physical);
@@ -248,6 +278,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
 
   const lock = (display: ScreenDisplay): void => {
     generation += 1;
+    cursorSample += 1;
     const locked = lockScreenGeometry(display, generation);
     geometry = locked.geometry;
     mapping = locked.mapping;
@@ -277,7 +308,17 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
 
   const publishStatus = (): void => {
     if (!running || !decision) return;
-    emitStatus(screenStatusFor(decision, paired()));
+    emitStatus(screenStatusFor(decision, paired(), helperVideo));
+  };
+
+  const setHelperVideo = (delivering: boolean): void => {
+    const next = delivering && running && decision !== null && decisionUsesHelper(decision);
+    if (next === helperVideo) return;
+    helperVideo = next;
+    publishStatus();
+    // Control withdrawn: what the viewer holds is lifted through the backend
+    // that pressed it, so nothing stays down on a desktop the phone can't see.
+    if (!next) void router.releaseAll();
   };
 
   const setHelperActive = async (active: boolean): Promise<void> => {
@@ -303,6 +344,15 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     const next = decideScreenSource(helperState());
     const was = decision?.status;
     decision = next;
+    if (decisionUsesHelper(next)) {
+      // The helper's capture: a normal-desktop cursor (cached, or a read still
+      // in flight) no longer matches the picture.
+      cursor = null;
+      cursorSample += 1;
+    } else {
+      // Helper video only exists while the helper serves.
+      helperVideo = false;
+    }
     if (next.status !== 'live' && next.status !== was) {
       deps.log({ type: 'secure-desktop', ...ids, state: next.status });
     }
@@ -404,8 +454,14 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     if (!running) throw new ScreenSourceDenied(stopReason ?? 'stopped');
 
     decision = decideScreenSource(helperState());
-    status = screenStatusFor(decision, true);
-    deps.indicator.show({ clientLabel: deps.clientLabel, controlling: status.control, onStop: () => void stop('user') });
+    status = screenStatusFor(decision, true, helperVideo);
+    deps.indicator.show({
+      clientLabel: deps.clientLabel,
+      controlling: status.control,
+      screenId: deps.screenId,
+      onStop: () => void stop('user'),
+    });
+    if (deps.sampleCursor) startCursorSampling();
     deps.log({ type: 'start', ...ids });
     refreshDecision();
     await router.settled();
@@ -425,8 +481,48 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     const pointed = input.type === 'screen-wheel' || (input.type === 'screen-pointer' && input.action !== 'up');
     // Re-checked when the input's turn comes and between its commands.
     const allowed = pointed ? () => controlNow() && mapping?.generation === geometryGeneration : controlNow;
+    if (input.type === 'screen-keys') return router.dispatchKeys(commands, allowed);
     return router.dispatch(commands, allowed);
   }
+
+  /**
+   * Cursor sampling (`deps.sampleCursor`): the input host's read-back of the
+   * cursor (physical desktop pixels, the space the mapping uses), mapped to
+   * video pixels, published when it changed. Sampled once per capture frame
+   * interval (`1000 / maxFrameRate` ms): the cursor is baked into the video,
+   * which shows at most `maxFrameRate` pictures a second, so a position
+   * sampled more often could not match any frame the phone shows, and one per
+   * frame keeps the trackpad anchor at most a frame behind. One read at a
+   * time; none while the helper serves the secure desktop (the host can't
+   * read the cursor there) or while the cursor is on another display. A read
+   * that completes after a switch to the helper or a new geometry is dropped.
+   */
+  const startCursorSampling = (): void => {
+    let reading = false;
+    const timer = setInterval(() => {
+      const current = host;
+      if (reading || !running || !current || !mapping || !decision || decisionUsesHelper(decision)) return;
+      reading = true;
+      const sample = cursorSample;
+      void current
+        .command({ op: 'cursor' })
+        .then((fields) => {
+          if (!running || sample !== cursorSample || !decision || decisionUsesHelper(decision) || !mapping) return;
+          const at = fields.length === 2 ? screenPointToVideo(mapping, Number(fields[0]), Number(fields[1])) : null;
+          if (!at) return;
+          const next = { x: at.x, y: at.y, generation: mapping.generation };
+          if (cursor && cursor.x === next.x && cursor.y === next.y && cursor.generation === next.generation) return;
+          cursor = next;
+          for (const listener of cursorListeners) listener(next);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          reading = false;
+        });
+    }, Math.ceil(1000 / maxFrameRate));
+    timer.unref?.();
+    subscriptions.push(() => clearInterval(timer));
+  };
 
   /**
    * The absolute deadline of the running stop. A later `stop` with a shorter
@@ -537,6 +633,14 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
       statusListeners.add(listener);
       return () => statusListeners.delete(listener);
     },
+    cursor: () =>
+      running && cursor && decision && !decisionUsesHelper(decision) && cursor.generation === mapping?.generation
+        ? cursor
+        : null,
+    onCursor(listener) {
+      cursorListeners.add(listener);
+      return () => cursorListeners.delete(listener);
+    },
     onGeometry(listener) {
       geometryListeners.add(listener);
       return () => geometryListeners.delete(listener);
@@ -547,6 +651,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     },
     handleInput,
     releaseInput: () => router.releaseAll(),
+    setHelperVideo,
     stop,
     released: () => stopping ?? Promise.resolve(),
   };

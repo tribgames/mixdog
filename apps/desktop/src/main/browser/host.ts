@@ -419,6 +419,7 @@ export function createBrowserHost(
           geometryChanged: (sourceKey, geometry) => webrtc?.geometryChanged(sourceKey, geometry),
           frame: (sourceKey, picture) => webrtc?.frame(sourceKey, picture),
           captureChanged: (sourceKey) => webrtc?.captureChanged(sourceKey),
+          channelPush: (sourceKey, message) => webrtc?.channelPush(sourceKey, message),
         },
         log: (event) => options.onDiagnostic?.(`remote-screen-${event.type}`, { ...event }),
       });

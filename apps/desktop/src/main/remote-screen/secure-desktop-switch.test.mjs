@@ -54,9 +54,11 @@ test('the secure desktop with an attached helper switches to the helper', () => 
   assert.equal(decision.helperActive, true);
   assert.equal(decisionUsesHelper(decision), true);
   assert.equal(decision.helper, 'active');
-  // Control passes through on the helper path when granted.
-  assert.equal(screenStatusFor(decision, true).control, true);
-  assert.equal(screenStatusFor(decision, false).control, false);
+  // Control passes through on the helper path when granted, once the helper's
+  // video reaches the viewer; before that it is view-blocked.
+  assert.equal(screenStatusFor(decision, true, true).control, true);
+  assert.equal(screenStatusFor(decision, true, false).control, false);
+  assert.equal(screenStatusFor(decision, false, true).control, false);
 });
 
 test('an installed-but-not-yet-connected helper is reported as starting and blocks', () => {

@@ -39,6 +39,10 @@ function fakeScreen(over = {}) {
         listeners.stop.add(listener);
         return () => listeners.stop.delete(listener);
       },
+      status: () => ({ state: 'live', helper: 'not-needed', control: true }),
+      onStatus: () => () => {},
+      cursor: () => null,
+      onCursor: () => () => {},
     },
   };
 }
@@ -51,6 +55,7 @@ function fakeSink() {
       geometryChanged: (key, geometry) => calls.push(['geometry', key, geometry?.generation ?? null]),
       frame: () => calls.push(['frame']),
       captureChanged: (key) => calls.push(['capture', key]),
+      channelPush: (key, message) => calls.push(['push', key, message.kind]),
     },
   };
 }

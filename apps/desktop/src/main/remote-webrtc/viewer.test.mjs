@@ -27,6 +27,7 @@ function harness({ dispatch } = {}) {
   let timerId = 0;
   let connectionSerial = 0;
   const page = { documentId: 'p1:1', geometry, framesSinceCurrent: 1 };
+  const promotions = { count: 0 };
   const viewer = createRemoteWebrtcViewer(source, {
     signal: (signal) => signals.push(signal),
     open: (connection) => sender.push(['open', connection.connectionId]),
@@ -51,6 +52,9 @@ function harness({ dispatch } = {}) {
     },
     clearTimer: (id) => timers.delete(id),
     report: () => {},
+    promoted: () => {
+      promotions.count += 1;
+    },
   });
   const last = (type) => signals.filter((signal) => signal.type === type).at(-1);
   const ref = () => {
@@ -83,8 +87,26 @@ function harness({ dispatch } = {}) {
     viewer.signal({ ...ref(), type: 'promote-ack', inputEpoch: epoch });
     return epoch;
   };
-  return { viewer, signals, sender, dispatched, acks, released, timers, page, last, ref, fire, input, connect, promote };
+  return { viewer, signals, sender, dispatched, acks, released, timers, page, last, ref, fire, input, connect, promote, promotions };
 }
+
+test('desktop pushes reach the channel only while it is up; promotion announces it once', () => {
+  const h = harness();
+  const push = { v: REMOTE_WEBRTC_VERSION, kind: 'screen-cursor', x: 1, y: 2, generation: 1 };
+  h.viewer.push(JSON.stringify(push));
+  h.connect();
+  h.viewer.push(JSON.stringify(push));
+  assert.deepEqual(h.acks, [], 'nothing before promotion: the phone’s channel may not be open');
+  h.viewer.geometryAck(1);
+  h.viewer.signal({ ...h.ref(), type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  assert.equal(h.promotions.count, 1);
+  h.viewer.push(JSON.stringify(push));
+  assert.deepEqual(h.acks, [push], 'sent while promoting');
+  h.viewer.signal({ ...h.ref(), type: 'promote-ack', inputEpoch: h.last('promote').inputEpoch });
+  h.viewer.push(JSON.stringify({ ...push, x: 3 }));
+  assert.equal(h.acks.length, 2);
+  assert.equal(h.promotions.count, 1);
+});
 
 const KEY = { type: 'key', key: 'Enter', documentId: 'p1:1' };
 const TEXT = (text) => ({ type: 'text', text, documentId: 'p1:1' });

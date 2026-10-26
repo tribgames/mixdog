@@ -153,9 +153,10 @@ import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMeth
 import {
   createElectronScreenDisplays,
   createElectronScreenInputHost,
-  createNotificationScreenIndicator,
+  createPillScreenIndicator,
 } from './remote-screen/screen-electron';
-import { NO_SECURE_DESKTOP } from './remote-screen/secure-desktop-switch';
+import { createSecureDesktopAdapter } from './remote-screen/secure-desktop-adapter';
+import { createSecureDesktopClient } from './secure-desktop';
 import { modelProxyRuntimeLoader } from './model-proxy-host';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
@@ -2194,14 +2195,26 @@ function installLocalWindowFeatures(
         };
       })(),
       // The whole-PC screen source (Windows: its injector is the Windows input
-      // host). The secure-desktop helper plugs in through its client.
+      // host). The secure-desktop helper plugs in through its client; when it
+      // is not installed the adapter reports so and the secure desktop stays
+      // blocked.
       screens:
         process.platform === 'win32'
           ? {
               displays: createElectronScreenDisplays(),
               createInputHost: createElectronScreenInputHost,
-              secureDesktop: NO_SECURE_DESKTOP,
-              indicator: createNotificationScreenIndicator,
+              secureDesktop: createSecureDesktopAdapter(
+                createSecureDesktopClient({
+                  environment: {
+                    isPackaged: app.isPackaged,
+                    platform: process.platform,
+                    resourcesPath: process.resourcesPath,
+                    cwd: process.cwd(),
+                    programData: process.env.ProgramData,
+                  },
+                })
+              ),
+              indicator: createPillScreenIndicator,
             }
           : undefined,
     },

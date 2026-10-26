@@ -10,12 +10,15 @@
  * can reach it: `desktopCapturer` returns the last frame and `SendInput` lands
  * nowhere. If the helper (a LocalSystem service + session helper) is installed
  * and attached, its frames and input take over for as long as the secure
- * desktop is up. If it is not, the phone is told an elevation prompt is on the
- * PC rather than shown a frozen frame.
+ * desktop is up; control there waits until the helper's video actually reaches
+ * the viewer, so the phone never acts on a desktop it can't see. If it is not,
+ * the phone is told an elevation prompt is on the PC rather than shown a
+ * frozen frame.
  *
- * This module imports no helper implementation: `secure-desktop-service` owns
- * the real client in apps/desktop/src/main. The `SecureDesktopClient` interface
- * is the contract this switch needs from it; tests drive a mock of it.
+ * This module imports no helper implementation: the real client lives in
+ * apps/desktop/src/main/secure-desktop/, and secure-desktop-adapter.ts adapts
+ * it to the `SecureDesktopClient` interface this switch needs; tests drive a
+ * mock of it.
  */
 import type { RemoteScreenHelperState, RemoteScreenStatus } from '../../shared/remote-webrtc';
 import type { ScreenBgraFrame } from './screen-geometry';
@@ -55,7 +58,14 @@ export interface SecureDesktopClient {
   /** The latest secure-desktop frame, or null before the first one. */
   latestFrame(): ScreenBgraFrame | null;
   onFrame(listener: (frame: ScreenBgraFrame) => void): () => void;
-  onDesktopChanged(listener: (desktop: SecureDesktopKind) => void): () => void;
+  /** The helper's connection or desktop changed (connected, the input
+   *  desktop switched, disconnected): `connected()`, `desktop()` and
+   *  `session()` read anew. */
+  onDesktopChanged(listener: () => void): () => void;
+  /** Releases the client for good: reconnects cancelled, the connection
+   *  closed (also one still being made), every listener detached. Its owner
+   *  (the screen sources) calls it once every session released. */
+  dispose(): void;
 }
 
 /** Where a command through the helper lands now; null unless connected and
@@ -81,6 +91,7 @@ export const NO_SECURE_DESKTOP: SecureDesktopClient = {
   latestFrame: () => null,
   onFrame: () => () => {},
   onDesktopChanged: () => () => {},
+  dispose: () => {},
 };
 
 export type ScreenSourceMode =
@@ -168,13 +179,20 @@ export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDeci
 }
 
 /** The status pushed to the phone for a decision, with whether this viewer
- *  may currently control. Control is refused on `blocked` (nothing can act)
- *  and on `elevation-prompt` without a helper. */
-export function screenStatusFor(decision: ScreenSourceDecision, controlGranted: boolean): RemoteScreenStatus {
+ *  may currently control. Control is refused on `blocked` (nothing can act),
+ *  on `elevation-prompt` without a helper, and on `helper` until the helper's
+ *  video reaches this viewer (`helperVideo`): without the picture the phone
+ *  would act on a desktop it can't see. */
+export function screenStatusFor(
+  decision: ScreenSourceDecision,
+  controlGranted: boolean,
+  helperVideo: boolean
+): RemoteScreenStatus {
   const control =
     controlGranted &&
     decision.mode !== 'blocked' &&
-    !(decision.mode === 'elevation-prompt' && decision.helper !== 'active');
+    !(decision.mode === 'elevation-prompt' && decision.helper !== 'active') &&
+    (decision.mode !== 'helper' || helperVideo);
   return {
     state: decision.status,
     ...(decision.reason ? { reason: decision.reason } : {}),

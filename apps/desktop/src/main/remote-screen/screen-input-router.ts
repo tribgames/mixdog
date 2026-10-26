@@ -171,6 +171,64 @@ export class ScreenInputRouter {
     });
   }
 
+  /**
+   * An atomic key combo (`screen-keys`) through the active backend, as one
+   * step of the queue: each key pressed in order, then every key it pressed
+   * released in reverse. Presses are recorded with their origin like any
+   * other, so a release point landing between steps still finds them.
+   *
+   * - `allowed` (generation + control) is re-read before each press, and the
+   *   desktop must stay the one the combo started on. Once either fails, no
+   *   further key is pressed.
+   * - The releases are never gated by `allowed`: whatever the combo pressed is
+   *   lifted, in reverse, through this backend while it reports the keys'
+   *   origin; one it can't deliver there is dropped and counted.
+   * - A key this backend already holds on that desktop (a modifier the phone
+   *   holds down) is neither pressed nor released: it stays held.
+   *
+   * 'applied' only when every key was pressed and released.
+   */
+  dispatchKeys(downs: ScreenHostCommand[], allowed: () => boolean): Promise<ScreenRouteOutcome> {
+    const generation = this.generation;
+    const live = (): boolean => generation === this.generation && allowed();
+    return this.enqueue(async () => {
+      const backend = this.active;
+      const origin = backend ? this.backends[backend].identity() : null;
+      if (!backend || !origin || !live()) return 'rejected';
+      const held = this.held[backend];
+      const pressed: HeldPress[] = [];
+      const keys: string[] = [];
+      let complete = true;
+      for (const down of downs) {
+        const hold = holdKeyOf(down);
+        if (!hold || !isHoldDown(down) || !live() || !sameDesktopIdentity(origin, this.backends[backend].identity())) {
+          complete = false;
+          break;
+        }
+        const key = heldKey(origin, hold);
+        if (held.has(key)) continue;
+        const press: HeldPress = { release: releaseCommandFor(down), origin };
+        // Held before it is sent: a down whose delivery is uncertain is still released.
+        held.set(key, press);
+        pressed.push(press);
+        keys.push(key);
+        try {
+          await this.send(backend, down);
+        } catch {
+          complete = false;
+          break;
+        }
+      }
+      // Released in reverse; a release point that ran meanwhile already took
+      // (and released or dropped) any of them it found.
+      const owed = pressed.filter((press, index) => held.get(keys[index]) === press).reverse();
+      for (const [index, press] of pressed.entries()) if (held.get(keys[index]) === press) held.delete(keys[index]);
+      const dropped = await this.deliver(backend, owed);
+      if (dropped > 0) this.onDropped(backend, dropped);
+      return complete && dropped === 0 ? 'applied' : 'rejected';
+    });
+  }
+
   /** Releases every press on every backend (see `release`). Runs after any
    *  in-flight command, is never cancelled, and is idempotent. */
   releaseAll(): Promise<void> {
@@ -212,6 +270,13 @@ export class ScreenInputRouter {
   private async release(backend: ScreenInputBackendId): Promise<void> {
     const presses = [...this.held[backend].values()];
     this.held[backend].clear();
+    const dropped = await this.deliver(backend, presses);
+    if (dropped > 0) this.onDropped(backend, dropped);
+  }
+
+  /** Sends each press's release, in order, through `backend` while it
+   *  reports that press's origin; returns how many could not be delivered. */
+  private async deliver(backend: ScreenInputBackendId, presses: HeldPress[]): Promise<number> {
     let dropped = 0;
     for (const press of presses) {
       const delivered =
@@ -222,7 +287,7 @@ export class ScreenInputRouter {
         ));
       if (!delivered) dropped += 1;
     }
-    if (dropped > 0) this.onDropped(backend, dropped);
+    return dropped;
   }
 
   /** One backend send, cut off by `abandon()`. */

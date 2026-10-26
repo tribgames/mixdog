@@ -356,6 +356,10 @@ export function isRemoteWebrtcPageInput(control: RemoteWebrtcSourceInput): contr
 
 /** Bounds the parser enforces; the injector enforces its own as well. */
 export const MAX_REMOTE_SCREEN_TEXT = 256;
+/** Keys in one `screen-keys` combo: the eight sided modifiers (Ctrl, Shift,
+ *  Alt, Win, left and right) are the most a combo can hold besides its key;
+ *  a real shortcut uses far fewer. */
+export const MAX_REMOTE_SCREEN_COMBO_KEYS = 8;
 /** 40 notches of 120 Windows wheel units. */
 const MAX_SCREEN_WHEEL_UNITS = 120 * 40;
 
@@ -379,6 +383,9 @@ export type RemoteScreenInput =
   | { type: 'screen-pointer'; action: 'down' | 'up'; button: RemoteScreenButton; x: number; y: number }
   | { type: 'screen-wheel'; x: number; y: number; deltaX: number; deltaY: number }
   | ({ type: 'screen-key'; action: 'down' | 'up' } & RemoteScreenKey)
+  /** An atomic combo: the keys pressed in order, then released in reverse,
+   *  as one step on the PC (1..MAX_REMOTE_SCREEN_COMBO_KEYS, no repeats). */
+  | { type: 'screen-keys'; keys: RemoteScreenKey[] }
   | { type: 'screen-text'; text: string }
   /** Release every key and button this viewer holds. */
   | { type: 'screen-release' };
@@ -451,6 +458,23 @@ export interface RemoteWebrtcScreenStatusMessage {
   kind: 'screen-status';
   status: RemoteScreenStatus;
 }
+
+/** Desktop → phone on the channel: where the PC's cursor is, in video pixels
+ *  of geometry `generation` (integers, 0 ≤ x < pixelWidth, 0 ≤ y <
+ *  pixelHeight). The cursor itself stays baked into the video; this only
+ *  anchors trackpad-mode movement. Sent on change, at most once per capture
+ *  frame interval, and once when the channel is promoted; only while the
+ *  cursor is on this display and the ordinary desktop is shown. */
+export interface RemoteWebrtcScreenCursorMessage {
+  v: typeof REMOTE_WEBRTC_VERSION;
+  kind: 'screen-cursor';
+  x: number;
+  y: number;
+  generation: number;
+}
+
+/** What a source pushes to its viewer's channel (desktop → phone). */
+export type RemoteWebrtcChannelPush = RemoteWebrtcScreenStatusMessage | RemoteWebrtcScreenCursorMessage;
 
 export type RemoteWebrtcChannelFromDesktop = {
   v: typeof REMOTE_WEBRTC_VERSION;
@@ -1023,6 +1047,14 @@ export function parseRemoteWebrtcChannelFromClient(text: unknown): RemoteWebrtcC
   };
 }
 
+const screenKey = (input: Fields): RemoteScreenKey => {
+  const vk = boundedInteger(input.vk ?? 0, 0, 254, 'virtual key');
+  const scan = boundedInteger(input.scan ?? 0, 0, 0xff, 'scan code');
+  if (vk === 0 && scan === 0) fail('key');
+  if (input.extended !== undefined && typeof input.extended !== 'boolean') fail('key extended');
+  return { vk, scan, extended: input.extended === true };
+};
+
 const screenButton = (value: unknown): RemoteScreenButton => {
   if (value !== 'left' && value !== 'right' && value !== 'middle') fail('pointer button');
   return value;
@@ -1050,11 +1082,16 @@ export function parseRemoteScreenInput(value: unknown): RemoteScreenInput {
       };
     case 'screen-key': {
       if (input.action !== 'down' && input.action !== 'up') fail('key action');
-      const vk = boundedInteger(input.vk ?? 0, 0, 254, 'virtual key');
-      const scan = boundedInteger(input.scan ?? 0, 0, 0xff, 'scan code');
-      if (vk === 0 && scan === 0) fail('key');
-      if (input.extended !== undefined && typeof input.extended !== 'boolean') fail('key extended');
-      return { type: 'screen-key', action: input.action, vk, scan, extended: input.extended === true };
+      return { type: 'screen-key', action: input.action, ...screenKey(input) };
+    }
+    case 'screen-keys': {
+      if (!Array.isArray(input.keys) || input.keys.length < 1 || input.keys.length > MAX_REMOTE_SCREEN_COMBO_KEYS) {
+        fail('key combo');
+      }
+      const keys = (input.keys as unknown[]).map((entry) => screenKey(record(entry, 'combo key')));
+      const distinct = new Set(keys.map((key) => `${key.vk}:${key.scan}:${key.extended}`));
+      if (distinct.size !== keys.length) fail('key combo repeats a key');
+      return { type: 'screen-keys', keys };
     }
     case 'screen-text':
       if (typeof input.text !== 'string' || !input.text || input.text.length > MAX_REMOTE_SCREEN_TEXT) fail('text');
@@ -1099,6 +1136,23 @@ export function readRemoteWebrtcScreenStatus(text: unknown): RemoteWebrtcScreenS
         helper: status.helper as RemoteScreenHelperState,
         control: status.control,
       },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** A `screen-cursor` channel message from the desktop, as the phone receives it. */
+export function readRemoteWebrtcScreenCursor(text: unknown): RemoteWebrtcScreenCursorMessage | null {
+  try {
+    const input = parseChannelText(text);
+    if (input.kind !== 'screen-cursor') return null;
+    return {
+      v: REMOTE_WEBRTC_VERSION,
+      kind: 'screen-cursor',
+      x: boundedInteger(input.x, 0, MAX_PIXEL_DIMENSION - 1, 'cursor x'),
+      y: boundedInteger(input.y, 0, MAX_PIXEL_DIMENSION - 1, 'cursor y'),
+      generation: positiveInteger(input.generation, 'geometry generation'),
     };
   } catch {
     return null;

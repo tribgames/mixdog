@@ -9,11 +9,39 @@ import {
   parseRemoteWebrtcClientSignal,
   readRemoteWebrtcChannelFromDesktop,
   readRemoteWebrtcDesktopSignal,
+  readRemoteWebrtcScreenCursor,
   readRemoteWebrtcScreenStatus,
+  parseRemoteScreenInput,
+  MAX_REMOTE_SCREEN_COMBO_KEYS,
   remoteWebrtcCertificateMatches,
   remoteWebrtcInputOwner,
   remoteWebrtcJpegActive,
 } from './remote-webrtc.ts';
+
+test('screen-keys: an ordered combo of distinct keys, bounded', () => {
+  const ctrl = { vk: 0xa2, scan: 0x1d, extended: false };
+  const c = { vk: 0x43, scan: 0x2e, extended: false };
+  assert.deepEqual(parseRemoteScreenInput({ type: 'screen-keys', keys: [ctrl, c] }), { type: 'screen-keys', keys: [ctrl, c] });
+  assert.deepEqual(parseRemoteScreenInput({ type: 'screen-keys', keys: [{ vk: 0x43, scan: 0x2e }] }).keys, [c]);
+  for (const keys of [
+    [],
+    [ctrl, ctrl],
+    Array.from({ length: MAX_REMOTE_SCREEN_COMBO_KEYS + 1 }, (_, index) => ({ vk: 0x41 + index, scan: 0 })),
+    [{ vk: 0, scan: 0 }],
+    [{ vk: 300, scan: 1 }],
+    'Ctrl+C',
+  ]) {
+    assert.throws(() => parseRemoteScreenInput({ type: 'screen-keys', keys }), undefined, JSON.stringify(keys));
+  }
+});
+
+test('screen-cursor: whole video pixels of a geometry generation', () => {
+  const message = { v: REMOTE_WEBRTC_VERSION, kind: 'screen-cursor', x: 10, y: 20, generation: 2 };
+  assert.deepEqual(readRemoteWebrtcScreenCursor(JSON.stringify(message)), message);
+  for (const bad of [{ x: -1 }, { x: 1.5 }, { generation: 0 }, { kind: 'screen-status' }, { y: 5000 }]) {
+    assert.equal(readRemoteWebrtcScreenCursor(JSON.stringify({ ...message, ...bad })), null, JSON.stringify(bad));
+  }
+});
 
 const HEX_A = Array.from({ length: 32 }, () => 'AB').join(':');
 const HEX_B = Array.from({ length: 32 }, () => 'CD').join(':');

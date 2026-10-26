@@ -65,7 +65,7 @@ function mockInputHost(log) {
   };
 }
 
-function build() {
+function build(over = {}) {
   const commands = [];
   const signals = [];
   const injected = [];
@@ -86,7 +86,7 @@ function build() {
       hosts += 1;
       return mockInputHost(injected);
     },
-    secureDesktop: NO_SECURE_DESKTOP,
+    secureDesktop: over.secureDesktop ?? NO_SECURE_DESKTOP,
     indicator: () => ({
       show: (view) => indicator.push(['show', view.clientLabel, view.controlling]),
       update: () => {},
@@ -96,6 +96,7 @@ function build() {
       geometryChanged: (key, geometry) => webrtc.geometryChanged(key, geometry),
       frame: (key, picture) => webrtc.frame(key, picture),
       captureChanged: (key) => webrtc.captureChanged(key),
+      channelPush: (key, message) => webrtc.channelPush(key, message),
     },
     log: (event) => events.push(event),
   });
@@ -255,6 +256,18 @@ test('app quit releases held input and stops every session within the quit budge
   assert.equal(keyUps(env).length, 1);
   assert.ok(env.events.some((event) => event.type === 'stop' && event.reason === 'user'));
   assert.ok(env.commands.some((command) => command.type === 'source-close'));
+});
+
+test('close disposes the secure-desktop client once, after every session released', async () => {
+  const disposals = [];
+  const env = build({ secureDesktop: { ...NO_SECURE_DESKTOP, dispose: () => disposals.push(keyUps(env).length) } });
+  await holdingA(env);
+  const quitting = env.screens.stopForQuit();
+  assert.deepEqual(disposals, [], 'not while a session still releases');
+  await quitting;
+  assert.deepEqual(disposals, [1], 'after the held key was released');
+  await env.screens.dispose();
+  assert.deepEqual(disposals, [1], 'once');
 });
 
 test('access crossing from the service is validated', () => {

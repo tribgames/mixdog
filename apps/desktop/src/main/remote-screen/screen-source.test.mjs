@@ -60,6 +60,14 @@ function mockHost() {
         started = true;
       },
       command: async (command) => {
+        // The cursor read-back (sampling): `control.cursor` = [x, y] desktop pixels.
+        // `control.cursorGate`: a promise the read waits on, to hold it in flight.
+        if (command.op === 'cursor') {
+          control.cursorReads = (control.cursorReads ?? 0) + 1;
+          if (control.cursorGate) await control.cursorGate;
+          if (!control.cursor) throw new Error('cursor_unavailable');
+          return control.cursor.map(String);
+        }
         control.attempts.push(command);
         if (control.gate) {
           // Like the real host, a kill fails a command still in flight.
@@ -208,16 +216,103 @@ function build(over = {}) {
     secureDesktop: secure.client,
     indicator: indicator.indicator,
     log: (event) => log.push(event),
+    sampleCursor: over.sampleCursor,
+    maxFrameRate: over.maxFrameRate,
   });
+  /** Channel pushes the adapter made, as [sourceKey, message]. */
+  const pushes = [];
   // The WebRTC side drives viewer leave / disconnect and demote through this.
   const adapter = createScreenWebrtcSource(source, {
     screenId: '1',
-    sink: { geometryChanged() {}, captureChanged() {}, frame() {} },
+    sink: { geometryChanged() {}, captureChanged() {}, frame() {}, channelPush: (key, message) => pushes.push([key, message]) },
   });
   /** Logged drops, as [backend, count]. */
   const dropped = () => log.filter((event) => event.type === 'release-dropped').map((event) => [event.backend, event.count]);
-  return { source, adapter, displays, host, secure, indicator, log, auth, dropped };
+  return { source, adapter, displays, host, secure, indicator, log, auth, dropped, pushes };
 }
+
+const CTRL = { vk: 0xa2, scan: 0x1d, extended: false };
+const KEY_C = { vk: 0x43, scan: 0x2e, extended: false };
+
+test('a key combo is injected atomically: in order, then released in reverse', async () => {
+  const env = build();
+  const { geometry } = await env.source.start();
+  assert.equal(await env.source.handleInput({ type: 'screen-keys', keys: [CTRL, KEY_C] }, geometry.generation), 'applied');
+  assert.deepEqual(
+    env.host.commands.map((command) => [command.vk, command.down]),
+    [
+      [0xa2, true],
+      [0x43, true],
+      [0x43, false],
+      [0xa2, false],
+    ]
+  );
+  // Without control (an in-place elevation prompt, no helper) nothing is sent.
+  env.host.emitDesktop({ inputDesktop: 'Default', consent: true, logonUi: false });
+  await tick();
+  env.host.commands.length = 0;
+  assert.equal(await env.source.handleInput({ type: 'screen-keys', keys: [CTRL, KEY_C] }, geometry.generation), 'rejected');
+  assert.deepEqual(env.host.commands, []);
+  await env.source.stop('user');
+});
+
+test('the status is pushed on each change, and a promoted channel gets the current one', async () => {
+  const env = build();
+  await env.source.start();
+  const statuses = () => env.pushes.filter(([, message]) => message.kind === 'screen-status').map(([, message]) => message.status);
+  const before = statuses().length;
+  env.host.emitDesktop({ inputDesktop: 'Default', consent: true, logonUi: false });
+  await tick();
+  assert.deepEqual(statuses().slice(before), [{ state: 'elevation-prompt', reason: 'uac', helper: 'missing', control: false }]);
+  assert.deepEqual(env.adapter.channelState(), [
+    { v: 1, kind: 'screen-status', status: { state: 'elevation-prompt', reason: 'uac', helper: 'missing', control: false } },
+  ]);
+  assert.equal(env.pushes.every(([key]) => key === 'screen:1'), true);
+  await env.source.stop('user');
+  assert.equal(statuses().at(-1).state, 'stopped', 'the stop is pushed too');
+});
+
+test('the cursor is sampled once per frame interval, in video pixels, and pushed only on change', async () => {
+  const env = build({
+    sampleCursor: true,
+    maxFrameRate: 100,
+    displays: [{ ...display, physical: { x: -3840, y: 0, width: 3840, height: 2160 } }],
+  });
+  env.host.control.cursor = [-3840 + 1920, 1080];
+  const { geometry } = await env.source.start();
+  const cursors = () => env.pushes.filter(([, message]) => message.kind === 'screen-cursor').map(([, message]) => message);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  // 3840×2160 physical streams as 3840×2160 video pixels (within the bound).
+  assert.deepEqual(cursors(), [{ v: 1, kind: 'screen-cursor', x: 1920, y: 1080, generation: geometry.generation }]);
+  assert.ok(env.host.control.cursorReads >= 2, 'sampled again, but unchanged positions are not pushed');
+  // x ≥ 0 is the display to the right of this one.
+  env.host.control.cursor = [10, 5];
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(cursors().length, 1, 'a cursor on another display is not pushed');
+  env.host.control.cursor = [-3840, 0];
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(cursors().at(-1), { v: 1, kind: 'screen-cursor', x: 0, y: 0, generation: geometry.generation });
+  assert.deepEqual(env.adapter.channelState().at(-1), cursors().at(-1), 'a promoted channel gets the last one');
+  assert.deepEqual(env.host.control.attempts, [], 'sampling injects nothing');
+  await env.source.stop('user');
+  const reads = env.host.control.cursorReads;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(env.host.control.cursorReads, reads, 'sampling ends with the session');
+  assert.equal(env.source.cursor(), null);
+});
+
+test('the indicator is told which display is viewed', async () => {
+  const env = build();
+  const views = [];
+  const show = env.indicator.indicator.show;
+  env.indicator.indicator.show = (view) => {
+    views.push(view.screenId);
+    show(view);
+  };
+  await env.source.start();
+  assert.deepEqual(views, ['1']);
+  await env.source.stop('user');
+});
 
 /** A control session holding A and the left button on the ordinary desktop. */
 async function holdingOnDesktop() {
@@ -235,9 +330,97 @@ async function holdingOnHelper() {
   const { geometry } = await env.source.start();
   env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
   await tick();
+  env.source.setHelperVideo(true);
   assert.equal(await env.source.handleInput(keyA, geometry.generation), 'applied');
   return env;
 }
+
+test('on the helper path control waits for the helper video to reach the viewer, and ends with it', async () => {
+  const env = build({ secure: { installed: true, connected: true, desktop: 'winlogon' } });
+  env.host.control.reachable = false;
+  const { geometry } = await env.source.start();
+  const lastPushed = () => env.pushes.filter(([, message]) => message.kind === 'screen-status').at(-1)[1].status;
+  env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await tick();
+  // Helper attached, no video: view-blocked, not blind control.
+  assert.deepEqual(lastPushed(), { state: 'secure-desktop', reason: 'lock', helper: 'active', control: false });
+  assert.equal(await env.source.handleInput(keyA, geometry.generation), 'rejected');
+  assert.deepEqual(env.secure.state.sent, []);
+  // The video starts: control.
+  env.source.setHelperVideo(true);
+  assert.equal(lastPushed().control, true);
+  assert.equal(await env.source.handleInput(keyA, geometry.generation), 'applied');
+  assert.deepEqual(env.secure.state.sent.map((command) => [command.vk, command.down]), [[0x41, true]]);
+  // The video stops: control is withdrawn at once and the held key lifted.
+  env.source.setHelperVideo(false);
+  assert.equal(lastPushed().control, false);
+  assert.equal(await env.source.handleInput(keyA, geometry.generation), 'rejected');
+  await tick();
+  assert.deepEqual(
+    env.secure.state.sent.map((command) => [command.vk, command.down]),
+    [
+      [0x41, true],
+      [0x41, false],
+    ],
+    'released through the helper'
+  );
+  assert.equal(await env.source.handleInput({ type: 'screen-release' }, geometry.generation), 'applied', 'releases go through');
+  // Leaving the helper clears the report: the next helper period waits for its own.
+  env.source.setHelperVideo(true);
+  env.host.control.reachable = true;
+  env.host.emitDesktop({ inputDesktop: 'Default', consent: false, logonUi: false });
+  await tick();
+  env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  await tick();
+  assert.equal(env.source.status().control, false);
+  // A report outside the helper path counts for nothing.
+  const off = build({ secure: { installed: true, connected: true, desktop: 'default' } });
+  await off.source.start();
+  off.source.setHelperVideo(true);
+  off.secure.state.desktop = 'winlogon';
+  off.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  assert.equal(off.source.status().state, 'secure-desktop');
+  assert.equal(off.source.status().control, false);
+  await Promise.all([env.source.stop('user'), off.source.stop('user')]);
+});
+
+test('a cursor read in flight across a switch to the helper is dropped; no cursor is offered while it serves', async () => {
+  const env = build({ sampleCursor: true, maxFrameRate: 100, secure: { installed: true, connected: true, desktop: 'default' } });
+  env.host.control.cursor = [100, 200];
+  const { geometry } = await env.source.start();
+  const cursors = () => env.pushes.filter(([, message]) => message.kind === 'screen-cursor').map(([, message]) => message);
+  const offered = () => env.adapter.channelState().some((message) => message.kind === 'screen-cursor');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(cursors(), [{ v: 1, kind: 'screen-cursor', x: 100, y: 200, generation: geometry.generation }]);
+  assert.equal(offered(), true);
+  // Hold the next read in flight, then switch to the helper's capture.
+  let open;
+  env.host.control.cursorGate = new Promise((resolve) => {
+    open = resolve;
+  });
+  const reads = env.host.control.cursorReads;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(env.host.control.cursorReads, reads + 1, 'one read in flight');
+  env.secure.state.desktop = 'winlogon';
+  env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
+  assert.equal(env.source.cursor(), null);
+  assert.equal(offered(), false, 'the promotion snapshot has no cursor while the helper serves');
+  // The read completes after the switch, with the cursor moved: dropped.
+  env.host.control.cursor = [300, 400];
+  env.host.control.cursorGate = null;
+  open();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(cursors().length, 1, 'the late read is not pushed');
+  assert.equal(offered(), false);
+  assert.equal(env.host.control.cursorReads, reads + 1, 'no reads while the helper serves');
+  // Back on the ordinary desktop: the old position was cleared, a new sample comes.
+  env.secure.state.desktop = 'default';
+  env.host.emitDesktop({ inputDesktop: 'Default', consent: false, logonUi: false });
+  assert.equal(env.source.cursor(), null, 'the cached cursor was cleared at the switch');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(cursors().at(-1), { v: 1, kind: 'screen-cursor', x: 300, y: 400, generation: geometry.generation });
+  await env.source.stop('user');
+});
 
 /** Every defined exit, driven the way its caller drives it. */
 const EXIT_PATHS = {
@@ -339,9 +522,12 @@ test('a jump to the secure desktop with an attached helper routes frames and inp
 
   const latest = statuses.at(-1);
   assert.equal(latest.state, 'secure-desktop');
-  assert.equal(latest.control, true);
+  assert.equal(latest.control, false, 'no control before the helper video reaches the viewer');
   await tick();
   assert.equal(env.secure.state.active, true);
+  // The sender reports the helper video reaching the viewer.
+  env.source.setHelperVideo(true);
+  assert.equal(statuses.at(-1).control, true);
 
   // Input now goes to the helper, not the ordinary input host.
   const before = env.host.commands.length;
