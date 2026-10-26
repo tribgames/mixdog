@@ -6,20 +6,17 @@ import type { BrowserCdpPort } from './cdp';
 import type { BrowserGuestStateStore } from './guest-state';
 
 /** The backend nodes of the elements the host filled a secret into (a password,
- *  every box of a one-time code), per guest: bounded, in memory only. A
- *  capture is refused while one of them holds a value, so a code split over
- *  one box per digit — no single input holds all of it — is protected by the
- *  elements themselves, not by matching values. */
+ *  every box of a one-time code), per guest, in memory only. A capture is
+ *  refused while one of them holds a value, so a code split over one box per
+ *  digit — no single input holds all of it — is protected by the elements
+ *  themselves, not by matching values. A node stays protected until CDP
+ *  confirms it is gone (its document changed or it was removed); there is no
+ *  count-based eviction. */
 const protectedNodes = new WeakMap<WebContents, Set<number>>();
-const MAX_PROTECTED_NODES = 64;
 
 export function protectSecretNodes(guest: WebContents, nodes: readonly number[]): void {
   const set = protectedNodes.get(guest) ?? new Set<number>();
-  for (const node of nodes) {
-    set.delete(node);
-    set.add(node);
-  }
-  while (set.size > MAX_PROTECTED_NODES) set.delete(set.values().next().value as number);
+  for (const node of nodes) set.add(node);
   protectedNodes.set(guest, set);
 }
 
@@ -88,10 +85,12 @@ export function createBrowserVisualPrivacy(host: {
             objectId = String(resolved.object?.objectId || '');
           } catch (error) {
             // Only CDP's own answer that the node no longer exists lets a
-            // node go; a cancelled capture stops, and any other failure
-            // withholds the capture (the node may still hold the secret).
+            // node go (and forgets it); a cancelled capture stops, and any
+            // other failure withholds the capture (the node may still hold
+            // the secret).
             if (signal?.aborted) throw error;
             if (!NODE_GONE.test(String((error as Error)?.message || error))) throw withheld();
+            protectedNodes.get(guest)?.delete(backendNodeId);
             continue;
           }
           if (!objectId) throw withheld();

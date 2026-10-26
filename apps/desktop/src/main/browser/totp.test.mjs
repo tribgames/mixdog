@@ -68,9 +68,19 @@ test('a plain key and an otpauth address both parse; the address sets digits, pe
   assert.equal(totpCode(parseTotpSecret(`otpauth://totp/x?secret=${key}&digits=8`), 59_000), '94287082');
 });
 
+test('any positive safe-integer period is accepted: RFC 6238 sets no maximum', () => {
+  const key = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+  for (const period of [1, 301, 3600]) {
+    assert.equal(parseTotpSecret(`otpauth://totp/x?secret=${key}&period=${period}`).period, period);
+  }
+});
+
 test('invalid keys are refused', () => {
   for (const bad of [
     '',
+    'otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&period=0',
+    'otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&period=1.5',
+    'otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&period=9007199254740993',
     'ABC',
     'otpauth://hotp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
     'otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=7',

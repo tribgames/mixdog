@@ -65,7 +65,7 @@ export function parseTotpSecret(input: string): TotpParameters {
     if (url.searchParams.has('algorithm')) algorithm = String(url.searchParams.get('algorithm')).toUpperCase();
   }
   if (digits !== 6 && digits !== 8) throw new TypeError('An authenticator code has 6 or 8 digits.');
-  if (!Number.isInteger(period) || period < 1 || period > 300) {
+  if (!Number.isSafeInteger(period) || period < 1) {
     throw new TypeError('The authenticator period is invalid.');
   }
   if (algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') {

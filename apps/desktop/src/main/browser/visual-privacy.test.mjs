@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { createBrowserVisualPrivacy } from './visual-privacy.ts';
+import { createBrowserVisualPrivacy, protectSecretNodes } from './visual-privacy.ts';
 import { observationActions } from './actions/observe.ts';
 
 function fixture() {
@@ -103,6 +103,43 @@ test('masked password fields are not mistaken for visible plaintext values', asy
   } finally {
     dom.window.close();
   }
+});
+
+test('every protected node stays protected until it is confirmed gone, however many there are', async () => {
+  const guest = {};
+  const holding = new Set();
+  const gone = new Set();
+  const asked = [];
+  const guard = createBrowserVisualPrivacy({
+    state: { peek: () => ({ sensitiveValues: new Set() }) },
+    documents: { collect: async () => [false], pageText: async () => '', revision: async () => '1' },
+    cdp: {
+      call: async (_guest, method, params) => {
+        if (method === 'DOM.resolveNode') {
+          asked.push(params.backendNodeId);
+          if (gone.has(params.backendNodeId)) throw new Error('No node with given id found');
+          return { object: { objectId: String(params.backendNodeId) } };
+        }
+        if (method === 'Runtime.callFunctionOn') return { result: { value: holding.has(Number(params.objectId)) } };
+        return {};
+      },
+    },
+  });
+  const nodes = Array.from({ length: 200 }, (_, index) => index + 1);
+  protectSecretNodes(guest, nodes.slice(0, 100));
+  protectSecretNodes(guest, nodes.slice(100));
+  await guard(guest, undefined);
+  assert.equal(asked.length, 200, 'no node was evicted');
+  holding.add(1);
+  await assert.rejects(guard(guest), /Visual output withheld/, 'the oldest node still guards its secret');
+  gone.add(1);
+  holding.delete(1);
+  asked.length = 0;
+  await guard(guest);
+  asked.length = 0;
+  await guard(guest);
+  assert.equal(asked.length, 199, 'a node CDP reports gone is forgotten');
+  assert.ok(!asked.includes(1));
 });
 
 test('PDF output passes the same guard before printing or persisting anything', async () => {
