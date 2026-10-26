@@ -40,12 +40,16 @@ export class BrowserSessionRegistry {
   private readonly turnFinishedListeners = new Set<(sessionId: string) => void>();
   private readonly lastPageGoneListeners = new Set<(sessionId: string) => void>();
 
-  /** Bumped by every turn start, command and turn end of the session, so
-   *  evidence gathered before any of them can be told from current evidence. */
+  /** Set by every turn start, command and turn end of the session, so
+   *  evidence gathered before any of them can be told from current evidence.
+   *  Values come from one registry-wide clock and are never reused, so a
+   *  session released (entry removed) and later reused cannot reach a value
+   *  an earlier probe already saw. */
   private readonly activityBySession = new Map<string, number>();
+  private activityClock = 0;
 
   private noteActivity(sessionId: string): void {
-    this.activityBySession.set(sessionId, (this.activityBySession.get(sessionId) ?? 0) + 1);
+    this.activityBySession.set(sessionId, ++this.activityClock);
   }
 
   activityGeneration(sessionId: string): number {
@@ -69,8 +73,12 @@ export class BrowserSessionRegistry {
     for (const listener of this.turnFinishedListeners) listener(sessionId);
   }
 
+  /** The session is released: its turn state and activity entry go. An
+   *  outstanding probe saw a positive activity value, which no later value
+   *  repeats, so it reads as stale; a probe of a session that never had any
+   *  activity saw nothing that this changes. */
   forgetTurn(sessionId: string): void {
-    this.noteActivity(sessionId);
+    this.activityBySession.delete(sessionId);
     this.turnBySession.delete(sessionId);
   }
 

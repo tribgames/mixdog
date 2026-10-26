@@ -56,6 +56,13 @@ export async function beginBrowserTurn(sessionId, turnId) {
   }
 }
 
+/** The session is gone for good (deleted): it no longer has turn boundaries to
+ *  tell the desktop, and no turn of it will finish. */
+export function forgetBrowserSession(sessionId) {
+  browserSessions.delete(sessionId);
+  browserTurns.delete(sessionId);
+}
+
 /** Terminal lifecycle cleanup uses the exact bridge that owned this turn.
  * It is never retried after dispatch and never inherits the cancelled tool signal. */
 export async function finishBrowserTurn(sessionId, turnId, { aborted = false } = {}) {
