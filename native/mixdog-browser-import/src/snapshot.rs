@@ -18,10 +18,6 @@ use windows::Win32::Foundation::{ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION};
 
 use crate::failure::Failure;
 
-/// How long to wait on a lock held by another connection before concluding
-/// that Chrome still has the database open.
-const BUSY_TIMEOUT: Duration = Duration::from_secs(2);
-
 /// A snapshot file, deleted together with any SQLite sidecar files on drop.
 pub struct Snapshot {
     path: PathBuf,
@@ -69,11 +65,7 @@ fn failure_for(src: &Path, error: &rusqlite::Error) -> Failure {
     }
 }
 
-fn snapshot_into(
-    src: &Path,
-    dest: PathBuf,
-    busy_timeout: Duration,
-) -> Result<Snapshot> {
+fn snapshot_into(src: &Path, dest: PathBuf) -> Result<Snapshot> {
     // Built first so every failure below removes whatever `VACUUM INTO` left.
     let snapshot = Snapshot { path: dest };
     let target = snapshot
@@ -82,7 +74,12 @@ fn snapshot_into(
         .ok_or_else(|| anyhow!("the temporary snapshot path is not valid UTF-8"))?;
     let live = Connection::open_with_flags(src, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| failure_for(src, &error))?;
-    live.busy_timeout(busy_timeout)
+    // rusqlite installs a 5 s busy handler on every connection it opens. A lock
+    // here means Chrome has the database open for as long as it runs, so
+    // waiting cannot help: remove the handler (a timeout <= 0 "turns off all
+    // busy handlers", sqlite.org/c3ref/busy_timeout.html) so SQLITE_BUSY is
+    // returned at once, which is SQLite's default, and reported as ChromeRunning.
+    live.busy_timeout(Duration::ZERO)
         .map_err(|error| failure_for(src, &error))?;
     live.execute("VACUUM INTO ?1", [target])
         .map_err(|error| failure_for(src, &error))?;
@@ -96,7 +93,7 @@ pub fn snapshot(src: &Path, kind: &str) -> Result<Snapshot> {
         "mixdog-{kind}-{:016x}.db",
         rand::random::<u64>()
     ));
-    snapshot_into(src, dest, BUSY_TIMEOUT)
+    snapshot_into(src, dest)
 }
 
 #[cfg(test)]
@@ -188,13 +185,13 @@ mod tests {
             .unwrap();
 
         let dest = dir.join("copy.db");
-        let failure = failure_of(snapshot_into(&live, dest.clone(), Duration::from_millis(50)));
+        let failure = failure_of(snapshot_into(&live, dest.clone()));
         assert_eq!(failure, Failure::ChromeRunning);
         assert!(!dest.exists());
 
         // Once the lock is released the same snapshot succeeds.
         writer.execute_batch("COMMIT").unwrap();
-        let copy = snapshot_into(&live, dest, Duration::from_millis(50)).unwrap();
+        let copy = snapshot_into(&live, dest).unwrap();
         assert_eq!(values(copy.path()), ["x"]);
     }
 
@@ -216,7 +213,7 @@ mod tests {
             .unwrap();
 
         let dest = dir.join("copy.db");
-        let failure = failure_of(snapshot_into(&live, dest.clone(), Duration::from_millis(50)));
+        let failure = failure_of(snapshot_into(&live, dest.clone()));
         assert_eq!(failure, Failure::ChromeRunning);
         assert!(!dest.exists());
     }
@@ -230,13 +227,13 @@ mod tests {
         let garbage = dir.join("Garbage");
         std::fs::write(&garbage, vec![0x5a_u8; 4096]).unwrap();
         assert_eq!(
-            failure_of(snapshot_into(&garbage, dest.clone(), BUSY_TIMEOUT)),
+            failure_of(snapshot_into(&garbage, dest.clone())),
             Failure::DataUnreadable
         );
 
         // A path SQLite cannot open for a reason other than a sharing lock.
         assert_eq!(
-            failure_of(snapshot_into(&dir.0, dest.clone(), BUSY_TIMEOUT)),
+            failure_of(snapshot_into(&dir.0, dest.clone())),
             Failure::DataUnreadable
         );
         assert!(!dest.exists());
@@ -284,7 +281,7 @@ mod tests {
         let live = dir.join("Missing");
         let dest = dir.join("copy.db");
         assert_eq!(
-            failure_of(snapshot_into(&live, dest.clone(), BUSY_TIMEOUT)),
+            failure_of(snapshot_into(&live, dest.clone())),
             Failure::DataUnreadable
         );
         assert!(!live.exists());

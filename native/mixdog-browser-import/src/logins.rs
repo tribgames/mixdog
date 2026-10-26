@@ -5,9 +5,10 @@
 //! already does for cookies, this module reads the `Login Data` database
 //! directly and decrypts it with the master key resolved by [`crate::keys`]
 //! (the `runas` admin helper for a v20 key).
-//! Only `crypt_unprotect_data` is borrowed from the GPL crate (for legacy
-//! DPAPI values, matching upstream). The AES-GCM split/length rules mirror the
-//! upstream `WindowsCryptoService` so the decrypted output is identical.
+//! Only AES-256-GCM `v10` and `v20` values are decrypted (the v10 key is
+//! unwrapped from DPAPI by [`crate::keys`]); legacy bare-DPAPI values are
+//! rejected. The AES-GCM split/length rules mirror the upstream
+//! `WindowsCryptoService` so the decrypted output is identical.
 
 use std::path::Path;
 
@@ -23,7 +24,6 @@ use crate::{keys, snapshot};
 
 const IV_SIZE: usize = 12;
 const TAG_SIZE: usize = 16;
-const MAX_LOGINS: usize = 1_000_000;
 /// The two login databases Chrome keeps; account logins may be absent.
 const LOGIN_DATABASES: [&str; 2] = ["Login Data", "Login Data For Account"];
 
@@ -86,9 +86,6 @@ fn read_logins(conn: &Connection, out: &mut Vec<RawLogin>) -> Result<()> {
         })
     })?;
     for row in rows {
-        if out.len() == MAX_LOGINS {
-            return Err(anyhow!("login database exceeds the import limit"));
-        }
         out.push(row?);
     }
     Ok(())
