@@ -125,29 +125,6 @@ test("removing a repository's last worktree drops its empty store folder, never 
   assert.equal(existsSync(root), false);
 });
 
-test('removal releases handles on the folder, then drops its caches, then removes the checkout', async () => {
-  const repo = makeRepo();
-  const { entry } = await create(repo);
-  const order = [];
-  const offReleaser = registerRootReleaser(`terminals-${counter}`, (root) => {
-    order.push(['release', samePath(root, entry.path), existsSync(entry.path)]);
-  });
-  const offCleanup = registerRootCleanup(`cache-${counter}`, (root) => {
-    order.push(['cleanup', samePath(root, entry.path), existsSync(entry.path)]);
-  });
-  try {
-    assert.equal((await removeManagedWorktree({ entryId: entry.id })).removed, true);
-    assert.deepEqual(order, [
-      ['release', true, true],
-      ['cleanup', true, true],
-    ]);
-    assert.equal(existsSync(entry.path), false);
-  } finally {
-    offReleaser();
-    offCleanup();
-  }
-});
-
 test("removing a worktree leaves its turns' change records listed but without Undo/Reapply", async () => {
   const { WORKTREE_CACHE_CLEANUPS } = await import('./cache-cleanups.mjs');
   const { storedChangeFile } = await import('../turn-changes.mjs');
@@ -256,7 +233,7 @@ test('a Project in a repository subfolder: its identity copy is not dirt and its
   }
 });
 
-test('the session project id copy is ignored by the dirty check, and only that path', async () => {
+test('the session project id copy is ignored by the dirty check, and only that path; removal releases handles, then drops caches, then removes the checkout', async () => {
   const repo = makeRepo();
   const { entry } = await create(repo);
   writeFile(entry.path, '.mixdog/project.id', 'project-123\n');
@@ -267,8 +244,24 @@ test('the session project id copy is ignored by the dirty check, and only that p
     return true;
   });
   rmSync(join(entry.path, '.mixdog', 'other.json'));
-  assert.equal((await removeManagedWorktree({ entryId: entry.id })).removed, true);
-  assert.equal(existsSync(entry.path), false);
+  const order = [];
+  const offReleaser = registerRootReleaser(`terminals-${counter}`, (root) => {
+    order.push(['release', samePath(root, entry.path), existsSync(entry.path)]);
+  });
+  const offCleanup = registerRootCleanup(`cache-${counter}`, (root) => {
+    order.push(['cleanup', samePath(root, entry.path), existsSync(entry.path)]);
+  });
+  try {
+    assert.equal((await removeManagedWorktree({ entryId: entry.id })).removed, true);
+    assert.deepEqual(order, [
+      ['release', true, true],
+      ['cleanup', true, true],
+    ]);
+    assert.equal(existsSync(entry.path), false);
+  } finally {
+    offReleaser();
+    offCleanup();
+  }
 });
 
 test('a deletion that cannot finish stays durable and resumes', async () => {

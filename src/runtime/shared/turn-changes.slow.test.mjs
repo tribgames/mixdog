@@ -3,9 +3,20 @@
 // (whole turn and per file), including the Windows line-ending shapes (CRLF,
 // .gitattributes eol, autocrlf, missing final newline) and Unicode/space
 // paths with add/delete/rename.
+import './git-direct.test-support.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -54,12 +65,24 @@ function git(cwd, ...args) {
   return result.stdout;
 }
 
+// An empty repository built once and copied per seed: a non-bare repository
+// holds no absolute paths, so the copy is the same repository at its new
+// location, without the init and config processes. Auto maintenance is off so
+// a commit never starts a `git maintenance run` child.
+let template = null;
+function repoTemplate() {
+  if (template) return template;
+  template = join(base, 'template');
+  mkdirSync(template, { recursive: true });
+  git(template, 'init', '-q');
+  appendFileSync(join(template, '.git', 'config'), '[core]\n\tautocrlf = false\n[maintenance]\n\tauto = false\n');
+  return template;
+}
+
 /** A committed repository; `config` entries are applied before the seed commit. */
 function seedRepo(files, { config = {}, attributes = '' } = {}) {
   const repo = join(base, `repo-${++seq}`);
-  mkdirSync(repo, { recursive: true });
-  git(repo, 'init', '-q');
-  git(repo, 'config', 'core.autocrlf', 'false');
+  cpSync(repoTemplate(), repo, { recursive: true });
   for (const [key, value] of Object.entries(config)) git(repo, 'config', key, value);
   if (attributes) writeFileSync(join(repo, '.gitattributes'), attributes);
   writeTree(repo, files);
@@ -619,10 +642,21 @@ test('a completion wake re-seals the same checkpoint and keeps undone files reap
 test('a cancelled turn keeps its edits as a record; delayed cleanup never seals a newer turn', { skip }, async () => {
   _resetTurnSnapshotForTest();
   const repo = seedRepo({ 'a.txt': 'a\n', 'b.txt': 'b\n' });
+  // A cancelled turn seals in the background; the tracker's seal call is the
+  // completion signal the test awaits.
+  let onSeal = () => {};
+  const nextSeal = () =>
+    new Promise((resolve) => {
+      onSeal = resolve;
+    });
   const createTracker = createSnapshotTrackerFactory({
     getCurrentCwd: () => repo,
     beginTurnSnapshotForTurn: beginTurnSnapshot,
-    completeTurnSnapshotForTurn: completeTurnSnapshot,
+    completeTurnSnapshotForTurn: (...args) => {
+      const sealed = completeTurnSnapshot(...args);
+      onSeal(sealed);
+      return sealed;
+    },
     turnCleanupSettleMs: 5_000,
   });
   const aborted = AbortSignal.abort();
@@ -632,11 +666,9 @@ test('a cancelled turn keeps its edits as a record; delayed cleanup never seals 
   cancelled.start('cancel');
   await cancelled.promise;
   editTree('cancel', repo, { 'a.txt': 'A\n' });
+  const cancelSealed = nextSeal();
   await cancelled.finish(aborted, awaitTurn);
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if ((await getTurnChanges('cancel', { checkpointId: 'cp-cancel' })).status === 'ready') break;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+  assert.equal(await withinDeadline(cancelSealed, 'cancelled seal'), true);
   const reply = await getTurnChanges('cancel', { checkpointId: 'cp-cancel' });
   assert.equal(reply.status, 'ready');
   assert.deepEqual(shape(reply), [['a.txt', '', 'M', 'applied']]);
@@ -648,13 +680,11 @@ test('a cancelled turn keeps its edits as a record; delayed cleanup never seals 
   await turnA.promise;
   editTree('cancel', repo, { 'b.txt': 'B\n' });
   await beginTurnSnapshot(repo, 'cancel', { checkpointId: 'cp-b' });
+  const lateSeal = nextSeal();
   await turnA.finish(aborted, awaitTurn);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  let recordA = await getTurnChanges('cancel', { checkpointId: 'cp-a' });
-  for (let attempt = 0; attempt < 200 && recordA.status !== 'ready'; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    recordA = await getTurnChanges('cancel', { checkpointId: 'cp-a' });
-  }
+  // A's delayed cleanup has run (and sealed nothing: B's begin already did).
+  assert.equal(await withinDeadline(lateSeal, 'delayed cleanup'), false);
+  const recordA = await settledChanges('cancel', 'cp-a');
   assert.deepEqual(shape(recordA), [['b.txt', '', 'M', 'applied']]);
   assert.equal((await getTurnChanges('cancel', { checkpointId: 'cp-b' })).status, 'pending');
 });
@@ -942,6 +972,9 @@ async function undoTurn(how, repo, sessionId) {
 test('a foreign append made during or after the turn survives Undo of the own edit in that file', {
   skip,
 }, async () => {
+  // One repository for every case (its own session each): resetting a.txt to
+  // the seed bytes starts a case exactly where a fresh seed would.
+  const repo = seedRepo({ 'a.txt': tenLines });
   for (const [when, how] of [
     ['during', 'record'],
     ['after', 'record'],
@@ -951,7 +984,7 @@ test('a foreign append made during or after the turn survives Undo of the own ed
   ]) {
     _resetTurnSnapshotForTest();
     const sessionId = `foreign-append-${when}-${how}`;
-    const repo = seedRepo({ 'a.txt': tenLines });
+    writeTree(repo, { 'a.txt': tenLines });
     await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
     editTree(sessionId, repo, { 'a.txt': ownLineTwo });
     const append = () => writeTree(repo, { 'a.txt': `${readTree(repo, ['a.txt'])['a.txt']}foreign tail\n` });
@@ -982,10 +1015,11 @@ test('a foreign append made during or after the turn survives Undo of the own ed
 });
 
 test('an Undo whose hunk a foreign edit overlaps fails with a conflict and overwrites nothing', { skip }, async () => {
+  const repo = seedRepo({ 'a.txt': tenLines });
   for (const how of ['record', 'composer', 'live']) {
     _resetTurnSnapshotForTest();
     const sessionId = `foreign-overlap-${how}`;
-    const repo = seedRepo({ 'a.txt': tenLines });
+    writeTree(repo, { 'a.txt': tenLines });
     await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
     editTree(sessionId, repo, { 'a.txt': ownLineTwo });
     if (how !== 'live') await completeTurnSnapshot(sessionId);
@@ -1057,10 +1091,11 @@ test('a foreign edit between two own writes of a file stays out of its record an
 }, async () => {
   const foreignOnly = swapLine(thirtyLines, 12, 'FOREIGN 12');
   const allEdits = swapLine(swapLine(foreignOnly, 2, 'OWN 2'), 22, 'OWN 22');
+  const repo = seedRepo({ 'a.txt': thirtyLines });
   for (const how of ['record', 'composer', 'live']) {
     _resetTurnSnapshotForTest();
     const sessionId = `foreign-between-${how}`;
-    const repo = seedRepo({ 'a.txt': thirtyLines });
+    writeTree(repo, { 'a.txt': thirtyLines });
     await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
     editAroundForeign(sessionId, repo, 12);
     assert.equal(readTree(repo, ['a.txt'])['a.txt'], allEdits, how);
@@ -1085,10 +1120,11 @@ test('a foreign edit between two own writes of a file stays out of its record an
 test('an Undo whose older own segment the foreign gap overlaps fails whole and overwrites nothing', {
   skip,
 }, async () => {
+  const repo = seedRepo({ 'a.txt': thirtyLines });
   for (const how of ['record', 'composer', 'live']) {
     _resetTurnSnapshotForTest();
     const sessionId = `foreign-gap-overlap-${how}`;
-    const repo = seedRepo({ 'a.txt': thirtyLines });
+    writeTree(repo, { 'a.txt': thirtyLines });
     await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
     // Line 3 is context of the line 2 hunk: undoing that segment would need it.
     editAroundForeign(sessionId, repo, 3);
@@ -1155,11 +1191,12 @@ test('the live and the restarted turn review show own edits only, never a foreig
 });
 
 test('Undo of a pure binary rename refuses a file whose bytes changed since', { skip }, async () => {
+  const original = Buffer.from([0, 1, 2, 3]);
+  const repo = seedRepo({ 'a.bin': original });
   for (const how of ['record', 'composer']) {
     _resetTurnSnapshotForTest();
     const sessionId = `binary-rename-${how}`;
-    const original = Buffer.from([0, 1, 2, 3]);
-    const repo = seedRepo({ 'a.bin': original });
+    writeTree(repo, { 'a.bin': original, 'b.bin': null });
     await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp' });
     moveTree(sessionId, repo, 'a.bin', 'b.bin');
     await completeTurnSnapshot(sessionId);

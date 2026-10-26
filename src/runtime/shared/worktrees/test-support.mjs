@@ -1,6 +1,7 @@
 // Temporary git repositories and data dirs for the worktree suites.
+import '../git-direct.test-support.mjs';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -67,9 +68,13 @@ function repoTemplate(commit) {
   if (existing && existsSync(existing)) return existing;
   const dir = tempDir('mixdog-wt-template-');
   git(dir, 'init', '-q', '-b', 'main');
-  git(dir, 'config', 'user.name', 'Mixdog Test');
-  git(dir, 'config', 'user.email', 'mixdog@example.com');
-  git(dir, 'config', 'core.autocrlf', 'false');
+  // One config write instead of a `git config` process per key. Auto
+  // maintenance is off, so no commit (the test's or a merge's) starts a
+  // `git maintenance run` child.
+  appendFileSync(
+    join(dir, '.git', 'config'),
+    '[user]\n\tname = Mixdog Test\n\temail = mixdog@example.com\n[core]\n\tautocrlf = false\n[maintenance]\n\tauto = false\n'
+  );
   if (commit) commitFile(dir, 'README.md', 'hello\n', 'initial');
   templates.set(commit, dir);
   return dir;

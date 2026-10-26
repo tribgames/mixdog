@@ -5,7 +5,7 @@
 // failed carry restores the project folder exactly and keeps a recovery ref,
 // and a merge in progress refuses `carry` but not `leave`.
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { configureWorktreeManager, dropCarryRecoveryRef, restoreCarriedChanges } from './manager.mjs';
@@ -47,16 +47,26 @@ const read = (dir, rel) => readFileSync(join(dir, ...rel.split('/')));
  * A repository with every kind of change: unstaged and staged edits, a staged
  * addition, unstaged and staged deletions, a binary edit, untracked text and
  * binary files (in new folders), and an ignored file that is never counted.
+ * Built once and copied per test: the index and the working files are copied
+ * as they are, so each copy holds the same staged and unstaged states.
  */
+let dirtyTemplate = null;
 function dirtyRepo() {
+  dirtyTemplate ??= buildDirtyRepo();
+  const repo = tempDir('mixdog-wt-repo-');
+  cpSync(dirtyTemplate, repo, { recursive: true });
+  return repo;
+}
+
+function buildDirtyRepo() {
   const repo = makeRepo();
-  commitFile(repo, '.gitignore', '*.log\n');
-  commitFile(repo, 'keep.txt', 'keep\n');
-  commitFile(repo, 'gone.txt', 'gone\n');
-  commitFile(repo, 'staged-gone.txt', 'staged gone\n');
+  writeFile(repo, '.gitignore', '*.log\n');
+  writeFile(repo, 'keep.txt', 'keep\n');
+  writeFile(repo, 'gone.txt', 'gone\n');
+  writeFile(repo, 'staged-gone.txt', 'staged gone\n');
   writeFileSync(join(repo, 'img.bin'), BINARY);
-  git(repo, 'add', 'img.bin');
-  git(repo, 'commit', '-q', '-m', 'binary');
+  git(repo, 'add', '--', '.gitignore', 'keep.txt', 'gone.txt', 'staged-gone.txt', 'img.bin');
+  git(repo, 'commit', '-q', '-m', 'tracked files');
   writeFile(repo, 'README.md', 'hello\nmore\n');
   writeFile(repo, 'keep.txt', 'staged\n');
   git(repo, 'add', 'keep.txt');
@@ -110,11 +120,37 @@ test('ask: a clean project folder proceeds without a choice', async () => {
   assert.equal(entry.changes, undefined);
 });
 
+/** Top-level git processes started while `action` runs (git's own trace2 events; children excluded). */
+async function countGitProcesses(action) {
+  const traceFile = join(tempDir('mixdog-wt-trace-'), 'trace2.json');
+  process.env.GIT_TRACE2_EVENT = traceFile;
+  try {
+    await action();
+  } finally {
+    delete process.env.GIT_TRACE2_EVENT;
+  }
+  return readFileSync(traceFile, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter((event) => event.event === 'version' && !String(event.sid).includes('/')).length;
+}
+
+// Every git spawn costs ~0.1 s on Windows, so a carry's wall time is its
+// spawn count: it used to read the status five times, list untracked files
+// three times and probe the identity file in every step (~65 spawns).
+const LEAVE_GIT_PROCESSES = 13;
+const CARRY_GIT_PROCESSES = 44;
+
 test('leave: the worktree starts at HEAD and the project folder keeps its changes untouched', async () => {
   const repo = dirtyRepo();
   const before = status(repo);
   const files = contents(repo);
-  const { entry } = await createTestWorktree(repo, { carryChanges: 'leave' });
+  let entry;
+  const leave = await countGitProcesses(async () => {
+    ({ entry } = await createTestWorktree(repo, { carryChanges: 'leave' }));
+  });
+  assert.ok(leave <= LEAVE_GIT_PROCESSES, `leave started ${leave} git processes (limit ${LEAVE_GIT_PROCESSES})`);
   assert.deepEqual(entry.changes, { mode: 'left', count: COUNT });
   assert.deepEqual(status(repo), before);
   assert.deepEqual(contents(repo), files);
@@ -122,13 +158,22 @@ test('leave: the worktree starts at HEAD and the project folder keeps its change
   assert.equal(git(entry.path, 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'HEAD'));
 });
 
-test('carry: every kind of change moves into the worktree and the project folder ends clean', async () => {
+// The carry's git process count stays bounded however many files it moves:
+// 25 more untracked files ride along with every kind of change.
+const BULK = 25;
+
+test('carry: every kind of change moves into the worktree within a bounded number of git invocations and the project folder ends clean', async () => {
   const repo = dirtyRepo();
+  for (let i = 0; i < BULK; i++) writeFile(repo, `bulk/file-${i}.txt`, `bulk ${i}\n`);
   const before = status(repo);
   const files = contents(repo);
-  const { entry } = await createTestWorktree(repo, { carryChanges: 'carry' });
+  let entry;
+  const carry = await countGitProcesses(async () => {
+    ({ entry } = await createTestWorktree(repo, { carryChanges: 'carry' }));
+  });
+  assert.ok(carry <= CARRY_GIT_PROCESSES, `carry started ${carry} git processes (limit ${CARRY_GIT_PROCESSES})`);
   const { recoveryRef } = entry.changes;
-  assert.deepEqual(entry.changes, { mode: 'carried', count: COUNT, recoveryRef });
+  assert.deepEqual(entry.changes, { mode: 'carried', count: COUNT + BULK, recoveryRef });
   assert.deepEqual(status(repo), [], 'the project folder is clean');
   assert.equal(read(repo, 'debug.log').toString(), 'ignored\n', 'ignored files stay');
   assert.equal(existsSync(join(repo, 'notes')), false, 'folders emptied by the carry are removed');
@@ -141,28 +186,22 @@ test('carry: every kind of change moves into the worktree and the project folder
   // The recovery ref outlives the carry until the session move is committed;
   // a move that fails later puts everything back from it.
   assert.equal(git(repo, 'for-each-ref', '--format=%(refname)', 'refs/mixdog/carry/'), recoveryRef);
+  // A restore never overwrites a project folder that changed meanwhile.
+  writeFile(repo, 'later.txt', 'new work\n');
+  await assert.rejects(restoreCarriedChanges({ projectPath: repo, recoveryRef }), (error) => {
+    assert.equal(error.code, 'WORKTREE_DIRTY');
+    assert.equal(error.details.reason, 'carry-restore-refused');
+    return true;
+  });
+  assert.deepEqual(status(repo), ['?? later.txt']);
+  assert.ok(git(repo, 'rev-parse', '--verify', recoveryRef), 'the ref is kept');
+  rmSync(join(repo, 'later.txt'));
   await restoreCarriedChanges({ projectPath: repo, recoveryRef });
   assert.deepEqual(status(repo), before, 'restored from the recovery ref');
   assert.deepEqual(contents(repo), files);
   assert.equal(stagedKeep(repo), 'staged');
   await dropCarryRecoveryRef({ projectPath: repo, recoveryRef });
   assert.equal(git(repo, 'for-each-ref', 'refs/mixdog/carry/'), '');
-});
-
-test('carry: a restore from the recovery ref never overwrites a project folder that changed meanwhile', async () => {
-  const repo = dirtyRepo();
-  const { entry } = await createTestWorktree(repo, { carryChanges: 'carry' });
-  writeFile(repo, 'later.txt', 'new work\n');
-  await assert.rejects(
-    restoreCarriedChanges({ projectPath: repo, recoveryRef: entry.changes.recoveryRef }),
-    (error) => {
-      assert.equal(error.code, 'WORKTREE_DIRTY');
-      assert.equal(error.details.reason, 'carry-restore-refused');
-      return true;
-    }
-  );
-  assert.deepEqual(status(repo), ['?? later.txt']);
-  assert.ok(git(repo, 'rev-parse', '--verify', entry.changes.recoveryRef), 'the ref is kept');
 });
 
 test('carry scope is the whole checkout: a Project in a subfolder moves edits outside it too', async () => {
@@ -247,47 +286,6 @@ test('carry failure: the project folder is restored exactly, the worktree is rol
   assert.deepEqual(Object.keys((await readRegistry()).entries), []);
   assert.equal(git(repo, 'show', `${recoveryRef}:notes/todo.md`), 'todo', 'the recovery ref holds untracked files');
   assert.equal(git(repo, 'show', `${recoveryRef}^2:keep.txt`), 'staged', 'its second parent holds the index');
-});
-
-/** Top-level git processes started while `action` runs (git's own trace2 events; children excluded). */
-async function countGitProcesses(action) {
-  const traceFile = join(tempDir('mixdog-wt-trace-'), 'trace2.json');
-  process.env.GIT_TRACE2_EVENT = traceFile;
-  try {
-    await action();
-  } finally {
-    delete process.env.GIT_TRACE2_EVENT;
-  }
-  return readFileSync(traceFile, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line))
-    .filter((event) => event.event === 'version' && !String(event.sid).includes('/')).length;
-}
-
-// Every git spawn costs ~0.1 s on Windows, so a carry's wall time is its
-// spawn count: it used to read the status five times, list untracked files
-// three times and probe the identity file in every step (~65 spawns).
-const LEAVE_GIT_PROCESSES = 13;
-const CARRY_GIT_PROCESSES = 44;
-
-test('carry stays within a bounded number of git invocations, independent of the number of changed files', async () => {
-  const leaveRepo = dirtyRepo();
-  const leave = await countGitProcesses(() => createTestWorktree(leaveRepo, { carryChanges: 'leave' }));
-  assert.ok(leave <= LEAVE_GIT_PROCESSES, `leave started ${leave} git processes (limit ${LEAVE_GIT_PROCESSES})`);
-
-  const repo = dirtyRepo();
-  for (let i = 0; i < 25; i++) writeFile(repo, `bulk/file-${i}.txt`, `bulk ${i}\n`);
-  const before = status(repo);
-  let carried;
-  const carry = await countGitProcesses(async () => {
-    carried = await createTestWorktree(repo, { carryChanges: 'carry' });
-  });
-  assert.equal(carried.entry.changes.mode, 'carried');
-  assert.ok(carry <= CARRY_GIT_PROCESSES, `carry started ${carry} git processes (limit ${CARRY_GIT_PROCESSES})`);
-  assert.deepEqual(status(carried.entry.path), before, 'the worktree holds every carried change');
-  assert.deepEqual(status(repo), [], 'the project folder is cleared');
-  await dropCarryRecoveryRef({ projectPath: repo, recoveryRef: carried.entry.changes.recoveryRef });
 });
 
 /** `carry` is refused with `reason` (and `extra` details) before anything is created or touched. */

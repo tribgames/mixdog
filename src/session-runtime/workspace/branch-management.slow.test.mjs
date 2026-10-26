@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { createWorkspaceTransitions } from './transitions.mjs';
@@ -138,9 +138,11 @@ function externalSource(repo) {
 }
 
 for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
-  test(`${name}: a dirty source or one with a Git operation in progress is refused`, async () => {
+  // One source checkout for every refusal: each leaves the source as it was,
+  // so the merge that follows starts from the same state a fresh one would.
+  test(`${name}: a dirty source, a Git operation in progress or work running in the source is refused; both folders wait during the merge`, async () => {
     const repo = makeRepo();
-    const { source, merge } = await setup(repo);
+    const { f, source, merge } = await setup(repo);
     commitFile(source.path, 'feature.txt', 'feature\n');
     const head = git(repo, 'rev-parse', 'HEAD');
     writeFile(source.path, 'scratch.txt', 'unsaved\n');
@@ -155,13 +157,8 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
       return true;
     });
     assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
-  });
+    rmSync(marker);
 
-  test(`${name}: refused while work runs in the source, and both folders wait during the merge`, async () => {
-    const repo = makeRepo();
-    const { f, source, merge } = await setup(repo);
-    commitFile(source.path, 'feature.txt', 'feature\n');
-    const head = git(repo, 'rev-parse', 'HEAD');
     const leave = tryAdmitWorkspaceActivity('other-process-turn', source.path);
     await assert.rejects(merge(), (error) => {
       assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
@@ -171,6 +168,9 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
     });
     leave();
     assert.equal(git(repo, 'rev-parse', 'HEAD'), head);
+    // A session-less merge never moves or rewrites an idle session using the source folder.
+    const idle = { id: 'idle-user', cwd: source.path, status: 'idle' };
+    if (!f.session) f.state.stored = [idle];
     let probed = false;
     f.state.probe = () => {
       probed = true;
@@ -180,6 +180,10 @@ for (const [name, setup] of Object.entries(ENTRY_POINTS)) {
     assert.equal((await merge()).merged, true);
     assert.ok(probed, 'the merge ran under the shared admission');
     assert.equal(git(repo, 'rev-parse', 'HEAD^2'), git(source.path, 'rev-parse', 'HEAD'));
+    if (!f.session) {
+      assert.deepEqual(idle, { id: 'idle-user', cwd: source.path, status: 'idle' });
+      assert.ok(existsSync(source.path));
+    }
   });
 
   test(`${name}: an external source is never lock-blocked, but a session running there refuses`, async () => {
@@ -314,19 +318,6 @@ test('mergeWorkspace never moves its session: cleanup is refused while the sessi
   assert.equal(cleaned.cleanup.removed, true);
   assert.deepEqual(f.state.moves, []);
   assert.equal(existsSync(source.path), false);
-});
-
-test('session-less merges never move or rewrite a session using the source folder', async () => {
-  for (const name of ['manageProjectBranch', 'mergeProjectBranch']) {
-    const repo = makeRepo();
-    const { f, source, merge } = await ENTRY_POINTS[name](repo);
-    commitFile(source.path, 'feature.txt', 'feature\n');
-    const idle = { id: 'idle-user', cwd: source.path, status: 'idle' };
-    f.state.stored = [idle];
-    assert.equal((await merge()).merged, true);
-    assert.deepEqual(idle, { id: 'idle-user', cwd: source.path, status: 'idle' });
-    assert.ok(existsSync(source.path));
-  }
 });
 
 test('merge guards both folders, including idle sessions with background jobs and running workers', async () => {

@@ -5,9 +5,11 @@
 // These cases pin the two ways that used to happen: a sibling session opening a
 // turn in the same worktree, and a worktree that has no Git baseline at all.
 import './lib/isolated-test-env.mjs';
+import '../src/runtime/shared/git-direct.test-support.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
+import { access, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -34,15 +36,31 @@ async function createDirectory(prefix) {
   return await realpath(await mkdtemp(join(tmpdir(), prefix)));
 }
 
-async function createRepository() {
-  const root = await createDirectory('mixdog-turn-review-');
+// Built once and copied per test: a non-bare repository holds no absolute
+// paths, so each copy is the same committed repository at its new location,
+// without its init, config and commit processes.
+let template = null;
+async function repositoryTemplate() {
+  if (template) return template;
+  const root = await createDirectory('mixdog-turn-review-template-');
   git(root, ['init', '--initial-branch=main']);
-  git(root, ['config', 'user.email', 'test@example.com']);
-  git(root, ['config', 'user.name', 'Turn Review Test']);
-  git(root, ['config', 'core.autocrlf', 'false']);
+  // One config write instead of a `git config` process per key; no auto
+  // maintenance child after a commit.
+  await writeFile(
+    join(root, '.git', 'config'),
+    `${await readFile(join(root, '.git', 'config'), 'utf8')}[user]\n\temail = test@example.com\n\tname = Turn Review Test\n[core]\n\tautocrlf = false\n[maintenance]\n\tauto = false\n`
+  );
   await writeFile(join(root, 'file.txt'), 'one\n');
   git(root, ['add', '.']);
   git(root, ['commit', '-m', 'initial']);
+  process.on('exit', () => rmSync(root, { recursive: true, force: true }));
+  template = root;
+  return root;
+}
+
+async function createRepository() {
+  const root = await createDirectory('mixdog-turn-review-');
+  await cp(await repositoryTemplate(), root, { recursive: true });
   return root;
 }
 

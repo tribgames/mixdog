@@ -335,24 +335,32 @@ test('.worktreeinclude copies and links into the checkout and removal unlinks wi
 test('.worktreeinclude skips unsafe entries with a warning: creation goes on, nothing is copied or linked', async () => {
   const outside = tempDir('mixdog-wt-outside-');
   writeFile(outside, 'secret.txt', 'outside\n');
-  for (const [content, warning, target] of [
-    ['copy /etc/passwd\n', 'include-invalid:1', 'etc'],
-    ['copy C:\\Windows\n', 'include-invalid:1', 'Windows'],
-    ['copy ../x\n', 'include-invalid:1', 'x'],
-    ['link .git/config\n', 'include-invalid:1', 'config'],
-    ['copy escape\n', 'include-skipped:escape', 'escape'],
-    ['copy Game/Library\n', 'include-skipped:Game/Library', 'Game/Library'],
-    ['link Game\n', 'include-skipped:Game', 'Game/Library'],
+  // The unsafe entries share an include file, one per line: each is skipped
+  // with its own warning (invalid ones name their line), none stops the
+  // others, and the creation goes on. `link Game` gets a file of its own: an
+  // include file may not name both a folder and a path inside it.
+  for (const unsafe of [
+    [
+      ['copy /etc/passwd', 'include-invalid:1', 'etc'],
+      ['copy C:\\Windows', 'include-invalid:2', 'Windows'],
+      ['copy ../x', 'include-invalid:3', 'x'],
+      ['link .git/config', 'include-invalid:4', 'config'],
+      ['copy escape', 'include-skipped:escape', 'escape'],
+      ['copy Game/Library', 'include-skipped:Game/Library', 'Game/Library'],
+    ],
+    [['link Game', 'include-skipped:Game', 'Game/Library']],
   ]) {
     const repo = makeRepo();
     symlinkSync(outside, join(repo, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
     writeFile(repo, 'Game/ProjectSettings/ProjectVersion.txt', 'm_EditorVersion: 2022.3\n');
     writeFile(repo, 'Game/Library/huge.bin', 'cache');
-    writeFile(repo, '.worktreeinclude', content);
+    writeFile(repo, '.worktreeinclude', unsafe.map(([line]) => `${line}\n`).join(''));
     const { entry } = await create(repo);
-    assert.equal(entry.state, 'ready', content);
-    assert.ok(entry.warnings.includes(warning), `${content}: ${entry.warnings}`);
-    assert.equal(existsSync(join(entry.path, ...target.split('/'))), false, content);
+    assert.equal(entry.state, 'ready');
+    for (const [line, warning, target] of unsafe) {
+      assert.ok(entry.warnings.includes(warning), `${line}: ${entry.warnings}`);
+      assert.equal(existsSync(join(entry.path, ...target.split('/'))), false, line);
+    }
     assert.equal(entry.path.includes(outside), false);
     await removeManagedWorktree({ entryId: entry.id, force: true });
   }

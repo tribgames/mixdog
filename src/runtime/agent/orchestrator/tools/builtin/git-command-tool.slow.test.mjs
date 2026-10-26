@@ -1,11 +1,47 @@
+import '../../../../shared/git-direct.test-support.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { executeGitTool, GIT_TOOL_DEF, _gitCommandInternals } from './git-command-tool.mjs';
 import { commandHasShellSyntax, gitCommandMutates } from './git-command-policy.mjs';
+
+function nativeGit(cwd, args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+}
+
+// `git init`, `git config`, `add` and `commit` through the tool are the first
+// test's subject; every other test only needs a repository to start from, so
+// it copies one made once (a non-bare repository holds no absolute paths)
+// instead of paying those round trips. Auto maintenance is off, so no commit
+// starts a `git maintenance run` child.
+let template = null;
+function repoTemplate() {
+  if (template) return template;
+  template = mkdtempSync(join(tmpdir(), 'mixdog-git-template-'));
+  process.on('exit', () => rmSync(template, { recursive: true, force: true }));
+  nativeGit(template, ['init', '-q', '-b', 'main']);
+  appendFileSync(
+    join(template, '.git', 'config'),
+    '[user]\n\tname = Mixdog Test\n\temail = mixdog@example.invalid\n[core]\n\tautocrlf = false\n[maintenance]\n\tauto = false\n'
+  );
+  return template;
+}
+
+/** A repository at `repo` on `main`, with `files` committed as `message` when there are any. */
+function seedRepo(repo, files = {}, message = 'base') {
+  cpSync(repoTemplate(), repo, { recursive: true });
+  for (const [path, content] of Object.entries(files)) writeFileSync(join(repo, path), content);
+  if (Object.keys(files).length > 0) {
+    nativeGit(repo, ['add', '--all']);
+    nativeGit(repo, ['commit', '-q', '-m', message]);
+  }
+  return repo;
+}
 
 function parseOk(result) {
   assert.equal(typeof result, 'string');
@@ -233,14 +269,7 @@ test('git command tool preserves native text, shell syntax, and destructive comm
 test('git tool answers semantic exits and keeps literal operator characters', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-semantic-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-  parseOk(await git(repo, 'config core.autocrlf false'));
-  writeFileSync(join(repo, 'base.txt'), 'base\n');
-  parseOk(await git(repo, 'add --all'));
-  parseOk(await git(repo, 'commit -m base'));
+  const repo = seedRepo(join(root, 'repo'), { 'base.txt': 'base\n' });
 
   // A separator inside one token is argument text, not a pipeline.
   assert.match(JSON.stringify(parseOk(await git(repo, 'log --format=%h|%s -n 1'))), /\|base/);
@@ -270,13 +299,7 @@ test('git tool answers semantic exits and keeps literal operator characters', as
 test('git preserves non-patch diff and history presentations', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-presentations-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-  writeFileSync(join(repo, 'base.txt'), 'base\n');
-  parseOk(await git(repo, 'add -- base.txt'));
-  parseOk(await git(repo, 'commit -m base'));
+  const repo = seedRepo(join(root, 'repo'), { 'base.txt': 'base\n' });
   writeFileSync(join(repo, 'base.txt'), 'changed\n');
 
   for (const command of [
@@ -309,10 +332,7 @@ test('git preserves non-patch diff and history presentations', async (t) => {
 test('git show preserves native text for blobs, trees, tags and mixed objects', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-show-objects-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+  const repo = seedRepo(join(root, 'repo'));
   const native = (args, input) => {
     const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', input });
     assert.equal(result.status, 0, result.stderr);
@@ -458,13 +478,7 @@ test('git rejects mixed command/staging requests before executing either action'
 test('git answers read and mutation commands inside a bare repository', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-bare-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-  writeFileSync(join(repo, 'base.txt'), 'base\n');
-  parseOk(await git(repo, 'add --all'));
-  parseOk(await git(repo, 'commit -m base'));
+  const repo = seedRepo(join(root, 'repo'), { 'base.txt': 'base\n' });
   const bare = join(root, 'mirror.git');
   parseOk(await executeGitTool({ command: `git clone --mirror --no-hardlinks ${quote(repo)} ${quote(bare)}` }, root));
 
@@ -486,13 +500,7 @@ test('git answers read and mutation commands inside a bare repository', async (t
 test('git command arrays run in order, allow mutations, and stop at the first failure', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-command-array-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-  writeFileSync(join(repo, 'base.txt'), 'base\n');
-  parseOk(await git(repo, 'add --all'));
-  parseOk(await git(repo, 'commit -m base'));
+  const repo = seedRepo(join(root, 'repo'), { 'base.txt': 'base\n' });
   writeFileSync(join(repo, 'base.txt'), 'changed\n');
 
   const batch = parseOk(
@@ -554,13 +562,11 @@ test('git command arrays run in order, allow mutations, and stop at the first fa
 test('git defaults to 500 lines and clamps oversized output requests to 1000 lines', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-output-cap-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-  writeFileSync(join(repo, 'large.txt'), `${Array.from({ length: 1250 }, (_, index) => `line-${index}`).join('\n')}\n`);
-  parseOk(await git(repo, 'add -- large.txt'));
-  parseOk(await git(repo, 'commit -m large'));
+  const repo = seedRepo(
+    join(root, 'repo'),
+    { 'large.txt': `${Array.from({ length: 1250 }, (_, index) => `line-${index}`).join('\n')}\n` },
+    'large'
+  );
   const tail = (cap, more) =>
     `[output capped at ${cap} lines; ${more} more lines omitted; narrow: raise output_limit (max 1000) or narrow the command (-- <path>, -n/--skip)]`;
   const byDefault = parseOk(await git(repo, 'show HEAD:large.txt'));
@@ -587,13 +593,7 @@ test('git availability probes answer instead of erroring', async (t) => {
 test('git runs a fully quoted command and keeps refusing quoted shell syntax', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-quoted-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-  parseOk(await git(repo, 'config user.name "Mixdog Test"'));
-  parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
-  writeFileSync(join(repo, 'base.txt'), 'base\n');
-  parseOk(await git(repo, 'add --all'));
-  parseOk(await git(repo, 'commit -m base'));
+  const repo = seedRepo(join(root, 'repo'), { 'base.txt': 'base\n' });
   writeFileSync(join(repo, 'base.txt'), 'changed\n');
 
   const plain = parseOk(await executeGitTool({ command: 'git status --short' }, repo));
@@ -617,8 +617,7 @@ test('git runs a fully quoted command and keeps refusing quoted shell syntax', a
 test('git adds an omitted leading git to submitted commands but not to chain pieces', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-prefix-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  const repo = seedRepo(join(root, 'repo'));
   const plain = parseOk(await git(repo, 'status --short'));
   assert.equal(parseOk(await executeGitTool({ command: `-C ${quote(repo)} status --short` }, root)), plain);
   const array = parseOk(
@@ -645,8 +644,7 @@ test('git adds an omitted leading git to submitted commands but not to chain pie
 test('git forwards unknown subcommands to git instead of pre-rejecting them', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-open-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  const repo = seedRepo(join(root, 'repo'));
   for (const command of ['git filter-repo --version', 'git fast-export --no-data HEAD']) {
     assert.doesNotMatch(String(await executeGitTool({ command }, repo)), /unsupported git subcommand/);
   }
@@ -659,8 +657,7 @@ test('git forwards unknown subcommands to git instead of pre-rejecting them', as
 test('git refuses only non-returning subcommands and routes servers to shell', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-deny-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+  const repo = seedRepo(join(root, 'repo'));
   assert.match(String(await executeGitTool({ command: 'git mergetool' }, repo)), /interactive GUI/i);
   assert.match(String(await executeGitTool({ command: 'git daemon --export-all' }, repo)), /shell tool/i);
   assert.match(String(await executeGitTool({ command: 'git fast-export --help' }, repo)), /external viewer/i);
@@ -671,16 +668,9 @@ test('git refuses only non-returning subcommands and routes servers to shell', a
 test('git stages selected change IDs and rejects stale diff snapshots without touching the index', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-stage-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await git(root, `init ${quote(repo)}`));
-  parseOk(await git(repo, 'config user.email test@example.com'));
-  parseOk(await git(repo, 'config user.name Test'));
-  writeFileSync(
-    join(repo, 'sample.txt'),
-    `${Array.from({ length: 12 }, (_, index) => `line-${index + 1}`).join('\n')}\n`
-  );
-  parseOk(await git(repo, 'add sample.txt'));
-  parseOk(await git(repo, 'commit -m base'));
+  const repo = seedRepo(join(root, 'repo'), {
+    'sample.txt': `${Array.from({ length: 12 }, (_, index) => `line-${index + 1}`).join('\n')}\n`,
+  });
 
   const changed = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
   changed[2] = 'selected-change';
@@ -771,11 +761,7 @@ function koreanFixture(size) {
 test('staging keeps multibyte text split across pipe reads byte-exact in added, deleted and context lines', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-utf8-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await git(root, `init ${quote(repo)}`));
-  parseOk(await git(repo, 'config user.email test@example.com'));
-  parseOk(await git(repo, 'config user.name Test'));
-  parseOk(await git(repo, 'config core.autocrlf false'));
+  const repo = seedRepo(join(root, 'repo'));
   const files = { 'a.txt': koreanFixture(65_537), 'b.txt': koreanFixture(262_147) };
   const stageAll = async () => {
     const diff = parseDiff(parseOk(await git(repo, 'diff', { output_limit: 1, include_stage_ids: true })));
@@ -808,8 +794,7 @@ test('staging keeps multibyte text split across pipe reads byte-exact in added, 
 test('a diff with bytes that are not UTF-8 offers no staging ids, so no replaced character is ever staged', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-not-utf8-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const repo = join(root, 'repo');
-  parseOk(await git(root, `init ${quote(repo)}`));
+  const repo = seedRepo(join(root, 'repo'));
   // "한글" saved as EUC-KR.
   writeFileSync(join(repo, 'legacy.txt'), Buffer.from([0xc7, 0xd1, 0xb1, 0xdb, 0x0a]));
   const text = parseOk(await git(repo, 'diff', { output_limit: 100, include_stage_ids: true }));
@@ -822,14 +807,8 @@ test('a diff with bytes that are not UTF-8 offers no staging ids, so no replaced
 test('ordinal change ids are scoped to their diff_id: stale or unknown snapshots never reuse them', async (t) => {
   const repo = mkdtempSync(join(tmpdir(), 'mixdog-git-ordinal-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  parseOk(await git(repo, 'init'));
-  parseOk(await git(repo, 'config user.email test@example.com'));
-  parseOk(await git(repo, 'config user.name Test'));
   const lines = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
-  writeFileSync(join(repo, 'a.txt'), `${lines.join('\n')}\n`);
-  writeFileSync(join(repo, 'b.txt'), 'b\n');
-  parseOk(await git(repo, 'add --all'));
-  parseOk(await git(repo, 'commit -m base'));
+  seedRepo(repo, { 'a.txt': `${lines.join('\n')}\n`, 'b.txt': 'b\n' });
   const edited = [...lines];
   edited[1] = 'first';
   edited[9] = 'second';
@@ -874,9 +853,7 @@ test('ordinal change ids are scoped to their diff_id: stale or unknown snapshots
 test('stage results report per-file counts and totals, and a many-path add header stays short', async (t) => {
   const repo = mkdtempSync(join(tmpdir(), 'mixdog-git-stage-summary-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  parseOk(await git(repo, 'init'));
-  parseOk(await git(repo, 'config user.email test@example.com'));
-  parseOk(await git(repo, 'config user.name Test'));
+  seedRepo(repo);
   const names = Array.from({ length: 22 }, (_, index) => `generated/some-long-directory/file-number-${index}.txt`);
   mkdirSync(join(repo, 'generated', 'some-long-directory'), { recursive: true });
   for (const name of names) writeFileSync(join(repo, name), 'one\ntwo\n');
@@ -906,13 +883,7 @@ test('stage results report per-file counts and totals, and a many-path add heade
 test('git merge-tree conflicts are a result that lets the command array continue', async (t) => {
   const repo = mkdtempSync(join(tmpdir(), 'mixdog-git-merge-tree-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  parseOk(await git(repo, 'init -b main'));
-  parseOk(await git(repo, 'config user.email test@example.com'));
-  parseOk(await git(repo, 'config user.name Test'));
-  writeFileSync(join(repo, 'clash.txt'), 'base\n');
-  writeFileSync(join(repo, 'quiet.txt'), 'one\ntwo\nthree\nfour\nfive\nsix\nseven\n');
-  parseOk(await git(repo, 'add --all'));
-  parseOk(await git(repo, 'commit -m base'));
+  seedRepo(repo, { 'clash.txt': 'base\n', 'quiet.txt': 'one\ntwo\nthree\nfour\nfive\nsix\nseven\n' });
   parseOk(await git(repo, 'switch -c topic'));
   writeFileSync(join(repo, 'clash.txt'), 'topic\n');
   writeFileSync(join(repo, 'quiet.txt'), 'ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n');
@@ -942,13 +913,7 @@ test('git merge-tree conflicts are a result that lets the command array continue
 test('scoped tiny diffs include all IDs, preserve out-of-scope changes and never label comparisons', async (t) => {
   const repo = mkdtempSync(join(tmpdir(), 'mixdog-git-scoped-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  parseOk(await git(repo, 'init'));
-  parseOk(await git(repo, 'config user.email test@example.com'));
-  parseOk(await git(repo, 'config user.name Test'));
-  writeFileSync(join(repo, 'selected.txt'), 'old\n');
-  writeFileSync(join(repo, 'outside.txt'), 'outside\n');
-  parseOk(await git(repo, 'add --all'));
-  parseOk(await git(repo, 'commit -m base'));
+  seedRepo(repo, { 'selected.txt': 'old\n', 'outside.txt': 'outside\n' });
   writeFileSync(join(repo, 'selected.txt'), 'selected\n');
   writeFileSync(join(repo, 'outside.txt'), 'unselected\n');
   writeFileSync(join(repo, 'outside-new.txt'), 'untracked\n');
@@ -989,7 +954,7 @@ test('scoped tiny diffs include all IDs, preserve out-of-scope changes and never
 test('untracked scoped files stage without discovery mutations and reject external edits or index changes', async (t) => {
   const repo = mkdtempSync(join(tmpdir(), 'mixdog-git-new-files-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
-  parseOk(await git(repo, 'init'));
+  seedRepo(repo);
   mkdirSync(join(repo, 'nested'));
   writeFileSync(join(repo, 'nested', '새 파일.txt'), 'new content without newline');
   writeFileSync(join(repo, 'nested', 'empty.txt'), '');
