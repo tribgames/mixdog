@@ -109,7 +109,6 @@ const { createRemoteTouchController, DOUBLE_TAP_TIMEOUT_MS, TOUCH_LONG_PRESS_MS 
   './remote-browser-touch.ts'
 );
 const { STREAM_RENEW_MS } = await import('./use-remote-browser-stream.ts');
-
 /** A fresh clock per test; panes a test left mounted are unmounted (on that
  *  clock) before everything it replaced is restored. */
 let clock = null;
@@ -456,6 +455,303 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     assert.equal(document.querySelector('.browser-remote-content img').style.transform, '', 'no local zoom');
   } finally {
     await pane.unmount();
+  }
+});
+
+/**
+ * A 390×700 picture stage and a visual viewport the test drives; with
+ * `phone`, an iPhone's agent (the phone layout). Installed before mounting.
+ */
+function surface({ phone = true } = {}) {
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  if (phone) {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+    });
+  }
+  const stage = { width: 390, height: 700 };
+  const proto = window.HTMLElement.prototype;
+  for (const [name, key] of [
+    ['clientWidth', 'width'],
+    ['clientHeight', 'height'],
+  ]) {
+    Object.defineProperty(proto, name, {
+      configurable: true,
+      get() {
+        return this.classList?.contains('browser-remote-content') ? stage[key] : 0;
+      },
+    });
+  }
+  const visual = new window.EventTarget();
+  visual.width = 390;
+  visual.height = 800;
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: visual });
+  // The VirtualKeyboard API (Chromium): its rectangle over the page.
+  const keyboard = new window.EventTarget();
+  keyboard.boundingRect = { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+  Object.defineProperty(window.navigator, 'virtualKeyboard', { configurable: true, value: keyboard });
+  return {
+    stage,
+    visual,
+    keyboard,
+    resize: () => act(async () => visual.dispatchEvent(new window.Event('resize'))),
+    restore() {
+      delete proto.clientWidth;
+      delete proto.clientHeight;
+      delete window.visualViewport;
+      delete window.navigator.virtualKeyboard;
+      if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+      else delete window.navigator.userAgent;
+    },
+  };
+}
+
+const pictureOf = () => document.querySelector('.browser-remote-content img');
+
+test('desktop pane: the picture stays contained in its box, as before', async () => {
+  const screen = surface({ phone: false });
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    await showFrame(state);
+    await act(async () => window.dispatchEvent(new window.Event('resize')));
+    await flush();
+    assert.equal(pictureOf().style.transform, '', 'no view transform');
+    assert.equal(pictureOf().style.width, '', 'the CSS fit (100%, object-fit: contain)');
+    assert.equal(document.querySelector('.browser-remote-keyboard').dataset.open, 'false', 'the typing bar is a toggle');
+  } finally {
+    await pane.unmount();
+    screen.restore();
+  }
+});
+
+test('phone: the view fills one axis, keeps its scale under the keyboard, and refits on a real resize', async () => {
+  const screen = surface();
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    await showFrame(state);
+    // A 200×100 page on a 390×700 stage fills the height (7×) from the left edge.
+    assert.equal(pictureOf().style.width, '200px');
+    assert.match(pictureOf().style.transform, /translate\(0px, 0px\) scale\(7\)/);
+    const bar = document.querySelector('.browser-remote-keyboard');
+    assert.equal(bar.dataset.open, 'true', 'always shown');
+    assert.equal(bar, document.querySelector('.browser-remote-pane').lastElementChild, 'docked under the page');
+
+    // The bar takes focus and the keyboard comes up: the same view, inset.
+    await act(async () => bar.querySelector('textarea').focus());
+    screen.visual.height = 450;
+    screen.stage.height = 380;
+    await screen.resize();
+    assert.match(pictureOf().style.transform, /scale\(7\)/, 'no refit for the keyboard');
+    // Blurred, the keyboard slides away: the inset holds while the visual
+    // viewport grows back, and goes on the resize that reaches its height
+    // without a keyboard. A stage still that short is then a new layout.
+    await act(async () => bar.querySelector('textarea').blur());
+    assert.match(pictureOf().style.transform, /scale\(7\)/, 'not at the blur');
+    screen.visual.height = 600;
+    await screen.resize();
+    assert.match(pictureOf().style.transform, /scale\(7\)/, 'not while it slides away');
+    screen.visual.height = 800;
+    await screen.resize();
+    assert.match(pictureOf().style.transform, /scale\(3\.8\)/, 'refit: 380 / 100');
+
+    // A split-screen resize with nothing focused refits, never an inset.
+    screen.visual.height = 600;
+    screen.stage.height = 500;
+    await screen.resize();
+    assert.match(pictureOf().style.transform, /scale\(5\)/);
+  } finally {
+    await pane.unmount();
+    screen.restore();
+  }
+});
+
+test('phone: a keyboard the VirtualKeyboard API reports over the page insets the view without a resize', async () => {
+  const screen = surface();
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    const content = await showFrame(state);
+    content.getBoundingClientRect = () => ({ left: 0, top: 0, right: 390, bottom: 700, width: 390, height: 700, x: 0, y: 0 });
+    const touch = (type, id, x, y) =>
+      content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
+    const dragUp = async (id) => {
+      await act(async () => touch('pointerdown', id, 100, 500));
+      await act(async () => touch('pointermove', id, 100, 450));
+      await act(async () => touch('pointermove', id, 100, 400));
+      await act(async () => touch('pointerup', id, 100, 400));
+    };
+    // The page fills the stage's height: no vertical room.
+    await dragUp(1);
+    assert.match(pictureOf().style.transform, /translate\(0px, 0px\) scale\(7\)/);
+    // The keyboard covers the stage's bottom 300 px; nothing was resized.
+    screen.keyboard.boundingRect = { top: 400, bottom: 800, left: 0, right: 390, width: 390, height: 400 };
+    await act(async () => screen.keyboard.dispatchEvent(new window.Event('geometrychange')));
+    assert.match(pictureOf().style.transform, /translate\(0px, 0px\) scale\(7\)/, 'the view stays');
+    await dragUp(2);
+    assert.match(pictureOf().style.transform, /translate\(0px, -100px\) scale\(7\)/, 'brought up over it');
+  } finally {
+    await pane.unmount();
+    screen.restore();
+  }
+});
+
+test('phone touch: sized rings, long-press drag, one-finger view pan, two-finger right click, edge taps and swipes', async () => {
+  const screen = surface();
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    const content = await showFrame(state);
+    const touch = (type, id, x, y) =>
+      content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
+    const dot = () => document.querySelector('.browser-remote-touch-dot');
+    const phases = () => pointers(state).map((input) => [input.phase, input.button, input.x]);
+
+    // A tap: left click; the ring only once it was sent, sized for a tap.
+    await act(async () => touch('pointerdown', 1, 50, 25));
+    assert.equal(dot(), null);
+    await act(async () => touch('pointerup', 1, 50, 25));
+    await flush();
+    assert.deepEqual(phases(), [
+      ['mouseMoved', 'none', 50],
+      ['mousePressed', 'left', 50],
+      ['mouseReleased', 'left', 50],
+    ]);
+    assert.equal(dot().style.width, '50px');
+
+    // A long-press holds the left button; a move drags it; lifting releases.
+    state.controls.length = 0;
+    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
+    await act(async () => touch('pointerdown', 2, 60, 30));
+    await act(async () => wait(TOUCH_LONG_PRESS_MS));
+    assert.equal(dot().style.width, '110px', 'a press’s ring');
+    await act(async () => touch('pointermove', 2, 90, 40));
+    await act(async () => touch('pointerup', 2, 90, 40));
+    await flush();
+    assert.deepEqual(phases(), [
+      ['mouseMoved', 'none', 60],
+      ['mousePressed', 'left', 60],
+      ['mouseMoved', 'left', 90],
+      ['mouseReleased', 'left', 90],
+    ]);
+
+    // One finger moves the view, never the page.
+    state.controls.length = 0;
+    await act(async () => touch('pointerdown', 3, 100, 300));
+    await act(async () => touch('pointermove', 3, 80, 300));
+    await act(async () => touch('pointermove', 3, 50, 300));
+    await act(async () => touch('pointerup', 3, 50, 300));
+    await flush();
+    assert.equal(pointers(state).length, 0);
+    assert.match(pictureOf().style.transform, /translate\(-50px, 0px\) scale\(7\)/);
+
+    // Two fingers tapped: a right click where the first went down.
+    await act(async () => {
+      touch('pointerdown', 4, 70, 30);
+      touch('pointerdown', 5, 120, 30);
+      touch('pointerup', 4, 70, 30);
+      touch('pointerup', 5, 120, 30);
+    });
+    await flush();
+    assert.deepEqual(phases(), [
+      ['mouseMoved', 'none', 70],
+      ['mousePressed', 'right', 70],
+      ['mouseReleased', 'right', 70],
+    ]);
+
+    // At the screen's edge a tap is delivered; a swipe inward is the system's.
+    state.controls.length = 0;
+    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
+    await act(async () => {
+      touch('pointerdown', 6, 5, 40);
+      touch('pointerup', 6, 5, 40);
+    });
+    await flush();
+    assert.deepEqual(phases(), [
+      ['mouseMoved', 'none', 5],
+      ['mousePressed', 'left', 5],
+      ['mouseReleased', 'left', 5],
+    ]);
+    state.controls.length = 0;
+    await act(async () => {
+      touch('pointerdown', 7, 5, 40);
+      touch('pointermove', 7, 30, 40);
+      touch('pointermove', 7, 60, 40);
+      touch('pointerup', 7, 60, 40);
+    });
+    await flush();
+    assert.equal(pointers(state).length, 0);
+    assert.match(pictureOf().style.transform, /translate\(-50px, 0px\)/, 'the view did not move');
+  } finally {
+    await pane.unmount();
+    screen.restore();
+  }
+});
+
+test('phone: a long-press drag whose touch stream is lost releases the PC’s button', async () => {
+  const screen = surface();
+  const state = fakeApi();
+  const pane = await mount();
+  const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+  try {
+    const content = await showFrame(state);
+    const touch = (type, id, x, y) =>
+      content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
+    const held = async (id) => {
+      state.controls.length = 0;
+      await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
+      await act(async () => touch('pointerdown', id, 60, 30));
+      await act(async () => wait(TOUCH_LONG_PRESS_MS));
+      await act(async () => touch('pointermove', id, 90, 40));
+      await flush();
+      assert.deepEqual(
+        pointers(state).map((input) => [input.phase, input.buttons]),
+        [
+          ['mouseMoved', 0],
+          ['mousePressed', 1],
+          ['mouseMoved', 1],
+        ],
+        'held and dragging'
+      );
+    };
+    const released = () => pointers(state).filter((input) => input.phase === 'mouseReleased');
+    const lose = [
+      ['the window loses focus', () => window.dispatchEvent(new window.Event('blur'))],
+      ['the pointer capture is lost', (id) => touch('lostpointercapture', id, 90, 40)],
+      [
+        'the page is hidden',
+        () => {
+          Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+          document.dispatchEvent(new window.Event('visibilitychange'));
+        },
+      ],
+    ];
+    let id = 10;
+    for (const [what, loseStream] of lose) {
+      id += 1;
+      await held(id);
+      await act(async () => loseStream(id));
+      assert.deepEqual(
+        released().map((input) => [input.button, input.buttons, input.x]),
+        [['left', 0, 90]],
+        `${what}: released where it was dragged`
+      );
+      // The finger's late events change nothing.
+      await act(async () => touch('pointermove', id, 120, 40));
+      await act(async () => touch('pointerup', id, 120, 40));
+      await flush();
+      assert.equal(released().length, 1, `${what}: released once`);
+      assert.equal(pointers(state).at(-1).phase, 'mouseReleased');
+      if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+      else delete document.visibilityState;
+    }
+  } finally {
+    if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+    else delete document.visibilityState;
+    await pane.unmount();
+    screen.restore();
   }
 });
 

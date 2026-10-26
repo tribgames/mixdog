@@ -1,22 +1,32 @@
+// The browser live view's touch → the page's mouse input, in page CSS px.
+// The desktop pane keeps its own controller (createRemoteTouchController);
+// the phone runs the shared gesture layer (createPhoneTouchController).
 import type { DesktopBrowserPageAction } from '../shared/contract';
+import {
+  createTouchGestures,
+  DOUBLE_TAP_TIMEOUT_MS,
+  TOUCH_LONG_PRESS_MS,
+  TOUCH_SLOP_PX,
+  type TouchGestureAction,
+  type TouchGestures,
+} from './remote-touch-gestures';
 
-export const TOUCH_SLOP_PX = 9;
-export const TOUCH_LONG_PRESS_MS = 500;
-/** Android ViewConfiguration DOUBLE_TAP_TIMEOUT and DOUBLE_TAP_SLOP (dp; a
- *  CSS pixel is a dp in an Android WebView at its default scale). */
-export const DOUBLE_TAP_TIMEOUT_MS = 300;
-export const DOUBLE_TAP_SLOP_PX = 100;
+export { DOUBLE_TAP_TIMEOUT_MS, TOUCH_LONG_PRESS_MS, TOUCH_SLOP_PX } from './remote-touch-gestures';
+/** Android ViewConfiguration DOUBLE_TAP_SLOP (dp; a CSS pixel is a dp in an
+ *  Android WebView at its default scale): the desktop pane's double tap that
+ *  fits a zoomed picture. */
+const FIT_DOUBLE_TAP_SLOP_PX = 100;
 
 type Pointer = Extract<DesktopBrowserPageAction, { type: 'pointer' }>;
 type Wheel = Extract<DesktopBrowserPageAction, { type: 'wheel' }>;
 type Point = { x: number; y: number };
 
-/** Touch → mouse: tap = left click, long-press = right click, one-finger drag =
- * left-button drag (slider CAPTCHAs), two-finger pan = wheel. With `pinch`,
- * two fingers spreading or closing zoom the local picture instead (decided
- * once per gesture), and a double tap on a zoomed picture fits it again.
- * Positions given to `page` are client pixels; `send` receives page-space
- * actions. */
+/** The desktop pane's touch → mouse: tap = left click, long-press = right
+ * click, one-finger drag = left-button drag (slider CAPTCHAs), two-finger pan
+ * = wheel. With `pinch`, two fingers spreading or closing zoom the local
+ * picture instead (decided once per gesture), and a double tap on a zoomed
+ * picture fits it again. Positions given to `page` are client pixels; `send`
+ * receives page-space actions. */
 export function createRemoteTouchController(options: {
   /** Client point → page CSS pixel, or null outside the picture. */
   page(x: number, y: number): Point | null;
@@ -215,7 +225,7 @@ export function createRemoteTouchController(options: {
         const double =
           lastTap !== null &&
           tappedAt - lastTap.at <= DOUBLE_TAP_TIMEOUT_MS &&
-          Math.hypot(x - lastTap.x, y - lastTap.y) <= DOUBLE_TAP_SLOP_PX &&
+          Math.hypot(x - lastTap.x, y - lastTap.y) <= FIT_DOUBLE_TAP_SLOP_PX &&
           options.fitted?.() === false;
         if (double) {
           // Taps are never delayed to wait for a second one: the first tap
@@ -276,4 +286,82 @@ export function createRemoteTouchController(options: {
       mode = 'idle';
     },
   };
+}
+
+const BUTTON_BITS = { left: 1, right: 2, middle: 4 } as const;
+
+/** The phone's touch → mouse, on the shared gesture layer (direct strategy):
+ * tap = left click (1 finger), right click (2), middle click (3); long-press =
+ * left button held, moving drags (slider CAPTCHAs), lifting releases;
+ * one-finger drag pans the local view; two fingers swipe = wheel, or (with
+ * `pinch`) pinch-zoom the local view, decided once per gesture. Positions
+ * given to `page` are client pixels; `send` receives page-space actions. */
+export function createPhoneTouchController(options: {
+  /** Client point → page CSS pixel, or null outside the picture. */
+  page(x: number, y: number): Point | null;
+  /** Client-pixel delta → page-pixel delta. */
+  pageDelta(dx: number, dy: number): Point;
+  send(action: Pointer | Wheel): void;
+  /** Move the local view by a client-pixel delta. */
+  pan(dx: number, dy: number): void;
+  /** Local zoom by `scale` about client point (x, y), the fingers moved by (dx, dy). */
+  pinch?(scale: number, x: number, y: number, dx: number, dy: number): void;
+  /** A press is about to reach the page (finish typing composition first). */
+  press?(): void;
+  /** Input reached the page here (client px): show a ring of `radius`. */
+  indicator?(x: number, y: number, radius: number): void;
+  /** A one-finger tap was clicked into the page (inside its picture). */
+  tapped?(): void;
+  /** The screen's client size: touches starting at its edges are ignored. */
+  screen?(): { width: number; height: number };
+  longPressMs?: number;
+  now?(): number;
+  requestFrame?(callback: () => void): unknown;
+  cancelFrame?(handle: unknown): void;
+}): TouchGestures {
+  const pointer = (phase: Pointer['phase'], at: Point, button: Pointer['button'], buttons: number, clickCount = 1) =>
+    options.send({ type: 'pointer', phase, x: at.x, y: at.y, button, buttons, modifiers: 0, clickCount });
+  const emit = (action: TouchGestureAction): void => {
+    switch (action.type) {
+      case 'click':
+        pointer('mouseMoved', action.at, 'none', 0);
+        pointer('mousePressed', action.at, action.button, BUTTON_BITS[action.button], action.count);
+        pointer('mouseReleased', action.at, action.button, 0, action.count);
+        if (action.button === 'left') options.tapped?.();
+        return;
+      case 'press':
+        pointer('mouseMoved', action.at, 'none', 0);
+        pointer('mousePressed', action.at, 'left', 1);
+        return;
+      case 'drag':
+        pointer('mouseMoved', action.at, 'left', 1);
+        return;
+      case 'release':
+        pointer('mouseReleased', action.at, 'left', 0);
+        return;
+      case 'move':
+        pointer('mouseMoved', action.at, 'none', 0);
+        return;
+      case 'wheel':
+        options.send({ type: 'wheel', x: action.at.x, y: action.at.y, deltaX: action.deltaX, deltaY: action.deltaY });
+        return;
+      case 'feedback':
+        options.indicator?.(action.x, action.y, action.radius);
+        return;
+    }
+  };
+  return createTouchGestures({
+    strategy: 'direct',
+    toTarget: options.page,
+    toTargetDelta: options.pageDelta,
+    pan: options.pan,
+    zoom: options.pinch,
+    emit,
+    beforePress: options.press,
+    screen: options.screen,
+    longPressMs: options.longPressMs,
+    now: options.now,
+    requestFrame: options.requestFrame,
+    cancelFrame: options.cancelFrame,
+  });
 }

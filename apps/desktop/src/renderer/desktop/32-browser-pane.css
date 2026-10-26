@@ -358,6 +358,7 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
 
 .browser-remote-keyboard {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;

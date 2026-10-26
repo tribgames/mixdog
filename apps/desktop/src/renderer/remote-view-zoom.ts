@@ -1,6 +1,7 @@
 // Local presentation of the remote page's picture (JPEG or video): zoom and
 // pan are this device's only; the page keeps its geometry. Input maps back
-// through the transformed picture box, so it stays exact at any zoom.
+// through the transformed picture box, so it stays exact at any zoom. This is
+// the desktop pane's zoom; the phone's view is remote-viewport.ts.
 import type { RemoteWebrtcGeometry } from '../shared/remote-webrtc';
 import { BROWSER_ZOOM_MAX, BROWSER_ZOOM_MIN } from './browser-zoom-level';
 import type { RemoteInputFrame } from './remote-browser-input-client';
