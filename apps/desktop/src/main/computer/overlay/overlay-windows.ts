@@ -8,12 +8,13 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, type Display, screen } from 'electron';
 
-import { OVERLAY_HEIGHT, OVERLAY_WIDTH, overlayHtml, overlayScript } from './content';
+import { overlayHtml, overlayScript } from './content';
 import type { createComputerOverlayController, ComputerUseOverlayControls } from './controls';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
 import { hardenWindowSurface, overlayWindowOptions } from './cursor-surface';
 import { registerComputerUseInternalWindow } from './internal-windows';
 import { bindComputerOverlayControls } from './ipc-controls';
+import { boundsKey, clipWindowToPill, overlayBounds } from './overlay-layout';
 import type { computerUseOverlayPresentation } from './model';
 
 export interface OverlayWindowEntry {
@@ -42,27 +43,14 @@ const RENDERER_BACKOFF_MAX_MS = 60_000;
  * where `__dirname` is the build output; runners that load the TypeScript
  * sources as ESM have no `__dirname` at all, and resolving it there threw
  * before the window was ever created. */
-function overlayPreloadPath(): string {
+export function overlayPreloadPath(): string {
   const directory =
     typeof __dirname === 'string' ? join(__dirname, '../preload') : join(app.getAppPath(), 'out/preload');
   return join(directory, 'computer-overlay.js');
 }
 
-function overlayBounds(display: Display): Electron.Rectangle {
-  return {
-    x: Math.round(display.workArea.x + (display.workArea.width - OVERLAY_WIDTH) / 2),
-    y: display.workArea.y + 6,
-    width: OVERLAY_WIDTH,
-    height: OVERLAY_HEIGHT,
-  };
-}
-
-function boundsKey(bounds: Electron.Rectangle): string {
-  return `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
-}
-
 /** The shared overlay surface, always on top and carrying the controls preload. */
-function pillWindowOptions(display: Display): Electron.BrowserWindowConstructorOptions {
+export function pillWindowOptions(display: Display): Electron.BrowserWindowConstructorOptions {
   const shared = overlayWindowOptions();
   return {
     ...overlayBounds(display),
@@ -87,6 +75,8 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
     const unregisterInternalWindow = registerComputerUseInternalWindow(next);
     next.setAlwaysOnTop(true, 'screen-saver');
     hardenWindowSurface(next);
+    // Only the pill takes clicks, so a pill stacked beneath it stays reachable.
+    clipWindowToPill(next);
     next.webContents.on('will-navigate', (event) => event.preventDefault());
     const retireUnavailableWindow = (): void => {
       if (host.isDisposed() || next.isDestroyed()) return;

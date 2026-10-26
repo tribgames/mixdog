@@ -43,6 +43,8 @@ body[data-paused="true"] #star { fill:#8e8e93; }
 body[data-error="true"] #pill { box-shadow:inset 0 0 0 1px #ff9f0a80,0 4px 12px -2px #0008; }
 body[data-error="true"] #arcs { animation:none;stroke:#ff9f0a; }
 body[data-error="true"] #star { fill:#fff; }
+/* The remote pill's mark is a still phone outline in the accent (green). */
+body[data-kind="remote"] #mark { fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round; }
 @keyframes arcs-turn { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) {
   #arcs { animation:none; }

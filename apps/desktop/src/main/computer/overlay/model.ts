@@ -61,6 +61,8 @@ export function overlayTitles(locale: string) {
     working: ko ? '컴퓨터 사용 중' : 'Computer in use',
     attention: ko ? '확인 필요' : 'Check',
     paused: ko ? '대기 중' : 'Waiting',
+    // The remote-screen pill: a paired phone views or controls the whole PC.
+    remote: ko ? '원격 조작 중' : 'Remote control',
   };
 }
 

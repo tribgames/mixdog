@@ -335,3 +335,31 @@ test('a crashed control renderer pauses input and is replaced with live controls
     coordinator.reset();
   }
 });
+
+test('a render still awaiting shell readiness after dispose sets no presence and shows nothing', async () => {
+  const { computerUsePillShown, setComputerUsePillShown } = await import('./overlay-presence.ts');
+  let release;
+  const ready = new Promise((resolve) => {
+    release = resolve;
+  });
+  const shown = [];
+  const overlay = createComputerUseOverlay({ stop: async () => {} }, 'en', {
+    indicator: { show: async (presentation) => void shown.push(presentation), dispose() {} },
+    helperReady: () => ready,
+  });
+  try {
+    coordinator.beginCommand({ sessionId: 'dispose-race', action: 'capture', mode: 'background' });
+    await settle();
+    overlay.dispose();
+    release(true);
+    await settle();
+    await settle();
+    assert.equal(shown.length, 0);
+    assert.equal(computerUsePillShown(), false);
+  } finally {
+    overlay.dispose();
+    setComputerUsePillShown(false, 'shell');
+    setComputerUsePillShown(false);
+    coordinator.reset();
+  }
+});

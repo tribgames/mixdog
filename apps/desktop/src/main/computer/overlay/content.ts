@@ -4,6 +4,17 @@ import { overlayTitles } from './model';
 
 export const OVERLAY_WIDTH = 285;
 export const OVERLAY_HEIGHT = 74;
+/** Body padding around the pill inside its window (see content-styles). */
+export const OVERLAY_PILL_INSET = 10;
+export const OVERLAY_PILL_HEIGHT = 50;
+
+/** `computer`: an agent drives the desktop. `remote`: a paired phone views or
+ *  controls the whole screen; same pill, a green phone in the mark slot. */
+export type OverlayKind = 'computer' | 'remote';
+
+// A phone outline (24px grid), stroked in the accent.
+const PHONE_ICON =
+  '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>';
 
 const STOP_ICON_PATH =
   'M8.5 6h7a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 6 15.5v-7A2.5 2.5 0 0 1 8.5 6z';
@@ -17,10 +28,10 @@ const MARK_STAR_POINTS = '128,100 137,119 156,128 137,137 128,156 119,137 100,12
 const OVERLAY_FONT = loadOverlayFont('pretendard/dist/web/static/woff2-subset/Pretendard-Medium.subset.woff2');
 
 /** The wording the page starts with and the script re-renders, in one place. */
-function overlayLabels(locale: string) {
+function overlayLabels(locale: string, kind: OverlayKind) {
   const ko = locale.toLowerCase().startsWith('ko');
   return {
-    title: overlayTitles(locale).working,
+    title: kind === 'remote' ? overlayTitles(locale).remote : overlayTitles(locale).working,
     stop: ko ? '중단' : 'Stop',
     resume: ko ? '재개' : 'Resume',
     stopping: ko ? '중단 중' : 'Stopping',
@@ -34,21 +45,26 @@ function overlayLabels(locale: string) {
  * nothing on the pill ever changes what the press does. A pause never ends by
  * itself, so while paused Resume appears to Stop's left; Stop never moves.
  */
-export function overlayHtml(locale: string): string {
-  const labels = overlayLabels(locale);
+export function overlayHtml(locale: string, kind: OverlayKind = 'computer'): string {
+  const labels = overlayLabels(locale, kind);
+  const remote = kind === 'remote';
+  const mark = remote
+    ? `<svg id="mark" viewBox="0 0 24 24" aria-hidden="true">${PHONE_ICON}</svg>`
+    : `<svg id="mark" viewBox="44 44 168 168" aria-hidden="true"><g id="arcs" fill="none" stroke-width="24" stroke-linecap="round"><path d="${MARK_ARC_PATH}"/><path d="${MARK_ARC_PATH}" transform="rotate(120 128 128)"/><path d="${MARK_ARC_PATH}" transform="rotate(240 128 128)"/></g><polygon id="star" points="${MARK_STAR_POINTS}"/></svg>`;
+  const stopTitle = remote ? labels.stop : `${labels.stop} (Ctrl+Alt+Esc)`;
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; script-src 'none'">
 <style>@font-face{font-family:"Mixdog Overlay";font-weight:500;font-display:block;src:url(data:font/woff2;base64,${OVERLAY_FONT}) format("woff2")}
-${overlayStyles}</style></head><body><div id="pill">
-<svg id="mark" viewBox="44 44 168 168" aria-hidden="true"><g id="arcs" fill="none" stroke-width="24" stroke-linecap="round"><path d="${MARK_ARC_PATH}"/><path d="${MARK_ARC_PATH}" transform="rotate(120 128 128)"/><path d="${MARK_ARC_PATH}" transform="rotate(240 128 128)"/></g><polygon id="star" points="${MARK_STAR_POINTS}"/></svg>
+${overlayStyles}</style></head><body data-kind="${kind}"><div id="pill">
+${mark}
 <div id="status" role="status"><div id="title">${labels.title}</div></div>
 <button id="resume" type="button" hidden aria-label="${labels.resume}" title="${labels.resume}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${RESUME_ICON_PATH}"/></svg></button>
-<button id="stop" type="button" aria-label="${labels.stop}" title="${labels.stop} (Ctrl+Alt+Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STOP_ICON_PATH}"/></svg></button>
+<button id="stop" type="button" aria-label="${labels.stop}" title="${stopTitle}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STOP_ICON_PATH}"/></svg></button>
 </div></body></html>`;
 }
 
-export function overlayScript(locale = 'en'): string {
-  const labels = overlayLabels(locale);
+export function overlayScript(locale = 'en', kind: OverlayKind = 'computer'): string {
+  const labels = overlayLabels(locale, kind);
   return `(() => {
     let state = { paused:false, resumable:false, generation:0 };
     let renderedRevision = -1, requestSequence = 0, pending = '', failed = false;
@@ -69,6 +85,8 @@ export function overlayScript(locale = 'en'): string {
       else if (pending === 'stop') title.textContent = ${JSON.stringify(labels.stopping)};
       else title.textContent = state.title || ${JSON.stringify(labels.title)};
       resumeControl.hidden = !state.resumable;
+      // The remote pill names the phones here and nowhere else.
+      if (state.tooltip !== undefined) document.getElementById('pill').title = state.tooltip;
       // Never disabled: a running or failed request reports itself through the
       // wording and aria-busy only, so every press reaches the host.
       stopControl.setAttribute('aria-busy', String(pending === 'stop'));

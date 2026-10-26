@@ -14,6 +14,7 @@ import { createComputerUseCursorOverlay } from './cursor-overlay';
 import { createGnomeIndicator } from './gnome-indicator';
 import { computerUseOverlayPresentation } from './model';
 import { createOverlayFade } from './overlay-fade';
+import { setComputerUsePillShown } from './overlay-presence';
 import { createOverlayWindows } from './overlay-windows';
 import { renderComputerOverlayWindows } from './render-windows';
 
@@ -25,13 +26,23 @@ export interface ComputerUseOverlay {
   dispose(): void;
 }
 
-export function createComputerUseOverlay(controls: ComputerUseOverlayControls, locale = 'en'): ComputerUseOverlay {
+/** Test seams for the GNOME shell path; production passes none. */
+export interface ComputerUseOverlaySeams {
+  indicator?: Pick<ReturnType<typeof createGnomeIndicator>, 'show' | 'dispose'>;
+  helperReady?: () => Promise<boolean>;
+}
+
+export function createComputerUseOverlay(
+  controls: ComputerUseOverlayControls,
+  locale = 'en',
+  seams: ComputerUseOverlaySeams = {}
+): ComputerUseOverlay {
   // On GNOME Wayland no Electron window may exist while an agent drives: a
   // client window cannot refuse focus there and would take it from the target.
   // The shell extension draws the pill instead, and the virtual cursor surface
   // is skipped (the real pointer is moved, and is visible).
-  const gnome = usesGnomeHelper();
-  const indicator = gnome ? createGnomeIndicator(locale) : null;
+  const gnome = Boolean(seams.indicator) || usesGnomeHelper();
+  const indicator = seams.indicator ?? (gnome ? createGnomeIndicator(locale) : null);
   const cursorOverlay = gnome ? { dispose(): void {} } : createComputerUseCursorOverlay();
   let disposed = false;
   let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
@@ -50,7 +61,11 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
     isDisposed: () => disposed,
     requestRender: () => scheduleRender(),
   });
-  const fade = createOverlayFade({ liveEntries: windows.liveEntries, visible: () => latestPresentation.visible });
+  const fade = createOverlayFade({
+    liveEntries: windows.liveEntries,
+    visible: () => latestPresentation.visible,
+    onHidden: () => setComputerUsePillShown(false),
+  });
 
   const stop = (): void => {
     void controller.invoke('stop', latestPresentation.sessionIds);
@@ -71,8 +86,9 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
     settleTimer.unref?.();
   };
 
-  const helperReady = async (): Promise<boolean> =>
-    (await getLinuxComputerReadiness()).capabilities.windows.state === 'ready';
+  const helperReady =
+    seams.helperReady ??
+    (async (): Promise<boolean> => (await getLinuxComputerReadiness()).capabilities.windows.state === 'ready');
 
   const render = async (): Promise<void> => {
     ensureShortcut();
@@ -80,11 +96,18 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
     const revision = latestSnapshot.revision;
     const presentation = computerUseOverlayPresentation(latestSnapshot, locale, controller.state());
     latestPresentation = presentation;
-    if (indicator && (await helperReady())) {
+    const shellDraws = indicator ? await helperReady() : false;
+    // Disposal may have happened while readiness was pending: nothing below
+    // may run, or it would set presence that no subscription is left to clear.
+    if (disposed) return;
+    if (indicator && shellDraws) {
       if (currentRender !== renderRevision) return;
       windows.forgetRendered();
       fade.hideAll();
+      // The shell draws this pill; claim its slot for the remote pill too.
+      if (presentation.visible) setComputerUsePillShown(true, 'shell');
       await indicator.show(presentation);
+      if (currentRender === renderRevision && !presentation.visible) setComputerUsePillShown(false, 'shell');
       return;
     }
     if (!presentation.visible) {
@@ -93,6 +116,9 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
       return;
     }
     fade.keepShown();
+    // Claim the top slot before the pill appears, so a remote pill already
+    // there steps below rather than being drawn over.
+    setComputerUsePillShown(true);
     await windows.syncToDisplays();
     if (disposed) return;
     if (currentRender !== renderRevision) return;
@@ -194,6 +220,8 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
       stopWatcher = null;
       indicator?.dispose();
       windows.destroyAll();
+      setComputerUsePillShown(false);
+      setComputerUsePillShown(false, 'shell');
       cursorOverlay.dispose();
     },
   };

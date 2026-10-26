@@ -14,6 +14,8 @@ export interface OverlayFadeHost {
   liveEntries(): OverlayWindowEntry[];
   /** Whether the banner should be visible right now. */
   visible(): boolean;
+  /** The windows are gone from the screen (the fade ended, or none was showing). */
+  onHidden?(): void;
 }
 
 export function createOverlayFade(host: OverlayFadeHost) {
@@ -34,7 +36,10 @@ export function createOverlayFade(host: OverlayFadeHost) {
   function hideAll(): void {
     if (hideTimer) return;
     const fading = host.liveEntries().filter((entry) => entry.window.isVisible());
-    if (fading.length === 0) return;
+    if (fading.length === 0) {
+      host.onHidden?.();
+      return;
+    }
     const held = shownAt ? Math.max(0, OVERLAY_MIN_VISIBLE_MS - (Date.now() - shownAt)) : 0;
     hideTimer = setTimeout(() => {
       hideTimer = null;
@@ -49,6 +54,7 @@ export function createOverlayFade(host: OverlayFadeHost) {
         for (const entry of fading) {
           if (!entry.window.isDestroyed()) entry.window.hide();
         }
+        host.onHidden?.();
       }, OVERLAY_FADE_OUT_MS);
     }, held);
   }
