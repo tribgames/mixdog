@@ -20,7 +20,6 @@ import {
   useId,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
 import { type AgentAvatarValue, agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
 import { isContactAgentRow, MIXY_AGENT_ID } from '../shared/agent-contacts';
@@ -50,34 +49,6 @@ export const noteApprovalDecision = () => {
 /** Milliseconds left of a card's settling since it mounted at `mountedAt`. */
 const settleLeft = (mountedAt: number) =>
   Math.max(0, KEY_SETTLE_MS - (Date.now() - Math.max(mountedAt, lastDecisionAt)));
-
-// The asking sessions whose request is docked as a card right now, per chat:
-// a task session's "waiting for approval" line in that chat gives way to it.
-const dockedBySurface = new Map<string, string>();
-const dockedListeners = new Set<() => void>();
-const subscribeDocked = (listener: () => void) => {
-  dockedListeners.add(listener);
-  return () => {
-    dockedListeners.delete(listener);
-  };
-};
-
-/** Record which session's request `surfaceSessionId`'s dock shows ('' = none). */
-export function publishDockedApproval(surfaceSessionId: string, askingSessionId: string): void {
-  if ((dockedBySurface.get(surfaceSessionId) ?? '') === askingSessionId) return;
-  if (askingSessionId) dockedBySurface.set(surfaceSessionId, askingSessionId);
-  else dockedBySurface.delete(surfaceSessionId);
-  for (const listener of dockedListeners) listener();
-}
-
-/** Whether a docked card currently asks for `sessionId`. */
-export function useApprovalDockedFor(sessionId: string): boolean {
-  return useSyncExternalStore(
-    subscribeDocked,
-    () => Boolean(sessionId) && [...dockedBySurface.values()].includes(sessionId),
-    () => false
-  );
-}
 
 const AGENT_KEYS = ['agents'] as const;
 
@@ -576,7 +547,8 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
               style={{ '--approval-columns': columns } as CSSProperties}
             >
               {buttons.map((button, index) => {
-                const shortcut = button.deny && !onClose ? 'Esc' : index === primaryIndex && enterPresses ? 'Enter' : '';
+                const shortcut =
+                  button.deny && !onClose ? 'Esc' : index === primaryIndex && enterPresses ? 'Enter' : '';
                 const chip = keyChips ? shortcut : '';
                 // Where Enter does not allow (payment, permanent delete, an
                 // unconfirmed receiver, a file from outside the project), an

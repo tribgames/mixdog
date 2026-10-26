@@ -4,7 +4,6 @@ import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-dev
 import type { ToolApprovalDecision } from '../shared/contract';
 import { ApprovalCard, approvalRecordLabel, publishHeldSettlements } from './ApprovalCard';
 import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost';
-import { publishDockedApproval } from './approval-prompt';
 import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
 import { approvalQuestions, buildAnswers, type QuestionDraft } from './question-card-logic';
@@ -191,15 +190,6 @@ export function useConversationApprovals(
       />
     );
   }
-  // A copied request names the session that asks; its waiting line yields to the card.
-  const dockedAsking =
-    (pendingApproval && pendingApproval.kind !== 'question' ? String(pendingApproval.sessionId || '') : '') ||
-    (browserPrompts[0]?.sessionId ?? '');
-  useLayoutEffect(() => {
-    if (!decidedSessionId) return;
-    publishDockedApproval(decidedSessionId, dockedAsking === decidedSessionId ? '' : dockedAsking);
-    return () => publishDockedApproval(decidedSessionId, '');
-  }, [decidedSessionId, dockedAsking]);
   return {
     approvalDock,
     questionCard,

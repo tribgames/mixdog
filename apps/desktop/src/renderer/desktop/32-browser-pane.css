@@ -64,64 +64,6 @@
   flex: none;
 }
 
-/* ONE control grammar for the whole toolbar (user: 테두리 있고 없고, 아이콘
-   규격이 다르다): every icon control is the same borderless 28px cell with a
-   15px glyph; the address field is the only bordered element. The import and
-   credential buttons used to carry their own 1px frames. */
-.browser-pane-credential-control {
-  position: relative;
-  flex: none;
-}
-
-.browser-pane-credential-button.is-success {
-  color: var(--mx-success);
-}
-
-.browser-pane-credential-button.is-error {
-  color: var(--mx-danger);
-}
-
-.browser-pane-credential-menu {
-  position: absolute;
-  z-index: 14;
-  top: 34px;
-  right: 0;
-  display: flex;
-  min-width: 180px;
-  max-width: 260px;
-  flex-direction: column;
-  gap: 2px;
-  padding: 5px;
-  border: var(--mx-popup-border);
-  border-radius: var(--mx-popup-radius);
-  background: var(--mx-popup-bg);
-  box-shadow: var(--mx-popup-shadow);
-}
-
-.browser-pane-credential-menu button {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  color: var(--mx-text);
-  text-align: left;
-  cursor: pointer;
-}
-
-.browser-pane-credential-menu button:hover {
-  background: var(--mx-hover);
-}
-
-.browser-pane-credential-menu span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .browser-pane-address-form {
   position: relative;
   flex: 1;
@@ -162,65 +104,6 @@
 html[data-mx-input="pointer"] .browser-pane-address:focus {
   border-color: var(--mx-focus);
   outline: none;
-}
-
-.browser-pane-viewport-picker {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  flex: none;
-}
-
-.browser-pane-viewport-control {
-  width: 28px;
-  flex: none;
-}
-
-/* Exactly the .browser-pane-nav-button cell: a single glyph, no chevron, so
-   the three trailing controls sit on one rhythm (user: 3개 간격이 안 맞네). */
-.browser-pane-viewport-control .mx-select-trigger {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  justify-content: center;
-  align-items: center;
-  gap: 0;
-  padding: 0;
-  border: none;
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  /* The shared trigger draws its frame with --mx-button, not a border. */
-  box-shadow: none;
-  color: var(--mx-text-muted);
-  cursor: pointer;
-}
-
-.browser-pane-viewport-control .mx-select-trigger:hover,
-.browser-pane-viewport-control .mx-select-trigger[aria-expanded="true"] {
-  background: var(--mx-hover);
-  color: var(--mx-text);
-}
-
-.browser-pane-viewport-control .mx-select-trigger:focus-visible {
-  outline: 2px solid var(--mx-focus);
-  outline-offset: -2px;
-}
-
-.browser-pane-viewport-control .mx-select-leading svg {
-  width: 15px;
-  height: 15px;
-}
-
-.browser-pane-viewport-control .mx-select-leading {
-  display: inline-flex;
-}
-
-.browser-pane-viewport-control .mx-select-value {
-  display: none;
-}
-
-.browser-pane-viewport-control .mx-select-trigger > svg {
-  display: none;
 }
 
 .browser-pane-history-suggestions {
@@ -501,13 +384,6 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
      field keeps the room. */
   .browser-remote-pane .browser-pane-address-form {
     min-width: 120px;
-  }
-
-  .browser-pane-viewport-picker,
-  .browser-pane-viewport-control,
-  .browser-pane-viewport-control .mx-select-trigger {
-    width: 27px;
-    min-width: 27px;
   }
 }
 

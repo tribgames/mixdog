@@ -988,30 +988,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-heade
   min-height: 0;
   overflow: hidden;
 }
-/* 2뎁스 back step: a slim row
-   above the stacked diff returns to the Source Control list. */
-.pane-dock-diff-back {
-  flex: 0 0 30px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  border-bottom: 1px solid var(--mx-border-muted);
-}
-.pane-dock-diff-back > button {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  border: 0;
-  background: transparent;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
-  cursor: pointer;
-}
-.pane-dock-diff-back > button:hover {
-  color: var(--mx-text);
-}
 /* The phone keeps its fixed right sheet; the pair column has no place in
    that band. */
 html[data-mixdog-mobile-tabs] .pane-dock-diff-column {

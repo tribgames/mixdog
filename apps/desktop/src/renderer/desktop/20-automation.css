@@ -875,21 +875,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.settings-metric-grid > div {
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-}
-.settings-metric-grid span {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-}
-.settings-metric-grid b {
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
-}
 .settings-empty,
 .settings-loading {
   color: var(--mx-text-muted);
@@ -1114,9 +1099,6 @@ html[data-mixdog-mobile-tabs] .settings-oauth-code button {
   gap: 8px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
-}
-.settings-oauth-wait .tone-positive {
-  color: var(--mx-success);
 }
 .settings-oauth-wait .tone-warning {
   color: var(--mx-warning);

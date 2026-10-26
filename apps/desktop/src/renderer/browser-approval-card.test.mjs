@@ -359,7 +359,6 @@ test('the sessions a chat handed work to dock there one at a time; 1/N counts ev
     resolved.push(args);
     return true;
   };
-  const { useApprovalDockedFor } = await import('./approval-prompt.tsx');
   const HOME = 'sess_home_marketer';
   const handed = (id, sessionId, title) => ({
     id,
@@ -373,24 +372,9 @@ test('the sessions a chat handed work to dock there one at a time; 1/N counts ev
     surfaceSessionId: HOME,
     handoff: { title },
   });
-  let dockedForTask = null;
-  function DockedMark() {
-    dockedForTask = useApprovalDockedFor('sess_task_a');
-    return null;
-  }
   const host = createRoot(doc.getElementById('host'));
   const chat = createRoot(doc.getElementById('chat'));
-  const render = (snapshot) =>
-    act(async () =>
-      chat.render(
-        React.createElement(
-          React.Fragment,
-          null,
-          React.createElement(SnapshotDock, { snapshot }),
-          React.createElement(DockedMark)
-        )
-      )
-    );
+  const render = (snapshot) => act(async () => chat.render(React.createElement(SnapshotDock, { snapshot })));
   await act(async () => host.render(React.createElement(BrowserApprovalHost)));
   const docked = doc.getElementById('chat');
   const queue = () => docked.querySelector('.approval-queue').textContent;
@@ -406,7 +390,6 @@ test('the sessions a chat handed work to dock there one at a time; 1/N counts ev
     assert.equal(queue(), '1/2');
     assert.equal(target(), 'Fix login');
     assert.ok(docked.querySelector('.approval-link'), 'its session is one click away');
-    assert.equal(dockedForTask, true, "the task's waiting line in this chat gives way to the card");
     // A browser prompt for this chat counts too.
     await api.send(prompt({ id: 'bh1', surfaceSessionId: HOME }));
     assert.equal(queue(), '1/3');
@@ -426,7 +409,6 @@ test('the sessions a chat handed work to dock there one at a time; 1/N counts ev
     });
     assert.equal(queue(), '1/1');
     assert.equal(target(), 'Bump deps');
-    assert.equal(dockedForTask, false);
     // The chat's own lone request keeps its plain card.
     await render({
       sessionId: HOME,

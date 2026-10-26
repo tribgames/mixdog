@@ -420,9 +420,6 @@ html[data-mixdog-mobile-tabs] .provider-accounts-heading {
   flex-wrap: wrap;
   row-gap: 4px;
 }
-html[data-mixdog-mobile-tabs] .provider-accounts-auto {
-  white-space: nowrap;
-}
 /* A switch row needs only the switch's width: the shared 45% value column
    left the label half the row and cut "한도가 리셋되면 자동으…". Long labels
    wrap instead of ellipsizing on a phone. */
