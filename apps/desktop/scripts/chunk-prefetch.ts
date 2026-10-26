@@ -8,8 +8,10 @@ const PLACEHOLDER = '__MIXDOG_CHUNK_PREFETCH__';
 /** Reserved length of the lists' string literal. The lists are only known in
  *  generateBundle, after the chunk's sourcemap was made: written into a slot
  *  of the same length (padded with JSON whitespace), no generated position
- *  moves and the map stays exact. Gzip folds the padding away. */
-export const CHUNK_PREFETCH_SLOT = 8192;
+ *  moves and the map stays exact. Gzip folds the padding away. Not a platform
+ *  limit: only padding in one chunk, sized for headroom (the six lists were
+ *  ~7.5k chars at 49c2f4fee and 8.3k two commits later, as shared chunks split). */
+export const CHUNK_PREFETCH_SLOT = 16384;
 const SLOT = PLACEHOLDER + '_'.repeat(CHUNK_PREFETCH_SLOT - PLACEHOLDER.length);
 // The literal survives minification as a plain string. The dev server has no
 // bundle: the lists stay empty there.
@@ -75,8 +77,11 @@ export function chunkPrefetchPlugin(targets: Record<string, string>): Plugin {
         // (file names hold no backtick or `${`).
         const body = JSON.stringify(JSON.stringify(lists)).slice(1, -1);
         if (body.length > CHUNK_PREFETCH_SLOT) {
+          const perList = Object.entries(lists)
+            .map(([name, files]) => `${name}: ${files.length} files, ${JSON.stringify(files).length} chars`)
+            .join('; ');
           throw new Error(
-            `chunk prefetch lists (${body.length} chars) exceed CHUNK_PREFETCH_SLOT (${CHUNK_PREFETCH_SLOT})`
+            `chunk prefetch lists (${body.length} chars) exceed CHUNK_PREFETCH_SLOT (${CHUNK_PREFETCH_SLOT}); ${perList}\n${JSON.stringify(lists, null, 1)}`
           );
         }
         const filled = body + ' '.repeat(CHUNK_PREFETCH_SLOT - body.length);
