@@ -4,7 +4,17 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 async function mount(t, { phone }) {
-  const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
+  const { root, document } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['HTMLElement', 'CustomEvent'],
+    globals: {
+      ResizeObserver: class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    },
+  });
   window.HTMLElement.prototype.attachEvent ??= () => {};
   window.HTMLElement.prototype.detachEvent ??= () => {};
   if (phone) document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
@@ -130,7 +140,17 @@ test('desktop: inert follows open at once', async (t) => {
 });
 
 async function mountPanel(t, { phone }) {
-  const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
+  const { root, document } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['HTMLElement', 'CustomEvent'],
+    globals: {
+      ResizeObserver: class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    },
+  });
   window.HTMLElement.prototype.attachEvent ??= () => {};
   window.HTMLElement.prototype.detachEvent ??= () => {};
   globalThis.CSSTransition = class {};

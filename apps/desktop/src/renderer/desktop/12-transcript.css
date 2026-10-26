@@ -258,6 +258,19 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
   animation-name: mx-scroll-fade-in;
   animation-range: 0 32px;
 }
+/* Phone: no scroll timeline (the Android WebView freezes a fling while one is
+   alive); scroll-progress.ts writes the scroll position onto the strip and it
+   fades in over the same 0-32px. */
+html[data-mixdog-mobile-tabs] .transcript {
+  scroll-timeline: none;
+}
+html[data-mixdog-mobile-tabs] .transcript-shell {
+  timeline-scope: none;
+}
+html[data-mixdog-mobile-tabs] .transcript-scroll-fade {
+  animation: none;
+  opacity: clamp(0, var(--mx-scroll-top) / 32, 1);
+}
 @keyframes mx-scroll-fade-in {
   from {
     opacity: 0;

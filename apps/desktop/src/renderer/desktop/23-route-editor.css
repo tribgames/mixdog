@@ -658,6 +658,13 @@
     normal,
     calc(100% - 24px) 100%;
 }
+/* Phone: no scroll timeline (the Android WebView freezes a fling while one is
+   alive); the fade shrinks over the final 24px of scroll from the position
+   scroll-progress.ts writes. */
+html[data-mixdog-mobile-tabs] .slash-palette {
+  animation: mx-menu-in var(--mx-motion-chrome);
+  --mx-palette-fade: calc(24px * clamp(0, (var(--mx-scroll-max) - var(--mx-scroll-top)) / 24, 1));
+}
 .slash-palette button {
   width: 100%;
   text-align: left;

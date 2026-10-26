@@ -9,6 +9,7 @@ import { confirmAction } from './app-confirm';
 import { t } from './i18n';
 import { usePhoneDrawerInert } from './session-sidebar-drawer-inert';
 import { usePhoneSurfaceMarked } from './mobile-surface';
+import { useScrollProgress } from './scroll-progress';
 import type { NavigationSelection } from './nav-types';
 import {
   RECENT_SESSION_INITIAL_ROWS,
@@ -717,8 +718,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const hasSessionSurface = sessionsMounted.current;
   const recentScrollerRef = useRef<HTMLDivElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const panelsScrollerRef = useRef<HTMLDivElement | null>(null);
   const phone = usePhoneSurfaceMarked();
   usePhoneDrawerInert(sidebarRef, open, phone);
+  useScrollProgress(panelsScrollerRef, ':scope > .session-panel-header');
+  useScrollProgress(recentScrollerRef, ':scope > .session-sidebar-launchers', hasSessionSurface);
   // The catalog holds still under a reader's scroll: no re-sort or row move
   // lands until it ends (see useHeldDuringUserScroll).
   const sessions = useHeldDuringUserScroll(recentScrollerRef, liveSessions);
@@ -1069,6 +1073,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       {/* Rail destinations render here as compact visible lists; their
           editors open as popup dialogs portaled above the workspace. */}
       <div
+        ref={panelsScrollerRef}
         className="session-sidebar-scroll session-sidebar-panels session-sidebar-surface"
         data-surface-active={panelActive ? 'true' : 'false'}
         inert={panelActive ? undefined : true}

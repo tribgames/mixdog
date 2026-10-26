@@ -15,6 +15,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { InitialSurface } from './InitialSurface';
+import { useScrollProgress } from './scroll-progress';
 import { AGENT_GROUP_EXPANSION_EVENT, useHiddenAgentGroups } from './agent-group-visibility';
 import { ScmContextMenu, type ScmContextMenuState, contextMenuRowProps } from './ScmContextMenu';
 import { ConnectorsPill } from './connector-card';
@@ -1096,13 +1097,15 @@ export function AgentActivityPane({
   const [, rebuildLeadRows] = useReducer((tick: number) => tick + 1, 0);
   const roomList = useAgentRoomRows(sessions, needle, unreadSessionIds);
   const loading = agents === null || (!sessionsReady && groups.length === 0);
+  const pageRef = useRef<HTMLDivElement | null>(null);
   if (active) beginBootSurface('agent-activity', 'catalog');
   useEffect(() => {
     if (!loading) reportBootSurfaceReady('agent-activity', 'catalog');
   }, [loading]);
+  useScrollProgress(pageRef, undefined, loading);
   if (loading)
     return (
-      <div className="schedules-page agent-activity-page">
+      <div ref={pageRef} className="schedules-page agent-activity-page">
         <InitialSurface />
       </div>
     );
@@ -1225,7 +1228,7 @@ export function AgentActivityPane({
     />
   );
   return (
-    <div className="schedules-page agent-activity-page">
+    <div ref={pageRef} className="schedules-page agent-activity-page">
       {headerActionSlot ? (
         createPortal(headerActions, headerActionSlot)
       ) : (

@@ -1,5 +1,6 @@
 import { useLayoutEffect, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { useScrollProgress } from './scroll-progress';
 import { useSurfaceActive } from './surface-activity';
 
 /** Composer menus escape the input's stacking/paint containment, but keep
@@ -22,6 +23,7 @@ export function ComposerPalette({
   children: ReactNode;
 }) {
   const active = useSurfaceActive();
+  useScrollProgress(panel, undefined, active);
   useLayoutEffect(() => {
     const input = anchor.current;
     const menu = panel.current;

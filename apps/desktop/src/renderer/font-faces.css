@@ -37,6 +37,21 @@
   initial-value: 0px;
 }
 
+/* A scroller's position on the phone layout (scroll-progress.ts), in place of
+   the CSS scroll timelines the Android WebView cannot fling under. Not
+   inherited: a write restyles the scroller and its fade hosts only, and the
+   few descendants that read it say `inherit`. */
+@property --mx-scroll-top {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --mx-scroll-max {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
 /* The composer island slot's eased height (desktop/15-composer.css). */
 @property --island-slot-height {
   syntax: "<length>";

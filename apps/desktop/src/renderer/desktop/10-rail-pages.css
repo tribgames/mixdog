@@ -143,6 +143,21 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-sidebar {
 .session-sidebar-sessions > .session-sidebar-launchers::after {
   animation-timeline: --rail-session-scroll;
 }
+/* Phone: no scroll timelines at all (the Android WebView freezes a fling while
+   one is alive). scroll-progress.ts writes the scroller's position; the same
+   fades follow it over the same 0-12px range. */
+html[data-mixdog-mobile-tabs] .session-sidebar {
+  timeline-scope: none;
+}
+html[data-mixdog-mobile-tabs] :is(.sidebar.session-sidebar, .session-sidebar-sessions) > .session-sidebar-scroll {
+  scroll-timeline: none;
+}
+html[data-mixdog-mobile-tabs]
+  :is(.sidebar.session-sidebar > .session-panel-header, .session-sidebar-sessions > .session-sidebar-launchers)::after {
+  --mx-scroll-top: inherit;
+  animation: none;
+  opacity: clamp(0, var(--mx-scroll-top) / 12, 1);
+}
 /* A page's view switcher or search field stays reachable while its list
    scrolls: it pins under the title band. Its outer shadows paint the rail's
    solid tone — a 6px ring over the rows' hover overhang, then a soft tail
@@ -158,6 +173,23 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-sidebar {
   animation: rail-pin-tail linear both;
   animation-timeline: --rail-panel-scroll;
   animation-range: 0 12px;
+}
+/* Phone: the same tail, keyed on the panel scroller's position (the pane and
+   page between pass it down). */
+html[data-mixdog-mobile-tabs] .session-sidebar-panels :is(.schedules-pane, .schedules-page) {
+  --mx-scroll-top: inherit;
+}
+html[data-mixdog-mobile-tabs]
+  .session-sidebar-panels
+  .schedules-page
+  > :is(.sidebar-section-toolbar, .schedules-search) {
+  --mx-scroll-top: inherit;
+  --mx-pin-tail: clamp(0, var(--mx-scroll-top) / 12, 1);
+  animation: none;
+  box-shadow:
+    0 0 0 6px var(--mx-rail-pin-bg),
+    0 calc(6px * var(--mx-pin-tail)) calc(4px * var(--mx-pin-tail)) 0
+      color-mix(in srgb, var(--mx-rail-pin-bg) calc(100% * var(--mx-pin-tail)), transparent);
 }
 /* The fading tail only exists once the list scrolls; at rest the page's
    first heading sits right under the control. */
@@ -1624,6 +1656,19 @@ html[data-mixdog-mobile-tabs]
 html[data-mixdog-mobile-tabs]
   .session-sidebar-panels:has(.schedules-pane[data-surface-active="true"] > .schedules-page > .schedules-search) {
   --sidebar-pin-clear: calc(var(--mx-touch) + 12px);
+}
+/* Phone: the same fade lengths from the scroller's position (0 for a list that
+   cannot scroll, where the timeline was inactive): top grows over the first
+   4% of the scroll, bottom shrinks over the last 4%. */
+html[data-mixdog-mobile-tabs] :is(.session-sidebar-scroll, .utility-dock .agent-activity-page) {
+  --sidebar-fade-top: calc(
+    20px * clamp(0, var(--mx-scroll-top) / max(var(--mx-scroll-max), 1) / 0.04, 1) * min(var(--mx-scroll-max), 1)
+  );
+  --sidebar-fade-bottom: calc(
+    20px * clamp(0, (1 - var(--mx-scroll-top) / max(var(--mx-scroll-max), 1)) / 0.04, 1) *
+      min(var(--mx-scroll-max), 1)
+  );
+  animation: none;
 }
 /* --sidebar-fade-top/-bottom are registered in font-faces.css. */
 @keyframes session-sidebar-scroll-fade {

@@ -12,6 +12,7 @@ import {
 } from './MarkdownLink';
 import { TranscriptDevicesContext, TranscriptViewerDeviceContext } from './transcript-row';
 import type { TranscriptRowModel } from './transcript-rows';
+import { useScrollProgress } from './scroll-progress';
 import { TranscriptList } from './TranscriptList';
 import { TurnChangesContext, type TurnChangesSurface } from './TurnChangesCard';
 import type { ConversationTimeline } from './use-conversation-timeline';
@@ -172,6 +173,7 @@ export function ConversationTranscript({
   cover?: ReactNode;
 }) {
   const { viewport, content, follow } = view;
+  useScrollProgress(viewport, ':scope > .transcript-scroll-fade');
   const { requestEarlierTranscript } = source;
   const revealed = timeline.transcriptRevealed;
   const agentSurface = roomIdOfSession(routeSessionId) ? 'room' : 'agent';
