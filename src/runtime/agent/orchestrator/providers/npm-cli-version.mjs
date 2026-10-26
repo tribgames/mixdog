@@ -8,6 +8,7 @@
 // so a new process (or an offline one) starts from the newest version this
 // machine has seen rather than from a floor that only moves with a release.
 
+import { runAbortable } from '../../../shared/abort-race.mjs';
 import { readLastKnownVersion, rememberLastKnownVersion } from './client-version-store.mjs';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -41,11 +42,18 @@ export async function parseNpmLatest(res) {
   return SEMVER.test(v) ? v : null;
 }
 
-/** One GET of `url` parsed to a version; null when offline, slow, or unrecognised. */
+/** One GET of `url` parsed to a version; null when offline, slow, or unrecognised.
+ *  The deadline settles the lookup itself instead of relying on the request
+ *  and its body read to honour the abort: a send awaits this lookup, and its
+ *  timer is unref'd, so once the abort tears the socket down nothing else is
+ *  left to wake a read that missed it. */
 export async function fetchRemoteVersion(url, parse, timeoutMs = TIMEOUT_MS) {
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-    return res.ok ? (await parse(res)) || null : null;
+    return await runAbortable(signal, async () => {
+      const res = await fetch(url, { signal });
+      return res.ok ? (await parse(res)) || null : null;
+    });
   } catch {
     return null;
   }

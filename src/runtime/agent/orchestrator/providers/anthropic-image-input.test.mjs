@@ -9,9 +9,13 @@ import { prepareAnthropicImages, AnthropicImagePreparationError } from './lib/an
 const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-anthropic-images-'));
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
 const previousProxy = process.env.HTTPS_PROXY;
+const previousLiveVersions = process.env.MIXDOG_DISABLE_LIVE_CLI_VERSIONS;
 process.env.MIXDOG_DATA_DIR = dataDir;
 // Prevent the OAuth socket prewarm from contacting a live endpoint.
 process.env.HTTPS_PROXY = 'http://127.0.0.1:1';
+// fetch ignores HTTPS_PROXY: without this every OAuth send first awaits a live
+// npm registry lookup of the Claude CLI version.
+process.env.MIXDOG_DISABLE_LIVE_CLI_VERSIONS = '1';
 const { AnthropicOAuthProvider } = await import('./anthropic-oauth.mjs');
 const { AnthropicProvider } = await import('./anthropic.mjs');
 const { materializePromptSubmission, readAttachmentBase64 } = await import('../../../attachments/store.mjs');
@@ -22,6 +26,8 @@ test.after(async () => {
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   if (previousProxy === undefined) delete process.env.HTTPS_PROXY;
   else process.env.HTTPS_PROXY = previousProxy;
+  if (previousLiveVersions === undefined) delete process.env.MIXDOG_DISABLE_LIVE_CLI_VERSIONS;
+  else process.env.MIXDOG_DISABLE_LIVE_CLI_VERSIONS = previousLiveVersions;
   await rm(dataDir, { recursive: true, force: true });
 });
 

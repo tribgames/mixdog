@@ -251,6 +251,7 @@ async function isolated() {
     'grok-oauth-tokens.mjs',
     'grok-client-version.mjs',
     'npm-cli-version.mjs',
+    '../../../shared/abort-race.mjs',
     '../../../shared/llm/provider-model-identities.mjs',
     'lib/oauth-token-utils.mjs',
     'lib/oauth-pkce.mjs',
