@@ -65,6 +65,12 @@ if (launchApplication) {
   }
   try {
     await Promise.all([remoteShimReady, languageReady]);
+    // The restored session's transcript read starts here, next to the app
+    // bundle's load instead of behind its evaluation, first commit and
+    // catalog check. The language is in place, as the order above requires.
+    if (!remoteBrowser) {
+      void import('./boot-session-read').then((module) => module.startRestoredSessionReads()).catch(() => undefined);
+    }
     await import('./bootstrap');
   } catch (error) {
     if (remoteBrowser) recoverShellBootstrap();
