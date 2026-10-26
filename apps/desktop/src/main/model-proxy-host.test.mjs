@@ -144,8 +144,8 @@ test('quota requests share one account-wide measurement per provider; models are
   await ask(first, 'gpt-a');
   assert.equal(measurements, 2, 'a new window measures again');
 
-  // An unreasonable model name is refused before any provider work.
-  await assert.rejects(ask(first, 'x'.repeat(257)), { code: 'MODEL_PROXY_BAD_REQUEST' });
+  // A long model name is judged like any other against the same measurement.
+  assert.equal(await ask(first, 'x'.repeat(257)), false);
   assert.equal(measurements, 2);
 
   // A failed measurement is not cached.

@@ -142,7 +142,6 @@ interface QueuedEvent {
 }
 
 const ALLOWED_METHODS = new Set<string>(MODEL_PROXY_METHODS);
-const MAX_QUOTA_MODEL_LENGTH = 256;
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -705,12 +704,7 @@ async function execute(
     const answer = await runtime.providerConfig();
     return { providers: publicProviderConfig(answer.providers, isProviderAllowed), ready: answer.ready !== false };
   }
-  // A quota check names a model only to be judged against a measurement; an
-  // unreasonable name is refused before any provider work.
   const quotaModel = method === 'quotaUsable' ? String(call.model ?? '') : '';
-  if (quotaModel.length > MAX_QUOTA_MODEL_LENGTH) {
-    throw Object.assign(new Error('The model name is too long.'), { code: 'MODEL_PROXY_BAD_REQUEST' });
-  }
   // Restricted to the provider the daemon named; no other surface is reachable.
   const name = String(call.provider || '');
   if (name && !isProviderAllowed(name)) throw providerNotAllowed(name);
