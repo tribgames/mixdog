@@ -81,7 +81,7 @@ function fetchFailureKind(error) {
 
 export async function runFetchPipeline(
   url,
-  { http, browser, signal, timeoutMs = 30000, hostPacer = pacer, onAttempt = () => {} } = {}
+  { http, browser, signal, timeoutMs = 30000, hostPacer = pacer, onAttempt = () => {}, sleep: pause = sleep } = {}
 ) {
   const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30000;
   const deadline = Date.now() + budget;
@@ -150,7 +150,7 @@ export async function runFetchPipeline(
         if (!transient || retry === 1) break;
         const delay = Math.max(400, error.retryAfterMs || 0);
         if (Date.now() + delay >= deadline) throw error;
-        await sleep(delay, undefined, { signal: overall });
+        await pause(delay, undefined, { signal: overall });
       }
     }
     // Rendering does not fix a rate limit or a failing upstream server.

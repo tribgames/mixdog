@@ -71,9 +71,12 @@ test('security blocks and terminal HTTP errors do not retry or launch a browser'
 
 test('transient HTTP failures retry within budget and respect Retry-After', async () => {
   let attempts = 0;
-  const start = Date.now();
+  const requestedDelays = [];
   const result = await runFetchPipeline(url, {
     ...options(),
+    sleep: async (delayMs) => {
+      requestedDelays.push(delayMs);
+    },
     http: async () => {
       if (++attempts === 1) throw error('HTTP 429', { status: 429, retryAfterMs: 450 });
       return page;
@@ -81,7 +84,7 @@ test('transient HTTP failures retry within budget and respect Retry-After', asyn
   });
   assert.equal(result.content, page.content);
   assert.equal(attempts, 2);
-  assert.ok(Date.now() - start >= 440, 'the retry waited out Retry-After (timer granularity allowed)');
+  assert.deepEqual(requestedDelays, [450], 'the retry waits out Retry-After');
   let count = 0;
   await assert.rejects(
     runFetchPipeline(url, {
