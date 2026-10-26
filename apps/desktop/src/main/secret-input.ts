@@ -40,9 +40,17 @@ export function createSecretInputs(options: { timeoutMs?: number; bindingTimeout
     ...createSecretRequests(options),
     ...sessions,
     ...savedLogins,
-    /** Saved-login passwords first (for every session), then the session's own secrets. */
+    /** Saved-login passwords first (for every session), then the session's own
+     *  secrets, repeated until neither changes the text: one redactor's marker
+     *  could complete a marker-containing secret of the other. Both share the
+     *  marker set and its shrinking invariant (secret-markers.ts), so this ends. */
     redact(sessionId: string, text: string): string {
-      return sessions.redact(sessionId, savedLogins.redact(text));
+      let out = text;
+      for (;;) {
+        const next = sessions.redact(sessionId, savedLogins.redact(out));
+        if (next === out) return out;
+        out = next;
+      }
     },
     /** The session ended: its secrets leave memory, and every turn of it any
      *  owner admitted a fill for is settled at once. */
