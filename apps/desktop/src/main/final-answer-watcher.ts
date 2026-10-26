@@ -20,7 +20,10 @@ interface FinalAnswerWatcherOptions {
   isEnabled(): boolean;
   /** `signal` aborts when the read overruns its deadline; the read must stop. */
   readFinalAnswer(sessionId: string, startedAt: number, signal?: AbortSignal): Promise<SessionFinalAnswer | null>;
-  onFinalAnswer(completion: TurnCompletion): void;
+  /** 'undecided': delivery could not be decided (its preferences were
+   *  unreadable). The completion is held and offered again on each roster or
+   *  agent-pool event until it is decided or the session leaves that idle state. */
+  onFinalAnswer(completion: TurnCompletion): 'undecided' | void;
   /** A bot's display name (rename included) for its home chat; '' when unknown. */
   agentName?(agentId: string): Promise<string>;
   onError?(detail: string): void;
@@ -65,6 +68,7 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     failures?: number;
   };
   const pending = new Map<string, Pending>();
+  const held = new Map<string, TurnCompletion>();
   let disposed = false;
   let lastSessions: readonly DesktopSessionSummary[] = [];
   let pendingWork: ReadonlySet<string> = new Set();
@@ -106,6 +110,11 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     const entry = pending.get(sessionId);
     if (entry?.timer) clearTimeout(entry.timer);
     pending.delete(sessionId);
+    held.delete(sessionId);
+  };
+  const offer = (completion: TurnCompletion): void => {
+    if (options.onFinalAnswer(completion) === 'undecided') held.set(completion.sessionId, completion);
+    else held.delete(completion.sessionId);
   };
   const current = (entry: Pending): boolean =>
     !disposed &&
@@ -181,7 +190,7 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
       return;
     }
     const botName = completion.agentHome ? await options.agentName?.(completion.agentHome).catch(() => '') : '';
-    options.onFinalAnswer({
+    offer({
       ...completion,
       ...(botName ? { title: botName } : {}),
       event: answer.status === 'failed' ? 'error' : 'finished',
@@ -194,7 +203,7 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     // mid-session starts from a correct baseline instead of firing on the
     // first turn that merely LOOKS finished.
     const completions = tracker.observe(lastSessions, Date.now(), pendingWork);
-    for (const id of pending.keys()) {
+    for (const id of [...pending.keys(), ...held.keys()]) {
       if (
         !options.isEnabled() ||
         !tracker.isIdle(id) ||
@@ -216,6 +225,8 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
       pending.set(completion.sessionId, entry);
       schedule(entry, completion.leadFinished ? LEAD_FINISHED_MS : STABILIZE_MS);
     }
+    // This event is the next chance to decide what could not be decided.
+    for (const completion of [...held.values()]) offer(completion);
   };
 
   return {
@@ -233,7 +244,7 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     },
     dispose() {
       disposed = true;
-      for (const id of pending.keys()) cancel(id);
+      for (const id of [...pending.keys(), ...held.keys()]) cancel(id);
     },
   };
 }

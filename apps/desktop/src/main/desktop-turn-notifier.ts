@@ -57,21 +57,31 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
   let disposed = false;
   const report = (event: string, sessionId: string, details: Record<string, unknown> = {}) =>
     options.diagnostic(event, { sessionId, ...details });
+  const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
   /** This PC's preferences, mutes, quiet hours and what is on screen decide;
-   *  a refusal is reported with its reason. */
+   *  a refusal is reported with its reason. `undefined`: the preferences could
+   *  not be read, which is reported and decides nothing — the caller keeps the
+   *  item undelivered and asks again on its next event. */
   const allowed = (
     sessionId: string,
     event: NotificationEvent,
     conversation: NotificationConversation,
     details: Record<string, unknown> = {}
-  ): boolean => {
+  ): boolean | undefined => {
     if (!options.isSupported()) {
       report('suppressed', sessionId, { ...details, reason: 'unsupported' });
       return false;
     }
+    let view: NotificationPreferencesView;
+    try {
+      view = options.preferences();
+    } catch (error) {
+      report('preferences-read-failed', sessionId, { ...details, error: messageOf(error) });
+      return undefined;
+    }
     const decision = decideNotification({
-      ...options.preferences(),
+      ...view,
       event,
       conversation,
       now: Date.now(),
@@ -107,12 +117,7 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
         void options
           .playSound()
           .then((result) => report('sound', sessionId, { ...details, result }))
-          .catch((error: unknown) =>
-            report('sound-failed', sessionId, {
-              ...details,
-              error: error instanceof Error ? error.message : String(error),
-            })
-          );
+          .catch((error: unknown) => report('sound-failed', sessionId, { ...details, error: messageOf(error) }));
       });
       current.on('close', () => {
         release();
@@ -131,13 +136,17 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
       current.show();
     } catch (error) {
       if (notification) live.delete(notification);
-      report('failed', sessionId, { ...details, error: error instanceof Error ? error.message : String(error) });
+      report('failed', sessionId, { ...details, error: messageOf(error) });
     }
   };
 
-  const deliver = (completion: TurnCompletion): void => {
+  /** 'undecided': the preferences were unreadable, so the watcher holds the
+   *  completion and offers it again on the next roster event. */
+  const deliver = (completion: TurnCompletion): 'undecided' | void => {
     const failed = completion.event === 'error';
-    if (!allowed(completion.sessionId, failed ? 'error' : 'finished', completion.conversation)) return;
+    const verdict = allowed(completion.sessionId, failed ? 'error' : 'finished', completion.conversation);
+    if (verdict === undefined) return 'undecided';
+    if (!verdict) return;
     present(completion.sessionId, {
       title: sessionTitleLabel(completion.title, options.titleLabels?.()),
       body: failed ? options.turnFailedText?.() || TURN_FAILED_TEXT : completion.preview,
@@ -151,7 +160,11 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
   // tells those itself), so neither path repeats the other.
   const rows = new Map<string, DesktopSessionSummary>();
   const waits = new Map<string, string>();
+  /** Approvals whose delivery was decided (sent or refused). */
   const told = new Set<string>();
+  /** Approvals whose delivery could not be decided because the preferences
+   *  were unreadable: their next live update decides again. */
+  const undecided = new Set<string>();
   const waitName = async (sessionId: string): Promise<string> => {
     const row = rows.get(sessionId);
     const bot = row?.agentHome ? await options.agentName?.(row.agentHome).catch(() => '') : '';
@@ -168,14 +181,24 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
     if (key) waits.set(sessionId, key);
     else waits.delete(sessionId);
     // An approval no session shows any more is done with; its id is forgotten.
-    if (previous && previous !== key && ![...waits.values()].includes(previous)) told.delete(previous);
-    if (!key || key === previous || update.frameSource === 'replay' || told.has(key)) return;
-    told.add(key);
+    if (previous && previous !== key && ![...waits.values()].includes(previous)) {
+      told.delete(previous);
+      undecided.delete(previous);
+    }
+    if (!key || update.frameSource === 'replay' || told.has(key)) return;
+    if (key === previous && !undecided.has(key)) return;
     const wait: SessionWait = approval?.kind === 'question' ? 'question' : 'approval';
     // A sub-agent's request is answered in the top-level chat it shows in.
     const target = String(approval?.surfaceSessionId || '') || sessionId;
     const conversation = notificationConversationOf(rows.get(target) ?? { id: target });
-    if (!allowed(target, wait, conversation, { wait })) return;
+    const verdict = allowed(target, wait, conversation, { wait });
+    if (verdict === undefined) {
+      undecided.add(key);
+      return;
+    }
+    undecided.delete(key);
+    told.add(key);
+    if (!verdict) return;
     void waitName(target).then((name) => {
       // Answered while the bot's name was read: nothing to tell.
       if (disposed || waits.get(sessionId) !== key) return;

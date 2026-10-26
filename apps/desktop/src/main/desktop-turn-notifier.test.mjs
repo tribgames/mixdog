@@ -22,6 +22,8 @@ function harness(t, extraOptions = {}) {
     failure: '',
     pending: false,
     failed: false,
+    // A read error of the preferences file, thrown while set.
+    unreadable: '',
   };
   const notifications = [];
   const events = [];
@@ -34,7 +36,10 @@ function harness(t, extraOptions = {}) {
     },
   ]);
   const notifier = createDesktopTurnNotifier({
-    preferences: () => ({ preferences: state.preferences, overrides: state.overrides }),
+    preferences: () => {
+      if (state.unreadable) throw new Error(state.unreadable);
+      return { preferences: state.preferences, overrides: state.overrides };
+    },
     isSupported: () => state.supported,
     isSessionOnScreen: (sessionId) => state.onScreen.has(sessionId),
     readFinalAnswer: async (_id, since) => {
@@ -512,4 +517,96 @@ test('a sound failure leaves the native banner and click navigation intact', asy
   assert.ok(h.events.some((row) => row.event === 'sound-failed' && row.error === 'audio unavailable'));
   h.notifications[0].emit('click');
   assert.deepEqual(h.opened, ['a']);
+});
+
+// Unreadable preferences (notification-preferences.ts throws any read error
+// but a missing file): reported, nothing sent, nothing marked as told.
+const UNREADABLE = 'EACCES: permission denied';
+const readFailures = (h) => h.events.filter((row) => row.event === 'preferences-read-failed');
+
+test('a completion whose preferences cannot be read is reported, held, and notified once when they can be', async (t) => {
+  const h = harness(t);
+  h.state.unreadable = UNREADABLE;
+  h.finish();
+  await h.tick();
+  assert.equal(h.notifications.length, 0);
+  assert.deepEqual(
+    readFailures(h).map((row) => [row.sessionId, row.error]),
+    [['a', UNREADABLE]]
+  );
+  assert.ok(!h.events.some((row) => row.event === 'requested'));
+  // The next roster event decides again; still unreadable: reported, still held.
+  h.notifier.onSessions([{ id: 'a', title: 'Task' }]);
+  assert.equal(readFailures(h).length, 2);
+  assert.equal(h.notifications.length, 0);
+  h.state.unreadable = '';
+  h.notifier.onSessions([{ id: 'a', title: 'Task' }]);
+  assert.equal(h.notifications.length, 1);
+  assert.deepEqual(h.notifications[0].content, { title: 'Task', body: '검사 완료: file.ts' });
+  h.notifier.onSessions([{ id: 'a', title: 'Task' }]);
+  await h.tick(5_000);
+  assert.equal(h.notifications.length, 1);
+  assert.equal(readFailures(h).length, 2);
+});
+
+test('a held completion is dropped when its session starts another turn', async (t) => {
+  const h = harness(t);
+  h.state.unreadable = UNREADABLE;
+  h.finish();
+  await h.tick();
+  assert.equal(readFailures(h).length, 1);
+  h.notifier.onSessions([{ id: 'a', title: 'Task', working: true }]);
+  assert.ok(h.events.some((row) => row.event === 'cancelled' && row.reason === 'state-changed'));
+  h.state.unreadable = '';
+  h.notifier.onSessions([{ id: 'a', title: 'Task' }]);
+  assert.equal(h.notifications.length, 0, 'the old turn is not offered again');
+  assert.equal(readFailures(h).length, 1);
+  await h.tick();
+  assert.equal(h.events.filter((row) => row.event === 'detected').length, 2, 'the new turn is followed on its own');
+  assert.equal(h.notifications.length, 0, 'the old turn’s answer is not told for it');
+});
+
+for (const [kind, ask, text] of [
+  ['approval', shell, 'Fix the bug · 승인을 기다리고 있습니다.'],
+  ['question', { id: 'q1', kind: 'question' }, 'Fix the bug · 답변을 기다리고 있습니다.'],
+]) {
+  test(`a ${kind} whose preferences cannot be read is reported, not told, and notified once on its next update after recovery`, async (t) => {
+    const h = waitHarness(t);
+    h.state.unreadable = UNREADABLE;
+    h.notifier.onSessionState(waiting('code', ask));
+    await h.tick(0);
+    assert.equal(h.notifications.length, 0);
+    assert.deepEqual(
+      readFailures(h).map((row) => [row.sessionId, row.wait, row.error]),
+      [['code', kind, UNREADABLE]]
+    );
+    // A replay is no new wait, and the next live update decides again.
+    h.notifier.onSessionState(waiting('code', ask, 'replay'));
+    h.notifier.onSessionState(waiting('code', ask));
+    assert.equal(readFailures(h).length, 2, 'still unreadable: reported again, still not told');
+    h.state.unreadable = '';
+    h.notifier.onSessionState(waiting('code', ask));
+    await h.tick(0);
+    assert.equal(h.notifications.length, 1);
+    assert.equal(h.notifications[0].content.title, text);
+    h.notifier.onSessionState(waiting('code', ask));
+    await h.tick(0);
+    assert.equal(h.notifications.length, 1);
+    assert.equal(readFailures(h).length, 2);
+  });
+}
+
+test('an unreadable approval settled before preferences recover is forgotten, not told later', async (t) => {
+  const h = waitHarness(t);
+  h.state.unreadable = UNREADABLE;
+  h.notifier.onSessionState(waiting('code', shell));
+  h.notifier.onSessionState(waiting('code', null));
+  h.state.unreadable = '';
+  h.notifier.onSessionState(waiting('code', null));
+  await h.tick(0);
+  assert.equal(h.notifications.length, 0);
+  // The same id asked again is a new wait, decided afresh.
+  h.notifier.onSessionState(waiting('code', shell));
+  await h.tick(0);
+  assert.equal(h.notifications.length, 1);
 });
