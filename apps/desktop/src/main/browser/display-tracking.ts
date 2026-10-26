@@ -62,6 +62,8 @@ export function createBrowserDisplayTracking(sessions: DisplaySessions) {
      *  `timeoutMs` (or when `signal` aborts) if none did. */
     waitUntilShown(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
       if (isShown(guest)) return Promise.resolve(true);
+      // An abort that already happened fires no event for a later listener.
+      if (signal?.aborted) return Promise.resolve(false);
       return new Promise((resolve) => {
         const finish = (shown: boolean) => {
           clearTimeout(timer);
