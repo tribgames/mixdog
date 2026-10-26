@@ -1,0 +1,283 @@
+/* The whole-PC screen view (design/mockups/remote-screen): the overlay, the
+   picture box, the secure-desktop note and the monitor sheet. Values are the
+   mockup's; the header, toolbar, keyboard bar and state card are the browser
+   pane's own classes. */
+
+/* The ⋯ menu is portalled to <body>: lift it over this overlay. */
+html:has(.remote-screen-overlay) {
+  --mx-menu-z-index: 400;
+}
+
+.remote-screen-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--remote-screen-top, 0px);
+  height: var(--remote-screen-height, 100%);
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+  background: var(--mx-workspace-sheet);
+  color: var(--mx-text);
+  overscroll-behavior: none;
+}
+
+.remote-screen-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.remote-screen-overlay > .remote-screen-stage,
+.remote-screen-pane > .remote-screen-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  contain: paint;
+}
+
+/* The whole screen, centred: the minimum zoom. */
+.remote-screen-fit {
+  position: relative;
+  flex: 0 1 auto;
+  width: 100%;
+  min-height: 0;
+  max-height: 100%;
+  aspect-ratio: var(--screen-ratio, 16 / 9);
+}
+
+.remote-screen-fit > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.remote-screen-fit[data-dim="true"] > video {
+  filter: brightness(0.4) saturate(0.6);
+}
+
+.remote-screen-status {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.remote-screen-stop {
+  color: var(--mx-danger);
+}
+
+.remote-screen-badge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.remote-screen-tile {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-card-outline);
+  color: var(--mx-text-muted);
+}
+
+.remote-screen-tile--large {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: var(--mx-radius-lg);
+}
+
+.remote-screen-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 16px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 24px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  text-align: center;
+}
+
+.remote-screen-note strong {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+}
+
+.remote-screen-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.browser-remote-empty .remote-screen-actions button {
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+}
+
+.browser-remote-empty .remote-screen-actions .remote-screen-primary {
+  background: var(--mx-text);
+  color: var(--mx-bg-base);
+}
+
+/* The monitor sheet (frame B): the popup surface with the sheet radius, rows in
+   the connection list's grammar. */
+.remote-screen-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: var(--mx-scrim);
+}
+
+.remote-screen-sheet {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 8px calc(24px + env(safe-area-inset-bottom, 0px));
+  border: var(--mx-popup-border);
+  border-bottom: 0;
+  border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
+}
+
+.remote-screen-grab {
+  width: 36px;
+  height: 4px;
+  margin: 2px auto 8px;
+  border-radius: 2px;
+  background: var(--mx-bg-layer-3);
+}
+
+.remote-screen-sheet h3 {
+  margin: 0;
+  padding: 4px 8px 8px;
+  font-size: var(--mx-font-emphasis);
+  font-weight: var(--mx-weight-semibold);
+  line-height: 22px;
+}
+
+.remote-screen-sheet p {
+  margin: 0;
+  padding: 0 8px 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+
+.remote-screen-list {
+  border-radius: var(--mx-radius-xl);
+  box-shadow: var(--mx-card-outline);
+}
+
+.remote-screen-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  padding: 0 12px 0 16px;
+  border: 0;
+  border-radius: var(--mx-radius-lg);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.remote-screen-row + .remote-screen-row {
+  box-shadow: inset 0 1px 0 var(--mx-border-muted);
+}
+
+.remote-screen-row:hover,
+.remote-screen-row:focus-visible {
+  outline: none;
+  background: var(--mx-hover);
+}
+
+.remote-screen-row > svg {
+  color: var(--mx-icon-muted);
+}
+
+.remote-screen-row-text {
+  min-width: 0;
+}
+
+.remote-screen-row-title {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-size: var(--mx-font-ui);
+  line-height: 20px;
+}
+
+.remote-screen-row-title b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--mx-weight-semibold);
+}
+
+.remote-screen-row-status {
+  margin-left: 8px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  font-weight: var(--mx-weight-medium);
+}
+
+.remote-screen-row-meta {
+  display: block;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-screen-cancel {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 8px 0;
+}
+
+.remote-screen-cancel button {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  cursor: pointer;
+}

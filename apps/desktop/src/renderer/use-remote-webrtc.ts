@@ -55,7 +55,7 @@ export function routeRemoteInput(
 }
 
 /** The video codecs this device decodes, as `ready` names them. */
-function receiveCodecs(): string[] {
+export function receiveCodecs(): string[] {
   const codecs = RTCRtpReceiver.getCapabilities?.('video')?.codecs ?? [];
   return [...new Set(codecs.map((codec) => codec.mimeType))].filter((type) =>
     /^video\/[A-Za-z0-9.+-]{1,32}$/u.test(type)

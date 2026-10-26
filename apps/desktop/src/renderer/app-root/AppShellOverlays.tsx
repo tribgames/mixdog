@@ -10,6 +10,7 @@ import { navigationKey } from '../text-format';
 import type { PaneLeaf } from '../pane-layout';
 import { TooltipLayer } from '../TooltipLayer';
 import { BrowserApprovalHost } from '../BrowserApprovalHost';
+import { RemoteScreenHost } from '../RemoteScreenHost';
 import {
   UnsavedChangesDialog,
   WorkbenchQuickAccess,
@@ -262,6 +263,7 @@ export function AppShellOverlays({
         onDismissBridgeError={() => setError('')}
       />
       <BrowserApprovalHost />
+      <RemoteScreenHost />
       <TooltipLayer />
     </>
   );

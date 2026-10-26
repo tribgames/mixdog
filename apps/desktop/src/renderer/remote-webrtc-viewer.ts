@@ -7,7 +7,9 @@
 import {
   REMOTE_WEBRTC_INPUT_CHANNEL,
   REMOTE_WEBRTC_VERSION,
+  isRemoteWebrtcPageInput,
   readRemoteWebrtcChannelFromDesktop,
+  readRemoteWebrtcScreenStatus,
   remoteWebrtcCertificateMatches,
   remoteWebrtcSdpFingerprints,
   remoteWebrtcSourceKey,
@@ -18,9 +20,10 @@ import {
   type RemoteWebrtcDesktopSignal,
   type RemoteWebrtcFingerprint,
   type RemoteWebrtcGeometry,
-  type RemoteWebrtcPageInput,
+  type RemoteScreenStatus,
   type RemoteWebrtcResize,
   type RemoteWebrtcSource,
+  type RemoteWebrtcSourceInput,
   type RemoteWebrtcTransportState,
   type RemoteWebrtcVideoLimit,
 } from '../shared/remote-webrtc';
@@ -67,6 +70,8 @@ export interface RemoteWebrtcViewerOptions {
   /** State, owner, geometry or the presented size changed. */
   changed(): void;
   stream(stream: MediaStream | null): void;
+  /** A screen source's `screen-status` push (a screen source only). */
+  screenStatus?(status: RemoteScreenStatus): void;
   failure(message: string): void;
   /** Receiver stats cadence: the stream renewal's. */
   statsIntervalMs: number;
@@ -276,9 +281,10 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     const attempt = current;
     if (!attempt || !attempt.verified || state !== 'connected' || attempt.channel?.readyState !== 'open') return;
     if (!geometry || presented?.width !== geometry.pixelWidth || presented.height !== geometry.pixelHeight) return;
-    const documentId = options.documentId();
-    if (!documentId) return;
-    const key = `${documentId} ${geometry.generation}`;
+    // A screen has no documents: its media-ready names none (null).
+    const documentId = options.source.kind === 'screen' ? null : options.documentId();
+    if (documentId === '') return;
+    const key = `${documentId ?? 'screen'} ${geometry.generation}`;
     // The desktop drops a media-ready it cannot take yet (its geometry ack or
     // first frame of the document still in flight): repeated, at most once per
     // stats interval, while the connection waits to be promoted.
@@ -361,6 +367,11 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   };
 
   const onChannelMessage = (data: unknown): void => {
+    const pushed = readRemoteWebrtcScreenStatus(data);
+    if (pushed) {
+      options.screenStatus?.(pushed.status);
+      return;
+    }
     const ack = readRemoteWebrtcChannelFromDesktop(data);
     if (!ack || ack.epoch !== epoch) return;
     const kind = unacked.get(ack.seq);
@@ -690,20 +701,15 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       else closedByDesktop(signal);
     },
     /** Channel input, when the channel owns it; false: not sent. */
-    sendInput(control: RemoteWebrtcPageInput): boolean {
+    sendInput(control: RemoteWebrtcSourceInput): boolean {
       const attempt = current;
       const channel = attempt?.channel;
       if (owner !== 'channel' || !attempt || !channel || channel.readyState !== 'open' || !geometry) return false;
       seq += 1;
-      const message: RemoteWebrtcChannelFromClient = {
-        v: REMOTE_WEBRTC_VERSION,
-        kind: 'input',
-        epoch,
-        seq,
-        geometryGeneration: geometry.generation,
-        sentAt: now(),
-        control,
-      };
+      const envelope = { v: REMOTE_WEBRTC_VERSION, epoch, seq, geometryGeneration: geometry.generation, sentAt: now() };
+      const message: RemoteWebrtcChannelFromClient = isRemoteWebrtcPageInput(control)
+        ? { ...envelope, kind: 'input', control }
+        : { ...envelope, kind: 'screen-input', control };
       try {
         channel.send(JSON.stringify(message));
       } catch (error) {

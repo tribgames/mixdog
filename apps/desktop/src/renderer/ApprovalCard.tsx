@@ -24,6 +24,8 @@ import { SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slo
 import { agentHomeTitle } from './agent-contacts-model';
 import { browserPageRequestsAvailable, requestBrowserImport, revealBrowserPane } from './browser-page-request';
 import { showBrowserPage } from './browser-page-view';
+import { isMobileRemoteSurface } from './mobile-surface';
+import { openRemoteScreen, remoteScreenAvailable } from './remote-screen-request';
 import { holdBrowserTakeover } from './browser-takeover-input';
 import { MarkdownSessionContext } from './MarkdownLink';
 import type { Approval, TranscriptItem } from './desktop-types';
@@ -447,6 +449,7 @@ export function approvalCardRows(
     controlReady = true,
     secretEntry = true,
     openPage = false,
+    openScreen = false,
   }: {
     agentName: string;
     officeLabel: string;
@@ -455,6 +458,8 @@ export function approvalCardRows(
     secretEntry?: boolean;
     /** A browser panel can show the takeover's page ("Open"). */
     openPage?: boolean;
+    /** This phone can show the PC's whole screen: a computer takeover's "Open". */
+    openScreen?: boolean;
   }
 ): CardRow[] {
   const cancel: CardRow = { label: t('Cancel'), decision: { approved: false } };
@@ -468,6 +473,8 @@ export function approvalCardRows(
       first,
       // The page the takeover is about, in this device's browser panel.
       ...(openPage && model.surface === 'browser' ? [{ label: t('Open'), decision: 'open' as const }] : []),
+      // The PC's whole screen, full-screen on a paired phone.
+      ...(openScreen && model.surface === 'computer' ? [{ label: t('Open'), decision: 'open' as const }] : []),
       // An expired sign-in can also come back from Chrome (the existing importer).
       ...(reimport && model.surface === 'browser'
         ? [{ label: t('Import again from Chrome'), decision: 'reimport' as const }]
@@ -1230,6 +1237,7 @@ function ToolApprovalCard({
     [browserTakeover, takeoverSessionId, takeoverTab]
   );
   const openPage = Boolean(pageViewer && browserPageRequestsAvailable());
+  const openScreen = remoteScreenAvailable(window.mixdogDesktop, isMobileRemoteSurface());
   const [text, setText] = useState(model.payload);
   // A secret is never React state: the inputs hold it until submit reads them.
   const secretRef = useRef<HTMLInputElement | null>(null);
@@ -1252,12 +1260,15 @@ function ToolApprovalCard({
     controlReady,
     secretEntry,
     openPage,
+    openScreen,
   });
   const disabled = resolving || Boolean(settled);
 
-  /** Shows the exact page the takeover is about; no named tab: the panel as it is. */
+  /** Shows the exact page the takeover is about; no named tab: the panel as it is.
+   *  A computer takeover is about the PC itself: its whole screen, full-screen. */
   const openTakeoverPage = async () => {
     setError('');
+    if (model.surface === 'computer') return openRemoteScreen();
     const tabId = model.takeoverTarget?.tab ?? '';
     if (!tabId) return revealBrowserPane(pageViewer);
     const shown = await showBrowserPage({

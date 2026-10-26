@@ -27,7 +27,11 @@ import { openRemoteExternalLink } from './remote-external-link';
 import { mediaLaneSupported, remoteMediaLaneUrl } from './remote-media-lane';
 import { VISIBLE_SESSIONS_STORAGE_KEY, MAX_RESTORED_VISIBLE_SESSIONS } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
-import { REMOTE_WEBRTC_SIGNAL_METHOD, REMOTE_WEBRTC_VERSION } from '../shared/remote-webrtc';
+import {
+  REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD,
+  REMOTE_WEBRTC_SIGNAL_METHOD,
+  REMOTE_WEBRTC_VERSION,
+} from '../shared/remote-webrtc';
 import type { RemoteWebrtcBridge } from './remote-webrtc-bridge';
 
 type GatedKey =
@@ -570,6 +574,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     remoteBrowserWebrtc: REMOTE_WEBRTC_VERSION,
     remoteBrowserWebrtcSignal: (signal) => call<void>(REMOTE_WEBRTC_SIGNAL_METHOD, [signal]),
     onRemoteBrowserWebrtc: (listener) => listenOn(ctx.remoteBrowserWebrtcListeners, listener),
+    remoteScreenDisplays: () => call<unknown>(REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD, []),
     remoteBrowserControlOrdered: (sessionId, input, order) => call('browserRemoteControl', [sessionId, input, order]),
   };
   for (const key of Object.keys(webrtc) as Array<keyof RemoteWebrtcBridge>) {

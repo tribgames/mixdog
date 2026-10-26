@@ -16,6 +16,9 @@ export interface RemoteWebrtcBridge {
   remoteBrowserWebrtcSignal?(signal: RemoteWebrtcClientSignal): Promise<void>;
   /** The host's `browserRemoteWebrtc` pushes to this client, validated. */
   onRemoteBrowserWebrtc?(listener: (signal: RemoteWebrtcDesktopSignal) => void): () => void;
+  /** `browserRemoteScreenDisplays([])`: the displays this phone may view as a
+   *  screen source (unvalidated; read with `readScreenDisplays`). */
+  remoteScreenDisplays?(): Promise<unknown>;
   /** `browserRemoteControl([sessionId, control, order])`: ordered relay input. */
   remoteBrowserControlOrdered?(
     sessionId: string,
