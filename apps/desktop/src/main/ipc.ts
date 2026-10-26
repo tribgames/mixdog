@@ -24,6 +24,8 @@ import type { BrowserLoginPopup } from './browser/login-popup';
 import { registerBrowserIpc } from './ipc-browser';
 import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
+import { registerPaneLayoutIpc } from './ipc-pane-layout';
+import type { PaneLayoutFile } from './pane-layout-file';
 import { registerProjectIpc } from './ipc-projects';
 import { requestLinuxInputAccess } from './linux-input-access';
 import { registerProjectFileIpc } from './ipc-project-files';
@@ -199,6 +201,8 @@ interface DesktopIpcDependencies {
   /** This PC's own daemon, for a server window: the sign-ins a server's model
    *  calls run on are this PC's, so their quota reads are answered here. */
   pcHost?: PcQuotaHost;
+  /** This window's pane layout file in the profile (see pane-layout-file.ts). */
+  paneLayoutFile?: PaneLayoutFile;
 }
 
 export function registerDesktopIpc(
@@ -229,6 +233,7 @@ export function registerDesktopIpc(
     connectionKind = 'local',
     serviceUserDataPath,
     pcHost,
+    paneLayoutFile,
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
@@ -400,6 +405,7 @@ export function registerDesktopIpc(
   ipcMain.on(DESKTOP_IPC.perfLog, onPerfLog);
   // What this window paints, for the completion-notification rule.
   const disposeScreenSessions = registerScreenSessions(window, ipcMain);
+  const disposePaneLayoutIpc = registerPaneLayoutIpc({ window, ipcMain, file: paneLayoutFile });
   const disposeTerminalIpc = registerTerminalIpc({
     window,
     ipcMain,
@@ -428,6 +434,8 @@ export function registerDesktopIpc(
     DESKTOP_IPC.perfLog,
     DESKTOP_IPC.reportScreenSessions,
     DESKTOP_IPC.rendererDiagnostic,
+    DESKTOP_IPC.readPaneLayoutFile,
+    DESKTOP_IPC.writePaneLayoutFile,
     DESKTOP_IPC.termWrite,
     DESKTOP_IPC.termResize,
     DESKTOP_IPC.termAcknowledge,
@@ -452,6 +460,7 @@ export function registerDesktopIpc(
     disposeTerminalIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
     disposeScreenSessions();
+    disposePaneLayoutIpc();
     for (const channel of channels) ipcMain.removeHandler(channel);
   };
 }

@@ -7,10 +7,12 @@ import {
   PANE_LAYOUT_KEY,
   createNewTaskPaneLeaf,
   initialPaneWorkspaceState,
+  paneLayoutFileStorage,
   readStoredPaneLayout,
   safeLocalStorage,
   type PaneWorkspaceState,
 } from './pane-workspace-storage';
+import { reportRendererFailure } from './RendererRecovery';
 
 /** Session ids a persisted tab may address at startup. The session catalog is
  *  authoritative: a pool row never revives a Lead tab (stale rows outlive a
@@ -41,7 +43,9 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
   if (!startupRestore.current) {
     const mobile = isMobileRemoteSurface();
     const storage = safeLocalStorage();
-    const raw = readStoredPaneLayout(storage);
+    // Chromium can lose localStorage while the app runs; the main process keeps
+    // a file copy of the layout for that. The phone never reads it.
+    const raw = readStoredPaneLayout(storage) ?? (mobile ? null : readStoredPaneLayout(paneLayoutFileStorage()));
     // A phone launch is a fresh task boundary: the live page keeps its tabs
     // through transient relay reconnects, but a page restart never revives the
     // PANE/tab list from the previous run.
@@ -77,39 +81,59 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
   useEffect(() => {
     const stored = restorePlan.stored;
     if (!validationPending || !stored) return undefined;
-    let cancelled = false;
-    const restore = async () => {
-      // Reconcile after first paint. Even when the catalog is unavailable,
-      // keep file/utility/draft tabs and reject only unverified session
-      // addresses; persistence stays paused until this pass settles.
-      let addressable = new Set<string>();
-      let filtered = filterPaneLayoutSessions(stored.layout, addressable);
+    let stopped = false;
+    let unverifiedShown = false;
+    // Only a successfully READ catalog is authoritative. Cold boot: the daemon
+    // catalog can lag the first paint, and a failed read must not be taken for
+    // "no session exists" — that dropped EVERY persisted session tab and the
+    // pruned tree was then persisted over the stored layout.
+    const readCatalog = async (): Promise<Set<string> | null> => {
       const listSessions = window.mixdogDesktop?.listSessions;
-      if (typeof listSessions === 'function') {
-        // Cold boot: the daemon catalog can lag the first paint by seconds. A
-        // failed read here used to keep the empty-set filter and silently drop
-        // EVERY persisted session tab (user: 첫 부팅때 로딩이 안 되고 탭이
-        // 사라진다). Only a successfully READ catalog is authoritative; retry
-        // briefly before giving up on addressing persisted session tabs.
-        for (let attempt = 0; attempt < 10 && !cancelled; attempt += 1) {
-          try {
-            const [rows, agents] = await Promise.all([
-              listSessions(),
-              window.mixdogDesktop?.listAgentPool?.() ?? Promise.resolve([]),
-            ]);
-            const knownSessionIds = restorableSessionIds(rows, agents);
-            addressable = knownSessionIds;
-            filtered = filterPaneLayoutSessions(stored.layout, knownSessionIds);
-            break;
-          } catch {
-            // Catalog unavailable: wait and retry; after the budget, no
-            // persisted session tab is safe to address (non-session tabs
-            // remain available).
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          }
-        }
+      if (typeof listSessions !== 'function') return null;
+      try {
+        const [rows, agents] = await Promise.all([
+          listSessions(),
+          window.mixdogDesktop?.listAgentPool?.() ?? Promise.resolve([]),
+        ]);
+        return restorableSessionIds(rows, agents);
+      } catch (error) {
+        reportRendererFailure('unhandled-rejection', error, {
+          components: ['PaneWorkspaceRestore'],
+          failureCode: 'pane-catalog-unavailable',
+        });
+        return null;
       }
-      if (cancelled) return;
+    };
+    // The stored geometry with only the session tabs `addressable` vouches for
+    // (file/utility/draft tabs always stay).
+    const showStored = (addressable: Set<string>) => {
+      const filtered = filterPaneLayoutSessions(stored.layout, addressable);
+      const layout = filtered ?? createNewTaskPaneLeaf();
+      const leaves = paneLeaves(layout);
+      setState({
+        layout,
+        focusedLeafId: leaves.some((leaf) => leaf.id === stored.focusedLeafId) ? stored.focusedLeafId : leaves[0].id,
+      });
+      setRestoredFromStorage(filtered !== null);
+      setRestorePending(false);
+    };
+    const restore = async () => {
+      // Reconcile after first paint.
+      const addressable = await readCatalog();
+      if (stopped) return;
+      if (!addressable) {
+        // The boot cover waits for the layout to settle, so a catalog that
+        // cannot be read must not hold it: show what can be addressed. The
+        // stored layout stays as it is (persistState is paused until a
+        // catalog read validates it) and the session list the daemon pushes
+        // once it answers finishes the validation.
+        if (!unverifiedShown) {
+          unverifiedShown = true;
+          showStored(new Set());
+        }
+        return;
+      }
+      stopped = true;
       if (restorePlan.mobile) {
         // The phone has been interactive since the first frame, so prune the
         // LIVE tree instead of replaying the stored one — a tab opened or
@@ -126,38 +150,44 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
         setValidationPending(false);
         return;
       }
-      const layout = filtered ?? createNewTaskPaneLeaf();
-      const leaves = paneLeaves(layout);
-      setState({
-        layout,
-        focusedLeafId: leaves.some((leaf) => leaf.id === stored.focusedLeafId) ? stored.focusedLeafId : leaves[0].id,
-      });
-      setRestoredFromStorage(filtered !== null);
-      setRestorePending(false);
+      showStored(addressable);
       setValidationPending(false);
     };
     void restore();
+    const unsubscribeSessions = window.mixdogDesktop?.subscribeSessions?.(() => {
+      if (!stopped) void restore();
+    });
     return () => {
-      cancelled = true;
+      stopped = true;
+      unsubscribeSessions?.();
     };
   }, [validationPending, restorePlan]);
 
+  const fileCopy = useRef<string | null>(null);
   const persistState = useCallback(() => {
-    if (restorePending) return;
+    // Until a catalog read has validated the stored layout, `state` may only be
+    // a view of it (session tabs left out): both stored copies stay untouched.
+    if (validationPending) return;
+    const serialized = JSON.stringify(state);
     try {
-      window.localStorage.setItem(PANE_LAYOUT_KEY, JSON.stringify(state));
+      window.localStorage.setItem(PANE_LAYOUT_KEY, serialized);
     } catch {
       // Layout persistence is a convenience only.
     }
-  }, [restorePending, state]);
+    // The main process keeps the same text in a profile file, for when
+    // Chromium loses localStorage. The phone never restores tabs: no file.
+    if (restorePlan.mobile || fileCopy.current === serialized) return;
+    fileCopy.current = serialized;
+    window.mixdogDesktop?.writePaneLayoutFile?.(serialized);
+  }, [restorePlan, validationPending, state]);
   usePageHideFlush(persistState);
   useEffect(() => {
-    if (restorePending) return undefined;
+    if (validationPending) return undefined;
     // Focus, drag and tab operations must paint before the synchronous storage
     // write. The short debounce also collapses resize/reorder bursts.
     const timer = window.setTimeout(persistState, 120);
     return () => window.clearTimeout(timer);
-  }, [persistState, restorePending]);
+  }, [persistState, validationPending]);
 
   return { state, setState, restorePending, restoredFromStorage };
 }

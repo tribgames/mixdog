@@ -715,6 +715,12 @@ export interface DesktopApi {
   rendererReady?(): void;
   /** The running version's What's new notice was shown (or has no notes): main retires its pending announcement. */
   acknowledgeWhatsNew?(version: string): void;
+  /** The pane layout's main-process copy in the profile (Chromium can lose the
+   *  localStorage one): the text last written, or null. Synchronous so the
+   *  first paint can use it; absent on the phone/remote surface. */
+  readPaneLayoutFile?(): string | null;
+  /** Mirrors the pane layout the renderer just persisted to that profile file. */
+  writePaneLayoutFile?(layout: string): void;
   /** Dock terminal: create or reattach the shared PTY (main-process owned). */
   termEnsure?(
     id: string | null,

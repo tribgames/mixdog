@@ -245,6 +245,8 @@ export const DESKTOP_IPC = {
   rendererDiagnostic: 'mixdog:renderer-diagnostic',
   rendererReady: 'mixdog:renderer-ready',
   acknowledgeWhatsNew: 'mixdog:acknowledge-whats-new',
+  readPaneLayoutFile: 'mixdog:read-pane-layout-file',
+  writePaneLayoutFile: 'mixdog:write-pane-layout-file',
   termEnsure: 'mixdog:term-ensure',
   termAttach: 'mixdog:term-attach',
   termWrite: 'mixdog:term-write',

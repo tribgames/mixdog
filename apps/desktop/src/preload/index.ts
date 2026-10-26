@@ -523,6 +523,8 @@ const api: DesktopApi = {
       /* the announcement is simply retried next launch */
     }
   },
+  readPaneLayoutFile: () => ipcRenderer.sendSync(DESKTOP_IPC.readPaneLayoutFile),
+  writePaneLayoutFile: (layout) => ipcRenderer.send(DESKTOP_IPC.writePaneLayoutFile, layout),
   termEnsure: (id, cwd, shell) => invokeIpc(DESKTOP_IPC.termEnsure, id, cwd ?? null, shell ?? null),
   termAttach: (id) => invokeIpc(DESKTOP_IPC.termAttach, id),
   termProfiles: () => invokeIpc(DESKTOP_IPC.termProfiles),

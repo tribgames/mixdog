@@ -34,6 +34,13 @@ export function safeLocalStorage(): Storage | null {
   }
 }
 
+/** The main process's profile-file copy of the layout, read like storage so
+ *  `readStoredPaneLayout` validates it the same way. Chromium can lose
+ *  localStorage; the file survives. */
+export function paneLayoutFileStorage(): StorageLike {
+  return { getItem: () => window.mixdogDesktop?.readPaneLayoutFile?.() ?? null };
+}
+
 /** Restore a persisted workspace; any malformed layout rejects the whole
  *  stored value so startup always lands on a coherent tree. */
 export function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspaceState | null {

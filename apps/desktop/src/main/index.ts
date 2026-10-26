@@ -166,6 +166,7 @@ import {
 } from './renderer-recovery';
 import { acknowledgeAnnouncement, LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
 import { installWhatsNewAcknowledge } from './whats-new-acknowledge';
+import { createPaneLayoutFile, flushPaneLayoutFiles, PANE_LAYOUT_FILE } from './pane-layout-file';
 
 const desktopProcessStartedAt = Date.now();
 // The launcher's stdio pipe can close while the app keeps running (started
@@ -195,6 +196,12 @@ let launchFollowsUpdate: Promise<boolean> | null = null;
 const launchVersionPath = () => join(app.getPath('userData'), LAUNCH_VERSION_FILE);
 const launchRecordWriteFailure = (error: unknown) =>
   diagnostics?.write('launch-version-write-failed', {
+    errorName: error instanceof Error ? error.name : 'Error',
+    message: String((error as Error)?.message ?? error).slice(0, 300),
+  });
+const paneLayoutFileFailure = (stage: 'read' | 'write', error: unknown) =>
+  diagnostics?.write('pane-layout-file-failed', {
+    stage,
     errorName: error instanceof Error ? error.name : 'Error',
     message: String((error as Error)?.message ?? error).slice(0, 300),
   });
@@ -1500,6 +1507,7 @@ function disposeDesktopResources(): Promise<void> {
       localConnection.dispose(),
       windowStateFlush,
       ...[...windowStates.values()].map((state) => state.flush()),
+      flushPaneLayoutFiles(),
       diagnostics?.flush(),
     ])
       .then(() => undefined)
@@ -1716,6 +1724,18 @@ function connectionWindowStatePath(connection: ConnectionIdentity): string {
   return join(
     app.getPath('userData'),
     connection.kind === 'local' ? 'window-state.json' : `window-state-ssh-${connectionStorageKey(connection)}.json`
+  );
+}
+
+/** The profile-file copy of the window's pane layout, beside its window state
+ *  and named the same way: a server window's layout is its own. */
+function connectionPaneLayoutFile(connection: ConnectionIdentity) {
+  return createPaneLayoutFile(
+    join(
+      app.getPath('userData'),
+      connection.kind === 'local' ? PANE_LAYOUT_FILE : `pane-layout-ssh-${connectionStorageKey(connection)}.json`
+    ),
+    paneLayoutFileFailure
   );
 }
 
@@ -2420,6 +2440,7 @@ function installWindowIpc(
     terminals: connection.terminals,
     terminalRuns,
     remoteHosts: remoteHostsHandle(),
+    paneLayoutFile: connectionPaneLayoutFile(connection),
   });
   return () => {
     removeWindowIpc();
