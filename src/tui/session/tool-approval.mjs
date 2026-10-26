@@ -14,25 +14,13 @@
  * queue, so either place settles the one request once.
  */
 import {
-  humanRequestFields,
-  normalizeHumanResponse,
-} from '../../runtime/agent/orchestrator/session/human-gate/requests.mjs';
-import { agentIdOfHomeSession } from '../../runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomMemberOfSession } from '../../runtime/agent/orchestrator/session/agent-room.mjs';
-import {
   delegateApproval,
-  delegateToHandoffs,
   delegatedApprovalsFor,
   registerApprovalQueue,
-  withdrawDelegatedApproval,
 } from '../../runtime/shared/delegated-approval-host.mjs';
-
-/** Requests a sub-agent (or a session a chat handed work to) shows in the
- *  conversation the user watches too. A secret and a takeover go there as
- *  well: the value goes to this PC by its request id and the sign-in window
- *  is bound to the asking session, wherever the card is answered. A question
- *  stays in its own session (its answer belongs to that conversation). */
-const DELEGATED_KINDS = new Set(['', 'approval', 'outbound', 'permission', 'secret', 'takeover']);
+import { defaultApprovalTimeoutMs, normalizeToolApprovalRequest } from './tool-approval-request.mjs';
+import { copyOutcome, finishedOutcome, forwardToOwner, settleToolApproval } from './tool-approval-settle.mjs';
+import { createApprovalDelegation } from './tool-approval-delegation.mjs';
 
 /** The wait limit an approval has when its request names none, from
  *  MIXDOG_TOOL_APPROVAL_TIMEOUT_MS (milliseconds, one second at least): null —
@@ -45,10 +33,11 @@ export function resolveToolApprovalTimeoutMs(env = process.env) {
 }
 
 export function createToolApproval({ getState, set, nextId, getDisposed, timeoutMs = null, surfaceOf = null }) {
-  const defaultTimeoutMs = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0 ? Number(timeoutMs) : null;
+  const defaultTimeoutMs = defaultApprovalTimeoutMs(timeoutMs);
   const toolApprovalQueue = [];
   let activeToolApproval = null;
   const ownSessionId = () => String(getState()?.sessionId || '');
+  const { delegationSurface, handsOff, offerToHandoffs } = createApprovalDelegation({ surfaceOf, ownSessionId });
   const unregister =
     typeof surfaceOf === 'function'
       ? registerApprovalQueue({
@@ -59,32 +48,6 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
         })
       : () => {};
 
-  function normalizeToolApprovalRequest(input = {}, id = nextId()) {
-    const now = Date.now();
-    // An explicit `timeoutMs: null` means no wait limit (no timer, no expiry);
-    // any other missing/invalid value falls back to the session default,
-    // which is itself no limit unless the runtime configures one.
-    let requestTimeoutMs = defaultTimeoutMs;
-    if (input?.timeoutMs === null) requestTimeoutMs = null;
-    else if (Number.isFinite(Number(input?.timeoutMs)) && Number(input.timeoutMs) > 0) {
-      requestTimeoutMs = Number(input.timeoutMs);
-    }
-    return {
-      id,
-      name: String(input?.name || input?.tool_name || 'tool'),
-      kind: typeof input?.kind === 'string' ? input.kind : '',
-      args: input?.args ?? input?.tool_input ?? null,
-      cwd: input?.cwd || null,
-      sessionId: input?.sessionId || input?.session_id || null,
-      toolCallId: input?.toolCallId || input?.tool_use_id || null,
-      reason: String(input?.reason || input?.message || 'approval requested by hook').trim(),
-      requestedAt: now,
-      timeoutMs: requestTimeoutMs,
-      expiresAt: requestTimeoutMs === null ? null : now + requestTimeoutMs,
-      // outbound / secret / takeover / permission fields (human-gate/requests.mjs).
-      ...humanRequestFields(input),
-    };
-  }
   // A request that has a limit expires from ITS OWN requestedAt, queued or
   // active. Arming the timer only on presentation let a queued request sit past
   // expiresAt (retaining its promise and surfacing an obsolete approval later).
@@ -98,54 +61,11 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     }, remainingMs);
     entry.timer.unref?.();
   }
-  // Settle one entry: drop its timeout, then hand the waiter its answer. The
-  // resolve stays guarded — a waiter whose caller already went away must never
-  // take the rest of the queue down with it.
-  function settleToolApproval(entry, approved, reason, answers, reply, extra, device = '') {
-    if (entry?.timer) clearTimeout(entry.timer);
-    const result = { approved, reason };
-    if (answers !== undefined) result.answers = answers;
-    if (reply !== undefined) result.reply = reply;
-    // A human-kind request answers with its canonical response (never a value).
-    if (entry?.request?.remember) {
-      Object.assign(result, normalizeHumanResponse(entry.request, approved, extra));
-      if (device) result.device = device;
-    }
-    if (extra?.timedOut === true) result.timedOut = true;
-    // Settled here: its copy in the top-level chat goes away.
-    if (entry?.delegated) {
-      withdrawDelegatedApproval(entry.id, { approved, device, ...(extra?.timedOut === true ? { expired: true } : {}) });
-    }
-    try {
-      entry.resolve(result);
-    } catch {
-      // The requester's resolver must not break settling the queue.
-    }
-  }
-  /** Hand a copy's answer to the queue that owns the request; false when the
-   *  owner had already settled it. */
-  function forwardToOwner(entry, approved, reason, device, answers, reply, extra) {
-    try {
-      return entry.mirror.answer(approved, reason, device, answers, reply, extra) === true;
-    } catch {
-      return false;
-    }
-  }
   function offerDelegatedApproval(delegated) {
     if (getDisposed() || delegated.sessionId !== ownSessionId()) return;
     if (activeToolApproval?.id === delegated.id || toolApprovalQueue.some((entry) => entry.id === delegated.id)) return;
     toolApprovalQueue.push({ id: delegated.id, request: delegated.request, mirror: delegated, timer: null });
     presentNextToolApproval();
-  }
-  /** How a copy ended, from the owner's settle: answered from a known device
-   *  (who), a real timeout (`expired`), or taken away with no answer
-   *  (`withdrawn`: the owner's turn ended, the hand-off copy was removed). */
-  function copyOutcome(id, result) {
-    const device = String(result?.device || '');
-    const at = Date.now();
-    if (device) return { id, approved: result.approved === true, device, at };
-    if (result?.expired === true) return { id, approved: false, device: '', expired: true, at };
-    return { id, approved: false, device: '', withdrawn: true, at };
   }
   function withdrawDelegatedCopy(id, result) {
     if (activeToolApproval?.mirror && activeToolApproval.id === id) {
@@ -197,15 +117,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (activeToolApproval && activeToolApproval.id === targetId) {
       const entry = activeToolApproval;
       activeToolApproval = null;
-      // Only an answer from a known device is attributed; a real timeout says
-      // `expired`; any other unattributed end names nobody.
-      let toolApprovalResult = null;
-      if (device) {
-        toolApprovalResult = { id: targetId, approved: approved === true, device: String(device), at: Date.now() };
-      } else if (extra?.timedOut === true) {
-        toolApprovalResult = { id: targetId, approved: false, device: '', expired: true, at: Date.now() };
-      }
-      set({ toolApproval: null, toolApprovalResult });
+      set({ toolApproval: null, toolApprovalResult: finishedOutcome(targetId, approved, device, extra) });
       let accepted = true;
       if (entry.mirror) {
         accepted = forwardToOwner(entry, approved, reason, device, answers, reply, extra);
@@ -255,7 +167,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (getDisposed()) return Promise.resolve({ approved: false, reason: 'runtime disposed' });
     return new Promise((resolve) => {
       const id = nextId();
-      const full = normalizeToolApprovalRequest(input, id);
+      const full = normalizeToolApprovalRequest(input, id, defaultTimeoutMs);
       const surface = delegationSurface(full);
       if (surface) {
         // Who asks, from the top-level chat down ("사무관 › Worker"), and where the copy is.
@@ -270,47 +182,8 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       const answer = (approved, reason, device, answers, reply, extra) =>
         finishToolApproval(id, approved, reason, device, answers, reply, extra);
       if (surface) delegateApproval({ id, sessionId: surface.sessionId, request: full, answer });
-      if (handoffs) {
-        const own = ownSessionId();
-        const agentId = agentIdOfHomeSession(own) || roomMemberOfSession(own)?.agentId || '';
-        // Each chat handing this session work names it its own way.
-        delegateToHandoffs({
-          id,
-          sessionId: own,
-          request: full,
-          answer,
-          copyFor: (chat, { title }) => ({
-            ...full,
-            sessionId: full.sessionId || own,
-            chain: [],
-            surfaceSessionId: chat,
-            handoff: { title, ...(agentId ? { agentId } : {}) },
-          }),
-        });
-      }
+      if (handoffs) offerToHandoffs(id, full, answer);
     });
-  }
-  /** `{ sessionId, chain }` of the top-level chat a sub-agent's request also
-   *  shows in, or null (no delegation, another kind, or this is the top). */
-  function delegationSurface(request) {
-    if (typeof surfaceOf !== 'function' || !DELEGATED_KINDS.has(request.kind)) return null;
-    const own = String(request.sessionId || ownSessionId());
-    let surface = null;
-    try {
-      surface = surfaceOf(own);
-    } catch {
-      return null;
-    }
-    const sessionId = String(surface?.sessionId || '');
-    if (!sessionId || sessionId === own || sessionId === ownSessionId()) return null;
-    return { sessionId, chain: Array.isArray(surface.chain) ? surface.chain.map(String) : [] };
-  }
-  /** Whether a request this (top-level) session itself makes also shows in
-   *  the chats handing it work (delegated-approval-host.mjs), while it waits. */
-  function handsOff(request) {
-    if (typeof surfaceOf !== 'function' || !DELEGATED_KINDS.has(request.kind)) return false;
-    const own = ownSessionId();
-    return Boolean(own) && String(request.sessionId || own) === own;
   }
 
   return {

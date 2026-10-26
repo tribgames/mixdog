@@ -3,26 +3,16 @@
 // pending queue so the model sees it next turn. The delivered registry keeps
 // those two paths from double-injecting the same completion.
 import { modelVisibleToolCompletionMessage } from '../runtime/shared/tool-execution-contract.mjs';
-import {
-  PENDING_MODE_TASK_NOTIFICATION,
-  markCompletionEntry,
-} from '../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
-import {
-  isDeliveredCompletion,
-  logDuplicateSkip,
-  recordDeliveredCompletion,
-} from '../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
+import { PENDING_MODE_TASK_NOTIFICATION } from '../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
+import { recordDeliveredCompletion } from '../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 import { shouldMirrorCompletionToPendingQueue } from './runtime-tool-routing.mjs';
 import { notifyTrace } from '../runtime/shared/notify-trace.mjs';
+import { cleanSessionId, createListenerBindings, sessionListenersOf } from './notification-listeners.mjs';
+import { createCompletionQueue } from './notification-completion-queue.mjs';
 
-const sessionNotificationListeners = new Map();
 // A completion that waits this long between enqueue and wake is reported: the
 // queue is durable, so the delay is a scheduling symptom, not a lost message.
 const WAKE_DELAY_REPORT_MS = 1_000;
-
-function cleanSessionId(value) {
-  return String(value || '').trim();
-}
 
 // A queued completion only reaches the model on the next turn, so a session
 // with no user input pending is woken with an empty turn. One wake per session
@@ -125,8 +115,9 @@ function emitToListeners(source, content, meta = {}, origin = null) {
 }
 
 export function createNotificationBus({ listeners, mgr, onCompletionQueued, getOwnerLifecycle }) {
-  const boundSessionListeners = new Map();
-  const queuedCompletionIds = new Map();
+  const { subscribeRuntimeNotification, bindRuntimeNotificationSession, clearRuntimeNotifications } =
+    createListenerBindings({ listeners });
+  const enqueueCompletion = createCompletionQueue({ mgr, onCompletionQueued });
 
   // Owner identity + lifecycle generation. A closing/terminal owner (or a
   // callback captured under an earlier generation) keeps its result for
@@ -149,7 +140,7 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued, getO
   function notifySession(sessionId, content, meta = {}, { origin = null } = {}) {
     const targetSessionId = cleanSessionId(sessionId);
     if (!targetSessionId) return false;
-    const targetListeners = sessionNotificationListeners.get(targetSessionId) || [];
+    const targetListeners = sessionListenersOf(targetSessionId);
     const open = ownerOpen(targetSessionId);
     const { handled } = emitToListeners(targetListeners, content, open ? meta : closedMeta(meta), origin);
     if (handled) return true;
@@ -179,50 +170,14 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued, getO
   function notifySessionUi(sessionId, content, meta = {}) {
     const targetSessionId = cleanSessionId(sessionId);
     if (!targetSessionId) return false;
-    const targetListeners = sessionNotificationListeners.get(targetSessionId) || [];
+    const targetListeners = sessionListenersOf(targetSessionId);
     return emitToListeners(targetListeners, content, meta).handled;
-  }
-
-  // Enqueue the model-visible twin unless it was already delivered; returns
-  // true when the caller may treat the completion as delivered.
-  function enqueueCompletion(callerSessionId, text, meta, path) {
-    const visible = modelVisibleToolCompletionMessage(text, meta);
-    // Non-completion notifications yield '' here and are never queued.
-    if (!visible) return false;
-    if (isDeliveredCompletion({ executionId: meta?.execution_id, text: visible })) {
-      // Delivered + ACKed on the TUI path: suppress the duplicate but report
-      // DELIVERED so the caller stops retrying.
-      logDuplicateSkip(path, { executionId: meta?.execution_id, text: visible });
-      return true;
-    }
-    const entry = markCompletionEntry(visible, { executionId: meta?.execution_id, meta });
-    const queueKey = `${callerSessionId}:${entry.id}`;
-    if (queuedCompletionIds.has(queueKey)) {
-      logDuplicateSkip(`${path}-queued`, { executionId: meta?.execution_id, text: visible });
-      return true;
-    }
-    const enqueued = mgr.enqueuePendingMessage(callerSessionId, entry) > 0;
-    if (!enqueued) return false;
-    queuedCompletionIds.set(queueKey, Date.now());
-    while (queuedCompletionIds.size > 512) queuedCompletionIds.delete(queuedCompletionIds.keys().next().value);
-    if (typeof onCompletionQueued === 'function') {
-      try {
-        onCompletionQueued({
-          sessionId: callerSessionId,
-          executionId: meta?.execution_id || null,
-          enqueuedAt: entry.enqueuedAt,
-        });
-      } catch {
-        /* wake-up is best-effort; the durable queue remains authoritative */
-      }
-    }
-    return true;
   }
 
   function notifySessionCompletion(sessionId, text, meta = {}, capturedGeneration = undefined) {
     const targetSessionId = cleanSessionId(sessionId);
     if (!targetSessionId) return false;
-    const targetListeners = sessionNotificationListeners.get(targetSessionId) || [];
+    const targetListeners = sessionListenersOf(targetSessionId);
     const open = ownerOpen(targetSessionId, capturedGeneration);
     const ownerMeta = {
       ...(meta && typeof meta === 'object' ? meta : {}),
@@ -275,62 +230,6 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued, getO
     const ownerSessionId = cleanSessionId(callerSessionId);
     const generation = getOwnerLifecycle?.(ownerSessionId)?.generation;
     return (text, meta = {}) => notifySessionCompletion(ownerSessionId, text, meta, generation);
-  }
-
-  function bindListenerToSession(sessionId, listener) {
-    const ownerSessionId = cleanSessionId(sessionId);
-    if (!ownerSessionId || typeof listener !== 'function') return;
-    let bucket = sessionNotificationListeners.get(ownerSessionId);
-    if (!bucket) {
-      bucket = new Set();
-      sessionNotificationListeners.set(ownerSessionId, bucket);
-    }
-    bucket.add(listener);
-    let ownedBucket = boundSessionListeners.get(ownerSessionId);
-    if (!ownedBucket) {
-      ownedBucket = new Set();
-      boundSessionListeners.set(ownerSessionId, ownedBucket);
-    }
-    ownedBucket.add(listener);
-  }
-
-  function unbindListener(listener) {
-    for (const [sessionId, ownedBucket] of boundSessionListeners) {
-      if (!ownedBucket.delete(listener)) continue;
-      const bucket = sessionNotificationListeners.get(sessionId);
-      bucket?.delete(listener);
-      if (bucket?.size === 0) sessionNotificationListeners.delete(sessionId);
-      if (ownedBucket.size === 0) boundSessionListeners.delete(sessionId);
-    }
-  }
-
-  function subscribeRuntimeNotification(sessionId, listener) {
-    const ownerSessionId = cleanSessionId(sessionId);
-    if (typeof listener !== 'function') return () => {};
-    listeners.add(listener);
-    bindListenerToSession(ownerSessionId, listener);
-    return () => {
-      listeners.delete(listener);
-      unbindListener(listener);
-    };
-  }
-
-  function bindRuntimeNotificationSession(sessionId) {
-    const ownerSessionId = cleanSessionId(sessionId);
-    if (!ownerSessionId) return false;
-    for (const listener of listeners) bindListenerToSession(ownerSessionId, listener);
-    return true;
-  }
-
-  function clearRuntimeNotifications() {
-    for (const [sessionId, ownedBucket] of boundSessionListeners) {
-      const bucket = sessionNotificationListeners.get(sessionId);
-      if (!bucket) continue;
-      for (const listener of ownedBucket) bucket.delete(listener);
-      if (bucket.size === 0) sessionNotificationListeners.delete(sessionId);
-    }
-    boundSessionListeners.clear();
-    listeners.clear();
   }
 
   return {

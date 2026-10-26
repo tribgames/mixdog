@@ -155,6 +155,36 @@ test('unobserved completion fallback queues and wakes exactly once', () => {
   assert.match(enqueued[0].message.id, /^completion_[a-f0-9]{24}$/);
 });
 
+test('a throwing wake hook keeps the queued completion delivered; an unsubscribed listener leaves its session', () => {
+  const enqueued = [];
+  const bus = createNotificationBus({
+    listeners: new Set(),
+    mgr: {
+      enqueuePendingMessage(sessionId, message) {
+        enqueued.push({ sessionId, message });
+        return 1;
+      },
+    },
+    onCompletionQueued() {
+      throw new Error('wake failed');
+    },
+  });
+  const text = completionText.replaceAll('task-agent-1', 'task-agent-wake-throws');
+  const meta = { ...completionMeta, execution_id: 'task-agent-wake-throws' };
+  assert.equal(bus.notifySessionCompletion('lead-wake-throws', text, meta), true);
+  assert.equal(enqueued.length, 1);
+
+  const received = [];
+  const unsubscribe = bus.subscribeRuntimeNotification('lead-unsub', (event) => {
+    received.push(event.content);
+    return true;
+  });
+  assert.equal(bus.notifySessionUi('lead-unsub', 'first'), true);
+  unsubscribe();
+  assert.equal(bus.notifySessionUi('lead-unsub', 'second'), false);
+  assert.deepEqual(received, ['first']);
+});
+
 function wakeFixture({ currentSessionId = 'lead-wake', turnApi = undefined } = {}) {
   const asks = [];
   const api =

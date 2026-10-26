@@ -183,6 +183,20 @@ test('queued submissions are settled explicitly and later submissions are reject
   assert.deepEqual(h.turns, []);
 });
 
+test('a throwing settle callback on close leaves the next queued submission still settled', async () => {
+  const h = harness({ busy: true });
+  const settled = [];
+  const throwing = () => {
+    settled.push('s1');
+    throw new Error('submitter gone');
+  };
+  assert.equal(h.api.submit('first', { id: 's1', onSettled: throwing }), true);
+  assert.equal(h.api.submit('second', { id: 's2', onSettled: (d) => settled.push(`s2:${d.reason}`) }), true);
+  assert.equal(h.api.closeCanonicalSession('agent cancel'), true);
+  assert.deepEqual(settled, ['s1', 's2:session-closed']);
+  assert.deepEqual(h.pending, []);
+});
+
 test('durable close failure: admission restored, accepted input retained and delivered once, cancel not successful', async () => {
   const h = harness({ busy: false });
   h.setClose(() => {

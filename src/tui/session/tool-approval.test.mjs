@@ -310,3 +310,32 @@ test('a request timeout resolves with the approval-timed-out reason', async () =
   assert.equal(result.approved, false);
   assert.equal(result.reason, 'approval timed out');
 });
+
+test('a throwing or self-pointing surface lookup keeps the request local, without chain or copy', async () => {
+  for (const surfaceOf of [
+    () => {
+      throw new Error('surface lookup failed');
+    },
+    (own) => ({ sessionId: own, chain: ['x'] }),
+  ]) {
+    let state = { toolApproval: null, toolApprovalResult: null };
+    let disposed = false;
+    const api = createToolApproval({
+      getState: () => state,
+      set: (patch) => {
+        state = { ...state, ...patch };
+      },
+      nextId: () => 'req-1',
+      getDisposed: () => disposed,
+      surfaceOf,
+    });
+    const answer = api.requestToolApproval({ name: 'shell', sessionId: 'sess-sub' });
+    assert.equal(state.toolApproval.id, 'req-1');
+    assert.equal(state.toolApproval.chain, undefined);
+    assert.equal(state.toolApproval.surfaceSessionId, undefined);
+    assert.equal(api.finishToolApproval('req-1', true, 'ok'), true);
+    assert.deepEqual(await answer, { approved: true, reason: 'ok' });
+    disposed = true;
+    api.denyAllToolApprovals();
+  }
+});
