@@ -133,7 +133,11 @@ export async function appendSessionSearchMessages(sessionId, messages, { dataDir
  *  compacted away, or is under an identity the transcript no longer has) has
  *  no message to derive an identity from; its replacement gets a fresh random
  *  id, so no two rows ever merge and no id is derived from the plaintext.
- *  Returns the count of deleted rows. */
+ *  Returns the count of deleted rows.
+ *
+ *  FOR UPDATE locks only the rows that exist: a write of the same session still
+ *  in flight is not seen, so callers must not overlap it with this one
+ *  (session-search-ingest.mjs runs a session's writes one at a time). */
 export async function replaceSessionSearchMessages(
   sessionId,
   plainMessages,
