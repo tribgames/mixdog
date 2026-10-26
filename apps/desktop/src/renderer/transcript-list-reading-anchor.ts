@@ -133,13 +133,22 @@ export function useReadingAnchor({
         hold.until = Math.min(hold.landedAt + READING_ANCHOR_HOLD_MAX_MS, performance.now() + READING_ANCHOR_HOLD_MS);
       }
       hold.start = start;
-      if (Math.abs(target - reading) < 0.5) return;
+      // A landing's render already resolved the core at this offset (see the
+      // capture below); the native offset still has to follow, unless it is
+      // already there: every rows commit under a hold restores as a landing,
+      // and rewriting the same scrollTop forced a layout in each (49 on a
+      // phone resuming mid-reply).
+      if (
+        Math.abs(target - reading) < 0.5 &&
+        (!landing || (domTop.current !== null && Math.abs(domTop.current - target) < 0.5))
+      )
+        return;
       if (transcriptScrollDiagnosticsEnabled()) {
         logTranscriptScroll('reading-anchor', { from: reading, to: target, index: at, start, landing });
       }
       writeReadingOffset(instance, target);
     },
-    [flushDeferredResizes, indexForPendingKey, readingAnchorHeld, writeReadingOffset, virtualizerRef]
+    [flushDeferredResizes, indexForPendingKey, readingAnchorHeld, writeReadingOffset, virtualizerRef, domTop]
   );
   noteScrollOffset.current = (top: number) => {
     // The held anchor is applied relative to the reader's offset, so reader
@@ -166,10 +175,24 @@ export function useReadingAnchor({
   } else if (pendingAnchor.current?.base !== laidOutRows.current) {
     // Before this render resolves the new geometry: the cache still
     // describes the rows on screen.
-    pendingAnchor.current = {
-      base: laidOutRows.current,
-      anchor: captureReadingAnchor(virtualizer, laidOutRows.current, rows, scrollInset.current),
-    };
+    const anchor = captureReadingAnchor(virtualizer, laidOutRows.current, rows, scrollInset.current);
+    pendingAnchor.current = { base: laidOutRows.current, anchor };
+    // Rows landed above the anchor: this render's range resolves at the
+    // offset the landing commit restores (restoreReadingAnchor, the same
+    // `start - offset`). Resolved at the pre-landing offset, its indexes named
+    // the page's oldest rows: the commit unmounted every row on screen,
+    // mounted rows nobody saw, and the restore rebuilt the reader's rows from
+    // scratch in the same task (a phone: two full row sets per page, most of
+    // an upward fling's 200-300 ms landing task). The restore still writes
+    // the native offset; its re-render then finds the same rows mounted.
+    if (anchor) {
+      const at = indexForPendingKey(anchor.key, anchor.index);
+      if (at >= 0 && at !== anchor.index) {
+        virtualizer.getTotalSize();
+        const start = virtualizer.measurementsCache[at]?.start;
+        if (start !== undefined) coreScrollState(virtualizer).scrollOffset = Math.max(0, start - anchor.offset);
+      }
+    }
   }
   return { laidOutRows, pendingAnchor, anchorHold, readingAnchorHeld, restoreReadingAnchor, queueAnchorRestore };
 }

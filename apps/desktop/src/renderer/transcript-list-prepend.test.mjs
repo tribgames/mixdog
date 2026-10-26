@@ -318,6 +318,83 @@ for (const [scenario, windowStart, pageStart, readerGesture, readerTop] of [
   });
 }
 
+// The landing commit renders the range at the reader's restored offset: the
+// rows on screen keep their elements. Rendered first at the pre-landing
+// offset, whose indexes now name the page's oldest rows, every row the reader
+// saw was unmounted and built again in the same task (a phone: 21 rows twice
+// per page, the 200-300 ms task of an upward fling).
+test('a landing page keeps the mounted rows the reader sees, never unmounting and rebuilding them', async () => {
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const sessionKey = 'landing-keeps-rows';
+  const items = turnItems(20);
+  const heights = new Map();
+  const project = (from) => {
+    const window = items.slice(from);
+    const { rows } = projectSettledTranscriptRows({
+      sessionKey,
+      items: window,
+      turnKeys: transcriptTurnKeys(window),
+      failedTurns: new Set(),
+    });
+    for (const row of rows) heights.set(row.key, rowHeight(row));
+    return rows;
+  };
+  const held = project(6 * 10);
+  const mount = await mountTranscript(heights, sessionKey);
+  try {
+    await mount.render(held);
+    await mount.settle();
+    await mount.scrollTo(3000);
+    const elements = new Map(
+      [...mount.viewport.querySelectorAll('.transcript-virtual-row')].map((element) => [
+        element.dataset.timelineKey,
+        element,
+      ])
+    );
+    const before = mount.firstVisible();
+    assert.ok(before, 'a row is in view');
+    // Every row element the landing commit removes, by key.
+    const removed = [];
+    const observer = new window.MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.removedNodes) if (node.dataset?.timelineKey) removed.push(node.dataset.timelineKey);
+    });
+    observer.observe(mount.viewport, { childList: true, subtree: true });
+    const landedRows = project(6 * 6);
+    await mount.render(landedRows);
+    // A later rows commit under the same hold (a streamed row, a catch-up)
+    // with nothing above the reader moved writes no offset: a phone resuming
+    // mid-reply wrote the unchanged scrollTop on every commit, each one a
+    // forced layout.
+    const writesAfterLanding = mount.writes();
+    await mount.render([...landedRows]);
+    await mount.render([...landedRows]);
+    assert.equal(mount.writes(), writesAfterLanding, 'an unchanged reading offset is not written again');
+    observer.takeRecords().forEach((record) => {
+      for (const node of record.removedNodes) if (node.dataset?.timelineKey) removed.push(node.dataset.timelineKey);
+    });
+    observer.disconnect();
+    const landed = mount.firstVisible(new Set([before.key]));
+    assert.equal(landed?.key, before.key);
+    assert.ok(Math.abs(landed.offset - before.offset) <= 1, `landed ${landed.offset} vs ${before.offset}`);
+    const kept = [...mount.viewport.querySelectorAll('.transcript-virtual-row')].filter(
+      (element) => elements.get(element.dataset.timelineKey) === element
+    );
+    const mountedKeys = new Set(
+      [...mount.viewport.querySelectorAll('.transcript-virtual-row')].map((element) => element.dataset.timelineKey)
+    );
+    const rebuilt = [...elements.keys()].filter((key) => removed.includes(key) && mountedKeys.has(key));
+    assert.deepEqual(rebuilt, [], 'no row the reader saw was unmounted and mounted again');
+    assert.ok(
+      kept.some((element) => element.dataset.timelineKey === before.key),
+      'the reader row kept its element'
+    );
+  } finally {
+    await mount.cleanup();
+  }
+});
+
 test('a row above the reader that grows into view during a gesture is corrected, not drawn over the reader', async () => {
   const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
   const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
@@ -627,7 +704,10 @@ for (const [scenario, readerTop, flingTo, retouch = false] of [
           assert.equal(Math.round(mount.viewport.scrollTop), Math.round(edge + held - 300), 'the page is reachable');
           assert.equal(mount.deviation(), 0, 'no hold returns');
           const reached = mount.firstVisible(keys);
-          assert.ok(reached && oldTop && indexOf(reached.key) < indexOf(oldTop.key),`${reached?.key} lies above the old top ${oldTop?.key}`);
+          assert.ok(
+            reached && oldTop && indexOf(reached.key) < indexOf(oldTop.key),
+            `${reached?.key} lies above the old top ${oldTop?.key}`
+          );
           return;
         }
         touching = false;
