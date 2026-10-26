@@ -69,10 +69,13 @@ export function verifyTurnCredential({ secret, username, credential, nowMs }) {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+/** A port is 16 bits (RFC 9293 §3.1): 1-65535 are usable. */
+const MAX_PORT = 65_535;
+
 function parsePort(value, fallback, name) {
   if (value === undefined || value === '') return fallback;
   const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new RangeError(`${name} must be a port number.`);
+  if (!Number.isInteger(port) || port < 1 || port > MAX_PORT) throw new RangeError(`${name} must be a port number.`);
   return port;
 }
 

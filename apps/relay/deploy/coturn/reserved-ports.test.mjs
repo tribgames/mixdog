@@ -10,8 +10,8 @@ import {
   formatRanges,
   missingRanges,
   parseRanges,
-  removeRanges,
   run,
+  subtractRanges,
 } from './reserved-ports.mjs';
 
 /** A stand-in for /proc/sys/net/ipv4/ip_local_reserved_ports and the unit's record file. */
@@ -37,15 +37,28 @@ function sysctl(t, initial = '') {
       });
     },
     /** The ranges the ownership record names. */
-    recorded: () => readFileSync(record, 'utf8').trim().replace(/^\w+ ?/u, ''),
+    recorded: () =>
+      readFileSync(record, 'utf8')
+        .trim()
+        .replace(/^\w+ ?/u, ''),
     state: () => readFileSync(record, 'utf8').trim().split(' ')[0],
   };
 }
 
 test('port lists parse, merge and print the way the kernel reads them', () => {
   assert.deepEqual(parseRanges(''), []);
-  assert.deepEqual(parseRanges('8080,10000-10010'), [[8080, 8080], [10000, 10010]]);
-  assert.deepEqual(parseRanges('10-20, 15-30,31,5'), [[5, 5], [10, 31]], 'overlapping and adjacent ranges join');
+  assert.deepEqual(parseRanges('8080,10000-10010'), [
+    [8080, 8080],
+    [10000, 10010],
+  ]);
+  assert.deepEqual(
+    parseRanges('10-20, 15-30,31,5'),
+    [
+      [5, 5],
+      [10, 31],
+    ],
+    'overlapping and adjacent ranges join'
+  );
   assert.equal(formatRanges(parseRanges('10000-10010,8080')), '8080,10000-10010');
   for (const bad of ['a', '10-', '-5', '20-10', '70000', '1-65536', '1;2']) {
     assert.throws(() => parseRanges(bad), RangeError, bad);
@@ -60,7 +73,7 @@ test('missing, added and removed parts are exact', () => {
   assert.equal(coversRange(current, 49999, 60000), false);
   const added = missingRanges(current, 49152, 65535);
   assert.equal(formatRanges(addRanges(current, added)), '8080,49152-65535');
-  assert.equal(formatRanges(removeRanges(addRanges(current, added), added)), '8080,50000-60000');
+  assert.equal(formatRanges(subtractRanges(addRanges(current, added), added)), '8080,50000-60000');
 });
 
 test('apply reserves only the missing part and leaves what others reserved', (t) => {
@@ -115,7 +128,10 @@ test('ownership is recorded before the reservation changes: a failed save leaves
 test('a crash between the steps leaves a record that releases whatever was reserved', (t) => {
   // Dies at the sysctl write (2): pending record, nothing reserved yet.
   const beforeSysctl = sysctl(t, '8080');
-  assert.throws(() => beforeSysctl.runFailingWrite(2, 'apply', '49152', '65535', beforeSysctl.record), /write 2 failed/u);
+  assert.throws(
+    () => beforeSysctl.runFailingWrite(2, 'apply', '49152', '65535', beforeSysctl.record),
+    /write 2 failed/u
+  );
   assert.equal(beforeSysctl.value(), '8080');
   assert.equal(beforeSysctl.state(), 'pending');
   assert.equal(beforeSysctl.recorded(), '49152-65535');

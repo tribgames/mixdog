@@ -8,11 +8,20 @@ import { randomBytes } from 'node:crypto';
 import { createSocket } from 'node:dgram';
 import { pathToFileURL } from 'node:url';
 
+// RFC 8489 §5: the fixed magic cookie and the 20-byte header; §14.2: the
+// XOR-MAPPED-ADDRESS attribute and its IPv4 family value; §5 / IANA STUN
+// registry: Binding request 0x0001, Binding success response 0x0101.
 const MAGIC_COOKIE = 0x2112a442;
 const HEADER_BYTES = 20;
+const BINDING_REQUEST = 0x0001;
 const BINDING_SUCCESS = 0x0101;
 const XOR_MAPPED_ADDRESS = 0x0020;
 const FAMILY_IPV4 = 0x01;
+/** RFC 8489 §5: the transaction ID is 96 bits. */
+const TRANSACTION_ID_BYTES = 12;
+/** coturn's `listening-port` default (the same value as TURN_DEFAULT_PORT in
+ *  lib/turn-credentials.mjs; this script ships standalone to the VPS). */
+const STUN_DEFAULT_PORT = 3478;
 /** RFC 8489 §14.2: reserved byte, family byte, X-Port (2), X-Address (4 for IPv4). */
 const XOR_MAPPED_IPV4_BYTES = 8;
 
@@ -25,9 +34,9 @@ export const STUN_RTO_MS = 500;
 export const STUN_RC = 7;
 export const STUN_RM = 16;
 
-export function bindingRequest(transactionId = randomBytes(12)) {
+export function bindingRequest(transactionId = randomBytes(TRANSACTION_ID_BYTES)) {
   const message = Buffer.alloc(HEADER_BYTES);
-  message.writeUInt16BE(0x0001, 0);
+  message.writeUInt16BE(BINDING_REQUEST, 0);
   message.writeUInt32BE(MAGIC_COOKIE, 4);
   transactionId.copy(message, 8);
   return message;
@@ -68,7 +77,7 @@ export function parseBindingResponse(message, transactionId) {
 
 /** One Binding transaction with the RFC 8489 §6.2.1 schedule. `rtoMs` exists so
  *  a test can run the same schedule at a smaller scale. */
-export function probeStun(host, port = 3478, { rtoMs = STUN_RTO_MS } = {}) {
+export function probeStun(host, port = STUN_DEFAULT_PORT, { rtoMs = STUN_RTO_MS } = {}) {
   return new Promise((resolve, reject) => {
     const socket = createSocket('udp4');
     const request = bindingRequest();

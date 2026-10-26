@@ -14,6 +14,7 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
+/** A port is 16 bits (RFC 9293 §3.1). */
 const MAX_PORT = 65_535;
 
 /** Sorted, merged (overlapping and adjacent ranges joined) [lo, hi] pairs. */
@@ -29,7 +30,10 @@ function normalize(ranges) {
 
 export function parseRanges(text) {
   const ranges = [];
-  for (const token of String(text).split(',').map((part) => part.trim()).filter(Boolean)) {
+  for (const token of String(text)
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)) {
     const match = /^(\d+)(?:-(\d+))?$/u.exec(token);
     if (!match) throw new RangeError(`not a port range: ${token}`);
     const lo = Number(match[1]);
@@ -61,7 +65,6 @@ export function subtractRanges(from, removed) {
 export const missingRanges = (current, lo, hi) => subtractRanges([[lo, hi]], current);
 export const coversRange = (current, lo, hi) => missingRanges(current, lo, hi).length === 0;
 export const addRanges = (current, added) => normalize([...current, ...added]);
-export const removeRanges = (current, removed) => subtractRanges(current, removed);
 
 function readRanges(path) {
   return parseRanges(readFileSync(path, 'utf8'));
@@ -121,7 +124,7 @@ export function run(
   if (command === 'release') {
     const added = readRecord(args[0]);
     if (added.length === 0) return 'nothing to release';
-    write(proc, `${formatRanges(removeRanges(readRanges(proc), added))}\n`);
+    write(proc, `${formatRanges(subtractRanges(readRanges(proc), added))}\n`);
     saveRecord(args[0], 'released', [], write);
     return `released ${formatRanges(added)}`;
   }
