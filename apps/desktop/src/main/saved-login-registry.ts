@@ -5,8 +5,8 @@
  * until the filling turn settles or its owner is proven gone.
  */
 
-/** What replaces a Computer Use saved-login password wherever it later appears. */
-export const SAVED_LOGIN_MARKER = '[saved login]';
+import { redactBetweenMarkers, SAVED_LOGIN_MARKER } from './secret-markers';
+
 /** One saved-login fill's scope: the runtime process that sent it (its owner
  *  id, src/runtime/computer-bridge/client.mjs SAVED_LOGIN_OWNER_ID), its
  *  session and that session's agent turn number. Everything the fill set up
@@ -105,12 +105,11 @@ export function createSavedLoginRegistry() {
   return {
     /** `text` with every saved-login password replaced by SAVED_LOGIN_MARKER:
      *  longest first, so a value containing another is replaced whole; for
-     *  every session, never silent removal. */
+     *  every session, never silent removal. Markers already in `text`
+     *  (secret-markers.ts) are left as they are. */
     redact(text: string): string {
-      let out = text;
-      const saved = [...new Set(savedLoginValues.map((entry) => entry.value))];
-      for (const value of saved.sort((a, b) => b.length - a.length)) out = out.replaceAll(value, SAVED_LOGIN_MARKER);
-      return out;
+      const saved = [...new Set(savedLoginValues.map((entry) => entry.value))].sort((a, b) => b.length - a.length);
+      return redactBetweenMarkers(text, saved, SAVED_LOGIN_MARKER);
     },
     /** Register every spelling of a saved-login password for redaction in
      *  every session's later replies, as SAVED_LOGIN_MARKER, until `turn`

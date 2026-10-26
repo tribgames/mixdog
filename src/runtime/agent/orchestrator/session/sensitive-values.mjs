@@ -14,7 +14,17 @@
 // evicted. In text, replacement is the exact substring, longest spelling
 // first, so a shorter value never splits a longer one. Which parts of a
 // message are text is sensitive-projection.mjs's business.
+//
+// A marker is opaque to every redaction: values are replaced only in the text
+// between markers (the one written here, and the one the desktop writes for a
+// saved login, which reaches the transcript in replies), so redacting twice
+// is redacting once and a value such as `e` never rewrites a marker's letters.
 export const MARKER = '[redacted]';
+/** What the desktop writes for a Computer Use saved-login password
+ *  (apps/desktop/src/main/secret-markers.ts). */
+export const SAVED_LOGIN_MARKER = '[saved login]';
+/** Every marker a redactor writes. */
+export const MARKERS = [MARKER, SAVED_LOGIN_MARKER];
 /** sessionId → { version, values: Set(value), spellings: string[] (longest first) } */
 const bySession = new Map();
 /** sessionId → Set(listener) notified synchronously when the session gains a value. */
@@ -90,9 +100,22 @@ export function sensitiveValuesVersion(sessionId) {
   return bySession.get(sessionId)?.version || 0;
 }
 
+/** `text` with `edit` applied to each stretch between markers, the markers
+ *  themselves kept as written. */
+function editBetweenMarkers(text, edit, next = 0) {
+  if (next === MARKERS.length) return edit(text);
+  const marker = MARKERS[next];
+  return text
+    .split(marker)
+    .map((part) => editBetweenMarkers(part, edit, next + 1))
+    .join(marker);
+}
+
 function redactText(text, spellings) {
   let out = text;
-  for (const spelling of spellings) if (out.includes(spelling)) out = out.replaceAll(spelling, MARKER);
+  for (const spelling of spellings) {
+    if (out.includes(spelling)) out = editBetweenMarkers(out, (plain) => plain.replaceAll(spelling, MARKER));
+  }
   return out;
 }
 
@@ -116,10 +139,18 @@ export function redactSettledText(sessionId, text) {
   const known = bySession.get(sessionId);
   if (!known?.spellings.length || typeof text !== 'string') return text;
   const out = redactText(text, known.spellings);
+  // Only the plain text after the last marker can start a value; a marker is never held.
+  const plainFrom = Math.max(
+    ...MARKERS.map((marker) => {
+      const at = out.lastIndexOf(marker);
+      return at < 0 ? 0 : at + marker.length;
+    })
+  );
+  const tail = out.slice(plainFrom);
   let held = 0;
   for (const spelling of known.spellings) {
-    for (let length = Math.min(spelling.length - 1, out.length); length > held; length -= 1) {
-      if (out.endsWith(spelling.slice(0, length))) {
+    for (let length = Math.min(spelling.length - 1, tail.length); length > held; length -= 1) {
+      if (tail.endsWith(spelling.slice(0, length))) {
         held = length;
         break;
       }

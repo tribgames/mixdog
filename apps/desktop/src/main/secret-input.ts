@@ -16,7 +16,6 @@ import { createSecretRequests } from './secret-requests';
 import { createSessionSecrets } from './session-secrets';
 
 export {
-  SAVED_LOGIN_MARKER,
   type SavedLoginOwnerProcess,
   type SavedLoginPixelGuard,
   type SavedLoginTurn,
@@ -27,7 +26,7 @@ export {
   type SecretBinding,
   type SecretFieldForm,
 } from './secret-requests';
-export { REDACTED_MARKER } from './session-secrets';
+export { REDACTED_MARKER, SAVED_LOGIN_MARKER } from './secret-markers';
 
 /** What the agent hears about a fill (human-gate/requests.mjs HANDOFF_OUTCOMES). */
 export type SecretFillOutcome = 'entered' | 'no_field' | 'page_changed' | 'blocked' | 'expired';

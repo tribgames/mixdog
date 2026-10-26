@@ -4,8 +4,7 @@
  * field of it may still hold focus (captures are withheld meanwhile).
  */
 
-/** What replaces a filled secret wherever it later appears in tool output. */
-export const REDACTED_MARKER = '[redacted]';
+import { REDACTED_MARKER, redactBetweenMarkers } from './secret-markers';
 
 export function createSessionSecrets() {
   const sessionSecrets = new Map<string, Set<string>>();
@@ -30,12 +29,11 @@ export function createSessionSecrets() {
       return [...(sessionSecrets.get(sessionId) || [])];
     },
     /** `text` with every secret of `sessionId` replaced by REDACTED_MARKER:
-     *  longest first, so a secret containing a shorter one is replaced whole. */
+     *  longest first, so a secret containing a shorter one is replaced whole;
+     *  markers already in `text` (secret-markers.ts) are left as they are. */
     redact(sessionId: string, text: string): string {
-      let out = text;
       const secrets = [...(sessionSecrets.get(sessionId) || [])].sort((a, b) => b.length - a.length);
-      for (const secret of secrets) out = out.replaceAll(secret, REDACTED_MARKER);
-      return out;
+      return redactBetweenMarkers(text, secrets, REDACTED_MARKER);
     },
     /** The session ended: its secrets and focus leave memory. */
     forget(sessionId: string): void {

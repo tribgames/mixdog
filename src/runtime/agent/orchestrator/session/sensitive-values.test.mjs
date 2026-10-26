@@ -23,6 +23,7 @@ const { _buildWirePayload } = await import('./store/save-delta.mjs');
 const {
   onSensitiveValuesMarked,
   redactSensitiveText: redactSensitive,
+  redactSettledText,
   rememberSensitiveValues,
   sensitiveValuesVersion,
 } = await import('./sensitive-values.mjs');
@@ -203,6 +204,41 @@ test('every value stays known for the session; none is evicted', () => {
   markFill(id, 'abcd');
   markFill(id, 'xxabcdxx');
   assert.equal(redactSensitive(id, 'xxabcdxx'), '[redacted]');
+});
+
+test('a marker is opaque to redaction: twice is once, the desktop’s marker survives, a value beside one is redacted', () => {
+  const twice = (id, text) => {
+    const once = redactSensitive(id, text);
+    assert.equal(redactSensitive(id, once), once, `redacting twice changes ${JSON.stringify(text)}`);
+    return once;
+  };
+  // A one-character value: the letters of a marker already written are not the value.
+  const single = 'sensitive-marker-single';
+  markFill(single, 'e');
+  assert.equal(twice(single, 'e [redacted] e'), '[redacted] [redacted] [redacted]');
+  assert.equal(twice(single, 'see [saved login]'), 's[redacted][redacted] [saved login]', 'the desktop’s marker');
+  assert.equal(twice(single, 'e[redacted]e[saved login]e'), '[redacted][redacted][redacted][saved login][redacted]');
+  // Overlapping values: a later one never matches inside the marker an earlier one wrote.
+  const overlapping = 'sensitive-marker-overlap';
+  for (const value of ['abc', 'bcd', 'red', 'cted']) markFill(overlapping, value);
+  assert.equal(twice(overlapping, 'abcd red'), '[redacted]d [redacted]');
+  assert.equal(
+    twice(overlapping, 'abc red [redacted] cted [saved login]'),
+    '[redacted] [redacted] [redacted] [redacted] [saved login]'
+  );
+  // The stored form of a message is as stable.
+  const stored = redactSensitiveMessage(single, { role: 'tool', toolCallId: 'T', content: '{"k":"e [saved login]"}' });
+  assert.deepEqual(JSON.parse(stored.content), { k: '[redacted] [saved login]' });
+  assert.deepEqual(redactSensitiveMessage(single, stored), stored);
+});
+
+test('the held tail of streaming text is plain text after the last marker, never part of a marker', () => {
+  const id = 'sensitive-marker-held';
+  markFill(id, ']ab');
+  assert.equal(redactSettledText(id, 'code [redacted]'), 'code [redacted]');
+  assert.equal(redactSettledText(id, 'code [saved login]'), 'code [saved login]');
+  assert.equal(redactSettledText(id, 'code [redacted] ]a'), 'code [redacted] ');
+  assert.equal(redactSettledText(id, 'code ]ab and ]'), 'code [redacted] and ');
 });
 
 test('marking notifies the session’s listeners before returning, once per new value', () => {

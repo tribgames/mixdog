@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSecretInputs, REDACTED_MARKER, secretInputs } from '../secret-input.ts';
+import { createSavedLoginRegistry } from '../saved-login-registry.ts';
+import { createSecretInputs, REDACTED_MARKER, SAVED_LOGIN_MARKER, secretInputs } from '../secret-input.ts';
+import { createSessionSecrets } from '../session-secrets.ts';
 import { guardBrowserSecrets } from './agent-bridge.ts';
 
 const PASSWORD = 'S3NT1NEL-echoed-password-61';
@@ -140,6 +142,61 @@ test('saved-login passwords are redacted whole, longest first, before session se
   inputs.forget('s1');
   assert.equal(inputs.focusArmed('s1'), false);
   assert.deepEqual(inputs.secretsOf('s1'), []);
+});
+
+test('a marker is opaque to every redaction: redacting twice is redacting once, and no redactor rewrites another’s marker', () => {
+  assert.equal(SAVED_LOGIN_MARKER, '[saved login]');
+  const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
+  const twice = (redact, text) => {
+    const once = redact(text);
+    assert.equal(redact(once), once, `redacting twice changes ${JSON.stringify(text)}`);
+    return once;
+  };
+
+  // A one-character secret: the letters of a marker already written are not the secret.
+  const single = createSessionSecrets();
+  single.remember('s1', 'e');
+  const redactSingle = (text) => single.redact('s1', text);
+  assert.equal(twice(redactSingle, 'e [redacted] e'), '[redacted] [redacted] [redacted]');
+  assert.equal(twice(redactSingle, 'see [saved login]'), 's[redacted][redacted] [saved login]');
+  assert.equal(redactSingle(redactSingle(redactSingle('e'))), '[redacted]');
+
+  // Overlapping secrets: a later one never matches inside the marker an earlier one wrote.
+  const overlapping = createSessionSecrets();
+  for (const secret of ['abc', 'bcd', 'red', 'cted']) overlapping.remember('s1', secret);
+  const redactOverlapping = (text) => overlapping.redact('s1', text);
+  assert.equal(twice(redactOverlapping, 'abcd red'), '[redacted]d [redacted]');
+  assert.equal(twice(redactOverlapping, 'abc red [redacted] cted'), '[redacted] [redacted] [redacted] [redacted]');
+  const registry = createSavedLoginRegistry();
+  assert.equal(registry.rememberSavedLogin(turn, ['abc', 'ab', 'bc', 'ed']), true);
+  const redactSaved = (text) => registry.redact(text);
+  assert.equal(twice(redactSaved, 'abcbc ab ed'), '[saved login][saved login] [saved login] [saved login]');
+
+  // A marker written by one redactor survives the other, in either order.
+  assert.equal(redactSaved('[redacted] [saved login] ed'), '[redacted] [saved login] [saved login]');
+  const inputs = createSecretInputs();
+  inputs.remember('s1', 'e');
+  inputs.remember('s1', 'in');
+  assert.equal(inputs.rememberSavedLogin(turn, ['ed', 'Pa55word']), true);
+  const redactAll = (text) => inputs.redact('s1', text);
+  assert.equal(
+    twice(redactAll, 'Pa55word [redacted] [saved login] e ed'),
+    '[saved login] [redacted] [saved login] [redacted] [saved login]'
+  );
+});
+
+test('a secret next to a marker is still redacted', () => {
+  const inputs = createSecretInputs();
+  const turn = { sessionId: 's2', turnId: 1, ownerId: '0123456789abcdef0123456789abcdef0123' };
+  inputs.remember('s1', 'e');
+  inputs.remember('s1', 'x');
+  assert.equal(inputs.redact('s1', 'e[redacted]e'), '[redacted][redacted][redacted]');
+  assert.equal(inputs.redact('s1', 'x[saved login]x'), '[redacted][saved login][redacted]');
+  assert.equal(inputs.rememberSavedLogin(turn, ['pw']), true);
+  assert.equal(
+    inputs.redact('s1', 'pw[redacted]pw[saved login]pw'),
+    '[saved login][redacted][saved login][saved login][saved login]'
+  );
 });
 
 test('request bindings: a page binding and a window binding never answer for each other; bad targets bind nothing', () => {
