@@ -1237,7 +1237,10 @@ function ToolApprovalCard({
     [browserTakeover, takeoverSessionId, takeoverTab]
   );
   const openPage = Boolean(pageViewer && browserPageRequestsAvailable());
-  const openScreen = remoteScreenAvailable(window.mixdogDesktop, isMobileRemoteSurface());
+  const openScreen = remoteScreenAvailable(
+    typeof window === 'undefined' ? undefined : window.mixdogDesktop,
+    isMobileRemoteSurface()
+  );
   const [text, setText] = useState(model.payload);
   // A secret is never React state: the inputs hold it until submit reads them.
   const secretRef = useRef<HTMLInputElement | null>(null);

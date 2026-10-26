@@ -24,7 +24,10 @@ const STUBS = {
     DesktopErrorBoundary: ({ children }) => children,
     installGlobalRendererDiagnostics: noop,
   },
-  './remote-ui-projection.ts': { isNativeDesktopWindow: () => false },
+  './remote-ui-projection.ts': {
+    isElectronRenderer: () => false,
+    isNativeDesktopWindow: () => false,
+  },
   './shell-viewport.ts': { installShellViewport: noop },
   './focus-modality.ts': { installFocusModality: noop },
   './mobile-surface.ts': { installMobileSurfaceMarker: noop },

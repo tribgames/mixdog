@@ -87,7 +87,10 @@ test('a flyout opened before its module is ready shows the loading placeholder u
 test('the rail draws one bar per brand by default and saves the chosen two-bar mode in settings', async (t) => {
   const { root, props, stored } = await mountRail(t);
   assert.equal(meters('claude').length, 1);
-  assert.equal(brand('claude').querySelector('small').textContent, '99%');
+  // One bar is the long window, and the figure under it is that window's own
+  // usage (4af1cd7f1); the highest-window figure belongs to two-bar mode.
+  assert.equal(meters('claude')[0].firstElementChild.style.width, '41%');
+  assert.equal(brand('claude').querySelector('small').textContent, '41%');
   assert.equal(meters('claude')[0].classList.contains('is-cool'), false);
 
   await press(await openFlyout());
