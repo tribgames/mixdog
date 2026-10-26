@@ -113,12 +113,19 @@ function attempt(file, step, outcome) {
   }
 }
 
-function migrateAgentFiles(dataDir, merged, outcome) {
+function migrateAgentFiles(dataDir, merged, outcome, readdir) {
   for (const store of ['agents', 'bots']) {
-    let entries = [];
+    const dir = join(dataDir, store);
+    let entries;
     try {
-      entries = readdirSync(join(dataDir, store), { withFileTypes: true }).filter((entry) => entry.isDirectory());
-    } catch {
+      entries = readdir(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    } catch (error) {
+      // A store that does not exist has nothing to migrate; any other failure
+      // leaves its agents unprocessed, so the mapping must stay pending.
+      if (error?.code !== 'ENOENT') {
+        warn(dir, error);
+        outcome.failed.push(dir);
+      }
       continue;
     }
     for (const entry of entries) {
@@ -261,8 +268,9 @@ const validGroup = (group) =>
  *  an earlier start. Returns what it rewrote and the files that failed:
  *  `{ agents, projects, hooks, failed, unrecorded? }`. The pending record is
  *  removed only when `failed` is empty; `unrecorded` says it could not be
- *  written, so the caller must not save the merge. */
-export function migrateMergedConnectorServers(dataDir, merged) {
+ *  written, so the caller must not save the merge. `readdir` lists the agent
+ *  and bot directories. */
+export function migrateMergedConnectorServers(dataDir, merged, { readdir = readdirSync } = {}) {
   const outcome = { agents: [], projects: [], hooks: [], failed: [] };
   if (!dataDir) return outcome;
   const pendingFile = join(dataDir, PENDING_MERGE_FILE);
@@ -289,7 +297,7 @@ export function migrateMergedConnectorServers(dataDir, merged) {
       outcome.unrecorded = true;
     }
   }
-  migrateAgentFiles(dataDir, groups, outcome);
+  migrateAgentFiles(dataDir, groups, outcome, readdir);
   migrateProjectFile(dataDir, groups, outcome);
   migrateHookFiles(dataDir, groups, outcome);
   if (!outcome.failed.length) rmSync(pendingFile, { force: true });

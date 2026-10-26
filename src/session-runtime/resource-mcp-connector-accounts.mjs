@@ -7,6 +7,7 @@ import {
   MCP_TIMEOUT_FIELD_GROUPS,
 } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
 import {
+  connectorAccountEnabled,
   connectorAccountEntry,
   connectorAccountServer,
   connectorAccountServers,
@@ -123,7 +124,9 @@ export function createConnectorAccountEdits({
       ...server,
       ...serverFields,
       accounts: connectorAccountsOf(cfg).map((entry) =>
-        entry.name === account.name ? connectorAccountEntry(account.name, next) : entry
+        entry.name === account.name
+          ? { ...connectorAccountEntry(account.name, next), ...(connectorAccountEnabled(entry) ? {} : { enabled: false }) }
+          : entry
       ),
     };
     saveServers(servers);

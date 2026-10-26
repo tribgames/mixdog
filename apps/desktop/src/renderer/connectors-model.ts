@@ -64,10 +64,12 @@ export function connectorAccountRows(servers: readonly Row[]): Row[] {
     return (accounts as Row[]).map((account) => {
       const authRequired = account.authRequired === true;
       const error = text(account.error);
-      const off = server.enabled === false;
-      const connected = server.connected === true && !authRequired && !error;
+      const accountOff = account.enabled === false;
+      const off = server.enabled === false || accountOff;
+      const connected = server.connected === true && !accountOff && !authRequired && !error;
       return {
         ...base,
+        ...(accountOff ? { enabled: false } : {}),
         name: text(account.name),
         server: server.name,
         ...(account.oauth ? { oauth: account.oauth } : {}),
@@ -75,7 +77,9 @@ export function connectorAccountRows(servers: readonly Row[]): Row[] {
         ...(account.ownClient === true ? { ownClient: true } : {}),
         connected,
         status: off
-          ? server.status
+          ? accountOff
+            ? 'disabled'
+            : server.status
           : connected
             ? 'connected'
             : authRequired

@@ -236,6 +236,17 @@ export function connectorAccountServers(cfg) {
   return connectorAccountsOf(cfg).map((account) => connectorAccountServer(cfg, account));
 }
 
+/** Whether stored account `account` is switched on (`enabled: false` is off). */
+export const connectorAccountEnabled = (account) => account.enabled !== false;
+
+/** The switched-on accounts of `cfg` as their one-account server configs: the
+ *  ones the server connects and routes calls to. */
+export function connectorLiveAccountServers(cfg) {
+  return connectorAccountsOf(cfg)
+    .filter(connectorAccountEnabled)
+    .map((account) => connectorAccountServer(cfg, account));
+}
+
 /** The stored account entry of one-account config `cfg` under `name`. */
 export function connectorAccountEntry(name, cfg) {
   const out = { name };
@@ -253,7 +264,10 @@ const naturalOrder = (a, b) => a.localeCompare(b, 'en', { numeric: true });
  * else the first name; its other fields come from that server. Accounts keep
  * their names, transports and order (that server's first); a second entry
  * for the same name or app-password address is dropped. The merged server is
- * off only when every merged one was. Idempotent: `merged` is empty when
+ * off only when every merged one was; otherwise the accounts of a merged
+ * server that was off stay off (`enabled: false` on the account), and an
+ * account's own `enabled: false` is kept. A server left with no switched-on
+ * account is off. Idempotent: `merged` is empty when
  * nothing changed. Returns `{ servers, merged: [{ connector, name, from }] }`.
  */
 export function mergeConnectorAccountServers(input) {
@@ -268,18 +282,22 @@ export function mergeConnectorAccountServers(input) {
     if (names.length === 1 && grouped.length === 1) continue;
     const target = grouped[0] ?? (names.includes(entry.id) ? entry.id : names[0]);
     const order = [target, ...names.filter((name) => name !== target)];
+    const off = order.every((name) => input[name].enabled === false);
     const accounts = [];
     const seenNames = new Set();
     const seenAddresses = new Set();
     for (const name of order) {
       const cfg = servers[name];
       const own = Array.isArray(cfg.accounts) ? connectorAccountsOf(cfg) : [connectorAccountEntry(name, cfg)];
+      // A merged server that was off keeps its accounts off, unless the whole
+      // connector is off (then re-enabling it brings every account back).
+      const serverOff = !off && cfg.enabled === false;
       for (const account of own) {
         const address = gmailAppPasswordAccount(connectorAccountServer(cfg, account));
         if (seenNames.has(account.name) || (address && seenAddresses.has(address))) continue;
         seenNames.add(account.name);
         if (address) seenAddresses.add(address);
-        accounts.push(account);
+        accounts.push(serverOff ? { ...account, enabled: false } : account);
       }
     }
     const {
@@ -292,14 +310,13 @@ export function mergeConnectorAccountServers(input) {
       ...rest
     } = servers[target];
     for (const name of order) delete servers[name];
-    const off = order.every((name) => input[name].enabled === false);
     servers[target] = {
       ...rest,
       type: 'http',
       url: connectorAccountsUrl(entry.id),
       connector: entry.id,
       accounts,
-      ...(off ? { enabled: false } : {}),
+      ...(off || (accounts.length > 0 && !accounts.some(connectorAccountEnabled)) ? { enabled: false } : {}),
     };
     merged.push({ connector: entry.id, name: target, from: order });
   }

@@ -3,7 +3,9 @@
 // explicit owner metadata), per-server config reads, and the live/failed rollup.
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import {
-  connectorAccountServers,
+  connectorAccountEnabled,
+  connectorAccountServer,
+  connectorAccountsOf,
   connectorOfServer,
   gmailAppPasswordAccount,
 } from '../../runtime/shared/connector-catalog.mjs';
@@ -118,14 +120,16 @@ export function createMcpServerCatalog({
   }
 
   /** One account of a multi-account connector server, as its row lists it:
-   *  `{ name, email, appPassword?, oauth?, ownClient?, error?, authRequired? }`. */
-  function accountRow(accountCfg) {
+   *  `{ name, email, enabled?, appPassword?, oauth?, ownClient?, error?, authRequired? }`
+   *  (`enabled: false` only for an account that is switched off). */
+  function accountRow(accountCfg, enabled) {
     const address = gmailAppPasswordAccount(accountCfg);
     const oauth = address ? null : mcpClient.getMcpServerOAuthState?.(accountCfg);
     const state = connectorAccountHealth(accountCfg.name);
     const authRequired = Boolean(oauth && oauth.signedIn !== true) || state?.authRequired === true;
     return {
       name: accountCfg.name,
+      ...(enabled ? {} : { enabled: false }),
       email: address || oauth?.account || state?.email || '',
       ...(address ? { appPassword: { account: address } } : {}),
       ...(oauth ? { oauth } : {}),
@@ -148,7 +152,11 @@ export function createMcpServerCatalog({
         failures.get(name) || (dead ? { msg: live.error || live.lastError || 'MCP server is not alive' } : undefined);
       const entry = entries[name] || {};
       const loginPending = !(live && !dead) && mcpClient.isMcpLoginPending?.(name, getMcpScopeId()) === true;
-      const accounts = entry.owner ? [] : connectorAccountServers(cfg).map(accountRow);
+      const accounts = entry.owner
+        ? []
+        : connectorAccountsOf(cfg).map((account) =>
+            accountRow(connectorAccountServer(cfg, account), connectorAccountEnabled(account))
+          );
       // A connector server none of whose accounts is signed in needs a sign-in, not a repair.
       const accountsSignIn = accounts.length > 0 && accounts.every((account) => account.authRequired === true);
       const status = mcpServerStatus(

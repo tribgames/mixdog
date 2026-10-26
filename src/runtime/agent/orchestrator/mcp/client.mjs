@@ -38,7 +38,7 @@ import { rememberServerConnector } from './server-connectors.mjs';
 import { mcpOAuthClientFor, mcpOAuthDisplayName } from './oauth-client.mjs';
 import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
 import { gmailAppPasswordService } from '../../../connectors/gmail-app-password.mjs';
-import { connectorAccountServers } from '../../../shared/connector-catalog.mjs';
+import { connectorLiveAccountServers } from '../../../shared/connector-catalog.mjs';
 import {
   clearMcpOAuth,
   commitMcpOAuthSwitch,
@@ -1126,7 +1126,7 @@ export function isRegisteredMcpTool(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
 export function isBuiltinMailRead(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
   const target = resolveMcpToolTarget(normalizeMcpScopeId(scopeId), name);
   if (!target || (target.definition?.mcpToolName || MCP_TOOL_NAME_RE.exec(name)?.[2]) !== 'read_email') return false;
-  const accounts = connectorAccountServers(target.server.cfg);
+  const accounts = connectorLiveAccountServers(target.server.cfg);
   return (accounts.length ? accounts : [target.server.cfg]).every((cfg) => {
     try {
       const url = resolveMcpOAuthUrl(cfg);

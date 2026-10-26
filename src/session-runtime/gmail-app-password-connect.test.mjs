@@ -16,6 +16,7 @@ import {
   connectorAccountsUrl,
   connectorServerInput,
   gmailAppPasswordServerInput,
+  mergeConnectorAccountServers,
 } from '../runtime/shared/connector-catalog.mjs';
 import { PENDING_MERGE_FILE, migrateMergedConnectorServers } from './connector-merge-migration.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
@@ -210,7 +211,7 @@ test('migration: gmail, gmail-2 and gmail-3 become one server with three account
       connector: 'gmail',
       accounts: [
         { name: 'gmail', url: 'https://gmail.mixdog.invalid/mcp' },
-        appPasswordAccount('gmail-2', OTHER),
+        { ...appPasswordAccount('gmail-2', OTHER), enabled: false },
         appPasswordAccount('gmail-3', THIRD),
       ],
     },
@@ -527,11 +528,11 @@ test('migration drops the settings of a merged-away server name; the server keep
   });
   h.api.migrateConnectorAccounts();
   assert.deepEqual(Object.keys(h.config().extensionScopes.mcp), ['gmail'], 'gmail-2’s scope is gone, gmail’s kept');
-  // On/off is the server's: the formerly switched-off account is usable with it.
+  // The formerly switched-off account stays off while the server is on.
   assert.equal(h.config().mcpServers.gmail.enabled, undefined);
   assert.deepEqual(h.config().mcpServers.gmail.accounts, [
     appPasswordAccount('gmail', EMAIL),
-    appPasswordAccount('gmail-2', OTHER),
+    { ...appPasswordAccount('gmail-2', OTHER), enabled: false },
   ]);
 });
 
@@ -775,6 +776,76 @@ test('a store that fails to migrate stays pending and is retried on the next sta
   const saves = h.seen.saves;
   h.api.migrateConnectorAccounts();
   assert.equal(h.seen.saves, saves);
+});
+
+test('merging keeps a disabled account off; a connector with every account off stays off and brings them back when enabled', () => {
+  const oauth = { type: 'http', url: 'https://gmail.mixdog.invalid/mcp', connector: 'gmail' };
+  const mixed = mergeConnectorAccountServers({
+    gmail: oauth,
+    'gmail-2': { ...legacyAppPassword('gmail-2', OTHER), enabled: false },
+  }).servers.gmail;
+  assert.equal(mixed.enabled, undefined);
+  assert.deepEqual(
+    mixed.accounts.map((account) => [account.name, account.enabled]),
+    [
+      ['gmail', undefined],
+      ['gmail-2', false],
+    ]
+  );
+  // An account that is already off in a stored accounts server stays off.
+  const stored = mergeConnectorAccountServers({
+    gmail: { ...mixed, accounts: [mixed.accounts[0], { ...mixed.accounts[1], enabled: false }] },
+    'gmail-3': legacyAppPassword('gmail-3', 'team@gmail.com'),
+  }).servers.gmail;
+  assert.deepEqual(
+    stored.accounts.map((account) => [account.name, account.enabled]),
+    [
+      ['gmail', undefined],
+      ['gmail-2', false],
+      ['gmail-3', undefined],
+    ]
+  );
+  // Every server off: the connector is off and no account is flagged.
+  const off = mergeConnectorAccountServers({
+    gmail: { ...oauth, enabled: false },
+    'gmail-2': { ...legacyAppPassword('gmail-2', OTHER), enabled: false },
+  }).servers.gmail;
+  assert.equal(off.enabled, false);
+  assert.deepEqual(
+    off.accounts.map((account) => account.enabled),
+    [undefined, undefined]
+  );
+  // Every account of a stored server off: the connector is off.
+  const none = mergeConnectorAccountServers({
+    gmail: { ...mixed, accounts: mixed.accounts.map((account) => ({ ...account, enabled: false })) },
+    'gmail-3': { ...legacyAppPassword('gmail-3', 'team@gmail.com'), enabled: false },
+  }).servers.gmail;
+  assert.equal(none.enabled, false);
+});
+
+test('migration reports an unreadable agents directory and keeps the mapping pending; a missing one completes', (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'connector-merge-readdir-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const merged = [{ connector: 'gmail', name: 'gmail', from: ['gmail', 'gmail-2'] }];
+  const pending = join(dataDir, PENDING_MERGE_FILE);
+  const refuse = (code) => () => {
+    throw Object.assign(new Error(`${code}: cannot list`), { code });
+  };
+  const origWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = () => true;
+  let denied;
+  try {
+    denied = migrateMergedConnectorServers(dataDir, merged, { readdir: refuse('EACCES') });
+  } finally {
+    process.stderr.write = origWrite;
+  }
+  assert.deepEqual(denied.failed, [join(dataDir, 'agents'), join(dataDir, 'bots')]);
+  assert.deepEqual(JSON.parse(readFileSync(pending, 'utf8')), { merged: [{ name: 'gmail', from: ['gmail', 'gmail-2'] }] });
+
+  // The next start finds no such directory: nothing to migrate, record cleared.
+  const missing = migrateMergedConnectorServers(dataDir, [], { readdir: refuse('ENOENT') });
+  assert.deepEqual(missing.failed, []);
+  assert.throws(() => readFileSync(pending), { code: 'ENOENT' });
 });
 
 test('hook migration renames tool identifiers only, never argument conditions or other data', async (t) => {

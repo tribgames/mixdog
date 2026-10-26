@@ -172,6 +172,77 @@ async function connectHangingAccount(t) {
   return { ...account, client, transport, tool: tools[0].name };
 }
 
+// A configured-auth account server that answers every request and records them.
+async function recordingAccountServer(t) {
+  const requests = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      const message = JSON.parse(body);
+      requests.push(message.method);
+      res.setHeader('Content-Type', 'application/json');
+      res.end(
+        JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: 'ok' }] } })
+      );
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  return { url: `http://127.0.0.1:${server.address().port}/mcp`, requests };
+}
+
+const accountsCfg = (accounts) => ({
+  type: 'http',
+  connector: 'gmail',
+  url: 'https://connectors.mixdog.invalid/gmail/mcp',
+  accounts,
+});
+
+test('a disabled account is neither connected nor called', async (t) => {
+  const live = await recordingAccountServer(t);
+  const off = await recordingAccountServer(t);
+  const { transport } = createMcpTransport({
+    name: 'gmail',
+    cfg: accountsCfg([
+      { name: 'gmail', url: live.url, headers: { 'x-api-key': 'k' } },
+      { name: 'gmail-2', url: off.url, headers: { 'x-api-key': 'k' }, enabled: false },
+    ]),
+    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    log: () => {},
+  });
+  const client = new Client({ name: 'test', version: '1' });
+  t.after(() => client.close());
+  await client.connect(transport);
+  const { tools } = await client.listTools();
+
+  // Naming the disabled account is refused, listing only the live one.
+  const refused = await client.callTool({ name: tools[0].name, arguments: { account: 'gmail-2' } });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /Unknown .* account "gmail-2"\. Accounts: gmail\./);
+  // With one live account the call needs no `account` and goes to it alone.
+  const call = await client.callTool({ name: tools[0].name, arguments: {} });
+  assert.equal(call.isError, undefined);
+  assert.deepEqual(live.requests, ['initialize', 'tools/call']);
+  assert.deepEqual(off.requests, []);
+});
+
+test('a connector whose every account is disabled does not connect', (t) => {
+  assert.throws(
+    () =>
+      createMcpTransport({
+        name: 'gmail',
+        cfg: accountsCfg([{ name: 'gmail', url: 'http://127.0.0.1:1/mcp', headers: { 'x-api-key': 'k' }, enabled: false }]),
+        sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+        log: () => {},
+      }),
+    /Every account of "gmail" is disabled/
+  );
+});
+
 test('aborting a multi-account tool call aborts the downstream request', async (t) => {
   const { client, tool, aborted, calling } = await connectHangingAccount(t);
   const controller = new AbortController();

@@ -58,11 +58,15 @@ export interface ConnectorAccountEntry {
   url: string;
   headers?: Record<string, string>;
   oauthClientId?: string;
+  /** `false`: the account is kept but neither connected nor called. */
+  enabled?: boolean;
 }
 export function connectorAccountsUrl(id: string): string;
 export function connectorAccountsOf(cfg: unknown): ConnectorAccountEntry[];
 export function connectorAccountServer(cfg: Record<string, unknown>, account: ConnectorAccountEntry): Record<string, unknown>;
 export function connectorAccountServers(cfg: unknown): Record<string, unknown>[];
+export function connectorAccountEnabled(account: ConnectorAccountEntry): boolean;
+export function connectorLiveAccountServers(cfg: unknown): Record<string, unknown>[];
 export function connectorAccountEntry(name: string, cfg: Record<string, unknown>): ConnectorAccountEntry;
 export function mergeConnectorAccountServers(servers: Record<string, unknown>): {
   servers: Record<string, unknown>;

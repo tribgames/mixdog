@@ -10,8 +10,8 @@ import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.
 import { gmailAppPasswordService, withGmailAppPasswordMcp } from '../../../connectors/gmail-app-password.mjs';
 import { connectorAccountRequest, withConnectorAccountsMcp } from '../../../connectors/connector-accounts-mcp.mjs';
 import {
-  connectorAccountServers,
   connectorAccountsOf,
+  connectorLiveAccountServers,
   gmailAppPasswordAccount,
 } from '../../../shared/connector-catalog.mjs';
 import { isMcpOAuthReauthenticationRequired } from './oauth.mjs';
@@ -285,7 +285,11 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
   if (kind === 'http' || kind === 'sse') {
     const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
     const url = resolveMcpOAuthUrl(cfg);
-    const accountServers = connectorAccountServers(cfg);
+    // A disabled account is neither connected nor routed to.
+    const accountServers = connectorLiveAccountServers(cfg);
+    if (!accountServers.length && connectorAccountsOf(cfg).length) {
+      throw new Error(`Every account of "${name}" is disabled`);
+    }
     const transport = accountServers.length
       ? connectorAccountsTransport({ name, cfg, Transport, url, accountServers, oauthOptions, log })
       : remoteHttpTransport({ name, cfg, kind, Transport, url, oauthOptions, log });
