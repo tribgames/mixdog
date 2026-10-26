@@ -933,6 +933,57 @@ function assertDesktopPackageContract(desktopPackage) {
         desktopPackage.indexOf('name: Build Windows installer'),
     'the browser importer cache must bracket runtime preparation'
   );
+  // The secure-desktop helper follows the same restore/prepare/save bracket,
+  // its crate reaches the prepared runtime key, and its signature is verified.
+  assert.match(
+    desktopPackage,
+    /name:\s*Restore built secure-desktop helper[\s\S]*actions\/cache\/restore@[\s\S]*apps\/desktop\/\.cache\/secure-desktop[\s\S]*hashFiles\('native\/mixdog-secure-desktop\/\*\*'/
+  );
+  assert.ok(
+    desktopPackage.indexOf('name: Restore built secure-desktop helper') <
+      desktopPackage.indexOf('name: Prepare platform runtime') &&
+      desktopPackage.indexOf('name: Prepare platform runtime') <
+        desktopPackage.indexOf('name: Save built secure-desktop helper') &&
+      desktopPackage.indexOf('name: Save built secure-desktop helper') <
+        desktopPackage.indexOf('name: Build Windows installer'),
+    'the secure-desktop helper cache must bracket runtime preparation'
+  );
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /native\/mixdog-secure-desktop\/src\/\*\*/
+  );
+  // The browser importer ships in the same prepared runtime; its source must
+  // reach the key too, so a change to it cannot restore a stale runtime.
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /native\/mixdog-browser-import\/src\/\*\*/
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Verify Windows signatures[\s\S]*dist\/win-unpacked\/resources\/native-tools\/mixdog-secure-desktop\.exe/
+  );
+  // The helper's elevated install stages only an image signed by the release
+  // signer pinned at build time: the workflow supplies the full subject DN and
+  // an Artifact Signing profile EKU, keys every cache that holds a built
+  // helper on that pin, and runs the packaged helper's own pin check.
+  assert.match(desktopPackage, /^\s*MIXDOG_SECURE_DESKTOP_SIGNER_SUBJECT: '\s*CN=[^']*, O=[^']*, C=[A-Z]{2}'\s*$/m);
+  assert.match(
+    desktopPackage,
+    /^\s*MIXDOG_SECURE_DESKTOP_SIGNER_EKU: "1\.3\.6\.1\.4\.1\.311\.97\.(?!1\.0")\d+(\.\d+)*"\s*$/m
+  );
+  assert.match(desktopPackage, /echo "signer_pin=\$\(node -e /);
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /inputs\.platform == 'win32' && format\('-signer-\{0\}', steps\.runtime-dependencies\.outputs\.signer_pin\)/
+  );
+  assert.match(
+    desktopPackage.match(/key: desktop-secure-desktop-v\d+-[^\n]*/)?.[0] || '',
+    /-signer-\$\{\{ steps\.runtime-dependencies\.outputs\.signer_pin \}\}\s*$/
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Verify Windows signatures[\s\S]*mixdog-secure-desktop\.exe' verify-image\s*\n\s*if \(\$LASTEXITCODE -ne 0\)/
+  );
   const preparedRuntimeKey = desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '';
   assert.ok(preparedRuntimeKey, 'the prepared runtime cache key must be present');
   assert.doesNotMatch(

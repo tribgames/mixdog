@@ -11,6 +11,12 @@
 //!   install    elevated: create secret + state, register and start the service
 //!   uninstall  elevated: stop and delete the service, remove all state
 //!   status     report installed / running / version as JSON (no elevation)
+//!   check      exit 0 current / 1 missing / 2 stale / 4 other-user (no
+//!              elevation; the app's decision whether to install / uninstall)
+//!   start      start the installed demand-start service (no elevation; the
+//!              install granted the user start rights) — used after a reboot
+//!   verify-image [path]  check an image (default: this one) against the
+//!              release signer pinned at build time, as `install` does
 //!   probe      manual-test client over the pipe (run as the installing user)
 
 // Pure, portable modules: the wire contract and the security logic. These carry
@@ -43,6 +49,8 @@ mod probe;
 #[cfg(windows)]
 mod service;
 #[cfg(windows)]
+mod signature;
+#[cfg(windows)]
 mod shutdown;
 #[cfg(windows)]
 mod winutil;
@@ -53,14 +61,17 @@ fn main() {
     let code = match args.first().map(String::as_str) {
         Some("service") => service::run(),
         Some("helper") => helper::run(&args[1..]),
-        Some("install") => install::install(),
-        Some("uninstall") => install::uninstall(),
+        Some("install") => install::install(&args[1..]),
+        Some("uninstall") => install::uninstall(&args[1..]),
         Some("status") => install::status(),
+        Some("check") => install::check(&args[1..]),
+        Some("start") => install::start(),
+        Some("verify-image") => install::verify_image(&args[1..]),
         Some("probe") => probe::run(&args[1..]),
         other => {
             eprintln!(
                 "mixdog-secure-desktop: unknown command {:?}\n\
-                 commands: service | helper | install | uninstall | status | probe",
+                 commands: service | helper | install | uninstall | status | check | start | verify-image | probe",
                 other.unwrap_or("")
             );
             2

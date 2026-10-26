@@ -42,7 +42,14 @@ use serde::{Deserialize, Serialize};
 /// input desktop's real object name (see [`MAX_DESKTOP_NAME`]). The lock and
 /// sign-in screens render on the same `Winlogon` desktop as UAC consent, so a
 /// separate `locked` kind named a distinction the helper cannot observe.
-pub const PROTOCOL_VERSION: u32 = 3;
+///
+/// v4 made the helper authorize control itself: new input and `sas` need a
+/// live **control grant** — a `grant-challenge` the helper issued on this
+/// connection, signed by the paired phone's enrolled key over the current
+/// `video-run` epoch (see `security::GrantBook`). It also added `sas`
+/// (Ctrl+Alt+Del through the service), and `locked` on `server-hello` /
+/// `desktop-changed` (the session's lock state, read from WTS).
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Upper bound on a reported desktop name, in UTF-16 units: the helper reads
 /// the name through a 256-unit `UOI_NAME` buffer, so it can never exceed this.
@@ -173,14 +180,43 @@ pub enum Message {
         session: u32,
         /// Real object name of the input desktop (see [`FrameHeader::desktop`]).
         desktop: String,
+        /// Whether the console session is locked (WTS session flags); absent
+        /// when Windows reports the state as unknown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        locked: Option<bool>,
     },
-    /// helper -> app, whenever the input desktop changes.
-    DesktopChanged { desktop: String, session: u32 },
-    /// app -> helper, a single input action.
+    /// helper -> app, whenever the input desktop or the session's lock state
+    /// changes.
+    DesktopChanged {
+        desktop: String,
+        session: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        locked: Option<bool>,
+    },
+    /// app -> helper, a single input action. Applied only while control is
+    /// active **and** a control grant is live.
     Input { event: InputEvent },
-    /// app -> helper, starts or stops the remote-control session. Capture and
-    /// injection are inert until `active` is true; `false` stops both.
+    /// app -> helper, starts or stops the remote-control session. Capture is
+    /// inert until `active` is true; `false` stops capture and injection.
     Control { active: bool },
+    /// app -> helper, the video run the phone is shown (the app's run epoch).
+    /// A grant names the run it was signed for; declaring another run ends
+    /// the live grant.
+    VideoRun { epoch: u64 },
+    /// helper -> app, a fresh one-shot challenge for the paired phone to sign.
+    /// `nonce` is this connection's handshake server nonce; both are base64 of
+    /// 16 bytes.
+    GrantChallenge { nonce: String, challenge: String },
+    /// app -> helper, the phone's signature (base64 of the 64-byte P-256
+    /// `r ‖ s`) over the grant payload for `challenge` and `epoch`.
+    Grant {
+        challenge: String,
+        epoch: u64,
+        signature: String,
+    },
+    /// app -> helper, press the secure attention sequence (Ctrl+Alt+Del). The
+    /// service performs it; needs active control and a live grant.
+    Sas,
     /// helper -> app, a fatal or advisory condition. `code` is stable; the app
     /// shows its own copy, so `message` is for logs only.
     Error { code: String, message: String },
@@ -423,11 +459,24 @@ mod tests {
                 version: "0.1.0".into(),
                 session: 1,
                 desktop: "Default".into(),
+                locked: None,
             },
             Message::DesktopChanged {
                 desktop: "Winlogon".into(),
                 session: 1,
+                locked: Some(true),
             },
+            Message::VideoRun { epoch: 7 },
+            Message::GrantChallenge {
+                nonce: "bm9uY2Vub25jZW5vbmNlMQ==".into(),
+                challenge: "Y2hhbGxlbmdlY2hhbGxlbmc=".into(),
+            },
+            Message::Grant {
+                challenge: "Y2hhbGxlbmdlY2hhbGxlbmc=".into(),
+                epoch: 7,
+                signature: "c2ln".into(),
+            },
+            Message::Sas,
             Message::Input {
                 event: InputEvent::PointerButton {
                     button: PointerButton::Left,
@@ -465,6 +514,28 @@ mod tests {
         }
         // Stream is fully consumed.
         assert!(read_frame(&mut cursor).is_err());
+    }
+
+    #[test]
+    fn v4_messages_have_the_documented_wire_shape() {
+        let json = |message: &Message| serde_json::to_value(message).unwrap();
+        assert_eq!(json(&Message::Sas), serde_json::json!({ "type": "sas" }));
+        assert_eq!(
+            json(&Message::Grant { challenge: "c".into(), epoch: 3, signature: "s".into() }),
+            serde_json::json!({ "type": "grant", "challenge": "c", "epoch": 3, "signature": "s" })
+        );
+        assert_eq!(
+            json(&Message::GrantChallenge { nonce: "n".into(), challenge: "c".into() }),
+            serde_json::json!({ "type": "grant-challenge", "nonce": "n", "challenge": "c" })
+        );
+        assert_eq!(json(&Message::VideoRun { epoch: 9 }), serde_json::json!({ "type": "video-run", "epoch": 9 }));
+        // An unknown lock state is omitted, not sent as null; a known one
+        // travels as a boolean.
+        let unknown = Message::DesktopChanged { desktop: "Default".into(), session: 1, locked: None };
+        assert_eq!(json(&unknown), serde_json::json!({ "type": "desktop-changed", "desktop": "Default", "session": 1 }));
+        let decoded: Message =
+            serde_json::from_str(r#"{"type":"desktop-changed","desktop":"Winlogon","session":2,"locked":true}"#).unwrap();
+        assert_eq!(decoded, Message::DesktopChanged { desktop: "Winlogon".into(), session: 2, locked: Some(true) });
     }
 
     #[test]

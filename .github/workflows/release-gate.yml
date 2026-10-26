@@ -66,6 +66,7 @@ jobs:
       patch: ${{ steps.paths.outputs.patch }}
       relay: ${{ steps.paths.outputs.relay }}
       runtime: ${{ steps.paths.outputs.runtime }}
+      secure_desktop: ${{ steps.paths.outputs.secure_desktop }}
     steps:
       # Shallow: the selection below diffs two commits' trees, which needs the
       # base commit itself and no ancestry; it is fetched by SHA in the step.
@@ -94,6 +95,7 @@ jobs:
             echo "patch=false" >> "$GITHUB_OUTPUT"
             echo "relay=false" >> "$GITHUB_OUTPUT"
             echo "runtime=false" >> "$GITHUB_OUTPUT"
+            echo "secure_desktop=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           BASE=$PUSH_BASE
@@ -137,6 +139,11 @@ jobs:
             echo "browser_import=true" >> "$GITHUB_OUTPUT"
           else
             echo "browser_import=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -Eq '^native/mixdog-secure-desktop/|^\.github/workflows/release-gate\.yml$' /tmp/changed; then
+            echo "secure_desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "secure_desktop=false" >> "$GITHUB_OUTPUT"
           fi
           if grep -Eq "$PATCH_RE" /tmp/changed; then
             echo "patch=true" >> "$GITHUB_OUTPUT"
@@ -767,6 +774,22 @@ jobs:
         shell: bash
         run: node native/mixdog-browser-import/test.mjs "$RUNNER_TEMP/bitwarden-clients/apps/desktop/desktop_native"
 
+  # The secure-desktop helper (a LocalSystem service once installed on the
+  # phone's request) ships in every Windows build; its unit tests (framing,
+  # deadlines, SDDL/trust rules, handshake, install check) are Windows-only.
+  secure-desktop:
+    needs: changes
+    if: needs.changes.outputs.secure_desktop == 'true'
+    timeout-minutes: 20
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.95.0"
+      - name: Run the secure-desktop helper's Rust tests
+        run: cargo test --locked --manifest-path native/mixdog-secure-desktop/Cargo.toml
+
   # release.yml re-checks the committed shipped-definition history against the
   # git history of the definitions; a stale file used to surface only after the
   # whole deploy had started. build-shipped-history keeps the committed file
@@ -808,7 +831,7 @@ jobs:
 
   complete:
     if: always()
-    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, shipped-history, mobile-scripts]
+    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, shipped-history, mobile-scripts]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -825,6 +848,7 @@ jobs:
           PATCH: ${{ needs.patch.result }}
           GRAPH: ${{ needs.graph.result }}
           BROWSER_IMPORT: ${{ needs.browser-import.result }}
+          SECURE_DESKTOP: ${{ needs.secure-desktop.result }}
           SHIPPED_HISTORY: ${{ needs.shipped-history.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
         run: |
@@ -839,5 +863,6 @@ jobs:
           [[ "$PATCH" == success || "$PATCH" == skipped ]]
           [[ "$GRAPH" == success || "$GRAPH" == skipped ]]
           [[ "$BROWSER_IMPORT" == success || "$BROWSER_IMPORT" == skipped ]]
+          [[ "$SECURE_DESKTOP" == success || "$SECURE_DESKTOP" == skipped ]]
           [[ "$SHIPPED_HISTORY" == success || "$SHIPPED_HISTORY" == skipped ]]
           [[ "$MOBILE_SCRIPTS" == success || "$MOBILE_SCRIPTS" == skipped ]]

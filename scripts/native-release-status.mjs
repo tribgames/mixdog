@@ -15,8 +15,8 @@
 //   node scripts/native-release-status.mjs --check    exit 1 when a tool is unreleased
 //   node scripts/native-release-status.mjs --warn-dev warnings for a dev build, exit 0
 //
-// native/mixdog-computer, native/mixdog-browser-import and native/gnome-extension
-// have no release/manifest: the desktop package builds them from source, keyed
+// native/mixdog-computer, native/mixdog-browser-import, native/mixdog-secure-desktop
+// and native/gnome-extension have no release/manifest: the desktop package builds them from source, keyed
 // on a hash of that source (desktop-package.yml), so they cannot go stale.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';

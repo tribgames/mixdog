@@ -163,8 +163,10 @@ pub fn run(args: &[String]) -> i32 {
     let mut io = ipc::PipeIo(pipe.get());
 
     match authenticate(&mut io, &state) {
-        Ok(Message::ServerHello { protocol, version, session, desktop }) => {
-            println!("server-hello protocol={protocol} version={version} session={session} desktop={desktop}");
+        Ok(Message::ServerHello { protocol, version, session, desktop, locked }) => {
+            println!(
+                "server-hello protocol={protocol} version={version} session={session} desktop={desktop} locked={locked:?}"
+            );
         }
         Ok(_) => unreachable!("authenticate only returns ServerHello on success"),
         Err(error) => {
@@ -198,8 +200,8 @@ pub fn run(args: &[String]) -> i32 {
                     header.dirty.len()
                 );
             }
-            Ok(Decoded::Control(Message::DesktopChanged { desktop, session })) => {
-                println!("desktop-changed desktop={desktop} session={session}");
+            Ok(Decoded::Control(Message::DesktopChanged { desktop, session, locked })) => {
+                println!("desktop-changed desktop={desktop} session={session} locked={locked:?}");
             }
             Ok(Decoded::Control(Message::Error { code, message })) => {
                 println!("error code={code} message={message}");

@@ -175,3 +175,68 @@
   !define MUI_PAGE_CUSTOMFUNCTION_PRE MixdogInstFilesPre
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW MixdogInstFilesShow
 !endif
+
+# Mixdog secure-desktop helper (native/mixdog-secure-desktop): a LocalSystem
+# service installed on demand, when the paired phone asks for it (never by this
+# installer). Uninstalling the app removes it with the helper's own elevated
+# `uninstall` - one UAC prompt, and only when `check` reports something of this
+# user's is installed (exit 1 = no registration and no state left; exit 4 =
+# another Windows account's install, which this uninstall leaves alone).
+#
+# Three cases must be told apart:
+#  - An update/reinstall runs the previous uninstaller with --updated: the
+#    service must survive, so ${isUpdated} skips the removal entirely.
+#  - An interactive one-click uninstall runs its section internally silent after
+#    the user confirmed in un.onInit: that IS a real uninstall and must offer
+#    the elevated removal, so this does not test ${Silent}.
+#  - An unattended `uninstaller /S` has nobody to approve a UAC prompt: it must
+#    never prompt. customUnInit (below) records that case from the raw command
+#    line so it can be told apart from one-click's internal silence; here the
+#    privileged removal is logged as deferred and the service is left in place.
+# A declined prompt is only logged; the app files are still removed.
+Var MixdogSecureDesktopUnattended
+
+!macro customUnInit
+  StrCpy $MixdogSecureDesktopUnattended "0"
+  ${GetParameters} $R8
+  ${GetOptions} $R8 "/S" $R9
+  ${IfNot} ${Errors}
+    # /S on the command line = unattended; one-click's internal silence does
+    # not carry it, so this distinguishes the two.
+    StrCpy $MixdogSecureDesktopUnattended "1"
+  ${EndIf}
+!macroend
+
+!macro customUnInstall
+  Push $0
+  Push $1
+  Push $2
+  ${If} ${isUpdated}
+    # Update or reinstall: keep the service.
+  ${ElseIf} $MixdogSecureDesktopUnattended == "1"
+    # The service keeps its own protected copy and an Apps & Features entry
+    # ("Mixdog Secure Desktop Helper") whose uninstall asks for elevation only
+    # when someone chooses it there.
+    DetailPrint "Mixdog secure desktop helper: privileged removal deferred (unattended /S uninstall); remove it from Settings > Apps > Mixdog Secure Desktop Helper"
+  ${ElseIf} ${FileExists} "$INSTDIR\resources\native-tools\mixdog-secure-desktop.exe"
+    nsExec::Exec '"$INSTDIR\resources\native-tools\mixdog-secure-desktop.exe" check'
+    Pop $0
+    ${If} $0 == 1
+      # Nothing installed.
+    ${ElseIf} $0 == 4
+      # Another Windows account's install: this user's uninstall never removes it.
+      DetailPrint "Mixdog secure desktop helper: left in place (installed for another Windows account)"
+    ${Else}
+      ${StdUtils.ExecShellWaitEx} $1 $2 "$INSTDIR\resources\native-tools\mixdog-secure-desktop.exe" "runas" "uninstall"
+      ${If} $1 == "ok"
+        ${StdUtils.WaitForProcEx} $2 $2
+        DetailPrint "Mixdog secure desktop helper uninstall exited with $2"
+      ${Else}
+        DetailPrint "Mixdog secure desktop helper uninstall was not run ($1 $2)"
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+  Pop $2
+  Pop $1
+  Pop $0
+!macroend

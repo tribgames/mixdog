@@ -21,7 +21,8 @@ use std::io;
 use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateDCW, DeleteDC, DeleteObject,
-    GetDIBits, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HGDIOBJ, SRCCOPY,
+    GetDIBits, SelectObject, BITMAPINFO, BITMAPINFOHEADER, CAPTUREBLT, DIB_RGB_COLORS, HGDIOBJ, ROP_CODE,
+    SRCCOPY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
@@ -67,8 +68,21 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
         }
         let previous = SelectObject(mem_dc, HGDIOBJ(bitmap.0));
 
+        // CAPTUREBLT includes layered (WS_EX_LAYERED) windows in the copy
+        // (https://learn.microsoft.com/windows/win32/api/wingdi/nf-wingdi-bitblt);
+        // without it, layered UI such as parts of the sign-in and consent
+        // screens is missing from the frame. Known cost: on some systems the
+        // mouse cursor flickers while CAPTUREBLT copies are taken.
         let blt = BitBlt(
-            mem_dc, 0, 0, width, height, Some(screen_dc), origin_x, origin_y, SRCCOPY,
+            mem_dc,
+            0,
+            0,
+            width,
+            height,
+            Some(screen_dc),
+            origin_x,
+            origin_y,
+            ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
         );
 
         let stride = (width as u32) * 4;

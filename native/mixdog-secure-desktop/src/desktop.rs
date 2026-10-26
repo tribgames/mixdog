@@ -12,7 +12,12 @@
 //! desktop, so this attach is the pivot that follows the input across the UAC
 //! transition and back.
 
+use windows::core::PWSTR;
 use windows::Win32::Foundation::HANDLE;
+use windows::Win32::System::RemoteDesktop::{
+    WTSFreeMemory, WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW, WTS_SESSIONSTATE_LOCK,
+    WTS_SESSIONSTATE_UNLOCK,
+};
 use windows::Win32::System::StationsAndDesktops::{
     GetUserObjectInformationW, OpenInputDesktop, SetThreadDesktop, DESKTOP_ACCESS_FLAGS,
     DESKTOP_CREATEMENU, DESKTOP_CREATEWINDOW, DESKTOP_ENUMERATE, DESKTOP_HOOKCONTROL,
@@ -64,6 +69,32 @@ pub fn input_desktop_name() -> Option<String> {
     let desktop = unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, input_access()).ok()? };
     let owned = OwnedDesktop::new(desktop)?;
     object_name(HANDLE(owned.get().0))
+}
+
+/// Whether `session` is locked, from WTS's own session flags
+/// (`WTSQuerySessionInformationW(WTSSessionInfoEx)` →
+/// `WTSINFOEX_LEVEL1_W.SessionFlags`,
+/// https://learn.microsoft.com/windows/win32/api/wtsapi32/ns-wtsapi32-wtsinfoex_level1_w):
+/// `WTS_SESSIONSTATE_LOCK` locked, `WTS_SESSIONSTATE_UNLOCK` unlocked, and
+/// `None` for `WTS_SESSIONSTATE_UNKNOWN` or a failed query. This tells the
+/// lock / sign-in screen apart from UAC consent, which share the `Winlogon`
+/// desktop. (The same page notes the two flags are swapped on Windows 7 /
+/// Server 2008 R2; the app requires Windows 10 or later.)
+pub fn session_locked(session: u32) -> Option<bool> {
+    unsafe {
+        let mut buffer = PWSTR::null();
+        let mut bytes = 0u32;
+        WTSQuerySessionInformationW(None, session, WTSSessionInfoEx, &mut buffer, &mut bytes).ok()?;
+        let info = (bytes as usize >= std::mem::size_of::<WTSINFOEXW>())
+            .then(|| *(buffer.0 as *const WTSINFOEXW));
+        WTSFreeMemory(buffer.0 as *mut _);
+        let info = info.filter(|info| info.Level == 1)?;
+        match info.Data.WTSInfoExLevel1.SessionFlags as u32 {
+            WTS_SESSIONSTATE_LOCK => Some(true),
+            WTS_SESSIONSTATE_UNLOCK => Some(false),
+            _ => None,
+        }
+    }
 }
 
 /// Open the input desktop and switch the calling thread onto it. The returned

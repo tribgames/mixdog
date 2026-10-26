@@ -204,9 +204,10 @@ impl ServerPipe {
         &self.pipe
     }
 
-    /// Wait for a client, or for `stop` to be signalled. A client that connected
-    /// between creation and this call reports `ERROR_PIPE_CONNECTED` (success).
-    pub fn accept(&mut self, stop: HANDLE) -> io::Result<Accept> {
+    /// Wait for a client, or for any of `stops` to be signalled (the shutdown
+    /// stop event and the service process). A client that connected between
+    /// creation and this call reports `ERROR_PIPE_CONNECTED` (success).
+    pub fn accept(&mut self, stops: &[HANDLE]) -> io::Result<Accept> {
         let mut overlapped = OVERLAPPED { hEvent: self.io_event.get(), ..Default::default() };
         match unsafe { ConnectNamedPipe(self.pipe.get(), Some(&mut overlapped)) } {
             Ok(()) => return Ok(Accept::Connected),
@@ -214,7 +215,8 @@ impl ServerPipe {
             Err(error) if is_win32(&error, ERROR_IO_PENDING) => {}
             Err(error) => return Err(to_io(error)),
         }
-        let handles = [self.io_event.get(), stop];
+        let mut handles = vec![self.io_event.get()];
+        handles.extend_from_slice(stops);
         let woke = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
         let mut transferred = 0u32;
         if woke == WAIT_OBJECT_0 {
@@ -228,7 +230,7 @@ impl ServerPipe {
             let _ = CancelIoEx(self.pipe.get(), Some(&overlapped));
             let _ = GetOverlappedResult(self.pipe.get(), &overlapped, &mut transferred, true);
         }
-        if woke.0 == WAIT_OBJECT_0.0 + 1 {
+        if woke.0 > WAIT_OBJECT_0.0 && woke.0 < WAIT_OBJECT_0.0 + handles.len() as u32 {
             Ok(Accept::Stopped)
         } else {
             Err(io::Error::last_os_error())

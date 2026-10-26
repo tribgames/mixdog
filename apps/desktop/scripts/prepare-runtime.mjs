@@ -184,6 +184,13 @@ const browserImportNativeFileNames = [
   'LICENSE_GPL.txt',
   'browser-import-NOTICE.txt',
 ];
+// The Windows secure-desktop helper (UAC / lock / sign-in screens for the
+// paired phone). Shipped with every Windows build; installed as a service only
+// on the phone's request (apps/desktop/src/main/secure-desktop/).
+const configuredSecureDesktopNativeSourceDir = String(process.env.MIXDOG_SECURE_DESKTOP_NATIVE_DIR ?? '').trim();
+const secureDesktopNativeFileNames = ['mixdog-secure-desktop.exe', 'secure-desktop-NOTICE.txt'];
+let secureDesktopNativeSourceDir = '';
+let secureDesktopInputIdentity = null;
 const NATIVE_BINARY_NAME = /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i;
 // onnxruntime's Windows binaries import the MSVC C++ runtime, which Windows
 // does not ship; without the VC++ Redistributable the addon fails to load.
@@ -270,11 +277,14 @@ async function resolveBrowserImportInputIdentity() {
   if (embeddingTarget.platform !== 'win32') {
     throw new Error('Chrome password importer inputs are supported only for Windows targets.');
   }
-  const sourceDirectory = resolve(browserImportNativeSourceDir);
+  return nativeFilesIdentity(resolve(browserImportNativeSourceDir), browserImportNativeFileNames);
+}
+
+/** Content identity of prepared native files, for the runtime fingerprint. */
+async function nativeFilesIdentity(sourceDirectory, fileNames) {
   const files = [];
-  for (const name of browserImportNativeFileNames) {
-    const path = join(sourceDirectory, name);
-    files.push({ name, sha256: sha256(await readFile(path)) });
+  for (const name of fileNames) {
+    files.push({ name, sha256: sha256(await readFile(join(sourceDirectory, name))) });
   }
   return { files };
 }
@@ -366,31 +376,73 @@ async function prepareBrowserImportNativeSource() {
   if (configuredBrowserImportNativeSourceDir) {
     return resolve(configuredBrowserImportNativeSourceDir);
   }
-  if (process.platform !== 'win32') {
-    throw new Error('Building the Windows Chrome password importer requires a Windows host.');
-  }
-  const outputDirectory = join(desktopDir, '.cache', 'browser-import', embeddingTarget.key);
-  const sourceRoot = join(rootDir, 'native', 'mixdog-browser-import');
-  const cacheIdentity = {
+  return buildWindowsNativeCrate({
+    crate: 'mixdog-browser-import',
+    cacheName: 'browser-import',
+    label: 'Chrome password importer',
     schemaVersion: 3,
+    fileNames: browserImportNativeFileNames,
+  });
+}
+
+/** The secure-desktop helper for a Windows target; '' for other targets. */
+async function prepareSecureDesktopNativeSource() {
+  if (embeddingTarget.platform !== 'win32') {
+    if (configuredSecureDesktopNativeSourceDir) {
+      throw new Error('The secure-desktop helper is supported only for Windows targets.');
+    }
+    return '';
+  }
+  if (configuredSecureDesktopNativeSourceDir) return resolve(configuredSecureDesktopNativeSourceDir);
+  return buildWindowsNativeCrate({
+    crate: 'mixdog-secure-desktop',
+    cacheName: 'secure-desktop',
+    label: 'secure-desktop helper',
+    schemaVersion: 2,
+    fileNames: secureDesktopNativeFileNames,
+    // The release signer pin is compiled in (option_env!), so a cached build
+    // is reusable only under the same pin; local builds have none.
+    buildInputs: {
+      signerSubject: process.env.MIXDOG_SECURE_DESKTOP_SIGNER_SUBJECT ?? '',
+      signerEku: process.env.MIXDOG_SECURE_DESKTOP_SIGNER_EKU ?? '',
+    },
+  });
+}
+
+/**
+ * Build an in-repo Windows crate for the target through its build.ps1, into a
+ * per-target cache keyed on a digest of the crate source (and any build-time
+ * inputs the binary embeds): an unchanged crate (or a CI-restored cache
+ * directory) skips cargo entirely.
+ */
+async function buildWindowsNativeCrate({ crate, cacheName, label, schemaVersion, fileNames, buildInputs = null }) {
+  if (process.platform !== 'win32') {
+    throw new Error(`Building the Windows ${label} requires a Windows host.`);
+  }
+  const outputDirectory = join(desktopDir, '.cache', cacheName, embeddingTarget.key);
+  const sourceRoot = join(rootDir, 'native', crate);
+  const cacheIdentity = {
+    schemaVersion,
     target: embeddingTarget.key,
     sourceHash: await sourceTreeHash(sourceRoot),
+    buildInputs,
   };
-  const cacheMarker = join(outputDirectory, '.mixdog-browser-import-cache.json');
+  const cacheMarker = join(outputDirectory, `.${crate}-cache.json`);
   try {
     const cached = JSON.parse(await readFile(cacheMarker, 'utf8'));
     if (
       cached.schemaVersion === cacheIdentity.schemaVersion &&
       cached.target === cacheIdentity.target &&
-      cached.sourceHash === cacheIdentity.sourceHash
+      cached.sourceHash === cacheIdentity.sourceHash &&
+      JSON.stringify(cached.buildInputs ?? null) === JSON.stringify(cacheIdentity.buildInputs)
     ) {
-      await Promise.all(browserImportNativeFileNames.map((name) => access(join(outputDirectory, name))));
+      await Promise.all(fileNames.map((name) => access(join(outputDirectory, name))));
       return outputDirectory;
     }
   } catch (error) {
     if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
   }
-  const buildScript = join(rootDir, 'native', 'mixdog-browser-import', 'build.ps1');
+  const buildScript = join(sourceRoot, 'build.ps1');
   await execFileAsync(
     'pwsh',
     [
@@ -534,6 +586,7 @@ async function runtimeInputFingerprint(manifest) {
       desktopPruneSha256: sha256(desktopPruneSource),
       desktopLockfileSha256: sha256(desktopLockfile),
       browserImport: browserImportInputIdentity,
+      secureDesktop: secureDesktopInputIdentity,
       computer: computerInputIdentity,
       packageFiles,
     })
@@ -565,6 +618,9 @@ async function canReusePreparedRuntime(fingerprint, packageManifest) {
       ),
       ...(browserImportInputIdentity
         ? browserImportNativeFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
+        : []),
+      ...(secureDesktopInputIdentity
+        ? secureDesktopNativeFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
         : []),
       ...(computerNativeBinary ? [access(join(desktopNativeToolsDir, computerNativeFileName))] : []),
     ]);
@@ -644,6 +700,13 @@ async function prepareDesktopNativeTools() {
       if (name.endsWith('.exe')) {
         await assertTargetArchitecture(destination, `Browser import native tool ${name}`);
       }
+    }
+  }
+  if (secureDesktopInputIdentity) {
+    for (const name of secureDesktopNativeFileNames) {
+      const destination = join(desktopNativeToolsDir, name);
+      await cp(join(secureDesktopNativeSourceDir, name), destination);
+      if (name.endsWith('.exe')) await assertTargetArchitecture(destination, `Secure-desktop helper ${name}`);
     }
   }
   await rm(downloadDataDir, { recursive: true, force: true });
@@ -1120,6 +1183,10 @@ const releaseRuntimeLock = await timed('preparation-lock', () => acquireRuntimeL
 try {
   browserImportNativeSourceDir = await timed('browser-import-native', () => prepareBrowserImportNativeSource());
   browserImportInputIdentity = await timed('browser-import-identity', () => resolveBrowserImportInputIdentity());
+  secureDesktopNativeSourceDir = await timed('secure-desktop-native', () => prepareSecureDesktopNativeSource());
+  secureDesktopInputIdentity = secureDesktopNativeSourceDir
+    ? await nativeFilesIdentity(secureDesktopNativeSourceDir, secureDesktopNativeFileNames)
+    : null;
   ({ binary: computerNativeBinary, identity: computerInputIdentity } = await timed('computer-native', () =>
     prepareComputerNative()
   ));

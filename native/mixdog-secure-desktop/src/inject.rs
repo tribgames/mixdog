@@ -20,7 +20,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
+use crate::desktop;
 use crate::protocol::PointerButton;
+use crate::winutil::OwnedDesktop;
 
 /// One wheel notch in the units `SendInput` expects.
 const WHEEL_DELTA: i32 = 120;
@@ -29,21 +31,36 @@ const WHEEL_DELTA: i32 = 120;
 /// [`SystemInput`] (`SendInput`); tests record the exact `INPUT`s instead, so
 /// the release semantics are verified without injecting on the build machine.
 pub trait InputSink {
-    fn send(&mut self, inputs: &[INPUT]);
+    /// Insert `inputs` and return how many events were inserted.
+    fn send(&mut self, inputs: &[INPUT]) -> usize;
+    /// Re-attach to the current input desktop after an insert of zero events.
+    /// `Ok` means attached (a retry is worthwhile); `Err` carries why the
+    /// input desktop cannot be attached.
+    fn resync(&mut self) -> Result<(), String>;
 }
 
 /// `SendInput` on the calling thread's attached desktop.
 #[derive(Default)]
-pub struct SystemInput;
+pub struct SystemInput {
+    /// The desktop a [`resync`](InputSink::resync) attached the thread to.
+    /// The helper's loop sees the new input desktop on its next pass and takes
+    /// the attach over from there.
+    resynced: Option<OwnedDesktop>,
+}
 
 impl InputSink for SystemInput {
-    fn send(&mut self, inputs: &[INPUT]) {
-        if inputs.is_empty() {
-            return;
-        }
-        unsafe {
-            SendInput(inputs, std::mem::size_of::<INPUT>() as i32);
-        }
+    /// `SendInput` returns the number of events it inserted; zero means the
+    /// input was blocked (https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput).
+    fn send(&mut self, inputs: &[INPUT]) -> usize {
+        unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) as usize }
+    }
+
+    /// On the secure desktop a zero insert usually means the input desktop
+    /// switched under the thread; attaching to the current one fixes it.
+    fn resync(&mut self) -> Result<(), String> {
+        let (owned, _) = desktop::attach_to_input_desktop().map_err(|error| error.to_string())?;
+        self.resynced = Some(owned);
+        Ok(())
     }
 }
 
@@ -229,17 +246,74 @@ pub struct Injector<S: InputSink = SystemInput> {
     sink: S,
     buttons: Vec<PointerButton>,
     keys: Vec<HeldKey>,
+    /// The latest insert failed (a failure streak is under way).
+    failing: bool,
+    /// A failure streak began since the last [`take_failure`](Self::take_failure).
+    failure_unreported: bool,
+    /// Why the input desktop could not be re-attached after a blocked insert,
+    /// not yet taken by the helper ([`take_desktop_lost`](Self::take_desktop_lost)).
+    desktop_lost: Option<String>,
 }
 
 impl Injector<SystemInput> {
     pub fn new() -> Self {
-        Injector::with_sink(SystemInput)
+        Injector::with_sink(SystemInput::default())
     }
 }
 
 impl<S: InputSink> Injector<S> {
     pub fn with_sink(sink: S) -> Self {
-        Injector { sink, buttons: Vec::new(), keys: Vec::new() }
+        Injector {
+            sink,
+            buttons: Vec::new(),
+            keys: Vec::new(),
+            failing: false,
+            failure_unreported: false,
+            desktop_lost: None,
+        }
+    }
+
+    /// Insert `inputs`. An insert of **zero** events gets one resync of the
+    /// input desktop and one retry; a partial insert is not retried (the
+    /// inserted events would be sent twice). Anything short of a full insert
+    /// is a failure; the first failure after a success (or the start) begins
+    /// a streak, which the helper reports once. A resync that cannot attach
+    /// the input desktop is not an input failure but a lost desktop: it is
+    /// kept for the helper, which suspends capture and input until its own
+    /// attach path succeeds.
+    fn emit(&mut self, inputs: &[INPUT]) -> bool {
+        if inputs.is_empty() {
+            return true;
+        }
+        let mut inserted = self.sink.send(inputs);
+        if inserted == 0 {
+            match self.sink.resync() {
+                Ok(()) => inserted = self.sink.send(inputs),
+                Err(reason) => {
+                    self.desktop_lost.get_or_insert(reason);
+                    return false;
+                }
+            }
+        }
+        let ok = inserted == inputs.len();
+        if !ok && !self.failing {
+            self.failure_unreported = true;
+        }
+        self.failing = !ok;
+        ok
+    }
+
+    /// Whether a failure streak began since the last call; clears the flag.
+    /// A streak ends at the next full insert, so one blocked period yields
+    /// one report however many events it drops.
+    pub fn take_failure(&mut self) -> bool {
+        std::mem::take(&mut self.failure_unreported)
+    }
+
+    /// Why the input desktop could not be attached, if a blocked insert
+    /// found it gone since the last call; clears it.
+    pub fn take_desktop_lost(&mut self) -> Option<String> {
+        self.desktop_lost.take()
     }
 
     fn holds_button(&self, button: PointerButton) -> bool {
@@ -266,31 +340,43 @@ impl<S: InputSink> Injector<S> {
     }
 
     pub fn pointer_move(&mut self, x: i32, y: i32) {
-        self.sink.send(&pointer_move(x, y));
+        self.emit(&pointer_move(x, y));
     }
 
     /// Active-session button. A press is tracked and sent at `(x, y)`; a
     /// release is sent (at `(x, y)`, ending a drag where the client released
-    /// it) only if this connection holds that button — otherwise ignored.
+    /// it) only if this connection holds that button — otherwise ignored. A
+    /// new press that failed to inject is not tracked as held; a failed
+    /// **repeat** of a press that already landed leaves it held, so that
+    /// earlier press is still released on every exit path.
     pub fn pointer_button(&mut self, button: PointerButton, down: bool, x: i32, y: i32) {
-        if !down && !self.holds_button(button) {
+        let held = self.holds_button(button);
+        if !down && !held {
             return;
         }
         self.track_button(button, down);
-        self.sink.send(&pointer_button(button, down, x, y));
+        if !self.emit(&pointer_button(button, down, x, y)) && down && !held {
+            self.track_button(button, false);
+        }
     }
 
     pub fn pointer_wheel(&mut self, x: i32, y: i32, dx: i32, dy: i32) {
-        self.sink.send(&pointer_wheel(x, y, dx, dy));
+        self.emit(&pointer_wheel(x, y, dx, dy));
     }
 
     /// Active-session key. A press is tracked and sent; a release is sent only
-    /// if this connection holds that key (by [`KeyId`]) — otherwise ignored.
+    /// if this connection holds that key (by [`KeyId`]) — otherwise ignored. A
+    /// new press that failed to inject is not tracked as held; a failed
+    /// **repeat** (auto-repeat sends further downs) of a press that already
+    /// landed leaves it held, so that earlier press is still released.
     pub fn key(&mut self, down: bool, vk: u16, scan: u16, extended: bool) {
         let event = HeldKey { vk, scan, extended };
         if down {
+            let held = self.held_key(event).is_some();
             self.track_key(event, true);
-            self.sink.send(&key(true, vk, scan, extended));
+            if !self.emit(&key(true, vk, scan, extended)) && !held {
+                self.track_key(event, false);
+            }
         } else {
             self.release_key(vk, scan, extended);
         }
@@ -298,7 +384,7 @@ impl<S: InputSink> Injector<S> {
 
     /// Text is injected as complete down+up pairs, so nothing stays held.
     pub fn text(&mut self, value: &str) {
-        self.sink.send(&text(value));
+        self.emit(&text(value));
     }
 
     /// Release-only path (used while control is inactive): if this connection
@@ -309,7 +395,7 @@ impl<S: InputSink> Injector<S> {
             return false;
         }
         self.track_button(button, false);
-        self.sink.send(&button_up_in_place(button));
+        self.emit(&button_up_in_place(button));
         true
     }
 
@@ -321,7 +407,7 @@ impl<S: InputSink> Injector<S> {
         };
         self.track_key(held, false);
         // Release the key as it was pressed, not as this event spells it.
-        self.sink.send(&key(false, held.vk, held.scan, held.extended));
+        self.emit(&key(false, held.vk, held.scan, held.extended));
         true
     }
 
@@ -329,10 +415,10 @@ impl<S: InputSink> Injector<S> {
     /// Safe to call repeatedly; a no-op when nothing is held.
     pub fn release_all(&mut self) {
         for button in std::mem::take(&mut self.buttons) {
-            self.sink.send(&button_up_in_place(button));
+            self.emit(&button_up_in_place(button));
         }
         for held in std::mem::take(&mut self.keys) {
-            self.sink.send(&key(false, held.vk, held.scan, held.extended));
+            self.emit(&key(false, held.vk, held.scan, held.extended));
         }
     }
 }
@@ -360,9 +446,128 @@ mod tests {
     struct Recorder(Rc<RefCell<Vec<INPUT>>>);
 
     impl InputSink for Recorder {
-        fn send(&mut self, inputs: &[INPUT]) {
+        fn send(&mut self, inputs: &[INPUT]) -> usize {
             self.0.borrow_mut().extend_from_slice(inputs);
+            inputs.len()
         }
+
+        fn resync(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    /// A `SendInput` stand-in that inserts according to a script: each call
+    /// takes the next count (`None` = all of them), and records every resync;
+    /// a resync attaches when `resync_ok`, else reports the desktop gone.
+    #[derive(Clone, Default)]
+    struct Scripted {
+        counts: Rc<RefCell<Vec<Option<usize>>>>,
+        sends: Rc<RefCell<Vec<usize>>>,
+        resyncs: Rc<RefCell<usize>>,
+        resync_ok: bool,
+    }
+
+    impl InputSink for Scripted {
+        fn send(&mut self, inputs: &[INPUT]) -> usize {
+            self.sends.borrow_mut().push(inputs.len());
+            let mut counts = self.counts.borrow_mut();
+            let next = if counts.is_empty() { None } else { counts.remove(0) };
+            next.unwrap_or(inputs.len())
+        }
+
+        fn resync(&mut self) -> Result<(), String> {
+            *self.resyncs.borrow_mut() += 1;
+            if self.resync_ok { Ok(()) } else { Err("no input desktop".into()) }
+        }
+    }
+
+    fn scripted(counts: &[Option<usize>], resync_ok: bool) -> Scripted {
+        Scripted { counts: Rc::new(RefCell::new(counts.to_vec())), resync_ok, ..Default::default() }
+    }
+
+    #[test]
+    fn a_blocked_insert_resyncs_and_retries_once() {
+        // Zero inserted, then the retry after the resync succeeds: no failure.
+        let sink = scripted(&[Some(0)], true);
+        let mut injector = Injector::with_sink(sink.clone());
+        injector.pointer_move(1, 2);
+        assert_eq!(*sink.sends.borrow(), vec![1, 1], "sent, resynced, sent again");
+        assert_eq!(*sink.resyncs.borrow(), 1);
+        assert!(!injector.take_failure());
+    }
+
+    #[test]
+    fn a_failed_retry_is_reported_and_a_failed_press_is_not_held() {
+        // Still zero after the resync: one retry only, then reported.
+        let sink = scripted(&[Some(0), Some(0), Some(0), Some(0)], true);
+        let mut injector = Injector::with_sink(sink.clone());
+        injector.key(true, 0x41, 0x1e, false);
+        assert_eq!(*sink.sends.borrow(), vec![1, 1]);
+        assert!(injector.take_failure());
+        assert!(!injector.take_failure(), "the flag clears once taken");
+        assert!(injector.keys.is_empty(), "a press that never landed is not held");
+        // Still failing: the same streak, not reported again.
+        injector.key(true, 0x42, 0x30, false);
+        assert!(!injector.take_failure(), "one report per failure streak");
+        // A full insert ends the streak; the next failure is a new one.
+        injector.pointer_move(1, 1);
+        injector.release_all();
+        let sink = scripted(&[None, Some(0), Some(0)], true);
+        let mut injector = Injector::with_sink(sink);
+        injector.pointer_move(1, 1);
+        injector.pointer_move(2, 2);
+        assert!(injector.take_failure(), "a failure after a success starts a streak");
+        assert_eq!(injector.take_desktop_lost(), None, "the desktop re-attached each time");
+    }
+
+    #[test]
+    fn a_resync_that_cannot_attach_reports_the_desktop_lost_not_an_input_failure() {
+        let sink = scripted(&[Some(0)], false);
+        let mut injector = Injector::with_sink(sink.clone());
+        injector.pointer_button(PointerButton::Left, true, 0, 0);
+        assert_eq!(*sink.sends.borrow(), vec![1], "no retry without an attached desktop");
+        assert_eq!(injector.take_desktop_lost().as_deref(), Some("no input desktop"));
+        assert_eq!(injector.take_desktop_lost(), None, "taken once");
+        assert!(!injector.take_failure(), "reported as the lost desktop, not as input_failed");
+        assert!(injector.buttons.is_empty(), "a press that never landed is not held");
+        drop(injector);
+        assert_eq!(*sink.sends.borrow(), vec![1], "nothing held, nothing released on drop");
+    }
+
+    #[test]
+    fn a_failed_repeat_press_keeps_the_earlier_press_held_for_release() {
+        // Key: the press lands; its repeat inserts nothing, even after the
+        // resync; the release on teardown still goes out.
+        let sink = scripted(&[None, Some(0), Some(0)], true);
+        let mut injector = Injector::with_sink(sink.clone());
+        injector.key(true, 0x41, 0x1e, false);
+        injector.key(true, 0x41, 0x1e, false);
+        assert!(injector.take_failure());
+        assert_eq!(injector.keys.len(), 1, "the press that landed is still held");
+        injector.release_all();
+        assert_eq!(*sink.sends.borrow(), vec![1, 1, 1, 1], "press, repeat, retry, release");
+        assert!(injector.keys.is_empty());
+
+        // Button: the same, including through a lost desktop.
+        let sink = scripted(&[None, Some(0)], false);
+        let mut injector = Injector::with_sink(sink.clone());
+        injector.pointer_button(PointerButton::Left, true, 0, 0);
+        injector.pointer_button(PointerButton::Left, true, 0, 0);
+        assert!(injector.take_desktop_lost().is_some());
+        assert_eq!(injector.buttons, vec![PointerButton::Left]);
+        drop(injector);
+        assert_eq!(*sink.sends.borrow(), vec![1, 1, 1], "press, repeat, release on drop");
+    }
+
+    #[test]
+    fn a_partial_insert_is_reported_without_a_retry() {
+        // Text "ab" is four events; two landed. Retrying would type them twice.
+        let sink = scripted(&[Some(2)], true);
+        let mut injector = Injector::with_sink(sink.clone());
+        injector.text("ab");
+        assert_eq!(*sink.sends.borrow(), vec![4]);
+        assert_eq!(*sink.resyncs.borrow(), 0);
+        assert!(injector.take_failure());
     }
 
     impl Recorder {

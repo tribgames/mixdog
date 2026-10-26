@@ -57,6 +57,9 @@ test('FastDirect shell integrity keeps the installed production runtime fallback
 
 test('FastDirect fingerprints browser importer source and installed native tools', async (context) => {
   assert.ok(targetInputs.runtime.some((path) => path.endsWith(join('native', 'mixdog-browser-import'))));
+  // The secure-desktop helper ships in native-tools too: a crate change must
+  // refresh the prepared runtime FastDirect installs.
+  assert.ok(targetInputs.runtimeDependencies.some((path) => path.endsWith(join('native', 'mixdog-secure-desktop'))));
   const root = await mkdtemp(join(tmpdir(), 'mixdog-fast-direct-native-tools-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   const missingHash = await hashBrowserImportNativeTools(root);

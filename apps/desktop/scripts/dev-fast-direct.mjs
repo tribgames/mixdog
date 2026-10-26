@@ -180,6 +180,7 @@ const runtimeDependencyInputs = [
   join(desktopDir, 'scripts', 'cli-args.mjs'),
   join(desktopDir, 'scripts', 'runtime-package-payload.mjs'),
   join(repoRoot, 'native', 'mixdog-browser-import'),
+  join(repoRoot, 'native', 'mixdog-secure-desktop'),
 ];
 const ignoredSource =
   /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
