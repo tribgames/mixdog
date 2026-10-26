@@ -182,8 +182,11 @@ function cappedSetup(t, cwd) {
   };
   // The nth pane in the document, whether it draws a file (unfolded), and a pick by header.
   const paneNode = (index) => view.document.querySelectorAll('.session-diff-pane')[index];
-  const drawnIn = (index, path) =>
-    paneNode(index)?.querySelector(`[data-session-diff-path="${path}"]`)?.dataset.collapsed === undefined;
+  const drawnIn = (index, path) => {
+    const row = paneNode(index).querySelector(`[data-session-diff-path="${path}"]`);
+    assert.ok(row, `pane ${index} lists ${path}`);
+    return row.dataset.collapsed === undefined;
+  };
   const pickIn = async (index, path) => {
     await act(async () =>
       paneNode(index).querySelector(`[data-session-diff-path="${path}"] .session-diff-section-title`).click()

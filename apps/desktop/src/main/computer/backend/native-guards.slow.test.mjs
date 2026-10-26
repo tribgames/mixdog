@@ -75,6 +75,7 @@ public sealed class CloseFixture : NativeWindow, IDisposable {
     readonly ManualResetEvent ready = new ManualResetEvent(false);
     public readonly ManualResetEvent received = new ManualResetEvent(false);
     public readonly ManualResetEvent finished = new ManualResetEvent(false);
+    public readonly ManualResetEvent Gate = new ManualResetEvent(false);
     public IntPtr Target;
     public CloseFixture(bool cancel) {
         this.cancel = cancel;
@@ -93,7 +94,7 @@ public sealed class CloseFixture : NativeWindow, IDisposable {
         if (message.Msg == 0x0010) {
             received.Set();
             if (!cancel) {
-                Thread.Sleep(1600);
+                Gate.WaitOne(5000);
                 DestroyHandle();
                 Application.ExitThread();
             }
@@ -115,22 +116,23 @@ public sealed class CloseFixture : NativeWindow, IDisposable {
         ready.Dispose();
         received.Dispose();
         finished.Dispose();
+        Gate.Dispose();
     }
 }
 '@
 $slow = [CloseFixture]::new($false)
 $cancelled = [CloseFixture]::new($true)
 try {
-    $timer = [Diagnostics.Stopwatch]::StartNew()
     $accepted = [MixWin32]::CloseWindow($slow.Target)
-    $timer.Stop()
-    $elapsed = $timer.ElapsedMilliseconds
+    # The handler is held at its gate, so it cannot have finished unless dispatch waited for it.
+    $returnedBeforeHandled = -not $slow.finished.WaitOne(0)
+    [void]$slow.Gate.Set()
     if (-not $slow.finished.WaitOne(5000)) { throw 'slow close did not finish' }
     $cancelAccepted = [MixWin32]::CloseWindow($cancelled.Target)
     if (-not $cancelled.finished.WaitOne(5000)) { throw 'cancelled close was not handled' }
     @{
         accepted = $accepted
-        elapsed = $elapsed
+        returnedBeforeHandled = $returnedBeforeHandled
         closed = -not [MixWin32]::IsWindowHandle($slow.Target)
         cancelAccepted = $cancelAccepted
         cancelledStillOpen = [MixWin32]::IsWindowHandle($cancelled.Target)
@@ -145,7 +147,7 @@ try {
   );
   const result = JSON.parse(output);
   assert.equal(result.accepted, true);
-  assert.ok(result.elapsed < 1000, 'dispatch must not wait for the slow close handler');
+  assert.equal(result.returnedBeforeHandled, true, 'dispatch must not wait for the slow close handler');
   assert.equal(result.closed, true);
   assert.equal(result.cancelAccepted, true);
   assert.equal(result.cancelledStillOpen, true);
