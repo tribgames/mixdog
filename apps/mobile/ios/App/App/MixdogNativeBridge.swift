@@ -327,7 +327,8 @@ final class MixdogNativeBridge: NSObject, WKScriptMessageHandlerWithReply, UNUse
     /// False (nothing kept) when either label is missing.
     private func setNotificationLabels(_ args: [String: Any]?) -> Bool {
         let label = { (value: Any?) -> String in
-            String(((value as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+            // UNNotificationAction documents no title limit; the system shortens one that does not fit.
+            ((value as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         }
         let deny = label(args?["deny"])
         let allowOnce = label(args?["allowOnce"])

@@ -19,7 +19,6 @@ final class MixdogPushStore {
   private static final String PENDING = "pending_actions";
   private static final String LABEL_DENY = "label_deny";
   private static final String LABEL_ALLOW_ONCE = "label_allow_once";
-  private static final int LABEL_MAX = 40;
 
   private MixdogPushStore() {}
 
@@ -62,8 +61,8 @@ final class MixdogPushStore {
   }
 
   private static String label(String value) {
-    String text = value == null ? "" : value.trim();
-    return text.length() > LABEL_MAX ? text.substring(0, LABEL_MAX) : text;
+    // NotificationCompat.Action documents no title limit; the system shortens one that does not fit.
+    return value == null ? "" : value.trim();
   }
 
   private static List<Map<String, String>> load(Context context) {
