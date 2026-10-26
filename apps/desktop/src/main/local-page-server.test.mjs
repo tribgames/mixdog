@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { syncBuiltinESMExports } from 'node:module';
 import { localPageUrl, localVirtualPageUrl, revokeLocalPagesFor } from './local-page-server';
+import { openedFileAuthorizationTestHooks } from './opened-file-authorization';
 import { sandboxStorageShimScript } from '../shared/sandbox-storage-shim';
+
+const linkType = process.platform === 'win32' ? 'junction' : 'dir';
 
 const projectPageUrl = (root, rel) => localPageUrl(root, rel, { scope: 'project', authorize: async () => {} });
 
@@ -100,7 +102,6 @@ test('nothing outside the root, no dotfiles and no non-web files are served', as
 test('directory links cannot expose hidden or out-of-root files, but public assets still load', async (t) => {
   const root = await site(t);
   const outside = await site(t);
-  const linkType = process.platform === 'win32' ? 'junction' : 'dir';
   await symlink(join(root, '.git'), join(root, 'hidden-link'), linkType);
   await symlink(outside, join(root, 'outside-link'), linkType);
   await symlink(join(root, 'assets'), join(root, 'assets-link'), linkType);
@@ -154,24 +155,105 @@ test('a lease revoked while its page is being read gets no content', async (t) =
   const owner = {};
   const url = await localPageUrl(root, 'page.html', { scope: 'file', authorize: async () => {}, owner });
   const { pathname } = new URL(url);
-  const fsp = await import('node:fs/promises');
-  const original = fsp.readFile;
+  // The page is read through the handle it opened; wrap that read.
+  const probe = await open(join(root, 'page.html'));
+  const handles = Object.getPrototypeOf(probe);
+  await probe.close();
+  const original = handles.readFile;
   let reads = 0;
-  fsp.default.readFile = async (...args) => {
-    const data = await original(...args);
+  handles.readFile = async function readFile(...args) {
+    const data = await original.apply(this, args);
     reads += 1;
     revokeLocalPagesFor(owner);
     return data;
   };
-  syncBuiltinESMExports();
   t.after(() => {
-    fsp.default.readFile = original;
-    syncBuiltinESMExports();
+    handles.readFile = original;
   });
   const page = await get(url, pathname);
   assert.equal(reads, 1);
   assert.equal(page.status, 404);
   assert.doesNotMatch(page.body, /한글/);
+});
+
+/** A project with `docs/secret.css` and, outside it, another `secret.css`. */
+async function swappable(t) {
+  const root = await site(t);
+  const outside = await mkdtemp(join(tmpdir(), 'mixdog-local-page-outside-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await mkdir(join(root, 'docs'));
+  await writeFile(join(root, 'docs', 'secret.css'), 'INSIDE');
+  await writeFile(join(outside, 'secret.css'), 'OUTSIDE');
+  return { root, outside };
+}
+
+/** Replaces the folder `dir` by a link to `outside`. */
+async function swapForLink(dir, outside) {
+  await rename(dir, `${dir}-moved`);
+  await symlink(outside, dir, linkType);
+}
+
+test('a folder swapped for a link while the request is authorized cannot serve an outside file', async (t) => {
+  const { root, outside } = await swappable(t);
+  let swap = false;
+  const url = await localPageUrl(root, 'page.html', {
+    scope: 'project',
+    authorize: async () => {
+      if (!swap) return;
+      swap = false;
+      // Windows refuses to rename a folder holding an open file, which also
+      // stops the swap; elsewhere the swap happens. Either way the file served
+      // is the one already open.
+      await swapForLink(join(root, 'docs'), outside).catch(() => undefined);
+    },
+  });
+  const { pathname } = new URL(url);
+  const prefix = pathname.slice(0, pathname.lastIndexOf('/'));
+  swap = true;
+  const asset = await get(url, `${prefix}/docs/secret.css`);
+  assert.equal(swap, false, 'the folder swap was attempted during authorization');
+  assert.equal(asset.status, 200);
+  assert.equal(asset.body, 'INSIDE');
+});
+
+test('a folder swapped for a link between the containment check and the open serves nothing outside', async (t) => {
+  const { root, outside } = await swappable(t);
+  const url = await projectPageUrl(root, 'page.html');
+  const { pathname } = new URL(url);
+  const prefix = pathname.slice(0, pathname.lastIndexOf('/'));
+  let swapped = false;
+  openedFileAuthorizationTestHooks.beforeOpen = async () => {
+    swapped = true;
+    await swapForLink(join(root, 'docs'), outside);
+  };
+  t.after(() => {
+    delete openedFileAuthorizationTestHooks.beforeOpen;
+  });
+  const asset = await get(url, `${prefix}/docs/secret.css`);
+  assert.equal(swapped, true, 'the folder was swapped before the open');
+  assert.equal(asset.status, 404);
+  assert.doesNotMatch(asset.body, /OUTSIDE/);
+});
+
+test('a sandboxed page is rewritten from the file it opened, not from what later sits at its path', async (t) => {
+  const root = await site(t);
+  let swap = false;
+  const url = await localPageUrl(root, 'page.html', {
+    scope: 'file',
+    authorize: async () => {
+      if (!swap) return;
+      swap = false;
+      await rename(join(root, 'page.html'), join(root, 'page-moved.html'));
+      await writeFile(join(root, 'page.html'), '<p>REPLACED</p>');
+    },
+  });
+  swap = true;
+  const page = await get(url, new URL(url).pathname);
+  assert.equal(swap, false, 'the page was replaced during authorization');
+  assert.equal(page.status, 200);
+  assert.ok(page.body.includes('한글 페이지'));
+  assert.doesNotMatch(page.body, /REPLACED/);
+  assert.equal(Number(page.length), Buffer.byteLength(page.body));
 });
 
 test('a project-scope page is served unchanged, without the storage shim', async (t) => {

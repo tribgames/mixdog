@@ -5,18 +5,19 @@
  * relative web assets (styles, scripts, fonts, media, data and documents; no
  * dotfiles, no source files). Each URL has its own bounded lease and rechecks
  * its originating permission before returning bytes. A paired device's page
- * gets the same lease the desktop's does.
+ * gets the same lease the desktop's does. Every response is read from the one
+ * handle opened first and authorized by its real location (openAuthorizedFile),
+ * never from a second open of the pathname.
  */
 import { randomBytes } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileExtension } from '../shared/file-extension';
 import { withSandboxStorageShim } from '../shared/sandbox-storage-shim';
 import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';
-import { comparablePath } from './opened-file-authorization';
+import { type AuthorizedFile, comparablePath, openAuthorizedFile } from './opened-file-authorization';
 
 const PAGE_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   html: 'text/html; charset=utf-8',
@@ -226,30 +227,38 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
   if (!pageAssetType(root, target) || (lease.scope === 'file' && target !== lease.page)) {
     return reply(response, 404);
   }
-  let file: string;
-  let size: number;
+  let opened: AuthorizedFile;
   try {
-    file = await realpath(target);
-    const info = await stat(file);
-    if (!info.isFile()) return reply(response, 404);
-    size = info.size;
+    opened = await openAuthorizedFile(target, root);
   } catch {
     return reply(response, 404);
   }
-  await serveFile(request, response, token, lease, file, size);
+  let streaming = false;
+  try {
+    // A stream from the handle takes it over (and closes it).
+    streaming = await serveFile(request, response, token, lease, opened);
+  } finally {
+    if (!streaming) await opened.handle.close();
+  }
 }
 
-/** The response for `file` (canonical, `size` bytes) of a disk lease. */
+/** The response for `opened`, the authorized file of a disk lease. Every byte
+ *  is read from its handle. True when it streams from the handle, which the
+ *  stream then closes. */
 async function serveFile(
   request: IncomingMessage,
   response: ServerResponse,
   token: string,
   lease: PageLease,
-  file: string,
-  size: number
-): Promise<void> {
-  const refuse = (status: number): void => reply(response, status);
+  opened: AuthorizedFile
+): Promise<boolean> {
+  const refuse = (status: number): false => {
+    reply(response, status);
+    return false;
+  };
   const { root } = lease;
+  const file = opened.location;
+  let { size } = opened;
   const isPage = comparablePath(file) === comparablePath(lease.page);
   // A symlink or junction must obey the same boundary, hidden-path and
   // file-type restrictions as the requested path.
@@ -274,7 +283,7 @@ async function serveFile(
   let page: Buffer | undefined;
   if (lease.scope === 'file' && ['html', 'htm'].includes(fileExtension(file))) {
     try {
-      page = withShim(await readFile(file));
+      page = withShim(await opened.handle.readFile());
     } catch {
       return refuse(404);
     }
@@ -294,15 +303,17 @@ async function serveFile(
   });
   if (request.method === 'HEAD') {
     response.end();
-    return;
+    return false;
   }
   if (page) {
     response.end(page);
-    return;
+    return false;
   }
-  createReadStream(file)
+  opened.handle
+    .createReadStream({ start: 0 })
     .on('error', () => response.destroy())
     .pipe(response);
+  return true;
 }
 
 function serverPort(): Promise<number> {
