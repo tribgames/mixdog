@@ -778,9 +778,10 @@ if ($elevated.code -ne 'foreground_unavailable') { throw "elevated holder: $($el
 # Admission is not where user input is refused: the observation token and the
 # dispatch checks own that, so an unobservable origin does not hold it here.
 [MixWin32]::Front=[IntPtr]1
-$clock=[Diagnostics.Stopwatch]::StartNew()
+$script:Sleeps=0
+function Start-Sleep { $script:Sleeps++ }
 if ($null -ne (Get-ForegroundRefusal 'click' ([IntPtr]1) @{})) { throw 'admission refused without cause' }
-if ($clock.ElapsedMilliseconds -gt 1000) { throw "admission waited $($clock.ElapsedMilliseconds)ms" }
+if ($script:Sleeps -ne 0) { throw "admission waited $($script:Sleeps) times" }
 [Console]::WriteLine('ADMISSION')
 `,
     { 'input.ps1': PS_INPUT }
@@ -820,6 +821,8 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile(
 $function = $ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Handle'}, $true)
 . ([scriptblock]::Create($function.Extent.Text))
 $script:Dispatched = 0
+$script:Sleeps = 0
+function Start-Sleep { $script:Sleeps++ }
 function Get-SessionState($id) { return @{} }
 function Assert-ExecutionAuthorization($req, $target) {}
 function Do-ClickFamily($req, $kind) { $script:Dispatched++; return @{ ok = $true } }
@@ -840,18 +843,17 @@ test('a foreground action with a stale observation token is refused at once, wit
   const output = await isolatedProgram(
     `${OBSERVATION_FIXTURE}
 $rows = [ordered]@{}
-$clock = [Diagnostics.Stopwatch]::StartNew()
 $rows.stale = Attempt @{ action='click'; delivery='foreground'; session_id='s'; ref='e1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
-$rows.staleMs = $clock.ElapsedMilliseconds
+$rows.staleSleeps = $script:Sleeps
 # Activation is fact-guarded whatever the delivery field says.
 $rows.staleFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
 $rows.freshFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
 $rows.fresh = Attempt @{ action='click'; delivery='foreground'; session_id='s'; ref='e1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
 # Admission names an elevated holder only; recent user input does not hold the lane.
-$clock.Restart()
+$sleepsBefore = $script:Sleeps
 $admitted = Get-ForegroundRefusal 'click' ([IntPtr]1) @{}
 $rows.admitted = ($null -eq $admitted)
-$rows.admitMs = $clock.ElapsedMilliseconds
+$rows.admitSleeps = $script:Sleeps - $sleepsBefore
 $rows.probed = [MixWin32]::Probed
 $rows | ConvertTo-Json -Compress -Depth 4
 `,
@@ -860,14 +862,14 @@ $rows | ConvertTo-Json -Compress -Depth 4
   const rows = JSON.parse(output);
   assert.match(rows.stale.error, /^user_input_active:/);
   assert.equal(rows.stale.dispatched, 0, 'a stale observation must send nothing');
-  assert.ok(rows.staleMs < 2000, `refused after ${rows.staleMs}ms`);
+  assert.equal(rows.staleSleeps, 0, 'a stale observation must be refused without waiting');
   assert.match(rows.staleFocus.error, /^user_input_active:/);
   assert.equal(rows.staleFocus.dispatched, 0, 'a stale token must not activate a window');
   assert.equal(rows.freshFocus.dispatched, 1);
   assert.equal(rows.fresh.error, '');
   assert.equal(rows.fresh.dispatched, 1);
   assert.equal(rows.admitted, true);
-  assert.ok(rows.admitMs < 1000, `admission waited ${rows.admitMs}ms`);
+  assert.equal(rows.admitSleeps, 0, 'admission must not wait');
   assert.equal(rows.probed, 0, 'foreground admission must not look at recent user input');
 });
 

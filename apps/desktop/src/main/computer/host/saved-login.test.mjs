@@ -800,9 +800,10 @@ test('the bridge redacts replies and errors for every session, lifts guards at t
           (response) => {
             if (response.statusCode !== 200) reject(new Error(`owner refused: ${response.statusCode}`));
             response.once('data', () => resolve(held));
+            response.once('close', () => reject(new Error('owner response closed before data')));
           }
         );
-        held.once('error', () => {});
+        held.once('error', reject);
         held.end(body);
       });
     const fillAs = (runtimeId, extra = {}) =>
