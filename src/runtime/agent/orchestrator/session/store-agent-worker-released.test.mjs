@@ -24,7 +24,10 @@ test('the pool marks an owner-closed agent released, keeps its status, and drops
       updatedAt: now - 1_000,
       ...extra,
     });
-    writeFileSync(join(root, 'sessions', `${lead}.json`), JSON.stringify({ id: lead, owner: 'user', agent: 'lead', messages: [] }));
+    writeFileSync(
+      join(root, 'sessions', `${lead}.json`),
+      JSON.stringify({ id: lead, owner: 'user', agent: 'lead', messages: [] })
+    );
     writeFileSync(
       join(root, 'lead-workers.json'),
       JSON.stringify({ workers: [{ sessionId: lead, status: 'idle', updatedAt: now, createdAt: now - 10_000 }] })

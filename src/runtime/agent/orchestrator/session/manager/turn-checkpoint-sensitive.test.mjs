@@ -53,7 +53,12 @@ function startTurn(sessionId) {
   const tracker = createTurnInterruptionTracker();
   const prompt = 'Finish the sign-up.';
   const outgoing = [{ role: 'user', content: prompt }];
-  const recorder = createTurnCheckpointRecorder({ sessionId, generation: 1, turnToken: `tok-${sessionId}`, startedAt: 1 });
+  const recorder = createTurnCheckpointRecorder({
+    sessionId,
+    generation: 1,
+    turnToken: `tok-${sessionId}`,
+    startedAt: 1,
+  });
   const flush = () => recorder.record({ currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
   return { tracker, outgoing, flush };
 }
@@ -107,7 +112,10 @@ test('marking a value during a turn rewrites its checkpoint at once and resaves 
   const session = { id: sessionId, messages: [{ role: 'user', content: prompt }] };
   const turn = {
     session,
-    outgoing: [{ role: 'user', content: prompt }, { role: 'tool', toolCallId: 'M', content: `Code: ${CODE}` }],
+    outgoing: [
+      { role: 'user', content: prompt },
+      { role: 'tool', toolCallId: 'M', content: `Code: ${CODE}` },
+    ],
     userTurnContent: prompt,
   };
   const interruption = createTurnInterruptionTracker();

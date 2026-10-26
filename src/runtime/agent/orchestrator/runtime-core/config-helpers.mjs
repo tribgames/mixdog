@@ -78,6 +78,14 @@ function resolveAutoEffort({ autoEffort, saved, preset = null }) {
   return preset?.autoEffort !== false;
 }
 
+/** The route's context percent: an explicit request, else the saved choice
+ *  (read lazily) unless an exact token selection replaced it. */
+function resolveContextPercent({ hasExplicitContextPercent, contextPercent, keepsSavedPercent, savedPercent }) {
+  if (hasExplicitContextPercent) return cleanContextPercent(contextPercent);
+  if (keepsSavedPercent) return cleanContextPercent(savedPercent());
+  return undefined;
+}
+
 export function makeResolveRoute(resolveDefaultProvider) {
   return function resolveRoute(
     config,
@@ -119,11 +127,12 @@ export function makeResolveRoute(resolveDefaultProvider) {
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
-            contextPercent: hasExplicitContextPercent
-              ? cleanContextPercent(contextPercent)
-              : keepsSavedPercent
-                ? cleanContextPercent(saved.contextPercent ?? preset.contextPercent)
-                : undefined,
+            contextPercent: resolveContextPercent({
+              hasExplicitContextPercent,
+              contextPercent,
+              keepsSavedPercent,
+              savedPercent: () => saved.contextPercent ?? preset.contextPercent,
+            }),
             ...(tokens ? { contextTokens: tokens } : {}),
           };
         }
@@ -144,11 +153,12 @@ export function makeResolveRoute(resolveDefaultProvider) {
       modelParameters: hasExplicitModelParameters
         ? cleanModelParameters(modelParameters)
         : cleanModelParameters(saved.modelParameters),
-      contextPercent: hasExplicitContextPercent
-        ? cleanContextPercent(contextPercent)
-        : keepsSavedPercent
-          ? cleanContextPercent(saved.contextPercent)
-          : undefined,
+      contextPercent: resolveContextPercent({
+        hasExplicitContextPercent,
+        contextPercent,
+        keepsSavedPercent,
+        savedPercent: () => saved.contextPercent,
+      }),
       ...(tokens ? { contextTokens: tokens } : {}),
     };
   };
@@ -290,11 +300,11 @@ export function autoClearProviderDefaults(providerIdleMs = null, extraProviders 
     const builtIn = Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, provider)
       ? AUTO_CLEAR_PROVIDER_IDLE_MS[provider]
       : AUTO_CLEAR_PROVIDER_IDLE_MS.default;
-    const idleMs = Object.hasOwn(overrides, provider)
-      ? resolvedIdleMs(overrides[provider])
-      : provider === 'default' || Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, provider)
-        ? resolvedIdleMs(builtIn)
-        : autoClearIdleMsForProvider(provider, overrides);
+    let idleMs;
+    if (Object.hasOwn(overrides, provider)) idleMs = resolvedIdleMs(overrides[provider]);
+    else if (provider === 'default' || Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, provider)) {
+      idleMs = resolvedIdleMs(builtIn);
+    } else idleMs = autoClearIdleMsForProvider(provider, overrides);
     return {
       provider,
       idleMs,

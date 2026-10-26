@@ -77,7 +77,10 @@ export function bindShellKind(tool, kind) {
     description: buildShellDescription(kind),
     inputSchema: {
       ...tool.inputSchema,
-      properties: { ...properties, command: { ...properties.command, description: buildShellCommandDescription(kind) } },
+      properties: {
+        ...properties,
+        command: { ...properties.command, description: buildShellCommandDescription(kind) },
+      },
     },
   };
   if (!_boundShellTools.has(tool)) _boundShellTools.set(tool, new Map());
@@ -207,7 +210,10 @@ export const BUILTIN_TOOLS = [
       type: 'object',
       properties: {
         command: { type: 'string', description: buildShellCommandDescription(_defaultShellKind) },
-        cwd: { type: 'string', description: 'Working directory; default the Project. Use it instead of cd/Set-Location.' },
+        cwd: {
+          type: 'string',
+          description: 'Working directory; default the Project. Use it instead of cd/Set-Location.',
+        },
         timeout_ms: {
           type: 'integer',
           minimum: 0,

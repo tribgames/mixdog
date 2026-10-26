@@ -70,7 +70,10 @@ async function rewriteSuffix(path, st) {
   const after = await fs.stat(path);
   assert.equal(after.mtimeMs, st.mtimeMs);
   assert.equal(after.size, st.size);
-  assert.equal(hashText(Buffer.from(largeText).subarray(0, 65536)), hashText(Buffer.from(replacement).subarray(0, 65536)));
+  assert.equal(
+    hashText(Buffer.from(largeText).subarray(0, 65536)),
+    hashText(Buffer.from(replacement).subarray(0, 65536))
+  );
   return after;
 }
 async function noPublishedAnchors(path) {
@@ -89,7 +92,9 @@ for (const route of ['range', 'source']) {
     await rewriteSuffix(path, st);
     if (route === 'range') {
       // Deliberately supply both the old stat and the old inspection prefix.
-      const result = await streamReadRange(path, 9000, 1, st, { prefixBuffer: Buffer.from(largeText).subarray(0, 65536) });
+      const result = await streamReadRange(path, 9000, 1, st, {
+        prefixBuffer: Buffer.from(largeText).subarray(0, 65536),
+      });
       assert.equal(first(result), renderReadLine(9001, largeRows[9001]));
     } else {
       assert.equal((await readSourceWindows(path, [{ start: 9001, end: 9001 }])).get(9001), largeRows[9001]);

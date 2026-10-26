@@ -106,7 +106,10 @@ function deltaLines(session, added, removed, removedServers) {
   for (const entry of added) {
     const server = serverOf(entry.name);
     if (!server) {
-      items.push({ label: entry.name, line: entry.description ? `- ${entry.name}: ${entry.description}` : `- ${entry.name}` });
+      items.push({
+        label: entry.name,
+        line: entry.description ? `- ${entry.name}: ${entry.description}` : `- ${entry.name}`,
+      });
     } else if (addedServers.has(server)) addedServers.get(server).push(entry);
     else addedServers.set(server, [entry]);
   }
@@ -136,9 +139,10 @@ function deltaLines(session, added, removed, removedServers) {
   for (const [server, names] of removedByServer) {
     const label = `mcp__${server}`;
     const gone = connected && !liveServers.has(server);
+    const plural = names.length === 1 ? '' : 's';
     removedItems.push({
       label,
-      line: gone ? `- ${label}` : `- ${label}: ${names.length} tool${names.length === 1 ? '' : 's'} removed`,
+      line: gone ? `- ${label}` : `- ${label}: ${names.length} tool${plural} removed`,
     });
   }
 

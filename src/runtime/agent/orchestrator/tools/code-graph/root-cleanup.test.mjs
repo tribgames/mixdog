@@ -91,8 +91,8 @@ test('forgetTrustedCodeGraphRoot unregisters only the exact root', () => {
   });
   assert.deepEqual(result, { removed: [rootA], kept: [] });
   assert.deepEqual(registry, [rootB, join(rootA, 'nested')]);
-  assert.deepEqual(
-    trusted.forgetTrustedCodeGraphRoot(rootA, { registered: () => [...registry], unregister }),
-    { removed: [], kept: [] }
-  );
+  assert.deepEqual(trusted.forgetTrustedCodeGraphRoot(rootA, { registered: () => [...registry], unregister }), {
+    removed: [],
+    kept: [],
+  });
 });

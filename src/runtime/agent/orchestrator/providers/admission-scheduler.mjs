@@ -264,7 +264,9 @@ export class ProviderAdmissionScheduler {
         running.parentAbort = () => {
           try {
             controller.abort(item.signal.reason);
-          } catch {}
+          } catch {
+            // the controller may already be aborted
+          }
         };
         item.signal.addEventListener('abort', running.parentAbort, { once: true });
       }
@@ -301,7 +303,9 @@ export class ProviderAdmissionScheduler {
           if (running.parentAbort && running.parentSignal) {
             try {
               running.parentSignal.removeEventListener('abort', running.parentAbort);
-            } catch {}
+            } catch {
+              // the abort listener may already be gone
+            }
           }
           this.running.delete(running);
           lane.active -= 1;
@@ -454,7 +458,9 @@ export class ProviderAdmissionScheduler {
     if (item.onAbort && item.signal) {
       try {
         item.signal.removeEventListener('abort', item.onAbort);
-      } catch {}
+      } catch {
+        // the abort listener may already be gone
+      }
       item.onAbort = null;
     }
   }
@@ -479,7 +485,9 @@ export class ProviderAdmissionScheduler {
     for (const running of this.running) {
       try {
         running.controller.abort(this.closedReason);
-      } catch {}
+      } catch {
+        // the controller may already be aborted
+      }
     }
   }
 }
@@ -582,7 +590,9 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
             // time. Provider-local retry remains the sole retry owner.
             try {
               opts.onStageChange?.('requesting');
-            } catch {}
+            } catch {
+              // the stage observer is advisory
+            }
             const admittedOpts = {
               ...opts,
               signal: admissionSignal,

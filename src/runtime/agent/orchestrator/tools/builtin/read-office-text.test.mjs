@@ -4,7 +4,11 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSZip from 'jszip';
-import { extractOoxmlText, extractOoxmlTextFromBuffer, tryExtractOoxmlTextFromBuffer } from '../../../../attachments/office-extract.mjs';
+import {
+  extractOoxmlText,
+  extractOoxmlTextFromBuffer,
+  tryExtractOoxmlTextFromBuffer,
+} from '../../../../attachments/office-extract.mjs';
 
 const WORD_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const DRAWING_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
@@ -542,7 +546,9 @@ const HOSTILE = {
 for (const [label, build] of Object.entries(HOSTILE)) {
   test(`extraction stays linear on ${label}`, async () => {
     const buffer = await packageBuffer(build());
-    const name = 'xl/workbook.xml' in build() ? 'a.xlsx' : 'ppt/slides/slide1.xml' in build() ? 'a.pptx' : 'a.docx';
+    let name = 'a.docx';
+    if ('xl/workbook.xml' in build()) name = 'a.xlsx';
+    else if ('ppt/slides/slide1.xml' in build()) name = 'a.pptx';
     const started = performance.now();
     const text = extractOoxmlTextFromBuffer(buffer, name);
     const elapsed = performance.now() - started;

@@ -23,7 +23,9 @@ after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const { guardShellCall, requestedShellType, SHELL_FILE_READ_MODE, SHELL_FILE_READ_NOTE } =await import('./misuse-guard.mjs');
+const { guardShellCall, requestedShellType, SHELL_FILE_READ_MODE, SHELL_FILE_READ_NOTE } = await import(
+  './misuse-guard.mjs'
+);
 const { executeBashTool, executeTaskTool } = await import('../bash-tool.mjs');
 const { executeTool } = await import('../../../session/loop/tool-exec.mjs');
 const { resolveShellFor } = await import('../shell-runtime.mjs');
@@ -163,7 +165,10 @@ test('the guard parses with the shell the call asks for, not the default one', (
   assert.equal(guard(windowsPath, POWERSHELL).args.cwd, 'foo\\bar');
   if (resolveShellFor('bash')) {
     assert.equal(requestedShellType({ shell: 'bash' }), POSIX);
-    const out = guardShellCall({ command: windowsPath, shell: 'bash' }, { shellType: requestedShellType({ shell: 'bash' }) });
+    const out = guardShellCall(
+      { command: windowsPath, shell: 'bash' },
+      { shellType: requestedShellType({ shell: 'bash' }) }
+    );
     assert.equal(out.args.command, windowsPath);
     assert.equal(out.args.cwd, undefined);
   }
@@ -305,7 +310,14 @@ test('a leading sleep is rejected before hooks, approvals and execution', async 
   const seen = [];
   const hookSession = { id: 'misuse-sleep', cwd: session };
   const hooks = { beforeToolHook: (input) => seen.push(input), toolApprovalHook: () => seen.push('approval') };
-  const out = await executeTool('shell', { command: 'Start-Sleep 50; echo ran' }, session, hookSession.id, hookSession, hooks);
+  const out = await executeTool(
+    'shell',
+    { command: 'Start-Sleep 50; echo ran' },
+    session,
+    hookSession.id,
+    hookSession,
+    hooks
+  );
   assert.ok(textOf(out).includes(blockedSleep(50)), textOf(out));
   assert.doesNotMatch(textOf(out), /\bran\b$/m);
   assert.deepEqual(seen, []);
@@ -326,12 +338,22 @@ test('hooks, approvals, the result and the task record see the moved cd', async 
       after.push({ command: input.args.command, cwd: input.cwd });
     },
   };
-  const out = await executeTool('shell', { command: `cd sub; ${PRINT_CWD}` }, session, hookSession.id, hookSession, hooks);
+  const out = await executeTool(
+    'shell',
+    { command: `cd sub; ${PRINT_CWD}` },
+    session,
+    hookSession.id,
+    hookSession,
+    hooks
+  );
   assert.deepEqual(before, [{ command: PRINT_CWD, argCwd: 'sub', cwd: sub }]);
   assert.deepEqual(after, [{ command: PRINT_CWD, cwd: sub }]);
   const text = textOf(out);
   assert.ok(text.includes('Moved `cd sub` into cwd.'), text);
-  assert.ok(text.split(/\r?\n/).some((line) => line.trim() === sub), text);
+  assert.ok(
+    text.split(/\r?\n/).some((line) => line.trim() === sub),
+    text
+  );
   assert.ok(text.indexOf('Moved') < text.indexOf(sub), 'the note leads the output');
 
   const ask = [];
@@ -347,7 +369,14 @@ test('hooks, approvals, the result and the task record see the moved cd', async 
 
   const later = 'node -e "setTimeout(() => console.log(process.cwd()), 400)"';
   const started = textOf(
-    await executeTool('shell', { command: `cd sub; ${later}`, background: true }, session, hookSession.id, hookSession, {})
+    await executeTool(
+      'shell',
+      { command: `cd sub; ${later}`, background: true },
+      session,
+      hookSession.id,
+      hookSession,
+      {}
+    )
   );
   assert.ok(started.includes('Moved `cd sub` into cwd.'), started);
   const taskId = /task_id: (\S+)/.exec(started)?.[1];
@@ -361,7 +390,12 @@ test('hooks, approvals, the result and the task record see the moved cd', async 
 test('a direct call moves the cd too; an explicit cwd leaves it to the shell', async () => {
   const out = await executeBashTool({ command: `cd sub; ${PRINT_CWD}` }, session, {});
   assert.ok(textOf(out).includes('Moved `cd sub` into cwd.'), textOf(out));
-  assert.ok(textOf(out).split(/\r?\n/).some((line) => line.trim() === sub), textOf(out));
+  assert.ok(
+    textOf(out)
+      .split(/\r?\n/)
+      .some((line) => line.trim() === sub),
+    textOf(out)
+  );
   const missing = await executeBashTool({ command: `cd nope; ${PRINT_CWD}` }, session, {});
   assert.match(textOf(missing), /^Error:.*shell cwd ".*nope" does not exist/);
 });
@@ -370,7 +404,9 @@ test('a file read runs with the note first and is recorded with agent and sessio
   const shellType = resolveShellFor('default').shellType === POWERSHELL ? POWERSHELL : POSIX;
   const command = shellType === POWERSHELL ? `Get-Content "${dataFile}"` : `cat "${dataFile}"`;
   const resultTelemetry = {};
-  const out = textOf(await executeBashTool({ command }, session, { resultTelemetry, agent: 'worker-9', sessionId: 'sess-9' }));
+  const out = textOf(
+    await executeBashTool({ command }, session, { resultTelemetry, agent: 'worker-9', sessionId: 'sess-9' })
+  );
   assert.ok(out.includes('file-body-marker'), out);
   assert.ok(out.includes(SHELL_FILE_READ_NOTE), out);
   assert.ok(out.indexOf(SHELL_FILE_READ_NOTE) < out.indexOf('file-body-marker'));
@@ -387,8 +423,13 @@ test('the note rides a backgrounded read and a moved cd leads a flagged read', a
   const shellType = resolveShellFor('default').shellType === POWERSHELL ? POWERSHELL : POSIX;
   const command = shellType === POWERSHELL ? 'Get-Content data.txt' : 'cat data.txt';
   const sessionId = 'misuse-bg-read';
-  const out = textOf(await executeBashTool({ command: `cd sub; ${command}`, background: true }, session, { sessionId }));
-  await executeTaskTool({ action: 'wait', task_id: /task_id: (\S+)/.exec(out)?.[1], timeout_ms: 20_000 }, { sessionId });
+  const out = textOf(
+    await executeBashTool({ command: `cd sub; ${command}`, background: true }, session, { sessionId })
+  );
+  await executeTaskTool(
+    { action: 'wait', task_id: /task_id: (\S+)/.exec(out)?.[1], timeout_ms: 20_000 },
+    { sessionId }
+  );
   assert.ok(out.includes('Moved `cd sub` into cwd.'), out);
   assert.ok(out.includes(SHELL_FILE_READ_NOTE), out);
   assert.ok(out.indexOf('Moved') < out.indexOf('Note:'));

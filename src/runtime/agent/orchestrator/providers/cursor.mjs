@@ -132,7 +132,9 @@ async function* responseSseEvents(response, signal) {
     if (signal) {
       try {
         signal.removeEventListener('abort', onAbort);
-      } catch {}
+      } catch {
+        // the abort listener may already be gone
+      }
     }
     if (aborted) await reader.cancel().catch(() => {});
   }
@@ -652,7 +654,9 @@ class CursorProviderBase {
     let emittedToolCall = false;
     try {
       sendOpts.onStageChange?.('requesting');
-    } catch {}
+    } catch {
+      // the stage observer is advisory
+    }
     try {
       const response = await runtime.handleChatCompletion(body, accessToken, {
         onStageChange: sendOpts.onStageChange,
@@ -667,7 +671,9 @@ class CursorProviderBase {
       });
       try {
         sendOpts.onStageChange?.('streaming');
-      } catch {}
+      } catch {
+        // the stage observer is advisory
+      }
       return await consumeCompatChatCompletionStream(responseSseEvents(response, signal), {
         signal,
         label: this.name,

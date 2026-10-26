@@ -52,7 +52,17 @@ function registerPromotedTask({ result, command, cwd, options, startedAtMs }) {
 // running, now promoted as a tracked shell-job. Surface the task_id + partial
 // output for manual task control instead of keeping the tool call open until
 // the hard timeout.
-export function renderBackgroundedResult({ result, command, cwd, options, startedAtMs, teePlan, stdout, stderr, notes = '' }) {
+export function renderBackgroundedResult({
+  result,
+  command,
+  cwd,
+  options,
+  startedAtMs,
+  teePlan,
+  stdout,
+  stderr,
+  notes = '',
+}) {
   let task = null;
   if (result.jobId) {
     task = registerPromotedTask({ result, command, cwd, options, startedAtMs });

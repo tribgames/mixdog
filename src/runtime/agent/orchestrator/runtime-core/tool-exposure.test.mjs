@@ -463,7 +463,11 @@ const GMAIL_TEXT = 'Account: dev@tribgames.com. This server acts only for this G
 
 test('a bridge session gets the server instructions with the first described tool, once', () => {
   const session = leadSession('gemini', {
-    extraTools: [instructionTool('mcp__gmail__send'), instructionTool('mcp__gmail__read'), instructionTool('mcp__plain__run')],
+    extraTools: [
+      instructionTool('mcp__gmail__send'),
+      instructionTool('mcp__gmail__read'),
+      instructionTool('mcp__plain__run'),
+    ],
   });
   session.mcpServerInstructions = { gmail: GMAIL_TEXT };
   assert.equal(session.toolExposureMode, 'bridge-v1');
@@ -482,7 +486,10 @@ test('a bridge session gets the server instructions with the first described too
 test('bridge instructions count inside the page budget and are announced only when they ride the page', () => {
   const bridgeSession = (padding, instructions) => {
     const session = leadSession('gemini', {
-      extraTools: [{ ...instructionTool('mcp__big__a'), description: 'x'.repeat(padding) }, instructionTool('mcp__other__b')],
+      extraTools: [
+        { ...instructionTool('mcp__big__a'), description: 'x'.repeat(padding) },
+        instructionTool('mcp__other__b'),
+      ],
     });
     session.mcpServerInstructions = instructions;
     return session;
@@ -506,14 +513,21 @@ test('bridge instructions count inside the page budget and are announced only wh
 
   const session = bridgeSession(low, { big: 'Big server text.', other: 'Other server text.' });
   const first = describe(session, both);
-  assert.ok(Buffer.byteLength(first.raw) <= BRIDGE_LIMITS.describeMaxBytes, 'the instruction text stays inside the budget');
+  assert.ok(
+    Buffer.byteLength(first.raw) <= BRIDGE_LIMITS.describeMaxBytes,
+    'the instruction text stays inside the budget'
+  );
   assert.deepEqual(
     first.page.entries.map((entry) => entry.name),
     ['mcp__big__a'],
     'the second definition moved to the next page'
   );
   assert.equal(first.page.mcpInstructions, '## big\nBig server text.');
-  assert.deepEqual(session.mcpInstructionsAnnounced, ['big'], 'the server that did not ride the page stays unannounced');
+  assert.deepEqual(
+    session.mcpInstructionsAnnounced,
+    ['big'],
+    'the server that did not ride the page stays unannounced'
+  );
   // The next page carries the text of the server it describes.
   const next = describe(session, [first.page.continueWith.names]);
   assert.deepEqual(

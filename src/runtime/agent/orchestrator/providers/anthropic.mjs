@@ -225,7 +225,9 @@ export class AnthropicProvider {
       if (!handler) return;
       try {
         totalSignal.removeEventListener('abort', handler);
-      } catch {}
+      } catch {
+        // the abort listener may already be gone
+      }
     };
 
     // Request-loop 529s and SSE overload events share one counter; at the
@@ -300,7 +302,9 @@ export class AnthropicProvider {
           cancelHandler = () => {
             try {
               streamController.abort(totalSignal.reason);
-            } catch {}
+            } catch {
+              // best-effort propagation of caller cancellation
+            }
           };
           totalSignal.addEventListener('abort', cancelHandler, { once: true });
         }
@@ -313,13 +317,17 @@ export class AnthropicProvider {
         try {
           try {
             onStageChange?.('requesting');
-          } catch {}
+          } catch {
+            // the stage observer is advisory
+          }
 
           response = await transport.requestStreamingResponse();
 
           try {
             onStageChange?.('streaming');
-          } catch {}
+          } catch {
+            // the stage observer is advisory
+          }
 
           firstByte = armFirstByteWatchdog(streamController, midState);
 
@@ -340,7 +348,9 @@ export class AnthropicProvider {
           );
           try {
             streamController.abort?.('Anthropic SSE complete');
-          } catch {}
+          } catch {
+            // the stream is complete; the controller may already be aborted
+          }
 
           firstByte.cleanup();
           assertAnthropicStreamNotEmpty(midState, parseResult, 'Anthropic');

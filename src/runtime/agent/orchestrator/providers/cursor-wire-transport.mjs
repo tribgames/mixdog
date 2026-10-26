@@ -154,7 +154,9 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
     if (closed || session.closed || session.destroyed) return;
     try {
       session.ping(() => {});
-    } catch {}
+    } catch {
+      // the session may have closed since the check above
+    }
   }, H2_PING_INTERVAL_MS);
   ping.unref?.();
 
@@ -176,20 +178,28 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
     closeError = error || (status >= 400 ? httpStatusError(status, responseHeaders) : null);
     try {
       request.close();
-    } catch {}
+    } catch {
+      // the request stream may already be closed
+    }
     try {
       session.close();
-    } catch {}
+    } catch {
+      // the session may already be closed
+    }
     closeHandler?.(closeError);
   };
   const close = (error = null) => {
     if (closed) return;
     try {
       request.close(http2.constants.NGHTTP2_CANCEL);
-    } catch {}
+    } catch {
+      // the request stream may already be closed
+    }
     try {
       session.destroy();
-    } catch {}
+    } catch {
+      // the session may already be destroyed
+    }
     finish(error);
   };
 
@@ -251,10 +261,14 @@ export async function callCursorUnary({ accessToken, path, body, url = API_URL, 
       clearTimeout(timeout);
       try {
         request.close();
-      } catch {}
+      } catch {
+        // the request stream may already be closed
+      }
       try {
         session.close();
-      } catch {}
+      } catch {
+        // the session may already be closed
+      }
       if (error) reject(error);
       else if (status >= 400) reject(httpStatusError(status, responseHeaders));
       else resolve(Buffer.concat(chunks));
@@ -323,7 +337,8 @@ export function parseEndStream(bytes) {
     if (!payload?.error) return null;
     const connectCode = String(payload.error.code || 'error').toLowerCase();
     const detail = String(payload.error.message || 'request failed');
-    const tooLarge = connectCode === 'resource_exhausted' && !THROTTLE_CUE_RE.test(detail) && REQUEST_TOO_LARGE_RE.test(detail);
+    const tooLarge =
+      connectCode === 'resource_exhausted' && !THROTTLE_CUE_RE.test(detail) && REQUEST_TOO_LARGE_RE.test(detail);
     const retryAfter =
       payload.error.retryAfter ??
       payload.error.retry_after ??

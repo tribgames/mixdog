@@ -27,7 +27,9 @@ function instrument(t) {
   const stats = { opens: 0, reads: 0, closes: 0 };
   const waiters = [];
   let release;
-  const gate = new Promise((r) => { release = r; });
+  const gate = new Promise((r) => {
+    release = r;
+  });
   const bump = (kind) => {
     stats[kind]++;
     for (const w of [...waiters]) {
@@ -65,9 +67,8 @@ function instrument(t) {
   return {
     stats,
     release: () => release(),
-    waitFor: (kind, n) => (stats[kind] >= n
-      ? Promise.resolve()
-      : new Promise((resolve) => waiters.push({ kind, n, resolve }))),
+    waitFor: (kind, n) =>
+      stats[kind] >= n ? Promise.resolve() : new Promise((resolve) => waiters.push({ kind, n, resolve })),
   };
 }
 
@@ -93,11 +94,23 @@ test('concurrent identical calls share one file scan with isolated maps', T, asy
   // read completes that line. Two independent scans would do four reads.
   assert.equal(io.stats.reads, 2);
   assert.equal(io.stats.closes, 1);
-  assert.deepEqual([...m1], [[2, 'two'], [3, 'three']]);
+  assert.deepEqual(
+    [...m1],
+    [
+      [2, 'two'],
+      [3, 'three'],
+    ]
+  );
   assert.notEqual(m1, m2);
   m1.set(99, 'x');
   m1.delete(2);
-  assert.deepEqual([...m2], [[2, 'two'], [3, 'three']]);
+  assert.deepEqual(
+    [...m2],
+    [
+      [2, 'two'],
+      [3, 'three'],
+    ]
+  );
 });
 
 test('distinct windows and files start independently', T, async (t) => {
@@ -140,8 +153,20 @@ test('mutation invalidation stops new readers joining an in-flight read', T, asy
   assert.equal(io.stats.opens, 2);
   io.release();
   const [m1, m2] = await Promise.all([p1, p2]);
-  assert.deepEqual([...m1], [[1, 'a'], [2, 'b']]);
-  assert.deepEqual([...m2], [[1, 'a'], [2, 'b']]);
+  assert.deepEqual(
+    [...m1],
+    [
+      [1, 'a'],
+      [2, 'b'],
+    ]
+  );
+  assert.deepEqual(
+    [...m2],
+    [
+      [1, 'a'],
+      [2, 'b'],
+    ]
+  );
 });
 
 test('one subscriber abort keeps the read; last abort closes the handle', T, async (t) => {

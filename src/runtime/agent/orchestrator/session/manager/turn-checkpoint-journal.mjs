@@ -153,7 +153,10 @@ export function redactInterruptionSnapshot(sessionId, snapshot) {
     ...source,
     partialAssistantContent: redactSettledText(sessionId, String(source.partialAssistantContent || '')),
     partialReasoningContent: redactSettledText(sessionId, String(source.partialReasoningContent || '')),
-    observedToolCalls: storedCallEntries(sessionId, Array.isArray(source.observedToolCalls) ? source.observedToolCalls : []),
+    observedToolCalls: storedCallEntries(
+      sessionId,
+      Array.isArray(source.observedToolCalls) ? source.observedToolCalls : []
+    ),
     observedToolResults: storedResultEntries(
       sessionId,
       Array.isArray(source.observedToolResults) ? source.observedToolResults : []
@@ -169,7 +172,10 @@ export function writeCheckpointHeader(checkpoint) {
   const payload = {
     ...checkpoint,
     version: TURN_CHECKPOINT_VERSION,
-    currentUserContent: redactSensitiveContent(sessionId, sanitizeContentForStoredHistory(checkpoint.currentUserContent)),
+    currentUserContent: redactSensitiveContent(
+      sessionId,
+      sanitizeContentForStoredHistory(checkpoint.currentUserContent)
+    ),
     turnMessages: (Array.isArray(checkpoint.turnMessages) ? checkpoint.turnMessages : []).map((message) =>
       redactSensitiveMessage(sessionId, checkpointMessage(message))
     ),
@@ -636,7 +642,8 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
       seq = 0;
       const openLines = [line({ t: 'h', turnToken, ...(epoch ? { e: epoch } : {}), at: Date.now() })];
       const seededDelta = seeded?.changed ? interruptionRecord(seeded.delta) : null;
-      if (seededDelta && Object.keys(seededDelta).length) openLines.push(line({ t: 'x', d: seededDelta, at: Date.now() }));
+      if (seededDelta && Object.keys(seededDelta).length)
+        openLines.push(line({ t: 'x', d: seededDelta, at: Date.now() }));
       return {
         turnMessages: journaled.map(checkpointMessage),
         fullTranscript,

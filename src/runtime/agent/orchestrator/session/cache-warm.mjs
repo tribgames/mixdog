@@ -67,11 +67,7 @@ import { withTailReminder } from './tail-reminder-rules.mjs';
 import { promptCacheTouchStore } from './prompt-cache-touch-store.mjs';
 import { createIdleGapStore } from './prompt-cache-idle-gaps.mjs';
 import { registerSessionPurgeHook } from './store/session-observers.mjs';
-import {
-  PROMPT_ORIGIN_AGENT_REPORT,
-  PROMPT_ORIGIN_CHANNEL,
-  promptOriginOf,
-} from '../../../shared/prompt-origin.mjs';
+import { PROMPT_ORIGIN_AGENT_REPORT, PROMPT_ORIGIN_CHANNEL, promptOriginOf } from '../../../shared/prompt-origin.mjs';
 
 export const CACHE_WARM_SOURCE = 'cache-warm';
 

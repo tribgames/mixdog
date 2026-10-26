@@ -192,7 +192,8 @@ export function detectShellFileRead(command, shellType) {
   const operands = stageOperands(args);
   if (!operands) return null;
   // A search names its pattern and then the path it reads; with one operand it reads piped input.
-  return operands.length >= (tool === 'grep' ? 2 : 1) ? { tool, command: name } : null;
+  const minOperands = tool === 'grep' ? 2 : 1;
+  return operands.length >= minOperands ? { tool, command: name } : null;
 }
 
 // ── the guard ────────────────────────────────────────────────────────────────

@@ -209,7 +209,9 @@ export function createAntigravityRequest({
           // has not produced its first chunk.
           try {
             opts.onStreamDelta?.('transport');
-          } catch {}
+          } catch {
+            // the stream-delta observer is advisory
+          }
           if (!res.ok) {
             const text = await res.text().catch(() => '');
             const failure = antigravityError(res, text, endpoint);

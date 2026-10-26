@@ -144,7 +144,9 @@ test('the fork re-sends the saved request unchanged plus the reply and the quest
   // Cache-identical prefix: the saved messages come first, unchanged and by identity.
   const prefix = sent.providerMessages;
   assert.equal(fork.messages.length, prefix.length + 3);
-  prefix.forEach((message, index) => assert.equal(fork.messages[index], message, `prefix[${index}]`));
+  prefix.forEach((message, index) => {
+    assert.equal(fork.messages[index], message, `prefix[${index}]`);
+  });
   // Same request options as the main send (minus loop-only state).
   for (const key of ['sessionId', 'session', 'effort', 'fast', 'modelParameters', 'promptCacheKey', 'cacheStrategy']) {
     assert.equal(fork.opts[key], main.opts[key], key);
@@ -183,10 +185,9 @@ test('the fork re-sends the saved request unchanged plus the reply and the quest
 
 test('a request still in flight is forked without a reply', async () => {
   let release;
-  const provider = scriptedProvider(
-    () => new Promise((resolve) => (release = () => resolve(MAIN_REPLY))),
-    { content: 'Still reading.' }
-  );
+  const provider = scriptedProvider(() => new Promise((resolve) => (release = () => resolve(MAIN_REPLY))), {
+    content: 'Still reading.',
+  });
   const { state, round } = mainState('btw-inflight', provider);
   const main = sendProviderRequest(state, round);
   await new Promise((resolve) => setImmediate(resolve));
@@ -259,7 +260,9 @@ test('a session with a transcript but no saved request forks the request its nex
     ['read']
   );
   assert.equal(fork.messages.length, messages.length + 1);
-  messages.forEach((message, index) => assert.equal(fork.messages[index], message, `prefix[${index}]`));
+  messages.forEach((message, index) => {
+    assert.equal(fork.messages[index], message, `prefix[${index}]`);
+  });
   const question = fork.messages.at(-1);
   assert.equal(question.role, 'user');
   assert.equal(question.meta.source, 'steering');
@@ -286,10 +289,14 @@ test('a session with a transcript but no saved request forks the request its nex
 test('a session without a conversation or a provider still refuses the side question', async () => {
   const provider = scriptedProvider({ content: 'Never asked.' });
   storedSession('btw-empty', [{ role: 'system', content: 'You are the Lead.' }]);
-  storedSession('btw-no-provider', [
-    { role: 'system', content: 'You are the Lead.' },
-    { role: 'user', content: 'Hello.' },
-  ], { provider: 'missing-provider' });
+  storedSession(
+    'btw-no-provider',
+    [
+      { role: 'system', content: 'You are the Lead.' },
+      { role: 'user', content: 'Hello.' },
+    ],
+    { provider: 'missing-provider' }
+  );
   await _withRegisteredProviderForTestAsync('anthropic', provider, async () => {
     await assert.rejects(askSideQuestion('btw-empty', 'Anything?'), { message: SIDE_QUESTION_NO_REQUEST });
     await assert.rejects(askSideQuestion('btw-no-provider', 'Anything?'), { message: SIDE_QUESTION_NO_REQUEST });

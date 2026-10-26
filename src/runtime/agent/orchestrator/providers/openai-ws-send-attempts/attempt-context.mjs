@@ -4,12 +4,7 @@
  */
 import { performance } from 'node:perf_hooks';
 import { appendAgentTrace } from '../../agent-trace.mjs';
-import {
-  _sleepWithAbort,
-  MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT,
-  midstreamBackoffFor,
-  tag,
-} from './policy.mjs';
+import { _sleepWithAbort, MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT, midstreamBackoffFor, tag } from './policy.mjs';
 import { retryReasonClass, safeRetryErrorCode } from '../provider-error-kind.mjs';
 
 /** One row per WS retry: the server's typed verdict (status, close code, an
@@ -32,7 +27,9 @@ function traceRetry(traceFn, trace, err, { attempt, max, classifier, waitMs }) {
       ws_close_code: Number(err?.wsCloseCode || 0) || null,
     };
     traceFn({ sessionId: trace?.poolKey || null, kind: 'ws_retry', ...payload, payload });
-  } catch {}
+  } catch {
+    // the retry trace sink is advisory
+  }
 }
 
 export function createAttemptContext(deps) {

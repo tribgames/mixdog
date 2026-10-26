@@ -300,9 +300,7 @@ export function assignUiDiffFromMessage(target, source) {
 export function toolMetaFromMessage(source) {
   const meta = source?.toolMeta ?? source?.content?.toolMeta;
   if (!meta || typeof meta !== 'object' || typeof meta.code !== 'string' || !meta.code) return undefined;
-  const missing = Array.isArray(meta.missing)
-    ? meta.missing.filter((name) => typeof name === 'string' && name)
-    : [];
+  const missing = Array.isArray(meta.missing) ? meta.missing.filter((name) => typeof name === 'string' && name) : [];
   const ownerSessionId = visualizeOwnerMetaSessionId(meta.ownerSessionId);
   return { code: meta.code, missing, ...(ownerSessionId ? { ownerSessionId } : {}) };
 }

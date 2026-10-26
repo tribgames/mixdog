@@ -288,7 +288,10 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
     ].join(SEP)
   );
   assert.match(parts.orchestrationContext, /^# Delegation\n\nHandle conversation yourself\./);
-  assert.match(_buildLeadRules({ part: 'agent' }), /- Just answer conversation\.[\s\S]*- Relay agent reports faithfully\./);
+  assert.match(
+    _buildLeadRules({ part: 'agent' }),
+    /- Just answer conversation\.[\s\S]*- Relay agent reports faithfully\./
+  );
   // Sub-agent catalog: no contact. Contact catalog: the other bots, never itself.
   assert.match(parts.agentCatalogContext, /\(worker\)/);
   assert.doesNotMatch(parts.agentCatalogContext, /\(sample\)|\(other\)/);

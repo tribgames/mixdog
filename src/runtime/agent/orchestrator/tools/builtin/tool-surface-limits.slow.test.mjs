@@ -56,8 +56,13 @@ const SLEEP_SEC = process.platform === 'win32' ? 'Start-Sleep -Seconds' : 'sleep
 
 test('shell wait_ms keeps a ~15s command in the foreground', { timeout: 60_000 }, async () => {
   const out = String(
-    (await executeBuiltinTool('shell', { command: `echo start; ${SLEEP_SEC} 15; echo done-wait`, wait_ms: 30000 }, process.cwd()))
-      .result
+    (
+      await executeBuiltinTool(
+        'shell',
+        { command: `echo start; ${SLEEP_SEC} 15; echo done-wait`, wait_ms: 30000 },
+        process.cwd()
+      )
+    ).result
   );
   assert.match(out, /done-wait/);
   assert.doesNotMatch(out, /task_id/);

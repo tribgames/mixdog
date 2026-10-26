@@ -22,6 +22,15 @@ import { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
 import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
 import { stampTurnHop } from '../../../../shared/bot-hops.mjs';
 
+function turnPromptSourceFor(input) {
+  if (!(input.promptOrigin || input.retryProvenance)) return input.promptSource;
+  return {
+    ...(input.promptSource || {}),
+    ...(input.promptOrigin ? { origin: input.promptOrigin } : {}),
+    ...(input.retryProvenance ? { provenance: input.retryProvenance } : {}),
+  };
+}
+
 /** Resolves the provider, builds the user turn and pre-commits it; returns
  *  what the loop and the commit need from this preparation. */
 export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta, currentAgents }) {
@@ -107,14 +116,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
           // a rebuilt retry (the resubmitted prompt or a continuation prompt),
           // the failed turn's, which a later retry reads back
           // (cache-warm.mjs failedTurnProvenance).
-          turnPromptSource:
-            input.promptOrigin || input.retryProvenance
-              ? {
-                  ...(input.promptSource || {}),
-                  ...(input.promptOrigin ? { origin: input.promptOrigin } : {}),
-                  ...(input.retryProvenance ? { provenance: input.retryProvenance } : {}),
-                }
-              : input.promptSource,
+          turnPromptSource: turnPromptSourceFor(input),
           effortConfiguration: null,
           currentAgents,
         }),
@@ -181,7 +183,9 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
     try {
       process.stderr.write(`[session] preflight user-turn save failed: ${err?.message || err}\n`);
-    } catch {}
+    } catch {
+      // stderr may be closed; the save failure is only reported
+    }
   });
   traceTurnContext({
     sessionId,

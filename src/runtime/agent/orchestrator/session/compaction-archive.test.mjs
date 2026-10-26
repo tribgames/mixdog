@@ -1099,5 +1099,8 @@ test('a record that is gone with no save pending is a skip that gives its number
   });
   assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
   assert.equal(session.compaction.archive.nextSeq, 1);
-  assert.match(log, new RegExp(`compaction archive write skipped \\(sess=${session.id}, seq=1\\): session record missing`));
+  assert.match(
+    log,
+    new RegExp(`compaction archive write skipped \\(sess=${session.id}, seq=1\\): session record missing`)
+  );
 });

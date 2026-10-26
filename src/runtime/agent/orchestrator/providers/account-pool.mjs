@@ -358,7 +358,8 @@ async function accountQuotaExhausted(providerName, row, model, error, account) {
     evidence = providerAccountExhausted(providerAccountWithBlocks(entry), Date.now(), model, options);
     exhausted = exhausted || evidence || providerAccountExhausted(entry, Date.now(), model, options);
   }
-  return { exhausted, delay, evidence, ...(exhausted ? blockUntil(evidence, evidence ? 'quota' : 'unknown') : {}) };
+  const reason = evidence ? 'quota' : 'unknown';
+  return { exhausted, delay, evidence, ...(exhausted ? blockUntil(evidence, reason) : {}) };
 }
 
 // Record an exhausted verdict on the roster. An account-level block holds

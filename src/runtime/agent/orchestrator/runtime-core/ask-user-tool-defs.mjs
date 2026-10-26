@@ -107,6 +107,7 @@ export function validateAskUserHandoff(args) {
   const login = handoffLogin(handoff);
   let need = login ? 'sign_in' : 'action';
   if (['sign_in', 'action', 'confirmation'].includes(handoff.need)) need = handoff.need;
+  const loginField = login ? { login } : {};
   return {
     kind: handoff.kind,
     surface: handoff.surface,
@@ -115,7 +116,7 @@ export function validateAskUserHandoff(args) {
     instructions: text('instructions', 2000),
     // A secret is bound to its page (browser tab) or window and field (computer).
     identity: handoffIdentity(handoff),
-    ...(handoff.kind === 'takeover' ? { need, ...(login ? { login } : {}) } : {}),
+    ...(handoff.kind === 'takeover' ? { need, ...loginField } : {}),
   };
 }
 

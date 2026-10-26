@@ -716,7 +716,11 @@ test('a partial frame for another id never extends a silent grant', async (t) =>
   const frame = paddedReq('g', 3000);
   let offset = 0;
   const trickle = setInterval(() => {
-    if (offset < frame.length - 1) holder.socket.write(frame.slice(offset, (offset += 40)));
+    if (offset < frame.length - 1) {
+      const start = offset;
+      offset += 40;
+      holder.socket.write(frame.slice(start, offset));
+    }
   }, 50);
   t.after(() => clearInterval(trickle));
   assert.equal((await holder.next((f) => f.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_STALLED');
@@ -751,7 +755,11 @@ test('a slowly but steadily arriving request frame is not expired, up to the gra
   endless.send({ type: 'reserve', id: 'm1', bytes: Buffer.byteLength(long) });
   await endless.next((f) => f.type === 'grant' && f.id === 'm1');
   let offset = 0;
-  const trickle = setInterval(() => endless.socket.write(long.slice(offset, (offset += 10))), 100);
+  const trickle = setInterval(() => {
+    const start = offset;
+    offset += 10;
+    endless.socket.write(long.slice(start, offset));
+  }, 100);
   t.after(() => clearInterval(trickle));
   assert.equal((await endless.next((f) => f.type === 'error')).code, 'MODEL_PROXY_BRIDGE_FRAME_STALLED');
   clearInterval(trickle);
@@ -851,7 +859,14 @@ test('one bridge client streams a call while its own next call waits for budget'
   const pad = 'p'.repeat(3000);
   const first = client.request(
     { provider: 'openai', method: 'send', model: 'm0', pad },
-    { callbacks: { onTextDelta: (text) => (deltas.push(text), `got ${text}`) } }
+    {
+      callbacks: {
+        onTextDelta: (text) => {
+          deltas.push(text);
+          return `got ${text}`;
+        },
+      },
+    }
   );
   assert.ok(await waitFor(() => claimed.length === 1));
   const second = client.request({ provider: 'openai', method: 'send', model: 'm1', pad });

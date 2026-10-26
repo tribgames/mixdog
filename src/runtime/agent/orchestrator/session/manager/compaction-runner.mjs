@@ -676,11 +676,7 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
       writeStderrBestEffort(
         `[session] compaction not applied (sess=${resolvedSessionId || 'unknown'}): ${archiveError?.message || archiveError}\n`
       );
-      return recordFailedCompaction(
-        plan,
-        { compactError: archiveError, freshContextError: null },
-        compactStartedAt
-      );
+      return recordFailedCompaction(plan, { compactError: archiveError, freshContextError: null }, compactStartedAt);
     }
   }
   session.messages = transcript;

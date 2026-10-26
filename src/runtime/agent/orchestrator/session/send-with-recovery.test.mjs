@@ -296,10 +296,7 @@ test('a first-response timeout keeps its own wording on the loop reconnect statu
   assert.equal(result.action, 'retry_transport');
   assert.equal(details.length, 1);
   assert.equal(details[0].reasonClass, 'first_response_timeout');
-  assert.equal(
-    details[0].reason,
-    'Model still thinking: no output in 3m; the provider sent nothing yet; attempts: 1'
-  );
+  assert.equal(details[0].reason, 'Model still thinking: no output in 3m; the provider sent nothing yet; attempts: 1');
   const shown = JSON.stringify(details[0]);
   assert.ok(!shown.includes('PROMPT_MARKER'));
   assert.ok(!shown.includes('INJECTED_LABEL'));

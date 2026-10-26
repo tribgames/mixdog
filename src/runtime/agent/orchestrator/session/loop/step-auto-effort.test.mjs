@@ -167,7 +167,13 @@ const deferredJudge = () => {
   const gate = new Promise((resolve) => {
     release = resolve;
   });
-  return { judge: async () => (await gate, { probs, ms: 1 }), release };
+  return {
+    judge: async () => {
+      await gate;
+      return { probs, ms: 1 };
+    },
+    release,
+  };
 };
 
 function nextBatch(state, id) {

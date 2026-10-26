@@ -53,7 +53,9 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
         warned = true;
         try {
           process.stderr.write(`[turn-checkpoint] write failed session=${sessionId}: ${error?.message || error}\n`);
-        } catch {}
+        } catch {
+          // stderr may be closed; the checkpoint failure is only reported
+        }
       }
       return false;
     }
@@ -75,7 +77,9 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
     saveSessionAsync(turn.session, { expectedGeneration: generation }).catch((err) => {
       try {
         process.stderr.write(`[session] sensitive-value save failed session=${sessionId}: ${err?.message || err}\n`);
-      } catch {}
+      } catch {
+        // stderr may be closed; the save failure is only reported
+      }
     });
     ingestSessionTurn(turn.session);
   });

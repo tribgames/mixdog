@@ -642,7 +642,9 @@ export class AnthropicOAuthProvider {
         if (SSE_VERBOSE) process.stderr.write(`[anthropic-oauth] Response ${response.status}, parsing SSE...\n`);
         try {
           onStageChange?.('streaming');
-        } catch {}
+        } catch {
+          // the stage observer is advisory
+        }
 
         const midState = createMidState(attemptIndex);
         try {
@@ -660,7 +662,9 @@ export class AnthropicOAuthProvider {
           );
           try {
             controller?.abort?.('Anthropic SSE complete');
-          } catch {}
+          } catch {
+            // the stream is complete; the controller may already be aborted
+          }
           this._settleStreamedTurn({
             result,
             midState,
@@ -724,7 +728,9 @@ export class AnthropicOAuthProvider {
       // resources before the credential-refresh replay.
       try {
         controller?.abort?.();
-      } catch {}
+      } catch {
+        // the controller may already be aborted before the credential-refresh replay
+      }
       auth.creds = await this.ensureAuth({ forceRefresh: true, reason: String(response.status) });
       ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
       rejectedAuthBody = null;
@@ -739,7 +745,9 @@ export class AnthropicOAuthProvider {
         cleanupCancelHandler(cancelHandler);
         try {
           controller?.abort?.();
-        } catch {}
+        } catch {
+          // the controller may already be aborted before the max-tokens replay
+        }
         ({ response, controller, cancelHandler } = await requestWithRetry(auth.creds.accessToken));
         rejectedAuthBody = null;
       }

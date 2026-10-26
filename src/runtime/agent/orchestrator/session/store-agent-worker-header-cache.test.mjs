@@ -92,7 +92,8 @@ const IDS = Array.from({ length: 30 }, (_, index) => `persist-${String(index).pa
 /** A store of IDS workers under one Lead, written but not yet settled. */
 function writeStoreFiles(root) {
   const now = Date.now();
-  for (const [index, id] of IDS.entries()) writeFileSync(sessionPath(root, id), sessionRecord(id, index, `T${index}`, now));
+  for (const [index, id] of IDS.entries())
+    writeFileSync(sessionPath(root, id), sessionRecord(id, index, `T${index}`, now));
   writeFileSync(sessionPath(root, LEAD), JSON.stringify({ id: LEAD, owner: 'user', agent: 'lead', messages: [] }));
   writeFileSync(
     join(root, 'agent-workers.json'),

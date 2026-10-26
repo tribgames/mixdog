@@ -22,7 +22,8 @@ test.afterEach(() => {
 });
 
 const POSIX_ROUTING = 'cat/head/tail/less→read; ls/tree→list; find→glob/find; grep/rg/ag→grep';
-const POWERSHELL_ROUTING = 'Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep';
+const POWERSHELL_ROUTING =
+  'Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep';
 const POSIX_CHEAT = 'Bash: chain dependent commands with &&';
 const POWERSHELL_CHEAT = 'PowerShell: ; between independent commands';
 

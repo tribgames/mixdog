@@ -112,7 +112,9 @@ function _abortableDelay(ms, signal) {
       if (onAbort && signal) {
         try {
           signal.removeEventListener('abort', onAbort);
-        } catch {}
+        } catch {
+          // the abort listener may already be gone
+        }
       }
       resolveDelay();
     }, ms);
@@ -173,7 +175,9 @@ async function acquireShellLeaseBounded(
     } catch {
       try {
         ctl.abort();
-      } catch {}
+      } catch {
+        // the controller may already be aborted
+      }
     }
   };
   if (abortSignal) {
@@ -184,7 +188,9 @@ async function acquireShellLeaseBounded(
   const deadline = setTimeout(() => {
     try {
       ctl.abort(_admissionSaturationError(admission, waitMs, ownerKey));
-    } catch {}
+    } catch {
+      // the controller may already be aborted
+    }
   }, waitMs);
   if (deadline.unref) deadline.unref();
   try {
@@ -212,7 +218,9 @@ async function acquireShellLeaseBounded(
     if (abortSignal) {
       try {
         abortSignal.removeEventListener('abort', onAbort);
-      } catch {}
+      } catch {
+        // the abort listener may already be gone
+      }
     }
   }
 }
@@ -311,7 +319,9 @@ function queueSaturatedAsTask(run, saturation, spec) {
         if (!promotedJobId) return;
         try {
           killShellJob(promotedJobId);
-        } catch {}
+        } catch {
+          // the job may already have exited
+        }
       },
       run: async () => {
         const result = await execShellCommand({
@@ -332,7 +342,9 @@ function queueSaturatedAsTask(run, saturation, spec) {
           if (queuedAbort.signal.aborted) {
             try {
               killShellJob(promotedJobId);
-            } catch {}
+            } catch {
+              // the promoted job may already have exited
+            }
           }
           return settleQueuedPromotion(promotedJobId);
         }
@@ -375,7 +387,9 @@ function settleSetupFailure(run, err) {
   clearForegroundTimers(run);
   try {
     treeKill(run.child);
-  } catch {}
+  } catch {
+    // the child may already have exited
+  }
   void releaseResourceLease(run);
   run.resolveResult(failedResult(run, String(err?.message || err), 'spawn failed'));
 }
@@ -451,7 +465,9 @@ function armProgressTimers(run, { onProgress, onOutputTail }) {
       const secs = Math.round(elapsedSinceStart(run) / 1000);
       try {
         onProgress(`running ${secs}s`);
-      } catch {}
+      } catch {
+        // the progress sink is advisory
+      }
     }, 2000);
     if (run.progressTimer.unref) run.progressTimer.unref();
   }
@@ -549,7 +565,9 @@ function armDeadlines(
     };
     try {
       abortSignal.addEventListener('abort', run.abortHandler, { once: true });
-    } catch {}
+    } catch {
+      // caller cancellation registration is best-effort
+    }
   }
 }
 

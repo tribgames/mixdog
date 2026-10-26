@@ -32,7 +32,6 @@ const shardDir = join(root, 'session-pending');
 const legacyPath = legacyPendingMessagesPath();
 const readShard = (key) => JSON.parse(readFileSync(pendingMessagesPath(key), 'utf8'));
 const backups = () => readdirSync(root).filter((name) => name.startsWith('session-pending-messages.json.migrated-'));
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function writeLegacy(sessions, touched = {}) {
   writeFileSync(

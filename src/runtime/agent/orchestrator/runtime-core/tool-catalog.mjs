@@ -9,7 +9,8 @@ import {
   mcpServerManifestLabel,
   sanitizeMcpInstructionText,
 } from '../context/deferred-tools.mjs';
-import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
+import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
+import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
 import { isDeferredToolAvailable, isToolPermittedBySessionPolicy } from './deferred-tool-availability.mjs';
 import { routeToolExclusionReason } from '../session/loop/provider-tool-exclusions.mjs';
@@ -804,7 +805,8 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
         const key = clean(raw);
         if (byName.has(key) || byName.has(key.toLowerCase())) return [key];
         const members = mcpServerSelection(catalog, key).map((tool) => clean(tool?.name));
-        return members.length ? members : [key];
+        if (members.length) return members;
+        return [key];
       });
   for (const rawName of new Set(requested)) {
     const requestedName = clean(rawName);
@@ -933,7 +935,10 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
     const pendingFor = (names) => pendingMcpInstructions(session, catalog, names);
     const described = describeBridgeTools(session, args, {
       mode,
-      instructionsFor: (names) => pendingFor(names).map((entry) => entry.block).join('\n'),
+      instructionsFor: (names) =>
+        pendingFor(names)
+          .map((entry) => entry.block)
+          .join('\n'),
     });
     if (!described.error && described.mcpInstructions) {
       announceMcpServers(

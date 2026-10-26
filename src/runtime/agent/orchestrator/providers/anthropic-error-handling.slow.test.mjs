@@ -52,10 +52,9 @@ function sdkError(status, type, headers = {}, message = 'boom') {
 }
 
 function sseReply(frames) {
-  return new Response(
-    frames.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''),
-    { headers: { 'content-type': 'text/event-stream' } }
-  );
+  return new Response(frames.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''), {
+    headers: { 'content-type': 'text/event-stream' },
+  });
 }
 
 const okReply = () =>
@@ -129,7 +128,10 @@ test('the contract reads retry-after / retry-after-ms uncapped and the reset hea
   assert.equal(retryAfterMsFromHeaders(new Headers({ 'retry-after': '3600' })), 3_600_000);
   assert.equal(retryAfterMsFromHeaders(new Headers({ 'retry-after-ms': '1500', 'retry-after': '9' })), 1500);
   assert.equal(retryAfterMsFromHeaders(new Headers({ 'anthropic-ratelimit-unified-reset': '4102444800' })), null);
-  assert.equal(resetAtFromHeaders(new Headers({ 'anthropic-ratelimit-unified-reset': '4102444800' })), 4_102_444_800_000);
+  assert.equal(
+    resetAtFromHeaders(new Headers({ 'anthropic-ratelimit-unified-reset': '4102444800' })),
+    4_102_444_800_000
+  );
 
   const err = applyAnthropicErrorContract(new Error('x'), {
     status: 429,
@@ -284,7 +286,8 @@ test('an unrelated API failure leaves fast mode and speed alone', async () => {
 
 test('"Fast mode is not enabled" is recovered at standard speed and remembered', async () => {
   const { provider, calls } = apiProvider((index) => {
-    if (index === 1) throw sdkError(400, 'invalid_request_error', {}, 'Fast mode is not enabled for this organization.');
+    if (index === 1)
+      throw sdkError(400, 'invalid_request_error', {}, 'Fast mode is not enabled for this organization.');
     return okReply();
   });
   await sendApi(provider, { fast: true });
@@ -508,7 +511,15 @@ test('the overload fallback is a single hop', async () => {
   // 3 on the original model, then 4 on the fallback (no second hop).
   assert.deepEqual(
     calls.map((call) => call.model),
-    [FAST_MODEL, FAST_MODEL, FAST_MODEL, 'claude-sonnet-4-6', 'claude-sonnet-4-6', 'claude-sonnet-4-6', 'claude-sonnet-4-6']
+    [
+      FAST_MODEL,
+      FAST_MODEL,
+      FAST_MODEL,
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-6',
+    ]
   );
 });
 

@@ -188,7 +188,10 @@ export function mcpServerLines(servers, instructions) {
   for (const [server, tools] of servers) {
     const label = mcpServerManifestLabel(server);
     if (!label) continue;
-    const trigger = compactPromptManifestText(String(mcpServerTrigger(server, tools, instructions)).replace(/[<>]/g, ''), 100);
+    const trigger = compactPromptManifestText(
+      String(mcpServerTrigger(server, tools, instructions)).replace(/[<>]/g, ''),
+      100
+    );
     lines.push({ label, trigger });
   }
   return lines;

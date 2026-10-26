@@ -161,7 +161,13 @@ test('a sign-in copied without a refresh token works until its access token expi
 test('number, numeric string and ISO expiry mean the same to the store and the sign-in predicate', (t) => {
   denyNetwork(t);
   const future = Date.now() + 60 * 60_000;
-  const forms = [future, String(future), Math.floor(future / 1000), String(Math.floor(future / 1000)), new Date(future).toISOString()];
+  const forms = [
+    future,
+    String(future),
+    Math.floor(future / 1000),
+    String(Math.floor(future / 1000)),
+    new Date(future).toISOString(),
+  ];
   for (const form of forms) {
     writeStoredTokens({ access_token: 'a', expires_at: form });
     assert.equal(isSignedInTokenDocument({ access_token: 'a', expires_at: form }), true, String(form));

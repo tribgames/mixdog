@@ -14,10 +14,7 @@ const firstByteTimeout = () =>
 
 test('a final first-byte failure names the provider from the turn route, not the error', () => {
   const { detail } = turnFailureRecord(firstByteTimeout(), { provider: 'antigravity-oauth', model: 'm' });
-  assert.equal(
-    detail,
-    'Model still thinking: no output in 3m; Antigravity OAuth sent nothing yet; attempts: 2.'
-  );
+  assert.equal(detail, 'Model still thinking: no output in 3m; Antigravity OAuth sent nothing yet; attempts: 2.');
   assert.ok(!detail.includes('INJECTED'));
 });
 

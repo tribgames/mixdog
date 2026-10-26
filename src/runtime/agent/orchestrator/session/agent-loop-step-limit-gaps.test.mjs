@@ -156,7 +156,7 @@ test('a sub-agent stopped by the step limit is reported to its Lead as a stop, n
   assert.match(String(error), /step limit/i);
 });
 
-test('the Lead gets both the stop notice and the sub-agent\'s partial answer', async () => {
+test("the Lead gets both the stop notice and the sub-agent's partial answer", async () => {
   const ref = session('sess-gaps-lead-partial');
   const messages = [{ role: 'user', content: 'do the task' }];
   // The model never converges, but each reply carries what it found so far.

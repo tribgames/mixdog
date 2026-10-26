@@ -36,11 +36,11 @@ export function createIdleGapStore({
     const stored = readJsonStateSync(filePath(), { fallback: null });
     for (const [sessionId, entry] of Object.entries(stored?.sessions || {})) {
       const gaps = Array.isArray(entry?.gaps)
-        ? entry.gaps.filter(validGap).map((gap) => ({
-            at: Number(gap.at),
-            ms: Number(gap.ms),
-            ...(gap.censored ? { censored: true } : {}),
-          }))
+        ? entry.gaps.filter(validGap).map((gap) => {
+            const item = { at: Number(gap.at), ms: Number(gap.ms) };
+            if (gap.censored) item.censored = true;
+            return item;
+          })
         : [];
       const open = Number(entry?.open) > 0 ? Number(entry.open) : 0;
       if (gaps.length || open) sessions.set(sessionId, { open, gaps });

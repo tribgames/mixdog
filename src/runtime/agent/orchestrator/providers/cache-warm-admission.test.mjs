@@ -11,9 +11,8 @@ import { after, test } from 'node:test';
 
 const dir = mkdtempSync(join(tmpdir(), 'mixdog-cache-warm-admission-'));
 process.env.MIXDOG_DATA_DIR = dir;
-const { registerProviderAccount, recordProviderAccountUsage, blockProviderAccount, newProviderAccountId } = await import(
-  '../../../shared/provider-accounts.mjs'
-);
+const { registerProviderAccount, recordProviderAccountUsage, blockProviderAccount, newProviderAccountId } =
+  await import('../../../shared/provider-accounts.mjs');
 const { _buildRequestBodyForCacheSmoke, AnthropicOAuthProvider } = await import('./anthropic-oauth.mjs');
 const { providerAdmissionKey, providerAdmissionScheduler, resetProviderAdmissionCooldowns } = await import(
   './admission-scheduler.mjs'
@@ -51,7 +50,9 @@ function sse(frames) {
 }
 const MESSAGE_START = {
   type: 'message_start',
-  message: { usage: { input_tokens: 3, cache_read_input_tokens: 70_000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+  message: {
+    usage: { input_tokens: 3, cache_read_input_tokens: 70_000, cache_creation_input_tokens: 0, output_tokens: 1 },
+  },
 };
 const CONTENT = { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } };
 
@@ -115,9 +116,15 @@ test('OAuth warm mode: one plain POST of the builder’s body, no retry on 529, 
       assert.equal(body.max_tokens, 1);
 
       await assert.rejects(
-        oauth.sendCacheWarm(send.messages, send.model, send.tools, { ...send.opts, fallbackModel: 'claude-sonnet-5-5' }, {
-          accountId: idOf('acct-warm'),
-        }),
+        oauth.sendCacheWarm(
+          send.messages,
+          send.model,
+          send.tools,
+          { ...send.opts, fallbackModel: 'claude-sonnet-5-5' },
+          {
+            accountId: idOf('acct-warm'),
+          }
+        ),
         (error) => error.status === 529
       );
       assert.equal(posts.length, 2, 'no retry and no fallback-model re-send');
@@ -195,7 +202,10 @@ test('the account gate fails closed: unknown account, no fresh reading, a block 
   await account('acct-ok');
   assert.equal(cacheWarmAccountBlock('anthropic-oauth', instance, { accountId: idOf('acct-ok'), model: MODEL }), null);
   assert.match(cacheWarmAccountBlock('anthropic-oauth', instance, { model: MODEL }), /unknown/);
-  assert.match(cacheWarmAccountBlock('anthropic-oauth', instance, { accountId: 'nobody', model: MODEL }), /not connected/);
+  assert.match(
+    cacheWarmAccountBlock('anthropic-oauth', instance, { accountId: 'nobody', model: MODEL }),
+    /not connected/
+  );
 
   await account('acct-unmeasured', null);
   assert.match(
@@ -213,9 +223,15 @@ test('the account gate fails closed: unknown account, no fresh reading, a block 
   );
 
   await account('acct-full', { quotaWindows: [{ label: '5H', usedPct: 100, resetAt: Date.now() + 3_600_000 }] });
-  assert.match(cacheWarmAccountBlock('anthropic-oauth', instance, { accountId: idOf('acct-full'), model: MODEL }), /exhausted/);
+  assert.match(
+    cacheWarmAccountBlock('anthropic-oauth', instance, { accountId: idOf('acct-full'), model: MODEL }),
+    /exhausted/
+  );
 
   await account('acct-blocked');
   await blockProviderAccount('anthropic-oauth', idOf('acct-blocked'), Date.now() + 600_000, '', 'retry-after');
-  assert.match(cacheWarmAccountBlock('anthropic-oauth', instance, { accountId: idOf('acct-blocked'), model: MODEL }), /blocked/);
+  assert.match(
+    cacheWarmAccountBlock('anthropic-oauth', instance, { accountId: idOf('acct-blocked'), model: MODEL }),
+    /blocked/
+  );
 });

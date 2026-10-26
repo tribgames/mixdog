@@ -42,7 +42,9 @@ export function createStreamSafetyStamps() {
       try {
         e.liveTextEmitted = true;
         e.unsafeToRetry = true;
-      } catch {}
+      } catch {
+        // the error object may be frozen; the live-text stamp is advisory
+      }
     }
     return e;
   };
@@ -51,7 +53,9 @@ export function createStreamSafetyStamps() {
       try {
         e.emittedToolCall = true;
         e.unsafeToRetry = true;
-      } catch {}
+      } catch {
+        // the error object may be frozen; the tool-call stamp is advisory
+      }
     }
     return e;
   };

@@ -52,7 +52,9 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   commitAssistantMessage(messages, assistantTurnMsg, opts);
   try {
     opts.onToolPhaseStarted?.();
-  } catch {}
+  } catch {
+    // the tool-phase-started observer is advisory
+  }
   const toolsT0 = Date.now();
   const resultsFrom = messages.length;
   ({ dedupStubTotal: state.dedupStubTotal, editCount: state.editCount } = await processToolBatch({
@@ -96,7 +98,9 @@ export async function runToolPhase(state, round, sent, onToolCall) {
       calls: calls.length,
       elapsedMs: toolsEndedAt - toolsT0,
     });
-  } catch {}
+  } catch {
+    // the tool-phase-completed observer is advisory
+  }
   traceLoopPhaseTiming({
     iteration: round.nextIteration,
     preSendMs: sent.preSendMs,

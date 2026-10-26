@@ -53,7 +53,9 @@ function allExistingPathsFromPath(commandName) {
   let cwd = '';
   try {
     cwd = process.cwd();
-  } catch {}
+  } catch {
+    // the working directory may have been removed; search PATH entries only
+  }
   const entries = [cwd, ...rawPath.split(delimiter)]
     .map((entry) => entry.trim().replace(/^"(.*)"$/, '$1'))
     .filter(Boolean);

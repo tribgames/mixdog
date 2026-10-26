@@ -129,7 +129,9 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     messages.push(message);
     try {
       opts.onToolResult?.(message);
-    } catch {}
+    } catch {
+      // the tool-result observer is advisory
+    }
   };
   state.drainSteering = createSteeringDrain({
     messages,

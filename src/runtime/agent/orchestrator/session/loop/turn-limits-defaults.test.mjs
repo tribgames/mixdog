@@ -67,7 +67,9 @@ test('with the defaults, a turn of failing tool rounds is told to reply after 8 
   const toolTurn = (n) => ({ content: `step ${n}`, toolCalls: [{ id: `c${n}`, name: 'probe', arguments: { n } }] });
   const finalTurn = { content: 'final answer', toolCalls: [], stopReason: 'end_turn' };
 
-  const failing = await run('sess-defaults-rounds', (n, opts) => (opts.toolChoice === 'none' ? finalTurn : toolTurn(n)));
+  const failing = await run('sess-defaults-rounds', (n, opts) =>
+    opts.toolChoice === 'none' ? finalTurn : toolTurn(n)
+  );
   assert.equal(failing.sends.length, 9);
   assert.equal(failing.sends[8].toolChoice, 'none');
   assert.match(failing.sends[8].last.content, /run 8 tool rounds in a row/);

@@ -15,7 +15,9 @@ export function notifyStage(onStageChange, stage, detail) {
   try {
     if (detail === undefined) onStageChange?.(stage);
     else onStageChange?.(stage, detail);
-  } catch {}
+  } catch {
+    // the stage observer is advisory
+  }
 }
 
 export function createWsSendContext(opts) {

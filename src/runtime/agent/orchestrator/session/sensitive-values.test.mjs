@@ -77,7 +77,10 @@ test('a sensitive fill’s value never appears in the stored transcript, before 
     async send(messages) {
       requests.push(JSON.stringify(messages));
       if (requests.length === 1) {
-        return { content: '', toolCalls: [{ id: 'M', name: 'call_tool', arguments: { name: 'mail_probe', arguments: {} } }] };
+        return {
+          content: '',
+          toolCalls: [{ id: 'M', name: 'call_tool', arguments: { name: 'mail_probe', arguments: {} } }],
+        };
       }
       if (requests.length === 2) {
         const call = { id: 'F', name: 'call_tool', arguments: { name: 'browser', arguments: fill } };
@@ -145,7 +148,10 @@ test('only text is redacted: argument JSON stays valid, ids, timestamps and medi
   assert.equal(stored.content[1].tool_use_id, `toolu_${CODE}`);
   assert.equal(stored.content[1].content[0].text, 'code [redacted]', 'tool-result text');
   assert.deepEqual(JSON.parse(stored.toolCalls[0].arguments), { n: '[redacted]', input: { text: '[redacted]' } });
-  assert.deepEqual(stored.toolCalls[1].arguments, { nested: JSON.stringify({ code: '[redacted]', count: 2 }), keep: 7 });
+  assert.deepEqual(stored.toolCalls[1].arguments, {
+    nested: JSON.stringify({ code: '[redacted]', count: 2 }),
+    keep: 7,
+  });
   assert.equal(stored.thinkingBlocks, undefined, 'replay state made for the unredacted message is dropped');
 
   const media = { role: 'user', ts: 1_700_000_000_000, content: [image, reference, { type: 'text', text: 'see' }] };
@@ -216,7 +222,13 @@ test('a sensitive fill shorter than any value redaction can tell from other text
   const fill = (input) => validateBrowserToolArgs({ action: 'fill', input });
   assert.match(fill({ ref: 'p1-s1-e3', text: '123', sensitive: true }).error, /at least 4 characters/);
   assert.match(
-    fill({ fields: [{ ref: 'p1-s1-e3', text: '1234' }, { ref: 'p1-s1-e4', text: '12' }], sensitive: true }).error,
+    fill({
+      fields: [
+        { ref: 'p1-s1-e3', text: '1234' },
+        { ref: 'p1-s1-e4', text: '12' },
+      ],
+      sensitive: true,
+    }).error,
     /at least 4 characters/
   );
   assert.equal(fill({ ref: 'p1-s1-e3', text: '1234', sensitive: true }).ok, true);

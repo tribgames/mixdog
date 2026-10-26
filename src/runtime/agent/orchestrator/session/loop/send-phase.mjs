@@ -133,7 +133,9 @@ export async function beginIteration(state) {
     resolveToolCallId(call);
     try {
       opts.onAssistantToolCallObserved?.(call, { eagerStarted: false });
-    } catch {}
+    } catch {
+      // the tool-call observer is advisory
+    }
     return eager.onToolCall(call);
   };
   return {
@@ -174,7 +176,9 @@ export async function sendProviderRequest(state, round) {
   });
   try {
     opts.onProviderSendStarted?.();
-  } catch {}
+  } catch {
+    // the send-started observer is advisory
+  }
   // The request a /btw side question forks: kept while it is in flight, with
   // its reply once it proceeds, and dropped again if it fails.
   const sideQuestion = captureSideQuestionRequest({

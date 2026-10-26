@@ -112,7 +112,9 @@ function connectorAccountClient(serverName, accountCfg, oauthOptions) {
         } catch (error) {
           const reason = scrubMcpConnectionMessage(error?.message || String(error), accountCfg);
           const scrubbed = new Error(
-            isMcpOAuthReauthenticationRequired(error) ? 'Sign-in required; sign this account in again in Connectors.' : reason
+            isMcpOAuthReauthenticationRequired(error)
+              ? 'Sign-in required; sign this account in again in Connectors.'
+              : reason
           );
           if (isMcpOAuthReauthenticationRequired(error)) scrubbed.authRequired = true;
           throw scrubbed;
@@ -211,19 +213,20 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
     // Explicit authentication remains authoritative (including custom API-key
     // headers). Never forward those credentials to OAuth discovery endpoints.
     let transport;
-    const oauth = hasConfiguredMcpAuth(cfg)
-      ? null
-      : createMcpOAuth({
-          url,
-          serverName: mcpOAuthDisplayName(cfg, name),
-          oauthClient: mcpOAuthClientFor(cfg, url),
-          ...oauthOptions,
-          // A built-in Google connector is answered in-process.
-          ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp(oauthOptions?.fetchImpl) } : {}),
-          // SSE advertises its POST endpoint on the authenticated event stream.
-          // No other path on the origin is allowed to receive this server's token.
-          isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
-        });
+    let oauth = null;
+    if (!hasConfiguredMcpAuth(cfg)) {
+      oauth = createMcpOAuth({
+        url,
+        serverName: mcpOAuthDisplayName(cfg, name),
+        oauthClient: mcpOAuthClientFor(cfg, url),
+        ...oauthOptions,
+        // A built-in Google connector is answered in-process.
+        ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp(oauthOptions?.fetchImpl) } : {}),
+        // SSE advertises its POST endpoint on the authenticated event stream.
+        // No other path on the origin is allowed to receive this server's token.
+        isTransportEndpoint: (input) => kind === 'sse' && transport?._endpoint?.href === new URL(input).href,
+      });
+    }
     // Gmail with an app password is answered in-process too (its account
     // header is the configured authentication; the password is in the keychain).
     const local = !oauth && gmailAppPasswordService(url) ? { ...opts, fetch: withGmailAppPasswordMcp() } : opts;

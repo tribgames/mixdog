@@ -198,7 +198,9 @@ export async function parseSSEStream(
   const progress = (kind) => {
     try {
       onStreamDelta?.(kind);
-    } catch {}
+    } catch {
+      // the stream-delta observer is advisory
+    }
   };
   const turn = createAnthropicSseTurn({
     state,
@@ -226,7 +228,9 @@ export async function parseSSEStream(
     try {
       const _c = reader.cancel('SSE aborted');
       if (_c && typeof _c.catch === 'function') _c.catch(() => {});
-    } catch {}
+    } catch {
+      // the reader may already be closed or released
+    }
   };
   let buffer = '';
   let currentEvent = '';
@@ -289,20 +293,26 @@ export async function parseSSEStream(
     watchdogs.dispose();
     try {
       releaseProviderSseStream(streamKey);
-    } catch {}
+    } catch {
+      // releasing the stream registration is bookkeeping only
+    }
     if (signal) signal.removeEventListener('abort', onAbort);
     // message_stop deliberately exits before EOF because Anthropic may keep
     // sending pings. Cancel the reader so the successful response body and
     // underlying keep-alive connection are not stranded.
     try {
       await reader.cancel('Anthropic SSE complete');
-    } catch {}
+    } catch {
+      // the reader may already be closed after the stream ended
+    }
     try {
       reader.releaseLock();
     } catch (err) {
       try {
         process.stderr.write(`[${labels.tag}] reader releaseLock failed: ${err?.message ?? String(err)}\n`);
-      } catch {}
+      } catch {
+        // stderr may be closed; the releaseLock failure is only reported
+      }
     }
   }
 }

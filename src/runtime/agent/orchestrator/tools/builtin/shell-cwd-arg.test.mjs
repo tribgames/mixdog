@@ -41,7 +41,10 @@ const PRINT_CWD = 'node -e "console.log(process.cwd())"';
 const PRINT_CWD_LATER = 'node -e "setTimeout(() => console.log(process.cwd()), 400)"';
 // A tool result is text or an envelope around it.
 const textOf = (output) => (typeof output === 'string' ? output : output.result);
-const printed = (output) => textOf(output).split(/\r?\n/).map((line) => line.trim());
+const printed = (output) =>
+  textOf(output)
+    .split(/\r?\n/)
+    .map((line) => line.trim());
 
 test('omitted cwd runs in the session cwd', async () => {
   const out = await executeBashTool({ command: PRINT_CWD }, session, {});
@@ -65,7 +68,11 @@ test('~ and ~/x expand to the home folder, not a Project folder named ~', async 
   if (process.platform === 'win32') assert.equal(effectiveShellCwd({ cwd: '~\\sub' }, session), join(home, 'sub'));
   assert.equal(effectiveShellCwd({ cwd: '~other' }, session), join(session, '~other'));
   const out = await executeBashTool({ command: PRINT_CWD, cwd: '~' }, session, {});
-  assert.equal(printed(out).some((line) => line.toLowerCase() === realpathSync(home).toLowerCase()), true, textOf(out));
+  assert.equal(
+    printed(out).some((line) => line.toLowerCase() === realpathSync(home).toLowerCase()),
+    true,
+    textOf(out)
+  );
 });
 
 test('edge spaces in a cwd name are kept; only a blank value counts as omitted', async () => {
@@ -101,7 +108,10 @@ test('a backgrounded run keeps the cwd in the process and the task record', asyn
   assert.equal(task.meta.cwd, other);
   assert.equal(task.input.cwd, other);
   const { executeTaskTool } = await import('./bash-tool.mjs');
-  const waited = await executeTaskTool({ action: 'wait', task_id: taskId, timeout_ms: 20_000 }, { sessionId: 'shell-cwd-bg' });
+  const waited = await executeTaskTool(
+    { action: 'wait', task_id: taskId, timeout_ms: 20_000 },
+    { sessionId: 'shell-cwd-bg' }
+  );
   assert.ok(printed(waited).includes(other), waited);
 });
 
@@ -119,7 +129,14 @@ test('a hook rule matching cwd sees the effective cwd', async () => {
   };
   const hooks = { beforeToolHook, afterToolHook };
 
-  const denied = await executeTool('shell', { command: PRINT_CWD, cwd: other }, session, hookSession.id, hookSession, hooks);
+  const denied = await executeTool(
+    'shell',
+    { command: PRINT_CWD, cwd: other },
+    session,
+    hookSession.id,
+    hookSession,
+    hooks
+  );
   assert.match(textOf(denied), /denied by hook: other is off limits/);
   assert.deepEqual(seen, [other]);
 
@@ -127,7 +144,14 @@ test('a hook rule matching cwd sees the effective cwd', async () => {
   assert.ok(printed(allowed).includes(session), allowed);
   assert.deepEqual(seen, [other, session]);
 
-  const relative = await executeTool('shell', { command: PRINT_CWD, cwd: 'sub' }, session, hookSession.id, hookSession, hooks);
+  const relative = await executeTool(
+    'shell',
+    { command: PRINT_CWD, cwd: 'sub' },
+    session,
+    hookSession.id,
+    hookSession,
+    hooks
+  );
   assert.ok(printed(relative).includes(sub), relative);
   assert.deepEqual(seen, [other, session, sub]);
   assert.deepEqual(afterSeen, [session, sub]);

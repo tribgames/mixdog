@@ -94,7 +94,9 @@ const scripted = (plan, choose) => {
   const spoken = [];
   const steps = [];
   const speak = async (id, turn) => {
-    spoken.push(turn.mentionedBy ? `${id}<${turn.mentionedBy}` : turn.instruction ? `${id}:${turn.instruction}` : id);
+    if (turn.mentionedBy) spoken.push(`${id}<${turn.mentionedBy}`);
+    else if (turn.instruction) spoken.push(`${id}:${turn.instruction}`);
+    else spoken.push(id);
     return plan(id, turn);
   };
   const decide = async (step) => {

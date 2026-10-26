@@ -66,7 +66,9 @@ export function rememberSensitiveValues(sessionId, calls) {
     } catch (error) {
       try {
         process.stderr.write(`[sensitive-values] listener failed session=${sessionId}: ${error?.message || error}\n`);
-      } catch {}
+      } catch {
+        // stderr may be closed; the listener failure is only reported
+      }
     }
   }
   return true;

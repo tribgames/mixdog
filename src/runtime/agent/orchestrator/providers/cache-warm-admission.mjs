@@ -59,13 +59,7 @@ function rosterBlock(providerName, accountId, model, now) {
 export function cacheWarmAccountBlock(
   providerName,
   instance,
-  {
-    accountId = '',
-    model = '',
-    sessionId = '',
-    scheduler = providerAdmissionScheduler,
-    now = Date.now(),
-  } = {}
+  { accountId = '', model = '', sessionId = '', scheduler = providerAdmissionScheduler, now = Date.now() } = {}
 ) {
   if (!providerAvailable(providerName)) return 'provider disabled';
   const lane = scheduler.immediateBlock(providerAdmissionKey(providerName, instance));

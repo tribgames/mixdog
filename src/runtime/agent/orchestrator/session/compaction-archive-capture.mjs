@@ -352,7 +352,10 @@ const waiters = new Map();
 
 const jobsOf = (id) => {
   let list = unpublished.get(id);
-  if (!list) unpublished.set(id, (list = []));
+  if (!list) {
+    list = [];
+    unpublished.set(id, list);
+  }
   return list;
 };
 
@@ -404,7 +407,9 @@ function persistPending(id) {
     } catch {
       /* never created */
     }
-    writeStderrBestEffort(`[session] compaction archive pending sidecar failed (sess=${id}): ${error?.message || error}\n`);
+    writeStderrBestEffort(
+      `[session] compaction archive pending sidecar failed (sess=${id}): ${error?.message || error}\n`
+    );
     return false;
   }
 }
@@ -419,7 +424,9 @@ function recoverPending(id) {
     doc = JSON.parse(readFileSync(pendingSidecarPath(getStoreDir(), id), 'utf8'));
   } catch (error) {
     if (error?.code !== 'ENOENT') {
-      writeStderrBestEffort(`[session] compaction archive pending sidecar unreadable (sess=${id}): ${error?.message || error}\n`);
+      writeStderrBestEffort(
+        `[session] compaction archive pending sidecar unreadable (sess=${id}): ${error?.message || error}\n`
+      );
     }
     return;
   }
@@ -476,7 +483,10 @@ export async function recoverPendingCompactionArchives() {
 function waitForSessionEvent(id) {
   return new Promise((resolve) => {
     let set = waiters.get(id);
-    if (!set) waiters.set(id, (set = new Set()));
+    if (!set) {
+      set = new Set();
+      waiters.set(id, set);
+    }
     set.add(resolve);
   });
 }
@@ -573,9 +583,11 @@ async function flushUnpublished(id) {
 }
 
 function enqueueFlush(id) {
-  const task = (pendingWrites.get(id) || Promise.resolve()).then(() => flushUnpublished(id)).catch((error) => {
-    writeStderrBestEffort(`[session] compaction archive write failed (sess=${id}): ${error?.message || error}\n`);
-  });
+  const task = (pendingWrites.get(id) || Promise.resolve())
+    .then(() => flushUnpublished(id))
+    .catch((error) => {
+      writeStderrBestEffort(`[session] compaction archive write failed (sess=${id}): ${error?.message || error}\n`);
+    });
   pendingWrites.set(id, task);
   void task.finally(() => {
     if (pendingWrites.get(id) === task) pendingWrites.delete(id);

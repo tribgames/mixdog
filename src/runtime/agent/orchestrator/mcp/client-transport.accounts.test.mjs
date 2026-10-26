@@ -18,9 +18,7 @@ const ADDRESS = 'me@example.com';
 
 // The app password lives in the OS keychain; back it with memory so the test
 // runs where there is none.
-const secrets = new Map([
-  [gmailAppPasswordSecretAccount(ADDRESS), APP_PASSWORD],
-]);
+const secrets = new Map([[gmailAppPasswordSecretAccount(ADDRESS), APP_PASSWORD]]);
 Object.assign(keychain, {
   getSecretAsync: async (key) => secrets.get(key) ?? null,
   setSecretAsync: async (key, value) => void secrets.set(key, value),

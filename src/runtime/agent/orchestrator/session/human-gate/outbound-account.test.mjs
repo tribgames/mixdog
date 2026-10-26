@@ -43,7 +43,12 @@ function gmailServer(t) {
             type: 'text',
             text: JSON.stringify({
               account,
-              emails: (args.ids || []).map((id) => ({ id, from: 'Kim <kim@example.com>', subject: `S${id}`, date: '2026-01-02' })),
+              emails: (args.ids || []).map((id) => ({
+                id,
+                from: 'Kim <kim@example.com>',
+                subject: `S${id}`,
+                date: '2026-01-02',
+              })),
             }),
           },
         ],
@@ -66,7 +71,10 @@ const decide = (call, { store, scopeId }) =>
 test('send_email with a chosen account shows that account and looks it up with that account', async (t) => {
   const server = gmailServer(t);
   const out = await decide(
-    { name: 'mcp__gmail-acct__send_email', args: { to: 'boss@example.com', subject: 'Hi', body: 'x', account: 'b-account' } },
+    {
+      name: 'mcp__gmail-acct__send_email',
+      args: { to: 'boss@example.com', subject: 'Hi', body: 'x', account: 'b-account' },
+    },
     server
   );
   assert.equal(out.request.kind, 'outbound');

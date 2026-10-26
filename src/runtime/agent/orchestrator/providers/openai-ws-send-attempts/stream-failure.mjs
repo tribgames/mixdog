@@ -77,7 +77,9 @@ export async function resolveStreamFailure(ctx, err, { attemptIndex, entry, midS
       process.stderr.write(
         `[openai-oauth] stall retry budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first stall) — surfacing provider-terminal failure\n`
       );
-    } catch {}
+    } catch {
+      // diagnostic write only; the provider-terminal failure is thrown next
+    }
     throw ctx.surface(markProviderRecoveryExhausted(err, { owner: 'openai-oauth-ws-stall-budget' }));
   }
   const retryLimit = classifier ? midstreamRetryLimit(classifier) : 0;

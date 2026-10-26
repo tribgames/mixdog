@@ -193,7 +193,9 @@ test('the WS reconnect stage names the failure and counts down the advised wait'
     traceProvider: 'xai',
     _sendSpanTraceFn: () => {},
   });
-  const err = Object.assign(new Error('Rate limit reached. Please try again in 210s.'), { code: 'rate_limit_exceeded' });
+  const err = Object.assign(new Error('Rate limit reached. Please try again in 210s.'), {
+    code: 'rate_limit_exceeded',
+  });
   const before = Date.now();
   ctx.emitReconnectProgress({ attempt: 1, max: 5, classifier: 'http_429', error: err, waitMs: 210_000 });
   assert.equal(stages.length, 1);
@@ -279,7 +281,7 @@ test('safeRetryErrorCode keeps only known provider error codes', () => {
 
 test('the retry stage takes a reason class, never caller text', () => {
   const stages = [];
-  emitProviderRetryStage((stage, detail) => stages.push(detail), {
+  emitProviderRetryStage((_stage, detail) => stages.push(detail), {
     attempt: 1,
     maxAttempts: 5,
     lastErr: new Error('x'),
@@ -287,7 +289,7 @@ test('the retry stage takes a reason class, never caller text', () => {
     reason: 'INJECTED_REASON_TEXT',
     reasonClass: 'INJECTED_CLASS text',
   });
-  emitProviderRetryStage((stage, detail) => stages.push(detail), {
+  emitProviderRetryStage((_stage, detail) => stages.push(detail), {
     attempt: 1,
     maxAttempts: 5,
     lastErr: new Error('x'),
@@ -302,7 +304,7 @@ test('the retry stage takes a reason class, never caller text', () => {
 
 function stageFor(lastErr, extra = {}) {
   const stages = [];
-  emitProviderRetryStage((stage, detail) => stages.push(detail), {
+  emitProviderRetryStage((_stage, detail) => stages.push(detail), {
     attempt: 1,
     maxAttempts: 5,
     lastErr,

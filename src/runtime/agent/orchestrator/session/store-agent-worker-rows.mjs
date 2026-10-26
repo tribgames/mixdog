@@ -161,12 +161,12 @@ function cancelState(source) {
 function effectiveCancel(row, session) {
   const rowCancel = cancelState(row);
   const sessionCancel = cancelState(session);
-  const cancel =
-    rowCancel && sessionCancel && CANCEL_UNCONFIRMED_AGENT_STATUS.test(sessionCancel.status)
-      ? CANCEL_UNCONFIRMED_AGENT_STATUS.test(rowCancel.status)
-        ? rowCancel
-        : sessionCancel
-      : rowCancel || sessionCancel;
+  let cancel;
+  if (rowCancel && sessionCancel && CANCEL_UNCONFIRMED_AGENT_STATUS.test(sessionCancel.status)) {
+    cancel = CANCEL_UNCONFIRMED_AGENT_STATUS.test(rowCancel.status) ? rowCancel : sessionCancel;
+  } else {
+    cancel = rowCancel || sessionCancel;
+  }
   if (!cancel) return null;
   const newerWork = cancel.at > 0 && Math.max(workStampMs(row), workStampMs(session)) > cancel.at;
   return newerWork ? null : cancel;

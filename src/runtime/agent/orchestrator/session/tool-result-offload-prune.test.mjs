@@ -34,7 +34,9 @@ async function legacyPruneOffloadSession(sessionId, getMessages) {
           })
       )
     ).filter(Boolean);
-  } catch {}
+  } catch {
+    // an unreadable offload directory leaves no candidates; the check below returns
+  }
   if (!candidates) return;
   let serialized;
   try {

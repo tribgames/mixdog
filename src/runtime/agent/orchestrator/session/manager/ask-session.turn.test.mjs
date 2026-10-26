@@ -631,10 +631,12 @@ test('the cache warmer forgets each turn when it completes, fails or is cancelle
   const { cacheWarmTurn } = await import('../cache-warm.mjs');
   await withAskHarness(t, async ({ session, askSession, SessionClosedError, setReply }) => {
     const seen = [];
-    const during = (reply) => async (...args) => {
-      seen.push(cacheWarmTurn(session.id)?.kind ?? null);
-      return reply(...args);
-    };
+    const during =
+      (reply) =>
+      async (...args) => {
+        seen.push(cacheWarmTurn(session.id)?.kind ?? null);
+        return reply(...args);
+      };
     setReply(during(async () => ({ content: 'ok', usage: { inputTokens: 1, outputTokens: 1 } })));
     await askSession(session.id, 'completes', null, null, null, null, {});
     assert.equal(cacheWarmTurn(session.id), null, 'after completion');
@@ -691,7 +693,10 @@ const CONTINUE_PROMPT = 'Continue from where you left off.';
 
 test('a system turn failing and retried twice stays system-caused for the cache warmer', async (t) => {
   // The resubmitted notification (rebuilt twice), and a continuation prompt then the same again.
-  for (const retries of [['same', 'same'], [CONTINUE_PROMPT, CONTINUE_PROMPT]]) {
+  for (const retries of [
+    ['same', 'same'],
+    [CONTINUE_PROMPT, CONTINUE_PROMPT],
+  ]) {
     await withAskHarness(t, async (harness) => {
       const notification = islandNotification();
       const prompts = retries.map((value) => (value === 'same' ? notification : value));
@@ -714,7 +719,10 @@ test('a bot-home wake failing and retried twice stays system-caused', async (t) 
 });
 
 test('a real turn failing and retried twice is a continuation each time', async (t) => {
-  for (const retries of [['do it', 'do it'], [CONTINUE_PROMPT, CONTINUE_PROMPT]]) {
+  for (const retries of [
+    ['do it', 'do it'],
+    [CONTINUE_PROMPT, CONTINUE_PROMPT],
+  ]) {
     await withAskHarness(t, async (harness) => {
       const kinds = await retriedTwice(harness, 'do it', {}, retries);
       assert.deepEqual(kinds, ['return', 'continuation', 'continuation'], retries[0]);

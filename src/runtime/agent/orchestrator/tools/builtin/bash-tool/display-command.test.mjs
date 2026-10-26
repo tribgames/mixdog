@@ -26,13 +26,11 @@ mock.module('./command-preflight.mjs', {
 
 const { executeBashTool } = await import('../bash-tool.mjs');
 
-test(
-  'a piped PowerShell command runs wrapped but reports the original command for job labels',
-  { skip: process.platform !== 'win32' },
-  async () => {
-    const original = 'npm test 2>&1 | Select-String fail';
-    await executeBashTool({ command: original, background: true }, process.cwd());
-    assert.match(invocation.command, /__mixdogProducerExit/, 'the executed text carries the wrapper');
-    assert.equal(invocation.displayCommand, original);
-  }
-);
+test('a piped PowerShell command runs wrapped but reports the original command for job labels', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const original = 'npm test 2>&1 | Select-String fail';
+  await executeBashTool({ command: original, background: true }, process.cwd());
+  assert.match(invocation.command, /__mixdogProducerExit/, 'the executed text carries the wrapper');
+  assert.equal(invocation.displayCommand, original);
+});

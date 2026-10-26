@@ -104,7 +104,10 @@ test('a server line is a when-to-use trigger and never names the account', () =>
   const content = session.messages[1].content;
   assert.doesNotMatch(content, /mcp-instructions|ask which account|Account:|@/);
   // The account is part of the instruction text, which a load delivers.
-  assert.match(content, /^- mcp__acme-2: This server acts only for this Acme account; other Acme accounts are separate servers$/m);
+  assert.match(
+    content,
+    /^- mcp__acme-2: This server acts only for this Acme account; other Acme accounts are separate servers$/m
+  );
   assert.match(content, /^- mcp__gmail-2: Gmail email: sending, reading, searching or organizing mail\.$/m);
 });
 
