@@ -1,8 +1,10 @@
 // Runtime guards against shell-tool misuse, run in the shell tool's validation
 // step before hooks, approvals and execution (tool-exec.mjs) and again, once,
 // for callers that reach executeBashTool without that step:
-//   1. a plain leading `cd <dir>` moves into the `cwd` argument;
-//   2. a shell file read (cat/Get-Content/grep/ls …) gets a pointer to the
+//   1. a leading whole-second sleep of 2 s or more is rejected (a wait belongs
+//      to background + task wait);
+//   2. a plain leading `cd <dir>` moves into the `cwd` argument;
+//   3. a shell file read (cat/Get-Content/grep/ls …) gets a pointer to the
 //      read / grep / list tools — a note now, a rejection when the mode flips.
 import { shellSplitPipelineSegments, shellSplitSegments, shellTokenize } from '../shell-analysis.mjs';
 import { resolveShellFor } from '../shell-runtime.mjs';
@@ -16,7 +18,37 @@ export const SHELL_FILE_READ_BLOCK =
 
 const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-// ── 1. leading cd → cwd ──────────────────────────────────────────────────────
+// ── 1. leading sleep ─────────────────────────────────────────────────────────
+
+// Sub-2-second pacing stays allowed: only a bare whole-second sleep of 2 or
+// more is refused. Float seconds, `-Milliseconds`, unit suffixes, pipelines,
+// subshells and later statements are not matched.
+const LEADING_SLEEP_MIN_SECONDS = 2;
+// The first statement ends the command or is followed by `;`, `&&` or a newline.
+const STATEMENT_END = String.raw`(?=\s*(?:$|;|&&|\r?\n))`;
+// The argument stays on the command's line: a number on the next line is its own statement.
+// PowerShell takes any prefix of `-Seconds` (`-s`, `-sec`, …) as the seconds parameter.
+const POSIX_SLEEP_RE = new RegExp(String.raw`^\s*sleep[ \t]+(\d+)${STATEMENT_END}`);
+const POWERSHELL_SLEEP_RE = new RegExp(
+  String.raw`^\s*(?:start-sleep|sleep)[ \t]+(?:-s(?:e(?:c(?:o(?:n(?:d(?:s)?)?)?)?)?)?[ \t:]+)?(\d+)${STATEMENT_END}`,
+  'i'
+);
+
+/** Whole seconds of the sleep the command starts with, or null when it does not start with one. */
+export function leadingSleepSeconds(command, shellType) {
+  const match = (shellType === 'powershell' ? POWERSHELL_SLEEP_RE : POSIX_SLEEP_RE).exec(String(command ?? ''));
+  return match ? Number(match[1]) : null;
+}
+
+function leadingSleepFailure(command, shellType) {
+  const seconds = leadingSleepSeconds(command, shellType);
+  if (seconds === null || seconds < LEADING_SLEEP_MIN_SECONDS) return null;
+  return formatShellToolFailure(
+    `Blocked: the leading sleep of ${seconds} s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under ${LEADING_SLEEP_MIN_SECONDS} seconds is allowed.`
+  );
+}
+
+// ── 2. leading cd → cwd ──────────────────────────────────────────────────────
 
 // One plain path token: quoted (no variable or escape characters) or unquoted
 // (no shell metacharacters, glob characters included), then `;` or `&&` and a remainder.
@@ -44,7 +76,7 @@ export function splitLeadingCd(command, shellType) {
   return { dir, rest };
 }
 
-// ── 2. shell file reads ──────────────────────────────────────────────────────
+// ── 3. shell file reads ──────────────────────────────────────────────────────
 
 const POWERSHELL_READERS = {
   'get-content': 'read',
@@ -193,6 +225,10 @@ export function guardShellCall(
   if (moved) {
     guarded = { ...args, command: moved.rest, cwd: moved.dir };
     notes.push(`Moved \`cd ${moved.dir}\` into cwd.`);
+  }
+  if (args.background !== true) {
+    const sleepFailure = leadingSleepFailure(guarded.command, shellType);
+    if (sleepFailure) return { failure: sleepFailure };
   }
   const read = detectShellFileRead(guarded.command, shellType);
   if (read) {

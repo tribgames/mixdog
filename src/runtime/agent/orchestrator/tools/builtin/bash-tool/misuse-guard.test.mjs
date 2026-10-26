@@ -1,4 +1,5 @@
-// Shell misuse guards: a plain leading `cd`
+// Shell misuse guards: a leading whole-second sleep of 2 s or more is refused,
+// a plain leading `cd`
 // moves into `cwd` (hooks, task records and results see the moved call), and a
 // shell file read gets a note — or a block in reject mode.
 import assert from 'node:assert/strict';
@@ -42,13 +43,88 @@ writeFileSync(dataFile, 'file-body-marker\n');
 const PRINT_CWD = 'node -e "console.log(process.cwd())"';
 const textOf = (output) => (typeof output === 'string' ? output : output.result);
 const guard = (command, shellType, extra = {}) => guardShellCall({ command, ...extra.args }, { shellType, ...extra });
-test('a leading sleep runs as written, alone or after a moved cd', () => {
-  for (const shellType of [POWERSHELL, POSIX]) {
-    for (const command of ['sleep 30; check', 'Start-Sleep 50', 'timeout /t 60', 'sleep 60\ngit status']) {
-      assert.deepEqual(guard(command, shellType), { args: { command }, notes: [] }, command);
+const REFUSED_SLEEPS = [
+  ['sleep 2', POSIX, 2],
+  ['sleep 5 && echo x', POSIX, 5],
+  ['sleep 10; echo x', POSIX, 10],
+  ['sleep 30\ngit status', POSIX, 30],
+  ['Start-Sleep 3', POWERSHELL, 3],
+  ['Start-Sleep -Seconds 3; Get-Date', POWERSHELL, 3],
+  ['start-sleep -seconds:4 && x', POWERSHELL, 4],
+  ['sleep 3', POWERSHELL, 3],
+  ['Start-Sleep -s 2', POWERSHELL, 2],
+  ['Start-Sleep -S 4; x', POWERSHELL, 4],
+  ['Start-Sleep -se 3', POWERSHELL, 3],
+  ['Start-Sleep -sec 3 && x', POWERSHELL, 3],
+  ['start-sleep -secon:5', POWERSHELL, 5],
+  ['Start-Sleep -s:2', POWERSHELL, 2],
+  ['sleep -s 2', POWERSHELL, 2],
+  ['Start-Sleep -SECONDS 6', POWERSHELL, 6],
+];
+const ALLOWED_SLEEPS = [
+  'sleep 1',
+  'sleep 0.5',
+  'sleep 1.5 && x',
+  'sleep 2.5',
+  'sleep 2m',
+  'echo a; sleep 5',
+  'npm test && sleep 30',
+  '(sleep 5)',
+  'foo | sleep 5',
+  'sleep 5 | cat',
+  'sleep 5 || true',
+  'sleepy 5',
+  'while ! ready; do sleep 10; done',
+  'Start-Sleep 1',
+  'Start-Sleep -Seconds 1; x',
+  'Start-Sleep -Milliseconds 500',
+  'Start-Sleep -Milliseconds 5000',
+  'Start-Sleep -Seconds 2.5',
+  'Start-Sleep 2.5; x',
+  'echo a; Start-Sleep 5',
+  'foo | Start-Sleep 5',
+  'Start-Sleep -m 5000',
+  'Start-Sleep -mi:5000',
+  'Start-Sleep -Milliseconds 5000',
+  'Start-Sleep -s 2.5',
+  'Start-Sleep -sec 1',
+  'sleep\n2',
+  'sleep\r\n5',
+  'Start-Sleep\n3',
+  'Start-Sleep -Seconds\n3',
+  'Start-Sleep -s\n3',
+];
+
+test('a leading whole-second sleep of 2 s or more is refused with the Mixdog alternatives', () => {
+  for (const [command, shellType, seconds] of REFUSED_SLEEPS) {
+    const out = guard(command, shellType);
+    assert.match(out.failure ?? '', /^Error: \[shell-tool-failed\] Blocked: the leading sleep of \d+ s was not run\./, command);
+    assert.ok(out.failure.includes(`sleep of ${seconds} s was not run`), `${command}: ${out.failure}`);
+    for (const part of ['background:true', 'arrives automatically', 'task wait', 'do not poll', 'under 2 seconds is allowed']) {
+      assert.ok(out.failure.includes(part), `${command}: ${part}`);
     }
   }
-  assert.equal(guard('cd sub; Start-Sleep 50; check', POWERSHELL).args.command, 'Start-Sleep 50; check');
+});
+
+test('shorter, fractional, millisecond, piped, grouped and later sleeps run as written', () => {
+  for (const command of ALLOWED_SLEEPS) {
+    for (const shellType of [POWERSHELL, POSIX]) {
+      assert.equal(guard(command, shellType).failure, undefined, `${shellType}: ${command}`);
+    }
+  }
+  assert.equal(guard('Start-Sleep 3', POSIX).failure, undefined);
+});
+
+test('a refused sleep runs when the call is already in the background', () => {
+  for (const [command, shellType] of REFUSED_SLEEPS) {
+    const out = guard(command, shellType, { args: { background: true } });
+    assert.equal(out.failure, undefined, command);
+    assert.equal(out.args.command, command);
+  }
+});
+
+test('a leading sleep after a moved cd is still leading', () => {
+  assert.match(guard('cd sub; Start-Sleep 50; check', POWERSHELL).failure, /leading sleep of 50 s/);
 });
 
 test('a plain leading cd moves into cwd with a note', () => {
@@ -291,6 +367,18 @@ test('reject mode blocks a flagged read without a note and still records it', ()
 });
 
 // ── through the tool ────────────────────────────────────────────────────────
+
+test('a leading sleep is refused before hooks, approvals and execution', async () => {
+  const seen = [];
+  const hookSession = { id: 'misuse-sleep', cwd: session };
+  const hooks = { beforeToolHook: (input) => seen.push(input), toolApprovalHook: () => seen.push('approval') };
+  const sleepCommand = resolveShellFor('default').shellType === POWERSHELL ? 'Start-Sleep 50; echo ran' : 'sleep 50; echo ran';
+  const out = await executeTool('shell', { command: sleepCommand }, session, hookSession.id, hookSession, hooks);
+  assert.match(textOf(out), /Blocked: the leading sleep of 50 s was not run\./);
+  assert.deepEqual(seen, []);
+  const direct = await executeBashTool({ command: sleepCommand }, session, {});
+  assert.match(textOf(direct), /Blocked: the leading sleep of 50 s was not run\./);
+});
 
 test('hooks, approvals, the result and the task record see the moved cd', async () => {
   const hookSession = { id: 'misuse-cd', cwd: session };
