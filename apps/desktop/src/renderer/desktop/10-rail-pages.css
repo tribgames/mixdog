@@ -189,7 +189,7 @@ html[data-mixdog-mobile-tabs]
   box-shadow:
     0 0 0 6px var(--mx-rail-pin-bg),
     0 calc(6px * var(--mx-pin-tail)) calc(4px * var(--mx-pin-tail)) 0
-      color-mix(in srgb, var(--mx-rail-pin-bg) calc(100% * var(--mx-pin-tail)), transparent);
+    color-mix(in srgb, var(--mx-rail-pin-bg) calc(100% * var(--mx-pin-tail)), transparent);
 }
 /* The fading tail only exists once the list scrolls; at rest the page's
    first heading sits right under the control. */
@@ -1662,11 +1662,14 @@ html[data-mixdog-mobile-tabs]
    4% of the scroll, bottom shrinks over the last 4%. */
 html[data-mixdog-mobile-tabs] :is(.session-sidebar-scroll, .utility-dock .agent-activity-page) {
   --sidebar-fade-top: calc(
-    20px * clamp(0, var(--mx-scroll-top) / max(var(--mx-scroll-max), 1) / 0.04, 1) * min(var(--mx-scroll-max), 1)
+    20px *
+    clamp(0, var(--mx-scroll-top) / max(var(--mx-scroll-max), 1) / 0.04, 1) *
+    min(var(--mx-scroll-max), 1)
   );
   --sidebar-fade-bottom: calc(
-    20px * clamp(0, (1 - var(--mx-scroll-top) / max(var(--mx-scroll-max), 1)) / 0.04, 1) *
-      min(var(--mx-scroll-max), 1)
+    20px *
+    clamp(0, (1 - var(--mx-scroll-top) / max(var(--mx-scroll-max), 1)) / 0.04, 1) *
+    min(var(--mx-scroll-max), 1)
   );
   animation: none;
 }

@@ -1189,9 +1189,11 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   -webkit-mask-size: var(--text-shimmer-band) 100%;
   mask-size: var(--text-shimmer-band) 100%;
   --text-shimmer-mask-position: calc(
-      -1 * var(--text-shimmer-band) +
-        (100% + var(--text-shimmer-rest-run) + var(--text-shimmer-band)) * var(--text-shimmer-step, 0) /
-        var(--text-shimmer-frames)
+      -1 *
+      var(--text-shimmer-band) +
+      (100% + var(--text-shimmer-rest-run) + var(--text-shimmer-band)) *
+      var(--text-shimmer-step, 0) /
+      var(--text-shimmer-frames)
     )
     0;
   -webkit-mask-position: var(--text-shimmer-mask-position);

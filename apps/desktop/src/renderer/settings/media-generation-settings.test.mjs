@@ -234,14 +234,14 @@ test('a slow gateway catalog lists as loading, re-polls until its models land, a
     laneCalls.push(request.args);
     return { value: [LANES[1], nanoState] };
   };
-  const escape = () =>
+  const pressEscape = () =>
     act(async () => document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
   const imageRows = async () => {
     await click(trigger('image'));
     await click(sheetRow('Model'));
     const rows = optionRows().map((row) => ({ name: name(row), text: row.textContent, disabled: row.disabled }));
-    await escape();
-    await escape();
+    await pressEscape();
+    await pressEscape();
     return rows;
   };
   const retryButton = () =>

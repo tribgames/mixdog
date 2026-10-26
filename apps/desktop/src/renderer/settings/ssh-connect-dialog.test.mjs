@@ -215,7 +215,7 @@ test('Advanced options: an invalid key file shows inline, disables Connect and k
 
 test('C1: progress steps follow the phases; the install step appears only when the server installs', async (t) => {
   const pending = Promise.withResolvers();
-  const { document, calls, progress, api } = await mountDialog(t, { sshConfigHosts: () => Promise.resolve([]) });
+  const { document, progress, api } = await mountDialog(t, { sshConfigHosts: () => Promise.resolve([]) });
   api.sshConnect = ((connect) => (request) => {
     api.lastAttempt = request.attemptId;
     return pending.promise.then(() => connect(request));
@@ -379,7 +379,7 @@ test('C3: a missing login key shows the two commands with copy buttons; Try agai
     keygen: 'ssh-keygen -t ed25519',
     register: 'ssh-copy-id root@123.45.67.89',
   };
-  const { document, calls, closed, api, requests } = await mountDialog(t, {
+  const { document, calls, closed, api } = await mountDialog(t, {
     sshConfigHosts: () => Promise.resolve([]),
   });
   const connect = api.sshConnect;

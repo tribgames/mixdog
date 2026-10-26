@@ -77,7 +77,12 @@ test('the Check-in interval select shows the stored choice, offers 30 min / 1 h 
   await render({ heartbeat: { heartbeat: true, intervalMinutes: 240 } });
   assert.equal(picker().textContent.trim(), translate('4 hours'));
   await act(async () => picker().click());
-  assert.deepEqual(options(), [translate('30 minutes'), translate('1 hour'), translate('2 hours'), translate('4 hours')]);
+  assert.deepEqual(options(), [
+    translate('30 minutes'),
+    translate('1 hour'),
+    translate('2 hours'),
+    translate('4 hours'),
+  ]);
   const two = [...doc().querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === translate('2 hours'));
   await act(async () => two.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })));
   await act(async () => two.click());

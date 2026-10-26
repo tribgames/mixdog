@@ -33,7 +33,7 @@ const INTERVAL_LABELS: Record<number, () => string> = {
 const HEARTBEAT_INTERVAL_OPTIONS = () =>
   HEARTBEAT_INTERVAL_CHOICES.map((minutes) => ({ value: String(minutes), label: INTERVAL_LABELS[minutes]() }));
 
-const SCALE_OPTIONS =DESKTOP_PET_SCALES.map((scale) => ({ value: String(scale), label: `${scale}%` }));
+const SCALE_OPTIONS = DESKTOP_PET_SCALES.map((scale) => ({ value: String(scale), label: `${scale}%` }));
 
 function DesktopPetToggle() {
   const config = useDesktopPetConfig();

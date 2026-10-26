@@ -292,7 +292,14 @@ const mixdogMediaLane = (() => {
         }
       };
       port.postMessage(
-        { op: 'request', assetId: lane.asset.assetId, variant: lane.asset.variant, range, enc: SCHEME, port: reply.port2 },
+        {
+          op: 'request',
+          assetId: lane.asset.assetId,
+          variant: lane.asset.variant,
+          range,
+          enc: SCHEME,
+          port: reply.port2,
+        },
         [reply.port2]
       );
     });

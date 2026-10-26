@@ -64,6 +64,10 @@ function SelectControl({
   );
 }
 
+/** A slider drag saves once it rests: the 300 ms settle the Settings page already uses
+ *  for a typed field (custom-provider-key-fields.tsx ENV_CHECK_DEBOUNCE_MS). */
+const VOLUME_SAVE_DEBOUNCE_MS = 300;
+
 const TIME_OPTIONS = Array.from(
   { length: 48 },
   (_, index) => `${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}`
@@ -244,7 +248,7 @@ function SoundVolumeRow({ api }: { api: NotificationsApi }) {
             setVolume(next);
             editGeneration.current += 1;
             if (saveTimer.current) clearTimeout(saveTimer.current);
-            saveTimer.current = setTimeout(() => void saveVolume(next)?.catch(() => {}), 300);
+            saveTimer.current = setTimeout(() => void saveVolume(next)?.catch(() => {}), VOLUME_SAVE_DEBOUNCE_MS);
           }}
         />
         <output>{`${volume}%`}</output>
