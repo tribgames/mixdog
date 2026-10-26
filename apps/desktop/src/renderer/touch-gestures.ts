@@ -8,6 +8,7 @@
 //   the element the finger actually pressed.
 // - Long-press is the right-click. Android may fire `contextmenu` itself, iOS
 //   never does; whichever comes first opens the menu and the other is dropped.
+import { DRAWER_COMMITTED_EVENT } from './drawer-intent';
 import { TOUCH_LONG_PRESS_MS, TOUCH_SLOP_PX } from './remote-browser-touch';
 
 /** The release after a menu opened lands its emulated mouse events on that
@@ -279,6 +280,12 @@ function ownsHorizontalDrag(win: Window, start: Element): boolean {
   return false;
 }
 
+/** True when the sheet's stylesheet names its rest transforms
+ *  (07-mobile-chrome.css). Such a sheet is painted at an end with live
+ *  `var()` references to them, so the inline paint always equals the current
+ *  class target and dropping it starts no transition. */
+const declaresRest = (win: Window, element: Element): boolean =>
+  win.getComputedStyle(element).getPropertyValue('--mx-drawer-open-transform').trim() !== '';
 interface Drag {
   id: number;
   x: number;
@@ -286,6 +293,8 @@ interface Drag {
   /** Both null until a swipe with every drawer closed shows its direction. */
   drawer: DrawerControl | null;
   element: HTMLElement | null;
+  /** The sheet names its rest transforms. */
+  declaresRest: boolean;
   /** 1 when the drag began on an open drawer. */
   base: number;
   width: number;
@@ -326,7 +335,9 @@ export function installEdgeSwipe(
     const hidden = position <= 0;
     const sheet = current.element.style;
     sheet.transition = animate ? '' : 'none';
-    sheet.transform = `translateX(${shift}%)`;
+    const slid = `translateX(${shift}%)`;
+    const rest = position >= 1 ? 'open' : position <= 0 ? 'closed' : null;
+    sheet.transform = current.declaresRest && rest ? `var(--mx-drawer-${rest}-transform, ${slid})` : slid;
     sheet.visibility = animate && hidden ? 'hidden' : 'visible';
     const scrim = current.drawer.backdrop?.()?.style;
     if (scrim) {
@@ -347,6 +358,18 @@ export function installEdgeSwipe(
   const clearLivePaint = (): void => {
     if (painted) clearPaint(painted.element, painted.scrim);
     painted = null;
+  };
+  // The commit that renders the drawer's new state reports itself on the sheet.
+  // A paint at rest equals the class target, so it is handed over now instead
+  // of at the end of the hold; one still gliding keeps it until the hold ends.
+  const onCommitted = (event: Event): void => {
+    if (!painted || drag || event.target !== painted.element) return;
+    const gliding = painted.element
+      .getAnimations()
+      .some((animation) => (animation as CSSTransition).transitionProperty === 'transform' && animation.playState === 'running');
+    if (gliding) return;
+    win.clearTimeout(settleTimer);
+    clearLivePaint();
   };
   const settle = (current: BoundDrag, open: boolean): void => {
     paint(current, open ? 1 : 0, true);
@@ -379,6 +402,7 @@ export function installEdgeSwipe(
     if (!drawer || !element) return false;
     current.drawer = drawer;
     current.element = element;
+    current.declaresRest = declaresRest(win, element);
     current.width = element.getBoundingClientRect().width || win.innerWidth;
     return true;
   };
@@ -414,6 +438,7 @@ export function installEdgeSwipe(
       y: touch.clientY,
       drawer: picked.drawer,
       element,
+      declaresRest: element ? declaresRest(win, element) : false,
       base: picked.base,
       width: element?.getBoundingClientRect().width || win.innerWidth,
       locked: false,
@@ -473,7 +498,9 @@ export function installEdgeSwipe(
     ['touchcancel', onCancel as EventListener],
   ];
   for (const [type, listener] of listeners) doc.addEventListener(type, listener, { capture: true, passive: true });
+  doc.addEventListener(DRAWER_COMMITTED_EVENT, onCommitted);
   return () => {
+    doc.removeEventListener(DRAWER_COMMITTED_EVENT, onCommitted);
     win.clearTimeout(settleTimer);
     drag = null;
     clearLivePaint();

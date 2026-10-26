@@ -10,6 +10,12 @@ export function paintDrawerIntent(open: boolean): void {
   document.documentElement.setAttribute(DRAWER_INTENT_ATTRIBUTE, open ? 'open' : 'closed');
 }
 
+/** Fired (bubbling) on the sheet by the commit that renders the drawer's new
+ *  state, while a gesture's inline end-state paint may still be on it
+ *  (session-sidebar-drawer-inert.ts). The gesture hands a stationary paint to
+ *  the committed class on it (touch-gestures.ts). */
+export const DRAWER_COMMITTED_EVENT = 'mixdog-drawer-committed';
+
 const dismissListeners = new Set<() => void>();
 
 /** The drawer was asked to close (tap, swipe, back gesture, a navigation): said

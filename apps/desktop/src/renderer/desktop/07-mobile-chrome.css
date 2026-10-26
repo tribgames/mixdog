@@ -643,7 +643,14 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
   box-shadow: none;
   /* Children clip to the rounded sheet. */
   overflow: hidden;
-  transform: translateX(-110%);
+  /* The sheet's two rest transforms, named so the edge-swipe gesture
+     (touch-gestures.ts) paints exactly them at an end: its inline end-state
+     paint then equals the class target, and handing the paint to the class
+     starts no transform transition (`translateX(0%)` is not `none`, and `-100%`
+     is not `-110%`: each started a slide when the paint was dropped). */
+  --mx-drawer-open-transform: none;
+  --mx-drawer-closed-transform: translateX(-110%);
+  transform: var(--mx-drawer-closed-transform);
   visibility: hidden;
   /* `visibility` eases only toward hidden (the exit stays visible until it is
      off-screen); an open takes it at once (0s below). A drawer still hidden
@@ -736,7 +743,7 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .remote-pc-card > .remote-
     0 16px 40px rgba(0, 0, 0, 0.45);
 }
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-state="open"] {
-  transform: none;
+  transform: var(--mx-drawer-open-transform);
   visibility: visible;
   --mx-drawer-visibility-motion: 0s;
 }
@@ -808,7 +815,7 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop[data-state="open"] {
    frame instead of waiting for the shell render. The stamp is dropped once the
    committed data-state agrees, which restores the rules above. */
 html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-drawer-frame {
-  transform: none;
+  transform: var(--mx-drawer-open-transform);
   visibility: visible;
   --mx-drawer-visibility-motion: 0s;
 }
@@ -833,7 +840,7 @@ html[data-mixdog-mobile-tabs][data-drawer-intent="open"] .sidebar-backdrop {
   --mx-drawer-visibility-motion: 0s;
 }
 html[data-mixdog-mobile-tabs][data-drawer-intent="closed"] .sidebar-drawer-frame {
-  transform: translateX(-110%);
+  transform: var(--mx-drawer-closed-transform);
   visibility: hidden;
   --mx-drawer-visibility-motion: var(--mx-sheet-motion);
 }
