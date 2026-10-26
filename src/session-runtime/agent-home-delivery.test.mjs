@@ -267,6 +267,70 @@ test('a home thread that does not exist yet keeps its result queued until it doe
   assert.deepEqual(await h.deps.queue.items('sess_home_reviewer'), []);
 });
 
+test('a held request for a busy thread is shown live once, then posted with the same messageId once idle', async (t) => {
+  const h = homes(t, ['sess_home_reviewer']);
+  h.state.busy = true;
+  const delivery = createAgentHomeDelivery(h.deps);
+  const held = { id: 'held_b1', status: 'pending', agentId: 'reviewer', kind: 'outbound', tool: 'github' };
+  await delivery.drain(await delivery.enqueueHeld('reviewer', held));
+  await delivery.drain('sess_home_reviewer');
+  assert.deepEqual(
+    h.notices.map(([id, notice]) => [id, notice.messageId]),
+    [['sess_home_reviewer', 'routine_held_b1_pending']],
+    'shown live once while busy'
+  );
+  assert.equal(h.sessions.get('sess_home_reviewer').messages.length, 1, 'nothing stored while busy');
+  assert.equal(h.retries.length, 1, 'one retry armed');
+  h.state.busy = false;
+  await fireRetries(h, delivery, 'sess_home_reviewer');
+  const thread = h.sessions.get('sess_home_reviewer').messages;
+  assert.equal(thread.length, 2);
+  assert.equal(thread[1].meta.transcript.messageId, 'routine_held_b1_pending');
+  assert.equal(h.notices.length, 2, 'the stored row replaces the live one');
+  assert.equal(h.notices[1][1].messageId, 'routine_held_b1_pending');
+});
+
+test('task reports for a room member thread proven deleted are dropped with a log line', async (t) => {
+  const memberId = 'sess_rmem_abc123_gh';
+  const h = homes(t, []);
+  const lines = [];
+  const delivery = createAgentHomeDelivery({
+    ...h.deps,
+    roomPresence: (roomId) => (roomId === 'abc123' ? 'deleted' : 'unknown'),
+    log: (line) => lines.push(line),
+  });
+  await h.deps.queue.add(memberId, {
+    runId: 'run_gone',
+    kind: 'agent-task',
+    taskSessionId: 'sess_task',
+    status: 'completed',
+    roundTrip: false,
+    at: 1,
+  });
+  await delivery.drain(memberId);
+  assert.deepEqual(await h.deps.queue.items(memberId), [], 'dequeued unposted');
+  assert.deepEqual(h.retries, [], 'never retried');
+  assert.deepEqual(lines, [`1 task report(s) for the deleted ${memberId} are dropped`]);
+});
+
+test('recover logs a failed prune and still drains every pending home', async (t) => {
+  const h = homes(t, ['sess_home_lead']);
+  const lines = [];
+  const queue = h.deps.queue;
+  const failing = {
+    ...queue,
+    bookkeptHomes: async () => {
+      throw new Error('disk gone');
+    },
+  };
+  const delivery = createAgentHomeDelivery({ ...h.deps, queue: failing, log: (line) => lines.push(line) });
+  await queue.add('sess_home_lead', { runId: 'run_r', kind: 'schedule', name: 'daily', ok: true, text: 'x', at: 1 });
+  assert.deepEqual(await delivery.recover(), ['sess_home_lead']);
+  await delivery.drain('sess_home_lead');
+  assert.deepEqual(lines, ['pruning the routine results failed: disk gone']);
+  assert.equal(h.sessions.get('sess_home_lead').messages.length, 2, 'the pending home was drained');
+});
+
 test('task reports an earlier version queued under a room log id are dropped, never posted into the log', async (t) => {
   const logId = 'sess_room_abc123';
   const h = homes(t, [logId]);

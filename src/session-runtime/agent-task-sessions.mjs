@@ -852,6 +852,150 @@ async function rearmTaskWatch(
   await check();
 }
 
+/** The settlement of sends one turn answers: they settle together with the
+ *  same `detail` object (a send steered into the turn while it ran, or queued
+ *  and taken as one batch), and that turn reports once, closing every one of
+ *  them. `nextSeq()` numbers the sends in submission order: the earliest of
+ *  the sends one turn answers reports for them. */
+function createSendSettlement(log) {
+  const settledTurns = new WeakMap();
+  let sendCount = 0;
+
+  /** Add send `member` (`{ seq, id, unwatch, settle }`) to the settlement
+   *  `detail` of its turn, per reporting conversation. The sends of one turn
+   *  settle in the same tick; after it the earliest (the turn's own, whose
+   *  record holds the whole turn) settles with all their ids and the others
+   *  stand down. */
+  function join(detail, origin, member) {
+    const key = `${origin.agentId}\0${origin.sessionId}`;
+    let groups = settledTurns.get(detail);
+    if (!groups) {
+      groups = new Map();
+      settledTurns.set(detail, groups);
+    }
+    let members = groups.get(key);
+    if (!members) {
+      members = [];
+      groups.set(key, members);
+      const settling = members;
+      void Promise.resolve()
+        .then(() => {
+          const [first, ...others] = settling.sort((a, b) => a.seq - b.seq);
+          for (const other of others) other.unwatch();
+          first.settle(settling.map((entry) => entry.id));
+        })
+        .catch((error) => log(`settling the sends of one turn failed: ${error?.message || error}`));
+    }
+    members.push(member);
+  }
+
+  const nextSeq = () => {
+    sendCount += 1;
+    return sendCount;
+  };
+
+  return { join, nextSeq };
+}
+
+/** The queue row of send `id`'s report of `status`. 'working': a
+ *  still-in-progress answer (followToFinal), not the end. A wait for approval
+ *  belongs to the target session, not to this send: every watcher of it names
+ *  the same row, so it posts once. */
+const turnReportRunId = (sessionId, id, status, approvalId) =>
+  status === 'blocked' ? `${sessionId}_${approvalId}_blocked` : `${id}_${{ working: 'progress' }[status] || 'end'}`;
+
+/** The handler of send `id`'s task-session state: a wait for the user's
+ *  approval reports blocked once; a later, different one reports again. */
+function approvalWaitReporter(id, report) {
+  // The approval wait last reported.
+  let reportedApproval = null;
+  return (state) => {
+    if (!state.toolApproval) {
+      reportedApproval = null;
+      return;
+    }
+    const approvalId = String(state.toolApproval.id ?? 'approval');
+    if (approvalId === reportedApproval) return;
+    // A send still queued behind the running turn is not the turn
+    // waiting: that turn's own watcher reports it.
+    if ((state.queued || []).some((entry) => entry?.id === id)) return;
+    reportedApproval = approvalId;
+    void report('blocked', '', approvalId);
+  };
+}
+
+/** The transcript meta of a send from `origin`. `fromAgent`: the sending bot,
+ *  recorded when it writes into another bot's home chat (otherwise the row
+ *  would read as the user's); `hop`: its place in a bot-to-bot chain
+ *  (bot-hops.mjs). */
+const sendTranscriptMeta = (origin) => ({
+  sender: 'lead',
+  ...(origin.envelopeName ? { fromAgent: origin.agentId } : {}),
+  ...(origin.hop > 0 ? { hop: origin.hop } : {}),
+  // The bots that handed this work on, the sender last (bot-hops.mjs).
+  ...(origin.botChain?.length ? { botChain: origin.botChain } : {}),
+});
+
+/** What a send tells its caller once submitted. */
+const sendResult = (accepted, notify, id, noReport) => ({
+  accepted,
+  // Names this send; its terminal report carries it back (routine.sendId).
+  ...(accepted && notify ? { sendId: id } : {}),
+  reportsBack: accepted && notify,
+  ...(accepted && !notify ? { reportsBackReason: noReport } : {}),
+});
+
+/** create's brief and `worktree` location, checked before anything runs. */
+function createRequest(args, callerAgentId, callerScope) {
+  if (!callerAgentId) throw new Error('session: create is only for an agent conversation');
+  const brief = typeof args.brief === 'string' ? args.brief.trim() : '';
+  if (!brief) throw new Error('session: brief is required for action=create');
+  const location = taskLocation(args.worktree);
+  if (location.mode === 'worktree') assertWorktreeMutationAllowed(callerScope, 'session: create with a worktree');
+  return { brief, location };
+}
+
+/** Where create starts (resolveTaskProject). An explicit worktree is never
+ *  silently dropped: it needs a registered Project. */
+function createWhere(args, projects, callerCwd, location) {
+  const where = resolveTaskProject(args.project, { projects, cwd: callerCwd || process.cwd() });
+  const registered = where.project && projects.some((entry) => samePath(entry.path, where.project.path));
+  if (location.mode === 'worktree' && !registered) {
+    throw taskWorktreeFailure(
+      worktreeError('WORKTREE_PROJECT_UNKNOWN', 'A worktree needs a registered Project; run list-projects.', {
+        projectPath: where.project?.path ?? null,
+      })
+    );
+  }
+  return where;
+}
+
+/** The worktree failure `error` of task session `sessionId` whose empty
+ *  session could not be dropped (`dropFailure`): the model must know the
+ *  empty session is still there to delete. */
+const orphanSessionError = (error, sessionId, dropFailure) =>
+  Object.assign(
+    new Error(
+      `${error?.message || error} The empty task session ${sessionId} could not be deleted either (${dropFailure?.message || dropFailure}); delete it with session action=delete session_id=${sessionId}.`
+    ),
+    {
+      ...(typeof error?.code === 'string' ? { code: error.code } : {}),
+      ...(error?.details ? { details: error.details } : {}),
+      orphanSessionId: sessionId,
+      cause: error,
+    }
+  );
+
+/** `ready` resolves once `started()` runs: "Started" lands in the home before
+ *  any report of the brief's turn. */
+function startedGate() {
+  let started = () => {};
+  const ready = new Promise((resolveReady) => {
+    started = resolveReady;
+  });
+  return { ready, started };
+}
+
 export function createAgentTaskSessions({
   getSessionService,
   deliver = async (agentId, report) => (await import('./agent-home-delivery.mjs')).deliverAgentTask(agentId, report),
@@ -935,39 +1079,7 @@ export function createAgentTaskSessions({
       follow
     );
 
-  // Sends one turn answers settle together with the same `detail` object: a
-  // send steered into the turn while it ran, or queued and taken as one batch.
-  // That turn reports once, closing every one of them.
-  const settledTurns = new WeakMap();
-  let sendCount = 0;
-
-  /** Add send `member` (`{ seq, id, unwatch, settle }`) to the settlement
-   *  `detail` of its turn, per reporting conversation. The sends of one turn
-   *  settle in the same tick; after it the earliest (the turn's own, whose
-   *  record holds the whole turn) settles with all their ids and the others
-   *  stand down. */
-  function joinSettlement(detail, origin, member) {
-    const key = `${origin.agentId}\0${origin.sessionId}`;
-    let groups = settledTurns.get(detail);
-    if (!groups) {
-      groups = new Map();
-      settledTurns.set(detail, groups);
-    }
-    let members = groups.get(key);
-    if (!members) {
-      members = [];
-      groups.set(key, members);
-      const settling = members;
-      void Promise.resolve()
-        .then(() => {
-          const [first, ...others] = settling.sort((a, b) => a.seq - b.seq);
-          for (const other of others) other.unwatch();
-          first.settle(settling.map((entry) => entry.id));
-        })
-        .catch((error) => log(`settling the sends of one turn failed: ${error?.message || error}`));
-    }
-    members.push(member);
-  }
+  const settlement = createSendSettlement(log);
 
   /** Submit `prompt` as the origin agent's turn; its end (and a wait for the
    *  user in it) reports to the agent's home. Resolves on intake. `submit`
@@ -989,7 +1101,7 @@ export function createAgentTaskSessions({
       watches.remove(id).catch((error) => log(`dropping the watch of ${sessionId} failed: ${error?.message || error}`));
     let runtime = null;
     // The sends this turn's end closes: this one, plus any that its turn
-    // answered too (joinSettlement).
+    // answered too (createSendSettlement).
     let sendIds = [id];
     // A report that cannot be queued is retried in this process; when every try
     // fails the durable watch stays and restart recovery delivers it (the queue
@@ -998,13 +1110,7 @@ export function createAgentTaskSessions({
       Promise.resolve(beforeReport)
         .then(async () =>
           deliverWithRetries({ deliver, retryDelaysMs, log }, origin.agentId, sessionId, {
-            // 'working': a still-in-progress answer (followToFinal), not the end.
-            // A wait for approval belongs to the target session, not to this
-            // send: every watcher of it names the same row, so it posts once.
-            runId:
-              status === 'blocked'
-                ? `${sessionId}_${approvalId}_blocked`
-                : `${id}_${{ working: 'progress' }[status] || 'end'}`,
+            runId: turnReportRunId(sessionId, id, status, approvalId),
             taskSessionId: sessionId,
             title: origin.title,
             status,
@@ -1028,7 +1134,7 @@ export function createAgentTaskSessions({
     // Set once the turn ended completed: the report waits for the final answer.
     let follow = null;
     let result;
-    /** This send ends the turn `detail` for the sends `answered` (joinSettlement). */
+    /** This send ends the turn `detail` for the sends `answered` (createSendSettlement). */
     const settleTurn = (detail, answered) => {
       sendIds = answered;
       const status = turnStatus(detail);
@@ -1056,23 +1162,11 @@ export function createAgentTaskSessions({
     try {
       if (notify) {
         runtime = await sessions.materializeSession(sessionId);
-        // The approval wait last reported; a later, different one reports again.
-        let reportedApproval = null;
+        const onState = approvalWaitReporter(id, report);
         unwatch =
           runtime?.subscribe?.(() => {
             follow?.check();
-            const state = runtime.getState?.() || {};
-            if (!state.toolApproval) {
-              reportedApproval = null;
-              return;
-            }
-            const approvalId = String(state.toolApproval.id ?? 'approval');
-            if (approvalId === reportedApproval) return;
-            // A send still queued behind the running turn is not the turn
-            // waiting: that turn's own watcher reports it.
-            if ((state.queued || []).some((entry) => entry?.id === id)) return;
-            reportedApproval = approvalId;
-            void report('blocked', '', approvalId);
+            onState(runtime.getState?.() || {});
           }) || unwatch;
       }
       // A bot's send to a session that is not its own task session reaches the
@@ -1081,22 +1175,11 @@ export function createAgentTaskSessions({
         ? wrapAgentMessage(prompt, { name: origin.envelopeName, agentId: origin.agentId })
         : prompt;
       const take = submit ?? ((options) => sessions.submitSession({ sessionId, prompt: sent, options }));
-      // Submission order: the earliest of the sends one turn answers reports for them.
-      sendCount += 1;
-      const seq = sendCount;
+      const seq = settlement.nextSeq();
       result = await take({
         id,
         mode: 'prompt',
-        // `fromAgent`: the sending bot, recorded when it writes into another
-        // bot's home chat (otherwise the row would read as the user's);
-        // `hop`: its place in a bot-to-bot chain (bot-hops.mjs).
-        transcriptMeta: {
-          sender: 'lead',
-          ...(origin.envelopeName ? { fromAgent: origin.agentId } : {}),
-          ...(origin.hop > 0 ? { hop: origin.hop } : {}),
-          // The bots that handed this work on, the sender last (bot-hops.mjs).
-          ...(origin.botChain?.length ? { botChain: origin.botChain } : {}),
-        },
+        transcriptMeta: sendTranscriptMeta(origin),
         ...(notify
           ? {
               // A room answers this send in a turn under another submission
@@ -1104,7 +1187,7 @@ export function createAgentTaskSessions({
               // short): the watch follows that turn, recorded before it runs.
               follow: (submissionId) => watches.follow?.(id, submissionId),
               onSettled: (detail) =>
-                joinSettlement(detail, origin, {
+                settlement.join(detail, origin, {
                   seq,
                   id,
                   unwatch: () => unwatch(),
@@ -1123,13 +1206,7 @@ export function createAgentTaskSessions({
       unwatch();
       if (notify) await dropWatch();
     }
-    return {
-      accepted,
-      // Names this send; its terminal report carries it back (routine.sendId).
-      ...(accepted && notify ? { sendId: id } : {}),
-      reportsBack: accepted && notify,
-      ...(accepted && !notify ? { reportsBackReason: noReport } : {}),
-    };
+    return sendResult(accepted, notify, id, noReport);
   }
 
   const rearm = (watch) =>
@@ -1182,22 +1259,8 @@ export function createAgentTaskSessions({
       attachmentParts = [],
     } = {}
   ) {
-    if (!callerAgentId) throw new Error('session: create is only for an agent conversation');
-    const brief = typeof args.brief === 'string' ? args.brief.trim() : '';
-    if (!brief) throw new Error('session: brief is required for action=create');
-    const location = taskLocation(args.worktree);
-    if (location.mode === 'worktree') assertWorktreeMutationAllowed(callerScope, 'session: create with a worktree');
-    const projects = await listProjects();
-    const where = resolveTaskProject(args.project, { projects, cwd: callerCwd || process.cwd() });
-    // An explicit worktree is never silently dropped: it needs a registered Project.
-    const registered = where.project && projects.some((entry) => samePath(entry.path, where.project.path));
-    if (location.mode === 'worktree' && !registered) {
-      throw taskWorktreeFailure(
-        worktreeError('WORKTREE_PROJECT_UNKNOWN', 'A worktree needs a registered Project; run list-projects.', {
-          projectPath: where.project?.path ?? null,
-        })
-      );
-    }
+    const { brief, location } = createRequest(args, callerAgentId, callerScope);
+    const where = createWhere(args, await listProjects(), callerCwd, location);
     const requestId = `atask_${randomUUID()}`;
     const title = (clean(args.title) || clean(brief.split('\n')[0])).slice(0, TITLE_LIMIT);
     const taskOrigin = {
@@ -1265,25 +1328,10 @@ export function createAgentTaskSessions({
         }
         if (dropFailure) log(`dropping ${sessionId} failed: ${dropFailure?.message || dropFailure}`);
         if (!dropFailure) throw error;
-        // The model must know the empty session is still there to delete.
-        throw Object.assign(
-          new Error(
-            `${error?.message || error} The empty task session ${sessionId} could not be deleted either (${dropFailure?.message || dropFailure}); delete it with session action=delete session_id=${sessionId}.`
-          ),
-          {
-            ...(typeof error?.code === 'string' ? { code: error.code } : {}),
-            ...(error?.details ? { details: error.details } : {}),
-            orphanSessionId: sessionId,
-            cause: error,
-          }
-        );
+        throw orphanSessionError(error, sessionId, dropFailure);
       }
     }
-    // "Started" lands in the home before any report of the brief's turn.
-    let started = () => {};
-    const ready = new Promise((resolveReady) => {
-      started = resolveReady;
-    });
+    const { ready, started } = startedGate();
     // The brief carries the files the agent forwarded (workspace-tools.mjs).
     const prompt = handoffContent(brief, attachmentParts);
     const botChain = botChainOf(callerBotChain);

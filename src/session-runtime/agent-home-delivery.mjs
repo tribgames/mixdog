@@ -825,89 +825,56 @@ function createHomeRelay({
   return { wakeOwed };
 }
 
-export function createAgentHomeDelivery({
-  loadSession,
-  saveSession,
-  turnInFlight,
-  queue,
-  live = () => liveSurface,
-  retryLater = (fn, ms) => setTimeout(fn, ms).unref?.(),
-  busyRetryMs = 1000,
-  missingRetryMs = 60_000,
-  // 'present' | 'deleted' | 'unknown' per agent id: a deleted owner's results go to Mixy.
-  agentPresence = () => 'unknown',
-  // The same per room id. The daemon has no room store (rooms live in the
-  // desktop host), so by default no room counts as deleted.
-  roomPresence = () => 'unknown',
-  // True only on positive evidence that session `id` was deleted; an
-  // unreadable or unknown record is not deleted.
-  sessionDeleted = () => false,
-  // 'bot' | 'none' | 'unknown' per agent id: whether it can have a home chat
-  // at all. 'none' (proven: a workflow agent such as Reviewer) drops the rows
-  // queued for its missing home instead of waiting on it forever.
-  homeAgent = () => 'unknown',
-  // Waits before each new try of a relay turn that did not finish; past the
-  // last one the results stay posted with a note and nobody is woken.
-  wakeRetryDelaysMs = WAKE_RETRY_DELAYS_MS,
-  // Refused or failing wake submissions of one batch (missingRetryMs apart)
-  // before it is given up the same way.
-  wakeRefusalLimit = WAKE_REFUSAL_LIMIT,
-  // A room member's relay turn (wake of a member session): its turn in the
-  // room, through the desktop room host (agent-room-host.mjs `relay`), with
-  // the live surface's `wake` contract.
-  roomRelay = (sessionId, prompt, options) => agentRoomHost().relay(sessionId, prompt, options),
-  log = (line) => process.stderr.write(`mixdog routines: ${line}\n`),
-}) {
-  const busy = (sessionId) => {
-    if (turnInFlight(sessionId)) return true;
-    try {
-      return live()?.busy?.(sessionId) === true;
-    } catch {
-      return false;
-    }
-  };
-  const draining = new Map(); // home → the running pass
-  const again = new Set(); // homes enqueued to while their pass ran
-  const waiting = new Set(); // homes with a retry timer armed
-  const shownLive = new Set(); // held-request message ids shown live in a busy thread
-  const waitLogged = new Set(); // missing homes whose wait was logged
-  const relay = createHomeRelay({
-    queue,
-    saveSession,
-    live,
-    roomRelay,
-    busy,
-    later,
-    drain,
-    log,
-    wakeRetryDelaysMs,
-    wakeRefusalLimit,
-    busyRetryMs,
-    missingRetryMs,
-  });
-
-  /** A held request waits on the user, possibly raised by the very turn that
-   *  keeps its thread busy (a routine turn): show it live at once; the stored
-   *  row (same messageId) replaces it once the thread is idle. */
-  function showHeldLive(homeId, items) {
-    for (const item of items) {
-      if (item.kind !== 'held-request') continue;
-      const messageId = messageIdOf(item.runId);
-      if (shownLive.has(messageId)) continue;
-      shownLive.add(messageId);
-      noticeLive(live, log, homeId, { ...deliveredRow(item, messageId).notice, messageId });
-    }
+/** Whether home thread `sessionId` is busy: a turn in flight in this process,
+ *  or the `live()` surface says so (false when it threw). */
+const homeBusy = (turnInFlight, live) => (sessionId) => {
+  if (turnInFlight(sessionId)) return true;
+  try {
+    return live()?.busy?.(sessionId) === true;
+  } catch {
+    return false;
   }
+};
 
-  function later(homeId, ms) {
+/** `later(homeId, ms)`: drain `homeId` again after `ms`, one retry timer per
+ *  home armed at a time. */
+function createRetryTimer(retryLater, drain) {
+  const waiting = new Set(); // homes with a retry timer armed
+  return function later(homeId, ms) {
     if (waiting.has(homeId)) return;
     waiting.add(homeId);
     retryLater(() => {
       waiting.delete(homeId);
       void drain(homeId);
     }, ms);
-  }
+  };
+}
 
+/** The held requests shown live in a busy thread. A held request waits on the
+ *  user, possibly raised by the very turn that keeps its thread busy (a
+ *  routine turn): `show` shows it live at once; the stored row (same
+ *  messageId) replaces it once the thread is idle, and `forget` lets a later
+ *  one show again. */
+function createHeldLiveDisplay(live, log) {
+  const shownLive = new Set(); // held-request message ids shown live in a busy thread
+  return {
+    show(homeId, items) {
+      for (const item of items) {
+        if (item.kind !== 'held-request') continue;
+        const messageId = messageIdOf(item.runId);
+        if (shownLive.has(messageId)) continue;
+        shownLive.add(messageId);
+        noticeLive(live, log, homeId, { ...deliveredRow(item, messageId).notice, messageId });
+      }
+    },
+    forget(items) {
+      for (const item of items) shownLive.delete(messageIdOf(item.runId));
+    },
+  };
+}
+
+/** The queues a drain drops unposted instead of retrying them. */
+function createQueueDrops({ queue, log, homeAgent, homeDeleted, sessionDeleted }) {
   /** A room thread proven gone: its queued rows are dropped, never retried. */
   async function dropGoneRoomThread(homeId, items, omitted) {
     if (!isRoomThreadSessionId(homeId) || !(homeDeleted(homeId) || sessionDeleted(homeId))) return false;
@@ -933,85 +900,12 @@ export function createAgentHomeDelivery({
     return true;
   }
 
-  /** Post every queued result of `homeId` if its thread is idle; else retry later. */
-  async function drainOnce(homeId) {
-    const items = await queue.items(homeId);
-    const omitted = await queue.omitted(homeId);
-    const owed = owesWake(await queue.wakes(homeId));
-    if (!items.length && !omitted && !owed) return;
-    if (roomIdOfSession(homeId)) return dropRoomLogQueue(homeId, items, omitted);
-    const agentId = agentIdOfHomeSession(homeId);
-    if (agentId && agentId !== MIXY_AGENT_ID && agentPresence(agentId) === 'deleted') {
-      // The owner is gone (its home archived): Mixy, the default owner, gets them.
-      const mixyHome = agentHomeSessionId(MIXY_AGENT_ID);
-      log(`${items.length} result(s) of the deleted agent ${agentId} go to ${mixyHome}`);
-      await queue.move(homeId, mixyHome);
-      if (owed) await queue.dropWakes(homeId);
-      void drain(mixyHome);
-      return;
-    }
-    if (busy(homeId)) {
-      showHeldLive(homeId, items);
-      return later(homeId, busyRetryMs);
-    }
-    // From here to the push nothing awaits, so no turn can start in between.
-    const session = loadSession(homeId);
-    if (!session || session.closed === true) {
-      if (await dropGoneRoomThread(homeId, items, omitted)) return;
-      if (await dropHomeless(homeId, items, omitted)) return;
-      // Kept (a bot, or an agent whose kind cannot be read): logged once per process.
-      if (!waitLogged.has(homeId)) {
-        waitLogged.add(homeId);
-        log(`${items.length} result(s) wait for the home thread ${homeId}`);
-      }
-      return later(homeId, missingRetryMs);
-    }
-    if (!Array.isArray(session.messages)) session.messages = [];
-    const { fresh, toWake } = postQueuedRows(session, items, omitted);
-    for (const item of items) shownLive.delete(messageIdOf(item.runId));
-    if (fresh.length) {
-      session.updatedAt = Date.now();
-      await saveSession(session);
-      for (const { message, notice } of fresh) {
-        noticeLive(live, log, homeId, { ...notice, messageId: message.meta.transcript.messageId });
-      }
-    }
-    // Dequeuing and owing the wake are one write: no restart between posting
-    // and waking loses the wake.
-    const { overflowed } = await queue.remove(
-      homeId,
-      items.map((item) => item.runId),
-      omitted,
-      { wake: toWake }
-    );
-    if (overflowed) log(`${homeId} is at its wake cap: ${overflowed} result(s) ride the next wake as a count`);
-    await relay.wakeOwed(homeId, session);
-  }
+  return { dropGoneRoomThread, dropRoomLogQueue, dropHomeless };
+}
 
-  /** The single drainer of `homeId`; a call during a pass runs one more pass. */
-  function drain(homeId) {
-    const running = draining.get(homeId);
-    if (running) {
-      again.add(homeId);
-      return running;
-    }
-    const pass = (async () => {
-      try {
-        do {
-          again.delete(homeId);
-          await drainOnce(homeId);
-        } while (again.has(homeId));
-      } catch (error) {
-        log(`delivery into ${homeId} failed, retrying: ${error?.message || error}`);
-        later(homeId, busyRetryMs);
-      } finally {
-        draining.delete(homeId);
-      }
-    })();
-    draining.set(homeId, pass);
-    return pass;
-  }
-
+/** The durable intake of a home: each enqueue persists its row for the home
+ *  thread, then starts draining it, and resolves once it is queued. */
+function createHomeEnqueue(queue, drain) {
   /** Persist `result` ({ runId, kind, ok, text, runSessionId }) of a schedule
    *  or webhook `row` for its owner's home, then start draining it. Resolves
    *  once it is queued. */
@@ -1065,19 +959,12 @@ export function createAgentHomeDelivery({
     return homeId;
   }
 
-  /** Show `run`'s live-only row (routineRunNotice: `running`, or a result whose
-   *  delivery failed) in `row`'s owner home when it is open and idle. Nothing
-   *  is stored and no turn or unread mark follows; the posted result (same
-   *  messageId) replaces it. False when no window shows it. */
-  function announce(row, run) {
-    const homeId = agentHomeSessionId(scheduleOwnerAgentId(row));
-    if (!run?.runId || busy(homeId)) return false;
-    const notice = routineRunNotice({ ...run, name: row.name, messageId: messageIdOf(run.runId) });
-    return noticeLive(live, log, homeId, notice) === true;
-  }
+  return { enqueue, enqueueHeld, enqueueTask, enqueueMessage };
+}
 
-  const homeDeleted = (homeId) => homeProvenDeleted(homeId, agentPresence, roomPresence);
-
+/** The queue's bookkeeping across processes: report watches and the restart
+ *  recovery that retires deleted homes and drains what was left queued. */
+function createHomeBookkeeping({ queue, log, homeDeleted, sessionDeleted, drain }) {
   /** Retire the bookkeeping of deleted homes (and stale round counts). */
   async function prune() {
     await queue.prune((await queue.bookkeptHomes()).filter(homeDeleted));
@@ -1106,11 +993,165 @@ export function createAgentHomeDelivery({
     return homes;
   }
 
+  return { watchTask, recover };
+}
+
+export function createAgentHomeDelivery({
+  loadSession,
+  saveSession,
+  turnInFlight,
+  queue,
+  live = () => liveSurface,
+  retryLater = (fn, ms) => setTimeout(fn, ms).unref?.(),
+  busyRetryMs = 1000,
+  missingRetryMs = 60_000,
+  // 'present' | 'deleted' | 'unknown' per agent id: a deleted owner's results go to Mixy.
+  agentPresence = () => 'unknown',
+  // The same per room id. The daemon has no room store (rooms live in the
+  // desktop host), so by default no room counts as deleted.
+  roomPresence = () => 'unknown',
+  // True only on positive evidence that session `id` was deleted; an
+  // unreadable or unknown record is not deleted.
+  sessionDeleted = () => false,
+  // 'bot' | 'none' | 'unknown' per agent id: whether it can have a home chat
+  // at all. 'none' (proven: a workflow agent such as Reviewer) drops the rows
+  // queued for its missing home instead of waiting on it forever.
+  homeAgent = () => 'unknown',
+  // Waits before each new try of a relay turn that did not finish; past the
+  // last one the results stay posted with a note and nobody is woken.
+  wakeRetryDelaysMs = WAKE_RETRY_DELAYS_MS,
+  // Refused or failing wake submissions of one batch (missingRetryMs apart)
+  // before it is given up the same way.
+  wakeRefusalLimit = WAKE_REFUSAL_LIMIT,
+  // A room member's relay turn (wake of a member session): its turn in the
+  // room, through the desktop room host (agent-room-host.mjs `relay`), with
+  // the live surface's `wake` contract.
+  roomRelay = (sessionId, prompt, options) => agentRoomHost().relay(sessionId, prompt, options),
+  log = (line) => process.stderr.write(`mixdog routines: ${line}\n`),
+}) {
+  const busy = homeBusy(turnInFlight, live);
+  const draining = new Map(); // home → the running pass
+  const again = new Set(); // homes enqueued to while their pass ran
+  const waitLogged = new Set(); // missing homes whose wait was logged
+  const later = createRetryTimer(retryLater, drain);
+  const heldLive = createHeldLiveDisplay(live, log);
+  const homeDeleted = (homeId) => homeProvenDeleted(homeId, agentPresence, roomPresence);
+  const { dropGoneRoomThread, dropRoomLogQueue, dropHomeless } = createQueueDrops({
+    queue,
+    log,
+    homeAgent,
+    homeDeleted,
+    sessionDeleted,
+  });
+  const relay = createHomeRelay({
+    queue,
+    saveSession,
+    live,
+    roomRelay,
+    busy,
+    later,
+    drain,
+    log,
+    wakeRetryDelaysMs,
+    wakeRefusalLimit,
+    busyRetryMs,
+    missingRetryMs,
+  });
+  const intake = createHomeEnqueue(queue, drain);
+  const { watchTask, recover } = createHomeBookkeeping({ queue, log, homeDeleted, sessionDeleted, drain });
+
+  /** Post every queued result of `homeId` if its thread is idle; else retry later. */
+  async function drainOnce(homeId) {
+    const items = await queue.items(homeId);
+    const omitted = await queue.omitted(homeId);
+    const owed = owesWake(await queue.wakes(homeId));
+    if (!items.length && !omitted && !owed) return;
+    if (roomIdOfSession(homeId)) return dropRoomLogQueue(homeId, items, omitted);
+    const agentId = agentIdOfHomeSession(homeId);
+    if (agentId && agentId !== MIXY_AGENT_ID && agentPresence(agentId) === 'deleted') {
+      // The owner is gone (its home archived): Mixy, the default owner, gets them.
+      const mixyHome = agentHomeSessionId(MIXY_AGENT_ID);
+      log(`${items.length} result(s) of the deleted agent ${agentId} go to ${mixyHome}`);
+      await queue.move(homeId, mixyHome);
+      if (owed) await queue.dropWakes(homeId);
+      void drain(mixyHome);
+      return;
+    }
+    if (busy(homeId)) {
+      heldLive.show(homeId, items);
+      return later(homeId, busyRetryMs);
+    }
+    // From here to the push nothing awaits, so no turn can start in between.
+    const session = loadSession(homeId);
+    if (!session || session.closed === true) {
+      if (await dropGoneRoomThread(homeId, items, omitted)) return;
+      if (await dropHomeless(homeId, items, omitted)) return;
+      // Kept (a bot, or an agent whose kind cannot be read): logged once per process.
+      if (!waitLogged.has(homeId)) {
+        waitLogged.add(homeId);
+        log(`${items.length} result(s) wait for the home thread ${homeId}`);
+      }
+      return later(homeId, missingRetryMs);
+    }
+    if (!Array.isArray(session.messages)) session.messages = [];
+    const { fresh, toWake } = postQueuedRows(session, items, omitted);
+    heldLive.forget(items);
+    if (fresh.length) {
+      session.updatedAt = Date.now();
+      await saveSession(session);
+      for (const { message, notice } of fresh) {
+        noticeLive(live, log, homeId, { ...notice, messageId: message.meta.transcript.messageId });
+      }
+    }
+    // Dequeuing and owing the wake are one write: no restart between posting
+    // and waking loses the wake.
+    const { overflowed } = await queue.remove(
+      homeId,
+      items.map((item) => item.runId),
+      omitted,
+      { wake: toWake }
+    );
+    if (overflowed) log(`${homeId} is at its wake cap: ${overflowed} result(s) ride the next wake as a count`);
+    await relay.wakeOwed(homeId, session);
+  }
+
+  /** The single drainer of `homeId`; a call during a pass runs one more pass. */
+  function drain(homeId) {
+    const running = draining.get(homeId);
+    if (running) {
+      again.add(homeId);
+      return running;
+    }
+    const pass = (async () => {
+      try {
+        do {
+          again.delete(homeId);
+          await drainOnce(homeId);
+        } while (again.has(homeId));
+      } catch (error) {
+        log(`delivery into ${homeId} failed, retrying: ${error?.message || error}`);
+        later(homeId, busyRetryMs);
+      } finally {
+        draining.delete(homeId);
+      }
+    })();
+    draining.set(homeId, pass);
+    return pass;
+  }
+
+  /** Show `run`'s live-only row (routineRunNotice: `running`, or a result whose
+   *  delivery failed) in `row`'s owner home when it is open and idle. Nothing
+   *  is stored and no turn or unread mark follows; the posted result (same
+   *  messageId) replaces it. False when no window shows it. */
+  function announce(row, run) {
+    const homeId = agentHomeSessionId(scheduleOwnerAgentId(row));
+    if (!run?.runId || busy(homeId)) return false;
+    const notice = routineRunNotice({ ...run, name: row.name, messageId: messageIdOf(run.runId) });
+    return noticeLive(live, log, homeId, notice) === true;
+  }
+
   return {
-    enqueue,
-    enqueueHeld,
-    enqueueTask,
-    enqueueMessage,
+    ...intake,
     announce,
     drain,
     recover,

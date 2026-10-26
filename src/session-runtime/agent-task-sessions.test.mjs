@@ -515,6 +515,37 @@ test('an invalid worktree option is refused before any session exists', async ()
   assert.deepEqual(h.calls, []);
 });
 
+test('create refuses a non-agent caller, a missing brief and a missing model before any session exists', async () => {
+  const h = fakeService();
+  const { api } = tasks(h);
+  await assert.rejects(
+    api.create({ brief: 'x' }, { ...CALLER, callerAgentId: '' }),
+    /^Error: session: create is only for an agent conversation$/
+  );
+  await assert.rejects(api.create({ brief: '  ' }, CALLER), /^Error: session: brief is required for action=create$/);
+  const modelless = tasks(h, { leadRoute: async () => null, lastUsedRoute: async () => null }).api;
+  await assert.rejects(
+    modelless.create({ brief: 'x' }, CALLER),
+    /^Error: session: no model to start the task session on\. Choose a Lead model first\.$/
+  );
+  assert.deepEqual(h.calls, []);
+});
+
+test('create fails on a missing session id and on a refused brief', async () => {
+  const noId = fakeService();
+  noId.service.createSession = async () => ({});
+  await assert.rejects(
+    tasks(noId).api.create({ brief: 'x' }, CALLER),
+    /^Error: session: task session creation returned no session id$/
+  );
+  const refused = fakeService();
+  refused.service.submitSession = async () => ({ accepted: false });
+  await assert.rejects(
+    tasks(refused).api.create({ brief: 'x' }, CALLER),
+    /^Error: session: task session sess_task_1 did not accept the brief$/
+  );
+});
+
 test('an explicit worktree on no Project or an unregistered folder returns the typed error and creates nothing', async (t) => {
   const h = fakeService();
   const { api } = tasks(h);
