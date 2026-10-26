@@ -660,6 +660,55 @@ test('a server approval for a session titled by attachments alone names its kind
   notifier.dispose();
 });
 
+test('a session missing from the latest session list loses its notification metadata', () => {
+  const listeners = { sessions: new Set(), agents: new Set(), states: new Set(), link: new Set() };
+  const shown = [];
+  const view = {
+    preferences: DEFAULT_NOTIFICATION_PREFERENCES,
+    overrides: [{ target: { kind: 'agent', id: 'reviewer' }, setting: { mode: 'muted', until: null } }],
+  };
+  const notifier = createServerNotifier({
+    serverName: 'Box',
+    sources: {
+      subscribeSessions: (listener) => subscribeTo(listeners.sessions, listener),
+      subscribeAgentPool: (listener) => subscribeTo(listeners.agents, listener),
+      subscribeSessionStates: (listener) => subscribeTo(listeners.states, listener),
+      subscribeLink: (listener) => subscribeTo(listeners.link, listener),
+      readFinalAnswer: async () => null,
+    },
+    preferences: () => view,
+    isSupported: () => true,
+    isForeground: () => false,
+    isSessionOnScreen: () => false,
+    createNotification: (content) => {
+      const notification = { content, on: () => notification, show: () => shown.push(content), close: () => {} };
+      return notification;
+    },
+    focus: () => {},
+    text: {
+      approvalWaiting: () => 'waiting',
+      lostTitle: () => '',
+      lostReconnecting: () => '',
+      lostStopped: () => '',
+      restoredTitle: () => '',
+      restoredBody: () => '',
+    },
+    diagnostic: () => {},
+  });
+  const ask = (sessionId, id) =>
+    publishTo(listeners.states, { sessionId, snapshot: { toolApproval: { id } }, frameSource: 'live' });
+  publishTo(listeners.sessions, [
+    { id: 'home', title: 'Reviewer', agentHome: 'reviewer' },
+    { id: 'code', title: 'Fix' },
+  ]);
+  ask('home', 'a1');
+  assert.equal(shown.length, 0, 'the muted agent session is not notified while it is listed');
+  publishTo(listeners.sessions, [{ id: 'code', title: 'Fix' }]);
+  ask('home', 'a2');
+  assert.equal(shown.length, 1, 'once it left the list its agent metadata is gone');
+  notifier.dispose();
+});
+
 test('a server window follows this PC’s preferences: a muted bot, approvals off, notifications off', () => {
   const listeners = { sessions: new Set(), agents: new Set(), states: new Set(), link: new Set() };
   const shown = [];

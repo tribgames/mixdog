@@ -8,6 +8,7 @@ import test from 'node:test';
 import { DESKTOP_IPC } from '../../shared/contract.ts';
 import { registerWindowSettingsIpc } from '../ipc-window-settings.ts';
 import { createServerLoginHandlers } from '../ssh/ssh-ipc-server-logins.ts';
+import { waitUntil } from '../bounded-wait.mjs';
 import { createModelProxyHost } from '../model-proxy-host.ts';
 import { ConnectionPool, createConnectionManager, createDesktopConnection } from './index.ts';
 import {
@@ -59,16 +60,18 @@ function serverConnection(t, modelLogin) {
   return { connection, operations, loads };
 }
 
-const settle = async () => {
-  for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-};
+/** Resolves once the promise chains already started have run out: a macrotask
+ *  starts only after the microtask queue is empty, and everything these tests
+ *  start is promise-only. For asserting that nothing more happens; what must
+ *  happen is awaited with `waitUntil`. */
+const quiesced = () => new Promise((resolve) => setImmediate(resolve));
 
 test("a server on its own logins is served nothing from this PC; one on this PC's logins is served as before", async (t) => {
   const own = serverConnection(t, 'server');
   assert.equal(own.connection.modelLogin, 'server');
   assert.equal(own.connection.link.view().modelLogin, 'server');
   assert.equal(own.connection.modelProxy.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT), true);
-  await settle();
+  await quiesced();
   assert.deepEqual(own.operations, [], 'no claim, no provider list, no call');
   assert.deepEqual(own.loads, [], "this PC's provider runtime is never loaded");
 
@@ -76,7 +79,7 @@ test("a server on its own logins is served nothing from this PC; one on this PC'
   assert.equal(pc.connection.modelLogin, 'pc');
   assert.equal(pc.connection.link.view().modelLogin, 'pc');
   pc.connection.modelProxy.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await settle();
+  await waitUntil(() => pc.operations.length > 0, 'the advertised call to be claimed');
   assert.ok(pc.operations.length > 0, 'the advertised call is claimed');
   assert.ok(pc.operations.every(([, args]) => JSON.stringify(args).includes('call-1')));
 });
@@ -164,11 +167,11 @@ test('a model proxy host that is not serving takes up no request until it serves
     serving: () => serving,
   });
   host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await settle();
+  await quiesced();
   assert.deepEqual(invoked, []);
   serving = true;
   host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await settle();
+  await waitUntil(() => invoked.length > 0, 'the request to be taken up once serving');
   assert.ok(invoked.length > 0);
   host.dispose();
 });
@@ -221,11 +224,10 @@ const pcRuntime = (reads) => ({
 test("a claim still out when the model login changes reads and returns nothing of this PC's", async () => {
   const proxy = delayedClaims(() => encodeModelProxyWire({ method: 'providerConfig' }), pcRuntime);
   proxy.host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await settle();
-  assert.ok(proxy.claimed('call-1'));
+  await waitUntil(() => proxy.claimed('call-1'), 'call-1 to be claimed');
   proxy.switchToServer();
   proxy.release('call-1');
-  await settle();
+  await quiesced();
   assert.deepEqual(proxy.reads, [], "this PC's runtime and provider config are never read");
   assert.deepEqual(proxy.sent, [], 'no answer, no refusal reaches the server');
   assert.equal(proxy.host.running, 0);
@@ -235,11 +237,11 @@ test("a claim still out when the model login changes reads and returns nothing o
 test('a claim taken before a switch and back is still revoked: the generation, not the mode, decides', async () => {
   const proxy = delayedClaims(() => encodeModelProxyWire({ method: 'providerConfig' }), pcRuntime);
   proxy.host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await settle();
+  await waitUntil(() => proxy.claimed('call-1'), 'call-1 to be claimed');
   // To server accounts and straight back to this PC's: the claim belongs to the replaced daemon.
   proxy.host.revoke();
   proxy.release('call-1');
-  await settle();
+  await quiesced();
   assert.deepEqual(proxy.reads, []);
   assert.deepEqual(proxy.sent, []);
   proxy.host.dispose();
@@ -266,16 +268,16 @@ test('a call running when the model login changes is aborted and its answer stay
     runtime
   );
   proxy.host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await settle();
+  await waitUntil(() => proxy.claimed('call-1'), 'call-1 to be claimed');
   proxy.release('call-1');
-  await settle();
+  await waitUntil(() => proxy.reads.includes('send:openai-oauth'), 'the call to reach the provider');
   assert.deepEqual(proxy.reads, ['runtime', 'send:openai-oauth']);
   assert.equal(proxy.host.running, 1);
   proxy.switchToServer();
   assert.match(String(aborted?.message), /model login changed/);
   assert.equal(proxy.host.running, 0);
   finish();
-  await settle();
+  await quiesced();
   assert.deepEqual(proxy.sent, [], 'neither the answer nor the failure is sent');
   proxy.host.dispose();
 });
@@ -295,11 +297,10 @@ test("switching a connection to server accounts revokes the claim this PC's mode
     });
   };
   pc.connection.modelProxy.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await settle();
-  assert.equal(typeof release, 'function', 'the call was claimed in PC mode');
+  await waitUntil(() => typeof release === 'function', 'the call to be claimed in PC mode');
   await pc.connection.applyModelLogin('server');
   release();
-  await settle();
+  await quiesced();
   assert.deepEqual(pc.loads, [], "this PC's provider runtime is never loaded");
   assert.deepEqual(sent, []);
 });

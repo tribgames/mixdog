@@ -11,6 +11,7 @@ import {
   encryptNativePush,
   isNativePushPublicKey,
 } from '../shared/native-push-crypto.ts';
+import { waitUntil } from './bounded-wait.mjs';
 import { createNativePushStore } from './native-push-store.ts';
 import { createPushNotifier, nativeCollapseKey } from './push-notifier.ts';
 import { createRelayClientLifecycle } from './remote-relay-client-lifecycle.ts';
@@ -152,12 +153,14 @@ function notifierFixture({ foreground = false, enabled = true, accept = true } =
     removeByClient: async () => true,
   };
   const removed = [];
+  const diagnostics = [];
   const notifier = createPushNotifier({
     store: web,
     hostId: HOST_ID,
     isEnabled: () => enabled,
     readFinalAnswer: async () => null,
     isClientForeground: () => false,
+    onDiagnostic: (event, details) => diagnostics.push([event, details]),
     native: {
       list: async () => [
         { clientId: 'c1', platform: 'apns', token: APNS_TOKEN, publicKey: phone.publicKey, sandbox: true },
@@ -167,11 +170,11 @@ function notifierFixture({ foreground = false, enabled = true, accept = true } =
       removeByClient: async (id) => (removed.push(id), true),
     },
   });
-  return { notifier, sent, phone, removed };
+  return { notifier, sent, phone, removed, diagnostics };
 }
-const settle = async () => {
-  for (let turn = 0; turn < 25; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-};
+/** The notifier reports how each notification ended (sent or suppressed): waiting for that report is waiting for the delivery to finish. */
+const diagnosed = (diagnostics, event) =>
+  waitUntil(() => diagnostics.some(([name]) => name === event), `a '${event}' push diagnostic`);
 const approval = (id) => ({ sessionId: 's1', frameSource: 'live', snapshot: { toolApproval: id ? { id } : null } });
 
 test('native approval push: encrypted content only, same gates as web push', async (t) => {
@@ -180,7 +183,7 @@ test('native approval push: encrypted content only, same gates as web push', asy
   f.notifier.onSessions([{ id: 's1', title: 'Fix the build', preview: '' }]);
   f.notifier.onSessionState(approval('a1'));
   f.notifier.onSessionState(approval('a1'));
-  await settle();
+  await diagnosed(f.diagnostics, 'sent');
   assert.equal(f.sent.length, 1);
   const message = f.sent[0];
   assert.deepEqual(Object.keys(message).sort(), ['collapseKey', 'mx', 'platform', 'reason', 'sandbox', 'token']);
@@ -206,7 +209,7 @@ test('native push is suppressed for a foreground client or when disabled', async
     const f = notifierFixture(options);
     t.after(() => f.notifier.dispose());
     f.notifier.onSessionState(approval('a2'));
-    await settle();
+    await diagnosed(f.diagnostics, 'suppressed');
     assert.equal(f.sent.length, 0);
   }
 });
@@ -215,20 +218,22 @@ test('forgetting a client also drops its native registration', async (t) => {
   const f = notifierFixture();
   t.after(() => f.notifier.dispose());
   f.notifier.forgetClient('c1');
-  await settle();
+  await waitUntil(() => f.removed.length > 0, 'the native registration removal');
   assert.deepEqual(f.removed, ['c1']);
 });
 
 test('a notifier without native support (old relay) still works', async (t) => {
   const sent = [];
+  const diagnostics = [];
   const notifier = createPushNotifier({
     store: { keys: async () => ({}), list: async () => [], remove: async () => true, removeByClient: async () => true },
     isEnabled: () => true,
     readFinalAnswer: async () => null,
     isClientForeground: () => false,
+    onDiagnostic: (event, details) => diagnostics.push([event, details]),
   });
   t.after(() => notifier.dispose());
   notifier.onSessionState(approval('a3'));
-  await settle();
+  await diagnosed(diagnostics, 'suppressed');
   assert.equal(sent.length, 0);
 });

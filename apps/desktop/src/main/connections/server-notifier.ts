@@ -203,6 +203,10 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
 
   const unsubscribers = [
     options.sources.subscribeSessions((sessions) => {
+      // Each emission is the complete session list (the service client's
+      // `sessions` message), so a session absent from it is gone: rebuild.
+      titles.clear();
+      conversations.clear();
       for (const session of sessions) {
         titles.set(session.id, session.title || session.preview || options.serverName);
         conversations.set(session.id, notificationConversationOf(session));
