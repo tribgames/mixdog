@@ -38,7 +38,7 @@ import { idleAutoClearDue, sessionActivityTimestamp } from '../../../shared/idle
 import {
   _setCacheWarmDepsForTest,
   armCacheWarm,
-  CACHE_WARM_EXPIRY_MARGIN_MS,
+  CACHE_WARM_LEAD_MS,
   cacheWarmChain,
   cacheWarmDelayMs,
   cacheWarmEconomics,
@@ -268,10 +268,10 @@ test('eligibility: explicit-breakpoint providers with a warm mode, no budget thi
   assert.match(cacheWarmIneligibility(request({ opts: { cacheStrategy: { messages: 'none' } } })), /message-tail/);
 });
 
-test('timing: the warm goes out at max(0.9·T, T−60s), within T−10s', () => {
-  assert.equal(cacheWarmDelayMs(HOUR), 59 * MINUTE);
-  assert.equal(cacheWarmDelayMs(5 * MINUTE), 270_000);
-  assert.equal(CACHE_WARM_EXPIRY_MARGIN_MS, 10_000);
+test('timing: the warm goes out at T − 60 s for both tiers', () => {
+  assert.equal(CACHE_WARM_LEAD_MS, 60_000);
+  assert.equal(cacheWarmDelayMs(HOUR), 3540_000);
+  assert.equal(cacheWarmDelayMs(5 * MINUTE), 240_000);
 });
 
 test('written tier: only what the usage proves', () => {
@@ -390,7 +390,12 @@ test('plan: fails closed on an unknown fact, a late timer, or the learned window
     /last real call unknown/
   );
   const base = { ttlMs: HOUR, lastCallAt: 1, gaps, promptTokens: 70_000, prices: tier(OPUS_55, HOUR) };
-  assert.match(planCacheWarm({ ...base, now: HOUR - 5_000, touchAt: 0 }).stop, /late/);
+  assert.match(planCacheWarm({ ...base, now: HOUR, touchAt: 0 }).stop, /late/, 'the entry has expired');
+  assert.notEqual(
+    planCacheWarm({ ...base, now: HOUR - CACHE_WARM_LEAD_MS, touchAt: 0 }).stop,
+    'late timer',
+    'a timer firing at its refresh point, the lead before expiry, is on time'
+  );
   assert.match(planCacheWarm({ ...base, now: HOUR - 20_000, touchAt: 0, latencyMs: 25_000 }).stop, /late/);
   assert.match(planCacheWarm({ ...base, touchAt: 11 * HOUR + 1, now: 11 * HOUR + 1 + I }).stop, /learned window/);
 });
@@ -1048,6 +1053,22 @@ test('a warm adds nothing to the transcript and is no session activity, and re-a
   }
 });
 
+test('the refresh timer is set to the measured 60 s lead before expiry: 240 s for a 5m entry, 3540 s for a 1h one', () => {
+  let h = harness();
+  h.settle();
+  let chain = cacheWarmChain(h.session.id);
+  assert.equal(chain.ttlMs, HOUR);
+  assert.equal(h.timers[0].at, chain.touchAt + 3540_000);
+  assert.equal(chain.refreshAt, chain.touchAt + 3540_000);
+
+  h = harness();
+  h.settle({ usage: { cachedTokens: 69_000, cacheWriteTokens: 1_000 }, providerMetadata: HIT.providerMetadata });
+  chain = cacheWarmChain(h.session.id);
+  assert.equal(chain.ttlMs, 5 * MINUTE);
+  assert.equal(h.timers[0].at, chain.touchAt + 240_000);
+  assert.equal(chain.refreshAt, chain.touchAt + 240_000);
+});
+
 test('arming needs a send time, a proven tier, the prompt size and (on a roster) the serving account', async () => {
   let h = harness();
   h.touches.record(h.session.id, { touchAt: 1, ttlMs: HOUR, promptTokens: 5 });
@@ -1238,7 +1259,7 @@ test('a turn ending after an invalidation, a close or the entry’s expiry resto
   );
   assert.equal(
     ends(({ touchAt, ttlMs }) => {
-      h.clock = touchAt + ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS;
+      h.clock = touchAt + ttlMs - CACHE_WARM_LEAD_MS;
     }),
     null,
     'expired'
@@ -1257,8 +1278,8 @@ test('the chain stops on a miss, a late timer, a turn in flight, a new request o
   h = harness();
   h.settle();
   chain = cacheWarmChain(h.session.id);
-  await h.fire(chain.touchAt + HOUR - 5_000);
-  assert.equal(h.prov.calls.length, 0, 'a timer firing inside the expiry margin sends nothing');
+  await h.fire(chain.touchAt + HOUR);
+  assert.equal(h.prov.calls.length, 0, 'a timer firing after the entry expired sends nothing');
   assert.equal(cacheWarmChain(h.session.id), null);
 
   h = harness({ inFlight: true });
@@ -1303,7 +1324,7 @@ test('a provider instance replaced in the registry stops the chain instead of re
   assert.match(h.logs.at(-1), /provider instance replaced/);
 });
 
-test('after a restart, re-arm uses the durable touch and drops one inside the expiry margin', async () => {
+test('after a restart, re-arm uses the durable touch and drops one inside the lead', async () => {
   const h = harness();
   const now = Date.UTC(2026, 9, 26, 0, 30);
   h.clock = now;
@@ -1323,7 +1344,7 @@ test('after a restart, re-arm uses the durable touch and drops one inside the ex
   });
   touches.record('sess_home_bot-a', { touchAt: now - 20 * MINUTE, ttlMs: 5 * MINUTE, promptTokens: 70_000 });
   touches.record('sess_home_bot-b', { touchAt: now - 5 * MINUTE, ttlMs: HOUR, promptTokens: 70_000 });
-  touches.record('sess_home_bot-d', { touchAt: now - HOUR + 5_000, ttlMs: HOUR, promptTokens: 70_000 });
+  touches.record('sess_home_bot-d', { touchAt: now - HOUR + CACHE_WARM_LEAD_MS - 1, ttlMs: HOUR, promptTokens: 70_000 });
   let providersReady = 0;
   _setCacheWarmDepsForTest({
     now: () => h.clock,
@@ -1345,7 +1366,7 @@ test('after a restart, re-arm uses the durable touch and drops one inside the ex
   assert.equal(chain.accountId, 'acct-2', 'on the account holding the entry');
   assert.equal(touches.get('sess_home_bot-a'), null, 'an expired touch is dropped');
   assert.equal(cacheWarmChain('sess_home_bot-b'), null, 'an ineligible provider is not re-armed');
-  assert.equal(touches.get('sess_home_bot-d'), null, 'a touch inside the expiry margin is dropped');
+  assert.equal(touches.get('sess_home_bot-d'), null, 'a touch inside the lead is dropped');
 });
 
 test('after a restart, nothing is re-armed while warming is off', async () => {

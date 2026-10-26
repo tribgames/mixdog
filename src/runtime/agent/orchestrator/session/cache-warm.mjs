@@ -20,7 +20,7 @@
 // sub-agent, closed when its task ends) learns no return and gets no warm.
 //
 // Rule (planCacheWarm), one for every warm, at each refresh point (one
-// interval I = min(0.9·T, T−10s) after the last confirmed cache use; T is
+// interval I = T − 60 s after the last confirmed cache use; T is
 // the tier the provider reported writing), e the session's idle time since
 // its last real call: warm iff, for some j ≥ 1
 // further warms, P(e, j) · missCost > j · warmCost — missCost a write of the
@@ -71,23 +71,13 @@ import { PROMPT_ORIGIN_AGENT_REPORT, PROMPT_ORIGIN_CHANNEL, promptOriginOf } fro
 
 export const CACHE_WARM_SOURCE = 'cache-warm';
 
-// The refresh keeps at least this much of the entry's lifetime unused, for
-// the warm to land before it expires. UNSOURCED: introduced with the first
-// warmer (git fe0271047, "min(0.9 x TTL, TTL - 10 s)") with no derivation.
-// The docs only fix the lifetime: it is measured from the start of the
-// request that writes or reads the entry (Anthropic prompt-caching docs,
-// "How prompt caching works"), so what a warm needs is to reach the provider
-// before that point; the measured latency of a chain's own warms
-// (planCacheWarm `latencyMs`) replaces this floor once known.
-export const CACHE_WARM_EXPIRY_MARGIN_MS = 10_000;
-// Share of the lifetime after which the refresh goes out at the latest
-// unless the lead below allows later. UNSOURCED: same commit, no derivation
-// or measurement is recorded for 0.9.
-export const CACHE_WARM_REFRESH_SHARE = 0.9;
-// A refresh may wait until this long before expiry: in a 7-day sample of
+// The refresh goes out this long before the entry's expiry, for both tiers
+// (5m → 240 s after the last cache use, 1h → 3540 s): in a 7-day sample of
 // hourly routine fires, cache misses inside the 1h lifetime appeared only at
 // 3588–3597 s after the previous call, so 60 s ahead stays clear of them
-// (git 795bb9e36's message; the sample itself is not kept in the repo).
+// (git 795bb9e36's message; the sample itself is not kept in the repo). An
+// entry with less than this left is not worth arming either: its refresh
+// point has passed.
 export const CACHE_WARM_LEAD_MS = 60_000;
 // The idle stretch returns are learned over: 12 h after the session's last
 // real call. Origin: the 7-day ledger measurement of idle-return chances
@@ -146,8 +136,7 @@ export function sessionReturnChance(gaps, elapsedMs, withinMs) {
 
 /** When a warm goes out after the last cache use of an entry living `ttlMs`. */
 export function cacheWarmDelayMs(ttlMs) {
-  const refreshAt = Math.max(ttlMs * CACHE_WARM_REFRESH_SHARE, ttlMs - CACHE_WARM_LEAD_MS);
-  return Math.max(1, Math.floor(Math.min(refreshAt, ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS)));
+  return Math.max(1, ttlMs - CACHE_WARM_LEAD_MS);
 }
 
 const TIERS = Object.freeze(['5m', '1h']);
@@ -230,9 +219,11 @@ export function planCacheWarm({ now, touchAt, ttlMs, lastCallAt, gaps, promptTok
   if (!(touchAt + ttlMs < lastCallAt + IDLE_RETURN_MEASURED_WINDOW_MS)) {
     return { stop: 'idle time reaches the learned window' };
   }
-  // The warm must reach the provider while the entry still lives.
-  const landing = Math.max(CACHE_WARM_EXPIRY_MARGIN_MS, Number(latencyMs) || 0);
-  if (touchAt + ttlMs - now <= landing) return { stop: 'late timer' };
+  // The warm must reach the provider while the entry still lives: a timer
+  // fires at or after the refresh point, TTL − lead, so the lead itself cannot
+  // be the floor; the chain's measured warm latency (none before the first
+  // warm) is.
+  if (touchAt + ttlMs - now <= (Number(latencyMs) || 0)) return { stop: 'late timer' };
   const economics = cacheWarmEconomics(promptTokens, prices);
   if (!economics) return { stop: 'prompt size or cache prices unknown' };
   const interval = cacheWarmDelayMs(ttlMs);
@@ -555,7 +546,7 @@ export function endCacheWarmTurn(sessionId, turn) {
   const chain = turn.suspended;
   turn.suspended = null;
   if (!chain || chains.has(sessionId)) return;
-  if (deps.now() < chain.touchAt + chain.ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS) {
+  if (deps.now() < chain.touchAt + chain.ttlMs - CACHE_WARM_LEAD_MS) {
     const restored = startChain(sessionId, chain);
     restored.latencyMs = chain.latencyMs;
   }
@@ -698,7 +689,7 @@ export function armCacheWarm(sessionId, request, response) {
  * Daemon start: the in-memory chains died with the previous process. Re-arm
  * every touched session while warming is on from its durable touch (prompt-cache-touch-store.mjs: the last confirmed cache
  * use, the tier the provider wrote, the account and prompt size) while the
- * entry still has more than the expiry margin left, replaying the request its
+ * entry still has more than the lead left, replaying the request its
  * next turn rebuilds without the last reply. A candidate's expired touch is
  * dropped; each chain's first refresh point applies its rule. Resolves how
  * many chains were armed.
@@ -710,7 +701,7 @@ export async function rearmCacheWarmsAfterRestart() {
     if (chains.has(sessionId)) continue;
     const touch = deps.touches().get(sessionId);
     if (!touch) continue;
-    if (!(deps.now() < touch.touchAt + touch.ttlMs - CACHE_WARM_EXPIRY_MARGIN_MS)) {
+    if (!(deps.now() < touch.touchAt + touch.ttlMs - CACHE_WARM_LEAD_MS)) {
       deps.touches().forget(sessionId);
       continue;
     }
