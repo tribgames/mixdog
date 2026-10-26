@@ -25,7 +25,7 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { open, readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { renameWithRetrySync } from '../../../shared/atomic-file.mjs';
+import { quarantinePath, renameWithRetrySync } from '../../../shared/atomic-file.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 
 import { getStoreDir } from './store/session-paths.mjs';
@@ -226,10 +226,25 @@ export function _setCompactionArchivePublishHook(hook) {
   publishHook = typeof hook === 'function' ? hook : null;
 }
 
+let parkHook = null;
+/** Test seam: runs when a refused publication parks on the session's
+ *  persistence signal (its wait is already registered). */
+export function _setCompactionArchiveParkHook(hook) {
+  parkHook = typeof hook === 'function' ? hook : null;
+}
+
 let syncFile = (handle) => handle.sync();
 /** Test seam: replaces the temp file's fsync (null restores it). */
 export function _setCompactionArchiveFsync(sync) {
   syncFile = typeof sync === 'function' ? sync : (handle) => handle.sync();
+}
+
+const realFs = { readFileSync, readdir };
+let fsOps = realFs;
+/** Test seam: replaces the pending-sidecar read (`readFileSync`) and the store
+ *  listing (`readdir`); null restores them. */
+export function _setCompactionArchiveFs(ops) {
+  fsOps = ops ? { ...realFs, ...ops } : realFs;
 }
 
 const recordExists = (dir, sessionId) => existsSync(join(dir, `${sessionId}.json`));
@@ -344,6 +359,9 @@ function releaseClaimedSeq(session, seq) {
 // startup scan (recoverPendingCompactionArchives) and the session's next
 // save/compaction pick it up. The sidecar holds the rows' source messages in their stored
 // (disk-projected) form.
+// A sidecar is only ever rewritten or removed by a process that has loaded it
+// (`recovered`): a read that fails for any reason but absence leaves the
+// session unrecovered, its compaction refused, and the sidecar untouched.
 const COMPACTION_PENDING_SUFFIX = '.compaction-archive.pending';
 const unpublished = new Map();
 const recovered = new Set();
@@ -364,6 +382,12 @@ const pendingSidecarPath = (dir, id) => join(dir, `${id}${COMPACTION_PENDING_SUF
 /** Rewrites the pending sidecar to the session's unpublished jobs (removes it
  *  when none are left). Synchronous: it also runs at process exit. */
 function persistPending(id) {
+  // Jobs of an unrecovered sidecar are unknown here: rewriting or removing it
+  // would drop them.
+  if (!recovered.has(id)) {
+    writeStderrBestEffort(`[session] compaction archive pending sidecar not rewritten before it was read (sess=${id})\n`);
+    return false;
+  }
   const path = pendingSidecarPath(getStoreDir(), id);
   // A job of a deleted incarnation (older delete epoch) is never kept.
   const epoch = compactionArchiveDeleteEpoch(id);
@@ -414,32 +438,70 @@ function persistPending(id) {
   }
 }
 
-/** Loads the jobs a previous process left in the session's pending sidecar,
- *  once per process. */
-function recoverPending(id) {
-  if (recovered.has(id)) return;
-  recovered.add(id);
+/** The jobs a sidecar's text holds, or null when the text is not a job list
+ *  (damaged: unparseable, or not `{ jobs: [{ seq, messages }, …] }`). */
+function parsePendingJobs(text) {
   let doc;
   try {
-    doc = JSON.parse(readFileSync(pendingSidecarPath(getStoreDir(), id), 'utf8'));
+    doc = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const jobs = doc?.jobs;
+  return Array.isArray(jobs) && jobs.every((job) => Number.isInteger(job?.seq) && Array.isArray(job.messages))
+    ? jobs
+    : null;
+}
+
+/** Loads the jobs a previous process left in the session's pending sidecar,
+ *  once per process. The session counts as recovered only after the sidecar
+ *  was loaded or is confirmed absent (ENOENT): any other read failure throws
+ *  and leaves it unrecovered (see persistPending). A damaged sidecar is moved
+ *  aside whole as `<file>.corrupt-<ts>`, like every damaged state file
+ *  (atomic-file.mjs); its bytes are kept, and a failure to move it throws. */
+function recoverPending(id) {
+  if (recovered.has(id)) return;
+  const path = pendingSidecarPath(getStoreDir(), id);
+  let text;
+  try {
+    text = fsOps.readFileSync(path, 'utf8');
   } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      writeStderrBestEffort(
-        `[session] compaction archive pending sidecar unreadable (sess=${id}): ${error?.message || error}\n`
-      );
-    }
+    if (error?.code !== 'ENOENT') throw error;
+    recovered.add(id);
+    return;
+  }
+  const saved = parsePendingJobs(text);
+  if (!saved) {
+    const aside = quarantinePath(path);
+    renameWithRetrySync(path, aside);
+    writeStderrBestEffort(`[session] compaction archive pending sidecar damaged (sess=${id}); kept as ${aside}\n`);
+    recovered.add(id);
     return;
   }
   const list = jobsOf(id);
   const epoch = compactionArchiveDeleteEpoch(id);
-  for (const saved of Array.isArray(doc?.jobs) ? doc.jobs : []) {
-    if (!Number.isInteger(saved?.seq) || !Array.isArray(saved.messages) || list.some((job) => job.seq === saved.seq)) {
-      continue;
-    }
-    list.push({ ...saved, id, session: null, epoch, segments: null });
+  for (const job of saved) {
+    if (list.some((held) => held.seq === job.seq)) continue;
+    list.push({ ...job, id, session: null, epoch, segments: null });
   }
   list.sort((a, b) => a.seq - b.seq);
   sidecarOnDisk.add(id);
+  recovered.add(id);
+}
+
+/** recoverPending for callers that cannot refuse (a save event, the startup
+ *  scan): a failure is reported and leaves the session unrecovered. Returns
+ *  whether the session is recovered. */
+function tryRecoverPending(id) {
+  try {
+    recoverPending(id);
+    return true;
+  } catch (error) {
+    writeStderrBestEffort(
+      `[session] compaction archive pending sidecar unreadable (sess=${id}): ${error?.message || error}; left untouched\n`
+    );
+    return false;
+  }
 }
 
 /** Removes the session's pending sidecar from disk, whatever is in memory. */
@@ -456,22 +518,25 @@ function removePendingSidecar(id) {
  * One-shot scan after daemon startup: every pending sidecar a previous process
  * left whose session record still exists is loaded and its segments are
  * published through the normal write queue (oldest first). Returns how many
- * sessions had segments to publish.
+ * sessions had segments to publish. A store directory that does not exist is
+ * empty; any other listing failure is thrown. A session whose sidecar cannot
+ * be read is reported and skipped, the others still recover.
  */
 export async function recoverPendingCompactionArchives() {
   const dir = getStoreDir();
   let names;
   try {
-    names = await readdir(dir);
-  } catch {
-    return 0;
+    names = await fsOps.readdir(dir);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return 0;
+    throw error;
   }
   let count = 0;
   for (const name of names) {
     if (!name.endsWith(COMPACTION_PENDING_SUFFIX)) continue;
     const id = name.slice(0, -COMPACTION_PENDING_SUFFIX.length);
     if (!compactionArchivePath('', id) || !recordExists(dir, id)) continue;
-    recoverPending(id);
+    if (!tryRecoverPending(id)) continue;
     if (!unpublished.get(id)?.length) continue;
     count += 1;
     void enqueueFlush(id);
@@ -572,7 +637,9 @@ async function flushUnpublished(id) {
       // for the next process.
       if (!job.deferred) logArchiveSkip(id, job.seq, 'deferred', `${outcome.reason}; waiting for it`);
       job.deferred = true;
-      const event = await waitForSessionEvent(id);
+      const waiting = waitForSessionEvent(id);
+      parkHook?.({ sessionId: id, seq: job.seq });
+      const event = await waiting;
       if (event !== 'landed') return;
       continue;
     }
@@ -598,7 +665,7 @@ function enqueueFlush(id) {
 subscribeSessionPersistence((id, event) => {
   wakeWaiters(id, event);
   if (event !== 'landed') return;
-  recoverPending(id);
+  if (!tryRecoverPending(id)) return;
   if (unpublished.get(id)?.length) void enqueueFlush(id);
 });
 
@@ -647,11 +714,13 @@ export function prepareCompactionArchive({
   const rows = segmentRows(projection.messages, id);
   if (!rows.length) return null;
   const dropped = droppedByCompaction(before, after);
+  // Segments a previous run left unpublished (pending sidecar) hold their
+  // numbers. A sidecar that cannot be read throws before anything is claimed:
+  // the caller keeps the old transcript, and the sidecar is left as it is.
+  recoverPending(id);
   if (!session.compaction || typeof session.compaction !== 'object') session.compaction = {};
   const previous =
     session.compaction.archive && typeof session.compaction.archive === 'object' ? session.compaction.archive : {};
-  // Segments a previous run left unpublished (pending sidecar) hold their numbers.
-  recoverPending(id);
   const held = unpublished.get(id)?.at(-1)?.seq ?? 0;
   const seq = Math.max(1, held + 1, Math.floor(Number(previous.nextSeq) || 1));
   const clearedThrough = Math.max(0, Math.floor(Number(previous.clearedThrough) || 0));

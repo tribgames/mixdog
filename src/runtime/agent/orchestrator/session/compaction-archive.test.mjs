@@ -23,6 +23,8 @@ mkdirSync(sessionsDir, { recursive: true });
 const { runSessionCompaction } = await import('./manager/compaction-runner.mjs');
 const { runPreSendCompactPass } = await import('./pre-send-compact.mjs');
 const {
+  _setCompactionArchiveFs,
+  _setCompactionArchiveParkHook,
   _setCompactionArchiveFsync,
   _resetCompactionArchiveState,
   recoverPendingCompactionArchives,
@@ -855,8 +857,14 @@ async function parkedSession(t, tag) {
     rmSync(recordPath);
     _savePending.set(session.id, {});
   });
+  let parkedSignal;
+  const parked = new Promise((resolve) => {
+    parkedSignal = resolve;
+  });
+  _setCompactionArchiveParkHook(parkedSignal);
   t.after(() => {
     _setCompactionArchivePublishHook(null);
+    _setCompactionArchiveParkHook(null);
     _savePending.delete(session.id);
     _resetCompactionArchiveState();
   });
@@ -870,8 +878,14 @@ async function parkedSession(t, tag) {
     process.stderr.write = original;
   });
   const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
-  // Let the write reach its refusal and park.
-  while (!log.join('').includes('deferred')) await new Promise((resolve) => setTimeout(resolve, 5));
+  // The write reaches its refusal and parks; a write that ends instead fails
+  // the test rather than waiting for a park that never comes.
+  await Promise.race([
+    parked,
+    scheduled.written.then(() => {
+      throw new Error('publication ended without parking');
+    }),
+  ]);
   return { session, recordPath, scheduled, log };
 }
 
@@ -986,11 +1000,21 @@ test('write-ahead: the pending sidecar exists before the shortened transcript is
   assert.equal(existsSync(pending), false);
 });
 
-test('a pending sidecar that cannot be written aborts the compaction and keeps the old transcript', async () => {
+/** An fs failure as the OS reports it: `code` is what callers branch on. */
+const fsError = (code) => Object.assign(new Error(`${code}: simulated`), { code });
+
+test('a pending sidecar that cannot be written aborts the compaction and keeps the old transcript', async (t) => {
   const session = storedSession('write-ahead-fail');
   const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
-  // A directory in the way: the sidecar's rename cannot land.
+  // A directory in the way: the sidecar's rename cannot land. Its read is
+  // reported absent, so the failure is the write's.
   mkdirSync(pending);
+  _setCompactionArchiveFs({
+    readFileSync: () => {
+      throw fsError('ENOENT');
+    },
+  });
+  t.after(() => _setCompactionArchiveFs(null));
   const before = session.messages;
   const log = await captureStderr(async () => {
     const result = await compact(session, summaryProvider([]));
@@ -1103,4 +1127,115 @@ test('a record that is gone with no save pending is a skip that gives its number
     log,
     new RegExp(`compaction archive write skipped \\(sess=${session.id}, seq=1\\): session record missing`)
   );
+});
+
+/** Makes the sidecar read of `path` fail with `code`; every other read is real. */
+function failSidecarRead(t, path, code) {
+  _setCompactionArchiveFs({
+    readFileSync: (target, encoding) => {
+      if (target === path) throw fsError(code);
+      return readFileSync(target, encoding);
+    },
+  });
+  t.after(() => _setCompactionArchiveFs(null));
+}
+
+for (const code of ['EACCES', 'EIO']) {
+  test(`a pending sidecar that cannot be read (${code}) survives later compactions, and is recovered once it reads`, async (t) => {
+    const { session, pending } = await coldSidecar(t, `unreadable-${code}`);
+    const original = readFileSync(pending, 'utf8');
+    failSidecarRead(t, pending, code);
+    const before = session.messages;
+    const log = await captureStderr(async () => {
+      const result = await compact(session, summaryProvider([]));
+      assert.equal(result.changed, false);
+      assert.match(result.error, new RegExp(code));
+      // The session's own saves neither recover nor replace it either.
+      publishSessionPersistence(session.id, 'landed');
+    });
+    assert.equal(session.messages, before);
+    assert.equal(readFileSync(pending, 'utf8'), original);
+    assert.match(log, new RegExp(`pending sidecar unreadable \\(sess=${session.id}\\): ${code}`));
+    assert.deepEqual(archiveLines(session.id), []);
+    // The read works again: the old job is recovered, the new one follows it.
+    _setCompactionArchiveFs(null);
+    const result = await compact(session, summaryProvider([]));
+    assert.equal(result.changed, true);
+    await flushCompactionArchiveWrites();
+    assert.deepEqual(
+      archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+      [1, 2]
+    );
+    assert.match(JSON.parse(archiveLines(session.id)[0]).items[0].text, /^s1 m0/);
+    assert.equal(existsSync(pending), false);
+  });
+}
+
+const DAMAGED_SIDECARS = {
+  'truncated text': '{"v":1,"jobs":[{"seq":1,"messages":[',
+  'NUL bytes after a crash': '\0'.repeat(64),
+  'valid JSON that is not a job list': '{"v":1,"jobs":"none"}',
+  'a job without messages': '{"v":1,"jobs":[{"seq":1}]}',
+};
+
+for (const [shape, damaged] of Object.entries(DAMAGED_SIDECARS)) {
+  test(`a damaged pending sidecar (${shape}) is kept aside, never overwritten by a compaction`, async (t) => {
+    const session = storedSession('damaged');
+    const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
+    writeFileSync(pending, damaged);
+    _resetCompactionArchiveState();
+    t.after(() => _resetCompactionArchiveState());
+    const log = await captureStderr(async () => {
+      const result = await compact(session, summaryProvider([]));
+      assert.equal(result.changed, true);
+      await flushCompactionArchiveWrites();
+    });
+    const kept = readdirSync(sessionsDir).filter((name) =>
+      name.startsWith(`${session.id}.compaction-archive.pending.corrupt-`)
+    );
+    assert.equal(kept.length, 1);
+    assert.equal(readFileSync(join(sessionsDir, kept[0]), 'utf8'), damaged);
+    assert.match(log, new RegExp(`pending sidecar damaged \\(sess=${session.id}\\); kept as .*\\.corrupt-`));
+    // The compaction itself went through, as if there were no sidecar.
+    assert.deepEqual(
+      archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+      [1]
+    );
+    assert.equal(existsSync(pending), false);
+    t.after(() => rmSync(join(sessionsDir, kept[0]), { force: true }));
+  });
+}
+
+test('the startup scan treats a missing store as empty and reports any other listing failure', async (t) => {
+  t.after(() => _setCompactionArchiveFs(null));
+  _setCompactionArchiveFs({
+    readdir: async () => {
+      throw fsError('ENOENT');
+    },
+  });
+  assert.equal(await recoverPendingCompactionArchives(), 0);
+  _setCompactionArchiveFs({
+    readdir: async () => {
+      throw fsError('EACCES');
+    },
+  });
+  await assert.rejects(recoverPendingCompactionArchives(), { code: 'EACCES' });
+});
+
+test('the startup scan reports a sidecar it cannot read, leaves it intact and still recovers the others', async (t) => {
+  const readable = await coldSidecar(t, 'scan-readable');
+  const unreadable = await coldSidecar(t, 'scan-unreadable');
+  t.after(() => rmSync(unreadable.pending, { force: true }));
+  const original = readFileSync(unreadable.pending, 'utf8');
+  failSidecarRead(t, unreadable.pending, 'EIO');
+  let count;
+  const log = await captureStderr(async () => {
+    count = await recoverPendingCompactionArchives();
+    await flushCompactionArchiveWrites();
+  });
+  assert.equal(count, 1);
+  assert.match(log, new RegExp(`pending sidecar unreadable \\(sess=${unreadable.session.id}\\): EIO`));
+  assert.equal(readFileSync(unreadable.pending, 'utf8'), original);
+  assert.equal(existsSync(readable.pending), false);
+  assert.deepEqual(archiveLines(unreadable.session.id), []);
 });
