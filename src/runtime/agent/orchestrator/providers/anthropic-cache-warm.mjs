@@ -117,16 +117,17 @@ export async function sendAnthropicCacheWarm({
   post,
   onUsage,
 }) {
-  const controller = new AbortController();
-  const callerSignal = opts.signal;
-  if (callerSignal?.aborted) controller.abort(callerSignal.reason);
-  else callerSignal?.addEventListener?.('abort', () => controller.abort(callerSignal.reason), { once: true });
   const blocked = cacheWarmAccountBlock(providerName, instance, {
     accountId,
     model,
     sessionId: opts.session?.id || opts.sessionId || '',
   });
   if (blocked) throw cacheWarmBlockedError(blocked);
+  const controller = new AbortController();
+  const callerSignal = opts.signal;
+  const onCallerAbort = () => controller.abort(callerSignal.reason);
+  if (callerSignal?.aborted) controller.abort(callerSignal.reason);
+  else callerSignal?.addEventListener?.('abort', onCallerAbort, { once: true });
   const deadline = watchdog(controller);
   deadline.arm(PROVIDER_FIRST_BYTE_TIMEOUT_MS, 'first byte');
   try {
@@ -149,6 +150,7 @@ export async function sendAnthropicCacheWarm({
     }).catch(() => {});
     throw error;
   } finally {
+    callerSignal?.removeEventListener?.('abort', onCallerAbort);
     deadline.clear();
     controller.abort(new Error('cache warm finished'));
   }

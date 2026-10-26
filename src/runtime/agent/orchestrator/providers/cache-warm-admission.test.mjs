@@ -197,6 +197,37 @@ test('a cooldown on the account instance’s lane (where its ordinary sends are 
   );
 });
 
+test('a warm leaves no abort listener on the caller signal, sent or skipped', async () => {
+  await account('acct-signal');
+  const oauth = oauthProvider();
+  const send = cacheWarmSend(REQUEST);
+  const listeners = new Set();
+  const { signal } = new AbortController();
+  const add = signal.addEventListener.bind(signal);
+  const remove = signal.removeEventListener.bind(signal);
+  signal.addEventListener = (type, listener, options) => {
+    listeners.add(listener);
+    add(type, listener, options);
+  };
+  signal.removeEventListener = (type, listener, options) => {
+    listeners.delete(listener);
+    remove(type, listener, options);
+  };
+  await withFetch(
+    async () => sse([MESSAGE_START, CONTENT]),
+    async () => {
+      const opts = { ...send.opts, signal };
+      await oauth.sendCacheWarm(send.messages, send.model, send.tools, opts, { accountId: idOf('acct-signal') });
+      assert.equal(listeners.size, 0, 'removed after a sent warm');
+      await assert.rejects(
+        oauth.sendCacheWarm(send.messages, send.model, send.tools, opts, { accountId: 'nobody' }),
+        (error) => error.code === 'ECACHEWARMBLOCKED'
+      );
+      assert.equal(listeners.size, 0, 'never added for a skipped warm');
+    }
+  );
+});
+
 test('the account gate fails closed: unknown account, no fresh reading, a block or a full window skip', async () => {
   const instance = { name: 'anthropic-oauth', credentials: { accountId: 'gate' } };
   await account('acct-ok');
