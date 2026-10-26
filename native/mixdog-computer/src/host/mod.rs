@@ -1211,10 +1211,16 @@ mod tests {
             "observed_input_monitor_id": observed.generation,
             "observed_input_user_sequence": observed.sequence,
         }));
-        let started = std::time::Instant::now();
+        // Refused at admission (`Scope::begin_expected`), before
+        // `dispatch_action`, the only caller of every `sleep_ms` wait. Had the
+        // action started, the fake desktop would have failed the first input
+        // with `input_delivery_failed`, or the scope would have reported the
+        // mid-action "interrupted this action" message instead.
         let error = host.handle(&request).unwrap_err();
-        assert!(error.starts_with("user_input_active"), "{error}");
-        assert!(started.elapsed() < Duration::from_millis(500));
+        assert_eq!(
+            error,
+            "user_input_active: observation was superseded by external input"
+        );
         assert!(log.borrow().is_empty());
     }
 
@@ -1263,7 +1269,8 @@ mod tests {
     #[test]
     fn background_input_proceeds_while_the_user_is_active() {
         let (host, log) = setup(3, true);
-        assert!(host.observer.foreign_idle_ms() < 1000);
+        // `setup(.., true)` recorded one foreign input event: the user is active.
+        assert_eq!(host.observer.read().sequence, 1);
         let click = json!({
             "action": "click", "delivery": "background", "window_id": "hwnd:0x3",
             "x": 90, "y": 90,
