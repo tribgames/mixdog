@@ -3,30 +3,24 @@
  * Primary pages outlive panel visibility; named support pages retain their
  * bounded, session-scoped lifetimes.
  */
-import type { BaseWindow, BrowserWindow, WebContents } from 'electron';
+import type { BrowserWindow, WebContents } from 'electron';
 import { app } from 'electron';
 
-import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
+import type { DesktopBrowserOpenRequest } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
 import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } from './command';
-import { type BrowserGuestStateStore, pushBounded } from './guest-state';
+import { createBrowserBackgroundPages } from './guest-background-pages';
+import { createBrowserGuestInitializer } from './guest-initialize';
+import { createBrowserSessionRestore } from './guest-session-restore';
+import type { BrowserGuestStateStore } from './guest-state';
+import { createBrowserSurfaceRequests } from './guest-surface-requests';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserPageOwner } from './page-owner';
-import { watchPageFaults } from './page-faults';
-import { injectPageScrollbarCss } from './page-scrollbar-css';
-import { injectJsonViewerTweaks } from './page-json-viewer';
-import { adoptBrowserPageWindow, browserPageWindow, createBrowserPageWindow } from './page-window';
-import { setBrowserPageZoom } from './page-zoom';
+import { adoptBrowserPageWindow, createBrowserPageWindow } from './page-window';
 import { builtPreloadPath } from './preload-path';
-import { type PopupOpeningHost, handleWindowOpens } from './popup-opening';
-import { createBackgroundReclaimer } from './background-reclaim';
-import { pageHasEditedFields } from './login-takeover';
-import { normalizeBackgroundTabName } from './tab-policy';
-import type { BackgroundPage } from './tabs-contract';
-import { type BrowserOpenDetail, browserOpenRequest, revealBrowserPage } from './page-reveal';
+import type { PopupOpeningHost } from './popup-opening';
 import { createBrowserPanelFold } from './panel-fold';
-import { restorablePages } from './restore-pages';
-import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
+import type { BrowserUrlPolicy } from './url-policy';
 
 interface BrowserGuestLifecycleHost {
   window: BrowserWindow;
@@ -53,10 +47,6 @@ interface BrowserGuestLifecycleHost {
    *  native-view and page-window). */
   nativeView?: boolean;
 }
-
-/** How long an `open` waits for a panel to show its page before it reports
- *  the reveal as pending: a first open loads the pane and attaches the page. */
-const REVEAL_SETTLE_MS = 3_000;
 
 /** Guests always compose offscreen; where Chromium can hand that composited
  *  frame to the GPU directly, every display read takes the shared texture
@@ -117,59 +107,6 @@ export function offscreenWindowOptions(nativeView = false): Electron.BrowserWind
   };
 }
 
-// Only small navigation descriptors survive runtime eviction, never
-// WebContents, screenshots, DOM state, or a second browser idle timer.
-type SavedPage = {
-  name?: string;
-  kind: 'primary' | BackgroundPage['kind'];
-  url: string;
-  active: boolean;
-  keepAlive?: boolean;
-  zoom: number;
-  size: [number, number];
-};
-
-/** One live page as the descriptor a later restore replays: where it was, how
- *  it was sized and zoomed, and whether it was the selected page. */
-function savedPageDescriptor(
-  guest: WebContents,
-  selected: WebContents | null,
-  kind: SavedPage['kind'],
-  name?: string,
-  keepAlive?: boolean
-): SavedPage {
-  return {
-    name,
-    kind,
-    keepAlive,
-    url: guest.getURL() || 'about:blank',
-    active: guest === selected,
-    zoom: guest.getZoomFactor(),
-    size: (browserPageWindow(guest)?.getContentSize() ?? [OFFSCREEN_VIEWPORT.width, OFFSCREEN_VIEWPORT.height]) as [
-      number,
-      number,
-    ],
-  };
-}
-
-/** Navigation admission for one page: whatever the URL policy rejects is
- *  prevented and recorded where the page's own failures are reported. */
-function blockUnsafeNavigation(
-  state: BrowserGuestStateStore,
-  urlPolicy: BrowserUrlPolicy,
-  guest: WebContents
-): (event: Electron.Event, url: string) => void {
-  return (event, url) => {
-    if (url === 'about:blank') return;
-    try {
-      normalizePageUrl(url, urlPolicy);
-    } catch (error) {
-      event.preventDefault();
-      pushBounded(state.for(guest).networkFailures, `Blocked page navigation: ${(error as Error).message}`);
-    }
-  };
-}
-
 /** Popup windows stay hidden and non-focusable, but use their native view:
  *  inherited offscreen popup views can remain at zero size. */
 function popupWindowOptions(nativeView = false): Electron.BrowserWindowConstructorOptions {
@@ -177,158 +114,26 @@ function popupWindowOptions(nativeView = false): Electron.BrowserWindowConstruct
   return { ...options, webPreferences: { ...options.webPreferences, offscreen: false } };
 }
 
-/** Background pages are addressed by page id; only a live window can answer. */
-function backgroundEntryForPageId(
-  sessions: BrowserSessionRegistry,
-  state: BrowserGuestStateStore,
-  sessionId: string,
-  pageId: string
-): [string, BackgroundPage] | null {
-  for (const entry of sessions.backgroundPages(sessionId)) {
-    if (!entry[1].window.isDestroyed() && state.pageId(entry[1].guest).toLowerCase() === pageId.toLowerCase()) {
-      return entry;
-    }
-  }
-  return null;
-}
-
-/** Destroy one background page's window and forget its registry entry. */
-function closeBackgroundPage(
-  sessions: BrowserSessionRegistry,
-  sessionId: string,
-  name: string,
-  entry: BackgroundPage
-): void {
-  if (!entry.window.isDestroyed()) {
-    try {
-      entry.window.destroy();
-    } catch {
-      /* teardown already won */
-    }
-  }
-  sessions.deleteBackgroundPage(sessionId, name, entry);
-}
-
-function closeAllBackgroundPages(sessions: BrowserSessionRegistry): void {
-  for (const [sessionId, name, page] of sessions.allBackgroundEntries()) {
-    closeBackgroundPage(sessions, sessionId, name, page);
-  }
-  sessions.clearBackgroundPages();
-}
-
-/** The session's next popup name, never colliding with a page it still holds. */
-function nextPopupTabName(sessions: BrowserSessionRegistry, counters: Map<string, number>, sessionId: string): string {
-  let nextPopupId = counters.get(sessionId) ?? 0;
-  let name = '';
-  do {
-    name = `popup-${++nextPopupId}`;
-  } while (sessions.backgroundPages(sessionId).has(name));
-  counters.set(sessionId, nextPopupId);
-  return name;
-}
-
 export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
-  const { window, state, sessions, cdp, urlPolicy, isBackgroundBusy, waitForLoadSettle } = host;
+  const { window, state, sessions, urlPolicy, waitForLoadSettle } = host;
   const createPage = () => createBrowserPageWindow(offscreenWindowOptions(host.nativeView === true), host.nativeView);
-  const nextPopupIdsBySession = new Map<string, number>();
-  const suspendedSessions = new Map<string, SavedPage[]>();
-  const restoringSessions = new Map<string, Promise<void>>();
-  const reclaimer = createBackgroundReclaimer({
-    sessions,
-    isBackgroundBusy,
-    holdsUnfinishedWork: (guest) => {
-      const record = state.peek(guest);
-      return Boolean(
-        record &&
-          (record.userInput || record.pendingDialog || record.pendingFileChooser || record.sensitiveValues?.size)
-      );
-    },
-    documentGeneration: (guest) => state.peek(guest)?.documentGeneration ?? 0,
-    hasEditedFields: pageHasEditedFields,
-    close: (sessionId, name, entry) => closeBackgroundPage(sessions, sessionId, name, entry),
+  const backgroundPages = createBrowserBackgroundPages(host, {
+    create: createPage,
+    initialize: (guest, attach) => guests.initializeGuest(guest, attach),
   });
   const popupOpening: PopupOpeningHost = {
     state,
     urlPolicy,
-    admit: (opener) => reclaimer.admit(sessions.sessionIdForGuest(opener) ?? DEFAULT_BROWSER_SESSION_ID),
+    admit: (opener) => backgroundPages.admit(sessions.sessionIdForGuest(opener) ?? DEFAULT_BROWSER_SESSION_ID),
     nativeView: () => Boolean(host.nativeView),
     popupWindowOptions,
     createPage: createBrowserPageWindow,
     adoptWindow: adoptBrowserPageWindow,
-    adoptPopup: (opener, popup, select) => adoptPopup(opener, popup, select),
+    adoptPopup: (opener, popup, select) => backgroundPages.adoptPopup(opener, popup, select),
   };
-
-  /** `attach`: when the page's debugger comes up — at once (`now`), at once for a
-   *  page window.open is navigating (`opened`), or after a restored page's
-   *  first document (`restored`). */
-  function initializeGuest(guest: WebContents, attach: 'now' | 'opened' | 'restored' = 'now'): void {
-    state.for(guest);
-    host.onGuest?.(guest);
-    injectPageScrollbarCss(guest);
-    injectJsonViewerTweaks(guest);
-    const blockNavigation = blockUnsafeNavigation(state, urlPolicy, guest);
-    guest.on('will-navigate', blockNavigation);
-    guest.on('will-redirect', blockNavigation);
-    guest.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame) state.beginDocument(guest, isInPlace);
-    });
-    // Emitted only once a main-frame navigation commits a new document.
-    guest.on('did-navigate', () => state.commitDocument(guest));
-    handleWindowOpens(guest, popupOpening);
-    watchPageFaults(state, guest);
-    // Every page gets its debugger up front, agent bridge or not: a page
-    // dialog only reaches the pane through it. A popup is attached at once
-    // too, without the blank first load (its navigation is window.open's):
-    // a dialog its first document opens while parsing would otherwise slip
-    // past the bridge.
-    if (attach === 'restored') {
-      // A restored page commits its own blank document first; attaching
-      // earlier would load about:blank over the URL being restored.
-      guest.once('dom-ready', () => {
-        if (!guest.isDestroyed()) attachDebuggerEagerly(guest);
-      });
-    } else attachDebuggerEagerly(guest, attach === 'opened');
-  }
-
-  /** Track a popup as its opener session's page, unless capacity is gone.
-   *  `select`: a person's gesture opened it in front (popup-focus), so it
-   *  becomes the selected tab as their own pick would; an agent's stays
-   *  behind and is reported to the agent. */
-  function adoptPopup(opener: WebContents, popup: { window: BaseWindow; guest: WebContents }, select: boolean): void {
-    if (popup.window.isDestroyed()) return;
-    const ownerSessionId = sessions.sessionIdForGuest(opener) ?? DEFAULT_BROWSER_SESSION_ID;
-    try {
-      reclaimer.admit(ownerSessionId);
-    } catch (error) {
-      pushBounded(state.for(opener).networkFailures, `Blocked popup creation: ${(error as Error).message}`);
-      try {
-        popup.window.destroy();
-      } catch {
-        /* creation already failed */
-      }
-      return;
-    }
-    const popupName = nextPopupTabName(sessions, nextPopupIdsBySession, ownerSessionId);
-    trackBackgroundPage(ownerSessionId, popupName, popup, 'popup', opener);
-    // The opener's next reply has to mention it: a click that opened a tab
-    // changes nothing in this document and would otherwise be reported as a
-    // click the page ignored.
-    pushBounded(state.for(opener).openedPopups, popupName);
-    host.onPopup?.(opener, popup.guest, select);
-    if (select) {
-      sessions.selectGuest(ownerSessionId, popup.guest);
-      // Like a tab the person picked: panes stop following the agent's page.
-      sessions.pauseAgentFollow(ownerSessionId);
-    }
-  }
-
-  /** Bring CDP up ahead of the first command; a failure is a page diagnostic,
-   *  not a host error. */
-  function attachDebuggerEagerly(guest: WebContents, openedByPage = false): void {
-    void (openedByPage ? cdp.attachOpenedPage(guest) : cdp.guestDebugger(guest)).catch((error) =>
-      state.for(guest).console.recordInternal(`CDP initialization failed: ${(error as Error).message}`)
-    );
-  }
+  const guests = createBrowserGuestInitializer(host, popupOpening);
+  const surface = createBrowserSurfaceRequests(host);
+  const { requestBrowserSurface } = surface;
 
   const panelFold = createBrowserPanelFold({
     sessions,
@@ -346,7 +151,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   const primaryPages = createBrowserPageOwner({
     sessions,
     create: createPage,
-    initialize: initializeGuest,
+    initialize: guests.initializeGuest,
     // A pending page dialog or file chooser, or running work, defers tidying.
     busy: (sessionId, guest) => {
       const record = state.peek(guest);
@@ -354,153 +159,24 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     },
   });
 
-  /** Unload follows the daemon runtime; deletion also forgets navigation. */
-  function releaseSession(sessionId: string, restore = false): void {
-    if (restore && !restoringSessions.has(sessionId)) {
-      const selected = sessions.currentGuest(sessionId);
-      const pages = [
-        ...sessions.visibleGuests(sessionId).map((guest) => savedPageDescriptor(guest, selected, 'primary')),
-        ...[...sessions.backgroundPages(sessionId)]
-          .filter(([, page]) => !page.guest.isDestroyed())
-          .map(([name, page]) => savedPageDescriptor(page.guest, selected, page.kind, name, page.keepAlive)),
-      ];
-      if (pages.length) suspendedSessions.set(sessionId, pages);
-    } else if (!restore) {
-      suspendedSessions.delete(sessionId);
-    }
-    restoringSessions.delete(sessionId);
-    sessions.clearAgentPage(sessionId);
-    // The shell hears of a release on its own (browserSessionReleased); an
-    // unloaded session's panel stays for its restore.
-    panelFold.quietly(() => {
-      primaryPages.release(sessionId);
-      for (const [name, entry] of [...sessions.backgroundPages(sessionId)]) {
-        closeBackgroundPage(sessions, sessionId, name, entry);
-      }
-    });
-    nextPopupIdsBySession.delete(sessionId);
-  }
-
-  function restoreSession(sessionId: string): Promise<void> {
-    const existing = restoringSessions.get(sessionId);
-    if (existing) return existing;
-    const saved = suspendedSessions.get(sessionId);
-    if (!saved) return Promise.resolve();
-    const assertStillRestoring = () => {
-      if (restoringSessions.get(sessionId) !== work || suspendedSessions.get(sessionId) !== saved) {
-        throw new Error('Browser page changed during restore.');
-      }
-    };
-    const work = Promise.resolve()
-      .then(async () => {
-        // Pages with nothing to come back to are dropped, never shown blank.
-        const restorable = restorablePages(saved, urlPolicy);
-        const urls = new Map(restorable.map(({ page, url }) => [page, url]));
-        const backgrounds = restorable.map(({ page }) => page).filter((page) => page.kind !== 'primary');
-        if (backgrounds.length) reclaimer.admit(sessionId, backgrounds.length);
-        const primaryState = restorable.find(({ page }) => page.kind === 'primary')?.page;
-        const primary = primaryState ? await primaryPages.ensure(sessionId) : null;
-        assertStillRestoring();
-        let selected: WebContents | null = primary;
-        const apply = (guest: WebContents, page: SavedPage) => {
-          browserPageWindow(guest)?.setContentSize(page.size[0], page.size[1]);
-          setBrowserPageZoom(guest, page.zoom);
-          if (page.active) selected = guest;
-          // Restoration is a normal reload, not form/JS/opener resurrection.
-          // Admission still runs through the partition and navigation handlers.
-          void guest.loadURL(urls.get(page)!).catch(() => {});
-        };
-        if (primary && primaryState) apply(primary, primaryState);
-        for (const page of backgrounds) {
-          const entry = trackBackgroundPage(
-            sessionId,
-            page.name!,
-            createPage(),
-            page.kind === 'popup' ? 'user' : (page.kind as BackgroundPage['kind']),
-            undefined,
-            'restored'
-          );
-          // Commit a document before CDP may attach; otherwise its blank-page
-          // initialization aborts the URL reload we are trying to restore.
-          await entry.guest.loadURL('about:blank');
-          assertStillRestoring();
-          entry.keepAlive = page.keepAlive || page.kind === 'popup';
-          selected ??= entry.guest;
-          apply(entry.guest, page);
-        }
-        if (selected) sessions.selectGuest(sessionId, selected);
-        suspendedSessions.delete(sessionId);
-      })
-      .catch((error) => {
-        // Preserve descriptors for a retry, but release a partially recreated
-        // set. An obsolete restore may never tear down its successor.
-        if (restoringSessions.get(sessionId) === work) releaseSession(sessionId, true);
-        throw error;
+  const sessionRestore = createBrowserSessionRestore({
+    sessions,
+    urlPolicy,
+    ensurePrimaryPage: (sessionId) => primaryPages.ensure(sessionId),
+    admitBackgroundPages: (sessionId, adding) => backgroundPages.admit(sessionId, adding),
+    restoreBackgroundPage: (sessionId, name, kind) => backgroundPages.restorePage(sessionId, name, kind),
+    closeSessionPages: (sessionId) => {
+      sessions.clearAgentPage(sessionId);
+      // The shell hears of a release on its own (browserSessionReleased); an
+      // unloaded session's panel stays for its restore.
+      panelFold.quietly(() => {
+        primaryPages.release(sessionId);
+        backgroundPages.closeSession(sessionId);
       });
-    restoringSessions.set(sessionId, work);
-    void work
-      .finally(() => {
-        if (restoringSessions.get(sessionId) === work) restoringSessions.delete(sessionId);
-      })
-      .catch(() => {});
-    return work;
-  }
-
-  function trackBackgroundPage(
-    sessionId: string,
-    name: string,
-    page: { window: BaseWindow; guest: WebContents },
-    kind: BackgroundPage['kind'],
-    opener?: WebContents,
-    attach: 'now' | 'opened' | 'restored' = kind === 'popup' ? 'opened' : 'now'
-  ): BackgroundPage {
-    const win = page.window;
-    const entry: BackgroundPage = {
-      window: win,
-      guest: page.guest,
-      lastUsedAt: Date.now(),
-      kind,
-      ...(opener ? { openerPageId: state.pageId(opener), opener } : {}),
-    };
-    sessions.setBackgroundPage(sessionId, name, entry);
-    initializeGuest(entry.guest, attach);
-    win.once('closed', () => {
-      sessions.deleteBackgroundPage(sessionId, name, entry);
-    });
-    return entry;
-  }
-
-  function ensureOffscreen(sessionId: string, rawName = ''): BackgroundPage {
-    const name = normalizeBackgroundTabName(rawName);
-    const existing = sessions.backgroundPages(sessionId).get(name);
-    if (existing && !existing.window.isDestroyed()) {
-      existing.lastUsedAt = Date.now();
-      return existing;
-    }
-    reclaimer.admit(sessionId);
-    // Never shown: the page runs fully (navigate/click/snapshot are JS, not
-    // frames). Screenshots go through CDP Page.captureScreenshot, which renders
-    // server-side in the Blink compositor and does not need an on-screen
-    // surface — an invalidate() before capture forces the frame.
-    return trackBackgroundPage(sessionId, name, createPage(), 'agent');
-  }
-
-  /** `handoff`: a takeover needs the user on the page, so the panel opens even
-   *  where they closed it. `detail`: what an agent's `open` showed, or why it
-   *  failed (browserOpenRequest). */
-  function requestBrowserSurface(
-    sessionId: string,
-    reveal: boolean | 'hide' | 'handoff',
-    detail?: BrowserOpenDetail
-  ): void {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) {
-      throw new Error('desktop window is unavailable');
-    }
-    const request: DesktopBrowserOpenRequest = browserOpenRequest(sessionId, reveal, detail);
-    window.webContents.send(DESKTOP_IPC.browserOpenRequested, request);
-    // An explicit reveal or hide is an agent handoff paired clients must see too.
-    host.onSurfaceRequest?.(request);
-  }
+      backgroundPages.forgetPopupNames(sessionId);
+    },
+  });
+  const { restoreSession } = sessionRestore;
 
   /** Visibility requests only affect the display client, never page ownership
    * or OS focus. Creation works even when the owning session is not mounted. */
@@ -524,37 +200,6 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     return guest;
   }
 
-  /** `open`: `shown` once a panel on screen displays the page; `pending` when
-   *  the session is not on screen (the shell holds the reveal until it is,
-   *  see use-agent-browser-surface-requests) or the user keeps its panel
-   *  closed. Throws when no panel can be asked or the page closes meanwhile. */
-  function revealPage(sessionId: string, guest: WebContents, signal?: AbortSignal): Promise<'shown' | 'pending'> {
-    return revealBrowserPage(
-      {
-        sessionIdForGuest: (page) => sessions.sessionIdForGuest(page),
-        selectGuest: (id, page) => sessions.selectGuest(id, page),
-        resumeAgentFollow: (id) => sessions.resumeAgentFollow(id),
-        requestSurface: (id, detail) => requestBrowserSurface(id, true, detail),
-        pageId: (page) => state.pageId(page),
-        waitUntilShown: host.waitUntilShown,
-      },
-      sessionId,
-      guest,
-      REVEAL_SETTLE_MS,
-      signal
-    );
-  }
-
-  /** A failed `open` tells the shell why (its owner conversation's line);
-   *  nothing is revealed for it. With no window to tell, there is no line. */
-  function reportOpenFailure(sessionId: string, error: string, tabId?: string): void {
-    try {
-      requestBrowserSurface(sessionId, true, { error, tabId });
-    } catch {
-      /* the window is gone: the tool reply still carries the failure */
-    }
-  }
-
   /** Close a page a failed command created before it held any document, so
    *  a refused address (or an open with nothing to show) leaves no blank tab. */
   function discardCreatedPage(sessionId: string, guest: WebContents): boolean {
@@ -563,7 +208,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     if (url && url !== 'about:blank') return false;
     for (const [name, entry] of sessions.backgroundPages(sessionId)) {
       if (entry.guest !== guest) continue;
-      closeBackgroundPage(sessions, sessionId, name, entry);
+      backgroundPages.close(sessionId, name, entry);
       return true;
     }
     if (!sessions.visibleGuests(sessionId).includes(guest)) return false;
@@ -588,20 +233,18 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   }
 
   return {
-    initializeGuest,
-    attachDebuggerEagerly,
-    backgroundEntryByPageId: (sessionId: string, pageId: string) =>
-      backgroundEntryForPageId(sessions, state, sessionId, pageId),
-    destroyBackgroundPage: (sessionId: string, name: string, entry: BackgroundPage) =>
-      closeBackgroundPage(sessions, sessionId, name, entry),
-    destroyAllBackgroundPages: () => panelFold.quietly(() => closeAllBackgroundPages(sessions)),
-    releaseSession,
+    initializeGuest: guests.initializeGuest,
+    attachDebuggerEagerly: guests.attachDebuggerEagerly,
+    backgroundEntryByPageId: backgroundPages.entryByPageId,
+    destroyBackgroundPage: backgroundPages.close,
+    destroyAllBackgroundPages: () => panelFold.quietly(() => backgroundPages.closeAll()),
+    releaseSession: sessionRestore.releaseSession,
     restoreSession,
-    reclaimIdleBackgroundPages: (now?: number) => reclaimer.sweep(now),
-    ensureOffscreen,
+    reclaimIdleBackgroundPages: backgroundPages.sweep,
+    ensureOffscreen: backgroundPages.ensureOffscreen,
     requestBrowserSurface,
-    revealPage,
-    reportOpenFailure,
+    revealPage: surface.revealPage,
+    reportOpenFailure: surface.reportOpenFailure,
     discardCreatedPage,
     ensureGuest,
     panelShown: panelFold.panelShown,
@@ -611,8 +254,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       primaryPages.discardUntouchedBlank(sessionId, keep),
     recoverCrashedGuest,
     destroyAllPrimaryPages: () => {
-      suspendedSessions.clear();
-      restoringSessions.clear();
+      sessionRestore.forgetAll();
       panelFold.quietly(() => primaryPages.dispose());
     },
   };

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
+import { BROWSER_SEMANTIC_MATCH_SOURCE } from './semantic-query.ts';
 import { browserRefPointExpression, browserSnapshotExpression } from './snapshot-scripts.ts';
 
 function refPointHarness() {
@@ -335,5 +337,42 @@ test('a hidden checkbox resolves through its label, and the label can still be c
     assert.equal((await window.eval(browserRefPointExpression('p6-s1-e2'))).error, 'not-visible');
   } finally {
     dom.window.close();
+  }
+});
+
+test('the snapshot script text stays byte-identical across representative options', () => {
+  // Captured from the single-template builder before it was split into
+  // fragments. The semantic matcher is its own module's text, so it is
+  // replaced by a placeholder: these digests pin only this builder's output.
+  const golden = [
+    [{ snapshotId: 'p1-s1' }, 12173, '3ddc0927f2e4617afd51bb0f784bead2f0d2ebb0cf04d8c15f08894761679a96'],
+    [
+      { snapshotId: 'p2-s9', maxElements: 0, textChars: 0, query: '', viewportOnly: false },
+      12173,
+      '8cbc904622ab0cec94b7872a21d281252ecf332d490997ced7bec498086f92b4',
+    ],
+    [
+      { snapshotId: 'p3-s1', maxElements: 9999, textChars: 99999, query: '  Sign in  ', viewportOnly: true },
+      12180,
+      '01d512c768fab76763e39d09396c1d9c406300c7c2f50f6d06a907549f182685',
+    ],
+    [
+      {
+        snapshotId: 'p"4\'-s</script>',
+        maxElements: 3.7,
+        textChars: 150.9,
+        query: 'a"b\\c`\x24{x}`',
+        viewportOnly: false,
+      },
+      12194,
+      '5a1826e611d5a4734610bcddc7191e711c84ada5b899784bcd86c508f0e2642e',
+    ],
+  ];
+  for (const [options, length, digest] of golden) {
+    const raw = browserSnapshotExpression(options);
+    assert.equal(raw.split(BROWSER_SEMANTIC_MATCH_SOURCE).length, 2);
+    const text = raw.replace(BROWSER_SEMANTIC_MATCH_SOURCE, () => '<match>');
+    assert.equal(text.length, length);
+    assert.equal(createHash('sha256').update(text).digest('hex'), digest);
   }
 });

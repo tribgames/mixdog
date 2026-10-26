@@ -24,7 +24,16 @@ interface BrowserSnapshotExpressionOptions {
  * frames, prioritizes viewport elements before applying the cap, and binds each
  * ref to one snapshot generation so an old ref can never alias a new element. */
 export function browserSnapshotExpression(options: BrowserSnapshotExpressionOptions): string {
-  const config = {
+  return `(() => {
+${snapshotStateSource(snapshotConfig(options))}
+${SNAPSHOT_ROLE_SOURCE}${SNAPSHOT_NAME_SOURCE}${SNAPSHOT_RECT_SOURCE}${SNAPSHOT_STATES_SOURCE}
+${SNAPSHOT_SCAN_SOURCE}
+${SNAPSHOT_RESULT_SOURCE}  })()`;
+}
+
+/** The caller's options, clamped to the snapshot's limits. */
+function snapshotConfig(options: BrowserSnapshotExpressionOptions) {
+  return {
     snapshotId: String(options.snapshotId),
     maxElements: Math.min(
       MAX_SNAPSHOT_ELEMENTS,
@@ -37,8 +46,11 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
     query: String(options.query || '').trim(),
     viewportOnly: options.viewportOnly === true,
   };
-  return `(() => {
-    const config = ${JSON.stringify(config)};
+}
+
+/** The script's inputs, the snapshot it publishes, and the scan's state. */
+function snapshotStateSource(config: ReturnType<typeof snapshotConfig>): string {
+  return `    const config = ${JSON.stringify(config)};
     const rankMatch = (${BROWSER_SEMANTIC_MATCH_SOURCE});
     const refs = new Map();
     window.__mixdogAgentSnapshot = { id: config.snapshotId, refs };
@@ -63,8 +75,11 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
     let scanned = 0;
     let crossOriginFrames = 0;
     const MAX_SCAN = 12000;
+`;
+}
 
-    const inferRole = (el, tag) => {
+/** An element's role: its explicit ARIA role, else the one its tag implies. */
+const SNAPSHOT_ROLE_SOURCE = `    const inferRole = (el, tag) => {
       const explicit = compact(el.getAttribute('role'), 40).toLowerCase();
       if (explicit) return explicit;
       if (tag === 'a' && el.hasAttribute('href')) return 'link';
@@ -85,7 +100,10 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       if (/^h[1-6]$/.test(tag)) return 'heading';
       return tag;
     };
-    const accessibleName = (el, tag) => {
+`;
+
+/** An element's accessible name: its labelling references, labels, and text. */
+const SNAPSHOT_NAME_SOURCE = `    const accessibleName = (el, tag) => {
       const doc = el.ownerDocument;
       const labelledBy = compact(el.getAttribute('aria-labelledby'), 200);
       if (labelledBy) {
@@ -114,7 +132,10 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
         120,
       );
     };
-    const globalRect = (el, frames) => {
+`;
+
+/** An element's box in the top document, offset through its frames. */
+const SNAPSHOT_RECT_SOURCE = `    const globalRect = (el, frames) => {
       const rect = el.getBoundingClientRect();
       let left = rect.left;
       let top = rect.top;
@@ -125,7 +146,10 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       }
       return { left, top, right: left + rect.width, bottom: top + rect.height, width: rect.width, height: rect.height };
     };
-    const stateList = (el, style) => {
+`;
+
+/** The states an entry reports: scrolling, disabled, checked, expanded, focus, file input. */
+const SNAPSHOT_STATES_SOURCE = `    const stateList = (el, style) => {
       const states = [];
       // A pane that scrolls on its own is invisible in the tree otherwise, and
       // the agent would scroll the page while the list it wants stays put.
@@ -163,15 +187,10 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       }
       return states;
     };
+`;
 
-    while (stack.length && scanned < MAX_SCAN) {
-      const item = stack.pop();
-      const el = item && item.el;
-      if (!el || el.nodeType !== 1) continue;
-      scanned += 1;
-      const frames = item.frames;
-      const doc = el.ownerDocument;
-      if (!seenDocuments.has(doc)) {
+/** Each scanned document's readable text, once, capped and flagged when clipped. */
+const SNAPSHOT_PAGE_TEXT_SOURCE = `      if (!seenDocuments.has(doc)) {
         seenDocuments.add(doc);
         // A <frameset> body renders only its frames; its text is the
         // <noframes> fallback nobody sees. The frames report their own text.
@@ -182,7 +201,12 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
           pageTexts.push(String(bodyText).slice(0, config.textChars * 4));
         }
       }
-      const tag = (el.tagName || '').toLowerCase();
+`;
+
+/** One element's classification: whether it renders and is on screen, its
+ *  role and name, headings, and — when interactive and admitted by the query
+ *  and viewport filters — its candidate entry. */
+const SNAPSHOT_ELEMENT_SOURCE = `      const tag = (el.tagName || '').toLowerCase();
       let style;
       try {
         style = doc.defaultView.getComputedStyle(el);
@@ -249,8 +273,11 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
           });
         }
       }
+`;
 
-      if (tag === 'iframe' || tag === 'frame') {
+/** What the scan visits next: same-origin frame documents (cross-origin ones
+ *  are counted), then children and open shadow roots in document order. */
+const SNAPSHOT_DESCEND_SOURCE = `      if (tag === 'iframe' || tag === 'frame') {
         try {
           const childDocument = el.contentDocument;
           if (childDocument?.documentElement) {
@@ -272,9 +299,22 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
           stack.push({ el: shadowChildren[index], frames });
         }
       }
-    }
+`;
 
-    candidates.sort((left, right) => right.matchScore - left.matchScore
+/** The bounded depth-first scan over every reachable element. */
+const SNAPSHOT_SCAN_SOURCE = `    while (stack.length && scanned < MAX_SCAN) {
+      const item = stack.pop();
+      const el = item && item.el;
+      if (!el || el.nodeType !== 1) continue;
+      scanned += 1;
+      const frames = item.frames;
+      const doc = el.ownerDocument;
+${SNAPSHOT_PAGE_TEXT_SOURCE}${SNAPSHOT_ELEMENT_SOURCE}
+${SNAPSHOT_DESCEND_SOURCE}    }
+`;
+
+/** Ranking, the cap, generation-bound refs, the clipped text, and the result. */
+const SNAPSHOT_RESULT_SOURCE = `    candidates.sort((left, right) => right.matchScore - left.matchScore
       || Number(right.entry.inViewport) - Number(left.entry.inViewport)
       || left.order - right.order);
     const totalElements = candidates.length;
@@ -308,8 +348,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       query: config.query,
       unfilteredElements,
     };
-  })()`;
-}
+`;
 
 export function browserRefPointExpression(ref: string): string {
   return `(async () => {
