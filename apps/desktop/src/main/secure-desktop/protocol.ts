@@ -35,6 +35,8 @@ export const KIND_CONTROL = 1;
 export const KIND_VIDEO = 2;
 
 export const MAX_CONTROL_LEN = 1 << 20; // 1 MiB
+/** `MAX_VIDEO_LEN` in protocol.rs: a full BGRA frame of a large multi-monitor
+ *  virtual desktop. */
 export const MAX_VIDEO_LEN = 192 << 20; // 192 MiB
 
 /**

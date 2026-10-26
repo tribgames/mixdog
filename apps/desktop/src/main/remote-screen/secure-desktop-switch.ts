@@ -28,8 +28,7 @@ import {
   type RemoteScreenStatus,
 } from '../../shared/remote-webrtc';
 import type { ScreenBgraFrame } from './screen-geometry';
-import type { ScreenHostCommand } from './screen-input-host';
-import type { ScreenLocalDesktop } from './screen-input-host';
+import type { ScreenHostCommand, ScreenLocalDesktop } from './screen-input-host';
 import type { ScreenDesktopIdentity } from './screen-input-router';
 
 /** The input desktop's real object name, as the helper reports it (protocol
@@ -42,8 +41,9 @@ const normalizeDesktopName = (name: string): string => name.toLowerCase();
 
 /**
  * The secure-desktop helper client, as this switch uses it. The real client
- * (owned by `secure-desktop-service`) is a no-op shell when the service is not
- * installed: `installed()` is false and nothing else is called.
+ * (main/secure-desktop/, through secure-desktop-adapter.ts) is a no-op shell
+ * when the service is not installed: `installed()` is false and nothing else is
+ * called.
  */
 export interface SecureDesktopClient {
   /** The helper service is installed on this PC. */

@@ -1,13 +1,14 @@
 /**
- * Main-process entry point for the Mixdog secure-desktop bridge. The upcoming
- * WebRTC remote-desktop effort imports from here to obtain frames of, and send
- * input to, the current input desktop — including the secure desktop (UAC
- * consent, lock / sign-in screen) — through the LocalSystem helper.
+ * Main-process entry point for the Mixdog secure-desktop bridge: the remote
+ * screen wiring imports from here to obtain frames of, and send input to, the
+ * current input desktop — including the secure desktop (UAC consent, lock /
+ * sign-in screen) — through the LocalSystem helper.
  *
  * Everything is a no-op when the service is not installed, and nothing installs
  * automatically (not on app install, update or start): the remote-screen
  * wiring calls `SecureDesktopInstaller.request()` (one UAC prompt) only when
- * the paired phone asks for the helper. The app uninstaller removes it.
+ * the paired phone asks for the helper, and PC access (main/pc-access.ts)
+ * installs it from the Computer Use setup row. The app uninstaller removes it.
  */
 
 export {
@@ -33,7 +34,6 @@ export {
   runSecureDesktopDelegated,
   runSecureDesktopWithLogon,
   secureDesktopInstallState,
-  secureDesktopStatus,
   startSecureDesktopService,
   verifySecureDesktopImage,
   type SecureDesktopAdminVerb,

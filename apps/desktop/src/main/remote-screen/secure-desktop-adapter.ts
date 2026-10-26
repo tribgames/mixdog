@@ -84,6 +84,9 @@ export interface SecureDesktopAdapter extends SecureDesktopClient {
   onHelperIssue(listener: (code: string) => void): () => void;
 }
 
+/** Redial backoff while activation is wanted: the first retry after a second,
+ *  doubling to a 30 s ceiling, so a stopped service is not dialled hot yet a
+ *  started one is found within half a minute. */
 const RECONNECT_FIRST_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 

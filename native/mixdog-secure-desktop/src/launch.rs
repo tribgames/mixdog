@@ -428,6 +428,8 @@ pub fn session_token(session_id: u32, kind: TOKEN_TYPE) -> windows::core::Result
 
 /// The name of a privilege LUID (`SeTcbPrivilege`, …).
 unsafe fn privilege_name(luid: &LUID) -> Option<String> {
+    // 128 UTF-16 units: well above the longest privilege constant
+    // (`SeDelegateSessionUserImpersonatePrivilege`, 39 characters).
     let mut buffer = [0u16; 128];
     let mut length = buffer.len() as u32;
     LookupPrivilegeNameW(PCWSTR::null(), luid, Some(PWSTR(buffer.as_mut_ptr())), &mut length).ok()?;

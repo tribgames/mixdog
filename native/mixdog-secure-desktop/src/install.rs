@@ -11,11 +11,12 @@
 //! main-process client to parse.
 //!
 //! Install is on demand: the app runs `install` elevated only when the paired
-//! phone asks for the helper (never on app install or update), and `check` (no
-//! elevation) reports current / missing / stale for that request and for the
-//! app uninstaller, which runs `uninstall` elevated only when something is
-//! installed. `install` over an existing registration upgrades it in place, so
-//! a helper left outdated by an app update is fixed by the next request.
+//! phone asks for the helper or the person approves PC access in Computer Use
+//! setup (never on app install or update), and `check` (no elevation) reports
+//! its state for those and for the app uninstaller, which runs `uninstall`
+//! elevated only when something is installed. `install` over an existing
+//! registration upgrades it in place, so a helper left outdated by an app
+//! update is fixed by the next request or approval.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -725,10 +726,10 @@ fn roll_back(target: &mut impl UninstallTarget) -> (Cleanup, Vec<String>) {
 const FILES_KEPT_FOR_SERVICE: &str =
     "left in place (with the software SAS marker and the uninstall entry) because the service was not confirmed stopped and removed";
 
-/// The phone's control-grant key from `--controller-key <base64url>`: required
-/// by `install`, optional for `check`. Missing, repeated without a value, or
-/// not an uncompressed P-256 point (`security::decode_controller_key`) is an
-/// error. Pure; unit-tested.
+/// The phone's control-grant key from `--controller-key <base64url>`, as `check`
+/// takes it (the first one; none is fine). A flag without a value, or a value
+/// that is not an uncompressed P-256 point (`security::decode_controller_key`),
+/// is an error. Pure; unit-tested.
 fn controller_key_arg(args: &[String]) -> Result<Option<String>, String> {
     let Some(position) = args.iter().position(|arg| arg == "--controller-key") else {
         return Ok(None);
@@ -738,17 +739,17 @@ fn controller_key_arg(args: &[String]) -> Result<Option<String>, String> {
     Ok(Some(key.trim().to_string()))
 }
 
-/// Every `--controller-key <value>` on the command line, each validated as an
-/// uncompressed P-256 point. Zero is allowed (`install` may install the helper
-/// with no key yet). Pure; unit-tested.
-fn collect_controller_keys(args: &[String]) -> Result<Vec<String>, String> {
+/// Every `flag <value>` on the command line, each value validated as an
+/// uncompressed P-256 point; `noun` names the key in the error. Zero is allowed.
+/// Pure; unit-tested.
+fn collect_flag_keys(args: &[String], flag: &str, noun: &str) -> Result<Vec<String>, String> {
     let mut keys = Vec::new();
     let mut index = 0;
     while index < args.len() {
-        if args[index] == "--controller-key" {
-            let key = args.get(index + 1).ok_or("--controller-key needs a value")?;
+        if args[index] == flag {
+            let key = args.get(index + 1).ok_or_else(|| format!("{flag} needs a value"))?;
             decode_controller_key(key)
-                .ok_or("the controller key is not an uncompressed P-256 point (base64url)")?;
+                .ok_or_else(|| format!("the {noun} is not an uncompressed P-256 point (base64url)"))?;
             keys.push(key.trim().to_string());
             index += 2;
         } else {
@@ -758,23 +759,16 @@ fn collect_controller_keys(args: &[String]) -> Result<Vec<String>, String> {
     Ok(keys)
 }
 
-/// Every `--revoke-key <value>`, each validated like a controller key. Used by
-/// `enroll` to apply pending revokes in the same elevation. Pure; unit-tested.
+/// Every `--controller-key <value>`. Zero is allowed (`install` may install the
+/// helper with no key yet). Pure; unit-tested.
+fn collect_controller_keys(args: &[String]) -> Result<Vec<String>, String> {
+    collect_flag_keys(args, "--controller-key", "controller key")
+}
+
+/// Every `--revoke-key <value>`. Used by `enroll` to apply pending revokes in
+/// the same elevation. Pure; unit-tested.
 fn collect_revoke_keys(args: &[String]) -> Result<Vec<String>, String> {
-    let mut keys = Vec::new();
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] == "--revoke-key" {
-            let key = args.get(index + 1).ok_or("--revoke-key needs a value")?;
-            decode_controller_key(key)
-                .ok_or("the revoke key is not an uncompressed P-256 point (base64url)")?;
-            keys.push(key.trim().to_string());
-            index += 2;
-        } else {
-            index += 1;
-        }
-    }
-    Ok(keys)
+    collect_flag_keys(args, "--revoke-key", "revoke key")
 }
 
 
@@ -1942,8 +1936,8 @@ fn read_state_status(requested_key: Option<&str>) -> StateStatus {
 }
 
 /// Unelevated check of whether the installed service matches this binary.
-/// Prints `{"ok":true,"check":"current|missing|stale|other-user"}` and exits
-/// 0/1/2/4; any failure to determine it prints an error and exits 3, which the
+/// Prints `{"ok":true,"check":"current|missing|stale|other-user|not-enrolled"}`
+/// and exits 0/1/2/4/7; any failure to determine it prints an error and exits 3, which the
 /// installer treats like "not current".
 pub fn check(args: &[String]) -> i32 {
     const UNDETERMINED: i32 = 3;

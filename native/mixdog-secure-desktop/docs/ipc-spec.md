@@ -12,7 +12,8 @@ Changelog:
   ([Ctrl+Alt+Del](#ctrlaltdel-sas)); `server-hello` and `desktop-changed`
   carry an optional `locked` (the session's WTS lock state); new advisory
   `error` codes ([Error codes](#error-codes)). State schema 1 gains the
-  optional `controllerKey`; a state without one refuses every grant.
+  optional `controllerKeys` (the enrolled phone keys); a state without one
+  refuses every grant.
 - Protocol 3: `desktop` (in `server-hello`, `desktop-changed`, and the frame
   header) is the input desktop's **real object name** (`Default`, `Winlogon`,
   …) instead of the `default` / `winlogon` / `locked` kinds. The lock and
@@ -40,10 +41,10 @@ version mismatch outright.
 The helper lets the app **see** the current input desktop — including the
 secure desktop (`Winlogon`: UAC consent, Ctrl+Alt+Del, lock and sign-in
 screens) — and **drive** it with pointer and keyboard input. It is one piece of
-the upcoming remote-desktop feature. The transport that carries frames to a
-phone over WebRTC and relays input back is a **separate effort** and is not part
-of this component; the WebRTC code imports the TypeScript client and treats this
-contract as its source of frames and its input sink.
+remote screen control. The transport that carries frames to a phone over WebRTC
+and relays input back is not part of this component; the WebRTC code imports the
+TypeScript client and treats this contract as its source of frames and its input
+sink.
 
 ## Transport
 
@@ -523,10 +524,10 @@ relay.
 - **Key.** The phone generates a P-256 ECDSA key as a non-extractable Web Crypto
   key (`apps/desktop/src/shared/secure-desktop-grant.ts`). Its public half
   (unpadded base64url of the 65-byte uncompressed point) is enrolled by the
-  phone-requested, elevated `install` as `controllerKey` in the protected state
-  file, which only SYSTEM and Administrators can write. A state without a key
-  refuses every grant (`grant_key_missing`): control needs a reinstall from the
-  phone.
+  admin-gated `install` / `enroll` (UAC or credential logon) or the delegated
+  enroll, as an entry of `controllerKeys` in the protected state file, which
+  only SYSTEM and Administrators can write. A state without the phone's key
+  refuses every grant (`grant_key_missing`): control needs that key enrolled.
 - **Challenge.** While control is active the helper sends
   `grant-challenge { nonce, challenge }` — `nonce` is this connection's
   handshake server nonce `Ns`, `challenge` 16 fresh random bytes — at once and
@@ -769,7 +770,7 @@ The helper captures with **GDI** (`CreateDCW("DISPLAY")` → `BitBlt` →
   a remote session captures. To be checked on the hardware test.
 
 Decision: **GDI is the mandatory, verified path** because it is the only method
-that works on both the ordinary and the secure desktop. The WebRTC effort may
+that works on both the ordinary and the secure desktop. The WebRTC transport may
 add DXGI as a performance optimization **for the `Default` desktop only**, using
 the `desktop-changed` signal to switch back to GDI before/while on `Winlogon`.
 

@@ -41,11 +41,11 @@ function fakeInstaller({ state = 'not-installed', enrolled = [], answers = {} } 
       return { outcome, state: installer.installState };
     },
     async enroll(keys, options = {}) {
-      installer.calls.push(['enroll', Array.isArray(keys) ? [...keys] : keys, options]);
+      installer.calls.push(['enroll', [...keys], options]);
       const outcome = await answer(options.delegated ? 'delegatedEnroll' : 'enroll', 'enrolled', keys);
       if (outcome === 'enrolled') {
         for (const key of options.revoke ?? []) installer.enrolled.delete(key);
-        for (const key of [keys].flat()) installer.enrolled.add(key);
+        for (const key of keys) installer.enrolled.add(key);
       }
       return { outcome, state: installer.installState, ...(outcome === 'failed' ? { detail: 'boom' } : {}) };
     },
@@ -255,7 +255,7 @@ test('a delivered key is enrolled through delegation once set up, with no prompt
   const installer = fakeInstaller({ state: 'installed', enrolled: [KEY_A] });
   const access = pcAccessOver(installer);
   assert.equal(await access.delivered(KEY_B), 'enrolled');
-  assert.deepEqual(installer.calls, [['enroll', KEY_B, { delegated: true }]]);
+  assert.deepEqual(installer.calls, [['enroll', [KEY_B], { delegated: true }]]);
 
   // Already enrolled, or waiting to be revoked: nothing.
   assert.equal(await access.delivered(KEY_A), 'nothing');
@@ -276,7 +276,7 @@ test('a delivery first applies the pending revokes the delegated path can run', 
   assert.equal(await pcAccessOver(installer, { pending }).delivered(KEY_B), 'enrolled');
   assert.deepEqual(installer.calls, [
     ['revoke', KEY_OLD, { delegated: true }],
-    ['enroll', KEY_B, { delegated: true }],
+    ['enroll', [KEY_B], { delegated: true }],
   ]);
   assert.deepEqual(pending.keys, []);
 });
@@ -501,7 +501,7 @@ test('an unpair in flight holds every delivery: its pending revoke is not consum
   assert.equal(await access.delivered(KEY_A), 'nothing', 'not paired now');
   assert.deepEqual(installer.calls, [
     ['revoke', KEY_A, { delegated: true }],
-    ['enroll', KEY_B, { delegated: true }],
+    ['enroll', [KEY_B], { delegated: true }],
   ]);
   assert.ok(!installer.enrolled.has(KEY_A));
   assert.deepEqual(pending.keys, []);
@@ -525,9 +525,9 @@ test('a phone’s replaced key is revoked before its new one enrolls (the real p
   await controller.deliver('phone-a', KEY_B);
   assert.equal(await access.delivered(KEY_B), 'enrolled');
   assert.deepEqual(installer.calls, [
-    ['enroll', KEY_A, { delegated: true }],
+    ['enroll', [KEY_A], { delegated: true }],
     ['revoke', KEY_A, { delegated: true }],
-    ['enroll', KEY_B, { delegated: true }],
+    ['enroll', [KEY_B], { delegated: true }],
   ]);
   assert.deepEqual([...installer.enrolled], [KEY_B]);
   assert.deepEqual(controller.owed(), { keys: [], unknown: 0 }, 'taken over, then settled');
@@ -555,7 +555,7 @@ test('the service’s owed revocations are taken over before any enrollment, app
   assert.deepEqual(service.settled, [[[KEY_OLD], 0]]);
   assert.deepEqual(installer.calls, [
     ['revoke', KEY_OLD, { delegated: true }],
-    ['enroll', KEY_B, { delegated: true }],
+    ['enroll', [KEY_B], { delegated: true }],
   ]);
   assert.deepEqual(pending.keys, []);
 

@@ -9,7 +9,7 @@
 //! point of this component — cannot be captured that way. GDI `BitBlt` from a
 //! `CreateDCW("DISPLAY")` DC follows the calling thread's attached desktop, so
 //! once the thread is attached to the input desktop (see [`crate::desktop`]) it
-//! captures `Default` and `Winlogon` with the same code path. The WebRTC effort
+//! captures `Default` and `Winlogon` with the same code path. The WebRTC transport
 //! may layer DXGI on top for the `Default` desktop as a performance
 //! optimization; GDI remains the mandatory secure-desktop path.
 //!

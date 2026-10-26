@@ -1,9 +1,8 @@
 //! Mixdog secure-desktop bridge: a LocalSystem Windows service plus a SYSTEM
 //! session helper that lets the Mixdog app see and drive the secure desktop
 //! (UAC consent, lock / sign-in screen) and the ordinary desktop over a local,
-//! secret-gated named pipe. Built for the upcoming remote-desktop feature; the
-//! WebRTC transport that streams frames to the phone and relays input is a
-//! separate effort and not part of this crate.
+//! secret-gated named pipe. The WebRTC transport that streams frames to the
+//! phone and relays input is not part of this crate.
 //!
 //! One executable, several roles selected by the first argument:
 //!   service    SCM entry point; runs as LocalSystem (installed, not run by hand)
@@ -20,8 +19,9 @@
 //!              admin-gated (UAC or --logon): turn off app-delegated enroll/revoke
 //!   uninstall  elevated: stop and delete the service, remove all state
 //!   status     report installed / running / version as JSON (no elevation)
-//!   check      exit 0 current / 1 missing / 2 stale / 4 other-user (no
-//!              elevation; the app's decision whether to install / uninstall)
+//!   check      exit 0 current / 1 missing / 2 stale / 4 other-user / 7
+//!              not-enrolled (no elevation; the app's decision whether to
+//!              install / enroll / uninstall)
 //!   start      start the installed demand-start service (no elevation; the
 //!              install granted the user start rights) — used after a reboot
 //!   verify-image [path]  check an image (default: this one) against the

@@ -62,6 +62,7 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::WindowsAndMessaging::{MB_OK, MESSAGEBOX_RESULT};
 
 use crate::winutil::{client_user_sid, wide, OwnedHandle, SecurityDescriptor};
+use crate::service::NO_ACTIVE_SESSION;
 use crate::{install, ipc, log, paths, security, signature};
 
 /// The delegation pipe. Distinct from the control pipe
@@ -72,9 +73,6 @@ pub const DELEGATION_PIPE_NAME: &str = r"\\.\pipe\mixdog-secure-desktop-delegate
 /// base64url key (~90 bytes); 4 KiB is ample and refuses anything absurd
 /// before allocating.
 const MAX_FRAME: usize = 4096;
-
-/// `WTSGetActiveConsoleSessionId` when there is no active console session.
-const NO_ACTIVE_SESSION: u32 = 0xFFFF_FFFF;
 
 /// How often the server wakes to re-check [`STOP`] while waiting for a
 /// connected client's bytes. This is a shutdown-responsiveness poll cadence,
@@ -290,7 +288,7 @@ pub fn serve(installing_sid: &str) {
         // Block until a client connects or `request_stop` self-connects.
         let connected = unsafe { ConnectNamedPipe(pipe.get(), None) };
         if let Err(error) = connected {
-            // ERROR_PIPE_CONNECTED means a client beat us to it: still connected.
+            // ERROR_PIPE_CONNECTED (535) means a client beat us to it: still connected.
             const ERROR_PIPE_CONNECTED: i32 = 0x217;
             if error.code().0 & 0xFFFF != ERROR_PIPE_CONNECTED {
                 unsafe { let _ = DisconnectNamedPipe(pipe.get()); }
@@ -445,6 +443,8 @@ fn verify_caller_image(pipe: &OwnedHandle, policy: &signature::SignerPolicy) -> 
         },
         Err(_) => return false,
     };
+    // 32 768 UTF-16 units: the extended-length path maximum (32 767) plus the
+    // terminator, the longest image path `QueryFullProcessImageNameW` can return.
     let mut buffer = vec![0u16; 32 * 1024];
     let mut size = buffer.len() as u32;
     if unsafe {

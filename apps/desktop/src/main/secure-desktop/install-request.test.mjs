@@ -19,10 +19,10 @@ import {
 import { createSecureDesktopInstaller, installOfferFor } from './install-request.ts';
 
 /** A fake bridge: `check` answers from `states` in order (the last repeats);
- *  `verifyImage` answers `image`; `elevateInstall` answers from `elevations`
- *  (an Error is thrown, a promise is adopted as the still-running child);
- *  `startService` answers from `starts`; `runKeyOp` answers from `keyOps`
- *  (Error thrown, promise adopted) and records every op it was given. */
+ *  `verifyImage` answers `image`; `startService` answers from `starts`;
+ *  `runKeyOp` records every op it was given and answers an `install` from
+ *  `elevations` and an enroll/revoke from `keyOps` (an Error is thrown, a
+ *  promise is adopted as the still-running child). */
 function fakePort({ states, elevations = [], starts = [], image = { ok: true }, keyOps = [] }) {
   const calls = { check: 0, verify: 0, elevate: 0, start: 0, keyOp: 0, checkKeys: [], elevateKeys: [], ops: [] };
   return {
@@ -38,22 +38,22 @@ function fakePort({ states, elevations = [], starts = [], image = { ok: true }, 
         calls.verify += 1;
         return image;
       },
-      async elevateInstall(controllerKey) {
-        const next = elevations[calls.elevate];
-        calls.elevate += 1;
-        calls.elevateKeys.push(controllerKey);
-        if (next instanceof Error) throw next;
-        return next;
-      },
       async startService() {
         const next = starts[Math.min(calls.start, starts.length - 1)];
         calls.start += 1;
         return next ?? { installed: false, running: false };
       },
       async runKeyOp(op) {
+        calls.ops.push(op);
+        if (op.verb === 'install') {
+          const next = elevations[calls.elevate];
+          calls.elevate += 1;
+          calls.elevateKeys.push(op.keys[0]);
+          if (next instanceof Error) throw next;
+          return next;
+        }
         const next = keyOps[Math.min(calls.keyOp, keyOps.length - 1)];
         calls.keyOp += 1;
-        calls.ops.push(op);
         if (next instanceof Error) throw next;
         return next ?? 0;
       },
@@ -85,9 +85,9 @@ test('a missing or invalid phone key fails without a prompt', async () => {
   }
 });
 
-test('another phone re-enrolls through an approved update that replaces the key', async () => {
-  // The bridge's check reports `outdated` (exit 2) when the install does not
-  // enroll the asking phone's key; the approved update writes that key.
+test('a phone asking after the helper binary changed gets an approved update that enrolls its key', async () => {
+  // The bridge's check reports `outdated` (exit 2) when the installed binary
+  // differs from the bundled one; the approved update writes the asking key.
   // One `outdated` for the offer's state(), one for the request's own check.
   const { port, calls } = fakePort({ states: ['outdated', 'outdated', 'installed'], elevations: [0] });
   const installer = createSecureDesktopInstaller(port);
@@ -227,8 +227,8 @@ test('an enrolled phone’s installed check never releases another phone’s lat
     async verifyImage() {
       return { ok: true };
     },
-    async elevateInstall(key) {
-      elevateKeys.push(key);
+    async runKeyOp(op) {
+      elevateKeys.push(op.keys[0]);
       return child.promise;
     },
     async startService() {
@@ -351,7 +351,7 @@ test('requests while one is pending join it: one prompt', async () => {
     async verifyImage() {
       return { ok: true };
     },
-    async elevateInstall() {
+    async runKeyOp() {
       elevations += 1;
       await gate;
       return 0;
@@ -369,7 +369,7 @@ test('requests while one is pending join it: one prompt', async () => {
 });
 
 test('install(keys) enrolls every key and applies pending revokes in one op', async () => {
-  const { port, calls } = fakePort({ states: ['not-installed', 'installed'], keyOps: [0] });
+  const { port, calls } = fakePort({ states: ['not-installed', 'installed'], elevations: [0] });
   const result = await createSecureDesktopInstaller(port).install([KEY, OTHER_KEY], { revoke: [controllerKey(3)] });
   assert.equal(result.outcome, 'installed');
   assert.equal(calls.verify, 1, 'the image is verified before an install op');
@@ -379,7 +379,7 @@ test('install(keys) enrolls every key and applies pending revokes in one op', as
 });
 
 test('install(keys) of an outdated helper reports updated', async () => {
-  const { port } = fakePort({ states: ['outdated', 'installed'], keyOps: [0] });
+  const { port } = fakePort({ states: ['outdated', 'installed'], elevations: [0] });
   assert.equal((await createSecureDesktopInstaller(port).install([KEY])).outcome, 'updated');
 });
 
@@ -389,10 +389,6 @@ test('enroll takes several keys in one op; revoke maps a success to enrolled / r
   assert.equal((await createSecureDesktopInstaller(enroll.port).enroll([KEY, OTHER_KEY])).outcome, 'enrolled');
   assert.deepEqual(enroll.calls.ops[0], { verb: 'enroll', keys: [KEY, OTHER_KEY], revoke: [], credential: undefined, delegated: undefined });
   assert.equal(enroll.calls.keyOp, 1, 'one op, not one per key');
-  // A bare string is still accepted (existing one-key callers keep working).
-  const single = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
-  assert.equal((await createSecureDesktopInstaller(single.port).enroll(KEY)).outcome, 'enrolled');
-  assert.deepEqual(single.calls.ops[0].keys, [KEY]);
   const revoke = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
   assert.equal((await createSecureDesktopInstaller(revoke.port).revoke(KEY)).outcome, 'revoked');
   assert.deepEqual(revoke.calls.ops[0].verb, 'revoke');

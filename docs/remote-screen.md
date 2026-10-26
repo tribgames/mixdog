@@ -228,11 +228,11 @@ to a desktop. There are two backends: `desktop` (the input host) and `secure`
   desktop it landed on. Each backend reports this through `identity()`:
   - the input host: its session (sent in its `ready` line) plus the input
     desktop's object name, lower-cased (e.g. `default`), from its watcher;
-  - the helper: the `session` and desktop kind from `server-hello` /
-    `desktop-changed`.
+  - the helper: the `session` and the desktop's real object name from
+    `server-hello` / `desktop-changed`, lower-cased like the input host's.
 
   Presses are keyed by **backend + origin + key**. Pressing the same key
-  again under a new origin (for example `winlogon`, then `locked`) creates a
+  again under a new origin (for example `default`, then `winlogon`) creates a
   second entry. A press is only made while the identity is known, and it is
   recorded before it is sent, so a press whose delivery is uncertain still
   gets released. Its release goes back only through that backend and only
@@ -241,12 +241,10 @@ to a desktop. There are two backends: `desktop` (the input host) and `secure`
   reconnected to another session or desktop. An up for a press the backend
   doesn't hold on its current desktop is skipped.
 
-  **`locked` vs `winlogon`.** These are compared as reported. The helper's
-  `locked` and `winlogon` kinds are treated as **distinct** desktops for now,
-  so a press made under one is not released under the other.
-  `secure-desktop-service` is checking whether both are the same Winlogon
-  desktop. Once it reports the real desktop object name, the helper identity
-  will use that name and the two will be normalized.
+  **Desktop names.** These are compared as reported (case-insensitively). The
+  helper reports the desktop's real object name, so the lock screen, sign-in
+  and UAC consent are all `winlogon`; two different names are distinct
+  desktops, and a press made under one is not released under the other.
 - **Release points.** `releaseAll()` releases every press of every backend.
   `switchTo(next)` first releases the old backend's presses through the old
   backend, then makes `next` active. Activating or deactivating the helper

@@ -50,7 +50,7 @@ use crate::shutdown::HelperEnd;
 use crate::winutil::{client_user_sid, now_ms};
 use crate::{capture, desktop, inject, ipc, log, paths};
 
-/// Target capture cadence while active. The WebRTC effort drives real pacing;
+/// Target capture cadence while active. The WebRTC transport drives real pacing;
 /// this bounds CPU on the secure desktop where GDI is the only option.
 const CAPTURE_INTERVAL: Duration = Duration::from_millis(66);
 const IDLE_SLEEP: Duration = Duration::from_millis(50);

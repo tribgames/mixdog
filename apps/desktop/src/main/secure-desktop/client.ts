@@ -479,19 +479,6 @@ function parseStatus(stdout: string): SecureDesktopStatus {
   }
 }
 
-/** Query installed / running / version. Never elevates. */
-export async function secureDesktopStatus(environment: SecureDesktopEnvironment): Promise<SecureDesktopStatus> {
-  if (environment.platform !== 'win32') return { installed: false, running: false };
-  try {
-    // No wrapper timeout: `status` is local work (an SCM query and a file
-    // read) that waits on nothing external.
-    const { stdout } = await execFileAsync(secureDesktopExePath(environment), ['status'], { windowsHide: true });
-    return parseStatus(stdout);
-  } catch {
-    return { installed: false, running: false };
-  }
-}
-
 /** Exit code of an elevated run whose UAC prompt was declined
  *  (`ERROR_CANCELLED`). */
 export const ELEVATION_DECLINED_EXIT = 1223;
@@ -521,13 +508,10 @@ export const SECURE_DESKTOP_DELEGATION_DISABLED_EXIT = 20;
 export const SECURE_DESKTOP_DELEGATION_DENIED_EXIT = 21;
 export const SECURE_DESKTOP_DELEGATION_UNAVAILABLE_EXIT = 22;
 
-/**
- * Run `file args`, resolving its exit code; a spawn failure (or, when
- * `timeout` is given, a kill at that timeout) rejects.
- */
-async function exitCodeOf(file: string, args: string[], timeout?: number): Promise<number> {
+/** Run `file args`, resolving its exit code; a spawn failure rejects. */
+async function exitCodeOf(file: string, args: string[]): Promise<number> {
   try {
-    await execFileAsync(file, args, { windowsHide: true, timeout });
+    await execFileAsync(file, args, { windowsHide: true });
     return 0;
   } catch (error) {
     const code = (error as { code?: unknown }).code;
@@ -579,6 +563,10 @@ export async function verifySecureDesktopImage(
   }
 }
 
+/** The admin-gated subcommands the app runs through one of the three
+ *  authorization paths (UAC elevation, `--logon`, or `--delegated`). */
+export type SecureDesktopAdminVerb = 'install' | 'enroll' | 'revoke';
+
 /**
  * Run an elevated subcommand (one UAC prompt) and wait for it. PowerShell's
  * `Start-Process -Verb RunAs -PassThru` launches through `ShellExecuteEx` with
@@ -589,10 +577,6 @@ export async function verifySecureDesktopImage(
  * the bridge's exit code, or `ELEVATION_DECLINED_EXIT` when the prompt was
  * declined; rejects only when it could not be launched.
  */
-/** The admin-gated subcommands the app runs through one of the three
- *  authorization paths (UAC elevation, `--logon`, or `--delegated`). */
-export type SecureDesktopAdminVerb = 'install' | 'uninstall' | 'enroll' | 'revoke' | 'disable-delegation';
-
 export async function elevateSecureDesktop(
   environment: SecureDesktopEnvironment,
   verbArgument: SecureDesktopAdminVerb,
@@ -676,8 +660,9 @@ export function runSecureDesktopDelegated(
 }
 
 /** Whether the installed service matches the bundled bridge, from its
- *  unelevated `check` (exit 0 current / 1 missing / 2 stale / 4 other-user).
- *  `other-user` is a service another Windows account installed. */
+ *  unelevated `check` (exit 0 current / 1 missing / 2 stale / 4 other-user /
+ *  7 not-enrolled). `other-user` is a service another Windows account
+ *  installed. */
 export type SecureDesktopInstallState =
   | 'installed'
   | 'outdated'
@@ -707,8 +692,8 @@ export function installStateFromCheckExit(exitCode: number): SecureDesktopInstal
 
 /** Run the bridge's `check`. Never elevates. `unavailable` off Windows, when
  *  the bridge is not shipped, or when the state cannot be determined. With a
- *  phone's `controllerKey`, an install that does not enroll that key reads as
- *  `outdated` (its update re-enrolls the asking phone). */
+ *  phone's `controllerKey`, a current install that does not enroll that key
+ *  reads as `not-enrolled` (an enroll adds it). */
 export async function secureDesktopInstallState(
   environment: SecureDesktopEnvironment,
   controllerKey?: string,

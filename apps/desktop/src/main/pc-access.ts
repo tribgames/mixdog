@@ -195,7 +195,7 @@ export function createPcAccess(deps: {
     // A pending revocation blocks every new enrollment; unknown ones need an install.
     if (owed.unknown !== null) return 'blocked' as const;
     const refused = await drainDelegated(owed.keys);
-    const result = refused ?? (await installer.enroll(publicKey, { delegated: true }));
+    const result = refused ?? (await installer.enroll([publicKey], { delegated: true }));
     if (NEEDS_ELEVATION.has(result.outcome)) needsElevation.add(publicKey);
     else needsElevation.delete(publicKey);
     if (refused) return 'blocked' as const;

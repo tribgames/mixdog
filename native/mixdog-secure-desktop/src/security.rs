@@ -48,14 +48,9 @@ pub struct InstallState {
     /// to add a key and then drive its own UAC prompt).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub controller_keys: Vec<String>,
-    /// Legacy single-key field written by installs before the key set (schema
-    /// unchanged). Read for back-compat and folded into `controller_keys` by
-    /// [`Self::from_json`]; never written again.
-    #[serde(default, rename = "controllerKey", skip_serializing)]
-    controller_key_legacy: Option<String>,
     /// The app-delegation policy (the "approve once, then paired phones
-    /// auto-enroll" model). Absent/`default` on installs made before it, and on
-    /// installs that did not opt in — both read as delegation disabled.
+    /// auto-enroll" model). Absent/`default` on installs that did not opt in,
+    /// which reads as delegation disabled.
     #[serde(default, skip_serializing_if = "DelegationPolicy::is_default")]
     pub delegation: DelegationPolicy,
 }
@@ -130,7 +125,6 @@ impl InstallState {
             pipe_name: pipe_name.to_string(),
             installed_at_ms,
             controller_keys: Vec::new(),
-            controller_key_legacy: None,
             delegation: DelegationPolicy::default(),
         }
     }
@@ -212,7 +206,7 @@ impl InstallState {
     }
 
     pub fn from_json(text: &str) -> Result<Self, String> {
-        let mut state: InstallState =
+        let state: InstallState =
             serde_json::from_str(text).map_err(|error| format!("invalid install state: {error}"))?;
         if state.schema != STATE_SCHEMA_VERSION {
             return Err(format!(
@@ -226,15 +220,10 @@ impl InstallState {
         if !is_sid_literal(&state.user_sid) {
             return Err("install state user SID is malformed".into());
         }
-        // Fold a legacy single key into the set, then validate every key and
-        // the cap. A same-user process cannot exploit this read path: the
-        // state file is writable by SYSTEM/Administrators only, so the keys it
-        // reads were written by an elevated or logon-path operation.
-        if let Some(legacy) = state.controller_key_legacy.take() {
-            if !state.controller_keys.iter().any(|key| key == &legacy) {
-                state.controller_keys.push(legacy);
-            }
-        }
+        // Validate every key and the cap. A same-user process cannot exploit
+        // this read path: the state file is writable by SYSTEM/Administrators
+        // only, so the keys it reads were written by an elevated or logon-path
+        // operation.
         if state.controller_keys.iter().any(|key| decode_controller_key(key).is_none()) {
             return Err("install state controller key is malformed".into());
         }
@@ -1281,22 +1270,6 @@ mod tests {
             forged.controller_keys = vec![bad.to_string()];
             assert!(InstallState::from_json(&forged.to_json()).is_err());
         }
-    }
-
-    #[test]
-    fn a_legacy_single_key_state_is_read_as_a_one_key_set() {
-        // Installs before the key set wrote `controllerKey`; it must still read.
-        let legacy = format!(
-            r#"{{"schema":1,"productVersion":"0.1.0","userSid":"S-1-5-18","secret":"{}","pipeName":"p","installedAtMs":0,"controllerKey":"{}"}}"#,
-            generate_secret(),
-            a_key(5),
-        );
-        let parsed = InstallState::from_json(&legacy).unwrap();
-        assert!(parsed.is_key_enrolled(&a_key(5)));
-        // Re-serializing drops the legacy field for the new plural one.
-        let round = parsed.to_json();
-        assert!(!round.contains("\"controllerKey\""));
-        assert!(round.contains("controllerKeys"));
     }
 
     #[test]

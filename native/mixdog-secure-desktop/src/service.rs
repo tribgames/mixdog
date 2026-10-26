@@ -81,8 +81,11 @@ const SERVICE_STOP_PENDING: SERVICE_STATUS_CURRENT_STATE = SERVICE_STATUS_CURREN
 const SERVICE_ACCEPT_SHUTDOWN: u32 = 4;
 const SERVICE_CONTROL_SHUTDOWN: u32 = 5;
 const SERVICE_CONTROL_INTERROGATE: u32 = 4;
+/// `GetExitCodeProcess` while the process has not exited (`STILL_ACTIVE`, 259).
 const STILL_ACTIVE: u32 = 259;
-const NO_ACTIVE_SESSION: u32 = 0xFFFF_FFFF;
+/// `WTSGetActiveConsoleSessionId` when there is no active console session
+/// (`0xFFFFFFFF`, as documented).
+pub(crate) const NO_ACTIVE_SESSION: u32 = 0xFFFF_FFFF;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 static WAKE_EVENT: AtomicUsize = AtomicUsize::new(0);

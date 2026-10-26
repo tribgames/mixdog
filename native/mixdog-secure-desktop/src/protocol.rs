@@ -20,7 +20,7 @@
 //! ```
 //!
 //! BGRA was chosen over a compressed format on purpose: the capture side
-//! produces top-down 32-bit BGRA straight from GDI, and the WebRTC effort owns
+//! produces top-down 32-bit BGRA straight from GDI, and the WebRTC transport owns
 //! the encoder. Shipping raw pixels keeps this bridge free of a codec
 //! dependency and lets the consumer pick its own. Dirty rectangles are included
 //! when the capture backend can produce them cheaply; a full-frame update is

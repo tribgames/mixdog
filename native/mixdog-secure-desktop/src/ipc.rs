@@ -29,7 +29,7 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForMultipleObjects, IN
 use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 
 use crate::security::is_system_sid;
-use crate::winutil::{process_user_sid, wide, OwnedHandle, SecurityDescriptor};
+use crate::winutil::{is_win32_error, process_user_sid, wide, OwnedHandle, SecurityDescriptor};
 
 /// Inbound (app -> helper) buffer: the helper drains it every loop pass in one
 /// read of this size.
@@ -45,18 +45,15 @@ const IN_BUFFER: u32 = 1 << 16;
 /// buffer sizes as advisory (it may round up to an allocation boundary), which
 /// still leaves it small next to any frame.
 const OUT_BUFFER: u32 = 4 << 10;
-const ERROR_PIPE_CONNECTED: u32 = 0x8007_0217;
-const ERROR_BROKEN_PIPE: u32 = 0x8007_006D;
-const ERROR_NO_DATA: u32 = 0x8007_00E8;
-const ERROR_IO_INCOMPLETE: u32 = 0x8007_03E4;
-const ERROR_IO_PENDING: u32 = 0x8007_03E5;
+// Win32 error codes (winerror.h) matched through `is_win32_error`.
+const ERROR_PIPE_CONNECTED: u32 = 0x217;
+const ERROR_BROKEN_PIPE: u32 = 0x6D;
+const ERROR_NO_DATA: u32 = 0xE8;
+const ERROR_IO_INCOMPLETE: u32 = 0x3E4;
+const ERROR_IO_PENDING: u32 = 0x3E5;
 
 fn to_io(error: windows::core::Error) -> io::Error {
     io::Error::new(io::ErrorKind::Other, error.to_string())
-}
-
-fn is_win32(error: &windows::core::Error, expected: u32) -> bool {
-    error.code().0 as u32 == expected
 }
 
 /// A non-owning, blocking Read/Write adapter over a *client* pipe HANDLE (the
@@ -71,7 +68,7 @@ impl Read for PipeIo {
         match unsafe { ReadFile(self.0, Some(buf), Some(&mut read), None) } {
             Ok(()) => Ok(read as usize),
             // A peer that closed the pipe reads as end-of-stream, not an error.
-            Err(error) if is_win32(&error, ERROR_BROKEN_PIPE) || is_win32(&error, ERROR_NO_DATA) => {
+            Err(error) if is_win32_error(&error, ERROR_BROKEN_PIPE) || is_win32_error(&error, ERROR_NO_DATA) => {
                 Ok(0)
             }
             Err(error) => Err(to_io(error)),
@@ -211,8 +208,8 @@ impl ServerPipe {
         let mut overlapped = OVERLAPPED { hEvent: self.io_event.get(), ..Default::default() };
         match unsafe { ConnectNamedPipe(self.pipe.get(), Some(&mut overlapped)) } {
             Ok(()) => return Ok(Accept::Connected),
-            Err(error) if is_win32(&error, ERROR_PIPE_CONNECTED) => return Ok(Accept::Connected),
-            Err(error) if is_win32(&error, ERROR_IO_PENDING) => {}
+            Err(error) if is_win32_error(&error, ERROR_PIPE_CONNECTED) => return Ok(Accept::Connected),
+            Err(error) if is_win32_error(&error, ERROR_IO_PENDING) => {}
             Err(error) => return Err(to_io(error)),
         }
         let mut handles = vec![self.io_event.get()];
@@ -285,7 +282,7 @@ impl ServerPipe {
         let mut overlapped = OVERLAPPED { hEvent: self.io_event.get(), ..Default::default() };
         match unsafe { ReadFile(self.pipe.get(), Some(&mut buf[..want]), None, Some(&mut overlapped)) } {
             Ok(()) => {}
-            Err(error) if is_win32(&error, ERROR_IO_PENDING) => {}
+            Err(error) if is_win32_error(&error, ERROR_IO_PENDING) => {}
             Err(_) => return None,
         }
         let mut read = 0u32;
@@ -328,7 +325,7 @@ impl ServerPipe {
                         }
                         continue;
                     }
-                    Err(error) if is_win32(&error, ERROR_IO_INCOMPLETE) => {
+                    Err(error) if is_win32_error(&error, ERROR_IO_INCOMPLETE) => {
                         if in_flight.queued.elapsed() > self.frame_deadline {
                             return Err(SendError::TimedOut);
                         }
@@ -362,7 +359,7 @@ impl ServerPipe {
         let pointer: *mut OVERLAPPED = &mut *in_flight.overlapped;
         match unsafe { WriteFile(self.pipe.get(), Some(&in_flight.frame[written..]), None, Some(pointer)) } {
             Ok(()) => {}
-            Err(error) if is_win32(&error, ERROR_IO_PENDING) => {}
+            Err(error) if is_win32_error(&error, ERROR_IO_PENDING) => {}
             Err(error) => return Err(SendError::Closed(error.to_string())),
         }
         self.in_flight = Some(in_flight);
