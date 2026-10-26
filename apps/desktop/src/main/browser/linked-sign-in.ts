@@ -538,9 +538,12 @@ export function createBrowserLinkedSignIns(deps: BrowserLinkedSignInDeps) {
     const { guest } = input;
     if (guest.isDestroyed()) return '';
     const url = guest.getURL();
+    const turn = shown.turn(input.sessionId, input.turnId);
     const record = linkedSignInFor(await deps.store.list(), url, tracker.flowSites(guest.id, url));
     if (!record) return '';
-    if (!shown.add(input.sessionId, input.turnId, [deps.pageId(guest), record.site].join('\0'))) return '';
+    // False too when the session was released or the turn finished while the
+    // store was read: no reply to a session that is gone.
+    if (!turn.add([deps.pageId(guest), record.site].join('\0'))) return '';
     return linkedSignInLine(record);
   }
 

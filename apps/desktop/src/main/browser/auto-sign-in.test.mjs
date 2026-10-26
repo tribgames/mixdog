@@ -983,6 +983,41 @@ test('what a turn tried goes with the turn or the session, and no count drops it
   await run(520);
   assert.equal(suggested, 522);
 });
+
+test('an attempt still running when its session is released leaves nothing remembered', async () => {
+  let suggested = 0;
+  let release;
+  let hold = true;
+  const signIn = createBrowserAutoSignIn({
+    enabled: () => true,
+    suggestions: async () => {
+      suggested += 1;
+      if (hold) await new Promise((resolve) => (release = resolve));
+      return [{ id: ACCOUNT_A, label: 'm•••e@example.com' }];
+    },
+    withCredential: async (_url, _id, use) => use({ username: 'me@example.com', password: PASSWORD }),
+    fill: async () => ({ usernameFilled: true, passwordFilled: true }),
+    submit: async () => {},
+    collect: async () => [{ password: true, challenge: false, wording: false, check: 'none' }],
+    invalidate: () => {},
+    humanCheck: { waitMs: 4, graceMs: 1, pollMs: 1, stepMs: 2, submitMs: 2 },
+  });
+  const guest = { isDestroyed: () => false, getURL: () => 'https://shop.example.com/login', isLoading: () => false };
+  const run = (turnId) =>
+    signIn.afterCommand({ guest, sessionId: 's', turnId, observe: async () => ({ text: 'page' }) });
+  const running = run(1);
+  while (!release) await new Promise((resolve) => setImmediate(resolve));
+  signIn.forgetSession('s');
+  release();
+  await running;
+  assert.equal(suggested, 1);
+  // The session begins again: the stale attempt wrote nothing, so this one is tried.
+  hold = false;
+  await run(1);
+  assert.equal(suggested, 2, 'not remembered as tried');
+  await run(1);
+  assert.equal(suggested, 2, 'the live attempt is remembered');
+});
 test('a sign-up or subscribe form never qualifies, even with autocomplete="username"', async () => {
   const html = '<form><input autocomplete="username"><button>Sign up</button></form>';
   assert.equal(state('https://shop.example.com/login', html).username, false);

@@ -794,7 +794,10 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
     const startUrl = guest.getURL();
     const origin = httpsOrigin(startUrl);
     if (!origin) return null;
-    if (attempted.has(input.sessionId, input.turnId, origin)) return null;
+    // Taken before the first await: a release or the turn's end while the
+    // flow runs detaches it, and its late write is ignored.
+    const tried = attempted.turn(input.sessionId, input.turnId);
+    if (tried.has(origin)) return null;
     const initial = await reader.read(guest, signal);
     if (!initial) return null;
     const before = initial.now;
@@ -811,7 +814,7 @@ export function createBrowserAutoSignIn(deps: BrowserAutoSignInDeps) {
       return null;
     }
     if (!saved.length) return null;
-    attempted.add(input.sessionId, input.turnId, origin);
+    tried.add(origin);
     const site = new URL(origin).host;
     // The page's identifier fits several saved logins that differ only by
     // username case and none exactly: no account is guessed, nothing is filled.

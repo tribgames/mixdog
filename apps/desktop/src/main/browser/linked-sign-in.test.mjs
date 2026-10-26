@@ -312,6 +312,42 @@ test('the reply-line memory has no count cap and goes with its turn or session',
   assert.match(await linked.replyLine({ guest: pages[0], sessionId: 's', turnId: 1 }), /^Linked sign-in: /);
 });
 
+test('a store read that ends after the session was released gives no line and leaves no memory', async () => {
+  const inner = memoryStore();
+  await inner.record({ site: 'chatgpt.com', redirectHost: 'auth.openai.com', provider: 'github.com', identity: '' });
+  let resume;
+  let paused = true;
+  const store = {
+    ...inner,
+    async list() {
+      const links = await inner.list();
+      if (paused) await new Promise((resolve) => (resume = resolve));
+      return links;
+    },
+  };
+  const { linked } = setup({ store });
+  const page = fakeGuest(60);
+  page.url = 'https://chatgpt.com/';
+  const reply = linked.replyLine({ guest: page, sessionId: 's', turnId: 1 });
+  await flush();
+  linked.forgetSession('s');
+  page.destroyed = true;
+  resume();
+  assert.equal(await reply, '', 'no reply to a released session');
+  // The same session begins again: nothing the stale read wrote is there.
+  paused = false;
+  page.destroyed = false;
+  assert.match(await linked.replyLine({ guest: page, sessionId: 's', turnId: 1 }), /^Linked sign-in: chatgpt\.com /);
+  // A turn that finished while the read was out takes no write either.
+  paused = true;
+  const late = linked.replyLine({ guest: page, sessionId: 's', turnId: 2 });
+  await flush();
+  linked.finishTurn('s', 2);
+  resume();
+  assert.equal(await late, '');
+  paused = false;
+  assert.match(await linked.replyLine({ guest: page, sessionId: 's', turnId: 2 }), /^Linked sign-in: chatgpt\.com /);
+});
 test('nested continue / return_to / next addresses are followed to any depth, and a cycle ends', () => {
   const request = 'https://kauth.example.com/oauth/authorize?client_id=K&redirect_uri=https%3A%2F%2Fsite.example%2Fcb&state=ST';
   let address = request;
