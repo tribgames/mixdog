@@ -20,6 +20,11 @@ const INDEX_TTL_MS = 60_000;
 // and answers with what the index and the partial walk found.
 const BEYOND_BUDGET_MS = 400;
 
+// A folder below the root that vanished (ENOENT, or ENOTDIR when it was
+// replaced by a file) or that the user may not read (EACCES, EPERM) is skipped;
+// any other failure (EIO, EMFILE, ...) is a fault the search reports.
+const UNREADABLE_DIRECTORY_CODES = new Set(['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM']);
+
 const projectFileIndexes = new Map<string, ProjectIndex>();
 // The search in flight per consumer; the consumer's next search supersedes it.
 const consumerSearches = new Map<string, AbortController>();
@@ -206,7 +211,7 @@ async function walkDirectories(
 
     const children = new Set<PendingDirectory>();
     const directory = await opendir(join(root, relative)).catch((error: unknown) => {
-      if (!relative) throw error;
+      if (!relative || !UNREADABLE_DIRECTORY_CODES.has((error as NodeJS.ErrnoException).code ?? '')) throw error;
       return null;
     });
     if (!directory) continue;
@@ -383,8 +388,9 @@ export async function searchProjectDirectory(
   options: ProjectFileSearchOptions = {}
 ): Promise<string[]> {
   const request = new AbortController();
+  const abortRequest = () => request.abort();
   if (options.signal?.aborted) request.abort();
-  else options.signal?.addEventListener('abort', () => request.abort(), { once: true });
+  else options.signal?.addEventListener('abort', abortRequest, { once: true });
   if (options.consumer !== undefined) {
     consumerSearches.get(options.consumer)?.abort();
     consumerSearches.set(options.consumer, request);
@@ -392,6 +398,7 @@ export async function searchProjectDirectory(
   try {
     return await searchWithin(root, query, limit, options, request.signal);
   } finally {
+    options.signal?.removeEventListener('abort', abortRequest);
     if (options.consumer !== undefined && consumerSearches.get(options.consumer) === request) {
       consumerSearches.delete(options.consumer);
     }

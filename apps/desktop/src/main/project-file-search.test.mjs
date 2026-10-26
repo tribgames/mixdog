@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import fsPromises from 'node:fs/promises';
+import { getEventListeners } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -273,6 +274,41 @@ test('an inaccessible descendant, or one whose ignore rules cannot be read, is s
   }
 });
 
+test('a descendant that vanished or is not a folder is skipped; any other read failure is reported', async (t) => {
+  const root = await tempRoot(t);
+  for (const folder of ['gone', 'broken', 'open']) await mkdir(join(root, folder));
+  for (const file of ['gone/a.txt', 'broken/b.txt', 'open/c.txt']) await writeFile(join(root, file), '');
+  const { opendir } = fsPromises;
+  let failure = (path) => (String(path).endsWith('gone') ? 'ENOENT' : null);
+  t.mock.method(fsPromises, 'opendir', (path, ...rest) => {
+    const code = failure(path);
+    return code ? Promise.reject(Object.assign(new Error(code), { code })) : opendir(path, ...rest);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual((await searchProjectDirectory(root, 'txt', 10, { yieldEvery: 1 })).sort(), [
+      'broken/b.txt',
+      'open/c.txt',
+    ]);
+    // An I/O fault on the folder holding the match must not read as "no match".
+    failure = (path) => (String(path).endsWith('broken') ? 'EIO' : null);
+    await assert.rejects(searchProjectDirectory(root, 'b.txt', 10, { yieldEvery: 1 }), { code: 'EIO' });
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test("a search leaves no listener on the caller's signal", async (t) => {
+  const root = await tempRoot(t);
+  await writeFile(join(root, 'a.txt'), '');
+  const controller = new AbortController();
+  for (let search = 0; search < 3; search += 1) {
+    await searchProjectDirectory(root, 'a', 10, { signal: controller.signal });
+  }
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+});
+
 async function chainRoot(t) {
   const root = await tempRoot(t);
   const chain = join(root, ...Array.from({ length: 40 }, () => 'd'));
@@ -308,9 +344,21 @@ test('the answer is due at the budget even while a directory read is held, and t
   const held = new Promise((resolve) => {
     release = resolve;
   });
+  let released;
+  const closedAfterRelease = new Promise((resolve) => {
+    released = resolve;
+  });
   const opened = t.mock.method(fsPromises, 'opendir', async (path, ...rest) => {
-    if (path === join(root, 'd')) await held;
-    return opendir(path, ...rest);
+    if (path !== join(root, 'd')) return opendir(path, ...rest);
+    await held;
+    // A stopped walk closes the folder it was handed and goes no further.
+    const directory = await opendir(path, ...rest);
+    const close = directory.close.bind(directory);
+    directory.close = () => {
+      released();
+      return close();
+    };
+    return directory;
   });
   syncBuiltinESMExports();
   try {
@@ -318,7 +366,7 @@ test('the answer is due at the budget even while a directory read is held, and t
     assert.deepEqual(await searchProjectDirectory(root, 'needle', 10, options), []);
     const calls = opened.mock.callCount();
     release();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await closedAfterRelease;
     // The released read starts no further work…
     assert.equal(opened.mock.callCount(), calls);
     // …and kept nothing: the next query still walks and finds the file.
@@ -354,7 +402,9 @@ test('a walk stopped while an ignore file is read opens no further folder', asyn
     );
     const calls = opened.mock.callCount();
     release();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Nothing after the released read does I/O before the walk stops, so it
+    // has either opened a folder by the next macrotask or never will.
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(opened.mock.callCount(), calls);
   } finally {
     release();
