@@ -153,7 +153,7 @@ export async function sendAnthropicCacheWarm({
       aborted: Boolean(callerSignal?.aborted),
     }).catch((recordError) => {
       process.stderr.write(
-        `[anthropic-cache-warm] refusal record failed: ${scrubOAuthSecrets(recordError?.message || String(recordError)).slice(0, 200)}\n`
+        `[anthropic-cache-warm] refusal record failed: ${scrubOAuthSecrets(recordError?.message || String(recordError))}\n`
       );
     });
     throw error;
