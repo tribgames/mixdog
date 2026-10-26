@@ -40,6 +40,7 @@ import {
   REMOTE_BROWSER_TABS_EVENT,
 } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
+import { REMOTE_WEBRTC_SIGNAL_EVENT, readRemoteWebrtcDesktopSignal } from '../shared/remote-webrtc';
 import { readTerminalActivityEvent } from '../shared/terminal-activity';
 import { REMOTE_TERMINAL_RUN_EVENT, readRemoteTerminalRun } from '../shared/terminal-command';
 import { type DesktopVisualizeEvent, REMOTE_VISUALIZE_CHANGED_EVENT } from '../shared/visualize';
@@ -298,6 +299,10 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (!authenticated) return;
       const frame = readRemoteBrowserStreamFrame(message.payload);
       if (frame) fanOut(ctx.remoteBrowserFrameListeners, frame);
+    } else if (message.event === REMOTE_WEBRTC_SIGNAL_EVENT) {
+      if (!authenticated) return;
+      const signal = readRemoteWebrtcDesktopSignal(message.payload);
+      if (signal) fanOut(ctx.remoteBrowserWebrtcListeners, signal);
     } else if (message.event === REMOTE_BROWSER_TABS_EVENT) {
       if (!authenticated) return;
       const tabs = readRemoteBrowserTabs(message.payload);

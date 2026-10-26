@@ -6,6 +6,10 @@
 /** Each hold is its own token: the same approval can be mounted twice (the
  *  conversation and a handoff copy), and one unmounting must not end the other. */
 const holds = new Map<string, Set<{ tab: string }>>();
+const listeners = new Set<(sessionId: string) => void>();
+const changed = (sessionId: string): void => {
+  for (const listener of [...listeners]) listener(sessionId);
+};
 
 /** Marks a takeover of `sessionId` pending, on page `tab` (`''`: the handoff
  *  named no page); the returned function ends only this hold. */
@@ -17,10 +21,27 @@ export function holdBrowserTakeover(sessionId: string, tab: string): () => void 
     holds.set(sessionId, set);
   }
   set.add(hold);
+  changed(sessionId);
   return () => {
     const current = holds.get(sessionId);
     if (!current?.delete(hold)) return;
     if (!current.size) holds.delete(sessionId);
+    changed(sessionId);
+  };
+}
+
+/** Whether a browser takeover of `sessionId` waits on the user (its card,
+ *  whose "열기" opens the page, is pending): the phone's view of the session's
+ *  page is then a take-over view, fitted to the phone, not a watching one. */
+export function browserTakeoverPending(sessionId: string): boolean {
+  return Boolean(holds.get(sessionId)?.size);
+}
+
+/** Calls `listener` with the session whose takeovers changed; returns the unsubscribe. */
+export function onBrowserTakeoverChange(listener: (sessionId: string) => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
   };
 }
 

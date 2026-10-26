@@ -1,15 +1,24 @@
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 
-import type { DesktopRemoteBrowserStreamFrame } from '../shared/contract';
+import type {
+  DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteBrowserStreamOptions,
+  DesktopRemoteBrowserViewport,
+} from '../shared/contract';
 import { remoteBrowserDriveViewport } from '../shared/remote-browser';
+import { browserTakeoverPending, onBrowserTakeoverChange } from './browser-takeover-input';
 import type { RemoteInputFrame } from './remote-browser-input-client';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
-import { isMobileDeviceSurface } from './mobile-surface';
+import { REMOTE_VIDEO_LIMIT_MAX } from './remote-view-zoom';
+import { remoteBrowserFitState } from './remote-webrtc-bridge';
 
 /** The desktop stops a stream that is not renewed for 4s. */
 export const STREAM_RENEW_MS = 2_000;
-/** A drag-resize or rotation settles before the host page is resized. */
-export const VIEWPORT_DEBOUNCE_MS = 150;
+/** How long a take-over stays covered waiting for its fit to settle (or
+ *  fail): the host stops a stream it was not renewed for within two renewals
+ *  (STREAM_EXPIRY_MS, 4 s, main/browser/remote-control.ts), so a fit that has
+ *  not pictured by then is treated as lost: the pane watches instead. */
+export const FIT_WAIT_MS = 2 * STREAM_RENEW_MS;
 export { REMOTE_CONNECTION_READY_EVENT };
 const FALLBACK_STREAM_BOX = { maxWidth: 1280, maxHeight: 720 };
 
@@ -37,23 +46,23 @@ function inputGeometry(
   return valid ? { width, height, viewportWidth, viewportHeight } : NO_INPUT_GEOMETRY;
 }
 
-/** The visible window height: a raised soft keyboard shortens it. */
-function windowHeight(): number {
-  return window.visualViewport?.height ?? window.innerHeight;
-}
-
-/** A phone or tablet with a text field focused and the window shorter than
- *  `sentHeight` (the height when the size was last sent): its soft keyboard
- *  is what shortens the pane. Never on a desktop, whose window resizes. */
-function softKeyboardUp(sentHeight: number): boolean {
-  if (!isMobileDeviceSurface() || !(windowHeight() < sentHeight)) return false;
-  const active = document.activeElement as HTMLElement | null;
-  if (!active) return false;
-  if (active.tagName === 'TEXTAREA' || active.isContentEditable) return true;
-  return (
-    active.tagName === 'INPUT' &&
-    !['button', 'checkbox', 'radio', 'range', 'submit'].includes((active as HTMLInputElement).type)
-  );
+/** The stream request: a take-over's carries its fit (the opening box) and a
+ *  frame bound covering it in device pixels; a watching one only the box's. */
+function streamOptions(
+  box: { width: number; height: number } | null | undefined,
+  scale: number,
+  fit: DesktopRemoteBrowserViewport | null
+): DesktopRemoteBrowserStreamOptions {
+  if (fit) {
+    return {
+      maxWidth: Math.min(REMOTE_VIDEO_LIMIT_MAX, Math.ceil(fit.width * fit.deviceScaleFactor)),
+      maxHeight: Math.min(REMOTE_VIDEO_LIMIT_MAX, Math.ceil(fit.height * fit.deviceScaleFactor)),
+      fit,
+    };
+  }
+  return box && box.width > 0 && box.height > 0
+    ? { maxWidth: Math.round(box.width * scale), maxHeight: Math.round(box.height * scale) }
+    : FALLBACK_STREAM_BOX;
 }
 
 async function decodeImage(url: string): Promise<void> {
@@ -63,7 +72,11 @@ async function decodeImage(url: string): Promise<void> {
 }
 
 /** The live frame stream of one remote page: subscription, decode/present/ACK,
- *  and the start/renew/stop lifecycle. */
+ *  and the start/renew/stop lifecycle. A take-over view (a browser takeover of
+ *  the session waits on the user) asks the host to fit the page to this pane
+ *  once, and shows no frame until one of the fitted page arrives
+ *  (`awaitingFit`: the pane stays covered meanwhile); a watching view keeps
+ *  the page's own geometry. */
 export function useRemoteBrowserStream({
   api,
   active,
@@ -78,7 +91,13 @@ export function useRemoteBrowserStream({
   setFailure,
   setActionFailure,
   setAddress,
+  onFrame,
+  onPresented,
 }: {
+  /** A frame's metadata was applied; whether it named another document. */
+  onFrame?: (documentChanged: boolean) => void;
+  /** A frame's image is now shown. */
+  onPresented?: () => void;
   api: typeof window.mixdogDesktop;
   active: boolean;
   ownerSessionId: string;
@@ -94,7 +113,50 @@ export function useRemoteBrowserStream({
   setFailure: Dispatch<SetStateAction<string>>;
   setActionFailure: Dispatch<SetStateAction<string>>;
   setAddress: Dispatch<SetStateAction<string>>;
-}): void {
+}) {
+  /** The fit a take-over waits to see the first frame of; null: not waiting. */
+  const fitRef = useRef<DesktopRemoteBrowserViewport | null>(null);
+  /** While waiting: the viewport the newest `fitSettled` frame described. */
+  const settledRef = useRef<{ viewportWidth: number; viewportHeight: number } | null>(null);
+  const [awaitingFit, setAwaitingFit] = useState(false);
+  /** The bound on the cover (FIT_WAIT_MS); 0: none armed. */
+  const fitTimerRef = useRef(0);
+  /** This subscription's take-over: `fit` is the opening box sent on every
+   *  renewal; `abandoned` gives the fit up while the takeover still waits
+   *  (it failed or never pictured), so it is not asked for again; `release`
+   *  (nonzero) is a `fit: null` the host has not confirmed, resent on every
+   *  renewal until a request carrying it succeeds — a renewal without `fit`
+   *  keeps a take-over. */
+  const takeoverRef = useRef({
+    fit: null as DesktopRemoteBrowserViewport | null,
+    abandoned: false,
+    release: 0,
+    serial: 0,
+  });
+  /** Lift the cover (the wait ended, either way). */
+  const uncover = () => {
+    if (fitTimerRef.current) window.clearTimeout(fitTimerRef.current);
+    fitTimerRef.current = 0;
+    fitRef.current = null;
+    settledRef.current = null;
+    setAwaitingFit(false);
+  };
+  /** Give up this subscription's fit: the pane watches, and the host is told
+   *  (`release`). `giveUp`: the takeover still waits, so do not fit again. */
+  const abandonFit = (giveUp: boolean) => {
+    uncover();
+    const takeover = takeoverRef.current;
+    if (takeover.fit) {
+      takeover.fit = null;
+      takeover.serial += 1;
+      takeover.release = takeover.serial;
+    }
+    takeover.abandoned = giveUp;
+  };
+  const onFrameRef = useRef(onFrame);
+  onFrameRef.current = onFrame;
+  const onPresentedRef = useRef(onPresented);
+  onPresentedRef.current = onPresented;
   // Newest frame for this session only. A metadata-only frame keeps the last
   // image; a frame is acknowledged once its image is decoded and displayed.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs and state setters are stable; the subscription follows the session and its input owners.
@@ -119,11 +181,24 @@ export function useRemoteBrowserStream({
       setFrame(meta);
       setFailure('');
       if (!addressFocused.current) setAddress(next.url === 'about:blank' ? '' : next.url);
+      onFrameRef.current?.(previous?.documentId !== next.documentId);
     };
     const unsubscribe = api.onRemoteBrowserFrame((next) => {
       if (next.sessionId !== ownerSessionId) return;
       applyMetadata(next);
-      if (!next.image) {
+      // The fit could not be applied: no settled frame will come, so the
+      // take-over stops waiting and shows the page as when watching.
+      if (takeoverRef.current.fit && next.fitFailed === true) abandonFit(true);
+      const awaited = fitRef.current;
+      // The host marks frames of the settled (fitted) layout; the video's
+      // picture is the fitted page once it shows this viewport.
+      if (awaited && next.fitSettled === true && next.viewportWidth > 0 && next.viewportHeight > 0) {
+        settledRef.current = { viewportWidth: next.viewportWidth, viewportHeight: next.viewportHeight };
+      }
+      // A take-over never shows the page before its layout settled (another
+      // viewer's stream, or a frame still in flight): such frames are
+      // acknowledged, not shown.
+      if (!next.image || (awaited && next.fitSettled !== true)) {
         api.remoteBrowserStreamAck?.(ownerSessionId, next.seq);
         return;
       }
@@ -135,7 +210,9 @@ export function useRemoteBrowserStream({
         // The newest frame's picture may be this one, now shown.
         if (latest) frameRef.current = { documentId: latest.documentId, ...inputGeometry(latest, imageSize.current) };
         setImageUrl(url);
+        if (awaited && fitRef.current === awaited) uncover();
         api.remoteBrowserStreamAck?.(ownerSessionId, next.seq);
+        onPresentedRef.current?.();
       };
       decodeImage(url).then(present, present);
     });
@@ -152,67 +229,84 @@ export function useRemoteBrowserStream({
     setFailure('');
     setActionFailure('');
     let timer = 0;
-    let resizeTimer = 0;
     let running = false;
-    /** The box last sent; kept while the soft keyboard is what shrank it. */
-    let sentBox: { width: number; height: number } | null = null;
-    /** The window height when `sentBox` was measured. */
-    let sentWindowHeight = 0;
+    const takeover = takeoverRef.current;
+    /** Cover the pane until `fit` settles, for at most FIT_WAIT_MS. */
+    const cover = (fit: DesktopRemoteBrowserViewport) => {
+      fitRef.current = fit;
+      settledRef.current = null;
+      imageSize.current = null;
+      setImageUrl('');
+      setAwaitingFit(true);
+      if (fitTimerRef.current) window.clearTimeout(fitTimerRef.current);
+      fitTimerRef.current = window.setTimeout(() => {
+        fitTimerRef.current = 0;
+        if (!running || fitRef.current !== fit) return;
+        // Neither settled nor failed in time: watch, and tell the host now.
+        abandonFit(true);
+        renew();
+      }, FIT_WAIT_MS);
+    };
     const renew = () => {
-      const measured = contentRef.current?.getBoundingClientRect();
-      // Typing on a phone raises the soft keyboard, which only shortens the
-      // box; like a phone browser (its layout viewport stays), the host page
-      // keeps its size instead of re-laying out and restarting the stream on
-      // every keyboard show and hide. The frame fits the shorter box meanwhile.
-      const held = Boolean(
-        sentBox &&
-          measured &&
-          measured.width === sentBox.width &&
-          measured.height < sentBox.height &&
-          softKeyboardUp(sentWindowHeight)
-      );
-      const box = held ? sentBox : measured;
-      if (!held && measured && measured.width > 0 && measured.height > 0) {
-        sentBox = { width: measured.width, height: measured.height };
-        sentWindowHeight = windowHeight();
-      }
+      const box = contentRef.current?.getBoundingClientRect();
       const scale = window.devicePixelRatio || 1;
-      const options =
-        box && box.width > 0 && box.height > 0
-          ? { maxWidth: Math.round(box.width * scale), maxHeight: Math.round(box.height * scale) }
-          : FALLBACK_STREAM_BOX;
-      // A host advertising browserDrive renders the page at this pane's size.
-      // The viewport rides every renewal once the stream exists, so a host
-      // whose lease lapsed gets it back; the host ignores an unchanged one.
-      const viewport = api.remoteBrowserDrive === true ? remoteBrowserDriveViewport(box, scale) : null;
-      api.remoteBrowserStream!(ownerSessionId, options).then(
+      // Only a host advertising `browserFit` fits the page (once; then
+      // nothing — keyboard, rotation, renewals — moves it) and marks its
+      // frames; elsewhere the view watches and is never covered.
+      // While no host is authenticated ('unknown') nothing that depends on
+      // the capability changes: a fit is kept, and so is a pending release,
+      // which is resent once the host is back.
+      const fitState = remoteBrowserFitState(api);
+      const waiting = browserTakeoverPending(ownerSessionId);
+      if (!waiting || fitState === 'unsupported') {
+        // The take-over ended (or the host does not fit): watching again;
+        // the host restores the page and its next frames show it.
+        if (takeover.fit) abandonFit(false);
+        takeover.abandoned = false;
+      }
+      // An authenticated host without `browserFit` has no take-over to release.
+      if (fitState === 'unsupported') takeover.release = 0;
+      if (fitState === 'supported' && waiting && !takeover.fit && !takeover.abandoned) {
+        const fit = remoteBrowserDriveViewport(box, scale);
+        if (fit) {
+          takeover.fit = fit;
+          takeover.release = 0;
+          cover(fit);
+        }
+      }
+      const options = streamOptions(box, scale, takeover.fit);
+      const release = takeover.fit ? 0 : takeover.release;
+      api.remoteBrowserStream!(ownerSessionId, release ? { ...options, fit: null } : options).then(
         () => {
-          if (running && viewport) {
-            api.remoteBrowserControl?.(ownerSessionId, { type: 'viewport', ...viewport }).catch(() => {});
-          }
+          // Confirmed by the host's reply to a request that carried it.
+          if (release && takeover.release === release) takeover.release = 0;
         },
         (error: unknown) => {
           if (running) setFailure(error instanceof Error ? error.message : String(error));
         }
       );
     };
-    // Resizes and rotations re-send the size at once (debounced) rather than
-    // at the next renewal; an older host keeps today's renewal-only stream.
-    const resized = () => {
-      if (!running || api.remoteBrowserDrive !== true) return;
-      window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(renew, VIEWPORT_DEBOUNCE_MS);
-    };
-    const content = contentRef.current;
-    const observer = content && typeof ResizeObserver === 'function' ? new ResizeObserver(resized) : null;
-    if (content) observer?.observe(content);
-    window.addEventListener('resize', resized);
-    window.addEventListener('orientationchange', resized);
-    // The keyboard went down with the field: the held size gives way.
-    document.addEventListener('focusout', resized);
+    // A takeover beginning or ending switches the view at once, not at the next renewal.
+    const offTakeover = onBrowserTakeoverChange((sessionId) => {
+      if (sessionId !== ownerSessionId) return;
+      const pending = browserTakeoverPending(sessionId);
+      // A given-up fit belongs to the takeover that ended; the next may fit.
+      if (!pending) takeover.abandoned = false;
+      if (running && Boolean(takeover.fit) !== pending) renew();
+    });
     const begin = () => {
       if (running) return;
       running = true;
+      // A new stream (the host ended the last one): a take-over keeps its
+      // opening box and waits for it again; one that ended while hidden is
+      // abandoned by `renew`.
+      if (
+        takeover.fit &&
+        remoteBrowserFitState(api) !== 'unsupported' &&
+        browserTakeoverPending(ownerSessionId)
+      ) {
+        cover(takeover.fit);
+      }
       renew();
       timer = window.setInterval(renew, STREAM_RENEW_MS);
     };
@@ -220,7 +314,8 @@ export function useRemoteBrowserStream({
       if (!running) return;
       running = false;
       window.clearInterval(timer);
-      window.clearTimeout(resizeTimer);
+      if (fitTimerRef.current) window.clearTimeout(fitTimerRef.current);
+      fitTimerRef.current = 0;
       api.remoteBrowserStream!(ownerSessionId, null).catch(() => {});
     };
     const visibility = () => (document.visibilityState === 'hidden' ? end() : begin());
@@ -235,11 +330,23 @@ export function useRemoteBrowserStream({
     return () => {
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
-      observer?.disconnect();
-      window.removeEventListener('resize', resized);
-      window.removeEventListener('orientationchange', resized);
-      document.removeEventListener('focusout', resized);
+      offTakeover();
       end();
+      uncover();
+      // Ending the subscription ends its take-over: nothing left to release.
+      takeoverRef.current = { fit: null, abandoned: false, release: 0, serial: takeover.serial };
     };
   }, [active, api, ownerSessionId]);
+  return {
+    awaitingFit,
+    /** The WebRTC video (promoted, so no JPEG image comes) shows a frame of
+     *  this geometry: once it is the settled layout a `fitSettled` frame
+     *  described, the pane uncovers. */
+    videoShown(frame: Pick<RemoteInputFrame, 'width' | 'height' | 'viewportWidth' | 'viewportHeight'>): void {
+      const settled = settledRef.current;
+      if (!fitRef.current || !settled || !(frame.width > 0) || !(frame.height > 0)) return;
+      if (frame.viewportWidth !== settled.viewportWidth || frame.viewportHeight !== settled.viewportHeight) return;
+      uncover();
+    },
+  };
 }

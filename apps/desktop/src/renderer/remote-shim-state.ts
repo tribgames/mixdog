@@ -15,6 +15,7 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import type { RelayE2EEChannel, RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
+import type { RemoteWebrtcDesktopSignal } from '../shared/remote-webrtc';
 import type { ActivityRailPinsState } from '../shared/activity-rail-pins';
 import type { ProviderModelsChange } from '../shared/provider-models';
 import type { SettingsChange } from '../shared/settings-changed';
@@ -141,6 +142,13 @@ export interface RemoteShimState {
   /** The current host advertised `fileDownloads`: it serves the host file
    *  download lane (shared/file-downloads.ts). Absent means an older host. */
   peerFileDownloads: boolean;
+  /** The current host advertised `browserWebrtc` (shared/remote-webrtc.ts):
+   *  its value when it is the version this client speaks, else 0. */
+  peerBrowserWebrtc: number;
+  /** Whether the current host advertised `browserFit`
+   *  (REMOTE_BROWSER_FIT_CAPABILITY); null while no host is authenticated
+   *  (disconnected or mid-handshake): not known either way. */
+  peerBrowserFit: boolean | null;
   /** The current host serves the encrypted HTTP media lane (`mediaE2ee` in
    *  its challenge). Absent means an older host: media stays on RPC. */
   peerMediaE2ee: boolean;
@@ -209,6 +217,7 @@ export interface RemoteShimCollaborators {
   orchestrationModeListeners: Set<(change: OrchestrationModeChange) => void>;
   updaterListeners: Set<(state: DesktopUpdaterState) => void>;
   remoteBrowserFrameListeners: Set<(frame: DesktopRemoteBrowserStreamFrame) => void>;
+  remoteBrowserWebrtcListeners: Set<(signal: RemoteWebrtcDesktopSignal) => void>;
   browserOpenListeners: Set<(request: DesktopBrowserOpenRequest) => void>;
   terminalRunListeners: Set<(request: DesktopTerminalRunRequest) => void>;
   remoteBrowserTabListeners: Set<(tabs: DesktopRemoteBrowserTab[]) => void>;
@@ -428,6 +437,8 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerRouteAutoEffort: false,
     peerVisualize: false,
     peerFileDownloads: false,
+    peerBrowserWebrtc: 0,
+    peerBrowserFit: null,
     peerMediaE2ee: false,
     mediaSid: null,
     legacyVisibleSessionsQueue: Promise.resolve(),
@@ -473,6 +484,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     orchestrationModeListeners: new Set(),
     updaterListeners: new Set(),
     remoteBrowserFrameListeners: new Set(),
+    remoteBrowserWebrtcListeners: new Set(),
     browserOpenListeners: new Set(),
     terminalRunListeners: new Set(),
     remoteBrowserTabListeners: new Set(),

@@ -25,7 +25,11 @@ import {
 } from 'react';
 
 import type { DesktopBrowserTab, DesktopRemoteBrowserControl } from '../shared/contract';
-import { remoteBrowserImagePoint } from '../shared/remote-browser';
+import { remoteBrowserDriveViewport, remoteBrowserImagePoint } from '../shared/remote-browser';
+import { useCompositionFinisher } from './remote-composition';
+import { remoteWebrtcHost } from './remote-webrtc-bridge';
+import { clampPan, remotePinchMaxZoom, zoomRemoteView } from './remote-view-zoom';
+import { useRemoteWebrtc } from './use-remote-webrtc';
 import { useBrowserCredentials, useHistorySuggestions } from './browser-pane-hooks';
 import { BrowserImportDialog } from './BrowserImportDialog';
 import { BrowserPagePrompts } from './BrowserPagePrompts';
@@ -42,6 +46,7 @@ import { createRemoteTouchController } from './remote-browser-touch';
 import { useBrowserPageInput } from './use-browser-page-input';
 import {
   REMOTE_CONNECTION_READY_EVENT,
+  STREAM_RENEW_MS,
   useRemoteBrowserStream,
   type StreamFrameMeta,
 } from './use-remote-browser-stream';
@@ -60,13 +65,6 @@ import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import type { BrowserPaneProps } from './BrowserPane.lazy';
 
-/** Keep a zoomed frame's edges inside the box: the image may pan only as far
- *  as its overflow on each axis. */
-function clampPan(offset: number, size: number, zoom: number): number {
-  const reach = Math.max(0, (size * (zoom - 1)) / 2);
-  return Math.min(reach, Math.max(-reach, offset));
-}
-
 /** Narrow (non-phone) toolbar: the less-used "Open in system browser" moves into the
  *  More menu so the address field keeps the room (same split as the PC pane's
  *  browserNavLayout). */
@@ -84,17 +82,20 @@ function useNarrowToolbar(): boolean {
   return narrow;
 }
 
-/** Client-side zoom of the frame image: the desktop keeps streaming the same
- *  frame; the phone scales and pans it. Pointer coordinates read the image's
- *  transformed box, so they stay exact. */
-function useRemoteFrameZoom(sessionId: string, ownerSessionId: string, imageRef: RefObject<HTMLImageElement | null>) {
+/** Client-side zoom of the picture (frame image or video): the desktop keeps
+ *  streaming the same page; the phone scales and pans it. Pointer coordinates
+ *  read the picture's transformed box, so they stay exact. */
+function useRemoteFrameZoom(sessionId: string, ownerSessionId: string, imageRef: RefObject<HTMLElement | null>) {
   const [zoomLevel, setZoomLevel] = useState(() => readBrowserZoom(window.localStorage, sessionId));
   const zoomRef = useRef(zoomLevel);
   zoomRef.current = zoomLevel;
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panRef = useRef(pan);
+  panRef.current = pan;
   const changeZoomLevel = useCallback(
     (level: number) => {
       const next = writeBrowserZoom(window.localStorage, ownerSessionId, level);
+      zoomRef.current = next;
       setZoomLevel(next);
       const image = imageRef.current;
       setPan((current) =>
@@ -108,7 +109,31 @@ function useRemoteFrameZoom(sessionId: string, ownerSessionId: string, imageRef:
     },
     [ownerSessionId, imageRef]
   );
-  return { zoomLevel, setZoomLevel, zoomRef, pan, setPan, changeZoomLevel };
+  /** Pinch: zoom about the fingers, up to `max`; presentation only. The
+   *  stored level is the menu's range; a deeper pinch lasts for the view. */
+  const pinch = useCallback(
+    (scale: number, x: number, y: number, dx: number, dy: number, max: number) => {
+      const image = imageRef.current;
+      if (!image) return;
+      const box = image.getBoundingClientRect();
+      const view = { zoom: zoomRef.current, pan: panRef.current };
+      const next = zoomRemoteView(view, {
+        scale,
+        at: { x, y },
+        shift: { x: dx, y: dy },
+        center: { x: box.left + box.width / 2 - view.pan.x, y: box.top + box.height / 2 - view.pan.y },
+        size: { width: image.clientWidth, height: image.clientHeight },
+        max,
+      });
+      zoomRef.current = next.zoom;
+      panRef.current = next.pan;
+      writeBrowserZoom(window.localStorage, ownerSessionId, next.zoom);
+      setZoomLevel(next.zoom);
+      setPan(next.pan);
+    },
+    [ownerSessionId, imageRef]
+  );
+  return { zoomLevel, setZoomLevel, zoomRef, pan, setPan, changeZoomLevel, pinch };
 }
 
 type TouchDot = { x: number; y: number; key: number };
@@ -124,16 +149,23 @@ function useRemoteTouch({
   setPan,
   setTouchDot,
   tapRef,
+  gestureRef,
 }: {
   client: ReturnType<typeof createRemoteBrowserInputClient>;
   frameRef: RefObject<RemoteInputFrame | null>;
-  imageRef: RefObject<HTMLImageElement | null>;
+  imageRef: RefObject<HTMLElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
   zoomRef: RefObject<number>;
   setPan: Dispatch<SetStateAction<{ x: number; y: number }>>;
   setTouchDot: Dispatch<SetStateAction<TouchDot | null>>;
   /** Called after each tap that reached the page. */
   tapRef: RefObject<() => void>;
+  /** Pinch zoom, fit, and the pre-press hook (composition), read per gesture. */
+  gestureRef: RefObject<{
+    pinch(scale: number, x: number, y: number, dx: number, dy: number): void;
+    fit(): void;
+    press(): void;
+  }>;
 }) {
   /** Client pixel → page CSS pixel through the (possibly zoomed) image box. */
   const viewportPoint = useCallback(
@@ -167,6 +199,10 @@ function useRemoteTouch({
       },
       send: (action) => client.fire(action),
       tapped: () => tapRef.current(),
+      press: () => gestureRef.current.press(),
+      pinch: (scale, x, y, dx, dy) => gestureRef.current.pinch(scale, x, y, dx, dy),
+      fitted: () => zoomRef.current === 1,
+      fit: () => gestureRef.current.fit(),
       panning: () => zoomRef.current > 1,
       pan: (dx, dy) => {
         const image = imageRef.current;
@@ -183,7 +219,7 @@ function useRemoteTouch({
         dotTimer = window.setTimeout(() => setTouchDot(null), TOUCH_INDICATOR_MS);
       },
     });
-  }, [client, viewportPoint, frameRef, imageRef, contentRef, zoomRef, setPan, setTouchDot, tapRef]);
+  }, [client, viewportPoint, frameRef, imageRef, contentRef, zoomRef, setPan, setTouchDot, tapRef, gestureRef]);
 }
 
 /** Human input to the streamed page: one ordered queue to the host, the
@@ -203,14 +239,19 @@ function useRemotePageInput({
   setPan,
   setTouchDot,
   tapRef,
+  gestureRef,
+  routeRef,
 }: {
   tapRef: RefObject<() => void>;
+  gestureRef: Parameters<typeof useRemoteTouch>[0]['gestureRef'];
+  /** Page input's owner (WebRTC channel or relay queue); null: the queue. */
+  routeRef: RefObject<((control: DesktopRemoteBrowserControl) => Promise<void>) | null>;
   api: typeof window.mixdogDesktop;
   active: boolean;
   ownerSessionId: string;
   setActionFailure: Dispatch<SetStateAction<string>>;
   frameRef: RefObject<RemoteInputFrame | null>;
-  imageRef: RefObject<HTMLImageElement | null>;
+  imageRef: RefObject<HTMLElement | null>;
   keyboardRef: RefObject<HTMLTextAreaElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
   addressRef: RefObject<HTMLInputElement | null>;
@@ -222,9 +263,12 @@ function useRemotePageInput({
   const inputQueue = useMemo(
     () =>
       createRemoteBrowserInputQueue({
-        send: async (input) => {
-          await api?.remoteBrowserControl?.(ownerSessionId, input);
+        send: async (input, order) => {
+          // A host serving ordered input takes each control as it comes.
+          if (order && remoteWebrtcHost(api)) await api.remoteBrowserControlOrdered!(ownerSessionId, input, order);
+          else await api?.remoteBrowserControl?.(ownerSessionId, input);
         },
+        pipelined: () => remoteWebrtcHost(api),
         failure: (message) => setActionFailure(browserInputNotice(message)),
         settled: () => {},
       }),
@@ -243,18 +287,30 @@ function useRemotePageInput({
         frame: () => frameRef.current,
         send: (input) => {
           setActionFailure('');
-          return inputQueue.enqueue(input);
+          return routeRef.current ? routeRef.current(input) : inputQueue.enqueue(input);
         },
         failure: (message) => setActionFailure(browserInputNotice(message)),
         shortcut: (name) => shortcutRef.current(name),
       }),
-    [inputQueue, frameRef, setActionFailure]
+    [inputQueue, frameRef, setActionFailure, routeRef]
   );
-  const input = useBrowserPageInput(client, imageRef, keyboardRef);
+  const pageInput = useBrowserPageInput(client, imageRef, keyboardRef);
+  const composition = useCompositionFinisher(pageInput, keyboardRef);
+  const input = composition.handlers;
   const inputRef = useRef(input);
   inputRef.current = input;
 
-  const touch = useRemoteTouch({ client, frameRef, imageRef, contentRef, zoomRef, setPan, setTouchDot, tapRef });
+  const touch = useRemoteTouch({
+    client,
+    frameRef,
+    imageRef,
+    contentRef,
+    zoomRef,
+    setPan,
+    setTouchDot,
+    tapRef,
+    gestureRef,
+  });
 
   // Declared before the queue effect so an unmount releases a held press
   // (and flushes coalesced motion) before the queue stops accepting input.
@@ -277,7 +333,7 @@ function useRemotePageInput({
     touch.dispose();
     inputRef.current?.onPointerCancel();
   }, [inputQueue, client, touch]);
-  return { inputQueue, input, touch, resetDocumentInput };
+  return { inputQueue, input, touch, resetDocumentInput, finishComposition: composition.finish };
 }
 
 /** The pane's tab strip actions on top of the host's tabs. */
@@ -389,6 +445,9 @@ type MoreActionOptions = {
   changeZoomLevel(level: number): void;
   externalUrl: string;
   openImport(): void;
+  /** A host that locks the page geometry: fit it to this screen, or back to
+   *  its own size, only on this explicit choice. */
+  fitPage: { fitted: boolean; toggle(): void } | null;
 };
 
 /** Stored logins for the page, refreshed whenever a page finishes loading,
@@ -429,6 +488,7 @@ function remoteBrowserMoreActions({
   changeZoomLevel,
   externalUrl,
   openImport,
+  fitPage,
 }: MoreActionOptions & {
   credentials: Pick<
     ReturnType<typeof useBrowserCredentials>,
@@ -448,6 +508,16 @@ function remoteBrowserMoreActions({
     disabled: credentialBusy,
     onSelect: () => fillStoredCredential(credential.id),
   }));
+  if (fitPage) {
+    moreActions.push({
+      id: 'fit-page',
+      label: t('Fit page to screen'),
+      checked: fitPage.fitted,
+      checkbox: true,
+      separatorBefore: moreActions.length > 0,
+      onSelect: fitPage.toggle,
+    });
+  }
   if (phone) {
     // The PC pane has no keyboard, zoom or external-open button; on the phone
     // they live in ⋯ (typing needs the soft keyboard).
@@ -744,7 +814,18 @@ function RemoteBrowserContent({
   touchDot,
   zoomPill,
   changeZoomLevel,
+  videoRef,
+  showsVideo,
+  covered,
+  finishComposition,
 }: {
+  videoRef: RefObject<HTMLVideoElement | null>;
+  /** The WebRTC video is the picture (the image stays underneath, hidden). */
+  showsVideo: boolean;
+  /** A take-over waits for its fitted page: the loading state covers the pane. */
+  covered: boolean;
+  /** A press reaches the page: typing's composition is finished first. */
+  finishComposition(): void;
   contentRef: RefObject<HTMLDivElement | null>;
   imageRef: RefObject<HTMLImageElement | null>;
   input: PageInput;
@@ -761,26 +842,45 @@ function RemoteBrowserContent({
   changeZoomLevel(level: number): void;
 }) {
   const zoomBarVisible = useZoomBarVisible();
+  const transform =
+    zoomLevel !== 1 || pan.x || pan.y ? { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` } : {};
   // `touch-action: none` alone does not keep iOS WebKit from taking a touch
   // on the frame for its own scroll, zoom, selection or callout, and that
   // cancels the pointer stream the touch controller reads. React registers
   // touchstart/touchmove passive, so the frame cancels them itself; touches
   // on controls over it (zoom pill, notices) keep their native tap.
+  // Two-finger motion is read from the touch list, which carries every
+  // contact's position in one event (a pointer event carries one finger);
+  // without touch events, pointer reports scroll (remote-browser-touch.ts).
+  const touchRef = useRef(touch);
+  touchRef.current = touch;
   useEffect(() => {
     const content = contentRef.current;
     if (!content) return undefined;
     const hold = (event: TouchEvent) => {
       if (event.target === content && event.cancelable) event.preventDefault();
     };
-    content.addEventListener('touchstart', hold, { passive: false });
-    content.addEventListener('touchmove', hold, { passive: false });
+    const moved = (event: TouchEvent) => {
+      hold(event);
+      const points = Array.from(event.touches)
+        .filter((contact) => content.contains(contact.target as Node))
+        .map((contact) => ({ x: contact.clientX, y: contact.clientY }));
+      touchRef.current.contacts(points);
+    };
+    // touchstart too: a gesture whose touch lists arrive is known before its
+    // first move, so its motion never rides the pointer-only fallback.
+    content.addEventListener('touchstart', moved, { passive: false });
+    content.addEventListener('touchmove', moved, { passive: false });
     return () => {
-      content.removeEventListener('touchstart', hold);
-      content.removeEventListener('touchmove', hold);
+      content.removeEventListener('touchstart', moved);
+      content.removeEventListener('touchmove', moved);
     };
   }, [contentRef]);
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== 'touch') return input.onPointerDown(event);
+    if (event.pointerType !== 'touch') {
+      finishComposition();
+      return input.onPointerDown(event);
+    }
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     touch.down(event.pointerId, event.clientX, event.clientY);
@@ -819,15 +919,33 @@ function RemoteBrowserContent({
           ref={imageRef}
           src={imageUrl}
           draggable={false}
-          style={
-            zoomLevel !== 1 || pan.x || pan.y
-              ? { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` }
-              : undefined
-          }
+          style={{ ...transform, ...(showsVideo ? { visibility: 'hidden' } : {}) }}
           alt={title || 'Browser Use'}
         />
       )}
-      {!imageUrl && (
+      {/* The WebRTC picture: decoding (and reporting frames) under the JPEG
+          view until it is promoted, then the picture itself at its decoded
+          resolution. */}
+      <video
+        ref={videoRef}
+        className="browser-remote-video"
+        muted
+        playsInline
+        autoPlay
+        disablePictureInPicture
+        aria-hidden={showsVideo ? undefined : true}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          pointerEvents: 'none',
+          opacity: showsVideo ? 1 : 0,
+          ...transform,
+        }}
+      />
+      {(covered || (!imageUrl && !showsVideo)) && (
         <div className="browser-remote-empty">
           {failure ? (
             <ErrorNotice error={failure} title={t('Could not connect to browser screen')} role="status" />
@@ -862,7 +980,7 @@ function RemoteBrowserContent({
 }
 
 export { STREAM_RENEW_MS } from './use-remote-browser-stream';
-const TOUCH_INDICATOR_MS = 450;
+export const TOUCH_INDICATOR_MS = 450;
 
 /** `onDockClose` is given when the panel shows another session's page: it
  *  replaces the default close (the focused dock) with the viewer's own dock,
@@ -899,10 +1017,32 @@ export default function RemoteBrowserPane({
   // tab strip, ⋯ and close); every other surface keeps the pane as it was.
   const phone = useMobileRemoteSurface();
   const [, setConnectionEpoch] = useState(0);
-  const { zoomLevel, setZoomLevel, zoomRef, pan, setPan, changeZoomLevel } = useRemoteFrameZoom(
+  // The picture input maps through and zoom transforms: the WebRTC video
+  // while it is shown, else the frame image; and the geometry that goes with it.
+  const webrtcRef = useRef<ReturnType<typeof useRemoteWebrtc> | null>(null);
+  const surfaceRef = useMemo(
+    () =>
+      ({
+        get current(): HTMLElement | null {
+          return webrtcRef.current?.showsVideo ? webrtcRef.current.videoRef.current : imageRef.current;
+        },
+      }) as RefObject<HTMLElement | null>,
+    []
+  );
+  const inputFrameRef = useMemo(
+    () =>
+      ({
+        get current(): RemoteInputFrame | null {
+          return webrtcRef.current ? webrtcRef.current.inputFrame(frameRef.current) : frameRef.current;
+        },
+      }) as RefObject<RemoteInputFrame | null>,
+    []
+  );
+  const routeRef = useRef<((control: DesktopRemoteBrowserControl) => Promise<void>) | null>(null);
+  const { zoomLevel, setZoomLevel, zoomRef, pan, setPan, changeZoomLevel, pinch } = useRemoteFrameZoom(
     sessionId,
     ownerSessionId,
-    imageRef
+    surfaceRef
   );
 
   // Another page: nothing of the previous one (frame, image, pan, zoom) carries over.
@@ -937,14 +1077,21 @@ export default function RemoteBrowserPane({
     if (document.activeElement === field) field.blur();
     field.focus({ preventScroll: true });
   };
-  const { inputQueue, input, touch, resetDocumentInput } = useRemotePageInput({
+  const gestureRef = useRef({
+    pinch: (_scale: number, _x: number, _y: number, _dx: number, _dy: number) => {},
+    fit: () => {},
+    press: () => {},
+  });
+  const { inputQueue, input, touch, resetDocumentInput, finishComposition } = useRemotePageInput({
     tapRef,
+    gestureRef,
+    routeRef,
     api,
     active,
     ownerSessionId,
     setActionFailure,
-    frameRef,
-    imageRef,
+    frameRef: inputFrameRef,
+    imageRef: surfaceRef,
     keyboardRef,
     contentRef,
     addressRef,
@@ -953,7 +1100,55 @@ export default function RemoteBrowserPane({
     setPan,
     setTouchDot,
   });
-  useRemoteBrowserStream({
+  const webrtc = useRemoteWebrtc({
+    api,
+    active,
+    sessionId: ownerSessionId,
+    queue: inputQueue,
+    frameRef,
+    dropInput: resetDocumentInput,
+    failure: (message) => setActionFailure(browserInputNotice(message)),
+    statsIntervalMs: STREAM_RENEW_MS,
+  });
+  webrtcRef.current = webrtc;
+  routeRef.current = webrtc.route;
+  gestureRef.current = {
+    pinch: (scale, x, y, dx, dy) => {
+      const box = contentRef.current?.getBoundingClientRect() ?? { width: 0, height: 0 };
+      const source = webrtc.showsVideo
+        ? webrtc.videoSource()
+        : frameRef.current && { width: frameRef.current.width, height: frameRef.current.height };
+      pinch(scale, x, y, dx, dy, remotePinchMaxZoom(box, source, window.devicePixelRatio || 1));
+    },
+    fit: () => changeZoomLevel(1),
+    press: finishComposition,
+  };
+  // Geometry is the host's; this device asks for another only when told to.
+  const [pageFitted, setPageFitted] = useState(false);
+  const fitPage = webrtc.geometryLocked
+    ? {
+        fitted: pageFitted,
+        toggle: () => {
+          const box = contentRef.current?.getBoundingClientRect();
+          const viewport = pageFitted ? null : remoteBrowserDriveViewport(box, window.devicePixelRatio || 1);
+          if (!pageFitted && !viewport) return;
+          webrtc.requestResize(
+            viewport
+              ? {
+                  mode: 'fit-client',
+                  cssWidth: viewport.width,
+                  cssHeight: viewport.height,
+                  deviceScaleFactor: viewport.deviceScaleFactor,
+                }
+              : { mode: 'page' }
+          );
+          setPageFitted(!pageFitted);
+        },
+      }
+    : null;
+  const { awaitingFit, videoShown } = useRemoteBrowserStream({
+    onFrame: webrtc.relayFrame,
+    onPresented: webrtc.relayPresented,
     api,
     active,
     ownerSessionId,
@@ -967,6 +1162,12 @@ export default function RemoteBrowserPane({
     setFailure,
     setActionFailure,
     setAddress,
+  });
+  // A promoted video carries the picture (no JPEG image comes): its frame of
+  // the fitted page uncovers a take-over too. Checked as the viewer changes.
+  useEffect(() => {
+    const shown = awaitingFit && webrtc.showsVideo ? webrtc.inputFrame(frameRef.current) : null;
+    if (shown) videoShown(shown);
   });
 
   useEffect(() => {
@@ -1059,6 +1260,7 @@ export default function RemoteBrowserPane({
     changeZoomLevel,
     externalUrl,
     openImport: () => setImportOpen(true),
+    fitPage,
   });
 
   return (
@@ -1145,6 +1347,10 @@ export default function RemoteBrowserPane({
           touchDot={touchDot}
           zoomPill={!phone}
           changeZoomLevel={changeZoomLevel}
+          videoRef={webrtc.videoRef}
+          showsVideo={webrtc.showsVideo && !awaitingFit}
+          covered={awaitingFit}
+          finishComposition={finishComposition}
         />
         {frame?.dialog && (
           <BrowserPagePrompts

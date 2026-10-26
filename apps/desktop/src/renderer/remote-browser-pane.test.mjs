@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { afterEach, beforeEach } from 'node:test';
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -10,19 +10,123 @@ installTestDom(null, {
   jsdom: { url: 'https://mixdog.test/' },
   expose: ['HTMLElement', 'KeyboardEvent', 'CustomEvent', 'navigator'],
 });
-window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
-window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
 // React's IE input polyfill runs on focus in this jsdom setup and needs these.
 window.HTMLElement.prototype.attachEvent = function attachEvent(_name, handler) {
   this.propertyChange = handler;
 };
 window.HTMLElement.prototype.detachEvent = () => {};
 
-const { default: RemoteBrowserPane } = await import('./RemoteBrowserPane.tsx');
-const { createRemoteTouchController } = await import('./remote-browser-touch.ts');
+/**
+ * One controlled clock for the pane: window and global timeouts and
+ * intervals, animation frames and Date.now. Time moves only through
+ * `advance` (the tests' `wait`), which runs every timer due on the way in
+ * time order and lets promise work settle after each, so no timing boundary
+ * (touch indicator, long-press, double tap, resize debounce) depends on how
+ * fast the machine runs the test.
+ */
+const FRAME_MS = 16;
 
-const wait = (ms = 10) => new Promise((resolve) => setTimeout(resolve, ms));
-const flush = () => act(async () => wait(10));
+function createTestClock() {
+  const drainOnce = () => new Promise((resolve) => setImmediate(resolve));
+  const drain = async () => {
+    await drainOnce();
+    await drainOnce();
+  };
+  const startedAt = Date.now();
+  const timers = new Map();
+  let now = 0;
+  let nextId = 1;
+  const schedule = (callback, ms, args, every) => {
+    const id = nextId++;
+    const delay = Math.max(0, Number(ms) || 0);
+    timers.set(id, { id, at: now + delay, callback, args, every: every ? Math.max(1, delay) : 0 });
+    return id;
+  };
+  const cancel = (id) => {
+    timers.delete(id);
+  };
+  const clock = {
+    get now() {
+      return now;
+    },
+    /** Drop every pending callback and put back what was replaced. */
+    restore() {
+      timers.clear();
+      for (const [target, name, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(target, name, descriptor);
+        else delete target[name];
+      }
+    },
+    setTimeout: (callback, ms, ...args) => schedule(callback, ms, args, false),
+    clearTimeout: cancel,
+    setInterval: (callback, ms, ...args) => schedule(callback, ms, args, true),
+    clearInterval: cancel,
+    // A frame per FRAME_MS, as test-support/test-dom.mjs paces them.
+    requestAnimationFrame: (callback) => schedule(() => callback(now), FRAME_MS, [], false),
+    cancelAnimationFrame: cancel,
+    async advance(ms) {
+      const end = now + ms;
+      await drain();
+      for (;;) {
+        let due = null;
+        for (const timer of timers.values()) {
+          if (timer.at <= end && (!due || timer.at < due.at || (timer.at === due.at && timer.id < due.id))) due = timer;
+        }
+        if (!due) break;
+        now = Math.max(now, due.at);
+        if (due.every) due.at += due.every;
+        else timers.delete(due.id);
+        due.callback(...due.args);
+        await drain();
+      }
+      now = end;
+    },
+  };
+  const timerNames = [
+    'setTimeout',
+    'clearTimeout',
+    'setInterval',
+    'clearInterval',
+    'requestAnimationFrame',
+    'cancelAnimationFrame',
+  ];
+  // Everything a test replaces: the timers here, and the bridge and interval
+  // hooks `fakeApi` installs on the window.
+  const saved = [
+    ...[window, globalThis].flatMap((target) => timerNames.map((name) => [target, name])),
+    [window, 'mixdogDesktop'],
+    [Date, 'now'],
+  ].map(([target, name]) => [target, name, Object.getOwnPropertyDescriptor(target, name)]);
+  for (const target of [window, globalThis]) {
+    for (const name of timerNames) target[name] = clock[name];
+  }
+  Date.now = () => startedAt + now;
+  return clock;
+}
+
+const { default: RemoteBrowserPane, TOUCH_INDICATOR_MS } = await import('./RemoteBrowserPane.tsx');
+const { createRemoteTouchController, DOUBLE_TAP_TIMEOUT_MS, TOUCH_LONG_PRESS_MS } = await import(
+  './remote-browser-touch.ts'
+);
+const { STREAM_RENEW_MS } = await import('./use-remote-browser-stream.ts');
+
+/** A fresh clock per test; panes a test left mounted are unmounted (on that
+ *  clock) before everything it replaced is restored. */
+let clock = null;
+const mounted = new Set();
+beforeEach(() => {
+  clock = createTestClock();
+});
+afterEach(async () => {
+  for (const pane of [...mounted]) await pane.unmount();
+  clock.restore();
+  clock = null;
+});
+
+/** Time passing, on the test clock. */
+const wait = (ms = FRAME_MS) => clock.advance(ms);
+/** One animation frame: coalesced input goes out, pending promises settle. */
+const flush = () => act(async () => wait(FRAME_MS));
 
 const streamFrame = (overrides = {}) => ({
   sessionId: 's',
@@ -77,14 +181,17 @@ async function mount(props = { sessionId: 's', active: true }) {
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => root.render(React.createElement(RemoteBrowserPane, props)));
-  return {
+  const pane = {
     root,
     rerender: (next) => act(async () => root.render(React.createElement(RemoteBrowserPane, next))),
     unmount: async () => {
+      mounted.delete(pane);
       await act(async () => root.unmount());
       host.remove();
     },
   };
+  mounted.add(pane);
+  return pane;
 }
 
 /** 200x100 box for a 100x50 picture of a 200x100 viewport: client px == page px. */
@@ -231,6 +338,7 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
       content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
 
     // Tap: move + press + release, left button, with an immediate local dot.
+    const downAt = clock.now;
     await act(async () => {
       touch('pointerdown', 1, 50, 25);
     });
@@ -245,11 +353,19 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
         ['mouseReleased', 'left'],
       ]
     );
+    // The dot lasts its indicator time, then goes.
+    await act(async () => wait(downAt + TOUCH_INDICATOR_MS - 1 - clock.now));
+    assert.ok(document.querySelector('.browser-remote-touch-dot'));
+    await act(async () => wait(1));
+    assert.equal(document.querySelector('.browser-remote-touch-dot'), null);
 
-    // Long-press without movement: right click.
+    // Long-press without movement: right click, once held for the long-press time.
     state.controls.length = 0;
+    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
     await act(async () => touch('pointerdown', 2, 60, 30));
-    await act(async () => wait(560));
+    await act(async () => wait(TOUCH_LONG_PRESS_MS - 1));
+    assert.equal(pointers(state).length, 0, 'not yet a long-press');
+    await act(async () => wait(1));
     await act(async () => touch('pointerup', 2, 60, 30));
     await flush();
     assert.deepEqual(
@@ -280,24 +396,64 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
       drag.slice(2, -1).every((input) => input.phase === 'mouseMoved' && input.button === 'left' && input.buttons === 1)
     );
 
-    // Two-finger pan scrolls instead of clicking.
+    // Two-finger pan scrolls instead of clicking: with touch lists (touchstart
+    // and touchmove alongside the pointer reports) each motion goes out once.
+    const touchList = (type, points) => {
+      const list = new window.TouchEvent(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(list, 'touches', {
+        value: points.map(([clientX, clientY]) => ({ clientX, clientY, target: content })),
+      });
+      content.dispatchEvent(list);
+    };
+    const wheelsSent = () => state.controls.map(({ input }) => input).filter((input) => input.type === 'wheel');
     state.controls.length = 0;
     await act(async () => {
       touch('pointerdown', 4, 50, 50);
+      touchList('touchstart', [[50, 50]]);
       touch('pointerdown', 5, 150, 50);
+      touchList('touchstart', [
+        [50, 50],
+        [150, 50],
+      ]);
       touch('pointermove', 4, 50, 30);
       touch('pointermove', 5, 150, 30);
+      touchList('touchmove', [
+        [50, 30],
+        [150, 30],
+      ]);
       touch('pointerup', 4, 50, 30);
       touch('pointerup', 5, 150, 30);
     });
     await flush();
     assert.equal(pointers(state).length, 0);
-    const wheels = state.controls.map(({ input }) => input).filter((input) => input.type === 'wheel');
-    assert.ok(wheels.length > 0);
+    assert.ok(wheelsSent().length > 0);
     assert.equal(
-      wheels.reduce((sum, wheel) => sum + wheel.deltaY, 0),
-      20
+      wheelsSent().reduce((sum, wheel) => sum + wheel.deltaY, 0),
+      20,
+      'not dispatched twice'
     );
+
+    // Pointer reports only (no touch events): the scroll still works, and
+    // nothing zooms.
+    state.controls.length = 0;
+    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
+    await act(async () => {
+      touch('pointerdown', 6, 50, 50);
+      touch('pointerdown', 7, 150, 50);
+      for (let step = 1; step <= 3; step += 1) {
+        touch('pointermove', 6, 50, 50 - step * 10);
+        touch('pointermove', 7, 150, 50 - step * 10);
+      }
+      touch('pointerup', 6, 50, 20);
+      touch('pointerup', 7, 150, 20);
+    });
+    await flush();
+    assert.equal(pointers(state).length, 0);
+    assert.equal(
+      wheelsSent().reduce((sum, wheel) => sum + wheel.deltaY, 0),
+      30
+    );
+    assert.equal(document.querySelector('.browser-remote-content img').style.transform, '', 'no local zoom');
   } finally {
     await pane.unmount();
   }
@@ -350,11 +506,15 @@ test('during a takeover a tap on the page raises the soft keyboard and typing re
       ['mouseMoved', 'mousePressed', 'mouseReleased']
     );
     assert.equal(document.activeElement, textarea);
-    // A dismissed keyboard leaves the field focused: the next tap re-raises it.
+    // A dismissed keyboard leaves the field focused: the next tap re-raises it,
+    // even inside the double-tap window (a fitted picture's taps both click).
     let focused = 0;
     textarea.addEventListener('focus', () => focused++);
+    state.controls.length = 0;
+    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS - FRAME_MS));
     await tap(4);
     assert.equal(focused, 1);
+    assert.equal(pointers(state).filter((input) => input.phase === 'mousePressed').length, 1);
 
     // What is typed (a password included) goes to the page and nowhere else.
     textarea.value = 'hunter2';
@@ -988,13 +1148,7 @@ test('a chat link opened before and while the pane is mounted navigates the host
   }
 });
 
-const innerHeightDescriptor = Object.getOwnPropertyDescriptor(window, 'innerHeight');
-const restoreInnerHeight = () => {
-  if (innerHeightDescriptor) Object.defineProperty(window, 'innerHeight', innerHeightDescriptor);
-  else delete window.innerHeight;
-};
-
-test('a browserDrive host gets the content box on start and after a debounced resize; an older host never does', async () => {
+test('the default layout never sends a viewport control: renewals carry only the frame bound', async () => {
   const state = fakeApi();
   let box = { width: 390, height: 700 };
   const original = window.HTMLElement.prototype.getBoundingClientRect;
@@ -1002,136 +1156,28 @@ test('a browserDrive host gets the content box on start and after a debounced re
     if (!this.classList.contains('browser-remote-content')) return original.call(this);
     return { left: 0, top: 0, x: 0, y: 0, right: box.width, bottom: box.height, ...box, toJSON() {} };
   };
-  const viewports = () =>
-    state.controls.filter(({ input }) => input.type === 'viewport').map(({ sessionId, input }) => [sessionId, input]);
+  const viewports = () => state.controls.filter(({ input }) => input.type === 'viewport');
   try {
-    const older = await mount();
-    await flush();
-    const streams = state.streams.length;
-    await act(async () => window.dispatchEvent(new window.Event('resize')));
-    await act(async () => wait(200));
-    assert.deepEqual(viewports(), [], 'an older host never receives the control');
-    assert.equal(state.streams.length, streams, 'and keeps renewal-only streaming');
-    await older.unmount();
-
-    window.mixdogDesktop.remoteBrowserDrive = true;
-    const pane = await mount();
-    try {
+    for (const drive of [false, true]) {
+      if (drive) window.mixdogDesktop.remoteBrowserDrive = true;
+      const pane = await mount();
       await flush();
-      assert.deepEqual(viewports(), [['s', { type: 'viewport', width: 390, height: 700, deviceScaleFactor: 1 }]]);
-      assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 390, maxHeight: 700 });
-
-      // A rotation lands once, after the burst of resize events settles.
       box = { width: 700, height: 390 };
       await act(async () => {
         window.dispatchEvent(new window.Event('orientationchange'));
         window.dispatchEvent(new window.Event('resize'));
-        window.dispatchEvent(new window.Event('resize'));
       });
-      await act(async () => wait(50));
-      assert.equal(viewports().length, 1, 'debounced');
-      await act(async () => wait(200));
-      assert.deepEqual(viewports().slice(1), [
-        ['s', { type: 'viewport', width: 700, height: 390, deviceScaleFactor: 1 }],
-      ]);
+      await act(async () => wait(STREAM_RENEW_MS));
+      await act(async () => state.renew());
+      await flush();
+      assert.deepEqual(viewports(), [], drive ? 'a browserDrive host is not driven' : 'an older host neither');
+      assert.ok(state.streams.every(([, options]) => !options || !('fit' in options)), 'and nothing is fitted');
       assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 700, maxHeight: 390 });
-
-      // Each renewal restates it, so a host whose lease lapsed is driven again.
-      await act(async () => state.renew());
-      await flush();
-      assert.equal(viewports().length, 3);
-
-      // A desktop window made shorter with a field focused (the address bar,
-      // the composer) is a real resize: the page follows it at once.
-      const field = document.querySelector('.browser-remote-keyboard textarea');
-      const address = document.querySelector('.browser-pane-toolbar input');
-      const windowHeight = (height) =>
-        Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
-      windowHeight(800);
-      await act(async () => state.renew());
-      await flush();
-      await act(async () => address.focus());
-      box = { width: 700, height: 250 };
-      windowHeight(660);
-      await act(async () => window.dispatchEvent(new window.Event('resize')));
-      await act(async () => wait(200));
-      assert.deepEqual(viewports().at(-1)[1], { type: 'viewport', width: 700, height: 250, deviceScaleFactor: 1 });
-      assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 700, maxHeight: 250 });
-      await act(async () => address.blur());
-      box = { width: 700, height: 390 };
-      windowHeight(800);
-      await act(async () => window.dispatchEvent(new window.Event('resize')));
-      await act(async () => wait(200));
-      assert.deepEqual(viewports().at(-1)[1], { type: 'viewport', width: 700, height: 390, deviceScaleFactor: 1 });
-    } finally {
       await pane.unmount();
+      box = { width: 390, height: 700 };
     }
   } finally {
     window.HTMLElement.prototype.getBoundingClientRect = original;
-    restoreInnerHeight();
-  }
-});
-
-test('on a phone the soft keyboard does not resize the driven page; the field letting go does', async () => {
-  const state = fakeApi();
-  window.mixdogDesktop.remoteBrowserDrive = true;
-  let box = { width: 700, height: 390 };
-  const original = window.HTMLElement.prototype.getBoundingClientRect;
-  window.HTMLElement.prototype.getBoundingClientRect = function boundingRect() {
-    if (!this.classList.contains('browser-remote-content')) return original.call(this);
-    return { left: 0, top: 0, x: 0, y: 0, right: box.width, bottom: box.height, ...box, toJSON() {} };
-  };
-  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
-  Object.defineProperty(window.navigator, 'userAgent', {
-    configurable: true,
-    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
-  });
-  const windowHeight = (height) => Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
-  windowHeight(800);
-  const viewports = () =>
-    state.controls.filter(({ input }) => input.type === 'viewport').map(({ input }) => input);
-  const pane = await mount();
-  try {
-    await flush();
-    assert.deepEqual(viewports().at(-1), { type: 'viewport', width: 700, height: 390, deviceScaleFactor: 1 });
-
-    // Typing: the soft keyboard only shortens the box; the page keeps its
-    // size (no re-layout, no stream restart) until the field lets go.
-    const typingFrom = viewports().length;
-    const field = document.querySelector('.browser-remote-keyboard textarea');
-    await act(async () => field.focus());
-    box = { width: 700, height: 200 };
-    windowHeight(610);
-    await act(async () => window.dispatchEvent(new window.Event('resize')));
-    await act(async () => wait(200));
-    await act(async () => state.renew());
-    await flush();
-    assert.ok(viewports().length > typingFrom, 'the renewal restated it');
-    assert.ok(
-      viewports()
-        .slice(typingFrom)
-        .every((input) => input.height === 390),
-      'never the keyboard-shortened height'
-    );
-    assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 700, maxHeight: 390 });
-    // A real change of width (rotation) still goes through while typing.
-    box = { width: 390, height: 200 };
-    await act(async () => window.dispatchEvent(new window.Event('resize')));
-    await act(async () => wait(200));
-    assert.deepEqual(viewports().at(-1), { type: 'viewport', width: 390, height: 200, deviceScaleFactor: 1 });
-    // Keyboard down with the field: the box as it is.
-    box = { width: 390, height: 700 };
-    windowHeight(800);
-    await act(async () => field.blur());
-    await act(async () => wait(200));
-    assert.deepEqual(viewports().at(-1), { type: 'viewport', width: 390, height: 700, deviceScaleFactor: 1 });
-  } finally {
-    await pane.unmount();
-    window.HTMLElement.prototype.getBoundingClientRect = original;
-    restoreInnerHeight();
-    delete window.mixdogDesktop.remoteBrowserDrive;
-    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
-    else delete window.navigator.userAgent;
   }
 });
 

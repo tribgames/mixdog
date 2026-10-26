@@ -2,6 +2,7 @@
 // attempt at a time through its handshake, traffic and close.
 import type { SessionSnapshot } from '../shared/contract';
 import { createRelayE2EEClientHandshake, isRelayE2EEChallenge } from '../shared/remote-e2ee';
+import { REMOTE_WEBRTC_VERSION } from '../shared/remote-webrtc';
 import { earlyUiT } from './early-ui-i18n';
 import { isInvalidRemotePairingClose } from './remote-pairing-recovery';
 import { setRemoteHostName, setRemoteHostOpenAccess } from './remote-host-access';
@@ -268,6 +269,9 @@ const openSocketAttempt = (
     ctx.peerRouteAutoEffort = false;
     ctx.peerVisualize = false;
     ctx.peerFileDownloads = false;
+    ctx.peerBrowserWebrtc = 0;
+    // Known once the host's challenge is read; a host without E2EE has none.
+    ctx.peerBrowserFit = ctx.e2eePairing ? null : false;
     dropMediaSession(ctx);
     ctx.limits.resetLearnedCaps();
     if (!ctx.e2eePairing) {
@@ -354,6 +358,8 @@ const openSocketAttempt = (
         ctx.peerRouteAutoEffort = clear.routeAutoEffort === 1;
         ctx.peerVisualize = clear.visualize === 1;
         ctx.peerFileDownloads = clear.fileDownloads === 1;
+        ctx.peerBrowserWebrtc = clear.browserWebrtc === REMOTE_WEBRTC_VERSION ? REMOTE_WEBRTC_VERSION : 0;
+        ctx.peerBrowserFit = clear.browserFit === 1;
         // The previous leg's media session ended with it.
         dropMediaSession(ctx);
         ctx.peerMediaE2ee = clear.mediaE2ee === 1;
@@ -407,6 +413,10 @@ const openSocketAttempt = (
     ctx.connectionReady = false;
     ctx.secureChannel = null;
     dropMediaSession(ctx);
+    // Until a host's challenge says otherwise there is no host: its live-view
+    // capabilities must not be read across the gap to the next connection.
+    ctx.peerBrowserWebrtc = 0;
+    ctx.peerBrowserFit = null;
     ctx.relayBinaryFrames = false;
     ctx.clearWakePongTimer();
     ctx.awaitingPong = false;

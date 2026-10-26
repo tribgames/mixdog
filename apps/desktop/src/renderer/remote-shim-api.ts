@@ -27,6 +27,8 @@ import { openRemoteExternalLink } from './remote-external-link';
 import { mediaLaneSupported, remoteMediaLaneUrl } from './remote-media-lane';
 import { VISIBLE_SESSIONS_STORAGE_KEY, MAX_RESTORED_VISIBLE_SESSIONS } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
+import { REMOTE_WEBRTC_SIGNAL_METHOD, REMOTE_WEBRTC_VERSION } from '../shared/remote-webrtc';
+import type { RemoteWebrtcBridge } from './remote-webrtc-bridge';
 
 type GatedKey =
   | 'previewProjectFile'
@@ -558,6 +560,24 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   // Read per access like the members below: a reconnect may reach a host that
   // predates `browserDrive`, and the pane must then never send `viewport`.
   Object.defineProperty(api, 'remoteBrowserDrive', { enumerable: true, get: () => ctx.peerBrowserDrive === true });
+  // Read per access: only a host advertising `browserFit` honours a
+  // take-over's fit and marks its frames, so only there may the pane wait.
+  // null: no host authenticated yet (disconnected): not known either way.
+  Object.defineProperty(api, 'remoteBrowserFit', { enumerable: true, get: () => ctx.peerBrowserFit });
+  // The WebRTC live view and ordered relay input (shared/remote-webrtc.ts):
+  // read per access, a reconnect may reach a host that predates `browserWebrtc`.
+  const webrtc: Required<RemoteWebrtcBridge> = {
+    remoteBrowserWebrtc: REMOTE_WEBRTC_VERSION,
+    remoteBrowserWebrtcSignal: (signal) => call<void>(REMOTE_WEBRTC_SIGNAL_METHOD, [signal]),
+    onRemoteBrowserWebrtc: (listener) => listenOn(ctx.remoteBrowserWebrtcListeners, listener),
+    remoteBrowserControlOrdered: (sessionId, input, order) => call('browserRemoteControl', [sessionId, input, order]),
+  };
+  for (const key of Object.keys(webrtc) as Array<keyof RemoteWebrtcBridge>) {
+    Object.defineProperty(api, key, {
+      enumerable: true,
+      get: () => (ctx.peerBrowserWebrtc === REMOTE_WEBRTC_VERSION ? webrtc[key] : key === 'remoteBrowserWebrtc' ? 0 : undefined),
+    });
+  }
   // Read per access: a reconnect may reach a host without conversation tab controls.
   Object.defineProperty(api, 'remoteBrowserSessionTabs', {
     enumerable: true,
