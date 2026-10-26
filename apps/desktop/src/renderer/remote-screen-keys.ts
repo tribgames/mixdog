@@ -165,9 +165,7 @@ export function screenSpecialKeyInputs(id: ScreenSpecialKey['id']): RemoteScreen
 }
 
 /** The phone keyboard's field: keyboard events and text in, screen input out. */
-export function createScreenTextController(options: {
-  emit(inputs: RemoteScreenInput[]): void;
-}) {
+export function createScreenTextController(options: { emit(inputs: RemoteScreenInput[]): void }) {
   let composing = false;
   /** A key sent from its keydown whose input event may still follow. */
   let echo: ScreenKeyEcho | null = null;
@@ -238,5 +236,3 @@ export function createScreenTextController(options: {
     },
   };
 }
-
-export type ScreenTextController = ReturnType<typeof createScreenTextController>;

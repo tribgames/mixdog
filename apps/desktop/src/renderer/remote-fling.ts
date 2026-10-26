@@ -59,8 +59,3 @@ export function flingTravel(fling: Fling, elapsed: number): { x: number; y: numb
   const distance = fling.timeConstant * fling.speed * -Math.expm1(-t / fling.timeConstant);
   return { x: distance * fling.dx, y: distance * fling.dy };
 }
-
-/** Speed (px/ms) `elapsed` ms into the fling. */
-export function flingSpeed(fling: Fling, elapsed: number): number {
-  return fling.speed * Math.exp(-Math.max(0, elapsed) / fling.timeConstant);
-}

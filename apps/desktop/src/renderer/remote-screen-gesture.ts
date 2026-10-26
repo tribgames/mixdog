@@ -21,8 +21,6 @@ export type ScreenGestureAction =
   | { type: 'drag-start'; at: ScreenPoint; button?: RemoteScreenButton }
   | { type: 'drag-move'; at: ScreenPoint }
   | { type: 'drag-end'; at: ScreenPoint }
-  /** The drag was interrupted (a second finger, the pane left, touchcancel). */
-  | { type: 'drag-cancel' }
   /** WheelEvent-signed deltas in CSS-like pixels of the PC picture. */
   | { type: 'scroll'; at: ScreenPoint; dx: number; dy: number };
 
@@ -47,11 +45,10 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
   /** Wheel units not yet sent: a slow swipe adds up instead of rounding away. */
   let carry = { x: 0, y: 0 };
 
-  const inside = (point: ScreenPoint): ScreenPoint => {
+  const target = (point: ScreenPoint): ScreenPoint => {
     const size = options.size();
     return size ? { x: clamp(point.x, size.width), y: clamp(point.y, size.height) } : point;
   };
-  const target = (at: ScreenPoint): ScreenPoint => inside(at);
   const press = (action: 'down' | 'up', button: RemoteScreenButton, at: ScreenPoint): RemoteScreenInput => ({
     type: 'screen-pointer',
     action,
@@ -70,10 +67,6 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
   };
 
   return {
-    /** True while a long-press drag holds a button. */
-    get dragging(): boolean {
-      return held !== null;
-    },
     /** The messages one gesture action sends, in order. */
     screenInputFromGesture(action: ScreenGestureAction): RemoteScreenInput[] {
       switch (action.type) {
@@ -109,8 +102,6 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
           held = null;
           return [{ type: 'screen-pointer', action: 'move', x: at.x, y: at.y }, press('up', button, at)];
         }
-        case 'drag-cancel':
-          return cancel();
         case 'scroll': {
           const at = target(action.at);
           const x = carry.x + action.dx * SCREEN_WHEEL_UNITS_PER_PIXEL;
@@ -129,5 +120,3 @@ export function createScreenGestureAdapter(options: ScreenGestureAdapterOptions)
     cancel,
   };
 }
-
-export type ScreenGestureAdapter = ReturnType<typeof createScreenGestureAdapter>;

@@ -7,7 +7,10 @@ import { createScreenGestureAdapter } from './remote-screen-gesture.ts';
 const SIZE = { width: 1920, height: 1080 };
 // The adapter is specified against the abstract actions the touch layer
 // reports (remote-screen-touch.test.mjs drives it with the real one).
-const fakeTouch = (adapter) => (...actions) => actions.flatMap((action) => adapter.screenInputFromGesture(action));
+const fakeTouch =
+  (adapter) =>
+  (...actions) =>
+    actions.flatMap((action) => adapter.screenInputFromGesture(action));
 const adapterOf = (options = {}) => createScreenGestureAdapter({ size: () => SIZE, ...options });
 const pointer = (action, x, y, button) => ({
   type: 'screen-pointer',
@@ -48,13 +51,11 @@ test('a long-press drag holds the button across moves and lifts at its end', () 
     pointer('move', 10, 10),
     pointer('down', 10, 10, 'left'),
   ]);
-  assert.equal(adapter.dragging, true);
   assert.deepEqual(touch({ type: 'drag-move', at: { x: 30, y: 40 } }), [pointer('move', 30, 40)]);
   assert.deepEqual(touch({ type: 'drag-end', at: { x: 50, y: 60 } }), [
     pointer('move', 50, 60),
     pointer('up', 50, 60, 'left'),
   ]);
-  assert.equal(adapter.dragging, false);
   // Nothing held: moves and ends are ignored.
   assert.deepEqual(touch({ type: 'drag-move', at: { x: 1, y: 1 } }, { type: 'drag-end', at: { x: 1, y: 1 } }), []);
 });
@@ -63,9 +64,8 @@ test('an interrupted drag lifts the button where it was pressed and releases eve
   const adapter = adapterOf();
   const touch = fakeTouch(adapter);
   touch({ type: 'drag-start', at: { x: 10, y: 10 }, button: 'right' }, { type: 'drag-move', at: { x: 90, y: 90 } });
-  assert.deepEqual(touch({ type: 'drag-cancel' }), [pointer('up', 90, 90, 'right'), { type: 'screen-release' }]);
-  assert.equal(adapter.dragging, false);
-  assert.deepEqual(touch({ type: 'drag-cancel' }), []);
+  assert.deepEqual(adapter.cancel(), [pointer('up', 90, 90, 'right'), { type: 'screen-release' }]);
+  assert.deepEqual(adapter.cancel(), []);
 });
 
 test('scroll sends WheelEvent-signed deltas in Windows wheel units, bounded', () => {

@@ -203,5 +203,3 @@ export const createRelayPayloadLimits = ({ pending, showToast }: RelayPayloadLim
     noteSentFrame,
   };
 };
-
-export type RelayPayloadLimits = ReturnType<typeof createRelayPayloadLimits>;
