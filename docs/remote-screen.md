@@ -22,10 +22,11 @@ displays, picks one, and streams it the same way it streams a browser page.
 | `apps/desktop/src/main/remote-screen/screen-input-dispatch.ts` | A pure mapper. It turns a viewer's `RemoteScreenInput` into host commands at the acknowledged geometry generation (`screenInputCommands`) and defines each press's identity and its release (`holdKeyOf`, `isHoldDown`, `releaseCommandFor`). It keeps no state. |
 | `apps/desktop/src/main/remote-screen/screen-input-router.ts` | `ScreenInputRouter`: the single serialized, cancellable path for input, backend switches and releases of one session. It tracks held presses per backend + origin + key and releases them at the session's defined points. |
 | `apps/desktop/src/main/remote-screen/secure-desktop-switch.ts` | The pure decision: ordinary capture, an elevation prompt that can't take remote input, the installed helper, or a blocked secure desktop. Also builds the status pushed to the phone. |
-| `apps/desktop/src/main/remote-screen/screen-permission.ts` | The permission gate: master switch on, paired E2EE, explicit grant. View and control are separate. |
-| `apps/desktop/src/main/remote-screen/screen-access-settings.ts` | The master switch (off by default) and per-client grants, stored as an owner-only secret file. Every save fires `onChange`. |
 | `apps/desktop/src/main/remote-screen/screen-source.ts` | `RemoteScreenSource`, one per viewer: start/stop, geometry, capture plan, frames, input, live re-authorization, the secure-desktop switch, the indicator and the log. |
 | `apps/desktop/src/main/remote-screen/screen-webrtc-source.ts` | `createScreenWebrtcSource`: adapts a `RemoteScreenSource` to the WebRTC host's `RemoteWebrtcVideoSource` (`main/remote-webrtc/source.ts`). |
+| `apps/desktop/src/main/remote-screen/screen-webrtc-sources.ts` | The window process's screen sessions for the WebRTC host: per-connection access, resolve, close (see "Main wiring"). |
+| `apps/desktop/src/main/remote-screen/screen-access-publisher.ts` | Service side: sends each relay connection's access (grant / deny) to the window. |
+| `apps/desktop/src/main/remote-screen/screen-electron.ts` | Electron pieces: displays with capture ids, the input host factory, the notification indicator. |
 | `apps/desktop/src/main/remote-screen/screen-selfcheck.mjs` | A local self-check that needs no phone and doesn't touch the cursor. It runs no capture and injects nothing; input goes through a recording backend. |
 
 ## Contract fold-in
@@ -110,8 +111,8 @@ worker pool.
     the keys are pressed again. The target sees plain characters and the
     phone's held state is unchanged. If the text fails, the keys are still
     pressed again. The live gate (cancel generation + authorization) is
-    checked before the text and before every re-press. Once a stop, revoke or
-    downgrade lands, nothing positive is sent: no text, and no modifier is
+    checked before the text and before every re-press. Once a stop, unpair or
+    disconnect lands, nothing positive is sent: no text, and no modifier is
     pressed again. The keys already lifted are up and no longer held; only
     the ones not yet lifted stay held, for the release that follows. All
     AltGr keys must have been pressed on the current desktop identity, or the
@@ -184,8 +185,8 @@ durable recovery across sessions or restarts.
 
 **Released.** Everything the session holds is released, through the backend
 that pressed it and only onto the session + desktop it landed on, at each of:
-phone disconnect or viewer leave, demote, revoke or downgrade, a backend
-switch (before the switch), stop, and app quit.
+phone disconnect or viewer leave, demote, unpair, a backend switch (before
+the switch), stop, and app quit.
 
 **Dropped.** If that backend or desktop is unreachable at that moment (the
 input desktop changed, the helper reconnected elsewhere, the injector died or
@@ -238,7 +239,7 @@ and counted, and may stay down until the user presses it again.
 
 **Late key-ups: physical-key risk.** A release point's key-up can land some
 time after the press it undoes, for example a release queued behind a slow
-command, or a downgrade long after the press. Matching the origin only rules
+command, or a demote long after the press. Matching the origin only rules
 out the wrong session or desktop. It does **not** prove that nobody pressed
 the key on that desktop in the meantime. If the user is physically holding
 the same key on the PC when the key-up arrives, that up **releases the key the
@@ -258,7 +259,13 @@ to end before it treats it as not responding
 The Restart Manager uses the same value for forced shutdown:
 [RM_SHUTDOWN_TYPE](https://learn.microsoft.com/en-us/windows/win32/api/restartmanager/ne-restartmanager-rm_shutdown_type).)
 `COMMAND_TIMEOUT_MS` stays the normal per-command deadline. The quit call
-site is **pending integration** (see "Remaining integration steps").
+site is `disposeDesktopResources` in `apps/desktop/src/main/index.ts`: it
+calls `browserHost.stopRemoteScreens()` (→ `stopScreenSourcesForQuit`) first
+and waits for it beside the rest of the teardown, so the 4 s teardown bound
+doesn't cut the 5 s release budget short. Disposing the browser host (its
+window closing) stops the sessions the same way. Either call first latches
+the screen sources closed for good (see "Main wiring"), so no session opens
+during or after the quit.
 
 ### Helper channel and temp files
 
@@ -317,49 +324,47 @@ were copied.
 
 ## Permission / safety model
 
-Whole-PC control is the most sensitive capability in the app, so it is fenced
-off:
+**Pairing is the approval.** There is no master switch and no per-device
+grant: a phone that is paired, has an established E2EE channel and is still
+connected may view **and** control the whole screen. Everything else is
+refused.
 
-- **Off by default.** The master switch in `screen-access-settings.ts` is
-  `false` until someone turns it on at the PC. While it is off, no view or
-  control is possible.
-- **View and control are separate grants**, per paired client. A `view` grant
-  never injects input; `control` adds input. Turning the switch on grants
-  nothing.
-- **Only already-paired E2EE clients.** The gate requires the paired,
-  end-to-end-encrypted trust the relay already authenticated. Unpaired or
-  plaintext peers are refused.
-- **Visible on-PC indicator** while a phone views or controls, with a one-click
-  stop (`ScreenIndicator`). It shows view vs control live.
-- **Logging.** Start, stop, denial, downgrade, secure-desktop transitions and
-  dropped releases (as counts per backend) are logged. Input content is never
-  logged.
+- **Only paired, connected E2EE clients.** The service decides it per relay
+  connection, for the connection that delivered the signal
+  (`ScreenAccessPublisher.allowed`): the client id must still name that
+  connection, its E2EE channel must be established, the connection must not
+  be revoked, and its credential must have no unpair in force (see "Unpair"
+  below). The same check runs where the signal is
+  authorized (`screenAuthorized` in `remote-relay.ts`) and in the access it
+  pushes to the window. Unpaired or plaintext peers are refused.
+- **Visible on-PC indicator** while a phone controls, with a one-click stop
+  (`ScreenIndicator`). Today it is an OS notification; it is to be redesigned
+  separately.
+- **Logging.** Start, stop, denial, secure-desktop transitions and dropped
+  releases (as counts per backend) are logged. Input content is never logged.
 
 ### Live re-authorization
 
-`ScreenViewerAuthorization` reads `enabled`/`pairedE2EE`/`grant` live and has an
-`onChange` signal. The wiring connects it to the settings store's `onChange`
-(master switch, per-client grant, `forget`), to unpair events, and to loss of
-the E2EE channel. The source subscribes when it starts and re-decides on every
-signal:
+`ScreenViewerAuthorization` reads `paired()` live and has an `onChange`
+signal, fed by the access the service pushes for the session's own relay
+connection (see "Main wiring"). The source subscribes when it starts and
+re-decides on every signal:
 
-- **Revoke, unpair, lost E2EE, or master switch off.** In the same tick:
-  `running()` becomes false, `capturePlan()` returns `null`, the indicator
-  hides, `onStop` fires with `revoked` or `disabled` (the sender stops the
-  track), status becomes `stopped`, and the stop is logged. Then the router
-  cancels pending input and releases every press the viewer owns, after the
+- **Disconnect, unpair, or the client id taken by another connection.** In the
+  same tick: `running()` becomes false, `capturePlan()` returns `null`, the
+  indicator hides, `onStop` fires with `revoked` (the sender stops the track),
+  status becomes `stopped`, and the stop is logged. Then the router cancels
+  pending input and releases every press the viewer holds, after the
   in-flight command.
-- **Downgrade from control to view.** All held input is released, the view
-  continues, and status and indicator show `control: false`. A `downgrade`
-  event is logged, and further input is rejected.
-- **During start.** Permission is checked again after the input host's async
-  start. A revoke during start fails `start()` with
+- **During start.** Pairing is checked again after the input host's async
+  start. A disconnect during start fails `start()` with
   `ScreenSourceDenied('revoked')`. Nothing is logged as started and no
-  indicator is shown.
-- **Before every command.** Each dispatch re-reads the live permission when its
-  turn comes and before each command, so a revoke between signals still blocks
+  indicator is shown. An input host that can't start fails the start and
+  stops the session (`error`): the injector is also the UAC / lock detector.
+- **Before every command.** Each dispatch re-reads `paired()` when its turn
+  comes and before each command, so a disconnect between signals still blocks
   input. Releases (`screen-release`, `releaseInput`) are always honoured, even
-  after a revoke, so no key stays down.
+  after a disconnect, so no key stays down.
 
 ### Threat model (brief)
 
@@ -373,9 +378,10 @@ Mitigations:
   DTLS fingerprints bound inside the E2EE envelope per `remote-webrtc.md`.
 - Every data-channel message is validated and bounded by the contract's parser
   before it reaches the injector.
-- Capture and control are off by default and gated on an explicit, per-client
-  grant held separately for view and control, over a paired E2EE channel. Any
-  loss of that trust is enforced live.
+- Capture and control are open only to a paired client over an established
+  E2EE channel that is still connected, bound to that relay connection. A
+  disconnect or unpair is enforced live; a reused client id never inherits
+  another connection's access.
 - The injector is reachable only through its parent's pipes, and its files sit
   in an owner-only folder.
 - The PC shows an unmissable indicator with a one-click stop.
@@ -388,10 +394,10 @@ layer owned elsewhere.
 
 ## WebRTC adapter
 
-`createScreenWebrtcSource(screen, { screenId, want, sink, onStartError })`
+`createScreenWebrtcSource(screen, { screenId, sink, onStartError })`
 returns a `RemoteWebrtcVideoSource` for `{ kind: 'screen', screenId }`:
 
-- `start()`: admits once via `screen.start(want)`, then reports the geometry to
+- `start()`: admits once via `screen.start()`, then reports the geometry to
   `sink.geometryChanged`. A refused or failed start reports `null` geometry and
   calls `onStartError`.
 - `stop()`: `screen.stop('viewer-left')`.
@@ -405,10 +411,120 @@ returns a `RemoteWebrtcVideoSource` for `{ kind: 'screen', screenId }`:
 - `onGeometry` calls `sink.geometryChanged` and then `sink.captureChanged`, so
   the sender re-opens its track. `onStop` reports `null` geometry.
 
+### Main wiring
+
+`createRemoteScreenSources` (`screen-webrtc-sources.ts`) is the window
+process's set of screen sessions for the WebRTC host
+(`apps/desktop/src/main/browser/host.ts` resolves `kind: 'screen'` through
+it; Windows only):
+
+- **Access.** The service (`remote-relay.ts`) owns the relay connections. Its
+  publisher (`screen-access-publisher.ts`) sends a client's
+  `RemoteScreenAccess` (`epoch`, `revision`, `connection`, `paired`, `label`)
+  over the window request `screenAccess`. Every decision is synchronous and
+  reads nothing: access is only "this connection is paired, E2EE-established
+  and still connected".
+  - **Bound to a connection.** `connection` is minted per relay connection
+    object, so a client id the relay reuses for a new connection carries a
+    different one.
+  - **A signal keeps its connection.** The decode site passes the connection
+    object a screen signal arrived on (`origin`) to
+    `RemoteWebrtcRelay.forward` (and the display list). Authorization before
+    and after ICE resolution, the grant push and the forward all check that
+    the client id still names `origin`; on a mismatch the signal is refused.
+    When a connection leaves the registry, its screen `ready`s still
+    resolving are cancelled (`connectionRemoved`) and never forwarded.
+  - **Grant, before a screen `ready`.** Sent only for `origin`, if it is
+    allowed; nothing is sent otherwise. If a deny for that client follows
+    while it is delivered, the client id no longer names `origin`, or its
+    credential was unpaired meanwhile, the `ready` is refused. Nothing is
+    awaited between that last check and the `webrtcSignal` request, and the
+    window handles the service's requests in order, so the session is bound
+    to `origin`'s access.
+  - **Deny, at once.** A connection leaving the relay client registry by any
+    path (leg closed, replaced under the same id, cleared, parked: the
+    registry's `onRemoved`) is denied synchronously.
+  - **Unpair.** Unpairing does not remove anything on the desktop's E2EE
+    side: a phone authenticates with this PC's pairing secret, and only the
+    relay's per-device credential tells devices apart. So the unpair is kept
+    as a record on the PC until the relay confirms it:
+    - **The record.** The device service queues the unpair in the client
+      cache (`pendingRevokes` in `remote-clients.json`, the same record
+      revocations made while remote access is off use) before it asks the
+      relay. It is in force from that moment, persisted, so it also holds
+      across a restart, and the revoke is retried each time the PC's relay
+      leg (re)connects.
+      It clears only when the relay confirms the revoke (`client-revoked`
+      with `ok`), when the user approves that same device again (a claim
+      for that credential: an explicit re-pair), or when the pairing is
+      reset or rotated (every credential is replaced). A failed or
+      unanswered revoke leaves it in force. If the write itself fails, the
+      record is kept in memory only: it holds for the rest of this run and
+      is lost at a restart.
+    - **Retries and acknowledgements.** Each queued entry has an instance
+      (`revocation`, a new one each time the device is queued anew; this
+      run only). The retry checks right before each send that the entry is
+      still queued, so one withdrawn meanwhile (re-paired) is not sent, and
+      an acknowledgement clears only the instance it was sent for: an old
+      one can't clear a newer removal request for the same device.
+    - **While it is in force** (`unpairPending` → the publisher's
+      `unpaired`), screen authorization and the grant push refuse every
+      connection of that credential, and a connection entering the relay
+      registry with it is revoked as it is admitted (`onAdded`), not when
+      it is first used.
+    - **At the unpair**, before anything is awaited, every live connection
+      of that credential, whether or not it asked for a screen, is revoked
+      and, if it may hold access, denied.
+    - A revoked connection is refused for that connection object's
+      lifetime, even after the record clears. After it clears, only a new
+      connection with that credential (one the relay authenticated after a
+      re-pair) gets access again.
+  - **Why a revision remains.** The decisions can no longer change
+    asynchronously, but each message still crosses an asynchronous hop to the
+    window. `epoch` is one random id per publisher (service instance) and
+    `revision` is monotonic within it. The window applies a message only if
+    its revision is newer than the last one applied for that client in the
+    current epoch and rejects a stale one; the last revision is kept after a
+    deny, so a grant can't land after the deny that followed it, whatever the
+    delivery order. A new epoch retires the previous one for good and
+    withdraws all its access.
+  - **In the window.** The message is validated (a grant must name its
+    connection). A session is bound to the connection its access was decided
+    for and reads it live as its `ScreenViewerAuthorization`: a deny, or
+    another connection's access under the same client id, stops it at once.
+  - **Not covered.** Ordering holds per service instance; the window assumes
+    one service sends at a time (a second, interleaving instance would retire
+    the first). Delivery itself is not retried. The window receives no
+    connection id with the `ready` itself; the binding relies on the
+    service's requests reaching it in order. The unpair record covers screen
+    access only: other remote features of a device whose revoke the relay
+    has not confirmed are unchanged by it.
+- **Resolve.** The WebRTC resolver now gets the viewer (`clientId` and the
+  signal type). Only a `ready` creates a session, for a display nobody holds.
+  It is started at once: the viewer's offer waits for the geometry the start
+  locks. Later signals of that client reach the same
+  session; another client's are refused while it lives. One session per
+  display.
+- **Exits.** Viewer leave, a failed connection (the host stops the source when
+  no viewer wants it), demote (`release`), unpair, disconnect and quit all
+  reach the session's release points.
+- **Close.** `stopForQuit` and `dispose` latch the set closed synchronously,
+  before taking the snapshot of sessions to stop, and the latch is permanent.
+  Every session still running or releasing is stopped under
+  `SCREEN_QUIT_BUDGET_MS`. The cached access is cleared, and from then on
+  every resolve is refused and every access update throws.
+- **Electron pieces** (`screen-electron.ts`): displays from Electron `screen`
+  with each display's `desktopCapturer` source id (refreshed on display
+  events and before each screen `ready`); the input host in the app-data
+  folder Computer Use's host uses; the indicator as an OS notification
+  posted from main (names the phone; a click stops the session; to be
+  redesigned separately). The secure-desktop client is `NO_SECURE_DESKTOP` until the
+  secure-desktop service's client is plugged in through the same interface.
+
 ### The underlying source interface
 
 `RemoteScreenSource` (`screen-source.ts`): `listDisplays()`,
-`start(want)` → `{ plan, geometry, status }`, `running()`, `geometry()`,
+`start()` → `{ plan, geometry, status }`, `running()`, `geometry()`,
 `capturePlan()`, `status()`, `onFrame` (helper-path BGRA frames), `onStatus`,
 `onGeometry`, `onStop`, `handleInput(input, geometryGeneration)` →
 `'applied' | 'rejected'`, `releaseInput()` (idempotent; valid before, during and
@@ -421,7 +537,11 @@ closed, bounded as described under "Shutdown". Its deps include an optional
 
 ## Testing
 
-Unit tests (`*.test.mjs`, run one at a time at Idle priority):
+Unit tests (`*.test.mjs`, run one at a time at Idle priority). Run them from
+`apps/desktop`, where `tsx` and the test environment load the TypeScript
+sources (Node's own type stripping can't, e.g. parameter properties):
+`node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --rerun-failed 0 remote-screen/screen-source.test`
+(the last argument filters by path).
 
 - `shared/remote-screen.test.mjs`: the key table and capture track opening.
 - `remote-screen/screen-geometry.test.mjs`: video sizing, pointer mapping
@@ -462,15 +582,13 @@ Unit tests (`*.test.mjs`, run one at a time at Idle priority):
   identity is null while the input desktop is unreadable.
 - `remote-screen/secure-desktop-switch.test.mjs`: every ordinary, in-place,
   secure and helper decision, and the reported control flag.
-- `remote-screen/screen-permission.test.mjs`: the gates.
-- `remote-screen/screen-access-settings.test.mjs`: off by default, separate
-  grants, persistence, malformed-data rejection, and the `onChange` signal.
 - `remote-screen/screen-source.test.mjs`:
-  - start/deny, view vs control, and stuck-key release on stop;
-  - revoke after a key-down sends the key-up and stops capture; master switch off;
-  - downgrade from control to view;
+  - start denied unless paired and connected; an input host that can't start
+    fails the start; stuck-key release on stop;
+  - an unpair after a key-down sends the key-up and stops capture at once;
+  - a demote releases held input and release stays idempotent;
   - every exit path (viewer leave / phone disconnect and demote through the
-    WebRTC adapter, revoke, downgrade, stop, app quit) releases held input
+    WebRTC adapter, unpair / disconnect, stop, app quit) releases held input
     through the backend that pressed it, for a session on the input host and
     one on the helper;
   - leaving the helper releases its press through the helper before the
@@ -486,11 +604,47 @@ Unit tests (`*.test.mjs`, run one at a time at Idle priority):
   - a host whose graceful stop hangs is killed at the stop deadline;
   - a later stop with a shorter deadline shortens one already running, in the
     release step and while the host closes, and never lengthens it;
-  - revoke during start, helper frames gated by permission, and capture not
-    restarted when the size is unchanged.
+  - a disconnect during start, helper frames gated by the live pairing, and
+    capture not restarted when the size is unchanged.
 - `remote-screen/screen-webrtc-source.test.mjs`: start once, `capturePlan`/`page`,
   dispatch forwarding and rejection, release forwarding, sink notifications,
   and refused start.
+- `remote-screen/screen-webrtc-sources.test.mjs` (with the real WebRTC host):
+  a paired client's `ready` locks geometry, then opens with the capture plan;
+  no session without access, from a non-ready signal, or for a second client;
+  disconnect and app quit release the held key and close the source; the
+  access message is validated. Regressions: a grant delivered after the deny
+  that followed it is rejected (also during a live session); a client id
+  reused by a new connection never inherits the old one's access, and the old
+  session stops; a new epoch retires the previous one; after `dispose` a
+  paired `ready` is refused and starts no input host; close latches before
+  the shutdown and stays closed.
+- `remote-screen/screen-access-publisher.test.mjs` (service side, deliveries
+  held by the test): access is bound to epoch, revision and connection; none
+  before the E2EE channel; a disconnect is denied synchronously and a grant
+  still in delivery refuses the `ready`; a client id reused by another
+  device's connection (with or without a removal) never gets the old access;
+  a `ready` from a connection the id no longer names sends no grant; an
+  unpair denies its connections synchronously, and a connection still
+  present after an unpair is never granted again; revisions only grow.
+  Regressions: a connection admitted while an unpair is in force and first
+  used after the relay confirmed it is refused; after a failed revoke a
+  fresh reconnect of that credential is refused; once the record clears
+  (confirmed or re-paired) only connections admitted after that get access.
+- `remote-relay-client-lifecycle.test.mjs`: an admitted connection is
+  announced at once with its credential; an approval announces the re-pair
+  before the approval is sent, and a denial or conflict announces none.
+- `remote-client-cache.test.mjs`: a re-pair withdraws only that queued
+  revocation, in effect before the write lands and after a reload.
+- `remote-revocation-reset.test.mjs` (the device service over a fake relay):
+  an unpair the relay refuses stays queued across a restart, the next
+  launch's relay leg retries it, and a confirmed revoke clears it; approving
+  that device again withdraws it.
+- `remote-webrtc/relay.test.mjs` (screen parts): a screen `ready` and the
+  display list need access; out-of-order checks forward only the newer
+  `ready`. Regression: a `ready` whose connection leaves during ICE while
+  another connection takes the id is cancelled, a mismatch alone refuses
+  it, and the new connection's own `ready` is forwarded with it as origin.
 
 Manual, local, phone-free:
 
@@ -508,50 +662,28 @@ Manual, local, phone-free:
 
 ## Remaining integration steps
 
-- `webrtc-pc-side` (owns `remote-webrtc.ts` and `remote-webrtc/source.ts`):
-  - create the source for `kind: 'screen'` with
-    `createScreenWebrtcSource(createRemoteScreenSource(...))`;
-  - route `screen-input` to `dispatch`;
-  - open the sender track from `capturePlan()` via `openRemoteScreenCaptureTrack`
-    and re-open it on `captureChanged`; feed `onFrame` while the helper owns the
-    desktop;
-  - push `RemoteWebrtcScreenStatusMessage` from `onStatus`;
-  - call `release` at demote and viewer-left, and `stop` on viewer leave and
-    on phone disconnect;
-  - add the display-list query.
-  - Optional: pass the input message's `geometryGeneration` through `dispatch`.
-    Today the adapter uses the current generation, relying on the host's own
-    check against the acknowledged one.
-- Main wiring (not owned here; **pending integration**, none of it exists in
-  production yet, scheduled with `webrtc-pc-side`): build one
-  `RemoteScreenSource` per viewer with:
-  - a real `ScreenDisplayProvider` (Electron `screen` + `desktopCapturer`);
-  - the `createScreenInputHost` factory with an owner-only app-data directory;
-  - the real `SecureDesktopClient` from `secure-desktop-service`, or a no-op
-    client. What this source needs from it (nothing else):
-    1. `session()`: the `session` it already receives in `server-hello` /
-       `desktop-changed`; null while not connected;
-    2. `sendInput` delivers a release whenever the helper is attached to that
-       desktop, even while capture is inactive;
-    3. `sendInput` settles or rejects in bounded time (the stop deadline
-       abandons a hung call, but can't cancel a down the helper applies
-       later);
-    4. the real desktop object name (`desktopName`, `UOI_NAME`) alongside
-       `desktop` in `server-hello` / `desktop-changed`. The helper identity
-       will then use the name, which normalizes `locked` vs `winlogon` if
-       they share one desktop (until then they are distinct);
-  - an indicator window and the remote log;
-  - at app quit (to be wired; not yet called anywhere): `will-quit` with
-    `preventDefault`, `await stopScreenSourcesForQuit(allSessions)` (at most
-    `SCREEN_QUIT_BUDGET_MS`), then `app.exit()`. The contract has no
-    `app-quit` stop reason yet, so `user` stands in until `webrtc-pc-side`
-    adds one;
-  - `ScreenViewerAuthorization`: `pairedE2EE` from the relay client registry,
-    `onChange` wired to the settings store and to unpair/E2EE-loss events.
-    Call `forget` on a client's grant when it is unpaired.
-- UI (minimal, still to wire):
-  - a PC settings toggle for the master switch and a per-device view/control
-    grant (IPC like the existing
-    `setRemoteAccessEnabled`/`getRemoteAccessSettings`);
-  - the on-PC indicator window with its stop button;
-  - the phone's display picker and elevation/secure-desktop status banner.
+The main wiring is done (see "Main wiring"). Still open:
+
+- WebRTC host:
+  - push `RemoteWebrtcScreenStatusMessage` on the channel from `onStatus`
+    (nothing sends `screen-status` yet);
+  - feed helper `onFrame` frames to the sender while the helper owns the
+    desktop (only matters once a real secure-desktop client is plugged in);
+  - optional: pass the input message's `geometryGeneration` through
+    `dispatch`. Today the adapter uses the current generation, relying on the
+    host's own check against the acknowledged one;
+  - an `app-quit` stop reason (`user` stands in).
+- Secure desktop: replace `NO_SECURE_DESKTOP` in `index.ts` with the real
+  `SecureDesktopClient` from `secure-desktop-service` (protocol v3: the real
+  input desktop name, which `secure-desktop-switch.ts` compares
+  case-insensitively; a bounded `sendInput`). It is not a drop-in: its
+  `session()` returns `{protocol, version, session, desktop}` (or
+  `undefined`) and its `sendInput` takes the protocol's `InputEvent`, so a
+  small adapter to this switch's `SecureDesktopClient` interface is needed.
+  It must also deliver a release whenever the helper is attached, even while
+  capture is inactive.
+- UI (not built):
+  - the designed on-PC indicator with its stop button, redesigned separately
+    from Computer Use's (the OS notification stands in);
+  - the phone's display picker, the screen viewer itself and its
+    elevation/secure-desktop status banner.

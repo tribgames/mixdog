@@ -556,6 +556,12 @@ async function createRemoteAccess(input: RemoteAccessInput) {
     // unanswered request expires on its own — the relay drops it at 300s.
     onClientClaim: (claim: RemoteClientClaim): Promise<RemoteClaimDecision> => claims.claim(claim),
     onClaimConflict: (claimId: string): void => void claims.resolve(claimId, false),
+    // A recorded unpair the relay has not confirmed keeps that device's
+    // connections off the whole screen, across restarts too.
+    unpairPending: (credentialId: string): boolean => clientCache.pending().includes(credentialId),
+    // Approving the device again is an explicit re-pair: an unpair still
+    // queued for it is withdrawn (the next drain would revoke the new pairing).
+    onClaimApproved: (clientId: string): void => void clientCache.repaired(clientId).catch(() => undefined),
   };
   const leg = createRelayLeg({
     userDataPath,
@@ -613,7 +619,19 @@ async function createRemoteAccess(input: RemoteAccessInput) {
         await clientCache.queueRevoke(clientId);
         return remoteDescriptor();
       }
-      await remoteRelay.revokeClient(clientId);
+      // Recorded before the relay is asked, and in force at once: until the
+      // relay confirms it, this PC keeps the device unpaired (`unpairPending`,
+      // persisted, so across a restart too) and each relay (re)connection
+      // retries it. If the write fails, the record is kept in memory for this
+      // run only.
+      const recorded = clientCache.queueRevoke(clientId).catch(() => undefined);
+      const revocation = clientCache.revocation(clientId);
+      try {
+        await remoteRelay.revokeClient(clientId);
+      } finally {
+        await recorded;
+      }
+      if (revocation !== null) await clientCache.applied(clientId, revocation);
       return remoteDescriptor();
     },
     close: leg.close,

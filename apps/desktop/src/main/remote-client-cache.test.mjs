@@ -127,10 +127,53 @@ test('changes keep the request until the pairing reset clears it', async (t) => 
   assert.equal((await loadRemoteClientCache(dir)).repairRequired(), false, 'cleared for good');
 });
 
+test('a re-pair withdraws only that queued revocation, for good', async (t) => {
+  const dir = tempDir(t);
+  const cache = await loadRemoteClientCache(dir);
+  await cache.remember([client('c1'), client('c2')]);
+  await cache.queueRevoke('c1');
+  await cache.queueRevoke('c2');
+  const withdrawing = cache.repaired('c1');
+  assert.deepEqual(cache.pending(), ['c2'], 'in effect before the write lands');
+  await withdrawing;
+  assert.deepEqual((await loadRemoteClientCache(dir)).pending(), ['c2']);
+  assert.deepEqual(
+    cache.list().map((row) => row.id),
+    ['c1', 'c2'],
+    'the device stays listed'
+  );
+});
+
+test('an acknowledgement clears only the revocation instance it was sent for', async (t) => {
+  const dir = tempDir(t);
+  const cache = await loadRemoteClientCache(dir);
+  await cache.remember([client('c1')]);
+  await cache.queueRevoke('c1');
+  const first = cache.revocation('c1');
+  await cache.queueRevoke('c1');
+  assert.equal(cache.revocation('c1'), first, 'queued again while pending: the same instance');
+  // Re-paired, then removed again: a new instance.
+  await cache.repaired('c1');
+  assert.equal(cache.revocation('c1'), null);
+  await cache.queueRevoke('c1');
+  const second = cache.revocation('c1');
+  assert.notEqual(second, first);
+  await cache.applied('c1', first);
+  assert.deepEqual(cache.pending(), ['c1'], 'the stale acknowledgement changes nothing');
+  assert.deepEqual(stored(dir).pendingRevokes, ['c1']);
+  await cache.applied('c1', second);
+  assert.deepEqual(cache.pending(), []);
+  assert.equal(cache.revocation('c1'), null);
+  // A reload issues instances for what it reads back.
+  await cache.queueRevoke('c1');
+  assert.equal(typeof (await loadRemoteClientCache(dir)).revocation('c1'), 'number');
+});
+
 test('writes land in order and leave no temporary file', async (t) => {
   const dir = tempDir(t);
   const cache = await loadRemoteClientCache(dir);
-  await Promise.all([cache.queueRevoke('c1'), cache.queueRevoke('c2'), cache.applied('c1')]);
+  const queued = [cache.queueRevoke('c1'), cache.queueRevoke('c2')];
+  await Promise.all([...queued, cache.applied('c1', cache.revocation('c1'))]);
   assert.deepEqual(stored(dir).pendingRevokes, ['c2']);
   assert.equal(
     readdirSync(dir).some((name) => name.endsWith('.tmp') || name.includes('.mixdog-tmp-')),

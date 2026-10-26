@@ -9,7 +9,7 @@ interface RevokableRelay {
 }
 
 export function createPendingRevokeDrain(deps: {
-  cache: Pick<RemoteClientCache, 'pending' | 'applied'>;
+  cache: Pick<RemoteClientCache, 'pending' | 'revocation' | 'applied'>;
   relay: () => RevokableRelay | null;
   retryDelayMs?: number;
 }): () => Promise<void> {
@@ -27,9 +27,14 @@ export function createPendingRevokeDrain(deps: {
         continue;
       }
       for (const id of deps.cache.pending()) {
+        // Checked right before the send (which goes out synchronously): an
+        // entry withdrawn meanwhile (re-paired, or confirmed) is not sent.
+        const revocation = deps.cache.revocation(id);
+        if (revocation === null) continue;
         try {
           await relay.revokeClient(id);
-          await deps.cache.applied(id);
+          // Clears only this instance: one queued anew meanwhile stays.
+          await deps.cache.applied(id, revocation);
         } catch {
           /* stays queued for the next connection */
         }

@@ -165,6 +165,60 @@ test('screen readies whose authorization checks finish out of order: only the ne
   assert.deepEqual(f.forwarded, [['c1', 'ready', limit]], 'only the newer ready');
 });
 
+test('regression: a screen ready stays bound to the connection that delivered it, across ICE', async () => {
+  /** The relay registry: client id → the connection object that holds it. */
+  const registry = new Map();
+  const forwarded = [];
+  const ice = deferredIce();
+  const relay = createRemoteWebrtcRelay({
+    subscribed: () => true,
+    awaitingFit: () => false,
+    screenAuthorized: async (clientId, origin) => registry.get(clientId) === origin,
+    screenDisplays: async () => [],
+    setImages: () => {},
+    resolveIceServers: ice.resolveIceServers,
+    forward: async (clientId, signal, _servers, origin) => forwarded.push([clientId, signal.type, origin]),
+    viewerLeft: async () => {},
+    send: async () => {},
+  });
+  const screenReady = { v: REMOTE_WEBRTC_VERSION, source: { kind: 'screen', screenId: '1' }, type: 'ready', receiveCodecs: ['video/VP8'] };
+  const settleSoon = async (index) => {
+    await new Promise((resolve) => setImmediate(resolve));
+    ice.settle(index);
+  };
+
+  // A sends `ready`; A disconnects during ICE (its pending attempt is
+  // cancelled); B takes the id. A's `ready` is dropped, never forwarded.
+  const a = { name: 'A' };
+  registry.set('c1', a);
+  const cancelled = relay.forward('c1', relay.accept('c1', screenReady), a);
+  await new Promise((resolve) => setImmediate(resolve));
+  registry.delete('c1');
+  relay.connectionRemoved('c1');
+  const b = { name: 'B' };
+  registry.set('c1', b);
+  await settleSoon(0);
+  await cancelled;
+  assert.deepEqual(forwarded, []);
+
+  // Without the removal notice the mismatch alone refuses it.
+  const a2 = { name: 'A2' };
+  registry.set('c1', a2);
+  const mismatched = relay.forward('c1', relay.accept('c1', screenReady), a2);
+  await new Promise((resolve) => setImmediate(resolve));
+  registry.set('c1', b);
+  await settleSoon(1);
+  await assert.rejects(mismatched, /not allowed/);
+  assert.deepEqual(forwarded, []);
+  await assert.rejects(relay.screenDisplays('c1', a2), /not allowed/);
+
+  // B's own `ready` is forwarded with B as its origin.
+  const own = relay.forward('c1', relay.accept('c1', screenReady), b);
+  await settleSoon(2);
+  await own;
+  assert.deepEqual(forwarded, [['c1', 'ready', b]]);
+});
+
 test('a take-over joining an unfitted stream is promoted only on media-ready for the fitted generation, after its settled picture', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const FIT = { width: 411, height: 782, deviceScaleFactor: 2.625 };

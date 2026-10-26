@@ -9,6 +9,72 @@ import { createPendingRevokeDrain } from './remote-revoke-drain.ts';
 
 const client = { id: 'abcdef12-0000', name: 'Phone', platform: 'ios', browser: 'Safari', createdAt: 1, lastSeenAt: 2, online: true };
 
+/** A relay whose revokes wait until the test lets each one answer. */
+function heldRelay() {
+  const sent = [];
+  const answers = [];
+  return {
+    sent,
+    answer: () => answers.shift()?.(),
+    relay: {
+      listClients: async () => [],
+      revokeClient: (id) => {
+        sent.push(id);
+        return new Promise((resolve) => answers.push(resolve));
+      },
+    },
+  };
+}
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+async function withCache(run) {
+  const dir = await mkdtemp(join(tmpdir(), 'revoke-drain-'));
+  try {
+    await run(await loadRemoteClientCache(dir));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('regression: a device re-paired while the drain is busy with another is never sent', () =>
+  withCache(async (cache) => {
+    await cache.queueRevoke('aaaaaaaa');
+    await cache.queueRevoke('bbbbbbbb');
+    const h = heldRelay();
+    const drain = createPendingRevokeDrain({ cache, relay: () => h.relay, retryDelayMs: 1 });
+    const draining = drain();
+    await turn();
+    assert.deepEqual(h.sent, ['aaaaaaaa'], 'A in flight');
+    await cache.repaired('bbbbbbbb');
+    h.answer();
+    await draining;
+    assert.deepEqual(h.sent, ['aaaaaaaa'], 'B was withdrawn before its turn: no revoke sent');
+    assert.deepEqual(cache.pending(), []);
+  }));
+
+test('regression: a stale acknowledgement never clears a newer removal request for the same device', () =>
+  withCache(async (cache) => {
+    await cache.queueRevoke('aaaaaaaa');
+    const h = heldRelay();
+    const drain = createPendingRevokeDrain({ cache, relay: () => h.relay, retryDelayMs: 1 });
+    const draining = drain();
+    await turn();
+    assert.deepEqual(h.sent, ['aaaaaaaa']);
+    // Re-paired, then removed again while the old revoke awaits its answer.
+    await cache.repaired('aaaaaaaa');
+    await cache.queueRevoke('aaaaaaaa');
+    h.answer();
+    await draining;
+    assert.deepEqual(cache.pending(), ['aaaaaaaa'], 'the newer request stays queued');
+    // The next connection sends it, and its own answer clears it.
+    const next = drain();
+    await turn();
+    assert.deepEqual(h.sent, ['aaaaaaaa', 'aaaaaaaa']);
+    h.answer();
+    await next;
+    assert.deepEqual(cache.pending(), []);
+  }));
+
 test('a failed revocation stays pending, visible, and is retried on the next connection', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'revoke-drain-'));
   try {

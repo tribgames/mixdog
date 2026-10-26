@@ -11,13 +11,10 @@ import {
   type RemoteWebrtcSourceInput,
 } from '../../shared/remote-webrtc';
 import type { RemoteWebrtcSourceSink, RemoteWebrtcVideoSource } from '../remote-webrtc/source';
-import type { ScreenPermission } from './screen-permission';
 import type { RemoteScreenSource } from './screen-source';
 
 export interface ScreenWebrtcSourceOptions {
   screenId: string;
-  /** The permission the viewer asked for; the source's gate decides. */
-  want: ScreenPermission;
   sink: RemoteWebrtcSourceSink;
   /** A start the gate refused, or that failed (logged by the source). */
   onStartError?(error: unknown): void;
@@ -41,7 +38,7 @@ export function createScreenWebrtcSource(
     source,
     start() {
       if (starting) return;
-      starting = screen.start(options.want).then(
+      starting = screen.start().then(
         (result) => options.sink.geometryChanged(key, result.geometry),
         (error: unknown) => {
           options.sink.geometryChanged(key, null);

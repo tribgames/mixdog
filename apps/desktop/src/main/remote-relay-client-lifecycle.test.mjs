@@ -24,12 +24,17 @@ async function harness({ decision, hostName, hold = false, joinFrames } = {}) {
   // `hold` keeps each claim pending like an open approval dialog; the user's
   // answer is `settle`, and a conflict settles it as denied like the arbiter.
   const settlers = new Map();
+  /** Re-pairs announced, and whether each came before its approval was sent. */
+  const approved = [];
+  /** Connections the registry announced as admitted. */
+  const added = [];
   const clients = createRelayClientRegistry({
     host: { setVisibleSessionsForSource: async () => true },
     sendEnvelope: (payload) => envelopes.push(payload),
     frameBudgetBytes: 1 << 20,
     onClientCountChanged: () => {},
     onEmpty: () => {},
+    onAdded: (state) => added.push(state),
   });
   const lifecycle = createRelayClientLifecycle({
     clients,
@@ -52,9 +57,11 @@ async function harness({ decision, hostName, hold = false, joinFrames } = {}) {
       return new Promise((resolve) => settlers.set(claim.claimId, resolve));
     },
     onClaimConflict: (claimId) => settlers.get(claimId)?.({ approved: false }),
+    onClaimApproved: (clientId) =>
+      approved.push({ clientId, beforeApproval: !envelopes.some((entry) => entry.type === 'claim-approve') }),
   });
-  const settle = (claimId, approved) => settlers.get(claimId)?.({ approved });
-  return { identity, pairing, envelopes, frames, claims, clients, lifecycle, settle };
+  const settle = (claimId, decision) => settlers.get(claimId)?.({ approved: decision });
+  return { identity, pairing, envelopes, frames, claims, clients, lifecycle, settle, approved, added };
 }
 
 async function claimEnvelope(overrides = {}) {
@@ -74,6 +81,7 @@ test('an approval returns the sealed credential box', async () => {
   h.lifecycle.answerClaim(await claimEnvelope());
   const approve = await answered(h.envelopes, 'claim-approve');
   assert.ok(approve?.sealed, 'a sealed credential box is returned');
+  assert.deepEqual(h.approved, [{ clientId: CREDENTIAL, beforeApproval: true }], 'the re-pair is announced first');
 });
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 40));
@@ -113,6 +121,7 @@ test('a redelivery with a different key is denied and denies the original claim 
   );
   assert.ok(sentFor(h, 'claim-1').length >= 1);
   assert.ok(sentFor(h, 'claim-1').every((entry) => entry.type === 'claim-deny'));
+  assert.deepEqual(h.approved, [], 'no re-pair');
 });
 
 test('a redelivery with another client id is a conflict as well', async () => {
@@ -149,6 +158,7 @@ test('a denial grants nothing', async () => {
     denied.envelopes.some((entry) => entry.type === 'claim-approve'),
     false
   );
+  assert.deepEqual(denied.approved, [], 'no re-pair');
 });
 
 test('a Mixdog desktop window is labelled as one; the label grants nothing extra', async () => {
@@ -229,4 +239,12 @@ test('the handshake announces open access and carries no trust field', async () 
   assert.ok(ready.hostName.length > 0);
   assert.equal('trusted' in ready, false);
   assert.equal(h.clients.get('route-1').credentialId, CREDENTIAL);
+});
+
+test('an admitted connection is announced at once, with its credential', async () => {
+  const h = await harness();
+  h.lifecycle.open('route-1', CREDENTIAL);
+  assert.equal(h.added.length, 1, 'announced synchronously by open');
+  assert.equal(h.added[0], h.clients.get('route-1'));
+  assert.equal(h.added[0].credentialId, CREDENTIAL);
 });

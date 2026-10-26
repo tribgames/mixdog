@@ -38,6 +38,12 @@ import {
   type RemoteScreenDisplaySummary,
   type RemoteWebrtcDesktopSignal,
 } from '../../shared/remote-webrtc';
+import {
+  createRemoteScreenSources,
+  parseRemoteScreenAccess,
+  type RemoteScreenSources,
+  type RemoteScreenSourcesDeps,
+} from '../remote-screen/screen-webrtc-sources';
 import { createRemoteWebrtcHost, type RemoteWebrtcHost } from '../remote-webrtc/host';
 import { createRemoteWebrtcSenderWindow, type RemoteWebrtcSenderPage } from '../remote-webrtc/sender-window';
 import type { BrowserApprovalRequest } from './action-approval';
@@ -173,9 +179,14 @@ export interface BrowserHost {
   remoteWebrtcSignal(clientId: string, signal: unknown, iceServers: unknown): Promise<void>;
   /** That client stopped streaming the source. */
   remoteWebrtcViewerLeft(clientId: string, sourceKey: string): void;
-  /** The displays a screen source may show; absent until the screen source
-   *  is wired into this host. */
-  remoteScreenDisplays?(): RemoteScreenDisplaySummary[];
+  /** The displays a screen source may show; absent without screen sources. */
+  remoteScreenDisplays?(): Promise<RemoteScreenDisplaySummary[]>;
+  /** A paired client's whole-PC screen access, pushed by the service
+   *  (remote-screen/screen-webrtc-sources.ts); absent without screen sources. */
+  remoteScreenAccess?(clientId: string, access: unknown): Promise<void>;
+  /** App quit: every screen session releases its input and stops within
+   *  `SCREEN_QUIT_BUDGET_MS`. */
+  stopRemoteScreens(): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -205,11 +216,14 @@ export function createBrowserHost(
     remoteWebrtc?: {
       sendSignal(clientId: string, signal: RemoteWebrtcDesktopSignal): Promise<unknown>;
       senderPage: RemoteWebrtcSenderPage;
+      /** Whole-PC screen sources (Windows); absent: browser sources only. */
+      screens?: Omit<RemoteScreenSourcesDeps, 'sink' | 'log'>;
     };
   }
 ): BrowserHost {
   // Bound once the host exists; the streams' taps reach it through these.
   let webrtc: RemoteWebrtcHost | null = null;
+  let screens: RemoteScreenSources | null = null;
   let disposeSender = (): void => undefined;
   const base = createBrowserHostFoundation(window, {
     remoteSession: options.remoteSession,
@@ -335,6 +349,7 @@ export function createBrowserHost(
       await webrtc.signal(clientId, signal, iceServers);
     },
     remoteWebrtcViewerLeft: (clientId, sourceKey) => webrtc?.viewerLeft(clientId, sourceKey),
+    stopRemoteScreens: () => screens?.stopForQuit() ?? Promise.resolve(),
     browserPanelShown: (sessionId, shown, sender, pane) => lifecycle.panelShown(sessionId, shown, sender, pane),
     captureTakeoverPage: (sessionId, id, tab) => {
       handedOver.capture(sessionId, id, tab);
@@ -394,12 +409,31 @@ export function createBrowserHost(
   if (options.remoteWebrtc) {
     const sender = createRemoteWebrtcSenderWindow(options.remoteWebrtc.senderPage);
     disposeSender = () => sender.dispose();
+    const report = (event: string, data: Record<string, unknown>): void =>
+      options.onDiagnostic?.(`remote-webrtc-${event}`, data);
+    if (options.remoteWebrtc.screens) {
+      const live = createRemoteScreenSources({
+        ...options.remoteWebrtc.screens,
+        // The WebRTC host exists by the time a session can start.
+        sink: {
+          geometryChanged: (sourceKey, geometry) => webrtc?.geometryChanged(sourceKey, geometry),
+          frame: (sourceKey, picture) => webrtc?.frame(sourceKey, picture),
+          captureChanged: (sourceKey) => webrtc?.captureChanged(sourceKey),
+        },
+        log: (event) => options.onDiagnostic?.(`remote-screen-${event.type}`, { ...event }),
+      });
+      screens = live;
+      browserHost.remoteScreenDisplays = () => live.displays();
+      browserHost.remoteScreenAccess = (clientId, access) => live.setAccess(clientId, parseRemoteScreenAccess(access));
+    }
     webrtc = createRemoteWebrtcHost({
       sender,
       sendSignal: options.remoteWebrtc.sendSignal,
       // A browser source is a session a paired client streams now; its input
       // takes the relay's own page-input path (document guard, serialized).
-      sources: (source) => {
+      // A screen source is the paired client's own whole-PC session.
+      sources: (source, viewer) => {
+        if (source.kind === 'screen') return screens?.resolve(source, viewer) ?? null;
         if (source.kind !== 'browser') return null;
         const sessionId = source.sessionId;
         if (!shown.remote.streamedPage(sessionId)) return null;
@@ -416,7 +450,7 @@ export function createBrowserHost(
           videoLimit: (limit) => shown.remote.widenVideo(sessionId, limit),
         };
       },
-      report: (event, data) => options.onDiagnostic?.(`remote-webrtc-${event}`, data),
+      report,
     });
   }
   // A released session or a disposed host never creates the tabs still asked for.
@@ -426,12 +460,15 @@ export function createBrowserHost(
     handedOver.forget(sessionId);
     releaseSession(sessionId, releaseOptions);
   };
-  browserHost.dispose = () => {
+  browserHost.dispose = async () => {
     newTabs.cancelAll();
     handedOver.dispose();
+    // Screen sessions first, under the quit budget: their input is released
+    // before the viewers and the sender go.
+    const screensStopped = screens?.dispose();
     webrtc?.dispose();
     disposeSender();
-    return dispose();
+    await Promise.all([screensStopped, dispose()]);
   };
   return browserHost;
 }

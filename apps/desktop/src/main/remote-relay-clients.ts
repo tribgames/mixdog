@@ -150,6 +150,12 @@ export interface RelayClientRegistryDeps {
   onClientCountChanged(): void;
   /** The last phone left: per-leg meters have nothing left to attribute. */
   onEmpty(): void;
+  /** One client's state left the registry, by any path (leg gone, close,
+   *  replacement under the same id, clear, park). Called synchronously. */
+  onRemoved?(clientId: string): void;
+  /** A client-open was admitted: its state entered the registry. Called
+   *  synchronously, before anything else sees it. */
+  onAdded?(state: RelayClientState): void;
   now?: () => number;
 }
 
@@ -238,6 +244,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
     state.callQueue.close();
     state.stateLane?.clear();
     clients.delete(clientId);
+    deps.onRemoved?.(clientId);
     if (clients.size === 0) deps.onEmpty();
     void deps.host.setVisibleSessionsForSource?.(`remote:${clientId}`, []).catch(() => {});
     return true;
@@ -292,6 +299,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         firstTranscriptReported: false,
       };
       clients.set(clientId, state);
+      deps.onAdded?.(state);
       deps.onClientCountChanged();
       return state;
     },

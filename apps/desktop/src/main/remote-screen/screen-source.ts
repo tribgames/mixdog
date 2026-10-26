@@ -20,7 +20,6 @@ import type {
   RemoteScreenStopReason,
   RemoteWebrtcGeometry,
 } from '../../shared/remote-webrtc';
-import type { ScreenGrant } from './screen-access-settings';
 import {
   lockScreenGeometry,
   screenGeometryChanged,
@@ -40,12 +39,6 @@ import {
   type ScreenLocalDesktop,
 } from './screen-input-host';
 import { ScreenInputRouter, type ScreenInputBackendId } from './screen-input-router';
-import {
-  decideScreenPermission,
-  effectiveScreenPermission,
-  type ScreenPermission,
-  type ScreenPermissionDecision,
-} from './screen-permission';
 import {
   decideScreenSource,
   decisionUsesHelper,
@@ -73,15 +66,15 @@ export interface ScreenDisplayProvider {
   onChange(listener: () => void): () => void;
 }
 
-/** A single viewer's trust and grant, read live, plus a change signal so a
- *  revoke or downgrade takes effect at once rather than at the next input. */
+/** A single viewer's trust, read live, plus a change signal so a disconnect
+ *  or unpair takes effect at once rather than at the next input. Pairing is
+ *  the approval: a paired phone may view and control the whole screen. */
 export interface ScreenViewerAuthorization {
-  enabled(): boolean;
-  pairedE2EE(): boolean;
-  grant(): ScreenGrant;
-  /** Fires on anything that can lower the grant: the master switch, this
-   *  client's grant (settings `onChange`), an unpair, or loss of the E2EE
-   *  channel. */
+  /** The viewer's connection is a paired, E2EE-established client and still
+   *  connected. */
+  paired(): boolean;
+  /** Fires on anything that can end that: a disconnect, an unpair, or the
+   *  connection being replaced. */
   onChange(listener: () => void): () => void;
 }
 
@@ -94,11 +87,9 @@ export interface ScreenIndicator {
 }
 
 export type ScreenSourceEvent =
-  | { type: 'start'; clientId: string; screenId: string; permission: ScreenPermission }
+  | { type: 'start'; clientId: string; screenId: string }
   | { type: 'stop'; clientId: string; screenId: string; reason: RemoteScreenStopReason }
   | { type: 'denied'; clientId: string; screenId: string; reason: string }
-  /** Control was withdrawn mid-session; the view continues. */
-  | { type: 'downgrade'; clientId: string; screenId: string }
   | { type: 'secure-desktop'; clientId: string; screenId: string; state: RemoteScreenStatus['state'] }
   /** A release point could not release `count` held presses through
    *  `backend` (unreachable, another desktop, a failed send, or the stop
@@ -111,7 +102,7 @@ export interface ScreenSourceDeps {
   screenId: string;
   displays: ScreenDisplayProvider;
   authorization: ScreenViewerAuthorization;
-  /** The Windows input host for the ordinary desktop (started lazily on control). */
+  /** The Windows input host for the ordinary desktop (started with the session). */
   createInputHost(): ScreenInputHost;
   /** The secure-desktop helper client (a no-op shell when not installed). */
   secureDesktop: SecureDesktopClient;
@@ -151,10 +142,11 @@ export interface ScreenStopOptions {
 export interface RemoteScreenSource {
   /** The displays a phone may choose, before `start`. */
   listDisplays(): RemoteScreenDisplaySummary[];
-  /** Admit the viewer and lock geometry. Rejects when a gate denies it, or when
-   *  the session was stopped or revoked while it started. Single use: a stopped
+  /** Admit the viewer and lock geometry. Rejects when the viewer is not a
+   *  paired, connected client, when the input host can't start, or when the
+   *  session was stopped or revoked while it started. Single use: a stopped
    *  source is not restarted. */
-  start(want: ScreenPermission): Promise<ScreenStartResult>;
+  start(): Promise<ScreenStartResult>;
   running(): boolean;
   geometry(): RemoteWebrtcGeometry | null;
   /** The capture plan the sender opens its track from; null unless running. */
@@ -208,7 +200,6 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   let running = false;
   let stopping: Promise<void> | null = null;
   let stopReason: RemoteScreenStopReason | null = null;
-  let permission: ScreenPermission = 'view';
   let generation = 0;
   let geometry: RemoteWebrtcGeometry | null = null;
   let plan: RemoteScreenCapturePlan | null = null;
@@ -243,21 +234,12 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   const findDisplay = (): ScreenDisplay | null =>
     deps.displays.list().find((entry) => entry.screenId === deps.screenId) ?? null;
 
-  const authInputs = () => ({
-    enabled: deps.authorization.enabled(),
-    pairedE2EE: deps.authorization.pairedE2EE(),
-    grant: deps.authorization.grant(),
-  });
-
-  const livePermission = (): ScreenPermission | null => effectiveScreenPermission(authInputs());
+  /** The viewer's connection is still a paired, connected E2EE client. */
+  const paired = (): boolean => deps.authorization.paired();
 
   /** Input is accepted only while every gate holds at this instant. */
   const controlNow = (): boolean =>
-    running &&
-    permission === 'control' &&
-    livePermission() === 'control' &&
-    decision !== null &&
-    screenStatusFor(decision, true).control;
+    running && paired() && decision !== null && screenStatusFor(decision, true).control;
 
   const planFor = (display: ScreenDisplay): RemoteScreenCapturePlan => {
     const size = screenVideoSize(display.physical);
@@ -295,7 +277,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
 
   const publishStatus = (): void => {
     if (!running || !decision) return;
-    emitStatus(screenStatusFor(decision, permission === 'control' && livePermission() === 'control'));
+    emitStatus(screenStatusFor(decision, paired()));
   };
 
   const setHelperActive = async (active: boolean): Promise<void> => {
@@ -337,21 +319,10 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
       .catch(() => {});
   };
 
-  /** A grant or trust change: stop on revoke, drop to view-only on downgrade. */
+  /** The connection is no longer paired and connected (disconnect, unpair):
+   *  the session stops. */
   const reauthorize = (): void => {
-    if (!running) return;
-    const live = livePermission();
-    if (live === null) {
-      void stop(deps.authorization.enabled() ? 'revoked' : 'disabled');
-      return;
-    }
-    if (permission === 'control' && live === 'view') {
-      permission = 'view';
-      router.cancel();
-      void router.releaseAll();
-      deps.log({ type: 'downgrade', ...ids });
-      publishStatus();
-    }
+    if (running && !paired()) void stop('revoked');
   };
 
   const renewGeometry = (): void => {
@@ -369,8 +340,8 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   };
 
   const onHelperFrame = (frame: ScreenBgraFrame): void => {
-    // Frames are gated by the live grant, not only the admitted one.
-    if (!running || livePermission() === null || !decision || !decisionUsesHelper(decision) || !mapping) return;
+    // Frames are gated by the live pairing, not only the admitted one.
+    if (!running || !paired() || !decision || !decisionUsesHelper(decision) || !mapping) return;
     let fitted: ScreenVideoFrame;
     try {
       fitted = fitScreenFrame(frame, mapping);
@@ -401,18 +372,16 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     local = current.desktop();
   };
 
-  async function start(want: ScreenPermission): Promise<ScreenStartResult> {
+  async function start(): Promise<ScreenStartResult> {
     if (started) throw new ScreenSourceDenied('already-started');
-    const gate: ScreenPermissionDecision = decideScreenPermission(want, authInputs());
-    if (!gate.allowed) {
-      deps.log({ type: 'denied', ...ids, reason: gate.reason });
-      throw new ScreenSourceDenied(gate.reason);
+    if (!paired()) {
+      deps.log({ type: 'denied', ...ids, reason: 'unauthorized' });
+      throw new ScreenSourceDenied('unauthorized');
     }
     const display = findDisplay();
     if (!display) throw new ScreenSourceDenied('display-removed');
     started = true;
     running = true;
-    permission = gate.permission;
     lock(display);
 
     subscriptions.push(deps.authorization.onChange(reauthorize));
@@ -420,26 +389,24 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     subscriptions.push(deps.secureDesktop.onFrame(onHelperFrame));
     subscriptions.push(deps.secureDesktop.onDesktopChanged(() => refreshDecision()));
 
-    // The input host's watcher is also the local UAC / lock detector, so it
-    // runs for both permissions. A control session cannot proceed without the
-    // injector; a view-only session keeps streaming without it.
+    // The input host is the injector and also the local UAC / lock detector:
+    // a session cannot proceed without it.
     try {
       await ensureHost();
     } catch (error) {
-      if (permission === 'control' && running) {
-        await stop('error');
-        throw error;
-      }
+      if (running) await stop('error');
+      throw error;
     }
-    // The host start awaited: the grant may have been lowered, or the session
-    // stopped, meanwhile. Re-check before anything becomes visible.
+    // The host start awaited: the phone may have disconnected or been
+    // unpaired, or the session stopped, meanwhile. Re-check before anything
+    // becomes visible.
     reauthorize();
     if (!running) throw new ScreenSourceDenied(stopReason ?? 'stopped');
 
     decision = decideScreenSource(helperState());
-    status = screenStatusFor(decision, permission === 'control');
+    status = screenStatusFor(decision, true);
     deps.indicator.show({ clientLabel: deps.clientLabel, controlling: status.control, onStop: () => void stop('user') });
-    deps.log({ type: 'start', ...ids, permission });
+    deps.log({ type: 'start', ...ids });
     refreshDecision();
     await router.settled();
     if (!running) throw new ScreenSourceDenied(stopReason ?? 'stopped');

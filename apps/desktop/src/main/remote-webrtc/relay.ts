@@ -33,20 +33,33 @@ export interface RemoteWebrtcRelayDeps {
   /** The client's subscription is a take-over still waiting for its first
    *  picture of the fitted layout (remote-browser-streams). */
   awaitingFit(clientId: string, sessionId: string): boolean;
-  /** The whole-PC screen source is allowed for this client: the switch is on
-   *  and the paired client holds a grant (remote-screen/screen-permission.ts). */
-  screenAuthorized(clientId: string): Promise<boolean>;
+  /** The whole-PC screen source is allowed for this signal's connection
+   *  (`origin`, the relay connection that delivered it): the client id still
+   *  names that connection, which is paired, E2EE-established and not unpaired
+   *  (pairing is the approval; docs/remote-screen.md). */
+  screenAuthorized(clientId: string, origin: RemoteWebrtcOrigin): Promise<boolean>;
   /** Withhold (false) or resume (true) that client's JPEG images of the session. */
   setImages(clientId: string, sessionId: string, enabled: boolean): void;
   resolveIceServers(): Promise<RTCIceServer[]>;
-  /** To the window process: a phone signal, or the viewer's departure. */
-  forward(clientId: string, signal: RemoteWebrtcClientSignal, iceServers?: RemoteWebrtcIceServer[]): Promise<unknown>;
+  /** To the window process: a phone signal (with the connection that
+   *  delivered it), or the viewer's departure. */
+  forward(
+    clientId: string,
+    signal: RemoteWebrtcClientSignal,
+    iceServers: RemoteWebrtcIceServer[] | undefined,
+    origin: RemoteWebrtcOrigin
+  ): Promise<unknown>;
   viewerLeft(clientId: string, sourceKey: string): Promise<unknown>;
   /** The window's display list (RemoteScreenDisplaySummary[]). */
   screenDisplays(): Promise<unknown>;
   /** One encrypted, non-droppable push to that client. */
   send(clientId: string, payload: { event: string; payload: RemoteWebrtcDesktopSignal }): Promise<void>;
 }
+
+/** The relay connection a phone signal arrived on (its client state object),
+ *  captured when the signal is decoded: a client id the relay reuses for a
+ *  new connection names a different object. */
+export type RemoteWebrtcOrigin = object;
 
 /** The signals whose order against relay input matters: they must reach the
  *  window behind every relay call decoded before them. */
@@ -83,8 +96,8 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
     accept(clientId: string, raw: unknown): RemoteWebrtcClientSignal {
       const signal = parseRemoteWebrtcClientSignal(raw);
       const sessionId = sessionOf(signal);
-      // A screen source is authorized where it executes (the grant is read
-      // from disk); it has no relay input or JPEG view to gate here.
+      // A screen source is authorized in `forward`, for the connection that
+      // delivered it; it has no relay input or JPEG view to gate here.
       if (sessionId === null) return signal;
       if (!deps.subscribed(clientId, sessionId)) {
         throw new TypeError('remote webrtc source is not streamed by this client.');
@@ -109,10 +122,12 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
       return signal;
     },
 
-    /** Execution step: hand the signal to the window, a `ready` with the ICE servers. */
-    async forward(clientId: string, signal: RemoteWebrtcClientSignal): Promise<void> {
+    /** Execution step: hand the signal to the window, a `ready` with the ICE
+     *  servers. `origin` is the connection that delivered it; a screen signal
+     *  is authorized and forwarded for that connection only. */
+    async forward(clientId: string, signal: RemoteWebrtcClientSignal, origin: RemoteWebrtcOrigin): Promise<void> {
       if (signal.type !== 'ready') {
-        if (signal.source.kind === 'screen' && !(await deps.screenAuthorized(clientId))) {
+        if (signal.source.kind === 'screen' && !(await deps.screenAuthorized(clientId, origin))) {
           throw new TypeError('Remote screen is not allowed for this device.');
         }
         // A take-over is promoted only after its first picture of the fitted
@@ -126,7 +141,7 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
         ) {
           return;
         }
-        await deps.forward(clientId, signal);
+        await deps.forward(clientId, signal, undefined, origin);
         return;
       }
       // The attempt is registered before anything is awaited, so the order
@@ -140,7 +155,7 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
       const current = (): boolean => attempts.get(k) === attempt;
       const sessionId = sessionOf(signal);
       const authorized = async (): Promise<boolean> =>
-        sessionId === null ? deps.screenAuthorized(clientId) : deps.subscribed(clientId, sessionId);
+        sessionId === null ? deps.screenAuthorized(clientId, origin) : deps.subscribed(clientId, sessionId);
       const refuse = (): never => {
         attempts.delete(k);
         throw new TypeError(
@@ -161,7 +176,7 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
       if (!current()) return;
       if (!allowed) refuse();
       attempts.delete(k);
-      await deps.forward(clientId, signal, iceServers);
+      await deps.forward(clientId, signal, iceServers, origin);
     },
 
     /** A window signal to its phone. */
@@ -193,9 +208,9 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
       await deps.send(clientId, { event: REMOTE_WEBRTC_SIGNAL_EVENT, payload: signal });
     },
 
-    /** The displays a client may choose, once its screen access is checked. */
-    async screenDisplays(clientId: string): Promise<unknown> {
-      if (!(await deps.screenAuthorized(clientId))) throw new TypeError('Remote screen is not allowed for this device.');
+    /** The displays a client may choose, once its connection's screen access is checked. */
+    async screenDisplays(clientId: string, origin: RemoteWebrtcOrigin): Promise<unknown> {
+      if (!(await deps.screenAuthorized(clientId, origin))) throw new TypeError('Remote screen is not allowed for this device.');
       return deps.screenDisplays();
     },
 
@@ -203,6 +218,13 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
     relayInputAllowed(clientId: string, sessionId: string): boolean {
       const owner = ownership.get(key(clientId, remoteWebrtcSourceKey({ kind: 'browser', sessionId })))?.owner;
       return owner !== 'channel' && owner !== 'none';
+    },
+
+    /** The client's connection left the relay registry: its screen `ready`s
+     *  still resolving are cancelled (dropped, never forwarded). */
+    connectionRemoved(clientId: string): void {
+      const prefix = key(clientId, 'screen:');
+      for (const k of [...attempts.keys()]) if (k.startsWith(prefix)) attempts.delete(k);
     },
 
     /** The client stopped streaming the session (or left the relay). */

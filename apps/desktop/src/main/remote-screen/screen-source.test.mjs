@@ -183,11 +183,9 @@ function build(over = {}) {
   const log = [];
   const authListeners = new Set();
   const auth = {
-    enabled: true,
-    pairedE2EE: true,
-    grant: 'control',
+    paired: true,
     ...over.auth,
-    /** Apply a settings/pairing change and signal it, as the wiring does. */
+    /** Apply a pairing/connection change and signal it, as the wiring does. */
     change(next) {
       Object.assign(auth, next);
       for (const listener of authListeners) listener();
@@ -199,9 +197,7 @@ function build(over = {}) {
     screenId: '1',
     displays: displays.provider,
     authorization: {
-      enabled: () => auth.enabled,
-      pairedE2EE: () => auth.pairedE2EE,
-      grant: () => auth.grant,
+      paired: () => auth.paired,
       onChange(listener) {
         authListeners.add(listener);
         return () => authListeners.delete(listener);
@@ -216,7 +212,6 @@ function build(over = {}) {
   // The WebRTC side drives viewer leave / disconnect and demote through this.
   const adapter = createScreenWebrtcSource(source, {
     screenId: '1',
-    want: 'control',
     sink: { geometryChanged() {}, captureChanged() {}, frame() {} },
   });
   /** Logged drops, as [backend, count]. */
@@ -227,7 +222,7 @@ function build(over = {}) {
 /** A control session holding A and the left button on the ordinary desktop. */
 async function holdingOnDesktop() {
   const env = build();
-  const { geometry } = await env.source.start('control');
+  const { geometry } = await env.source.start();
   await env.source.handleInput(keyA, geometry.generation);
   await env.source.handleInput({ type: 'screen-pointer', action: 'down', button: 'left', x: 1, y: 1 }, geometry.generation);
   return env;
@@ -237,7 +232,7 @@ async function holdingOnDesktop() {
 async function holdingOnHelper() {
   const env = build({ secure: { installed: true, connected: true, desktop: 'winlogon' } });
   env.host.control.reachable = false;
-  const { geometry } = await env.source.start('control');
+  const { geometry } = await env.source.start();
   env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
   await tick();
   assert.equal(await env.source.handleInput(keyA, geometry.generation), 'applied');
@@ -251,13 +246,9 @@ const EXIT_PATHS = {
     return env.source.released();
   },
   demote: (env) => env.adapter.release(),
-  revoke: (env) => {
-    env.auth.change({ grant: 'none' });
+  'unpair / disconnect': (env) => {
+    env.auth.change({ paired: false });
     return env.source.released();
-  },
-  downgrade: (env) => {
-    env.auth.change({ grant: 'view' });
-    return tick();
   },
   stop: (env) => env.source.stop('user'),
   'app quit': (env) => stopScreenSourcesForQuit([env.source]),
@@ -280,22 +271,26 @@ for (const [exit, run] of Object.entries(EXIT_PATHS)) {
   });
 }
 
-test('start is denied when the switch is off, the client is unpaired, or ungranted', async () => {
-  const off = build({ auth: { enabled: false } });
-  await assert.rejects(off.source.start('view'), ScreenSourceDenied);
-  assert.equal(off.log.at(-1).type, 'denied');
-  assert.equal(off.log.at(-1).reason, 'disabled');
+test('start is denied when the client is not paired and connected', async () => {
+  const unpaired = build({ auth: { paired: false } });
+  await assert.rejects(unpaired.source.start(), (error) => error instanceof ScreenSourceDenied && error.reason === 'unauthorized');
+  assert.equal(unpaired.log.at(-1).type, 'denied');
+  assert.equal(unpaired.source.running(), false);
+});
 
-  const unpaired = build({ auth: { pairedE2EE: false } });
-  await assert.rejects(unpaired.source.start('view'), (error) => error.reason === 'unauthorized');
-
-  const viewOnly = build({ auth: { grant: 'view' } });
-  await assert.rejects(viewOnly.source.start('control'), (error) => error.reason === 'not-granted');
+test('an input host that cannot start fails the start and stops the session', async () => {
+  const env = build();
+  env.host.host.start = async () => {
+    throw new Error('spawn failed');
+  };
+  await assert.rejects(env.source.start(), /spawn failed/);
+  assert.equal(env.source.running(), false);
+  assert.equal(env.log.at(-1).reason, 'error');
 });
 
 test('a control session locks geometry, shows the indicator and injects mapped input', async () => {
   const env = build();
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   assert.equal(result.geometry.pixelWidth, 1920);
   assert.equal(result.status.state, 'live');
   assert.equal(result.status.control, true);
@@ -312,17 +307,9 @@ test('a control session locks geometry, shows the indicator and injects mapped i
   assert.equal(stale, 'rejected');
 });
 
-test('view-only grant streams but refuses control input', async () => {
-  const env = build({ auth: { grant: 'view' } });
-  const result = await env.source.start('view');
-  assert.equal(result.status.control, false);
-  const outcome = await env.source.handleInput({ type: 'screen-pointer', action: 'down', button: 'left', x: 1, y: 1 }, result.geometry.generation);
-  assert.equal(outcome, 'rejected');
-});
-
 test('stop releases every held key and button, hides the indicator and tears down', async () => {
   const env = build();
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   const generation = result.geometry.generation;
   await env.source.handleInput({ type: 'screen-pointer', action: 'down', button: 'left', x: 10, y: 10 }, generation);
   await env.source.handleInput({ type: 'screen-key', action: 'down', vk: 0xa0, scan: 0x2a, extended: false }, generation);
@@ -343,7 +330,7 @@ test('a jump to the secure desktop with an attached helper routes frames and inp
   const env = build({ secure: { installed: true, connected: true, desktop: 'default' } });
   const statuses = [];
   env.source.onStatus((status) => statuses.push(status));
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   const generation = result.geometry.generation;
 
   // The input desktop becomes the secure desktop; the helper reports winlogon.
@@ -380,7 +367,7 @@ test('a jump to the secure desktop with an attached helper routes frames and inp
 
 test('the secure desktop without a helper is reported blocked and refuses input', async () => {
   const env = build();
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   const statuses = [];
   env.source.onStatus((status) => statuses.push(status));
   env.host.emitDesktop({ inputDesktop: null, consent: true, logonUi: false });
@@ -393,7 +380,7 @@ test('the secure desktop without a helper is reported blocked and refuses input'
 
 test('removing the streamed display stops the session', async () => {
   const env = build();
-  await env.source.start('control');
+  await env.source.start();
   env.displays.set([]);
   // running flips synchronously; the teardown log lands after its awaits.
   assert.equal(env.source.running(), false);
@@ -402,29 +389,29 @@ test('removing the streamed display stops the session', async () => {
   assert.equal(env.log.at(-1).reason, 'display-removed');
 });
 
-test('screen-release is honored even after a grant is revoked mid-session', async () => {
+test('screen-release is honored even after the pairing is gone mid-session', async () => {
   const env = build();
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   await env.source.handleInput({ type: 'screen-key', action: 'down', vk: 0x41, scan: 0x1e, extended: false }, result.geometry.generation);
   env.host.commands.length = 0;
 
-  // The owner lowers the grant to view-only while the session is live.
-  env.auth.grant = 'view';
+  // The pairing is gone before its change signal arrives.
+  env.auth.paired = false;
   const outcome = await env.source.handleInput({ type: 'screen-release' }, result.geometry.generation);
   assert.equal(outcome, 'applied');
   assert.ok(env.host.commands.some((c) => c.op === 'key' && c.down === false), 'the key was released despite the revoke');
 });
 
-test('revoking the grant after a key-down sends the key-up and stops capture at once', async () => {
+test('an unpair after a key-down sends the key-up and stops capture at once', async () => {
   const env = build();
   const stops = [];
   const statuses = [];
   env.source.onStop((reason) => stops.push(reason));
   env.source.onStatus((status) => statuses.push(status));
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   assert.equal(await env.source.handleInput(keyA, result.geometry.generation), 'applied');
 
-  env.auth.change({ grant: 'none' });
+  env.auth.change({ paired: false });
   // Synchronous: no input admitted, capture told to stop, indicator gone.
   assert.equal(env.source.running(), false);
   assert.deepEqual(stops, ['revoked']);
@@ -437,33 +424,17 @@ test('revoking the grant after a key-down sends the key-up and stops capture at 
   assert.equal(env.log.at(-1).type, 'stop');
 });
 
-test('turning the master switch off stops with reason disabled', async () => {
+test('a demote releases held input; release stays idempotent', async () => {
   const env = build();
-  const stops = [];
-  env.source.onStop((reason) => stops.push(reason));
-  await env.source.start('view');
-  env.auth.change({ enabled: false });
-  assert.deepEqual(stops, ['disabled']);
-});
-
-test('a control → view downgrade releases held input and keeps the view', async () => {
-  const env = build();
-  const statuses = [];
-  env.source.onStatus((status) => statuses.push(status));
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   await env.source.handleInput({ type: 'screen-pointer', action: 'down', button: 'left', x: 1, y: 1 }, result.geometry.generation);
   await env.source.handleInput(keyA, result.geometry.generation);
 
-  env.auth.change({ grant: 'view' });
-  assert.equal(env.source.running(), true);
-  assert.equal(statuses.at(-1).control, false);
-  assert.equal(env.indicator.current().controlling, false);
   await env.source.releaseInput();
   assert.ok(env.host.commands.some((c) => isKeyUp(c)));
   assert.ok(env.host.commands.some((c) => c.op === 'button' && c.down === false));
-  assert.equal(await env.source.handleInput(keyA, result.geometry.generation), 'rejected');
-  assert.equal(env.log.at(-1).type, 'downgrade');
-  // Release stays idempotent (demote, then viewer-left).
+  assert.equal(env.source.running(), true, 'the session goes on');
+  // Demote, then viewer-left: nothing more is sent.
   const before = env.host.commands.length;
   await env.source.releaseInput();
   await env.source.releaseInput();
@@ -484,7 +455,7 @@ test('leaving the helper releases its press through the helper, before the switc
 
 test('a switch to the secure desktop drops the desktop press it can’t reach; no key-up is sent later', async () => {
   const env = build({ secure: { installed: true, connected: true, desktop: 'default' } });
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   await env.source.handleInput(keyA, result.geometry.generation);
 
   // The input desktop is now unreadable: the release can't go anywhere.
@@ -513,7 +484,7 @@ test('a helper reconnected to another session never receives an old release: it 
 
 test('stop during a pending dispatch cancels queued input and releases after the in-flight one', async () => {
   const env = build();
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   let open;
   env.host.control.gate = new Promise((resolve) => {
     open = resolve;
@@ -565,7 +536,7 @@ test('a crashed input host stops the session; its presses are dropped and counte
 
 test('a helper that stops answering cannot hold stop open: the watchdog kills it and drops its presses', async () => {
   const env = build({ shutdownDeadlineMs: 20 });
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   assert.equal(await env.source.handleInput(keyA, result.geometry.generation), 'applied');
   // From now on the helper never acknowledges; a second key-down is in flight.
   env.host.control.gate = new Promise(() => {});
@@ -584,7 +555,7 @@ test('app quit stops every session within the 5 s budget, even with hung hosts',
   assert.equal(SCREEN_QUIT_BUDGET_MS, 5_000);
   const sessions = [build({ shutdownDeadlineMs: 60_000 }), build({ shutdownDeadlineMs: 60_000 })];
   for (const env of sessions) {
-    const result = await env.source.start('control');
+    const result = await env.source.start();
     await env.source.handleInput(keyA, result.geometry.generation);
     // Neither the key-up nor the host's own graceful stop ever completes.
     env.host.control.gate = new Promise(() => {});
@@ -614,7 +585,7 @@ test('app quit stops every session within the 5 s budget, even with hung hosts',
 
 test('a later stop with a shorter deadline shortens the one already running', async () => {
   const env = build({ shutdownDeadlineMs: 60_000 });
-  const result = await env.source.start('control');
+  const result = await env.source.start();
   await env.source.handleInput(keyA, result.geometry.generation);
   env.host.control.gate = new Promise(() => {});
   const startedAt = Date.now();
@@ -633,7 +604,7 @@ test('a later stop with a shorter deadline shortens the one already running', as
 
 test('a later stop never lengthens the running deadline', async () => {
   const env = build({ shutdownDeadlineMs: 60_000 });
-  await env.source.start('control');
+  await env.source.start();
   env.host.control.stopHangs = true;
   const startedAt = Date.now();
   const first = env.source.stop('user', { deadlineMs: 20 });
@@ -645,7 +616,7 @@ test('a later stop never lengthens the running deadline', async () => {
 
 test('the shared quit budget also cuts a host close already under way', async () => {
   const env = build({ shutdownDeadlineMs: 60_000 });
-  await env.source.start('control');
+  await env.source.start();
   env.host.control.stopHangs = true;
   const startedAt = Date.now();
   const first = env.source.stop('viewer-left', { deadlineMs: 5_000 });
@@ -659,7 +630,7 @@ test('the shared quit budget also cuts a host close already under way', async ()
 
 test('a host whose graceful stop hangs is killed at the stop deadline', async () => {
   const env = build({ shutdownDeadlineMs: 60_000 });
-  await env.source.start('control');
+  await env.source.start();
   env.host.control.stopHangs = true;
   const startedAt = Date.now();
   await env.source.stop('user', { deadlineMs: 30 });
@@ -675,24 +646,24 @@ test('a secure-desktop helper that hangs is abandoned at the stop deadline and i
   assert.deepEqual(env.dropped(), [['secure', 1]]);
 });
 
-test('a grant revoked while the input host starts fails the start', async () => {
+test('a disconnect while the input host starts fails the start', async () => {
   const env = build();
   let open;
   env.host.control.startGate = new Promise((resolve) => {
     open = resolve;
   });
-  const starting = env.source.start('control');
+  const starting = env.source.start();
   await tick();
-  env.auth.change({ grant: 'none' });
+  env.auth.change({ paired: false });
   open();
   await assert.rejects(starting, (error) => error instanceof ScreenSourceDenied && error.reason === 'revoked');
   assert.ok(!env.log.some((entry) => entry.type === 'start'));
   assert.equal(env.indicator.current(), null);
 });
 
-test('helper frames stop flowing once the grant is gone', async () => {
+test('helper frames stop flowing once the pairing is gone', async () => {
   const env = build({ secure: { installed: true, connected: true, desktop: 'winlogon' } });
-  const result = await env.source.start('view');
+  const result = await env.source.start();
   env.host.emitDesktop({ inputDesktop: null, consent: false, logonUi: true });
   const frames = [];
   env.source.onFrame((frame) => frames.push(frame));
@@ -700,11 +671,11 @@ test('helper frames stop flowing once the grant is gone', async () => {
   env.secure.emitFrame(frame);
   assert.equal(frames.length, 1);
   // Not yet signalled: the live read alone already gates frames.
-  env.auth.grant = 'none';
+  env.auth.paired = false;
   env.secure.emitFrame(frame);
   assert.equal(frames.length, 1);
   // A malformed helper frame is dropped, not thrown into the helper client.
-  env.auth.grant = 'view';
+  env.auth.paired = true;
   env.secure.emitFrame({ ...frame, pixels: new Uint8Array(4) });
   assert.equal(frames.length, 1);
   assert.equal(result.plan.sourceId, 'screen:0:0');
@@ -714,7 +685,7 @@ test('a display change that keeps the geometry does not renew capture', async ()
   const env = build();
   const renewals = [];
   env.source.onGeometry((renewal) => renewals.push(renewal));
-  await env.source.start('view');
+  await env.source.start();
   env.displays.set([{ ...display }]);
   assert.equal(renewals.length, 0);
   env.displays.set([{ ...display, physical: { ...display.physical, width: 2560, height: 1440 } }]);

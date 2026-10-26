@@ -377,7 +377,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
     {
       if (!CLIENT_ID.test(clientId)) throw new TypeError('remote webrtc client id is invalid.');
       const signal = parseRemoteWebrtcClientSignal(raw);
-      const source = deps.sources(signal.source);
+      const source = deps.sources(signal.source, { clientId, signal: signal.type });
       if (!source) throw new TypeError('remote webrtc source is not streamed.');
       const sourceKey = remoteWebrtcSourceKey(signal.source);
       const key = viewerKey(clientId, sourceKey);

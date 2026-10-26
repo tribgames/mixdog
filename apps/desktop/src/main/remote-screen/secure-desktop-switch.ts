@@ -23,9 +23,13 @@ import type { ScreenHostCommand } from './screen-input-host';
 import type { ScreenLocalDesktop } from './screen-input-host';
 import type { ScreenDesktopIdentity } from './screen-input-router';
 
-/** Which desktop the helper (or the local watcher) reports. Matches the
- *  helper protocol's `DesktopKind`. */
-export type SecureDesktopKind = 'default' | 'winlogon' | 'locked';
+/** The input desktop's real object name, as the helper reports it (protocol
+ *  v3 `DesktopName`): `Default`, or `Winlogon` for the lock screen, sign-in
+ *  and UAC alike. Compared case-insensitively. */
+export type SecureDesktopKind = string;
+
+/** Desktop names compare case-insensitively (Windows object names do). */
+export const normalizeDesktopName = (name: string): string => name.toLowerCase();
 
 /**
  * The secure-desktop helper client, as this switch uses it. The real client
@@ -60,7 +64,9 @@ export function secureDesktopIdentity(client: SecureDesktopClient): ScreenDeskto
   if (!client.connected()) return null;
   const session = client.session();
   const desktop = client.desktop();
-  return session === null || desktop === null ? null : { session, desktop };
+  // Lower-cased like the input host's name, so both backends' identities of
+  // one desktop compare equal.
+  return session === null || desktop === null ? null : { session, desktop: normalizeDesktopName(desktop) };
 }
 
 /** A client that reports not-installed; the real shell matches it when the
@@ -121,12 +127,15 @@ const helperState = (inputs: ScreenSwitchInputs): RemoteScreenHelperState => {
 export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDecision {
   const helper = helperState(inputs);
   const local = inputs.local;
-  const onSecure = local !== null && (local.inputDesktop === null || local.inputDesktop.toLowerCase().includes('winlogon'));
+  const onSecure =
+    local !== null && (local.inputDesktop === null || normalizeDesktopName(local.inputDesktop) === 'winlogon');
   const locked = local !== null && local.logonUi && !onSecure;
 
   if (onSecure) {
     const reason: RemoteScreenStatus['reason'] = local?.logonUi ? 'lock' : local?.consent ? 'uac' : 'secure';
-    if (inputs.helperInstalled && inputs.helperConnected && inputs.helperDesktop !== 'default') {
+    if (inputs.helperInstalled && inputs.helperConnected && inputs.helperDesktop !== null &&
+      normalizeDesktopName(inputs.helperDesktop) !== 'default'
+    ) {
       return { mode: 'helper', helper, helperActive: true, status: 'secure-desktop', reason };
     }
     return {

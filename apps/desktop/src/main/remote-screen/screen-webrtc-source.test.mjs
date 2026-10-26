@@ -58,7 +58,7 @@ function fakeSink() {
 test('start admits once, reports geometry and exposes the capture plan', async () => {
   const fake = fakeScreen();
   const sink = fakeSink();
-  const source = createScreenWebrtcSource(fake.screen, { screenId: '0', want: 'control', sink: sink.sink });
+  const source = createScreenWebrtcSource(fake.screen, { screenId: '0', sink: sink.sink });
   assert.deepEqual(source.source, { kind: 'screen', screenId: '0' });
   assert.equal(source.capturePlan(), null);
   source.start();
@@ -71,7 +71,7 @@ test('start admits once, reports geometry and exposes the capture plan', async (
 
 test('dispatch forwards screen input, throws on rejection and refuses page input', async () => {
   const fake = fakeScreen();
-  const source = createScreenWebrtcSource(fake.screen, { screenId: '0', want: 'control', sink: fakeSink().sink });
+  const source = createScreenWebrtcSource(fake.screen, { screenId: '0', sink: fakeSink().sink });
   await source.dispatch({ type: 'screen-pointer', action: 'move', x: 1, y: 2 });
   assert.deepEqual(fake.state.inputs[0][1], 3);
   fake.state.outcome = 'rejected';
@@ -82,7 +82,7 @@ test('dispatch forwards screen input, throws on rejection and refuses page input
 test('release is forwarded every time; geometry renewal and stop reach the sink', async () => {
   const fake = fakeScreen();
   const sink = fakeSink();
-  const source = createScreenWebrtcSource(fake.screen, { screenId: '0', want: 'view', sink: sink.sink });
+  const source = createScreenWebrtcSource(fake.screen, { screenId: '0', sink: sink.sink });
   await source.release();
   await source.release();
   assert.equal(fake.state.releases, 2);
@@ -103,7 +103,6 @@ test('a refused start reports no geometry and the error', async () => {
   const errors = [];
   const source = createScreenWebrtcSource(fake.screen, {
     screenId: '0',
-    want: 'control',
     sink: sink.sink,
     onStartError: (error) => errors.push(error),
   });

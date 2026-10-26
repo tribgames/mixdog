@@ -43,6 +43,9 @@ export interface RelayClientLifecycleDeps {
   /** A redelivery of a pending claim carried another key: the original is
    *  settled as denied, because the transcript conflicts. */
   onClaimConflict?: (claimId: string) => void;
+  /** The approval for this claim's `clientId` is about to be sent: the
+   *  device is paired again. */
+  onClaimApproved?: (clientId: string) => void;
   /** This PC's name as phones see it; the OS hostname when omitted. */
   hostName?(): string;
 }
@@ -183,6 +186,7 @@ function answerRelayClaim(
       sealed = null;
     }
     if (binding.conflicted) sealed = null;
+    if (sealed) deps.onClaimApproved?.(clientId);
     deps.sendEnvelope(sealed ? { type: 'claim-approve', claimId, sealed } : { type: 'claim-deny', claimId });
   })();
 }

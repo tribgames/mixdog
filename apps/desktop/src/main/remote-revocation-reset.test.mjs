@@ -4,6 +4,10 @@
 // user already revoked; once one is damaged nothing can prove a revocation
 // was not in it, so the pairing is reset (every phone must pair again) before
 // a relay leg opens. Local use never waits on it.
+//
+// An unpair the relay has not confirmed is part of that record too: it stays
+// queued (and in force, see remote-screen/screen-access-publisher.ts) across a
+// restart until the relay confirms it or the device is approved again.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -13,6 +17,7 @@ import test from 'node:test';
 import { WebSocketServer } from 'ws';
 
 import { createDesktopService } from './desktop-service.ts';
+import { generateRelayClaimKeyPair } from '../shared/remote-e2ee.ts';
 import { activateRemote } from './remote-activation.ts';
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee.ts';
 import { loadOrCreatePairingToken } from './remote-pairing-token.ts';
@@ -40,9 +45,11 @@ async function paired(run) {
   process.env.MIXDOG_RELAY_URL = `ws://127.0.0.1:${server.address().port}`;
   const legs = [];
   const open = new Set();
+  /** How the relay answers a client revoke. */
+  const relay = { revokeClientOk: true };
   server.on('connection', (socket, request) => {
     const credentials = Buffer.from(String(request.headers.authorization).split(' ')[1], 'base64').toString('utf8');
-    const leg = { deviceId: credentials.split(':')[0], frames: [] };
+    const leg = { deviceId: credentials.split(':')[0], frames: [], socket };
     legs.push(leg);
     open.add(socket);
     socket.on('close', () => open.delete(socket));
@@ -50,6 +57,9 @@ async function paired(run) {
       const frame = JSON.parse(String(raw));
       leg.frames.push(frame.type);
       if (frame.type === 'revoke-device') socket.send(JSON.stringify({ type: 'device-revoked', ok: true }));
+      if (frame.type === 'revoke-client') {
+        socket.send(JSON.stringify({ type: 'client-revoked', requestId: frame.requestId, ok: relay.revokeClientOk }));
+      }
       if (frame.type === 'list-clients') {
         socket.send(JSON.stringify({ type: 'clients-list', requestId: frame.requestId, clients: [] }));
       }
@@ -77,7 +87,12 @@ async function paired(run) {
       token: await loadOrCreatePairingToken(dir),
       e2ee: await loadOrCreateRelayE2EEIdentity(dir),
     });
-    await run({ dir, before, after, legs, events, start });
+    /** Quits the service; `start` again is the next app launch. */
+    const stop = async () => {
+      await service?.dispose();
+      service = undefined;
+    };
+    await run({ dir, before, after, legs, events, start, stop, relay });
   } finally {
     await service?.dispose();
     for (const socket of open) socket.terminate();
@@ -112,6 +127,58 @@ async function assertPairingReset({ dir, before, after, legs }) {
     'the old registration is only ever used to revoke itself'
   );
 }
+
+const PHONE = '0123456789abcdef0123456789abcdef';
+const pendingRevokes = (dir) => JSON.parse(readFileSync(join(dir, CLIENTS), 'utf8')).pendingRevokes;
+/** The newest relay leg is up: the desktop registered its pairing token. */
+const connected = (context) => Boolean(context.legs.at(-1)?.frames.includes('set-client-token'));
+
+test('an unpair the relay refuses stays recorded, across a restart, until the relay confirms it', () =>
+  paired(async (context) => {
+    let invoke = await context.start();
+    await invoke('remoteAccessStart');
+    await wait(() => connected(context));
+    context.relay.revokeClientOk = false;
+    await assert.rejects(invoke('remoteAccessRevokeClient', PHONE), /failed/);
+    assert.deepEqual(pendingRevokes(context.dir), [PHONE]);
+    // The next launch reads the record back, and its relay leg retries it.
+    await context.stop();
+    const launched = context.legs.length;
+    invoke = await context.start();
+    await invoke('remoteAccessStart');
+    await wait(() => context.legs.slice(launched).some((leg) => leg.frames.includes('revoke-client')));
+    assert.deepEqual(pendingRevokes(context.dir), [PHONE], 'refused again: still recorded');
+    // Confirmed: the record clears.
+    context.relay.revokeClientOk = true;
+    await invoke('remoteAccessRevokeClient', PHONE);
+    assert.deepEqual(pendingRevokes(context.dir), []);
+  }));
+
+test('approving the unpaired device again withdraws its unconfirmed unpair', () =>
+  paired(async (context) => {
+    const invoke = await context.start();
+    await invoke('remoteAccessStart');
+    await wait(() => connected(context));
+    context.relay.revokeClientOk = false;
+    await assert.rejects(invoke('remoteAccessRevokeClient', PHONE), /failed/);
+    assert.deepEqual(pendingRevokes(context.dir), [PHONE]);
+    const leg = context.legs.at(-1);
+    const { publicKey } = await generateRelayClaimKeyPair();
+    leg.socket.send(
+      JSON.stringify({
+        type: 'client-claim',
+        claimId: 'claim-1',
+        clientId: PHONE,
+        publicKey,
+        name: 'Phone',
+        expiresAt: Date.now() + 60_000,
+      })
+    );
+    await wait(() => context.events.some((event) => event.name === 'remote-client-claim'));
+    assert.equal(await invoke('remoteAccessResolveClaim', 'claim-1', true), true);
+    await wait(() => leg.frames.includes('claim-approve'));
+    await wait(() => pendingRevokes(context.dir).length === 0);
+  }));
 
 test('a NUL-filled remote-clients.json revokes every paired phone before the relay opens', () =>
   paired(async (context) => {

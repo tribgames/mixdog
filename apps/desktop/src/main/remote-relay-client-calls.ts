@@ -296,8 +296,10 @@ export function createRelayClientCallDispatch(
         await reply(false, error);
         return {};
       }
+      // Bound to the connection that delivered it (`client`), not to whichever
+      // connection holds the id when it runs.
       const run = () =>
-        webrtc.forward(clientId, signal).then(
+        webrtc.forward(clientId, signal, client).then(
           () => reply(true),
           (error: unknown) => reply(false, error)
         );
@@ -315,7 +317,7 @@ export function createRelayClientCallDispatch(
       const execution = (async () => {
         try {
           if (!webrtc) throw new TypeError('Remote WebRTC is unavailable.');
-          const value = await webrtc.screenDisplays(clientId);
+          const value = await webrtc.screenDisplays(clientId, client);
           if (typeof call.id === 'number' && deps.attached(clientId, client)) {
             await deps.sendEncryptedFrame(clientId, { id: call.id, ok: true, value });
           }

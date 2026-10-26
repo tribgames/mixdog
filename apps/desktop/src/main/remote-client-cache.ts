@@ -28,6 +28,11 @@ export interface RemoteClientCache {
   list(): DesktopRemoteClientInfo[];
   /** Revocations still to be applied at the relay. */
   pending(): string[];
+  /** The instance of the client's queued revocation: a new one each time it
+   *  is queued anew (after a confirmation or a re-pair withdrew the last);
+   *  null when none is queued. Kept for this run only: no acknowledgement
+   *  outlives a restart. */
+  revocation(clientId: string): number | null;
   /** The stored revocations were lost to damage: no paired device can be
    *  trusted as un-revoked until the pairing is reset and `clear()` is called. */
   repairRequired(): boolean;
@@ -35,8 +40,12 @@ export interface RemoteClientCache {
   remember(clients: DesktopRemoteClientInfo[]): Promise<void>;
   /** Queues the revocation for the next relay leg; the client stays listed as pending. */
   queueRevoke(clientId: string): Promise<void>;
-  /** The relay confirmed the revocation. */
-  applied(clientId: string): Promise<void>;
+  /** The relay confirmed the revocation sent for `revocation`. A newer one
+   *  queued for the client meanwhile stays (nothing changes). */
+  applied(clientId: string, revocation: number): Promise<void>;
+  /** The device was approved again (re-paired): a revocation still queued
+   *  for it no longer applies. */
+  repaired(clientId: string): Promise<void>;
   /** The device identity changed: nothing earlier applies any more, and a
    *  damaged record is answered. */
   clear(): Promise<void>;
@@ -99,6 +108,13 @@ async function readStored(file: string): Promise<{ stored: Stored | null } | { d
 export async function loadRemoteClientCache(userDataPath: string): Promise<RemoteClientCache> {
   const file = join(userDataPath, CLIENTS_FILE);
   let state: Stored = { clients: [], pendingRevokes: [], repairRequired: false };
+  /** Queued revocation → its instance (this run only). */
+  const revocations = new Map<string, number>();
+  let lastRevocation = 0;
+  const issue = (clientId: string): void => {
+    lastRevocation += 1;
+    revocations.set(clientId, lastRevocation);
+  };
   let writes: Promise<void> = Promise.resolve();
   // One write at a time, in order, each of the state as it stands when its turn comes.
   const persist = (): Promise<void> => {
@@ -124,12 +140,14 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
     }
     await persist().catch(() => undefined);
   }
+  for (const clientId of state.pendingRevokes) issue(clientId);
   return {
     list: () =>
       state.clients.map((client) =>
         state.pendingRevokes.includes(client.id) ? { ...client, pendingRemoval: true } : { ...client }
       ),
     pending: () => [...state.pendingRevokes],
+    revocation: (clientId) => revocations.get(clientId) ?? null,
     repairRequired: () => state.repairRequired,
     async remember(clients) {
       const next = clients.flatMap((row) => entry(row) ?? []);
@@ -140,15 +158,27 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
       await persist();
     },
     async queueRevoke(clientId) {
-      if (!state.pendingRevokes.includes(clientId)) state.pendingRevokes.push(clientId);
+      if (!state.pendingRevokes.includes(clientId)) {
+        state.pendingRevokes.push(clientId);
+        issue(clientId);
+      }
       await persist();
     },
-    async applied(clientId) {
+    async applied(clientId, revocation) {
+      if (revocations.get(clientId) !== revocation) return;
+      revocations.delete(clientId);
       state.clients = state.clients.filter((client) => client.id !== clientId);
       state.pendingRevokes = state.pendingRevokes.filter((id) => id !== clientId);
       await persist();
     },
+    async repaired(clientId) {
+      if (!state.pendingRevokes.includes(clientId)) return;
+      revocations.delete(clientId);
+      state.pendingRevokes = state.pendingRevokes.filter((id) => id !== clientId);
+      await persist();
+    },
     async clear() {
+      revocations.clear();
       state = { clients: [], pendingRevokes: [], repairRequired: false };
       await persist();
     },

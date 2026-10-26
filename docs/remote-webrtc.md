@@ -326,10 +326,11 @@ drops superseded ones.
 - `media-ready` carries `documentId: null` for a screen source (matched as
   null); a page source must name its document.
 - `browserRemoteScreenDisplays()` lists `RemoteScreenDisplaySummary[]`.
-- Authorization: the service admits screen signals and the display list only
-  while the whole-PC switch is on and the paired client (relay credential)
-  holds a grant (`remote-screen/screen-permission.ts`), read live. Browser
-  sources need the client's stream subscription instead.
+- Authorization: pairing is the approval. The service admits screen signals
+  and the display list for any paired client whose E2EE channel is
+  established and still connected, read live; the window binds each screen
+  session to that relay connection (docs/remote-screen.md). Browser sources
+  need the client's stream subscription instead.
 
 ## Measurement
 

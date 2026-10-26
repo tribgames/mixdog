@@ -1,10 +1,11 @@
 /**
- * A video source the WebRTC sender streams: the browser page of a session
- * today, the whole PC screen later (its own module plugs in here). Main owns
+ * A video source the WebRTC sender streams: the browser page of a session, or
+ * the whole PC screen (remote-screen/screen-webrtc-sources.ts). Main owns
  * capture; the sender only encodes what a source hands it.
  */
 import type {
   RemoteScreenCapturePlan,
+  RemoteWebrtcClientSignal,
   RemoteWebrtcGeometry,
   RemoteWebrtcSourceInput,
   RemoteWebrtcResize,
@@ -60,5 +61,16 @@ export interface RemoteWebrtcVideoSource {
   release?(): Promise<void>;
 }
 
-/** Finds the source a viewer names, or null when it is not streamed now. */
-export type RemoteWebrtcSourceResolver = (source: RemoteWebrtcSource) => RemoteWebrtcVideoSource | null;
+/** The paired client a signal came from, and that signal's type. A screen
+ *  source is opened per client, and only by its `ready`. */
+export interface RemoteWebrtcSourceViewer {
+  clientId: string;
+  signal: RemoteWebrtcClientSignal['type'];
+}
+
+/** Finds the source a viewer names, or null when it is not streamed now (or
+ *  not to this client). */
+export type RemoteWebrtcSourceResolver = (
+  source: RemoteWebrtcSource,
+  viewer: RemoteWebrtcSourceViewer
+) => RemoteWebrtcVideoSource | null;

@@ -29,6 +29,8 @@ const BROWSER_REMOTE_METHOD_NAMES = [
   'webrtcViewerLeft',
   // The whole-PC screen source's display list (authorized by the service).
   'screenDisplays',
+  // A paired client's whole-PC screen access, decided by the service.
+  'screenAccess',
 ] as const;
 
 export type BrowserRemoteMethod = (typeof BROWSER_REMOTE_METHOD_NAMES)[number];
@@ -54,6 +56,7 @@ type BrowserRemoteHost = Pick<
   | 'remoteWebrtcSignal'
   | 'remoteWebrtcViewerLeft'
   | 'remoteScreenDisplays'
+  | 'remoteScreenAccess'
 >;
 
 /** Window-process end of a daemon `browserRemote` request. */
@@ -92,6 +95,9 @@ export async function runBrowserRemoteRequest(
     case 'screenDisplays':
       if (!host.remoteScreenDisplays) throw new Error('Remote screen is unavailable.');
       return host.remoteScreenDisplays();
+    case 'screenAccess':
+      // No screen sources on this PC: there is no session to gate.
+      return host.remoteScreenAccess?.(String(args[0] ?? ''), args[1]);
   }
 }
 

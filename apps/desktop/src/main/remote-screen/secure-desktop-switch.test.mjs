@@ -4,7 +4,9 @@ import test from 'node:test';
 import {
   decideScreenSource,
   decisionUsesHelper,
+  NO_SECURE_DESKTOP,
   screenStatusFor,
+  secureDesktopIdentity,
 } from './secure-desktop-switch.ts';
 
 const ordinary = { inputDesktop: 'Default', consent: false, logonUi: false };
@@ -13,7 +15,7 @@ const secure = { inputDesktop: null, consent: true, logonUi: false };
 const lockScreen = { inputDesktop: null, consent: false, logonUi: true };
 
 const noHelper = { helperInstalled: false, helperConnected: false, helperDesktop: null };
-const helperReady = { helperInstalled: true, helperConnected: true, helperDesktop: 'winlogon' };
+const helperReady = { helperInstalled: true, helperConnected: true, helperDesktop: 'Winlogon' };
 
 test('the ordinary desktop streams through the default path', () => {
   const decision = decideScreenSource({ local: ordinary, ...noHelper });
@@ -74,13 +76,34 @@ test('an in-place prompt keeps a connected helper warm on the ordinary desktop',
     local: inPlacePrompt,
     helperInstalled: true,
     helperConnected: true,
-    helperDesktop: 'default',
+    helperDesktop: 'Default',
   });
   assert.equal(decision.mode, 'default');
   assert.equal(decision.status, 'elevation-prompt');
   assert.equal(decision.helperActive, true);
   // With the helper, the prompt is actionable.
   assert.equal(screenStatusFor(decision, true).control, true);
+});
+
+test('desktop names (protocol v3) compare case-insensitively', () => {
+  const winlogon = { inputDesktop: 'WINLOGON', consent: false, logonUi: true };
+  for (const name of ['Winlogon', 'winlogon', 'WINLOGON']) {
+    assert.equal(decideScreenSource({ local: secure, ...helperReady, helperDesktop: name }).mode, 'helper');
+  }
+  // The local watcher's name, in any case, marks the secure desktop.
+  assert.equal(decideScreenSource({ local: winlogon, ...noHelper }).status, 'secure-desktop');
+  // A helper still on `Default` (any case) doesn't serve the secure desktop.
+  for (const name of ['Default', 'DEFAULT']) {
+    assert.equal(decideScreenSource({ local: secure, ...helperReady, helperDesktop: name }).mode, 'blocked');
+  }
+  // An unknown helper desktop doesn't either.
+  assert.equal(decideScreenSource({ local: secure, ...helperReady, helperDesktop: null }).mode, 'blocked');
+});
+
+test('the helper identity uses the lower-cased real desktop name', () => {
+  const client = { ...NO_SECURE_DESKTOP, connected: () => true, session: () => 2, desktop: () => 'Winlogon' };
+  assert.deepEqual(secureDesktopIdentity(client), { session: 2, desktop: 'winlogon' });
+  assert.equal(secureDesktopIdentity({ ...client, desktop: () => null }), null);
 });
 
 test('no local report yet is treated as the ordinary desktop', () => {

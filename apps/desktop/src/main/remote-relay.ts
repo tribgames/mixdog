@@ -40,8 +40,7 @@ import { createPairCodeManager, type PairCodeState, type PairCodeUnsupported } f
 import { createRelayEnvelopeDispatcher } from './remote-relay-envelope';
 import { createRelayWebPush } from './remote-relay-web-push';
 import { bindRemoteIceServers, createRemoteIceServers, resolveRemoteIceServers } from './remote-ice-servers';
-import { createScreenAccessSettingsStore } from './remote-screen/screen-access-settings';
-import { decideScreenPermission } from './remote-screen/screen-permission';
+import { createScreenAccessPublisher } from './remote-screen/screen-access-publisher';
 import { createRemoteRelayInputOrder } from './remote-webrtc/input-order';
 import { createRemoteWebrtcRelay } from './remote-webrtc/relay';
 import {
@@ -98,6 +97,13 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
    *  (or throwing) denies it; the relay never decides this. */
   onClientClaim?: (claim: RemoteClientClaim) => Promise<RemoteClaimDecision>;
   onClaimConflict?: (claimId: string) => void;
+  /** The approval for a claim is about to be sent: that `clientId` (its
+   *  credential) is paired again. */
+  onClaimApproved?: (clientId: string) => void;
+  /** An unpair of this credential is recorded and in force (the relay has
+   *  not confirmed it, and the device was not paired again since): its
+   *  connections get no screen access, including ones admitted meanwhile. */
+  unpairPending?: (credentialId: string) => boolean;
   /** This PC's name for handshakes, pair codes and the relay report; read each
    *  time so a rename applies without a restart. Defaults to the OS hostname. */
   hostName?: () => string;
@@ -133,6 +139,8 @@ export interface RemoteRelayHandle {
    *  'ensure' returns the live one (minting if needed), 'renew' replaces it,
    *  'release' withdraws it. */
   pairCode(action: 'ensure' | 'renew' | 'release'): PairCodeState | PairCodeUnsupported | null;
+  /** Unpairs one credential at the relay. Record the unpair first
+   *  (`unpairPending` true) so it holds until the relay confirms it. */
   revokeClient(clientId: string): Promise<void>;
   /** System resume: the socket is likely half-dead after sleep — drop it and
    *  redial immediately instead of waiting for the ping cycle to notice. */
@@ -284,6 +292,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       socketDiagnostics.sync();
       options.onClientCountChanged?.();
     },
+    // A connection that leaves, by any path, loses its screen access now, and
+    // its screen `ready`s still resolving are cancelled.
+    onRemoved: (clientId) => {
+      browserWebrtc.connectionRemoved(clientId);
+      screenAccessPublisher.removed(clientId);
+    },
+    // Admitted while its credential has an unpair in force: no screen access
+    // for this connection's lifetime.
+    onAdded: (state) => screenAccessPublisher.admitted(state),
     onEmpty: () => {
       socketDiagnostics.sync();
       // The last phone left: log the partial window rather than dropping it.
@@ -335,33 +352,51 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   const browserWebrtc = createRemoteWebrtcRelay({
     subscribed: (clientId, sessionId) => browserStreams.subscribed(clientId, sessionId),
     awaitingFit: (clientId, sessionId) => browserStreams.awaitingFit(clientId, sessionId),
-    // Whole-PC screen: the switch and this paired client's grant (keyed by its
-    // relay credential), read live; the channel is E2EE by construction here.
-    screenAuthorized: async (clientId) => {
-      const client = clients.get(clientId);
-      if (!client?.channel) return false;
-      const [enabled, grant] = await Promise.all([
-        screenAccess.isEnabled(),
-        screenAccess.grantFor(client.credentialId || `connection:${clientId}`),
-      ]);
-      return decideScreenPermission('view', { enabled, pairedE2EE: true, grant }).allowed;
-    },
+    // Whole-PC screen: pairing is the approval, so the connection that
+    // delivered the signal may view and control while the id still names it,
+    // its E2EE channel is established and it was not unpaired.
+    screenAuthorized: async (clientId, origin) => screenAccessPublisher.allowed(clientId, origin),
     screenDisplays: () =>
       options.browserRemote
         ? options.browserRemote('screenDisplays', [])
         : Promise.reject(new TypeError('Remote screen is unavailable.')),
     setImages: (clientId, sessionId, enabled) => browserStreams.setImages(clientId, sessionId, enabled),
     resolveIceServers: resolveRemoteIceServers,
-    forward: (clientId, signal, servers) => {
-      if (!options.browserRemote) return Promise.reject(new TypeError('Remote Browser Use is unavailable.'));
+    forward: async (clientId, signal, servers, origin) => {
+      if (!options.browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
+      // The window opens a screen session on its `ready` with the access of
+      // the connection that delivered it, published here first; another
+      // connection under the id, an unpair, or a deny that followed while it
+      // was delivered refuses the `ready`. Nothing is awaited between that
+      // check and the request below, so the window (which handles both in
+      // order) binds the session to this connection's access.
+      if (signal.source.kind === 'screen') {
+        const allowed =
+          signal.type === 'ready'
+            ? await screenAccessPublisher.publish(clientId, origin)
+            : screenAccessPublisher.allowed(clientId, origin);
+        if (!allowed) throw new TypeError('Remote screen is not allowed for this device.');
+      }
       return options.browserRemote('webrtcSignal', [clientId, signal, servers ?? null]);
     },
     viewerLeft: (clientId, sourceKey) =>
       options.browserRemote ? options.browserRemote('webrtcViewerLeft', [clientId, sourceKey]) : Promise.resolve(),
     send: (clientId, payload) => sendEncryptedFrame(clientId, payload, false),
   });
-  // The whole-PC screen switch and per-client grants.
-  const screenAccess = createScreenAccessSettingsStore(options.userDataPath);
+  // The window process enforces a screen session's access itself, read live
+  // (remote-screen/screen-webrtc-sources.ts). The publisher binds every push
+  // to this service's epoch, a monotonic revision and the relay connection;
+  // a connection leaving the registry (onRemoved) and an unpair deny at once.
+  const screenAccessPublisher = createScreenAccessPublisher({
+    client: (clientId) => clients.get(clientId),
+    clients: () => clients.clients.entries(),
+    unpaired: (credentialId) => options.unpairPending?.(credentialId) === true,
+    label: (credentialId) => (credentialId && options.deviceAlias?.(credentialId)) || 'Paired phone',
+    send: (clientId, access) =>
+      options.browserRemote
+        ? options.browserRemote('screenAccess', [clientId, access])
+        : Promise.reject(new TypeError('Remote screen is unavailable.')),
+  });
   // Pipelined relay page input (`browserRemoteControl` with an order).
   const relayInputOrder = createRemoteRelayInputOrder();
   const browserTabs = createBrowserRemoteTabSubscribers({
@@ -478,6 +513,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     joinFrames: () => sessionSubscriptions.joinFrames(),
     onClientClaim: options.onClientClaim,
     onClaimConflict: options.onClaimConflict,
+    onClaimApproved: options.onClaimApproved,
     hostName: pcName,
   });
   const routeRelayEnvelope = createRelayEnvelopeDispatcher({
@@ -552,6 +588,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     viewsSessionLane: (sessionId, lane) =>
       [...clients.clients.values()].some((state) => clientViewsSessionLane(state, sessionId, lane)),
     revokeClient: async (clientId: string): Promise<void> => {
+      // Unpaired (`clientId` is the credential): every live connection of it
+      // loses screen access for good now, before anything is awaited. The
+      // caller records the unpair first (`unpairPending`), which refuses its
+      // connections, including new ones, until the relay confirms it.
+      screenAccessPublisher.revokeCredential(clientId);
       browserStreams.dropClient(clientId);
       browserTabs.dropClient(clientId);
       deviceMethods.forgetDeviceName(clientId);

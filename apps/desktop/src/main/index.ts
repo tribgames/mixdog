@@ -150,6 +150,12 @@ import {
   type DesktopSettings,
 } from '../shared/contract';
 import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMethod } from './remote-browser-methods';
+import {
+  createElectronScreenDisplays,
+  createElectronScreenInputHost,
+  createNotificationScreenIndicator,
+} from './remote-screen/screen-electron';
+import { NO_SECURE_DESKTOP } from './remote-screen/secure-desktop-switch';
 import { modelProxyRuntimeLoader } from './model-proxy-host';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
@@ -1491,6 +1497,10 @@ function disposeDesktopResources(): Promise<void> {
   desktopPet = null;
   if (!disposalPromise) {
     diagnostics?.write('desktop-stop');
+    // Paired phones' whole-PC screen sessions release their held keys and
+    // buttons first, within SCREEN_QUIT_BUDGET_MS (Windows' hung-app timeout)
+    // however long the rest of the teardown takes.
+    const screensStopped = browserHost?.stopRemoteScreens() ?? Promise.resolve();
     const browserAndComputerCleanup = (async () => {
       await browserHost?.dispose();
       await browserHostDisposal;
@@ -1521,7 +1531,8 @@ function disposeDesktopResources(): Promise<void> {
         resolve();
       }, DESKTOP_DISPOSE_TIMEOUT_MS);
     });
-    disposalPromise = Promise.race([cleanup, deadline])
+    disposalPromise = Promise.all([Promise.race([cleanup, deadline]), screensStopped])
+      .then(() => undefined)
       .finally(() => {
         if (timeout) clearTimeout(timeout);
       })
@@ -2182,6 +2193,17 @@ function installLocalWindowFeatures(
           file: join(import.meta.dirname, '../renderer/remote-webrtc-sender.html'),
         };
       })(),
+      // The whole-PC screen source (Windows: its injector is the Windows input
+      // host). The secure-desktop helper plugs in through its client.
+      screens:
+        process.platform === 'win32'
+          ? {
+              displays: createElectronScreenDisplays(),
+              createInputHost: createElectronScreenInputHost,
+              secureDesktop: NO_SECURE_DESKTOP,
+              indicator: createNotificationScreenIndicator,
+            }
+          : undefined,
     },
     onSurfaceRequest: (request) => {
       void localService.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
