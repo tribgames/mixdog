@@ -12,8 +12,11 @@ type SidePanelFlipKind = 'sidebar' | 'dock';
 // the frame paints, never a frame later through the rows' observers. The
 // sidebar opens and closes from many places (rail, shortcuts, navigation), so
 // the commit that flips the shell's collapsed class is detected here, after
-// every commit of the host, by a class read (no layout).
-export function useSidePanelOpenFlip() {
+// every commit of the host, by a class read (no layout). An overlay drawer
+// (the narrow band, the phone) moves no pane edge, so its flip re-measures
+// nothing: each transcript's width read would only lay the page out inside
+// the drawer's own commit.
+export function useSidePanelOpenFlip(overlayDrawer = false) {
   const mainPanel = useRef<HTMLElement | null>(null);
   const collapsed = useRef<boolean | null>(null);
   useLayoutEffect(() => {
@@ -22,7 +25,7 @@ export function useSidePanelOpenFlip() {
     const next = shell.classList.contains('sidebar-collapsed');
     const previous = collapsed.current;
     collapsed.current = next;
-    if (previous !== null && previous !== next) syncTranscriptWidths();
+    if (previous !== null && previous !== next && !overlayDrawer) syncTranscriptWidths();
   });
   const begin = useCallback((_kind: SidePanelFlipKind, commit: () => void) => {
     commit();

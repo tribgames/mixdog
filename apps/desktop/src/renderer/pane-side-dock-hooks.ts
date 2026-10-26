@@ -358,15 +358,39 @@ export function paneDockResizeAxis(placement: SidePanelPlacement): 'width' | 'he
 
 function subscribeSidePanelPlacement(listener: () => void): () => void {
   const unsubscribe = subscribeSidePanelPosition(listener);
-  window.addEventListener('resize', listener);
+  // Dropped here too: this listener may run before the module's own one.
+  const onResize = () => {
+    dropPlacementViewport();
+    listener();
+  };
+  window.addEventListener('resize', onResize);
   return () => {
     unsubscribe();
-    window.removeEventListener('resize', listener);
+    window.removeEventListener('resize', onResize);
   };
 }
 
+/** The viewport the placement was resolved for, dropped on every resize.
+ *  React reads the snapshot in each render and again inside the commit, and
+ *  reading window.innerWidth lays the page out: every pane render after a DOM
+ *  change paid a forced layout for an answer that only a resize can change. */
+let placementViewport: { width: number; height: number } | null = null;
+let placementViewportWatched = false;
+function dropPlacementViewport(): void {
+  placementViewport = null;
+}
+function viewportForPlacement(): { width: number; height: number } {
+  if (!placementViewportWatched) {
+    placementViewportWatched = true;
+    window.addEventListener('resize', dropPlacementViewport);
+  }
+  placementViewport ??= { width: window.innerWidth, height: window.innerHeight };
+  return placementViewport;
+}
+
 function sidePanelPlacementSnapshot(): SidePanelPlacement {
-  return resolveSidePanelPlacement(getSidePanelPosition(), window.innerWidth, window.innerHeight);
+  const { width, height } = viewportForPlacement();
+  return resolveSidePanelPlacement(getSidePanelPosition(), width, height);
 }
 
 /** The desktop placement of the pane docks: the stored position, with Auto

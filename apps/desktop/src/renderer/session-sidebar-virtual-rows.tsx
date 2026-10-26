@@ -127,6 +127,9 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     [focusRequest, focusedId, indexById, items.length, pinnedIds]
   );
   const getItemKey = useCallback((index: number) => items[index]?.key ?? `row:${index}`, [items]);
+  // Read once: the virtualizer takes it only when it is created, and reading
+  // window.innerHeight in every render laid the page out mid-render.
+  const [initialRect] = useState(() => ({ width: 0, height: fallbackViewportHeight() }));
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: items.length,
     enabled: windowed,
@@ -140,7 +143,7 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     // A range change re-renders this list after the scroll event, never
     // synchronously inside it; the overscan keeps rows ready meanwhile.
     useFlushSync: false,
-    initialRect: { width: 0, height: fallbackViewportHeight() },
+    initialRect,
     observeElementOffset: (instance, notify) =>
       observeElementOffset(instance, (offset, scrolling) => {
         const step = VIRTUAL_ROWS_STEP * pitch;
@@ -176,6 +179,11 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     const scroller = scrollerRef.current;
     const container = markerRef.current?.parentElement;
     if (!scroller || !container) return;
+    // A list inside a hidden view (a closed drawer, a rail page not shown) has
+    // no box to learn from; reading one would only lay the page out inside
+    // this commit (a closing drawer paid the whole Settings layout here). It
+    // measures in the render that shows it.
+    if (scroller.closest('[hidden]')) return;
     const rows = container.querySelectorAll<HTMLElement>(':scope > .session-row[data-session-id]');
     // Unwindowed, every item is mounted in order.
     const indexes = windowed ? renderedRef.current : rows.length > 1 ? [0, 1] : [0];

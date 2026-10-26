@@ -4,7 +4,7 @@
 // intent on <html> first; desktop/07-mobile-chrome.css turns the stamp into
 // the sheet's visual state at once, and the shell clears it when the
 // committed state has caught up with the latest intent.
-const DRAWER_INTENT_ATTRIBUTE = 'data-drawer-intent';
+export const DRAWER_INTENT_ATTRIBUTE = 'data-drawer-intent';
 
 export function paintDrawerIntent(open: boolean): void {
   document.documentElement.setAttribute(DRAWER_INTENT_ATTRIBUTE, open ? 'open' : 'closed');

@@ -85,7 +85,7 @@ export function AppShellLayout({
   } = hubs;
   const { paneConversationSurface, paneFileEditors, paneUtilityTabs, paneUtilitySurfacePortals, desktopBootReady } =
     surfaces;
-  const { renderWorkbenchSideView, renderPaneSideDock, renderPaneProblems } = views;
+  const { renderWorkbenchSideView, leftViewInputs, renderPaneSideDock, renderPaneProblems } = views;
 
   return (
     <DesktopBootGate restorePending={paneWorkspace.restorePending} ready={desktopBootReady}>
@@ -114,6 +114,7 @@ export function AppShellLayout({
             moveWorkbenchSideGroup={moveWorkbenchSideGroup}
             moveWorkbenchSideView={moveWorkbenchSideView}
             renderWorkbenchSideView={renderWorkbenchSideView}
+            leftViewInputs={leftViewInputs}
             sidebarDiff={sidebarDiff}
             closeSidebarDiff={closeSidebarDiff}
             openFileTab={openFileTab}

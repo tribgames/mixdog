@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { startTransition, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { preloadAgentPool } from './AgentActivityPane';
 import {
   loadOnboardingWizardModule,
@@ -11,14 +11,20 @@ import {
   preloadUtilityDock,
   prewarmUtilityDockGitState,
   requestSessionRead,
+  utilityDockModule,
 } from './app-snapshot-views';
 import { armBootWarmup, BOOT_WARMUP, BOOT_WARMUP_ARM_DELAY_MS, scheduleBootWarmup } from './boot-warmup';
 import { onFirstConversationPaint } from './boot-metrics';
+import { readMixyStatus } from './mixy-identity';
 import { prefetchExplorerRoot } from './explorer-root-cache';
 import { loadCommandSurfaceModule } from './command-surface-loader';
 import { type ChunkPrefetchName, fetchChunkGraph } from './chunk-prefetch';
 import { FIRST_SCREEN_DEFERRED_MODULES } from './first-screen-deferred';
-import { desktopFeatureEnabled, desktopSidebarDestinationEnabled } from './desktop-feature-config';
+import {
+  desktopFeatureEnabled,
+  desktopSidebarDestinationEnabled,
+  desktopUtilityDockTabEnabled,
+} from './desktop-feature-config';
 import { applyDesktopThemePreference, getDesktopThemePreference } from './desktop-theme';
 import { applyStoredSkin } from './desktop-skin';
 import { installHostDisplaySync } from './host-display-sync';
@@ -56,8 +62,9 @@ type WarmupWorkspace = Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'foc
 
 /** A phone keeps the panels it does not show at start (Settings and the rail
  *  panels: Workflows, Extensions, Schedules, Webhooks, Projects) cold while
- *  its first screen loads — the rail panels until the first touch, Settings
- *  until it opens: their hidden mounts are capability reads queued on the relay
+ *  its first screen loads — the rail panels until its idle lane opens after
+ *  the first conversation painted, Settings until it opens: their hidden
+ *  mounts are capability reads queued on the relay
  *  link and main-thread work on a slow CPU, for surfaces most opens never
  *  visit. Desktop windows keep warming them. */
 function hiddenPanelsStayCold(): boolean {
@@ -262,11 +269,23 @@ export function useAppSettingsPreload() {
       preloadAgentPool(window.mixdogDesktop);
       return undefined;
     }
-    return scheduleBootWarmup({
-      id: 'data:agent-pool',
-      priority: BOOT_WARMUP.agentPool,
-      run: () => preloadAgentPool(window.mixdogDesktop),
-    });
+    const cancels = [
+      scheduleBootWarmup({
+        id: 'data:agent-pool',
+        priority: BOOT_WARMUP.agentPool,
+        run: () => preloadAgentPool(window.mixdogDesktop),
+      }),
+      // Whether Mixy exists: the closed drawer's bot section reads it only when
+      // shown, so its first opening added Mixy's row above the list in view.
+      scheduleBootWarmup({
+        id: 'data:mixy-status',
+        priority: BOOT_WARMUP.agentPool,
+        run: () => readMixyStatus(window.mixdogDesktop),
+      }),
+    ];
+    return () => {
+      for (const cancel of cancels) cancel();
+    };
   }, []);
   // The capability sweep remains behind the opening conversation in the idle lane.
   useEffect(() => {
@@ -488,6 +507,9 @@ export function useAppWorkspaceWarmup({
         })
       );
     }
+    // A hidden page mounts as a transition: React yields between components,
+    // so a tap that lands meanwhile never waits behind the whole page's render.
+    const mountHidden = (panel: string) => startTransition(() => mountSidebarPanel(panel));
     const mountPanels = (panels: readonly SidebarPanelKey[]) =>
       panels.flatMap((panel, index) =>
         desktopSidebarDestinationEnabled(panel)
@@ -498,21 +520,38 @@ export function useAppWorkspaceWarmup({
                 run: () => {
                   const module = loadSidebarPanelModule[panel]();
                   trackSidebarPanelModule(panel, module);
-                  return module.then(() => mountSidebarPanel(panel)).catch(() => {});
+                  return module.then(() => mountHidden(panel)).catch(() => {});
                 },
               }),
             ]
           : []
       );
-    // Desktop mounts every rail page hidden at idle, so no first entry mounts
-    // its page in front of the user (user: 사이드 뷰가 늦게 뜨고 튐). A phone
-    // mounts them once the user first touches the page (most often to open
-    // that drawer), on a normal link. Opened cold, each page painted its
-    // placeholder until its chunk and its list crossed the relay (user: 메뉴
-    // 목록이 바로 안 나온다).
-    if (!hiddenPanelsStayCold()) cancels.push(...mountPanels(DEFAULT_SIDEBAR_VIEW_ORDER));
-    else if (connectionQuality() === 'normal')
-      cancels.push(...afterFirstPhoneTouch(() => mountPanels(DEFAULT_SIDEBAR_VIEW_ORDER)));
+    // The Bots page draws the dock chunk's Agents pane, which mounts its body
+    // hidden the same way (use-app-workbench-views `prewarm`).
+    const mountBotsPage = () =>
+      desktopUtilityDockTabEnabled('agents')
+        ? [
+            scheduleBootWarmup({
+              id: 'mount:sidebar:agents',
+              priority: BOOT_WARMUP.sidebarPanel,
+              run: () =>
+                utilityDockModule
+                  .load()
+                  .then(() => mountHidden('agents'))
+                  .catch(() => {}),
+            }),
+          ]
+        : [];
+    const mountPages = () => [...mountBotsPage(), ...mountPanels(DEFAULT_SIDEBAR_VIEW_ORDER)];
+    // Every rail page mounts hidden at idle, so no first entry mounts its page
+    // in front of the user (user: 사이드 뷰가 늦게 뜨고 튐). A phone's lane
+    // opens only once its first conversation painted, and takes them only on
+    // a normal link. Opened cold, each page painted its placeholder until its
+    // chunk and its list crossed the relay (user: 메뉴 목록이 바로 안 나온다).
+    // Mounted on the first touch instead, the pages rendered while the drawer
+    // that touch opened was in front of the user, and its first rail tap
+    // landed among them.
+    if (!hiddenPanelsStayCold() || connectionQuality() === 'normal') cancels.push(...mountPages());
     return () => {
       for (const cancel of cancels) cancel();
     };

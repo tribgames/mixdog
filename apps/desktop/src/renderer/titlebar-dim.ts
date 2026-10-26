@@ -4,6 +4,8 @@
 // (user: 딤드도 안 먹고 색도 튀던데). While at least one fullscreen scrim
 // holds a claim here, the scrim-composited band/symbol colors ride the
 // native overlay itself; releasing the last claim restores the theme band.
+import { isElectronRenderer } from './remote-ui-projection';
+
 type Rgba = { r: number; g: number; b: number; a: number };
 
 type TitleBarDimBridge = {
@@ -148,6 +150,10 @@ function followCaption(durationMs = 450): void {
  *  holds a claim, the same scrim is composited on top of both. */
 /** Returns whether the composited colors changed since the last send. */
 function sendCaption(): boolean {
+  // Only an Electron window has a native caption band. A browser (the phone)
+  // has nothing to colour, and sampling the scrims there forced style and
+  // layout on every frame of a dialog's open and close.
+  if (!isElectronRenderer()) return false;
   // Prefer the ACTUAL painted titlebar over the token: the caption band must
   // read as one surface with the strip beside it (user: 배경이랑 완전히
   // 동화됐으면), even if a surface tweak moves the token. Full-bleed settings

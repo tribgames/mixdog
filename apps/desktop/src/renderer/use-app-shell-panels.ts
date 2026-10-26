@@ -266,7 +266,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     mainPanel: mainPanelRef,
     beginOpen: beginSidePanelOpen,
     beginClose: beginSidePanelClose,
-  } = useSidePanelOpenFlip();
+  } = useSidePanelOpenFlip(narrowShell);
   const openSidebar = useCallback(() => {
     if (sidebarOpenIntent.current) return;
     sidebarOpenIntent.current = true;

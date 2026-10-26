@@ -155,6 +155,7 @@ export function useAppWorkbenchViewWiring(
     deleteSession,
     sideViewDescriptors,
     renderSidebarPanel,
+    mountedSidebarPanels: shellPanels.mountedSidebarPanels,
     snapshotStore,
     observedAgentSessionIds: sessionTitle.observedAgentSessionIds,
     quickAccessProjectPath,

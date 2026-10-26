@@ -72,6 +72,7 @@ function workbenchViewOptions(paneWorkspace, overrides) {
     deleteSession: async () => {},
     sideViewDescriptors: new Map(),
     renderSidebarPanel: () => null,
+    mountedSidebarPanels: new Set(),
     snapshotStore: { get: () => ({}) },
     observedAgentSessionIds: [],
     quickAccessProjectPath: '',

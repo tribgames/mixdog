@@ -7,7 +7,6 @@ import { projectIdentity } from './project-catalog-cache';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
-import { usePhoneDrawerInert } from './session-sidebar-drawer-inert';
 import { usePhoneSurfaceMarked } from './mobile-surface';
 import { useScrollProgress } from './scroll-progress';
 import type { NavigationSelection } from './nav-types';
@@ -720,8 +719,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const recentScrollerRef = useRef<HTMLDivElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const panelsScrollerRef = useRef<HTMLDivElement | null>(null);
+  // A phone sidebar never takes `inert` itself: the drawer's panel flips it
+  // for the whole drawer at the slide's end (WorkbenchSidePanel), and a hidden
+  // rail destination is inert through its hidden group. Flipping it here too
+  // read the drawer's animations on every rail switch (a forced style recalc
+  // inside the commit) and restyled the shown sidebar a second time.
   const phone = usePhoneSurfaceMarked();
-  usePhoneDrawerInert(sidebarRef, open, phone);
   useScrollProgress(panelsScrollerRef, ':scope > .session-panel-header');
   useScrollProgress(recentScrollerRef, ':scope > .session-sidebar-launchers', hasSessionSurface);
   // The catalog holds still under a reader's scroll: no re-sort or row move

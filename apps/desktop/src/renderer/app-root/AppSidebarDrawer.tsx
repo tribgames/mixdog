@@ -1,5 +1,5 @@
 import type React from 'react';
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo } from 'react';
 import { ActivityRail } from '../ActivityRail';
 import type { DesktopUpdaterState } from '../../shared/contract';
 import type { RailUpdateSettingsTarget } from '../RailUpdateSlot';
@@ -61,6 +61,23 @@ interface AppSidebarDrawerProps {
   closeSidebarDiff: () => void;
   openFileTab: (project: string, rel: string, line?: number) => void;
   mountedSidebarPanels: ReturnType<typeof useAppShellPanels>['mountedSidebarPanels'];
+  /** What the left views render from (useAppWorkbenchViews): one identity
+   *  per change. */
+  leftViewInputs?: object;
+}
+
+const inputIds = new WeakMap<object, number>();
+let lastInputId = 0;
+/** A stable id per inputs identity; '' when there are none. */
+function inputsKey(inputs: object | undefined): string {
+  if (!inputs) return '';
+  let id = inputIds.get(inputs);
+  if (id === undefined) {
+    lastInputId += 1;
+    id = lastInputId;
+    inputIds.set(inputs, id);
+  }
+  return String(id);
 }
 
 /** The desktop sidebar's footer guide. Phones never render it, so its chunk
@@ -94,16 +111,25 @@ export function AppSidebarDrawer({
   closeSidebarDiff,
   openFileTab,
   mountedSidebarPanels,
+  leftViewInputs,
 }: AppSidebarDrawerProps) {
   const phone = useMobileRemoteSurface();
-  // Hidden destinations keep their last render. Both the desktop idle lane and
-  // a phone's first touch pre-mount the rail pages while they are already
-  // retained hidden; without one more hidden render the pre-mount never
+  // Hidden destinations keep their last render. The idle lane pre-mounts the
+  // rail pages while they are already retained hidden; without one more
+  // hidden render the pre-mount never
   // reached them, and the first visit mounted the page behind its placeholder.
   // Keyed per view, so a mount renders only its own page again.
+  // The view a closed drawer opens onto renders again, hidden, whenever its
+  // inputs change, at transition priority (a deferred value: interruptible,
+  // never inside a tap). Frozen at its first render instead, a phone's drawer
+  // slid in over the boot-time list, and the opening commit then inserted the
+  // favorites, project rows and recent rows in front of the user.
+  const shownViewInputs = inputsKey(useDeferredValue(leftViewInputs));
+  const shownView = activeSideViews.left;
   const panelsKey = useCallback(
-    (id: WorkbenchSideViewId) => (mountedSidebarPanels.has(id) ? 'mounted' : ''),
-    [mountedSidebarPanels]
+    (id: WorkbenchSideViewId) =>
+      `${mountedSidebarPanels.has(id) ? 'mounted' : ''}${id === shownView ? `:${shownViewInputs}` : ''}`,
+    [mountedSidebarPanels, shownView, shownViewInputs]
   );
   useEdgeSwipeDrawers({ sidebarOpen, openSidebar, applySidebarOpen });
   // The rail and the starter guide are memoised; their handlers and items

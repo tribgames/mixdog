@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { usePhoneDrawerInert } from './session-sidebar-drawer-inert';
+import { drawerCommitIsInstant, usePhoneDrawerInert } from './session-sidebar-drawer-inert';
 import { usePhoneSurfaceMarked } from './mobile-surface';
 import {
   DESKTOP_SIDEBAR_DEFAULT_WIDTH,
@@ -680,7 +680,7 @@ export function WorkbenchSidePanel({
       return undefined;
     }
     const frame = panel.closest('.sidebar-drawer-frame');
-    if (!frame) return undefined;
+    if (!frame || drawerCommitIsInstant(frame)) return undefined;
     const sliding = frame
       .getAnimations()
       .some((a) => a instanceof CSSTransition && a.transitionProperty === 'transform' && a.playState === 'running');

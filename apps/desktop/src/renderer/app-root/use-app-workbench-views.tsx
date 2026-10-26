@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { agentIdOfHomeSession } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopProjectSummary, DesktopWorkspaceFolder } from '../../shared/contract';
 import { SessionSidebar, type NavigationSelection } from '../navigation';
@@ -124,6 +124,8 @@ export interface UseAppWorkbenchViewsOptions {
 
   sideViewDescriptors: ReturnType<typeof createAppSideViewDescriptors>;
   renderSidebarPanel: (id: SidebarPanelKey, active: boolean) => React.ReactNode;
+  /** Rail destinations the idle lane pre-mounted (use-app-shell-panels). */
+  mountedSidebarPanels: ReadonlySet<string>;
 
   snapshotStore: DesktopSnapshotStore;
   observedAgentSessionIds: readonly string[];
@@ -227,6 +229,7 @@ export function useAppWorkbenchViews({
   deleteSession,
   sideViewDescriptors,
   renderSidebarPanel,
+  mountedSidebarPanels,
   snapshotStore,
   observedAgentSessionIds,
   quickAccessProjectPath,
@@ -386,7 +389,9 @@ export function useAppWorkbenchViews({
       <SnapshotUtilityDock
         snapshotStore={snapshotStore}
         hidden={!active}
-        prewarm={Boolean(pane?.prewarm)}
+        // A drawer page mounts its body hidden once the idle lane has
+        // pre-mounted it (use-app-boot), so its first visit only reveals it.
+        prewarm={pane ? Boolean(pane.prewarm) : mountedSidebarPanels.has(id)}
         open={active}
         tab={tab}
         showTitle={!pane}
@@ -515,8 +520,34 @@ export function useAppWorkbenchViews({
       openProblemQuickFix,
     });
 
+  // What the left views render from. The closed drawer refreshes its shown
+  // view in the background whenever one of these changes (AppSidebarDrawer).
+  const leftViewInputs = useMemo(
+    () => [
+      sessions,
+      sessionCatalogReady,
+      projects,
+      workingSessionIds,
+      unreadSessionIds,
+      sidebarSelection,
+      revealedProject,
+      observedAgentSessionIds,
+    ],
+    [
+      sessions,
+      sessionCatalogReady,
+      projects,
+      workingSessionIds,
+      unreadSessionIds,
+      sidebarSelection,
+      revealedProject,
+      observedAgentSessionIds,
+    ]
+  );
+
   return {
     renderWorkbenchSideView,
+    leftViewInputs,
     paneProjectPathFor,
     renderPaneSideDock,
     renderPaneProblems,

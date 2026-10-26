@@ -96,6 +96,14 @@ const PROBES = `
   window.log = [];
   window.flips = [];
   window.clicks = 0;
+  // Every app read of the frame's animations (a forced style flush); the
+  // probes' own reads are excluded.
+  window.animationReads = 0;
+  const readAnimations = Element.prototype.getAnimations;
+  Element.prototype.getAnimations = function (...args) {
+    if (!window.probing && this.classList?.contains('sidebar-drawer-frame')) window.animationReads += 1;
+    return readAnimations.apply(this, args);
+  };
   addEventListener('click', (event) => { if (event.target.id === 'inside') clicks += 1; }, true);
   window.watch = () => {
     window.log.length = 0;
@@ -119,11 +127,13 @@ const PROBES = `
       for (const record of records) {
         if (record.attributeName !== 'inert') continue;
         log.push(panelEl().inert ? 'inert' : 'live');
+        window.probing = true;
         flips.push(
           frameEl()
             .getAnimations()
             .some((a) => a.transitionProperty === 'transform' && a.playState === 'running')
         );
+        window.probing = false;
       }
     }).observe(panelEl(), { attributes: true });
   };
@@ -386,6 +396,46 @@ test('the phone marker removed mid-gesture leaves no stale end paint', async (t)
     'with the marker gone the token is undeclared, so the paint resolves to the fallback'
   );
 });
+// An instant close (Settings opening over the drawer) runs no slide, so the
+// panel never reads the frame's animations: that read flushes the style of
+// everything the same commit mounted. An animated close still keeps the panel
+// displayed (`data-closing`) until its slide ends.
+test('an instant close reads no animations; an animated close keeps data-closing until its slide ends', async (t) => {
+  const page = await launch(t);
+  await page.evaluate(() => {
+    window.closingMarks = [];
+    new MutationObserver(() => closingMarks.push(panelEl().dataset.closing === 'true' ? 'set' : 'cleared')).observe(
+      panelEl(),
+      { attributes: true, attributeFilter: ['data-closing'] }
+    );
+  });
+  await openInstantly(page);
+  await page.evaluate(() => {
+    animationReads = 0;
+    closingMarks.length = 0;
+  });
+  await page.evaluate(() => apply(false, 'instant'));
+  await page.waitForFunction(() => log.includes('inert'), { timeout: 1000 });
+  await page.evaluate(() => sleep(100));
+  assert.equal(await page.evaluate(() => animationReads), 0, 'no animation read for an instant close');
+  assert.deepEqual(await page.evaluate(() => [...closingMarks]), [], 'an instant close is never marked closing');
+
+  await openInstantly(page);
+  await page.evaluate(() => {
+    animationReads = 0;
+    closingMarks.length = 0;
+  });
+  await tap(page);
+  assert.deepEqual((await finish(page)).slice(0, 3), SLIDE_THEN('inert'));
+  assert.ok((await page.evaluate(() => animationReads)) > 0, 'the animated close reads its slide');
+  assert.deepEqual(
+    await page.evaluate(() => [...closingMarks]),
+    ['set', 'cleared'],
+    'displayed while sliding, cleared at the end'
+  );
+  assert.equal(await page.evaluate(() => panelEl().hasAttribute('data-closing')), false);
+});
+
 test('no slide to wait for: an instant close and a reduced-motion tap flip inert at once', async (t) => {
   const page = await launch(t);
   await openInstantly(page);

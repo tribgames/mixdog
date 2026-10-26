@@ -29,6 +29,7 @@ test('useAppWorkbenchViews resolves pane project path and renders workbench side
       deleteSession: async () => {},
       sideViewDescriptors: new Map(),
       renderSidebarPanel: () => null,
+      mountedSidebarPanels: new Set(),
       sessionDiffs: new Map(),
       setSessionDiff: () => {},
       snapshotStore: { get: () => ({}) },

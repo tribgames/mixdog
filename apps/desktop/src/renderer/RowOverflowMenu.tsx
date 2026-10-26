@@ -269,14 +269,17 @@ export function RowOverflowMenu({
   // Measure on the input event, before React starts the open render. Reading
   // geometry while rendering the portal forced Chromium to synchronously lay
   // out the whole workbench and made a tiny options menu feel conspicuously
-  // late on dense panels.
-  const placement = positionRowMenu(
-    menuOpen ? anchorBounds.current : null,
-    menuItems.length + (path.length ? 1 : 0),
-    menuItems.filter((item) => item.separatorBefore).length,
-    window.innerWidth,
-    window.innerHeight
-  );
+  // late on dense panels. The viewport is read only for an open menu: reading
+  // window.innerWidth also lays the page out, and every closed ⋯ of a list
+  // did that on each render (a rail page's first commit paid a full layout).
+  const placement = () =>
+    positionRowMenu(
+      anchorBounds.current,
+      menuItems.length + (path.length ? 1 : 0),
+      menuItems.filter((item) => item.separatorBefore).length,
+      window.innerWidth,
+      window.innerHeight
+    );
   useRowMenuClamp(menuOpen, panel);
   const rememberAnchor = (element: HTMLButtonElement) => {
     anchorBounds.current = captureRowMenuAnchor(element);
@@ -341,7 +344,7 @@ export function RowOverflowMenu({
           path,
           menuItems,
           hasCheckItems,
-          placement,
+          placement: placement(),
           onKeyDown: (event) => rowOverflowMenuKeyDown(event, { panel, path, setPath }),
           setPath,
           setOpen,
