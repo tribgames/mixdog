@@ -12,6 +12,9 @@ import {
 import { MIXDOG_DESKTOP_CLIENT_BROWSER } from '../shared/remote-trust.ts';
 import { createRelayClientLifecycle } from './remote-relay-client-lifecycle.ts';
 import { createRelayClientRegistry } from './remote-relay-clients.ts';
+import { createRelayEncryptedDelivery } from './remote-relay-delivery.ts';
+import { decodeRemoteTransportMessage } from '../shared/remote-transport.ts';
+import { decodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
 
 const CREDENTIAL = '0123456789abcdef0123456789abcdef';
 
@@ -239,6 +242,87 @@ test('the handshake announces open access and carries no trust field', async () 
   assert.ok(ready.hostName.length > 0);
   assert.equal('trusted' in ready, false);
   assert.equal(h.clients.get('route-1').credentialId, CREDENTIAL);
+});
+
+async function transportHarness({ offer = true } = {}) {
+  const identity = await generateRelayE2EEServerIdentity();
+  const pairing = relayE2EEPairingMaterial(identity);
+  const envelopes = [];
+  const writes = [];
+  const clients = createRelayClientRegistry({
+    host: { setVisibleSessionsForSource: async () => true },
+    sendEnvelope: (payload) => envelopes.push(payload),
+    frameBudgetBytes: 1 << 20,
+    onClientCountChanged: () => {},
+    onEmpty: () => {},
+  });
+  const delivery = createRelayEncryptedDelivery({
+    clients,
+    relayBinaryFrames: () => true,
+    relayFrameLimit: () => 1 << 26,
+    sendRawAndWait: async (frame) => {
+      writes.push(frame);
+    },
+    byteMeter: { record: () => null },
+    transport: { options: { schedule: () => () => {}, log: () => {} } },
+  });
+  const lifecycle = createRelayClientLifecycle({
+    clients,
+    e2eeIdentity: identity,
+    pairing,
+    relayBinaryFrames: () => true,
+    viewSyncSupported: () => false,
+    relayRoutingCapsPayload: () => ({}),
+    sendEnvelope: (payload) => envelopes.push(payload),
+    sendEncryptedFrame: delivery.sendEncryptedFrame,
+    dispatchClientCall: async () => ({}),
+    resyncClient: () => {},
+    joinFrames: () => [{ event: 'browserApprovalSessions', payload: [] }],
+    openTransport: delivery.openTransport,
+    transportOffer: () => offer,
+  });
+  lifecycle.open('c11e1700-0001', CREDENTIAL);
+  const challenge = JSON.parse(envelopes.find((entry) => entry.type === 'frame').data);
+  return { pairing, clients, lifecycle, challenge, writes };
+}
+
+test('the transport offer stays off unless the rollout switch is on', async () => {
+  const h = await transportHarness({ offer: false });
+  assert.equal('transportWebrtc' in h.challenge, false);
+});
+
+test('a transport session sends the transcript confirmation in e2ee-ready, its first record', async () => {
+  const h = await transportHarness();
+  assert.equal(h.challenge.transportWebrtc, 1);
+  const { hello, channel } = await createRelayE2EEClientHandshake(h.pairing, h.challenge, { transportWebrtc: true });
+  const client = h.clients.get('c11e1700-0001');
+  h.lifecycle.receive('c11e1700-0001', client, JSON.stringify(hello));
+  await client.frameQueue;
+  assert.ok(client.transport, 'the session runs the transport stream');
+  for (let i = 0; i < 200 && h.writes.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+  const frames = h.writes.map((frame) => decodeRelayBinaryFrame(frame));
+  assert.ok(frames.every((frame) => frame.droppable === false));
+  const records = frames.map((frame) => decodeRemoteTransportMessage(frame.data));
+  assert.equal(records[0].kind, 'app');
+  assert.equal(records[0].sequence, 1);
+  const ready = await channel.decryptJson(records[0].box);
+  assert.equal(ready.type, 'e2ee-ready');
+  assert.equal(typeof ready.transcript, 'string');
+  channel.confirmHandshake(ready); // the client accepts it, and may now send
+  assert.deepEqual(await channel.decryptJson(records[1].box), { event: 'browserApprovalSessions', payload: [] });
+  h.clients.remove('c11e1700-0001');
+});
+
+test('an offering host serves an older browser a legacy session, still confirming its offer', async () => {
+  const h = await transportHarness();
+  const { hello, channel } = await createRelayE2EEClientHandshake(h.pairing, h.challenge);
+  const client = h.clients.get('c11e1700-0001');
+  h.lifecycle.receive('c11e1700-0001', client, JSON.stringify(hello));
+  await client.frameQueue;
+  assert.equal(client.transport, undefined, 'legacy session');
+  const ready = await channel.decryptJson(decodeRelayBinaryFrame(h.writes[0]).data);
+  assert.equal(ready.type, 'e2ee-ready');
+  assert.equal(typeof ready.transcript, 'string');
 });
 
 test('an admitted connection is announced at once, with its credential', async () => {

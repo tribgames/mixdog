@@ -15,6 +15,7 @@ import { createRelayPushLanes } from './remote-relay-push-lanes';
 import type { RelayWebPush } from './remote-relay-web-push';
 import type { RelaySessionStateFanout } from './remote-relay-session-state';
 import { synchronizeRelayViews } from './remote-view-sync';
+import { someLegShowsSession } from './remote-transport/foreground';
 import { registerHeldRequestNotifier } from '../../../../src/runtime/shared/held-request-host.mjs';
 
 export interface RelaySessionWiringDeps {
@@ -41,6 +42,9 @@ export interface RelaySessionWiringDeps {
   /** Every session catalog the host publishes (download grants end with
    *  their session). */
   onSessions?: (sessions: DesktopSessionSummary[]) => void;
+  /** Clock of the foreground staleness rule; remote-transport/foreground.ts's
+   *  monotonic default when omitted. */
+  foregroundNow?: () => number;
 }
 
 export interface RelayNotificationDeps {
@@ -120,15 +124,27 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
       // reports that session on screen. The delivery subscription is not on
       // screen (a wide client observes background agents through it), and a
       // leg that never reported its screen shows no conversation.
-      const legShows = (client: RelayClientState, sessionId: string): boolean =>
-        !client.background && client.screenSessionIds?.has(sessionId) === true;
-      // A paired credential shows a conversation while any live leg of it does.
-      const credentialForeground = (clientId: string, sessionId: string): boolean => {
+      // A transport leg must also have authenticated liveness within
+      // REMOTE_TRANSPORT_FOREGROUND_STALE_MS (it pings every 2 s on its
+      // control domain): a frozen phone stops suppressing pushes. A legacy leg
+      // proves liveness only through the relay's cleartext ping, so it keeps
+      // today's rule: foreground until it leaves the registry or reports hidden.
+      const legacyLegShows = (client: RelayClientState, sessionId: string): boolean =>
+        !client.transport && !client.background && client.screenSessionIds?.has(sessionId) === true;
+      const anyLegShows = (sessionId: string, match: (client: RelayClientState) => boolean): boolean => {
+        const legs = deps.clients.clients.values();
+        const now = deps.foregroundNow?.();
+        if (someLegShowsSession(legs, sessionId, (client) => Boolean(client.transport) && match(client), now)) {
+          return true;
+        }
         for (const client of deps.clients.clients.values()) {
-          if (client.credentialId === clientId && legShows(client, sessionId)) return true;
+          if (match(client) && legacyLegShows(client, sessionId)) return true;
         }
         return false;
       };
+      // A paired credential shows a conversation while any live leg of it does.
+      const credentialForeground = (clientId: string, sessionId: string): boolean =>
+        anyLegShows(sessionId, (client) => client.credentialId === clientId);
       const pushNotifier = createPushNotifier({
         store: deps.pushStore,
         ...(deps.hostId ? { hostId: deps.hostId } : {}),
@@ -140,12 +156,8 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         // socket through a background grace and reports itself hidden.
         // The subscription names the BROWSER; relay legs carry a per-connection
         // id, so the leg is found by the browser id it reported.
-        isClientForeground: (browserId, sessionId) => {
-          for (const client of deps.clients.clients.values()) {
-            if (client.browserId === browserId && legShows(client, sessionId)) return true;
-          }
-          return false;
-        },
+        isClientForeground: (browserId, sessionId) =>
+          anyLegShows(sessionId, (client) => client.browserId === browserId),
         ...(nativePush
           ? {
               native: {

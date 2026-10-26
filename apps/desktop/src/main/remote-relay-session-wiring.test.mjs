@@ -12,7 +12,7 @@ import { createRelaySessionWiring } from './remote-relay-session-wiring.ts';
 const off = () => () => {};
 const MIGRATED_AT = 5_000;
 
-function wiring(t, { pairedAt = MIGRATED_AT + 1, registeredAt = MIGRATED_AT + 2 } = {}) {
+function wiring(t, { pairedAt = MIGRATED_AT + 1, registeredAt = MIGRATED_AT + 2, clock = { now: 0 } } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-wiring-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const changes = [];
@@ -87,6 +87,7 @@ function wiring(t, { pairedAt = MIGRATED_AT + 1, registeredAt = MIGRATED_AT + 2 
     closed: () => false,
     sendEncryptedFrame: async () => {},
     broadcastEncrypted: () => {},
+    foregroundNow: () => clock.now,
   }).start();
   t.after(() => subscriptions.dispose());
   // Finishes the given replies together and waits until `count` pushes were sent in total. Every
@@ -166,6 +167,45 @@ test('a wide client subscribed to B in the background while showing A is notifie
     ['B'],
     'A is on its screen'
   );
+});
+
+test('a transport leg counts as foreground only with authenticated liveness within 35 s', async (t) => {
+  const clock = { now: 100_000 };
+  const w = wiring(t, { pairedAt: MIGRATED_AT - 1, clock });
+  w.leg.transport = {};
+  w.leg.visibleSessionIds = new Set(['A']);
+  w.leg.screenSessionIds = new Set(['A']);
+  w.leg.liveAt = clock.now - 34_999;
+  // B (not on screen) is decided after A, so its push proves A's decision.
+  await w.finish(['A', 'B'], 1);
+  assert.deepEqual(
+    w.sent.map((push) => push.sessionId),
+    ['B'],
+    'live at 34 999 ms: the conversation on screen is not pushed'
+  );
+  // Frozen: still registered, still reporting A, but silent for 35 000 ms.
+  w.leg.liveAt = clock.now - 35_000;
+  await w.finish('A', 2);
+  assert.equal(w.sent.at(-1).sessionId, 'A', 'stale at 35 000 ms: pushed');
+});
+
+test('a legacy leg idle on a session stays foreground: its relay heartbeat is not authenticated', async (t) => {
+  const clock = { now: 10_000_000 };
+  const w = wiring(t, { pairedAt: MIGRATED_AT - 1, clock });
+  w.leg.visibleSessionIds = new Set(['A']);
+  w.leg.screenSessionIds = new Set(['A']);
+  // Last authenticated traffic an hour ago; no transport session.
+  w.leg.liveAt = clock.now - 3_600_000;
+  await w.finish(['A', 'B'], 1);
+  assert.deepEqual(
+    w.sent.map((push) => push.sessionId),
+    ['B'],
+    'not pushed for the session it shows'
+  );
+  // A hidden report still removes eligibility at once.
+  w.leg.background = true;
+  await w.finish('A', 2);
+  assert.equal(w.sent.at(-1).sessionId, 'A');
 });
 
 test('a client that never reports its screen (an older build) shows no conversation', async (t) => {

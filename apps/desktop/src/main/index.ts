@@ -165,6 +165,13 @@ import {
   type RemoteControllerKeyRecord,
   type RemoteControllerKeysOwed,
 } from '../shared/remote-controller-key';
+import { REMOTE_TRANSPORT_OFFER_ENABLED } from './remote-transport/coordinator';
+import {
+  REMOTE_TRANSPORT_PEER_COMMAND_EVENT,
+  REMOTE_TRANSPORT_PEER_OPERATIONS,
+  createRemoteTransportPeerEndpoint,
+} from './remote-transport/peer-link';
+import { createRemoteTransportPeerWindow } from './remote-transport/peer-window';
 import { modelProxyRuntimeLoader } from './model-proxy-host';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
@@ -582,6 +589,15 @@ const connectionDependencies: DesktopConnectionDependencies = {
     console.error(`[mixdog:${connection.name}] ${event}`, data);
   },
   onServiceReady: (connection, { generation }) => {
+    // This PC's daemon (again): the direct transport's peer window serves it
+    // (switch on only; a replaced daemon's peers are dropped first).
+    if (connection.kind === 'local') {
+      void remoteTransportPeers.attach().catch((error: unknown) => {
+        diagnostics?.write('remote-transport-attach-failed', {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
     // The FIRST attachment belongs to the deferred scheduler, so no early
     // interaction pays for relay startup. Every later one follows a daemon
     // replacement that dropped the relay leg with the old process, and
@@ -609,6 +625,28 @@ connectionPool.add(localConnection);
  *  keep-awake). Window IPC never uses it directly: it resolves the sender's
  *  connection through the route registry. */
 const localService = localConnection.client;
+/** The direct transport's peers (docs/remote-transport.md §3): the daemon's
+ *  coordinators drive them over this PC's daemon connection only. Dormant
+ *  while REMOTE_TRANSPORT_OFFER_ENABLED is off: no attach, no window, no
+ *  traffic. The hidden peer window opens on the first `create`. */
+const remoteTransportPeers = createRemoteTransportPeerEndpoint({
+  enabled: REMOTE_TRANSPORT_OFFER_ENABLED,
+  createBridge: () =>
+    createRemoteTransportPeerWindow({
+      page: (() => {
+        const { developmentUrl, rendererUrl } = resolveRendererTarget();
+        return {
+          developmentUrl: developmentUrl ? rendererUrl.href : undefined,
+          file: join(import.meta.dirname, '../renderer/remote-transport-peer.html'),
+        };
+      })(),
+      report: (event, data) => diagnostics?.write(`remote-transport-peer-${event}`, data),
+    }),
+  attach: () => localService.invokeDesktopOperation(REMOTE_TRANSPORT_PEER_OPERATIONS.attach, []),
+  report: (attachment, report) =>
+    localService.notifyDesktopOperation(REMOTE_TRANSPORT_PEER_OPERATIONS.report, [attachment, report]),
+  detach: (attachment) => localService.notifyDesktopOperation(REMOTE_TRANSPORT_PEER_OPERATIONS.detach, [attachment]),
+});
 // MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
 // and a server window for that target opens beside it at startup.
 const ENV_SSH_CONNECTION_ID = 'ssh-env-target';
@@ -1115,6 +1153,11 @@ unsubscribeTakeovers = localService.subscribeSessionStates((update) => {
   });
 });
 unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value }) => {
+  // Only this PC's daemon connection drives the peer window.
+  if (name === REMOTE_TRANSPORT_PEER_COMMAND_EVENT) {
+    remoteTransportPeers.command(value);
+    return;
+  }
   if (name === 'session-runtime-released') {
     const event = value as { sessionId?: unknown; restore?: unknown } | null;
     if (isSessionId(event?.sessionId)) {
@@ -1552,6 +1595,9 @@ function disposeDesktopResources(): Promise<void> {
   computerUseOverlay = null;
   desktopPet?.dispose();
   desktopPet = null;
+  // Before the daemon connection closes: the detach fails this app's direct
+  // carriers back to the relay at once.
+  remoteTransportPeers.dispose();
   if (!disposalPromise) {
     diagnostics?.write('desktop-stop');
     // Paired phones' whole-PC screen sessions release their held keys and

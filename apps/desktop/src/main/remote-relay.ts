@@ -36,6 +36,7 @@ import { createRelayClientCallDispatch } from './remote-relay-client-calls';
 import { clientViewsSessionLane, createRelayClientRegistry, type RelayClientState } from './remote-relay-clients';
 import { createRelayControlRequests } from './remote-relay-control';
 import { createRelayEncryptedDelivery } from './remote-relay-delivery';
+import type { RemoteTransportPeerHost } from './remote-transport/coordinator';
 import { createPairCodeManager, type PairCodeState, type PairCodeUnsupported } from './remote-pair-code';
 import { createRelayEnvelopeDispatcher } from './remote-relay-envelope';
 import { createRelayWebPush } from './remote-relay-web-push';
@@ -111,6 +112,11 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   deviceAlias?: (credentialId: string) => string;
   /** Each paired device's notification preferences (issue #221). */
   notifications?: RelayNotificationDeps;
+  /** The direct transport's peer host: `createRemoteTransportPeerService`
+   *  (remote-transport/peer-link.ts), whose stand-in bridge reaches the
+   *  desktop app's hidden peer window. Absent (rollout switch off): transport
+   *  sessions stay relay-only. */
+  transportPeerHost?: RemoteTransportPeerHost | null;
 }
 
 export interface RemoteRelayHandle {
@@ -331,12 +337,19 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             .join('')
       ),
   });
-  const { sendEncryptedFrame, broadcastEncrypted } = createRelayEncryptedDelivery({
+  const { sendEncryptedFrame, broadcastEncrypted, openTransport } = createRelayEncryptedDelivery({
     clients,
     relayBinaryFrames: caps.relayBinaryFrames,
     relayFrameLimit: caps.relayFrameLimit,
     sendRawAndWait: connection.sendRawAndWait,
     byteMeter: relayByteMeter,
+    // Direct transport sessions (dormant until REMOTE_TRANSPORT_OFFER_ENABLED):
+    // the media adapter reads the same gallery and download leases as the
+    // relay media lane. Without `transportPeerHost` sessions stay relay-only.
+    transport: {
+      peerHost: options.transportPeerHost ?? null,
+      media: { host: options.host, downloads: fileDownloads },
+    },
   });
   const browserStreams = createBrowserRemoteStreams({
     isLive: (clientId) => Boolean(clients.get(clientId)?.channel),
@@ -515,6 +528,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     onClaimConflict: options.onClaimConflict,
     onClaimApproved: options.onClaimApproved,
     hostName: pcName,
+    openTransport,
   });
   const routeRelayEnvelope = createRelayEnvelopeDispatcher({
     control,

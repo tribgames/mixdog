@@ -18,6 +18,9 @@ import { REMOTE_WEBRTC_VERSION } from '../shared/remote-webrtc';
 import type { RemoteClientClaim, RemoteClaimDecision } from './remote-relay-claim';
 import type { RelayClientCallOutcome } from './remote-relay-client-calls';
 import type { RelayClientRegistry, RelayClientState, SendEncryptedFrame } from './remote-relay-clients';
+import type { RelayEncryptedDelivery } from './remote-relay-delivery';
+import { REMOTE_TRANSPORT_OFFER_ENABLED } from './remote-transport/coordinator';
+import { noteLegLive } from './remote-transport/foreground';
 
 export interface RelayClientLifecycleDeps {
   clients: RelayClientRegistry;
@@ -48,6 +51,12 @@ export interface RelayClientLifecycleDeps {
   onClaimApproved?: (clientId: string) => void;
   /** This PC's name as phones see it; the OS hostname when omitted. */
   hostName?(): string;
+  /** Starts a negotiated transport session (remote-relay-delivery.ts). The
+   *  challenge offers `transportWebrtc` only when this is wired AND the
+   *  rollout switch (REMOTE_TRANSPORT_OFFER_ENABLED) is on. */
+  openTransport?: RelayEncryptedDelivery['openTransport'];
+  /** Test seam over REMOTE_TRANSPORT_OFFER_ENABLED; production never sets it. */
+  transportOffer?(): boolean;
 }
 
 export interface RelayClientLifecycle {
@@ -64,6 +73,13 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
   const answerClaim = (envelope: Record<string, unknown>): void => answerRelayClaim(deps, bindings, envelope);
 
   const receive = (clientId: string, client: RelayClientState, frame: string | ArrayBufferView): void => {
+    if (client.transport) {
+      // Carrier messages of the stream: bounded by the receiver's own budget
+      // and counted against the frame budget once they form a message.
+      if (typeof frame === 'string') deps.clients.close(clientId, 'invalid transport relay frame');
+      else client.transport.receive('relay', new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength));
+      return;
+    }
     const frameBytes = typeof frame === 'string' ? Buffer.byteLength(frame) : frame.byteLength;
     if (!deps.clients.admitFrame(clientId, client, frameBytes)) return;
     let execution: Promise<void> | undefined;
@@ -80,6 +96,7 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
         deps.clients.close(clientId, 'invalid encrypted relay frame');
         return;
       }
+      noteLegLive(client);
       execution = (await deps.dispatchClientCall(clientId, client, clearPayload, frameBytes)).execution;
     };
     client.frameQueue = client.frameQueue.then(processFrame, processFrame).catch(() => {
@@ -118,6 +135,11 @@ function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, crede
     fileDownloads: 1 as const,
     browserWebrtc: REMOTE_WEBRTC_VERSION,
     browserFit: 1 as const,
+    // Direct transport (docs/remote-transport.md §6): dormant until the
+    // rollout switch flips; it needs binary frames and a wired stream.
+    ...(deps.relayBinaryFrames() && deps.openTransport && (deps.transportOffer?.() ?? REMOTE_TRANSPORT_OFFER_ENABLED)
+      ? { transportWebrtc: 1 as const }
+      : {}),
     // Only when the relay can deliver: a renderer calls registerNativePush
     // on hosts that advertise it.
     ...(deps.nativePushSupported?.() ? { nativePush: 1 as const } : {}),
@@ -243,10 +265,22 @@ async function completeHandshake(
       client.promptHistoryPatch
     );
     clearTimeout(client.handshakeTimer);
+    noteLegLive(client);
+    if (client.channel.transportEnabled) {
+      if (!deps.openTransport) throw new Error('Remote transport is not wired.');
+      // Opened before anything is sent, so `e2ee-ready` is its record 1.
+      deps.openTransport(clientId, client, {
+        deliver: (payload, bytes) => deliverTransportMessage(deps, clientId, client, payload, bytes),
+        authenticated: () => noteLegLive(client),
+      });
+    }
     const uplink = deps.relayRoutingCapsPayload();
     await deps.sendEncryptedFrame(clientId, {
       type: 'e2ee-ready',
       version: 1,
+      // The transcript confirmation of a server that offered transport: the
+      // first application message, authenticated by the channel.
+      ...client.channel.handshakeConfirmation(),
       ...(client.viewSync ? { viewSync: 1 } : {}),
       // Pairing approval is the trust: this host serves the provider, MCP
       // and developer lanes to every paired client.
@@ -260,6 +294,33 @@ async function completeHandshake(
   } catch {
     deps.clients.close(clientId, 'relay encryption authentication failed');
   }
+}
+
+/** One application message of a transport session, in stream order: counted
+ *  against the client's frame budget until its call finished, as a relay
+ *  frame is on the legacy path. */
+async function deliverTransportMessage(
+  deps: RelayClientLifecycleDeps,
+  clientId: string,
+  client: RelayClientState,
+  payload: unknown,
+  bytes: number
+): Promise<void> {
+  if (!deps.clients.attached(clientId, client)) return;
+  if (!deps.clients.admitFrame(clientId, client, bytes)) return;
+  let execution: Promise<void> | undefined;
+  try {
+    execution = (await deps.dispatchClientCall(clientId, client, payload, bytes)).execution;
+  } catch {
+    deps.clients.releaseFrame(client, bytes);
+    if (deps.clients.attached(clientId, client)) deps.clients.close(clientId, 'remote frame processing failed');
+    return;
+  }
+  void Promise.resolve(execution)
+    .catch(() => {
+      if (deps.clients.attached(clientId, client)) deps.clients.close(clientId, 'remote call processing failed');
+    })
+    .finally(() => deps.clients.releaseFrame(client, bytes));
 }
 
 /** Which wire features this phone build announced: the only way to tell a

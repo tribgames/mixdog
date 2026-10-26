@@ -16,6 +16,8 @@ import {
   type ParkedRelayViews,
 } from './remote-view-sync';
 import type { createSnapshotDeltaEncoder } from './state-delta';
+import type { RemoteTransportCoordinator } from './remote-transport/coordinator';
+import { noteLegLive } from './remote-transport/foreground';
 
 const MAX_ACTIVE_REMOTE_CLIENTS = 32;
 const MAX_PENDING_REMOTE_FRAMES = REMOTE_CLIENT_PENDING_FRAMES;
@@ -108,6 +110,12 @@ export interface RelayClientState {
   viewResumeToken?: string;
   /** The phone persists its sessions roster (remote-roster-log.ts). */
   rosterStamp?: boolean;
+  /** The direct-transport session of a handshake that negotiated it
+   *  (remote-transport/coordinator.ts); null/absent on a legacy session. Every
+   *  application message of such a session goes through it. */
+  transport?: RemoteTransportCoordinator | null;
+  /** Last authenticated liveness (remote-transport/foreground.ts clock). */
+  liveAt?: number;
 }
 
 /** A push lane reaches a browser that registered it, or one that predates the
@@ -241,6 +249,9 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
     if (!state) return false;
     if (parkLanes) park(state);
     clearTimeout(state.handshakeTimer);
+    // Revoke, replacement, leg gone or close: the peer closes and both
+    // stream cores go; unacked answers are ambiguous to the client.
+    state.transport?.close('session-ended');
     state.callQueue.close();
     state.stateLane?.clear();
     clients.delete(clientId);
@@ -298,6 +309,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         openedAt: Date.now(),
         firstTranscriptReported: false,
       };
+      noteLegLive(state);
       clients.set(clientId, state);
       deps.onAdded?.(state);
       deps.onClientCountChanged();

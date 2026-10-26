@@ -10,6 +10,17 @@ import {
   relayPayloadRejectedFrame,
 } from '../shared/remote-payload-limit';
 import type { RelayClientRegistry, RelayClientState, SendEncryptedFrame } from './remote-relay-clients';
+import { REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES } from '../shared/remote-transport';
+import {
+  RemoteTransportEndedError,
+  RemoteTransportOversizeError,
+  createRemoteTransportCoordinator,
+  type RemoteTransportCoordinator,
+  type RemoteTransportCoordinatorDeps,
+  type RemoteTransportPeerHost,
+} from './remote-transport/coordinator';
+import { createRemoteTransportMediaAdapter } from './remote-transport/media';
+import type { MediaWindowSources } from './remote-relay-media';
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
 import { encodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
 
@@ -23,9 +34,30 @@ export interface RelayEncryptedDeliveryDeps {
   /** Writes an already serialized frame to the current relay socket. */
   sendRawAndWait(frame: string | Uint8Array): Promise<void>;
   byteMeter: Pick<ReturnType<typeof createRemoteByteMeter>, 'record'>;
+  /** Direct transport (docs/remote-transport.md): the hidden peer renderer
+   *  and the media adapter route. Absent parts leave sessions relay-only and
+   *  answer media requests with `error`. */
+  transport?: {
+    peerHost?: RemoteTransportPeerHost | null;
+    /** Gallery files and download leases for the media adapter. */
+    media?: MediaWindowSources | null;
+    /** Test seam for the coordinator's clock and timer. */
+    options?: Pick<RemoteTransportCoordinatorDeps, 'now' | 'schedule' | 'resolveIceServers' | 'log'>;
+  };
+}
+
+/** What the lifecycle hands a transport session at its handshake. */
+export interface RelayTransportHandlers {
+  deliver(payload: unknown, bytes: number): Promise<void> | void;
+  authenticated(): void;
 }
 
 export interface RelayEncryptedDelivery {
+  /** Starts the transport session of a handshake that negotiated it, before
+   *  anything is sent on it, and stores it on `state.transport`: from then on
+   *  every frame for this client is a record of that stream, carried by the
+   *  relay as a NON-droppable binary frame (or by the direct carrier). */
+  openTransport(clientId: string, state: RelayClientState, handlers: RelayTransportHandlers): RemoteTransportCoordinator;
   sendEncryptedFrame: SendEncryptedFrame;
   broadcastEncryptedAsync(
     payload: unknown,
@@ -53,6 +85,34 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
     const state = clients.get(clientId);
     if (!state?.channel) {
       if (requireDelivery) throw new Error('Remote client disconnected.');
+      return;
+    }
+    const transport = state.transport;
+    if (transport) {
+      try {
+        // `droppable` only decides whether to drop BEFORE sealing; every
+        // sealed record goes on the non-droppable path.
+        const bytes = await transport.send(payload, { droppable });
+        if (bytes === null) return;
+        const meterReport = deps.byteMeter.record(payload, bytes);
+        if (meterReport) reportRemoteByteWindow(meterReport);
+        onSent?.(bytes);
+      } catch (error) {
+        if (error instanceof RemoteTransportOversizeError && guardOversize) {
+          const refusal = relayFrameRefusal(
+            error.bytes,
+            REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES,
+            relayFrameCallId(payload)
+          );
+          if (refusal) {
+            await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent);
+            if (requireDelivery) throw new Error('View synchronization payload exceeds the relay frame limit.');
+            return;
+          }
+        }
+        if (requireDelivery) throw error;
+        if (!(error instanceof RemoteTransportEndedError)) clients.close(clientId, 'relay encryption failed');
+      }
       return;
     }
     try {
@@ -115,5 +175,44 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
   ): void => {
     void broadcastEncryptedAsync(payload, droppable, include);
   };
-  return { sendEncryptedFrame, broadcastEncryptedAsync, broadcastEncrypted };
+  const openTransport = (
+    clientId: string,
+    state: RelayClientState,
+    handlers: RelayTransportHandlers
+  ): RemoteTransportCoordinator => {
+    const channel = state.channel;
+    if (!channel) throw new Error('Remote client has no encrypted channel.');
+    const sources = deps.transport?.media;
+    const transport = createRemoteTransportCoordinator({
+      ...deps.transport?.options,
+      sessionId: state.challenge.challenge,
+      channel,
+      relay: {
+        send: (message) => deps.sendRawAndWait(encodeRelayBinaryFrame({ clientId, data: message, droppable: false })),
+      },
+      deliver: handlers.deliver,
+      authenticated: handlers.authenticated,
+      suspended: () => {
+        state.background = true;
+      },
+      ended: ({ reason }) => {
+        if (clients.get(clientId) === state) clients.close(clientId, `remote transport ${reason}`);
+      },
+      peerHost: deps.transport?.peerHost ?? null,
+      media: sources
+        ? (link) =>
+            createRemoteTransportMediaAdapter({
+              host: sources.host,
+              ...(sources.downloads ? { downloads: sources.downloads } : {}),
+              link,
+              mediaKey: channel.mediaKey,
+              // As remote-relay.ts mediaDevice names it.
+              device: state.credentialId || `connection:${clientId}`,
+            })
+        : null,
+    });
+    state.transport = transport;
+    return transport;
+  };
+  return { openTransport, sendEncryptedFrame, broadcastEncryptedAsync, broadcastEncrypted };
 }
