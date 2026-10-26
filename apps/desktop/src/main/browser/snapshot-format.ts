@@ -49,7 +49,6 @@ interface SnapshotExtras {
 }
 
 const BRIEF_TEXT_CHARS = 500;
-const BRIEF_UNSEEN_SHOWN = 5;
 
 /** A capped list read as the whole story turns twelve failures into three. */
 function cappedNote(shown: number, total: number | undefined, command: string): string {
@@ -224,21 +223,11 @@ function briefLines(
       for (const el of altered) lines.push(elementLine(el));
     }
     if (brief.unseen.length) {
-      // A brief reply keeps its small budget however much of the page the
-      // earlier look skipped: a count, and the few the caller can see now.
-      const shown = [
-        ...brief.unseen.filter((el) => el.inViewport),
-        ...brief.unseen.filter((el) => !el.inViewport),
-      ].slice(0, BRIEF_UNSEEN_SHOWN);
-      lines.push(
-        `Not previously reported: ${brief.unseen.length} element(s); showing ${shown.length} (* = in viewport):`
-      );
+      // What the earlier look skipped, the ones in view first; they come from
+      // this snapshot's own elements, so nothing here is cut further.
+      const shown = [...brief.unseen.filter((el) => el.inViewport), ...brief.unseen.filter((el) => !el.inViewport)];
+      lines.push(`Not previously reported: ${brief.unseen.length} element(s) (* = in viewport):`);
       for (const el of shown) lines.push(elementLine(el));
-      if (brief.unseen.length > shown.length) {
-        lines.push(
-          `  … ${brief.unseen.length - shown.length} more not listed; take a focused snapshot (query) to list them.`
-        );
-      }
     }
     return lines;
   }

@@ -290,7 +290,7 @@ test('two independent pages failing identically each report their own failure on
   }
 });
 
-test('a brief reply keeps its budget when the earlier look skipped most of the page', () => {
+test('a brief reply lists every element the earlier look skipped, the ones in view first', () => {
   const link = (index, extra = {}) => ({
     ref: `p1-s2-e${index}`,
     role: 'link',
@@ -310,15 +310,14 @@ test('a brief reply keeps its budget when the earlier look skipped most of the p
     ),
   });
   assert.match(text, /152 not previously reported/);
-  assert.match(text, /Not previously reported: 152 element\(s\); showing 5/);
+  assert.match(text, /Not previously reported: 152 element\(s\) \(\* = in viewport\)/);
   const listed = text.split('\n').filter((line) => /^\s+\[p1-s2-e\d+\]/.test(line));
-  assert.equal(listed.length, 5);
+  assert.equal(listed.length, 152, 'none is cut');
   assert.ok(
-    listed.every((line) => line.includes(']*')),
+    listed.slice(0, 8).every((line) => line.includes(']*')) && listed.slice(8).every((line) => !line.includes(']*')),
     'the ones in view come first'
   );
-  assert.match(text, /147 more not listed/);
-  assert.ok(text.length < 1_500);
+  assert.doesNotMatch(text, /more not listed/);
 });
 
 test('an empty secret field shows no value; a filled one only says it is redacted', () => {

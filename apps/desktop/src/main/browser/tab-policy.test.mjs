@@ -96,7 +96,8 @@ test('nothing evictable lists the blocking owners with idle ages', () => {
       assert.match(error.message, /at most 24 background tabs/);
       assert.match(error.message, /session live-turn "research" \(turn in progress, idle 10m\)/);
       assert.match(error.message, /session form-owner "checkout" \(unsubmitted form input, idle 3m\)/);
-      assert.match(error.message, /more/);
+      assert.equal(error.message.match(/session \S+ "/g).length, 24, 'every blocking page is named');
+      assert.doesNotMatch(error.message, /\d+ more/);
       assert.doesNotMatch(error.message, /call list_tabs and close_tab/);
       return true;
     }

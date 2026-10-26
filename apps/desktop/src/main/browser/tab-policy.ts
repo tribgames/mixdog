@@ -82,8 +82,6 @@ export interface BackgroundPageFacts {
   blocker: string;
 }
 
-const MAX_LISTED_BLOCKERS = 6;
-
 function idleAge(ms: number): string {
   const minutes = Math.floor(Math.max(0, ms) / 60_000);
   return minutes < 1 ? 'idle <1m' : `idle ${minutes}m`;
@@ -114,10 +112,10 @@ export function planBackgroundAdmission(request: {
     return evictable.slice(0, overflow).map(({ sessionId: owner, name }) => ({ sessionId: owner, name }));
   }
   const blocking = others.filter((page) => page.blocker).sort((a, b) => a.lastUsedAt - b.lastUsedAt);
-  const listed = blocking
-    .slice(0, MAX_LISTED_BLOCKERS)
-    .map((page) => `session ${page.sessionId} "${page.name}" (${page.blocker}, ${idleAge(now - page.lastUsedAt)})`);
-  if (blocking.length > listed.length) listed.push(`${blocking.length - listed.length} more`);
+  // Every holder is named: their number is bounded by MAX_BACKGROUND_TABS_GLOBAL.
+  const listed = blocking.map(
+    (page) => `session ${page.sessionId} "${page.name}" (${page.blocker}, ${idleAge(now - page.lastUsedAt)})`
+  );
   throw new Error(
     `at most ${MAX_BACKGROUND_TABS_GLOBAL} background tabs may be open across all sessions and none can be reclaimed yet; ` +
       `the other sessions' tabs are held by: ${listed.join('; ')}. Retry once those turns finish; they are not tabs this session can close`
