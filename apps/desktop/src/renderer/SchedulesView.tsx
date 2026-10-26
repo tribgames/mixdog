@@ -42,7 +42,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { automationDraftCwd, automationProjectOptions, useTaskWorkspace } from './automation-editor-support';
+import { automationEditorCwd, automationProjectOptions, useTaskWorkspace } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -175,8 +175,7 @@ function cadenceTime(schedule: RecordValue): string {
 // onto editable form state. Results always deliver to the app session.
 function scheduleDraft(
   schedule: RecordValue | undefined,
-  defaultAgent: string,
-  taskWorkspace: string
+  defaultAgent: string
 ): ScheduleDraft {
   const source = record(schedule);
   const parsedAt = source.whenAt ? new Date(String(source.whenAt)) : null;
@@ -193,7 +192,7 @@ function scheduleDraft(
     weekday: parsed.weekday,
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
     whenAt: parsedAt && !Number.isNaN(parsedAt.getTime()) ? parsedAt.toISOString() : '',
-    cwd: automationDraftCwd(source.cwd, taskWorkspace),
+    cwd: String(source.cwd || ''),
     attachments: attachmentsFromRecords(source.attachments),
     agent: automationAgentOf(schedule, defaultAgent),
     instructions: String(source.instructions || ''),
@@ -208,6 +207,7 @@ function ScheduleEditor({
   busy,
   running = false,
   projects,
+  taskWorkspace,
   error = '',
   onCancel,
   onSave,
@@ -221,6 +221,7 @@ function ScheduleEditor({
   busy: boolean;
   running?: boolean;
   projects: DesktopProjectSummary[];
+  taskWorkspace: string;
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
@@ -231,11 +232,12 @@ function ScheduleEditor({
   const [frequency, setFrequency] = useState<FrequencyKind>(draft.frequency);
   const [weekday, setWeekday] = useState(draft.weekday);
   const [agent, setAgent] = useState(draft.agent);
-  const [cwd, setCwd] = useState(draft.cwd);
+  const [cwdEdit, setCwdEdit] = useState<string | null>(null);
+  const { cwd, shown: shownCwd } = automationEditorCwd(draft.cwd, cwdEdit, taskWorkspace);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [enabled, setEnabled] = useState(draft.enabled);
   const [formError, setFormError] = useState('');
-  const projectOptions = automationProjectOptions(projects, cwd);
+  const projectOptions = automationProjectOptions(projects, shownCwd);
   return (
     <SidebarDialogLayer onClose={onCancel}>
       <section
@@ -339,10 +341,10 @@ function ScheduleEditor({
             <div className="schedules-frequency">
               <OpenSelect
                 ariaLabel={t('Schedule project')}
-                value={cwd || '__none__'}
+                value={shownCwd || '__none__'}
                 disabled={busy}
                 options={projectOptions}
-                onChange={(next) => setCwd(next === '__none__' ? '' : next)}
+                onChange={(next) => setCwdEdit(next === '__none__' ? '' : next)}
               />
             </div>
           </div>
@@ -478,7 +480,7 @@ export function SchedulesPane({
   // A bot room's "루틴 만들기": the new-schedule editor with that bot preselected.
   useNewScheduleRequest(active, (agentId) => {
     setError('');
-    setEditor({ name: '', draft: scheduleDraft(undefined, agentId, taskWorkspace) });
+    setEditor({ name: '', draft: scheduleDraft(undefined, agentId) });
   });
   const [runningName, setRunningName] = useState('');
   // The editor portals to document.body, so the sidebar's inert/aria-hidden
@@ -540,7 +542,7 @@ export function SchedulesPane({
             disabled={busy}
             onClick={() => {
               setError('');
-              setEditor({ name: '', draft: scheduleDraft(undefined, defaultAgent, taskWorkspace) });
+              setEditor({ name: '', draft: scheduleDraft(undefined, defaultAgent) });
             }}
           />
         )}
@@ -569,6 +571,7 @@ export function SchedulesPane({
             busy={busy}
             running={runningName === editor.name}
             projects={projects}
+            taskWorkspace={taskWorkspace}
             error={error}
             onCancel={() => {
               setError('');
@@ -637,7 +640,7 @@ export function SchedulesPane({
                   busy={busy}
                   onOpen={() => {
                     setError('');
-                    setEditor({ name, draft: scheduleDraft(schedule, defaultAgent, taskWorkspace) });
+                    setEditor({ name, draft: scheduleDraft(schedule, defaultAgent) });
                   }}
                   onToggle={(enabled) => void run('setScheduleEnabled', [name, enabled], 'toast')}
                   onRun={() => void runNow(name)}

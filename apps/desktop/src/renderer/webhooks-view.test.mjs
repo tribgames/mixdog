@@ -420,3 +420,60 @@ test('Send test is disabled once a secret has been regenerated', async (t) => {
     )
   );
 });
+
+test('an editor opened before the workspace answers shows No project once it arrives; edits and untouched saves keep their cwd', async (t) => {
+  const INTERNAL = 'C:\\Users\\u\\AppData\\Roaming\\mixdog-desktop\\workspace\\unclassified';
+  const calls = [];
+  let resolveWorkspace;
+  const workspace = new Promise((resolve) => {
+    resolveWorkspace = () => resolve(INTERNAL);
+  });
+  const api = {
+    getTaskWorkspace: () => workspace,
+    async invokeCapability(request) {
+      calls.push(request);
+      if (request.capability === 'getChannelSetup') return { value: setup };
+      return { value: undefined };
+    },
+  };
+  const setup = {
+    webhook: { publicUrl: 'https://hooks.mixdog.test' },
+    webhooks: [{ name: 'hook', instructions: 'Triage', enabled: true, secretSet: true, cwd: INTERNAL }],
+  };
+  resetSidebarReferenceCache();
+  adoptSidebarReferenceHost(api);
+  updateSidebarReference('channelSetup', setup);
+  updateSidebarReference('projects', [{ path: '/repos/alpha', name: 'alpha', alias: '' }]);
+  updateSidebarReference('agents', []);
+  updateSidebarReference('workflows', []);
+  updateSidebarReference('providerSetup', {});
+  updateSidebarReference('quickProviderModels', []);
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    resetSidebarReferenceCache();
+  });
+  await act(async () => root.render(React.createElement(WebhooksPane, { api, active: true })));
+  await act(async () => host.querySelector('.routines-open').click());
+  const shown = () => document.querySelector('[aria-label="Webhook project"] .mx-select-value').textContent;
+  const submit = () => act(async () => document.querySelector('.webhooks-editor-dialog form').requestSubmit());
+  const lastSave = () => calls.findLast((call) => call.capability === 'saveWebhook').args[0];
+
+  assert.equal(shown(), INTERNAL, 'unknown workspace: nothing is guessed');
+  await act(async () => resolveWorkspace());
+  assert.equal(shown(), 'No project');
+  await submit();
+  assert.equal(lastSave().cwd, INTERNAL, 'an untouched draft writes its cwd back unchanged');
+
+  await act(async () => host.querySelector('.routines-open').click());
+  assert.equal(shown(), 'No project');
+  await act(async () => document.querySelector('[aria-label="Webhook project"]').click());
+  const alpha = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === 'alpha');
+  await act(async () => alpha.click());
+  assert.equal(shown(), 'alpha');
+  await submit();
+  assert.equal(lastSave().cwd, '/repos/alpha');
+});

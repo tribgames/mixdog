@@ -28,7 +28,7 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { automationDraftCwd, automationProjectOptions, useTaskWorkspace } from './automation-editor-support';
+import { automationEditorCwd, automationProjectOptions, useTaskWorkspace } from './automation-editor-support';
 import { SidebarPanelAction } from './session-sidebar-sections';
 import { EditorDialogFooter, SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -66,8 +66,7 @@ interface WebhookDraft {
 
 function webhookDraft(
   webhook: RecordValue | undefined,
-  defaultAgent: string,
-  taskWorkspace: string
+  defaultAgent: string
 ): WebhookDraft {
   const source = record(webhook);
   return {
@@ -79,7 +78,7 @@ function webhookDraft(
     // shows — and save it back unchanged.
     parser: String(source.parser || 'github'),
     agent: automationAgentOf(webhook, defaultAgent),
-    cwd: automationDraftCwd(source.cwd, taskWorkspace),
+    cwd: String(source.cwd || ''),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
@@ -232,6 +231,7 @@ function WebhookEditor({
   editing,
   busy,
   projects,
+  taskWorkspace,
   publicBase,
   secret,
   error = '',
@@ -246,6 +246,7 @@ function WebhookEditor({
   editing: boolean;
   busy: boolean;
   projects: DesktopProjectSummary[];
+  taskWorkspace: string;
   publicBase: string;
   secret: string;
   error?: string;
@@ -256,7 +257,8 @@ function WebhookEditor({
   onTest?(): Promise<WebhookTestResult>;
 }) {
   const [parser, setParser] = useState(draft.parser);
-  const [cwd, setCwd] = useState(draft.cwd);
+  const [cwdEdit, setCwdEdit] = useState<string | null>(null);
+  const { cwd, shown: shownCwd } = automationEditorCwd(draft.cwd, cwdEdit, taskWorkspace);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [enabled, setEnabled] = useState(draft.enabled);
   // EDIT never reveals the stored secret; rotation mints a replacement that
@@ -289,7 +291,7 @@ function WebhookEditor({
   const shownUrl = editing ? endpointUrl(publicBase, draft.name) : previewUrl;
   const [agent, setAgent] = useState(draft.agent);
   const [formError, setFormError] = useState('');
-  const projectOptions = automationProjectOptions(projects, cwd);
+  const projectOptions = automationProjectOptions(projects, shownCwd);
   return (
     <SidebarDialogLayer onClose={onCancel}>
       <section
@@ -395,10 +397,10 @@ function WebhookEditor({
             <div className="schedules-frequency">
               <OpenSelect
                 ariaLabel={t('Webhook project')}
-                value={cwd || '__none__'}
+                value={shownCwd || '__none__'}
                 disabled={busy}
                 options={projectOptions}
-                onChange={(next) => setCwd(next === '__none__' ? '' : next)}
+                onChange={(next) => setCwdEdit(next === '__none__' ? '' : next)}
               />
             </div>
           </div>
@@ -590,7 +592,7 @@ export function WebhooksPane({
               // Pre-mint the signing secret so the popup shows URL + secret with
               // copy buttons BEFORE the first save (user decision).
               try {
-                setEditor({ name: '', draft: webhookDraft(undefined, defaultAgent, taskWorkspace), secret: generateSigningSecret() });
+                setEditor({ name: '', draft: webhookDraft(undefined, defaultAgent), secret: generateSigningSecret() });
               } catch (reason) {
                 showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
                   scope: 'webhook:secret',
@@ -623,6 +625,7 @@ export function WebhooksPane({
             editing={Boolean(editor.name)}
             busy={busy}
             projects={projects}
+            taskWorkspace={taskWorkspace}
             publicBase={publicBase}
             secret={editor.secret}
             error={error}
@@ -717,7 +720,7 @@ export function WebhooksPane({
                   }
                   running={runningNames?.has(name) === true || runningName === name}
                   busy={busy}
-                  onOpen={() => openEditor(name, webhookDraft(webhook, defaultAgent, taskWorkspace))}
+                  onOpen={() => openEditor(name, webhookDraft(webhook, defaultAgent))}
                   onToggle={(enabled) => void run('setWebhookEnabled', [name, enabled], 'toast')}
                   onRun={() => void runNow(name)}
                   onRetryDelivery={() => void run('retryRoutineDelivery', ['webhook', name], 'toast')}

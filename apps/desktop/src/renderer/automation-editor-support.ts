@@ -28,14 +28,23 @@ export function useTaskWorkspace(api: Partial<Pick<DesktopApi, 'getTaskWorkspace
   return taskWorkspace;
 }
 
-/** A stored cwd as the editor holds it: the task workspace means no project (''). */
+/** A cwd as the project picker shows it: the task workspace means no project ('').
+ *  Presentation only; the editor saves the cwd it holds, never this. */
 export function automationDraftCwd(cwd: unknown, taskWorkspace: string): string {
   const value = String(cwd || '');
   return isTaskWorkspaceFolder(value, taskWorkspace) ? '' : value;
 }
 
-/** Project picker options; `cwd` is the draft's (already without a task
- *  workspace); one outside the project list stays selectable. */
+/** The editor's cwd state. `edit` is null until the user picks a project, so
+ *  the automation's stored cwd (`stored`) is saved back unchanged; `shown` is
+ *  the picker value, derived from the workspace as it is now. */
+export function automationEditorCwd(stored: string, edit: string | null, taskWorkspace: string) {
+  const cwd = edit ?? stored;
+  return { cwd, shown: automationDraftCwd(cwd, taskWorkspace) };
+}
+
+/** Project picker options; `cwd` is the picker's value (see
+ *  `automationDraftCwd`); one outside the project list stays selectable. */
 export function automationProjectOptions(
   projects: readonly DesktopProjectSummary[],
   cwd: string
