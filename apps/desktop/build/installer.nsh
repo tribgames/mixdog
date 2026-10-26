@@ -215,9 +215,10 @@ Var MixdogSecureDesktopUnattended
     # Update or reinstall: keep the service.
   ${ElseIf} $MixdogSecureDesktopUnattended == "1"
     # The service keeps its own protected copy and an Apps & Features entry
-    # ("Mixdog Secure Desktop Helper") whose uninstall asks for elevation only
-    # when someone chooses it there.
-    DetailPrint "Mixdog secure desktop helper: privileged removal deferred (unattended /S uninstall); remove it from Settings > Apps > Mixdog Secure Desktop Helper"
+    # ("Mixdog 원격 접근"; installs before it named the same entry "Mixdog Secure
+    # Desktop Helper" until their next update) whose uninstall asks for
+    # elevation only when someone chooses it there.
+    DetailPrint "Mixdog secure desktop helper: privileged removal deferred (unattended /S uninstall); remove it from Settings > Apps > Mixdog 원격 접근"
   ${ElseIf} ${FileExists} "$INSTDIR\resources\native-tools\mixdog-secure-desktop.exe"
     nsExec::Exec '"$INSTDIR\resources\native-tools\mixdog-secure-desktop.exe" check'
     Pop $0

@@ -931,6 +931,11 @@ fn set_failure_actions(service: &ScHandle) -> Result<(), String> {
 /// and so leaves the service) — and it lives under HKLM, writable only by
 /// administrators, so a user cannot redirect it.
 const APPS_ENTRY_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MixdogSecureDesktop";
+/// The entry's name in Settings > Apps, the same as the exe's `FileDescription`
+/// (build.rs) that the UAC prompt shows. Only a value: the key above never
+/// depends on it, so an install or update rewrites it in place and uninstall
+/// finds the entry under any earlier name.
+const APPS_ENTRY_DISPLAY_NAME: &str = "Mixdog 원격 접근";
 /// The argument the Apps & Features entry passes: the only `uninstall` that
 /// asks for elevation itself (Settings launches entries unelevated). Every
 /// other caller — the app uninstaller, scripts — passes plain `uninstall` and
@@ -948,7 +953,7 @@ enum EntryValue {
 /// Learn). Pure; unit-tested.
 fn apps_entry_values(bin_exe: &str, version: &str) -> Vec<(&'static str, EntryValue)> {
     vec![
-        ("DisplayName", EntryValue::Text("Mixdog Secure Desktop Helper".into())),
+        ("DisplayName", EntryValue::Text(APPS_ENTRY_DISPLAY_NAME.into())),
         ("DisplayVersion", EntryValue::Text(version.into())),
         ("Publisher", EntryValue::Text("Mixdog".into())),
         ("DisplayIcon", EntryValue::Text(format!("\"{bin_exe}\""))),
@@ -2246,7 +2251,13 @@ mod tests {
         assert_eq!(value("DisplayVersion"), Some(EntryValue::Text("1.2.3".into())));
         assert_eq!(value("NoModify"), Some(EntryValue::Number(1)));
         assert_eq!(value("NoRepair"), Some(EntryValue::Number(1)));
-        assert!(matches!(value("DisplayName"), Some(EntryValue::Text(name)) if !name.is_empty()));
+        assert_eq!(value("DisplayName"), Some(EntryValue::Text("Mixdog 원격 접근".into())));
+        // The key an earlier install wrote (under the old display name) is the
+        // same key, so an update rewrites it and uninstall still finds it.
+        assert_eq!(
+            APPS_ENTRY_KEY,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MixdogSecureDesktop"
+        );
     }
 
     /// A fake filesystem: a set of existing paths on volumes named by their

@@ -170,6 +170,19 @@ cargo build --release          # produces target/release/mixdog-secure-desktop.e
 cargo test                     # unit tests (framing, deadlines, security, handshake)
 ```
 
+`build.rs` embeds a Windows VERSIONINFO resource (winresource, the crate the
+other native tools use; a UTF-8 `.rc` with `#pragma code_page(65001)`
+compiled by the MSVC toolchain's `rc.exe`): `FileDescription` "Mixdog 원격 접근"
+— the program name the UAC prompt for `install` shows — `ProductName` /
+`CompanyName` "Mixdog", `LegalCopyright` "Copyright (C) Mixdog", and the file
+and product version from `Cargo.toml`. A missing resource compiler fails the
+build rather than shipping a nameless prompt. The Apps & Features entry carries
+the same `DisplayName`; its registry key (`Uninstall\MixdogSecureDesktop`)
+does not depend on the name, so an install or update rewrites an entry written
+under the earlier name "Mixdog Secure Desktop Helper", and uninstall finds it
+either way. The service keeps its internal name and its display name "Mixdog
+Secure Desktop Bridge".
+
 Packaging follows the other product-native tools: the release exe is copied to
 the installed app's `resources/native-tools/`. The TypeScript client resolves it
 there when packaged and from `target/release` in development (see

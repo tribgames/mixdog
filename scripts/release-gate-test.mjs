@@ -952,6 +952,12 @@ function assertDesktopPackageContract(desktopPackage) {
     desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
     /native\/mixdog-secure-desktop\/src\/\*\*/
   );
+  // The helper's version resource (the UAC prompt's program name) is built by
+  // build.rs; a change to it alone must not restore a stale runtime either.
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /native\/mixdog-secure-desktop\/build\.rs/
+  );
   // The browser importer ships in the same prepared runtime; its source must
   // reach the key too, so a change to it cannot restore a stale runtime.
   assert.match(

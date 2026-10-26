@@ -22,6 +22,11 @@ rand = "0.9.3"
 hmac = "0.12"
 sha2 = "0.10"
 
+# VERSIONINFO (build.rs): the name the UAC prompt shows. Same crate and
+# version as the other native tools.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
