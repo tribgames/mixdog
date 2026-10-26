@@ -1575,3 +1575,196 @@ test('Deny from the bot chat or Stop on the sub-agent still settles a long-waiti
     sub.dispose();
   }
 });
+
+const choice = {
+  questions: [{ question: 'Which markets?', options: [{ label: 'All five' }, { label: 'Only KR' }] }],
+};
+const ask = (queue, sessionId) =>
+  queue.api.requestToolApproval({
+    name: 'ask_user',
+    kind: 'question',
+    args: choice,
+    timeoutMs: null,
+    sessionId,
+    toolCallId: 'call_q',
+  });
+
+test("a handed-off session's question shows in the chat handing it work, apart from its queue, and is answered once from there", async () => {
+  const ports = handoffPorts();
+  const home = sessionQueue(HOME);
+  const task = sessionQueue('sess_dlg_task1');
+  const before = Object.keys(home.state()).sort();
+  try {
+    await ports.watches.add(handoffWatch('atask_qa1', 'sess_dlg_task1', 'Rank model'));
+    const answer = ask(task, 'sess_dlg_task1');
+    const own = task.state().toolApproval;
+    assert.equal(own.kind, 'question', 'its own pane still asks');
+    const [shown] = home.state().handoffQuestions;
+    assert.equal(home.state().handoffQuestions.length, 1);
+    assert.equal(shown.id, own.id, 'one request, one id in both places');
+    assert.deepEqual(shown.args, choice, 'the same options');
+    assert.deepEqual([shown.sessionId, shown.surfaceSessionId], ['sess_dlg_task1', HOME]);
+    assert.equal(home.state().toolApproval, null, "never in the chat's own queue or dock");
+    // The chat's own request is not held back by it.
+    const mine = home.api.requestToolApproval({ name: 'shell', args: {}, sessionId: HOME });
+    assert.equal(home.state().toolApproval.sessionId, HOME);
+    home.api.finishToolApproval(home.state().toolApproval.id, true, 'ok');
+    assert.equal((await mine).approved, true);
+    // Answered in the chat: the asking session gets the answers, once.
+    const answers = [{ selected: ['All five'] }];
+    const resultBefore = home.state().toolApprovalResult;
+    assert.equal(home.api.finishToolApproval(own.id, true, 'answered by user', 'DESKTOP-7', answers), true);
+    const result = await answer;
+    assert.deepEqual([result.approved, result.answers], [true, answers]);
+    assert.equal(task.state().toolApproval, null, "the session's own card is settled");
+    assert.deepEqual(home.state().handoffQuestions, []);
+    assert.equal(home.api.finishToolApproval(own.id, true), false, 'never answered twice from the chat');
+    assert.equal(task.api.finishToolApproval(own.id, true), false, 'nor from the session');
+    // Nothing else of the chat's state moved: no transcript rows, no result trace.
+    assert.equal(home.state().toolApprovalResult, resultBefore);
+    assert.deepEqual(
+      Object.keys(home.state())
+        .filter((key) => key !== 'handoffQuestions')
+        .sort(),
+      before
+    );
+    assert.equal(home.state().items, undefined);
+  } finally {
+    endHandoff('atask_qa1');
+    home.dispose();
+    task.dispose();
+  }
+});
+
+test("a handed-off question comes back in a reloaded chat runtime, and after a restart once the stored watches are read", async () => {
+  const ports = handoffPorts();
+  const task = sessionQueue('sess_dlg_task1');
+  let home = sessionQueue(HOME);
+  try {
+    // An earlier process stored the watch; this one has not read it yet.
+    const left = handoffWatch('atask_qr1', 'sess_dlg_task1', 'Rank model');
+    writeFileSync(ports.path, JSON.stringify({ watches: { [left.runId]: left } }));
+    const answer = ask(task, 'sess_dlg_task1');
+    assert.equal(home.state().handoffQuestions, undefined, 'no hand-off known yet');
+    await ports.watches.list();
+    assert.equal(home.state().handoffQuestions.length, 1, 'the restored hand-off brings the copy');
+    // The chat's runtime closes (idle sweep, app restart): the next one adopts the copy.
+    home.dispose();
+    home = sessionQueue(HOME);
+    assert.equal(home.state().handoffQuestions, undefined);
+    home.api.adoptDelegatedApprovals();
+    const [shown] = home.state().handoffQuestions;
+    assert.equal(shown.id, task.state().toolApproval.id);
+    assert.equal(home.api.finishToolApproval(shown.id, true, 'answered by user', '', [{ selected: ['All five'] }]), true);
+    assert.equal((await answer).approved, true);
+  } finally {
+    endHandoff('atask_qr1');
+    home.dispose();
+    task.dispose();
+  }
+});
+
+test('daemon start reads the stored watches: a question asked after the restart reaches the chat with no other read', async () => {
+  const ports = handoffPorts();
+  const task = sessionQueue('sess_dlg_task1');
+  const home = sessionQueue(HOME);
+  try {
+    // An earlier process left the watch in the store; this one starts.
+    const left = handoffWatch('atask_qs1', 'sess_dlg_task1', 'Rank model');
+    writeFileSync(ports.path, JSON.stringify({ watches: { [left.runId]: left } }));
+    await watchDelivery(ports.queue).recover();
+    assert.deepEqual([...handoffChatsOf('sess_dlg_task1').keys()], [HOME], 'the start noted the hand-off');
+    // The target asks again; nothing else reads the watches.
+    const answer = ask(task, 'sess_dlg_task1');
+    const [shown] = home.state().handoffQuestions;
+    assert.equal(shown.id, task.state().toolApproval.id);
+    assert.equal(home.api.finishToolApproval(shown.id, true, 'answered by user', '', [{ selected: ['All five'] }]), true);
+    assert.equal((await answer).approved, true);
+    assert.deepEqual(home.state().handoffQuestions, []);
+  } finally {
+    endHandoff('atask_qs1');
+    home.dispose();
+    task.dispose();
+  }
+});
+
+taskSession('sess_dlg_rtask', ROOM_MEMBER, 'atask_r');
+
+test("a room member's handed-off question waits in the member's session, its turn over, and is answered once through it", async () => {
+  const ports = handoffPorts();
+  const member = sessionQueue(ROOM_MEMBER);
+  const task = sessionQueue('sess_dlg_rtask');
+  try {
+    await ports.watches.add(handoffWatch('atask_rq1', 'sess_dlg_rtask', 'Rank model', ROOM_MEMBER));
+    // The member's speaking turn ends: its copy stays (the room still shows it).
+    member.api.denyAllToolApprovals('turn finished');
+    const answer = ask(task, 'sess_dlg_rtask');
+    const own = task.state().toolApproval;
+    const [shown] = member.state().handoffQuestions;
+    assert.deepEqual([shown.id, shown.sessionId, shown.surfaceSessionId], [own.id, 'sess_dlg_rtask', ROOM_MEMBER]);
+    assert.deepEqual(shown.args, choice);
+    assert.equal(member.state().toolApproval, null);
+    // The room's answer goes through the member's session (agent-rooms.ts approve).
+    const answers = [{ selected: ['Only KR'] }];
+    assert.equal(member.api.finishToolApproval(own.id, true, 'answered by user', 'DESKTOP-7', answers), true);
+    assert.deepEqual((await answer).answers, answers);
+    assert.equal(task.state().toolApproval, null);
+    assert.deepEqual(member.state().handoffQuestions, []);
+    assert.equal(member.api.finishToolApproval(own.id, true), false, 'never twice');
+    assert.equal(member.state().items, undefined, "no row in the member's transcript");
+    // Answered in the asking session instead: the member's copy is withdrawn.
+    const again = ask(task, 'sess_dlg_rtask');
+    assert.equal(member.state().handoffQuestions.length, 1);
+    task.api.finishToolApproval(task.state().toolApproval.id, true, 'answered by user', '', []);
+    assert.equal((await again).approved, true);
+    assert.deepEqual(member.state().handoffQuestions, []);
+  } finally {
+    endHandoff('atask_rq1');
+    member.dispose();
+    task.dispose();
+  }
+});
+
+test('a handed-off question answered or aborted in its session leaves the chat; each session has its own', async () => {
+  const ports = handoffPorts();
+  const home = sessionQueue(HOME);
+  const first = sessionQueue('sess_dlg_task1');
+  const second = sessionQueue('sess_dlg_task2');
+  try {
+    await ports.watches.add(handoffWatch('atask_qb1', 'sess_dlg_task1', 'Rank model'));
+    await ports.watches.add(handoffWatch('atask_qb2', 'sess_dlg_task2', 'Markets'));
+    const a = ask(first, 'sess_dlg_task1');
+    const b = ask(second, 'sess_dlg_task2');
+    assert.deepEqual(
+      home.state().handoffQuestions.map((question) => question.sessionId),
+      ['sess_dlg_task1', 'sess_dlg_task2'],
+      'both at once'
+    );
+    // Answered in its own session: the chat's card leaves.
+    first.api.finishToolApproval(first.state().toolApproval.id, true, 'answered by user', '', []);
+    assert.equal((await a).approved, true);
+    assert.deepEqual(
+      home.state().handoffQuestions.map((question) => question.sessionId),
+      ['sess_dlg_task2']
+    );
+    // Aborted in its own session: it leaves too, unanswered.
+    second.api.denyAllToolApprovals('turn aborted');
+    assert.equal((await b).approved, false);
+    assert.deepEqual(home.state().handoffQuestions, []);
+    // The chat's own turn ending keeps a waiting copy; its hand-off ending removes it.
+    const c = ask(first, 'sess_dlg_task1');
+    home.api.denyAllToolApprovals('turn finished');
+    assert.equal(home.state().handoffQuestions.length, 1);
+    await ports.watches.remove('atask_qb1');
+    assert.deepEqual(home.state().handoffQuestions, []);
+    assert.equal(first.state().toolApproval?.kind, 'question', 'the session still asks');
+    first.api.denyAllToolApprovals('done');
+    await c;
+  } finally {
+    endHandoff('atask_qb1');
+    endHandoff('atask_qb2');
+    home.dispose();
+    first.dispose();
+    second.dispose();
+  }
+});

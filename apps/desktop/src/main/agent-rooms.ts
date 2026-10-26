@@ -36,7 +36,13 @@ import { createRoomMembership } from './agent-room-membership';
 import { createRoomMessages } from './agent-room-messages';
 import { createRoomRecords } from './agent-room-records';
 import { createRoomScheduler } from './agent-room-scheduler';
-import { catalogWithRooms, decorateRoomSnapshot, roomSummary } from './agent-room-views';
+import {
+  type RoomHandoffQuestion,
+  catalogWithRooms,
+  decorateRoomSnapshot,
+  roomHandoffQuestionsOf,
+  roomSummary,
+} from './agent-room-views';
 
 export interface AgentRoomRecord extends RoomConfig {
   id: string;
@@ -408,8 +414,46 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     start(roomId, {});
   }
 
-  const decorate = (sessionId: string, snapshot: SessionSnapshot): SessionSnapshot =>
-    decorateRoomSnapshot(scheduler.state(roomIdOfSession(sessionId)), snapshot);
+  /** Per room, the questions of sessions its members handed work to, from
+   *  the members' catalog rows (no view watches a member session). */
+  let memberQuestions = new Map<string, RoomHandoffQuestion[]>();
+  const republishRooms = (roomIds: Iterable<string>) => {
+    for (const roomId of roomIds) deps.republish(roomSessionId(roomId));
+  };
+
+  /** A fresh catalog listing (raw rows, member sessions included): each room
+   *  whose members' handed-off questions changed is published again. */
+  function noteMemberRows(rows: ReadonlyArray<Record<string, unknown>>): void {
+    const next = roomHandoffQuestionsOf(rows, memberQuestions);
+    const changed = [...new Set([...memberQuestions.keys(), ...next.keys()])].filter(
+      (roomId) => memberQuestions.get(roomId) !== next.get(roomId)
+    );
+    memberQuestions = next;
+    republishRooms(changed);
+  }
+
+  /** A request the room shows: a handed-off question goes to the member that
+   *  handed the work, through its own session whether or not it speaks now
+   *  (its copy hands the answer to the asking session, which settles it
+   *  once); any other is the speaking member's approval. */
+  async function approve(sessionId: string, approvalId: string, decision: ToolApprovalDecision): Promise<boolean> {
+    const roomId = roomIdOfSession(sessionId);
+    const asked = memberQuestions.get(roomId)?.find((question) => question.id === approvalId);
+    if (!asked) return scheduler.approve(sessionId, approvalId, decision);
+    const accepted = await deps.approve(asked.memberSessionId, approvalId, decision);
+    // Answered (or answered elsewhere first): the card leaves now, before the
+    // member's next catalog row confirms it.
+    const left = (memberQuestions.get(roomId) ?? []).filter((question) => question.id !== approvalId);
+    if (left.length) memberQuestions.set(roomId, left);
+    else memberQuestions.delete(roomId);
+    republishRooms([roomId]);
+    return accepted;
+  }
+
+  const decorate = (sessionId: string, snapshot: SessionSnapshot): SessionSnapshot => {
+    const roomId = roomIdOfSession(sessionId);
+    return decorateRoomSnapshot(scheduler.state(roomId), snapshot, memberQuestions.get(roomId));
+  };
 
   const summaryOf = (room: AgentRoomRecord): DesktopAgentRoomSummary => roomSummary(room, names, isRunning(room.id));
 
@@ -450,8 +494,9 @@ export function createAgentRooms(deps: AgentRoomDeps) {
     relay: messages.relay,
     proceed,
     stop,
-    approve: scheduler.approve,
+    approve,
     decorate,
+    noteMemberRows,
     withRooms,
     recover,
     isRoom: (sessionId: string) => Boolean(roomIdOfSession(sessionId)),

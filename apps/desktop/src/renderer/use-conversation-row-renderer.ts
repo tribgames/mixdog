@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactNode, useMemo, useRef } from 'react';
+import { createElement, Fragment, type ReactNode, useContext, useMemo, useRef } from 'react';
 import { settledRowCount } from './use-conversation-follow-effects';
 import { greetingSuggestions } from '../shared/greeting-suggestions';
 import { stripAgentMessageEnvelope } from '../../../../src/runtime/shared/agent-message-envelope.mjs';
@@ -15,6 +15,7 @@ import {
   isEndedTurnLastRow,
   isRoomTypingItem,
   roomPassIsQuiet,
+  roomQuestionSeatsAt,
   routineGroupOf,
   routineReplyIsQuiet,
   taskReportHidden,
@@ -28,7 +29,7 @@ import {
   AgentRoutineTrigger,
   AgentTypingRow,
 } from './agent-chat-row';
-import { AgentHandoffBlock } from './agent-task-line';
+import { AgentHandoffBlock, HandoffQuestionsContext, RoomHandoffQuestions } from './agent-task-line';
 import { useSessionAttentionIndex } from './session-attention-index';
 import { askUserCardKey, splitAskUser } from './ask-user-record';
 import {
@@ -55,6 +56,7 @@ import { visualizeCardCalls } from './visualize-card-model';
 import { useConversationRetry } from './use-conversation-retry';
 
 const NO_TOOL_ITEMS: TranscriptItem[] = [];
+const NO_MEMBERS: string[] = [];
 
 /** Who is typing in a room: the member the host's trailing typing row names.
  *  The host drops that row while its supervisor decides, a moment BEFORE the
@@ -333,6 +335,15 @@ export function useConversationRowRenderer({
   // A room's members type through its own typing rows.
   const inRoom = Boolean(roomIdOfSession(disclosureScope));
   const roomTyping = useRoomTyping(inRoom, settledItems, disclosureScope);
+  // A room's members whose handed-off sessions ask the user something now.
+  const handoffQuestions = useContext(HandoffQuestionsContext);
+  const asking = useMemo(
+    () =>
+      inRoom && handoffQuestions
+        ? [...new Set(handoffQuestions.questions.map((question) => String(question.roomMember || '')))].filter(Boolean)
+        : NO_MEMBERS,
+    [inRoom, handoffQuestions]
+  );
   // The lines child sessions' surfaces (a sub-agent's, a task session's, a
   // room member's browser or terminal) leave in this owner conversation.
   const childPeeks = useChildSurfacePeeks(disclosureScope);
@@ -372,7 +383,17 @@ export function useConversationRowRenderer({
     });
     const seat = { cards, placed: false, visualized };
     const node = renderRow(row, index, rows, seat);
-    const shown = cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
+    const carded = cards && !seat.placed ? createElement(Fragment, null, node, cards) : node;
+    // A room member's handed-off questions, under its newest words.
+    const seated = roomQuestionSeatsAt(rows, index, asking);
+    const shown = seated.length
+      ? createElement(
+          Fragment,
+          null,
+          carded,
+          asideRow(seated.map((speaker) => createElement(RoomHandoffQuestions, { key: speaker, speaker })))
+        )
+      : carded;
     // A child's line follows the row recorded last before its reveal.
     const peeks = childSurfacePeeksAt(rows, index, childPeeks);
     if (!peeks.length) return shown;

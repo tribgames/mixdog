@@ -40,7 +40,7 @@ export function createSessionActionCalls(ctx) {
     responseSessionId,
   } = ctx;
   const { bodyForClient } = ctx.projection;
-  const { retainUnwatched, awaitingApprovalSessionKinds } = ctx.retention;
+  const { retainUnwatched, awaitingApprovalSessionKinds, roomHandoffQuestions } = ctx.retention;
   const { assertAvailable, hostedEntryForSession, entryForSession } = ctx.entries;
 
   /** A cold session's review, read from its durable turn record (the same
@@ -113,15 +113,22 @@ export function createSessionActionCalls(ctx) {
 
   /** Rows with `awaitingApproval` on every session whose live runtime shows an
    *  approval card: a list row reads "needs you" from it whether or not any
-   *  pane receives that session's lane. */
+   *  pane receives that session's lane. A room member's row also carries the
+   *  handed-off questions it holds (`handoffQuestions`), which its room shows. */
   function withApprovalWaits(rows) {
     if (!Array.isArray(rows)) return rows;
     const waiting = awaitingApprovalSessionKinds();
-    if (!waiting.size) return rows;
+    const questions = roomHandoffQuestions();
+    if (!waiting.size && !questions.size) return rows;
     return rows.map((row) => {
       const kind = waiting.get(row?.id);
-      if (!kind) return row;
-      return { ...row, awaitingApproval: true, ...(kind === 'question' ? { awaitingQuestion: true } : {}) };
+      const asked = questions.get(row?.id);
+      if (!kind && !asked) return row;
+      return {
+        ...row,
+        ...(kind ? { awaitingApproval: true, ...(kind === 'question' ? { awaitingQuestion: true } : {}) } : {}),
+        ...(asked ? { handoffQuestions: asked } : {}),
+      };
     });
   }
 

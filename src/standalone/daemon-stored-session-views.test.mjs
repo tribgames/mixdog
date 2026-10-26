@@ -9,6 +9,7 @@ import { createStoredSessionViews } from './daemon-stored-session-views.mjs';
 import { createSessionActionCalls } from './session-service/session-calls/session-action.mjs';
 import { createBusyTracker } from './session-service/retention/busy.mjs';
 import { onSessionApprovalCardChange } from '../runtime/shared/session-activity-signal.mjs';
+import { roomMemberSessionId } from '../runtime/agent/orchestrator/session/agent-room.mjs';
 
 function views() {
   const calls = [];
@@ -107,7 +108,7 @@ test('the session catalog call returns a page with its cursor', async () => {
     listSessions: stored.listSessions,
     getRemoteSessionState: async () => null,
     projection: {},
-    retention: { awaitingApprovalSessionKinds: () => new Map() },
+    retention: { awaitingApprovalSessionKinds: () => new Map(), roomHandoffQuestions: () => new Map() },
     entries: {},
   });
   assert.deepEqual(await actions.listSessionCatalog({ page: { limit: 1 } }), {
@@ -188,4 +189,54 @@ test('a live card that turns from an approval into a question, or back, announce
   show({ busy: true, toolApproval: { id: 'ap2' } });
   assert.deepEqual([...busy.awaitingApprovalSessionKinds()], [['lead', 'approval']]);
   assert.deepEqual(seen, ['lead', 'lead', 'lead'], 'question → approval: once');
+});
+
+// No view watches a room member's session: its room reads the handed-off
+// questions it holds from its catalog row, re-read as they come and go.
+test("a room member's handed-off questions ride on its catalog row and announce each change; a bot chat's do not", async (t) => {
+  const seen = [];
+  t.after(onSessionApprovalCardChange((sessionId) => seen.push(sessionId)));
+  const MEMBER = roomMemberSessionId('room123abc', 'mailer');
+  const question = (id) => ({ id, kind: 'question', sessionId: 'sess_task', args: { questions: [] } });
+  const states = new Map([
+    [MEMBER, { handoffQuestions: [] }],
+    ['sess_home_mailer', { handoffQuestions: [question('q-home')] }],
+  ]);
+  const entries = [...states.keys()].map((id) => ({ id, runtime: { getState: () => states.get(id) } }));
+  const busy = createBusyTracker({ sessions: new Set(entries), currentSessionId: (entry) => entry.id });
+  const show = (id, next) => {
+    states.set(id, next);
+    busy.updateEntryBusy(
+      entries.find((entry) => entry.id === id),
+      next
+    );
+  };
+  show('sess_home_mailer', { handoffQuestions: [question('q-home')] });
+  assert.deepEqual(seen, [], "a bot chat's copies reach it through its own snapshot");
+  show(MEMBER, { handoffQuestions: [question('q1')] });
+  show(MEMBER, { handoffQuestions: [question('q1')] });
+  show(MEMBER, { handoffQuestions: [question('q1'), question('q2')] });
+  show(MEMBER, { handoffQuestions: [question('q2')] });
+  assert.deepEqual(seen, [MEMBER, MEMBER, MEMBER], 'each change once');
+  const rows = [{ id: MEMBER }, { id: 'sess_home_mailer' }];
+  const store = {
+    listStoredSessionSummariesAsync: async () => rows,
+    listStoredSessionSummaryPage: async () => ({ sessions: rows, nextCursor: null }),
+  };
+  const actions = createSessionActionCalls({
+    isClosed: () => false,
+    log: () => {},
+    listSessions: createStoredSessionViews({ desktopRuntime: { loadSessionStore: async () => store } }).listSessions,
+    getRemoteSessionState: async () => null,
+    projection: {},
+    retention: busy,
+    entries: {},
+  });
+  assert.deepEqual((await actions.listSessionCatalog()).sessions, [
+    { id: MEMBER, handoffQuestions: [question('q2')] },
+    { id: 'sess_home_mailer' },
+  ]);
+  show(MEMBER, { handoffQuestions: [] });
+  assert.equal(seen.length, 4, 'the last one leaving too');
+  assert.deepEqual((await actions.listSessionCatalog()).sessions, rows);
 });

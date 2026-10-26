@@ -6,13 +6,18 @@
 // (AgentTaskLine, at the report row). Its details (reply, files) stay in the
 // session, which the line and the card open.
 import { ArrowUpRight, SquareTerminal } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, createContext, useContext, useState } from 'react';
+import type { ToolApprovalDecision } from '../shared/contract';
 import type { Handoff } from './agent-chat-place';
 import { taskReportIsQuiet } from './agent-chat-place';
 import { RoomMemberFace, useRoomContacts } from './agent-room-parts';
 import { OPEN_TASK_SESSION_EVENT } from './agent-task-events';
+import type { Approval } from './desktop-types';
 import { t } from './i18n';
 import MarkdownBody from './MarkdownBody';
+import { QuestionCard } from './QuestionCard';
+import { approvalQuestions } from './question-card-logic';
+import { approvalInstanceKey } from './renderer-logic.mjs';
 import { CopyControl } from './transcript-primitives';
 import { useSessionAttentionIndex } from './session-attention-index';
 import { useSessionTitle } from './session-glance-store';
@@ -20,6 +25,83 @@ import './agent-chat.css';
 
 function openTaskSession(sessionId: string) {
   if (sessionId) window.dispatchEvent(new CustomEvent(OPEN_TASK_SESSION_EVENT, { detail: { sessionId } }));
+}
+
+/** The chat a conversation renders and its snapshot's `handoffQuestions`:
+ *  the pending ask_user questions of the sessions it handed work to
+ *  (tui/session/tool-approval.mjs). Null in a read-only view. */
+export const HandoffQuestionsContext = createContext<{
+  chatSessionId: string;
+  questions: readonly Approval[];
+  agentMode: boolean;
+} | null>(null);
+
+/** A handed-off session's pending question, as the same card that session
+ *  shows: answered through this chat's copy, which hands the answer to the
+ *  asking session (one request, settled once wherever it is answered). The
+ *  card leaves once the copy does (answered anywhere, dismissed, aborted).
+ *  For the user alone: nothing of it enters this chat's transcript. */
+function HandoffQuestion({ sessionId }: { sessionId: string }) {
+  const context = useContext(HandoffQuestionsContext);
+  const pending = context?.questions.find((question) => String(question.sessionId || '') === sessionId);
+  return pending ? <HandoffQuestionCard pending={pending} /> : null;
+}
+
+/** The card of one handed-off question (`line` above it while it shows). */
+function HandoffQuestionCard({ pending, line }: { pending: Approval; line?: ReactNode }) {
+  const context = useContext(HandoffQuestionsContext);
+  // The id this view's accepted answer settled, until the copy leaves.
+  const [answered, setAnswered] = useState('');
+  const id = String(pending.id ?? '');
+  const questions = approvalQuestions(pending.args);
+  if (!context || !id || !questions || answered === id) return null;
+  const { chatSessionId } = context;
+  const resolve = async (decision: ToolApprovalDecision) => {
+    const accepted = await window.mixdogDesktop.resolveToolApprovalForSession(chatSessionId, id, decision);
+    if (accepted === true) setAnswered(id);
+    return accepted;
+  };
+  return (
+    <>
+      {line}
+      <QuestionCard
+        key={approvalInstanceKey(id)}
+        questions={questions}
+        resolve={resolve}
+        agentMode={context.agentMode}
+      />
+    </>
+  );
+}
+
+/** A group room has no hand-off lines (its log holds the members' words):
+ *  the questions of sessions member `speaker` handed work to show under its
+ *  words, each under the line of the session that asks, as a bot chat shows
+ *  them. Answered through the room, which hands the answer to that member's
+ *  copy (agent-rooms.ts approve). */
+export function RoomHandoffQuestions({ speaker }: { speaker: string }) {
+  const context = useContext(HandoffQuestionsContext);
+  const asked = context?.questions.filter((question) => String(question.roomMember || '') === speaker) ?? [];
+  if (!asked.length) return null;
+  return (
+    <div className="mx-handoff-block">
+      {asked.map((question) => (
+        <RoomHandoffQuestion key={String(question.id)} pending={question} />
+      ))}
+    </div>
+  );
+}
+
+function RoomHandoffQuestion({ pending }: { pending: Approval }) {
+  const sessionId = String(pending.sessionId || '');
+  const handoff = (pending.handoff ?? {}) as { title?: unknown; agentId?: unknown };
+  const { member, name } = useHandoffTarget(sessionId, String(handoff.agentId || ''), String(handoff.title || ''));
+  return (
+    <HandoffQuestionCard
+      pending={pending}
+      line={<HandoffLineView sessionId={sessionId} member={member} what={name} waiting asking />}
+    />
+  );
 }
 
 /** The session a line names: another bot's chat by that bot's face and name,
@@ -91,14 +173,17 @@ export function AgentHandoffLine({ handoff }: { handoff: Omit<Handoff, 'id' | 's
     what = handoff.agentId ? t('Sent to {{name}}', { name }) : t('Session send: Sent to {{name}}', { name });
   }
   return (
-    <HandoffLineView
-      sessionId={handoff.sessionId}
-      member={member}
-      what={what}
-      waiting={waiting}
-      asking={asking}
-      progress={handoff.progress}
-    />
+    <>
+      <HandoffLineView
+        sessionId={handoff.sessionId}
+        member={member}
+        what={what}
+        waiting={waiting}
+        asking={asking}
+        progress={handoff.progress}
+      />
+      {handoff.prompt && <HandoffQuestion sessionId={handoff.sessionId} />}
+    </>
   );
 }
 
@@ -131,7 +216,12 @@ function AgentTaskWait({ routine }: { routine: Record<string, unknown> }) {
   const agentId = typeof routine.agentId === 'string' ? routine.agentId : '';
   const { member, name, waiting, asking } = useHandoffTarget(sessionId, agentId, String(routine.name || ''));
   if (!waiting) return null;
-  return <HandoffLineView sessionId={sessionId} member={member} what={name} waiting asking={asking} />;
+  return (
+    <>
+      <HandoffLineView sessionId={sessionId} member={member} what={name} waiting asking={asking} />
+      <HandoffQuestion sessionId={sessionId} />
+    </>
+  );
 }
 
 /** A session's ended turn: one card in the changed-files card's frame, head

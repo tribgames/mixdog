@@ -190,6 +190,7 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
     left.commandBusy === right.commandBusy &&
     left.toolApproval === right.toolApproval &&
     left.toolApprovalsWaiting === right.toolApprovalsWaiting &&
+    left.handoffQuestions === right.handoffQuestions &&
     left.queued === right.queued &&
     left.sessionId === right.sessionId &&
     left.currentProject === right.currentProject &&

@@ -149,6 +149,10 @@ export type Snapshot = RecordValue & {
   /** Approvals waiting behind `toolApproval`: its own, and copies of sessions
    *  this chat delegated or handed work to (the dock's "1/N"). */
   toolApprovalsWaiting?: number;
+  /** The pending ask_user questions of sessions this chat handed work to,
+   *  each shown at that session's hand-off line (`sessionId`: the asking
+   *  session) and answered through this chat; never in the transcript. */
+  handoffQuestions?: Approval[];
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   cwd?: string;
   /** The Lead's live workspace (execution root, worktree binding, revision). */

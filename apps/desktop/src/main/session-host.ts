@@ -345,7 +345,8 @@ export class SessionHost implements DesktopService {
         !('working' in row) &&
         !('agentWorking' in row) &&
         !('awaitingApproval' in row) &&
-        !('awaitingQuestion' in row)
+        !('awaitingQuestion' in row) &&
+        !('handoffQuestions' in row)
       )
         return row;
       changed = true;
@@ -354,11 +355,15 @@ export class SessionHost implements DesktopService {
         agentWorking: _agentWorking,
         awaitingApproval: _awaitingApproval,
         awaitingQuestion: _awaitingQuestion,
+        handoffQuestions: _handoffQuestions,
         ...settled
       } = row;
       return settled;
     });
-    if (changed) this.publishSessionCatalog(this.sessionCatalog());
+    if (!changed) return;
+    // The questions waited in the daemon's memory: their room cards go too.
+    this.agentRooms.noteMemberRows(this.rawSessionRows);
+    this.publishSessionCatalog(this.sessionCatalog());
   }
 
   private publishAgentPool(agents: DesktopAgentPoolRow[]): void {
@@ -768,6 +773,8 @@ export class SessionHost implements DesktopService {
       );
       this.publication.applyRemoteSessionState(catalog.remoteSession);
       this.rawSessionRows = Array.isArray(catalog.sessions) ? (catalog.sessions as Array<Record<string, unknown>>) : [];
+      // A room shows the handed-off questions its member sessions' rows carry.
+      this.agentRooms.noteMemberRows(this.rawSessionRows);
       this.sessionCatalogLoaded = true;
       this.catalog.ensureStoreWatcher();
       const sessions = this.sessionCatalog();

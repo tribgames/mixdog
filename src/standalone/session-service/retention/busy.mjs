@@ -8,6 +8,16 @@
  */
 import { activeBackgroundTaskSessionIds, hasActiveBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
 import { emitSessionApprovalCardChange } from '../../../runtime/shared/session-activity-signal.mjs';
+import { roomMemberOfSession } from '../../../runtime/agent/orchestrator/session/agent-room.mjs';
+
+/** A room member session's copies of the questions of sessions it handed work
+ *  to (tui/session/tool-approval.mjs `handoffQuestions`); empty for any other
+ *  session. The room shows them from the member's catalog row (agent-rooms.ts),
+ *  as no view watches a member session. */
+function roomHandoffQuestionsOf(sessionId, state) {
+  if (!roomMemberOfSession(sessionId)) return [];
+  return Array.isArray(state?.handoffQuestions) ? state.handoffQuestions : [];
+}
 
 export function createBusyTracker({ sessions, currentSessionId }) {
   function stateBusy(state) {
@@ -25,15 +35,34 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     // status source every list row has, open pane or not — re-reads it.
     const awaitingApproval = Boolean(state?.toolApproval);
     const awaitingQuestion = state?.toolApproval?.kind === 'question';
+    // A room member's handed-off questions coming and going re-read it too.
+    const sessionId = currentSessionId(entry) || '';
+    const handoffQuestions = roomHandoffQuestionsOf(sessionId, state)
+      .map((question) => String(question?.id ?? ''))
+      .join('\n');
     if (
       awaitingApproval !== (entry.awaitingApproval === true) ||
-      awaitingQuestion !== (entry.awaitingQuestion === true)
+      awaitingQuestion !== (entry.awaitingQuestion === true) ||
+      handoffQuestions !== (entry.handoffQuestions ?? '')
     ) {
       entry.awaitingApproval = awaitingApproval;
       entry.awaitingQuestion = awaitingQuestion;
-      emitSessionApprovalCardChange(currentSessionId(entry) || '');
+      entry.handoffQuestions = handoffQuestions;
+      emitSessionApprovalCardChange(sessionId);
     }
     return next;
+  }
+
+  /** Room member session id -> its pending handed-off question copies, for
+   *  every live member runtime holding one. */
+  function roomHandoffQuestions() {
+    const byMember = new Map();
+    for (const entry of sessions) {
+      const sessionId = currentSessionId(entry);
+      const questions = sessionId ? roomHandoffQuestionsOf(sessionId, entry.runtime?.getState?.()) : [];
+      if (questions.length) byMember.set(sessionId, questions);
+    }
+    return byMember;
   }
 
   /** Session id -> the kind of its pending card ('approval' | 'question') for
@@ -96,6 +125,7 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     stateBusy,
     updateEntryBusy,
     awaitingApprovalSessionKinds,
+    roomHandoffQuestions,
     sessionBusy,
     liveBusyCount,
     liveTurnBusyCount,

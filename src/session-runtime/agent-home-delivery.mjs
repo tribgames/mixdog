@@ -1065,6 +1065,14 @@ function createHomeBookkeeping({ queue, log, homeDeleted, sessionDeleted, drain 
     } catch (error) {
       log(`pruning the routine results failed: ${error?.message || error}`);
     }
+    // The stored watches name the hand-offs an earlier process left open:
+    // reading them notes each one now, so a target that asks again after the
+    // restart reaches the chat that handed it the work.
+    try {
+      await queue.watches();
+    } catch (error) {
+      log(`reading the report watches failed: ${error?.message || error}`);
+    }
     const homes = await queue.pendingHomes();
     for (const homeId of homes) void drain(homeId);
     return homes;

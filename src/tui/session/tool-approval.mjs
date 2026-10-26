@@ -36,6 +36,13 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
   const defaultTimeoutMs = defaultApprovalTimeoutMs(timeoutMs);
   const toolApprovalQueue = [];
   let activeToolApproval = null;
+  // Copies of the ask_user questions of sessions this chat handed work to
+  // (`{ id, request, mirror }`): published as `handoffQuestions`, each shown
+  // at its hand-off line for the user alone (no transcript row), outside the
+  // queue so they never hold this chat's own requests back and several show
+  // at once. Answered here, the answer goes to the asking session's queue.
+  const handoffQuestions = [];
+  const publishHandoffQuestions = () => set({ handoffQuestions: handoffQuestions.map((entry) => entry.request) });
   const ownSessionId = () => String(getState()?.sessionId || '');
   const { delegationSurface, handsOff, offerToHandoffs } = createApprovalDelegation({ surfaceOf, ownSessionId });
   const unregister =
@@ -63,11 +70,23 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
   }
   function offerDelegatedApproval(delegated) {
     if (getDisposed() || delegated.sessionId !== ownSessionId()) return;
+    if (delegated.request?.kind === 'question') {
+      if (handoffQuestions.some((entry) => entry.id === delegated.id)) return;
+      handoffQuestions.push({ id: delegated.id, request: delegated.request, mirror: delegated });
+      publishHandoffQuestions();
+      return;
+    }
     if (activeToolApproval?.id === delegated.id || toolApprovalQueue.some((entry) => entry.id === delegated.id)) return;
     toolApprovalQueue.push({ id: delegated.id, request: delegated.request, mirror: delegated, timer: null });
     presentNextToolApproval();
   }
   function withdrawDelegatedCopy(id, result) {
+    const question = handoffQuestions.findIndex((entry) => entry.id === id);
+    if (question >= 0) {
+      handoffQuestions.splice(question, 1);
+      if (!getDisposed()) publishHandoffQuestions();
+      return;
+    }
     if (activeToolApproval?.mirror && activeToolApproval.id === id) {
       activeToolApproval = null;
       set({ toolApproval: null, toolApprovalResult: copyOutcome(id, result) });
@@ -135,6 +154,12 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       settleToolApproval(entry, approved === true, String(reason || ''), answers, reply, extra, String(device || ''));
       return true;
     }
+    const question = handoffQuestions.findIndex((entry) => entry.id === targetId);
+    if (question >= 0) {
+      const [entry] = handoffQuestions.splice(question, 1);
+      publishHandoffQuestions();
+      return forwardToOwner(entry, approved, reason, device, answers, reply, extra);
+    }
     return false;
   }
   /** Deny this session's own requests. A copy of a sub-agent's request stays
@@ -142,7 +167,11 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
    *  unanswered: the next runtime of this session adopts it again. */
   function denyAllToolApprovals(reason = 'approval cancelled') {
     const closing = getDisposed();
-    if (closing) unregister();
+    if (closing) {
+      unregister();
+      // Dropped unanswered with this runtime: the next one adopts them again.
+      handoffQuestions.length = 0;
+    }
     if (activeToolApproval && !(activeToolApproval.mirror && !closing)) {
       const entry = activeToolApproval;
       activeToolApproval = null;

@@ -283,6 +283,9 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   toolApprovalResult?: ToolApprovalResult | null;
   /** Approvals waiting behind the shown `toolApproval` (the dock's "1/N"). */
   toolApprovalsWaiting?: number;
+  /** The pending ask_user questions of sessions this chat handed work to,
+   *  shown at their hand-off lines (tui/session/tool-approval.mjs). */
+  handoffQuestions?: Record<string, unknown>[];
   /** A prompt cancelled from another device, to be handed back to the device
    *  that sent it (`ids` are that device's submission ids). */
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;

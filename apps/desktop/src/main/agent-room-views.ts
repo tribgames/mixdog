@@ -10,14 +10,64 @@ import type { DesktopAgentRoomSummary, DesktopSessionSummary, SessionSnapshot } 
 import type { RunState } from './agent-room-turn';
 import type { AgentRoomRecord } from './agent-rooms';
 
+/** A pending ask_user question of a session a room member handed work to, as
+ *  the room shows it: the member's copy (tui/session/tool-approval.mjs
+ *  `handoffQuestions`), named by that member and its session. */
+export type RoomHandoffQuestion = Record<string, unknown> & {
+  id: string;
+  /** The member that handed the work; its card sits under its words. */
+  roomMember: string;
+  /** The member's own session, the one its copy is answered through. */
+  memberSessionId: string;
+};
+
+/** Per room, the handed-off questions its members' catalog rows carry (the
+ *  daemon's session-action.mjs `handoffQuestions`), each tagged with its
+ *  member. A room whose list is unchanged keeps the array of `previous`: the
+ *  room snapshot's `handoffQuestions` identity is what its views re-render on. */
+export function roomHandoffQuestionsOf(
+  rows: ReadonlyArray<Record<string, unknown>>,
+  previous: ReadonlyMap<string, RoomHandoffQuestion[]>
+): Map<string, RoomHandoffQuestion[]> {
+  const next = new Map<string, RoomHandoffQuestion[]>();
+  for (const row of rows) {
+    const memberSessionId = String(row.id || '');
+    const member = roomMemberOfSession(memberSessionId);
+    const asked = row.handoffQuestions;
+    if (!member || !Array.isArray(asked) || !asked.length) continue;
+    const tagged = asked.flatMap((question) =>
+      question && typeof question === 'object' && (question as { id?: unknown }).id
+        ? [
+            {
+              ...(question as Record<string, unknown>),
+              id: String((question as { id: unknown }).id),
+              roomMember: member.agentId,
+              memberSessionId,
+            },
+          ]
+        : []
+    );
+    next.set(member.roomId, [...(next.get(member.roomId) ?? []), ...tagged]);
+  }
+  for (const [roomId, questions] of next) {
+    const before = previous.get(roomId);
+    if (before && JSON.stringify(before) === JSON.stringify(questions)) next.set(roomId, before);
+  }
+  return next;
+}
+
 /** The room log as its views see it: busy while members speak (so the
- *  composer offers stop), the speaking member's pending approval, and a
- *  typing row naming who is speaking. */
+ *  composer offers stop), the speaking member's pending approval, a typing
+ *  row naming who is speaking, and the questions of sessions its members
+ *  handed work to, while they wait, whether or not anyone speaks. */
 export function decorateRoomSnapshot(
   state: Pick<RunState, 'speaking' | 'speakingName' | 'typingId' | 'approval'> | undefined,
-  snapshot: SessionSnapshot
+  snapshot: SessionSnapshot,
+  handoffQuestions: readonly RoomHandoffQuestion[] = []
 ): SessionSnapshot {
-  if (!state || !snapshot || typeof snapshot !== 'object') return snapshot;
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const asked = handoffQuestions.length ? { handoffQuestions } : {};
+  if (!state) return handoffQuestions.length ? ({ ...snapshot, ...asked } as SessionSnapshot) : snapshot;
   const typing = state.speaking
     ? [
         {
@@ -37,6 +87,7 @@ export function decorateRoomSnapshot(
     ...snapshot,
     busy: true,
     ...(state.approval ? { toolApproval: state.approval } : {}),
+    ...asked,
     items: [...(snapshot.items ?? []), ...typing],
   } as SessionSnapshot;
 }

@@ -1765,6 +1765,70 @@ test("an approval the room shows reaches the speaking member's session only unde
   );
 });
 
+test("a member's handed-off questions show in its room after its turn, answered once through that member's session", async () => {
+  const republished = [];
+  const h = harness({ onRepublish: (id) => republished.push(id) });
+  const { sessionId, roomId } = await room(h);
+  // The member spoke and handed work off; its turn is over.
+  await h.rooms.send(sessionId, '/ask Release status?');
+  await h.idle(roomId);
+  assert.equal(h.rooms.isRunning(roomId), false);
+  const GH = roomMemberSessionId(roomId, 'gh');
+  const REL = roomMemberSessionId(roomId, 'rel');
+  const question = (id, child) => ({
+    id,
+    name: 'ask_user',
+    kind: 'question',
+    args: { questions: [{ question: 'Which markets?', options: [{ label: 'All five' }, { label: 'Only KR' }] }] },
+    sessionId: child,
+    handoff: { title: 'Rank model' },
+  });
+  // The catalog as the daemon lists it: member rows carry their copies.
+  const listing = (gh, rel) => [
+    { id: sessionId },
+    { id: GH, ...(gh.length ? { handoffQuestions: gh } : {}) },
+    { id: REL, ...(rel.length ? { handoffQuestions: rel } : {}) },
+    { id: 'sess_home_gh', handoffQuestions: [question('q-home', 'sess_x')] },
+  ];
+  const shown = () => h.rooms.decorate(sessionId, { items: [] }).handoffQuestions;
+  republished.length = 0;
+  h.rooms.noteMemberRows(listing([question('q1', 'sess_rank')], [question('q2', 'sess_markets')]));
+  assert.deepEqual(republished, [sessionId], 'the room is published again, once');
+  assert.deepEqual(
+    shown().map((asked) => [asked.id, asked.roomMember, asked.memberSessionId, asked.sessionId]),
+    [
+      ['q1', 'gh', GH, 'sess_rank'],
+      ['q2', 'rel', REL, 'sess_markets'],
+    ]
+  );
+  assert.deepEqual(shown()[0].args, question('q1', '').args, 'the same options');
+  assert.equal(h.rooms.decorate(sessionId, { items: [] }).busy, undefined, 'nobody speaks');
+  // An unchanged listing keeps the very array and publishes nothing.
+  const before = shown();
+  h.rooms.noteMemberRows(listing([question('q1', 'sess_rank')], [question('q2', 'sess_markets')]));
+  assert.equal(shown(), before);
+  assert.equal(republished.length, 1);
+  // No other session shows a room's questions.
+  const other = { items: [] };
+  assert.equal(h.rooms.decorate('sess_home_gh', other), other);
+  // Answered from the room: through gh's own session, once; the card leaves.
+  const decision = { approved: true, answers: [{ selected: ['All five'] }] };
+  assert.equal(await h.rooms.approve(sessionId, 'q1', decision), true);
+  assert.deepEqual(h.approvals, [[GH, 'q1', decision]]);
+  assert.deepEqual(
+    shown().map((asked) => asked.id),
+    ['q2']
+  );
+  assert.equal(await h.rooms.approve(sessionId, 'q1', decision), false, 'never a second answer');
+  assert.equal(h.approvals.length, 1);
+  // Answered in the asking session: rel's row no longer carries it, the card goes.
+  h.rooms.noteMemberRows(listing([], []));
+  assert.equal(shown(), undefined);
+  assert.equal(republished.at(-1), sessionId);
+  assert.equal(await h.rooms.approve(sessionId, 'q2', decision), false);
+  assert.equal(h.approvals.length, 1);
+});
+
 test('leaving a room stops its talk and archives its log; an unknown room is refused', async () => {
   const turn = gated(['rel']);
   const h = harness({ script: turn.script });

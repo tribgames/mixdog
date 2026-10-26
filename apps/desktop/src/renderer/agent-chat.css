@@ -308,6 +308,16 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
 .mx-handoff-line {
   min-width: 0;
 }
+/* The handed-off session's pending question (agent-task-line.tsx
+   HandoffQuestion): the same card, under its line, in the lines' column. The
+   block already sits in the bubble column, so the card adds no inset. */
+.mx-handoff-block:has(> .question-card) {
+  align-self: stretch;
+  --mx-agent-bubble-inset: 0px;
+}
+.mx-handoff-block > .question-card {
+  grid-column: -2 / -1;
+}
 .mx-handoff-what {
   display: flex;
   flex: 0 1 auto;

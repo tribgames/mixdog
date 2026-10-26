@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
+import { HandoffQuestionsContext } from './agent-task-line';
 import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { useAgentChatSession, useDeletedBotSession } from './agent-chat-mode';
 import { t } from './i18n';
@@ -145,6 +146,15 @@ export function Conversation(props: ConversationProps) {
   answerQuestionRef.current = island.answerQuestion ?? null;
   const routeProject = String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '');
   const itemCount = source.liveItemCount + pendingItems.length + steerItems.length;
+  // The handed-off sessions' questions, at their hand-off lines.
+  const handoffQuestions = snapshot.handoffQuestions;
+  const handoffQuestionsContext = useMemo(
+    () =>
+      readOnly || draftMode || !routeSessionId || !handoffQuestions?.length
+        ? null
+        : { chatSessionId: routeSessionId, questions: handoffQuestions, agentMode },
+    [readOnly, draftMode, routeSessionId, handoffQuestions, agentMode]
+  );
 
   return (
     <SteerContext.Provider value={readOnly ? null : steer.context}>
@@ -161,29 +171,31 @@ export function Conversation(props: ConversationProps) {
           })
         }
       >
-        <ConversationTranscript
-          view={view}
-          source={source}
-          timeline={timeline}
-          links={links}
-          sessionKey={transcriptSessionKey}
-          busy={Boolean(snapshot.busy || snapshot.commandBusy)}
-          draftMode={draftMode}
-          routeSessionId={routeSessionId}
-          activeProjectPath={activeProjectPath}
-          transitioning={transitioning}
-          pendingPromptCount={pendingItems.length}
-          visibleWarmPaintHandoff={visibleWarmPaintHandoff}
-          project={routeProject}
-          multiDevice={approvals.multiDevice}
-          viewerDevice={approvals.viewerDevice}
-          renderRow={renderTranscriptRow}
-          itemCount={itemCount}
-          cover={props.transcriptCover}
-          listHeld={props.transcriptListHeld}
-          intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
-          agentMode={agentMode}
-        />
+        <HandoffQuestionsContext.Provider value={handoffQuestionsContext}>
+          <ConversationTranscript
+            view={view}
+            source={source}
+            timeline={timeline}
+            links={links}
+            sessionKey={transcriptSessionKey}
+            busy={Boolean(snapshot.busy || snapshot.commandBusy)}
+            draftMode={draftMode}
+            routeSessionId={routeSessionId}
+            activeProjectPath={activeProjectPath}
+            transitioning={transitioning}
+            pendingPromptCount={pendingItems.length}
+            visibleWarmPaintHandoff={visibleWarmPaintHandoff}
+            project={routeProject}
+            multiDevice={approvals.multiDevice}
+            viewerDevice={approvals.viewerDevice}
+            renderRow={renderTranscriptRow}
+            itemCount={itemCount}
+            cover={props.transcriptCover}
+            listHeld={props.transcriptListHeld}
+            intro={agentMode ? <AgentChatIntro sessionId={routeSessionId} /> : undefined}
+            agentMode={agentMode}
+          />
+        </HandoffQuestionsContext.Provider>
         {/* The dock is the column's in-flow sibling below the viewport: its
           height changes resize the viewport, never the virtual geometry. */}
         {!readOnly && (

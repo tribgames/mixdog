@@ -11,9 +11,13 @@ import { delegateToHandoffs } from '../../runtime/shared/delegated-approval-host
 /** Requests a sub-agent (or a session a chat handed work to) shows in the
  *  conversation the user watches too. A secret and a takeover go there as
  *  well: the value goes to this PC by its request id and the sign-in window
- *  is bound to the asking session, wherever the card is answered. A question
- *  stays in its own session (its answer belongs to that conversation). */
+ *  is bound to the asking session, wherever the card is answered. A
+ *  sub-agent's question stays in its own session (its answer belongs to that
+ *  conversation); a handed-off session's question shows in the chats handing
+ *  it work too, beside their hand-off line (tool-approval.mjs
+ *  `handoffQuestions`), never in their queue. */
 const DELEGATED_KINDS = new Set(['', 'approval', 'outbound', 'permission', 'secret', 'takeover']);
+const HANDOFF_KINDS = new Set([...DELEGATED_KINDS, 'question']);
 
 export function createApprovalDelegation({ surfaceOf, ownSessionId }) {
   /** `{ sessionId, chain }` of the top-level chat a sub-agent's request also
@@ -34,7 +38,7 @@ export function createApprovalDelegation({ surfaceOf, ownSessionId }) {
   /** Whether a request this (top-level) session itself makes also shows in
    *  the chats handing it work (delegated-approval-host.mjs), while it waits. */
   function handsOff(request) {
-    if (typeof surfaceOf !== 'function' || !DELEGATED_KINDS.has(request.kind)) return false;
+    if (typeof surfaceOf !== 'function' || !HANDOFF_KINDS.has(request.kind)) return false;
     const own = ownSessionId();
     return Boolean(own) && String(request.sessionId || own) === own;
   }

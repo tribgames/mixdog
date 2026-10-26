@@ -98,6 +98,32 @@ export function taskReportIsQuiet(routine: unknown): boolean {
   return record?.kind === 'task' && !TASK_REPORT_SHOWN.has(String(record.status ?? ''));
 }
 
+const roomSpeechCache = new WeakMap<readonly TranscriptRowModel[], Map<string, number>>();
+
+/** The members of `asking` whose handed-off question cards `rows[index]` of a
+ *  group room carries (agent-task-line.tsx RoomHandoffQuestions): each under
+ *  its newest words, a member with none in view under the last row. */
+export function roomQuestionSeatsAt(
+  rows: readonly TranscriptRowModel[],
+  index: number,
+  asking: readonly string[]
+): string[] {
+  if (!asking.length) return [];
+  let newest = roomSpeechCache.get(rows);
+  if (!newest) {
+    newest = new Map();
+    rows.forEach((row, at) => {
+      const item = 'item' in row ? (row.item as TranscriptItem | undefined) : undefined;
+      if (item?.kind === 'notice' && item.room?.kind === 'speech' && item.room.speaker) {
+        newest?.set(item.room.speaker, at);
+      }
+    });
+    roomSpeechCache.set(rows, newest);
+  }
+  const seats = newest;
+  return asking.filter((speaker) => (seats.get(speaker) ?? rows.length - 1) === index);
+}
+
 /** A group room's typing row: the host's transient overlay naming who speaks
  *  now, appended under a fresh id per turn and dropped between turns. */
 export function isRoomTypingItem(item: TranscriptItem | undefined): boolean {
@@ -142,6 +168,9 @@ export type Handoff = {
   /** The first line of the session's latest progress update since this
    *  hand-off (a hidden `working` report), shown by its line while it works. */
   progress?: string;
+  /** The newest open hand-off to its session: its line carries that
+   *  session's pending question card (agent-task-line.tsx). */
+  prompt?: boolean;
 };
 
 /** The handoffs of one stored tool item, in call order. A running call, an
@@ -307,7 +336,13 @@ function handoffIndexOf(rows: readonly TranscriptRowModel[]): HandoffIndex {
         return line ? { ...handoff, progress: line } : handoff;
       });
     if (!open.length) continue;
-    for (const handoff of open) lineSessions.add(handoff.sessionId);
+    // The newest open hand-off to a session carries that session's question
+    // card; walking back, that is the first one met (the last in its round).
+    for (let i = open.length - 1; i >= 0; i -= 1) {
+      if (lineSessions.has(open[i].sessionId)) continue;
+      lineSessions.add(open[i].sessionId);
+      open[i] = { ...open[i], prompt: true };
+    }
     const turn = turns.get(row.turnKey) ?? [];
     turn.push([at, open]);
     turns.set(row.turnKey, turn);
