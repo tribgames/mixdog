@@ -10,6 +10,9 @@ import { isInMarkdownCode } from '../../../../src/runtime/shared/skill-mentions.
 
 type MentionMatch = { start: number; end: number; query: string };
 
+/** How long the @-mention project-file search waits after the last keystroke. */
+export const MENTION_SEARCH_DEBOUNCE_MS = 120;
+
 /** Project search results, tagged with the project they were searched in. */
 const EMPTY_SEARCH: { scope: string; paths: string[] } = { scope: '', paths: [] };
 
@@ -166,7 +169,7 @@ export function useComposerPalettes({
           setMentionSearch(EMPTY_SEARCH);
           setMentionLoading(false);
         });
-    }, 120);
+    }, MENTION_SEARCH_DEBOUNCE_MS);
     return () => {
       window.clearTimeout(timer);
       if (mentionSearchGeneration.current === generation) mentionSearchGeneration.current += 1;

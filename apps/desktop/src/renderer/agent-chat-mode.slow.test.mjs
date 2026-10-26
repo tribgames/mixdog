@@ -36,6 +36,7 @@ const { publishAgentRooms } = await import('./agent-room-store.ts');
 const { publishSessionGlances } = await import('./session-glance-store.ts');
 const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
 const { Composer } = await import('./Composer.tsx');
+const { MENTION_SEARCH_DEBOUNCE_MS } = await import('./use-composer-palettes.ts');
 const { recognisedAgentRoomSlash } = await import('./slash-commands.ts');
 const { usePaneWorkspace, agentChatSlotKey } = await import('./pane-workspace-state.ts');
 const { navigationKey } = await import('./text-format.ts');
@@ -775,14 +776,37 @@ async function mountComposer(t) {
   });
   const input = () => host.querySelector('textarea');
   const type = async (value) => {
-    await act(async () => {
-      const field = input();
-      field.focus();
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(field, value);
-      field.setSelectionRange(value.length, value.length);
-      field.dispatchEvent(new window.Event('input', { bubbles: true }));
-      await new Promise((resolve) => window.setTimeout(resolve, 200));
-    });
+    // The file-mention search waits MENTION_SEARCH_DEBOUNCE_MS on its own debounce timer
+    // (use-composer-palettes.ts): that timer is held here and fired on demand, so the search's
+    // answer is awaited through the mock rather than through elapsed time.
+    const realSetTimeout = window.setTimeout;
+    const realClearTimeout = window.clearTimeout;
+    const held = new Map();
+    let nextId = -1;
+    window.setTimeout = (callback, delay, ...rest) => {
+      if (delay !== MENTION_SEARCH_DEBOUNCE_MS) return realSetTimeout.call(window, callback, delay, ...rest);
+      held.set(nextId, callback);
+      return nextId--;
+    };
+    window.clearTimeout = (id) => {
+      if (!held.delete(id)) realClearTimeout.call(window, id);
+    };
+    try {
+      await act(async () => {
+        const field = input();
+        field.focus();
+        Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(field, value);
+        field.setSelectionRange(value.length, value.length);
+        field.dispatchEvent(new window.Event('input', { bubbles: true }));
+      });
+      for (const [id, callback] of [...held]) {
+        held.delete(id);
+        await act(async () => callback());
+      }
+    } finally {
+      window.setTimeout = realSetTimeout;
+      window.clearTimeout = realClearTimeout;
+    }
   };
   const key = async (name) => {
     await act(async () => {
@@ -1281,7 +1305,6 @@ test('a visualize open leaves one card at turn end, above the changed-files line
     turnChanges: { checkpointId: 'cp', boundary: 'done-f', trailing: false },
   };
   await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), answer]);
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   const rows = [...host().querySelectorAll('.mx-chat-row')];
   // A bot chat shows no changed-files card; the visualize card closes the turn.
   assert.equal(host().querySelector('.turn-changes-card'), null, 'no changed-files card in a bot chat');
@@ -1377,8 +1400,7 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   resetTurnChangesCache();
   for (const agentMode of [true, false]) {
     await show([user('u1', DAY1), open('f', 200), answer], agentMode);
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-    assert.equal(cards().length, 1, `the visualize card stays (agentMode ${agentMode})`);
+      assert.equal(cards().length, 1, `the visualize card stays (agentMode ${agentMode})`);
     assert.equal(host().querySelector('.turn-changes-card'), null, `no changes card (agentMode ${agentMode})`);
     assert.equal(
       turnCards()[0].querySelector('.turn-changes-action')?.textContent,
@@ -1390,7 +1412,6 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   changedPaths = ['site/a.html', 'src/b.ts'];
   resetTurnChangesCache();
   await show([user('u1', DAY1), open('f', 200), answer], false);
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   assert.deepEqual(
     [...host().querySelectorAll('.turn-changes-base')].map((node) => node.textContent),
     ['b.ts']
@@ -1460,7 +1481,6 @@ test('a visualize card follows the whole reply: text before the call, the call, 
       );
     }
     await render(React.createElement(Rows));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   };
   const textNode = (label) =>
     [...document.querySelectorAll('main *')].find((node) => node.children.length === 0 && node.textContent === label);
@@ -1581,7 +1601,6 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
       );
     }
     await render(React.createElement(Rows));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
     const cards = [...document.querySelectorAll('main .transcript-visualize-turn')];
     assert.equal(cards.length, 1, `one card for the turn (agentMode ${agentMode})`);
     assert.equal(cards[0].classList.contains('is-compact'), agentMode);
@@ -1874,7 +1893,6 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
       );
     }
     await render(React.createElement(Rows));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   };
   const opened = [];
   const onOpen = (event) => opened.push(event.detail.sessionId);
@@ -2023,7 +2041,6 @@ test('a hand-off line stays until that send’s own report, per send', async (t)
       );
     }
     await render(React.createElement(Rows));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   };
   // Which sends still show their line, in order.
   const open = () => [...document.querySelectorAll('main .mx-handoff-line')].map((line) => line.textContent);
@@ -2103,7 +2120,6 @@ test('only an accepted send draws a hand-off line; a bot’s reports are cards, 
       );
     }
     await render(React.createElement(Rows));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
     return document.querySelectorAll('main .mx-handoff-line').length;
   };
   assert.equal(await sentLines(send('ok', { result: '{"sessionId":"x","accepted":true,"reportsBack":true}' })), 1);
@@ -2210,7 +2226,6 @@ test('work handed to a session: one block of lines under the turn’s reply, its
       );
     }
     await render(React.createElement(Rows));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   };
   const main = () => document.querySelector('main');
   const lines = () => [...main().querySelectorAll('.mx-handoff-line')].map((line) => line.textContent);
@@ -2524,8 +2539,7 @@ test('a bot message shows its name and its words, never the envelope or LEAD, in
         );
       }
       await render(React.createElement(Rows));
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-      return document.querySelector('main').textContent;
+          return document.querySelector('main').textContent;
     };
     const shown = await show([row]);
     assert.match(shown, /Please check the build/);
@@ -2585,7 +2599,6 @@ test("agent chat: an older ask_user left waiting keeps its round content; only t
     );
   }
   await render(React.createElement(Rows));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   const row = (key) => document.querySelector(`main [data-row="${key}"]`);
   assert.equal(document.querySelectorAll('main .stub-question-card').length, 1);
   assert.equal(

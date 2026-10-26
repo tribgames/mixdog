@@ -85,6 +85,18 @@ const dockProps = (overrides = {}) => ({
   ...overrides,
 });
 
+/** Resolves once the document satisfies the predicate (checked now and on every DOM change). */
+const untilDom = (document, ready) =>
+  new Promise((resolve) => {
+    if (ready()) return resolve();
+    const observer = new document.defaultView.MutationObserver(() => {
+      if (!ready()) return;
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  });
+
 const publish = (snapshot) =>
   act(async () => {
     defaultSessionLaneStore.apply({
@@ -645,7 +657,7 @@ test('a stop that ends termination-unconfirmed offers release, and the release w
   assert.equal(stopping.disabled, true);
   // The host later reports the kill unconfirmed: the stop state is moot.
   await publish({ shellJobs: { count: 1, jobs: [{ ...job, terminationUnconfirmed: true }] } });
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await untilDom(document, () => document.querySelector('.composer-island-row button')?.textContent === translate('Release anyway'));
   const release = document.querySelector('.composer-island-row button');
   assert.equal(release.textContent, translate('Release anyway'));
   assert.equal(release.disabled, false);
@@ -738,9 +750,14 @@ const ledgerUsage = (
 async function usagePanel(t, answer) {
   const { root, document, window, publishPool } = mount(t);
   const reads = [];
+  let onRead = null;
+  const read = new Promise((resolve) => {
+    onRead = resolve;
+  });
   window.mixdogDesktop.invokeCapability = async (request) => {
     if (request.capability !== 'getSessionUsage') return { value: null };
     reads.push(request);
+    onRead?.();
     return { value: answer };
   };
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
@@ -749,8 +766,10 @@ async function usagePanel(t, answer) {
     poolAgent('done-b', { sessionId: 's-b', stage: 'done', status: 'done' }),
     poolAgent('ask-c', { sessionId: 's-c', awaitingUser: 'approval' }),
   ]);
-  await act(async () => document.querySelector('.composer-island-seg-agents').click());
-  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  await act(async () => {
+    document.querySelector('.composer-island-seg-agents').click();
+    await read;
+  });
   const summary = document.querySelector('.composer-island-summary');
   const meta = [...(document.querySelector('.composer-island-phead-meta')?.children ?? [])].map(
     (part) => part.textContent
@@ -863,9 +882,19 @@ test('the footer is laid out with "-" while getSessionUsage is pending, then fil
   const gate = new Promise((resolve) => {
     release = resolve;
   });
+  let asked;
+  const read = new Promise((resolve) => {
+    asked = resolve;
+  });
+  let answered;
+  const done = new Promise((resolve) => {
+    answered = resolve;
+  });
   window.mixdogDesktop.invokeCapability = async (request) => {
     if (request.capability !== 'getSessionUsage') return { value: null };
+    asked();
     await gate;
+    queueMicrotask(answered);
     return {
       value: {
         ...ledgerUsage(1_000, { cacheRead: 500, costUsd: 1 }),
@@ -876,8 +905,10 @@ test('the footer is laid out with "-" while getSessionUsage is pending, then fil
   };
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await publishPool([poolAgent('run-a', { sessionId: 's-a' })]);
-  await act(async () => document.querySelector('.composer-island-seg-agents').click());
-  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  await act(async () => {
+    document.querySelector('.composer-island-seg-agents').click();
+    await read;
+  });
   const parts = () => [...document.querySelector('.composer-island-summary').children];
   const shapes = () => parts().map((part) => [part.className, part.dataset.reserve, part.querySelector('b') !== null]);
   const before = shapes();
@@ -886,8 +917,10 @@ test('the footer is laid out with "-" while getSessionUsage is pending, then fil
     unknownSummary()
   );
   assert.equal(before.length, 3);
-  release();
-  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  await act(async () => {
+    release();
+    await done;
+  });
   assert.deepEqual(shapes(), before, 'same elements and reserved boxes before and after the answer');
   assert.deepEqual(
     parts().map((part) => part.querySelector('b').textContent),
@@ -1340,6 +1373,22 @@ function islandPage(t) {
   );
 }
 
+/** Resolves once the island has fitted what the page last changed. Observing
+ *  the island's room delivers once at the next rendering step, after the
+ *  island's own observer (registered at mount) and every re-fit it caused in
+ *  that step. */
+const fitted = (page) =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const observer = new ResizeObserver(() => {
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(document.querySelector('.composer-island').parentElement);
+      })
+  );
+
 /** A full island (13 agents / 2 running, a long branch, many changed files
  *  with big diff numbers, the git action) on a real page with the app's CSS. */
 function crowdedIslandPage(t) {
@@ -1393,9 +1442,9 @@ for (const width of [900, 412, 360, 300]) {
     // fallback face), then the real type lands with no content or room change.
     await page.addStyleTag({ content: '.composer-island, .composer-island * { font-size: 3px !important; }' });
     await page.evaluate(() => window.__render());
-    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+    await fitted(page);
     await page.evaluate(() => document.head.lastElementChild.remove());
-    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+    await fitted(page);
     const fit = await page.evaluate(() => {
       const island = document.querySelector('.composer-island');
       const pill = island.querySelector('.composer-island-pill');
@@ -1448,7 +1497,7 @@ test("the overlay bot pinned above the message box takes its width from the isla
       `
   );
   await page.setViewport({ width: 900, height: 800 });
-  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+  await fitted(page);
   const state = (reserve, here) =>
     page.evaluate(
       (width, inRegion) => {
@@ -1480,14 +1529,14 @@ test("the overlay bot pinned above the message box takes its width from the isla
   // column 1, 52.5px, + the 2px inset + 4px = 59 a side): a room 2 x 59 wider
   // than the pill keeps it full, where the whole sprite box (66) went compact.
   await page.setViewport({ width: full.pill + 2 * 59, height: 800 });
-  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  await fitted(page);
   const beside = await state(59);
   assert.equal(beside.room, full.pill + 2 * 59, JSON.stringify(beside));
   assert.equal(beside.compact, false, `full beside the bot's art: ${JSON.stringify(beside)}`);
   assert.equal((await state(66)).compact, true, 'the whole sprite box would not fit');
   // A pill one px wider each side would reach the art's clearance: compact.
   await page.setViewport({ width: full.pill + 2 * 59 - 2, height: 800 });
-  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  await fitted(page);
   assert.equal((await state(59)).compact, true, 'would reach the visible art');
 });
 
@@ -1526,7 +1575,7 @@ test('labels that change beside an open side panel still go compact under the pi
           );
       `
   );
-  const settle = () => page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  const settle = () => fitted(page);
   const state = () =>
     page.evaluate(() => {
       const island = document.querySelector('.composer-island');
@@ -1538,7 +1587,7 @@ test('labels that change beside an open side panel still go compact under the pi
       };
     });
   await page.evaluate(() => window.__render(12));
-  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
+  await fitted(page);
   const full = await state();
   assert.equal(full.compact, false, `full labels in the room: ${JSON.stringify(full)}`);
   const reserve = 40;
@@ -1720,9 +1769,17 @@ async function assertDraftSwapKeepsDockHeight(page, rest) {
     const flash = await swap('flash');
     const empty = await swap('empty');
     // Past the grace and the eased collapse: the empty island's usual close.
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    await window.__frame();
     const slot = document.querySelector('.composer-island-slot');
+    await new Promise((resolve) => {
+      const closed = () => slot.getAttribute('data-presence') === 'closed';
+      if (closed()) return resolve();
+      new MutationObserver((_, observer) => {
+        if (!closed()) return;
+        observer.disconnect();
+        resolve();
+      }).observe(slot, { attributes: true, attributeFilter: ['data-presence'] });
+    });
+    await window.__frame();
     return { flash, empty, closed: slot.getAttribute('data-presence'), after: height() };
   });
   for (const [name, swap] of Object.entries({ flash: result.flash, empty: result.empty })) {
@@ -2015,7 +2072,7 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
       ['island-files', []],
     ]
   );
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+  await untilDom(document, () => segment() === null);
   assert.equal(segment(), null, 'an empty history hides the segment');
 });
 
@@ -3017,7 +3074,6 @@ async function gitDock(t, { cwd, files = [], ahead = 0, repository = true, pool 
   const render = () => act(async () => root.render(React.createElement(ComposerDock, props)));
   await render();
   if (pool.length) await publishPool(pool);
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   return { ...mounted, sent, render };
 }
 
@@ -3081,7 +3137,7 @@ test('the git button opens the Git tab; each row runs its own action and nothing
   const cwd = 'C:/git-pick';
   const { document, sent, render } = await gitDock(t, { cwd, files: ['a.ts', 'b.ts'] });
   await render();
-  const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  const flush = () => act(async () => {});
   // The button sends nothing itself: it opens the Git tab (chip, branch ·
   // files, three actions each with its own Run, Source Control).
   const panel = () => document.querySelector('.composer-island-git-panel');
@@ -3150,6 +3206,18 @@ test('the worktree menu prefetches Changes on open and on pressing or focusing V
   // A workspace no other test read, so no earlier answer is held for it.
   const cwd = '/data/worktrees/prefetch-wt';
   let batches = 0;
+  let onBatch = null;
+  // Resolves once the mock has been asked `count` times.
+  const asked = (count) =>
+    batches >= count
+      ? Promise.resolve()
+      : new Promise((resolve) => {
+          onBatch = () => {
+            if (batches < count) return;
+            onBatch = null;
+            resolve();
+          };
+        });
   // Opening and pressing fail; focusing succeeds: three signals, three reads.
   window.mixdogDesktop.gitReview = async () => ({
     repository: true,
@@ -3159,6 +3227,7 @@ test('the worktree menu prefetches Changes on open and on pressing or focusing V
   });
   window.mixdogDesktop.gitReviewDiffs = async (_cwd, requested) => {
     batches += 1;
+    onBatch?.();
     if (batches <= 2) throw new Error('read failed');
     return { patches: requested.map(({ path }) => ({ path, patch: `@@ -1 +1 @@\n-a\n+b\n` })), omitted: [] };
   };
@@ -3184,20 +3253,19 @@ test('the worktree menu prefetches Changes on open and on pressing or focusing V
       )
     )
   );
-  const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  await flush();
+  const flush = (count) => act(async () => asked(count));
   assert.equal(batches, 0, 'nothing is read before the user signals intent');
   await act(async () => document.querySelector('.composer-island-seg-worktree').click());
-  await flush();
+  await flush(1);
   assert.equal(batches, 1, 'opening the menu starts the load');
   const viewChanges = () => document.querySelector('[data-action-id="view-changes"]');
   await act(async () => viewChanges().dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
-  await flush();
-  assert.equal(batches, 2, 'pressing View changes asks again');
+  await flush(2);
+  assert.equal(batches, 2,'pressing View changes asks again');
   // The first action already holds focus from the open: leave and return.
   await act(async () => viewChanges().blur());
   await act(async () => viewChanges().focus());
-  await flush();
-  assert.equal(batches, 3, 'focusing View changes asks again');
+  await flush(3);
+  assert.equal(batches, 3,'focusing View changes asks again');
   window.localStorage.removeItem('mixdog.session-changes-source.v1');
 });

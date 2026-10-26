@@ -260,26 +260,35 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   // 48 = the next loop's first) and measure each frame's ink and the arcs'
   // angle (the phase of the 3-fold pattern) at 8x.
   const page = await launch(t);
-  await page.setViewport({ width: 1200, height: 900, deviceScaleFactor: 8 });
+  await page.setViewport({ width: 1200, height: 900, deviceScaleFactor: 4 });
   await page.addStyleTag({
-    content: 'body { background: #000 !important; } .live-activity-icon svg { visibility: hidden; }',
+    content: 'body { background: #000 !important; } .live-activity-icon svg { display: none; } [data-context]:not([data-context=\"visible\"]) { display: none; }',
   });
   const icon = await page.$('[data-context="visible"] .live-activity-icon');
   const FRAME_MS = 1000 / 24;
   const measured = [];
+  // The strip's mask is an SVG image: hold the first frame until it is decoded.
+  await page.evaluate(async () => {
+    const strip = document.querySelector('[data-context="visible"] .live-activity-arc-strip');
+    const url = getComputedStyle(strip).maskImage.slice(5, -2);
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+  });
   for (let frame = 44; frame <= 51; frame += 1) {
+    // Each pose is held as a still transform, so the raster is exactly that frame.
     await page.evaluate(
-      (frame, FRAME_MS) => {
+      (frame) => {
         const icon = document.querySelector('[data-context="visible"] .live-activity-icon');
-        const [strip] = icon.querySelector('.live-activity-arc-strip').getAnimations();
-        const [spin] = icon.querySelector('.live-activity-arcs').getAnimations();
-        strip.pause();
-        spin.pause();
-        strip.currentTime = (frame + 0.5) * FRAME_MS;
-        spin.currentTime = FRAME_MS / 2;
+        const strip = icon.querySelector('.live-activity-arc-strip');
+        const spin = icon.querySelector('.live-activity-arcs');
+        for (const element of [strip, spin]) element.getAnimations().forEach((animation) => animation.cancel());
+        strip.style.animation = 'none';
+        spin.style.animation = 'none';
+        strip.style.transform = `translateX(${-14 - 28 * (frame % 48)}px)`;
+        spin.style.rotate = '0deg';
       },
-      frame,
-      FRAME_MS
+      frame
     );
     const png = await icon.screenshot({ encoding: 'base64' });
     measured.push(
@@ -308,6 +317,13 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   }
   const step = (index) => ((((measured[index + 1].angle - measured[index].angle) % 120) + 180) % 120) - 60;
   const inkStep = (index) => Math.abs(measured[index + 1].ink - measured[index].ink);
+  // The comparison below means nothing on blank frames (no ink, a zero angle
+  // everywhere, every step 0): every frame must draw, and the arcs must turn
+  // between each pair of frames.
+  measured.forEach(({ ink }, index) => assert.ok(ink > 0, `frame ${44 + index} has no ink`));
+  for (let index = 0; index < measured.length - 1; index += 1) {
+    assert.ok(Math.abs(step(index)) > 0.01, `no angular movement from frame ${44 + index} to ${45 + index}: ${JSON.stringify(measured)}`);
+  }
   // Frames 44..51: index 3 is the seam (47 -> 48).
   const seam = step(3);
   const around = [step(2), step(4)];
@@ -590,16 +606,26 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
                 (item.effect.pseudoElement ?? '') === event.pseudoElement
             );
           window.__starts.push(`${event.animationName}${event.pseudoElement}:${animation?.startTime}`);
+          window.__notifyStart?.();
         },
         true
       );
+      // Resolves once `count` starts have been reported since the last take.
+      window.__startsReached = (count) =>
+        new Promise((resolve) => {
+          const reached = () => window.__starts.length >= count;
+          if (reached()) resolve();
+          else {
+            window.__notifyStart = () => {
+              if (!reached()) return;
+              window.__notifyStart = null;
+              resolve();
+            };
+          }
+        });
       const host = document.createElement('section');
       host.id = 'sync-host';
       host.innerHTML = `<div class="transcript-virtual-row"><div class="transcript-virtual-row-content">${html.band}</div></div><div class="utility-dock-pane" data-surface-active="true"><h2>${html.heading}</h2></div>`;
-      const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
-      for (let i = 0; i < 6; i += 1) await frame();
-      // In a task, as React commits.
-      await new Promise((resolve) => setTimeout(resolve, 0));
       document.body.append(host);
       for (const element of host.querySelectorAll('.live-activity-icon, [data-slot="text-shimmer-glint"]')) {
         window.motionSync.lockDecorativeLoops(element);
@@ -614,10 +640,20 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
     'text-shimmer-window-copy',
     'text-shimmer-mask',
   ];
-  const settle = () =>
-    page.evaluate(async () => {
-      for (let i = 0; i < 6; i += 1) await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-    });
+  // The page's loops once `count` of them run, all locked to the origin.
+  const locked = (count) =>
+    page.waitForFunction(
+      (NAMES, count) => {
+        const loops = document
+          .getElementById('sync-host')
+          .getAnimations({ subtree: true })
+          .filter((animation) => NAMES.includes(animation.animationName));
+        return loops.length === count && loops.every((a) => a.playState === 'running' && a.startTime === 0);
+      },
+      { polling: 'raf' },
+      NAMES,
+      count
+    );
   const loops = () =>
     page.evaluate(
       (NAMES) =>
@@ -629,18 +665,21 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
       NAMES
     );
   const takeStarts = () => page.evaluate(() => window.__starts.splice(0));
-  const check = async (label, count, { prePaint }) => {
-    await settle();
+  // `started`: the animationstart events the cause raises (a resume raises none).
+  const check = async (label, count, { prePaint, started }) => {
+    await page.evaluate((started) => window.__startsReached(started), started);
+    await locked(count);
     const states = await loops();
     assert.equal(states.length, count, `${label}: ${states}`);
     for (const state of states) assert.match(state, /:running:0$/, label);
     const starts = await takeStarts();
+    console.log('DEBUGSTARTS', label, starts.length, JSON.stringify(starts));
     if (prePaint) {
       assert.ok(starts.length > 0, `${label}: loops were recreated`);
       for (const start of starts) assert.match(start, /:0$/, `${label}: locked before its first paint (${starts})`);
     }
   };
-  await check('mounted', 6, { prePaint: true });
+  await check('mounted', 6, { prePaint: true, started: 1 });
 
   const setPhone = (phone) =>
     page.evaluate((phone) => {
@@ -648,32 +687,46 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
       else delete document.documentElement.dataset.mixdogMobileTabs;
     }, phone);
   await setPhone(true);
-  await check('desktop -> phone', 4, { prePaint: true });
+  await check('desktop -> phone', 4, { prePaint: true, started: 1 });
   await setPhone(false);
-  await check('phone -> desktop', 6, { prePaint: true });
+  await check('phone -> desktop', 6, { prePaint: true, started: 1 });
 
+  // The preference change reaches the page (its listeners run) before the
+  // loops come back: the reduced state must be seen, not coalesced away.
+  const mediaChange = () =>
+    page.evaluate(() => {
+      window.__mediaChanged = new Promise((resolve) =>
+        window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => resolve(), { once: true })
+      );
+    });
+  await mediaChange();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await settle();
+  await page.evaluate(() => window.__mediaChanged);
+  assert.deepEqual(await loops(), [], 'reduced motion runs no loops');
   await takeStarts();
+  await mediaChange();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
-  await check('reduced motion on -> off', 6, { prePaint: true });
+  await check('reduced motion on -> off', 6, { prePaint: true, started: 1 });
 
   // A cause no hook knows (an inline animation override dropped): locked on
-  // its reported start, a frame late.
+  // its reported start, a frame late. `getAnimations` flushes style, so the
+  // override's effect is readable at once.
   await page.evaluate(() => {
     document.querySelector('#sync-host .live-activity-arc-strip').style.animationName = 'none';
   });
-  await settle();
+  assert.equal((await loops()).length, 5, 'the strip loop is gone while overridden');
   await page.evaluate(() => {
     document.querySelector('#sync-host .live-activity-arc-strip').style.animationName = '';
   });
-  await check('recreated by anything else', 6, { prePaint: false });
+  await check('recreated by anything else', 6, { prePaint: false, started: 1 });
 
   // Locked loops still obey the pause rules, and resume locked.
   await page.evaluate(() =>
     document.querySelector('#sync-host .transcript-virtual-row').setAttribute('data-offscreen', 'true')
   );
-  await settle();
+  // Frame callbacks run in registration order: this one runs right after the
+  // lock pass the change above would queue, were it wrongly to ask for one.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
   const held = await page.evaluate(
     (NAMES) =>
       document
@@ -687,6 +740,6 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
   await page.evaluate(() =>
     document.querySelector('#sync-host .transcript-virtual-row').removeAttribute('data-offscreen')
   );
-  await check('resumed', 6, { prePaint: false });
+  await check('resumed', 6, { prePaint: false, started: 0 });
   await page.evaluate(() => window.__stopSync());
 });
