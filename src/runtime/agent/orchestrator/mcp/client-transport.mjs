@@ -106,9 +106,9 @@ function connectorAccountClient(serverName, accountCfg, oauthOptions) {
     const send = connectorAccountRequest(url, (input, init) => oauth.fetch(input, init));
     return {
       ...base,
-      async request(message) {
+      async request(message, options) {
         try {
-          return await send(message);
+          return await send(message, options);
         } catch (error) {
           const reason = scrubMcpConnectionMessage(error?.message || String(error), accountCfg);
           const scrubbed = new Error(

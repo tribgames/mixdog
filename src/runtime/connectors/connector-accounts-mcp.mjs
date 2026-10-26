@@ -87,8 +87,8 @@ const noteOf = (state) => (state.authRequired ? 'needs sign-in' : 'unavailable')
 
 /**
  * A `fetch` answering the accounts server of `connector` in-process. Each of
- * `accounts` is `{ name, email, appPassword, request(message) }`: `request`
- * sends one JSON-RPC message to that account's own endpoint with its own
+ * `accounts` is `{ name, email, appPassword, request(message, { signal }) }`:
+ * `request` sends one JSON-RPC message to that account's own endpoint with its own
  * credentials and resolves the JSON-RPC reply; it throws when the account
  * cannot be reached (an `authRequired` error when it needs a sign-in).
  */
@@ -110,9 +110,9 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
     return state;
   };
   // Each account's own initialize: whether it can be used, and its address.
-  const probe = async (account) => {
+  const probe = async (account, signal) => {
     try {
-      const reply = await account.request({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+      const reply = await account.request({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, { signal });
       if (reply?.error) return failure(account, new Error(reply.error.message || 'The account did not start'));
       const [email = ''] = accountsOfInstructions(reply?.result?.instructions);
       const state = { email: account.email || email };
@@ -122,11 +122,14 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
       return failure(account, error);
     }
   };
-  async function rpc(message) {
+  // The calls in flight by JSON-RPC id, so a `notifications/cancelled` for one
+  // aborts its downstream request.
+  const inflight = new Map();
+  async function rpc(message, transportSignal) {
     const { id, method, params } = message || {};
     const reply = (result) => ({ jsonrpc: '2.0', id, result });
     if (method === 'initialize') {
-      const states = await Promise.all(accounts.map(probe));
+      const states = await Promise.all(accounts.map((account) => probe(account, transportSignal)));
       if (!states.some((state) => !state.error)) {
         const first = states[0];
         return {
@@ -161,14 +164,24 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
       } catch (error) {
         return reply(errorResult(error.message));
       }
+      const cancel = new AbortController();
+      const signal = transportSignal ? AbortSignal.any([transportSignal, cancel.signal]) : cancel.signal;
+      inflight.set(id, cancel);
       try {
-        const answer = await account.request({ jsonrpc: '2.0', id, method, params: { name, arguments: args } });
+        const answer = await account.request(
+          { jsonrpc: '2.0', id, method, params: { name, arguments: args } },
+          { signal }
+        );
         if (answer?.error) return reply(errorResult(`${labelOf(account)}: ${answer.error.message}`));
         if (health.get(account.name)?.error) record(account, {});
         return reply(answer?.result ?? errorResult(`${labelOf(account)}: no answer`));
       } catch (error) {
+        // A cancelled call says nothing about the account's health.
+        if (signal.aborted) return reply(errorResult(`${labelOf(account)}: cancelled`));
         const state = failure(account, error);
         return reply(errorResult(`${labelOf(account)}: ${state.error}`));
+      } finally {
+        inflight.delete(id);
       }
     }
     return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } };
@@ -186,7 +199,13 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
       return json(400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
     }
     const batch = Array.isArray(message) ? message : [message];
-    const replies = (await Promise.all(batch.map((one) => (one?.id === undefined ? null : rpc(one))))).filter(Boolean);
+    const signal = init?.signal ?? request?.signal;
+    for (const one of batch) {
+      if (one?.method === 'notifications/cancelled') inflight.get(one.params?.requestId)?.abort();
+    }
+    const replies = (
+      await Promise.all(batch.map((one) => (one?.id === undefined ? null : rpc(one, signal))))
+    ).filter(Boolean);
     if (!replies.length) return new Response(null, { status: 202 });
     return json(200, Array.isArray(message) ? replies : replies[0]);
   };
@@ -195,11 +214,12 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
 /** `request` for an account answered at `url` through `fetchImpl` (its
  *  credentials applied there) with `headers`: one JSON-RPC POST, its reply. */
 export function connectorAccountRequest(url, fetchImpl, headers = {}) {
-  return async (message) => {
+  return async (message, { signal } = {}) => {
     const response = await fetchImpl(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
       body: JSON.stringify(message),
+      signal,
     });
     if (!response.ok) {
       await response.body?.cancel();

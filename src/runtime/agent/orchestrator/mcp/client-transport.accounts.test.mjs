@@ -121,3 +121,74 @@ test('a multi-account server lists tools, flags the signed-out account, and leak
   assert.match(client.getInstructions(), /needs sign-in/);
   for (const secret of [APP_PASSWORD, CLIENT_SECRET]) assert.equal(everything.includes(secret), false);
 });
+
+// A configured-auth account whose server answers initialize and then holds
+// every tools/call open; `aborted` resolves when the server sees that call's
+// connection drop.
+async function hangingAccountServer(t) {
+  let drop;
+  const aborted = new Promise((resolve) => (drop = resolve));
+  let started;
+  const calling = new Promise((resolve) => (started = resolve));
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      const message = JSON.parse(body);
+      if (message.method === 'initialize') {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }));
+        return;
+      }
+      res.on('close', drop);
+      started();
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  return { url: `http://127.0.0.1:${server.address().port}/mcp`, aborted, calling };
+}
+
+async function connectHangingAccount(t) {
+  const account = await hangingAccountServer(t);
+  const { transport } = createMcpTransport({
+    name: 'gmail',
+    cfg: {
+      type: 'http',
+      connector: 'gmail',
+      url: 'https://connectors.mixdog.invalid/gmail/mcp',
+      accounts: [{ name: 'gmail', url: account.url, headers: { 'x-api-key': 'k' } }],
+    },
+    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    log: () => {},
+  });
+  const client = new Client({ name: 'test', version: '1' });
+  t.after(() => client.close());
+  await client.connect(transport);
+  const { tools } = await client.listTools();
+  return { ...account, client, transport, tool: tools[0].name };
+}
+
+test('aborting a multi-account tool call aborts the downstream request', async (t) => {
+  const { client, tool, aborted, calling } = await connectHangingAccount(t);
+  const controller = new AbortController();
+  const call = client.callTool({ name: tool, arguments: {} }, undefined, { signal: controller.signal });
+  call.catch(() => {});
+  await calling;
+  controller.abort();
+  await assert.rejects(call);
+  await aborted;
+});
+
+test('closing a multi-account transport aborts in-flight configured-auth requests', async (t) => {
+  const { client, transport, tool, aborted, calling } = await connectHangingAccount(t);
+  const call = client.callTool({ name: tool, arguments: {} });
+  call.catch(() => {});
+  await calling;
+  await transport.close();
+  await aborted;
+  await assert.rejects(call);
+});
