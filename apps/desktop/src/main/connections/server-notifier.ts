@@ -130,10 +130,33 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
     diagnostic: (event, details) => options.diagnostic(`server-turn-notification-${event}`, details),
   });
 
+  // This PC's preferences, or undefined when they cannot be read: nothing is
+  // decided then, and the caller decides again on the item's next event. The
+  // failure is reported when reads start failing, not again until one succeeds.
+  let preferencesFailing = false;
+  const readPreferences = (details: Record<string, unknown>): NotificationPreferencesView | undefined => {
+    try {
+      const view = options.preferences();
+      preferencesFailing = false;
+      return view;
+    } catch (error) {
+      if (!preferencesFailing) {
+        options.diagnostic('server-preferences-read-failed', {
+          ...details,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      preferencesFailing = true;
+      return undefined;
+    }
+  };
+
   // Approvals: a session that STARTS waiting on a tool approval needs the user.
   const titles = new Map<string, string>();
   const conversations = new Map<string, NotificationConversation>();
   const approvals = new Map<string, string>();
+  /** The approval each session shows whose delivery could not be decided. */
+  const undecided = new Map<string, string>();
   const onSessionState = (update: DesktopSessionStateUpdate): void => {
     const sessionId = update.sessionId;
     const approval = (update.snapshot as { toolApproval?: { id?: unknown; kind?: unknown } | null } | null)
@@ -141,10 +164,20 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
     const key = approval ? String(approval.id ?? 'pending') : null;
     const previous = approvals.get(sessionId) ?? null;
     if (key) approvals.set(sessionId, key);
-    else approvals.delete(sessionId);
-    if (!key || key === previous || update.frameSource === 'replay') return;
+    else {
+      approvals.delete(sessionId);
+      undecided.delete(sessionId);
+    }
+    if (!key || update.frameSource === 'replay') return;
+    if (key === previous && undecided.get(sessionId) !== key) return;
+    const view = readPreferences({ sessionId });
+    if (!view) {
+      undecided.set(sessionId, key);
+      return;
+    }
+    undecided.delete(sessionId);
     const decision = decideNotification({
-      ...options.preferences(),
+      ...view,
       event: approval?.kind === 'question' ? 'question' : 'approval',
       conversation: conversations.get(sessionId) ?? notificationConversationOf({ id: sessionId }),
       now: Date.now(),
@@ -167,8 +200,12 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
   let lostTimer: unknown = null;
   let lostShown = false;
   let previous: DesktopConnectionLinkView['state']['status'] = 'connected';
-  const noticeAllowed = (): boolean =>
-    !options.isForeground() && allowsDeviceNotice(options.preferences().preferences, Date.now());
+  /** undefined: the preferences could not be read. */
+  const noticeAllowed = (): boolean | undefined => {
+    if (options.isForeground()) return false;
+    const preferences = readPreferences({ notice: 'link' });
+    return preferences && allowsDeviceNotice(preferences.preferences, Date.now());
+  };
   const onLink = (view: DesktopConnectionLinkView): void => {
     const status = view.state.status;
     const was = previous;
@@ -176,13 +213,17 @@ export function createServerNotifier(options: ServerNotifierOptions): ServerNoti
     if (status === 'connected') {
       if (lostTimer) cancel(lostTimer);
       lostTimer = null;
-      if (lostShown && noticeAllowed()) {
+      if (!lostShown) return;
+      const allowed = noticeAllowed();
+      // Unreadable: the lost notice stays told, and the next link event decides again.
+      if (allowed === undefined) return;
+      lostShown = false;
+      if (allowed) {
         show({
           title: named(options.text.restoredTitle(), serverLabel),
           body: options.text.restoredBody(),
         });
       }
-      lostShown = false;
       return;
     }
     // Sleep is not a loss, and a loss already told is not told again.

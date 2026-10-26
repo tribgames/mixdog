@@ -773,6 +773,112 @@ test('a server window follows this PC’s preferences: a muted bot, approvals of
   notifier.dispose();
 });
 
+/** A server notifier whose preferences read throws while `state.unreadable` is set. */
+function unreadablePreferencesFixture() {
+  const clock = fakeTimers();
+  const listeners = { sessions: new Set(), agents: new Set(), states: new Set(), link: new Set() };
+  const shown = [];
+  const failures = [];
+  const state = { unreadable: '' };
+  const notifier = createServerNotifier({
+    serverName: 'Box',
+    sources: {
+      subscribeSessions: (listener) => subscribeTo(listeners.sessions, listener),
+      subscribeAgentPool: (listener) => subscribeTo(listeners.agents, listener),
+      subscribeSessionStates: (listener) => subscribeTo(listeners.states, listener),
+      subscribeLink: (listener) => subscribeTo(listeners.link, listener),
+      readFinalAnswer: async () => null,
+    },
+    preferences: () => {
+      if (state.unreadable) throw new Error(state.unreadable);
+      return { preferences: DEFAULT_NOTIFICATION_PREFERENCES, overrides: [] };
+    },
+    isSupported: () => true,
+    isForeground: () => false,
+    isSessionOnScreen: () => false,
+    createNotification: (content) => {
+      const notification = { content, on: () => notification, show: () => shown.push(content), close: () => {} };
+      return notification;
+    },
+    focus: () => {},
+    text: {
+      approvalWaiting: () => 'waiting',
+      lostTitle: () => 'lost',
+      lostReconnecting: () => '',
+      lostStopped: () => '',
+      restoredTitle: () => 'restored',
+      restoredBody: () => '',
+    },
+    diagnostic: (event, details) => {
+      if (event === 'server-preferences-read-failed') failures.push(details);
+    },
+    setTimeout: clock.timers.setTimeout,
+    clearTimeout: clock.timers.clearTimeout,
+  });
+  const ask = (sessionId, id, frameSource = 'live') =>
+    publishTo(listeners.states, { sessionId, snapshot: { toolApproval: { id } }, frameSource });
+  const link = (status) =>
+    publishTo(listeners.link, { connectionId: 'srv', state: { status }, rttMs: null, terminalsAvailable: true });
+  return { clock, listeners, shown, failures, state, notifier, ask, link };
+}
+
+test('a server approval whose preferences cannot be read is reported once, not told, and notified once after recovery', () => {
+  const f = unreadablePreferencesFixture();
+  publishTo(f.listeners.sessions, [{ id: 's1', title: 'Refactor' }]);
+  f.state.unreadable = 'EACCES: permission denied';
+  f.ask('s1', 'ap1');
+  assert.equal(f.shown.length, 0);
+  assert.deepEqual(f.failures, [{ sessionId: 's1', error: 'EACCES: permission denied' }]);
+  // A replay is no new wait; the next live update decides again; one report for the run.
+  f.ask('s1', 'ap1', 'replay');
+  f.ask('s1', 'ap1');
+  assert.equal(f.failures.length, 1);
+  f.state.unreadable = '';
+  f.ask('s1', 'ap1');
+  assert.deepEqual(
+    f.shown.map((content) => content.title),
+    ['Box · Refactor']
+  );
+  f.ask('s1', 'ap1');
+  assert.equal(f.shown.length, 1);
+  // Failing again after a good read is a new report.
+  f.state.unreadable = 'EACCES: permission denied';
+  f.ask('s1', 'ap2');
+  assert.equal(f.failures.length, 2);
+  assert.equal(f.shown.length, 1);
+  f.notifier.dispose();
+});
+
+test('an unreadable preference file reports from the link-lost timer and the recovery notice instead of throwing', async () => {
+  const f = unreadablePreferencesFixture();
+  f.state.unreadable = 'EACCES: permission denied';
+  f.link('reconnecting');
+  await f.clock.advance(LINK_LOST_NOTICE_DELAY_MS);
+  assert.equal(f.shown.length, 0);
+  assert.deepEqual(f.failures, [{ notice: 'link', error: 'EACCES: permission denied' }]);
+  // The next link event schedules the decision again.
+  f.link('reconnecting');
+  f.state.unreadable = '';
+  await f.clock.advance(LINK_LOST_NOTICE_DELAY_MS);
+  assert.deepEqual(
+    f.shown.map((content) => content.title),
+    ['lost']
+  );
+  // The recovery notice waits for readable preferences, told once.
+  f.state.unreadable = 'EACCES: permission denied';
+  f.link('connected');
+  assert.equal(f.shown.length, 1);
+  assert.equal(f.failures.length, 2, 'a read that succeeded in between makes this a new report');
+  f.state.unreadable = '';
+  f.link('connected');
+  f.link('connected');
+  assert.deepEqual(
+    f.shown.map((content) => content.title),
+    ['lost', 'restored']
+  );
+  f.notifier.dispose();
+});
+
 test('server windows open at quit are reopened at launch; a removed server is skipped', async (t) => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-restore-'));
   t.after(() => rm(userDataPath, { recursive: true, force: true }));

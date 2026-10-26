@@ -535,9 +535,9 @@ test('a completion whose preferences cannot be read is reported, held, and notif
     [['a', UNREADABLE]]
   );
   assert.ok(!h.events.some((row) => row.event === 'requested'));
-  // The next roster event decides again; still unreadable: reported, still held.
+  // The next roster event decides again; still unreadable: still held, not reported again.
   h.notifier.onSessions([{ id: 'a', title: 'Task' }]);
-  assert.equal(readFailures(h).length, 2);
+  assert.equal(readFailures(h).length, 1);
   assert.equal(h.notifications.length, 0);
   h.state.unreadable = '';
   h.notifier.onSessions([{ id: 'a', title: 'Task' }]);
@@ -546,7 +546,7 @@ test('a completion whose preferences cannot be read is reported, held, and notif
   h.notifier.onSessions([{ id: 'a', title: 'Task' }]);
   await h.tick(5_000);
   assert.equal(h.notifications.length, 1);
-  assert.equal(readFailures(h).length, 2);
+  assert.equal(readFailures(h).length, 1);
 });
 
 test('a held completion is dropped when its session starts another turn', async (t) => {
@@ -583,7 +583,7 @@ for (const [kind, ask, text] of [
     // A replay is no new wait, and the next live update decides again.
     h.notifier.onSessionState(waiting('code', ask, 'replay'));
     h.notifier.onSessionState(waiting('code', ask));
-    assert.equal(readFailures(h).length, 2, 'still unreadable: reported again, still not told');
+    assert.equal(readFailures(h).length, 1, 'still unreadable: not reported again, still not told');
     h.state.unreadable = '';
     h.notifier.onSessionState(waiting('code', ask));
     await h.tick(0);
@@ -592,9 +592,24 @@ for (const [kind, ask, text] of [
     h.notifier.onSessionState(waiting('code', ask));
     await h.tick(0);
     assert.equal(h.notifications.length, 1);
-    assert.equal(readFailures(h).length, 2);
+    assert.equal(readFailures(h).length, 1);
   });
 }
+
+test('a read failure is reported again only after a read succeeded in between', async (t) => {
+  const h = waitHarness(t);
+  const ask = (id) => waiting('code', { ...shell, id });
+  h.state.unreadable = UNREADABLE;
+  h.notifier.onSessionState(ask('a1'));
+  h.notifier.onSessionState(waiting('home', { id: 'q1', kind: 'question' }));
+  h.notifier.onSessionState(ask('a1'));
+  assert.equal(readFailures(h).length, 1, 'one report for the whole run of failures');
+  h.state.unreadable = '';
+  h.notifier.onSessionState(ask('a1'));
+  h.state.unreadable = UNREADABLE;
+  h.notifier.onSessionState(ask('a2'));
+  assert.equal(readFailures(h).length, 2, 'failing again after a good read is a new report');
+});
 
 test('an unreadable approval settled before preferences recover is forgotten, not told later', async (t) => {
   const h = waitHarness(t);

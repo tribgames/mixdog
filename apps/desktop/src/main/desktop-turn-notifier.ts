@@ -57,7 +57,8 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
   let disposed = false;
   const report = (event: string, sessionId: string, details: Record<string, unknown> = {}) =>
     options.diagnostic(event, { sessionId, ...details });
-  const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+  let preferencesFailing = false;
+  const messageOf =(error: unknown): string => (error instanceof Error ? error.message : String(error));
 
   /** This PC's preferences, mutes, quiet hours and what is on screen decide;
    *  a refusal is reported with its reason. `undefined`: the preferences could
@@ -76,8 +77,11 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
     let view: NotificationPreferencesView;
     try {
       view = options.preferences();
+      preferencesFailing = false;
     } catch (error) {
-      report('preferences-read-failed', sessionId, { ...details, error: messageOf(error) });
+      // Reported when reads start failing, not again until one succeeds.
+      if (!preferencesFailing) report('preferences-read-failed', sessionId, { ...details, error: messageOf(error) });
+      preferencesFailing = true;
       return undefined;
     }
     const decision = decideNotification({
