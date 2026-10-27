@@ -135,61 +135,34 @@ export const commitWidthPref = (key: string, value: number) => {
 };
 
 /**
- * Drag-resize of the panel column: the showing surface picks which width
- * preference (terminal, browser — file/Files included — or panel) a gesture
- * previews and commits. A cancel restores the stored preference as it stood
- * when the gesture began, not the constrained rendered width it reports.
+ * Drag-resize of the panel column: every surface (panel, browser/file,
+ * terminal) shares one width preference, which a gesture previews and
+ * commits. A cancel restores the stored preference as it stood when the
+ * gesture began, not the constrained rendered width it reports.
  */
 export function usePanelWidthDrag({
-  terminalShowing,
-  sessionSurfaceShowing,
-  terminalPref,
-  setTerminalPref,
-  browserPref,
-  setBrowserPref,
-  panelPref,
-  setPanelPref,
-  storageKeys,
+  dockPref,
+  setDockPref,
+  storageKey,
 }: {
-  terminalShowing: boolean;
-  sessionSurfaceShowing: boolean;
-  terminalPref: number;
-  setTerminalPref: (width: number) => void;
-  browserPref: number;
-  setBrowserPref: (width: number) => void;
-  panelPref: number;
-  setPanelPref: (width: number) => void;
-  storageKeys: { terminal: string; browser: string; panel: string };
+  dockPref: number;
+  setDockPref: (width: number) => void;
+  storageKey: string;
 }) {
   // The stored preference as it stood when a panel resize gesture began: a
   // cancel restores it rather than the constrained rendered width.
-  const panelWidthSnapshot = useRef<{ kind: 'terminal' | 'browser' | 'panel'; pref: number } | null>(null);
+  const panelWidthSnapshot = useRef<number | null>(null);
   return (next: number, phase: 'preview' | 'commit' | 'cancel') => {
-    const kind = terminalShowing ? 'terminal' : sessionSurfaceShowing ? 'browser' : 'panel';
-    if (phase === 'preview' && !panelWidthSnapshot.current) {
-      const pref = kind === 'terminal' ? terminalPref : kind === 'browser' ? browserPref : panelPref;
-      panelWidthSnapshot.current = { kind, pref };
-    }
+    if (phase === 'preview' && panelWidthSnapshot.current === null) panelWidthSnapshot.current = dockPref;
     if (phase === 'cancel') {
       const snapshot = panelWidthSnapshot.current;
       panelWidthSnapshot.current = null;
-      if (!snapshot) return;
-      if (snapshot.kind === 'terminal') setTerminalPref(snapshot.pref);
-      else if (snapshot.kind === 'browser') setBrowserPref(snapshot.pref);
-      else setPanelPref(snapshot.pref);
+      if (snapshot !== null) setDockPref(snapshot);
       return;
     }
     if (phase === 'commit') panelWidthSnapshot.current = null;
-    if (kind === 'terminal') {
-      setTerminalPref(next);
-      if (phase === 'commit') commitWidthPref(storageKeys.terminal, next);
-    } else if (kind === 'browser') {
-      setBrowserPref(next);
-      if (phase === 'commit') commitWidthPref(storageKeys.browser, next);
-    } else {
-      setPanelPref(next);
-      if (phase === 'commit') commitWidthPref(storageKeys.panel, next);
-    }
+    setDockPref(next);
+    if (phase === 'commit') commitWidthPref(storageKey, next);
   };
 }
 

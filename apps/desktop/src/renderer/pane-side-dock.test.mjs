@@ -936,23 +936,18 @@ test('Open in main tab and Open in default app are ⋯ items with different icon
   );
 });
 
-test('default widths: file/browser/diff 500, terminal 280 with its own stored width', async () => {
+test('default widths: every surface 500 on one shared width; every surface clamps to 280..1160', async () => {
   const dock = await import('./pane-side-dock.tsx');
+  assert.equal(dock.PANE_SIDE_DOCK_DEFAULT_WIDTH, 500);
   assert.equal(dock.PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH, 500);
-  assert.equal(dock.PANE_SIDE_DOCK_BROWSER_DEFAULT_WIDTH, 500);
-  assert.equal(dock.PANE_SIDE_DOCK_TERMINAL_DEFAULT_WIDTH, 280);
-  // Every surface floors at the same 280px.
   assert.equal(dock.PANE_SIDE_DOCK_MIN_WIDTH, 280);
-  for (const min of [
-    dock.PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH,
-    dock.PANE_SIDE_DOCK_BROWSER_MIN_WIDTH,
-    dock.PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-  ])
-    assert.equal(min, 280);
+  assert.equal(dock.PANE_SIDE_DOCK_MAX_WIDTH, 1160);
   // The user-resized width wins over the default, clamped to the limits.
   const store = new Map([
     ['k', '640'],
     ['small', '10'],
+    ['diff', '900'],
+    ['huge', '5000'],
   ]);
   const previous = globalThis.window;
   globalThis.window = { localStorage: { getItem: (key) => store.get(key) ?? null } };
@@ -960,13 +955,41 @@ test('default widths: file/browser/diff 500, terminal 280 with its own stored wi
     assert.equal(dock.readStoredWidth('k', 320, 1160, 500), 640);
     assert.equal(dock.readStoredWidth('small', 240, 1160, 280), 240);
     assert.equal(dock.readStoredWidth('none', 240, 1160, 280), 280);
+    const { PANE_SIDE_DOCK_MIN_WIDTH: min, PANE_SIDE_DOCK_MAX_WIDTH: max } = dock;
+    assert.equal(dock.readStoredWidth('small', min, max, 500), 280);
+    assert.equal(dock.readStoredWidth('diff', min, max, 500), 900, 'a 900 diff width is kept');
+    assert.equal(dock.readStoredWidth('huge', min, max, 500), 1160);
   } finally {
     globalThis.window = previous;
   }
-  const { readFile } = await import('node:fs/promises');
-  const source = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  assert.match(source, /pane-side-dock-terminal-width\.v1/);
-  assert.match(source, /terminalShowing \? terminalPref : browserPref/);
+});
+
+test('shared dock width: v2 wins, the legacy browser key only seeds an absent or empty v2, old keys are ignored', async () => {
+  const dock = await import('./pane-side-dock.tsx');
+  const V2 = 'mixdog.desktop.pane-side-dock-width.v2';
+  const LEGACY_BROWSER = 'mixdog.desktop.pane-side-dock-browser-width.v1';
+  const OLD_PANEL = 'mixdog.desktop.pane-side-dock-width.v1';
+  const OLD_TERMINAL = 'mixdog.desktop.pane-side-dock-terminal-width.v1';
+  const previous = globalThis.window;
+  const read = (entries) => {
+    const store = new Map(Object.entries(entries));
+    globalThis.window = { localStorage: { getItem: (key) => store.get(key) ?? null } };
+    return dock.readSharedDockWidth();
+  };
+  try {
+    assert.equal(read({ [V2]: '640' }), 640, 'v2 valid');
+    assert.equal(read({ [V2]: '640', [LEGACY_BROWSER]: '900' }), 640, 'v2 beats legacy');
+    assert.equal(read({ [V2]: 'corrupt', [LEGACY_BROWSER]: '900' }), 500, 'corrupt v2 falls back to the default');
+    assert.equal(read({ [LEGACY_BROWSER]: '900' }), 900, 'absent v2 seeds from legacy');
+    assert.equal(read({ [V2]: '', [LEGACY_BROWSER]: '900' }), 900, 'empty v2 seeds from legacy');
+    assert.equal(read({ [LEGACY_BROWSER]: '5000' }), 1160, 'legacy seed is clamped');
+    assert.equal(read({}), 500, 'both absent');
+    assert.equal(read({ [OLD_PANEL]: '700', [OLD_TERMINAL]: '333' }), 500, 'old panel/terminal keys are ignored');
+    assert.equal(read({ [V2]: '640', [OLD_PANEL]: '700', [OLD_TERMINAL]: '333' }), 640);
+    assert.equal(read({ [LEGACY_BROWSER]: '900', [OLD_PANEL]: '700', [OLD_TERMINAL]: '333' }), 900);
+  } finally {
+    globalThis.window = previous;
+  }
 });
 
 test('the browser ⋯ menu carries device view, copy link, system browser and credentials', async () => {
@@ -1564,43 +1587,6 @@ test('expanded surfaces stay inside the main panel frame (no overlap of its bord
   );
 });
 
-test('a cancelled panel resize restores the preference snapshotted at gesture start, not the rendered width', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const dock = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  // The dock hands its surface classification and the three pref/setter pairs to the hook.
-  assert.match(dock, /onWidthDrag=\{panelWidthDrag\}/);
-  assert.match(
-    dock,
-    /const panelWidthDrag = usePanelWidthDrag\(\{\s*terminalShowing,\s*sessionSurfaceShowing: widthSurfaceShowing,\s*terminalPref,\s*setTerminalPref,\s*browserPref,\s*setBrowserPref,\s*panelPref,\s*setPanelPref,/
-  );
-  assert.match(dock, /terminal: PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY,/);
-  assert.match(dock, /browser: PANE_SIDE_DOCK_BROWSER_WIDTH_KEY,/);
-  assert.match(dock, /panel: PANE_SIDE_DOCK_WIDTH_KEY,/);
-  const hooks = await readFile(new URL('./pane-side-dock-hooks.ts', import.meta.url), 'utf8');
-  const handler = hooks.slice(
-    hooks.indexOf('return (next: number, phase:', hooks.indexOf('export function usePanelWidthDrag')),
-    hooks.indexOf('export function useDiffColumnResize')
-  );
-  assert.ok(
-    handler.length > 0 &&
-      hooks.indexOf('export function usePanelWidthDrag') < hooks.indexOf('return (next: number, phase:')
-  );
-  assert.match(handler, /const kind = terminalShowing \? 'terminal' : sessionSurfaceShowing \? 'browser' : 'panel';/);
-  // The snapshot is the stored pref (500 saved, 400 rendered => 500), taken on the first preview.
-  assert.match(handler, /phase === 'preview' && !panelWidthSnapshot\.current/);
-  assert.match(handler, /kind === 'terminal' \? terminalPref : kind === 'browser' \? browserPref : panelPref/);
-  // Cancel restores it and never commits or applies the reported (constrained) width.
-  const cancel = handler.slice(
-    handler.indexOf("phase === 'cancel'"),
-    handler.indexOf("if (phase === 'commit') panelWidthSnapshot")
-  );
-  assert.match(cancel, /setPanelPref\(snapshot\.pref\)/);
-  assert.doesNotMatch(cancel, /commitWidthPref|\(next\)/);
-  assert.match(cancel, /return;/);
-  assert.match(handler, /phase === 'commit'\) commitWidthPref|if \(phase === 'commit'\) commitWidthPref/);
-  assert.doesNotMatch(handler, /commit\) commitWidthPref/);
-});
-
 // Mounts a dock in jsdom with pointer capture stubbed, so the panel's resize
 // handle runs its real preview/cancel/commit gesture.
 function mountResizableDock({ stored = {}, cellWidth = 0, pointerType = 'mouse' } = {}) {
@@ -1653,9 +1639,8 @@ function mountResizableDock({ stored = {}, cellWidth = 0, pointerType = 'mouse' 
   };
 }
 
-const PANEL_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-width.v1';
-const TERMINAL_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-terminal-width.v1';
-const BROWSER_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-browser-width.v1';
+const PANEL_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-width.v2';
+const DIFF_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-diff-width.v1';
 
 function resizableDockProps(entry, groups = [['source-control'], ['browser'], ['terminal']]) {
   const Icon = () => React.createElement('span');
@@ -1678,8 +1663,8 @@ function resizableDockProps(entry, groups = [['source-control'], ['browser'], ['
   };
 }
 
-test('panel resize (rendered): preview applies live, commit persists the kind’s own preference', async () => {
-  const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 500, [TERMINAL_WIDTH_KEY]: 300 } });
+test('panel resize (rendered): preview applies live, commit persists the one shared width for every surface', async () => {
+  const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 500, [DIFF_WIDTH_KEY]: 700 } });
   try {
     const panel = { ...closed(), open: true };
     await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(panel))));
@@ -1691,26 +1676,20 @@ test('panel resize (rendered): preview applies live, commit persists the kind’
     await dock.up(950);
     assert.equal(dock.renderedWidth(), '550px');
     assert.equal(dock.stored(PANEL_WIDTH_KEY), '550', 'commit persists the panel preference');
-    assert.equal(dock.stored(TERMINAL_WIDTH_KEY), '300', 'other kinds are untouched');
-    // The terminal surface resizes and commits its own preference.
+    assert.equal(dock.stored(DIFF_WIDTH_KEY), '700', 'the diff width is independent');
+    // The terminal opens at the width the panel was resized to, and resizing it
+    // changes what the browser opens at next.
     const terminal = { ...panel, surface: 'terminal' };
     await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(terminal))));
-    assert.equal(dock.renderedWidth(), '300px');
+    assert.equal(dock.renderedWidth(), '550px');
     await dock.down(1000);
     await dock.move(960);
     await dock.up(960);
-    assert.equal(dock.stored(TERMINAL_WIDTH_KEY), '340');
-    assert.equal(dock.stored(PANEL_WIDTH_KEY), '550');
-    // The browser surface commits the browser preference.
+    assert.equal(dock.stored(PANEL_WIDTH_KEY), '590');
     const browser = { ...panel, surface: 'browser' };
     await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(browser))));
-    assert.equal(dock.renderedWidth(), '500px');
-    await dock.down(1000);
-    await dock.move(1100);
-    await dock.up(1100);
-    assert.equal(dock.renderedWidth(), '400px');
-    assert.equal(dock.stored(BROWSER_WIDTH_KEY), '400');
-    assert.equal(dock.stored(TERMINAL_WIDTH_KEY), '340');
+    assert.equal(dock.renderedWidth(), '590px');
+    assert.equal(dock.stored(DIFF_WIDTH_KEY), '700');
   } finally {
     await act(async () => dock.root.unmount());
     dock.restore();
@@ -1753,6 +1732,19 @@ test('panel resize (rendered): cancel restores the stored preference, not the co
     await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(closed()))));
     await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(open))));
     assert.equal(dock.renderedWidth(), '500px');
+  } finally {
+    await act(async () => dock.root.unmount());
+    dock.restore();
+  }
+});
+
+test('a 1160 stored width in a narrow window still leaves the conversation its floor', async () => {
+  // room = 764 - 360 (workspace floor) - 4 (sheet frame) = 400.
+  const dock = mountResizableDock({ stored: { [PANEL_WIDTH_KEY]: 1160 }, cellWidth: 764 });
+  try {
+    const open = { ...closed(), open: true };
+    await act(async () => dock.root.render(React.createElement(PaneSideDock, resizableDockProps(open))));
+    assert.equal(dock.renderedWidth(), '400px');
   } finally {
     await act(async () => dock.root.unmount());
     dock.restore();

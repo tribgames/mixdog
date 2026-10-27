@@ -6,8 +6,8 @@ import { t } from './i18n';
 import { isMobileRemoteSurface } from './mobile-surface';
 import {
   PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH,
-  PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
-  PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
+  PANE_SIDE_DOCK_MAX_WIDTH,
+  PANE_SIDE_DOCK_MIN_WIDTH,
   readStoredWidth,
   useRetainedDiff,
   type PaneSideDockDiff,
@@ -52,8 +52,8 @@ export function SidebarDiffColumn({
   const [pref, setPref] = useState(() =>
     readStoredWidth(
       SIDEBAR_DIFF_WIDTH_KEY,
-      PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-      PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
+      PANE_SIDE_DOCK_MIN_WIDTH,
+      PANE_SIDE_DOCK_MAX_WIDTH,
       PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH
     )
   );
@@ -89,10 +89,10 @@ export function SidebarDiffColumn({
     return () => observer.disconnect();
   }, [visible]);
   if (!columnDiff) return null;
-  const desired = Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(pref, PANE_SIDE_DOCK_DIFF_MAX_WIDTH));
+  const desired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(pref, PANE_SIDE_DOCK_MAX_WIDTH));
   const overlay = visible && geometry.room < desired;
   const width = overlay
-    ? Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(desired, geometry.room + DESKTOP_WORKSPACE_MIN_WIDTH))
+    ? Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(desired, geometry.room + DESKTOP_WORKSPACE_MIN_WIDTH))
     : desired;
   return (
     <div
@@ -134,8 +134,8 @@ export function SidebarDiffColumn({
           const start = resizeStart.current;
           if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
           const next = Math.max(
-            PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-            Math.min(PANE_SIDE_DOCK_DIFF_MAX_WIDTH, Math.round(start.width + (event.clientX - start.x)))
+            PANE_SIDE_DOCK_MIN_WIDTH,
+            Math.min(PANE_SIDE_DOCK_MAX_WIDTH, Math.round(start.width + (event.clientX - start.x)))
           );
           dragPending.current = next;
           setPref(next);

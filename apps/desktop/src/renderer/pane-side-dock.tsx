@@ -46,7 +46,7 @@ import {
   useSideFileProblems,
 } from './pane-side-dock-hooks';
 import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
-import { DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH, DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
+import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import type { WorkspaceSelection } from './nav-types';
 import { navigationKey } from './text-format';
 import { DeferredPersistentSurface } from './PaneSurfaceGate';
@@ -121,39 +121,28 @@ export type PaneSideDockEntry = {
 };
 
 const PANE_SIDE_DOCK_KEY = 'mixdog.desktop.pane-side-dock.v1';
-/** One shared width preference for every pane dock: resizing any pane's panel
- *  sets the width the next opened panel starts from. */
-const PANE_SIDE_DOCK_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-width.v1';
-/** Diff pair column: floors at the classic panel size but OPENS readable,
- *  expanding by drag to 800;
- *  its width is a preference separate from the browser's. */
-const PANE_SIDE_DOCK_DIFF_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-diff-width.v1';
+/** One shared width preference for every side-dock surface (panel, browser/
+ *  file, terminal): resizing any of them sets the width the next one opens at.
+ *  v2 replaces the per-surface v1 keys, which are no longer read except the
+ *  browser one below as the first-run seed. */
+const PANE_SIDE_DOCK_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-width.v2';
+const PANE_SIDE_DOCK_LEGACY_BROWSER_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-browser-width.v1';
+/** Every side-dock surface opens at this width. */
+export const PANE_SIDE_DOCK_DEFAULT_WIDTH = 500;
 /** Every side-dock surface floors at the same width (Claude stops at ~282px);
  *  anything narrower is the overlay/takeover ladder's job. */
 export const PANE_SIDE_DOCK_MIN_WIDTH = 280;
-export const PANE_SIDE_DOCK_DIFF_MIN_WIDTH = PANE_SIDE_DOCK_MIN_WIDTH;
-export const PANE_SIDE_DOCK_DIFF_MAX_WIDTH = 800;
-export const PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH = 500;
-/** Standalone browser: below 580px BrowserPane renders pages at 100% so
- *  responsive sites reflow like a phone, and the floor drops to 320 — a
- *  phone-frame preview for mobile web-app work. */
-const PANE_SIDE_DOCK_BROWSER_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-browser-width.v1';
-export const PANE_SIDE_DOCK_BROWSER_MIN_WIDTH = PANE_SIDE_DOCK_MIN_WIDTH;
-const PANE_SIDE_DOCK_BROWSER_MAX_WIDTH = 1160;
-/** File and browser share this width preference (user-resized width wins). */
-export const PANE_SIDE_DOCK_BROWSER_DEFAULT_WIDTH = 500;
-/** Terminal opens narrow so it does not cover the conversation; its width is
- *  its own preference. */
-const PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-terminal-width.v1';
-export const PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH = PANE_SIDE_DOCK_MIN_WIDTH;
-const PANE_SIDE_DOCK_TERMINAL_MAX_WIDTH = 1160;
-export const PANE_SIDE_DOCK_TERMINAL_DEFAULT_WIDTH = 280;
+/** Every side-dock surface (panel, diff, browser/file, terminal) caps at the
+ *  same width; resolveDockLayout still reserves the conversation's floor. */
+export const PANE_SIDE_DOCK_MAX_WIDTH = 1160;
+/** Diff pair column OPENS readable; its width is a preference separate from
+ *  the browser's. */
+const PANE_SIDE_DOCK_DIFF_WIDTH_KEY = 'mixdog.desktop.pane-side-dock-diff-width.v1';
+export const PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH = PANE_SIDE_DOCK_DEFAULT_WIDTH;
 /** The dock is its own floating sheet: its left gap plus the two 1px borders
  *  come on top of the measured column width on desktop. Keep in step with
  *  --mx-sheet-gap in pane-layout.css. */
 export const PANE_SIDE_DOCK_SHEET_FRAME_WIDTH = 2 + 2;
-/** Classic panel column ceiling (window-level right panel grammar). */
-const PANE_SIDE_DOCK_PANEL_MAX_WIDTH = 560;
 export const PANE_DOCK_BROWSER_SURFACE = 'browser';
 export const PANE_DOCK_TERMINAL_SURFACE = 'terminal';
 export const PANE_DOCK_DIFF_SURFACE = 'diff';
@@ -708,6 +697,24 @@ export function readStoredWidth(key: string, min: number, max: number, initial: 
   }
 }
 
+/** The shared dock width: the v2 key wins whenever it holds anything (a
+ *  corrupt value falls back to the default); only an absent or empty v2 seeds
+ *  from the legacy browser key. */
+export function readSharedDockWidth(): number {
+  let hasCurrent = false;
+  try {
+    hasCurrent = Boolean(window.localStorage.getItem(PANE_SIDE_DOCK_WIDTH_KEY));
+  } catch {
+    /* unreadable storage: defaults */
+  }
+  return readStoredWidth(
+    hasCurrent ? PANE_SIDE_DOCK_WIDTH_KEY : PANE_SIDE_DOCK_LEGACY_BROWSER_WIDTH_KEY,
+    PANE_SIDE_DOCK_MIN_WIDTH,
+    PANE_SIDE_DOCK_MAX_WIDTH,
+    PANE_SIDE_DOCK_DEFAULT_WIDTH
+  );
+}
+
 function readStoredPaneSideDocks(): unknown {
   try {
     return JSON.parse(window.localStorage.getItem(PANE_SIDE_DOCK_KEY) || 'null');
@@ -1216,39 +1223,16 @@ export function usePaneSideDocks({
 }
 
 function useDockWidthPrefs() {
-  const [panelPref, setPanelPref] = useState(() =>
-    readStoredWidth(
-      PANE_SIDE_DOCK_WIDTH_KEY,
-      PANE_SIDE_DOCK_MIN_WIDTH,
-      PANE_SIDE_DOCK_PANEL_MAX_WIDTH,
-      DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH
-    )
-  );
+  const [dockPref, setDockPref] = useState(readSharedDockWidth);
   const [diffPref, setDiffPref] = useState(() =>
     readStoredWidth(
       PANE_SIDE_DOCK_DIFF_WIDTH_KEY,
-      PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-      PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
+      PANE_SIDE_DOCK_MIN_WIDTH,
+      PANE_SIDE_DOCK_MAX_WIDTH,
       PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH
     )
   );
-  const [browserPref, setBrowserPref] = useState(() =>
-    readStoredWidth(
-      PANE_SIDE_DOCK_BROWSER_WIDTH_KEY,
-      PANE_SIDE_DOCK_BROWSER_MIN_WIDTH,
-      PANE_SIDE_DOCK_BROWSER_MAX_WIDTH,
-      PANE_SIDE_DOCK_BROWSER_DEFAULT_WIDTH
-    )
-  );
-  const [terminalPref, setTerminalPref] = useState(() =>
-    readStoredWidth(
-      PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY,
-      PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH,
-      PANE_SIDE_DOCK_TERMINAL_MAX_WIDTH,
-      PANE_SIDE_DOCK_TERMINAL_DEFAULT_WIDTH
-    )
-  );
-  return { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref };
+  return { dockPref, setDockPref, diffPref, setDiffPref };
 }
 
 /**
@@ -1279,15 +1263,15 @@ function resolveDockLayout({
   panelPref: number;
   diffPref: number;
 }) {
-  const panelDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, PANE_SIDE_DOCK_PANEL_MAX_WIDTH));
-  const diffDesired = Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(diffPref, PANE_SIDE_DOCK_DIFF_MAX_WIDTH));
+  const panelDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, PANE_SIDE_DOCK_MAX_WIDTH));
+  const diffDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffPref, PANE_SIDE_DOCK_MAX_WIDTH));
   // Narrow ladder:
   //   1단계 — the diff pair can no longer stand side by side even as a
   //   sheet, so the diff STACKS over the panel with a back step (2뎁스).
   //   2단계 — even one column cannot fit beside the rail, so the unit takes
   //   the WHOLE pane (browser included: 브라우저는 전체).
   const sheetAvail = cellWidth > 0 ? cellWidth - 48 : Number.POSITIVE_INFINITY;
-  const pairMin = PANE_SIDE_DOCK_MIN_WIDTH + PANE_SIDE_DOCK_DIFF_MIN_WIDTH;
+  const pairMin = PANE_SIDE_DOCK_MIN_WIDTH * 2;
   const twoDepth = paneDiffStacks(diffShowing, sheetAvail, pairMin, mobileSheet);
   const pairShowing = diffShowing && !twoDepth;
   let columnMin = PANE_SIDE_DOCK_MIN_WIDTH;
@@ -1309,11 +1293,11 @@ function resolveDockLayout({
   else if (sessionSurfaceShowing) {
     asideTarget = Math.max(sessionMin, Math.min(sessionPref, avail));
   } else if (pairShowing) {
-    asideTarget = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelDesired, avail - PANE_SIDE_DOCK_DIFF_MIN_WIDTH));
+    asideTarget = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelDesired, avail - PANE_SIDE_DOCK_MIN_WIDTH));
   }
   const baseAsideWidth = Math.round(asideTarget);
   const diffWidth = pairShowing
-    ? Math.round(Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(diffDesired, avail - baseAsideWidth)))
+    ? Math.round(Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffDesired, avail - baseAsideWidth)))
     : 0;
   return { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth };
 }
@@ -1495,8 +1479,8 @@ function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
   // The Changes panel view draws its own DockHeaderRow (SessionDiffPane).
   const sessionDiffPanelShowing =
     openNow && entry.surface === '' && (entry.view === 'session-diff' || entry.view === 'visualize');
-  // Width only: the visualize view is a page viewer, so it takes the browser's
-  // wide range and shared width instead of the classic 560px panel column.
+  // Width only: the visualize view is a page viewer, so it sizes as a session
+  // surface (it shrinks toward its floor before the dock overlays).
   const widthSurfaceShowing = sessionSurfaceShowing || (openNow && entry.surface === '' && entry.view === 'visualize');
   return {
     browserShowing,
@@ -1510,25 +1494,12 @@ function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
   };
 }
 
-/** Width bounds and preference of the session surface column (terminal or browser). */
-function dockSessionWidths(terminalShowing: boolean, terminalPref: number, browserPref: number) {
-  return {
-    min: terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH : PANE_SIDE_DOCK_BROWSER_MIN_WIDTH,
-    max: terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MAX_WIDTH : PANE_SIDE_DOCK_BROWSER_MAX_WIDTH,
-    pref: terminalShowing ? terminalPref : browserPref,
-    initial: terminalShowing ? PANE_SIDE_DOCK_TERMINAL_DEFAULT_WIDTH : PANE_SIDE_DOCK_BROWSER_DEFAULT_WIDTH,
-  };
-}
-
-/** The panel column's drag range: the session surface's own, else the classic panel's. */
-function dockWidthRange(sessionSurfaceShowing: boolean, session: ReturnType<typeof dockSessionWidths>) {
-  if (sessionSurfaceShowing) return { min: session.min, max: session.max, initial: session.initial };
-  return {
-    min: PANE_SIDE_DOCK_MIN_WIDTH,
-    max: PANE_SIDE_DOCK_PANEL_MAX_WIDTH,
-    initial: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
-  };
-}
+/** The panel column's drag range: the same for every surface. */
+const PANE_SIDE_DOCK_WIDTH_RANGE = {
+  min: PANE_SIDE_DOCK_MIN_WIDTH,
+  max: PANE_SIDE_DOCK_MAX_WIDTH,
+  initial: PANE_SIDE_DOCK_DEFAULT_WIDTH,
+};
 
 /** Expanded, the panel fills the sheet (minus its borders and the diff pair column). */
 function expandedAsideWidth(
@@ -1709,7 +1680,7 @@ function renderPaneDockMain(
     surfacesActive: boolean;
     asideWidth: number;
     panelWidthDrag: ReturnType<typeof usePanelWidthDrag>;
-    widthRange: ReturnType<typeof dockWidthRange>;
+    widthRange: typeof PANE_SIDE_DOCK_WIDTH_RANGE;
     widthResizable: boolean;
   }
 ) {
@@ -1882,8 +1853,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const { browserShowing, terminalShowing, widthSurfaceShowing, diffShowing, sessionDiffPanelShowing } = showing;
   // The dock measures its own pane cell (see resolveDockLayout).
-  const { panelPref, setPanelPref, diffPref, setDiffPref, browserPref, setBrowserPref, terminalPref, setTerminalPref } =
-    useDockWidthPrefs();
+  const { dockPref, setDockPref, diffPref, setDiffPref } = useDockWidthPrefs();
   // The dock header mounts the diff controls; the pane body shares this state.
   const diffView = useDiffViewState('pane-side-dock');
   // The workspace column's inline-dock flag (useInlineDockFlag): rewritten by
@@ -1939,26 +1909,16 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     openNow
   );
   const panelWidthDrag = usePanelWidthDrag({
-    terminalShowing,
-    sessionSurfaceShowing: widthSurfaceShowing,
-    terminalPref,
-    setTerminalPref,
-    browserPref,
-    setBrowserPref,
-    panelPref,
-    setPanelPref,
-    storageKeys: {
-      terminal: PANE_SIDE_DOCK_TERMINAL_WIDTH_KEY,
-      browser: PANE_SIDE_DOCK_BROWSER_WIDTH_KEY,
-      panel: PANE_SIDE_DOCK_WIDTH_KEY,
-    },
+    dockPref,
+    setDockPref,
+    storageKey: PANE_SIDE_DOCK_WIDTH_KEY,
   });
   const diffResizeProps = useDiffColumnResize({
     diffPref,
     setDiffPref,
     getDiffWidth: () => diffWidth,
-    minWidth: PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-    maxWidth: PANE_SIDE_DOCK_DIFF_MAX_WIDTH,
+    minWidth: PANE_SIDE_DOCK_MIN_WIDTH,
+    maxWidth: PANE_SIDE_DOCK_MAX_WIDTH,
     commitWidth: (width) => commitWidthPref(PANE_SIDE_DOCK_DIFF_WIDTH_KEY, width),
   });
   // Closing the diff used to unmount its whole column — thousands of diff
@@ -1990,7 +1950,6 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   });
   if (groups.length === 0) return null;
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
-  const session = dockSessionWidths(terminalShowing, terminalPref, browserPref);
   // Below the chat the unit owns the cell's whole width (its two borders
   // aside): no conversation floor to leave beside it, so it never overlays.
   let room = Number.POSITIVE_INFINITY;
@@ -2009,9 +1968,9 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     mobileSheet,
     diffShowing,
     sessionSurfaceShowing: widthSurfaceShowing,
-    sessionMin: session.min,
-    sessionPref: session.pref,
-    panelPref,
+    sessionMin: PANE_SIDE_DOCK_MIN_WIDTH,
+    sessionPref: dockPref,
+    panelPref: dockPref,
     diffPref,
   });
   const overlay = sideOverlay && !bottom;
@@ -2101,7 +2060,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
             surfacesActive: bodyShowing.sessionSurfaceShowing || twoDepth,
             asideWidth,
             panelWidthDrag,
-            widthRange: dockWidthRange(widthSurfaceShowing, session),
+            widthRange: PANE_SIDE_DOCK_WIDTH_RANGE,
             // Below the chat the panel fills the width; only the diff pair
             // keeps its width edge (between the diff and the panel).
             widthResizable: !bottom || pairShowing,
