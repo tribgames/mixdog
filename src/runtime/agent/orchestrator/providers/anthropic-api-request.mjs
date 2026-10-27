@@ -93,7 +93,7 @@ export async function buildAnthropicApiRequest({
   // Tools are resolved BEFORE the messages: the lowering needs the final
   // tool list to drop tool_reference blocks whose tool no longer ships
   // in this request (otherwise the API rejects the whole turn).
-  const requestTools = requestAnthropicTools(tools, chatMsgs, opts, name);
+  const requestTools = requestAnthropicTools(tools, chatMsgs, opts, name, config);
   // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is
   // shared with anthropic-oauth — see resolveAnthropicMessageCacheSlots.
   const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls, { tools: requestTools });

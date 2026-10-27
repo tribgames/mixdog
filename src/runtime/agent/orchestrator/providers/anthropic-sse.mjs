@@ -161,6 +161,12 @@ function applyAnthropicSseEvent(framedEvent, { turn, watchdogs, state, progress,
         return false;
       case 'message_delta':
         return turn.onMessageDelta(event);
+      case 'ping':
+        // Anthropic bridges long generation gaps (adaptive thinking, a buffered
+        // tool input) with `ping` events. A distinct kind, not 'semantic': the
+        // agent watchdog decides how far a keepalive may extend liveness.
+        progress('keepalive');
+        return false;
       case 'message_stop':
         turn.onMessageStop();
         // Anthropic streams can keep emitting `:ping` keepalive frames after

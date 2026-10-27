@@ -3333,55 +3333,55 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "grep",
-      "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+      "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "edit",
-      "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+      "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
      ],
      [
       "git",
-      "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+      "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
      ],
      [
       "shell",
-      "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+      "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
      ],
      [
       "task",
-      "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+      "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "github",
-      "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+      "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
      ]
     ],
     "anthropicSystem": [
@@ -3535,63 +3535,63 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "grep",
-      "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+      "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "edit",
-      "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+      "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
      ],
      [
       "git",
-      "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+      "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
      ],
      [
       "shell",
-      "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+      "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
      ],
      [
       "task",
-      "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+      "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "github",
-      "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+      "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
      ],
      [
       "web_fetch",
-      "f7e641ad5e5ed6ddf98cb7b27bc1280cf509a93efee2eb75dbacb082342f3ee8"
+      "0fe8fa3ec38eab07ae4d96448c69be320f46c2ceb2a86bc5a05a809cc4861661"
      ],
      [
       "mcp__github__list_issues",
-      "4fa8a84233d5ce5402692178526d9ac248e49d5b41aa37ed5f3875d6e0e97360"
+      "bf3fe2fbb1757cf0dfe4513a064f4ed4677fe6b41ff1248920e3400dc4ffb516"
      ]
     ],
     "anthropicSystem": [
@@ -3757,63 +3757,63 @@
      "wireTools": [
       [
        "find",
-       "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+       "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
       ],
       [
        "glob",
-       "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+       "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
       ],
       [
        "list",
-       "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+       "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
       ],
       [
        "grep",
-       "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+       "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
       ],
       [
        "code_graph",
-       "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+       "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
       ],
       [
        "read",
-       "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+       "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
       ],
       [
        "edit",
-       "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+       "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
       ],
       [
        "git",
-       "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+       "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
       ],
       [
        "shell",
-       "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+       "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
       ],
       [
        "task",
-       "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
       ],
       [
        "load_tool",
-       "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
       ],
       [
        "Skill",
-       "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+       "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
       ],
       [
        "github",
-       "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+       "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
       ],
       [
        "web_fetch",
-       "f7e641ad5e5ed6ddf98cb7b27bc1280cf509a93efee2eb75dbacb082342f3ee8"
+       "0fe8fa3ec38eab07ae4d96448c69be320f46c2ceb2a86bc5a05a809cc4861661"
       ],
       [
        "mcp__github__list_issues",
-       "4fa8a84233d5ce5402692178526d9ac248e49d5b41aa37ed5f3875d6e0e97360"
+       "bf3fe2fbb1757cf0dfe4513a064f4ed4677fe6b41ff1248920e3400dc4ffb516"
       ]
      ],
      "anthropicSystem": [
@@ -3960,55 +3960,55 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "grep",
-      "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+      "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "edit",
-      "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+      "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
      ],
      [
       "git",
-      "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+      "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
      ],
      [
       "shell",
-      "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+      "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
      ],
      [
       "task",
-      "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+      "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "github",
-      "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+      "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
      ]
     ],
     "anthropicSystem": [
@@ -4155,59 +4155,59 @@
      "wireTools": [
       [
        "find",
-       "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+       "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
       ],
       [
        "glob",
-       "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+       "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
       ],
       [
        "list",
-       "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+       "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
       ],
       [
        "grep",
-       "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+       "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
       ],
       [
        "code_graph",
-       "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+       "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
       ],
       [
        "read",
-       "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+       "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
       ],
       [
        "edit",
-       "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+       "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
       ],
       [
        "git",
-       "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+       "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
       ],
       [
        "shell",
-       "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+       "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
       ],
       [
        "task",
-       "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
       ],
       [
        "load_tool",
-       "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
       ],
       [
        "Skill",
-       "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+       "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
       ],
       [
        "github",
-       "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+       "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
       ],
       [
        "office",
-       "cbb40956d52cd2a9a4882bc9432784e619f1d1b7aaaab8071876647064961284"
+       "cbe317061bfb4181616c90c8f60357e161bec8f08bc1fb718f913fd1743998bb"
       ]
      ],
      "anthropicSystem": [
@@ -4359,55 +4359,55 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "grep",
-      "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+      "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "edit",
-      "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+      "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
      ],
      [
       "git",
-      "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+      "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
      ],
      [
       "shell",
-      "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+      "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
      ],
      [
       "task",
-      "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+      "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "github",
-      "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+      "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
      ]
     ],
     "anthropicSystem": [
@@ -4546,55 +4546,55 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "edit",
-      "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+      "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
      ],
      [
       "git",
-      "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+      "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
      ],
      [
       "shell",
-      "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+      "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
      ],
      [
       "task",
-      "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+      "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "github",
-      "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+      "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
      ],
      [
       "web_fetch",
-      "f7e641ad5e5ed6ddf98cb7b27bc1280cf509a93efee2eb75dbacb082342f3ee8"
+      "0fe8fa3ec38eab07ae4d96448c69be320f46c2ceb2a86bc5a05a809cc4861661"
      ]
     ],
     "anthropicSystem": [
@@ -4718,39 +4718,39 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "grep",
-      "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+      "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "edit",
-      "9a030ef4e86dd9f538b1d26abf2002bc88f10fe745bc24b5e17e023719a4ee78"
+      "f82cff7ec551ec4aed013fa7394e66d2b91bca134b8edf5e1ef62bc6bc1f075f"
      ]
     ],
     "anthropicSystem": [
@@ -4889,59 +4889,59 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "grep",
-      "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+      "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "edit",
-      "1e04e5cb7655bdba18411e4bf13af23193a7dd05c9ed3032d3f816c4c2d943c3"
+      "b185948eefb6b0f13693badf78cb4f5af60991f70937699880291ab6ccd44ed2"
      ],
      [
       "git",
-      "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+      "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
      ],
      [
       "shell",
-      "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+      "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
      ],
      [
       "task",
-      "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+      "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "github",
-      "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+      "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
      ],
      [
       "web_fetch",
-      "f7e641ad5e5ed6ddf98cb7b27bc1280cf509a93efee2eb75dbacb082342f3ee8"
+      "0fe8fa3ec38eab07ae4d96448c69be320f46c2ceb2a86bc5a05a809cc4861661"
      ]
     ],
     "anthropicSystem": [
@@ -6561,55 +6561,55 @@
     "wireTools": [
      [
       "find",
-      "d159b4b5eafb9948c5b208e4103827df215bdd5a8de1404a3b26e8e494c6c5f7"
+      "6eee859908def6331247a7943a25d79395529b433a2970677a04879911dd883d"
      ],
      [
       "glob",
-      "3522e8c3f8357aa7ea463254f9e8b3e98370d6fe93195259cfae34f9d99d1c9f"
+      "f7ecbbf91cd755e5308e7687e91898ac572673cba6e19d798aef81cfa5935f70"
      ],
      [
       "list",
-      "a0a9972697804cb2203b460dd469444771c621b6a5e2c5141cf5955b06c9ffa9"
+      "2cc8de647a07af49a93cd667e84bf6fc76b5f86d6ee32eb60135b414095dedb9"
      ],
      [
       "grep",
-      "c3309a5d3bccd8b183f0019bcc6b176b93cf2b39f34d148708d1d29526b688b1"
+      "71226722ad1a8f0de04d28a1f7b5f10add3442e46998eaa1aaba2275ac08fc14"
      ],
      [
       "code_graph",
-      "de432a599f2b68f0193ca3f5661b6baa4967f4e86598d2bb4707da82a5f07b7f"
+      "9c5616c5c28282f8005738cbeeb7bcbd4426d9ac96c543dadac1adf16fd4502f"
      ],
      [
       "read",
-      "8644addc58d60d7599e6b07dc74de25d971460ce1fdcfa2b4f6c3df5e0b2aec7"
+      "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
       "git",
-      "59c9bc19e2317a390116fcaf2b2b165004c873d407730ee8bcd27ac2f0b0b1af"
+      "50405c29b463d844d035da5c78fea144b024e797ddbd4b2e50cee8e3e2ed1d20"
      ],
      [
       "shell",
-      "f41f2c6265f8161377fe1265dea584e3d59e88ed6ba2205b5712b0f4d0ecffbd"
+      "ce6bfc38d16d3e2146d4a937f18c5ec52a710b2a0f395bab60abd0d86a89884e"
      ],
      [
       "task",
-      "e12da10b6380ff26aa457592ad5619a5075f00d1015d5767f62643cd7cc365f2"
+      "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
       "load_tool",
-      "15aec232a213cfeae3bb9e49923961f18fa8a53a9342768bd97768cad6be02f5"
+      "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
      [
       "Skill",
-      "da3b16ad967e1e535115d8dac64bf91fd86892825f3d6e4f3691f8bc493835d7"
+      "6e15e743057b1894495ba38771bcb30bf1196a905615eb7ba3ddb24c5bad7bf1"
      ],
      [
       "github",
-      "7f1073f72fc4cae1644c955874bde30aab57bd297f4215fe6ca08607b205b9a8"
+      "a7afcb5cab503cf56881f043304017138200e7d199d35d7b56cadddd0eb30142"
      ],
      [
       "web_fetch",
-      "f7e641ad5e5ed6ddf98cb7b27bc1280cf509a93efee2eb75dbacb082342f3ee8"
+      "0fe8fa3ec38eab07ae4d96448c69be320f46c2ceb2a86bc5a05a809cc4861661"
      ]
     ],
     "anthropicSystem": [

@@ -243,11 +243,13 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     // Role budget, floored so the provider recovery window always wins.
     idleStaleMs = Math.max(abort * 1000, PROVIDER_RECOVERY_FLOOR_MS);
   } else {
-    // Part B: the primary mid-stream stall catch is now the provider-level
-    // SEMANTIC idle abort (~120s, ping-immune). This public-agent idle is a
-    // BACKSTOP only, so it must not exceed the stall abort (600s default) —
-    // the old 30-min value meant a ping-only wedge that slipped past the
-    // provider layer would still hang the owner for half an hour. Cap it at
+    // Part B: the provider-level idle abort is the first mid-stream catch, but
+    // it is transport-based for Anthropic (pings reset it; other providers
+    // judge semantic idle). This public-agent idle is a BACKSTOP only, so it
+    // must not exceed the stall abort (600s default) — the old 30-min value
+    // meant a ping-only wedge that slipped past the provider layer would still
+    // hang the owner for half an hour. Anthropic pings extend it only up to
+    // KEEPALIVE_MAX_IDLE_MULTIPLIER times (evaluateAgentWatchdogAbort). Cap it at
     // the stall abort while keeping 30 min as an absolute ceiling. Long tool
     // calls refresh progress through the activity heartbeat, so they never
     // trip this backstop.
@@ -268,6 +270,23 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     firstVisibleCeilingMs: firstSemanticMs,
     idleStaleMs,
   };
+}
+
+// How far keepalives may extend liveness past the last real progress, as a
+// multiple of the idle budget. Anthropic pings across legitimate generation
+// gaps (adaptive thinking, a buffered tool input), but a wedged stream that
+// pings forever must still die.
+export const KEEPALIVE_MAX_IDLE_MULTIPLIER = 3;
+
+// A keepalive newer than the last real progress holds the idle abort while it
+// is itself fresh and the silence is within the cap. The runtime records one
+// only after the request's first semantic event, so a ping before it never
+// reaches here (the first-output window owns that phase).
+function keepaliveHoldsIdle(snapshot, last, now, idleStaleMs) {
+  const keepaliveAt = snapshot.lastKeepaliveAt || 0;
+  return (
+    keepaliveAt > last && now - keepaliveAt <= idleStaleMs && now - last <= idleStaleMs * KEEPALIVE_MAX_IDLE_MULTIPLIER
+  );
 }
 
 export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
@@ -301,6 +320,7 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
 
   const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
   if (policy.idleStaleMs > 0 && last && now - last > policy.idleStaleMs) {
+    if (keepaliveHoldsIdle(snapshot, last, now, policy.idleStaleMs)) return null;
     return new AgentStallAbortError(`agent task stale (${policy.idleStaleMs}ms without stream/tool progress)`);
   }
 

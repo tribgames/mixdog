@@ -159,8 +159,8 @@ function deferredAnthropicTools(activeTools, messages, opts, provider = 'anthrop
   return sharedDeferredAnthropicTools(activeTools, messages, opts, provider);
 }
 // `provider`: the engine's name (a gateway Messages engine runs under its gateway's).
-export function requestAnthropicTools(tools, messages, opts, provider = 'anthropic') {
-  return sharedRequestAnthropicTools(tools, messages, opts, provider);
+export function requestAnthropicTools(tools, messages, opts, provider = 'anthropic', config = {}) {
+  return sharedRequestAnthropicTools(tools, messages, opts, provider, config);
 }
 // Test-only: expose the lowering so the steering-provenance test can assert
 // the API-key provider keeps steering-tagged user turns distinct (mirrors

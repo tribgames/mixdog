@@ -231,9 +231,9 @@ export function buildAgentLoopOptions({
     },
     onStreamDelta: (kind = 'semantic') => {
       markSessionStreamDelta(sessionId, kind).catch(() => {});
-      // Raw transport is an internal health signal, not model progress.
-      // Preserve the public callback's historical semantic-only contract.
-      if (kind !== 'transport') relay(askOpts?.onStreamDelta, kind);
+      // Raw transport and keepalives are internal health signals, not model
+      // progress. Preserve the public callback's historical semantic-only contract.
+      if (kind !== 'transport' && kind !== 'keepalive') relay(askOpts?.onStreamDelta, kind);
     },
   };
 }

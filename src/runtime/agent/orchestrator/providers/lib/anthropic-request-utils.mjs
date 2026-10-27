@@ -108,11 +108,16 @@ export function appendAnthropicTailReminder(anthropicMessages, reminder) {
 // 5.5, Sonnet 5.5) and with explicit lists naming Sonnet 5 or Opus 4.8, and
 // fallback runs only on a safety-classifier refusal.
 export function anthropicTurnScopedReminders(provider, model, config = {}) {
+  return anthropicFirstPartyRoute(provider, config) && supportsAnthropicTurnScopedSystemMessages(model);
+}
+
+// The first-party Messages routes: native provider, beta headers allowed, no
+// gateway base URL. Request features a proxy answers with a 400 are gated here.
+export function anthropicFirstPartyRoute(provider, config = {}) {
   return (
     ANTHROPIC_NATIVE_PROVIDERS.has(provider) &&
     config?.disableBetaHeaders !== true &&
-    (!config?.baseURL || /^https:\/\/api\.anthropic\.com(?:\/|$)/.test(config.baseURL)) &&
-    supportsAnthropicTurnScopedSystemMessages(model)
+    (!config?.baseURL || /^https:\/\/api\.anthropic\.com(?:\/|$)/.test(config.baseURL))
   );
 }
 
@@ -619,7 +624,10 @@ export function anthropicToolExclusion(tool, logTag = 'anthropic') {
 
 // A Messages endpoint rejects the whole request for one invalid input_schema,
 // so a tool broken even after lowering is reported and left out.
-function toAnthropicTools(tools, logTag, onToolExcluded) {
+// `eager`: fine-grained tool streaming — the API streams each tool parameter as
+// it is generated instead of buffering it until complete, so a large tool input
+// does not leave the stream silent. First-party routes only.
+function toAnthropicTools(tools, logTag, onToolExcluded, eager = false) {
   const out = [];
   tools.forEach((tool, index) => {
     const result = anthropicInputSchema(tool, logTag);
@@ -629,6 +637,7 @@ function toAnthropicTools(tools, logTag, onToolExcluded) {
     }
     const entry = { name: tool.name, description: tool.description, input_schema: result.schema };
     if (tool.deferLoading === true || tool.defer_loading === true) entry.defer_loading = true;
+    if (eager) entry.eager_input_streaming = true;
     out.push(entry);
   });
   return out;
@@ -727,20 +736,25 @@ export function deferredAnthropicTools(activeTools, messages, opts, provider) {
     .map((tool) => ({ ...tool, deferLoading: true }));
 }
 
-export function requestAnthropicTools(tools, messages, opts, provider) {
+// `config`: the provider config (baseURL, disableBetaHeaders) deciding the route.
+export function requestAnthropicTools(tools, messages, opts, provider, config = {}) {
   const activeTools = Array.isArray(tools) ? tools : [];
+  const eager = anthropicFirstPartyRoute(provider, config);
   if (opts?.providerToolSnapshotAuthoritative === true) {
     const nativePrefixCount = providerNativeToolPrefixCount(activeTools, opts.providerNativeToolPrefixCount);
     return [
       ...activeTools.slice(0, nativePrefixCount),
-      ...toAnthropicTools(activeTools.slice(nativePrefixCount), provider, opts.onToolExcluded),
+      ...toAnthropicTools(activeTools.slice(nativePrefixCount), provider, opts.onToolExcluded, eager),
     ];
   }
   const deferredTools = deferredAnthropicTools(activeTools, messages, opts, provider);
   const nativeTools = Array.isArray(opts?.nativeTools)
     ? opts.nativeTools.filter((tool) => tool && typeof tool === 'object')
     : [];
-  return [...nativeTools, ...toAnthropicTools([...activeTools, ...deferredTools], provider, opts?.onToolExcluded)];
+  return [
+    ...nativeTools,
+    ...toAnthropicTools([...activeTools, ...deferredTools], provider, opts?.onToolExcluded, eager),
+  ];
 }
 
 // Applies cache_control markers to the FINAL, already-sanitized Anthropic

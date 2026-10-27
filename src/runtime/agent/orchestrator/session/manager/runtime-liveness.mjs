@@ -260,7 +260,7 @@ function _normalizeModelProgressKind(kind) {
   let value = 'semantic';
   if (typeof kind === 'string') value = kind;
   else if (kind && typeof kind.kind === 'string') value = kind.kind;
-  if (value === 'transport' || value === 'reasoning' || value === 'text' || value === 'tool') {
+  if (value === 'transport' || value === 'keepalive' || value === 'reasoning' || value === 'text' || value === 'tool') {
     return value;
   }
   return 'semantic';
@@ -280,6 +280,14 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   const progressKind = _normalizeModelProgressKind(kind);
   if (progressKind === 'transport') {
     markSessionTransportActivity(id);
+    return;
+  }
+  if (progressKind === 'keepalive') {
+    markSessionTransportActivity(id);
+    // A keepalive before the request's first semantic event is covered by the
+    // first-output window and never counts as progress. lastProgressAt stays
+    // untouched: the watchdog caps how long keepalives may extend it.
+    if (entry.requestFirstSemanticAt) entry.lastKeepaliveAt = Date.now();
     return;
   }
   _stopToolActivityHeartbeat(id);
@@ -527,6 +535,7 @@ export function getSessionProgressSnapshot(sessionId) {
     toolOutputTail: entry.toolOutputTail || null,
     toolOutputTailAt: entry.toolOutputTailAt || 0,
     lastProgressAt: entry.lastProgressAt || 0,
+    lastKeepaliveAt: entry.lastKeepaliveAt || 0,
     updatedAt: entry.updatedAt || 0,
     hasFirstActivity: Boolean(firstSemanticAt && (!askStartedAt || firstSemanticAt >= askStartedAt)),
     hasFirstSemantic: Boolean(firstSemanticAt && (!askStartedAt || firstSemanticAt >= askStartedAt)),
