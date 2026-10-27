@@ -216,16 +216,37 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Name line: grip | identity | actions; the usage meters take the line
+   below, under the name. */
 .provider-account-row {
   min-height: 48px;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  row-gap: 8px;
+  column-gap: 12px;
+  row-gap: 12px;
   padding: 10px 0 10px 4px;
+  isolation: isolate;
+}
+/* Hover plate behind the name line only (the switch target), bled past the
+   card's content edge so the grip and the buttons keep room around them. */
+.provider-account-row::before {
+  content: "";
+  grid-row: 1;
+  grid-column: 1 / -1;
+  align-self: stretch;
+  z-index: -1;
+  margin: -6px -12px -6px -16px;
+  border-radius: var(--mx-radius-lg);
+  pointer-events: none;
+  transition: background-color var(--mx-motion-ink);
+}
+.provider-account-row:has(.provider-account-select:hover)::before {
+  background: var(--mx-hover);
 }
 .provider-account-grip {
+  grid-row: 1;
+  grid-column: 1;
   width: 20px;
   height: 28px;
   flex: 0 0 20px;
@@ -247,9 +268,10 @@
   cursor: grabbing;
 }
 .provider-account-identity {
+  grid-row: 1;
+  grid-column: 2;
   position: relative;
   min-width: 96px;
-  flex: 1 1 0;
   display: flex;
   align-items: center;
   min-height: 28px;
@@ -265,9 +287,6 @@
   border-radius: var(--mx-radius-md);
   background: transparent;
   cursor: pointer;
-}
-.provider-accounts-list > li:has(.provider-account-select:hover) {
-  background: var(--mx-hover);
 }
 .provider-account-select:focus-visible {
   outline: 2px solid var(--mx-focus);
@@ -346,6 +365,8 @@
    .settings-resource-actions to the full row, which left no room for the
    account name; account rows keep their actions content-sized. */
 .provider-account-row > .settings-resource-actions {
+  grid-row: 1;
+  grid-column: 3;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -356,47 +377,47 @@
   max-width: none;
   margin-left: auto;
 }
-/* Usage: its own full-width block under the account line, aligned with the
-   name past the grip. One grid row per quota window:
-   label + reset sentence | meter | percent. */
+/* Usage: its own block under the name line, aligned with the name past the
+   grip. Each quota window reads like the rail usage popup's meter: label ·
+   reset · percent on one line, then the full-width 3px track. */
 .provider-account-usage {
-  order: 3;
-  flex: 1 0 100%;
-  box-sizing: border-box;
-  padding-left: 32px;
+  grid-row: 2;
+  grid-column: 2 / -1;
+  min-width: 0;
   display: grid;
-  row-gap: 14px;
+  row-gap: 10px;
   align-content: start;
   /* Reserve the windows' height (JS sets --usage-rows) so the usage read
      landing after the roster moves nothing below it. */
-  min-height: calc(var(--usage-rows, 1) * 32px + (var(--usage-rows, 1) - 1) * 14px);
+  min-height: calc(var(--usage-rows, 1) * 24px + (var(--usage-rows, 1) - 1) * 10px);
 }
 .provider-account-usage > span {
+  min-width: 0;
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) 48px;
-  column-gap: 12px;
-  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 5px;
+  align-items: baseline;
 }
 .provider-account-usage-label {
-  min-width: 0;
-  display: grid;
+  display: contents;
 }
 .provider-account-usage small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  grid-row: 1;
+  grid-column: 1;
   white-space: nowrap;
-  color: var(--mx-text);
-  font-size: 13px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-medium);
-  line-height: 16px;
-  letter-spacing: var(--mx-tracking-wide, 0);
+  line-height: var(--mx-line-meta);
 }
 .provider-account-usage i {
+  grid-row: 2;
+  grid-column: 1 / -1;
   position: relative;
   display: block;
   overflow: hidden;
-  height: 8px;
+  height: 3px;
   border-radius: var(--mx-radius-pill, 999px);
   background: var(--mx-meter-track);
 }
@@ -413,12 +434,14 @@
   background: var(--mx-meter-danger);
 }
 .provider-account-usage b {
+  grid-row: 1;
+  grid-column: 3;
   color: var(--mx-text);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-medium);
   text-align: right;
   font-variant-numeric: tabular-nums;
-  line-height: 16px;
+  line-height: var(--mx-line-meta);
 }
 .provider-account-usage .tone-warning b {
   color: var(--mx-warning);
@@ -427,14 +450,16 @@
   color: var(--mx-danger);
 }
 .provider-account-usage em {
+  grid-row: 1;
+  grid-column: 2;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-style: normal;
-  color: var(--mx-row-meta-ink, var(--mx-text-muted));
-  font-size: var(--mx-font-supporting, 12px);
-  line-height: 16px;
+  color: var(--mx-text-muted);
+  font-size: 12px;
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
 }
 .provider-accounts-list > li.is-dim .provider-account-identity,
@@ -564,12 +589,17 @@
 }
 .provider-accounts.is-list-only .provider-account-row {
   min-height: 32px;
+  display: flex;
+  align-items: center;
   gap: 4px;
   padding: 0;
   border-radius: var(--mx-radius-md);
 }
 .provider-accounts.is-list-only .provider-account-row:hover {
   background: var(--mx-hover);
+}
+.provider-accounts.is-list-only .provider-account-row::before {
+  content: none;
 }
 .provider-accounts.is-list-only .provider-account-grip {
   height: 32px;
