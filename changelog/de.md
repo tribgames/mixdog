@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.4.1 - 2026-10-27
+
 Anmeldung über SSH, Fehler bei der Einrichtung des PC-Zugriffs sowie das Anhalten von Agenten bei Anthropic-Modellen behoben und eine Ansichtsumschaltung für nebeneinanderliegende Visualize-Tabs hinzugefügt.
 
 ### Neue Funktionen

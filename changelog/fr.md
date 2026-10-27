@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.4.1 - 2026-10-27
+
 Correction de la connexion via SSH, des échecs de configuration de l'accès au PC et de l'arrêt des agents sur les modèles Anthropic, et ajout d'un commutateur de vue pour les onglets Visualize côte à côte.
 
 ### Nouvelles fonctionnalités

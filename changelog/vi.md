@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.4.1 - 2026-10-27
+
 Đã sửa lỗi đăng nhập qua SSH, lỗi thiết lập truy cập PC và các agent bị dừng trên các mô hình Anthropic, đồng thời thêm nút chuyển đổi chế độ xem cho các thẻ Visualize song song.
 
 ### Tính năng mới

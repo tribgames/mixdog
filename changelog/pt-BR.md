@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.4.1 - 2026-10-27
+
 Corrigidos o login via SSH, as falhas de configuração de acesso ao PC e a interrupção de agentes em modelos da Anthropic, e adicionado um alternador de visualização para as abas lado a lado do Visualize.
 
 ### Novos recursos

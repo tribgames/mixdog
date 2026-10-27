@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.4.1 - 2026-10-27
+
 Se corrigieron el inicio de sesión a través de SSH, los fallos de configuración de acceso al PC y la detención de agentes en modelos de Anthropic, y se añadió un selector de vista para las pestañas de Visualize en paralelo.
 
 ### Nuevas funciones

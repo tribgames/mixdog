@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.4.1 - 2026-10-27
+
 Corretti l'accesso tramite SSH, gli errori di configurazione dell'accesso al PC e l'arresto degli agenti sui modelli Anthropic, e aggiunto un selettore di vista per le schede di Visualize affiancate.
 
 ### Nuove funzionalità

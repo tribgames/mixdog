@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.4.1 - 2026-10-27
+
 Fixed sign-in over SSH, PC access setup failures and agents stopping on Anthropic models, and added a view switch for side-by-side Visualize tabs.
 
 ### New features
