@@ -215,28 +215,6 @@ function workspaceMobileTabPill({
   );
 }
 
-/** The same node the open tab had, stripped of its handlers and its width: it
- *  collapses and fades while the neighbours glide. */
-function closingTabGhost(tab: WorkspaceTab, active: boolean) {
-  return (
-    <div
-      key={tab.key}
-      className={`workspace-tab closing ${active ? 'active' : ''}`}
-      aria-hidden="true"
-      data-tab-key={tab.key}
-      data-closing="true"
-    >
-      <button type="button" className="workspace-tab-main" tabIndex={-1}>
-        {tabGlyph(tab)}
-        <span className="workspace-tab-title">{tab.title}</span>
-      </button>
-      <button type="button" className="workspace-tab-close" tabIndex={-1}>
-        <X size={18} aria-hidden="true" />
-      </button>
-    </div>
-  );
-}
-
 type WorkspaceTabCellProps = Parameters<typeof workspaceTabNode>[0];
 
 /** Equal when the cell would draw the same: the strip rebuilds every tab
@@ -257,6 +235,7 @@ function sameTabCell(previous: WorkspaceTabCellProps, next: WorkspaceTabCellProp
     previous.attention === next.attention &&
     previous.dragging === next.dragging &&
     previous.entering === next.entering &&
+    previous.closing === next.closing &&
     previous.dropLeft === next.dropLeft &&
     previous.dropRight === next.dropRight &&
     previous.pinnedTabWidth === next.pinnedTabWidth &&
@@ -292,6 +271,7 @@ function workspaceTabNode(
     attention,
     dragging,
     entering,
+    closing,
     dropLeft,
     dropRight,
     pinnedTabWidth,
@@ -311,6 +291,7 @@ function workspaceTabNode(
     rename: TabRename | null;
     dragging: boolean;
     entering: boolean;
+    closing: boolean;
     dropLeft: boolean;
     dropRight: boolean;
     pinnedTabWidth: number | undefined;
@@ -330,17 +311,20 @@ function workspaceTabNode(
 ) {
   const editing = rename?.draft != null;
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: the tab wrapper only carries drag, middle-click and context menu; its inner button is the control.
     <div
       key={tab.key}
       ref={(node) => setTabNode(tab.key, node)}
-      className={`workspace-tab ${active ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.dirty ? 'dirty' : ''} ${dragging ? 'dragging' : ''} ${dropLeft ? 'drop-target-left' : ''} ${dropRight ? 'drop-target-right' : ''} ${entering ? 'entering' : ''} ${editing ? 'editing' : ''}`}
+      className={`workspace-tab ${active ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.dirty ? 'dirty' : ''} ${dragging ? 'dragging' : ''} ${dropLeft ? 'drop-target-left' : ''} ${dropRight ? 'drop-target-right' : ''} ${entering ? 'entering' : ''} ${closing ? 'closing' : ''} ${editing ? 'editing' : ''}`}
+      aria-hidden={closing || undefined}
+      // A closing cell only plays out its collapse: no focus, no pointer, no drag.
+      inert={closing}
+      data-closing={closing || undefined}
       data-tab-key={tab.key}
       data-active={active}
       data-working={working || undefined}
       data-attention={attention || undefined}
       aria-grabbed={dragging}
-      draggable={!editing}
+      draggable={!editing && !closing}
       style={
         pinnedTabWidth
           ? ({
@@ -350,12 +334,13 @@ function workspaceTabNode(
       }
       onPointerEnter={() => prefetchTabSurface(tab)}
       onFocusCapture={() => {
+        if (closing) return;
         prefetchTabSurface(tab);
         intent.handlers.onFocusCapture();
       }}
       onBlur={intent.handlers.onBlur}
       onDragStart={(event) => {
-        if ((event.target as Element | null)?.closest?.('.workspace-tab-close')) {
+        if (closing || (event.target as Element | null)?.closest?.('.workspace-tab-close')) {
           event.preventDefault();
           return;
         }
@@ -369,16 +354,17 @@ function workspaceTabNode(
       onPointerCancel={intent.handlers.onPointerCancel}
       onPointerLeave={intent.handlers.onPointerLeave}
       onMouseDown={(event) => {
-        if (event.button !== 1) return;
+        if (closing || event.button !== 1) return;
         event.preventDefault();
         onCloseTab(tab);
       }}
       onDoubleClick={(event) => {
-        if (editing || (event.target as Element | null)?.closest?.('.workspace-tab-close')) return;
+        if (closing || editing || (event.target as Element | null)?.closest?.('.workspace-tab-close')) return;
         onPinTab?.(tab);
         rename?.start(tab);
       }}
       onContextMenu={(event) => {
+        if (closing) return;
         intent.finalize();
         if (editing) return;
         event.preventDefault();
@@ -417,7 +403,9 @@ function workspaceTabNode(
       <button
         type="button"
         className="workspace-tab-main"
+        tabIndex={closing ? -1 : undefined}
         onClick={() => {
+          if (closing) return;
           try {
             if (suppressTabClick.current === tab.key) {
               suppressTabClick.current = '';
@@ -450,9 +438,11 @@ function workspaceTabNode(
       <button
         type="button"
         className="workspace-tab-close"
+        tabIndex={closing ? -1 : undefined}
         onClick={(event) => {
-          intent.finalize();
           event.stopPropagation();
+          if (closing) return;
+          intent.finalize();
           onCloseTab(tab);
         }}
         aria-label={t('Close {{title}}', { title: tab.title })}
@@ -729,9 +719,10 @@ export function WorkspaceTabStrip({
           onDragEnd={finishNativeDrag}
         >
           {displayTabs.map(({ tab, closing, active: closedActive }) => {
-            if (closing) return closingTabGhost(tab, closedActive);
+            // A closing tab stays the very cell that was open (same element
+            // type and key), so its width transition starts from where it stands.
             const index = tabs.indexOf(tab);
-            const active = tab.key === activeKey;
+            const active = closing ? closedActive : tab.key === activeKey;
             const dropLeft = draggingKey && dropIndex !== null && tabs[dropIndex - 1]?.key === tab.key;
             const dropRight = draggingKey && dropIndex !== null && tabs[dropIndex]?.key === tab.key;
             const working = tabIsWorking(tab, active, activeBusy, workingSessionIds);
@@ -750,6 +741,7 @@ export function WorkspaceTabStrip({
                 attention={attention}
                 dragging={draggingKey === tab.key}
                 entering={enteringKeys.current.has(tab.key)}
+                closing={closing}
                 dropLeft={Boolean(dropLeft)}
                 dropRight={Boolean(dropRight)}
                 pinnedTabWidth={pinnedTabWidth}

@@ -205,7 +205,9 @@ export function useTabRunWidth(
 export function useTabMotion(tabs: WorkspaceTab[], activeKey: string) {
   const previousTabs = useRef(tabs);
   const previousActiveKey = useRef(activeKey);
-  const closingTabs = useRef(new Map<string, { tab: WorkspaceTab; index: number; active: boolean }>());
+  const closingTabs = useRef(
+    new Map<string, { tab: WorkspaceTab; after: string | null; before: string | null; active: boolean }>()
+  );
   const enteringKeys = useRef(new Set<string>());
   const [, settleTabMotion] = useReducer((count: number) => count + 1, 0);
   const displayTabs = tabsWithClosingGhosts(tabs, previousTabs, closingTabs, enteringKeys, previousActiveKey.current);

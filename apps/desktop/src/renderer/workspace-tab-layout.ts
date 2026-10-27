@@ -98,37 +98,65 @@ export function tabMenuAnchorAt(key: string, event: { clientX: number; clientY: 
 export function tabsWithClosingGhosts(
   tabs: WorkspaceTab[],
   previousTabs: { current: WorkspaceTab[] },
-  closingTabs: { current: Map<string, { tab: WorkspaceTab; index: number; active: boolean }> },
+  closingTabs: {
+    current: Map<string, { tab: WorkspaceTab; after: string | null; before: string | null; active: boolean }>;
+  },
   enteringKeys: { current: Set<string> },
   previousActiveKey: string | null = null
 ) {
   const previous = previousTabs.current;
+  // A ghost sits right after the entry that preceded it when it closed (the
+  // run's start when none did). Positions by index drifted once a second tab
+  // closed inside a running exit, reordering the ghosts: their nodes moved and
+  // the neighbours' width transitions restarted from zero (Ctrl+Q repeated).
+  const withGhosts = (list: WorkspaceTab[]) => {
+    const display = list.map((tab) => ({ tab, closing: false, active: false }));
+    // A key that came back inside the beat is a live tab again, never a ghost.
+    const pending = [...closingTabs.current.values()].filter((ghost) => !list.some((tab) => tab.key === ghost.tab.key));
+    const slotOf = (key: string | null) => display.findIndex((entry) => entry.tab.key === key);
+    while (pending.length) {
+      // A ghost waits only for an anchor that is a ghost still to be placed.
+      const next = pending.findIndex(
+        (ghost) =>
+          ghost.after === null || slotOf(ghost.after) >= 0 || !pending.some((other) => other.tab.key === ghost.after)
+      );
+      const [ghost] = pending.splice(next < 0 ? 0 : next, 1);
+      // The anchor can be gone without becoming a ghost (a replaced tab): the
+      // ghost then keeps its place before the entry that followed it.
+      const anchor = slotOf(ghost.after);
+      const follower = slotOf(ghost.before);
+      let slot = display.length;
+      if (ghost.after === null) slot = 0;
+      else if (anchor >= 0) slot = anchor + 1;
+      else if (follower >= 0) slot = follower;
+      display.splice(slot, 0, { tab: ghost.tab, closing: true, active: ghost.active });
+    }
+    return display;
+  };
   if (tabs.length < previous.length) {
-    previous.forEach((tab, index) => {
-      if (!tabs.some((entry) => entry.key === tab.key)) {
+    const shown = withGhosts(previous);
+    shown.forEach(({ tab, closing }, index) => {
+      if (!closing && !tabs.some((entry) => entry.key === tab.key)) {
+        // Ghosts that hung off this tab move to its own anchor.
+        const after = index > 0 ? shown[index - 1].tab.key : null;
+        const before = shown[index + 1]?.tab.key ?? null;
+        for (const ghost of closingTabs.current.values()) {
+          if (ghost.after === tab.key) ghost.after = after;
+          if (ghost.before === tab.key) ghost.before = before;
+        }
         // The ghost keeps the look it closed with, so a closing active tab
         // collapses as the selected plate an opening tab grows as.
-        closingTabs.current.set(tab.key, { tab, index, active: tab.key === previousActiveKey });
+        closingTabs.current.set(tab.key, { tab, after, before, active: tab.key === previousActiveKey });
       }
     });
   } else if (tabs.length > previous.length) {
     const known = new Set(previous.map((tab) => tab.key));
     for (const tab of tabs) if (!known.has(tab.key)) enteringKeys.current.add(tab.key);
   }
-  const displayTabs = tabs.map((tab) => ({ tab, closing: false, active: false }));
-  for (const ghost of [...closingTabs.current.values()].sort((left, right) => left.index - right.index)) {
-    // A key that came back inside the beat is a live tab again, never a ghost.
-    if (tabs.some((tab) => tab.key === ghost.tab.key)) {
-      closingTabs.current.delete(ghost.tab.key);
-      continue;
-    }
-    displayTabs.splice(Math.min(ghost.index, displayTabs.length), 0, {
-      tab: ghost.tab,
-      closing: true,
-      active: ghost.active,
-    });
+  for (const ghost of [...closingTabs.current.values()]) {
+    if (tabs.some((tab) => tab.key === ghost.tab.key)) closingTabs.current.delete(ghost.tab.key);
   }
-  return displayTabs;
+  return withGhosts(tabs);
 }
 
 /** Drop index for a pointer position: the tab half rule over the measured
