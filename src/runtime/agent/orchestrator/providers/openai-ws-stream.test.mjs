@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { _streamResponse } from './openai-ws-stream.mjs';
+import {
+  PROVIDER_FIRST_OUTPUT_TIMEOUT_MS,
+  PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+  PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
+} from '../stall-policy.mjs';
+import { markSessionStreamDelta, updateSessionStage } from '../session/manager/runtime-liveness.mjs';
+import { runtimeState } from '../session/manager/runtime-state.mjs';
 
 // Observable contract of one Responses WS stream: what the resolved result
 // carries, what the callbacks saw, and what a stalled/closed stream reports.
@@ -86,7 +93,8 @@ test('streamed text, a native function call and the completed usage land in one 
   assert.equal(state.sawCompleted, true);
   assert.equal(state.emittedText, true);
   assert.equal(state.emittedToolCall, true);
-  assert.equal(seen.progress[0], 'semantic');
+  // The response.created ack is transport, never model output.
+  assert.equal(seen.progress[0], 'transport');
   assert.ok(seen.progress.includes('text'));
   assert.ok(seen.progress.includes('tool'));
 });
@@ -233,6 +241,111 @@ test('an inter-chunk stall after output rejects as a continuation carrying the p
     return true;
   });
   assert.deepEqual(socket.closes, [[4000, 'inter_chunk_timeout']]);
+});
+
+const skipWatchdog = !PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && 'stream watchdog disabled by env';
+const frame = (socket, event) => socket.emit('message', Buffer.from(JSON.stringify(event)));
+// Metadata/keepalive frames every minute for `ms`: the socket stays live.
+function keepalivesFor(t, socket, ms) {
+  for (let elapsed = 0; elapsed < ms; elapsed += 60_000) {
+    t.mock.timers.tick(Math.min(60_000, ms - elapsed));
+    frame(socket, { type: 'response.in_progress', response: { id: 'resp_1' } });
+  }
+}
+const reasoningItem = { type: 'reasoning', id: 'rs_1', summary: [] };
+
+test('a model may think silently past the semantic idle until its first output', { skip: skipWatchdog }, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { pending, socket, seen } = run([
+    created,
+    { type: 'response.in_progress', response: { id: 'resp_1' } },
+    { type: 'response.output_item.added', item: reasoningItem },
+  ]);
+  keepalivesFor(t, socket, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS + 60_000);
+  assert.deepEqual(socket.closes, [], 'not aborted while thinking silently');
+  assert.ok(
+    seen.progress.every((kind) => kind === 'transport'),
+    'metadata is never reported as model output'
+  );
+  frame(socket, { type: 'response.output_item.done', item: reasoningItem });
+  frame(socket, { type: 'response.output_text.delta', delta: 'answer' });
+  frame(socket, {
+    type: 'response.completed',
+    response: {
+      id: 'resp_1',
+      model: 'gpt-fixture',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'answer' }] }],
+    },
+  });
+  assert.equal((await pending).content, 'answer');
+});
+
+test('a stream that never produces output is aborted at the first-output deadline', { skip: skipWatchdog }, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { pending, socket } = run([created, { type: 'response.output_item.added', item: reasoningItem }]);
+  keepalivesFor(t, socket, PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1);
+  assert.deepEqual(socket.closes, []);
+  t.mock.timers.tick(1);
+  await assert.rejects(pending, (err) => {
+    assert.equal(err.streamStalled, true);
+    assert.match(err.message, new RegExp(`after ${PROVIDER_FIRST_OUTPUT_TIMEOUT_MS}ms`));
+    return true;
+  });
+  assert.deepEqual(socket.closes, [[4000, 'first_output_timeout']]);
+});
+
+test('after the first output the semantic idle applies unchanged', { skip: skipWatchdog }, async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { pending, socket } = run([created, { type: 'response.output_text.delta', delta: 'kept' }]);
+  keepalivesFor(t, socket, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1);
+  assert.deepEqual(socket.closes, []);
+  t.mock.timers.tick(1);
+  await assert.rejects(pending, (err) => {
+    assert.equal(err.streamStalled, true);
+    assert.equal(err.partialContent, 'kept');
+    return true;
+  });
+  assert.deepEqual(socket.closes, [[4000, 'semantic_idle_timeout']]);
+});
+
+// A session whose logical model request starts now (mocked clock).
+function sessionRequest(t, sessionId) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000_000 });
+  t.after(() => runtimeState.delete(sessionId));
+  updateSessionStage(sessionId, 'requesting');
+  return Date.now();
+}
+
+test('a reopened stream aborts at the logical request original deadline', { skip: skipWatchdog }, async (t) => {
+  const sessionId = 'sess_ws_retry_deadline';
+  const startedAt = sessionRequest(t, sessionId);
+  const first = run([created, { type: 'response.output_item.added', item: reasoningItem }], { state: { sessionId } });
+  first.pending.catch(() => {});
+  keepalivesFor(t, first.socket, 400_000);
+  first.socket.emit('close', 1006, Buffer.from('gone')); // the attempt dies before output
+  await first.pending.catch(() => {});
+  updateSessionStage(sessionId, 'requesting');
+  const retry = run([created], { state: { sessionId } });
+  keepalivesFor(t, retry.socket, startedAt + PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1 - Date.now());
+  assert.deepEqual(retry.socket.closes, []);
+  t.mock.timers.tick(1);
+  await assert.rejects(retry.pending, new RegExp(`after ${PROVIDER_FIRST_OUTPUT_TIMEOUT_MS}ms`));
+  assert.deepEqual(retry.socket.closes, [[4000, 'first_output_timeout']]);
+});
+
+test('a WS retry after output stays under the semantic idle', { skip: skipWatchdog }, async (t) => {
+  const sessionId = 'sess_ws_retry_after_output';
+  sessionRequest(t, sessionId);
+  await markSessionStreamDelta(sessionId, 'reasoning');
+  t.mock.timers.tick(10_000);
+  updateSessionStage(sessionId, 'requesting');
+  const retry = run([created], { state: { sessionId } });
+  keepalivesFor(t, retry.socket, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1);
+  assert.deepEqual(retry.socket.closes, []);
+  t.mock.timers.tick(1);
+  await assert.rejects(retry.pending, (err) => err.streamStalled === true);
+  assert.deepEqual(retry.socket.closes, [[4000, 'semantic_idle_timeout']]);
 });
 
 test('an external abort settles the stream and tags user versus watchdog aborts', async () => {

@@ -10,6 +10,7 @@ import {
   PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
   PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
   createTimeoutSignal,
+  providerFirstOutputTimeoutMs,
 } from '../stall-policy.mjs';
 import { TIMEOUT_PHASE } from '../../../shared/provider-timeout-phase.mjs';
 import {
@@ -28,6 +29,7 @@ import {
   toolWorkStarted,
 } from './openai-compat-chat-stream/stream-state.mjs';
 import { applyCompatChunk } from './openai-compat-chat-stream/chunk-events.mjs';
+import { streamFirstOutputWindow } from './lib/first-output-window.mjs';
 import { incompleteStreamError, settleCompatStream } from './openai-compat-chat-stream/stream-result.mjs';
 
 export async function consumeCompatChatCompletionStream(
@@ -45,11 +47,21 @@ export async function consumeCompatChatCompletionStream(
     semanticIdleTimeoutMs,
     firstByteTimeoutMs,
     leakedToolCallRecovery = true,
+    sessionId = null,
   } = {}
 ) {
   const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
   const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
   const idleMs = idleOverrideEnabled ? Number(semanticIdleTimeoutMs) : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+  // Until the first semantic output the logical request's first-output window
+  // bounds the stream (a retry inherits its deadline); metadata never ends it
+  // or starts the idle. A request that already had output runs under the
+  // semantic idle from the stream's opening.
+  const firstOutput = streamFirstOutputWindow({
+    sessionId,
+    reportsProgress: typeof onStreamDelta === 'function',
+    timeoutMs: providerFirstOutputTimeoutMs(idleMs),
+  });
   const state = createCompatStreamState({
     providerName,
     knownToolNames,
@@ -60,6 +72,7 @@ export async function consumeCompatChatCompletionStream(
     onStreamItemStart,
     leakedToolCallRecovery,
   });
+  if (firstOutput.outputSeen) state.semanticIdleDeadlineAt = Date.now() + idleMs;
   reportTransport(state);
   const iterator = stream[Symbol.asyncIterator]();
   let iteratorDone = false;
@@ -70,11 +83,12 @@ export async function consumeCompatChatCompletionStream(
   );
   try {
     while (true) {
+      const semanticSeen = state.semanticIdleDeadlineAt > 0;
       const { value: chunk, done } = await nextAsyncWithWatchdog(iterator, {
         signal: state.sawFirstEvent ? signal : firstByteTimeout.signal,
-        idleMs,
-        idleDeadlineAt: state.semanticIdleDeadlineAt,
-        idleEnabled: state.sawFirstEvent && idleEnabled && state.semanticIdleDeadlineAt > 0,
+        idleMs: semanticSeen ? idleMs : firstOutput.timeoutMs,
+        idleDeadlineAt: semanticSeen ? state.semanticIdleDeadlineAt : firstOutput.deadlineAt,
+        idleEnabled: state.sawFirstEvent && idleEnabled,
         idleLabel: `${label} SSE idle`,
         streamLabel: label,
         emittedToolCall: () => toolWorkStarted(state),

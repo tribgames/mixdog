@@ -24,11 +24,13 @@ import {
   PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
   PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS,
   PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
+  providerFirstOutputTimeoutMs,
 } from '../stall-policy.mjs';
 import { _wsErrLabel, WS_MAX_INCOMING_FRAME_BYTES } from './openai-ws-pool.mjs';
 import { createWsResponseState } from './openai-ws-response-state.mjs';
 import { createWsTextRelay } from './openai-ws-text-relay.mjs';
 import { createWsStreamWatchdogs } from './openai-ws-watchdogs.mjs';
+import { streamFirstOutputWindow } from './lib/first-output-window.mjs';
 import {
   enableSessionTransportTracking,
   disableSessionTransportTracking,
@@ -85,6 +87,9 @@ function resolveStreamTimeouts(_timeouts) {
     interChunkMs: _positiveInt(_timeouts?.interChunkMs, WS_INTER_CHUNK_MS),
     maxIncomingFrameBytes: _positiveInt(_timeouts?.maxIncomingFrameBytes, WS_MAX_INCOMING_FRAME_BYTES),
     firstMeaningfulMs: _positiveInt(_timeouts?.firstMeaningfulMs, PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS),
+    // Until the first semantic output this window, not the semantic idle,
+    // bounds a stream that carries only metadata/keepalive frames.
+    firstOutputMs: _positiveInt(_timeouts?.firstOutputMs, providerFirstOutputTimeoutMs(semanticIdleMs)),
     semanticIdleMs,
     semanticIdleEnabled: PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && semanticIdleMs > 0,
   };
@@ -113,6 +118,13 @@ export async function _streamResponse({
     markSessionTransportActivity(state?.sessionId);
   }
   const { maxIncomingFrameBytes, ...timeouts } = resolveStreamTimeouts(_timeouts);
+  // The logical request's first-output window: a retry or route fallback
+  // inherits its deadline and whether it already produced output.
+  const firstOutput = streamFirstOutputWindow({
+    sessionId: state?.sessionId,
+    reportsProgress: typeof onStreamDelta === 'function',
+    timeoutMs: timeouts.firstOutputMs,
+  });
   const streamingStart = Date.now();
   // Mid-stream retry classifier needs to distinguish "stream died before we
   // even saw response.created" from "stream died after we had a partial
@@ -182,6 +194,7 @@ export async function _streamResponse({
       streamingStart,
       currentModel: () => response.model,
       timeouts,
+      firstOutput,
       attachPartialState,
       fail,
     });
@@ -256,6 +269,7 @@ export async function _streamResponse({
     if (!handlers.attach()) return;
     watchdogs.armPreStream();
     watchdogs.armFirstMeaningful();
+    watchdogs.armFirstOutput();
     // No proactive client ping: Codex's Responses WebSocket uses the library
     // default (automatic pong replies, no periodic client ping). Incoming
     // frames remain bounded by the 300s stream idle timeout.

@@ -7,6 +7,7 @@ import {
   PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
   PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
   createTimeoutSignal,
+  providerFirstOutputTimeoutMs,
 } from '../stall-policy.mjs';
 import {
   closeCompatStream,
@@ -23,6 +24,7 @@ import {
   parseCompletedToolCallArgumentsJson,
 } from './lib/openai-tool-args.mjs';
 import { handleCompatResponsesStreamEvent } from './openai-compat-responses-events.mjs';
+import { streamFirstOutputWindow } from './lib/first-output-window.mjs';
 import {
   attachPartialState,
   createResponsesLeakRelay,
@@ -56,6 +58,7 @@ export async function consumeCompatResponsesStream(
     responseOutputText,
     knownToolNames,
     semanticIdleTimeoutMs,
+    sessionId = null,
   } = {}
 ) {
   try {
@@ -68,13 +71,24 @@ export async function consumeCompatResponsesStream(
   const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
   // Per-event (last-event-relative) SEMANTIC idle — see the Chat path note.
   const idleMs = idleOverrideEnabled ? Number(semanticIdleTimeoutMs) : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+  // Until the first semantic output the logical request's first-output window
+  // bounds the stream (a retry inherits its deadline); metadata never ends it
+  // or starts the idle. A request that already had output runs under the
+  // semantic idle from the stream's opening.
+  const firstOutput = streamFirstOutputWindow({
+    sessionId,
+    reportsProgress: typeof onStreamDelta === 'function',
+    timeoutMs: providerFirstOutputTimeoutMs(idleMs),
+  });
   const state = createResponsesStreamState();
+  if (firstOutput.outputSeen) state.semanticIdleDeadlineAt = Date.now() + idleMs;
   const reportProgress = (kind) => {
     if (kind !== 'transport') state.semanticIdleDeadlineAt = Date.now() + idleMs;
     try {
       onStreamDelta?.(kind);
     } catch {}
   };
+  const reportLifecycle = (kind) => reportProgress(state.semanticIdleDeadlineAt > 0 ? kind : 'transport');
   let sawFirstEvent = false;
   const { relayLeakText, flushLeak, leakedCalls } = createResponsesLeakRelay({
     state,
@@ -88,6 +102,7 @@ export async function consumeCompatResponsesStream(
     parseResponsesToolCalls,
     responseOutputText,
     onStreamDelta: reportProgress,
+    onLifecycle: reportLifecycle,
     onToolCall,
     onTextDelta,
     onStreamItemStart,
@@ -96,11 +111,12 @@ export async function consumeCompatResponsesStream(
   const stampOutcome = createResponsesOutcomeStamper(state, leakedCalls);
   try {
     while (true) {
+      const semanticSeen = state.semanticIdleDeadlineAt > 0;
       const { value: event, done } = await nextAsyncWithWatchdog(iterator, {
         signal: sawFirstEvent ? signal : firstByteTimeout.signal,
-        idleMs,
-        idleDeadlineAt: state.semanticIdleDeadlineAt,
-        idleEnabled: sawFirstEvent && idleEnabled && state.semanticIdleDeadlineAt > 0,
+        idleMs: semanticSeen ? idleMs : firstOutput.timeoutMs,
+        idleDeadlineAt: semanticSeen ? state.semanticIdleDeadlineAt : firstOutput.deadlineAt,
+        idleEnabled: sawFirstEvent && idleEnabled,
         idleLabel: `${label} SSE idle`,
         streamLabel: label,
         // Unsafe-to-retry once any tool call (native or recovered-leaked)

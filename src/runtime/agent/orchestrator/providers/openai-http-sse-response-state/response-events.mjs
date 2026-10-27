@@ -7,18 +7,28 @@ import { createOutputItemEvents } from './response-events/output-items.mjs';
 import { createTerminalFrameEvents } from './response-events/terminal-frames.mjs';
 import { reportStreamItemStart, responsesItemStart } from '../lib/send-callbacks.mjs';
 
-export function createResponseEvents({ state, items, text, outcome, meaningful, onServerEvent, onStreamItemStart }) {
-  const output = createOutputItemEvents({ state, items, meaningful });
+export function createResponseEvents({
+  state,
+  items,
+  text,
+  outcome,
+  meaningful,
+  lifecycle,
+  onServerEvent,
+  onStreamItemStart,
+}) {
+  const output = createOutputItemEvents({ state, items, meaningful, lifecycle });
   const terminal = createTerminalFrameEvents({ state, items, text, outcome, meaningful });
 
   const handleEvent = (event) => {
     if (!event || typeof event.type !== 'string') return;
     onServerEvent();
     switch (event.type) {
+      // The server's ack is metadata, not model output: it satisfies only the
+      // first-server-event deadline (onServerEvent above).
       case 'response.created':
         if (event.response?.model) state.model = event.response.model;
         if (event.response?.id) state.responseId = event.response.id;
-        meaningful('semantic');
         break;
       case 'response.output_text.delta':
         text.relayLeakText(event.delta || '');

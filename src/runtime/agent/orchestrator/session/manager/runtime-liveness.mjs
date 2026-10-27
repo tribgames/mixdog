@@ -17,6 +17,10 @@
 //   stage, lastStreamDeltaAt, lastTransportAt, firstSemanticAt,
 //   lastSemanticAt, lastReasoningAt, lastVisibleTextAt, lastToolProtocolAt,
 //   lastToolCall, lastError, updatedAt,
+//   modelRequestStartedAt, requestTransportAt, requestFirstSemanticAt,
+//   modelResponseAccepted,  // the current logical model request (see
+//                           // _beginLogicalModelRequest); the fields above
+//                           // stay turn-level history
 //   controller?: AbortController,  // set while an ask is in flight
 //   generation?: number,            // snapshot taken at ask start
 //   closed?: boolean,               // flipped by closeSession()
@@ -131,6 +135,22 @@ function _startToolActivityHeartbeat(id) {
   _toolActivityHeartbeats.set(id, timer);
 }
 
+// One logical model request owns one first-output allowance: its request
+// clock and its own first transport / first semantic marks. It begins with the
+// ask's first request, with the first request after the model's previous
+// response was accepted (its tool calls ran — the request that carries the
+// tool results), and with a request after a settled turn. Every other entry
+// into `requesting` — a provider or loop retry, a route fallback, a no-tool
+// recovery continuation — re-sends the same logical request and keeps all of
+// it, so a retry never earns a fresh allowance. The turn-level marks
+// (firstSemanticAt, lastTransportAt, …) are history and are not touched.
+function _beginLogicalModelRequest(entry, now) {
+  entry.modelRequestStartedAt = now;
+  entry.requestTransportAt = null;
+  entry.requestFirstSemanticAt = null;
+  entry.modelResponseAccepted = false;
+}
+
 export function updateSessionStage(id, stage) {
   if (stage === MODEL_THINKING_STAGE) {
     markSessionRequestSent(id);
@@ -143,8 +163,11 @@ export function updateSessionStage(id, stage) {
   entry.stage = stage;
   // A new stage (a retried attempt included) has not sent its request yet.
   entry.requestSentAt = null;
-  if (stage === 'requesting' && priorStage !== 'requesting') {
-    entry.modelRequestStartedAt = now;
+  if (
+    stage === 'requesting' &&
+    (!entry.modelRequestStartedAt || entry.modelResponseAccepted || TERMINAL_STAGES.has(priorStage))
+  ) {
+    _beginLogicalModelRequest(entry, now);
   }
   entry.lastProgressAt = now;
   entry.updatedAt = now;
@@ -193,6 +216,9 @@ export function markSessionAskStart(id) {
   const now = Date.now();
   entry.askStartedAt = now;
   entry.modelRequestStartedAt = null;
+  entry.requestTransportAt = null;
+  entry.requestFirstSemanticAt = null;
+  entry.modelResponseAccepted = false;
   entry.lastProgressAt = now;
   entry.updatedAt = now;
   entry.taskWaits = 0;
@@ -229,6 +255,7 @@ export function markSessionTransportActivity(id) {
   if (!entry || entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
   const now = Date.now();
   entry.lastTransportAt = now;
+  entry.requestTransportAt = now;
   entry.updatedAt = now;
 }
 function _normalizeModelProgressKind(kind) {
@@ -262,7 +289,9 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   // Every semantic model event also proves transport health. The inverse is
   // intentionally false: raw chunks/keepalives update only lastTransportAt.
   entry.lastTransportAt = now;
+  entry.requestTransportAt = now;
   if (!entry.firstSemanticAt) entry.firstSemanticAt = now;
+  if (!entry.requestFirstSemanticAt) entry.requestFirstSemanticAt = now;
   entry.lastSemanticAt = now;
   entry.lastSemanticKind = progressKind;
   if (progressKind === 'reasoning') entry.lastReasoningAt = now;
@@ -296,7 +325,12 @@ export function markSessionToolCall(id, toolName) {
   entry.toolOutputTailAt = null;
   entry.toolStartedAt = Date.now();
   entry.lastTransportAt = entry.toolStartedAt;
+  entry.requestTransportAt = entry.toolStartedAt;
   if (!entry.firstSemanticAt) entry.firstSemanticAt = entry.toolStartedAt;
+  if (!entry.requestFirstSemanticAt) entry.requestFirstSemanticAt = entry.toolStartedAt;
+  // The response whose tool call runs now was accepted: the next model
+  // request carries its tool results and is a new logical request.
+  entry.modelResponseAccepted = true;
   entry.lastSemanticAt = entry.toolStartedAt;
   entry.lastSemanticKind = 'tool';
   entry.lastToolProtocolAt = entry.toolStartedAt;
@@ -436,6 +470,18 @@ export function markSessionCancelled(id) {
   entry.emptyFinalAt = null;
   _unlinkParentAbortListener(entry);
 }
+/**
+ * The session's current logical model request: when it started and whether
+ * it has produced semantic output yet. A provider stream opened for it — a
+ * retry or a route fallback included — bounds its first-output phase by this
+ * request instead of starting a fresh one. Null without a request.
+ */
+export function getLogicalModelRequest(sessionId) {
+  const entry = sessionId ? _runtimeState.get(sessionId) : null;
+  if (!entry?.modelRequestStartedAt) return null;
+  return { startedAt: entry.modelRequestStartedAt, outputSeen: Boolean(entry.requestFirstSemanticAt) };
+}
+
 export function getSessionRuntime(id) {
   return id ? _runtimeState.get(id) || null : null;
 }
@@ -458,14 +504,18 @@ export function getSessionProgressSnapshot(sessionId) {
   const firstActivityAt = firstSemanticAt;
   const stage = entry.stage || 'idle';
   const activeModelStage = stage === 'connecting' || stage === 'requesting' || stage === 'streaming';
-  const waitingForTransport = Boolean(modelRequestStartedAt && activeModelStage && !entry.lastTransportAt);
-  const waitingForFirstSemantic = Boolean(modelRequestStartedAt && activeModelStage && !firstSemanticAt);
+  // Judged per logical model request: output an earlier request of this turn
+  // produced never ends a later request's first-output phase.
+  const waitingForTransport = Boolean(modelRequestStartedAt && activeModelStage && !entry.requestTransportAt);
+  const waitingForFirstSemantic = Boolean(modelRequestStartedAt && activeModelStage && !entry.requestFirstSemanticAt);
   return {
     stage,
     askStartedAt,
     modelRequestStartedAt,
     firstActivityAt,
     firstSemanticAt,
+    requestTransportAt: entry.requestTransportAt || 0,
+    requestFirstSemanticAt: entry.requestFirstSemanticAt || 0,
     lastTransportAt: entry.lastTransportAt || 0,
     requestSentAt: entry.requestSentAt || 0,
     // Request on the wire, headers pending: the model is queued or thinking.

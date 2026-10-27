@@ -131,6 +131,7 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
           return await consumeCompatResponsesStream(stream, {
             signal: attemptSignal,
             label: 'xai:responses',
+            sessionId: opts.sessionId,
             onStreamDelta: opts.onStreamDelta,
             onToolCall: opts.onToolCall,
             onTextDelta: opts.onTextDelta,

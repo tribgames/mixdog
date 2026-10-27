@@ -259,6 +259,29 @@ export const PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS = resolveTimeoutMs(
   { minMs: 10_000, maxMs: Math.max(10_000, STALL_ABORT_MS - STALL_TICK_MS) }
 );
 
+// First-OUTPUT window of one provider stream: from the stream opening until
+// the model's first semantic output (reasoning, text or a tool call). Server
+// metadata and keepalives (response.created / in_progress, an empty reasoning
+// or message item, a role-only chunk, pings) neither end this phase nor start
+// the semantic-idle clock, so a reasoning model may think silently past the
+// idle window (issue #244: 4–6 min on a large post-tool-result prompt). The
+// window sits one tick under the stall abort — the same ceiling the semantic
+// idle uses — so the provider still fails (and may retry or fall back) before
+// the agent watchdog's first-output deadline (600s default), and it is never
+// shorter than the idle window it replaces. Not separately tunable: it
+// follows STALL_TIMEOUT_S.
+export const PROVIDER_FIRST_OUTPUT_TIMEOUT_MS = Math.max(
+  PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+  PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
+  STALL_ABORT_MS - STALL_TICK_MS
+);
+
+/** The first-output window of a stream whose semantic idle is `idleMs`: a
+ *  longer idle window (a provider profile) is never cut short by it. */
+export function providerFirstOutputTimeoutMs(idleMs = 0) {
+  return Math.max(Number(idleMs) || 0, PROVIDER_FIRST_OUTPUT_TIMEOUT_MS);
+}
+
 /**
  * The longest a provider's own first-byte handling may legitimately run
  * before it gives up, over every attempt it permits: `windowMs(n)` is the wait

@@ -27,11 +27,22 @@ export function createWsEventSwitch({
     // already cleared the pre-stream watchdog and armed the single idle timer.
     // response.created is a MEANINGFUL frame, so it also satisfies the
     // first-meaningful watchdog (keepalive/metadata frames never reach here,
-    // so they never clear it). Semantic idle is not armed until actual model
-    // progress; transport-only reasoning heartbeats are bounded by the outer
-    // first-visible ceiling instead.
+    // so they never clear it). It is still metadata, not model output: it
+    // neither ends the first-output phase nor arms the semantic idle, and the
+    // agent sees it as transport.
     watchdogs.clearFirstMeaningful();
-    progress('semantic');
+    progress('transport');
+  }
+
+  // Item lifecycle without output (an empty reasoning or message item):
+  // progress once the model has produced output, metadata before that.
+  function onItemLifecycle(kind) {
+    if (!watchdogs.semanticSeen()) {
+      progress('transport');
+      return;
+    }
+    watchdogs.resetSemantic();
+    progress(kind);
   }
 
   function onOutputTextDelta(delta) {
@@ -84,11 +95,16 @@ export function createWsEventSwitch({
       case 'response.output_item.added':
         response.noteItemAdded(event.item);
         reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
-        // Item lifecycle is genuine progress: reset the semantic-idle timer so
-        // long server-side tool latency after item-added (before any arg
-        // delta) is not mistaken for a silent stall.
-        watchdogs.resetSemantic();
-        progress(response.toolInFlight ? 'tool' : 'semantic');
+        // A tool item starting is model output: it resets the semantic-idle
+        // timer so long server-side tool latency after item-added (before any
+        // arg delta) is not mistaken for a silent stall. An empty reasoning or
+        // message item is lifecycle; the silent thinking follows it.
+        if (response.toolInFlight) {
+          watchdogs.bumpSemantic();
+          progress('tool');
+        } else {
+          onItemLifecycle('semantic');
+        }
         break;
       case 'response.function_call_arguments.delta':
       case 'response.custom_tool_call_input.delta':
@@ -115,9 +131,10 @@ export function createWsEventSwitch({
         const kind = response.completeOutputItem(event.item);
         // A stream that names the phase only on the finished message.
         if (event.item?.type === 'message') reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
-        // Item-done is genuine lifecycle progress — reset semantic idle so
-        // latency before the next item/args does not stall.
-        watchdogs.resetSemantic();
+        // A completed item (reasoning, message, tool call) is model output —
+        // it ends the first-output phase and resets semantic idle so latency
+        // before the next item/args does not stall.
+        watchdogs.bumpSemantic();
         progress(kind);
         break;
       }

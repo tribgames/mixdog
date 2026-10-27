@@ -184,6 +184,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
                 signal: attemptSignal,
                 label: provider.name,
                 providerName: provider.name,
+                sessionId: opts.sessionId,
                 onStreamDelta: opts.onStreamDelta,
                 onToolCall: opts.onToolCall,
                 onTextDelta: opts.onTextDelta,

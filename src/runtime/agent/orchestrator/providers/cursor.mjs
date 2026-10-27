@@ -677,6 +677,9 @@ class CursorProviderBase {
       return await consumeCompatChatCompletionStream(responseSseEvents(response, signal), {
         signal,
         label: this.name,
+        // The wrapper below always exists; the stream joins the session's
+        // logical request only when the caller reports progress into it.
+        sessionId: typeof sendOpts.onStreamDelta === 'function' ? sendOpts.sessionId : null,
         onStreamDelta: (delta) => {
           sendOpts.onStreamDelta?.(delta);
         },

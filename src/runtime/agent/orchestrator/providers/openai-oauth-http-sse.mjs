@@ -183,6 +183,8 @@ export async function sendViaHttpSse({
     totalTimeout,
     stallPartial: () => state.stallPartial(),
     label,
+    sessionId: opts?.sessionId ?? null,
+    reportsProgress: typeof onStreamDelta === 'function',
   });
   const meaningful = (kind = 'semantic') => {
     if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
@@ -191,12 +193,18 @@ export async function sendViaHttpSse({
       onStreamDelta?.(kind);
     } catch {}
   };
+  // Item lifecycle without output (an empty reasoning or message item added):
+  // progress once the model has produced output, metadata before that.
+  const lifecycle = (kind = 'semantic') => {
+    if (watchdogs.semanticSeen()) meaningful(kind);
+  };
   const state = createHttpSseResponseState({
     body,
     onToolCall,
     onTextDelta,
     onStreamItemStart: typeof opts?.onStreamItemStart === 'function' ? opts.onStreamItemStart : null,
     meaningful,
+    lifecycle,
     onServerEvent: watchdogs.noteServerEvent,
     label,
   });

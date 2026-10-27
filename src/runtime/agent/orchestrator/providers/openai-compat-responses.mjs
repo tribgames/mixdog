@@ -241,6 +241,7 @@ async function streamCompatResponses({ provider, params, label, signal, opts, he
           return await consumeCompatResponsesStream(stream, {
             signal: attemptSignal,
             label,
+            sessionId: opts.sessionId,
             onStreamDelta: opts.onStreamDelta,
             onToolCall: opts.onToolCall,
             onTextDelta: opts.onTextDelta,

@@ -285,7 +285,10 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
   const firstSemanticMs = policy.firstSemanticMs ?? policy.firstVisibleCeilingMs ?? 0;
   // Independent fixed deadlines from request start. Transport can satisfy
   // only the transport deadline; it never switches, extends, or resets the
-  // semantic-response deadline.
+  // semantic-response deadline. Both are judged per logical model request
+  // (runtime-liveness): the request that carries tool results gets the same
+  // first-output allowance as the turn's first request, while a retry of a
+  // request keeps that request's clock and marks.
   if (snapshot.waitingForTransport && firstTransportMs > 0 && startedAt && now - startedAt > firstTransportMs) {
     return new AgentStallAbortError(`agent first transport stale (${firstTransportMs}ms)`);
   }

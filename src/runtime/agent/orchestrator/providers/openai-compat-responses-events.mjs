@@ -35,6 +35,15 @@ function signal(ctx, kind) {
   } catch {}
 }
 
+// Server metadata or an item starting without output (response.created, an
+// empty reasoning or message item): the stream decides whether it is progress
+// (only once the model has produced output).
+function lifecycle(ctx, kind) {
+  try {
+    ctx.onLifecycle?.(kind);
+  } catch {}
+}
+
 // Copy the TYPED failure evidence a Responses `response.failed` / `error`
 // event carries (numeric HTTP status, provider error code/type) onto the
 // thrown error. Message text is never parsed, and nothing is synthesized when
@@ -147,7 +156,7 @@ function settleMaxOutputIncomplete(event, state, ctx, reason) {
 function onCreated(event, state, ctx) {
   if (event.response?.model) state.model = event.response.model;
   if (event.response?.id) state.responseId = event.response.id;
-  signal(ctx, 'semantic');
+  lifecycle(ctx, 'semantic');
 }
 
 function onOutputTextDelta(event, state, ctx) {
@@ -196,7 +205,8 @@ function onOutputItemAdded(event, state, ctx) {
     state.toolInFlight = true;
   }
   reportStreamItemStart(ctx.onStreamItemStart, responsesItemStart(event.item));
-  signal(ctx, state.toolInFlight ? 'tool' : 'semantic');
+  if (state.toolInFlight) signal(ctx, 'tool');
+  else lifecycle(ctx, 'semantic');
 }
 
 // A tool call's args (or custom-tool input) are streaming — mark tool work

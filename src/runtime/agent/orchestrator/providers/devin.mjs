@@ -405,6 +405,9 @@ export class DevinOAuthProvider {
         signal,
         label: this.name,
         providerName: this.name,
+        // The wrapper below always exists; the stream joins the session's
+        // logical request only when the caller reports progress into it.
+        sessionId: typeof sendOpts.onStreamDelta === 'function' ? sendOpts.sessionId : null,
         onStreamDelta: (delta) => {
           if (!streaming) {
             streaming = true;

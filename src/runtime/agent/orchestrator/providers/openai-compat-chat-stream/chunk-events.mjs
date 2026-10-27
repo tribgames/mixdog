@@ -5,7 +5,14 @@
  */
 import { mergeToolCallDelta } from './tool-call-acc.mjs';
 import { reportStreamItemStart } from '../lib/send-callbacks.mjs';
-import { appendText, drainLeakedCalls, relayText, reportProgress, reportTransport } from './stream-state.mjs';
+import {
+  appendText,
+  drainLeakedCalls,
+  relayText,
+  reportLifecycle,
+  reportProgress,
+  reportTransport,
+} from './stream-state.mjs';
 import { chatContentParts } from '../openai-compat-reasoning-field.mjs';
 
 function appendReasoning(state, text, source) {
@@ -50,7 +57,7 @@ export function applyCompatChunk(state, chunk) {
   const choice = chunk?.choices?.[0];
   const delta = choice?.delta;
   if (typeof delta?.role === 'string' && delta.role) {
-    reportProgress(state, 'semantic');
+    reportLifecycle(state, 'semantic');
   }
   const contentParts = chatContentParts(delta?.content);
   if (contentParts) applyContentParts(state, contentParts);

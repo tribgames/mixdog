@@ -15,7 +15,7 @@ function outputItemKind(item) {
   return 'semantic';
 }
 
-export function createOutputItemEvents({ state, items, meaningful }) {
+export function createOutputItemEvents({ state, items, meaningful, lifecycle }) {
   const { toolTracker } = state;
 
   const onOutputItemAdded = (item) => {
@@ -52,7 +52,10 @@ export function createOutputItemEvents({ state, items, meaningful }) {
       toolTracker.mark(item);
       state.toolInFlight = true;
     }
-    meaningful(state.toolInFlight ? 'tool' : 'semantic');
+    // A tool call starting is model output; an empty reasoning or message
+    // item is lifecycle (the silent thinking follows it).
+    if (state.toolInFlight) meaningful('tool');
+    else lifecycle('semantic');
   };
 
   const onToolInputDelta = (itemId) => {

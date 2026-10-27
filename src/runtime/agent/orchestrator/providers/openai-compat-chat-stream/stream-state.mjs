@@ -70,6 +70,13 @@ export function reportProgress(state, kind) {
   } catch {}
 }
 
+/** Chunk metadata without output (a role-only delta): progress once the
+ *  model has produced output; before that it neither ends the first-output
+ *  phase nor starts the semantic idle (the chunk already reported transport). */
+export function reportLifecycle(state, kind) {
+  if (state.semanticIdleDeadlineAt > 0) reportProgress(state, kind);
+}
+
 /** Text the model exposed: accumulate, refresh the idle deadline, relay live. */
 export function appendText(state, text) {
   state.content += text;
