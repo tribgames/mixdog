@@ -194,7 +194,11 @@
 #    line so it can be told apart from one-click's internal silence; here the
 #    privileged removal is logged as deferred and the service is left in place.
 # A declined prompt is only logged; the app files are still removed.
+# Declared only in the uninstaller pass: the installer pass never references
+# it, and makensis treats the unused variable warning (6001) as an error.
+!ifdef BUILD_UNINSTALLER
 Var MixdogSecureDesktopUnattended
+!endif
 
 !macro customUnInit
   StrCpy $MixdogSecureDesktopUnattended "0"
