@@ -13,8 +13,9 @@ import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
 import { openLoginUrl } from './lib/open-login-url.mjs';
+import { sleepWithAbort } from './retry-backoff.mjs';
 
-const TOKEN_URL = 'https://auth.openai.com/oauth/token';
+const DEFAULT_ISSUER = 'https://auth.openai.com';
 const AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
 const CODEX_OAUTH_SCOPE = 'openid profile email offline_access api.connectors.read api.connectors.invoke';
 const CALLBACK_HOST = '127.0.0.1';
@@ -23,6 +24,9 @@ const CALLBACK_PATH = '/auth/callback';
 const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
 const TOKEN_TIMEOUT_MS = 30_000;
+// Codex device-code login: the user has 15 minutes to enter the code.
+const DEVICE_LOGIN_TIMEOUT_MS = 15 * 60_000;
+const DEFAULT_DEVICE_INTERVAL_S = 5;
 
 function _scrubOAuthLoginBody(text) {
   return String(text || '')
@@ -40,21 +44,39 @@ function _scrubOAuthLoginBody(text) {
  * @param {(...tokens:string[])=>(object|null)} deps.identityFromTokens
  * @param {(token:string)=>number} deps.expiryFromAccessToken
  * @param {(tokens:object)=>void} deps.saveTokens
+ * @param {string} [deps.issuer] auth server base URL (tests point it at a fake server)
+ * @param {(ms:number, signal?:AbortSignal)=>Promise<void>} [deps.sleep] device-poll wait (tests inject a fast one)
+ * @param {()=>number} [deps.now]
+ * @param {number} [deps.deviceTimeoutMs] device-code login deadline (tests shorten it)
  */
 export function createOpenAIOAuthLogin(deps) {
-  const { clientId, originator, extractAccountId, identityFromTokens, expiryFromAccessToken, saveTokens } = deps;
+  const {
+    clientId,
+    originator,
+    extractAccountId,
+    identityFromTokens,
+    expiryFromAccessToken,
+    saveTokens,
+    issuer = DEFAULT_ISSUER,
+    sleep = sleepWithAbort,
+    now = Date.now,
+    deviceTimeoutMs = DEVICE_LOGIN_TIMEOUT_MS,
+  } = deps;
+  const issuerBase = issuer.replace(/\/+$/, '');
+  const tokenUrl = `${issuerBase}/oauth/token`;
+  const deviceApiBase = `${issuerBase}/api/accounts`;
 
-  async function exchangeAuthorizationCode({ pkce, code, signal = null }) {
+  async function exchangeAuthorizationCode({ pkce, code, redirectUri = REDIRECT_URI, signal = null }) {
     signal?.throwIfAborted();
     const cleanCode = String(code || '').trim();
     if (!cleanCode) throw new Error('[openai-oauth] authorization code is required');
-    const tokenRes = await fetch(TOKEN_URL, {
+    const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code: cleanCode,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri,
         client_id: clientId,
         code_verifier: pkce.verifier,
       }),
@@ -87,7 +109,111 @@ export function createOpenAIOAuthLogin(deps) {
     return tokens;
   }
 
+  const postJson = (path, body, signal) =>
+    fetch(`${deviceApiBase}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      redirect: 'error',
+      signal,
+    });
+
+  // Codex device-code flow (`codex login --device-auth`): the user enters a
+  // short code at the verification URL on any machine; this host polls until
+  // the server hands back an authorization code, then exchanges it with the
+  // deviceauth redirect URI. Resolves null when the server has no device flow.
+  async function beginDeviceLogin() {
+    const res = await postJson('/deviceauth/usercode', { client_id: clientId });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`[openai-oauth] device code request failed with status ${res.status}`);
+    const started = await res.json();
+    const userCode = started.user_code || started.usercode;
+    const deviceAuthId = started.device_auth_id;
+    if (!userCode || !deviceAuthId)
+      throw new Error('[openai-oauth] device code response missing user_code or device_auth_id');
+    const interval = Number(String(started.interval ?? '').trim());
+    const intervalMs = (Number.isFinite(interval) && interval > 0 ? interval : DEFAULT_DEVICE_INTERVAL_S) * 1000;
+    const url = `${issuerBase}/codex/device`;
+
+    const controller = new AbortController();
+    const { signal } = controller;
+    const timedOut = () => new Error('[openai-oauth] device auth timed out after 15 minutes');
+    // One poll, aborted at the login deadline so a stalled request cannot
+    // outlive it. A reply that arrives in time is honoured whatever the clock
+    // says afterwards (the user did authorize).
+    const pollOnce = async (left) => {
+      const deadlineController = new AbortController();
+      const timer = setTimeout(() => deadlineController.abort(), left);
+      try {
+        const poll = await postJson(
+          '/deviceauth/token',
+          { device_auth_id: deviceAuthId, user_code: userCode },
+          AbortSignal.any([signal, deadlineController.signal])
+        );
+        if (poll.ok) return { granted: await poll.json() };
+        // 403/404: the user has not approved the code yet.
+        if (poll.status !== 403 && poll.status !== 404) {
+          throw new Error(`[openai-oauth] device auth failed with status ${poll.status}`);
+        }
+        return { granted: null };
+      } catch (err) {
+        if (!signal.aborted && deadlineController.signal.aborted) throw timedOut();
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const pollForCode = async () => {
+      const deadline = now() + deviceTimeoutMs;
+      for (;;) {
+        const left = deadline - now();
+        if (left <= 0) throw timedOut();
+        const { granted } = await pollOnce(left);
+        if (granted) return granted;
+        await sleep(Math.min(intervalMs, Math.max(0, deadline - now())), signal);
+      }
+    };
+    const waitForCallback = (async () => {
+      try {
+        const granted = await pollForCode();
+        return await exchangeAuthorizationCode({
+          pkce: { verifier: granted.code_verifier },
+          code: granted.authorization_code,
+          redirectUri: `${issuerBase}/deviceauth/callback`,
+          signal,
+        });
+      } catch (err) {
+        // A cancelled login settles empty, as the browser flow does.
+        if (signal.aborted) return null;
+        throw err;
+      }
+    })();
+    // A cancelled or expired login may reject before a host attaches a listener.
+    waitForCallback.catch(() => {});
+    process.stderr.write(
+      `\n[openai-oauth] To log in to ChatGPT (OpenAI OAuth), open:\n${url}\nand enter this code: ${userCode}\n\n`
+    );
+    return {
+      provider: 'openai-oauth',
+      url,
+      userCode,
+      waitForCallback,
+      cancel: () => controller.abort(),
+    };
+  }
+
+  // Without a browser on this host (headless/SSH) the device-code flow is used;
+  // like Codex, a server that has none (404) falls back to the browser flow.
   async function beginOAuthLogin({ openBrowser = true } = {}) {
+    if (!openBrowser) {
+      const device = await beginDeviceLogin();
+      if (device) return device;
+      process.stderr.write('\n[openai-oauth] Device code login is not enabled; falling back to browser login.\n');
+    }
+    return await beginBrowserLogin({ openBrowser });
+  }
+
+  async function beginBrowserLogin({ openBrowser }) {
     const pkce = createOAuthPkce(64);
     const state = randomBytes(16).toString('hex');
     const url = new URL(AUTHORIZE_URL);

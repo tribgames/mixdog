@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 
 import { waitUntil } from '../bounded-wait.mjs';
+import { createSessionOAuthFlowRegistry } from '../../../../../src/tui/session/oauth-flows.mjs';
 import { callbackPortOf, createServerLoginHandlers } from './ssh-ipc-server-logins.ts';
 
 const HOST = { id: 'h1', name: 'build-box', target: 'dev@build-box', lastConnectedAt: 1 };
@@ -263,6 +264,46 @@ test('a plain verification URL carries the separate device code and the manual-c
   const status = await s.handlers.status('h1', 'f1');
   assert.equal(status.userCode, 'ABCD-1234');
   assert.equal(status.manualCodeSupported, false);
+});
+
+test('a ChatGPT device-code login over SSH shows the code and completes when the server finishes it', async () => {
+  // The server side is the real flow registry fed an OpenAI device start
+  // (openai-oauth-login.mjs): url + userCode, no completeCode.
+  const registry = createSessionOAuthFlowRegistry();
+  const done = Promise.withResolvers();
+  const verification = 'https://auth.openai.com/codex/device';
+  const started = [];
+  const s = setup({
+    answers: {
+      beginOAuthProviderLogin: (provider, options) => {
+        started.push(options);
+        return registry.register({
+          provider,
+          url: verification,
+          userCode: 'ABCD-1234',
+          waitForCallback: done.promise,
+          cancel: () => undefined,
+        });
+      },
+      getOAuthProviderLoginStatus: (flowId) => registry.status(flowId),
+    },
+  });
+  const flow = await s.handlers.begin('h1', 'openai-oauth');
+  assert.deepEqual(started, [{ openBrowser: false }]);
+  assert.equal(flow.url, verification);
+  assert.equal(flow.userCode, 'ABCD-1234');
+  assert.equal(flow.manualCodeSupported, false);
+  assert.equal(flow.forwarded, false);
+  assert.equal(s.forwards.length, 0);
+  assert.deepEqual(s.opened, [verification]);
+  const waiting = await s.handlers.status('h1', flow.flowId);
+  assert.equal(waiting.state, 'pending');
+  assert.equal(waiting.userCode, 'ABCD-1234');
+  done.resolve({ access_token: 'at' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const finished = await s.handlers.status('h1', flow.flowId);
+  assert.equal(finished.state, 'complete');
+  registry.cancelAll();
 });
 
 test('a disconnect or a changed model login closes the forward at once, without any status read', async () => {

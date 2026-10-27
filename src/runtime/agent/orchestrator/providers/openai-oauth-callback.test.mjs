@@ -16,6 +16,8 @@ const createLogin = (saveTokens = () => {}) =>
 // beginOAuthLogin returns before the callback server has bound its fixed
 // port, so a request sent straight away can be refused. Wait for the server's
 // own 'listening' event (or its bind error) before returning the login.
+// A headless login tries the device flow first; these tests exercise the
+// browser callback, so the usercode endpoint answers 404 (Codex's fallback).
 async function beginListening(t, login) {
   const listening = Promise.withResolvers();
   const listen = Server.prototype.listen;
@@ -24,11 +26,17 @@ async function beginListening(t, login) {
     this.once('error', listening.reject);
     return listen.apply(this, args);
   });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (input, init) =>
+    String(input).includes('/deviceauth/usercode')
+      ? Promise.resolve(new Response('', { status: 404 }))
+      : realFetch(input, init);
   try {
     const pending = await login.beginOAuthLogin({ openBrowser: false });
     await listening.promise;
     return pending;
   } finally {
+    globalThis.fetch = realFetch;
     mocked.mock.restore();
   }
 }
@@ -36,7 +44,10 @@ async function beginListening(t, login) {
 // A login whose token endpoint answers only when the test releases the gate.
 async function gatedLogin(t) {
   const saved = [];
-  const pending = await beginListening(t, createLogin((tokens) => saved.push(tokens)));
+  const pending = await beginListening(
+    t,
+    createLogin((tokens) => saved.push(tokens))
+  );
   const state = new URL(pending.url).searchParams.get('state');
   const gate = Promise.withResolvers();
   const exchangeStarted = Promise.withResolvers();
