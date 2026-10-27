@@ -16,6 +16,7 @@ import {
 } from './tool-catalog.mjs';
 import { createSkillsApi } from '../../../../session-runtime/skills-api.mjs';
 import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
+import { HANDOFF_USER_TOOL_DEFS } from './ask-user-tool-defs.mjs';
 import { parseNativeToolSearchPayload } from '../session/loop/tool-helpers.mjs';
 import { buildRequestBody } from '../providers/openai-responses-payload.mjs';
 import { toAnthropicMessages } from '../providers/lib/anthropic-request-utils.mjs';
@@ -255,8 +256,8 @@ test('MCP dependencies load only registered server tools, and never follow insta
 
 test('every bundled skill declares its mandatory existing tools without eagerly linking optional capabilities', () => {
   const expected = {
-    'browser-use': ['browser'],
-    'computer-use': ['computer'],
+    'browser-use': ['browser', 'handoff_user'],
+    'computer-use': ['computer', 'handoff_user'],
     'code-tidy': ['tidy'],
     docx: ['office'],
     pdf: ['office'],
@@ -284,6 +285,46 @@ test('every bundled skill declares its mandatory existing tools without eagerly 
       parsed.frontmatter.dependencies.tools.map((entry) => entry.value),
       expected[name]
     );
+  }
+});
+
+test('loading browser-use or computer-use makes the deferred handoff_user schema available; agents are refused', () => {
+  const root = new URL('../../../../defaults/skills/', import.meta.url);
+  const handoff = HANDOFF_USER_TOOL_DEFS[0];
+  const bridged = (name) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} } });
+  for (const name of ['browser-use', 'computer-use']) {
+    const parsed = parseSkillDocument(readFileSync(new URL(`${name}/SKILL.md`, root), 'utf8'));
+    const toolDependencies = parsed.frontmatter.dependencies.tools;
+    for (const provider of ['openai-oauth', 'anthropic-oauth']) {
+      const current = session(provider, [skill, read, bridged('browser'), bridged('computer'), handoff], 'full');
+      assert.equal(
+        current.tools.some((tool) => tool.name === 'handoff_user'),
+        false,
+        'deferred: not eager'
+      );
+      const loaded = loadSkillToolDependencies(
+        contextMod.buildSkillToolEnvelope(name, parsed.body ?? '# Skill', `/skills/${name}`, { toolDependencies }),
+        current
+      );
+      assert.ok(current.skillLoadedTools.includes('handoff_user'), `${name} on ${provider}`);
+      assert.ok(current.deferredCallableTools.includes('handoff_user'));
+      assert.doesNotMatch(loaded.result, /unavailable/);
+      if (provider === 'openai-oauth') {
+        const native = parseNativeToolSearchPayload('Skill', loaded.result);
+        const loadedHandoff = native.openaiTools.find((tool) => tool.name === 'handoff_user');
+        assert.deepEqual(loadedHandoff.parameters, handoff.inputSchema);
+      }
+    }
+    // An agent session cannot take it: the dependency is reported unavailable.
+    const agent = session('openai-oauth', [skill, read, bridged('browser'), bridged('computer'), handoff], 'full');
+    agent.owner = 'agent';
+    agent.agent = 'worker';
+    const refused = loadSkillToolDependencies(
+      contextMod.buildSkillToolEnvelope(name, '# Skill', `/skills/${name}`, { toolDependencies }),
+      agent
+    );
+    assert.match(refused.result, /handoff_user \(.*Lead-only/);
+    assert.equal(agent.skillLoadedTools?.includes('handoff_user') ?? false, false);
   }
 });
 

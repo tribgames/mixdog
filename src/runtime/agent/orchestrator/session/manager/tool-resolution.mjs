@@ -51,7 +51,7 @@ const FILESYSTEM_TOOL_NAMES = new Set(['code_graph', 'find', 'glob', 'list', 'gr
 const READONLY_FS_TOOL_NAMES = new Set(['code_graph', 'find', 'glob', 'list', 'grep', 'read']);
 
 // Lead-only control tools: never part of a worker/sub-agent session surface.
-export const AGENT_WORKER_DENIED_TOOLS = Object.freeze(new Set(['agent', 'ask_user', 'session']));
+export const AGENT_WORKER_DENIED_TOOLS = Object.freeze(new Set(['agent', 'ask_user', 'handoff_user', 'session']));
 
 export function finalizeSessionToolList(
   tools,

@@ -397,6 +397,7 @@ const DESKTOP_TOOL_ACTIVITY_ALIASES = new Map([
   ['write', 'edit'],
   ['question', 'request_user_input'],
   ['ask_user', 'request_user_input'],
+  ['handoff_user', 'request_user_input'],
   ['todowrite', 'update_plan'],
 ]);
 

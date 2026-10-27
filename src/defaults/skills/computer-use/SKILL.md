@@ -8,6 +8,8 @@ dependencies:
   tools:
     - type: tool
       value: computer
+    - type: tool
+      value: handoff_user
 ---
 
 # Computer Use
@@ -241,9 +243,9 @@ your results and that browser's pixels are withheld until this turn ends
 (`ax` reads still work), but a page that redisplays it can expose it, and other
 programs of the same Windows user are outside this protection. A username is
 an identifier and is not hidden. Continue with keys (`act` key Enter). On a
-refusal, hand the secret to the user (`ask_user` kind `secret`,
+refusal, hand the secret to the user (`handoff_user` kind `secret`,
 surface `computer`); one-time codes, passkeys, security keys and app approvals
-are the user's step (`ask_user` kind `takeover`). Never type a password or
+are the user's step (`handoff_user` kind `takeover`). Never type a password or
 code with `type`/`set_value`, even one shown on screen.
 
 **Keyboard-driven navigation** — `act` with `key` steps such as `ctrl+s`

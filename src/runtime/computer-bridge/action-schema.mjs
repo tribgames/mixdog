@@ -362,13 +362,13 @@ export const COMPUTER_ACTION_CONTRACTS = [
           type: 'string',
           minLength: 1,
           description:
-            "Fallback sign-in in the user's own browser; prefer its existing session/SSO or Browser Use's saved sign-in. Saved login (username or masked label; a miss lists the site's labels) written after host checks into the focused field of a Chrome/Edge HTTPS page. The site receives it. A password is kept from you and its browser's pixels are withheld this turn, but a page that redisplays it can expose it, and other programs of the same Windows user are outside this protection; a username is not hidden. On refusal hand the secret to the user (ask_user secret, surface computer).",
+            "Fallback sign-in in the user's own browser; prefer its existing session/SSO or Browser Use's saved sign-in. Saved login (username or masked label; a miss lists the site's labels) written after host checks into the focused field of a Chrome/Edge HTTPS page. The site receives it. A password is kept from you and its browser's pixels are withheld this turn, but a page that redisplays it can expose it, and other programs of the same Windows user are outside this protection; a username is not hidden. On refusal hand the secret to the user (handoff_user secret, surface computer).",
         },
         field: {
           type: 'string',
           enum: SAVED_LOGIN_FIELDS,
           description:
-            "username (text field) or password (password field). One-time codes, passkeys, security keys and app approvals are the user's step: ask_user takeover.",
+            "username (text field) or password (password field). One-time codes, passkeys, security keys and app approvals are the user's step: handoff_user takeover.",
         },
       },
       ['savedAccount', 'field']

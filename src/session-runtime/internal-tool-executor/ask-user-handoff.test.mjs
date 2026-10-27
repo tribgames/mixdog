@@ -8,7 +8,7 @@ import test from 'node:test';
 import { createAskUserToolHandlers, runAskUserHandoff } from './ask-user-tool.mjs';
 import { createToolApproval } from '../../tui/session/tool-approval.mjs';
 import { createHumanGateStore, setHumanGateStore } from '../../runtime/agent/orchestrator/session/human-gate/store.mjs';
-import { validateAskUserHandoff } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
+import { validateUserHandoff } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
 import {
   humanRequestFields,
   normalizeHumanResponse,
@@ -16,16 +16,16 @@ import {
 
 test('a takeover carries its validated target identity to the presented request; junk identities are dropped', async (t) => {
   sinks(t);
-  const browser = validateAskUserHandoff({
+  const browser = validateUserHandoff({
     handoff: { kind: 'takeover', surface: 'browser', instructions: 'Sign in', target: 'shop login', tab: 'p2' },
   });
   assert.deepEqual(browser.identity, { tab: 'p2' });
   assert.equal(browser.need, 'action');
-  const junk = validateAskUserHandoff({
+  const junk = validateUserHandoff({
     handoff: { kind: 'takeover', surface: 'browser', instructions: 'x', tab: 'p2"; alert(1)', window_id: 'hwnd:0x1' },
   });
   assert.deepEqual(junk.identity, {}, 'a non-token tab and a computer field on a browser takeover are dropped');
-  const computer = validateAskUserHandoff({
+  const computer = validateUserHandoff({
     handoff: { kind: 'takeover', surface: 'computer', instructions: 'x', window_id: 'hwnd:0x1A', app: 'Bank' },
   });
   assert.deepEqual(computer.identity, { windowId: 'hwnd:0x1A', app: 'Bank' });
@@ -56,7 +56,7 @@ test('a takeover carries its validated target identity to the presented request;
 
 test('a login takeover carries purpose, validated page and page binding; without it nothing changes', async (t) => {
   sinks(t);
-  const login = validateAskUserHandoff({
+  const login = validateUserHandoff({
     handoff: {
       kind: 'takeover',
       surface: 'browser',
@@ -109,7 +109,7 @@ test('a login takeover carries purpose, validated page and page binding; without
   });
   // Loopback http is a local site; everything else must be https.
   assert.equal(
-    validateAskUserHandoff({
+    validateUserHandoff({
       handoff: {
         kind: 'takeover',
         surface: 'browser',
@@ -129,7 +129,7 @@ test('a login takeover carries purpose, validated page and page binding; without
   ]) {
     assert.throws(
       () =>
-        validateAskUserHandoff({
+        validateUserHandoff({
           handoff: { kind: 'takeover', surface: 'browser', purpose: 'login', url, instructions: 'x' },
         }),
       /https url/,
@@ -138,14 +138,14 @@ test('a login takeover carries purpose, validated page and page binding; without
   }
   assert.throws(
     () =>
-      validateAskUserHandoff({
+      validateUserHandoff({
         handoff: { kind: 'takeover', surface: 'computer', purpose: 'login', url: 'https://a.com', instructions: 'x' },
       }),
     /browser takeover/
   );
   assert.throws(
     () =>
-      validateAskUserHandoff({
+      validateUserHandoff({
         handoff: { kind: 'takeover', surface: 'browser', purpose: 'pay', url: 'https://a.com', instructions: 'x' },
       }),
     /browser takeover/
@@ -158,7 +158,7 @@ test('a login takeover carries purpose, validated page and page binding; without
     }).takeover.purpose,
     undefined
   );
-  const plain = validateAskUserHandoff({
+  const plain = validateUserHandoff({
     handoff: { kind: 'takeover', surface: 'browser', instructions: 'Solve the CAPTCHA', url: 'https://a.com' },
   });
   assert.equal(plain.login, undefined, 'no purpose, no login: the side-panel takeover stays');
@@ -324,7 +324,7 @@ test('a secret is bound at request time: no page or no field never asks; a compu
     asked.push(request);
     return { approved: true, response: 'provide-secret' };
   };
-  const browser = validateAskUserHandoff({ handoff: { kind: 'secret', surface: 'browser', field: 'Code', tab: 'p3' } });
+  const browser = validateUserHandoff({ handoff: { kind: 'secret', surface: 'browser', field: 'Code', tab: 'p3' } });
   const seen = [];
   const page = (facts) => async (_session, action, fields) => {
     seen.push([action, fields.tab]);
@@ -364,7 +364,7 @@ test('a secret is bound at request time: no page or no field never asks; a compu
     form: 'otp',
     length: 8,
   });
-  const computer = validateAskUserHandoff({
+  const computer = validateUserHandoff({
     handoff: { kind: 'secret', surface: 'computer', field: 'PIN', window_id: 'hwnd:0x2', ref: 'e7' },
   });
   const typed = [];
@@ -415,7 +415,7 @@ test('a computer secret without an exact window and field is refused at request 
     { kind: 'secret', surface: 'computer', field: 'PIN', window_id: 'hwnd 0x2; x', ref: 'e7' },
     { kind: 'secret', surface: 'computer', field: 'PIN', window_id: 'hwnd:0x2', ref: '"e7"' },
   ]) {
-    const validated = validateAskUserHandoff({ handoff });
+    const validated = validateUserHandoff({ handoff });
     assert.equal(
       await runAskUserHandoff(validated, { hook, sessionId: 's', inputs }),
       'no_field',
@@ -425,7 +425,7 @@ test('a computer secret without an exact window and field is refused at request 
   assert.deepEqual(asked, [], 'the user is never asked for a value with no confirmed field');
   assert.deepEqual(calls, [], 'nothing is bound or typed');
   // The desktop cannot bind it (no desktop, or it refuses the target): never asked either.
-  const exact = validateAskUserHandoff({
+  const exact = validateUserHandoff({
     handoff: { kind: 'secret', surface: 'computer', field: 'PIN', window_id: 'hwnd:0x2', ref: 'e7' },
   });
   for (const [answer, outcome] of [
@@ -469,7 +469,7 @@ test("a code length is the bound field's own, or absent; every saved login is pr
 
 test('a login takeover carries its masked saved logins to the card; never more than ids and labels', async (t) => {
   sinks(t);
-  const login = validateAskUserHandoff({
+  const login = validateUserHandoff({
     handoff: {
       kind: 'takeover',
       surface: 'browser',
@@ -505,10 +505,10 @@ test('a login takeover carries its masked saved logins to the card; never more t
   assert.equal(forged.fillId, undefined);
 });
 
-test('takeover waits for done; ask_user validates the handoff shape', async () => {
-  const { ask_user } = createAskUserToolHandlers({ rt: { session: { id: 's1' } } });
+test('takeover waits for done; handoff_user validates the handoff shape', async () => {
+  const { handoff_user, ask_user } = createAskUserToolHandlers({ rt: { session: { id: 's1' } } });
   let asked;
-  const done = await ask_user(
+  const done = await handoff_user(
     { handoff: { kind: 'takeover', surface: 'browser', instructions: 'Solve the CAPTCHA' } },
     {
       callerCtx: {
@@ -525,10 +525,13 @@ test('takeover waits for done; ask_user validates the handoff shape', async () =
   assert.equal(asked.takeover.instructions, 'Solve the CAPTCHA');
   assert.equal(asked.timeoutMs, null);
   assert.ok(!asked.takeover.target, 'no target named, none carried');
-  assert.throws(() => validateAskUserHandoff({ handoff: { kind: 'takeover', surface: 'browser' } }), /instructions/);
-  assert.throws(() => validateAskUserHandoff({ handoff: { kind: 'secret', surface: 'tv' } }), /surface/);
-  assert.throws(
-    () => validateAskUserHandoff({ questions: [], handoff: { kind: 'secret', surface: 'browser' } }),
-    /not both/
+  assert.throws(() => validateUserHandoff({ handoff: { kind: 'takeover', surface: 'browser' } }), /instructions/);
+  assert.throws(() => validateUserHandoff({ handoff: { kind: 'secret', surface: 'tv' } }), /surface/);
+  assert.equal(asked.name, 'handoff_user');
+  assert.throws(() => validateUserHandoff({}), /needs a handoff/);
+  // ask_user takes questions only: an old-style handoff is pointed at handoff_user.
+  await assert.rejects(
+    ask_user({ handoff: { kind: 'secret', surface: 'browser' } }, { callerCtx: {} }),
+    /handoff_user/
   );
 });

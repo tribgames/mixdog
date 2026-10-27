@@ -91,6 +91,7 @@ const TOOL_CATEGORY = new Map([
   ['goal', 'Setup'],
   ['request_user_input', 'Setup'],
   ['ask_user', 'Setup'],
+  ['handoff_user', 'Setup'],
   ['update_plan', 'Setup'],
   ['skill', 'Skill'],
   ['skill_execute', 'Skill'],
@@ -734,6 +735,7 @@ const TOOL_UNITS = new Map([
   ['code_graph', codeGraphUnit],
   ['request_user_input', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
   ['ask_user', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
+  ['handoff_user', () => unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' })],
   ['update_plan', () => unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'plan' })],
   ['list_mcp_resources', () => unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource' })],
   [

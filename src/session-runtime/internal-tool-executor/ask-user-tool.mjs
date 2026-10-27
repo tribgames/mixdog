@@ -1,8 +1,9 @@
 // ask_user: put 1-4 multiple-choice questions to the user through the session's
 // tool-approval hook (kind: 'question') and report the answers to the model.
+// handoff_user (the secret / takeover handoff) shares this module's human-gate code.
 import { randomUUID } from 'node:crypto';
 import {
-  validateAskUserHandoff,
+  validateUserHandoff,
   validateAskUserQuestions,
   ASK_USER_MAX_TEXT,
 } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
@@ -78,7 +79,7 @@ export async function runAskUserHandoff(handoff, { hook, sessionId, toolCallId, 
   const gate = {
     agentId: agentIdForSession(sessionId),
     kind: handoff.kind,
-    tool: `ask_user:${handoff.surface}`,
+    tool: `handoff_user:${handoff.surface}`,
     target: handoff.target || handoff.field || '',
   };
   // A schedule or webhook run has nobody to take over: the step ends it now,
@@ -133,7 +134,7 @@ export async function runAskUserHandoff(handoff, { hook, sessionId, toolCallId, 
     }
     const result = await runAbortable(signal, () =>
       hook({
-        name: 'ask_user',
+        name: 'handoff_user',
         kind: 'secret',
         secret: { requestId, surface: handoff.surface, target: handoff.target, field: handoff.field, ...bound },
         reason: '',
@@ -171,7 +172,7 @@ export async function runAskUserHandoff(handoff, { hook, sessionId, toolCallId, 
     : null;
   const result = await runAbortable(signal, () =>
     hook({
-      name: 'ask_user',
+      name: 'handoff_user',
       kind: 'takeover',
       takeover: {
         surface: handoff.surface,
@@ -278,16 +279,14 @@ function formatAskUserResult(questions, answers, reply) {
 export function createAskUserToolHandlers({ rt }) {
   const { sessionIdFor, signalFor } = createCallerContextResolvers(rt);
   return {
+    handoff_user: async (args, { callerCtx }) =>
+      runAskUserHandoff(validateUserHandoff(args), {
+        hook: callerCtx?.toolApprovalHook,
+        sessionId: sessionIdFor(callerCtx),
+        toolCallId: callerCtx?.toolCallId || null,
+        signal: signalFor(callerCtx),
+      }),
     ask_user: async (args, { callerCtx }) => {
-      const handoff = validateAskUserHandoff(args);
-      if (handoff) {
-        return runAskUserHandoff(handoff, {
-          hook: callerCtx?.toolApprovalHook,
-          sessionId: sessionIdFor(callerCtx),
-          toolCallId: callerCtx?.toolCallId || null,
-          signal: signalFor(callerCtx),
-        });
-      }
       const questions = validateAskUserQuestions(args);
       const hook = callerCtx?.toolApprovalHook;
       if (typeof hook !== 'function') return NO_USER;

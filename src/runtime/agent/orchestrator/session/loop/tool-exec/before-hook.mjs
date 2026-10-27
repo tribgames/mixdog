@@ -132,8 +132,8 @@ export async function applyBeforeToolHook({
   mcpScopeId = null,
 }) {
   const call = { name, args, cwd };
-  // ask_user is itself the user prompt; it never goes through the ordinary approval gate.
-  if (name === 'ask_user') return call;
+  // ask_user and handoff_user are themselves the user prompt; they never go through the ordinary approval gate.
+  if (name === 'ask_user' || name === 'handoff_user') return call;
   try {
     const hookDecision = beforeToolHook
       ? await runAbortable(executeOpts.signal, () =>

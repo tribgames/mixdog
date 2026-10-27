@@ -19,7 +19,7 @@ import { providerToolExclusionReason } from './provider-tool-exclusions.mjs';
 import { workflowOverlayDenial } from '../manager/workflow-switch-notice.mjs';
 import { agentMcpToolPermission, connectorPolicyAgentOf, projectMcpToolDisabled } from '../../mcp/agent-connectors.mjs';
 
-const WORKER_DENIED_TOOLS = new Set(['agent', 'ask_user', 'session']);
+const WORKER_DENIED_TOOLS = new Set(['agent', 'ask_user', 'handoff_user', 'session']);
 const BRIDGE_DISCOVERY_TOOL_NAMES = new Set(['load_tool']);
 
 const IMAGE_PATH_RE = /\.(?:png|jpe?g|gif|webp)(?:$|[?#])/i;

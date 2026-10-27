@@ -148,9 +148,11 @@ function toolCallSummaryLine(call, result) {
   // Arguments arrive redacted (splitFreshSource); the outcome is redacted
   // here, before any cut can split a secret from its key.
   const outcome = redactRawSecretString(contentText(result?.content)).trim();
-  // An ask_user result is the user's own answer: never cut.
+  // An ask_user or handoff_user result is the user's own answer: never cut.
   const shown =
-    call.name === 'ask_user' ? outcome : boundedSummaryText(outcome.replace(/\s+/g, ' '), SUMMARY_TOOL_OUTCOME_CHARS);
+    call.name === 'ask_user' || call.name === 'handoff_user'
+      ? outcome
+      : boundedSummaryText(outcome.replace(/\s+/g, ' '), SUMMARY_TOOL_OUTCOME_CHARS);
   return `[tool call] ${call.name}(${args}) → ${result ? shown || '(empty result)' : '(no result)'}`;
 }
 

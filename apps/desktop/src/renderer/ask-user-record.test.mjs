@@ -58,6 +58,23 @@ test('a question asked through the call_tool bridge is still a question', () => 
   assert.equal(holdsWaitingAskUser({ ...bridged, args: { name: 'read', arguments: {} } }), false);
 });
 
+test("a handoff (handoff_user, or an older transcript's ask_user handoff) waits and settles as a card", () => {
+  const handoff = { kind: 'takeover', surface: 'browser', instructions: 'Solve the CAPTCHA' };
+  const calls = [
+    { kind: 'tool', id: 'h1', name: 'handoff_user', args: { handoff } },
+    { kind: 'tool', id: 'h2', name: 'ask_user', args: { handoff } },
+    { kind: 'tool', id: 'h3', name: 'call_tool', args: { name: 'handoff_user', arguments: { handoff } } },
+  ];
+  for (const call of calls) {
+    assert.equal(holdsWaitingAskUser(call), true, call.id);
+    assert.equal(splitAskUser([call], true).waiting, true, call.id);
+    assert.deepEqual(
+      splitAskUser([{ ...call, result: 'User pressed Done' }], true).asked.map((item) => item.id),
+      [call.id]
+    );
+  }
+});
+
 test('a chat reply leads the result and the picks still parse', () => {
   const both =
     'User replied in chat: "keep \\"it\\"". User has answered your questions: "q1"="PG"; "q2"=(no answer). You can now continue with these answers in mind.';

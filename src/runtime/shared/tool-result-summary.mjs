@@ -648,7 +648,7 @@ const summarizeAskUserResult = ({ text, translate }) => {
 
 const TOOL_RESULT_SUMMARIZERS = new Map(
   [
-    [['ask_user'], summarizeAskUserResult],
+    [['ask_user', 'handoff_user'], summarizeAskUserResult],
     [['read', 'view_image', 'read_mcp_resource'], summarizeReadResult],
     [['apply_patch'], summarizePatchResult],
     [['grep'], summarizeGrepResult],

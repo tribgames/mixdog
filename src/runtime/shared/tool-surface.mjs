@@ -151,6 +151,7 @@ export function displayToolName(name, args = {}) {
     case 'request_user_input':
       return 'Ask User';
     case 'ask_user':
+    case 'handoff_user':
       return 'Question';
     case 'update_plan':
       return 'Plan';
@@ -239,6 +240,8 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return summarizeGithub(a, max);
     case 'goal':
       return compactParts([String(a.action || ''), truncateToolText(a.objective, max)]);
+    case 'handoff_user':
+      return '';
     case 'ask_user':
       return truncateToolText(
         (Array.isArray(a.questions) ? a.questions : [])

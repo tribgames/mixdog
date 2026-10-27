@@ -8,6 +8,8 @@ dependencies:
   tools:
     - type: tool
       value: browser
+    - type: tool
+      value: handoff_user
 ---
 
 # Browser Use
@@ -170,7 +172,7 @@ not as two blocks joined.
     a submitted form's result.
   - **Handoff** — the user must act on the page: payment, approval, or an
     unfinished workflow they continue. A sign-in, CAPTCHA or 2FA step you
-    wait on is an `ask_user` takeover instead (User step mid-flow).
+    wait on is a `handoff_user` takeover instead (User step mid-flow).
 - `open` replies with exactly one placement: "Shown in the browser panel",
   "Not on screen yet" (this conversation or its panel is not visible; the
   page appears when the user opens it), or an error. Tell the user that and
@@ -200,12 +202,12 @@ not as two blocks joined.
   pages.
 - **User step mid-flow** — a CAPTCHA or human check, 2FA, or identity check is
   a handoff, not completion (an e-mail check of a flow you started is not one:
-  E-mail verification). With `ask_user`, call it with `handoff: { kind:
+  E-mail verification). With `handoff_user`, call it with `handoff: { kind:
   'takeover', surface: 'browser', tab, instructions, need }`: it shows the
   takeover card, notifies the user, opens that page beside the chat, and
   returns when they press Done; continue from a fresh observation. Never ask
   for the step in plain chat or tell the user to open the panel. Without
-  `ask_user` (an agent), retain the page with `open`, report the required
+  `handoff_user` (an agent), retain the page with `open`, report the required
   user action, and stop.
 - Preserve pre-existing user tabs, unfinished forms, and pages needed for
   recovery. If ownership or disposability is unclear, preserve the page;
@@ -383,7 +385,7 @@ in the page instead of retrying the same `navigate`.
   `MIXDOG_BROWSER_CONFIRM_ACTIONS` and
   `MIXDOG_BROWSER_DENY_ACTIONS` optionally name comma-separated public actions
   (or `*`) the desktop app confirms once or refuses; denial takes precedence.
-- For a password or token, focus the field and call `ask_user` with
+- For a password or token, focus the field and call `handoff_user` with
   `handoff: { kind: 'secret', surface: 'browser' }`; for sign-in, CAPTCHA or
   2FA use `kind: 'takeover'` with instructions. Never ask for secrets or
   these steps in plain chat.

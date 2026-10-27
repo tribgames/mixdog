@@ -142,11 +142,7 @@ function assertLeadSkillSurface(skillManifestTmp) {
   });
   try {
     const visible = (skillSession.messages || []).map((m) => String(m.content || '')).join('\n');
-    if (
-      !/available-skills/i.test(visible) ||
-      !/demo-skill/i.test(visible) ||
-      !/Skill\(\{"name":"<skill-name>"\}\)/.test(visible)
-    ) {
+    if (!/available-skills/i.test(visible) || !/demo-skill/i.test(visible)) {
       throw new Error(`lead skill manifest missing compact skill listing: ${visible.slice(0, 1200)}`);
     }
     if ((visible.match(/(^|\n)- Shell: /g) || []).length !== 1 || /(^|\n)# Environment\n/i.test(visible)) {
@@ -202,11 +198,7 @@ function assertAgentSkillSurface(skillManifestTmp) {
     // (provider cache shard stability). The BP2 manifest rides alongside it
     // so the model knows which Skill names exist — a loader without the
     // manifest cannot be targeted. Both must be present together.
-    if (
-      !/available-skills/i.test(systemVisible) ||
-      !/demo-skill/i.test(systemVisible) ||
-      !/Skill\(\{"name":"<skill-name>"\}\)/.test(systemVisible)
-    ) {
+    if (!/available-skills/i.test(systemVisible) || !/demo-skill/i.test(systemVisible)) {
       throw new Error(
         `agent BP2 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`
       );

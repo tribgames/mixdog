@@ -5,11 +5,12 @@ import { asRecord } from './text-format';
 import { desktopToolDisplayIdentity } from './transcript-tool-core';
 import { askUserAnswers, askUserChatReply, toolActivityResultValue } from './transcript-tool-result';
 
-/** The ask_user arguments of a call, direct or through the call_tool bridge; null for any other call. */
+/** The ask_user arguments of a call, direct or through the call_tool bridge; null for any other call.
+ *  A handoff is `handoff_user`, or (older transcripts) an `ask_user` call with a `handoff`. */
 function askUserArgs(item: TranscriptItem): Record<string, unknown> | null {
   if (item.kind !== 'tool') return null;
   const identity = desktopToolDisplayIdentity(item.name, item.args);
-  return identity.name === 'ask_user' ? (asRecord(identity.args) ?? {}) : null;
+  return identity.name === 'ask_user' || identity.name === 'handoff_user' ? (asRecord(identity.args) ?? {}) : null;
 }
 
 /** An ask_user call that has its result: it renders as a card, not a tool row. */

@@ -1,5 +1,5 @@
 /**
- * Take over: a session waiting on a `takeover` request (ask_user handoff) has
+ * Take over: a session waiting on a `takeover` request (handoff_user) has
  * handed its page or step to the user. Only that session is held: its Browser
  * Use commands are refused (beginOperation, assertFree) and its in-flight ones
  * aborted and drained, until the user answers "done", denies, or the takeover
@@ -17,7 +17,7 @@ interface TakeoverSnapshotUpdate {
 }
 
 /** A takeover nobody finishes ends on its own after this long, settled with
- *  reason 'expired' (the runtime's ask_user maps exactly that string). */
+ *  reason 'expired' (the runtime's handoff_user maps exactly that string). */
 export const TAKEOVER_EXPIRY_MS = 15 * 60_000;
 export const TAKEOVER_EXPIRED_REASON = 'expired';
 
@@ -70,7 +70,7 @@ interface HeldTakeover {
 const browserRefusal = (entry: HeldTakeover): Error =>
   new Error(
     `Browser Use is paused for this session: the user has taken over (${entry.step}) and was shown a card for it. ` +
-      'Wait for the ask_user result ("done", "denied" or "expired"); do not retry or work around it meanwhile.'
+      'Wait for the handoff_user result ("done", "denied" or "expired"); do not retry or work around it meanwhile.'
   );
 
 export function createTakeoverGate(

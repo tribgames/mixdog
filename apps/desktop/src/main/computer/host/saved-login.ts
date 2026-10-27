@@ -75,7 +75,7 @@ export function assertSavedLoginAvailable(
   const field = String(command.field || '');
   if (!SAVED_LOGIN_FIELDS.includes(field)) {
     throw new Error(
-      "invalid_input: field must be username or password; one-time codes, passkeys, security keys and app approvals are the user's step (ask_user takeover)"
+      "invalid_input: field must be username or password; one-time codes, passkeys, security keys and app approvals are the user's step (handoff_user takeover)"
     );
   }
   const account = typeof command.saved_account === 'string' ? command.saved_account.trim() : '';

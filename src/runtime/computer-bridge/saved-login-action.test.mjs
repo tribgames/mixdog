@@ -57,15 +57,15 @@ test('the host receives fill_saved_login, always on the foreground route', () =>
   assert.match(text, /prefer its existing session\/SSO or Browser Use's saved sign-in/);
   assert.match(
     text,
-    /site receives it.*redisplays it can expose it.*same Windows user are outside this protection.*ask_user secret/
+    /site receives it.*redisplays it can expose it.*same Windows user are outside this protection.*handoff_user secret/
   );
   assert.match(
     text,
-    /One-time codes, passkeys, security keys and app approvals are the user's step: ask_user takeover/
+    /One-time codes, passkeys, security keys and app approvals are the user's step: handoff_user takeover/
   );
   // The typing tools steer secrets away from themselves.
   assert.equal(
-    (text.match(/Never a password or one-time code, even one shown on screen: saved_login or ask_user/g) || [])
+    (text.match(/Never a password or one-time code, even one shown on screen: saved_login or handoff_user/g) || [])
       .length >= 2,
     true
   );
@@ -379,7 +379,7 @@ test('a saved-login refusal sends the agent to the user secret handoff', () => {
   ]) {
     const text = formatComputerToolError(message, input);
     assert.match(text, /Nothing was written/);
-    assert.match(text, /ask_user \(kind "secret", surface "computer"\)/);
+    assert.match(text, /handoff_user \(kind "secret", surface "computer"\)/);
   }
   // Possibly written: never retried, handed to the user as a takeover.
   const unconfirmed = formatComputerToolError(
@@ -387,12 +387,12 @@ test('a saved-login refusal sends the agent to the user secret handoff', () => {
     input
   );
   assert.match(unconfirmed, /may have been written.*Do not call saved_login again/);
-  assert.match(unconfirmed, /ask_user \(kind "takeover", surface "computer", need "sign_in"\)/);
+  assert.match(unconfirmed, /handoff_user \(kind "takeover", surface "computer", need "sign_in"\)/);
   const refused = canonicalComputerResultText(
     JSON.stringify({ ok: false, action: 'fill_saved_login', code: 'saved_login_refused' }),
     input
   );
   assert.equal(JSON.parse(refused).action, 'saved_login');
-  assert.equal(JSON.parse(refused).recovery.next, 'ask_user');
-  assert.equal(computerResultRecovery({ code: 'saved_login_unavailable' }, input).next, 'ask_user');
+  assert.equal(JSON.parse(refused).recovery.next, 'handoff_user');
+  assert.equal(computerResultRecovery({ code: 'saved_login_unavailable' }, input).next, 'handoff_user');
 });

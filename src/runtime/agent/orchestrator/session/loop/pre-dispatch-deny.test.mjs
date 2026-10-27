@@ -56,11 +56,25 @@ test('internal web fetch transport rewrites retain the public schema identity', 
 });
 
 test('session is Lead-only: worker dispatch is refused, Lead is not', () => {
-  assert.match(preDispatchDenyForSession({ owner: 'agent', agent: 'worker' }, { name: 'session', arguments: {} }), /Lead-only/);
+  assert.match(
+    preDispatchDenyForSession({ owner: 'agent', agent: 'worker' }, { name: 'session', arguments: {} }),
+    /Lead-only/
+  );
   assert.equal(preDispatchDenyForSession({ owner: 'cli', agent: 'lead' }, { name: 'session', arguments: {} }), null);
 });
 
 test('ask_user is Lead-only: worker dispatch is refused, Lead is not', () => {
-  assert.match(preDispatchDenyForSession({ owner: 'agent', agent: 'worker' }, { name: 'ask_user', arguments: {} }), /Lead-only/);
+  assert.match(
+    preDispatchDenyForSession({ owner: 'agent', agent: 'worker' }, { name: 'ask_user', arguments: {} }),
+    /Lead-only/
+  );
   assert.equal(preDispatchDenyForSession({ owner: 'cli', agent: 'lead' }, { name: 'ask_user', arguments: {} }), null);
+  assert.match(
+    preDispatchDenyForSession({ owner: 'agent', agent: 'worker' }, { name: 'handoff_user', arguments: {} }),
+    /Lead-only/
+  );
+  assert.equal(
+    preDispatchDenyForSession({ owner: 'cli', agent: 'lead' }, { name: 'handoff_user', arguments: {} }),
+    null
+  );
 });

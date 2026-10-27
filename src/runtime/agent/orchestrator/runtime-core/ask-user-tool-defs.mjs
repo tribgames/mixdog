@@ -8,9 +8,9 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
     name: 'ask_user',
     title: 'Ask User',
     trigger:
-      'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat. Also hands the user a page or app step (CAPTCHA, sign-in, 2FA, a secret).',
+      'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat.',
     description:
-      'Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message. A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) is a handoff here, never a request in plain chat.',
+      'Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message. A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) goes to handoff_user, never a request in plain chat. Load handoff_user directly if needed; browser/computer skills are not prerequisites.',
     annotations: {
       title: 'Ask User',
       readOnlyHint: true,
@@ -52,10 +52,37 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
             required: ['question', 'header', 'options'],
           },
         },
+      },
+      additionalProperties: false,
+    },
+  },
+]);
+
+// The deferred handoff tool: loaded with the browser-use and computer-use
+// skills (dependencies.tools), the only surfaces a handoff targets.
+export const HANDOFF_USER_TOOL_DEFS = Object.freeze([
+  {
+    name: 'handoff_user',
+    title: 'Hand Off To User',
+    trigger:
+      'Hand the user a page or app step (CAPTCHA, sign-in, 2FA, a secret); loads with the browser-use and computer-use skills.',
+    description:
+      'A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) is a handoff here, never a request in plain chat.',
+    annotations: {
+      title: 'Hand Off To User',
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+      agentHidden: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
         handoff: {
           type: 'object',
           description:
-            'Instead of questions: secret = the user types a password, sign-in, new password or one-time code into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); takeover = the user does a step and says done.',
+            'secret = the user types a password, sign-in, new password or one-time code into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); takeover = the user does a step and says done.',
           properties: {
             kind: { type: 'string', enum: ['secret', 'takeover'] },
             surface: { type: 'string', enum: ['browser', 'computer'] },
@@ -83,26 +110,26 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
           additionalProperties: false,
         },
       },
+      required: ['handoff'],
       additionalProperties: false,
     },
   },
 ]);
 
-/** The handoff of an ask_user call ({ kind, surface, target, field, instructions }), or null. */
-export function validateAskUserHandoff(args) {
+/** The handoff of a handoff_user call ({ kind, surface, target, field, instructions, … }). */
+export function validateUserHandoff(args) {
   const handoff = args?.handoff;
-  if (handoff == null) return null;
-  if (args.questions != null) throw new Error('ask_user takes questions or a handoff, not both');
-  if (typeof handoff !== 'object' || Array.isArray(handoff)) throw new Error('ask_user handoff must be an object');
+  if (handoff == null) throw new Error('handoff_user needs a handoff');
+  if (typeof handoff !== 'object' || Array.isArray(handoff)) throw new Error('handoff_user handoff must be an object');
   if (handoff.kind !== 'secret' && handoff.kind !== 'takeover') {
-    throw new Error('ask_user handoff kind is secret or takeover');
+    throw new Error('handoff_user handoff kind is secret or takeover');
   }
   if (handoff.surface !== 'browser' && handoff.surface !== 'computer') {
-    throw new Error('ask_user handoff surface is browser or computer');
+    throw new Error('handoff_user handoff surface is browser or computer');
   }
   const text = (key, limit) => (typeof handoff[key] === 'string' ? handoff[key].trim().slice(0, limit) : '');
   if (handoff.kind === 'takeover' && !text('instructions', 2000)) {
-    throw new Error('ask_user takeover needs instructions');
+    throw new Error('handoff_user takeover needs instructions');
   }
   const login = handoffLogin(handoff);
   let need = login ? 'sign_in' : 'action';
@@ -125,10 +152,10 @@ export function validateAskUserHandoff(args) {
 function handoffLogin(handoff) {
   if (handoff.purpose == null) return null;
   if (handoff.purpose !== 'login' || handoff.kind !== 'takeover' || handoff.surface !== 'browser') {
-    throw new Error('ask_user purpose login is a browser takeover');
+    throw new Error('handoff_user purpose login is a browser takeover');
   }
   const page = loginPageUrl(handoff.url);
-  if (!page) throw new Error('ask_user login needs an https url (http only on localhost)');
+  if (!page) throw new Error('handoff_user login needs an https url (http only on localhost)');
   return page;
 }
 
@@ -159,6 +186,7 @@ function handoffIdentity(handoff) {
 
 /** Throws a clear error when the questions are malformed; returns the list. */
 export function validateAskUserQuestions(args) {
+  if (args?.handoff != null) throw new Error('ask_user takes questions only; a page or app step goes to handoff_user');
   const questions = args?.questions;
   if (!Array.isArray(questions) || questions.length < 1 || questions.length > ASK_USER_MAX_QUESTIONS) {
     throw new Error(`ask_user requires 1-${ASK_USER_MAX_QUESTIONS} questions`);

@@ -148,7 +148,7 @@ test('Auto login off, another OS, a code field or a missing account refuse befor
   await assert.rejects(run(savedLogins(), native, 'password', { platform: 'darwin' }), /Windows only for now/);
   await assert.rejects(
     run(savedLogins(), native, 'code'),
-    /field must be username or password; one-time codes.*ask_user takeover/
+    /field must be username or password; one-time codes.*handoff_user takeover/
   );
   await assert.rejects(
     fillSavedLogin(command('password', { saved_account: '  ' }), savedLogins(), native.call, { platform: 'win32' }),
