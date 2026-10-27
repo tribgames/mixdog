@@ -168,8 +168,9 @@ not as two blocks joined.
   - **Deliverable** — the user asked to see, show, or keep a page open, or the
     page is the output: an edited document or dashboard, a cart or checkout,
     a submitted form's result.
-  - **Handoff** — the user must act on the page: sign-in, CAPTCHA, 2FA,
-    payment, approval, or an unfinished workflow they continue.
+  - **Handoff** — the user must act on the page: payment, approval, or an
+    unfinished workflow they continue. A sign-in, CAPTCHA or 2FA step you
+    wait on is an `ask_user` takeover instead (User step mid-flow).
 - `open` replies with exactly one placement: "Shown in the browser panel",
   "Not on screen yet" (this conversation or its panel is not visible; the
   page appears when the user opens it), or an error. Tell the user that and
@@ -196,10 +197,16 @@ not as two blocks joined.
   timeouts, or open hidden pages just to close them or summarize their results.
 - **Screen is the deliverable / user continues** — leave the relevant foreground
   page visible using `open` with its `tab`; clean up only disposable support
-  pages. A CAPTCHA, 2FA, or identity check is a handoff, not completion: retain
-  that exact page with `open` (an e-mail check of a flow you started is not
-  one: E-mail verification). The Lead may wait; an agent preserves the
-  state, reports the required user action, and stops.
+  pages.
+- **User step mid-flow** — a CAPTCHA or human check, 2FA, or identity check is
+  a handoff, not completion (an e-mail check of a flow you started is not one:
+  E-mail verification). With `ask_user`, call it with `handoff: { kind:
+  'takeover', surface: 'browser', tab, instructions, need }`: it shows the
+  takeover card, notifies the user, opens that page beside the chat, and
+  returns when they press Done; continue from a fresh observation. Never ask
+  for the step in plain chat or tell the user to open the panel. Without
+  `ask_user` (an agent), retain the page with `open`, report the required
+  user action, and stop.
 - Preserve pre-existing user tabs, unfinished forms, and pages needed for
   recovery. If ownership or disposability is unclear, preserve the page;
   never clear cookies/storage as cleanup. Do not hide a screen the user asked
@@ -236,8 +243,8 @@ already used `submit:true`. A
 chooses which to use. Without a stored login, use the returned refs and
 `fill.fields` for user + password, then `click` submit (or `submit:true`) with
 `expect.url` or `expect.text`. If the page shows a CAPTCHA, a 2FA prompt
-(authenticator or SMS code, passkey), or an identity check, stop and hand
-control to the user; never try to solve or bypass it. A "check your e-mail"
+(authenticator or SMS code, passkey), or an identity check, hand it to the
+user as a User step mid-flow; never try to solve or bypass it. A "check your e-mail"
 step is the next flow, not a handoff.
 
 **E-mail verification** — when a sign-up or sign-in the user asked for stops
@@ -378,7 +385,8 @@ in the page instead of retrying the same `navigate`.
   (or `*`) the desktop app confirms once or refuses; denial takes precedence.
 - For a password or token, focus the field and call `ask_user` with
   `handoff: { kind: 'secret', surface: 'browser' }`; for sign-in, CAPTCHA or
-  2FA use `kind: 'takeover'` with instructions. Never ask for secrets in chat.
+  2FA use `kind: 'takeover'` with instructions. Never ask for secrets or
+  these steps in plain chat.
 - Cookie listings never expose values. Registered secret values remain
   redacted across redirects. A blocked result is not success; an inconclusive
   postcondition is not proof.

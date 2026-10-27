@@ -8,9 +8,9 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
     name: 'ask_user',
     title: 'Ask User',
     trigger:
-      'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat.',
+      'Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat. Also hands the user a page or app step (CAPTCHA, sign-in, 2FA, a secret).',
     description:
-      'Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message.',
+      'Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message. A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) is a handoff here, never a request in plain chat.',
     annotations: {
       title: 'Ask User',
       readOnlyHint: true,
