@@ -21,6 +21,7 @@ import { isAgentModeSession } from '../agent-mode.mjs';
 import { providerInputExcludesCache, providerNativePdf } from '../../providers/registry.mjs';
 import { contentMediaBytes, contentMediaCount } from '../../providers/media-normalization.mjs';
 import { splitProtectedContext } from '../compact/messages.mjs';
+import { withLiveCompactionConfig } from '../../runtime-core/compaction-config-keys.mjs';
 
 // Unified context-share rule (compact/constants.mjs CONTEXT_SHARE_RATIO): the
 // post-compaction target is 25% of the boundary/context window. One
@@ -795,9 +796,9 @@ function compactionTelemetryRecord(sessionRef, policy, meta, prev) {
     if (terminalSuccess) return null;
     return present ? (next ?? null) : (previous ?? null);
   };
-  return {
-    ...prev,
-    auto: policy.auto !== false,
+  // Config-owned fields stay the live ones (withLiveCompactionConfig): `policy`
+  // was resolved before a compaction that a reload may have outlived.
+  return withLiveCompactionConfig(prev, {
     requestReserveTokens: policy.requestReserveTokens || 0,
     reserveTokens: policy.reserveTokens || 0,
     boundaryTokens: policy.boundaryTokens || null,
@@ -848,7 +849,7 @@ function compactionTelemetryRecord(sessionRef, policy, meta, prev) {
     compactCount: (prev.compactCount || 0) + (changed ? 1 : 0),
     singleShotConsumed:
       policy.singleShot === true && meta.stage === 'compacting' ? true : prev.singleShotConsumed === true,
-  };
+  });
 }
 
 // Postmortem ring buffer: the per-check telemetry record is overwritten on

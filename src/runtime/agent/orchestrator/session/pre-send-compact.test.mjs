@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { snapshotPendingDeferredToolDelta } from '../runtime-core/deferred-tool-delta.mjs';
+import { syncSessionCompaction } from '../../../../session-runtime/session-compaction-sync.mjs';
 
 function isolatedData(t) {
   const previous = process.env.MIXDOG_DATA_DIR;
@@ -56,6 +57,73 @@ test('an in-turn compaction re-arms a late MCP tool whose announcement it strips
   });
   assert.equal(result.compactChanged, true);
   assert.deepEqual(snapshotPendingDeferredToolDelta(session)?.added, [late]);
+});
+
+// A config reload lands while a pre-send compaction is running: the telemetry
+// the pass writes afterwards must keep the reloaded auto-compaction setting,
+// not restore the policy it resolved before the reload.
+const reloadAutoOff = (session) => syncSessionCompaction(session, { compaction: { auto: false } });
+
+test('a reload that turns auto-compaction off survives the pre-send compaction that was running', async (t) => {
+  isolatedData(t);
+  const late = { name: 'mcp__late__two', description: 'Two.' };
+  const session = lateToolSession(late, 'Original recoverable output.\n'.repeat(4_000));
+  const result = await runPreSendCompactPass({
+    sessionRef: session,
+    sessionId: session.id,
+    messages: session.messages.slice(),
+    requestTools: [],
+    opts: {
+      cacheStrategy: { messages: '5m' },
+      // Runs after the compaction itself, before the pass records its outcome.
+      onStageChange: (stage) => {
+        if (stage === 'requesting') reloadAutoOff(session);
+      },
+    },
+  });
+  assert.equal(result.compactChanged, true);
+  assert.equal(session.compaction.lastStage, 'pre_send');
+  assert.equal(session.compaction.auto, false);
+});
+
+test('a reload during a pre-send compaction that fails keeps the reloaded setting too', async (t) => {
+  isolatedData(t);
+  const messages = [{ role: 'system', content: 'Preserve instructions.' }];
+  for (let turn = 0; turn < 30; turn += 1) {
+    messages.push(
+      { role: 'user', content: `request ${turn} ${'context '.repeat(400)}` },
+      { role: 'assistant', content: `answer ${turn} ${'detail '.repeat(400)}` }
+    );
+  }
+  const session = {
+    id: 'pre-send-failed',
+    owner: 'agent',
+    provider: 'rearm-test',
+    model: 'rearm-test',
+    contextWindow: 20_000,
+    compaction: { conversationThresholdTokens: 1 },
+    lastProviderSendAt: Date.now() - 6 * 60_000,
+    tools: [],
+    messages,
+  };
+  const provider = {
+    name: 'rearm-test',
+    async send() {
+      reloadAutoOff(session);
+      throw new Error('summary unavailable');
+    },
+  };
+  await runPreSendCompactPass({
+    sessionRef: session,
+    sessionId: session.id,
+    messages: session.messages.slice(),
+    requestTools: [],
+    provider,
+    model: 'rearm-test',
+    opts: { cacheStrategy: { messages: '5m' } },
+  }).catch(() => {});
+  assert.equal(session.compaction.lastStage, 'overflow_failed');
+  assert.equal(session.compaction.auto, false);
 });
 
 test('a pre-send compaction that fails does not re-arm a late MCP tool', async (t) => {

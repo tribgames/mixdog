@@ -12,13 +12,13 @@ import { beginBoot } from './begin.mjs';
 import { resolveConfig } from './config.mjs';
 import { sessionAdopter } from './infrastructure.mjs';
 
-async function bootedRuntime(dataDir) {
+async function bootedRuntime(dataDir, initialConfig = { providers: {}, modelSettings: {} }) {
   const boot = beginBoot({
     provider: 'openai',
     model: 'gpt-5.4',
     toolMode: 'full',
     cwd: dataDir,
-    initialConfig: { providers: {}, modelSettings: {} },
+    ...(initialConfig ? { initialConfig } : {}),
   });
   boot.cfgMod = { loadConfig: () => ({}) };
   boot.sharedCfgMod = { pendingConfigWrites: async () => {}, invalidateConfigReadCache() {} };
@@ -98,6 +98,40 @@ test('a resumed and a fresh session both run the PreToolUse deny hook for shell 
     assert.match(String(result), /denied by hook.*blocked by policy/s, id);
     assert.equal(await readFile(log, 'utf8'), 'x', `${id}: the hook ran exactly once`);
   }
+});
+
+// Issue #237: a conversation saved under older compaction settings follows the
+// current global ones when it is resumed or re-adopted.
+test('an adopted session follows the current global compaction settings, keeping its own fields', async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-adopt-compaction-'));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const boot = await bootedRuntime(dataDir, null);
+  boot.rt.config = { ...boot.rt.config, compaction: { auto: true, mainBufferPercent: 20 } };
+  const resumed = {
+    id: 'sess_old_compaction',
+    compaction: { auto: false, mainBufferTokens: 8000, conversationThresholdTokens: 5, archive: { nextSeq: 3 } },
+  };
+  boot.adoptSession(resumed);
+  assert.equal(resumed.compaction.auto, true);
+  assert.equal(resumed.compaction.mainBufferPercent, 20);
+  assert.equal(Object.hasOwn(resumed.compaction, 'mainBufferTokens'), false, 'the replaced token budget is dropped');
+  assert.equal(resumed.compaction.conversationThresholdTokens, 5, 'a per-session field survives');
+  assert.deepEqual(resumed.compaction.archive, { nextSeq: 3 });
+  // A runtime whose config carries no compaction section leaves the session alone.
+  const bare = await bootedRuntime(dataDir, null);
+  const untouched = { id: 'sess_bare', compaction: { auto: false } };
+  bare.adoptSession(untouched);
+  assert.deepEqual(untouched.compaction, { auto: false });
+});
+
+test('a headless runtime on an injected config keeps its session compaction fixed on adoption', async (t) => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-adopt-compaction-'));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const boot = await bootedRuntime(dataDir, { providers: {}, modelSettings: {}, compaction: { auto: true } });
+  boot.rt.config = { ...boot.rt.config, compaction: { auto: true, mainBufferPercent: 20 } };
+  const session = { id: 'sess_headless', compaction: { auto: false, mainBufferTokens: 8000 } };
+  boot.adoptSession(session);
+  assert.deepEqual(session.compaction, { auto: false, mainBufferTokens: 8000 });
 });
 
 test('adopting a session that already carries its bridge leaves it in place', async (t) => {

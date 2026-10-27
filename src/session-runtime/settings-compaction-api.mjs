@@ -6,38 +6,8 @@ import {
 import { isAutoClearUnlimited } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { COMPACTION_SUMMARY_MODES } from '../runtime/agent/orchestrator/session/compact/summary-mode.mjs';
 
-// Every spelling of the main-context buffer budget; a new representation
-// replaces the previous one.
-const MAIN_BUFFER_KEYS = [
-  'mainBufferTokens',
-  'mainBuffer',
-  'mainBufferPercent',
-  'mainBufferPct',
-  'mainBufferRatio',
-  'mainBufferFraction',
-];
-// Session-level compaction fields that the saved config owns from now on.
-const SESSION_COMPACTION_KEYS = [
-  'type',
-  'compactType',
-  'compact_type',
-  'semantic',
-  'semanticModel',
-  'prune',
-  'tailTurns',
-  'recallMemoryTimeoutMs',
-  'recallIngestLimit',
-  'recallChunkLimit',
-  'recallLimit',
-  'recallCycle1BatchSize',
-  'recallRowsPerSession',
-  'recallWindowSize',
-  'recallConcurrency',
-  'recallCycle1DeadlineMs',
-  // Replaced by summaryMode.
-  'useMaintainer',
-  ...MAIN_BUFFER_KEYS,
-];
+import { MAIN_BUFFER_KEYS } from '../runtime/agent/orchestrator/runtime-core/compaction-config-keys.mjs';
+import { adoptSessionCompaction } from './session-compaction-sync.mjs';
 
 // Unlimited (never auto-clear) typed as a duration.
 const UNLIMITED_DURATION = /^(?:unlimited|never)$/i;
@@ -64,14 +34,6 @@ function applyCompactionInput(next, input, hasOwn) {
     if (hasOwn(input, key)) next[key] = input[key];
   }
   return next;
-}
-
-/** Replace the live session's compaction fields with the saved config's. */
-function adoptSessionCompaction(session, saved) {
-  if (!session) return;
-  const currentSessionCompaction = { ...(session.compaction || {}) };
-  for (const key of SESSION_COMPACTION_KEYS) delete currentSessionCompaction[key];
-  session.compaction = { ...currentSessionCompaction, ...saved };
 }
 
 // Advanced picker shows only providers the user actually has enabled

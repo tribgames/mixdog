@@ -31,6 +31,7 @@ import {
 } from '../model-recency.mjs';
 import { createNativeWebSearch } from '../native-web-search.mjs';
 import { createConfigLifecycle } from '../config-lifecycle.mjs';
+import { usesInjectedConfig } from '../session-compaction-sync.mjs';
 import { createQuickModelRows } from '../quick-model-rows.mjs';
 import { createProviderModels } from '../provider-models.mjs';
 import { createProviderUsage } from '../provider-usage.mjs';
@@ -66,6 +67,8 @@ function wireConfigLifecycle(boot) {
       rt.configHasSecrets = next;
     },
     getRoute: () => rt.route,
+    getSession: () => rt.session,
+    fixedSessionCompaction: usesInjectedConfig(boot.params),
     setRouteState: (next) => {
       rt.route = next;
     },

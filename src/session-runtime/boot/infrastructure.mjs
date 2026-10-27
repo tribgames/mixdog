@@ -20,6 +20,7 @@ import { listProjectsStrict } from '../../runtime/shared/projects.mjs';
 import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
 import { standaloneDataDir } from '../runtime-paths.mjs';
 import { SessionAddressError, isAdmissionOpen, ownerLifecycle } from '../session-address.mjs';
+import { syncSessionCompaction, usesInjectedConfig } from '../session-compaction-sync.mjs';
 import { dataDirOf } from './shared.mjs';
 
 export function wireInfrastructure(boot) {
@@ -187,6 +188,9 @@ export function sessionAdopter(boot) {
       }
     }
     rt.session = v;
+    // A resumed or swapped-in session keeps the compaction it was saved with
+    // unless it follows the current global settings (not on an injected config).
+    if (v?.id && !usesInjectedConfig(boot.params)) syncSessionCompaction(v, rt.config);
     // The PreToolUse/PostToolUse bridge is a non-enumerable property that
     // neither the store nor a resumed record carries: every session installed
     // here (create, resume, route swap, clear, the manager's copy) gets it, so

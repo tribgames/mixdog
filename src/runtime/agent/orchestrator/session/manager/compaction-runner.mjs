@@ -15,6 +15,7 @@ import {
 } from '../context-utils.mjs';
 import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/fresh-context.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
+import { withLiveCompactionConfig } from '../../runtime-core/compaction-config-keys.mjs';
 import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
 import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
@@ -263,11 +264,12 @@ function compactionResult(plan, outcome, after, tail) {
   };
 }
 
+// The commit writes only its own outcome telemetry; config-owned fields stay
+// the live ones (withLiveCompactionConfig).
 function compactionRecord(plan, { stage, after, now, reserve, outcome }) {
-  const { session, mode } = plan;
-  return {
-    ...withoutLegacyCompactFields(session.compaction),
-    auto: mode === 'auto' ? true : session.compaction?.auto !== false,
+  const { session } = plan;
+  const live = withoutLegacyCompactFields(session.compaction);
+  return withLiveCompactionConfig(live, {
     boundaryTokens: plan.boundary,
     triggerTokens: plan.triggerTokens,
     bufferTokens: plan.bufferTokens,
@@ -282,7 +284,7 @@ function compactionRecord(plan, { stage, after, now, reserve, outcome }) {
     currentEstimatedTokens: after.tokens,
     lastCheckedAt: now,
     ...outcome,
-  };
+  });
 }
 
 // compact_meta parity with the loop's pre-send pass: the out-of-loop

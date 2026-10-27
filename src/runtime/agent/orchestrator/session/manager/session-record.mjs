@@ -36,7 +36,7 @@ export function normalizeDesktopSessionMetadata(value, cwd = null) {
   return null;
 }
 
-function initialCompactionConfig(compaction = {}, contextMeta = {}) {
+export function initialCompactionConfig(compaction = {}, contextMeta = {}) {
   return {
     auto: compaction?.auto !== false,
     model: compaction?.model || null,

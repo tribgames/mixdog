@@ -20,7 +20,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function fixture({ config = {}, disk, mainRoute } = {}) {
+function fixture({ config = {}, disk, mainRoute, session = null, fixedSessionCompaction = false } = {}) {
   // mainRoute set: the lifecycle may sync the runtime Main route on reload.
   let route = mainRoute || { provider: 'demo' };
   let current = {
@@ -75,6 +75,8 @@ function fixture({ config = {}, disk, mainRoute } = {}) {
       hasSecrets = next;
     },
     getRoute: () => route,
+    getSession: () => session,
+    fixedSessionCompaction,
     ...(mainRoute
       ? {
           setRouteState: (next) => {
@@ -113,6 +115,52 @@ test('a reload that brings in a Lead route fills an empty Main route and never r
   const none = fixture({ mainRoute: { provider: 'demo', model: '' } });
   none.lifecycle.reloadFullConfig();
   assert.equal(none.route().model, '');
+});
+
+// Issue #237: a shared-config reload reaches the live session's compaction.
+test('a reload updates the live session compaction, keeping its own fields', () => {
+  const session = { id: 's1', compaction: { auto: false, mainBufferTokens: 8000, conversationThresholdTokens: 5 } };
+  const f = fixture({ session, disk: { compaction: { auto: true, mainBufferPercent: 20 } } });
+  f.lifecycle.reloadFullConfig();
+  assert.equal(session.compaction.auto, true);
+  assert.equal(session.compaction.mainBufferPercent, 20);
+  assert.equal(Object.hasOwn(session.compaction, 'mainBufferTokens'), false);
+  assert.equal(session.compaction.conversationThresholdTokens, 5);
+  // A disk config without a compaction section leaves the session alone.
+  const bare = { id: 's2', compaction: { auto: false } };
+  fixture({ session: bare, disk: { theme: 'x' } }).lifecycle.reloadFullConfig();
+  assert.deepEqual(bare.compaction, { auto: false });
+});
+
+test('removing a configured compaction value reverts the live session to the default', () => {
+  const session = {
+    id: 's1',
+    compaction: {
+      summaryModel: 'old-model',
+      memoryTimeoutMs: 1234,
+      model: 'm',
+      timeoutMs: 9,
+      bufferTokens: 7,
+      archive: { nextSeq: 2 },
+    },
+  };
+  fixture({ session, disk: { compaction: { auto: true } } }).lifecycle.reloadFullConfig();
+  for (const key of ['summaryModel', 'memoryTimeoutMs', 'model', 'timeoutMs', 'bufferTokens']) {
+    assert.equal(Object.hasOwn(session.compaction, key), false, key);
+  }
+  assert.deepEqual(session.compaction.archive, { nextSeq: 2 });
+  assert.equal(session.compaction.summaryMode, 'smart');
+});
+
+test('a reload leaves the session compaction fixed on an injected (headless) config', () => {
+  const session = { id: 's1', compaction: { auto: false, mainBufferTokens: 8000 } };
+  const f = fixture({
+    session,
+    fixedSessionCompaction: true,
+    disk: { compaction: { auto: true, mainBufferPercent: 20 } },
+  });
+  f.lifecycle.reloadFullConfig();
+  assert.deepEqual(session.compaction, { auto: false, mainBufferTokens: 8000 });
 });
 
 test('the first save seeds fresh-profile defaults no diff carries, never over stored values', async () => {

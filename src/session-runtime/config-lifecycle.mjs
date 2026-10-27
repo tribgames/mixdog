@@ -17,6 +17,7 @@ import {
   stripStoredRouteDefaults,
   withDefaultPresets,
 } from '../runtime/agent/orchestrator/config-presets.mjs';
+import { syncSessionCompaction } from './session-compaction-sync.mjs';
 import { createConfigWriters } from './config-lifecycle/config-writers.mjs';
 import { createLeadRouteSync } from './config-lifecycle/lead-route-sync.mjs';
 import { createOutputStyleStatusCache } from './config-lifecycle/output-style-cache.mjs';
@@ -134,6 +135,10 @@ export function createConfigLifecycle({
   getConfigHasSecrets,
   setConfigHasSecrets,
   getRoute,
+  // The live session follows the reloaded global compaction settings, unless
+  // the runtime runs on an injected (headless) config.
+  getSession,
+  fixedSessionCompaction = false,
   // Main route sync on reload (both optional: a lifecycle without them never syncs)
   setRouteState,
   resolveRoute,
@@ -222,6 +227,7 @@ export function createConfigLifecycle({
     const adopted = adoptConfig(next, { hasSecrets: true });
     configSaveBaseline = structuredClone(adopted);
     leadRoute.syncEmptyMainRoute(adopted);
+    if (!fixedSessionCompaction) syncSessionCompaction(getSession?.(), adopted);
     return adopted;
   }
 
