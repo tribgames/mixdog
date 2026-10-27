@@ -21,7 +21,11 @@ import {
   wantsIncomingTail,
 } from '../../runtime/agent/orchestrator/session/store-summary-last-message.mjs';
 import { isRealTurnMessage } from '../../runtime/agent/orchestrator/session/compact/user-message-kind.mjs';
-import { realTurnCount as realTurnCountOf } from '../../runtime/agent/orchestrator/session/store-summary-fields.mjs';
+import {
+  compactCount as compactCountOf,
+  compactCountField,
+  realTurnCount as realTurnCountOf,
+} from '../../runtime/agent/orchestrator/session/store-summary-fields.mjs';
 
 const VISIBLE_OWNERS = ['cli', 'user', 'mixdog'];
 
@@ -107,6 +111,10 @@ export function leadSessionRow(s, working = false) {
     // sit among the counted ones: a bot row's unread pill counts those past
     // the read cursor. Absent when unknown; clients then show one.
     ...(incomingTail ? { incomingTail } : {}),
+    // The numbering epoch of messageCount: each compaction restarts it. A
+    // summary row carries it at the top; a stored session in its compaction
+    // record. Unknown stays absent.
+    ...compactCountField(compactCountOf(s) === null ? s.compaction : s),
     title: cleanSessionPreview(s.title || '', 100),
     preview,
     // The latest user or assistant line (an agent contact's row shows it).

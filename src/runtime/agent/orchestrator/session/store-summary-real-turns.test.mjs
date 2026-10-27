@@ -91,6 +91,33 @@ test('the catalog DB codec round-trips realTurnCount under the bumped schema', (
   assert.equal(rowFromDb({ id: row.id, real_turn_count: 3 }).realTurnCount, 3);
 });
 
+test('the compaction count, the epoch of the message numbering, reaches the summary, the catalog DB and the lead row', () => {
+  const hello = [{ role: 'user', content: 'hello there' }];
+  // A session that never compacted is epoch 0; a compacted one carries its count.
+  assert.equal(_sessionSummary(session(hello)).compactCount, 0);
+  const compacted = session(hello, { compaction: { compactCount: 17, lastStage: 'pre_send_check' } });
+  const summary = _sessionSummary(compacted);
+  assert.equal(summary.compactCount, 17);
+  assert.equal(_normalizeSummaryIndex({ rows: [summary] }).rows[0].compactCount, 17);
+  const row = normalizedRow(summary);
+  assert.equal(row.compactCount, 17);
+  assert.ok(upsertParams({ row, fingerprint: null, leadVisible: true }, 'sig').includes('17'));
+  assert.equal(rowFromDb({ id: row.id, compact_count: '17' }).compactCount, 17);
+  // A row written before the field, or read off a session file, has none.
+  assert.equal('compactCount' in normalizedRow({ ...summary, compactCount: undefined }), false);
+  assert.equal('compactCount' in rowFromDb({ id: row.id, compact_count: null }), false);
+  // The lead row carries it for the desktop. The manager lists summary rows,
+  // which hold it at the top; a stored session holds it in its compaction record.
+  const lead = (input) => listLeadSessions({ listSessions: () => [input] })[0];
+  assert.equal(lead(summary).compactCount, 17);
+  assert.equal(lead(compacted).compactCount, 17);
+  assert.equal(lead(_sessionSummary(session(hello))).compactCount, 0, 'never compacted is epoch 0');
+  // Unknown stays absent, never 0.
+  const { compactCount: _count, ...older } = summary;
+  assert.equal('compactCount' in lead(older), false);
+  assert.equal('compactCount' in lead(session(hello)), false);
+});
+
 test('the lead catalog row exposes realTurnCount and detachedReason to the desktop', () => {
   const summary = _sessionSummary(
     session([{ role: 'user', content: 'Fix the login bug' }], { detachedReason: 'cli-resume' })

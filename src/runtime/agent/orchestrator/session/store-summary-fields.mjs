@@ -63,6 +63,21 @@ export function realTurnCount(value) {
   return typeof count === 'number' && Number.isFinite(count) && count >= 0 ? Math.floor(count) : null;
 }
 
+/** How many compactions a session has had (`compaction.compactCount`): each
+ *  one trims the live messages and so restarts their numbering (the unread
+ *  cursors count them). Null for a value without it, e.g. a row written
+ *  before the field existed. */
+export function compactCount(value) {
+  const count = value?.compactCount;
+  return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+
+/** `{ compactCount }` for a row that carries one, else nothing. */
+export function compactCountField(value) {
+  const count = compactCount(value);
+  return count === null ? {} : { compactCount: count };
+}
+
 export function importKey(value) {
   const key = typeof value?.importKey === 'string' ? value.importKey : value?.importOrigin?.key;
   return typeof key === 'string' && key.trim() ? key : null;

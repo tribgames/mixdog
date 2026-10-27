@@ -271,6 +271,9 @@ export function desktopSessionSummaries(
           ...(lastMessagePreview ? { lastMessagePreview } : {}),
           ...(lastMessagePreview && lastMessageRoutine ? { lastMessageRoutine } : {}),
           ...(incomingTail ? { incomingTail } : {}),
+          ...(Number.isSafeInteger(row.compactCount) && (row.compactCount as number) >= 0
+            ? { compactCount: row.compactCount as number }
+            : {}),
         },
       ];
     })

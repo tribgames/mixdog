@@ -130,6 +130,10 @@ export interface DesktopSessionSummary {
    *  a bot home / room log; the unread pill counts those past the read cursor
    *  (shared/incoming-tail.ts). Absent when unknown. */
   incomingTail?: number[];
+  /** Compactions the session has had: each trims the live messages and so
+   *  restarts the `messageCount` numbering the read cursors count. Absent when
+   *  unknown (a row written before the field existed). */
+  compactCount?: number;
   /** Host-persisted read cursor shared by desktop and paired mobile surfaces. */
   readMessageCount?: number;
   /** Monotonic cursor revision; advances for completion-only reads too. */

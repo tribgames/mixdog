@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 
 /** Bumped whenever the table layout or a codec changes: the DB is then
  *  dropped and backfilled again from the JSON catalog. */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 /** PRAGMA application_id ('MXSC'): a file without it is not this catalog. */
 export const APPLICATION_ID = 0x4d585343;
 
@@ -68,6 +68,9 @@ const FIELDS = [
   // Places of the incoming messages with text among the counted ones, for the
   // unread count of a bot home / room log; absent otherwise (schema 10).
   ['incomingTail', 'incoming_tail', 'optjson'],
+  // Compactions the session has had: the epoch of its message numbering;
+  // absent for a row written before schema 11.
+  ['compactCount', 'compact_count', 'optjson'],
 ];
 
 const COLUMN_TYPES = { text: 'TEXT', real: 'REAL', int: 'INTEGER', bool: 'INTEGER', json: 'TEXT', optjson: 'TEXT' };

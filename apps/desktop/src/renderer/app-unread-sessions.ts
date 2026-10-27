@@ -7,6 +7,7 @@ import { useCallback, useRef, useState, type MutableRefObject } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 
 const SEEN_COUNTS_KEY = 'mixdog.desktop.session-seen-counts';
+const SEEN_EPOCHS_KEY = 'mixdog.desktop.session-seen-epochs';
 const LEGACY_TIMESTAMP_KEY = 'mixdog.desktop.session-last-seen';
 // Counts are small; a timestamp mistakenly stored as a count (~1.7e12) would
 // suppress the dot forever, so absurd values are dropped and re-baselined.
@@ -27,6 +28,38 @@ export function sessionSurfaceEngaged(): boolean {
 function sharedReadCount(row: DesktopSessionSummary): number {
   const value = Number(row.readMessageCount);
   return Number.isInteger(value) && value >= 0 && value <= MAX_PLAUSIBLE_COUNT ? value : 0;
+}
+
+/** A seen count is in the numbering of the `compactCount` it was recorded
+ *  under, and a compaction trims a session's live messages and restarts that
+ *  numbering. A count recorded under another one follows the shared cursor,
+ *  which the host restarts with it (the turn that compacted stays unread). A
+ *  count from before the epoch was recorded is lowered to the row's message
+ *  count only when the session is known compacted and that count is a real
+ *  one below it. A row without a `compactCount` settles nothing. Returns
+ *  whether the seen count or its epoch changed. */
+function settleSeen(
+  seen: Map<string, number>,
+  epochs: Map<string, number>,
+  row: DesktopSessionSummary,
+  sharedCount: number
+): boolean {
+  const epoch = row.compactCount;
+  if (epoch === undefined || !Number.isSafeInteger(epoch) || epoch < 0) return false;
+  const recorded = epochs.get(row.id);
+  if (recorded === epoch) return false;
+  const last = seen.get(row.id);
+  if (last !== undefined) {
+    if (recorded !== undefined) seen.set(row.id, sharedCount);
+    else if (epoch > 0) {
+      // Not settled, nor stamped, without a real count to judge it by.
+      const count = Number(row.messageCount);
+      if (!Number.isSafeInteger(count) || count < 1) return false;
+      seen.set(row.id, Math.min(last, count));
+    }
+  }
+  epochs.set(row.id, epoch);
+  return true;
 }
 
 function sharedReadRevision(row: DesktopSessionSummary): number {
@@ -121,6 +154,8 @@ export function useUnreadSessions({
   const previousWorkingSessionIds = useRef<ReadonlySet<string>>(new Set());
   const sharedReadRevisions = useRef<Map<string, number>>(new Map());
   const sessionLastSeen = useRef<Map<string, number> | null>(null);
+  // The compaction count each seen count was recorded under (see settleSeen).
+  const sessionSeenEpochs = useRef<Map<string, number>>(new Map());
 
   const loadSeen = useCallback(() => {
     if (sessionLastSeen.current) return sessionLastSeen.current;
@@ -133,6 +168,11 @@ export function useUnreadSessions({
         const value = Number(at);
         if (Number.isFinite(value) && value >= 0 && value < MAX_PLAUSIBLE_COUNT) map.set(id, value);
       }
+      const rawEpochs = window.localStorage.getItem(SEEN_EPOCHS_KEY);
+      const parsedEpochs = rawEpochs ? (JSON.parse(rawEpochs) as Record<string, unknown>) : null;
+      for (const [id, at] of Object.entries(parsedEpochs || {})) {
+        if (Number.isSafeInteger(at) && (at as number) >= 0) sessionSeenEpochs.current.set(id, at as number);
+      }
     } catch {
       // Unread markers degrade to in-memory tracking without persistent storage.
     }
@@ -143,6 +183,7 @@ export function useUnreadSessions({
   const persistSeen = useCallback((map: Map<string, number>) => {
     try {
       window.localStorage.setItem(SEEN_COUNTS_KEY, JSON.stringify(Object.fromEntries(map)));
+      window.localStorage.setItem(SEEN_EPOCHS_KEY, JSON.stringify(Object.fromEntries(sessionSeenEpochs.current)));
     } catch {
       // Unread markers degrade to in-memory tracking without persistent storage.
     }
@@ -188,6 +229,7 @@ export function useUnreadSessions({
       for (const id of [...seen.keys()]) {
         if (liveIds.has(id)) continue;
         seen.delete(id);
+        sessionSeenEpochs.current.delete(id);
         dirty = true;
       }
       for (const id of [...sharedReadRevisions.current.keys()]) {
@@ -205,6 +247,10 @@ export function useUnreadSessions({
         if (sharedReadClearsUnread(row, priorRevision)) remotelyReadIds.add(row.id);
         const sharedCount = sharedReadCount(row);
         let last = seen.get(row.id);
+        if (settleSeen(seen, sessionSeenEpochs.current, row, sharedCount)) {
+          dirty = true;
+          last = seen.get(row.id);
+        }
         if (sharedCount > (last ?? -1)) {
           seen.set(row.id, sharedCount);
           last = sharedCount;
@@ -269,6 +315,7 @@ export function useUnreadSessions({
       let dirty = false;
       for (const id of [viewedSessionId, ...along]) {
         const row = sessions.find((session) => session.id === id);
+        if (row && settleSeen(seen, sessionSeenEpochs.current, row, sharedReadCount(row))) dirty = true;
         const count = Math.max(Number(row?.messageCount) || 0, seen.get(id) || 0);
         if (count > 0 && seen.get(id) !== count) {
           seen.set(id, count);

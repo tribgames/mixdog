@@ -13,6 +13,14 @@ type MetadataField = keyof MetadataMaps;
 const FIELDS: MetadataField[] = ['titles', 'names', 'archived', 'favorites', 'projects', 'reads', 'retired'];
 const dirtyKey = (field: MetadataField, sessionId: string): string => `${field}\u0000${sessionId}`;
 
+/** A session's numbering: its compaction count (the epoch) and its message count. */
+interface ReadNumbering {
+  compactCount?: unknown;
+  messageCount?: unknown;
+}
+const validEpoch = (value: unknown): number | undefined =>
+  Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : undefined;
+
 /** A queued save: this instance's maps plus the (field, session) entries it
  *  changed since they were last persisted, keyed to their change generation. */
 interface PendingWrite {
@@ -176,23 +184,43 @@ export class DesktopSessionMetadata {
   }
 
   /** Advance the shared read cursor. `consumedUnread` also records a
-   * completion-only read when the message count did not move. */
-  async markRead(sessionId: string, messageCount: number, consumedUnread: boolean): Promise<boolean> {
+   * completion-only read when the message count did not move. `numbering` is
+   * the session's current compaction count and message count (see
+   * settleReadCursor); a cursor of an earlier numbering restarts first. */
+  async markRead(
+    sessionId: string,
+    messageCount: number,
+    consumedUnread: boolean,
+    numbering: ReadNumbering = {}
+  ): Promise<boolean> {
     if (!isSessionId(sessionId) || !Number.isInteger(messageCount) || messageCount < 0 || messageCount > 10_000_000) {
       throw new TypeError('Session read cursor is invalid.');
     }
     await this.load();
     this.readMap ??= Object.create(null) as Record<string, SessionReadCursor>;
     const map = this.readMap;
-    const current = map[sessionId];
-    const nextCount = Math.max(current?.messageCount || 0, messageCount);
+    const stored = map[sessionId];
+    const current = this.settleReadCursor(sessionId, numbering);
+    const settled = current !== stored;
+    // A surface still counting in a retired numbering (a local count from
+    // before a compaction) cannot read past the session's own messages.
+    const ownCount = Number.isSafeInteger(numbering.messageCount) ? (numbering.messageCount as number) : 0;
+    const nextCount = Math.max(
+      current?.messageCount || 0,
+      ownCount >= 1 ? Math.min(messageCount, ownCount) : messageCount
+    );
     if (current && nextCount === current.messageCount && !consumedUnread) {
-      await this.flush();
-      return false;
+      if (settled) await this.queueWrite();
+      else await this.flush();
+      return settled;
     }
+    // A new cursor takes the session's epoch; an old one keeps the epoch it
+    // was settled to (an unsettled one stays unstamped).
+    const epoch = current ? current.epoch : validEpoch(numbering.compactCount);
     map[sessionId] = {
       messageCount: nextCount,
       revision: Math.min(Number.MAX_SAFE_INTEGER, (current?.revision || 0) + 1),
+      ...(epoch === undefined ? {} : { epoch }),
     };
     this.touch('reads', sessionId);
     await this.queueWrite();
@@ -280,16 +308,52 @@ export class DesktopSessionMetadata {
     return summaries.map((row) => (Object.hasOwn(favorites, row.id) ? { ...row, favorite: true } : row));
   }
 
-  /** Project shared read cursors into the catalog pushed to every surface. */
-  withReadCursors<T extends { id: string }>(
+  /** Project shared read cursors into the catalog pushed to every surface.
+   *  Each cursor is first settled against its row's numbering epoch. */
+  withReadCursors<T extends { id: string; messageCount?: number; compactCount?: number }>(
     summaries: T[]
   ): Array<T & { readMessageCount?: number; readRevision?: number }> {
     const reads = this.readMap;
     if (!reads) return summaries;
-    return summaries.map((row) => {
-      const cursor = reads[row.id];
+    let settled = false;
+    const projected = summaries.map((row) => {
+      const stored = reads[row.id];
+      const cursor = this.settleReadCursor(row.id, row);
+      if (cursor !== stored) settled = true;
       return cursor ? { ...row, readMessageCount: cursor.messageCount, readRevision: cursor.revision } : row;
     });
+    if (settled) void this.queueWrite().catch(() => undefined);
+    return projected;
+  }
+
+  /** A cursor counts the messages the session had when it was recorded, and a
+   *  compaction (`compactCount` up by one) trims them and restarts that
+   *  numbering. A cursor recorded under another `compactCount` restarts at 0:
+   *  the reset is not a read, so it keeps its revision and every unread or
+   *  completion state survives it. A cursor from before the epoch was recorded
+   *  is stamped with the current one; when the session is known compacted it
+   *  is also lowered to the session's message count if that is above it, and
+   *  stays as it is until a real count (at least 1) can judge it. A row
+   *  without a `compactCount` settles nothing. */
+  private settleReadCursor(
+    sessionId: string,
+    { compactCount, messageCount }: ReadNumbering
+  ): SessionReadCursor | undefined {
+    const reads = this.readMap;
+    const cursor = reads?.[sessionId];
+    const epoch = validEpoch(compactCount);
+    if (!reads || !cursor || epoch === undefined || cursor.epoch === epoch) return cursor;
+    let restarted = cursor.messageCount;
+    if (cursor.epoch !== undefined) restarted = 0;
+    else if (epoch > 0) {
+      // Not settled, nor stamped, without a real count to judge it by.
+      if (!Number.isSafeInteger(messageCount) || (messageCount as number) < 1) return cursor;
+      restarted = Math.min(restarted, messageCount as number);
+    }
+    const settled = { ...cursor, messageCount: restarted, epoch };
+    reads[sessionId] = settled;
+    this.touch('reads', sessionId);
+    return settled;
   }
 
   /** Settle every queued write (teardown). */

@@ -121,7 +121,10 @@ test("sub-agent retention archives exactly its tree's members through the real h
   await mkdir(dir, { recursive: true });
   const at = Date.now() - 5 * 24 * 60 * 60 * 1000;
   for (const row of rows.slice(1, 3)) {
-    await writeFile(join(dir, `${row.id}.json`), JSON.stringify({ ...row, createdAt: at, updatedAt: at, lastUsedAt: at }));
+    await writeFile(
+      join(dir, `${row.id}.json`),
+      JSON.stringify({ ...row, createdAt: at, updatedAt: at, lastUsedAt: at })
+    );
     t.after(() => rm(join(dir, `${row.id}.json`), { force: true }));
   }
   const unregister = registerSessionSidebarHost(sessionSidebarChangeHandler(host), {
@@ -142,6 +145,17 @@ test("sub-agent retention archives exactly its tree's members through the real h
   await host.setSessionArchived('sess_t', false);
   await host.setSessionArchived('sess_t', true);
   assert.ok(Object.hasOwn((await host.sessionSidebarState()).archived, 'sess_t_outside'));
+});
+
+test('a read lands in the session’s own numbering: a surface counting in a retired one cannot read past it', async (t) => {
+  const chat = { id: 'sess_chat', owner: 'user', agent: 'lead', sourceType: 'lead', preview: 'chat' };
+  // Compacted from 417 messages to 62; the surface still counts 417.
+  const { host } = await fixture(t, async () => {}, [{ ...chat, messageCount: 62, compactCount: 17 }]);
+  await host.listSessions();
+  await host.markSessionRead('sess_chat', 417, false);
+  const [listed] = await host.listSessions();
+  assert.equal(listed.compactCount, 17);
+  assert.equal(listed.readMessageCount, 62);
 });
 
 test('failed metadata flushing cannot prevent host attachment cleanup', async (t) => {

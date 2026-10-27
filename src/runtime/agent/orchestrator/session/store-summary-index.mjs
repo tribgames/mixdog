@@ -24,6 +24,8 @@ import {
   inheritedFromSessionId,
   isStoredSessionId,
   positiveNumber as _positiveNumber,
+  compactCount,
+  compactCountField,
   realTurnCount,
   workspaceSummary,
 } from './store-summary-fields.mjs';
@@ -265,6 +267,8 @@ export function _sessionSummary(session) {
     taskType: session.taskType || null,
     messageCount: messageProjection.count,
     ...(messageProjection.incoming ? { incomingTail: messageProjection.incoming.slice() } : {}),
+    // The numbering epoch of messageCount: a compaction restarts it.
+    compactCount: compactCount(session.compaction) ?? 0,
     realTurnCount: messageProjection.real,
     title: _cleanPreview(session.title || '', 100),
     preview: messageProjection.preview,
@@ -324,6 +328,7 @@ function _normalizeSummaryRow(row) {
     taskType: row.taskType || null,
     messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
     ...(Array.isArray(row.incomingTail) ? { incomingTail: normalizedIncomingTail(row.incomingTail) } : {}),
+    ...compactCountField(row),
     realTurnCount: realTurnCount(row),
     title: _cleanPreview(row.title || '', 100),
     preview: _cleanPreview(row.preview || ''),

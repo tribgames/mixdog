@@ -30,6 +30,7 @@ import {
   inheritedFromSessionId,
   isStoredSessionId,
   positiveNumber,
+  compactCountField,
   realTurnCount,
   workspaceSummary,
 } from './store-summary-fields.mjs';
@@ -216,6 +217,9 @@ export function normalizedRow(row) {
     // Absent from a row read off a session file: its assistant text is not
     // decoded there, so the unread count falls back until the next save.
     ...(Array.isArray(row.incomingTail) ? { incomingTail: normalizedIncomingTail(row.incomingTail) } : {}),
+    // Absent from a row read off a session file (its compaction record is not
+    // decoded there) until the next save.
+    ...compactCountField(row),
     realTurnCount: realTurnCount(row),
     title: cleanText(row.title, 100),
     preview: cleanText(row.preview),

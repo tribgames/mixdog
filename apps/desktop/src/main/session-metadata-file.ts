@@ -32,6 +32,9 @@ interface SessionMetadataMaps {
 export interface SessionReadCursor {
   messageCount: number;
   revision: number;
+  /** The session's `compactCount` the count was recorded under; absent on a
+   *  cursor from before the field (its numbering epoch is unknown). */
+  epoch?: number;
 }
 
 function emptyMap<T>(): Record<string, T> {
@@ -101,7 +104,9 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
       const revision = Number(cursor.revision);
       if (!Number.isInteger(messageCount) || messageCount < 0 || messageCount > 10_000_000) continue;
       if (!Number.isSafeInteger(revision) || revision < 1) continue;
-      reads[id] = { messageCount, revision };
+      const epoch = Number(cursor.epoch);
+      const stamped = cursor.epoch !== undefined && Number.isSafeInteger(epoch) && epoch >= 0;
+      reads[id] = { messageCount, revision, ...(stamped ? { epoch } : {}) };
     }
   }
   return {

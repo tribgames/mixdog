@@ -184,7 +184,13 @@ export class SessionHostLifecycle {
 
   async markSessionRead(sessionId: string, messageCount: number, consumedUnread = false): Promise<boolean> {
     const id = sessionIdOf(sessionId);
-    const changed = await this.owner.sessionMetadata.markRead(id, messageCount, consumedUnread);
+    // The session's own numbering, so a cursor of an earlier compaction
+    // restarts before this read lands on it.
+    const stored = this.owner.storedSessionRows().find((row) => row.id === id);
+    const changed = await this.owner.sessionMetadata.markRead(id, messageCount, consumedUnread, {
+      compactCount: stored?.compactCount,
+      messageCount: stored?.messageCount,
+    });
     if (!changed) return false;
     await this.republishSessionCatalog();
     return true;

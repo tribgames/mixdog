@@ -403,8 +403,15 @@ test("a reply read to its end in the bot overlay clears the chat's unread mark (
 
 test('reading along follows a readWith chain of any length and stops at a cycle', () => {
   const chain = new Map(Array.from({ length: 30 }, (_, index) => [`s${index}`, `s${index + 1}`]));
-  assert.equal(readAlong('s0', chain, (id) => id === 's30'), true, 'an ancestor 30 edges away');
-  assert.equal(readAlong('s0', chain, () => false), false);
+  assert.equal(
+    readAlong('s0', chain, (id) => id === 's30'),
+    true,
+    'an ancestor 30 edges away'
+  );
+  assert.equal(
+    readAlong('s0', chain, () => false),
+    false
+  );
   const loop = new Map([
     ['a', 'b'],
     ['b', 'c'],
@@ -416,4 +423,108 @@ test('reading along follows a readWith chain of any length and stops at a cycle'
     false
   );
   assert.deepEqual(seen, ['a', 'b', 'c']);
+});
+
+const SEEN_KEY = 'mixdog.desktop.session-seen-counts';
+
+const SEEN_EPOCHS_KEY = 'mixdog.desktop.session-seen-epochs';
+
+/** Pushes each batch of catalog rows to the hook on an unfocused surface whose
+ *  local seen counts (and the compaction counts they were recorded under) are
+ *  `stored`; returns the marks after each batch and what the hook persisted. */
+async function unfocusedRun(stored, batches) {
+  const dom = installDom({ focused: false });
+  const api = {};
+  function Harness() {
+    const viewedSessionRef = useRef('');
+    Object.assign(api, useUnreadSessions({ viewedSessionRef }));
+    return React.createElement('div', null, [...api.unreadSessionIds].sort().join(','));
+  }
+  const marks = () => document.querySelector('#root div').textContent;
+  try {
+    window.localStorage.setItem(SEEN_KEY, JSON.stringify(stored.seen));
+    if (stored.epochs) window.localStorage.setItem(SEEN_EPOCHS_KEY, JSON.stringify(stored.epochs));
+    await act(async () => dom.root.render(React.createElement(Harness)));
+    const after = [];
+    for (const rows of batches) {
+      await act(async () => api.reconcileUnreadSessions(rows));
+      after.push(marks());
+    }
+    const saved = (key) => JSON.parse(window.localStorage.getItem(key) || 'null');
+    return { after, seen: saved(SEEN_KEY), epochs: saved(SEEN_EPOCHS_KEY) };
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+}
+
+// A bot chat lists the places of its incoming replies (incomingTail); a
+// top-level session has none.
+const bot = (fields) => ({ ...row, id: 'bot', ...fields });
+const top = (fields) => ({ ...row, id: 'top', ...fields });
+
+test('a turn that compacts and settles while unfocused takes the dot, on a bot chat and a top-level session', async () => {
+  const running = { messageCount: 417, compactCount: 16, readMessageCount: 417, readRevision: 5, working: true };
+  const { after } = await unfocusedRun({ seen: { bot: 417, top: 417 }, epochs: { bot: 16, top: 16 } }, [
+    [bot({ ...running, incomingTail: [400, 417] }), top(running)],
+    // One push: the turn compacted to 66 messages and settled. The host
+    // restarted the cursor at 0 under the new compaction count, keeping its
+    // revision: a restart is not a read.
+    [
+      bot({
+        messageCount: 66,
+        compactCount: 17,
+        readMessageCount: 0,
+        readRevision: 5,
+        incomingTail: [2, 40, 66],
+      }),
+      top({ messageCount: 66, compactCount: 17, readMessageCount: 0, readRevision: 5 }),
+    ],
+  ]);
+  assert.deepEqual(after, ['', 'bot,top']);
+});
+
+test('a dot already showing survives a compaction restarting the numbering', async () => {
+  const before = { messageCount: 120, compactCount: 16, readMessageCount: 100, readRevision: 5 };
+  const { after } = await unfocusedRun({ seen: { bot: 100 }, epochs: { bot: 16 } }, [
+    [bot({ ...before, incomingTail: [110, 120] })],
+    [bot({ messageCount: 40, compactCount: 17, readMessageCount: 0, readRevision: 5, incomingTail: [30, 40] })],
+    [bot({ messageCount: 40, compactCount: 17, readMessageCount: 0, readRevision: 5, incomingTail: [30, 40] })],
+  ]);
+  assert.deepEqual(after, ['bot', 'bot', 'bot']);
+});
+
+test('a seen count from before the compaction count was recorded follows the session down to its own count', async () => {
+  // The stuck live state: a session compacted from 417 messages to 62, its
+  // local seen count still 417, the shared cursor restarted to the 62.
+  const settled = { messageCount: 62, compactCount: 17, readMessageCount: 62, readRevision: 3 };
+  const { after, seen, epochs } = await unfocusedRun({ seen: { bot: 417 } }, [
+    [bot({ ...settled, incomingTail: [2, 40, 62] })],
+    [bot({ ...settled, working: true, incomingTail: [2, 40, 62] })],
+    [bot({ ...settled, messageCount: 66, incomingTail: [2, 40, 62, 66] })],
+  ]);
+  assert.deepEqual(after, ['', '', 'bot']);
+  assert.deepEqual(seen, { bot: 62 });
+  assert.deepEqual(epochs, { bot: 17 });
+});
+
+test('a missing or invalid count never lowers a seen count', async () => {
+  const stuck = { compactCount: 17, readMessageCount: 62, readRevision: 3, incomingTail: [2, 40, 62] };
+  const { after, seen, epochs } = await unfocusedRun({ seen: { bot: 417 } }, [
+    [bot({ ...stuck, messageCount: 0 })],
+    [bot({ ...stuck, messageCount: Number.NaN })],
+    [bot({ ...stuck, messageCount: undefined })],
+    [bot({ messageCount: 62, readMessageCount: 62, readRevision: 3, incomingTail: [2, 40, 62] })],
+  ]);
+  assert.deepEqual(after, ['', '', '', '']);
+  assert.deepEqual(seen, { bot: 417 }, 'still the stored count');
+  assert.equal(epochs, null, 'nothing was judged, so nothing was stamped');
+
+  // A real count settles it, and the next turn takes its dot.
+  const real = await unfocusedRun({ seen: { bot: 417 } }, [
+    [bot({ ...stuck, messageCount: 0 })],
+    [bot({ ...stuck, messageCount: 62 })],
+    [bot({ ...stuck, messageCount: 66, incomingTail: [2, 40, 62, 66] })],
+  ]);
+  assert.deepEqual(real.after, ['', '', 'bot']);
 });
