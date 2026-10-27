@@ -137,8 +137,17 @@ test('a fill names its agent turn, and only the turn settlement retires it, even
     assert.equal(settles().length, 2, 'an accepted settlement is not sent again');
     // Other actions carry no turn.
     holdFill = false;
-    await executeComputerTool({ action: 'list', input: { kind: 'windows' } }, { sessionId: 'turn-session', turnId: 8 });
-    assert.equal(seen.at(-1).turn_id, undefined);
+    // A launch names no window capability, so a headless Linux runner's
+    // readiness preflight (which refuses list_windows before dispatch) never
+    // keeps it from reaching the desktop.
+    await executeComputerTool(
+      { action: 'launch', input: { app: 'https://example.com/' } },
+      { sessionId: 'turn-session', turnId: 8 }
+    );
+    const launched = seen.filter((command) => command.action === 'launch');
+    assert.equal(launched.length, 1, 'the other action was dispatched');
+    assert.equal(launched[0].turn_id, undefined);
+    assert.equal(launched[0].runtime_id, undefined);
     assert.equal(owners.length, 1, 'one owner connection serves every fill of this process');
     // A session's terminal state (manager/runtime-liveness.mjs, lead and
     // sub-agent sessions alike) settles the turn that ended, never a newer one.

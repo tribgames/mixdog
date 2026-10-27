@@ -158,6 +158,8 @@ $results.fate = @{
     self      = (Do-ProcessFate ([pscustomobject]@{ pid = [string]$PID; created = '' })).state
     system    = (Do-ProcessFate ([pscustomobject]@{ pid = '4'; created = '' })).state
     bad       = (Do-ProcessFate ([pscustomobject]@{ pid = 'x'; created = '' })).state
+    elevated  = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 # M1: a window with no readable omnibox cannot prove its page and is refused.
 try {
@@ -250,15 +252,20 @@ test('the Windows worker refuses every saved-login target it cannot prove, befor
   // A saved-login owner's death is proven by the OS, never guessed: a running
   // process is running; once it exited it is ended, whether a handle to it is
   // still held (signaled) or not (the id no longer opens); another creation
-  // time is another process; an id we may not open is unknown.
-  assert.deepEqual(result.fate, {
+  // time is another process; an id we may not open is unknown. Whether the
+  // System process (id 4) may be opened depends on who runs the test: an
+  // unelevated user is refused (unknown), an elevated one (the CI runner is an
+  // administrator) opens it and it really is running. Never ended either way.
+  const { elevated, ...fate } = result.fate;
+  assert.equal(typeof elevated, 'boolean');
+  assert.deepEqual(fate, {
     running: 'running',
     created: true,
     wrongTime: 'ended',
     whileHeld: 'ended',
     released: 'ended',
     self: 'running',
-    system: 'unknown',
+    system: elevated ? 'running' : 'unknown',
     bad: 'unknown',
   });
 });
