@@ -27,24 +27,36 @@ import { join } from 'node:path';
 import { holdsNoData, writeJsonAtomicAsync } from '../../../../../shared/atomic-file.mjs';
 import { isPidAlive } from '../../../../../shared/pid-liveness.mjs';
 import { displayShellCommand } from '../../../../../shared/shell-display.mjs';
-import { tryAdmitWorkspaceActivity } from '../../../../../shared/worktrees/activity-gate.mjs';
+import { tryAdmitWorkspaceActivityAsync } from '../../../../../shared/worktrees/activity-gate.mjs';
 import { worktreeError } from '../../../../../shared/worktrees/contract.mjs';
 import { workspaceSees } from '../../../../../shared/worktrees/workspace-visibility.mjs';
 
 const workspaceLeases = new Map();
 
+/**
+ * Calls both releases in order; settles once both did. Never goes unhandled
+ * (an asynchronous release rejects only when workspace admission stopped).
+ */
+export function bothReleased(first, second) {
+  const both = Promise.all([first(), second()]);
+  both.catch(() => {});
+  return both;
+}
+
+/**
+ * A workspace grant requested now, for a release handle needed before it is
+ * answered: the release, whenever called, follows the grant (and releases
+ * nothing if it was refused or failed).
+ */
+export function pendingWorkspaceAdmission(granting) {
+  granting.catch(() => {});
+  return () => granting.then((leave) => leave?.(), () => {});
+}
+
 /** Transfer a foreground reader to a surviving-descendant task without a lease gap. */
 export function adoptShellWorkspaceAdmission(jobId, leave) {
   const prior = workspaceLeases.get(jobId);
-  workspaceLeases.set(
-    jobId,
-    prior
-      ? () => {
-          prior();
-          leave();
-        }
-      : leave
-  );
+  workspaceLeases.set(jobId, prior ? () => bothReleased(prior, leave) : leave);
 }
 
 // A record whose owner process is gone is garbage. Age alone never deletes a
@@ -172,7 +184,14 @@ async function sweepOrphanRecords(dir) {
   }
 }
 
-/** Publish the record for a job that has just started or been promoted. */
+/**
+ * Publish the record for a job that has just started or been promoted. Its
+ * workspace lease (under the job's pid) is requested at the call and adopted
+ * under the job id at once, so a later release of the job — or of a
+ * predecessor's lease — is ordered after it. Resolves once the lease is in
+ * both ledger copies; rejects (and writes no record) when it is refused or
+ * cannot be written. The returned promise never goes unhandled.
+ */
 export function publishShellJobRecord(
   task,
   {
@@ -184,16 +203,20 @@ export function publishShellJobRecord(
   } = {}
 ) {
   const jobId = String(task?.jobId || '').trim();
-  if (!jobId) return;
+  if (!jobId) return Promise.resolve();
+  let admitted = Promise.resolve();
   if (task?.cwd) {
-    const leave = tryAdmitWorkspaceActivity(ownerSessionId || jobId, task.cwd, {
+    const granting = tryAdmitWorkspaceActivityAsync(ownerSessionId || jobId, task.cwd, {
       pid: Number(task.pid) || process.pid,
       kind: 'command',
     });
-    if (!leave) throw worktreeError('WORKTREE_BUSY_JOBS', 'The command folder is being managed.');
+    admitted = granting.then((leave) => {
+      if (!leave) throw worktreeError('WORKTREE_BUSY_JOBS', 'The command folder is being managed.');
+    });
+    admitted.catch(() => {});
     // A descendant handoff can reuse the job id with a different live pid.
-    // Acquire its reader before releasing any predecessor's admission.
-    adoptShellWorkspaceAdmission(jobId, leave);
+    // Its reader is requested before any predecessor's admission is released.
+    adoptShellWorkspaceAdmission(jobId, pendingWorkspaceAdmission(granting));
   }
   const ownerPid = Number(clientHostPid ?? task?.clientHostPid) || process.pid;
   const dir = jobsDir();
@@ -202,6 +225,8 @@ export function publishShellJobRecord(
   paths.set(jobId, [jsonPath, ownerPath]);
   void enqueue(jobId, async () => {
     try {
+      // No record for a job whose workspace lease was not granted.
+      await admitted;
       await mkdir(dir, { recursive: true });
       if (!sweepStarted) {
         sweepStarted = true;
@@ -244,6 +269,7 @@ export function publishShellJobRecord(
       /* the record is presentation only; never fail a job for it */
     }
   });
+  return admitted;
 }
 
 /** Preserve a bounded terminal snapshot for manual recovery after restart. */
@@ -335,8 +361,9 @@ export function releaseShellJobWorkspace(jobId) {
   const key = String(jobId || '').trim();
   const leave = workspaceLeases.get(key);
   if (!leave) return;
-  leave();
+  const released = leave();
   if (workspaceLeases.get(key) === leave) workspaceLeases.delete(key);
+  return released;
 }
 
 /** Flag a still-open job record as "termination unconfirmed" for the readouts. */
@@ -390,8 +417,10 @@ export function completeShellJobRecord(jobId, detail) {
       // Callers complete a record only once its processes are confirmed gone
       // (or explicitly released): the workspace admission follows that, not
       // the record write, so a failed write cannot strand it with no handle.
-      leaveWorkspace?.();
+      const released = leaveWorkspace?.();
       if (workspaceLeases.get(key) === leaveWorkspace) workspaceLeases.delete(key);
+      // Fails only when workspace admission stopped (reported there), which keeps the folder held.
+      await Promise.resolve(released).catch(() => {});
     }
     await removePaths(ownerPaths);
     paths.set(key, [jsonPath, donePath]);
@@ -486,6 +515,6 @@ export function retireShellJobRecord(jobId) {
     records.delete(key);
     incarnations.delete(key);
     await removePaths(list);
-    leaveWorkspace?.();
+    await leaveWorkspace?.();
   });
 }

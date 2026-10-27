@@ -432,7 +432,7 @@ function attachChildExit(run, releasePromotedCapture) {
   // child termination regardless — give 'close' a 3 s grace then
   // settle anyway. The grace outlives the spawn server's own 2 s drain
   // deadline, so the real exit status normally still arrives first.
-  child.once('exit', (code, signal) => {
+  const onExit = (code, signal) => {
     if (!run.rootExitAtMs) run.rootExitAtMs = Date.now();
     const grace = setTimeout(() => {
       if (run.settled || run.promotionClose) return;
@@ -449,7 +449,12 @@ function attachChildExit(run, releasePromotedCapture) {
       run.settle(code == null ? 1 : code, signal);
     }, 3000);
     if (grace.unref) grace.unref();
-  });
+  };
+  // The spawn awaits the command's workspace lease before these listeners
+  // exist; a root that exited meanwhile ('close' is replayed, 'exit' is not)
+  // starts its grace now.
+  if (child.exitCode != null || child.signalCode != null) onExit(child.exitCode, child.signalCode);
+  else child.once('exit', onExit);
 }
 
 // Live-progress heartbeat: every 2 s while the foreground command runs, emit

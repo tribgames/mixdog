@@ -9,7 +9,7 @@ import { withBuiltinPathLocks } from './path-locks.mjs';
 import { withAdvisoryLocks } from './advisory-lock.mjs';
 import { gitRepoLockKey, withGitWorktreeWriteLock } from './git-repo-rw-lock.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
-import { tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { WORKTREE_SNAPSHOT_KIND } from '../../../../shared/worktrees/contract.mjs';
 import { isWithin } from '../../../../shared/worktrees/paths.mjs';
 import { readRegistrySync } from '../../../../shared/worktrees/registry.mjs';
@@ -884,12 +884,13 @@ function snapshotContaining(repo) {
 // lease it holds (activity-gate, the same as a background shell's) keeps the
 // snapshot from being removed in any process until it ends, and a snapshot
 // whose removal is under way refuses it. Returns the release.
-function admitSnapshotCommand(repo, sessionId) {
+async function admitSnapshotCommand(repo, sessionId) {
   const snapshot = snapshotContaining(repo);
   if (!snapshot) return () => {};
-  const leave = tryAdmitWorkspaceActivity(sessionId || 'git-tool', repo, { kind: 'command' });
+  const leave = await tryAdmitWorkspaceActivityAsync(sessionId || 'git-tool', repo, { kind: 'command' });
   if (!leave) throw new Error(`the snapshot worktree ${snapshot.path} is being removed; nothing ran`);
-  return leave;
+  // Fails only when workspace admission stopped (reported there), which keeps the snapshot held.
+  return () => leave().catch(() => {});
 }
 
 function invalidateAfterGitMutation() {
@@ -1057,14 +1058,14 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   // under it, and a snapshot being removed refuses it.
   let leaveSnapshot;
   try {
-    leaveSnapshot = admitSnapshotCommand(repo, options.sessionId);
+    leaveSnapshot = await admitSnapshotCommand(repo, options.sessionId);
   } catch (error) {
     return rejected(error.message);
   }
   try {
     return await runInRepository(input, plan, { repo, lockKey, limit, signal, workDir });
   } finally {
-    leaveSnapshot();
+    await leaveSnapshot();
   }
 }
 

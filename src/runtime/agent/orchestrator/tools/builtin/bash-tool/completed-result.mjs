@@ -39,7 +39,7 @@ function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs 
         await waitForShellDescendants(handle);
         // The folder reservation the finished command handed to its
         // survivors ends with the last of them.
-        releaseShellJobWorkspace(handle.taskId);
+        await releaseShellJobWorkspace(handle.taskId);
         return {
           task_id: handle.taskId,
           status: 'completed',

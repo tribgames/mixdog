@@ -52,13 +52,16 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true, sw
   // gone only once its first observation is not 'gone'.
   if (markNow) keepTerminationUnconfirmedRecord(run);
   treeSettled(run);
+  // The workspace leases stop counting here; the returned promise settles once
+  // their removal is on disk.
   const release = () => {
-    run.workspaceAdmission?.();
+    const released = run.workspaceAdmission?.();
     run.workspaceAdmission = null;
     run.stopTerminationWatch?.();
     clearTerminationHold(run.foregroundRecordId);
     clearForegroundRecord(run);
     run.resolveTreeSettled();
+    return released;
   };
   registerTerminationHold(run.foregroundRecordId, {
     ownerSessionId: run.foregroundRecordInput?.ownerSessionId || null,
@@ -249,9 +252,12 @@ export function createSettle(run, releasePromotedCapture) {
     if (confirmKill) releaseAdmissionOnConfirmedTermination(run, { markNow: false });
     if (!lifecycleHeld && !descendantsUnknown && run.workspaceAdmission) {
       try {
+        let released = null;
         if (descendants) adoptShellWorkspaceAdmission(run.foregroundRecordId, run.workspaceAdmission);
-        else run.workspaceAdmission();
+        else released = run.workspaceAdmission();
         run.workspaceAdmission = null;
+        // The result is reported once the removal is on disk, as when it was written synchronously.
+        await released;
       } catch (error) {
         taskOutput.writeError = taskOutput.writeError || error;
         exitCode = exitCode || 1;

@@ -86,7 +86,7 @@ import {
 } from './include.mjs';
 import { linkWorktreeDependencies } from './dependencies.mjs';
 import { withRepoLock as withRepoMutationLock } from './lock.mjs';
-import { holdWorkspaceActivity } from './activity-gate.mjs';
+import { holdWorkspaceActivityAsync } from './activity-gate.mjs';
 import { withAdvisoryLocks } from '../../agent/orchestrator/tools/builtin/advisory-lock.mjs';
 import { mergeBranchIntoCheckout, operationInProgress } from './merge.mjs';
 import { readOwnerLease, removeOwnerLease, sameOwner, writeOwnerLease } from './owner.mjs';
@@ -1362,9 +1362,12 @@ export async function createSnapshotWorktree({
  * one is admitted there until the returned release. A folder no longer a
  * checkout admits no consumer (activity-gate tracks git checkouts only).
  */
-function holdSnapshotFolder(record) {
+async function holdSnapshotFolder(record) {
   if (!existsSync(join(record.path, '.git'))) return () => {};
-  return holdWorkspaceActivity([record.path]);
+  const release = await holdWorkspaceActivityAsync([record.path]);
+  // Settles once the removal was attempted. It fails only when workspace
+  // admission stopped (reported there), which keeps the folder held.
+  return () => release().catch(() => {});
 }
 
 /** A refusal that only says "something still runs there" (retry once it ends). */
@@ -1871,11 +1874,11 @@ async function removeLocked(current, { force, sessionId, preserveBranch = false,
   }
   // Every deletion attempt of a snapshot, a resumed one included, waits
   // for (refuses on) its consumers.
-  const release = current.kind === WORKTREE_SNAPSHOT_KIND ? holdSnapshotFolder(current) : () => {};
+  const release = current.kind === WORKTREE_SNAPSHOT_KIND ? await holdSnapshotFolder(current) : () => {};
   try {
     return await decideAndFinishDeletion(current, { force, preserveBranch, safeOnly });
   } finally {
-    release();
+    await release();
   }
 }
 
@@ -2044,7 +2047,7 @@ export async function reconcileManagedWorktrees({
               // surviving folder since still keeps it.
               let release;
               try {
-                release = holdSnapshotFolder(record);
+                release = await holdSnapshotFolder(record);
               } catch (error) {
                 if (!snapshotInUse(error)) throw error;
                 report.kept.push({ id: record.id, reason: 'snapshot-in-use' });
@@ -2053,7 +2056,7 @@ export async function reconcileManagedWorktrees({
               try {
                 reportDeletion(record, await finishDeletion(record));
               } finally {
-                release();
+                await release();
               }
               continue;
             }
@@ -2069,7 +2072,7 @@ export async function reconcileManagedWorktrees({
               let release = null;
               if (!(await snapshotHolderLive(record, live))) {
                 try {
-                  release = holdSnapshotFolder(record);
+                  release = await holdSnapshotFolder(record);
                 } catch (error) {
                   if (!snapshotInUse(error)) throw error;
                 }
@@ -2085,7 +2088,7 @@ export async function reconcileManagedWorktrees({
                 await putRecord(record);
                 reportDeletion(record, await finishDeletion(record));
               } finally {
-                release();
+                await release();
               }
               continue;
             }

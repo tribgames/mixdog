@@ -53,6 +53,7 @@
     "src/",
     "!src/tui/dev",
     "!src/**/*.test.mjs",
+    "!src/**/*.test-hook.mjs",
     "!src/**/*.test.jsx"
   ],
   "scripts": {

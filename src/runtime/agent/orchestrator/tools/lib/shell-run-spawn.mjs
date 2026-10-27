@@ -18,8 +18,9 @@ import { _maybeEncodePowerShellCommand } from '../shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './shell-spawn-retry.mjs';
 import { STANDBY_ARGS, takeWarmShellStandby } from './shell-warm-standby.mjs';
 import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
-import { admitWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
+import { admitWorkspaceActivity, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
 import { worktreeError } from '../../../../shared/worktrees/contract.mjs';
+import { bothReleased } from '../builtin/lib/shell-job-records.mjs';
 import { capturePreKill, registerForegroundOwnedTree, treeKillForceSettle } from './shell-run-state.mjs';
 import { releaseAdmissionOnConfirmedTermination } from './shell-run-settle.mjs';
 import { killAfterSnapshot } from './shell-descendants.mjs';
@@ -223,20 +224,25 @@ async function spawnAdmittedShellChild({
     }));
   run.child = spawned.child;
   registerForegroundOwnedTree(run, ownerSessionId);
-  const parentAdmission = run.workspaceAdmission;
-  const childAdmission = tryAdmitWorkspaceActivity(ownerSessionId || run.foregroundRecordId, cwd || process.cwd(), {
-    pid: Number(run.child.pid) || process.pid,
-    kind: 'command',
-  });
-  if (!childAdmission) throw worktreeError('WORKTREE_BUSY_JOBS', 'The command workspace changed during spawn.');
-  run.workspaceAdmission = () => {
-    childAdmission();
-    parentAdmission();
-  };
+  // Attached before the admission below yields: until the caller attaches its
+  // listeners, the child's output is buffered and its close replayed.
   spawned.attachErrorHandler(onChildError);
-  // Feed the script only after the error handler is attached; server
-  // messages cannot be processed before this synchronous block yields.
-  // Single atomic write+EOF, as for the standby.
+  const parentAdmission = run.workspaceAdmission;
+  // The command's own lease (under its pid: what keeps the folder reserved
+  // should this runtime die). The parent's lease covers the folder until this
+  // one is written to both copies, and stays the only release until then.
+  const childAdmission = await tryAdmitWorkspaceActivityAsync(
+    ownerSessionId || run.foregroundRecordId,
+    cwd || process.cwd(),
+    {
+      pid: Number(run.child.pid) || process.pid,
+      kind: 'command',
+    }
+  );
+  if (!childAdmission) throw worktreeError('WORKTREE_BUSY_JOBS', 'The command workspace changed during spawn.');
+  run.workspaceAdmission = () => bothReleased(childAdmission, parentAdmission);
+  // Feed the script only once its lease is written. Single atomic write+EOF,
+  // as for the standby.
   abortSignal?.throwIfAborted();
   if (standby) standby.feed(spawnCommand, cwd);
   else if (stdinScript !== null) spawned.child.writeStdin(stdinScript, { close: true });
@@ -249,18 +255,23 @@ async function spawnAdmittedShellChild({
     run.foregroundRecordTimer = null;
     if (run.settled || run.autoBackgrounded || !run.child?.pid) return;
     run.foregroundRecordPublished = true;
-    try {
-      publishForegroundShellRecord({
-        ...run.foregroundRecordInput,
-        jobId: run.foregroundRecordId,
-        pid: run.child.pid,
-        startedAtMs: run.commandStartedAtMs,
-      });
-    } catch (error) {
-      run.spawnError = error;
-      run.failureReason = 'workspace publication failed';
-      treeKillForceSettle(run, 'workspace-publication-failed');
-    }
+    void (async () => {
+      try {
+        await publishForegroundShellRecord({
+          ...run.foregroundRecordInput,
+          jobId: run.foregroundRecordId,
+          pid: run.child.pid,
+          startedAtMs: run.commandStartedAtMs,
+        });
+      } catch (error) {
+        // The record's lease could not be written: the command is stopped, as
+        // before — unless it ended or was promoted (its own leases) meanwhile.
+        if (run.settled || run.autoBackgrounded) return;
+        run.spawnError = error;
+        run.failureReason = 'workspace publication failed';
+        treeKillForceSettle(run, 'workspace-publication-failed');
+      }
+    })();
   }, FOREGROUND_RECORD_DELAY_MS);
   run.foregroundRecordTimer.unref?.();
 }
@@ -278,8 +289,11 @@ export async function spawnShellChild(input) {
     return await spawnAdmittedShellChild(input);
   } catch (error) {
     if (!input.run.child) {
-      input.run.workspaceAdmission();
+      const released = input.run.workspaceAdmission();
       input.run.workspaceAdmission = null;
+      // The spawn's own error is the one reported; a release fails only when
+      // workspace admission stopped (which keeps the folder held).
+      await Promise.resolve(released).catch(() => {});
     } else {
       try {
         // Identities first: the kill may break the parent chain.

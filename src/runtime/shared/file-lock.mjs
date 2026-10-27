@@ -1,16 +1,8 @@
-import {
-  linkSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { linkSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import {
   link as linkAsync,
   mkdir as mkdirAsync,
+  readdir as readdirAsync,
   readFile as readFileAsync,
   stat as statAsync,
   unlink as unlinkAsync,
@@ -384,10 +376,16 @@ function lockStaleMs(opts) {
 // A staged owner record lives for one link call; a process killed between its
 // create and unlink leaves `<lock>.<pid>.<hex>.tmp` behind. Each lock path is
 // swept once per process for staged files older than this whose pid is dead.
+// The sweep is cleanup only — no lock decision depends on it — so it runs
+// beside the acquisition instead of in front of it: listing a crowded
+// directory synchronously blocked every lock taker for seconds. A file it
+// removes belongs to a dead pid and is past any link call, so it cannot race
+// a live acquisition.
 const STAGED_LOCK_FILE_STALE_MS = 60_000;
 const sweptLockPaths = new Set();
 
-export function sweepStagedLockFiles(lockPath, now = Date.now()) {
+/** Resolves with the number of staged files removed; 0 once the path was swept in this process. */
+export async function sweepStagedLockFiles(lockPath, now = Date.now()) {
   if (sweptLockPaths.has(lockPath)) return 0;
   sweptLockPaths.add(lockPath);
   const dir = dirname(lockPath);
@@ -395,7 +393,7 @@ export function sweepStagedLockFiles(lockPath, now = Date.now()) {
   let removed = 0;
   let names;
   try {
-    names = readdirSync(dir);
+    names = await readdirAsync(dir);
   } catch {
     return 0;
   }
@@ -405,9 +403,9 @@ export function sweepStagedLockFiles(lockPath, now = Date.now()) {
     if (!match) continue;
     const path = join(dir, name);
     try {
-      if (now - statSync(path).mtimeMs < STAGED_LOCK_FILE_STALE_MS) continue;
+      if (now - (await statAsync(path)).mtimeMs < STAGED_LOCK_FILE_STALE_MS) continue;
       if (ownerIsLive({ pid: Number(match[1]), token: null })) continue;
-      unlinkSync(path);
+      await unlinkAsync(path);
       removed += 1;
     } catch {
       // Another sweeper or a late unlink got there first.
@@ -421,7 +419,7 @@ function* acquireLock(lockPath, opts, mode, markHeld, timing = null) {
   const staleMs = lockStaleMs(opts);
   const deadline = Date.now() + timeoutMs;
   yield ['mkdirp', dirname(lockPath)];
-  sweepStagedLockFiles(lockPath);
+  void sweepStagedLockFiles(lockPath);
   const waitStartedAt = Date.now();
   let attempt = 0;
   let lastError = null;

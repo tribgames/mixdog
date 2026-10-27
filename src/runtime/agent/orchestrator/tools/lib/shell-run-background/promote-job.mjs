@@ -92,6 +92,8 @@ export async function handOverLease(run) {
   const lease = run.resourceLease;
   run.resourceLease = null;
   await lease?.release();
-  run.workspaceAdmission?.();
+  const released = run.workspaceAdmission?.();
   run.workspaceAdmission = null;
+  // Fails only when workspace admission stopped (reported there), which keeps the folder held.
+  await Promise.resolve(released).catch(() => {});
 }

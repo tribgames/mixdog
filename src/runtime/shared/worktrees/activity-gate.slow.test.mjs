@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import fs, { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
-import { syncBuiltinESMExports } from 'node:module';
+import { mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
-import { admitWorkspaceActivity, holdWorkspaceActivity, tryAdmitWorkspaceActivity } from './activity-gate.mjs';
+import {
+  admitWorkspaceActivity,
+  holdWorkspaceActivity,
+  holdWorkspaceActivityAsync,
+  tryAdmitWorkspaceActivity,
+  tryAdmitWorkspaceActivityAsync,
+} from './activity-gate.mjs';
+import { setAdmissionFaults } from './activity-gate-faults.test-hook.mjs';
 import { admitTurn, retainAdmittedTurnWorkspace } from '../../../session-runtime/workspace/admission-gate.mjs';
 import {
   completeShellJobRecord,
@@ -19,6 +25,11 @@ import { spawnShellChild } from '../../agent/orchestrator/tools/lib/shell-run-sp
 beforeEach(useTempDataDir);
 after(cleanupTempDirs);
 const moduleUrl = new URL('./activity-gate.mjs', import.meta.url).href;
+// Faults are injected into the admission thread of this process (and of the
+// child processes below, which inherit the environment).
+const faultsUrl = new URL('./activity-gate-faults.test-hook.mjs', import.meta.url).href;
+process.env.MIXDOG_ADMISSION_TEST_FAULT_HOOK = '1';
+const killedMarker = '[admission-faults] killed';
 
 function reader(t, repo, waiting = false, command = false) {
   const child = spawn(
@@ -427,81 +438,79 @@ test('a writer that meets the damage first publishes the uncertainty to both cop
   assert.ok(Number.isFinite(copiesOf(repo).recoveredAt), 'the refused writer published the uncertainty');
 });
 
-// Runs `interleave` once, right after the ledger lock is first released: the
-// instant another process can take the lock. A throw inside the release is
-// swallowed by the lock, so `interleave` records its own outcome.
-function afterLedgerLockRelease(interleave) {
-  const unlink = fs.unlinkSync;
-  let fired = false;
-  fs.unlinkSync = function (path, ...rest) {
-    const result = unlink.call(this, path, ...rest);
-    if (!fired && String(path).endsWith('mixdog-workspace-admission.json.lock')) {
-      fired = true;
-      interleave();
-    }
-    return result;
-  };
-  syncBuiltinESMExports();
-  return () => {
-    fs.unlinkSync = unlink;
-    syncBuiltinESMExports();
-  };
+/** Runs a module script in a new Node process without this one's fault plan. */
+async function runScript(script, args, env = {}) {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, ...args], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, MIXDOG_ADMISSION_TEST_FAULTS: '', MIXDOG_DATA_DIR: tempDir(), ...env },
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  const [status, signal] = await once(child, 'exit');
+  return { status, signal, stdout, stderr };
 }
 
-test('a writer that takes the lock the instant a recovery releases it still waits', () => {
+test('a writer that takes the lock the instant a recovery releases it still waits', async (t) => {
   const repo = makeRepo();
   writeFileSync(admissionPath(repo), Buffer.alloc(64));
-  let interleaved = { error: new Error('no writer ran at the lock release') };
-  const stop = afterLedgerLockRelease(() => {
-    try {
-      interleaved = { release: holdWorkspaceActivity([repo]) };
-    } catch (error) {
-      interleaved = { error };
+  const released = 'MIXDOG_TEST_LEDGER_LOCK_RELEASED';
+  delete process.env[released];
+  t.after(() => setAdmissionFaults());
+  // The writer that meets the damage stops right after releasing the ledger
+  // lock: the instant another process can take it.
+  setAdmissionFaults(
+    { op: 'unlink', file: `${FILE}.lock`, when: 'after', hits: [true], action: 'snapshot', report: released, files: [] },
+    { op: 'unlink', file: `${FILE}.lock`, when: 'after', hits: [true], action: 'delay', ms: 3000 }
+  );
+  const first = holdWorkspaceActivityAsync([repo]).then(
+    (release) => release(),
+    () => {
+      // The first writer is refused; only the interleaved one is under test.
     }
-  });
-  try {
-    holdWorkspaceActivity([repo])();
-  } catch {
-    // The first writer is refused; only the interleaved one is under test.
-  } finally {
-    stop();
-  }
-  interleaved.release?.();
+  );
+  await until(() => process.env[released]);
+  const interleaved = await runScript(
+    `
+      import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+      try {
+        holdWorkspaceActivity([process.argv[1]])();
+        console.log('admitted');
+      } catch (error) {
+        console.log(error.details?.reason ?? error.message);
+      }
+    `,
+    [repo]
+  );
+  await first;
   assert.equal(
-    interleaved.error?.details?.reason,
+    interleaved.stdout.trim(),
     'workspace-admission-unreadable',
-    `a writer admitted between the move-aside and the recovery read the missing ledger as empty: ${interleaved.error?.message ?? 'admitted'}`
+    `a writer admitted between the move-aside and the recovery read the missing ledger as empty: ${interleaved.stderr}`
   );
   assert.ok(Number.isFinite(copiesOf(repo).recoveredAt), 'the uncertainty is published to both copies');
 });
 
-test('a crash between keeping the damaged ledger aside and publishing the recovery still refuses management', () => {
+test('a crash between keeping the damaged ledger aside and publishing the recovery still refuses management', async () => {
   const repo = makeRepo();
   const damaged = Buffer.alloc(64);
   writeFileSync(admissionPath(repo), damaged);
-  const crashed = spawnSync(
-    process.execPath,
-    [
-      '--input-type=module',
-      '-e',
-      `
-        import fs from 'node:fs';
-        import { syncBuiltinESMExports } from 'node:module';
-        import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-        const rename = fs.renameSync;
-        // The process dies as the recovered ledger is about to be published.
-        fs.renameSync = (from, to) => {
-          if (String(to).endsWith('mixdog-workspace-admission.json')) process.exit(86);
-          return rename(from, to);
-        };
-        syncBuiltinESMExports();
-        holdWorkspaceActivity([process.argv[1]]);
-      `,
-      repo,
-    ],
-    { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+  // The process dies (no exit handler runs) as the recovered ledger is about to be published.
+  const crashed = await runScript(
+    `
+      import { holdWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
+      import { setAdmissionFaults } from ${JSON.stringify(faultsUrl)};
+      setAdmissionFaults({ op: 'rename', file: ${JSON.stringify(FILE)}, action: 'kill' });
+      holdWorkspaceActivity([process.argv[1]]);
+    `,
+    [repo]
   );
-  assert.equal(crashed.status, 86, crashed.stderr);
+  assert.ok(crashed.stderr.includes(killedMarker), crashed.stderr);
   assert.ok(
     asideCopies(repo).some((copy) => readFileSync(copy).equals(damaged)),
     'the damaged bytes were kept before the crash'
@@ -604,7 +613,7 @@ test('#181-2 a recorded background command outlives its publisher until the comm
       `
         import { publishShellJobRecord } from ${JSON.stringify(records)};
         const [cwd, pid] = process.argv.slice(1);
-        publishShellJobRecord({ jobId: 'job_survivor', cwd, pid: Number(pid), command: 'node' }, { ownerSessionId: 'publisher' });
+        await publishShellJobRecord({ jobId: 'job_survivor', cwd, pid: Number(pid), command: 'node' }, { ownerSessionId: 'publisher' });
         process.exit(0);
       `,
       repo,
@@ -711,28 +720,16 @@ test('#181-5 a missing copy is restored from the other in both directions, never
 });
 
 // Fails planned writes of one copy: `plan.primary[i]` / `plan.mirror[i]` say
-// whether that copy's i-th write from now on fails.
-function failWrites(plan) {
-  const rename = fs.renameSync;
-  const queues = { [FILE]: [...(plan.primary ?? [])], [`${FILE}.management`]: [...(plan.mirror ?? [])] };
-  fs.renameSync = function (from, to, ...rest) {
-    if (queues[basename(String(to))]?.shift())
-      throw Object.assign(new Error('injected write failure'), { code: 'EIO' });
-    return rename.call(this, from, to, ...rest);
-  };
-  syncBuiltinESMExports();
-  return () => {
-    fs.renameSync = rename;
-    syncBuiltinESMExports();
-  };
-}
-
+// whether that copy's i-th write during `run` fails.
 function withFailingWrites(plan, run) {
-  const stop = failWrites(plan);
+  setAdmissionFaults(
+    { op: 'rename', file: FILE, hits: plan.primary ?? [], action: 'fail', code: 'EIO' },
+    { op: 'rename', file: `${FILE}.management`, hits: plan.mirror ?? [], action: 'fail', code: 'EIO' }
+  );
   try {
     return run();
   } finally {
-    stop();
+    setAdmissionFaults();
   }
 }
 
@@ -797,8 +794,8 @@ test('#181-6 publication faults never acknowledge an unprotected grant, lose a l
   settled();
 });
 
-// Runs `step` in a new process that dies as it is about to replace the mirror,
-// after the primary copy was written.
+// Runs `step` in a new process that dies (no exit handler runs) as it is
+// about to replace the mirror, after the primary copy was written.
 function dieBetweenWrites(repo, step) {
   const crashed = spawnSync(
     process.execPath,
@@ -806,24 +803,17 @@ function dieBetweenWrites(repo, step) {
       '--input-type=module',
       '-e',
       `
-        import fs from 'node:fs';
-        import { basename } from 'node:path';
-        import { syncBuiltinESMExports } from 'node:module';
         import { tryAdmitWorkspaceActivity } from ${JSON.stringify(moduleUrl)};
-        const rename = fs.renameSync;
-        fs.renameSync = (from, to) => {
-          if (basename(String(to)) === ${JSON.stringify(`${FILE}.management`)}) process.exit(86);
-          return rename(from, to);
-        };
-        syncBuiltinESMExports();
+        import { setAdmissionFaults } from ${JSON.stringify(faultsUrl)};
+        setAdmissionFaults({ op: 'rename', file: ${JSON.stringify(`${FILE}.management`)}, action: 'kill' });
         const cwd = process.argv[1];
         ${step}
       `,
       repo,
     ],
-    { encoding: 'utf8', env: { ...process.env, MIXDOG_DATA_DIR: tempDir() } }
+    { encoding: 'utf8', env: { ...process.env, MIXDOG_ADMISSION_TEST_FAULTS: '', MIXDOG_DATA_DIR: tempDir() } }
   );
-  assert.equal(crashed.status, 86, crashed.stderr);
+  assert.ok(crashed.stderr.includes(killedMarker), crashed.stderr);
 }
 
 test('#181-7 a process dying between the two writes never lets management run over acknowledged work', {
@@ -913,4 +903,21 @@ test('#181-11 a new repository and a quiescent reset start clean; two missing co
   unlinkSync(admissionPath(repo));
   unlinkSync(mirrorPath(repo));
   holdWorkspaceActivity([repo])();
+});
+
+test('a copy that keeps refusing its replace (EPERM) fails the grant after the bounded retries and is never removed', {
+  timeout: 90000,
+}, async (t) => {
+  const repo = makeRepo();
+  const keep = tryAdmitWorkspaceActivity('keep', repo);
+  const before = readFileSync(admissionPath(repo));
+  t.after(() => setAdmissionFaults());
+  setAdmissionFaults({ op: 'rename', file: FILE, action: 'fail', code: 'EPERM' });
+  await assert.rejects(tryAdmitWorkspaceActivityAsync('refused', repo), UNVERIFIED);
+  setAdmissionFaults();
+  assert.ok(readFileSync(admissionPath(repo)).equals(before), 'the refusing copy was replaced or removed');
+  // Once the copy accepts writes again, nothing of the refused grant remains.
+  tryAdmitWorkspaceActivity('after', repo)();
+  assert.deepEqual(sessions(copiesOf(repo)), ['keep']);
+  keep();
 });
