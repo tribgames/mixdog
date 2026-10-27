@@ -21,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gateTestBudget, runGateLegs } from './lib/gate-scheduler.mjs';
+import { pruneStaleTempDirs, removeTempDirSync } from './lib/stale-temp.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const started = Date.now();
@@ -47,8 +48,15 @@ if (build.status !== 0) {
   process.exit(1);
 }
 
-const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-gate-local-'));
-const resourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-gate-resources-'));
+// Each run owns its log directory, so concurrent runs never touch each other's
+// logs and the paths the summary prints stay valid after any outcome. Log
+// directories are kept until they go stale; a resources directory a killed
+// run left behind goes the same way. Both are swept at start.
+const LOG_PREFIX = 'mixdog-gate-local-';
+const RESOURCE_PREFIX = 'mixdog-gate-resources-';
+pruneStaleTempDirs([LOG_PREFIX, RESOURCE_PREFIX]);
+const logDir = fs.mkdtempSync(path.join(os.tmpdir(), LOG_PREFIX));
+const resourceDir = fs.mkdtempSync(path.join(os.tmpdir(), RESOURCE_PREFIX));
 const budget = gateTestBudget();
 // weight: relative worker share, roughly each leg's measured duration x its 3 workers
 // (runtime ~440s, runtime-slow ~545s, desktop fast ~390s, desktop slow ~280s).
@@ -66,6 +74,7 @@ function runCmd(cmd, logFd, concurrency) {
     const child = spawn(cmd, {
       cwd: root,
       shell: true,
+      windowsHide: true,
       stdio: ['ignore', logFd, logFd],
       env: {
         ...process.env,
@@ -99,7 +108,7 @@ try {
   await runLeg(legs.at(-1), budget);
   await runGateLegs(legs.slice(0, -1), budget, runLeg);
 } finally {
-  fs.rmSync(resourceDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  removeTempDirSync(resourceDir);
 }
 
 console.log('\n=== gate:local summary ===');

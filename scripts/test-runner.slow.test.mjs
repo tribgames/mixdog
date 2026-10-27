@@ -541,9 +541,8 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
   const fullLogPath = /^Full test log: (.+)$/m.exec(pass.stderr)?.[1];
   assert.ok(fullLogPath?.startsWith(join(tmpdir(), 'mixdog-test-output-')));
   t.after(() => rm(dirname(fullLogPath), { recursive: true, force: true }));
-  const fullLog = await readFile(fullLogPath, 'utf8');
-  assert.match(fullLog, /chosen/);
-  assert.match(fullLog, /fixture warning is preserved/);
+  // A green run does not keep its output.
+  assert.equal(existsSync(dirname(fullLogPath)), false);
   assert.doesNotMatch(pass.stderr, /MaxListenersExceededWarning/);
   // A clean run still ends with the summary block, so its absence is a signal.
   assert.equal(
@@ -552,6 +551,10 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
   );
   const fail = runNode(cwd, [runnerPath, 'src/fail.test.mjs']);
   assert.equal(fail.status, 1);
+  // A failed run keeps the full log its printed path names.
+  const failLogPath = /^Full test log: (.+)$/m.exec(fail.stderr)[1];
+  t.after(() => rm(dirname(failLogPath), { recursive: true, force: true }));
+  assert.match(await readFile(failLogPath, 'utf8'), /fixture assertion failure/);
   assert.match(fail.stdout, /fixture assertion failure/);
   assert.match(fail.stdout, /fail 1/);
   assert.match(fail.stdout, /src\/fail\.test\.mjs\s+\(failed\)/);

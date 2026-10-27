@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -15,6 +15,7 @@ import {
   chunkFileArgs,
   explicitFilesTimeoutMs,
   ownedProcesses,
+  RUNNER_TEMP_PREFIXES,
   testConcurrencyArg,
   testTimeoutArg,
 } from './lib/run-node-tests.mjs';
@@ -378,6 +379,103 @@ for (const explicit of [false, true]) {
     assert.equal(result.status, 0, result.stdout + result.stderr);
   });
 }
+
+// Runs the runner with its temp root pointed at a private directory, so the
+// run's leftovers can be counted without touching the real %TEMP%.
+async function runInTempRoot(t, entries, files) {
+  const cwd = await fixture(t, entries);
+  const tempRoot = await mkdtemp(join(tmpdir(), 'mixdog-test-runner-temp-'));
+  t.after(() => rm(tempRoot, { recursive: true, force: true }));
+  const probe = `
+    const { runNodeTests } = await import(${JSON.stringify(runNodeTestsUrl)});
+    await runNodeTests(['--test'], JSON.parse(process.argv[1]));
+  `;
+  const env = { ...process.env, TEMP: tempRoot, TMP: tempRoot, TMPDIR: tempRoot };
+  delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', probe, JSON.stringify(files)], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 60_000,
+    windowsHide: true,
+  });
+  assert.ifError(result.error);
+  return { result, tempRoot, leftovers: await readdir(tempRoot) };
+}
+
+const GREEN = "import test from 'node:test';\ntest('green case', () => {});\n";
+const RED = "import test from 'node:test';\ntest('red case', () => { throw new Error('red failure'); });\n";
+
+test('a green run removes its output, failure and scratch dirs', async (t) => {
+  const { result, leftovers, tempRoot } = await runInTempRoot(t, { 'green.test.mjs': GREEN }, ['green.test.mjs']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  // The printed path still names the run's output location.
+  assert.ok(/^Full test log: (.+)$/m.exec(result.stderr)[1].startsWith(tempRoot));
+  assert.deepEqual(leftovers, []);
+});
+
+test('a failed run keeps only its output dir, which holds the full log the summary points at', async (t) => {
+  const { result, leftovers, tempRoot } = await runInTempRoot(t, { 'red.test.mjs': RED }, ['red.test.mjs']);
+  assert.equal(result.status, 1);
+  const logPath = /^Full test log: (.+)$/m.exec(result.stderr)[1];
+  assert.equal(leftovers.length, 1, leftovers.join(' '));
+  assert.ok(leftovers[0].startsWith('mixdog-test-output-'));
+  assert.equal(logPath, join(tempRoot, leftovers[0], 'full.log'));
+  assert.match(await readFile(logPath, 'utf8'), /red failure/);
+});
+
+test('scratch and failure dirs are removed when the runner itself throws, and the log is kept', async (t) => {
+  // Corrupting the failure records makes the runner's own merge step throw.
+  const corrupt = `
+    import { appendFileSync } from 'node:fs';
+    import test from 'node:test';
+    test('corrupts the failure records', () => appendFileSync(process.env.MIXDOG_TEST_FAILURE_RECORDS, 'not json\\n'));
+  `;
+  const { result, leftovers } = await runInTempRoot(t, { 'corrupt.test.mjs': corrupt }, ['corrupt.test.mjs']);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SyntaxError/);
+  assert.equal(leftovers.length, 1, leftovers.join(' '));
+  assert.ok(leftovers[0].startsWith('mixdog-test-output-'));
+});
+
+test('the start-of-run prune removes old leftovers of every runner prefix and spares fresh and unrelated dirs', async (t) => {
+  const cwd = await fixture(t, { 'green.test.mjs': GREEN });
+  const tempRoot = await mkdtemp(join(tmpdir(), 'mixdog-test-runner-temp-'));
+  t.after(() => rm(tempRoot, { recursive: true, force: true }));
+  const old = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
+  const keep = [];
+  for (const prefix of RUNNER_TEMP_PREFIXES) {
+    for (const [name, mtime] of [
+      [`${prefix}old`, old],
+      [`${prefix}fresh`, new Date()],
+    ]) {
+      const dir = join(tempRoot, name);
+      await mkdir(dir);
+      await writeFile(join(dir, 'file'), 'x');
+      await utimes(dir, mtime, mtime);
+      if (mtime !== old) keep.push(name);
+    }
+  }
+  await mkdir(join(tempRoot, 'unrelated-old'));
+  await utimes(join(tempRoot, 'unrelated-old'), old, old);
+  keep.push('unrelated-old');
+  assert.equal(RUNNER_TEMP_PREFIXES.length, 3);
+  const probe = `
+    const { runNodeTests } = await import(${JSON.stringify(runNodeTestsUrl)});
+    await runNodeTests(['--test'], ['green.test.mjs']);
+  `;
+  const env = { ...process.env, TEMP: tempRoot, TMP: tempRoot, TMPDIR: tempRoot };
+  delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', probe], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 60_000,
+    windowsHide: true,
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.deepEqual((await readdir(tempRoot)).sort(), keep.sort());
+});
 
 test('--test-timeout consumes its value in both forms and a valueless one is a flag error', () => {
   assert.deepEqual(parseArgs(['--test-timeout', '120000']).nodeArgs, ['--test-timeout=120000']);
