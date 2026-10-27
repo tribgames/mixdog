@@ -262,6 +262,101 @@ test('interactive OAuth login hands over to the code prompt and the callback sho
   assert.equal(h.current().description, 'Anthropic login complete');
 });
 
+// canOpenBrowser reads the live environment: pin a desktop or an SSH session.
+function withLoginEnv(kind, fn) {
+  const keys = ['SSH_TTY', 'SSH_CONNECTION', 'DISPLAY', 'WAYLAND_DISPLAY'];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  if (kind === 'headless') process.env.SSH_CONNECTION = '10.0.0.1 1 10.0.0.2 22';
+  else process.env.DISPLAY = ':0';
+  return fn().finally(() => {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  });
+}
+
+async function startLogin(started, kind) {
+  const calls = [];
+  const callback = Promise.withResolvers();
+  const h = createHarness({
+    store: {
+      beginOAuthProviderLogin: async (id, options) => {
+        calls.push([id, options]);
+        return { ...started, waitForCallback: callback.promise };
+      },
+    },
+  });
+  await h.openProviderSetupPicker({});
+  h.select(h.row('oauth:anthropic-oauth'));
+  h.select(h.row('login-oauth'));
+  return { h, calls, callback, kind };
+}
+
+test('headless start passes openBrowser:false, shows the URL and never claims a browser opened', () =>
+  withLoginEnv('headless', async () => {
+    const { h, calls, callback } = await startLogin({ url: 'https://example.test/poll' });
+    await waitUntil(() => h.current()?.description?.includes('https://example.test/poll'), { message: 'url panel' });
+    assert.deepEqual(calls, [['anthropic-oauth', { openBrowser: false }]]);
+    assert.equal(h.current().description, 'Open this URL to sign in:\nhttps://example.test/poll');
+    assert.ok(h.notices.every(([message]) => !/browser opened/.test(message)));
+    callback.resolve({ ok: true });
+    await panelIs(h, 'providers-oauth-result:oauth:anthropic-oauth:ok');
+  }));
+
+test('desktop URL-only polling start opens the browser and still shows the URL', () =>
+  withLoginEnv('desktop', async () => {
+    const { h, calls } = await startLogin({ url: 'https://example.test/poll' });
+    await waitUntil(() => h.current()?.description?.includes('https://example.test/poll'), { message: 'url panel' });
+    assert.deepEqual(calls, [['anthropic-oauth', { openBrowser: true }]]);
+    assert.equal(h.current().description, 'Open this URL to sign in:\nhttps://example.test/poll (browser opened)');
+  }));
+
+test('device-code start keeps the code and verification URL in the panel until completion', () =>
+  withLoginEnv('headless', async () => {
+    const { h, callback } = await startLogin({ url: 'https://example.test/device', userCode: 'ABCD-1234' });
+    await waitUntil(() => h.current()?.description?.includes('ABCD-1234'), { message: 'device panel' });
+    assert.equal(h.current().description, 'Enter code ABCD-1234 at:\nhttps://example.test/device');
+    assert.equal(h.current().pickerKey, 'providers-oauth-progress:oauth:anthropic-oauth');
+    callback.resolve({ ok: true });
+    await panelIs(h, 'providers-oauth-result:oauth:anthropic-oauth:ok');
+  }));
+
+test('device-code Back leaves the panel and the late completion becomes a notice', () =>
+  withLoginEnv('desktop', async () => {
+    const { h, callback } = await startLogin({ url: 'https://example.test/device', userCode: 'ABCD-1234' });
+    await waitUntil(() => h.current()?.description?.includes('ABCD-1234'), { message: 'device panel' });
+    assert.match(h.current().description, /\(browser opened\)$/);
+    h.select(h.row('back'));
+    callback.resolve({ ok: true });
+    await waitUntil(() => h.notices.some(([message]) => /login complete/.test(message)), { message: 'notice' });
+    assert.equal(h.current().pickerKey, 'providers-action:oauth:anthropic-oauth');
+  }));
+
+test('URL plus paste: a url-only start (OpenAI redirect paste) falls back to url for the prompt', () =>
+  withLoginEnv('headless', async () => {
+    const { h, calls } = await startLogin({ url: 'https://example.test/authorize', completeCode: async () => {} });
+    await waitUntil(() => h.prompts.length > 0, { message: 'oauth-code prompt' });
+    assert.deepEqual(calls[0][1], { openBrowser: false });
+    const prompt = h.prompts.at(-1);
+    assert.equal(prompt.detail, 'https://example.test/authorize');
+    assert.match(prompt.hint, /Open the URL below.*paste the authorization code or full redirect URL/);
+    assert.match(h.notices.at(-1)[0], /^open the URL shown/);
+  }));
+
+test('URL plus paste on a desktop reports the opened browser; manualUrl wins over url', () =>
+  withLoginEnv('desktop', async () => {
+    const { h } = await startLogin({
+      url: 'https://example.test/auto',
+      manualUrl: 'https://example.test/manual',
+      completeCode: async () => {},
+    });
+    await waitUntil(() => h.prompts.length > 0, { message: 'oauth-code prompt' });
+    assert.equal(h.prompts.at(-1).detail, 'https://example.test/manual');
+    assert.match(h.notices.at(-1)[0], /^browser opened for Anthropic/);
+  }));
+
 test('a provider fetch failure reports and leaves the loading panel', async () => {
   const h = createHarness({
     store: {
@@ -275,16 +370,25 @@ test('a provider fetch failure reports and leaves the loading panel', async () =
   assert.equal(h.current().pickerKey, 'providers-loading');
 });
 
-
 test('client-managed TUI providers are read-only, include local models, and refresh from the desktop', async () => {
-  let setup = { ...SETUP, managedByClient: true,
-    local: [{ id: 'mixdog-local', name: 'Local Provider', detected: true, enabled: true, usable: true }] };
+  let setup = {
+    ...SETUP,
+    managedByClient: true,
+    local: [{ id: 'mixdog-local', name: 'Local Provider', detected: true, enabled: true, usable: true }],
+  };
   const reads = [];
   const forbidden = () => assert.fail('remote provider rows must not open credential mutations');
-  const h = createHarness({ store: {
-    getProviderSetup: async (options) => { reads.push(options); return setup; },
-    saveProviderApiKey: forbidden, forgetProviderAuth: forbidden, loginOAuthProvider: forbidden,
-  } });
+  const h = createHarness({
+    store: {
+      getProviderSetup: async (options) => {
+        reads.push(options);
+        return setup;
+      },
+      saveProviderApiKey: forbidden,
+      forgetProviderAuth: forbidden,
+      loginOAuthProvider: forbidden,
+    },
+  });
   await h.openProviderSetupPicker({});
   const list = h.current();
   assert.match(list.description, /local desktop window/);
@@ -298,5 +402,8 @@ test('client-managed TUI providers are read-only, include local models, and refr
   h.select(h.row('refresh-client-providers'));
   await waitUntil(() => reads.length === 2 && h.current()?.pickerKey === 'providers-main:root');
   assert.deepEqual(reads[1], { force: true });
-  assert.deepEqual(h.current().items.map((row) => row.value), ['refresh-client-providers']);
+  assert.deepEqual(
+    h.current().items.map((row) => row.value),
+    ['refresh-client-providers']
+  );
 });

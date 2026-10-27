@@ -3,6 +3,16 @@ import { isWSL } from './wsl.mjs';
 import { detachedSpawnOpts } from './spawn-flags.mjs';
 
 /**
+ * Whether a browser can plausibly open on this machine: not inside an SSH
+ * session, and on non-WSL Linux a DISPLAY or WAYLAND_DISPLAY exists.
+ */
+export function canOpenBrowser(env = process.env, platform = process.platform, wsl = isWSL()) {
+  if (env.SSH_TTY || env.SSH_CONNECTION) return false;
+  if (platform !== 'linux' || wsl) return true;
+  return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
+}
+
+/**
  * Open a URL in the user's default browser. Best-effort and non-blocking.
  * Callers also print the URL, so opener failure should never block OAuth.
  */

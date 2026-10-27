@@ -3,6 +3,7 @@
 // progress and result panels, the interactive (code prompt) login through
 // store.beginOAuthProviderLogin, and the legacy store.loginOAuthProvider
 // path. `flow` is the per-open picker state built by provider-setup-picker.mjs.
+import { canOpenBrowser } from '../../../runtime/shared/open-url.mjs';
 import { providerDetailText } from '../app-format.mjs';
 import { forgetProviderAuth, providerStatusFooter } from './provider-items.mjs';
 
@@ -27,7 +28,7 @@ function showOAuthProgress(flow, providerItem, message, onBack) {
         value: 'waiting',
         label: 'Waiting for login',
         meta: 'Running',
-        description: 'finish the browser/OAuth prompt',
+        description: 'finish the sign-in shown above',
         _action: 'waiting',
       },
       {
@@ -91,26 +92,30 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
       message || (ok ? `${providerName} login complete.` : `${providerName} login failed.`)
     );
   };
+  // Headless machines never try a browser; the URL is shown in the panel either way.
+  const openBrowser = canOpenBrowser();
   void flow.store
-    .beginOAuthProviderLogin(providerItem._providerId)
+    .beginOAuthProviderLogin(providerItem._providerId, { openBrowser })
     .then((started) => {
+      const loginUrl = started?.manualUrl || started?.url || '';
       if (typeof started?.completeCode === 'function') {
         // Post-await handover to the OAuth code prompt: only if this flow
         // still owns the surface (Esc during beginOAuthProviderLogin).
         if (!flow.ownsSurface()) return;
         flow.releaseSurface();
-        const manualUrl = started?.manualUrl || '';
         flow.setProviderPrompt({
           kind: 'oauth-code',
           providerId: providerItem._providerId,
           providerName,
           label: `${providerName} OAuth code`,
-          hint: manualUrl
+          hint: started?.manualUrl
             ? 'If the browser callback does not finish, open the URL below manually and paste code#state.'
-            : `Paste the authorization code or full redirect URL for ${providerName}.`,
+            : loginUrl
+              ? `Open the URL below to sign in, then paste the authorization code or full redirect URL for ${providerName}.`
+              : `Paste the authorization code or full redirect URL for ${providerName}.`,
           // Shown inside the live panel only — never written to the
           // transcript, so it cannot linger in scrollback after the flow.
-          detail: manualUrl,
+          detail: loginUrl,
           login: started,
           afterSave: flow.returnTo,
           successReturn: () => {
@@ -124,16 +129,21 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
           },
         });
         flow.store.pushNotice(
-          `browser opened for ${providerName}; paste code/redirect here if callback does not finish`,
+          openBrowser
+            ? `browser opened for ${providerName}; paste code/redirect here if callback does not finish`
+            : `open the URL shown to sign in to ${providerName}, then paste the code/redirect here`,
           'info'
         );
-      } else if (started?.userCode) {
-        flow.store.pushNotice(
-          `${providerName}: enter code ${started.userCode} in the browser to finish signing in`,
-          'info'
-        );
-      } else {
-        flow.store.pushNotice(`browser opened for ${providerName}; finish signing in there`, 'info');
+      } else if (!login.backedOut && flow.ownsSurface()) {
+        // Device-code and URL-only polling logins stay in the progress panel,
+        // with the code and URL, until the result panel replaces it or Back.
+        const opened = openBrowser ? ' (browser opened)' : '';
+        const message = started?.userCode
+          ? `Enter code ${started.userCode} at:\n${loginUrl}${opened}`
+          : loginUrl
+            ? `Open this URL to sign in:\n${loginUrl}${opened}`
+            : 'Finish signing in for this provider.';
+        showOAuthProgress(flow, providerItem, message, login.onBack);
       }
       started.waitForCallback
         ?.then((result) => {
@@ -171,11 +181,14 @@ function runLegacyOAuthLogin(flow, providerItem, login) {
 function startOAuthLogin(flow, providerItem) {
   // Back on the progress panel returns to the actions; a login that settles
   // afterwards becomes a notice instead of a result panel.
-  const login = { backedOut: false };
-  showOAuthProgress(flow, providerItem, 'Opening login flow. Complete it in the browser if prompted.', () => {
-    login.backedOut = true;
-    openOAuthProviderActions(flow, providerItem);
-  });
+  const login = {
+    backedOut: false,
+    onBack: () => {
+      login.backedOut = true;
+      openOAuthProviderActions(flow, providerItem);
+    },
+  };
+  showOAuthProgress(flow, providerItem, 'Starting login flow…', login.onBack);
   if (typeof flow.store.beginOAuthProviderLogin === 'function') {
     beginInteractiveOAuthLogin(flow, providerItem, login);
     return;
