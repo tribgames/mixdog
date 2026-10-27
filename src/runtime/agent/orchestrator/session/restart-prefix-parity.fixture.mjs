@@ -21,6 +21,13 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 const workDir = join(dataDir, '..', 'work');
 mkdirSync(workDir, { recursive: true });
+// The response language defaults to the system locale, and only a Korean one
+// gets Opus 5.5's turn-scoped tail reminder (tail-reminder-rules.mjs), so the
+// language is pinned: every host sends the same requests. The resume phase
+// reads what the first phase wrote.
+if (phase !== 'resume') {
+  writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { profile: { language: 'ko' } } }));
+}
 // One file per call: a repeated read is answered from the read cache, which
 // never reaches the tool run the midturn phase hangs in.
 for (const name of ['call_1', 'call_2', 'call_3']) writeFileSync(join(workDir, `${name}.txt`), `${name}\n`);
