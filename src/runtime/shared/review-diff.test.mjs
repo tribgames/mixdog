@@ -17,8 +17,8 @@ import {
 import { executeBuiltinTool } from '../agent/orchestrator/tools/builtin.mjs';
 import { executePatchTool, takeApplyPatchUiDiff } from '../agent/orchestrator/tools/patch.mjs';
 import { parseUnifiedDiff } from '../../../apps/desktop/src/renderer/renderer-logic.mjs';
-
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
+
 test('bounded diffs keep every file, its operation, and complete small hunks', () => {
   const patch = [
     `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+${'x'.repeat(70000)}\n`,

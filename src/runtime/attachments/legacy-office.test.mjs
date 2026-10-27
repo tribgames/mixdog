@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import test from 'node:test';
-
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
+
 process.env.MIXDOG_DATA_DIR = makeTempDirSync('legacy-office');
 
 const { materializePromptSubmission, preparePromptSubmissionForProvider, readAttachmentBuffer } = await import(

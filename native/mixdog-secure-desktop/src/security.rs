@@ -1039,10 +1039,10 @@ pub const INHERIT_ONLY_ACE: u8 = 0x08;
 /// access to the object to which it is attached" (`ACE_HEADER`, Microsoft
 /// Learn), and the kernel's access check skips it (`acl`'s on-disk test shows
 /// an `IO` grant to the running user does not let it create anything). It is
-/// only a template. A child created below (or re-propagated)
-/// receives it as an *effective* ACE of the child's own DACL — flagged
-/// `INHERITED_ACE`, `INHERIT_ONLY_ACE` cleared — and that copy is judged when
-/// the child itself is verified. Stock Windows roots carry exactly such an ACE
+/// only a template. A child created below (or re-propagated) receives it as an
+/// *effective* ACE of the child's own DACL — flagged `INHERITED_ACE`,
+/// `INHERIT_ONLY_ACE` cleared — and that copy is judged when the child itself
+/// is verified. Stock Windows roots carry exactly such an ACE
 /// (`C:\`: `(A;OICIIO;SDGXGWGR;;;AU)`, Authenticated Users "modify" for new
 /// children only); counting it against `C:\` itself refused every install on
 /// those machines. `INHERITED_ACE` alone changes nothing here: an inherited

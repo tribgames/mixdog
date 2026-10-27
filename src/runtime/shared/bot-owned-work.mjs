@@ -8,10 +8,9 @@
 // registry is only this process's cache: what keeps the work owned across a
 // restart is stored apart (a reporting send's watch, any other send's record
 // of its work, both in agent-home-delivery.mjs) and re-noted by
-// agent-task-sessions.mjs recover. A change
-// of which bots own a session's work is announced (session-activity-signal.mjs
-// onSessionBotWorkChange), so the session catalog, which stamps them on each
-// row, re-lists.
+// agent-task-sessions.mjs recover. A change of which bots own a session's work
+// is announced (session-activity-signal.mjs onSessionBotWorkChange), so the
+// session catalog, which stamps them on each row, re-lists.
 import { emitSessionBotWorkChange } from './session-activity-signal.mjs';
 
 const KEY = Symbol.for('mixdog.botOwnedWork.v1');
