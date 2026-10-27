@@ -292,8 +292,9 @@ export function useUnreadSessions({
       for (const id of unreadSessionIdsRef.current) {
         if (liveIds.has(id) && !remotelyReadIds.has(id) && !viewing(id)) unread.add(id);
       }
+      const rowById = completedIds.size ? new Map(rows.map((row) => [row.id, row])) : null;
       for (const id of completedIds) {
-        const row = rows.find((candidate) => candidate.id === id);
+        const row = rowById?.get(id);
         if (!remotelyReadIds.has(id) && !viewing(id) && !noNewIncoming(row, seen.get(id))) unread.add(id);
       }
       commitUnread(unread);
@@ -320,8 +321,9 @@ export function useUnreadSessions({
       const next = new Set(current);
       let dirty = false;
       let epochsDirty = false;
+      const rowById = new Map(sessions.map((session) => [session.id, session]));
       for (const id of [viewedSessionId, ...along]) {
-        const row = sessions.find((session) => session.id === id);
+        const row = rowById.get(id);
         if (row && settleSeen(seen, sessionSeenEpochs.current, row, sharedReadCount(row))) {
           dirty = true;
           epochsDirty = true;
