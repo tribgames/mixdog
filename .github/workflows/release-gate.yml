@@ -176,6 +176,11 @@ jobs:
             echo "mobile=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Deploy refuses to reuse the published voice runtime once its build
+      # inputs changed without a runtimeVersion bump; catch that on push.
+      - name: Verify the voice runtime build inputs match the published runtime
+        run: node scripts/check-voice-runtime-inputs.mjs
+
   # The default lane is split across three legs (node --test --test-shard), so
   # its minutes of test time run side by side instead of in one job; each leg
   # repeats only the setup.
