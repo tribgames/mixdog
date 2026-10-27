@@ -31,6 +31,7 @@
     "test:browser-login-persistence:integration": "node scripts/run-browser-login-persistence-integration.mjs",
     "test:browser-login-popup:integration": "node scripts/run-browser-login-popup-integration.mjs",
     "test:browser-profile-import:integration": "node scripts/run-browser-profile-import-integration.mjs",
+    "test:remote-webrtc-sender:integration": "node scripts/run-remote-webrtc-sender-integration.mjs",
     "test:computer-host:integration": "node scripts/run-computer-host-integration.mjs",
     "test:computer-host:scenarios": "node scripts/run-computer-host-scenarios.mjs",
     "test:computer-host:repeats": "node scripts/run-computer-host-scenario-repeats.mjs",

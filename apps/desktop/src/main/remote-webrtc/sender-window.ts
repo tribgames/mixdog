@@ -4,7 +4,7 @@
  * live view. Created on first use, recreated after a crash; main stays the
  * authority and the sender only reports.
  */
-import { BrowserWindow, type IpcMainEvent } from 'electron';
+import { BrowserWindow, type IpcMainEvent, session } from 'electron';
 
 import {
   REMOTE_WEBRTC_SENDER_IPC,
@@ -13,6 +13,12 @@ import {
 } from '../../shared/remote-webrtc-sender';
 import { builtPreloadPath } from '../browser/preload-path';
 import type { RemoteWebrtcSenderBridge } from './host';
+import {
+  installRemoteWebrtcSenderSession,
+  REMOTE_WEBRTC_SENDER_PARTITION,
+  type RemoteWebrtcSenderPage,
+  remoteWebrtcSenderPageUrl,
+} from './sender-session';
 
 const SENDER_EVENTS: ReadonlySet<string> = new Set([
   'ready',
@@ -26,17 +32,13 @@ const SENDER_EVENTS: ReadonlySet<string> = new Set([
   'source-captured',
 ]);
 
-/** Load target of the sender page: the dev server's, or the built file. */
-export interface RemoteWebrtcSenderPage {
-  developmentUrl?: string;
-  /** Absolute path of the built remote-webrtc-sender.html. */
-  file: string;
-}
+export type { RemoteWebrtcSenderPage };
 
 export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): RemoteWebrtcSenderBridge & {
   dispose(): void;
 } {
   let window: BrowserWindow | null = null;
+  let policyInstalled = false;
   let ready = false;
   /** Commands sent before the page is ready, in order. */
   let queue: RemoteWebrtcSenderCommand[] = [];
@@ -50,6 +52,14 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
   }
 
   function open(): BrowserWindow {
+    if (!policyInstalled) {
+      policyInstalled = true;
+      // The window's own session: screen capture needs the `media` grant the
+      // default session reserves for app windows (sender-session.ts).
+      installRemoteWebrtcSenderSession(session.fromPartition(REMOTE_WEBRTC_SENDER_PARTITION), page, () =>
+        window && !window.isDestroyed() ? window.webContents : null
+      );
+    }
     const created = new BrowserWindow({
       show: false,
       focusable: false,
@@ -59,6 +69,7 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
       title: 'Mixdog live view sender',
       webPreferences: {
         preload: builtPreloadPath('remote-webrtc-sender.js'),
+        partition: REMOTE_WEBRTC_SENDER_PARTITION,
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
@@ -89,9 +100,7 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
     created.on('closed', () => {
       if (window === created) gone();
     });
-    const load = page.developmentUrl
-      ? created.loadURL(new URL('remote-webrtc-sender.html', page.developmentUrl).href)
-      : created.loadFile(page.file);
+    const load = page.developmentUrl ? created.loadURL(remoteWebrtcSenderPageUrl(page)) : created.loadFile(page.file);
     load.catch(() => {
       if (window === created && !created.isDestroyed()) created.destroy();
     });

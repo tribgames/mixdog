@@ -15,6 +15,7 @@ import { stampRendererShell } from './scripts/renderer-shell';
 import { chunkPrefetchPlugin } from './scripts/chunk-prefetch';
 import { cssSubjectBuckets } from './scripts/css-subject-buckets';
 import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
+import { remoteWebrtcSenderCspPlugin } from './scripts/remote-webrtc-sender-csp.mjs';
 import {
   MONACO_TYPESCRIPT_CONTRIBUTION,
   MONACO_TYPESCRIPT_STUB,
@@ -445,6 +446,7 @@ export default defineConfig({
     plugins: [
       localFontDisplayFallback,
       inlineBootScript,
+      remoteWebrtcSenderCspPlugin(),
       firstScreenHints,
       // The phone downloads its side-sheet panes ahead of time and evaluates
       // them on the first open (use-app-boot.ts phoneSheetPaneWarmups).
