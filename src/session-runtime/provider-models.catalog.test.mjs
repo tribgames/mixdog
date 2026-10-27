@@ -19,7 +19,7 @@ function fixture({
   revision = 7,
   providerCatalogTimeoutMs,
 } = {}) {
-  const calls = { listModels: 0, refresh: 0, ready: 0 };
+  const calls = { listModels: 0, refresh: 0, ready: 0, scopedRefresh: [] };
   const provider = {
     async listModels() {
       calls.listModels += 1;
@@ -34,6 +34,10 @@ function fixture({
     providerCatalogRevision: () => revision,
     getAllProviders: () => new Map([['fixture', provider], ...extraProviders]),
     getProvider: () => provider,
+    async refreshProviderCatalogsFor(names) {
+      calls.scopedRefresh.push([...names]);
+      for (const name of names) if (name === 'fixture') await provider._refreshModelCache();
+    },
   };
   const caches = {
     providerModelsLoadSeq: 0,
@@ -188,6 +192,32 @@ test('only a quick read answered from the loaded catalog says it is complete', a
     warm.map((row) => [row.id, row.catalogComplete]),
     full.map((row) => [row.id, true])
   );
+});
+
+test('a provider-scoped forced read refreshes only that provider and keeps every other loaded provider', async () => {
+  const other = {
+    calls: 0,
+    async listModels() {
+      other.calls += 1;
+      return [{ id: 'other-model' }];
+    },
+  };
+  const models = [{ id: 'chat-model' }];
+  const { api, caches, calls } = fixture({ models, extraProviders: [['other', other]], revision: 9201 });
+  await api.collectProviderModels();
+  assert.equal(other.calls, 1);
+
+  models.push({ id: 'new-model' });
+  const rows = await api.collectProviderModels({ force: true, provider: 'Fixture' });
+  assert.deepEqual(calls.scopedRefresh, [['fixture']]);
+  assert.equal(calls.refresh, 1);
+  assert.equal(other.calls, 1, 'another provider was not asked again');
+  assert.deepEqual(rows.map((row) => row.id).sort(), ['chat-model', 'new-model', 'other-model']);
+  assert.deepEqual(caches.providerModelsCache.models.map((row) => row.id).sort(), [
+    'chat-model',
+    'new-model',
+    'other-model',
+  ]);
 });
 
 /** A provider whose model list stays pending until the test settles it. */

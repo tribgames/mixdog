@@ -37,6 +37,19 @@ let sharedPartialEntries = null;
 let sharedCatalogPromise = null;
 let sharedCatalogPromiseKey = null;
 let sharedCatalogPromiseForced = false;
+// Every read that publishes to the shared state (a full load or a scoped
+// refresh) runs through this queue, one at a time, so the last write is always
+// the newest successful answer.
+// A catalog state that moved on (new revision or account epoch) starts a fresh
+// queue: reads of the old state never publish, so nothing waits for them.
+let publishing = { key: null, tail: Promise.resolve() };
+function serial(key, run) {
+  if (publishing.key !== key) publishing = { key, tail: Promise.resolve() };
+  const queue = publishing;
+  const result = queue.tail.then(run);
+  queue.tail = result.catch(() => {});
+  return result;
+}
 
 export function catalogRevision(registry) {
   const value = Number(registry?.providerCatalogRevision?.());
@@ -60,6 +73,24 @@ export function invalidateSharedProviderCatalog() {
 
 const answered = (entry) => !Object.hasOwn(entry, 'error');
 
+/** Folds a scoped refresh into the shared state of `key`: only the providers it
+ *  answered are replaced; a failed entry replaces nothing. */
+function mergeScopedEntries(key, scoped) {
+  const fresh = new Map(scoped.filter(answered).map((entry) => [entry.name, entry]));
+  const merge = (current) => current.map((entry) => fresh.get(entry.name) ?? entry);
+  if (sharedCatalogKey === key) {
+    sharedCatalogEntries = merge(sharedCatalogEntries);
+  } else if (sharedPartialKey === key) {
+    const merged = merge(sharedPartialEntries);
+    if (merged.every(answered)) {
+      // The refresh answered the last missing provider: the catalog is whole.
+      [sharedCatalogKey, sharedCatalogEntries, sharedPartialKey, sharedPartialEntries] = [key, merged, null, null];
+    } else {
+      sharedPartialEntries = merged;
+    }
+  }
+}
+
 async function providerEntry(name, provider, timeoutMs, epoch) {
   if (typeof provider?.listModels !== 'function') return { name, models: [], ms: 0 };
   const startedAt = performance.now();
@@ -78,6 +109,23 @@ async function providerEntry(name, provider, timeoutMs, epoch) {
   return { name, models: Array.isArray(outcome.value) ? outcome.value : [], ms };
 }
 
+/** Fresh entries for just the named providers (an account-pool provider is one
+ *  entry, however many accounts it holds), merged into the shared catalog. */
+export function scopedProviderCatalog(registry, names, { timeoutMs = PROVIDER_CATALOG_TIMEOUT_MS } = {}) {
+  const key = catalogKey(registry);
+  const wanted = new Set(names);
+  return serial(key, async () => {
+    const entries = await Promise.all(
+      [...registry.getAllProviders()]
+        .filter(([name]) => wanted.has(name))
+        .map(([name, provider]) => providerEntry(name, provider, timeoutMs, key))
+    );
+    // A catalog state that moved on while this read ran is not written to.
+    if (catalogKey(registry) === key) mergeScopedEntries(key, entries);
+    return entries;
+  });
+}
+
 export async function sharedProviderCatalog(registry, { force = false, timeoutMs = PROVIDER_CATALOG_TIMEOUT_MS } = {}) {
   const key = catalogKey(registry);
   if (!force && sharedCatalogKey === key && Array.isArray(sharedCatalogEntries)) {
@@ -86,45 +134,43 @@ export async function sharedProviderCatalog(registry, { force = false, timeoutMs
   if (sharedCatalogPromise && sharedCatalogPromiseKey === key && (sharedCatalogPromiseForced || !force)) {
     return await sharedCatalogPromise;
   }
-  const kept = new Map();
-  if (!force && sharedPartialKey === key) {
-    const now = Date.now();
-    for (const entry of sharedPartialEntries) {
-      if (answered(entry) || now < entry.retryAt) kept.set(entry.name, entry);
-    }
-  }
-  const providers = [...registry.getAllProviders()];
-  // Every missing provider is still inside its backoff: the partial answer is
-  // the answer, without asking anyone.
-  if (providers.length > 0 && providers.every(([name]) => kept.has(name))) {
-    return providers.map(([name]) => kept.get(name));
-  }
-  // A pending list from an older catalog state (revision or account epoch) is
-  // not joined: its answer may describe the previous catalog.
-  const epoch = key;
   sharedCatalogPromiseKey = key;
   sharedCatalogPromiseForced = force;
-  const request = Promise.all(
-    providers.map(([name, provider]) => kept.get(name) || providerEntry(name, provider, timeoutMs, epoch))
-  )
-    .then((entries) => {
-      if (sharedCatalogPromise === request && catalogKey(registry) === key) {
-        const complete = entries.every(answered);
-        const partial = !complete && entries.some(answered);
-        sharedCatalogKey = complete ? key : null;
-        sharedCatalogEntries = complete ? entries : null;
-        sharedPartialKey = partial ? key : null;
-        sharedPartialEntries = partial ? entries : null;
+  const request = serial(key, async () => {
+    const kept = new Map();
+    if (!force && sharedPartialKey === key) {
+      const now = Date.now();
+      for (const entry of sharedPartialEntries) {
+        if (answered(entry) || now < entry.retryAt) kept.set(entry.name, entry);
       }
-      return entries;
-    })
-    .finally(() => {
-      if (sharedCatalogPromise === request) {
-        sharedCatalogPromise = null;
-        sharedCatalogPromiseKey = null;
-        sharedCatalogPromiseForced = false;
-      }
-    });
+    }
+    const providers = [...registry.getAllProviders()];
+    // Every missing provider is still inside its backoff: the partial answer is
+    // the answer, without asking anyone.
+    if (providers.length > 0 && providers.every(([name]) => kept.has(name))) {
+      return providers.map(([name]) => kept.get(name));
+    }
+    // A pending list from an older catalog state (revision or account epoch) is
+    // not joined: its answer may describe the previous catalog.
+    const entries = await Promise.all(
+      providers.map(([name, provider]) => kept.get(name) || providerEntry(name, provider, timeoutMs, key))
+    );
+    if (sharedCatalogPromise === request && catalogKey(registry) === key) {
+      const complete = entries.every(answered);
+      const partial = !complete && entries.some(answered);
+      sharedCatalogKey = complete ? key : null;
+      sharedCatalogEntries = complete ? entries : null;
+      sharedPartialKey = partial ? key : null;
+      sharedPartialEntries = partial ? entries : null;
+    }
+    return entries;
+  }).finally(() => {
+    if (sharedCatalogPromise === request) {
+      sharedCatalogPromise = null;
+      sharedCatalogPromiseKey = null;
+      sharedCatalogPromiseForced = false;
+    }
+  });
   sharedCatalogPromise = request;
   return await request;
 }

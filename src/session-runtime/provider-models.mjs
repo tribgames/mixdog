@@ -156,7 +156,9 @@ export function createProviderModels({
     return promise;
   }
 
-  async function collectProviderModels({ force = false, quick = false } = {}) {
+  /** `provider` (a name or fragment of one) scopes a forced read: only the
+   *  providers it names are refreshed, the rest keep their loaded entries. */
+  async function collectProviderModels({ force = false, quick = false, provider = null } = {}) {
     meta.syncCatalogRevision();
     const cached = caches.providerModelsCache;
     if (!force && Array.isArray(cached.models)) {
@@ -180,7 +182,7 @@ export function createProviderModels({
     }
     if (force) {
       const request = { seq: ++caches.providerModelsLoadSeq };
-      const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true, request });
+      const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true, request, provider });
       adoptProviderModelCache(models, request);
       return withCatalogState(rows.providerModelsFromCacheRows(models), partialOf(request));
     }

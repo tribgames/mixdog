@@ -684,6 +684,18 @@ export function refreshProviderCatalogsOnStartup() {
   return _startupCatalogRefreshPromise;
 }
 
+// Force-refresh only the named providers' catalogs, each bounded like the full
+// refresh. It leaves the 24h window, the catalog revision and every other
+// provider's cache alone.
+export function refreshProviderCatalogsFor(names) {
+  const pending = [];
+  for (const [name, provider] of availableProviderEntries()) {
+    const refreshFn = names.includes(name) ? providerCatalogRefreshFn(provider) : null;
+    if (refreshFn) pending.push(boundedCatalogRefresh(name, provider, refreshFn, 'catalog refresh'));
+  }
+  return Promise.allSettled(pending);
+}
+
 // Refresh the complete catalog at most once per 24h process window. The timer
 // above calls this automatically when the window expires; callers may bypass
 // that window after an explicit auth/config/model-refresh action.

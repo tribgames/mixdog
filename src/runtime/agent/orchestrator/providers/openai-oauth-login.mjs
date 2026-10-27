@@ -48,6 +48,7 @@ function _scrubOAuthLoginBody(text) {
  * @param {(ms:number, signal?:AbortSignal)=>Promise<void>} [deps.sleep] device-poll wait (tests inject a fast one)
  * @param {()=>number} [deps.now]
  * @param {number} [deps.deviceTimeoutMs] device-code login deadline (tests shorten it)
+ * @param {number} [deps.requestTimeoutMs] deadline of the device-code start request (tests shorten it)
  */
 export function createOpenAIOAuthLogin(deps) {
   const {
@@ -61,6 +62,7 @@ export function createOpenAIOAuthLogin(deps) {
     sleep = sleepWithAbort,
     now = Date.now,
     deviceTimeoutMs = DEVICE_LOGIN_TIMEOUT_MS,
+    requestTimeoutMs = TOKEN_TIMEOUT_MS,
   } = deps;
   const issuerBase = issuer.replace(/\/+$/, '');
   const tokenUrl = `${issuerBase}/oauth/token`;
@@ -123,7 +125,10 @@ export function createOpenAIOAuthLogin(deps) {
   // the server hands back an authorization code, then exchanges it with the
   // deviceauth redirect URI. Resolves null when the server has no device flow.
   async function beginDeviceLogin() {
-    const res = await postJson('/deviceauth/usercode', { client_id: clientId });
+    // No login deadline or cancel handle exists yet, so the start request
+    // carries its own timeout; it also bounds reading the response body.
+    const startSignal = AbortSignal.timeout(requestTimeoutMs);
+    const res = await postJson('/deviceauth/usercode', { client_id: clientId }, startSignal);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`[openai-oauth] device code request failed with status ${res.status}`);
     const started = await res.json();

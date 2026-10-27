@@ -105,8 +105,31 @@ test('an unknown model fails with candidates after one forced catalog read, and 
     routedAgentTool.execute({ agent: 'worker', provider: 'openai-oauth', model: 'nope' }),
     /"nope" for provider "openai-oauth" not found; available: openai-oauth\/gpt-6\.1-sol, openai-oauth\/gpt-6\.1-luna/
   );
-  assert.deepEqual(seen, ['cache', 'force']);
+  // The quick read, the full read of an incomplete catalog, then the refresh.
+  assert.deepEqual(seen, ['cache', 'cache', 'force']);
   assert.deepEqual(calls, []);
+});
+
+test('a routed spawn reads the quick catalog on a hit and refreshes only the requested provider on a miss', async () => {
+  const reads = [];
+  const { routedAgentTool, calls } = routedWithCatalog(async (options = {}) => {
+    reads.push(options);
+    return CATALOG;
+  });
+  await routedAgentTool.execute({ agent: 'worker', provider: 'openai-oauth', model: 'gpt-6.1-sol' });
+  assert.deepEqual(reads, [{ quick: true }]);
+  assert.equal(calls.length, 1);
+
+  reads.length = 0;
+  await assert.rejects(
+    routedAgentTool.execute({ agent: 'worker', provider: 'openai-oauth', model: 'nope' }),
+    /"nope" for provider "openai-oauth" not found/
+  );
+  assert.deepEqual(
+    reads.filter((options) => options.force === true),
+    [{ force: true, provider: 'openai-oauth' }]
+  );
+  assert.equal(calls.length, 1);
 });
 
 test('an empty or failing catalog refuses instead of forwarding the name', async () => {

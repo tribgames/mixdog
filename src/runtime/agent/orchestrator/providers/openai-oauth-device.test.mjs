@@ -25,6 +25,12 @@ async function fakeAuth(t, { usercode, pollStatuses = [], tokenReply } = {}) {
       res.end(body === undefined ? '' : JSON.stringify(body));
     };
     if (req.url === '/api/accounts/deviceauth/usercode') {
+      if (usercode === 'stall') return; // never answers
+      if (usercode === 'stall-body') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.write('{"device_auth_id":'); // headers sent, body never completes
+        return;
+      }
       const u = usercode ?? { status: 200, body: { device_auth_id: 'dev-1', user_code: 'ABCD-1234', interval: '7' } };
       return reply(u.status, u.body);
     }
@@ -135,6 +141,20 @@ test('device login times out after 15 minutes of keep-waiting', async (t) => {
   assert.equal(clock, 15 * 60_000);
   assert.ok(waits.every((ms) => ms <= 7000));
   assert.deepEqual(saved, []);
+});
+
+// The test timeout turns a request with no deadline into a failure instead of a hang.
+test('a stalled usercode request rejects with a timeout error, whether headers or body stall', {
+  timeout: 10_000,
+}, async (t) => {
+  for (const usercode of ['stall', 'stall-body']) {
+    const { issuer, requests } = await fakeAuth(t, { usercode });
+    const { login } = loginFor(issuer, { requestTimeoutMs: 150 });
+    const startedAt = Date.now();
+    await assert.rejects(login.beginOAuthLogin({ openBrowser: false }), { name: 'TimeoutError' });
+    assert.ok(Date.now() - startedAt < 5000);
+    assert.equal(requests.length, 1);
+  }
 });
 
 test('a stalled poll is aborted at the deadline and the login rejects with the timeout error', async (t) => {

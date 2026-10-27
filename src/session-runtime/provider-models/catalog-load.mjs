@@ -4,7 +4,8 @@
 // catalog flattened into deduplicated rows with per-provider profiling.
 import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
 import { isSelectableLlmModel } from '../model-recency.mjs';
-import { sharedProviderCatalog } from '../provider-catalog-cache.mjs';
+import { scopedProviderCatalog, sharedProviderCatalog } from '../provider-catalog-cache.mjs';
+import { providerRows } from '../services/agent-tool/model-select.mjs';
 import { NO_ENABLED_PROVIDERS } from '../../runtime/agent/orchestrator/providers/registry-errors.mjs';
 
 export function createCatalogLoader({
@@ -42,7 +43,7 @@ export function createCatalogLoader({
    *  refresh invalidates it, leaving the UI on the stale first-open rows.
    *  Resolves false when no provider is enabled: a fresh install has nothing
    *  to load, and the registry refuses an all-disabled init by design. */
-  async function prepare({ forceRefresh, loadSecrets }) {
+  async function prepare({ forceRefresh, loadSecrets, provider }) {
     if (loadSecrets) {
       const secretsStartedAt = performance.now();
       await awaitKeychainPrewarm();
@@ -69,7 +70,15 @@ export function createCatalogLoader({
     if (!forceRefresh && typeof reg().refreshProviderCatalogsOnStartup === 'function') {
       await reg().refreshProviderCatalogsOnStartup();
     }
-    if (forceRefresh && typeof reg().refreshCatalogs === 'function') {
+    if (forceRefresh && provider) {
+      // A provider-scoped refresh asks only the registry providers the name
+      // matches and folds their entries into the shared catalog; every other
+      // provider keeps what it loaded.
+      const known = [...reg().getAllProviders().keys()].map((name) => ({ provider: name }));
+      const names = providerRows(known, provider).map((row) => row.provider);
+      await reg().refreshProviderCatalogsFor(names);
+      await scopedProviderCatalog(reg(), names, { timeoutMs: providerTimeoutMs });
+    } else if (forceRefresh && typeof reg().refreshCatalogs === 'function') {
       await reg().refreshCatalogs({ force: true });
     }
     profile('catalog-refresh-ready', { ms: (performance.now() - refreshStartedAt).toFixed(1) });
@@ -81,13 +90,18 @@ export function createCatalogLoader({
    *  providers that failed or timed out, `request.partial` marks a load
    *  where some but not all providers answered, and `request.retryAt` is when
    *  the first missing provider may be asked again. */
-  return async function loadProviderModelsFresh({ forceRefresh = false, loadSecrets = true, request = null } = {}) {
+  return async function loadProviderModelsFresh({
+    forceRefresh = false,
+    loadSecrets = true,
+    request = null,
+    provider = null,
+  } = {}) {
     const startedAt = performance.now();
     profile('load:start', { forceRefresh, loadSecrets });
     // No enabled provider is an empty catalog, not a failure. The request
     // stays incomplete so this answer is never cached: connecting a provider
     // is picked up by the next read.
-    if (!(await prepare({ forceRefresh, loadSecrets }))) {
+    if (!(await prepare({ forceRefresh, loadSecrets, provider }))) {
       profile('load:done', { ms: (performance.now() - startedAt).toFixed(1), providers: 0, rows: 0 });
       return [];
     }
@@ -97,7 +111,10 @@ export function createCatalogLoader({
     // forward only for the still-current request, never for a superseded load.
     if (ownsLoad) request.seq = caches.providerModelsLoadSeq;
     const seq = request?.seq ?? caches.providerModelsLoadSeq;
-    const catalogEntries = await sharedProviderCatalog(reg(), { force: forceRefresh, timeoutMs: providerTimeoutMs });
+    const catalogEntries = await sharedProviderCatalog(reg(), {
+      force: forceRefresh && !provider,
+      timeoutMs: providerTimeoutMs,
+    });
     if (request) {
       const failed = catalogEntries.filter((entry) => Object.hasOwn(entry, 'error'));
       request.missing = failed.map((entry) => entry.name);
