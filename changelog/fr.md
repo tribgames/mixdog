@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-27
+
 Amélioration du travail à distance depuis votre téléphone avec Browser Use et Computer Use, et optimisation de l’environnement des agents pour ignorer les vérifications redondantes et terminer le travail plus rapidement.
 
 ### Nouvelles fonctionnalités

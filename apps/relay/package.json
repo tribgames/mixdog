@@ -1,6 +1,6 @@
 {
   "name": "@mixdog/relay",
-  "version": "1.3.5",
+  "version": "1.4.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "Mixdog remote relay: pairs phone clients with a desktop over outbound WebSockets.",

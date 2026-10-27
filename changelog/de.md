@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-27
+
 Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbessert sowie das Agenten-Harness optimiert, um überflüssige Prüfungen zu überspringen und Aufgaben schneller abzuschließen.
 
 ### Neue Funktionen

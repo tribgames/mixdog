@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-27
+
 改進了透過手機搭配 Browser Use 與 Computer Use 進行遠端工作的體驗，並精簡了代理 harness 以略過多餘檢查並更快完成工作。
 
 ### 新功能

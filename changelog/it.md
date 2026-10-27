@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-27
+
 Migliorato il lavoro remoto dal telefono insieme a Browser Use e Computer Use e ottimizzato l'harness degli agenti per saltare i controlli ridondanti e completare il lavoro più velocemente.
 
 ### Nuove funzionalità

@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-27
+
 Improved remote work from your phone together with Browser Use and Computer Use, and streamlined the agent harness to skip redundant checks and finish work faster.
 
 ### New features

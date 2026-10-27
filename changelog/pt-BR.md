@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-27
+
 Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, e simplificado o harness de agentes para ignorar verificações redundantes e concluir tarefas mais rapidamente.
 
 ### Novos recursos

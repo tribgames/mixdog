@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.4.0 - 2026-10-27
+
 Cải thiện khả năng làm việc từ xa từ điện thoại cùng với Browser Use và Computer Use, đồng thời tinh gọn agent harness để bỏ qua các bước kiểm tra thừa và hoàn thành công việc nhanh hơn.
 
 ### Tính năng mới
