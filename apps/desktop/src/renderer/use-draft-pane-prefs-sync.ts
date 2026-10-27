@@ -21,6 +21,7 @@ import {
 } from './draft-pane-prefs-store';
 import type { NavigationSelection } from './navigation';
 import { subscribeSetupChanges } from './setup-change-refresh';
+import { newestOnly } from './sidebar-reference-cache';
 
 type DraftPrefsMap = MutableRefObject<Map<string, DraftPanePrefs>>;
 type LastPrefs = MutableRefObject<DraftPanePrefs | null>;
@@ -77,10 +78,13 @@ export function useHostMainRoute({
   repaintDrafts(): void;
 }) {
   const hostMainRoute = useRef<DesktopModelSelection | null>(null);
+  const newest = useRef<ReturnType<typeof newestOnly> | null>(null);
+  newest.current ??= newestOnly();
   const refreshHostMainRoute = useCallback(() => {
-    readHostMainRoute(window.mixdogDesktop)
-      .then((route) => {
-        if (!route || sameSelection(route, hostMainRoute.current)) return;
+    newest
+      .current?.(readHostMainRoute(window.mixdogDesktop))
+      .then(({ current, value: route }) => {
+        if (!current || !route || sameSelection(route, hostMainRoute.current)) return;
         hostMainRoute.current = route;
         const draftKey = focusedDraftKey(selectionRef.current);
         if (draftKey && !draftPanePrefs.current.get(draftKey)?.modelSelection) setNewTaskModelSelection(route);

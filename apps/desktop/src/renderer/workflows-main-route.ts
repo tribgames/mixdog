@@ -3,6 +3,7 @@ import type { DesktopApi } from '../shared/contract';
 import type { RecordValue, Snapshot } from './desktop-types';
 import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { record } from './record-utils';
+import { listPresetsShared, newestOnly } from './sidebar-reference-cache';
 import { subscribeSetupChanges } from './setup-change-refresh';
 
 /** `{ fallbacks }` of the Lead preset (workflow-lead) in a presets list; nothing when it has none. */
@@ -33,18 +34,27 @@ export function useLeadMainRoute(
   useEffect(() => {
     if (!active || !api?.getSnapshot) return;
     let live = true;
-    const read = () =>
-      void Promise.all([
-        api.getSnapshot?.(),
-        Promise.resolve(api.invokeCapability?.<unknown[]>({ capability: 'listPresets' })).catch(() => undefined),
-      ])
-        .then(([snapshot, presets]) => {
-          if (live)
-            setMainRoute(
-              leadRouteFrom({ ...draftModelSelectionFromSnapshot(snapshot as unknown as Snapshot) }, presets?.value)
-            );
+    let shown = false;
+    const newest = newestOnly();
+    const routeOf = (snapshot: unknown, presets: unknown) =>
+      leadRouteFrom({ ...draftModelSelectionFromSnapshot(snapshot as Snapshot) }, presets);
+    const read = () => {
+      const snapshot = Promise.resolve(api.getSnapshot?.());
+      void newest(Promise.all([snapshot, listPresetsShared(api)]))
+        .then(({ current, value: [snapshotValue, presets] }) => {
+          if (!live || !current) return;
+          shown = true;
+          setMainRoute(routeOf(snapshotValue, presets?.value));
         })
+        // A preset read that fails before any route showed: the host's own route
+        // stands in, without counting as applied, so a pending full read still lands.
+        .catch(() =>
+          snapshot.then((snapshotValue) => {
+            if (live && !shown) setMainRoute(routeOf(snapshotValue, undefined));
+          })
+        )
         .catch(() => {});
+    };
     read();
     // A New task pick (or any setup/settings change) rewrites the Lead preset.
     const unsubscribe = subscribeSetupChanges(read);

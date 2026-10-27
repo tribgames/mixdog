@@ -33,7 +33,12 @@ for (const kind of ['archive', 'read']) {
     const update = () =>
       kind === 'archive' ? metadata.setArchived('session-a', true) : metadata.markRead('session-a', 3, false);
     await mkdir(target);
-    await assert.rejects(update());
+    // A read cursor persists in a coalesced window, so its failure surfaces at flush.
+    if (kind === 'archive') await assert.rejects(update());
+    else {
+      await update();
+      await assert.rejects(metadata.flush());
+    }
     await rmdir(target);
     assert.equal(await update(), false, 'the in-memory value was already changed');
     const reloaded = new DesktopSessionMetadata(() => root);

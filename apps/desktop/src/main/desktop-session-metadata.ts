@@ -11,6 +11,8 @@ import { isSessionId } from './desktop-state';
 type MetadataMaps = Parameters<typeof writeSessionMetadata>[1];
 type MetadataField = keyof MetadataMaps;
 const FIELDS: MetadataField[] = ['titles', 'names', 'archived', 'favorites', 'projects', 'reads', 'retired'];
+/** Trailing window in which read-cursor changes share one write. */
+const WRITE_COALESCE_MS = 400;
 const dirtyKey = (field: MetadataField, sessionId: string): string => `${field}\u0000${sessionId}`;
 
 /** A session's numbering: its compaction count (the epoch) and its message count. */
@@ -45,6 +47,7 @@ export class DesktopSessionMetadata {
   private readonly dirty = new Map<string, number>();
   private generation = 0;
   private lastArchiveStamp = 0;
+  private deferredTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(userDataRoot: () => string) {
     this.userDataRoot = userDataRoot;
@@ -115,6 +118,7 @@ export class DesktopSessionMetadata {
   async setName(sessionId: string, normalized: string): Promise<void> {
     await this.load();
     this.nameMap ??= Object.create(null) as Record<string, string>;
+    if (this.nameMap[sessionId] === normalized) return await this.flush();
     this.nameMap[sessionId] = normalized;
     this.touch('names', sessionId);
     await this.queueWrite();
@@ -210,8 +214,10 @@ export class DesktopSessionMetadata {
       ownCount >= 1 ? Math.min(messageCount, ownCount) : messageCount
     );
     if (current && nextCount === current.messageCount && !consumedUnread) {
-      if (settled) await this.queueWrite();
-      else await this.flush();
+      if (settled) this.deferWrite();
+      // Only a retained failed write is retried here; a still-coalescing
+      // cursor change must not be flushed early.
+      else if (this.writer.hasPending()) await this.flush();
       return settled;
     }
     // A new cursor takes the session's epoch; an old one keeps the epoch it
@@ -223,7 +229,7 @@ export class DesktopSessionMetadata {
       ...(epoch === undefined ? {} : { epoch }),
     };
     this.touch('reads', sessionId);
-    await this.queueWrite();
+    this.deferWrite();
     return true;
   }
 
@@ -358,6 +364,11 @@ export class DesktopSessionMetadata {
 
   /** Settle every queued write (teardown). */
   async flush(): Promise<void> {
+    if (this.deferredTimer) {
+      clearTimeout(this.deferredTimer);
+      this.deferredTimer = null;
+      this.schedulePersist();
+    }
     if (!(await this.writer.flush())) throw this.writeError;
   }
 
@@ -366,24 +377,49 @@ export class DesktopSessionMetadata {
   }
 
   private queueWrite(): Promise<void> {
-    const titles = { ...this.titles };
-    const names = { ...this.names };
-    const archived = { ...(this.archivedMap || {}) };
-    const favorites = { ...(this.favoriteMap || {}) };
-    const projects = { ...(this.projectMap || {}) };
-    const reads = { ...this.reads };
-    const retired = { ...(this.retiredMap || {}) };
-    this.writer.schedule({
-      maps: { titles, names, archived, favorites, projects, reads, retired },
-      dirty: new Map(this.dirty),
-    });
+    this.schedulePersist();
     return this.flush();
+  }
+
+  /** Mark a write pending without snapshotting; the maps are copied once, when
+   *  the write actually starts, so coalesced changes cost one copy. */
+  private schedulePersist(): void {
+    this.writer.schedule(null as unknown as PendingWrite);
+  }
+
+  /** Persist a non-critical change (a read cursor) within a short trailing
+   *  window; every change inside it shares one write. `flush()` and quit
+   *  settle it early. */
+  private deferWrite(): void {
+    if (this.deferredTimer) return;
+    this.deferredTimer = setTimeout(() => {
+      this.deferredTimer = null;
+      this.schedulePersist();
+      void this.writer.flush();
+    }, WRITE_COALESCE_MS);
+    this.deferredTimer.unref?.();
+  }
+
+  private snapshot(): PendingWrite {
+    return {
+      maps: {
+        titles: { ...this.titles },
+        names: { ...this.names },
+        archived: { ...(this.archivedMap || {}) },
+        favorites: { ...(this.favoriteMap || {}) },
+        projects: { ...(this.projectMap || {}) },
+        reads: { ...this.reads },
+        retired: { ...(this.retiredMap || {}) },
+      },
+      dirty: new Map(this.dirty),
+    };
   }
 
   /** Re-read the file and apply only the entries this instance changed, so a
    *  save never republishes this cache's stale view of other entries (another
    *  desktop service may share the metadata directory). */
-  private async persist({ maps, dirty }: PendingWrite): Promise<void> {
+  private async persist(_pending: PendingWrite): Promise<void> {
+    const { maps, dirty } = this.snapshot();
     const root = this.userDataRoot();
     const disk = await readSessionMetadata(root);
     const merged = {} as Record<MetadataField, Record<string, unknown>>;

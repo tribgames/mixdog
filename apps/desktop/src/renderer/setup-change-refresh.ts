@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { SetupLaneSource } from './app-shell-ui-open-request';
 import type { DesktopApi } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
-import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
+import { invalidatePresetsRequest, invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
 /** Window event every settings reader re-reads on after a setup-tool change. */
 export const SETUP_CHANGED_EVENT = 'mixdog:setup-changed';
@@ -40,6 +40,7 @@ const SETUP_ACTION_MUTATIONS: Readonly<Record<string, string>> = {
 export function announceSetupChange(action: string): void {
   const mutation = SETUP_ACTION_MUTATIONS[action];
   if (mutation) invalidateSidebarReferenceForMutation(mutation);
+  invalidatePresetsRequest();
   window.dispatchEvent(new CustomEvent(SETUP_CHANGED_EVENT, { detail: { action } }));
 }
 

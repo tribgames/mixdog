@@ -54,7 +54,11 @@ import {
   type ModelPreferenceChange,
 } from './model-visibility';
 import { invalidateCapabilitySettings } from './settings/capability-data';
-import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
+import {
+  invalidateSidebarReferenceForMutation,
+  loadSidebarReferences,
+  readSidebarReference,
+} from './sidebar-reference-cache';
 
 // Model-style trigger for changing the active session workflow. With a
 // `sessionId` (an existing session's composer) the pick switches that session
@@ -160,11 +164,9 @@ function useWorkflowOptions() {
     let cancelled = false;
     void (async () => {
       try {
-        const result = await window.mixdogDesktop.invokeCapability<RecordValue[]>({
-          capability: 'listWorkflows',
-          args: [],
-        });
-        const loaded = workflowOptions(result?.value);
+        // The host-scoped shared loader: concurrent pickers share one read.
+        await loadSidebarReferences(window.mixdogDesktop, ['workflows']);
+        const loaded = workflowOptions(readSidebarReference('workflows'));
         if (!cancelled && loaded.length) {
           storeWorkflowOptions(loaded);
           setOptions(loaded);

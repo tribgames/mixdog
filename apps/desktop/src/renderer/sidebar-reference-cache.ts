@@ -460,6 +460,50 @@ export function invalidateSidebarReferenceForMutation(mutation: string): boolean
   return true;
 }
 
+type PresetsResult = Awaited<ReturnType<NonNullable<SidebarReferenceApi['invokeCapability']>>>;
+const presetsRequests = new Map<SidebarReferenceApi, Promise<PresetsResult>>();
+
+/** listPresets answers with both the presets and the host's Main-route
+ *  snapshot, and several readers ask on one setup notification. Overlapping
+ *  reads on one host share a single daemon call; nothing is kept after it
+ *  settles, so every later read (and every setup change) still asks again. */
+export function listPresetsShared(api: SidebarReferenceApi | undefined): Promise<PresetsResult | undefined> {
+  const invoke = api?.invokeCapability;
+  if (!api || !invoke) return Promise.resolve(undefined);
+  const pending = presetsRequests.get(api);
+  if (pending) return pending;
+  const promise = Promise.resolve(invoke.call(api, { capability: 'listPresets' }));
+  presetsRequests.set(api, promise);
+  const release = () => {
+    if (presetsRequests.get(api) === promise) presetsRequests.delete(api);
+  };
+  promise.then(release, release);
+  return promise;
+}
+
+/** A setup change makes any in-flight preset read untrue: the next read on any
+ *  host asks again. The old read still resolves for its own callers; consumers
+ *  keep the newest request's result (see `newestOnly`). */
+export function invalidatePresetsRequest(): void {
+  presetsRequests.clear();
+}
+
+/** Wraps a consumer's async reads, numbered as they start. A successful result
+ *  is current only if its number beats the last one applied, so an old read
+ *  settling after the refresh cannot overwrite it, while a newer read that
+ *  fails or never settles changes nothing. */
+export function newestOnly(): <T>(read: Promise<T>) => Promise<{ current: boolean; value: T }> {
+  let started = 0;
+  let applied = 0;
+  return async (read) => {
+    const mine = ++started;
+    const value = await read;
+    const current = mine > applied;
+    if (current) applied = mine;
+    return { current, value };
+  };
+}
+
 function needsRefresh(key: SidebarReferenceKey, force: boolean): boolean {
   const failure = failures.get(key);
   if (!force && failure && clock() - failure.failedAt < FAILURE_BACKOFF_MS) return false;

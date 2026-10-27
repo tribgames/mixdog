@@ -1,5 +1,6 @@
 import type { DesktopModelSelection, DesktopOrchestrationMode, DesktopWorkflowState } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
+import { listPresetsShared } from './sidebar-reference-cache';
 import { asRecord } from './text-format';
 
 // v2: entries store ONLY explicitly staged fields (null = inherit live from
@@ -42,14 +43,12 @@ export function submittedDraftRoute(prefs: ResolvedDraftPrefs | null | undefined
   return prefs?.explicitModelSelection ?? null;
 }
 
-type CapabilityReader = {
-  invokeCapability?: (request: { capability: 'listPresets' }) => Promise<{ snapshot?: unknown } | undefined>;
-};
+type CapabilityReader = Parameters<typeof listPresetsShared>[0];
 
 /** The Main (Lead) route the host currently holds, read from the host's own
  *  control session. Null when the host has no Main model or cannot answer. */
 export async function readHostMainRoute(api: CapabilityReader | undefined): Promise<DesktopModelSelection | null> {
-  const result = await api?.invokeCapability?.({ capability: 'listPresets' });
+  const result = await listPresetsShared(api);
   return result?.snapshot ? draftModelSelectionFromSnapshot(result.snapshot as Snapshot) : null;
 }
 
