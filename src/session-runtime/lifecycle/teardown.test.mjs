@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { withFileLock } from '../../runtime/shared/file-lock.mjs';
 import { exitFlushCount } from '../services/agent-tool/helpers.mjs';
+import { flushAllIndexWrites } from '../services/agent-tool/index-write-queue.mjs';
 import { createWorkerIndex } from '../services/agent-tool/worker-index.mjs';
 import { createCloseAll } from '../services/agent-tool/close-flow/close-all.mjs';
 import { createTeardown } from './teardown.mjs';
@@ -240,10 +241,6 @@ function realWorkerIndex() {
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   };
-  const cleanup = () => {
-    worker.dispose();
-    restore();
-  };
   // Waits for the index to drain before the environment and directory go away,
   // so a test that failed mid-write cannot leave a writer for the next test.
   const cleanupAsync = async () => {
@@ -253,7 +250,7 @@ function realWorkerIndex() {
       restore();
     }
   };
-  return { worker, readRows, holdLock, cleanup, cleanupAsync };
+  return { worker, readRows, holdLock, cleanupAsync };
 }
 
 const shortDeadline = (work, _ms, fallback) =>
@@ -334,6 +331,11 @@ test('overlapping closes each run their own closeAll and their rows reach disk',
   const idx = realWorkerIndex();
   let closeCalls = 0;
   const closes = [];
+  // Close #1 stays pending (past its deadline) until the second close returned.
+  let releaseFirstClose;
+  const firstCloseGate = new Promise((resolve) => {
+    releaseFirstClose = resolve;
+  });
   const f = fixture({
     withTeardownDeadline: shortDeadline,
     agentTool: {
@@ -341,7 +343,7 @@ test('overlapping closes each run their own closeAll and their rows reach disk',
         closeCalls += 1;
         const id = `row${closeCalls}`;
         const run = (async () => {
-          await sleep(closeCalls === 1 ? 60 : 0); // close #1 outlives its deadline
+          if (id === 'row1') await firstCloseGate; // close #1 outlives its deadline
           idx.worker.queueWorkerIndexMutation(rowFor(id, 'lead-a'));
         })();
         closes.push(run);
@@ -355,6 +357,7 @@ test('overlapping closes each run their own closeAll and their rows reach disk',
     await f.teardown.close('cli-exit', { detach: true }); // returns past its deadline
     await f.teardown.close('cli-exit', { detach: true });
     assert.equal(closeCalls, 2, 'each close ran its own closeAll');
+    releaseFirstClose();
     // A close that returned past its deadline keeps writing: read the disk only
     // once both closeAll bodies finished and their queued rows were flushed.
     await Promise.all(closes);
@@ -364,6 +367,7 @@ test('overlapping closes each run their own closeAll and their rows reach disk',
     assert.equal(rows.row2?.sessionId, 'row2');
   } finally {
     // A failed assertion must not restore the environment under a live writer.
+    releaseFirstClose();
     await Promise.allSettled(closes);
     f.cleanup();
     await idx.cleanupAsync();
@@ -468,8 +472,8 @@ test('repeated idle evictions leave no growth in exit callbacks or registrations
     assert.equal(Object.keys(idx.readRows()).length, 30, 'every evicted runtime drained its rows first');
   } finally {
     for (const f of fixtures) f.cleanup();
-    for (const evicted of indexes) evicted.dispose();
-    idx.cleanup();
+    await Promise.allSettled(indexes.map((evicted) => evicted.disposeAsync()));
+    await idx.cleanupAsync();
   }
 });
 
@@ -495,7 +499,7 @@ test('a failed drain keeps the registrations until a later drain succeeds', asyn
     assert.equal(exitFlushCount(), before - 1, 'released by the later successful drain');
   } finally {
     f.cleanup();
-    idx.cleanup();
+    await idx.cleanupAsync();
   }
 });
 
@@ -510,6 +514,12 @@ test('two overlapping timed-out process-exit closes dispose once, after both set
   const disposalDone = new Promise((resolve) => {
     disposed = resolve;
   });
+  // Each close drains once; both drains done means no close has a disposal left to start.
+  let drains = 0;
+  let bothDrained;
+  const bothDrainedDone = new Promise((resolve) => {
+    bothDrained = resolve;
+  });
   const f = fixture({
     withTeardownDeadline: shortDeadline,
     agentTool: {
@@ -521,7 +531,11 @@ test('two overlapping timed-out process-exit closes dispose once, after both set
             resolve();
           });
         }),
-      flushIndexWrites: () => idx.worker.flushWorkerIndexWrites(),
+      flushIndexWrites: () =>
+        idx.worker.flushWorkerIndexWrites().finally(() => {
+          drains += 1;
+          if (drains === 2) bothDrained();
+        }),
       disposeAsync: () => {
         disposals += 1;
         return idx.worker.disposeAsync().finally(disposed);
@@ -533,12 +547,16 @@ test('two overlapping timed-out process-exit closes dispose once, after both set
     await f.teardown.close('cli-exit', { detach: true }); // times out
     assert.equal(finishers.length, 2);
     finishers[0]();
-    await sleep(60);
+    // The first close's final write reached disk while the second is still pending.
+    await idx.worker.flushWorkerIndexWrites();
+    assert.equal(idx.readRows().exit1?.sessionId, 'exit1');
+    assert.equal(drains, 0, 'no drain while the second close is still pending');
     assert.equal(disposals, 0, 'no disposal while the second close is still pending');
     assert.equal(exitFlushCount(), before, 'exit hook kept while a close is outstanding');
     finishers[1]();
-    await disposalDone;
-    await sleep(60); // a second, erroneous disposal would land in this window
+    await Promise.all([bothDrainedDone, disposalDone]);
+    await flushAllIndexWrites();
+    await new Promise((resolve) => setImmediate(resolve)); // a second, erroneous disposal would have started by now
     assert.equal(disposals, 1, 'disposal ran exactly once');
     assert.equal(exitFlushCount(), before - 1);
     const rows = idx.readRows();
