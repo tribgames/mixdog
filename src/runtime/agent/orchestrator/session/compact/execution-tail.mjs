@@ -9,6 +9,7 @@ import {
   isProtectedContextAckMessage,
   latestActualUserInstructionIndex,
   pendingTaskNotificationIndexes,
+  requestStart,
 } from './messages.mjs';
 import { staleObservations, supersedeObservation } from './observation-supersession.mjs';
 import { carryMessageId, withoutMessageIdsReplacer } from '../message-ids.mjs';
@@ -99,14 +100,6 @@ export function executionTokens(messages) {
     estimateMessagesTokens(budgetMessages),
     estimateTokens(JSON.stringify(budgetMessages, withoutMessageIdsReplacer))
   );
-}
-
-function requestStart(messages, index) {
-  for (let i = index; i >= 0; i -= 1) {
-    if (!isActualUserInstructionMessage(messages[i])) continue;
-    if (messages[i]?.meta?.source !== 'steering') return i;
-  }
-  return latestActualUserInstructionIndex(messages.slice(0, index + 1));
 }
 
 // Each assistant tool-call turn with the tool results that directly follow it.

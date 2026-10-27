@@ -540,6 +540,26 @@ test('compaction keeps the newest observation of a page and archives the one it 
   assertPaired(result.messages);
 });
 
+test('compaction keeps every observation of the latest group, pending call included, and archives the replaced ones', (t) => {
+  sandbox(t);
+  const image = { type: 'image', data: 'AAAA', mimeType: 'image/png' };
+  const read = (id, path) => ({ id, name: 'read', arguments: { path } });
+  const messages = [
+    { role: 'user', content: 'compare' },
+    { role: 'assistant', content: '', toolCalls: [read('old', 'a.png')] },
+    { role: 'tool', toolCallId: 'old', content: { content: [image] } },
+    { role: 'assistant', content: 'done' },
+    { role: 'user', content: 'and again' },
+    { role: 'assistant', content: '', toolCalls: [read('x', 'a.png'), read('y', 'a.png'), read('pending', 'b.png')] },
+    { role: 'tool', toolCallId: 'x', content: { content: [image] } },
+    { role: 'tool', toolCallId: 'y', content: { content: [image] } },
+  ];
+  const result = buildExecutionTail(messages, { contextWindow: 100_000, sessionId: 'latest-group-observations' });
+  assert.match(result.messages.find((m) => m.toolCallId === 'old').content.content[0].text, /superseded/);
+  assert.deepEqual(result.messages.find((m) => m.toolCallId === 'x').content, { content: [image] });
+  assert.deepEqual(result.messages.find((m) => m.toolCallId === 'y').content, { content: [image] });
+});
+
 test('large arguments and opaque provider replay cannot bypass the tool-history budget', (t) => {
   sandbox(t);
   const messages = [

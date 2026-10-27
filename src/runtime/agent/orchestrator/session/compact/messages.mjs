@@ -43,6 +43,16 @@ export function latestActualUserInstructionIndex(messages) {
   return -1;
 }
 
+// The user instruction that began the request `index` belongs to; a steering
+// message continues the request instead of starting one.
+export function requestStart(messages, index) {
+  for (let i = index; i >= 0; i -= 1) {
+    if (!isActualUserInstructionMessage(messages[i])) continue;
+    if (messages[i]?.meta?.source !== 'steering') return i;
+  }
+  return latestActualUserInstructionIndex(messages.slice(0, index + 1));
+}
+
 export function latestActualUserInstructionMessage(messages) {
   const index = latestActualUserInstructionIndex(messages);
   return index >= 0 ? { ...messages[index] } : null;
