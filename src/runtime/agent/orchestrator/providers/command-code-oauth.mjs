@@ -361,7 +361,7 @@ export class CommandCodeOAuthProvider {
     if (Array.isArray(body?.data)) list = body.data;
     else if (Array.isArray(body)) list = body;
     const items = list.filter((item) => modelWire(item));
-    publish(items.map(rosterRow));
+    await publish(items.map(rosterRow));
     if (this.tokens?.apiKey === apiKey) {
       // Rows accumulate for one key: a later roster that misses a model
       // leaves the endpoints it was last listed with.

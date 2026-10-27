@@ -195,7 +195,7 @@ export class MimoOAuthProvider {
     // publishes nothing. `_listRows` revalidates `seq` and the key before
     // touching shared state, since enrichment runs after this returns.
     let published = true;
-    if (items.length) published = publish(items.map(rosterRow));
+    if (items.length) published = await publish(items.map(rosterRow));
     else items = seedModelItems();
     return { items, published, seq, apiKey };
   }

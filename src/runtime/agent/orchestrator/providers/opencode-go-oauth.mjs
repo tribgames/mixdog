@@ -228,7 +228,7 @@ export class OpenCodeGoOAuthProvider {
     });
     const response = await consoleGetJson(CONFIG_URL, tokens, { fetchFn: this.config.fetchImpl, refresh: true });
     const remote = goConfigFromResponse(response, listsGoModels(response) ? null : await loadModelsDevGoModels());
-    publish(remote.models, {
+    await publish(remote.models, {
       baseURL: remote.baseURL,
       headers: remote.headers,
       accountId: tokens.account_id,

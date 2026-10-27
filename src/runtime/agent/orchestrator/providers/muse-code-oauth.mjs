@@ -435,7 +435,7 @@ export class MuseCodeOAuthProvider {
       });
     const rows = discovered.map((row) => museRow(row.id, row));
     // A superseded or other-credential response never replaces the live roster either.
-    if (publish(discovered)) inner._enrichedModels = rows;
+    if (await publish(discovered)) inner._enrichedModels = rows;
     return rows;
   }
 

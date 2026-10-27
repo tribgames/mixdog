@@ -11,7 +11,7 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 const { makeModelCache } = await import('./model-cache.mjs');
 const { rosterReasoningOptions } = await import('../../../shared/llm/provider-catalog-cache.mjs');
 
-test('a roster from a request another process started later is never overwritten', () => {
+test('a roster from a request another process started later is never overwritten', async () => {
   const cache = makeModelCache({ fileName: 'publish-test-models.json', ttlMs: 60_000 });
   const publish = cache.beginSave(() => true);
   // Another process started its request after ours and already published.
@@ -19,16 +19,16 @@ test('a roster from a request another process started later is never overwritten
     cache.path(),
     JSON.stringify({ fetchedAt: Date.now(), requestedAt: Date.now() + 60_000, models: [{ id: 'newer' }] })
   );
-  assert.equal(publish([{ id: 'older' }]), false);
+  assert.equal(await publish([{ id: 'older' }]), false);
   assert.deepEqual(JSON.parse(readFileSync(cache.path(), 'utf8')).models, [{ id: 'newer' }]);
 
   const fresh = cache.beginSave(() => true);
   rmSync(cache.path());
-  assert.equal(fresh([{ id: 'latest' }]), true);
+  assert.equal(await fresh([{ id: 'latest' }]), true);
   assert.deepEqual(cache.loadSync(), [{ id: 'latest' }]);
 });
 
-test('a NUL-filled roster cache is a miss, is refetched silently, and never stops a save', () => {
+test('a NUL-filled roster cache is a miss, is refetched silently, and never stops a save', async () => {
   for (const [name, publishWith] of [
     ['save', (cache) => cache.save([{ id: 'saved' }])],
     ['beginSave', (cache) => cache.beginSave(() => true)([{ id: 'saved' }])],
@@ -37,7 +37,7 @@ test('a NUL-filled roster cache is a miss, is refetched silently, and never stop
     writeFileSync(cache.path(), Buffer.alloc(4583));
     assert.equal(cache.loadSync(), null);
     assert.equal(cache.loadEntrySync({ allowStale: true }), null);
-    publishWith(cache);
+    await publishWith(cache);
     assert.deepEqual(cache.loadSync(), [{ id: 'saved' }]);
     assert.equal(existsSync(`${cache.path()}.bak`), false, 'a cache keeps no backup of NUL bytes');
   }
