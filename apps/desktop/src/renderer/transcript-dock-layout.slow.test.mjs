@@ -316,6 +316,8 @@ function dockChanges(page) {
   ];
 }
 
+const approvalChange = (page, open) => () => page.evaluate((open) => window.fixture.change({ approval: open }), open);
+
 /** Runs one dock change and returns every frame it resized plus every painted
  *  frame from before it until the dock rests. */
 async function framesOf(page, change, key) {
@@ -523,11 +525,15 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   await page.addScriptTag({ content: PAGE_PROBES });
 
+  // 640 sat between these two on the same side of the phone breakpoint
+  // (data-mixdog-mobile-tabs below 500), so it only repeated the desktop run.
+  // The pointer-hold and reduced-motion passes are viewport-independent logic
+  // (gesture window, motion preference), so they run once, on the desktop size.
   for (const [width, height] of [
     [1280, 800],
-    [640, 500],
     [390, 844],
   ]) {
+    const desktop = width >= 500;
     await page.setViewport({ width, height });
     await page.evaluate(
       ({ width, height }) => {
@@ -578,9 +584,16 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     });
     before = await geometry(page);
     assert.ok(before.key, 'a real reading anchor is visible');
-    // Reading: the same changes keep the read message where it is.
-    for (const [label, change, kind] of dockChanges(page)) {
-      await assertReadChange(page, label, change, before.key, kind);
+    // Reading: the same changes keep the read message where it is. The anchor
+    // is pinned by scroll arithmetic that does not depend on the phone layout,
+    // so the full sweep runs on the desktop size only.
+    if (desktop) {
+      for (const [label, change, kind] of dockChanges(page)) {
+        await assertReadChange(page, label, change, before.key, kind);
+      }
+    } else {
+      await assertReadChange(page, 'approval card opens', approvalChange(page, true), before.key, ISLAND_MOTION);
+      await assertReadChange(page, 'approval card closes', approvalChange(page, false), before.key, ISLAND_MOTION);
     }
     await checkScrollFade(page);
 
@@ -624,28 +637,31 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     // A pointer held still on the scrollbar while the approval closes: the
     // viewport grows and Chromium clamps the offset to the new end before the
     // (gesture-deferred) end pin runs. That clamp is not the reader leaving.
-    const approval = (open) => () => page.evaluate((open) => window.fixture.change({ approval: open }), open);
+    const approval = (open) => approvalChange(page, open);
     await assertFollowedChange(page, 'approval opens', approval(true));
-    // Past PROGRAMMATIC_WINDOW_MS: the clamped end must not pass merely by
-    // matching an end offset the timeline wrote moments ago.
-    await pause(page, 1_600);
-    await holdChromePointer(page, true);
-    await assertFollowedChange(page, 'approval closes under a held pointer', approval(false));
-    await pause(page, 300);
-    await assertFollowedChange(page, 'approval reopens under a held pointer', approval(true));
-    await holdChromePointer(page, false);
-    await assertFollowedChange(page, 'approval closes after release', approval(false));
+    if (!desktop) await assertFollowedChange(page, 'approval closes', approval(false));
+    if (desktop) {
+      // Past PROGRAMMATIC_WINDOW_MS: the clamped end must not pass merely by
+      // matching an end offset the timeline wrote moments ago.
+      await pause(page, 1_600);
+      await holdChromePointer(page, true);
+      await assertFollowedChange(page, 'approval closes under a held pointer', approval(false));
+      await pause(page, 300);
+      await assertFollowedChange(page, 'approval reopens under a held pointer', approval(true));
+      await holdChromePointer(page, false);
+      await assertFollowedChange(page, 'approval closes after release', approval(false));
 
-    // Reduced motion: the same island changes land in one step, the tail
-    // still 24px above the dock on every frame.
-    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-    await page.evaluate((session) => window.mountFixture(session), `reduced-${width}-${height}`);
-    await settle(page);
-    for (const [label, change, kind] of dockChanges(page).filter(([, , kind]) => kind)) {
-      await assertFollowedChange(page, `reduced motion: ${label}`, change, kind, true);
+      // Reduced motion: the same island changes land in one step, the tail
+      // still 24px above the dock on every frame.
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.evaluate((session) => window.mountFixture(session), `reduced-${width}-${height}`);
+      await settle(page);
+      for (const [label, change, kind] of dockChanges(page).filter(([, , kind]) => kind)) {
+        await assertFollowedChange(page, `reduced motion: ${label}`, change, kind, true);
+      }
+      assert.equal((await geometry(page)).slotHeight, 0, 'reduced motion: the emptied slot closes');
+      await page.emulateMediaFeatures([]);
     }
-    assert.equal((await geometry(page)).slotHeight, 0, 'reduced motion: the emptied slot closes');
-    await page.emulateMediaFeatures([]);
   }
 
   // A short pane where a large approval and a ten-line draft together need

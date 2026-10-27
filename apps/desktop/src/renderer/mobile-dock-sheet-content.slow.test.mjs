@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
@@ -76,18 +76,45 @@ const PROBES = `
     }
     return samples;
   };
+  // Rests once no transition or animation is running and the sheet has held
+  // still for three frames (the exit commits a frame after transitionend).
   window.settle = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    await nextFrame();
+    let still = 0;
+    let last = null;
+    while (still < 3) {
+      await nextFrame();
+      await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {})));
+      const left = document.querySelector('.pane-side-dock').getBoundingClientRect().left;
+      still = left === last && !document.getAnimations().length ? still + 1 : 0;
+      last = left;
+    }
   };
 `;
 
 const PHONE_UA =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
 
-async function launch(t) {
+// One bundle build and one Chrome for the file; each test gets its own page.
+let shared = null;
+function sharedBrowser() {
+  shared ??= (async () => {
+    const [styles, script] = await buildBundles();
+    const browser = await puppeteer.launch({
+      ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+      headless: true,
+    });
+    return { browser, css: styles.outputFiles[0].text, js: script.outputFiles[0].text };
+  })();
+  return shared;
+}
+
+after(async () => {
+  if (shared) await (await shared).browser.close();
+});
+
+function buildBundles() {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
-  const [styles, script] = await Promise.all([
+  return Promise.all([
     build({
       stdin: {
         resolveDir,
@@ -133,12 +160,12 @@ async function launch(t) {
       ],
     }),
   ]);
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
+}
+
+async function launch(t) {
+  const { browser, css, js } = await sharedBrowser();
   const page = await browser.newPage();
+  t.after(() => page.close());
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.setUserAgent(PHONE_UA);
@@ -146,8 +173,8 @@ async function launch(t) {
   await page.setContent(
     '<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div></body></html>'
   );
-  await page.addStyleTag({ content: styles.outputFiles[0].text });
-  await page.addScriptTag({ content: script.outputFiles[0].text });
+  await page.addStyleTag({ content: css });
+  await page.addScriptTag({ content: js });
   await page.addScriptTag({ content: PROBES });
   await page.evaluate(() => setSheet(false));
   await page.evaluate(() => settle());

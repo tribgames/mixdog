@@ -2,14 +2,19 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { createRefUpload } from './ref-upload.ts';
+
+mock.timers.enable({ apis: ['Date'], now: Date.now() });
 
 const dir = mkdtempSync(join(tmpdir(), 'ref-upload-'));
 const file = join(dir, 'a.txt');
 writeFileSync(file, 'x');
-test.after(() => rmSync(dir, { recursive: true, force: true }));
+test.after(() => {
+  mock.timers.reset();
+  rmSync(dir, { recursive: true, force: true });
+});
 
 /** A page of same-process sibling frames `a` and `b` (same URL, one CDP session `S1`)
  *  and a cross-origin frame `x` in its own session `S2`. `owner[backendNodeId]` is the
@@ -136,7 +141,13 @@ function fixture({ fileInput = true, chooser = null } = {}) {
         log.received.push(landing());
       },
     },
-    pause: async () => undefined,
+    // The chooser wait polls against Date.now(); with a no-op pause it spun the
+    // real clock for the whole FILE_CHOOSER_WAIT_MS. The clock is mocked and
+    // every pause advances it, so the wait runs its full poll count and expires
+    // exactly as before, without taking the time.
+    pause: async (ms) => {
+      mock.timers.tick(ms);
+    },
     pendingFileChooser: () => pending,
     clearFileChooser: () => {
       pending = null;

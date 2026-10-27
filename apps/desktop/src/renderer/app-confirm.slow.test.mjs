@@ -9,8 +9,27 @@ import { installTestDom } from './test-support/test-dom.mjs';
 installTestDom();
 const { confirmAction, alertAction } = await import('./app-confirm.tsx');
 
+// The dialog and React load on first use (a dynamic import); load them once,
+// after the DOM is installed, so that every ask below resolves within a macro
+// turn and a quiet DOM really means "settled".
+await Promise.all([import('react-dom/client'), import('./settings/capability-controls.tsx')]);
+
+// Settled = two macro turns in a row that left the DOM, the focus and the
+// inert marks exactly as they were (a bounded count, never a fixed delay).
+const turn = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+const snapshot = () =>
+  `${document.body.innerHTML}|${document.activeElement?.outerHTML ?? ''}|${[...document.querySelectorAll('*')]
+    .map((el) => (el.inert ? '1' : '0'))
+    .join('')}`;
 const settle = async () => {
-  for (let i = 0; i < 20; i++) await act(async () => new Promise((resolve) => setTimeout(resolve, 25)));
+  let last = snapshot();
+  for (let same = 0, turns = 0; same < 2; turns++) {
+    assert.ok(turns < 500, 'the DOM never came to rest');
+    await turn();
+    const now = snapshot();
+    same = now === last ? same + 1 : 0;
+    last = now;
+  }
 };
 const dialogs = () => [...document.querySelectorAll('.settings-confirm-dialog')];
 const button = (label) => [...dialogs()[0].querySelectorAll('button')].find((el) => el.textContent === label);

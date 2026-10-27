@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
@@ -43,14 +43,19 @@ const PAGE = `
   const h = React.createElement;
   const NOW = Date.now();
   const iso = (ms) => new Date(ms).toISOString();
-  const LEAD = 'lead-a';
+  // The island remembers a session's last usage answer, so every case gets a
+  // lead of its own (__lead) instead of a fresh document.
+  let LEAD = 'lead-a';
+  let rows = [];
+  let usage = null;
   const row = (tag, overrides) => ({
-    tag, agent: 'worker', sessionId: 's-' + tag, ownerSessionId: LEAD, parentSessionId: LEAD,
+    tag: LEAD + ':' + tag, agent: 'worker', sessionId: 's-' + LEAD + '-' + tag, ownerSessionId: LEAD, parentSessionId: LEAD,
     title: tag, provider: 'anthropic', model: 'claude-opus-4-5', effort: 'auto',
     status: 'idle', stage: 'idle', startedAt: NOW - 50_000, idleSince: iso(NOW - 10_000), ...overrides,
   });
   // 17 agents like the report: 1 running, 1 queued, 15 resting (clearable).
-  const rows = [
+  const build = () => {
+  const own = [
     { tag: 'lead:' + LEAD, agent: 'lead', sessionId: LEAD, ownerSessionId: LEAD, status: 'running', stage: 'running', startedAt: NOW - 60_000 },
     row('feat-approval-button-ui-with-a-really-long-branch-name', { status: 'running', stage: 'running', idleSince: null, turnStartedAt: NOW - 583_000 }),
     row('queued-one', { status: 'queued', stage: 'queued', idleSince: null }),
@@ -58,14 +63,21 @@ const PAGE = `
     row('long-route', { model: 'a-model-whose-name-is-far-too-long-to-fit-in-a-phone-row-at-all', effort: 'high', idleSince: null, status: 'running', stage: 'running', turnStartedAt: NOW - 3_723_000 }),
     ...Array.from({ length: 13 }, (_, i) => row('rested-' + i)),
   ];
+    rows.push(...own);
+  };
+  // The agent pool is one shared snapshot, so every lead's 17 agents are in
+  // it from the start and a case picks its own by the session it renders.
+  for (let n = 0; n < 24; n++) { LEAD = 'lead-' + n; build(); }
+  LEAD = 'lead-0';
   const sessions = Object.fromEntries(rows.map((r, i) => [r.sessionId, {
     turns: 3, tokens: 67_751_234 + i, input: 1000, cacheRead: 5000, cacheWrite: 10, unmeasuredTurns: 0, costUsd: 1, costUnpricedTurns: 0,
   }]));
-  const usage = {
+  usage = {
     turns: 9, tokens: 200_000_000, input: 1000, cacheRead: 98000, cacheWrite: 10, unmeasuredTurns: 0, costUsd: 120.5, costUnpricedTurns: 0,
     agents: { turns: 20, tokens: 580_000_000, input: 1000, cacheRead: 98000, cacheWrite: 10, unmeasuredTurns: 0, costUsd: 178.85, costUnpricedTurns: 0 },
     sessions,
   };
+  window.__lead = (n) => { LEAD = 'lead-' + n; };
   // __usageGate holds getSessionUsage so the loading footer can be measured.
   window.mixdogDesktop = new Proxy({
     listAgentPool: async () => rows,
@@ -75,7 +87,39 @@ const PAGE = `
       : String(name).startsWith('subscribe') ? () => () => {} : async () => [],
   });
   let root = null;
-  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  // Polls once per frame until the condition holds; a bound turns a missing
+  // element into a failure instead of a hang.
+  const until = async (what, ready, bound = 3000) => {
+    const start = performance.now();
+    while (!ready()) {
+      if (performance.now() - start > bound) throw new Error('timed out waiting for ' + what);
+      await frame();
+    }
+  };
+  const loaded = () => (document.querySelector('.composer-island-summary b')?.textContent ?? '-') !== '-';
+  // Resting: no animation running, no island easing, and the panel, its first
+  // row and the footer on the same boxes for three frames in a row.
+  const calm = async () => {
+    const signature = () => {
+      const slot = document.querySelector('.composer-island-slot');
+      const rest = !document.getAnimations().length && !slot?.hasAttribute('data-motion') && slot?.getAttribute('data-presence') !== 'grace';
+      const boxes = ['.composer-island-panel', '.composer-island-agent-item', '.composer-island-summary']
+        .map((selector) => document.querySelector(selector)?.getBoundingClientRect())
+        .map((b) => (b ? [b.left, b.top, b.width, b.height].join() : ''));
+      return rest ? boxes.join('|') : null;
+    };
+    let last = null;
+    let same = 0;
+    const start = performance.now();
+    while (same < 3) {
+      if (performance.now() - start > 5000) throw new Error('the panel never came to rest');
+      await frame();
+      const now = signature();
+      same = now !== null && now === last ? same + 1 : 0;
+      last = now;
+    }
+  };
   const geometry = () => {
     const rect = (node) => { const b = node.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map((n) => Math.round(n * 2) / 2); };
     const panel = document.querySelector('.composer-island-panel');
@@ -95,12 +139,12 @@ const PAGE = `
     let release;
     window.__usageGate = new Promise((r) => { release = r; });
     await window.__render(language, true);
-    await settle(400);
+    await calm();
     const loading = geometry();
     release();
     window.__usageGate = null;
-    for (let i = 0; i < 60 && (document.querySelector('.composer-island-summary b')?.textContent ?? '-') === '-'; i++) await settle(50);
-    await settle(400);
+    await until('the usage figures', loaded);
+    await calm();
     return { loading, data: geometry() };
   };
   window.__render = async (language, held) => {
@@ -116,11 +160,11 @@ const PAGE = `
         reviewItems: [], reviewActive: true, reviewBusy: false, reviewCwd: '',
         children: h('form', { className: 'composer', style: { height: '96px' } }),
       }))));
-    for (let i = 0; i < 40 && !document.querySelector('.composer-island-seg-agents'); i++) await new Promise((r) => setTimeout(r, 50));
+    await until('the Agents segment', () => document.querySelector('.composer-island-seg-agents'));
     document.querySelector('.composer-island-seg-agents').click();
-    if (held) { for (let i = 0; i < 60 && !document.querySelector('.composer-island-summary'); i++) await settle(50); return; }
-    for (let i = 0; i < 60 && (document.querySelector('.composer-island-summary b')?.textContent ?? '-') === '-'; i++) await settle(50);
-    await new Promise((r) => setTimeout(r, 400));
+    if (held) { await until('the footer', () => document.querySelector('.composer-island-summary')); return; }
+    await until('the usage figures', loaded);
+    await calm();
   };
   window.__measure = () => {
     const box = (node) => node.getBoundingClientRect();
@@ -220,7 +264,7 @@ function problems(label, m, phone) {
   const expect = (ok, what) => {
     if (!ok) found.push(`${label}: ${what}`);
   };
-  expect(m.rows >= 17 && m.metaTexts.length >= 2, `the agents and their counts show (${m.rows} rows)`);
+  expect(m.rows === 17 && m.metaTexts.length >= 2, `the agents and their counts show (${m.rows} rows)`);
   expect(m.overlaps.length === 0, `header children overlap: ${m.overlaps}`);
   expect(m.clipped.length === 0, `header text or button clipped: ${m.clipped}`);
   expect(!m.metaClipped, `the counts are clipped (${m.metaTexts})`);
@@ -295,79 +339,110 @@ async function bundle(entry, loader) {
   });
 }
 
-test('the Agents popover header never overlaps or clips on a phone, in any language', async (t) => {
-  const [script, styles] = await Promise.all([
-    bundle(PAGE, 'tsx'),
-    bundle('@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";', 'css'),
-  ]);
-  const js = script.outputFiles.find((file) => file.path.endsWith('.out')).text;
-  const css = styles.outputFiles.find((file) => file.path.endsWith('.out')).text;
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  mkdirSync(SHOTS, { recursive: true });
+// One bundle build and one Chrome for the whole file: both tests open pages
+// on the same browser and the same script and stylesheet text.
+let shared = null;
+function sharedBrowser() {
+  shared ??= (async () => {
+    const [script, styles] = await Promise.all([
+      bundle(PAGE, 'tsx'),
+      bundle('@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";', 'css'),
+    ]);
+    const browser = await puppeteer.launch({
+      ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+      headless: true,
+    });
+    return {
+      browser,
+      js: script.outputFiles.find((file) => file.path.endsWith('.out')).text,
+      css: styles.outputFiles.find((file) => file.path.endsWith('.out')).text,
+    };
+  })();
+  return shared;
+}
+
+after(async () => {
+  if (shared) await (await shared).browser.close();
+});
+
+// Width is the only thing that makes a label too long, so the narrowest size
+// takes every language and the roomier ones the three longest catalogs plus
+// the reported one (ko, de, ru); en is the baseline on the desktop pane.
+const LONGEST = ['ko', 'de', 'ru'];
+
+test('the Agents popover header never overlaps or clips on a phone, in any language', async () => {
+  const { browser, js, css } = await sharedBrowser();
   const tab = await browser.newPage();
   const errors = [];
   const failures = [];
+  let leads = 0;
   tab.on('pageerror', (error) => errors.push(error.message));
-  await tab.setViewport({ width: 412, height: 915, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const mobileHtml = `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>${HOST}</body></html>`;
+  if (process.env.AGENT_PANEL_SHOT_TAG) mkdirSync(SHOTS, { recursive: true });
 
-  for (const [width, height] of [
-    [360, 800],
-    [412, 915],
-    [430, 932],
-  ]) {
-    await tab.setViewport({ width, height, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-    for (const language of LANGUAGES) {
-      // A fresh document first: the island remembers a session's last usage
-      // answer, which would hide the loading state on a re-render.
+  try {
+    for (const [width, height, languages] of [
+      [360, 800, LANGUAGES],
+      [412, 915, LONGEST],
+      [430, 932, LONGEST],
+    ]) {
+      await tab.setViewport({ width, height, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
       await tab.setContent(mobileHtml);
       await tab.addScriptTag({ content: js });
-      const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
-      failures.push(...stabilityProblems(`${language} @${width} loading->data`, held));
-      await tab.evaluate((lang) => window.__render(lang), language);
-      const m = await tab.evaluate(() => window.__measure());
-      await tab.screenshot({ path: join(SHOTS, `${TAG}-${language}-${width}x${height}.png`) });
-      failures.push(...problems(`${language} @${width}`, m, true));
+      for (const language of languages) {
+        // A lead no case has used: the island remembers a session's last usage
+        // answer, which would hide the loading state on a re-render.
+        await tab.evaluate((n) => window.__lead(n), ++leads);
+        const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
+        failures.push(...stabilityProblems(`${language} @${width} loading->data`, held));
+        // The settled data state is measured as it stands; the first language
+        // of each size also takes the other road, a fresh mount that already
+        // has the answer cached.
+        if (language === languages[0]) await tab.evaluate((lang) => window.__render(lang), language);
+        const m = await tab.evaluate(() => window.__measure());
+        if (process.env.AGENT_PANEL_SHOT_TAG) {
+          await tab.screenshot({ path: join(SHOTS, `${TAG}-${language}-${width}x${height}.png`) });
+        }
+        failures.push(...problems(`${language} @${width}`, m, true));
+      }
     }
+    assert.deepEqual(failures, []);
+    assert.deepEqual(errors, []);
+  } finally {
+    await tab.close();
   }
-  assert.deepEqual(failures, []);
-  assert.deepEqual(errors, []);
 });
 
-test('a narrow desktop pane gets the same header', async (t) => {
-  const [script, styles] = await Promise.all([
-    bundle(PAGE, 'tsx'),
-    bundle('@import "./ui/tokens.css"; @import "./styles.css"; @import "./desktop.css";', 'css'),
-  ]);
-  const js = script.outputFiles.find((file) => file.path.endsWith('.out')).text;
-  const css = styles.outputFiles.find((file) => file.path.endsWith('.out')).text;
-  const browser = await puppeteer.launch({
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
+test('a narrow desktop pane gets the same header', async () => {
+  const { browser, js, css } = await sharedBrowser();
   const tab = await browser.newPage();
   const failures = [];
+  let leads = 0;
   await tab.setViewport({ width: 1400, height: 900 });
   const desktopHtml = `<!doctype html><html><head><style>${css}</style></head><body>${HOST}</body></html>`;
-  // 560 is the panel's own width; the narrower ones are split panes and side panels.
-  for (const paneWidth of [560, 480, 340]) {
-    for (const language of ['en', ...LANGUAGES]) {
+  try {
+    // 560 is the panel's own width; the narrower ones are split panes and side panels.
+    for (const [paneWidth, languages] of [
+      [560, ['en', ...LONGEST]],
+      [480, ['en', ...LONGEST]],
+      [340, ['en', ...LANGUAGES]],
+    ]) {
       await tab.setContent(desktopHtml);
       await tab.addScriptTag({ content: js });
       await tab.evaluate((width) => {
         document.querySelector('#host').style.width = `${width}px`;
       }, paneWidth);
-      const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
-      failures.push(...stabilityProblems(`desktop ${language} @${paneWidth} loading->data`, held));
-      await tab.evaluate((lang) => window.__render(lang), language);
-      const m = await tab.evaluate(() => window.__measure());
-      failures.push(...problems(`desktop ${language} @${paneWidth}`, m, false));
+      for (const language of languages) {
+        await tab.evaluate((n) => window.__lead(n), ++leads);
+        const held = await tab.evaluate((lang) => window.__renderHeld(lang), language);
+        failures.push(...stabilityProblems(`desktop ${language} @${paneWidth} loading->data`, held));
+        if (language === languages[0]) await tab.evaluate((lang) => window.__render(lang), language);
+        const m = await tab.evaluate(() => window.__measure());
+        failures.push(...problems(`desktop ${language} @${paneWidth}`, m, false));
+      }
     }
+    assert.deepEqual(failures, []);
+  } finally {
+    await tab.close();
   }
-  assert.deepEqual(failures, []);
 });
