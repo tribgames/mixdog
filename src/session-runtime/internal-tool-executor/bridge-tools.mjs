@@ -83,7 +83,7 @@ export function createBridgeToolHandlers({ rt }) {
     }
     return await executeVisualizeTool(args, {
       sessionId: sessionIdFor(callerCtx),
-      callId: callerCtx?.toolCallId || '',
+      callId: callerCtx?.toolCallId,
       cwd: callerCwd,
       signal: signalFor(callerCtx),
     });

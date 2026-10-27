@@ -161,6 +161,36 @@ test('a stat that never answers cannot hold the turn end: the open counts as pre
   }
 });
 
+test('a turn starting while the end checks the disk keeps its own open out of the ending turn’s record', async () => {
+  let fail;
+  let first = true;
+  const t = setup({
+    goneCheckBudgetMs: 5000,
+    statFile: () => {
+      if (!first) return Promise.resolve();
+      first = false;
+      return new Promise((_, reject) => {
+        fail = () => reject(Object.assign(new Error('gone'), { code: 'ENOENT' }));
+      });
+    },
+  });
+  try {
+    await t.service.setTurnActive('s1', true);
+    await t.run('s1', 'open', { targets: ['a/index.html'] }, 'turn1-open');
+    const ending = t.service.setTurnActive('s1', false);
+    while (!fail) await new Promise((resolve) => setImmediate(resolve));
+    // The next turn reopens the same tab (its file is there) before the first answer arrives.
+    await t.service.setTurnActive('s1', true);
+    await t.run('s1', 'open', { targets: ['a/index.html'] }, 'turn2-open');
+    fail();
+    await ending;
+    await t.service.setTurnActive('s1', false);
+    assert.deepEqual(t.gone('s1'), [{ tab: 'v1', call: 'turn1-open' }]);
+  } finally {
+    t.cleanup();
+  }
+});
+
 test('sessions are isolated, and a session’s record goes with its state', async () => {
   const t = setup();
   try {

@@ -60,9 +60,9 @@ export function noteReveal(hold: TurnHold, tabId: string, callId?: string): void
 }
 
 /** Longest the turn end waits for the disk checks of `recordGoneOpens`. */
-export const GONE_CHECK_BUDGET_MS = 1500;
+const GONE_CHECK_BUDGET_MS = 1500;
 
-export interface GoneCheckOptions {
+interface GoneCheckOptions {
   /** Test seam: the file system's `stat`. */
   statFile?: (path: string) => Promise<unknown>;
   budgetMs?: number;
@@ -81,24 +81,25 @@ async function targetsGone(tab: TabState, statFile: (path: string) => Promise<un
   return missing.some(Boolean);
 }
 
-/** The turn ends: each open of this turn (`hold.opens`, by tool call id)
- *  whose tab is closed by now, or whose files are gone (marked missing, or
- *  absent from disk), is recorded on the session, once, naming that call.
- *  The state carries the record to every window and device, so exactly those
- *  cards draw no tile; no other open is touched, and a later close or
- *  deletion records nothing for this turn. Inline tabs have no file: their
- *  cards are never dropped. The disk checks run together under one short
- *  budget: whatever is not answered within it counts as present (its card
- *  stays), so a stalled file system never holds the turn end. Resolves true
- *  when something was recorded (a publish must carry it). */
-export async function recordGoneOpens(
+/** The turn ends: each open of this turn (`hold.opens`, by tool call id,
+ *  consumed here) whose tab is closed by now, or whose files are gone (marked
+ *  missing, or absent from disk), is recorded on the session naming that
+ *  call; the state carries the record to every window and device, so exactly
+ *  those cards draw no tile. Inline tabs have no file: their cards are never
+ *  dropped. The disk checks run together under one short budget: whatever is
+ *  not answered within it counts as present (its card stays), so a stalled
+ *  file system never holds the turn end. */
+async function recordGoneOpens(
   state: SessionState,
   hold: TurnHold,
   { statFile = stat, budgetMs = GONE_CHECK_BUDGET_MS }: GoneCheckOptions = {}
-): Promise<boolean> {
+): Promise<void> {
+  // A turn that starts during the checks pushes its opens onto the fresh list.
+  const { opens } = hold;
+  hold.opens = [];
   const gone = new Set<string>();
   const checks: Promise<void>[] = [];
-  for (const id of new Set(hold.opens.map((open) => open.tab))) {
+  for (const id of new Set(opens.map((open) => open.tab))) {
     const tab = state.tabs.find((candidate) => candidate.id === id);
     if (!tab) gone.add(id);
     else if (tab.url || tab.inline) continue;
@@ -119,15 +120,8 @@ export async function recordGoneOpens(
     await Promise.race([Promise.all(checks), budget]);
     clearTimeout(timer);
   }
-  // Only what was decided inside the budget: a later answer is dropped.
-  const decided = new Set(gone);
-  const records = hold.opens.filter((open) => decided.has(open.tab));
-  if (!records.length) return false;
-  const known = state.goneOpens ?? [];
-  const fresh = records.filter((one) => !known.some((have) => have.call === one.call));
-  if (!fresh.length) return false;
-  state.goneOpens = [...known, ...fresh].slice(-MAX_VISUALIZE_GONE_OPENS);
-  return true;
+  const records = opens.filter((open) => gone.has(open.tab));
+  if (records.length) state.goneOpens = [...(state.goneOpens ?? []), ...records].slice(-MAX_VISUALIZE_GONE_OPENS);
 }
 
 /** The tab drawn off screen as one PNG (no panel needed): pages, inline
@@ -177,7 +171,6 @@ export function createTurnHolds(
     // A failed step still ends the hold with the final publish below (the
     // panel and the turn's cards wait for it); the failure is raised after.
     let failure: unknown = null;
-    let recorded = false;
     try {
       // The version each tab the turn opened ends it on is the turn's own: its
       // card reads it from the state, on any device, after any reload. (A tab
@@ -208,7 +201,7 @@ export function createTurnHolds(
       const final = ctx.sessions.get(sessionId);
       if (final && !hold.again) {
         const { statFile, goneCheckBudgetMs } = ctx.deps ?? {};
-        recorded = await recordGoneOpens(final, hold, { statFile, budgetMs: goneCheckBudgetMs }).catch(() => false);
+        await recordGoneOpens(final, hold, { statFile, budgetMs: goneCheckBudgetMs });
       }
       if (holds.get(sessionId) === hold) holds.delete(sessionId);
     }
@@ -222,7 +215,7 @@ export function createTurnHolds(
       if (state && shown) {
         state.active = shown;
         ctx.publish(sessionId, shown);
-      } else if (state && (hold.dirty || recorded)) ctx.publish(sessionId);
+      } else if (state && hold.dirty) ctx.publish(sessionId);
     }
     if (failure) throw failure;
   };

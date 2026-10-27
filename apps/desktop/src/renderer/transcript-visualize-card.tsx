@@ -48,10 +48,11 @@ import {
   previewFileLabel,
   subscribeVisualizeCards,
   type VisualizeCardCall,
+  finishedTargets,
   type VisualizeCardKind,
   visualizeCardCalls,
-  visualizeCardKind,
   visualizeCardGone,
+  visualizeCardKind,
   visualizeCardLiveThumbnail,
   visualizeCardNewest,
   visualizeCardOwnVersion,
@@ -391,11 +392,8 @@ export function ToolVisualizeCards({
   // or its file gone) gets no card: the host recorded that once, at the
   // turn's end, in the state every window and device receives.
   const goneOpens = useVisualizeState(scope).goneOpens;
-  const live = useMemo(
-    () => (goneOpens ? all.filter((call) => !visualizeCardGone({ goneOpens }, call)) : all),
-    [all, goneOpens]
-  );
-  const opened = useMemo(() => live.flatMap((call) => (call.pending ? [] : call.targets)), [live]);
+  const live = useMemo(() => all.filter((call) => !visualizeCardGone(goneOpens, call)), [all, goneOpens]);
+  const opened = useMemo(() => finishedTargets(live), [live]);
   const agentCalls = useMemo(() => visualizeCardsShown(live, heldSince), [live, heldSince]);
   const previews = useTurnPreviews({
     sessionId: scope,

@@ -161,11 +161,11 @@ test('adjacent turns on one tab: a record names its own open, never an earlier o
   // Turn A's open (9500) ends just before turn B (10000..11000) reopens the same tab (10100).
   const earlier = call('open-a', 9500);
   const later = call('open-b', 10100);
-  const state = { goneOpens: [{ tab: 'v1', call: 'open-b' }] };
-  assert.equal(visualizeCardGone(state, earlier), false);
-  assert.equal(visualizeCardGone(state, later), true);
-  assert.equal(visualizeCardGone({}, later), false, 'a host without the record drops nothing');
-  assert.equal(visualizeCardGone({ goneOpens: [{ tab: 'v2', call: 'open-b' }] }, later), false, 'another tab');
+  const goneOpens = [{ tab: 'v1', call: 'open-b' }];
+  assert.equal(visualizeCardGone(goneOpens, earlier), false);
+  assert.equal(visualizeCardGone(goneOpens, later), true);
+  assert.equal(visualizeCardGone(undefined, later), false, 'a host without the record drops nothing');
+  assert.equal(visualizeCardGone([{ tab: 'v2', call: 'open-b' }], later), false, 'another tab');
 });
 
 test('a file deleted after its turn ended: the earlier tile stays, whatever happens next', async (t) => {

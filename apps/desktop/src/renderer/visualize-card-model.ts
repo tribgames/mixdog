@@ -170,9 +170,10 @@ export function visualizeCardCalls(items: readonly TranscriptItem[]): VisualizeC
     if (!pending && !tabId) continue;
     const version = pending ? 0 : visualizeResultVersion(item);
     const owner = pending ? '' : stampedOwner(item);
+    const callId = item.callId ?? item.id;
     const call: VisualizeCardCall = {
       id: String(item.id ?? `visualize:${index}`),
-      ...(item.callId || item.id ? { callId: String(item.callId ?? item.id) } : {}),
+      ...(callId ? { callId: String(callId) } : {}),
       pending,
       targets,
       ...(content ? { content } : {}),
@@ -344,10 +345,15 @@ export function sameTarget(a: string, b: string): boolean {
   return left === right || left.endsWith(`/${right}`) || right.endsWith(`/${left}`);
 }
 
-/** The files a turn's tool rounds showed as visualize cards (finished opens
- *  only): a changed file among them is shown by its card, not as a diff. */
+/** The files `calls` showed as visualize cards (finished opens only): a
+ *  changed file among them is shown by its card, not as a diff. */
+export function finishedTargets(calls: readonly VisualizeCardCall[]): string[] {
+  return calls.flatMap((call) => (call.pending ? [] : call.targets));
+}
+
+/** `finishedTargets` of a turn's tool rounds. */
 export function visualizedTargets(items: readonly TranscriptItem[]): string[] {
-  return visualizeCardCalls(items).flatMap((call) => (call.pending ? [] : call.targets));
+  return finishedTargets(visualizeCardCalls(items));
 }
 
 /** Whether `tab` shows what `call` opened: the same files, or inline content
@@ -436,13 +442,11 @@ const cardVersions = new Map<string, number>();
 
 /** Whether the host recorded, at the end of `call`'s own turn, that its tab
  *  had nothing left to show (closed, or its file gone): the state's
- *  `goneOpens`, which every window and device receives. The record names the
- *  open by its tool call id, so only this very call matches: never another
- *  open of the same tab, in this turn or another. Inline content and a
- *  preview are never dropped. */
-export function visualizeCardGone(state: Pick<VisualizeSessionState, 'goneOpens'>, call: VisualizeCardCall): boolean {
-  if (!call.callId || !call.tabId || call.preview || call.content || !state.goneOpens) return false;
-  return state.goneOpens.some((one) => one.call === call.callId && one.tab === call.tabId);
+ *  `goneOpens`. The record names the open by its tool call id, so only this
+ *  very call matches, never another open of the same tab. Inline content is
+ *  never dropped. */
+export function visualizeCardGone(goneOpens: VisualizeSessionState['goneOpens'], call: VisualizeCardCall): boolean {
+  return !call.content && Boolean(goneOpens?.some((one) => one.call === call.callId && one.tab === call.tabId));
 }
 
 /** Test seam: a renderer reload forgets the in-memory registries (the host's
