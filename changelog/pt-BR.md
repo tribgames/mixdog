@@ -40,6 +40,8 @@ Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, 
 - Alterados os chats de bots para não exibirem cartão de arquivos modificados sob uma resposta, separarem mensagens distantes e compartilharem uma única linha para transferência e horário.
 - Alterada a lista de idiomas para exibir o coreano pelo seu próprio nome.
 - Alterada a verificação periódica do Mixy para rodar a cada hora por padrão, com intervalo selecionável em Configurações → Bots.
+- Alterado o aplicativo para celular para se conectar diretamente ao seu PC quando a rede permitir, revertendo automaticamente para o relay.
+- Alterados os painéis laterais para compartilharem uma única largura, ajustável de 280 a 1160 pixels.
 - Ajustado o dock lateral do celular para fechar deslizando em qualquer lugar da folha, com animação mais suave para linhas da gaveta e efeitos de brilho do texto.
 
 ### Correções de bugs
@@ -67,6 +69,9 @@ Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, 
 - Corrigida a lista de sessões e o chat em celulares Android travando após rolagem rápida e saltando em seguida.
 - Corrigidos os cabeçalhos de seção da barra lateral que permaneciam destacados após um clique e seu indicador giratório que sumia enquanto o botão de menu era exibido.`
 - Corrigida a compactação de uma conversa que descartava as habilidades e regras atuais em vez de reconstruí-las a partir de fontes ativas.
+- Corrigido o Mixy aparecendo sozinho após uma verificação de inicialização com falha, lendo verificações periódicas e depois desaparecendo (#243, thanks @Jichiro-S).
+- Corrigidas as sessões existentes ignorando as configurações atuais de compactação e bifurcações sendo compactadas cedo demais (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Corrigidos bots solicitando no chat que você resolva um CAPTCHA ou etapa de login em vez de passar a página.
 
 ## v1.3.5 - 2026-10-24
 

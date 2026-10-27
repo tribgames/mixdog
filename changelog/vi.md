@@ -40,6 +40,8 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã thay đổi cuộc trò chuyện với bot để không hiển thị thẻ tệp bị thay đổi bên dưới câu trả lời, tách các tin nhắn cách xa nhau và chia sẻ một dòng cho thời gian và chuyển giao.
 - Đã thay đổi danh sách ngôn ngữ để hiển thị tiếng Hàn bằng chính tên bản ngữ của nó.
 - Đã thay đổi tính năng kiểm tra định kỳ của Mixy để chạy mỗi giờ theo mặc định, với khoảng thời gian có thể tùy chọn trong Cài đặt → Bot.
+- Đã thay đổi ứng dụng điện thoại để kết nối trực tiếp với PC của bạn khi mạng cho phép, tự động chuyển về relay.
+- Đã thay đổi các bảng bên để dùng chung một chiều rộng, có thể điều chỉnh từ 280 đến 1160 pixel.
 - Đã điều chỉnh dock bên của điện thoại để đóng bằng cách vuốt vào bất kỳ vị trí nào trên trang, đồng thời tạo hiệu ứng động mượt mà hơn cho các hàng trong ngăn kéo và ánh lấp lánh văn bản.
 
 ### Sửa lỗi
@@ -67,6 +69,9 @@ Cải thiện khả năng làm việc từ xa từ điện thoại cùng với B
 - Đã sửa lỗi danh sách phiên và cuộc trò chuyện trên điện thoại Android bị đơ sau thao tác vuốt nhanh rồi nhảy vị trí.
 - Đã sửa lỗi tiêu đề mục trên thanh bên vẫn được làm nổi bật sau khi nhấp, và biểu tượng xoay của chúng bị ẩn trong khi nút menu hiển thị.
 - Đã sửa lỗi việc nén cuộc trò chuyện làm mất các kỹ năng và quy tắc hiện tại thay vì xây dựng lại chúng từ các nguồn đang hoạt động.
+- Đã sửa lỗi Mixy tự xuất hiện sau khi kiểm tra khởi động thất bại, đọc các lượt kiểm tra rồi biến mất (#243, thanks @Jichiro-S).
+- Đã sửa lỗi các phiên hiện có bỏ qua cài đặt nén hiện tại và các nhánh rẽ bị nén quá sớm (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Đã sửa lỗi bot yêu cầu bạn trong cuộc trò chuyện giải CAPTCHA hoặc thực hiện bước đăng nhập thay vì bàn giao trang cho bạn.
 
 ## v1.3.5 - 2026-10-24
 

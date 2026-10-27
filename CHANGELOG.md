@@ -41,6 +41,8 @@ Improved remote work from your phone together with Browser Use and Computer Use,
 - Changed bot chats to show no changed-files card under a reply, separate distant messages, and share one line for hand-off and time.
 - Changed the language list to show Korean by its own name.
 - Changed Mixy's regular check-in to run every hour by default, with the interval selectable under Settings → Bots.
+- Changed the phone app to connect to your PC directly when the network allows, falling back to the relay automatically.
+- Changed side panels to share one width, adjustable from 280 to 1160 pixels.
 - Adjusted the phone side dock to close by swiping anywhere on the sheet, and animated drawer rows and text shimmers more smoothly.
 
 ### Bug fixes
@@ -68,6 +70,9 @@ Improved remote work from your phone together with Browser Use and Computer Use,
 - Fixed the session list and chat on Android phones freezing after a fling and then jumping.
 - Fixed sidebar section headers remaining highlighted after a click, and their spinner hiding while the menu button showed.
 - Fixed compacting a conversation dropping current skills and rules instead of rebuilding them from active sources.
+- Fixed Mixy appearing on her own after a failed startup check, reading out check-ins and then vanishing (#243, thanks @Jichiro-S).
+- Fixed existing sessions ignoring current compaction settings, and forks compacting too early (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Fixed bots asking you in chat to solve a CAPTCHA or sign-in step instead of handing you the page.
 
 ## v1.3.5 - 2026-10-24
 

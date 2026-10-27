@@ -40,6 +40,8 @@ Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbes
 - Bot-Chats so geändert, dass keine Karte mit geänderten Dateien unter einer Antwort angezeigt wird, weit auseinanderliegende Nachrichten getrennt werden und sich Übergabe und Zeit eine Zeile teilen.
 - Die Sprachenliste so geändert, dass Koreanisch unter seinem eigenen Namen angezeigt wird.
 - Mixys regelmäßigen Check-in so geändert, dass er standardmäßig stündlich ausgeführt wird, wobei das Intervall unter Einstellungen → Bots gewählt werden kann.
+- Die Smartphone-App so geändert, dass sie sich direkt mit Ihrem PC verbindet, wenn das Netzwerk es zulässt, und automatisch auf das Relay zurückgreift.
+- Seitenpanels so geändert, dass sie sich eine gemeinsame Breite teilen, die von 280 bis 1160 Pixel anpassbar ist.
 - Das Smartphone-Seitendock so angepasst, dass es sich durch Wischen an beliebiger Stelle auf dem Sheet schließt, und Drawer-Zeilen sowie das Textschimmern flüssiger animiert werden.
 
 ### Fehlerbehebungen
@@ -67,6 +69,9 @@ Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbes
 - Behoben: Die Sitzungsliste und der Chat auf Android-Smartphones froren nach schnellem Scrollen ein und sprangen anschließend.
 - Behoben: Seitenleisten-Abschnittsüberschriften blieben nach einem Klick hervorgehoben, und ihr Spinner wurde ausgeblendet, während die Menüschaltfläche angezeigt wurde.
 - Behoben: Beim Komprimieren einer Unterhaltung gingen aktuelle Skills und Regeln verloren, anstatt sie aus den aktiven Quellen neu aufzubauen.
+- Behoben: Mixy erschien nach einer fehlgeschlagenen Startprüfung von selbst, las Check-ins vor und verschwand dann (#243, thanks @Jichiro-S).
+- Behoben: Bestehende Sitzungen ignorierten aktuelle Komprimierungseinstellungen, und Forks wurden zu früh komprimiert (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Behoben: Bots baten im Chat darum, ein CAPTCHA oder einen Anmeldeschritt zu lösen, anstatt Ihnen die Seite zu übergeben.
 
 ## v1.3.5 - 2026-10-24
 

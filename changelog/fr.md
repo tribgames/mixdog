@@ -41,6 +41,8 @@ Amélioration du travail à distance depuis votre téléphone avec Browser Use e
 - Modification des discussions de bots pour ne plus afficher de carte de fichiers modifiés sous une réponse, séparer les messages distants et partager une seule ligne pour le relais et l’heure.
 - Modification de la liste des langues pour afficher le coréen sous son propre nom.
 - Modification du point régulier de Mixy pour s’exécuter par défaut toutes les heures, avec un intervalle sélectionnable sous Réglages → Bots.
+- Modification de l’application mobile pour se connecter directement à votre PC lorsque le réseau le permet, en basculant automatiquement sur le relais.
+- Modification des panneaux latéraux pour partager une même largeur, réglable de 280 à 1160 pixels.
 - Ajustement du dock latéral sur téléphone pour se fermer en balayant n’importe où sur le panneau, avec des animations plus fluides pour les lignes du tiroir et les scintillements du texte.
 
 ### Corrections de bugs
@@ -68,6 +70,9 @@ Amélioration du travail à distance depuis votre téléphone avec Browser Use e
 - Correction de la liste des sessions et de la discussion sur téléphones Android qui se figeaient après un défilement rapide puis sautaient.
 - Correction des en-têtes de section de la barre latérale qui restaient en surbrillance après un clic, et de leur indicateur de chargement masqué alors que le bouton de menu apparaissait.
 - Correction du compactage d’une conversation qui supprimait les compétences et règles actuelles au lieu de les reconstruire depuis les sources actives.
+- Correction de Mixy apparaissant d’elle-même après un échec de la vérification au démarrage, lisant les points réguliers puis disparaissant (#243, thanks @Jichiro-S).
+- Correction des sessions existantes qui ignoraient les paramètres de compactage actuels et des bifurcations qui se compactaient trop tôt (#237, thanks @22nsuk; #238, thanks @skywhale345).
+- Correction des bots vous demandant dans la discussion de résoudre un CAPTCHA ou une étape de connexion au lieu de vous transmettre la page.
 
 ## v1.3.5 - 2026-10-24
 
