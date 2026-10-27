@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 
-import { app, BrowserWindow, session, type WebContents } from 'electron';
+import { app, BrowserWindow, screen, session, type WebContents } from 'electron';
 
 import { BROWSER_PARTITION } from '../command';
 import { offscreenWindowOptions } from '../guest-lifecycle';
@@ -24,6 +24,9 @@ if (process.env.PAGE_ZOOM_SOFTWARE === '1') app.disableHardwareAcceleration();
 // Same Windows occlusion setting as the desktop app (see main/index.ts): a
 // parked page stays visible, and keeps its window's place on screen.
 if (process.platform === 'win32') app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+// Lets a run stand in for a scaled display (a 125% laptop), which the test's own
+// runner may or may not be.
+if (process.env.PAGE_ZOOM_SCALE) app.commandLine.appendSwitch('force-device-scale-factor', process.env.PAGE_ZOOM_SCALE);
 
 /** The level the installed app had persisted for chatgpt.com: a 568 px pane at fit (568 / 1440). */
 const FIT = 0.3944;
@@ -114,6 +117,9 @@ async function run(): Promise<void> {
         legacyLevel,
         siteLevelAfter: legacy.webContents.getZoomFactor(),
         content: agent.window.getContentSize(),
+        display: (({ scaleFactor, size, workAreaSize }) => ({ scaleFactor, size, workAreaSize }))(
+          screen.getPrimaryDisplay()
+        ),
         keptOnNavigation,
         first,
         next: { agent: await measure(agent.guest), pane: await measure(pane.guest) },
