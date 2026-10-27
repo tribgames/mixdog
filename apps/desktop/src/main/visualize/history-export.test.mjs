@@ -720,10 +720,15 @@ test('an export result and its errors carry no host path', async () => {
       return { data: pngBytes(), problems: [] };
     },
   });
-  await open({ targets: [absolute], label: `Mockup of ${absolute}` });
+  // A label naming any absolute path stays on the host. The label carries a
+  // fixed one rather than this project's: the temp root under a test runner
+  // can push a real path past the 120-character label limit.
+  const labelPath = '/home/someone/private/index.html';
+  await open({ targets: [absolute], label: `Mockup of ${labelPath}` });
   const result = await run({ tab: 'v1', format: 'png', output: 'design/a.png' });
   const everything = JSON.stringify(result);
   assert.equal(result.tabs[0].target, 'site/index.html');
+  assert.equal(everything.includes(labelPath), false, everything);
   assert.equal(everything.includes(cwd), false, everything);
   assert.equal(everything.includes(cwd.replaceAll('\\', '\\\\')), false, everything);
   fail = true;
