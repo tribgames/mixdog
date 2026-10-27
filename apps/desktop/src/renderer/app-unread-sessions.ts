@@ -180,10 +180,14 @@ export function useUnreadSessions({
     return map;
   }, []);
 
-  const persistSeen = useCallback((map: Map<string, number>) => {
+  // The epoch map is written only when an epoch changed: a count-only change
+  // must not reserialize every session's epoch.
+  const persistSeen = useCallback((map: Map<string, number>, epochsChanged: boolean) => {
     try {
       window.localStorage.setItem(SEEN_COUNTS_KEY, JSON.stringify(Object.fromEntries(map)));
-      window.localStorage.setItem(SEEN_EPOCHS_KEY, JSON.stringify(Object.fromEntries(sessionSeenEpochs.current)));
+      if (epochsChanged) {
+        window.localStorage.setItem(SEEN_EPOCHS_KEY, JSON.stringify(Object.fromEntries(sessionSeenEpochs.current)));
+      }
     } catch {
       // Unread markers degrade to in-memory tracking without persistent storage.
     }
@@ -226,10 +230,11 @@ export function useUnreadSessions({
       const onScreen = (id: string) => id === activeId || screenIds.has(id);
       const viewing = (id: string) => engaged && readAlong(id, upperOf, onScreen);
       let dirty = false;
+      let epochsDirty = false;
       for (const id of [...seen.keys()]) {
         if (liveIds.has(id)) continue;
         seen.delete(id);
-        sessionSeenEpochs.current.delete(id);
+        if (sessionSeenEpochs.current.delete(id)) epochsDirty = true;
         dirty = true;
       }
       for (const id of [...sharedReadRevisions.current.keys()]) {
@@ -249,6 +254,7 @@ export function useUnreadSessions({
         let last = seen.get(row.id);
         if (settleSeen(seen, sessionSeenEpochs.current, row, sharedCount)) {
           dirty = true;
+          epochsDirty = true;
           last = seen.get(row.id);
         }
         if (sharedCount > (last ?? -1)) {
@@ -280,7 +286,7 @@ export function useUnreadSessions({
         }
         if (count > last && !noNewIncoming(row, last)) unread.add(row.id);
       }
-      if (dirty) persistSeen(seen);
+      if (dirty) persistSeen(seen, epochsDirty);
       // Preserve completion-only dots across later catalog pushes until the row
       // is viewed on either surface. A shared revision advance consumes them.
       for (const id of unreadSessionIdsRef.current) {
@@ -313,9 +319,13 @@ export function useUnreadSessions({
       const current = unreadSessionIdsRef.current;
       const next = new Set(current);
       let dirty = false;
+      let epochsDirty = false;
       for (const id of [viewedSessionId, ...along]) {
         const row = sessions.find((session) => session.id === id);
-        if (row && settleSeen(seen, sessionSeenEpochs.current, row, sharedReadCount(row))) dirty = true;
+        if (row && settleSeen(seen, sessionSeenEpochs.current, row, sharedReadCount(row))) {
+          dirty = true;
+          epochsDirty = true;
+        }
         const count = Math.max(Number(row?.messageCount) || 0, seen.get(id) || 0);
         if (count > 0 && seen.get(id) !== count) {
           seen.set(id, count);
@@ -325,7 +335,7 @@ export function useUnreadSessions({
         if (row) publishRead(row, count, consumedUnread);
         next.delete(id);
       }
-      if (dirty) persistSeen(seen);
+      if (dirty) persistSeen(seen, epochsDirty);
       if (next.size !== current.size) commitUnread(next);
     },
     [commitUnread, loadSeen, persistSeen, publishRead]
