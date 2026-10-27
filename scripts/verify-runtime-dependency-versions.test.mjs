@@ -120,6 +120,20 @@ async function writeJson(path, value) {
   await writeFile(path, JSON.stringify(value));
 }
 
+/**
+ * Cleanup after the assertions. On Windows an installed Mixdog (Electron) that
+ * has touched the fixture's .asar keeps it open until it exits, so the unlink
+ * fails with EBUSY; that must not fail (or mask the result of) a test that
+ * already verified its behavior. The test runner sweeps its scratch root.
+ */
+async function removeFixture({ base }) {
+  try {
+    await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    if (error?.code !== 'EBUSY') throw error;
+  }
+}
+
 /** A real runtime.asar with packed and unpacked manifests, built from a fixture tree. */
 async function buildRuntimeFixture({ zodVersion }) {
   const base = await mkdtemp(join(tmpdir(), 'runtime-verify-'));
@@ -181,7 +195,7 @@ test('readArchivePackages lists packed manifests and leaves unpacked ones to the
       { key: 'node_modules/native', version: '3.0.0', source: 'runtime.asar.unpacked' },
     ]);
   } finally {
-    await rm(fixture.base, { recursive: true, force: true });
+    await removeFixture(fixture);
   }
 });
 
@@ -192,7 +206,7 @@ test('verifyRuntimeDependencyVersions passes a runtime that matches the lockfile
   try {
     assert.deepEqual(await verifyRuntimeDependencyVersions(fixture), []);
   } finally {
-    await rm(fixture.base, { recursive: true, force: true });
+    await removeFixture(fixture);
   }
 });
 
@@ -215,7 +229,7 @@ test('verifyRuntimeDependencyVersions reports drift, unversioned manifests and a
     assert.ok(mismatches.some((line) => /@scope\/pkg: shipped 2\.0\.0, lockfile 2\.1\.0/.test(line)));
     assert.ok(mismatches.some((line) => /shipped 0\.12\.0, desktop lockfile 0\.13\.1/.test(line)));
   } finally {
-    await rm(fixture.base, { recursive: true, force: true });
+    await removeFixture(fixture);
   }
 });
 
@@ -238,6 +252,6 @@ test('verifyRuntimeDependencyVersions flags a shipped manifest without a version
       /node_modules\/native: shipped manifest has no version, lockfile 3\.0\.0 \(runtime\.asar\.unpacked\)/
     );
   } finally {
-    await rm(fixture.base, { recursive: true, force: true });
+    await removeFixture(fixture);
   }
 });
