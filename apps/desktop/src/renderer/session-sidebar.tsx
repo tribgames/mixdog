@@ -1,8 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  roomIdOfSession,
-  roomMemberOfSession,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { projectSessionOrdering, rowsOfIds, type SessionOrderingProjection } from './session-sidebar-ordering';
 import { projectIdentity } from './project-catalog-cache';
 import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import { confirmAction } from './app-confirm';
@@ -65,7 +62,7 @@ import { ScmContextMenu } from './ScmContextMenu';
 import type { FavoriteSessionDrop, ProjectSessionGroup, SessionGapDrop } from './session-sidebar-sections';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import { useStableEvent } from './use-stable-event';
-import { listsAsSession, useSidebarAgents } from './session-sidebar-agents';
+import { useSidebarAgents } from './session-sidebar-agents';
 import type { AgentContact } from './agent-contacts-model';
 import { agentContactMenuItems, agentRoomMenuItems, restoreAgent } from './agent-profile-actions';
 import type { SidebarRoomRow } from './session-sidebar-agents';
@@ -253,36 +250,23 @@ function useSessionOrdering(
   showAgents: boolean,
   contactHomeIds: ReadonlySet<string> | null
 ) {
-  const allRows = useMemo(
-    () =>
-      !hasSessionSurface
-        ? []
-        : sessions
-            .filter((session) => showAgents || !session.agentSession)
-            // A live contact's home thread is its row on the Agents pane; an
-            // archived one, or one whose agent is no contact (anymore), lists here.
-            .filter((session) => listsAsSession(session, contactHomeIds))
-            // So is a group room (its row sits under the contacts) and,
-            // always, a room member's own session.
-            .filter((session) => !roomIdOfSession(session.id) || session.archived)
-            .filter((session) => !roomMemberOfSession(session.id))
-            .filter((session) => session.classification === 'task' || session.classification === 'project')
-            .sort((left, right) => {
-              const leftActivityAt = Number(left.activityAt) || left.updatedAt;
-              const rightActivityAt = Number(right.activityAt) || right.updatedAt;
-              return rightActivityAt - leftActivityAt || left.id.localeCompare(right.id);
-            }),
-    [hasSessionSurface, sessions, showAgents, contactHomeIds]
-  );
+  const projectionRef = useRef<SessionOrderingProjection | undefined>(undefined);
+  const projection = useMemo(() => {
+    const next = projectSessionOrdering(sessions, hasSessionSurface, showAgents, contactHomeIds, projectionRef.current);
+    projectionRef.current = next;
+    return next;
+  }, [hasSessionSurface, sessions, showAgents, contactHomeIds]);
+  const sessionsById = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
+  const allRows = useMemo(() => rowsOfIds(projection.allIds, sessionsById), [projection.allIds, sessionsById]);
   const [orderPrefs, setOrderPrefs] = useState(readOrderPrefs);
   const [customOrders, setCustomOrders] = useState(readCustomOrders);
   const activityFavoriteRows = useMemo(
-    () => allRows.filter((session) => session.favorite && !session.archived && !isAutomationRow(session)),
-    [allRows]
+    () => rowsOfIds(projection.favoriteIds, sessionsById),
+    [projection.favoriteIds, sessionsById]
   );
   const activityRows = useMemo(
-    () => allRows.filter((session) => !session.archived && !session.favorite && !isAutomationRow(session)),
-    [allRows]
+    () => rowsOfIds(projection.activityIds, sessionsById),
+    [projection.activityIds, sessionsById]
   );
   const favoriteRows = useMemo(
     () => applySessionOrder(activityFavoriteRows, orderPrefs.favorites, customOrders.favorites),
