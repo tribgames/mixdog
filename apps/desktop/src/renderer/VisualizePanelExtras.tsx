@@ -36,8 +36,8 @@ interface Notice {
 const versionTag = (count: number): string => 'v'.concat(String(count));
 
 /** The reason of a failed command, without Electron's "Error invoking remote
- *  method '…': Error:" wrapper. */
-const messageOf = (reason: unknown): string => {
+ *  method '…': Error:" wrapper (the panel's notices and the chat cards). */
+export const visualizeFailureMessage = (reason: unknown): string => {
   const message = fileDownloadFailureMessage(reason).replace(/^\w*Error:\s*/, '');
   // The main process words a deleted target for the model; say it in the UI language.
   const missing = /^target not found: (.+)$/.exec(message);
@@ -129,7 +129,7 @@ export function visualizeVersionActions(
     void confirmAction(message, { confirmLabel: t('Restore'), danger: true }).then((approved) => {
       if (!approved) return;
       return restoreVisualizeVersion(sessionId, tab.id, snapshot, assets).catch((reason: unknown) =>
-        setNotice({ error: true, text: messageOf(reason) })
+        setNotice({ error: true, text: visualizeFailureMessage(reason) })
       );
     });
   };
@@ -239,7 +239,7 @@ export function useVisualizePanelExtras(
   const index = tab ? visualizeExportPane(tab) : 0;
   const pane = tab?.panes[index];
   const run = (task: Promise<unknown>) =>
-    task.catch((reason: unknown) => setNotice({ error: true, text: messageOf(reason) }));
+    task.catch((reason: unknown) => setNotice({ error: true, text: visualizeFailureMessage(reason) }));
   const exportTo = (format: 'png' | 'pdf' | 'project') => {
     // The render after the save dialog takes a moment: say so, and never
     // leave an earlier notice standing for a finished or canceled export.

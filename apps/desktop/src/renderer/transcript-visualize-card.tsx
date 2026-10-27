@@ -40,6 +40,7 @@ import { agentPoolStore } from './agent-activity-model';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { usePersistedThumbnail } from './persisted-thumbnail';
+import { visualizeFailureMessage } from './VisualizePanelExtras';
 import {
   monogramHue,
   noteVisualizeCards,
@@ -264,7 +265,7 @@ function VisualizeTurnCard({
     setError('');
     void (async () => {
       for (const call of list) await openCall(sessionId, call);
-    })().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
+    })().catch((reason: unknown) => setError(visualizeFailureMessage(reason)));
   };
   // Every tab of the turn comes up, the first one shown last.
   const showAll = () => run([...calls].reverse());
