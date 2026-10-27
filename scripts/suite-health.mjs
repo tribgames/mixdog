@@ -59,6 +59,13 @@ export function selectSuiteScripts(scripts, exclusions) {
   return names.filter((name) => !(name in exclusions));
 }
 
+const lastLines = (text) =>
+  String(text || '')
+    .trim()
+    .split('\n')
+    .slice(-25)
+    .join('\n');
+
 function runSweep() {
   const failures = [];
   const reportLines = [];
@@ -81,7 +88,6 @@ function runSweep() {
       } else {
         // Tail each stream on its own: a long stderr (cargo build chatter) must
         // not push the test failure summary on stdout out of the report.
-        const lastLines = (text) => String(text || '').trim().split('\n').slice(-25).join('\n');
         const tail = `${lastLines(child.stdout)}\n${lastLines(child.stderr)}`.trim();
         failures.push(`- ${label}: FAILED (${seconds}s)\n\n\`\`\`\n${tail}\n\`\`\``);
         reportLines.push(`- ${label}: FAILED (${seconds}s)`);

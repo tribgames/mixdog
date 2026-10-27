@@ -479,8 +479,12 @@ final class MixdogFileSave {
       reply.send(error(e instanceof SecurityException ? "permission" : "invalid"));
       return;
     }
+    sendShared(reply, true);
+  }
+
+  private void sendShared(Reply reply, boolean shared) {
     try {
-      reply.send(ok(new JSONObject().put("shared", true)));
+      reply.send(ok(new JSONObject().put("shared", shared)));
     } catch (Exception ignored) {
       // The page is gone.
     }
@@ -496,11 +500,7 @@ final class MixdogFileSave {
     } catch (IllegalArgumentException ignored) {
       // Already unregistered.
     }
-    try {
-      share.reply.send(ok(new JSONObject().put("shared", share.chosen)));
-    } catch (Exception ignored) {
-      // The page is gone.
-    }
+    sendShared(share.reply, share.chosen);
   }
 
   // ---- startup cleanup --------------------------------------------------------

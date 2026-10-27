@@ -39,6 +39,8 @@ final class FileSaveSessions {
   static final String UNKNOWN_HANDLE = "unknown-handle";
   static final String INVALID = "invalid";
 
+  static final String APK_MIME = "application/vnd.android.package-archive";
+
   private static final String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   private static final int MAX_NAME_CHARS = 120;
 
@@ -94,8 +96,6 @@ final class FileSaveSessions {
     }
     return name;
   }
-
-  static final String APK_MIME = "application/vnd.android.package-archive";
 
   /** An APK by stored MIME or by name; servers often send octet-stream for APKs. */
   static boolean isApk(String name, String mime) {

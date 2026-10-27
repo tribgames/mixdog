@@ -65,7 +65,6 @@ final class MixdogAppUpdater {
   private static final String RELEASES_API = "https://api.github.com/repos/tribgames/mixdog/releases?per_page=20";
   private static final String DOWNLOAD_PREFIX = "https://github.com/tribgames/mixdog/releases/download/";
   private static final String TAG_PREFIX = "mobile-v";
-  private static final String APK_MIME = "application/vnd.android.package-archive";
   private static final String UPDATES_DIR = "updates";
   // The relay (same default origin as the desktop) names the newest published
   // version; GitHub's 60/h anonymous limit is only touched when that is newer
@@ -221,7 +220,7 @@ final class MixdogAppUpdater {
       DownloadManager.Request request =
           new DownloadManager.Request(Uri.parse(available.url))
               .setTitle("Mixdog " + available.version)
-              .setMimeType(APK_MIME)
+              .setMimeType(FileSaveSessions.APK_MIME)
               .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
               .setDestinationInExternalFilesDir(context, null, UPDATES_DIR + "/" + fileName(available.version));
       downloadId = downloads().enqueue(request);
@@ -789,7 +788,7 @@ final class MixdogAppUpdater {
       Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", file);
       intent =
           new Intent(Intent.ACTION_VIEW)
-              .setDataAndType(uri, APK_MIME)
+              .setDataAndType(uri, FileSaveSessions.APK_MIME)
               .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
     } catch (IllegalArgumentException e) {
       synchronized (this) {
