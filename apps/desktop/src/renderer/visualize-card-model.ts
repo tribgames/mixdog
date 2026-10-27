@@ -76,6 +76,9 @@ function visualizeResultTabId(item: TranscriptItem): string {
 export interface VisualizeCardCall {
   /** The tool call's id (the card's key). */
   id: string;
+  /** The agent's tool call id of the open, as the host names it in its
+   *  turn-end record (`goneOpens`); absent for a preview. */
+  callId?: string;
   /** Still running: no card yet (visualizeCardsShown). */
   pending: boolean;
   /** The file targets as the agent named them (1-3); empty for inline content. */
@@ -169,6 +172,7 @@ export function visualizeCardCalls(items: readonly TranscriptItem[]): VisualizeC
     const owner = pending ? '' : stampedOwner(item);
     const call: VisualizeCardCall = {
       id: String(item.id ?? `visualize:${index}`),
+      ...(item.callId || item.id ? { callId: String(item.callId ?? item.id) } : {}),
       pending,
       targets,
       ...(content ? { content } : {}),
@@ -429,6 +433,17 @@ export function visualizeCardVersion(tab: VisualizeTabView | null): number {
 // turn's end records it, so once a later turn opens the tab again the earlier
 // card keeps naming its own version.
 const cardVersions = new Map<string, number>();
+
+/** Whether the host recorded, at the end of `call`'s own turn, that its tab
+ *  had nothing left to show (closed, or its file gone): the state's
+ *  `goneOpens`, which every window and device receives. The record names the
+ *  open by its tool call id, so only this very call matches: never another
+ *  open of the same tab, in this turn or another. Inline content and a
+ *  preview are never dropped. */
+export function visualizeCardGone(state: Pick<VisualizeSessionState, 'goneOpens'>, call: VisualizeCardCall): boolean {
+  if (!call.callId || !call.tabId || call.preview || call.content || !state.goneOpens) return false;
+  return state.goneOpens.some((one) => one.call === call.callId && one.tab === call.tabId);
+}
 
 /** Test seam: a renderer reload forgets the in-memory registries (the host's
  *  per-version turn record, carried in the state, is what survives). */

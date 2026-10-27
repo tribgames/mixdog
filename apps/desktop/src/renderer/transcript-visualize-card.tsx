@@ -51,6 +51,7 @@ import {
   type VisualizeCardKind,
   visualizeCardCalls,
   visualizeCardKind,
+  visualizeCardGone,
   visualizeCardLiveThumbnail,
   visualizeCardNewest,
   visualizeCardOwnVersion,
@@ -64,7 +65,6 @@ import {
   visualizeOwnerSessionId,
   visualizeTabForTargets,
   visualizeTurnEndAt,
-  visualizedTargets,
 } from './visualize-card-model';
 import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard';
 import { type TurnChangesFile, type TurnChangesRef, useTurnChanges } from './turn-changes-model';
@@ -387,8 +387,16 @@ export function ToolVisualizeCards({
   // final version: none is drawn (or redrawn per edit) while the turn runs,
   // and an open still running is not a card yet.
   const heldSince = useVisualizeHeldSince(scope);
-  const opened = useMemo(() => visualizedTargets(items), [items]);
-  const agentCalls = useMemo(() => visualizeCardsShown(all, heldSince), [all, heldSince]);
+  // An open whose tab had nothing left to show when its turn ended (closed,
+  // or its file gone) gets no card: the host recorded that once, at the
+  // turn's end, in the state every window and device receives.
+  const goneOpens = useVisualizeState(scope).goneOpens;
+  const live = useMemo(
+    () => (goneOpens ? all.filter((call) => !visualizeCardGone({ goneOpens }, call)) : all),
+    [all, goneOpens]
+  );
+  const opened = useMemo(() => live.flatMap((call) => (call.pending ? [] : call.targets)), [live]);
+  const agentCalls = useMemo(() => visualizeCardsShown(live, heldSince), [live, heldSince]);
   const previews = useTurnPreviews({
     sessionId: scope,
     items,

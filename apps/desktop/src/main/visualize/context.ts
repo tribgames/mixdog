@@ -54,7 +54,7 @@ export interface VisualizeServiceContext {
    *  renderer brings up by the panel's open policy (visualize-store).
    *  `updatedTab`: a file-change reload of that tab, updated in place (no
    *  reveal, no activation; the renderer marks it when it is not the active one). */
-  publish(sessionId: string, revealTab?: string, updatedTab?: string): void;
+  publish(sessionId: string, revealTab?: string, updatedTab?: string, callId?: string): void;
   views: SessionViews;
   thumbnails: Thumbnails;
   problems: ProblemTracker;

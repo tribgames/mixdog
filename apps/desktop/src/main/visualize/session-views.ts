@@ -149,16 +149,24 @@ export function createSessionViews(
     const active =
       state?.active && tabs.some((tab) => tab.id === state.active) ? state.active : (tabs.at(-1)?.id ?? null);
     const history = historyOf(sessionId, false);
-    return { sessionId, tabs, active, ...(history.length ? { history } : {}) };
+    const goneOpens = state?.goneOpens ?? [];
+    return {
+      sessionId,
+      tabs,
+      active,
+      ...(goneOpens.length ? { goneOpens } : {}),
+      ...(history.length ? { history } : {}),
+    };
   };
 
   const hostStateOf = (sessionId: string): VisualizeHostState => {
-    const { tabs: views, active } = stateOf(sessionId);
+    const { tabs: views, active, goneOpens } = stateOf(sessionId);
     const tabs = (sessions.get(sessionId)?.tabs ?? []).filter((tab) => !tab.url);
     const history = historyOf(sessionId, true);
     return {
       sessionId,
       active,
+      ...(goneOpens ? { goneOpens } : {}),
       ...(history.length ? { history } : {}),
       tabs: views.map((view, index) => {
         const tab = tabs[index];
@@ -188,14 +196,14 @@ export type SessionViews = ReturnType<typeof createSessionViews>;
  *  running to its end), then the desktop window and the remote mirror get
  *  the session's state. */
 export function createPublish(ctx: Pick<VisualizeServiceContext, 'deps' | 'views' | 'thumbnails' | 'holds'>) {
-  return (sessionId: string, revealTab?: string, updatedTab?: string): void => {
+  return (sessionId: string, revealTab?: string, updatedTab?: string, callId?: string): void => {
     ctx.thumbnails.cancelStale(sessionId);
     // A running agent turn (turn-hold.ts): the reveal waits for its end, and
     // the state goes out `held`, which the panel does not show; while the
     // turn's end applies, nothing goes out until its one final publish.
     const hold = ctx.holds.get(sessionId);
     if (hold && hold.bypass === 0) {
-      if (revealTab) noteReveal(hold, revealTab);
+      if (revealTab) noteReveal(hold, revealTab, callId);
       hold.dirty = true;
       if (hold.flushing) return;
       const updated = updatedTab ? { updated: updatedTab } : {};

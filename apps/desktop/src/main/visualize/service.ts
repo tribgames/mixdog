@@ -190,6 +190,10 @@ export interface VisualizeServiceDeps {
   ): Promise<Buffer>;
   delay?(ms: number): Promise<void>;
   reloadDebounceMs?: number;
+  /** The turn end's file-existence check (test seam: the file system's
+   *  `stat`) and the budget all of its checks share (ms). */
+  statFile?(path: string): Promise<unknown>;
+  goneCheckBudgetMs?: number;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

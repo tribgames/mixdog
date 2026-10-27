@@ -9,13 +9,20 @@
  * picture of its final version, and one ordinary publish brings the panel up
  * on the last tab the turn opened.
  */
+import { stat } from 'node:fs/promises';
+
+import { MAX_VISUALIZE_GONE_OPENS } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
-import { displayedPanes, shownLayout, type TabState, view } from './tab-state';
+import { displayedPanes, type SessionState, shownLayout, type TabState, view } from './tab-state';
+import { isFileMissing } from './targets';
 import { keepVersionTurn } from './version-thumbnails';
 
 export interface TurnHold {
   /** Tabs the turn opened or showed, each once, the latest last. */
   reveal: string[];
+  /** Each open the turn made (its tool call id) and the tab it landed on:
+   *  what the turn-end record of tabs with nothing left to show names. */
+  opens: Array<{ tab: string; call: string }>;
   /** Open tabs whose files changed during the turn: reloaded once at its end. */
   reloads: Set<TabState>;
   /** A publish was kept back. */
@@ -42,11 +49,85 @@ export function heldTurn(ctx: Pick<VisualizeServiceContext, 'holds'>, sessionId:
   return hold && !hold.flushing && hold.bypass === 0 ? hold : null;
 }
 
-/** A tab the turn opened (or a publish asked to reveal): kept once, latest last. */
-export function noteReveal(hold: TurnHold, tabId: string): void {
+/** A tab the turn opened (or a publish asked to reveal): kept once, latest
+ *  last. `callId` (an open's tool call id) is kept with the tab, so the turn
+ *  end can name exactly the opens this turn made of it. */
+export function noteReveal(hold: TurnHold, tabId: string, callId?: string): void {
   const index = hold.reveal.indexOf(tabId);
   if (index >= 0) hold.reveal.splice(index, 1);
   hold.reveal.push(tabId);
+  if (callId) hold.opens.push({ tab: tabId, call: callId });
+}
+
+/** Longest the turn end waits for the disk checks of `recordGoneOpens`. */
+export const GONE_CHECK_BUDGET_MS = 1500;
+
+export interface GoneCheckOptions {
+  /** Test seam: the file system's `stat`. */
+  statFile?: (path: string) => Promise<unknown>;
+  budgetMs?: number;
+}
+
+/** Whether any file a tab shows is gone from disk right now. */
+async function targetsGone(tab: TabState, statFile: (path: string) => Promise<unknown>): Promise<boolean> {
+  const missing = await Promise.all(
+    tab.targets.map((target) =>
+      statFile(target.path).then(
+        () => false,
+        (error: unknown) => isFileMissing(error)
+      )
+    )
+  );
+  return missing.some(Boolean);
+}
+
+/** The turn ends: each open of this turn (`hold.opens`, by tool call id)
+ *  whose tab is closed by now, or whose files are gone (marked missing, or
+ *  absent from disk), is recorded on the session, once, naming that call.
+ *  The state carries the record to every window and device, so exactly those
+ *  cards draw no tile; no other open is touched, and a later close or
+ *  deletion records nothing for this turn. Inline tabs have no file: their
+ *  cards are never dropped. The disk checks run together under one short
+ *  budget: whatever is not answered within it counts as present (its card
+ *  stays), so a stalled file system never holds the turn end. Resolves true
+ *  when something was recorded (a publish must carry it). */
+export async function recordGoneOpens(
+  state: SessionState,
+  hold: TurnHold,
+  { statFile = stat, budgetMs = GONE_CHECK_BUDGET_MS }: GoneCheckOptions = {}
+): Promise<boolean> {
+  const gone = new Set<string>();
+  const checks: Promise<void>[] = [];
+  for (const id of new Set(hold.opens.map((open) => open.tab))) {
+    const tab = state.tabs.find((candidate) => candidate.id === id);
+    if (!tab) gone.add(id);
+    else if (tab.url || tab.inline) continue;
+    else if (tab.missing) gone.add(id);
+    else {
+      checks.push(
+        targetsGone(tab, statFile).then((missing) => {
+          if (missing) gone.add(id);
+        })
+      );
+    }
+  }
+  if (checks.length) {
+    let timer: NodeJS.Timeout | undefined;
+    const budget = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, budgetMs);
+    });
+    await Promise.race([Promise.all(checks), budget]);
+    clearTimeout(timer);
+  }
+  // Only what was decided inside the budget: a later answer is dropped.
+  const decided = new Set(gone);
+  const records = hold.opens.filter((open) => decided.has(open.tab));
+  if (!records.length) return false;
+  const known = state.goneOpens ?? [];
+  const fresh = records.filter((one) => !known.some((have) => have.call === one.call));
+  if (!fresh.length) return false;
+  state.goneOpens = [...known, ...fresh].slice(-MAX_VISUALIZE_GONE_OPENS);
+  return true;
 }
 
 /** The tab drawn off screen as one PNG (no panel needed): pages, inline
@@ -67,12 +148,14 @@ export async function offscreenTabPng(
 }
 
 export function createTurnHolds(
-  ctx: Pick<VisualizeServiceContext, 'holds' | 'sessions' | 'publish' | 'reloads' | 'thumbnails' | 'versions'>
+  ctx: Pick<VisualizeServiceContext, 'holds' | 'sessions' | 'publish' | 'reloads' | 'thumbnails' | 'versions'> &
+    Partial<Pick<VisualizeServiceContext, 'deps'>>
 ) {
   const { holds } = ctx;
   const start = (sessionId: string, carried?: TurnHold): void => {
     holds.set(sessionId, {
       reveal: carried?.reveal ?? [],
+      opens: carried?.opens ?? [],
       reloads: new Set(),
       dirty: carried?.dirty ?? false,
       flushing: false,
@@ -94,6 +177,7 @@ export function createTurnHolds(
     // A failed step still ends the hold with the final publish below (the
     // panel and the turn's cards wait for it); the failure is raised after.
     let failure: unknown = null;
+    let recorded = false;
     try {
       // The version each tab the turn opened ends it on is the turn's own: its
       // card reads it from the state, on any device, after any reload. (A tab
@@ -119,6 +203,13 @@ export function createTurnHolds(
     } catch (error) {
       failure = error;
     } finally {
+      // The turn's own end, once, on the final tabs; a turn that started
+      // meanwhile carries these opens into its own end instead.
+      const final = ctx.sessions.get(sessionId);
+      if (final && !hold.again) {
+        const { statFile, goneCheckBudgetMs } = ctx.deps ?? {};
+        recorded = await recordGoneOpens(final, hold, { statFile, budgetMs: goneCheckBudgetMs }).catch(() => false);
+      }
       if (holds.get(sessionId) === hold) holds.delete(sessionId);
     }
     // A turn that started meanwhile holds this one's result until it ends too.
@@ -131,7 +222,7 @@ export function createTurnHolds(
       if (state && shown) {
         state.active = shown;
         ctx.publish(sessionId, shown);
-      } else if (state && hold.dirty) ctx.publish(sessionId);
+      } else if (state && (hold.dirty || recorded)) ctx.publish(sessionId);
     }
     if (failure) throw failure;
   };

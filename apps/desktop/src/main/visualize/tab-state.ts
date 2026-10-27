@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { basename, isAbsolute, relative, sep } from 'node:path';
 
 import type {
+  VisualizeGoneOpen,
   VisualizeInlineContent,
   VisualizeInlineKind,
   VisualizePaneView,
@@ -126,6 +127,9 @@ export interface SessionState {
   counter: number;
   /** Everything opened this session, newest first (see history.ts). */
   history: HistoryEntry[];
+  /** Turn-end record of opens with nothing left to show (turn-hold.ts); lives
+   *  and goes with the session's state. */
+  goneOpens?: VisualizeGoneOpen[];
 }
 
 /** The kind a tab's panes show together: the single pane's, else `split`. */

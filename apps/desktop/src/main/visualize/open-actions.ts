@@ -233,7 +233,7 @@ async function openInline(
   // A held open activates nothing: the turn's end shows its last tab.
   if (!held) state.active = tab.id;
   ctx.views.rememberTab(sessionId, tab, true);
-  ctx.publish(sessionId, tab.id);
+  ctx.publish(sessionId, tab.id, undefined, request.callId);
   const what = `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`;
   const placed = held
     ? await heldPlacement(ctx.deps, sessionId, tab, what)
@@ -389,7 +389,7 @@ export function createOpenActions(ctx: OpenContext) {
     // A held open activates nothing: the turn's end shows its last tab.
     if (!held) state.active = tab.id;
     ctx.views.rememberTab(sessionId, tab, true);
-    ctx.publish(sessionId, tab.id);
+    ctx.publish(sessionId, tab.id, undefined, request.callId);
     const shown = files
       .map((target) => {
         // A file outside the working directory is named by its full path.

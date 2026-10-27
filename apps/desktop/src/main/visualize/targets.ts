@@ -21,6 +21,7 @@ const MAX_SELECTOR_CHARS = 500;
 const MAX_MARK_LABEL_CHARS = 80;
 const MAX_MARKS_PER_CALL = 20;
 const SESSION_ID = /^[\w.:-]{1,200}$/;
+const CALL_ID = /^[\w.:|-]{1,200}$/;
 
 export type VisualizeAction = 'open' | 'close' | 'annotate' | 'capture' | 'export' | 'check' | 'inspect';
 
@@ -50,6 +51,9 @@ export type VisualizeRequest =
       content?: VisualizeInlineContent;
       label?: string;
       version?: number;
+      /** The agent's tool call id for this open (absent from a runtime that
+       *  does not send it): what the turn-end record names. */
+      callId?: string;
     }
   | { sessionId: string; cwd: string; action: 'close'; tab?: string }
   | { sessionId: string; cwd: string; action: 'annotate'; tab: string; op: VisualizeAnnotateOp }
@@ -228,9 +232,11 @@ export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
       }
       const label = optionalText(input.label, 'label', MAX_LABEL_CHARS);
       const version = parseVersion(input.version);
+      const callId = typeof raw.callId === 'string' && CALL_ID.test(raw.callId) ? raw.callId : '';
       return {
         ...base,
         action: 'open',
+        ...(callId ? { callId } : {}),
         targets: list.map((entry) => text(entry, 'target', 4096)),
         ...(content ? { content } : {}),
         ...(label ? { label } : {}),

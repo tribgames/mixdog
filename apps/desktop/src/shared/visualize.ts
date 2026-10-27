@@ -213,10 +213,26 @@ export interface VisualizeHistoryItem {
   open: boolean;
 }
 
+/** One `visualize open` (its tool call id, `call`) of a finished turn whose
+ *  tab (`tab`) had nothing left to show when that turn ended: closed, or its
+ *  file gone. Exactly that call's card draws no tile; no other open of the
+ *  tab is touched. The host decides once, at the turn's end, so a later close
+ *  or deletion changes nothing. */
+export interface VisualizeGoneOpen {
+  tab: string;
+  call: string;
+}
+
+/** Most turn-end records a session keeps (tab ids are never reused in a run). */
+export const MAX_VISUALIZE_GONE_OPENS = 500;
+
 export interface VisualizeSessionState {
   sessionId: string;
   tabs: VisualizeTabView[];
   active: string | null;
+  /** The host's turn-end record of opens with nothing left to show; absent
+   *  when there are none (and from older hosts: every card then draws). */
+  goneOpens?: VisualizeGoneOpen[];
   /** Everything opened in the session, newest first, closed tabs included;
    *  absent from hosts without the list. */
   history?: VisualizeHistoryItem[];
@@ -386,6 +402,7 @@ export interface VisualizeHostState {
   active: string | null;
   /** Path-free already (labels are the remote-safe ones). */
   history?: VisualizeHistoryItem[];
+  goneOpens?: VisualizeGoneOpen[];
 }
 
 /** Main → daemon: the same change `DesktopVisualizeEvent` carries, with paths. */
@@ -462,6 +479,13 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
   return {
     sessionId: state.sessionId,
     active: state.active,
+    ...(Array.isArray(state.goneOpens) && state.goneOpens.length
+      ? {
+          goneOpens: state.goneOpens
+            .slice(-MAX_VISUALIZE_GONE_OPENS)
+            .map(({ tab, call }) => ({ tab: String(tab), call: String(call) })),
+        }
+      : {}),
     ...(Array.isArray(state.history)
       ? {
           history: state.history.slice(0, MAX_VISUALIZE_HISTORY).map((item) => ({

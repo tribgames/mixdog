@@ -163,6 +163,8 @@ export async function executeVisualizeTool(args, options = {}) {
     cwd: options.cwd || process.cwd(),
     action: validated.action,
     input: validated.input,
+    // The call's id: the host names it in its turn-end record of opens whose tab is gone.
+    ...(options.callId ? { callId: String(options.callId) } : {}),
   };
   let discovery = readBridgeDiscovery(DISCOVERY_FILE);
   if (!discovery) return toolError(unavailableMessage());
