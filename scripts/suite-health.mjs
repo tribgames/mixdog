@@ -79,7 +79,10 @@ function runSweep() {
         reportLines.push(`- ${label}: OK (${seconds}s)`);
         console.log(`${label}: OK (${seconds}s)`);
       } else {
-        const tail = `${child.stdout || ''}\n${child.stderr || ''}`.trim().split('\n').slice(-25).join('\n');
+        // Tail each stream on its own: a long stderr (cargo build chatter) must
+        // not push the test failure summary on stdout out of the report.
+        const lastLines = (text) => String(text || '').trim().split('\n').slice(-25).join('\n');
+        const tail = `${lastLines(child.stdout)}\n${lastLines(child.stderr)}`.trim();
         failures.push(`- ${label}: FAILED (${seconds}s)\n\n\`\`\`\n${tail}\n\`\`\``);
         reportLines.push(`- ${label}: FAILED (${seconds}s)`);
         console.error(`${label}: FAILED (${seconds}s)\n${tail}`);
