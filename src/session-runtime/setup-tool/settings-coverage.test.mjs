@@ -1095,7 +1095,10 @@ test('quota auto-resume, model preferences and the Lead route fallbacks round-tr
     (await run(api, { action: 'list_models', catalog: { provider: 'openai', model: 'm1' } })).model.hidden,
     false
   );
-  await assert.rejects(run(api, { action: 'set_model_preferences', provider: 'openai', model: 'm1' }), /hidden or favorite/);
+  await assert.rejects(
+    run(api, { action: 'set_model_preferences', provider: 'openai', model: 'm1' }),
+    /hidden or favorite/
+  );
   const model = await run(api, { action: 'status', domain: 'model' });
   assert.equal(model.route.autoEffort, false);
   assert.deepEqual(model.route.fallbacks, fallbacks);

@@ -3,7 +3,16 @@
 // agent create/update/delete (including starter tombstones and fixed-role
 // overrides), and workflow pack create/save/delete with active fallback.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
@@ -599,7 +608,10 @@ test('HEAD compatibility: an AGENT.md beside a missing entry is discovered and p
   assert.ok(helpers.listCustomAgentIds(dataDir).includes('md-only'));
   assert.deepEqual(api.agentDefinitionPresence(['md-only']), { 'md-only': 'present' });
   // 2. prompt.md and prompt.md.archived, no AGENT.md: delete writes the tombstone, overwrites nothing.
-  const dir = entryAgent(dataDir, 'blocked-entry', 'prompt.md', { 'prompt.md': 'Live.', 'prompt.md.archived': 'Stray.' });
+  const dir = entryAgent(dataDir, 'blocked-entry', 'prompt.md', {
+    'prompt.md': 'Live.',
+    'prompt.md.archived': 'Stray.',
+  });
   assert.equal((await api.deleteAgentDefinition('blocked-entry')).deleted, true);
   assert.equal(existsSync(join(dir, AGENT_DELETED_MARKER)), true);
   assert.equal(readFileSync(join(dir, 'prompt.md'), 'utf8'), 'Live.');
@@ -662,13 +674,19 @@ test('delete archives AGENT.md beside a missing selected entry, and restore brin
 test('a BOM-prefixed agent.json is read the same by discovery, the loader and the editor', (t) => {
   const { dataDir, helpers, api } = fixture(t);
   // The BOM must not hide the selected entry: the loader reads it, not AGENT.md.
-  const only = entryAgent(dataDir, 'bom-only', 'prompt.md', { 'prompt.md': 'Entry only.', 'AGENT.md': 'Default body.' });
+  const only = entryAgent(dataDir, 'bom-only', 'prompt.md', {
+    'prompt.md': 'Entry only.',
+    'AGENT.md': 'Default body.',
+  });
   writeFileSync(join(only, 'agent.json'), `\ufeff${JSON.stringify({ name: 'Bom Only', entry: 'prompt.md' })}`);
   assert.ok(helpers.listCustomAgentIds(dataDir).includes('bom-only'));
   assert.equal(helpers.loadAgentDefinition(dataDir, 'bom-only').body, 'Entry only.');
   assert.equal(api.getAgentDefinition('bom-only').path, join(only, 'prompt.md'));
 
-  const both = entryAgent(dataDir, 'bom-both', 'prompt.md', { 'prompt.md': 'Entry body.', 'AGENT.md': 'Default body.' });
+  const both = entryAgent(dataDir, 'bom-both', 'prompt.md', {
+    'prompt.md': 'Entry body.',
+    'AGENT.md': 'Default body.',
+  });
   writeFileSync(join(both, 'agent.json'), `\ufeff${JSON.stringify({ name: 'Bom Both', entry: 'prompt.md' })}`);
   const read = api.getAgentDefinition('bom-both');
   assert.equal(read.body, 'Entry body.');
@@ -679,13 +697,19 @@ test('a folder with only a manifest-selected entry and no AGENT.md is neither di
   const { dataDir, helpers, api } = fixture(t);
   entryAgent(dataDir, 'entry-only', 'prompt.md', { 'prompt.md': 'Entry body.' });
   assert.equal(helpers.listCustomAgentIds(dataDir).includes('entry-only'), false);
-  assert.equal(api.listAgents().some((agent) => agent.id === 'entry-only'), false);
+  assert.equal(
+    api.listAgents().some((agent) => agent.id === 'entry-only'),
+    false
+  );
   assert.deepEqual(api.agentDefinitionPresence(['entry-only']), { 'entry-only': 'deleted' });
 });
 
 test('an agent with an AGENT.md and another selected entry is discovered and present, and delete + restore keep both files', async (t) => {
   const { dataDir, helpers, api } = fixture(t);
-  const dir = entryAgent(dataDir, 'entry-agent', 'prompt.md', { 'prompt.md': 'Entry body.', 'AGENT.md': 'Default body.' });
+  const dir = entryAgent(dataDir, 'entry-agent', 'prompt.md', {
+    'prompt.md': 'Entry body.',
+    'AGENT.md': 'Default body.',
+  });
   assert.ok(helpers.listCustomAgentIds(dataDir).includes('entry-agent'));
   assert.ok(api.listAgents().some((agent) => agent.id === 'entry-agent' && agent.userOverride));
   assert.deepEqual(api.agentDefinitionPresence(['entry-agent']), { 'entry-agent': 'present' });

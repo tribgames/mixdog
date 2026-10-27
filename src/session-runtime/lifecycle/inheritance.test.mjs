@@ -115,10 +115,9 @@ test('inheritToNewSession persists a cold resumable heir and leaves the live ses
         ['assistant', 'Here is the plan.'],
       ]);
       assert.deepEqual(
-        stored.messages.at(-1).meta.sessionInheritances.map(({ sourceSessionId, sessionId }) => [
-          sourceSessionId,
-          sessionId,
-        ]),
+        stored.messages
+          .at(-1)
+          .meta.sessionInheritances.map(({ sourceSessionId, sessionId }) => [sourceSessionId, sessionId]),
         [[live.id, heirId]]
       );
 

@@ -1149,8 +1149,7 @@ export function AgentActivityPane({
   // session's work stays with that session (agent-created task sessions are
   // listed with the other sessions, not under their contact).
   const groupMatches = (group: (typeof groups)[number]): boolean =>
-    !needle ||
-    matches(sessionDisplayTitle(group.session, ''), group.session.preview, group.session.lastMessagePreview);
+    !needle || matches(sessionDisplayTitle(group.session, ''), group.session.preview, group.session.lastMessagePreview);
   const visibleGroups = groups.filter(
     (group) => isAgentChatSession(group.ownerId) && !hiddenOwnerIds.has(group.ownerId) && groupMatches(group)
   );
