@@ -31,20 +31,30 @@ export function normalizeHandoffFiles(files) {
     }));
 }
 
-/** The model-facing list of `files`, empty when there are none. `ids`: the
- *  row also records the stored files as its attachments (a task report), so
- *  their ids can be forwarded; a plain-text handoff (an agent completion)
- *  lists paths only — an id named in text is never trusted. */
-export function artifactLines(files, omitted = 0, { ids = true } = {}) {
+/** An agent completion's compact list of files it produced (name and path
+ *  only; the Lead forwards or links by path), empty when there are none. */
+export function producedFileLines(files, omitted = 0) {
   const list = normalizeHandoffFiles(files);
   if (!list.length) return [];
-  const attachable = (file) => (ids ? ` [attachment:${file.id}]` : ' (attachable: forward it by path)');
   return [
-    `Files from this turn (forward one with attachments: [${ids ? 'id or path' : 'path'}]; link a path to show it):`,
+    'Files produced:',
+    ...list.map((file) => `- ${oneLine(file.name)} — ${oneLine(file.path)}`),
+    ...(omitted > 0 ? [`- …and ${omitted} more`] : []),
+  ];
+}
+
+/** The model-facing list of a bot task report's `files`, empty when there are
+ *  none; the row also records the stored files as its attachments, so their
+ *  ids can be forwarded. */
+export function artifactLines(files, omitted = 0) {
+  const list = normalizeHandoffFiles(files);
+  if (!list.length) return [];
+  return [
+    'Files from this turn (forward one with attachments: [id or path]; link a path to show it):',
     ...list.map(
       (file) =>
         `- ${oneLine(file.name)} (${oneLine(file.mimeType)}, ${sizeLabel(file.size)}) — ${oneLine(file.path)}${
-          file.id ? attachable(file) : ' (too large or unsupported to attach; link the path)'
+          file.id ? ` [attachment:${file.id}]` : ' (too large or unsupported to attach; link the path)'
         }`
     ),
     ...(omitted > 0 ? [`- …and ${omitted} more file(s)`] : []),

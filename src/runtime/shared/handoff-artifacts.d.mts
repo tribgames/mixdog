@@ -8,7 +8,8 @@ export interface HandoffFile {
   id?: string;
 }
 export function normalizeHandoffFiles(files: unknown): HandoffFile[];
-export function artifactLines(files: unknown, omitted?: number, options?: { ids?: boolean }): string[];
+export function artifactLines(files: unknown, omitted?: number): string[];
+export function producedFileLines(files: unknown, omitted?: number): string[];
 export interface HandoffRecord {
   id: string;
   attachmentRef: string;

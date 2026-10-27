@@ -453,8 +453,9 @@ function callArgs(call) {
   return args && typeof args === 'object' ? args : {};
 }
 
-/** The paths one tool call wrote or produced. */
-function toolCallOutputs(call) {
+/** The paths one tool call wrote or produced; `written`: only those it
+ *  actually created or modified (opening a file in visualize does neither). */
+function toolCallOutputs(call, written = false) {
   const name = String(call?.function?.name || call?.name || '');
   const args = callArgs(call);
   const text = (value) => (typeof value === 'string' && value.trim() ? [value.trim()] : []);
@@ -467,7 +468,7 @@ function toolCallOutputs(call) {
     const targets = args.action === 'open' && Array.isArray(input.targets) ? input.targets : [];
     return [
       ...text(input.output),
-      ...targets.filter((target) => typeof target === 'string' && !/^[a-z][a-z0-9+.-]*:\/\//i.test(target)),
+      ...(written ? [] : targets).filter((target) => typeof target === 'string' && !/^[a-z][a-z0-9+.-]*:\/\//i.test(target)),
     ];
   }
   return [];
@@ -520,8 +521,9 @@ export function turnSlice(messages, { runId = '', since = 0 } = {}) {
 
 /** The candidate artifact paths of a turn's messages, most relevant first:
  *  what its final reply names, then media/office/visualize outputs, then the
- *  files it edited. */
-export function turnArtifactCandidates(messages) {
+ *  files it edited. `written`: only the files it created or modified (no
+ *  reply paths, no visualize open targets). */
+export function turnArtifactCandidates(messages, { written = false } = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const reply = list.findLast((message) => message?.role === 'assistant' && textOf(message.content).trim());
   const produced = [];
@@ -535,10 +537,10 @@ export function turnArtifactCandidates(messages) {
         : [];
     for (const call of calls) {
       const name = String(call?.function?.name || call?.name || '');
-      (name === 'edit' || name === 'apply_patch' ? edited : produced).push(...toolCallOutputs(call));
+      (name === 'edit' || name === 'apply_patch' ? edited : produced).push(...toolCallOutputs(call, written));
     }
   }
-  return [...(reply ? replyPaths(textOf(reply.content)) : []), ...produced, ...edited];
+  return [...(!written && reply ? replyPaths(textOf(reply.content)) : []), ...produced, ...edited];
 }
 
 /**
@@ -547,13 +549,21 @@ export function turnArtifactCandidates(messages) {
  * — `id` (the attachment-store reference) when it fits a prompt's types and
  * limits, else a path-only entry. Secret files, folders and anything outside
  * the roots are left out silently; at most HANDOFF_LIMITS.count are kept.
+ *
+ * With `report` (the text handed to the Lead), only files the turn created or
+ * modified are returned, none of them already named by `report`, and none is
+ * stored (they are forwarded by path).
  */
-export function collectTurnArtifacts(messages, { cwd = '', roots = [] } = {}) {
+export function collectTurnArtifacts(messages, { cwd = '', roots = [], report } = {}) {
   const seen = new Set();
   const files = [];
   let omitted = 0;
   const budget = createBudget();
-  for (const candidate of turnArtifactCandidates(messages)) {
+  const lean = typeof report === 'string';
+  const base = cwd || process.cwd();
+  const keyOf = (path) => samePlatformPath(isAbsolute(path) ? resolve(path) : resolve(base, path));
+  const found = [];
+  for (const candidate of turnArtifactCandidates(messages, { written: lean })) {
     // A candidate is a lexical path; its canonical form dedupes after the read.
     const lexical = samePlatformPath(
       isAbsolute(candidate) ? resolve(candidate) : resolve(cwd || process.cwd(), candidate)
@@ -569,6 +579,10 @@ export function collectTurnArtifacts(messages, { cwd = '', roots = [] } = {}) {
     const key = samePlatformPath(file.path);
     if (key !== lexical && seen.has(key)) continue;
     seen.add(key);
+    if (lean) {
+      found.push({ file, lexical, key });
+      continue;
+    }
     if (files.length >= HANDOFF_LIMITS.count) {
       omitted += 1;
       continue;
@@ -589,5 +603,44 @@ export function collectTurnArtifacts(messages, { cwd = '', roots = [] } = {}) {
     }
     files.push(entry);
   }
+  if (lean) {
+    const unnamed = found.filter((item) => !reportNames(report, item, found, keyOf));
+    for (const { file } of unnamed) {
+      if (files.length >= HANDOFF_LIMITS.count) omitted += 1;
+      else
+        files.push({
+          path: file.path,
+          name: file.name,
+          kind: file.type?.kind || 'file',
+          mimeType: file.type?.mimeType || 'application/octet-stream',
+          size: file.size,
+        });
+    }
+  }
   return { files, omitted };
+}
+
+/** Whether `report` names the produced file `item` among `found`: by its full
+ *  path or a cwd-relative path resolving to it exactly, or by its bare file name
+ *  when no other produced file shares that name. */
+function reportNames(report, { file, lexical, key }, found, keyOf) {
+  const flat = (value) => String(value).replaceAll('\\', '/');
+  const filePath = flat(file.path);
+  if (flat(report).includes(filePath)) return true;
+  const plain = report
+    .split(/[\s`"'<>()[\],;|]+/)
+    .map((token) => token.replace(/:\d+(?::\d+)?$/, '').replace(/[.:!?]+$/, ''))
+    .filter((token) => /\.[A-Za-z0-9]{1,8}$/.test(token) && !/^[a-z][a-z0-9+.-]*:\/\//i.test(token));
+  const refs = new Set([...replyPaths(report), ...plain]);
+  const unique = found.filter((other) => other.file.name === file.name).length === 1;
+  for (const ref of refs) {
+    const normalized = flat(ref).replace(/^(?:\.\/)+/, '');
+    if (!normalized.includes('/')) {
+      if (unique && normalized === file.name) return true;
+      continue;
+    }
+    const refKey = keyOf(ref);
+    if (refKey === lexical || refKey === key) return true;
+  }
+  return false;
 }

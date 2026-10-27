@@ -305,6 +305,37 @@ test("a turn's produced files come back: reply links, media/office/visualize out
   );
 });
 
+test('lean collection: bare names match only a unique basename; opened files are not produced', (t) => {
+  const root = tempDir(t);
+  mkdirSync(join(root, 'sub'));
+  for (const name of ['notes.md', 'sub/notes.md', 'other.md', 'existing.html']) writeFileSync(join(root, name), 'x');
+  const call = (name, args) => ({ function: { name, arguments: JSON.stringify(args) } });
+  const edits = (...paths) => [
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [...paths.map((file_path) => call('edit', { file_path })), call('visualize', { action: 'open', input: { targets: ['existing.html'] } })],
+    },
+  ];
+  const options = { cwd: root, roots: sessionRoots({ cwd: root }) };
+  const names = (messages, report) =>
+    collectTurnArtifacts(messages, { ...options, report }).files.map((file) => file.path.slice(root.length + 1).replaceAll('\\', '/'));
+
+  // A plain or backticked file name suppresses a uniquely named file, wherever it is.
+  assert.deepEqual(names(edits('notes.md', 'other.md'), 'Wrote notes.md.'), ['other.md']);
+  assert.deepEqual(names(edits('sub/notes.md', 'other.md'), 'Wrote `notes.md`'), ['other.md']);
+  // An ambiguous name suppresses neither file; a distinguishing path suppresses its own.
+  assert.deepEqual(names(edits('notes.md', 'sub/notes.md'), 'Wrote `notes.md`'), ['notes.md', 'sub/notes.md']);
+  assert.deepEqual(names(edits('notes.md', 'sub/notes.md'), 'Wrote `sub/notes.md`'), ['notes.md']);
+  // A directory-qualified name is an exact cwd-relative path, never a suffix.
+  mkdirSync(join(root, 'other/sub'), { recursive: true });
+  writeFileSync(join(root, 'other/sub/notes.md'), 'x');
+  assert.deepEqual(names(edits('sub/notes.md', 'other/sub/notes.md'), 'Wrote `sub/notes.md`'), ['other/sub/notes.md']);
+  // Opening an existing file in visualize is not producing it; legacy collection still lists it.
+  assert.deepEqual(names(edits('other.md'), 'done'), ['other.md']);
+  assert.ok(collectTurnArtifacts(edits('other.md'), options).files.some((file) => file.name === 'existing.html'));
+});
+
 /** A session service over one fake runtime whose messages a turn fills. */
 function fakeService(turnMessages = []) {
   const calls = [];
@@ -665,10 +696,34 @@ test('agent → agent: the Lead’s attachments reach a sub-agent turn and its p
     ['text', 'image']
   );
   assert.equal(submitted[0][1].transcriptMeta.sender, 'lead');
-  assert.match(
-    result.content,
-    /^Wrote notes\.\n\nFiles from this turn \(forward one with attachments: \[path\][\s\S]*- notes\.md \(text\/markdown, 8 B\) — .*notes\.md \(attachable: forward it by path\)/
-  );
-  // The text handoff names no id the Lead could forward.
-  assert.doesNotMatch(result.content, /\[attachment:/);
+  // The report names notes.md (and the turn only edited it): no block.
+  assert.equal(result.content, 'Wrote notes.');
+
+  // Compact hand-off: an unmentioned generated image is listed, a file only
+  // read is not, a file the report names is not.
+  writeFileSync(join(root, 'gen.png'), PNG);
+  writeFileSync(join(root, 'runner.sh'), 'echo');
+  const turn = (report) => {
+    messages.length = 0;
+    runtime.submitAndWait = async () => {
+      messages.push(
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            { function: { name: 'media', arguments: JSON.stringify({ action: 'generate', path: 'gen.png' }) } },
+            { function: { name: 'edit', arguments: JSON.stringify({ file_path: 'notes.md' }) } },
+            { function: { name: 'read', arguments: JSON.stringify({ path: 'runner.sh' }) } },
+          ],
+        },
+        { role: 'assistant', content: report }
+      );
+      return { status: 'done', result: { content: report } };
+    };
+    return runAgentTurn({ session: descriptor, prompt: 'go' });
+  };
+  const listed = (await turn('Edited `notes.md`.')).content;
+  assert.match(listed, /^Edited `notes\.md`\.\n\nFiles produced:\n- gen\.png — .*gen\.png$/);
+  assert.doesNotMatch(listed, /runner\.sh|notes\.md \(|attach|\[attachment:/);
+  assert.equal((await turn('Edited `notes.md` and `gen.png`.')).content, 'Edited `notes.md` and `gen.png`.');
 });

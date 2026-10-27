@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { createAgentChildFactory } from './agent-child.mjs';
 import { partialHandoffTextFromSession } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { attachmentsForIntake } from '../../../runtime/attachments/store.mjs';
-import { artifactLines } from '../../../runtime/shared/handoff-artifacts.mjs';
+import { producedFileLines } from '../../../runtime/shared/handoff-artifacts.mjs';
 import { collectTurnArtifacts, handoffContent, sessionRoots } from '../../../session-runtime/handoff-attachments.mjs';
 
 /** An agent turn's prompt: text, or text with forwarded attachment parts
@@ -25,18 +25,19 @@ export function agentTurnTranscriptMeta(content) {
   return { sender: 'lead', ...(attachments.length ? { attachments } : {}) };
 }
 
-/** The artifact lines of the turn that began at `messageStart`; [] on any
- *  failure to read it (the handoff still goes out). */
-async function turnArtifactLines(runtime, messageStart, descriptor) {
+/** The lines for files the turn that began at `messageStart` created or
+ *  modified and `report` does not already name; [] on any failure to read it
+ *  (the handoff still goes out). */
+async function turnArtifactLines(runtime, messageStart, descriptor, report) {
   try {
     const { messages } = await runtime.readModelMessages(messageStart);
     const session = runtime.session || descriptor;
     const { files, omitted } = collectTurnArtifacts(messages, {
       cwd: descriptor.cwd,
       roots: sessionRoots(session, descriptor.cwd),
+      report,
     });
-    // Text only: the caller forwards these by path (an id in text is never trusted).
-    return artifactLines(files, omitted, { ids: false });
+    return producedFileLines(files, omitted);
   } catch {
     return [];
   }
@@ -131,7 +132,7 @@ export function createAgentTurns({
       }
       let result = detail?.result || { content: '' };
       // The files the turn produced reach the owner with its handoff.
-      const files = await turnArtifactLines(entry.runtime, messageStart, descriptor);
+      const files = await turnArtifactLines(entry.runtime, messageStart, descriptor, String(result.content || ''));
       if (files.length) {
         result = { ...result, content: [String(result.content || ''), files.join('\n')].join('\n\n') };
       }
