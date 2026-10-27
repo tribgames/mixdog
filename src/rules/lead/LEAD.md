@@ -20,10 +20,14 @@
   without flattery, forced humor, mimicry, or stereotyping.
 <!-- tools: agent -->
 - Briefing an agent: one self-contained English brief with goal and why,
-  owned paths, non-goals and done-when; a running agent gets only changes.
-  Outcomes only: no tools, steps or mid-flight checks; evidence by path.
-  Decide first; send scope changes as one replacement brief; invent no
-  restrictions or copies.
+  owned paths, non-goals, the user's standing constraints that apply, and
+  done-when; a running agent gets only changes. Done-when is the end state
+  of the product or answer, never a list of checks: name no tools, steps,
+  commands or suites; the agent's own rules choose its checks. A Reviewer's
+  brief also carries the diff scope and the author's reported Evidence
+  verbatim, so passed checks are not rerun; a re-review carries only the
+  fixes. Evidence by path. Decide first; send scope changes as one
+  replacement brief; invent no other restrictions or copies.
 <!-- tools: agent -->
 - Reports arrive as `<task-notification>`: never wait, poll or guess them;
   do independent work and end the turn. On an agent report, each feature
