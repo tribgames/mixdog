@@ -126,7 +126,10 @@ function buildProfilePreferencesContent(dataDir) {
   return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
 }
 
-function buildLanguageSection(dataDir) {
+// `sharedFormatActive`: the prompt carries the shared Output Format partial,
+// which already keeps literals verbatim (common.md), so the language block
+// need not repeat it.
+function buildLanguageSection(dataDir, sharedFormatActive = false) {
   const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
   const language = profileLanguagePrompt(profile.language);
   if (!language?.prompt) return '';
@@ -139,7 +142,7 @@ function buildLanguageSection(dataDir) {
   // mistranslate, so the two clauses would be dead text.
   if (language.prompt !== 'English') {
     lines.push(
-      `- Preserve identifiers, paths, commands, API names, and exact errors. Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.`
+      `- ${sharedFormatActive ? '' : 'Preserve identifiers, paths, commands, API names, and exact errors. '}Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.`
     );
   }
   return `# Language\n\n${lines.join('\n')}`;
@@ -153,7 +156,9 @@ function stripFrontmatter(markdown) {
 
 // Tool dependency is declared as metadata, not matched against prose. A
 // `<!-- tools: a, b -->` marker binds the block that follows it: the block
-// survives while any listed tool is permitted by the allow/deny policy.
+// survives while any listed tool is permitted by the allow/deny policy. The
+// pseudo-entry `lead` is not a tool: it is permitted for every non-agent
+// session (whatever its tool profile) and never for an agent-owned one.
 // Unspecified allowlists are unrestricted. Markers never reach the model.
 const TOOL_MARKER_RE = /^[ \t]*<!--[ \t]*tools:[ \t]*([^>]*?)[ \t]*-->[ \t]*$/;
 
@@ -188,7 +193,7 @@ function omitKeySet(omitTools) {
 }
 
 /** Drop routing clauses for tools that are not on the session surface. */
-function omitToolRoutes(text, omitTools = [], allowTools = null) {
+function omitToolRoutes(text, omitTools = [], allowTools = null, ownerIsAgent = false) {
   const deny = omitKeySet(omitTools);
   const allow = Array.isArray(allowTools) ? omitKeySet(allowTools) : null;
   const lines = String(text || '').split(/\r?\n/);
@@ -204,7 +209,8 @@ function omitToolRoutes(text, omitTools = [], allowTools = null) {
     index += 1;
     if (index >= lines.length) break;
     const end = markedBlockEnd(lines, index);
-    if (!tools.length || tools.some((name) => !deny.has(name) && (!allow || allow.has(name)))) {
+    const permitted = (name) => (name === 'lead' ? !ownerIsAgent : !deny.has(name) && (!allow || allow.has(name)));
+    if (!tools.length || tools.some(permitted)) {
       kept.push(...lines.slice(index, end));
     }
     index = end;
@@ -252,22 +258,29 @@ function readSharedFormatPartial({ PLUGIN_ROOT, DATA_DIR }) {
   );
 }
 
-function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
+function resolveOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
   // Root `outputStyle` is the only configured location; the retired
   // `agent.outputStyle` key is dropped by config canonicalization.
   const configured = String(readUnifiedConfig(DATA_DIR).outputStyle || '').trim() || DEFAULT_OUTPUT_STYLE_ID;
   const styles = listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR });
   const style = matchOutputStyle(configured, styles) || matchOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles) || styles[0];
-  if (!style) return '';
+  if (!style) return null;
   const selected = stripFrontmatter(style.raw);
-  if (!selected) return '';
+  if (!selected) return null;
   const common = style.keepSharedFormat ? readSharedFormatPartial({ PLUGIN_ROOT, DATA_DIR }) : '';
+  return { style, selected, common };
+}
+
+function loadOutputStyle(paths) {
+  const resolved = resolveOutputStyle(paths);
+  if (!resolved) return '';
+  const { style, selected, common } = resolved;
   return [`# Output Style: ${style.label}`, OUTPUT_STYLE_ANCHOR, common, selected].filter(Boolean).join('\n\n');
 }
 
-function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [], allowTools = null } = {}) {
+function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [], allowTools = null, ownerIsAgent = false } = {}) {
   const SHARED_DIR = path.join(PLUGIN_ROOT, 'rules', 'shared');
-  return omitToolRoutes(readMarkdownDirectory(SHARED_DIR), omitTools, allowTools);
+  return omitToolRoutes(readMarkdownDirectory(SHARED_DIR), omitTools, allowTools, ownerIsAgent);
 }
 
 // Route policy: `rules/routes/*.md` files bound to a provider and/or model
@@ -444,8 +457,12 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR, includeOutputStyle = true
  * preamble and progress lines follow the most recent instruction, so nothing
  * English (session/shell/git lines included) may trail it.
  */
-function buildLeadLanguageContent({ DATA_DIR }) {
-  return buildLanguageSection(DATA_DIR);
+function buildLeadLanguageContent({ PLUGIN_ROOT, DATA_DIR, includeOutputStyle = true }) {
+  const resolved = includeOutputStyle ? resolveOutputStyle({ PLUGIN_ROOT, DATA_DIR }) : null;
+  // Only the shipped partial is known to keep literals verbatim; a user
+  // override of common.md may not, so it keeps the language guard.
+  const shipped = stripFrontmatter(readOptional(path.join(PLUGIN_ROOT, 'output-styles', 'common.md')));
+  return buildLanguageSection(DATA_DIR, Boolean(shipped) && resolved?.common === shipped);
 }
 
 /** The configured response language as {id, name} (name = the language block's); null when none. */

@@ -334,12 +334,14 @@ export function _refreshSessionRuleVariantsForModel(session, previousModel, prev
   const previousRules = _buildBaseRules({
     omitTools: [...deny, unusedModelEditToolName(previousModel)],
     allowTools,
+    ownerIsAgent: isAgentOwner(session),
     provider: previousProvider,
     model: previousModel,
   });
   const nextRules = _buildBaseRules({
     omitTools: [...deny, unusedModelEditToolName(session?.model)],
     allowTools,
+    ownerIsAgent: isAgentOwner(session),
     provider: session?.provider,
     model: session?.model,
   });

@@ -7,8 +7,6 @@
   files you did not create: it may hold other agents' or the user's
   uncommitted work. Use a copy or managed snapshot for before/after
   comparisons.
-- Worktrees live only in the app-managed store; never create one through
-  shell or in a temp folder.
 <!-- tools: git -->
 - Separate-branch work goes into a managed worktree through `git`.
 - Back up only when changes risk irreversible loss, not for routine code edits;

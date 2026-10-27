@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -55,5 +55,42 @@ test('unknown language ids use system language, not inherited object properties'
   const expected = languageBlock('system');
   for (const language of ['unknown-language', '__proto__', 'constructor', 'toString']) {
     assert.equal(languageBlock(language), expected);
+  }
+});
+
+test('the literal-preservation sentence is dropped only while the shared output format carries it', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-language-rules-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    const config = (outputStyle) =>
+      writeFileSync(
+        join(dataDir, 'mixdog-config.json'),
+        JSON.stringify({ outputStyle, agent: { profile: { language: 'ko' } } })
+      );
+    const sentence = /Preserve identifiers, paths, commands, API names, and exact errors\./;
+    config('simple');
+    assert.doesNotMatch(_buildLeadLanguageContext(), sentence);
+    assert.match(_buildLeadLanguageContext(), /Keep technical terms in their established form/);
+    assert.match(_buildLeadLanguageContext({ includeOutputStyle: false }), sentence);
+    mkdirSync(join(dataDir, 'output-styles'));
+    writeFileSync(
+      join(dataDir, 'output-styles', 'bare.md'),
+      '---\nname: bare\ntitle: Bare\nkeep-shared-format: false\n---\n\nBe brief.\n'
+    );
+    config('bare');
+    assert.match(_buildLeadLanguageContext(), sentence);
+    // An overridden shared partial may not carry the guidance, so it keeps the guard;
+    // a byte-identical copy of the shipped partial does not count as an override.
+    config('simple');
+    const shipped = readFileSync(join(process.cwd(), 'src', 'output-styles', 'common.md'), 'utf8');
+    writeFileSync(join(dataDir, 'output-styles', 'common.md'), shipped);
+    assert.doesNotMatch(_buildLeadLanguageContext(), sentence);
+    writeFileSync(join(dataDir, 'output-styles', 'common.md'), `${shipped}\nCustom line.\n`);
+    assert.match(_buildLeadLanguageContext(), sentence);
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
   }
 });

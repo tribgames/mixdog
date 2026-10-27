@@ -34,7 +34,10 @@ writeFileSync(join(otherDir, 'agent.json'), JSON.stringify({ name: 'Other', desc
 const leadDir = join(dataDir, 'agents', 'lead');
 mkdirSync(leadDir, { recursive: true });
 // Project instruction files the coding Lead picks up and agent mode must not.
-writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { instructionFiles: 'all' } }));
+writeFileSync(
+  join(dataDir, 'mixdog-config.json'),
+  JSON.stringify({ agent: { instructionFiles: 'all', profile: { language: 'ko' } } })
+);
 mkdirSync(join(root, '.codex'), { recursive: true });
 writeFileSync(join(root, '.codex', 'AGENTS.md'), 'INSTRUCTION_FILE_SENTINEL');
 // A stable project root: its startup listing rides the environment block.
@@ -268,7 +271,12 @@ test('agent-mode BP3: shared rules, mode block, Mixy section, per-agent tail; BP
     agent.stableSystemContext,
     coding.stableSystemContext.replace(/\n*# Output Style: [\s\S]*?(?=\n\n---\n\n|$)/, '')
   );
-  assert.equal(agent.sessionEnvironment, coding.sessionEnvironment);
+  // The env differs only by the language bullet that agent mode (no Output Style, so
+  // no shared literal rules) keeps and the coding Lead drops (shipped common.md).
+  const literals = 'Preserve identifiers, paths, commands, API names, and exact errors. ';
+  assert.ok(agent.sessionEnvironment.includes(literals));
+  assert.ok(!coding.sessionEnvironment.includes(literals));
+  assert.equal(agent.sessionEnvironment.replace(literals, ''), coding.sessionEnvironment);
   const core = agent.sessionMarkerCore;
   const parts = workflow.leadPromptParts({ agentMode: true, agentId: 'sample' });
   assert.equal(

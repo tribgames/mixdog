@@ -135,6 +135,7 @@ export function createPolicyStage({
         : _buildBaseRules({
             omitTools: [...denied, unusedModelEditToolName(getRoute()?.model)],
             allowTools: schemaAllowedTools,
+            ownerIsAgent,
             provider: getRoute()?.provider,
             model: getRoute()?.model,
           });

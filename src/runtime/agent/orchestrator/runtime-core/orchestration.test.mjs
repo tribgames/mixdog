@@ -317,3 +317,14 @@ test('agent-owned sessions keep Active Workflow but never get Lead orchestration
   assert.doesNotMatch(agent, /# Orchestration Mode/);
   assert.doesNotMatch(agent, /# Available Agents/);
 });
+
+test('Focused omits the one-scope sentence its batching line already states; other modes keep it', () => {
+  const one = /If the plan has only one implementation scope, Lead executes it directly\./;
+  assert.doesNotMatch(orchestrationInstructions('focused'), one);
+  assert.match(orchestrationInstructions('focused'), /Lead executes the main scope directly/);
+  assert.match(orchestrationInstructions('balanced'), one);
+  assert.match(orchestrationInstructions('swarm'), one);
+  for (const mode of ['focused', 'balanced', 'swarm']) {
+    assert.match(orchestrationInstructions(mode), /A new independent\s+need goes to a new agent/);
+  }
+});

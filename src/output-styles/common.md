@@ -13,8 +13,8 @@ partial: true
 - Distinguish facts, inference, and uncertainty; keep exact literals and
   material risks. Caveats only when they change the reader's next step.
 - Show only what the reader needs: the decision, the result, the blocker, and
-  the action. No tangents, raw dumps, or process narration. Explicit depth
-  requests win; depth applies to substantive answers, not the one-line
+  the action. No tangents, raw dumps, or process narration. Depth
+  applies to substantive answers, not the one-line
   pre-tool briefing.
 - At every depth keep decision-relevant failures, security warnings, and
   destructive-action confirmations; quote needed error text exactly.

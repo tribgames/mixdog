@@ -162,6 +162,7 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     : _buildBaseRules({
         omitTools: surface.ruleOmitTools,
         allowTools: surface.schemaAllowedTools,
+        ownerIsAgent,
         provider: providerName,
         model: modelName,
       });
@@ -183,7 +184,7 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   const metaContext = leadOnly ? _buildLeadMetaContext({ includeOutputStyle: !agentMode }) : '';
   // Lead-only response language; closes the environment block so no English
   // system text (session/shell/git lines) follows it.
-  const languageContext = leadOnly ? _buildLeadLanguageContext() : '';
+  const languageContext = leadOnly ? _buildLeadLanguageContext({ includeOutputStyle: !agentMode }) : '';
   // Cwd, shell and repository facts only serve tool calls; a tool-free role
   // gets none, which also keeps its prompt identical across projects.
   const shellEnvironmentContext = toolFreeRole

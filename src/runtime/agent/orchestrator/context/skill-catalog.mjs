@@ -669,7 +669,9 @@ export function buildSkillManifest(skills, { limit = 80, charBudget = SKILL_MANI
   for (const skill of visible) skill.trigger = compactPromptManifestText(skill.trigger, triggerCap);
   const lines = [
     '# available-skills',
-    'Selection triggers and linked tools for Skill({"name":"<skill-name>"}). mcp:<server> denotes that server’s tools.',
+    visible.some((skill) => skill.linkedTools.some((tool) => tool.startsWith('mcp:')))
+      ? 'Selection triggers and linked tools. mcp:<server> denotes that server’s tools.'
+      : 'Selection triggers and linked tools.',
     '<available_skills>',
     ...visible.map(
       (skill) => (skill.trigger ? `- ${skill.name}: ${skill.trigger}` : `- ${skill.name}`) + toolSuffix(skill)

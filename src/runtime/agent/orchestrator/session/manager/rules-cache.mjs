@@ -59,15 +59,19 @@ function omitToolsKey(omitTools) {
     .join(',');
 }
 
-export function _buildSharedRules({ omitTools = [], allowTools = null } = {}) {
+export function _buildSharedRules({ omitTools = [], allowTools = null, ownerIsAgent = false } = {}) {
   const PLUGIN_ROOT = mixdogRoot();
   const RULES_DIR = join(PLUGIN_ROOT, 'rules');
   return buildCachedRules(
     'buildSharedToolContent',
     'shared tool rules',
     [join(RULES_DIR, 'shared')],
-    { PLUGIN_ROOT, DATA_DIR: resolvePluginData(), omitTools, allowTools },
-    JSON.stringify([omitToolsKey(omitTools), Array.isArray(allowTools) ? omitToolsKey(allowTools) : null])
+    { PLUGIN_ROOT, DATA_DIR: resolvePluginData(), omitTools, allowTools, ownerIsAgent },
+    JSON.stringify([
+      omitToolsKey(omitTools),
+      Array.isArray(allowTools) ? omitToolsKey(allowTools) : null,
+      ownerIsAgent === true,
+    ])
   );
 }
 
@@ -98,8 +102,17 @@ export function _buildRouteRules({ provider = null, model = null, omitTools = []
 
 // BP1 = shared tool policy followed by this route's rules. Every site that
 // renders or re-identifies the BP1 block must use this one composition.
-export function _buildBaseRules({ provider = null, model = null, omitTools = [], allowTools = null } = {}) {
-  return [_buildSharedRules({ omitTools, allowTools }), _buildRouteRules({ provider, model, omitTools, allowTools })]
+export function _buildBaseRules({
+  provider = null,
+  model = null,
+  omitTools = [],
+  allowTools = null,
+  ownerIsAgent = false,
+} = {}) {
+  return [
+    _buildSharedRules({ omitTools, allowTools, ownerIsAgent }),
+    _buildRouteRules({ provider, model, omitTools, allowTools }),
+  ]
     .filter(Boolean)
     .join('\n\n---\n\n');
 }
@@ -201,9 +214,14 @@ export function _buildLeadLanguage() {
   });
 }
 
-export function _buildLeadLanguageContext() {
+export function _buildLeadLanguageContext({ includeOutputStyle = true } = {}) {
+  const PLUGIN_ROOT = mixdogRoot();
   const DATA_DIR = resolvePluginData();
-  return buildCachedRules('buildLeadLanguageContent', 'lead language context', [join(DATA_DIR, 'mixdog-config.json')], {
-    DATA_DIR,
-  });
+  return buildCachedRules(
+    'buildLeadLanguageContent',
+    'lead language context',
+    [join(DATA_DIR, 'mixdog-config.json'), join(PLUGIN_ROOT, 'output-styles'), join(DATA_DIR, 'output-styles')],
+    { PLUGIN_ROOT, DATA_DIR, includeOutputStyle },
+    includeOutputStyle ? 'style' : 'no-style'
+  );
 }

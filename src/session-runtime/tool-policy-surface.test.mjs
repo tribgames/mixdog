@@ -17,6 +17,8 @@ import { DEFERRED_DEFAULT_LEAD_TOOLS } from '../runtime/agent/orchestrator/runti
 import { LEAD_DISALLOWED_TOOLS } from '../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { GOAL_TOOL_DEFS } from '../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
 import { finalizeSessionToolList } from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
+import { BUILTIN_TOOLS } from '../runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import { AGENT_TASK_WAIT_DEFAULT_MS } from '../runtime/agent/orchestrator/tools/builtin/wait-budgets.mjs';
 import { modelToolSchemaAllowlist } from '../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { preDispatchDenyForSession } from '../runtime/agent/orchestrator/session/loop/pre-dispatch-deny.mjs';
 
@@ -355,6 +357,31 @@ test('Agent base tools keep every Lead tool except the Lead-only agent and sessi
     ['read', 'apply_patch', 'load_tool']
   );
   assert.ok(finalizeSessionToolList(tools, { ownerIsAgent: false }).some((tool) => tool.name === 'session'));
+});
+
+test('only an agent-owned session gets the agent variants of git and task; the Lead keeps the Lead schema', () => {
+  const tools = BUILTIN_TOOLS.filter((tool) => tool.name === 'git' || tool.name === 'task');
+  const agent = finalizeSessionToolList(tools, { ownerIsAgent: true });
+  const lead = finalizeSessionToolList(tools, { ownerIsAgent: false });
+  const gitOf = (list) => list.find((tool) => tool.name === 'git');
+  const taskOf = (list) => list.find((tool) => tool.name === 'task');
+  assert.equal(
+    gitOf(lead),
+    tools.find((tool) => tool.name === 'git')
+  );
+  assert.equal(
+    taskOf(lead),
+    tools.find((tool) => tool.name === 'task')
+  );
+  assert.ok('force' in gitOf(lead).inputSchema.properties);
+  assert.ok(!('force' in gitOf(agent).inputSchema.properties));
+  assert.deepEqual(gitOf(agent).inputSchema.properties.worktree_action.enum, ['list']);
+  assert.match(taskOf(lead).inputSchema.properties.timeout_ms.description, /Default 300000;/);
+  assert.match(
+    taskOf(agent).inputSchema.properties.timeout_ms.description,
+    new RegExp(`Default ${AGENT_TASK_WAIT_DEFAULT_MS};`)
+  );
+  assert.deepEqual(finalizeSessionToolList(agent, { ownerIsAgent: true }), agent);
 });
 
 test('Goal is deferred but remains discoverable on the native Lead tool surface', () => {
@@ -786,4 +813,22 @@ test('a truly idle empty session with only notifications still refreshes', async
     false
   );
   assert.equal(session.workflow.delegatesAgents, false);
+});
+
+test('Lead-only delivery and blocker text drops for agent-owned sessions only', () => {
+  const PLUGIN_ROOT = join(process.cwd(), 'src');
+  const flat = (options) => buildSharedToolContent({ PLUGIN_ROOT, ...options }).replace(/\s+/g, ' ');
+  const lead = flat({});
+  const leadTexts = [
+    'record-keeping artifacts (reports, progress logs, notes, or checklists). Report progress and results in the conversation instead.',
+    'workaround you can carry out yourself with the available tools. Ask the user only when none exists.',
+  ];
+  for (const text of leadTexts) assert.ok(lead.includes(text), text);
+  // A Lead with a narrowed tool list (headless profile, no ask_user) renders the same text.
+  const headless = flat({ allowTools: modelToolSchemaAllowlist('headless') });
+  for (const text of leadTexts) assert.ok(headless.includes(text), text);
+  const agent = flat({ allowTools: ['read', 'git', 'shell'], ownerIsAgent: true });
+  assert.match(agent, /record-keeping artifacts \(reports, progress logs, notes, or checklists\)\./);
+  assert.match(agent, /workaround you can carry out yourself with the available tools\./);
+  assert.doesNotMatch(agent, /in the conversation instead|ask the user only/i);
 });

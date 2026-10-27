@@ -8,7 +8,9 @@
   has its evidence; never widen past what was asked, and never ask
   permission for work the request already covers.
 - When blocked, first look for a workaround you can carry out yourself with
-  the available tools; ask the user only when none exists.
+  the available tools.
+<!-- tools: lead -->
+  Ask the user only when none exists.
 - Do not add work whose need depends on a pending result. Reuse content
   already delivered; changed sources and omitted ranges are new evidence.
   Trust documented guarantees; no availability checks or defensive branches —

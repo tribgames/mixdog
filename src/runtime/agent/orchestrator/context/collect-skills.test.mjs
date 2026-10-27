@@ -100,11 +100,7 @@ test('manifest budgets shrink triggers without changing names, ordering, or omis
     name: `skill-${String(index).padStart(2, '0')}`,
     whenToUse: 'word '.repeat(40),
   })).reverse();
-  const header = [
-    '# available-skills',
-    'Selection triggers and linked tools for Skill({"name":"<skill-name>"}). mcp:<server> denotes that server’s tools.',
-    '<available_skills>',
-  ];
+  const header = ['# available-skills', 'Selection triggers and linked tools.', '<available_skills>'];
   assert.equal(
     buildSkillManifest(skills, { charBudget: 1_000 }),
     [
@@ -694,4 +690,14 @@ test('collect re-exports deferred-tool BP2 helpers', () => {
   assert.equal(applyInitialDeferredToolManifestToBp2(session, ['recall']), true);
   assert.match(session.messages[1].content, /<available-deferred-tools>/);
   assert.match(session.messages[1].content, /^- recall: Recall prior work\.$/m);
+});
+
+test('the manifest header mentions mcp: tags only when a listed skill carries one', () => {
+  const plain = buildSkillManifest([
+    { name: 'a', whenToUse: 'x', toolDependencies: [{ type: 'tool', value: 'office' }] },
+  ]);
+  assert.doesNotMatch(plain, /mcp:<server>/);
+  const mcp = buildSkillManifest([{ name: 'a', whenToUse: 'x', toolDependencies: [{ type: 'mcp', value: 'gmail' }] }]);
+  assert.match(mcp, /mcp:<server> denotes that server’s tools\./);
+  assert.match(mcp, /\[tools: mcp:gmail\]/);
 });

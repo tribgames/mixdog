@@ -10,7 +10,7 @@ same change scope rather than splitting every file or step.`,
   swarm: `Delegate every independent scope to its own agent; a scope is one
 verifiable deliverable, not a bundle of steps. Treat disjoint file or
 module sets as independent and merge scopes only on a true output
-dependency. Prefer parallel scopes over sequential slices in one agent.`,
+dependency.`,
 };
 
 const SOLO = `# Orchestration Mode: Solo
@@ -40,8 +40,10 @@ ${BATCHING[mode]}
 
 The mode sets how work splits; an agent's description sets its role and when
 it runs. Splitting applies to every role alike — implementation, review,
-investigation, writing — by file, module, commit range or risk area.
-If the plan has only one implementation scope, Lead executes it directly.
+investigation, writing — by file, module, commit range or risk area.${
+    // Focused already says Lead executes the main scope directly.
+    mode === 'focused' ? '' : '\nIf the plan has only one implementation scope, Lead executes it directly.'
+  }
 
 Delegation is for work whose size justifies a brief. When the brief would have
 to spell out the edits themselves — a few localized changes whose sites Lead
@@ -49,9 +51,8 @@ already holds — Lead makes them directly in every mode; the number of files or
 scopes does not change this.
 
 Dispatch all ready independent scopes in one turn. Only a scope that requires
-another's output waits. Brief each agent as the Lead rules describe.
-A running agent receives only changes within its own scope; a new independent
-need goes to a new agent. When scopes touch the same file, name one owner for
+another's output waits.
+A new independent need goes to a new agent. When scopes touch the same file, name one owner for
 that file in each brief.
 Use only available agents; when none fits a role, Lead does that work itself
 and never changes settings to enable one.`;
