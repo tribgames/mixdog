@@ -36,7 +36,13 @@ export const WORKSPACES = [
       'test:daemon:e2e': 'needs the built daemon; the release gate desktop job owns it',
       'test:spec-advisory': 'advisory by design (MIXDOG_TEST_ADVISORY)',
       'test:browser-host:integration': 'live desktop integration harness',
+      'test:browser-login-persistence:integration':
+        'live desktop integration harness; launches real Electron, which needs a display the Linux sweep runner lacks',
+      'test:browser-login-popup:integration':
+        'live desktop integration harness; launches real Electron, which needs a display the Linux sweep runner lacks',
       'test:browser-profile-import:integration': 'live desktop integration harness',
+      'test:remote-webrtc-sender:integration':
+        'live desktop integration harness; launches real Electron, which needs a display the Linux sweep runner lacks',
       'test:computer-host:integration': 'live desktop integration harness',
       'test:computer-host:scenarios': 'live desktop scenario harness',
       'test:computer-host:repeats': 'live desktop scenario harness',
