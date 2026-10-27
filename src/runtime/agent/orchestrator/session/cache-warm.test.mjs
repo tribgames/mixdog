@@ -62,6 +62,7 @@ import { createPromptCacheTouchStore } from './prompt-cache-touch-store.mjs';
 import { captureSideQuestionRequest, forgetSideQuestion, retireCompactionFork } from './side-question-store.mjs';
 import { _runSessionPurgeHooks } from './store/session-observers.mjs';
 import { withTailReminder } from './tail-reminder-rules.mjs';
+import { shouldCompactForExpiredAgentCache } from './loop/compact-policy.mjs';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -414,8 +415,9 @@ function memoryTouches() {
     record: (id, touch) => map.set(id, { ...touch }),
     forget: (id) => map.delete(id),
     ids: () => [...map.keys()],
-    lastWarmUse: (id) => uses.get(id) || 0,
-    recordWarmUse: (id, at) => uses.set(id, at),
+    lastWarmUse: (id) => uses.get(id)?.at || 0,
+    warmUse: (id) => (uses.has(id) ? { ...uses.get(id) } : null),
+    recordWarmUse: (id, at, identity = {}) => uses.set(id, { ...identity, at }),
     forgetWarmUse: (id) => uses.delete(id),
   };
 }
@@ -588,6 +590,93 @@ test('a missed warm stops the chain and auto-clear runs from the last successful
   assert.equal(autoClearsAt(h, AUTO_CLEAR_1H, lastUse + HOUR), true);
   h.settle();
   assert.equal(h.touches.lastWarmUse(h.session.id), 0, 'a settled real request is the latest use');
+});
+
+// The anthropic-oauth roster with accounts A and B, A (or `selectedId`)
+// serving every session first.
+const ROSTER_A = '00000000-0000-4000-8000-00000000000a';
+const ROSTER_B = '00000000-0000-4000-8000-00000000000b';
+function writeRoster(selectedId = ROSTER_A) {
+  writeFileSync(
+    join(process.env.MIXDOG_DATA_DIR, 'provider-accounts.json'),
+    JSON.stringify({
+      version: 1,
+      providers: {
+        'anthropic-oauth': {
+          accounts: [
+            { id: ROSTER_A, label: 'A' },
+            { id: ROSTER_B, label: 'B' },
+          ],
+          selectedId,
+          policy: 'limit',
+          auto: true,
+        },
+      },
+    })
+  );
+}
+
+// A worker (5m tail) whose last send went out on account A, warmed 4 min
+// later on A: `{ h, sentAt, warmAt, opts }`.
+async function warmedWorker(t) {
+  writeRoster();
+  t.after(() => rmSync(join(process.env.MIXDOG_DATA_DIR, 'provider-accounts.json'), { force: true }));
+  const h = harness({ prices: tier(OPUS_55, 5 * MINUTE), minutes: [6, 6, 6, 6, 6] });
+  h.session.owner = 'agent';
+  h.settle({
+    usage: { cachedTokens: 69_000, cacheWriteTokens: 1_000 },
+    providerMetadata: { accountRouting: { provider: 'anthropic-oauth', accountId: ROSTER_A } },
+  });
+  const sentAt = cacheWarmChain(h.session.id).touchAt;
+  h.session.lastProviderSendAt = sentAt;
+  await h.fire();
+  assert.equal(h.prov.calls.length, 1, 'the warm read the tail');
+  assert.deepEqual(h.prov.accounts, [ROSTER_A], 'on the account holding it');
+  const warmAt = sentAt + 4 * MINUTE;
+  assert.equal(h.touches.lastWarmUse(h.session.id), warmAt);
+  return { h, sentAt, warmAt, opts: { cacheStrategy: { ...CACHE_STRATEGY, messages: '5m' } } };
+}
+
+test('a worker tail a warm kept alive is not compacted as expired when the worker returns on its route', async (t) => {
+  // Returning 6 min after its last send, on the warm's provider, model and
+  // account: the warm read and refreshed the tail, so the cache-expiry
+  // compaction must not rewrite the transcript the warm just kept cached.
+  const { h, sentAt, warmAt, opts } = await warmedWorker(t);
+  const route = { provider: 'anthropic-oauth', model: MODEL };
+  t.mock.timers.enable({ apis: ['Date'], now: sentAt + 6 * MINUTE });
+  assert.equal(shouldCompactForExpiredAgentCache(h.session, opts, route), false, 'the warmed tail is still cached');
+  t.mock.timers.setTime(warmAt + 5 * MINUTE + 1);
+  assert.equal(shouldCompactForExpiredAgentCache(h.session, opts, route), true, 'the warmed entry expired in turn');
+  t.mock.timers.setTime(sentAt + 6 * MINUTE);
+  h.touches.forgetWarmUse(h.session.id);
+  assert.equal(shouldCompactForExpiredAgentCache(h.session, opts, route), true, 'without a warm the tail expired');
+});
+
+test('a warm on another model, provider or account is no fresh cache for the returning request', async (t) => {
+  const { h, sentAt, opts } = await warmedWorker(t);
+  t.mock.timers.enable({ apis: ['Date'], now: sentAt + 6 * MINUTE });
+  const due = (route) => shouldCompactForExpiredAgentCache(h.session, opts, route);
+  assert.equal(due({ provider: 'anthropic-oauth', model: 'claude-sonnet-5-5' }), true, 'another model');
+  assert.equal(due({ provider: 'anthropic', model: MODEL }), true, 'another provider');
+  writeRoster(ROSTER_B);
+  assert.equal(due({ provider: 'anthropic-oauth', model: MODEL }), true, 'another account');
+  writeRoster(ROSTER_A);
+  assert.equal(due({ provider: 'anthropic-oauth', model: MODEL }), false, 'the warm’s own route and account');
+  // A warm use recorded without its route (an earlier build) matches nothing.
+  h.touches.recordWarmUse(h.session.id, sentAt + 4 * MINUTE);
+  assert.equal(due({ provider: 'anthropic-oauth', model: MODEL }), true, 'an unidentified warm');
+});
+
+test('a route change stops the warm chain', async (t) => {
+  const { updateSessionRoute } = await import('./manager/session-lifecycle.mjs');
+  const { setLiveSession } = await import('./store.mjs');
+  const h = harness();
+  h.settle();
+  assert.ok(cacheWarmChain(h.session.id), 'armed');
+  setLiveSession(h.session);
+  t.after(() => _runSessionPurgeHooks(h.session.id));
+  updateSessionRoute(h.session.id, { model: 'claude-sonnet-5-5' }, { session: h.session });
+  assert.equal(cacheWarmChain(h.session.id), null, 'the old route’s request is no longer replayed');
 });
 
 test('warms keep a session uncleared up to the learned window, then auto-clear runs normally', async () => {

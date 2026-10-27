@@ -11,7 +11,7 @@
  */
 import { traceAgentUsage } from '../agent-trace.mjs';
 import { reportedCostUsd } from './lib/usage-primitives.mjs';
-import { latestAnthropicPrefix } from './lib/anthropic-prefix-trace.mjs';
+import { anthropicPrefixSessionId, latestAnthropicPrefix } from './lib/anthropic-prefix-trace.mjs';
 
 /**
  * @param {object} parseResult  the assembled turn (streaming or normalized non-streaming)
@@ -48,7 +48,7 @@ export function buildAnthropicTurnResult(parseResult, { provider, useModel, opts
       // Anthropic usage is additive at this inner transport
       // boundary, even when OpenCode Go supplies the provider id.
       inputTokensInclusive: false,
-      prefixBlocks: latestAnthropicPrefix(opts.sessionId || opts.session?.id || null),
+      prefixBlocks: latestAnthropicPrefix(anthropicPrefixSessionId(opts)),
     });
   }
 

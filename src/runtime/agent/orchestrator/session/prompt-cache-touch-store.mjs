@@ -26,6 +26,20 @@ function validTouch(value) {
   );
 }
 
+// A warm use as stored: `{ at, provider, model, accountId }` — the route and
+// account whose cached prefix the warm read. A bare time (written before the
+// identity was recorded) keeps its time and matches no route.
+function warmUseRecord(value) {
+  const record = value && typeof value === 'object' ? value : { at: value };
+  if (!(Number(record.at) > 0)) return null;
+  return {
+    at: Number(record.at),
+    provider: String(record.provider || ''),
+    model: String(record.model || ''),
+    accountId: String(record.accountId || ''),
+  };
+}
+
 /** A touch store backed by `path` (default: the data dir's file). */
 export function createPromptCacheTouchStore(
   path = () => join(resolvePluginData(), PROMPT_CACHE_TOUCH_FILE),
@@ -43,8 +57,9 @@ export function createPromptCacheTouchStore(
     for (const [sessionId, touch] of Object.entries(stored?.touches || {})) {
       if (validTouch(touch)) touches.set(sessionId, { ...touch });
     }
-    for (const [sessionId, at] of Object.entries(stored?.warmUses || {})) {
-      if (Number(at) > 0) warmUses.set(sessionId, Number(at));
+    for (const [sessionId, use] of Object.entries(stored?.warmUses || {})) {
+      const record = warmUseRecord(use);
+      if (record) warmUses.set(sessionId, record);
     }
     return touches;
   };
@@ -102,12 +117,20 @@ export function createPromptCacheTouchStore(
     },
     /** When a warm last used the session's cache successfully, or 0. */
     lastWarmUse(sessionId) {
-      return uses().get(String(sessionId || '')) || 0;
+      return uses().get(String(sessionId || ''))?.at || 0;
     },
-    /** A warm read the session's cache without writing at `at`. */
-    recordWarmUse(sessionId, at) {
-      if (!sessionId || !(Number(at) > 0)) return;
-      uses().set(String(sessionId), Number(at));
+    /** The session's last successful warm use `{ at, provider, model,
+     *  accountId }`, or null. */
+    warmUse(sessionId) {
+      const use = uses().get(String(sessionId || ''));
+      return use ? { ...use } : null;
+    },
+    /** A warm read the session's cache without writing at `at`, on the
+     *  route and account `{ provider, model, accountId }`. */
+    recordWarmUse(sessionId, at, identity = {}) {
+      const record = warmUseRecord({ ...identity, at });
+      if (!sessionId || !record) return;
+      uses().set(String(sessionId), record);
       scheduleFlush();
     },
     /** The session's own activity supersedes its warm use (a real request

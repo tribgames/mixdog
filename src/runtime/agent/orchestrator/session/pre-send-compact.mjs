@@ -92,7 +92,11 @@ function preSendCompactDecision(state, compactPolicy) {
     messages,
     sessionRef,
   });
-  const cacheExpired = shouldCompactForExpiredAgentCache(sessionRef, state.opts);
+  const cacheExpired = shouldCompactForExpiredAgentCache(sessionRef, state.opts, {
+    provider: sessionRef?.provider || state.provider?.name,
+    model: state.model,
+    messages,
+  });
   const mediaPressure = shouldCompactForRequestMedia(messages, sessionRef?.provider);
   const requireReduction = !reactivePending && !mediaPressure;
   let shouldCompact =

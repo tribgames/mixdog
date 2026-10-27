@@ -16,6 +16,9 @@ import { CONTEXT_SHARE_RATIO, COMPACT_TARGET_MIN_TOKENS, COMPACT_SAFETY_PERCENT 
 import { HANDOFF_TIMEOUT_MAX_MS } from '../compact/constants.mjs';
 import { envFlag, envPositiveInt } from '../../../../shared/env.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
+import { cacheWarmUseFor, lastCacheWarmUseAt } from '../../../../shared/idle-auto-clear-gate.mjs';
+import { ACCOUNT_PROVIDERS } from '../../../../shared/provider-accounts.mjs';
+import { plannedAccountId } from '../../providers/account-pool.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { isAgentModeSession } from '../agent-mode.mjs';
 import { providerInputExcludesCache, providerNativePdf } from '../../providers/registry.mjs';
@@ -703,13 +706,40 @@ export function shouldCompactForRequestMedia(messages, provider = '') {
 // Anthropic's 5m message-tail TTL (agent-runtime/cache-strategy.mjs gives it
 // to agent sessions). A send this long after the previous one finds the tail
 // cache expired and would rewrite the whole accumulated transcript; compacting
-// first makes that cold write the compacted transcript instead.
+// first makes that cold write the compacted transcript instead. The tail was
+// last used by the session's own send or by a successful cache warm
+// (cache-warm.mjs), which reads and refreshes it without moving
+// lastProviderSendAt: a warmed tail has not expired — for a request on the
+// warm's provider, model and account only, since the entry lives there.
 const AGENT_MESSAGE_CACHE_TTL_MS = 5 * 60_000;
 
-export function shouldCompactForExpiredAgentCache(sessionRef, opts) {
+// The account the request would be served by: the roster's first pick for a
+// provider with accounts (account-pool.mjs), '' for one without a roster.
+function requestAccountId(provider, model, sessionRef, opts, messages) {
+  if (!ACCOUNT_PROVIDERS.includes(provider)) return '';
+  return plannedAccountId(provider, {
+    sessionId: opts?.sessionId || sessionRef?.id || null,
+    messages,
+    providerState: opts?.providerState,
+    model,
+  });
+}
+
+/** Whether the agent session's 5m message tail expired before this request
+ *  on `provider` / `model` (default: the session's route). */
+export function shouldCompactForExpiredAgentCache(sessionRef, opts, { provider, model, messages = [] } = {}) {
   if (!isAgentOwner(sessionRef) || opts?.cacheStrategy?.messages !== '5m') return false;
   const lastSendAt = Number(sessionRef.lastProviderSendAt);
-  return lastSendAt > 0 && Date.now() - lastSendAt > AGENT_MESSAGE_CACHE_TTL_MS;
+  if (!(lastSendAt > 0)) return false;
+  const now = Date.now();
+  if (now - lastSendAt <= AGENT_MESSAGE_CACHE_TTL_MS) return false;
+  // No warm since the last send: the tail expired.
+  if (!(lastCacheWarmUseAt(sessionRef.id) > lastSendAt)) return true;
+  const route = { provider: provider || sessionRef.provider || '', model: model || sessionRef.model || '' };
+  const accountId = requestAccountId(route.provider, route.model, sessionRef, opts, messages);
+  if (accountId === null) return true;
+  const warmAt = cacheWarmUseFor(sessionRef.id, { ...route, accountId });
+  return now - Math.max(lastSendAt, warmAt) > AGENT_MESSAGE_CACHE_TTL_MS;
 }
 
 export function shouldCompactForSession(

@@ -47,6 +47,7 @@ import { applyPendingWorkspaceReroot, refreshSessionBp3Environment } from './pro
 import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
 import { applyAgentToolExposure } from '../loop/tool-exposure-migration.mjs';
 import { prewarmSessionAutoEffort } from './ask-turn-auto-effort.mjs';
+import { cancelCacheWarm } from '../cache-warm.mjs';
 
 // Durable turn-checkpoint recovery; re-exported so prior importers of this
 // module stay unchanged.
@@ -438,6 +439,10 @@ function resetSessionForRouteChange(id, session, previousModel, previousProvider
   delete session._providerPrefixGuardState;
   // The new route resolves its own wire before its first request.
   session.wireRoute = null;
+  // A warm chain replays the previous route's request: stop it. Its recorded
+  // warm use names that route, so it never counts as fresh cache for the new
+  // one (compact-policy.mjs shouldCompactForExpiredAgentCache).
+  cancelCacheWarm(id);
   const prepared = _prepareResumeTools(session, session.preset || 'full');
   session.tools = prepared.tools;
   session.toolSpec = prepared.toolSpec;

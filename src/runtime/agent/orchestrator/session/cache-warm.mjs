@@ -366,7 +366,9 @@ let deps = DEFAULT_DEPS;
 
 // The idle auto-clear measures idleness from the last cache use, a
 // successful warm included (durable in the touch store).
-setCacheWarmUseSource((sessionId) => (sessionId ? deps.touches().lastWarmUse(sessionId) : 0));
+// The record names the route and account the warm read, so only a request
+// on that same prefix counts it as fresh cache (compact-policy.mjs).
+setCacheWarmUseSource((sessionId) => (sessionId ? deps.touches().warmUse(sessionId) : null));
 
 // A session deleted for good drops everything it learned and touched.
 registerSessionPurgeHook((sessionId) => {
@@ -787,6 +789,10 @@ async function fireWarm(sessionId, chain) {
   chain.latencyMs = (reportedAt ?? deps.now()) - sentAt;
   recordTouch(sessionId, chain);
   // A read without a write is cache use: the idle auto-clear counts from it.
-  deps.touches().recordWarmUse(sessionId, sentAt);
+  deps.touches().recordWarmUse(sessionId, sentAt, {
+    provider: chain.request.provider.name,
+    model: chain.request.model,
+    accountId: target.accountId,
+  });
   scheduleWarm(sessionId, chain);
 }

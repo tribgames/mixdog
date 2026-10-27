@@ -93,6 +93,10 @@ export function captureTurnCheckpointContextState(session, messages, currentUser
     ),
     ...(kind === 'post_compact' ? { usageSnapshot: { ...usageSnapshot } } : {}),
     compaction: compactCheckpointState(session.compaction),
+    // Diagnostic only: the prefix fingerprint of the turn's last settled
+    // request (anthropic-prefix-trace.mjs), so the first request after a
+    // crash is still traced against it.
+    ...(session.providerPrefixBaseline ? { prefixBaseline: session.providerPrefixBaseline } : {}),
   };
 }
 

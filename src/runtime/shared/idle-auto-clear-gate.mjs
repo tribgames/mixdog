@@ -44,15 +44,37 @@ function hasModelVisibleConversation(session) {
   });
 }
 
-// When a session's prompt cache was last used by a successful cache warm (a
-// read with no write), registered by the warmer (cache-warm.mjs, from its
-// durable touch store); 0 when none.
-let lastCacheWarmUse = () => 0;
+// A session's last successful cache-warm use (a read with no write),
+// registered by the warmer (cache-warm.mjs, from its durable touch store):
+// `{ at, provider, model, accountId }` — when, and the route and account whose
+// cached prefix it read — or a bare epoch-ms time; null/0 when none.
+let lastCacheWarmUse = () => null;
 
 /** Register the source of a session's last successful cache-warm use
- *  (`(sessionId) => epoch ms | 0`); null restores none. */
+ *  (`(sessionId) => { at, provider, model, accountId } | epoch ms | null`);
+ *  null restores none. */
 export function setCacheWarmUseSource(source) {
-  lastCacheWarmUse = typeof source === 'function' ? source : () => 0;
+  lastCacheWarmUse = typeof source === 'function' ? source : () => null;
+}
+
+/** When a successful cache warm last used the session's prompt cache (epoch
+ *  ms), or 0: the warm read and refreshed the cached prefix without moving
+ *  any of the session's own timestamps. */
+export function lastCacheWarmUseAt(sessionId) {
+  const use = sessionId ? lastCacheWarmUse(sessionId) : null;
+  return timestampMs(use && typeof use === 'object' ? use.at : use);
+}
+
+/** When a successful cache warm last used the prefix a request on `provider`
+ *  / `model` / `accountId` reads (epoch ms), or 0: a warm on another route or
+ *  account refreshed an entry this request cannot read, and a use without a
+ *  recorded identity matches nothing. */
+export function cacheWarmUseFor(sessionId, { provider, model, accountId = '' } = {}) {
+  const use = sessionId ? lastCacheWarmUse(sessionId) : null;
+  if (!use || typeof use !== 'object' || !use.provider) return 0;
+  const matches =
+    use.provider === provider && use.model === model && String(use.accountId || '') === String(accountId || '');
+  return matches ? timestampMs(use.at) : 0;
 }
 
 /**
@@ -65,7 +87,7 @@ export function setCacheWarmUseSource(source) {
 export function sessionActivityTimestamp(session, fallback = 0) {
   if (!hasModelVisibleConversation(session)) return 0;
   const own = timestampMs(session?.lastUsedAt) || timestampMs(session?.updatedAt) || timestampMs(fallback);
-  return Math.max(own, timestampMs(lastCacheWarmUse(session?.id)));
+  return Math.max(own, lastCacheWarmUseAt(session?.id));
 }
 
 // A zero is often an unavailable/stale meter field, not an authoritative

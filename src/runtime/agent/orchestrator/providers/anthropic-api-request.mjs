@@ -10,7 +10,11 @@
  * anthropic-turn-result.mjs); nothing here touches the socket.
  */
 import { prepareAnthropicImages } from './lib/anthropic-image-input.mjs';
-import { anthropicPrefixFingerprint, recordAnthropicPrefix } from './lib/anthropic-prefix-trace.mjs';
+import {
+  anthropicPrefixFingerprint,
+  anthropicPrefixSessionId,
+  recordAnthropicPrefix,
+} from './lib/anthropic-prefix-trace.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
 import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable } from './anthropic-fast-mode.mjs';
@@ -183,7 +187,7 @@ export async function buildAnthropicApiRequest({
   // (once) → mark → prepare image bytes → send.
   params.stream = true;
   // Diagnostic: per-block prefix hashes of exactly what is sent.
-  recordAnthropicPrefix(opts.sessionId || opts.session?.id || null, anthropicPrefixFingerprint(params));
+  recordAnthropicPrefix(anthropicPrefixSessionId(opts), anthropicPrefixFingerprint(params));
 
   const requestHeaders = requestHeadersFor(params, {
     config,

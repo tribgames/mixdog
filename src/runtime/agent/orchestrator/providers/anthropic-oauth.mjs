@@ -8,6 +8,7 @@
 import { traceAgentSse, traceAgentUsage } from '../agent-trace.mjs';
 import {
   anthropicPrefixFingerprint,
+  anthropicPrefixSessionId,
   latestAnthropicPrefix,
   recordAnthropicPrefix,
 } from './lib/anthropic-prefix-trace.mjs';
@@ -555,7 +556,7 @@ export class AnthropicOAuthProvider {
     const body = buildRequestBody(messages, useModel, tools, sendOpts);
     body.messages = await prepareAnthropicImages(body.messages, { signal: externalSignal });
     // Diagnostic: per-block prefix hashes of exactly what is sent.
-    recordAnthropicPrefix(opts.sessionId || null, anthropicPrefixFingerprint(body));
+    recordAnthropicPrefix(anthropicPrefixSessionId(opts), anthropicPrefixFingerprint(body));
     if (body.speed === 'fast') {
       this.fastModeBetaHeaderLatched = true;
     }
@@ -652,6 +653,7 @@ export class AnthropicOAuthProvider {
             iteration,
             useModel,
             requestKind: opts.requestKind || null,
+            prefixSessionId: anthropicPrefixSessionId(opts),
           });
           tagMidstreamRetries(result, attemptIndex);
           return result;
@@ -887,7 +889,16 @@ export class AnthropicOAuthProvider {
   }
 
   // Traces + catalog upkeep for a streamed turn, then the empty-stream guard.
-  _settleStreamedTurn({ result, midState, sseStartedAt, sessionId, iteration, useModel, requestKind }) {
+  _settleStreamedTurn({
+    result,
+    midState,
+    sseStartedAt,
+    sessionId,
+    iteration,
+    useModel,
+    requestKind,
+    prefixSessionId,
+  }) {
     const ttftMs = midState.ttftAt ? midState.ttftAt - sseStartedAt : null;
     const liveModel = result.model || useModel;
     traceAgentSse({
@@ -912,7 +923,7 @@ export class AnthropicOAuthProvider {
       rawUsage: result.usage?.raw || null,
       provider: 'anthropic-oauth',
       requestKind,
-      prefixBlocks: latestAnthropicPrefix(sessionId),
+      prefixBlocks: latestAnthropicPrefix(prefixSessionId),
     });
 
     // Phase I: if the live response surfaced a model id we don't know

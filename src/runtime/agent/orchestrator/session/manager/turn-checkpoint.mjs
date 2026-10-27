@@ -224,6 +224,9 @@ export function recoverTurnCheckpoint(session) {
   // mark it unanchored so the first resumed send cannot compact from a gross
   // whole-transcript estimate.
   const contextStateRestored = restoreTurnCheckpointContextState(session, checkpoint);
+  // Diagnostic only (anthropic-prefix-trace.mjs): the turn's last settled
+  // request, whatever the context reading's alignment.
+  if (checkpoint.contextState?.prefixBaseline) session.providerPrefixBaseline = checkpoint.contextState.prefixBaseline;
   delete session.activeTurnCheckpoint;
   delete session.providerState;
   delete session._providerPrefixGuardState;

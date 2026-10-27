@@ -244,6 +244,17 @@ function sessionAccountId(providerName, key, messages, options) {
   return null;
 }
 
+/** The account a send of `model` for `sessionId` would try first right now —
+ *  the session's binding and the choice poolSend makes for its first attempt
+ *  — or null when the provider has no roster account or none is eligible. */
+export function plannedAccountId(providerName, { sessionId = null, messages = [], providerState, model = '' } = {}) {
+  const pool = readProviderAccountPool(providerName);
+  if (!pool.accounts.length) return null;
+  const sessionKey = sessionId ? `${providerName}:${sessionId}` : null;
+  const boundId = sessionAccountId(providerName, sessionKey, messages, { providerState });
+  return chooseProviderAccount(pool, new Set(), Date.now(), model, { sessionAccountId: boundId })?.id || null;
+}
+
 // Stamp the serving account on the answer, independent of transport state,
 // with the account the session stays bound to (`bindingId`).
 function recordServingAccount(providerName, result, id, bindingId) {

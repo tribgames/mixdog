@@ -4,7 +4,12 @@
  * consume a retry verdict, and settle a completed send into the loop state.
  */
 import { traceCacheBreak } from '../../cache-break-trace.mjs';
-import { anthropicPrefixChanges } from '../../providers/lib/anthropic-prefix-trace.mjs';
+import {
+  anthropicPrefixChanges,
+  latestAnthropicPrefix,
+  persistableAnthropicPrefix,
+  seedAnthropicPrefix,
+} from '../../providers/lib/anthropic-prefix-trace.mjs';
 import { resolveLiveToolCwd } from './tool-exec.mjs';
 import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
 import { addUsage, usageDeltaEvent } from './usage.mjs';
@@ -179,6 +184,9 @@ export async function sendProviderRequest(state, round) {
   } catch {
     // the send-started observer is advisory
   }
+  // Diagnostic only: a restarted process compares its first request with the
+  // last prefix fingerprint the session record kept (anthropic-prefix-trace.mjs).
+  seedAnthropicPrefix(sessionId, sessionRef?.providerPrefixBaseline);
   // The request a /btw side question forks: kept while it is in flight, with
   // its reply once it proceeds, and dropped again if it fails.
   const sideQuestion = captureSideQuestionRequest({
@@ -374,6 +382,10 @@ function traceActualCacheMiss(state, sent, response, { previousGuardState, previ
     );
   }
   sessionRef.lastProviderCachedPrefixTokens = cachePrefixTokens;
+  // The fingerprint of this request survives a restart on the record, so the
+  // next process's first miss can still name what moved.
+  const fingerprint = persistableAnthropicPrefix(latestAnthropicPrefix(sessionId));
+  if (fingerprint) sessionRef.providerPrefixBaseline = fingerprint;
 }
 
 /** Fold a completed send into the state: prefix guard, image-strip

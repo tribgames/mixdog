@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   anthropicPrefixChanges,
   anthropicPrefixFingerprint,
+  persistableAnthropicPrefix,
   recordAnthropicPrefix,
+  seedAnthropicPrefix,
 } from './anthropic-prefix-trace.mjs';
 
 const ttl = { type: 'ephemeral', ttl: '1h' };
@@ -41,10 +43,67 @@ test('per session: which blocks and markers changed since the previous request',
   recordAnthropicPrefix(id, anthropicPrefixFingerprint(body()));
   assert.equal(anthropicPrefixChanges(id), null, 'one request has nothing to compare');
   recordAnthropicPrefix(id, anthropicPrefixFingerprint(body()));
-  assert.deepEqual(anthropicPrefixChanges(id), { changedBlocks: 'none', markersChanged: false });
+  assert.deepEqual(anthropicPrefixChanges(id), {
+    changedBlocks: 'none',
+    markersChanged: false,
+    lostMessageBreakpoints: 'none',
+  });
   recordAnthropicPrefix(id, anthropicPrefixFingerprint(body({ bp3: 'BP3 rules v2', marked: false })));
-  assert.deepEqual(anthropicPrefixChanges(id), { changedBlocks: 's3', markersChanged: true });
+  assert.deepEqual(anthropicPrefixChanges(id), {
+    changedBlocks: 's3',
+    markersChanged: true,
+    lostMessageBreakpoints: 'none',
+  });
   recordAnthropicPrefix(id, anthropicPrefixFingerprint(body({ tools: [{ name: 'grep' }] })));
-  assert.deepEqual(anthropicPrefixChanges(id), { changedBlocks: 'tools,s3', markersChanged: true });
+  assert.deepEqual(anthropicPrefixChanges(id), {
+    changedBlocks: 'tools,s3',
+    markersChanged: true,
+    lostMessageBreakpoints: 'none',
+  });
   recordAnthropicPrefix(null, anthropicPrefixFingerprint(body()));
+});
+
+test('a message breakpoint is lost when the next request does not repeat the messages up to it', () => {
+  const id = `sess-${Math.random()}`;
+  const prior = body();
+  recordAnthropicPrefix(id, anthropicPrefixFingerprint(prior));
+  // Appending keeps the breakpoint; a new marker on the new tail does not matter.
+  const appended = structuredClone(prior);
+  delete appended.messages[1].content[0].cache_control;
+  appended.messages.push({
+    role: 'user',
+    content: [{ type: 'text', text: 'next', cache_control: { type: 'ephemeral' } }],
+  });
+  recordAnthropicPrefix(id, anthropicPrefixFingerprint(appended));
+  assert.equal(anthropicPrefixChanges(id).lostMessageBreakpoints, 'none');
+  // Text folded into the marked block rewrites it: its breakpoint is lost.
+  const folded = structuredClone(appended);
+  folded.messages[1].content[0].text = 'tail + folded';
+  recordAnthropicPrefix(id, anthropicPrefixFingerprint(folded));
+  assert.equal(anthropicPrefixChanges(id).lostMessageBreakpoints, 'm2');
+  const thinking = structuredClone(folded);
+  thinking.thinking = { type: 'adaptive' };
+  recordAnthropicPrefix(id, anthropicPrefixFingerprint(thinking));
+  assert.deepEqual(anthropicPrefixChanges(id), {
+    changedBlocks: 'params',
+    markersChanged: false,
+    lostMessageBreakpoints: 'm2',
+  });
+});
+
+test('after a restart the record’s fingerprint is the previous request', () => {
+  const id = `sess-${Math.random()}`;
+  const kept = JSON.parse(JSON.stringify(persistableAnthropicPrefix(anthropicPrefixFingerprint(body()))));
+  assert.doesNotMatch(JSON.stringify(kept), /secret|BP3 rules|tail/);
+  seedAnthropicPrefix(id, kept);
+  assert.equal(anthropicPrefixChanges(id), null, 'the seed alone has nothing to compare');
+  recordAnthropicPrefix(id, anthropicPrefixFingerprint(body({ bp3: 'BP3 rules v2' })));
+  assert.deepEqual(anthropicPrefixChanges(id), {
+    changedBlocks: 's3',
+    markersChanged: false,
+    lostMessageBreakpoints: 'none',
+  });
+  // A live session keeps its own history: a later seed changes nothing.
+  seedAnthropicPrefix(id, persistableAnthropicPrefix(anthropicPrefixFingerprint(body({ tools: [] }))));
+  assert.equal(anthropicPrefixChanges(id).changedBlocks, 's3');
 });

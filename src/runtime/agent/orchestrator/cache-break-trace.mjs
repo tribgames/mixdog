@@ -53,6 +53,7 @@ export function buildCacheBreakPayload(record = {}) {
     input_prefix_mismatch_actual_hash: cleanHash(record.inputPrefixMismatchActualHash),
     changed_blocks: cleanText(record.changedBlocks),
     system_markers_changed: typeof record.markersChanged === 'boolean' ? record.markersChanged : null,
+    lost_message_breakpoints: cleanText(record.lostMessageBreakpoints),
   };
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== null));
 }
@@ -81,6 +82,7 @@ function formatCacheBreakLine(record = {}) {
     ['noGuardBaseline', payload.missing_prefix_guard_baseline],
     ['changedBlocks', payload.changed_blocks],
     ['systemMarkersChanged', payload.system_markers_changed],
+    ['lostMessageBreakpoints', payload.lost_message_breakpoints],
   ].filter(([, value]) => value !== null && value !== undefined);
   return `[cache-break] ${fields.map(([key, value]) => (typeof value === 'string' ? `${key}=${JSON.stringify(value)}` : `${key}=${value}`)).join(' ')}`;
 }
