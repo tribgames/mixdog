@@ -4,6 +4,33 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Corretti l'accesso tramite SSH, gli errori di configurazione dell'accesso al PC e l'arresto degli agenti sui modelli Anthropic, e aggiunto un selettore di vista per le schede di Visualize affiancate.
+
+### Nuove funzionalità
+
+- **Accesso senza browser** — Aggiunto l'accesso tramite codice del dispositivo per ChatGPT e Grok, con l'URL o il codice di accesso mostrato nel riquadro TUI via SSH o in assenza di uno schermo (#242).
+- **Selettore di vista di Visualize** — Aggiunto un selettore di vista all'indicatore a pillola dello zoom di una scheda di Visualize affiancata, per mostrare entrambi i riquadri o uno alla volta.
+- **Installazione APK dalla chat** — Aggiunta l'apertura di un APK scaricato nel programma di installazione pacchetti di Android anziché nel foglio di condivisione (#241).
+
+### Modifiche
+
+- Modificati i bot per raggiungere un altro bot tramite il suo bot id durante l'invio, la lettura o la verifica.
+- Modificati la barra laterale, i punti di non letto e l'avvio degli agenti per rispondere più velocemente in presenza di lunghi elenchi di sessioni.
+
+### Correzioni di bug
+
+- Corretto l'errore di configurazione dell'accesso al PC sui computer la cui radice dell'unità presenta un'autorizzazione di sola ereditarietà, mostrando il motivo per cui un'approvazione non è stata completata (#251).
+- Corretto l'arresto per inattività degli agenti sui modelli Anthropic mentre pensavano o scrivevano un file di grandi dimensioni (#248).
+- Corretti gli agenti su route personalizzate di Responses che andavano in timeout di inattività prima del loro primo output (#244).
+- Corretti Computer Use, Browser Use e i callback di accesso che fallivano con l'errore "bad port" su alcuni PC.
+- Corretta la selezione di un modello principale sul provider di un fallback che falliva con "duplicate route provider".
+- Corretto il passaggio automatico a un modello di fallback che inviava tutti gli strumenti MCP contemporaneamente.
+- Corretta la perdita della cronologia iniziale, dei titoli o delle pagine nelle conversazioni importate di Claude e Codex, e mostrato l'uso degli strumenti come righe di attività compresse (#245).
+- Corretti i worktree orfani che rimanevano indietro e il branch predefinito che veniva acquisito in un worktree gestito (#247).
+- Corretto un bot che risultava ancora al lavoro dopo la fine del lavoro delegato e la mancanza del punto di completamento in una sessione compattata.
+- Corretta la ricostruzione della cache dei prompt dopo una richiesta interrotta o un riavvio.
+- Corretta la perdita del bordo inferiore per tabelle o blocchi di codice che chiudono una risposta, e la scomparsa della spaziatura tra celle nelle tabelle strette su smartphone.
+
 ## v1.4.0 - 2026-10-27
 
 Migliorato il lavoro remoto dal telefono insieme a Browser Use e Computer Use e ottimizzato l'harness degli agenti per saltare i controlli ridondanti e completare il lavoro più velocemente.

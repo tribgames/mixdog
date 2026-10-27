@@ -5,6 +5,33 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Correction de la connexion via SSH, des échecs de configuration de l'accès au PC et de l'arrêt des agents sur les modèles Anthropic, et ajout d'un commutateur de vue pour les onglets Visualize côte à côte.
+
+### Nouvelles fonctionnalités
+
+- **Connexion sans navigateur** — Ajout de la connexion par code d'appareil pour ChatGPT et Grok, avec l'URL ou le code de connexion affiché dans le panneau TUI via SSH ou en l'absence d'écran (#242).
+- **Commutateur de vue Visualize** — Ajout d'un commutateur de vue à la pastille de zoom d'un onglet Visualize côte à côte, afin d'afficher les deux volets ou un seul à la fois.
+- **Installation d'APK depuis le chat** — Ajout de l'ouverture d'un APK téléchargé dans le programme d'installation de package Android plutôt que dans la feuille de partage (#241).
+
+### Modifications
+
+- Modification des bots pour joindre un autre bot par son bot id lors d'un envoi, d'une lecture ou d'une vérification.
+- Modification de la barre latérale, des points de non-lu et du lancement des agents pour répondre plus rapidement avec de longues listes de sessions.
+
+### Corrections de bugs
+
+- Correction de l'échec de la configuration de l'accès au PC sur les ordinateurs dont la racine du lecteur comporte une autorisation d'héritage uniquement, avec affichage de la raison pour laquelle une approbation ne s'est pas terminée (#251).
+- Correction des agents sur les modèles Anthropic qui étaient arrêtés pour cause d'inactivité pendant qu'ils réfléchissaient ou écrivaient un fichier volumineux (#248).
+- Correction des agents sur des routes Responses personnalisées qui devenaient inactifs avant leur première sortie (#244).
+- Correction de Computer Use, Browser Use et des rappels de connexion qui échouaient avec l'erreur "bad port" sur certains PC.
+- Correction du choix d'un modèle principal chez le fournisseur d'un modèle de secours qui échouait avec "duplicate route provider".
+- Correction du basculement automatique vers un modèle de secours qui envoyait tous les outils MCP en même temps.
+- Correction des conversations Claude et Codex importées qui perdaient l'historique initial, les titres ou les pages, et affichage de leur utilisation d'outils sous forme de lignes d'activité réduites (#245).
+- Correction des worktrees orphelins qui subsistaient et de la branche par défaut qui était intégrée dans un worktree géré (#247).
+- Correction d'un bot qui apparaissait toujours comme actif après la fin de son travail délégué, et de l'absence du point d'achèvement sur une session compactée.
+- Correction du cache de prompts qui était reconstruit après une requête interrompue ou un redémarrage.
+- Correction d'un tableau ou d'un bloc de code à la fin d'une réponse qui perdait sa bordure inférieure, et des tableaux étroits sur mobile qui perdaient l'espacement entre cellules.
+
 ## v1.4.0 - 2026-10-27
 
 Amélioration du travail à distance depuis votre téléphone avec Browser Use et Computer Use, et optimisation de l’environnement des agents pour ignorer les vérifications redondantes et terminer le travail plus rapidement.

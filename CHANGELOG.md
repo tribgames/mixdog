@@ -5,6 +5,33 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Fixed sign-in over SSH, PC access setup failures and agents stopping on Anthropic models, and added a view switch for side-by-side Visualize tabs.
+
+### New features
+
+- **Sign-in without a browser** — Added device-code sign-in for ChatGPT and Grok, with the sign-in URL or code shown in the TUI panel over SSH or without a display (#242).
+- **Visualize view switch** — Added a view switch to the zoom pill of a side-by-side Visualize tab, to show both panes or one at a time.
+- **APK install from chat** — Added opening a downloaded APK in the Android package installer instead of the share sheet (#241).
+
+### Changes
+
+- Changed bots to reach another bot by its bot id when sending to, reading or checking it.
+- Changed the sidebar, unread dots and agent spawns to respond faster with long session lists.
+
+### Bug fixes
+
+- Fixed PC access setup failing on PCs whose drive root carries an inherit-only permission, and showing why an approval did not finish (#251).
+- Fixed agents on Anthropic models being stopped as stale while thinking or writing a large file (#248).
+- Fixed agents on custom Responses routes going stale before their first output (#244).
+- Fixed Computer Use, Browser Use and sign-in callbacks failing with a "bad port" error on some PCs.
+- Fixed choosing a main model on a fallback's provider failing with "duplicate route provider".
+- Fixed an automatic switch to a fallback model sending every MCP tool at once.
+- Fixed imported Claude and Codex conversations losing early history, titles or pages, and showed their tool use as collapsed activity rows (#245).
+- Fixed orphaned worktrees staying behind and the default branch being taken into a managed worktree (#247).
+- Fixed a bot showing as working after its delegated work ended, and a compacted session missing its done dot.
+- Fixed the prompt cache being rebuilt after an interrupted request or a restart.
+- Fixed a table or code block that ends a reply losing its bottom border, and narrow phone tables losing their cell gap.
+
 ## v1.4.0 - 2026-10-27
 
 Improved remote work from your phone together with Browser Use and Computer Use, and streamlined the agent harness to skip redundant checks and finish work faster.

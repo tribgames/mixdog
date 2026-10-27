@@ -4,6 +4,33 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Anmeldung über SSH, Fehler bei der Einrichtung des PC-Zugriffs sowie das Anhalten von Agenten bei Anthropic-Modellen behoben und eine Ansichtsumschaltung für nebeneinanderliegende Visualize-Tabs hinzugefügt.
+
+### Neue Funktionen
+
+- **Anmeldung ohne Browser** — Gerätecode-Anmeldung für ChatGPT und Grok hinzugefügt, wobei die Anmelde-URL oder der Code bei SSH oder ohne Bildschirm im TUI-Panel angezeigt wird (#242).
+- **Visualize-Ansichtsumschaltung** — Ansichtsumschaltung zur Zoom-Pille eines nebeneinanderliegenden Visualize-Tabs hinzugefügt, um beide Bereiche oder jeweils einen anzuzeigen.
+- **APK-Installation aus dem Chat** — Öffnen einer heruntergeladenen APK im Android-Paket-Installationsprogramm anstelle des Freigabedialogs hinzugefügt (#241).
+
+### Änderungen
+
+- Bots so geändert, dass sie einen anderen Bot über dessen bot id erreichen, wenn sie an diesen senden, ihn lesen oder überprüfen.
+- Die Seitenleiste, Ungelesen-Punkte und das Starten von Agenten so geändert, dass sie bei langen Sitzungslisten schneller reagieren.
+
+### Fehlerbehebungen
+
+- Behoben: Die Einrichtung des PC-Zugriffs schlug auf PCs fehl, deren Laufwerkstammverzeichnis eine Nur-Vererbungs-Berechtigung aufweist, und es wird angezeigt, warum eine Genehmigung nicht abgeschlossen wurde (#251).
+- Behoben: Agenten bei Anthropic-Modellen wurden als inaktiv angehalten, während sie nachdachten oder eine große Datei schrieben (#248).
+- Behoben: Agenten auf benutzerdefinierten Responses-Routen wurden vor ihrer ersten Ausgabe als inaktiv eingestuft (#244).
+- Behoben: Computer Use, Browser Use und Anmelde-Callbacks schlugen auf einigen PCs mit dem Fehler "bad port" fehl.
+- Behoben: Die Auswahl eines Hauptmodells beim Anbieter eines Fallbacks schlug mit "duplicate route provider" fehl.
+- Behoben: Beim automatischen Wechsel zu einem Fallback-Modell wurden alle MCP-Werkzeuge auf einmal gesendet.`
+- Behoben: Importierte Claude- und Codex-Unterhaltungen verloren den früheren Verlauf, Titel oder Seiten, und ihre Tool-Nutzung wurde als eingeklappte Aktivitätszeilen dargestellt (#245).
+- Behoben: Verwaiste Worktrees blieben zurück und der Standard-Branch wurde in einen verwalteten Worktree übernommen (#247).
+- Behoben: Ein Bot wurde nach Beendigung seiner delegierten Arbeit weiterhin als arbeitend angezeigt, und bei einer komprimierten Sitzung fehlte der Fertig-Punkt.
+- Behoben: Der Prompt-Cache wurde nach einer unterbrochenen Anfrage oder einem Neustart neu aufgebaut.
+- Behoben: Eine Tabelle oder ein Codeblock am Ende einer Antwort verlor ihren unteren Rahmen, und bei schmalen Smartphone-Tabellen ging der Zellenabstand verloren.
+
 ## v1.4.0 - 2026-10-27
 
 Fernarbeit über Ihr Smartphone zusammen mit Browser Use und Computer Use verbessert sowie das Agenten-Harness optimiert, um überflüssige Prüfungen zu überspringen und Aufgaben schneller abzuschließen.

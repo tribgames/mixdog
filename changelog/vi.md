@@ -4,6 +4,33 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đã sửa lỗi đăng nhập qua SSH, lỗi thiết lập truy cập PC và các agent bị dừng trên các mô hình Anthropic, đồng thời thêm nút chuyển đổi chế độ xem cho các thẻ Visualize song song.
+
+### Tính năng mới
+
+- **Đăng nhập không cần trình duyệt** — Đã thêm tính năng đăng nhập bằng mã thiết bị cho ChatGPT và Grok, hiển thị URL hoặc mã đăng nhập trong bảng điều khiển TUI qua SSH hoặc khi không có màn hình (#242).
+- **Chuyển đổi chế độ xem Visualize** — Đã thêm nút chuyển đổi chế độ xem vào viên thu phóng của thẻ Visualize song song, để hiển thị cả hai ngăn hoặc từng ngăn một.
+- **Cài đặt APK từ cuộc trò chuyện** — Đã thêm tính năng mở tệp APK đã tải xuống trong trình cài đặt gói Android thay vì trang chia sẻ (#241).
+
+### Thay đổi
+
+- Đã thay đổi các bot để liên hệ với một bot khác bằng bot id của bot đó khi gửi đến, đọc hoặc kiểm tra bot đó.
+- Đã thay đổi thanh bên, dấu chấm chưa đọc và quá trình khởi tạo agent để phản hồi nhanh hơn với danh sách phiên dài.
+
+### Sửa lỗi
+
+- Đã sửa lỗi thiết lập truy cập PC bị thất bại trên các PC có thư mục gốc của ổ đĩa mang quyền chỉ kế thừa, và hiển thị lý do tại sao quá trình phê duyệt chưa hoàn tất (#251).
+- Đã sửa lỗi các agent trên các mô hình Anthropic bị dừng do bị coi là không phản hồi trong khi đang suy nghĩ hoặc ghi một tệp lớn (#248).
+- Đã sửa lỗi các agent trên các tuyến Responses tùy chỉnh bị coi là không phản hồi trước khi có đầu ra đầu tiên (#244).
+- Đã sửa lỗi Computer Use, Browser Use và lệnh gọi lại đăng nhập bị thất bại với lỗi "bad port" trên một số PC.
+- Đã sửa lỗi việc chọn mô hình chính trên nhà cung cấp của mô hình dự phòng bị thất bại với lỗi "duplicate route provider".
+- Đã sửa lỗi việc tự động chuyển sang mô hình dự phòng gửi tất cả các công cụ MCP cùng một lúc.
+- Đã sửa lỗi các cuộc trò chuyện Claude và Codex được nhập bị mất lịch sử ban đầu, tiêu đề hoặc trang, và hiển thị việc sử dụng công cụ của chúng dưới dạng các hàng hoạt động thu gọn (#245).
+- Đã sửa lỗi các worktree mồ côi còn sót lại và nhánh mặc định bị đưa vào một worktree được quản lý (#247).
+- Đã sửa lỗi bot vẫn hiển thị là đang làm việc sau khi công việc được ủy quyền đã kết thúc, và phiên được nén bị thiếu dấu chấm hoàn thành.
+- Đã sửa lỗi bộ nhớ đệm lời nhắc bị tạo lại sau một yêu cầu bị gián đoạn hoặc sau khi khởi động lại.
+- Đã sửa lỗi bảng hoặc khối mã ở cuối câu trả lời bị mất viền dưới, và các bảng hẹp trên điện thoại bị mất khoảng cách giữa các ô.
+
 ## v1.4.0 - 2026-10-27
 
 Cải thiện khả năng làm việc từ xa từ điện thoại cùng với Browser Use và Computer Use, đồng thời tinh gọn agent harness để bỏ qua các bước kiểm tra thừa và hoàn thành công việc nhanh hơn.

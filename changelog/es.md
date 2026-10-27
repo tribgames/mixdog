@@ -5,6 +5,33 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se corrigieron el inicio de sesión a través de SSH, los fallos de configuración de acceso al PC y la detención de agentes en modelos de Anthropic, y se añadió un selector de vista para las pestañas de Visualize en paralelo.
+
+### Nuevas funciones
+
+- **Inicio de sesión sin navegador** — Se añadió el inicio de sesión mediante código de dispositivo para ChatGPT y Grok, mostrándose la URL o el código de inicio de sesión en el panel TUI a través de SSH o sin pantalla (#242).
+- **Selector de vista de Visualize** — Se añadió un selector de vista a la píldora de zoom de una pestaña de Visualize en paralelo, para mostrar ambos paneles o uno a la vez.`
+- **Instalación de APK desde el chat** — Se añadió la apertura de un APK descargado en el instalador de paquetes de Android en lugar del menú de compartir (#241).
+
+### Cambios
+
+- Se modificaron los bots para comunicarse con otro bot mediante su bot id al enviar mensajes, leerlo o consultarlo.
+- Se modificaron la barra lateral, los puntos de no leído y el inicio de agentes para responder más rápido con listas largas de sesiones.
+
+### Correcciones de errores
+
+- Se corrigió el fallo de configuración del acceso al PC en equipos cuya raíz de unidad tiene un permiso de solo herencia, y se muestra por qué no finalizó una aprobación (#251).
+- Se corrigió que los agentes en modelos de Anthropic se detuvieran por inactividad mientras pensaban o escribían un archivo grande (#248).
+- Se corrigió que los agentes en rutas personalizadas de Responses se consideraran inactivos antes de su primera salida (#244).
+- Se corrigió que Computer Use, Browser Use y las devoluciones de llamada de inicio de sesión fallaran con un error "bad port" en algunos PC.
+- Se corrigió que la selección de un modelo principal en el proveedor de un modelo de respaldo fallara con "duplicate route provider".
+- Se corrigió que el cambio automático a un modelo de respaldo enviara todas las herramientas MCP a la vez.
+- Se corrigió la pérdida del historial inicial, títulos o páginas en conversaciones importadas de Claude y Codex, y se mostró el uso de herramientas como filas de actividad contraídas (#245).
+- Se corrigió que quedaran worktrees huérfanos y que la rama predeterminada se incorporara a un worktree administrado (#247).
+- Se corrigió que un bot siguiera mostrándose como trabajando tras finalizar su tarea delegada y que una sesión compactada no mostrara su punto de completado.
+- Se corrigió que la caché de prompts se reconstruyera tras una solicitud interrumpida o un reinicio.
+- Se corrigió la pérdida del borde inferior en tablas o bloques de código al final de una respuesta, y la pérdida del espacio entre celdas en tablas estrechas de teléfonos.
+
 ## v1.4.0 - 2026-10-27
 
 Se mejoró el trabajo remoto desde el teléfono junto con Browser Use y Computer Use, y se optimizó el entorno de agentes para omitir comprobaciones redundantes y completar el trabajo más rápido.

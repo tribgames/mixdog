@@ -4,6 +4,33 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Corrigidos o login via SSH, as falhas de configuração de acesso ao PC e a interrupção de agentes em modelos da Anthropic, e adicionado um alternador de visualização para as abas lado a lado do Visualize.
+
+### Novos recursos
+
+- **Login sem navegador** — Adicionado o login por código de dispositivo para ChatGPT e Grok, exibindo a URL ou o código de login no painel TUI via SSH ou sem tela (#242).
+- **Alternador de visualização do Visualize** — Adicionado um alternador de visualização à pílula de zoom de uma aba lado a lado do Visualize, para exibir ambos os painéis ou um por vez.
+- **Instalação de APK a partir do chat** — Adicionada a abertura de um APK baixado no instalador de pacotes do Android em vez da folha de compartilhamento (#241).
+
+### Alterações
+
+- Alterados os bots para acessarem outro bot por seu bot id ao enviar, ler ou verificar.
+- Alterados a barra lateral, os pontos de não lido e o acionamento de agentes para responderem mais rapidamente com listas longas de sessões.
+
+### Correções de bugs
+
+- Corrigida a falha na configuração de acesso ao PC em computadores cuja raiz da unidade possui uma permissão apenas de herança, e exibido o motivo pelo qual uma aprovação não foi concluída (#251).
+- Corrigido o problema em que agentes em modelos da Anthropic eram interrompidos por inatividade enquanto pensavam ou gravavam um arquivo grande (#248).
+- Corrigido o problema em que agentes em rotas personalizadas de Responses eram considerados inativos antes de sua primeira saída (#244).
+- Corrigido o erro "bad port" ao executar Computer Use, Browser Use e retornos de chamada de login em alguns computadores.
+- Corrigida a escolha de um modelo principal no provedor de um fallback que falhava com "duplicate route provider".
+- Corrigida a alternância automática para um modelo de fallback que enviava todas as ferramentas MCP de uma só vez.
+- Corrigida a perda de histórico inicial, títulos ou páginas em conversas importadas do Claude e Codex, e exibido o uso de ferramentas como linhas de atividade recolhidas (#245).
+- Corrigidos os worktrees órfãos que permaneciam e a branch padrão que era incorporada a um worktree gerenciado (#247).
+- Corrigido o bot que continuava sendo exibido como trabalhando após o término do trabalho delegado e a falta do ponto de conclusão em uma sessão compactada.
+- Corrigida a recriação do cache de prompts após uma solicitação interrompida ou reinicialização.
+- Corrigida a perda da borda inferior em tabelas ou blocos de código ao final de uma resposta, e tabelas estreitas em celulares que perdiam o espaçamento entre células.
+
 ## v1.4.0 - 2026-10-27
 
 Aprimorado o trabalho remoto pelo celular junto com Browser Use e Computer Use, e simplificado o harness de agentes para ignorar verificações redundantes e concluir tarefas mais rapidamente.
