@@ -944,7 +944,7 @@ test('phone: one write per step, on the running mark\'s beat, nothing while held
 });
 
 test('phone: every pause rule stops the writes and the resume lands on the beat', async (t) => {
-  const { page, meta, drain } = await drivenPage(t, { phone: true });
+  const { page, meta, drain, advance } = await drivenPage(t, { phone: true, virtualClock: true });
   const toggle = (selector, attribute, value) =>
     page.evaluate(
       (selector, attribute, value) => {
@@ -960,7 +960,21 @@ test('phone: every pause rule stops the writes and the resume lands on the beat'
     page.evaluate((value) => {
       document.documentElement.dataset.mixdogMotion = value;
     }, value);
-  const reduced = (value) => page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value }]);
+  // Resolves once the page's listeners have seen the preference change.
+  const reduced = async (value) => {
+    await page.evaluate(() => {
+      window.__mediaChanged = new Promise((resolve) =>
+        window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => resolve(), { once: true })
+      );
+    });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value }]);
+    await page.evaluate(() => window.__mediaChanged);
+  };
+  // A frame has run its animation callbacks, including the lock pass queued
+  // by the change just made.
+  const frame = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+  // Every wake comes late by 1-25ms (a slow machine's timers), never on time.
+  const LATE = [1, 7, 15, 3, 25, 11];
   const visibleRow = '[data-context="visible"] .transcript-virtual-row';
   const cases = [
     {
@@ -1002,20 +1016,24 @@ test('phone: every pause rule stops the writes and the resume lands on the beat'
         }),
     },
   ];
-  await sleep(300);
+  await frame();
+  await advance(300, LATE);
   for (const { label, scope, hold, release } of cases) {
     await drain();
     await hold();
-    await sleep(100);
+    // The change's frame callbacks (the pause or resume pass) have run.
+    await frame();
+    await advance(100, LATE);
     await drain();
-    await sleep(300);
+    await advance(300, LATE);
     const held = byContext(await drain());
     for (const name of scope) assert.equal(held[name], undefined, `${label}: ${name} holds, no writes`);
     for (const name of RUNNING.filter((name) => !scope.includes(name))) {
       assert.ok(held[name]?.length > 3, `${label}: ${name} keeps stepping`);
     }
     await release();
-    await sleep(300);
+    await frame();
+    await advance(300, LATE);
     const resumed = byContext(await drain());
     for (const name of scope) {
       const list = resumed[name];
