@@ -460,8 +460,9 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
 // A user message's content as blocks of the message it joins; blank text is
 // dropped (a blank text block is a hard 400).
 function siblingBlocks(content) {
-  const blocks =
-    typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
+  let blocks = [];
+  if (typeof content === 'string') blocks = [{ type: 'text', text: content }];
+  else if (Array.isArray(content)) blocks = content;
   return blocks.filter((block) => !(block?.type === 'text' && isBlankText(block.text)));
 }
 

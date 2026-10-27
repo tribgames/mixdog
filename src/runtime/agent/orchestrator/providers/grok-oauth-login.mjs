@@ -99,6 +99,8 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code, signal 
   return tokens;
 }
 
+// Not sleepWithAbort: grok-oauth-isolated.test.mjs loads this file in a VM
+// sandbox that admits no dependency beyond its reviewed list.
 const defaultSleep = (ms, signal) =>
   new Promise((resolve, reject) => {
     if (signal.aborted) return reject(signal.reason);
