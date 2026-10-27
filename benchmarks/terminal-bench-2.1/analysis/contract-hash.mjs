@@ -109,7 +109,7 @@ function benchmarkLeadMeta(builder, pluginRoot) {
     );
     return {
       meta: builder.buildLeadMetaContent({ PLUGIN_ROOT: pluginRoot, DATA_DIR: dataDir }),
-      language: builder.buildLeadLanguageContent({ DATA_DIR: dataDir }),
+      language: builder.buildLeadLanguageContent({ PLUGIN_ROOT: pluginRoot, DATA_DIR: dataDir }),
     };
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
