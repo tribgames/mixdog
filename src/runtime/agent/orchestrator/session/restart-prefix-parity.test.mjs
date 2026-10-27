@@ -222,26 +222,31 @@ test('a turn killed in a tool run resumes on the whole prefix its last request c
   assert.deepEqual(after.changes[0], { changedBlocks: 'none', markersChanged: false, lostMessageBreakpoints: 'none' });
 });
 
-test('a turn killed with a request on the wire resumes on the prefix that request cached', {
-  todo:
-    'decision pending: the restart marker and the next prompt fold into the tool_result that ended the ' +
-    'killed request (anthropic-request-utils.mjs toAnthropicMessages), rewriting its cached tail block',
-}, async (t) => {
+test('a turn killed with a request on the wire resumes on the whole prefix that request cached', async (t) => {
   const { before, after } = await killedInRequest(t.signal);
-  const diff = prefixDiff(before.bodies.at(-1), after.bodies[0]);
+  const sent = before.bodies.at(-1);
+  const resumed = after.bodies[0];
+  const diff = prefixDiff(sent, resumed);
+  // Every block up to the killed request's message breakpoint — its tail
+  // tool_result — comes back byte for byte; only the turn-scoped system
+  // reminder after it (clear_at: next_user_message) is not repeated.
   assert.deepEqual(diff.lostBreakpoints, [], JSON.stringify(diff, null, 2));
-});
-
-test('a request killed on the wire: only its tail tool_result block changes on resume', async (t) => {
-  const { before, after } = await killedInRequest(t.signal);
-  const diff = prefixDiff(before.bodies.at(-1), after.bodies[0]);
-  assert.equal(diff.firstDiff, diff.lastBreakpoint, JSON.stringify(diff, null, 2));
-  const previous = JSON.parse(diff.previousBlock).block;
-  const next = JSON.parse(diff.nextBlock).block;
-  assert.equal(previous.type, 'tool_result');
-  assert.equal(next.tool_use_id, previous.tool_use_id);
-  // The sent result is kept; the restart marker and the next prompt are
-  // folded onto its end.
-  assert.ok(next.content.startsWith(previous.content));
-  assert.match(next.content.slice(previous.content.length), /Request interrupted by process restart[\s\S]*third task/);
+  const at = Number(/^messages\[(\d+)\]\(user\)/.exec(diff.lastBreakpoint)?.[1]);
+  const sentBlocks = sent.messages[at].content;
+  assert.equal(sentBlocks.at(-1).type, 'tool_result');
+  assert.equal(diff.firstDiff, `messages[${at + 1}](system)[0]`, JSON.stringify(diff, null, 2));
+  // The restart marker and the next prompt follow as sibling text blocks in
+  // the same user message, not as a turn of their own.
+  const message = resumed.messages[at];
+  assert.equal(message.role, 'user');
+  const siblings = message.content.slice(sentBlocks.length);
+  assert.ok(siblings.length > 0 && siblings.every((block) => block.type === 'text'), JSON.stringify(siblings));
+  assert.match(
+    siblings.map((block) => block.text).join('\n'),
+    /Request interrupted by process restart[\s\S]*third task/
+  );
+  assert.ok(
+    resumed.messages.slice(at + 1).every((next) => next.role !== 'user'),
+    'no user turn of their own'
+  );
 });

@@ -338,6 +338,9 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
   const ownProvider = String(provider || '').toLowerCase();
   const availableNames = anthropicToolNameSet(availableTools);
   const result = [];
+  // Tool-result user messages a provider request ended with (see the
+  // `sentRequestTail` meta finalizeInterruptedTurn stamps).
+  const sent = new WeakSet();
   for (let idx = 0; idx < messages.length; idx++) {
     const m = messages[idx];
     if (m.role === 'system') continue;
@@ -412,6 +415,17 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
       } else {
         result.push({ role: 'user', content: [block, ...hoisted] });
       }
+      if (m.meta?.sentRequestTail === true) sent.add(result[result.length - 1]);
+      continue;
+    }
+    // Text after a tool_result message a provider request already carried
+    // (an interrupted request's tail: the restart or cancel marker, the next
+    // prompt and anything riding with it) goes in as sibling blocks of that
+    // user message. Folding it into the tool_result would rewrite a block the
+    // provider cached, so the whole message prefix would be written again.
+    const tail = result[result.length - 1];
+    if (m.role === 'user' && m.meta?.source !== 'steering' && sent.has(tail)) {
+      tail.content.push(...siblingBlocks(normalizeContentForAnthropic(m.content)));
       continue;
     }
     // First-party client parity: fold a user text turn that directly follows a
@@ -429,6 +443,8 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
       !isSteering &&
       foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))
     ) {
+      // A reminder folded before the request was sent ends that request.
+      if (m.meta?.sentRequestTail === true) sent.add(tail);
       continue;
     }
     // An assistant turn with no text and no blocks (a refused or empty final
@@ -439,6 +455,14 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
     result.push(m.role === 'assistant' ? assistantWireMessage(m, content) : { role: m.role, content });
   }
   return sanitizeAnthropicContentPairs(result);
+}
+
+// A user message's content as blocks of the message it joins; blank text is
+// dropped (a blank text block is a hard 400).
+function siblingBlocks(content) {
+  const blocks =
+    typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
+  return blocks.filter((block) => !(block?.type === 'text' && isBlankText(block.text)));
 }
 
 function isBlankText(content) {

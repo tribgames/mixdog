@@ -110,6 +110,15 @@ function finalizeInterruptedTurn({
     };
   }
 
+  // Killed with a request on the wire (phase 'streaming' after a tool run):
+  // the provider received the transcript up to its last message, and may
+  // have cached it. Stamping that message keeps what this interruption
+  // appends (the marker, the next prompt) out of the tool_result it ends —
+  // see toAnthropicMessages. The stamp is meta only; no wire bytes change.
+  const sentTail = messages.length - 1;
+  if (phase === 'streaming' && (messages[sentTail]?.role === 'tool' || messages[sentTail]?.role === 'user')) {
+    messages[sentTail] = { ...messages[sentTail], meta: { ...messages[sentTail].meta, sentRequestTail: true } };
+  }
   appendObservedTurnOutput(messages, {
     partialAssistantContent,
     partialReasoningContent,
