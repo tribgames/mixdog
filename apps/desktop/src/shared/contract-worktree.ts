@@ -17,7 +17,8 @@ export interface DesktopSessionWorkspace {
   worktreeId: string | null;
   branch: string | null;
   baseCommit: string | null;
-  /** Branch a worktree merges into: the project folder's checked-out branch. */
+  /** Branch a worktree merges into: the project folder's checked-out branch.
+   *  Null for an existing branch until a merge records it. */
   mergeTarget: string | null;
   /** Monotonic; pass it back as `expectedRevision` to detect a stale menu. */
   revision: number;

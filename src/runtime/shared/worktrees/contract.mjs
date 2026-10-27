@@ -196,7 +196,7 @@ function record(value, name) {
  * @property {string|null} worktreeId Managed worktree id; null when running in the project folder.
  * @property {string|null} branch Checked-out branch at `cwd`; null when detached or not a repository.
  * @property {string|null} baseCommit Commit the worktree branch was created from.
- * @property {string|null} mergeTarget Branch the worktree merges into (the project folder's branch).
+ * @property {string|null} mergeTarget Branch the worktree merges into (the project folder's branch); null for an existing branch until a merge records it.
  * @property {number} revision Monotonic; advances on every committed workspace change.
  * @property {WorkspaceTransition} transition In-flight transition marker.
  */
