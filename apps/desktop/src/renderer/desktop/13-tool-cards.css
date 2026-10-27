@@ -734,6 +734,12 @@ html[data-mixdog-mobile-tabs]
 .transcript-terminal-peek {
   max-width: 100%;
 }
+/* Only the title or command gives way to a narrow column: the labels and
+   separators keep their size and never break mid-word ("터/미/널"). */
+.transcript-browser-peek > :not(.transcript-browser-peek-title):not(.transcript-terminal-peek-command) {
+  flex: none;
+  white-space: nowrap;
+}
 .transcript-terminal-peek-command {
   min-width: 0;
   overflow: hidden;
