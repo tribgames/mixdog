@@ -8,7 +8,8 @@
 // The chain applies only while the session runs on the owner's configured
 // primary model. A session the user put on another model (composer picker,
 // New Task) is a deliberate choice and gets none. Route changes recompute it
-// (updateSessionRoute `routeFallbacks`); a fallback hop does not.
+// (updateSessionRoute `routeFallbacks`); a fallback hop reads it from the
+// owner's route at that moment (route-fallback-chain.mjs).
 import { loadConfig } from '../../config.mjs';
 import { findPreset } from '../../runtime-core/config-helpers.mjs';
 import { normalizeWorkflowRoute } from '../../runtime-core/workflow.mjs';
@@ -17,26 +18,35 @@ import { storedBotRoute } from '../../../../shared/agent-store.mjs';
 import { configuredAgentRouteCandidates } from '../../../../shared/agent-route-config.mjs';
 import { CODING_MODE } from '../agent-mode.mjs';
 
-export function ownerRouteFallbacks({ sessionMode, agentId, provider, model, config = null }) {
-  if (!agentId) return [];
+/** Whether two routes name the same model (provider aliases folded). */
+export const sameRouteModel = (a, b) =>
+  Boolean(a?.provider && a?.model) &&
+  canonicalRouteProvider(a.provider) === canonicalRouteProvider(b?.provider) &&
+  String(a.model) === String(b?.model);
+
+/** The owner's stored route (primary plus `fallbacks`), normalized; null when
+ *  the owner has none or it cannot be read. */
+export function ownerConfiguredRoute({ sessionMode, agentId, config = null }) {
+  if (!agentId) return null;
   const cfg = () => config || loadConfig({ secrets: false });
   let stored;
   if (sessionMode === CODING_MODE) {
-    stored = findPreset(cfg(), cfg()?.default);
+    const loaded = cfg();
+    stored = findPreset(loaded, loaded?.default);
   } else {
     // Before the bot split a bot's route is still in the config (Mixy's never).
     stored = storedBotRoute(agentId) || (agentId === 'lead' ? null : configuredAgentRouteCandidates(cfg(), agentId)[0]);
   }
-  if (!stored?.fallbacks?.length) return [];
-  let route;
+  if (!stored) return null;
   try {
-    route = normalizeWorkflowRoute(stored);
+    return normalizeWorkflowRoute(stored) || null;
   } catch {
-    return [];
+    return null;
   }
-  const onPrimary =
-    route &&
-    canonicalRouteProvider(route.provider) === canonicalRouteProvider(provider) &&
-    String(route.model) === String(model);
-  return onPrimary ? route.fallbacks || [] : [];
+}
+
+export function ownerRouteFallbacks({ sessionMode, agentId, provider, model, config = null }) {
+  const route = ownerConfiguredRoute({ sessionMode, agentId, config });
+  if (!route?.fallbacks?.length) return [];
+  return sameRouteModel(route, { provider, model }) ? route.fallbacks : [];
 }

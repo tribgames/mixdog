@@ -33,6 +33,7 @@ function agentOwnedSessionFields(sessionProfile) {
     agentTag: sessionProfile?.agentTag || null,
     taskType: sessionProfile?.taskType || null,
     ...(sessionProfile?.routeFallbacks !== undefined ? { routeFallbacks: sessionProfile.routeFallbacks } : {}),
+    ...(sessionProfile?.routeFallbackSource ? { routeFallbackSource: sessionProfile.routeFallbackSource } : {}),
     permission: sessionProfile?.permission || undefined,
     permissionMode: sessionProfile?.permissionMode || undefined,
     schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)

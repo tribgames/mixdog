@@ -6,6 +6,12 @@ import { getProvider, initProviders } from '../../providers/registry.mjs';
 import { loadConfig } from '../../config.mjs';
 import { ensureProviderEnabled } from '../../runtime-core/config-helpers.mjs';
 import { updateSessionRoute } from '../manager/session-lifecycle.mjs';
+import {
+  liveRouteFallbacks,
+  nextRouteFallbackIndex,
+  routeFallbackHopped,
+  routeLeaf,
+} from '../manager/route-fallback-chain.mjs';
 import { pinSessionWireRoute } from '../../providers/wire-route.mjs';
 import { buildRequestSendOptions } from '../manager/ask-turn-loop-options.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
@@ -78,9 +84,13 @@ async function nextContextGrows(state, next) {
 
 export async function advanceAgentRoute(state, error) {
   const session = state.sessionRef;
-  if (!session?.agent || !session.routeFallbacks?.length) return false;
-  const index = session.routeFallbackIndex || 0;
-  const next = session.routeFallbacks[index];
+  if (!session?.agent) return false;
+  // Read from the session's settings at this hop: a chain edited while it runs
+  // applies now, and one cleared to [] leaves the provider's own error.
+  const { chain } = liveRouteFallbacks(session, loadConfig({ secrets: false }));
+  if (!chain.length) return false;
+  const index = nextRouteFallbackIndex(session, chain);
+  const next = chain[index];
   // Only THIS request must have produced nothing (its stream outcome says so):
   // earlier requests of the turn may have run tools. Their calls and results
   // are already in the live turn, which the next model continues from, so no
@@ -97,6 +107,8 @@ export async function advanceAgentRoute(state, error) {
   const provider = getProvider(next.provider);
   if (!provider) throw new Error(`Provider "${next.provider}" not available`);
   const failed = routeFailure(session, error);
+  // The route a reset returns to (setup reset_route_fallback), kept from the first hop.
+  const primary = routeFallbackHopped(session) ? session.routeFallbackPrimary : routeLeaf(session);
   // The left model's share of the turn ends here: the running total at the
   // switch bounds it, so each model's tokens are booked at its own rates.
   state.routeUsageHops = [
@@ -131,6 +143,8 @@ export async function advanceAgentRoute(state, error) {
     { crossProvider: true, session }
   );
   if (!updated) throw new Error('agent session closed during model fallback');
+  updated.routeFallbacks = chain;
+  if (primary) updated.routeFallbackPrimary = primary;
   updated.routeFallbackIndex = index + 1;
   updated.routeFallbackFailures = [...(session.routeFallbackFailures || []), failed];
   await pinSessionWireRoute(updated, provider);

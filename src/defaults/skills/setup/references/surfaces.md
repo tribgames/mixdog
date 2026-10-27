@@ -116,7 +116,8 @@ The setup tool does not mutate:
   it on; `set_developer_option` can turn it off);
 - custom provider registration and edits (non-secret fields included), group
   room options, bot persona and avatar, import conversations, reset overlay
-  position, SSH and remote-access settings, sidebar/list ordering and other
+  position, SSH and remote-access settings, sidebar/list ordering (except bot order,
+  `set_bot_order`) and other
   per-device view state;
 - MCP server OAuth sign-in and sign-out (Desktop MCP list/editor, TUI
   `/mcp login` and `/mcp logout`; remote windows paste the redirect address);
@@ -131,7 +132,15 @@ The setup tool does not mutate:
 - approval grants ("항상 허용" is per feature and per bot, never for payment,
   permanent delete, Lead, workflow, Mixy link, group rooms or schedules) and
   browser action confirmations (`MIXDOG_BROWSER_CONFIRM_ACTIONS`,
-  `MIXDOG_BROWSER_CONFIRM_SUBMIT`; see the browser-use skill).
+  `MIXDOG_BROWSER_CONFIRM_SUBMIT`; see the browser-use skill);
+- widening an agent's authority: action permission `allow`, a connector
+  switched back on for an agent or Project, a connector tool to `auto`
+  (setup only narrows them);
+- the remote-access switch ("Use this PC from other devices") and this PC's
+  name: turning it off from a phone would cut that phone off mid-session;
+- permanently deleting an archived bot (Sessions → Archived → delete);
+- the stopped turn's Resume after `continue_in_model`, and the quota card's
+  other-account switch.
 
 Use `open` where a target exists, then let the user act.
 

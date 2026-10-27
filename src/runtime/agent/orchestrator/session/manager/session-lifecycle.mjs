@@ -288,6 +288,13 @@ export function createSession(createOpts) {
     if (rulesRevision) session.rulesRevision = rulesRevision;
   }
   if (routeFallbacks?.length) session.routeFallbacks = routeFallbacks;
+  // Where an agent's chain is read from at each hop (route-fallback-chain.mjs).
+  const fallbackSource = Object.hasOwn(opts, 'routeFallbackSource')
+    ? opts.routeFallbackSource
+    : presetObj?.fallbackSource;
+  if (!actingAgent && fallbackSource && typeof fallbackSource === 'object') {
+    session.routeFallbackSource = { ...fallbackSource };
+  }
   // A non-native agent sends core + bridge, built from its filtered tools.
   applyAgentToolExposure(session);
   refreshSessionBp3Environment(session, opts.cwd);
@@ -364,6 +371,7 @@ function applyRouteFields(session, route) {
     else delete session.routeFallbacks;
     delete session.routeFallbackIndex;
     delete session.routeFallbackFailures;
+    delete session.routeFallbackPrimary;
   }
   ensureCodexWireSessionId(session);
   if (Object.hasOwn(route, 'modelParameters')) {

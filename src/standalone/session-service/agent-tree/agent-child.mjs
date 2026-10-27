@@ -31,6 +31,7 @@ export function createAgentChildFactory({ registry, rehydrateAgentSessions, crea
       sourceName: spec.sourceName || spec.agent || 'agent',
       clientHostPid: spec.clientHostPid || null,
       ...(preset.fallbacks !== undefined ? { routeFallbacks: preset.fallbacks } : {}),
+      ...(preset.fallbackSource ? { routeFallbackSource: preset.fallbackSource } : {}),
     };
     const created = await createSession({
       cwd: spec.cwd || process.cwd(),

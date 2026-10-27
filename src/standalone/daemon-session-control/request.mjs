@@ -11,6 +11,7 @@ export function requestCaller(action, context) {
     action !== 'create' &&
     action !== 'bots' &&
     action !== 'worktree' &&
+    action !== 'route' &&
     !TARGET_ACTIONS.has(action)
   ) {
     throw new Error(`session: unsupported remote action "${action}"`);

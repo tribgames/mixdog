@@ -14,6 +14,9 @@ import { AUTO_EFFORT_BASES } from '../../runtime/agent/orchestrator/providers/au
 import { WORKTREE_NEW_TASK_DEFAULTS } from '../../runtime/shared/worktrees/settings.mjs';
 import { CONNECTOR_IDS } from '../../runtime/shared/connector-catalog.mjs';
 import { COMPACTION_SUMMARY_MODES } from '../../runtime/agent/orchestrator/session/compact/summary-mode.mjs';
+import { ACTION_KINDS } from '../../runtime/agent/orchestrator/session/human-gate/outbound-policy.mjs';
+import { PERMISSION_MODES } from '../../runtime/agent/orchestrator/session/human-gate/store.mjs';
+import { CONNECTOR_PERMISSIONS } from '../../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
@@ -126,6 +129,19 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   enable_plugin_mcp: 'name',
   connect_connector: 'connector',
   set_worktree_settings: 'worktree',
+  reset_route_fallback: 'sessionId? agent?',
+  continue_in_model: 'sessionId route',
+  schedule_quota_resume: 'sessionId',
+  cancel_quota_resume: 'sessionId',
+  set_cache_warming_enabled: 'enabled',
+  read_agent_settings: 'agent',
+  read_project_connectors: 'projectPath',
+  set_agent_permission: 'agent actionKind permissionMode',
+  set_agent_connector: 'agent name enabled',
+  set_agent_connector_tool: 'agent name tool permission',
+  set_project_connector: 'projectPath name enabled',
+  restore_definition: 'definitionKind name',
+  set_bot_order: 'botOrder',
   ...SETUP_EXTENDED_ACTION_FIELDS,
 });
 
@@ -175,7 +191,7 @@ const ROUTE_SCHEMA = {
 ROUTE_SCHEMA.properties.fallbacks = {
   type: 'array',
   description:
-    'Lead (set_route), agent (bots included) and Web Search routes only: ordered fallback models tried when the model hits its usage limit or is unavailable; [] clears the list.',
+    'Lead (set_route), agent (bots included) and Web Search routes only: ordered fallback models tried when the model hits its usage limit or is unavailable, each on another provider; [] clears the list. Running sessions on that route read it at their next hop.',
   items: {
     type: 'object',
     additionalProperties: false,
@@ -224,7 +240,11 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           description:
             'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent and contextTokens apply to Main and agent routes only.',
         },
-        agent: { type: 'string', description: 'set_agent_route: agent id.' },
+        agent: {
+          type: 'string',
+          description:
+            'Agent or bot id (lead = Mixy): set_agent_route, read_agent_settings, set_agent_permission, set_agent_connector(_tool); reset_route_fallback: every chat of that bot.',
+        },
         workflow: { type: 'string', description: 'set_workflow: pack id.' },
         style: { type: 'string', description: 'set_output_style: style id.' },
         profile: {
@@ -277,7 +297,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         enabled: {
           type: 'boolean',
           description:
-            'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_ai_session_titles, set_quota_auto_resume, set_heartbeat_enabled, set_mcp_enabled, set_plugin_enabled).',
+            'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_ai_session_titles, set_quota_auto_resume, set_heartbeat_enabled, set_mcp_enabled, set_plugin_enabled, set_agent_connector, set_project_connector).',
         },
         provider: { type: 'string', description: 'set_model_preferences: provider id.' },
         hidden: {
@@ -302,7 +322,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         },
         name: {
           type: 'string',
-          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; reconnect_mcp: optional MCP server name (omit for all); else MCP/plugin/provider id.`,
+          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; reconnect_mcp: optional MCP server name (omit for all); set_agent_connector(_tool)/set_project_connector: connector (MCP server) id from read_agent_settings; restore_definition: archived agent id; else MCP/plugin/provider id.`,
         },
         accountId: {
           type: 'string',
@@ -436,6 +456,35 @@ export const SETUP_TOOL_DEFS = Object.freeze([
             autoCleanup: { type: 'boolean', description: 'Remove clean, merged worktrees when their task ends.' },
           },
           description: 'set_worktree_settings: only the given fields change.',
+        },
+        sessionId: {
+          type: 'string',
+          description:
+            'reset_route_fallback (default: this session), continue_in_model, schedule_quota_resume, cancel_quota_resume: session id from status model/agents or the session tool. The last three take another session.',
+        },
+        actionKind: {
+          type: 'string',
+          enum: [...ACTION_KINDS],
+          description: "set_agent_permission: the action kind row of the agent's permission table.",
+        },
+        permissionMode: {
+          type: 'string',
+          enum: [...PERMISSION_MODES],
+          description:
+            'set_agent_permission: block or ask; allow (and any change that lets an agent do more without asking) is made by the person in the desktop app.',
+        },
+        tool: { type: 'string', description: 'set_agent_connector_tool: tool name within the connector `name`.' },
+        permission: {
+          type: 'string',
+          enum: [...CONNECTOR_PERMISSIONS],
+          description: 'set_agent_connector_tool: needs_approval or disabled; auto is made in the desktop app.',
+        },
+        botOrder: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, pattern: '\\S' },
+          maxItems: 500,
+          description:
+            'set_bot_order: bot ids in display order (Mixy is always first and not listed); [] = default order.',
         },
         ...SETUP_EXTENDED_PROPERTIES,
       },

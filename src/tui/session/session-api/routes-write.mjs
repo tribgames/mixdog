@@ -54,14 +54,18 @@ const SESSION_ONLY_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'autoE
  * the tuning, or both. Completed here, inside the serialized route write,
  * against the latest selected route — so a Fast-only change keeps the effort a
  * previous write selected. `unchanged` when it asks for nothing the selected
- * route does not already have.
+ * route does not already have and the session itself already runs that model
+ * (a fallback hop moves the session, not the selected route).
  */
 function completeSessionOnlyRequest(request, selected) {
   const named = Boolean(request.provider || request.model);
   const target = named ? request : { ...request, provider: selected.provider, model: selected.model };
   const sameModel = target.provider === selected.provider && target.model === selected.model;
   if (!sameModel) return { request: target, unchanged: false };
+  const sessionOnTarget =
+    !selected.sessionModel || (selected.sessionProvider === target.provider && selected.sessionModel === target.model);
   const unchanged =
+    sessionOnTarget &&
     Object.keys(request).every((key) => SESSION_ONLY_KEYS.has(key)) &&
     (request.effort === undefined || request.effort === selected.effort) &&
     (request.fast === undefined || request.fast === (selected.fast === true)) &&

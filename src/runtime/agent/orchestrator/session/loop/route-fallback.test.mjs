@@ -1,5 +1,8 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 let active;
 let routeOptions;
@@ -14,9 +17,12 @@ mock.module('../../providers/registry.mjs', {
     initProviders: async (config) => initialized.push(config),
   },
 });
+// The saved settings a hop reads; tests that edit them restore the default.
+const DEFAULT_CONFIG = { providers: { second: { enabled: true } } };
+let config = DEFAULT_CONFIG;
 mock.module('../../config.mjs', {
   namedExports: {
-    loadConfig: () => ({ providers: { second: { enabled: true } } }),
+    loadConfig: () => config,
   },
 });
 mock.module('../manager/session-lifecycle.mjs', {
@@ -51,6 +57,9 @@ mock.module('../manager/ask-turn-loop-options.mjs', {
   },
 });
 const { advanceAgentRoute } = await import('./route-fallback.mjs');
+const { registerBotRouteStore, writeBotRoute } = await import('../../../../shared/agent-store.mjs');
+const { agentHomeSessionId } = await import('../agent-home.mjs');
+const { routeFallbackPosition } = await import('../manager/route-fallback-chain.mjs');
 
 function state() {
   active = {
@@ -310,4 +319,105 @@ test('a Lead-class session (agent "lead") advances on a usage limit like an agen
   plain.sessionRef.routeFallbacks = undefined;
   assert.equal(await advanceAgentRoute(plain, { status: 429 }), false);
   assert.equal(plain.model, undefined);
+});
+
+// --- the chain is read from the saved settings at each hop ---------------
+
+const leadConfig = (fallbacks) => ({
+  ...DEFAULT_CONFIG,
+  default: 'workflow-lead',
+  presets: [{ id: 'workflow-lead', name: 'WORKFLOW LEAD', provider: 'first', model: 'a', fallbacks }],
+});
+
+function leadState() {
+  const current = state();
+  // A coding Lead conversation: no agent owner, the runtime's own id.
+  Object.assign(current.sessionRef, { id: 'sess_lead_chain', agent: 'lead' });
+  current.sessionId = 'sess_lead_chain';
+  return current;
+}
+
+test('set_route fallbacks:[] stops a running Lead at its next hop; the provider error stays its own', async (t) => {
+  t.after(() => {
+    config = DEFAULT_CONFIG;
+  });
+  // The conversation was created with the chain [second/b] (its frozen copy).
+  config = leadConfig([{ provider: 'second', model: 'b' }]);
+  const lead = leadState();
+  config = leadConfig(undefined); // the user cleared the Lead chain while it ran
+  const error = quotaError();
+  assert.equal(await advanceAgentRoute(lead, error), false);
+  assert.equal(lead.sessionRef.model, 'a');
+  assert.equal(error.routeFallbackAttempts, undefined);
+  assert.doesNotMatch(error.message, /fallback chain/);
+  // A chain added while it runs applies at the next hop too.
+  config = leadConfig([{ provider: 'third', model: 'c' }]);
+  const added = leadState();
+  added.sessionRef.routeFallbacks = undefined;
+  assert.equal(await advanceAgentRoute(added, quotaError()), true);
+  assert.equal(added.sessionRef.model, 'c');
+});
+
+test('a Lead on another model than the Lead route follows no chain', async (t) => {
+  t.after(() => {
+    config = DEFAULT_CONFIG;
+  });
+  config = leadConfig([{ provider: 'second', model: 'b' }]);
+  const picked = leadState();
+  picked.sessionRef.model = 'other';
+  assert.equal(await advanceAgentRoute(picked, quotaError()), false);
+});
+
+test('a fallbacks-only bot route edit reaches its open chat at the next hop', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-chain-hop-'));
+  const dataDir = join(root, 'data');
+  mkdirSync(join(dataDir, 'bots', 'sample'), { recursive: true });
+  writeFileSync(join(dataDir, 'bots', 'migration.json'), JSON.stringify({ version: 1, bots: ['sample'] }));
+  registerBotRouteStore(() => dataDir);
+  t.after(() => {
+    registerBotRouteStore(() => '');
+    rmSync(root, { recursive: true, force: true });
+  });
+  writeBotRoute(dataDir, 'sample', { provider: 'first', model: 'a', fallbacks: [{ provider: 'second', model: 'b' }] });
+  const chat = state();
+  Object.assign(chat.sessionRef, { id: agentHomeSessionId('sample'), agent: 'sample' });
+  chat.sessionId = chat.sessionRef.id;
+  // set_agent_route sample { fallbacks: [third/c] }: the model stays, only the chain changes.
+  writeBotRoute(dataDir, 'sample', { provider: 'first', model: 'a', fallbacks: [{ provider: 'third', model: 'c' }] });
+  assert.equal(await advanceAgentRoute(chat, quotaError()), true);
+  assert.equal(chat.sessionRef.model, 'c');
+  // The position: on c, primary first/a, one hop, why it left a.
+  const position = routeFallbackPosition(chat.sessionRef, DEFAULT_CONFIG);
+  assert.equal(position.kind, 'bot');
+  assert.deepEqual(position.current, { provider: 'third', model: 'c' });
+  assert.deepEqual(position.primary, { provider: 'first', model: 'a' });
+  assert.equal(position.onPrimary, false);
+  assert.equal(position.fallbackIndex, 1);
+  assert.equal(position.chainFrom, 'settings');
+  assert.equal(position.next, null);
+  assert.deepEqual(
+    position.failures.map(({ provider, model, kind }) => [provider, model, kind]),
+    [['first', 'a', 'quota_exhausted']]
+  );
+  // The route a reset returns to was kept at the first hop.
+  assert.equal(chat.sessionRef.routeFallbackPrimary.model, 'a');
+  // Cleared while on the fallback: no further hop.
+  writeBotRoute(dataDir, 'sample', { provider: 'first', model: 'a' });
+  assert.equal(await advanceAgentRoute(chat, quotaError()), false);
+});
+
+test('a sub-agent reads the chain of the route it was spawned from', async (t) => {
+  t.after(() => {
+    config = DEFAULT_CONFIG;
+  });
+  const worker = state();
+  Object.assign(worker.sessionRef, { owner: 'agent', routeFallbackSource: { agent: 'worker' } });
+  config = { ...DEFAULT_CONFIG, agents: { worker: { provider: 'first', model: 'a', fallbacks: [] } } };
+  assert.equal(await advanceAgentRoute(worker, quotaError()), false);
+  config = {
+    ...DEFAULT_CONFIG,
+    agents: { worker: { provider: 'first', model: 'a', fallbacks: [{ provider: 'third', model: 'c' }] } },
+  };
+  assert.equal(await advanceAgentRoute(worker, quotaError()), true);
+  assert.equal(worker.sessionRef.model, 'c');
 });

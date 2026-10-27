@@ -34,8 +34,32 @@ import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { CONNECTOR_IDS, connectorById } from '../../runtime/shared/connector-catalog.mjs';
 import profileConfig from '../../runtime/shared/profile-config.cjs';
+import { SESSION_ROUTE_HANDLERS, routePositionsStatus } from './session-route-actions.mjs';
+import { AGENT_SETTINGS_HANDLERS } from './agent-settings-actions.mjs';
+import {
+  routeFallbackPosition,
+  sessionChainSource,
+  sessionRoutePrimary,
+} from '../../runtime/agent/orchestrator/session/manager/route-fallback-chain.mjs';
+import { sameRouteModel } from '../../runtime/agent/orchestrator/session/manager/owner-route-fallbacks.mjs';
 
-const AGENT_DEFINITION_ACTIONS = new Set(['create_definition', 'save_definition', 'delete_definition']);
+const AGENT_DEFINITION_ACTIONS = new Set([
+  'create_definition',
+  'save_definition',
+  'delete_definition',
+  'restore_definition',
+]);
+// Actions on one agent's own settings: another agent's thread changes only its own.
+const OWN_AGENT_ACTIONS = new Set([
+  'set_agent_route',
+  'set_agent_permission',
+  'set_agent_connector',
+  'set_agent_connector_tool',
+]);
+
+// How a fallback chain edit reaches sessions that already run (route-fallback-chain.mjs).
+const CHAIN_APPLIES =
+  'a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error)';
 
 const PROFILE_VALUE_IDS = Object.freeze({
   language: profileConfig.PROFILE_LANGUAGES.map((entry) => entry.id),
@@ -43,8 +67,20 @@ const PROFILE_VALUE_IDS = Object.freeze({
 });
 
 const ACTION_APPLIES_TO = {
-  set_agent_route:
-    "the bot's chats from their next turn (a running turn finishes on the old model); an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
+  set_route: `new sessions (an established conversation keeps its model); ${CHAIN_APPLIES}: Lead conversations and agents that inherit Main`,
+  set_agent_route: `the bot's chats from their next turn (a running turn finishes on the old model); ${CHAIN_APPLIES}: its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder`,
+  reset_route_fallback:
+    'each listed session from its next turn (a running turn finishes on its fallback model): it returns to its primary and its chain starts over',
+  continue_in_model: 'that session now; its stopped turn is not resent',
+  schedule_quota_resume: "that session's stopped turn, resent at the provider's reset time",
+  cancel_quota_resume: 'that session: its pending resume is dropped; the turn stays stopped',
+  set_cache_warming_enabled: 'the next prompt-cache warm of every session; no restart required',
+  set_agent_permission: "that agent's next action of the kind, in every session",
+  set_agent_connector: "that agent's next connector tool call, in every session",
+  set_agent_connector_tool: "that agent's next call of the tool, in every session",
+  set_project_connector: 'the next connector tool call of sessions in that Project',
+  restore_definition: 'now: the bot and its chat return; its routines stay off',
+  set_bot_order: 'the Bots page and the Sessions bot section on every device',
   set_orchestration_mode:
     "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
   set_recap_enabled: 'background Memory cycles; no restart required',
@@ -128,6 +164,31 @@ function routeInput(source) {
   if (Object.hasOwn(source, 'disabled')) next.disabled = source.disabled;
   if (Object.hasOwn(source, 'fallbacks')) next.fallbacks = source.fallbacks.map(routeInput);
   return next;
+}
+
+/** A fallback chain edit's receipt: whether the calling conversation now
+ *  follows the saved chain, and the position it reads it from. `owner` is
+ *  whose route was edited: `{ kind: 'lead' }` (set_route) or `{ kind: 'bot',
+ *  agent }` (set_agent_route); only a caller whose chain comes from that
+ *  route's settings follows it. */
+function chainReceipt(route, { caller, getConfig }, owner) {
+  if (!Object.hasOwn(route, 'fallbacks') || !caller?.agent) return {};
+  const config = getConfig();
+  const position = routeFallbackPosition(caller, config);
+  // Settings-sourced and still on that route's primary: a conversation left on
+  // a previous model follows no chain, whatever the saved one is.
+  const source = sessionChainSource(caller, config);
+  const followsEdited =
+    position.chainFrom === 'settings' &&
+    sameRouteModel(source, sessionRoutePrimary(caller)) &&
+    position.kind === owner.kind &&
+    (owner.kind !== 'bot' || position.agent === owner.agent);
+  const saved = route.fallbacks.map((entry) => `${entry.provider}/${entry.model}`);
+  const followed = position.fallbacks.map((entry) => `${entry.provider}/${entry.model}`);
+  return {
+    appliedToCurrentSession: followsEdited && saved.join('\n') === followed.join('\n'),
+    currentSession: position,
+  };
 }
 
 function apiKeySource(row) {
@@ -359,7 +420,7 @@ const SETUP_STATUS_READERS = {
     features: await featureStatus(rt, getConfig),
     onboarding: rt.getOnboardingStatus?.() || null,
   }),
-  model: (rt) => ({
+  model: (rt, { getConfig, caller }) => ({
     route: {
       ...mainRoute(rt),
       autoEffort: rt.autoEffort !== false,
@@ -367,11 +428,16 @@ const SETUP_STATUS_READERS = {
       fallbacks: (rt.listPresets?.() || []).find((preset) => preset?.id === 'workflow-lead')?.fallbacks || [],
     },
     effortOptions: rt.effortOptions || [],
+    // Where this conversation and the other Lead conversations are on their chain.
+    ...routePositionsStatus({ caller, config: getConfig(), keep: (row) => row.kind === 'lead' }),
   }),
-  agents: (rt) => ({
+  agents: (rt, { getConfig, caller }) => ({
     agents: rt.listAgents?.() || [],
     orchestrationMode: rt.getOrchestrationMode(),
     orchestrationModes: ORCHESTRATION_MODES,
+    ...(rt.getBotOrder ? { botOrder: rt.getBotOrder().order } : {}),
+    // Bot chats and sub-agents on their fallback chains.
+    sessions: routePositionsStatus({ caller, config: getConfig(), keep: (row) => row.kind !== 'lead' }).sessions,
   }),
   workflow: (rt) => ({ workflows: rt.listWorkflows?.() || [] }),
   websearch: (rt) => ({
@@ -390,7 +456,11 @@ const SETUP_STATUS_READERS = {
     };
   },
   autoclear: (rt) => rt.getAutoClear?.() || {},
-  compaction: (rt) => ({ ...(rt.getCompactionSettings?.() || {}), ...(rt.getSessionTitleSettings?.() || {}) }),
+  compaction: (rt) => ({
+    ...(rt.getCompactionSettings?.() || {}),
+    ...(rt.getSessionTitleSettings?.() || {}),
+    ...(rt.getCacheWarmingSettings ? { promptCacheWarming: rt.getCacheWarmingSettings().enabled } : {}),
+  }),
   memory: (rt) => ({ ...(rt.getToolModuleSettings?.()?.memory || {}), recap: rt.getRecapSettings?.() || null }),
   'local-provider': (rt) => rt.getToolModuleSettings().localProvider,
   features: (rt, { getConfig }) => featureStatus(rt, getConfig),
@@ -520,22 +590,28 @@ const SETUP_INSTALLABLE_FEATURES = [
 // Action handlers: (rt, args, { requestDesktop, readStatus, openSurface }).
 // `rt` is null for `status` and `open`, which never touch the facade.
 const SETUP_ACTION_HANDLERS = {
-  status: async (_rt, args, { readStatus, requestDesktop }) => {
+  status: async (_rt, args, { readStatus, requestDesktop, caller }) => {
     const domain = clean(args.domain) || 'summary';
     requireEnum(domain, SETUP_STATUS_DOMAINS, 'domain');
-    return { domain, ...(await readStatus(domain, requestDesktop, args.detail === true)) };
+    return { domain, ...(await readStatus(domain, requestDesktop, args.detail === true, caller)) };
   },
   open: (_rt, args, { openSurface }) => openSurface(args.target),
-  set_route: async (rt, args) => {
+  set_route: async (rt, args, context) => {
     const route = routeInput(args.route);
     const next = await rt.setRoute(route, { keepMainModel: false });
-    return { route: next, appliesTo: 'next session (a conversation keeps its frozen route)' };
+    return { route: next, ...chainReceipt(args.route, context, { kind: 'lead' }) };
   },
-  set_agent_route: async (rt, args) => {
+  set_agent_route: async (rt, args, context) => {
     const agent = requireText(args.agent, 'agent');
     const route = routeInput(args.route);
-    return { agent, route: await rt.setAgentRoute(agent, route) };
+    return {
+      agent,
+      route: await rt.setAgentRoute(agent, route),
+      ...chainReceipt(args.route, context, { kind: 'bot', agent }),
+    };
   },
+  ...SESSION_ROUTE_HANDLERS,
+  ...AGENT_SETTINGS_HANDLERS,
   set_web_search_route: async (rt, args) => ({ route: await rt.setWebSearchRoute(routeInput(args.route)) }),
   set_workflow: (rt, args) => rt.setWorkflow(requireText(args.workflow, 'workflow')),
   set_output_style: async (rt, args) => {
@@ -764,6 +840,8 @@ const READ_ONLY_SETUP_ACTIONS = new Set([
   'search_local_models',
   'inspect_hf_model',
   'local_model_details',
+  'read_agent_settings',
+  'read_project_connectors',
 ]);
 // Actions that start or steer work rather than saving a setting.
 const BACKGROUND_SETUP_ACTIONS = new Set([
@@ -772,6 +850,10 @@ const BACKGROUND_SETUP_ACTIONS = new Set([
   'cancel_local_installation',
   'reconnect_mcp',
   'run_automation',
+  'reset_route_fallback',
+  'continue_in_model',
+  'schedule_quota_resume',
+  'cancel_quota_resume',
 ]);
 
 function setupMutationReceipt(action, result) {
@@ -796,6 +878,7 @@ export function createSetupToolExecutor({
   getSessionId,
   getCallerSession,
   flushSettings,
+  executeSessionControl = null,
 }) {
   const desktop = createSetupUiRequests({ notifySessionUi, getSessionId });
   const api = () => {
@@ -804,11 +887,11 @@ export function createSetupToolExecutor({
     return facade;
   };
 
-  async function readStatus(domain, requestDesktop, detail) {
+  async function readStatus(domain, requestDesktop, detail, caller = null) {
     const rt = api();
     if (SETUP_DESKTOP_DOMAINS.includes(domain)) return requestDesktop({ action: 'status', domain });
     if (!Object.hasOwn(SETUP_STATUS_READERS, domain)) throw new Error(`setup: unknown status domain "${domain}"`);
-    return SETUP_STATUS_READERS[domain](rt, { domain, detail, getConfig: () => getConfig?.() || {} });
+    return SETUP_STATUS_READERS[domain](rt, { domain, detail, caller, getConfig: () => getConfig?.() || {} });
   }
 
   function openSurface(target) {
@@ -837,15 +920,16 @@ export function createSetupToolExecutor({
     // it never creates agents, definitions or automations, nor changes any
     // other setting. Hosts without session provenance (no getCallerSession)
     // skip this gate; automation actions still refuse an unknown caller.
+    let scope = null;
     if (getCallerSession && !READ_ONLY_SETUP_ACTIONS.has(action)) {
-      const scope = scheduleCallerScope(caller);
+      scope = scheduleCallerScope(caller);
       assertInteractiveCaller(scope, action);
       // Agent definitions (contacts) change only from Mixy; another agent's
       // home changes only its own agent settings.
       if (AGENT_DEFINITION_ACTIONS.has(action) && args.definitionKind === 'agent') {
         assertAgentEditorAccess(scope, caller, action);
       }
-      if (action === 'set_agent_route') assertOwnAgentSettings(scope, args.agent, action);
+      if (OWN_AGENT_ACTIONS.has(action)) assertOwnAgentSettings(scope, args.agent, action);
     }
     // Mixy's heartbeat session takes only its two routine actions, reads included.
     assertHeartbeatSetupAction(sessionId, action, args);
@@ -853,7 +937,18 @@ export function createSetupToolExecutor({
     if (!Object.hasOwn(SETUP_ACTION_HANDLERS, action)) {
       return executeExtendedSetupAction(rt, args, requestDesktop, { sessionId, caller });
     }
-    return SETUP_ACTION_HANDLERS[action](rt, args, { requestDesktop, readStatus, openSurface });
+    return SETUP_ACTION_HANDLERS[action](rt, args, {
+      requestDesktop,
+      readStatus,
+      openSurface,
+      sessionId,
+      caller,
+      // The session-scoped actions authorize each target against it (session-route-actions.mjs).
+      scope,
+      getSession: getCallerSession,
+      getConfig: () => getConfig?.() || {},
+      executeSessionControl,
+    });
   }
 
   return {

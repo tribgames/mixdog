@@ -31,6 +31,9 @@ export function resolveAgentSpawnPreset(config, args = {}) {
   const candidates = !clean(args.preset) ? configuredAgentRouteCandidates(config, agentName) : [];
   const agentRoute = candidates.map((candidate) => normalizeAgentRoute(candidate)).find(Boolean) || null;
   const storedFallbacks = candidates.find((candidate) => normalizeAgentRoute(candidate))?.fallbacks;
+  // Where the spawned session reads its fallback chain at each hop
+  // (route-fallback-chain.mjs): this agent's route, else Main's.
+  const fallbackSource = { agent: agentName };
   if (agentRoute) {
     return {
       presetName: agentPresetName(agentName),
@@ -41,6 +44,7 @@ export function resolveAgentSpawnPreset(config, args = {}) {
         provider: agentRoute.provider,
         model: agentRoute.model,
         ...(storedFallbacks?.length ? { fallbacks: storedFallbacks.map(normalizeAgentRoute) } : {}),
+        fallbackSource,
         effort: agentRoute.effort,
         fast: agentRoute.fast === true,
         ...(agentRoute.autoEffort === false ? { autoEffort: false } : {}),
@@ -54,12 +58,13 @@ export function resolveAgentSpawnPreset(config, args = {}) {
 
   const mainPreset = !clean(args.preset) ? findPreset(config, config?.default) : null;
   if (normalizeAgentRoute(mainPreset)) {
-    return { presetName: mainPreset.id || mainPreset.name, preset: mainPreset };
+    return { presetName: mainPreset.id || mainPreset.name, preset: { ...mainPreset, fallbackSource } };
   }
 
   const presetName = clean(args.preset);
   if (!presetName) throw new Error(`agent: agent "${agentName}" has no Main model assignment`);
-  const preset = findPreset(config, presetName) || synthesizePreset(config, presetName);
+  const stored = findPreset(config, presetName);
+  const preset = stored ? { ...stored, fallbackSource: { preset: presetName } } : synthesizePreset(config, presetName);
   if (!preset) throw new Error(`agent: preset "${presetName}" not found`);
   if (!normalizeAgentRoute(preset)) throw new Error(`agent: preset "${presetName}" has no complete route`);
   return { presetName, preset };

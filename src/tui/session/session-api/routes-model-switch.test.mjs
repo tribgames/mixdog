@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createSessionRouteApi } from './routes.mjs';
 import { createSessionSettingsApi } from './settings.mjs';
 
-function harness({ busy = false, commandBusy = false, delay = 0 } = {}) {
+function harness({ busy = false, commandBusy = false, delay = 0, sessionRoute = {} } = {}) {
   let selected = { provider: 'openai-oauth', model: 'gpt-x' };
   let state = { ...selected, busy, commandBusy, items: [], stats: {} };
   const calls = [];
@@ -28,7 +28,7 @@ function harness({ busy = false, commandBusy = false, delay = 0 } = {}) {
       state = { ...state, ...patch };
     },
     flushEmitImmediate() {},
-    routeState: () => selected,
+    routeState: () => ({ ...selected, ...sessionRoute }),
     syncContextStats() {},
     resetStats() {},
     resetStatsAndSyncContext() {},
@@ -68,6 +68,18 @@ test('a session-only selection is forwarded as an option, never as part of the r
   assert.equal(Object.hasOwn(h.calls[0].next, 'sessionOnly'), false);
   await h.api.setRoute({ provider: 'anthropic-oauth', model: 'claude-x' });
   assert.equal(Object.hasOwn(h.calls[1].options, 'sessionOnly'), false);
+});
+
+test('a session-only pick of the selected model still reaches a session a fallback hop moved', async () => {
+  // Selected route = the primary; the session itself runs the fallback model.
+  const hopped = harness({ sessionRoute: { sessionProvider: 'anthropic-oauth', sessionModel: 'claude-x' } });
+  await hopped.api.setRoute({ provider: 'openai-oauth', model: 'gpt-x', sessionOnly: true });
+  assert.equal(hopped.calls.length, 1);
+  assert.equal(hopped.calls[0].options.deferUntilNextTurn, true);
+  // On that model already: nothing to do.
+  const onIt = harness({ sessionRoute: { sessionProvider: 'openai-oauth', sessionModel: 'gpt-x' } });
+  await onIt.api.setRoute({ provider: 'openai-oauth', model: 'gpt-x', sessionOnly: true });
+  assert.equal(onIt.calls.length, 0);
 });
 
 test('a session-only effort keeps its option on the way to the runtime', async () => {

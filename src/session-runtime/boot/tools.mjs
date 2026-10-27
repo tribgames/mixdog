@@ -237,6 +237,8 @@ function wireInternalTools(boot) {
     getCallerSession: (sessionId) =>
       sessionId === rt.session?.id ? rt.session : boot.mgr?.getSession?.(sessionId) || null,
     flushSettings: () => boot.flushAllConfigSavesAsync({ requireSaved: true }),
+    // Another session's route and quota actions (daemon-session-control.mjs); null without a daemon.
+    executeSessionControl: boot.params.executeSessionControl || null,
   });
   const disposeInternalTools = internalTools.setInternalToolsProvider({
     scopeId: rt.mcpScopeId,

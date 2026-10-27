@@ -63,6 +63,28 @@ that a call returned without transport error.
 - Read `references/surfaces.md` only when the user asks where a setting lives,
   a secret must be entered, or no setup mutation exists.
 
+## What applies now vs. later
+
+- Now: built-in, connector, permission, hook-rule, cache-warming and
+  automation changes (each at its next use), and a fallback chain: running
+  sessions on that route read it at their next hop.
+- Next turn: an agent/bot route for its open chats, `reset_route_fallback`, a
+  workflow switch. A running turn finishes on its current model.
+- New sessions: the Main model (`set_route` model), instruction files, most
+  other settings. An established conversation keeps its model.
+- Session actions (`reset_route_fallback`, quota resume, `continue_in_model`)
+  answer `scope: "session"`, not a saved setting.
+
+## Stopping something already running
+
+Setup changes settings; it does not stop work. Use the tool that owns it:
+`session` `cancel` (another session's turn, a routine run in a bot's chat, a
+group room's exchange; a Browser/Computer takeover ends with its turn),
+`agent` `cancel`/`close` (sub-agents), `task` (background shell jobs), `goal`
+`pause` (an active Goal, at the user's request). Setup only prevents more: `set_automation_enabled false`
+(future routine runs), `fallbacks: []` (further hops), `cancel_quota_resume`,
+`set_builtin_enabled` browser/computer off.
+
 ## High-signal distinctions
 
 - Main model, agent models, and Web Search model are separate routes. Omitted

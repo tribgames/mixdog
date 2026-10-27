@@ -17,6 +17,7 @@ import { escapeHarnessTags } from '../runtime/shared/shell-output-summary.mjs';
 import { truncateToolText } from '../runtime/shared/tool-primitives.mjs';
 import { requestCaller, targetRequest } from './daemon-session-control/request.mjs';
 import { createWorktreeControl } from './daemon-session-control/worktree-control.mjs';
+import { createRouteControl } from './daemon-session-control/route-control.mjs';
 import {
   TOP_CURSOR,
   assertListFlags,
@@ -89,6 +90,7 @@ export function createSessionControl({
   readTitle = storedTitle,
 }) {
   const worktreeControl = createWorktreeControl(getSessionService);
+  const routeControl = createRouteControl(getSessionService);
 
   return async function executeSessionControl(args = {}, context = {}) {
     const action = args.action;
@@ -96,6 +98,8 @@ export function createSessionControl({
     // `callerAgentId`: set only for an attended agent conversation (workspace-tools.mjs).
     if (action === 'create') return agentTasks.create(args, context);
     if (action === 'worktree') return worktreeControl(args, caller, context.callerScope);
+    // The setup tool's per-session route actions (authorized by the setup executor).
+    if (action === 'route') return routeControl(args, caller);
     // `callerScope`: the caller's schedule-access scope (workspace-tools.mjs).
     if (action === 'bots') return botStatus(args, context);
     const { sessionId, limit, offset, textOffset } = targetRequest(args, action, caller);

@@ -95,6 +95,17 @@ Read this when choosing a `setup` mutation.
 | Unregister a Project without deleting its files | `remove_project` |
 | Revoke one linked device by its client id from `status connection`; re-pairing restores access | `revoke_linked_device` |
 | Managed local model context allocation; null restores automatic | `set_local_context` |
+| Return a session that fell back (this one by default, `sessionId`, or every chat of a bot with `agent`) to its primary route and chain | `reset_route_fallback` |
+| Switch a session whose last turn stopped on a usage limit onto another model (`sessionId`, `route`) | `continue_in_model` |
+| Resend a usage-limit-stopped turn of a session at its reset time, or drop that pending resume | `schedule_quota_resume`, `cancel_quota_resume` |
+| Prompt-cache warming on/off (`status compaction` `promptCacheWarming`) | `set_cache_warming_enabled` |
+| Read an agent's action permissions, connector switches and always-allowed tools | `read_agent_settings` |
+| Read a Project's connector switches | `read_project_connectors` |
+| An agent's action permission (block/ask per action kind) | `set_agent_permission` |
+| Switch a connector off for an agent / a Project (switching it back on is done in the desktop app) | `set_agent_connector`, `set_project_connector` |
+| One connector tool of an agent to needs_approval or disabled | `set_agent_connector_tool` |
+| Bring back an archived bot or agent (`definitionKind: "agent"`) | `restore_definition` |
+| Bot display order (Bots page, Sessions bot section; `status agents` `botOrder`) | `set_bot_order` |
 
 ## Routes and workflow
 
@@ -132,10 +143,22 @@ workflow` before changing the corresponding domain.
 - Changing orchestration does not rewrite workflow instructions or agents.
 - `set_route` is the Lead default for new sessions. A model chosen in New Task
   changes that default only when the user actually picks one there.
-  `route.fallbacks` (ordered models on other providers; `[]` clears) works the
-  same on `set_route` (Lead), `set_agent_route` (agents and bots, Mixy included)
-  and `set_web_search_route`. `status model` returns `route.autoEffort` and
-  `route.fallbacks`.
+  `route.fallbacks` (ordered models, each on a different provider from the
+  primary and the others; `[]` clears) works the same on `set_route` (Lead),
+  `set_agent_route` (agents and bots, Mixy included) and `set_web_search_route`.
+  Running sessions on that route read the chain at their next hop: an edit
+  applies at once, and `[]` stops further hops, so the turn ends with the
+  provider's own limit error. A session on another model follows no chain.
+  `status model` returns `route.autoEffort`, `route.fallbacks`, and the
+  position of this conversation (`session`) and other Lead conversations
+  (`sessions`): `current` vs `primary`, `onPrimary`, `fallbackIndex`, the
+  `fallbacks` it follows now, `next`, and `failures` (why it left each model);
+  `status agents` `sessions` gives the same for bot chats and sub-agents. A
+  session that fell back stays there until `reset_route_fallback` returns it
+  to its primary from its next turn (chain restarted).
+- Session actions on another session need the Mixdog app or daemon to host
+  it; a bot's thread reaches only its own bot's sessions. `continue_in_model`
+  does not resend the stopped turn: the user resumes it there.
 - A workflow switch reaches a running conversation as a reminder on its next
   turn (the cached prompt is not swapped). A bot definition's instruction,
   persona or name applies when the user presses 적용, with one cache break.
@@ -320,6 +343,13 @@ markers are read with `status desktop`.
   dialog in Desktop; nothing connects until the user presses it, so tell them to press the card and read
   `status mcp` afterwards. `add_mcp_server` with the service URL is not the
   sign-in flow; never use it for a catalog service.
+- Agent permissions and connector switches change only toward less: `block`
+  or `ask`, a connector off, a tool to `needs_approval`/`disabled`. Anything
+  that lets an agent do more without asking (`allow`, a connector back on, a
+  tool to `auto`) is refused ("make it on the desktop"); `open agents` and let
+  the person do it. Payments and permanent deletes always ask regardless.
+  Connector ids are MCP server names from `read_agent_settings`; a bot's
+  thread changes only its own bot.
 - `enable_plugin_mcp` turns every server the plugin declares back on and
   reconnects them; a disabled plugin stays disabled, and it fails for a plugin
   that declares no MCP servers.

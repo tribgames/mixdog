@@ -27,6 +27,7 @@ const SETUP_ACTION_MUTATIONS: Readonly<Record<string, string>> = {
   create_definition: 'deleteWorkflow',
   save_definition: 'deleteWorkflow',
   delete_definition: 'deleteWorkflow',
+  restore_definition: 'restoreAgentDefinition',
   save_automation: 'saveSchedule',
   delete_automation: 'deleteSchedule',
   set_automation_enabled: 'setScheduleEnabled',
