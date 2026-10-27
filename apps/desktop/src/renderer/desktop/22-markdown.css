@@ -906,6 +906,15 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   border-radius: var(--mx-radius-lg);
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
+/* The ring is painted outside the frame's box, and a reply's closing block has
+   its margin stripped (`.markdown > :last-child`), so the transcript row
+   (overflow: clip) ended exactly at the frame's edge and clipped the ring's
+   bottom line. A closing table frame or code card keeps one hairline of
+   margin for the ring. */
+.markdown .markdown-table-frame:last-child,
+.markdown .markdown-code:last-child {
+  margin-bottom: var(--mx-hairline);
+}
 .markdown-table-frame:has(> .markdown-table:focus-visible) {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
