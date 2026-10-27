@@ -25,6 +25,7 @@ const { applyAnthropicErrorContract, resetAtFromHeaders, retryAfterMsFromHeaders
 const { clearFastModeCooldown, fastModeAvailable, fastModeDisabledReason } = await import('./anthropic-fast-mode.mjs');
 const { anthropicMaxAttempts } = await import('./retry-classifier.mjs');
 const { adjustMaxTokensForContextOverflow, capForNonStreaming } = await import('./anthropic-max-tokens-recovery.mjs');
+const { loadAnthropic } = await import('./anthropic-messages.mjs');
 
 const FAST_MODEL = 'claude-opus-5';
 const MESSAGES = [{ role: 'user', content: 'hello' }];
@@ -723,6 +724,47 @@ test('a streaming 404 from a gateway is replayed once non-streaming', async () =
   const result = await sendApi(provider);
   assert.equal(result.content, 'via non-streaming');
   assert.deepEqual(calls, [true, false]);
+});
+
+test('the non-streaming replay of a large-max_tokens turn passes the real SDK long-request guard', async () => {
+  // A real SDK client: without an explicit request timeout the SDK refuses a
+  // stream:false body whose max_tokens it estimates past 10 minutes
+  // (> ~21333 tokens) before anything is sent.
+  const bodies = [];
+  const fetch = async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    bodies.push(body);
+    if (body.stream) {
+      return new Response(JSON.stringify(errorBody('not_found_error', 'model: opus')), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        id: 'msg_ns',
+        type: 'message',
+        role: 'assistant',
+        model: FAST_MODEL,
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'via non-streaming' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  };
+  const provider = apiProvider(() => okReply()).provider;
+  provider.client = new (loadAnthropic())({ apiKey: 'test-key', fetch, maxRetries: 0 });
+  const result = await sendApi(provider);
+  assert.equal(result.content, 'via non-streaming');
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0].stream, true);
+  assert.ok(
+    bodies[0].max_tokens > 21_333,
+    'the streaming turn asks for more than the SDK non-streaming estimate allows'
+  );
+  assert.notEqual(bodies[1].stream, true);
+  assert.equal(bodies[1].max_tokens, Math.min(bodies[0].max_tokens, 64_000));
 });
 
 test('repeated API-key Opus overloads without a fallback model stop at three', async () => {

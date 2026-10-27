@@ -52,7 +52,7 @@ export function createAnthropicApiRecovery({
         : PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS;
     const lifetime = createTimeoutSignal(totalSignal, timeoutMs, `${label} Anthropic non-streaming fallback`);
     try {
-      const message = await transport.requestNonStreamingMessage(nonStreamingParams, lifetime.signal);
+      const message = await transport.requestNonStreamingMessage(nonStreamingParams, lifetime.signal, timeoutMs);
       return buildTurnResult(normalizeAnthropicNonStreamingResponse(message, useModel));
     } catch (error) {
       if (error instanceof AnthropicFallbackTriggeredError || totalSignal?.aborted) throw error;

@@ -215,12 +215,18 @@ export function createAnthropicApiTransport({
     }
   };
 
-  const requestNonStreamingMessage = (nonStreamingParams, signal) =>
+  // `timeoutMs` is the replay's own lifetime, handed to the SDK as the request
+  // timeout: without an explicit one the SDK refuses any stream:false body
+  // whose max_tokens it estimates past 10 minutes before sending it.
+  const requestNonStreamingMessage = (nonStreamingParams, signal, timeoutMs) =>
     withRetry(
       withBodyRecovery(nonStreamingParams, async ({ signal: attemptSignal }) => {
         noteRequestServiceTier(nonStreamingParams.speed);
         try {
-          return await client.messages.create(nonStreamingParams, requestOptions(attemptSignal));
+          return await client.messages.create(nonStreamingParams, {
+            ...requestOptions(attemptSignal),
+            timeout: timeoutMs,
+          });
         } catch (err) {
           throw annotateHttpFailure(err);
         }
