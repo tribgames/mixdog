@@ -6,7 +6,11 @@ import { createAgentChildFactory } from './agent-child.mjs';
 import { partialHandoffTextFromSession } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { attachmentsForIntake } from '../../../runtime/attachments/store.mjs';
 import { producedFileLines } from '../../../runtime/shared/handoff-artifacts.mjs';
-import { collectTurnArtifacts, handoffContent, sessionRoots } from '../../../session-runtime/handoff-attachments.mjs';
+import {
+  collectUnreportedWrites,
+  handoffContent,
+  sessionRoots,
+} from '../../../session-runtime/handoff-attachments.mjs';
 
 /** An agent turn's prompt: text, or text with forwarded attachment parts
  *  (handoff-attachments.mjs), never any other shape. */
@@ -32,7 +36,7 @@ async function turnArtifactLines(runtime, messageStart, descriptor, report) {
   try {
     const { messages } = await runtime.readModelMessages(messageStart);
     const session = runtime.session || descriptor;
-    const { files, omitted } = collectTurnArtifacts(messages, {
+    const { files, omitted } = collectUnreportedWrites(messages, {
       cwd: descriptor.cwd,
       roots: sessionRoots(session, descriptor.cwd),
       report,
@@ -132,10 +136,9 @@ export function createAgentTurns({
       }
       let result = detail?.result || { content: '' };
       // The files the turn produced reach the owner with its handoff.
-      const files = await turnArtifactLines(entry.runtime, messageStart, descriptor, String(result.content || ''));
-      if (files.length) {
-        result = { ...result, content: [String(result.content || ''), files.join('\n')].join('\n\n') };
-      }
+      const report = String(result.content || '');
+      const files = await turnArtifactLines(entry.runtime, messageStart, descriptor, report);
+      if (files.length) result = { ...result, content: [report, files.join('\n')].join('\n\n') };
       descriptor.status = 'idle';
       descriptor.stage = 'idle';
       descriptor.lastHandoff = typeof result?.content === 'string' ? result.content : '';

@@ -25,6 +25,7 @@ test.after(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const {
   collectTurnArtifacts,
+  collectUnreportedWrites,
   conversationAttachments,
   handoffContent,
   handoffFileChecks,
@@ -305,7 +306,7 @@ test("a turn's produced files come back: reply links, media/office/visualize out
   );
 });
 
-test('lean collection: bare names match only a unique basename; opened files are not produced', (t) => {
+test('unreported writes: bare names match only a unique basename; opened files are not produced', (t) => {
   const root = tempDir(t);
   mkdirSync(join(root, 'sub'));
   for (const name of ['notes.md', 'sub/notes.md', 'other.md', 'existing.html']) writeFileSync(join(root, name), 'x');
@@ -314,12 +315,17 @@ test('lean collection: bare names match only a unique basename; opened files are
     {
       role: 'assistant',
       content: '',
-      tool_calls: [...paths.map((file_path) => call('edit', { file_path })), call('visualize', { action: 'open', input: { targets: ['existing.html'] } })],
+      tool_calls: [
+        ...paths.map((file_path) => call('edit', { file_path })),
+        call('visualize', { action: 'open', input: { targets: ['existing.html'] } }),
+      ],
     },
   ];
   const options = { cwd: root, roots: sessionRoots({ cwd: root }) };
   const names = (messages, report) =>
-    collectTurnArtifacts(messages, { ...options, report }).files.map((file) => file.path.slice(root.length + 1).replaceAll('\\', '/'));
+    collectUnreportedWrites(messages, { ...options, report }).files.map((file) =>
+      file.path.slice(root.length + 1).replaceAll('\\', '/')
+    );
 
   // A plain or backticked file name suppresses a uniquely named file, wherever it is.
   assert.deepEqual(names(edits('notes.md', 'other.md'), 'Wrote notes.md.'), ['other.md']);
@@ -454,7 +460,10 @@ test('agent → bot: a task turn’s files come back on its report as attachment
   assert.match(wake, /Name the files that matter by path yourself/);
   assert.doesNotMatch(wake, /already shown to the user/);
   // A report without files says nothing about them.
-  assert.doesNotMatch(agentTaskWakePrompt([agentTaskMessage({ ...report, files: [], messageId: 'routine_z' })]), /files/i);
+  assert.doesNotMatch(
+    agentTaskWakePrompt([agentTaskMessage({ ...report, files: [], messageId: 'routine_z' })]),
+    /files/i
+  );
   const notice = routineResultNotice(message);
   assert.equal(notice.attachments.length, 2);
   const [restored] = restoreTranscriptItems([message], { sessionId: 'sess_home_mixy' });

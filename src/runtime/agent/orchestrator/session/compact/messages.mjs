@@ -53,6 +53,19 @@ export function requestStart(messages, index) {
   return latestActualUserInstructionIndex(messages.slice(0, index + 1));
 }
 
+// A tool call's arguments as an object, whether stored parsed or as JSON text.
+export function callArguments(call) {
+  let args = call?.arguments;
+  if (typeof args === 'string') {
+    try {
+      args = JSON.parse(args);
+    } catch {
+      return {};
+    }
+  }
+  return args && typeof args === 'object' ? args : {};
+}
+
 export function latestActualUserInstructionMessage(messages) {
   const index = latestActualUserInstructionIndex(messages);
   return index >= 0 ? { ...messages[index] } : null;

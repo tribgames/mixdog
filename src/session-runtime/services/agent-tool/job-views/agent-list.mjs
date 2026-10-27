@@ -27,8 +27,12 @@ export function isActiveWorkerRow(row = {}) {
 
 // A finished worker that is still open: it takes follow-ups and can be closed.
 function isOpenIdleRow(row = {}) {
-  const status = String(row.status ?? '').trim().toLowerCase();
-  const stage = String(row.stage ?? '').trim().toLowerCase();
+  const status = String(row.status ?? '')
+    .trim()
+    .toLowerCase();
+  const stage = String(row.stage ?? '')
+    .trim()
+    .toLowerCase();
   if (CANCELLED_WORKER_STATUS.test(stage) || CANCELLED_WORKER_STATUS.test(status)) return false;
   return (status || stage) === 'idle';
 }
@@ -86,7 +90,10 @@ function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
 }
 
 export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntries, progress }) {
-  return function list({ scanSessions = false, context = {}, includeTerminal = false,
+  return function list({
+    scanSessions = false,
+    context = {},
+    includeTerminal = false,
     includeIdle = false,
     includeClosed = false,
   } = {}) {

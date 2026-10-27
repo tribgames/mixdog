@@ -12,6 +12,7 @@ import {
   textByteLength,
 } from './text-utils.mjs';
 import {
+  callArguments,
   contextAckMessage,
   isCompactConversationRow,
   isProtectedContextAckMessage,
@@ -577,11 +578,8 @@ function currentSkillBodyMessage(message, current) {
 const SKILL_RELOAD_SOURCE = 'compact-skill-reload';
 
 // How many Compacts in a row a skill may go unused before even its reload
-// line is dropped. The line costs ~40 tokens, so it is cheap to keep for a
-// while, but a skill untouched across three Compacts belongs to finished work;
-// the model still sees it in the skill manifest and can load it by name. Three
-// is also long enough for a skill used every other phase of a task to keep its
-// line without ever being forgotten mid-task.
+// line is dropped: a skill untouched that long belongs to finished work, and
+// the model can still load it by name from the skill manifest.
 export const SKILL_RELOAD_MAX_IDLE = 3;
 
 const SKILL_TOOL_NAMES = new Set(['Skill', 'skill_view']);
@@ -592,15 +590,6 @@ function skillReloadReminder(name, idle = 0) {
     content: `[mixdog-runtime] Skill "${name}" was active earlier, but Compact did not keep its instructions. Reload it with the Skill tool before relying on them.`,
     meta: { source: SKILL_RELOAD_SOURCE, synthetic: true, skill: name, idle },
   };
-}
-
-function callArguments(call) {
-  if (call?.arguments && typeof call.arguments === 'object') return call.arguments;
-  try {
-    return JSON.parse(call?.arguments) || {};
-  } catch {
-    return {};
-  }
 }
 
 // Every Compact leaves this marker just ahead of the skills it restores, with
@@ -649,9 +638,6 @@ function restoreSkillBodies(live, skillBudget, retainedTail, currentSkill = null
     earlier.set(m.meta.skill, Number.isFinite(m.meta.idle) ? m.meta.idle : 0);
   }
 
-  // Use since the previous Compact (from `windowStart`): the newest transcript
-  // position of a load or of a linked tool's call.
-  const skillsOfTool = new Map();
   // A loader pair can sit anywhere in the transcript (a restored body stays
   // ahead of the retained tail's pair), so read them all.
   const results = new Map(live.filter((m) => m?.role === 'tool').map((m) => [m.toolCallId, m]));
@@ -659,16 +645,19 @@ function restoreSkillBodies(live, skillBudget, retainedTail, currentSkill = null
   for (const message of live) {
     for (const call of message?.role === 'assistant' ? message.toolCalls || [] : []) {
       const references = results.get(call.id)?.nativeToolSearch?.toolReferences;
-      if (call.name === 'Skill' && references) {
-        const name = String(callArguments(call).name || '').trim();
-        loaderTools.set(name, [...(loaderTools.get(name) || []), ...references]);
-      }
+      if (call.name !== 'Skill' || !references) continue;
+      const name = String(callArguments(call).name || '').trim();
+      loaderTools.set(name, [...(loaderTools.get(name) || []), ...references]);
     }
   }
+  const skillsOfTool = new Map();
   for (const name of new Set([...earlier.keys(), ...bodies.map((body) => body.name)])) {
-    const tools = [...(current(name)?.native?.toolReferences || []), ...(current(name)?.tools || []), ...(loaderTools.get(name) || [])];
-    for (const tool of tools) skillsOfTool.set(tool, [...new Set([...(skillsOfTool.get(tool) || []), name])]);
+    const skill = current(name);
+    const tools = [...(skill?.native?.toolReferences || []), ...(skill?.tools || []), ...(loaderTools.get(name) || [])];
+    for (const tool of tools) skillsOfTool.set(tool, (skillsOfTool.get(tool) || new Set()).add(name));
   }
+  // Use since the previous Compact (from `windowStart`): the newest transcript
+  // position of a load or of a linked tool's call.
   const lastUse = new Map();
   const noteUse = (name, index) => lastUse.set(name, Math.max(lastUse.get(name) ?? -1, index));
   live.forEach((message, index) => {
@@ -678,8 +667,8 @@ function restoreSkillBodies(live, skillBudget, retainedTail, currentSkill = null
       if (SKILL_TOOL_NAMES.has(call.name)) noteUse(String(args.name || '').trim(), index);
       else {
         const tool = call.name === 'call_tool' ? args.name : call.name;
-        const server = parseMcpToolName(tool)?.server;
-        for (const name of [...(skillsOfTool.get(tool) || []), ...(skillsOfTool.get(`mcp:${server}`) || [])]) {
+        const mcpServer = `mcp:${parseMcpToolName(tool)?.server}`;
+        for (const name of [...(skillsOfTool.get(tool) || []), ...(skillsOfTool.get(mcpServer) || [])]) {
           noteUse(name, index);
         }
       }

@@ -31,12 +31,12 @@ test('assistant with text, tool calls and replay meters the max of the separatel
 test('replay larger than the base wins; base larger than the replay wins', () => {
   const small = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }];
   const baseWins = { role: 'assistant', content: 'x', toolCalls, providerReplay: { items: small } };
-  assert.equal(
-    estimateMessageTokens(baseWins),
-    estimateTokens(baseText('x', toolCalls)) + OVERHEAD
-  );
+  assert.equal(estimateMessageTokens(baseWins), estimateTokens(baseText('x', toolCalls)) + OVERHEAD);
   const replayWins = { role: 'assistant', content: 'x', providerReplay: { items } };
-  assert.equal(estimateMessageTokens(replayWins), estimateTokens(items.map((i) => JSON.stringify(i)).join('\n')) + OVERHEAD);
+  assert.equal(
+    estimateMessageTokens(replayWins),
+    estimateTokens(items.map((i) => JSON.stringify(i)).join('\n')) + OVERHEAD
+  );
 });
 
 test('a replay-free message and an empty replay still meter the whole estimate text', () => {
@@ -87,6 +87,19 @@ test('Anthropic signed thinking is priced by its own signature and text, not by 
   const expected = SIG_TOKENS + estimateTokens(thinking);
   assert.ok(Math.abs(tokens - expected) <= expected * 0.05, `${tokens} vs ${expected}`);
   assert.ok(tokens <= estimateMessageTokens(message));
+});
+
+test('an empty replay envelope does not hide the reasoning sent from content', () => {
+  const message = {
+    role: 'assistant',
+    content: [
+      { type: 'thinking', thinking: 'plan', signature: SIG },
+      { type: 'text', text: 'done' },
+    ],
+    providerReplay: { items: [] },
+  };
+  const { tokens } = messageReasoningBreakdown(message);
+  assert.ok(Math.abs(tokens - SIG_TOKENS) <= SIG_TOKENS * 0.05, `${tokens} vs ${SIG_TOKENS}`);
 });
 
 test('OpenAI encrypted reasoning is priced at the opaque-blob rate alongside other items', () => {

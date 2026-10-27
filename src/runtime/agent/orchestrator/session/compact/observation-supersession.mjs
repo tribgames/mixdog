@@ -1,11 +1,11 @@
 // Observations that a later one of the same browser page, desktop window,
 // visualize tab (inspect / check) or image file replaced. Such a result's refs
 // have expired, and its element list and pixels describe a state that no
-// longer exists. Only compaction drops them: between
-// compactions the transcript stays append-only so the provider cache prefix
-// holds, and compaction rewrites that prefix anyway. The execution archive
-// keeps every original.
-import { requestStart } from './messages.mjs';
+// longer exists. Only compaction drops them: between compactions the
+// transcript stays append-only so the provider cache prefix holds, and
+// compaction rewrites that prefix anyway. The execution archive keeps every
+// original.
+import { callArguments, requestStart } from './messages.mjs';
 
 const BROWSER_TOOLS = new Set(['browser', 'browser_devtools']);
 const SNAPSHOT_LINE = /(?:^|\n)Snapshot:\s+((p\d+)-s\d+)\b/;
@@ -60,18 +60,6 @@ const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
 // What a superseded computer frame keeps besides its reference.
 const FRAME_OUTCOME_KEYS = ['ok', 'action', 'actions', 'status', 'error', 'window_id'];
 
-function callArguments(call) {
-  let args = call?.arguments;
-  if (typeof args === 'string') {
-    try {
-      args = JSON.parse(args);
-    } catch {
-      return {};
-    }
-  }
-  return args && typeof args === 'object' ? args : {};
-}
-
 // A visualize read-out is the same observation only for the same tab, kind of
 // read, viewport and scope: a mobile inspect does not replace a desktop one.
 function visualizeKey(args) {
@@ -88,13 +76,10 @@ function observationOf(message, call) {
   const toolName = String(call?.name || '');
   const parts = contentParts(message.content);
   if (toolName === 'read') {
-    // Only a single image file read carries pixels; a user's own attachments
-    // are never tool results.
     const args = callArguments(call);
     const path = typeof args.path === 'string' ? args.path : args.file_path;
     if (typeof path !== 'string' || !IMAGE_FILE.test(path) || !parts.some(isImagePart)) return null;
-    const key = `image:${path.replace(/\\/g, '/')}`;
-    return { key, parts, textIndex: -1, imagePath: path, requestScoped: true };
+    return { key: `image:${path.replace(/\\/g, '/')}`, imagePath: path, requestScoped: true };
   }
   const textIndex = parts.findIndex((part) => part?.type === 'text' && !isImagePart(part));
   if (textIndex < 0) return null;
@@ -102,7 +87,7 @@ function observationOf(message, call) {
   if (toolName === 'visualize') {
     if (/^\[Visualize \w+ of tab \S+ superseded:/.test(text)) return null;
     const read = visualizeKey(callArguments(call));
-    return read ? { ...read, parts, textIndex, text, visualize: read, requestScoped: true } : null;
+    return read ? { key: read.key, parts, textIndex, visualize: read, requestScoped: true } : null;
   }
   if (BROWSER_TOOLS.has(toolName)) {
     const snapshot = SNAPSHOT_LINE.exec(text);
@@ -132,16 +117,13 @@ function observationOf(message, call) {
   const slim =
     typeof frame?.superseded === 'string' &&
     Object.keys(frame).some((name) => name !== 'superseded' && !FRAME_OUTCOME_KEYS.includes(name));
-  return slim
-    ? { key: `computer-stub:${windowId}`, stub: true, parts, textIndex, value, frame, reference: frame.superseded }
-    : null;
+  return slim ? { stub: true, parts, textIndex, value, frame, reference: frame.superseded } : null;
 }
 
-/** Transcript indices whose results are still in use and must stay verbatim:
- *  the latest tool-call group (the batch the session continues from, which
- *  compaction always retains) and any group with a call that has no result
- *  yet. */
-export function protectedObservationIndices(messages) {
+// Transcript indices whose results are still in use and must stay verbatim:
+// the latest tool-call group (the batch the session continues from, which
+// compaction always retains) and any group with a call that has no result yet.
+function protectedObservationIndices(messages) {
   const protectedIndices = new Set();
   const protect = (from, to) => {
     for (let index = from; index < to; index += 1) protectedIndices.add(index);
@@ -164,13 +146,14 @@ export function protectedObservationIndices(messages) {
 }
 
 /** Tool results that a later observation of the same page, window, tab or
- *  file replaced, keyed by transcript index. Results in `protectedIndices`
- *  (default: protectedObservationIndices) are never listed, though they still
- *  count as the newer observation of what they describe. An image file read or
- *  visualize read-out is also kept for the whole active request (everything
- *  since the last user instruction), since the request may compare it with a
- *  later one; once a newer user message exists it is replaceable. */
-export function staleObservations(messages, protectedIndices = protectedObservationIndices(messages)) {
+ *  file replaced, keyed by transcript index. Protected results are never
+ *  listed, though they still count as the newer observation of what they
+ *  describe. An image file read or visualize read-out is also kept for the
+ *  whole active request (everything since the last user instruction), since
+ *  the request may compare it with a later one; once a newer user message
+ *  exists it is replaceable. */
+export function staleObservations(messages) {
+  const protectedIndices = protectedObservationIndices(messages);
   const activeRequest = Math.max(requestStart(messages, messages.length - 1), 0);
   const calls = new Map();
   for (const message of messages) {

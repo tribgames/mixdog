@@ -581,18 +581,19 @@ function reasoningBreakdown(message, fullTextTokens) {
       };
     }
   }
-  // Price the reasoning items that are actually sent (replay items replace
-  // content when present), each at its own measured cost: signature/encrypted
-  // blobs at OPAQUE_BYTES_PER_TOKEN, plain reasoning text at the estimator.
-  // The whole-minus-visible difference is only an upper bound, so the rows
-  // still never exceed the total.
-  const sent = Array.isArray(message.providerReplay?.items)
-    ? message.providerReplay.items.filter(isReasoningBlock)
-    : blocks;
-  const priced = () => sent.reduce((sum, block) => sum + estimateTokens(nativeBlocksEstimateText(block)), 0);
+  // Price each reasoning item that is actually sent (a non-empty replay
+  // replaces content) at its own cost; the whole-minus-visible difference only
+  // caps the sum so the rows never exceed the total.
+  const sent = message.providerReplay?.items?.length ? message.providerReplay.items.filter(isReasoningBlock) : blocks;
   return {
     tokens: blocks.length
-      ? Math.max(0, Math.min(priced(), fullTextTokens() - messageTextTokens(visible)))
+      ? Math.max(
+          0,
+          Math.min(
+            sent.reduce((sum, block) => sum + estimateTokens(nativeBlocksEstimateText(block)), 0),
+            fullTextTokens() - messageTextTokens(visible)
+          )
+        )
       : 0,
     blocks,
     message: visible,

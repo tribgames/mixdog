@@ -455,7 +455,7 @@ function callArgs(call) {
 
 /** The paths one tool call wrote or produced; `written`: only those it
  *  actually created or modified (opening a file in visualize does neither). */
-function toolCallOutputs(call, written = false) {
+function toolCallOutputs(call, written) {
   const name = String(call?.function?.name || call?.name || '');
   const args = callArgs(call);
   const text = (value) => (typeof value === 'string' && value.trim() ? [value.trim()] : []);
@@ -465,10 +465,10 @@ function toolCallOutputs(call, written = false) {
   if (name === 'office') return OFFICE_WRITE_ACTIONS.has(args.action) ? [...text(args.output), ...text(args.path)] : [];
   if (name === 'visualize') {
     const input = args.input && typeof args.input === 'object' ? args.input : {};
-    const targets = args.action === 'open' && Array.isArray(input.targets) ? input.targets : [];
+    const targets = !written && args.action === 'open' && Array.isArray(input.targets) ? input.targets : [];
     return [
       ...text(input.output),
-      ...(written ? [] : targets).filter((target) => typeof target === 'string' && !/^[a-z][a-z0-9+.-]*:\/\//i.test(target)),
+      ...targets.filter((target) => typeof target === 'string' && !/^[a-z][a-z0-9+.-]*:\/\//i.test(target)),
     ];
   }
   return [];
@@ -549,25 +549,60 @@ export function turnArtifactCandidates(messages, { written = false } = {}) {
  * — `id` (the attachment-store reference) when it fits a prompt's types and
  * limits, else a path-only entry. Secret files, folders and anything outside
  * the roots are left out silently; at most HANDOFF_LIMITS.count are kept.
- *
- * With `report` (the text handed to the Lead), only files the turn created or
- * modified are returned, none of them already named by `report`, and none is
- * stored (they are forwarded by path).
  */
-export function collectTurnArtifacts(messages, { cwd = '', roots = [], report } = {}) {
-  const seen = new Set();
+export function collectTurnArtifacts(messages, { cwd = '', roots = [] } = {}) {
   const files = [];
   let omitted = 0;
   const budget = createBudget();
-  const lean = typeof report === 'string';
-  const base = cwd || process.cwd();
-  const keyOf = (path) => samePlatformPath(isAbsolute(path) ? resolve(path) : resolve(base, path));
-  const found = [];
-  for (const candidate of turnArtifactCandidates(messages, { written: lean })) {
-    // A candidate is a lexical path; its canonical form dedupes after the read.
-    const lexical = samePlatformPath(
-      isAbsolute(candidate) ? resolve(candidate) : resolve(cwd || process.cwd(), candidate)
-    );
+  for (const { file } of readableCandidates(turnArtifactCandidates(messages), { cwd, roots })) {
+    if (files.length >= HANDOFF_LIMITS.count) {
+      omitted += 1;
+      continue;
+    }
+    const { type, bytes } = file;
+    const entry = pathEntry(file);
+    const storable = bytes && (type.kind !== 'image' || SUPPORTED_IMAGE_MIME_TYPES.has(type.mimeType));
+    if (storable && budget.take(type.kind, bytes.length)) {
+      try {
+        entry.id = storeAttachmentBuffer(bytes).attachmentRef;
+      } catch {}
+    }
+    files.push(entry);
+  }
+  return { files, omitted };
+}
+
+/**
+ * The files `messages` (one turn) created or modified, inside `roots`, that
+ * `report` (the text handed to the Lead) does not name: `{ files, omitted }`
+ * as path-only entries, which the Lead forwards by path. Nothing is stored.
+ */
+export function collectUnreportedWrites(messages, { cwd = '', roots = [], report }) {
+  const found = [...readableCandidates(turnArtifactCandidates(messages, { written: true }), { cwd, roots })];
+  const unnamed = found.filter((item) => !reportNames(report, item, found, cwd));
+  return {
+    files: unnamed.slice(0, HANDOFF_LIMITS.count).map(({ file }) => pathEntry(file)),
+    omitted: Math.max(0, unnamed.length - HANDOFF_LIMITS.count),
+  };
+}
+
+const lexicalKey = (path, cwd) => samePlatformPath(resolve(cwd || process.cwd(), path));
+
+const pathEntry = (file) => ({
+  path: file.path,
+  name: file.name,
+  kind: file.type?.kind || 'file',
+  mimeType: file.type?.mimeType || 'application/octet-stream',
+  size: file.size,
+});
+
+/** The distinct files among `candidates` that can be read inside `roots`, with
+ *  their lexical and canonical keys. A candidate is a lexical path; its
+ *  canonical form dedupes after the read. */
+function* readableCandidates(candidates, { cwd, roots }) {
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const lexical = lexicalKey(candidate, cwd);
     if (seen.has(lexical)) continue;
     seen.add(lexical);
     let file;
@@ -579,51 +614,14 @@ export function collectTurnArtifacts(messages, { cwd = '', roots = [], report } 
     const key = samePlatformPath(file.path);
     if (key !== lexical && seen.has(key)) continue;
     seen.add(key);
-    if (lean) {
-      found.push({ file, lexical, key });
-      continue;
-    }
-    if (files.length >= HANDOFF_LIMITS.count) {
-      omitted += 1;
-      continue;
-    }
-    const { type, bytes } = file;
-    const entry = {
-      path: file.path,
-      name: file.name,
-      kind: type?.kind || 'file',
-      mimeType: type?.mimeType || 'application/octet-stream',
-      size: file.size,
-    };
-    const storable = bytes && (type.kind !== 'image' || SUPPORTED_IMAGE_MIME_TYPES.has(type.mimeType));
-    if (storable && budget.take(type.kind, bytes.length)) {
-      try {
-        entry.id = storeAttachmentBuffer(bytes).attachmentRef;
-      } catch {}
-    }
-    files.push(entry);
+    yield { file, lexical, key };
   }
-  if (lean) {
-    const unnamed = found.filter((item) => !reportNames(report, item, found, keyOf));
-    for (const { file } of unnamed) {
-      if (files.length >= HANDOFF_LIMITS.count) omitted += 1;
-      else
-        files.push({
-          path: file.path,
-          name: file.name,
-          kind: file.type?.kind || 'file',
-          mimeType: file.type?.mimeType || 'application/octet-stream',
-          size: file.size,
-        });
-    }
-  }
-  return { files, omitted };
 }
 
 /** Whether `report` names the produced file `item` among `found`: by its full
  *  path or a cwd-relative path resolving to it exactly, or by its bare file name
  *  when no other produced file shares that name. */
-function reportNames(report, { file, lexical, key }, found, keyOf) {
+function reportNames(report, { file, lexical, key }, found, cwd) {
   const flat = (value) => String(value).replaceAll('\\', '/');
   const filePath = flat(file.path);
   if (flat(report).includes(filePath)) return true;
@@ -639,7 +637,7 @@ function reportNames(report, { file, lexical, key }, found, keyOf) {
       if (unique && normalized === file.name) return true;
       continue;
     }
-    const refKey = keyOf(ref);
+    const refKey = lexicalKey(ref, cwd);
     if (refKey === lexical || refKey === key) return true;
   }
   return false;
