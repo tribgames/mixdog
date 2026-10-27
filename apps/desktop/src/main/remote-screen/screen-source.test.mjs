@@ -255,6 +255,7 @@ function build(over = {}) {
     displays: displays.provider,
     authorization: {
       paired: () => auth.paired,
+      lost: () => auth.lost ?? 'revoked',
       onChange(listener) {
         authListeners.add(listener);
         return () => authListeners.delete(listener);

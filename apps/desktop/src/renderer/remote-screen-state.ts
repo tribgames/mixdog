@@ -45,7 +45,9 @@ export function chooseScreenEntry(displays: readonly RemoteScreenDisplaySummary[
 export type ScreenBlockReason = 'uac' | 'lock' | 'secure';
 
 export type ScreenView =
-  | { kind: 'connecting' }
+  /** `reconnecting`: the session was lost with the phone's connection (a
+   *  network change) and comes back on its own. */
+  | { kind: 'connecting'; reconnecting?: true }
   | { kind: 'failed' }
   | { kind: 'live'; control: boolean }
   /** The secure desktop (D2): the last frame dimmed, the reason beneath, no keyboard.
@@ -56,25 +58,51 @@ export type ScreenView =
 
 const FAILED_TRANSPORT: ReadonlySet<RemoteWebrtcTransportState> = new Set(['cooldown', 'closed']);
 
-/** What the pane shows for the connection and the PC's latest `screen-status`. */
+/** The phone's relay link to a host that serves the screen: `up`; `down` while
+ *  no host is connected and the relay connection is being made again (a
+ *  network change); `none` when the connected host (or this page) has none. */
+export type ScreenLink = 'up' | 'down' | 'none';
+
+export function screenLink(hostServes: boolean, connection: string | null): ScreenLink {
+  if (hostServes) return 'up';
+  return connection === 'connecting' || connection === 'reconnecting' || connection === 'syncing' ? 'down' : 'none';
+}
+
+/** The PC ended the session because this phone's connection left it (the
+ *  relay leg dropped, or the video connection was lost): not a decision of
+ *  anyone's, so the next connection starts it again by itself. */
+export function screenStopIsConnectionLoss(status: RemoteScreenStatus | null): boolean {
+  return status?.state === 'stopped' && status.reason === 'viewer-left';
+}
+
+/** What the pane shows for the connection and the PC's latest `screen-status`.
+ *  `resuming`: a new session was started by itself after a connection loss,
+ *  and has no picture yet. */
 export function screenView({
+  link = 'up',
   transport,
   showsVideo,
   status,
+  resuming = false,
 }: {
+  link?: ScreenLink;
   transport: RemoteWebrtcTransportState;
   showsVideo: boolean;
   status: RemoteScreenStatus | null;
+  resuming?: boolean;
 }): ScreenView {
-  if (status?.state === 'stopped') {
+  const lost = screenStopIsConnectionLoss(status);
+  if (status?.state === 'stopped' && !lost) {
     return { kind: 'stopped', reason: status.reason === 'display-removed' ? 'display-removed' : 'other' };
   }
+  if (link === 'down' || lost) return { kind: 'connecting', reconnecting: true };
+  if (link === 'none') return { kind: 'failed' };
   if (!showsVideo && FAILED_TRANSPORT.has(transport)) return { kind: 'failed' };
   if (status?.state === 'secure-desktop' || status?.state === 'elevation-prompt') {
     const reason: ScreenBlockReason = status.reason === 'uac' || status.reason === 'lock' ? status.reason : 'secure';
     return { kind: 'blocked', reason, dim: status.state === 'secure-desktop' };
   }
-  if (!showsVideo) return { kind: 'connecting' };
+  if (!showsVideo) return resuming ? { kind: 'connecting', reconnecting: true } : { kind: 'connecting' };
   return { kind: 'live', control: status ? status.control : true };
 }
 

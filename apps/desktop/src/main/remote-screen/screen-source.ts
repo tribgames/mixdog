@@ -85,6 +85,11 @@ export interface ScreenViewerAuthorization {
   /** The viewer's connection is a paired, E2EE-established client and still
    *  connected. */
   paired(): boolean;
+  /** Why `paired()` is false: `viewer-left` when the connection left (the
+   *  phone's network changed; its next connection is another client that
+   *  asks for its own session), `revoked` for anything else (an unpair, the
+   *  connection replaced). */
+  lost(): Extract<RemoteScreenStopReason, 'viewer-left' | 'revoked'>;
   /** Fires on anything that can end that: a disconnect, an unpair, or the
    *  connection being replaced. */
   onChange(listener: () => void): () => void;
@@ -554,9 +559,9 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   };
 
   /** The connection is no longer paired and connected (disconnect, unpair):
-   *  the session stops. */
+   *  the session stops, for the reason the access ended. */
   const reauthorize = (): void => {
-    if (running && !paired()) void stop('revoked');
+    if (running && !paired()) void stop(deps.authorization.lost());
   };
 
   const renewGeometry = (): void => {

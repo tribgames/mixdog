@@ -15,7 +15,8 @@
  *
  * A grant is sent before a client's screen `ready`, for the connection that
  * delivered it only; a deny is sent at once when the connection leaves the
- * relay registry (any path) or its credential is unpaired.
+ * relay registry (any path; `ended: 'left'`) or its credential is unpaired
+ * (`ended: 'revoked'`).
  *
  * Unpair: the record of it is the caller's (`unpaired`, in force until the
  * relay confirms the revoke or the device is paired again, across restarts).
@@ -92,12 +93,14 @@ export function createScreenAccessPublisher(deps: ScreenAccessPublisherDeps) {
   const current = (clientId: string, issued: number, client: ScreenAccessClient): boolean =>
     latest.get(clientId) === issued && allowed(clientId, client) !== null;
 
-  /** Sent before this returns. */
-  function deny(clientId: string): Promise<void> {
+  /** Sent before this returns. `ended` says why (see RemoteScreenAccess). */
+  function deny(clientId: string, ended: NonNullable<RemoteScreenAccess['ended']>): Promise<void> {
     const issued = issue(clientId);
     latest.delete(clientId);
     known.delete(clientId);
-    return deps.send(clientId, { epoch, revision: issued, connection: '', paired: false, label: '' }).then(ignore);
+    return deps
+      .send(clientId, { epoch, revision: issued, connection: '', paired: false, label: '', ended })
+      .then(ignore);
   }
 
   return {
@@ -135,9 +138,11 @@ export function createScreenAccessPublisher(deps: ScreenAccessPublisherDeps) {
       if (deps.unpaired(client.credentialId)) revoked.add(client);
     },
 
-    /** The client's connection left the registry (any path). */
+    /** The client's connection left the registry (any path): a departure,
+     *  not a revocation. Its access still ends now; the device's next
+     *  connection is another client and asks for its own. */
     removed(clientId: string): void {
-      if (known.has(clientId)) void deny(clientId).catch(ignore);
+      if (known.has(clientId)) void deny(clientId, 'left').catch(ignore);
     },
 
     /** The credential is being unpaired (its record already in force): each
@@ -148,7 +153,7 @@ export function createScreenAccessPublisher(deps: ScreenAccessPublisherDeps) {
       for (const [clientId, client] of [...deps.clients()]) {
         if (client.credentialId !== credentialId) continue;
         revoked.add(client);
-        if (known.has(clientId)) void deny(clientId).catch(ignore);
+        if (known.has(clientId)) void deny(clientId, 'revoked').catch(ignore);
       }
     },
   };

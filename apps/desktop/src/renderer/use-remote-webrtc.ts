@@ -8,7 +8,7 @@ import type { DesktopApi, DesktopRemoteBrowserControl } from '../shared/contract
 import type { RemoteWebrtcPageInput, RemoteWebrtcResize } from '../shared/remote-webrtc';
 import type { createRemoteBrowserInputQueue } from './remote-browser-input';
 import type { RemoteInputFrame } from './remote-browser-input-client';
-import { remoteWebrtcHost } from './remote-webrtc-bridge';
+import { remoteWebrtcHost, remoteWebrtcSignal } from './remote-webrtc-bridge';
 import {
   REMOTE_WEBRTC_SWITCHING_MESSAGE,
   createRemoteWebrtcViewer,
@@ -96,10 +96,12 @@ export function useRemoteWebrtc({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs are stable; the viewer follows the host, page and queue.
   useEffect(() => {
-    if (!enabled || !remoteWebrtcHost(api)) return undefined;
+    // Read with the check, once: the shim's members go when the relay drops.
+    const listen = remoteWebrtcHost(api) ? api.onRemoteBrowserWebrtc : undefined;
+    if (!enabled || !listen) return undefined;
     const viewer = createRemoteWebrtcViewer({
       source: { kind: 'browser', sessionId },
-      signal: (signal) => api.remoteBrowserWebrtcSignal!(signal),
+      signal: remoteWebrtcSignal(api),
       fence: (work) => queue.fence(work),
       createPeer: (configuration) => new RTCPeerConnection(configuration),
       receiveCodecs,
@@ -112,7 +114,7 @@ export function useRemoteWebrtc({
       log: (line) => console.info(line),
     });
     viewerRef.current = viewer;
-    const unsubscribe = api.onRemoteBrowserWebrtc!((signal) => viewer.handle(signal));
+    const unsubscribe = listen((signal) => viewer.handle(signal));
     // Offered once the relay view streams (the first frame), as the stream runs.
     const visibility = () => {
       if (document.visibilityState === 'hidden') viewer.stop();

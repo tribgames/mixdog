@@ -12,7 +12,11 @@
  *   new epoch retires the previous one and withdraws all its access. A session
  *   is bound to the connection it was opened for and reads the access live
  *   through `ScreenViewerAuthorization`: a deny, or access for another
- *   connection under the same client id, stops it at once.
+ *   connection under the same client id, stops it at once. A deny for a
+ *   connection that left (a network change) stops it as `viewer-left`, which
+ *   the phone answers with a new session from its next connection; an unpair
+ *   (or anything else) as `revoked`. No session outlives its connection: the
+ *   next one is another client with its own access.
  * - Resolve: a client's `ready` for a display nobody holds creates a session
  *   and starts it at once (the viewer's
  *   offer waits for the geometry the start locks). Its later signals reach the
@@ -26,6 +30,7 @@
  */
 import type {
   RemoteScreenDisplaySummary,
+  RemoteScreenStopReason,
   RemoteWebrtcClientSignal,
   RemoteWebrtcSource,
 } from '../../shared/remote-webrtc';
@@ -58,7 +63,15 @@ export interface RemoteScreenAccess {
   paired: boolean;
   /** What the on-PC indicator calls the phone. */
   label: string;
+  /** A deny's cause: `left`, the connection left the relay (a network change,
+   *  the app closed: the device keeps its pairing, and its next connection
+   *  asks again); `revoked`, the device was unpaired. Absent (an older
+   *  service): `revoked`. Either way the access ends at once. */
+  ended?: 'left' | 'revoked';
 }
+
+/** How a session's access ended, as its stop reason. */
+type AccessEnd = Extract<RemoteScreenStopReason, 'viewer-left' | 'revoked'>;
 
 const MAX_LABEL = 120;
 const MAX_ID = 64;
@@ -78,7 +91,9 @@ export function parseRemoteScreenAccess(value: unknown): RemoteScreenAccess {
     typeof access.paired !== 'boolean' ||
     // A grant names its connection; only a deny may leave it empty.
     !isId(access.connection, !access.paired) ||
-    typeof access.label !== 'string'
+    typeof access.label !== 'string' ||
+    // Only a deny has a cause.
+    (access.ended !== undefined && (access.paired || (access.ended !== 'left' && access.ended !== 'revoked')))
   ) {
     throw new TypeError('remote screen access is invalid.');
   }
@@ -88,6 +103,7 @@ export function parseRemoteScreenAccess(value: unknown): RemoteScreenAccess {
     connection: access.connection,
     paired: access.paired,
     label: access.label.slice(0, MAX_LABEL),
+    ...(access.ended ? { ended: access.ended } : {}),
   };
 }
 
@@ -116,7 +132,8 @@ interface Session {
 
 export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
   const access = new Map<string, RemoteScreenAccess>();
-  const accessListeners = new Map<string, Set<() => void>>();
+  /** Told how the access ended, when it did. */
+  const accessListeners = new Map<string, Set<(ended?: AccessEnd) => void>>();
   /** Live sessions by source key. */
   const sessions = new Map<string, Session>();
   /** Every session not yet released, for the quit budget. */
@@ -131,14 +148,14 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
   let closing = false;
   let closed: Promise<void> | null = null;
 
-  const notify = (clientId: string): void => {
-    for (const listener of [...(accessListeners.get(clientId) ?? [])]) listener();
+  const notify = (clientId: string, ended?: AccessEnd): void => {
+    for (const listener of [...(accessListeners.get(clientId) ?? [])]) listener(ended);
   };
 
-  /** A client's access is gone: its sessions see it, then stop. */
-  const withdraw = (clientId: string): void => {
+  /** A client's access is gone: its sessions see it, then stop for `ended`. */
+  const withdraw = (clientId: string, ended: AccessEnd): void => {
     if (!access.delete(clientId)) return;
-    notify(clientId);
+    notify(clientId, ended);
   };
 
   function create(
@@ -158,6 +175,9 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
     // The session's hold on the shared helper; let go once it released (its
     // releases may go through the helper), or when it never started.
     const lease = deps.secureDesktop.lease();
+    // Access lost any other way (another connection's grant under the id) is
+    // no departure of this one's.
+    let ended: AccessEnd = 'revoked';
     const screen = createRemoteScreenSource({
       clientId,
       clientLabel: granted.label,
@@ -165,12 +185,17 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
       displays: deps.displays,
       authorization: {
         paired: () => accessOf()?.paired === true,
+        lost: () => ended,
         onChange(listener) {
           let listeners = accessListeners.get(clientId);
           if (!listeners) accessListeners.set(clientId, (listeners = new Set()));
-          listeners.add(listener);
+          const heard = (why?: AccessEnd): void => {
+            if (why) ended = why;
+            listener();
+          };
+          listeners.add(heard);
           return () => {
-            listeners.delete(listener);
+            listeners.delete(heard);
             if (listeners.size === 0 && accessListeners.get(clientId) === listeners) accessListeners.delete(clientId);
           };
         },
@@ -244,12 +269,12 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
         if (epoch !== null) retiredEpochs.add(epoch);
         epoch = value.epoch;
         revisions.clear();
-        for (const id of [...access.keys()]) withdraw(id);
+        for (const id of [...access.keys()]) withdraw(id, 'viewer-left');
       }
       if (value.revision <= (revisions.get(clientId) ?? 0)) throw new TypeError('remote screen access is stale.');
       revisions.set(clientId, value.revision);
       if (!value.paired) {
-        withdraw(clientId);
+        withdraw(clientId, value.ended === 'left' ? 'viewer-left' : 'revoked');
         return Promise.resolve();
       }
       access.set(clientId, value);

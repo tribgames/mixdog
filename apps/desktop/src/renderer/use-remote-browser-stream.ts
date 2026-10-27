@@ -65,6 +65,24 @@ function streamOptions(
     : FALLBACK_STREAM_BOX;
 }
 
+/** `remoteBrowserStream`, read per call. It runs from renewal timers and from
+ *  the effect cleanup, after the relay may have dropped: a missing member or a
+ *  call that throws is a rejection, never a throw (a throw in a cleanup takes
+ *  down the whole page). */
+function requestStream(
+  api: typeof window.mixdogDesktop,
+  sessionId: string,
+  options: DesktopRemoteBrowserStreamOptions | null
+): Promise<unknown> {
+  try {
+    return api?.remoteBrowserStream
+      ? Promise.resolve(api.remoteBrowserStream(sessionId, options))
+      : Promise.reject(new Error('No connected host serves the live view.'));
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
 async function decodeImage(url: string): Promise<void> {
   const image = new Image();
   image.src = url;
@@ -276,7 +294,7 @@ export function useRemoteBrowserStream({
       }
       const options = streamOptions(box, scale, takeover.fit);
       const release = takeover.fit ? 0 : takeover.release;
-      api.remoteBrowserStream!(ownerSessionId, release ? { ...options, fit: null } : options).then(
+      requestStream(api, ownerSessionId, release ? { ...options, fit: null } : options).then(
         () => {
           // Confirmed by the host's reply to a request that carried it.
           if (release && takeover.release === release) takeover.release = 0;
@@ -300,11 +318,7 @@ export function useRemoteBrowserStream({
       // A new stream (the host ended the last one): a take-over keeps its
       // opening box and waits for it again; one that ended while hidden is
       // abandoned by `renew`.
-      if (
-        takeover.fit &&
-        remoteBrowserFitState(api) !== 'unsupported' &&
-        browserTakeoverPending(ownerSessionId)
-      ) {
+      if (takeover.fit && remoteBrowserFitState(api) !== 'unsupported' && browserTakeoverPending(ownerSessionId)) {
         cover(takeover.fit);
       }
       renew();
@@ -316,7 +330,7 @@ export function useRemoteBrowserStream({
       window.clearInterval(timer);
       if (fitTimerRef.current) window.clearTimeout(fitTimerRef.current);
       fitTimerRef.current = 0;
-      api.remoteBrowserStream!(ownerSessionId, null).catch(() => {});
+      requestStream(api, ownerSessionId, null).catch(() => {});
     };
     const visibility = () => (document.visibilityState === 'hidden' ? end() : begin());
     // A fresh relay connection lost the desktop's stream state: start again so

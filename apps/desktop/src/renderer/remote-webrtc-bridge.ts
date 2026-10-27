@@ -49,3 +49,15 @@ export function remoteWebrtcHost(api: DesktopApi | undefined): api is RemoteWebr
     typeof bridge.remoteBrowserControlOrdered === 'function'
   );
 }
+
+/** A viewer's signal call, read per call. While no host serves the contract
+ *  (the relay leg dropped and is being made again) the shim has no
+ *  `remoteBrowserWebrtcSignal`: the call is then refused as a rejection,
+ *  never thrown, since a viewer signals from event handlers and from React
+ *  effect cleanups, where a throw would take down the whole page. */
+export function remoteWebrtcSignal(api: DesktopApi | undefined): (signal: RemoteWebrtcClientSignal) => Promise<void> {
+  return (signal) =>
+    remoteWebrtcHost(api)
+      ? api.remoteBrowserWebrtcSignal!(signal)
+      : Promise.reject(new Error('No connected host serves the live view.'));
+}

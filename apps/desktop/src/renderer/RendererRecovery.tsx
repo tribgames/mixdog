@@ -7,6 +7,7 @@ import { safeErrorDetails } from '../../../../src/runtime/shared/error-presentat
 
 import type { DesktopRendererFailureDiagnostic } from '../shared/contract';
 import { ProgressSpinner, WindowLoadingMark } from './ProgressSpinner';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 type RendererFailurePhase = DesktopRendererFailureDiagnostic['phase'];
 type RendererFailureLocation = {
@@ -283,6 +284,22 @@ export function DesktopLoadingSurface({
   );
 }
 
+/** What the recovery card says. Only a render failure reaches it (a lost
+ *  connection is retried silently and never throws): on a paired phone (or
+ *  any remote page) the work runs on the PC, not "the desktop host". */
+function recoveryCopy(): { title: string; body: string } {
+  if (!isRemoteBrowserRenderer()) {
+    return {
+      title: t('Mixdog could not draw this view'),
+      body: t('Your active task is still running in the desktop host. Retry the view or reload the interface.'),
+    };
+  }
+  return {
+    title: t('Mixdog could not show this screen'),
+    body: t('Your work continues on your PC. Retry this screen or reload the interface.'),
+  };
+}
+
 export class DesktopErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean; retryKey: number }> {
   state = { failed: false, retryKey: 0 };
 
@@ -309,14 +326,15 @@ export class DesktopErrorBoundary extends Component<{ children: ReactNode }, { f
 
   render() {
     if (this.state.failed) {
+      const copy = recoveryCopy();
       return (
         <main className="desktop-recovery-screen" role="alert">
           <section className="desktop-recovery-card">
             <span className="desktop-recovery-mark" aria-hidden="true">
               !
             </span>
-            <h1>{t('Mixdog could not draw this view')}</h1>
-            <p>{t('Your active task is still running in the desktop host. Retry the view or reload the interface.')}</p>
+            <h1>{copy.title}</h1>
+            <p>{copy.body}</p>
             <div className="desktop-recovery-actions">
               <button type="button" onClick={this.retry}>
                 {t('Retry')}

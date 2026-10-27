@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { screenKeyChord, screenSpecialKeyInputs } from './remote-screen-keys.ts';
+import * as remoteScreenState from './remote-screen-state.ts';
 import {
   chooseScreenEntry,
   createScreenCursorTracker,
@@ -34,7 +35,10 @@ test('the monitor picker appears only for two or more displays', () => {
 
 test('a host reply keeps only well-formed displays', () => {
   const listed = readScreenDisplays([display('a', { primary: true }), { screenId: 'b' }, null, 'x', display('')]);
-  assert.deepEqual(listed.map((entry) => entry.screenId), ['a']);
+  assert.deepEqual(
+    listed.map((entry) => entry.screenId),
+    ['a']
+  );
   assert.equal(listed[0].primary, true);
   assert.deepEqual(readScreenDisplays('nope'), []);
 });
@@ -42,9 +46,53 @@ test('a host reply keeps only well-formed displays', () => {
 test('connection states: connecting, live, failed', () => {
   assert.deepEqual(screenView({ transport: 'negotiating', showsVideo: false, status: null }), { kind: 'connecting' });
   assert.deepEqual(screenView({ transport: 'relay', showsVideo: false, status: null }), { kind: 'connecting' });
-  assert.deepEqual(screenView({ transport: 'webrtc', showsVideo: true, status: null }), { kind: 'live', control: true });
+  assert.deepEqual(screenView({ transport: 'webrtc', showsVideo: true, status: null }), {
+    kind: 'live',
+    control: true,
+  });
   assert.deepEqual(screenView({ transport: 'cooldown', showsVideo: false, status: null }), { kind: 'failed' });
   assert.deepEqual(screenView({ transport: 'closed', showsVideo: false, status: null }), { kind: 'failed' });
+});
+
+test('regression: a lost connection reads as reconnecting, never as failed or stopped; a decided stop still wins', () => {
+  const { screenLink } = remoteScreenState;
+  // The relay leg is being redialled: no host, the shim says so.
+  assert.equal(screenLink(true, 'connected'), 'up');
+  assert.equal(screenLink(false, 'reconnecting'), 'down');
+  assert.equal(screenLink(false, 'connecting'), 'down');
+  assert.equal(screenLink(false, 'connected'), 'none', 'a connected host without the screen');
+  assert.equal(screenLink(false, null), 'none');
+  const reconnecting = { kind: 'connecting', reconnecting: true };
+  // Down, whatever the transport did meanwhile.
+  for (const transport of ['webrtc', 'cooldown', 'closed', 'relay']) {
+    assert.deepEqual(
+      screenView({ link: 'down', transport, showsVideo: transport === 'webrtc', status: null }),
+      reconnecting
+    );
+  }
+  // The PC ended the session because this phone's connection left it.
+  const left = status('stopped', { reason: 'viewer-left' });
+  assert.deepEqual(screenView({ link: 'up', transport: 'cooldown', showsVideo: false, status: left }), reconnecting);
+  // A new session started by itself, before its picture.
+  assert.deepEqual(
+    screenView({ link: 'up', transport: 'negotiating', showsVideo: false, status: null, resuming: true }),
+    reconnecting
+  );
+  assert.deepEqual(screenView({ link: 'up', transport: 'webrtc', showsVideo: true, status: null, resuming: true }), {
+    kind: 'live',
+    control: true,
+  });
+  // Someone's decision is shown as it is, even while the link is down.
+  for (const reason of ['user', 'revoked', 'display-removed']) {
+    assert.equal(
+      screenView({ link: 'down', transport: 'cooldown', showsVideo: false, status: status('stopped', { reason }) })
+        .kind,
+      'stopped'
+    );
+  }
+  assert.deepEqual(screenView({ link: 'none', transport: 'relay', showsVideo: false, status: null }), {
+    kind: 'failed',
+  });
 });
 
 test('screen-status drives the secure desktop and stopped states', () => {
@@ -102,9 +150,10 @@ test('the keyboard bar keeps its room from connecting through live and a reconne
   // Present in every step: the stage height, so the picture, never changes.
   assert.ok(sequence.every((view) => screenKeyboardBar(view).present));
   // Typable only while live and controllable.
-  assert.deepEqual(sequence.map((view) => screenKeyboardBar(view).enabled), [
-    false, true, false, false, false, false, false, true,
-  ]);
+  assert.deepEqual(
+    sequence.map((view) => screenKeyboardBar(view).enabled),
+    [false, true, false, false, false, false, false, true]
+  );
   // The secure desktop hides it but still reserves it.
   assert.deepEqual(screenKeyboardBar({ kind: 'blocked', reason: 'lock', dim: true }), {
     present: true,
@@ -150,7 +199,8 @@ test('control lost between press and release still lets the ups out', () => {
   const live = { kind: 'live', control: true };
   const lost = { kind: 'blocked', reason: 'uac', dim: false };
   const sent = [];
-  const gated = (view, inputs) => inputs.filter((input) => screenInputAllowed(input, view)).forEach((i) => sent.push(i));
+  const gated = (view, inputs) =>
+    inputs.filter((input) => screenInputAllowed(input, view)).forEach((i) => sent.push(i));
   const chord = screenKeyChord(['AltLeft', 'Tab']);
   gated(live, chord.slice(0, 2));
   gated(lost, chord.slice(2));
@@ -184,11 +234,17 @@ test('positive input needs a live, controllable view; release is always allowed'
     { kind: 'stopped', reason: 'other' },
   ];
   for (const view of refused) {
-    assert.deepEqual(inputs.filter((input) => screenInputAllowed(input, view)), []);
+    assert.deepEqual(
+      inputs.filter((input) => screenInputAllowed(input, view)),
+      []
+    );
     assert.equal(screenInputAllowed(release, view), true);
   }
   const live = { kind: 'live', control: true };
-  assert.equal(inputs.every((input) => screenInputAllowed(input, live)), true);
+  assert.equal(
+    inputs.every((input) => screenInputAllowed(input, live)),
+    true
+  );
 });
 
 function fakeTargets() {

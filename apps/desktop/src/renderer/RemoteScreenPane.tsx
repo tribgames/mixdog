@@ -520,7 +520,7 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   if (view.kind === 'live') {
     toolbarText = t(view.control ? '{{size}} · Controlling' : '{{size}} · View only', { size: toolbarText });
   }
-  const showPicture = view.kind === 'live' || blocked !== null;
+  const showPicture = view.kind === 'live' || blocked !== null || (view.kind === 'connecting' && !!view.reconnecting);
 
   if (view.kind === 'stopped') {
     return (
@@ -587,7 +587,9 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
             onInstall={openSheet}
           />
         )}
-        {view.kind === 'connecting' && (
+        {/* Reconnecting is silent: no card or text, the picture area stays shown (it may go
+            blank until the new session's frames arrive), and the global dot carries a long outage. */}
+        {view.kind === 'connecting' && !view.reconnecting && (
           <ScreenStateCard>
             <ProgressSpinner size={24} />
             <span>{t('Connecting to PC screen…')}</span>

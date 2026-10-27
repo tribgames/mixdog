@@ -177,20 +177,48 @@ test('no session without access, from a non-ready signal, or for a second client
   assert.equal(env.indicator.filter(([kind]) => kind === 'show').length, 1);
 });
 
-test('the phone disconnecting releases held keys and ends the session; a new ready opens a new one', async () => {
+test('regression: a phone whose network changed is not revoked: its session ends as viewer-left and its next connection opens a new one', async () => {
   const env = build();
   await holdingA(env);
-  await env.screens.setAccess('c1', denied());
+  // The relay leg dropped (Wi-Fi → LTE): the service denies it as a departure.
+  await env.screens.setAccess('c1', denied({ ended: 'left' }));
   await settle();
-  assert.equal(keyUps(env).length, 1);
+  assert.equal(keyUps(env).length, 1, 'held input is still released');
   assert.ok(env.commands.some((command) => command.type === 'source-close' && command.sourceKey === 'screen:1'));
   assert.deepEqual(env.indicator.at(-1), ['hide']);
-  assert.ok(env.events.some((event) => event.type === 'stop' && event.reason === 'revoked'));
-  // The display is free again, for this client or another.
+  assert.deepEqual(
+    stops(env).map((event) => event.reason),
+    ['viewer-left'],
+    'a departure, which the phone answers with a new session'
+  );
+  // The same phone, back on a network: a new relay connection (a new client id).
   await env.screens.setAccess('c2', granted({ connection: 'conn-2' }));
   await env.webrtc.signal('c2', ready, TURN);
   await settle();
-  assert.equal(env.indicator.filter(([kind]) => kind === 'show').length, 2);
+  assert.equal(env.indicator.filter(([kind]) => kind === 'show').length, 2, 'resumed at once, no grace to wait out');
+});
+
+test('an unpair still revokes: the session ends as revoked, at once', async () => {
+  const env = build();
+  await holdingA(env);
+  await env.screens.setAccess('c1', denied({ ended: 'revoked' }));
+  await settle();
+  assert.equal(keyUps(env).length, 1);
+  assert.deepEqual(
+    stops(env).map((event) => event.reason),
+    ['revoked']
+  );
+  await assert.rejects(env.webrtc.signal('c1', ready, TURN), /not streamed/, 'nothing more for that connection');
+  // A deny from an older service names no cause: a revocation.
+  await env.screens.setAccess('c1', granted({ connection: 'conn-3' }));
+  await env.webrtc.signal('c1', ready, TURN);
+  await settle();
+  await env.screens.setAccess('c1', denied());
+  await settle();
+  assert.deepEqual(
+    stops(env).map((event) => event.reason),
+    ['revoked', 'revoked']
+  );
 });
 
 test('regression: a grant delivered after the deny that followed it is ignored', async () => {
@@ -288,6 +316,10 @@ test('access crossing from the service is validated', () => {
   assert.deepEqual(parseRemoteScreenAccess(grant), grant);
   const deny = denied();
   assert.deepEqual(parseRemoteScreenAccess(deny), deny);
+  const left = denied({ ended: 'left' });
+  assert.deepEqual(parseRemoteScreenAccess(left), left);
+  assert.throws(() => parseRemoteScreenAccess(denied({ ended: 'gone' })), /invalid/);
+  assert.throws(() => parseRemoteScreenAccess(granted({ ended: 'left' })), /invalid/, 'only a deny has a cause');
   assert.throws(() => parseRemoteScreenAccess({ ...granted(), paired: 'yes' }), /invalid/);
   assert.throws(() => parseRemoteScreenAccess({ ...granted(), revision: 0 }), /invalid/);
   assert.throws(() => parseRemoteScreenAccess({ ...granted(), revision: 1.5 }), /invalid/);

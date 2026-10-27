@@ -230,7 +230,10 @@ test('the offer is answered direct-first with this side’s fingerprints; early 
   const [answer] = h.signals('answer');
   assert.deepEqual(answer.fingerprints, [PHONE_FP]);
   assert.equal(answer.connectionId, id(1));
-  assert.deepEqual(h.signals('geometry-ack').map((entry) => entry.geometryGeneration), [1]);
+  assert.deepEqual(
+    h.signals('geometry-ack').map((entry) => entry.geometryGeneration),
+    [1]
+  );
   assert.equal(h.viewer.state, 'negotiating');
 });
 
@@ -350,12 +353,14 @@ test('media-ready waits for a decoded frame at the locked size of the current do
   h.viewer.framePresented({ width: 1280, height: 720 });
   await settle();
   assert.deepEqual(
-    h.signals('media-ready').map(({ documentId, geometryGeneration, pixelWidth, pixelHeight }) => [
-      documentId,
-      geometryGeneration,
-      pixelWidth,
-      pixelHeight,
-    ]),
+    h
+      .signals('media-ready')
+      .map(({ documentId, geometryGeneration, pixelWidth, pixelHeight }) => [
+        documentId,
+        geometryGeneration,
+        pixelWidth,
+        pixelHeight,
+      ]),
     [['p1:0', 1, 1280, 720]]
   );
   assert.equal(h.viewer.state, 'connected');
@@ -454,7 +459,9 @@ test('a close without retryAfterMs after a demotion: no new attempt until a new 
 test('screen-cursor reaches the screenCursor callback only at the current geometry generation', async () => {
   const cursors = [];
   const statuses = [];
-  const h = harness({ extra: { screenCursor: (cursor) => cursors.push(cursor), screenStatus: (s) => statuses.push(s) } });
+  const h = harness({
+    extra: { screenCursor: (cursor) => cursors.push(cursor), screenStatus: (s) => statuses.push(s) },
+  });
   const push = (message) => h.peers[0].channel.onmessage({ data: JSON.stringify({ v: 1, ...message }) });
   await connect(h);
   const at = (generation, x = 10, y = 20) => push({ kind: 'screen-cursor', x, y, generation });
@@ -543,18 +550,29 @@ test('a malformed helper message is refused before it reaches the channel', asyn
   );
   assert.equal(channel.sent.length, before);
   assert.equal(channel.readyState, 'open', 'the connection is not failed by it');
-  assert.equal(h.viewer.sendHelperMessage({ v: 1, kind: 'screen-helper-install', publicKey: (await generateSecureDesktopControllerKey()).publicKey }), true);
+  assert.equal(
+    h.viewer.sendHelperMessage({
+      v: 1,
+      kind: 'screen-helper-install',
+      publicKey: (await generateSecureDesktopControllerKey()).publicKey,
+    }),
+    true
+  );
 });
 
 test('a helper challenge reaches the callback for a screen source, current session only', async () => {
   const b64 = (byte) => Buffer.alloc(16, byte).toString('base64');
-  const message = (epoch) => ({ data: JSON.stringify({ v: 1, kind: 'screen-helper-challenge', epoch, nonce: b64(1), challenge: b64(2) }) });
+  const message = (epoch) => ({
+    data: JSON.stringify({ v: 1, kind: 'screen-helper-challenge', epoch, nonce: b64(1), challenge: b64(2) }),
+  });
   const seen = [];
   const h = harness({ extra: { source: screenSource, screenHelperChallenge: (challenge) => seen.push(challenge) } });
   await connectScreen(h);
   const channel = h.peers[0].channel;
   channel.onmessage(message(4));
-  channel.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-helper-challenge', epoch: 4, nonce: 'bad', challenge: b64(2) }) });
+  channel.onmessage({
+    data: JSON.stringify({ v: 1, kind: 'screen-helper-challenge', epoch: 4, nonce: 'bad', challenge: b64(2) }),
+  });
   assert.deepEqual(seen, [{ epoch: 4, nonce: b64(1), challenge: b64(2) }], 'the malformed one is dropped');
 
   const lingering = channel.onmessage;
@@ -624,9 +642,10 @@ test('screen-frame-seen: a new session starts from nothing', async () => {
   // A restarted desktop viewer counts its epochs from the start again.
   second.onmessage({ data: JSON.stringify({ v: 1, kind: 'screen-video', epoch: 1, path: 'capture' }) });
   h.viewer.framePresented({ width: 1280, height: 720, receiveTime: 3_100 });
-  assert.deepEqual(second.sent.filter((message) => message.kind === 'screen-frame-seen'), [
-    { v: 1, kind: 'screen-frame-seen', epoch: 1 },
-  ]);
+  assert.deepEqual(
+    second.sent.filter((message) => message.kind === 'screen-frame-seen'),
+    [{ v: 1, kind: 'screen-frame-seen', epoch: 1 }]
+  );
 });
 
 test('screen-frame-seen is never sent for a browser source', async () => {
@@ -695,14 +714,29 @@ test('a screen key, combo or text queued fine but rejected by the host reaches s
   h.viewer.handle(signal(1, { type: 'promote', inputEpoch: 2, geometryGeneration: 1 }));
   h.answerRelay();
   await settle();
-  const combo = { type: 'screen-keys', keys: [{ vk: 0xa4, scan: 0x38, extended: false }, { vk: 0x09, scan: 0x0f }] };
+  const combo = {
+    type: 'screen-keys',
+    keys: [
+      { vk: 0xa4, scan: 0x38, extended: false },
+      { vk: 0x09, scan: 0x0f },
+    ],
+  };
   assert.equal(h.viewer.sendInput(combo), true, 'the channel took it');
   assert.equal(h.viewer.sendInput({ type: 'screen-text', text: 'a' }), true);
   assert.equal(h.viewer.sendInput({ type: 'screen-wheel', x: 1, y: 1, deltaX: 0, deltaY: 120 }), true);
   const seqs = h.peers[0].channel.sent.filter((message) => message.kind === 'screen-input').map((m) => m.seq);
   const ack = (seq, outcome) =>
     h.peers[0].channel.onmessage({
-      data: JSON.stringify({ v: 1, kind: 'input-ack', epoch: 2, seq, outcome, sentAt: 1_000, queuedMs: 0, dispatchMs: 0 }),
+      data: JSON.stringify({
+        v: 1,
+        kind: 'input-ack',
+        epoch: 2,
+        seq,
+        outcome,
+        sentAt: 1_000,
+        queuedMs: 0,
+        dispatchMs: 0,
+      }),
     });
   assert.equal(rejected, 0, 'nothing is said while it is only queued');
   ack(seqs[0], 'rejected');
@@ -725,7 +759,16 @@ test('a rejected channel ack is final for that input only; later input still str
   const channel = h.peers[0].channel;
   const ack = (seq, outcome) =>
     channel.onmessage({
-      data: JSON.stringify({ v: 1, kind: 'input-ack', epoch: 2, seq, outcome, sentAt: 1_000, queuedMs: 0, dispatchMs: 0 }),
+      data: JSON.stringify({
+        v: 1,
+        kind: 'input-ack',
+        epoch: 2,
+        seq,
+        outcome,
+        sentAt: 1_000,
+        queuedMs: 0,
+        dispatchMs: 0,
+      }),
     });
   ack(1, 'rejected');
   ack(2, 'applied');
@@ -817,7 +860,9 @@ test('a channel failure while promoted holds input until the desktop demotes; no
   g.route(click('mousePressed'));
   await settle();
   assert.deepEqual(
-    g.wire.slice(original).flatMap((entry) => (entry.relay ? [entry.relay] : entry.signal === 'demote-ack' ? ['ack'] : [])),
+    g.wire
+      .slice(original)
+      .flatMap((entry) => (entry.relay ? [entry.relay] : entry.signal === 'demote-ack' ? ['ack'] : [])),
     ['ack', 'pointer'],
     'only input made after the demotion, after its ack'
   );
@@ -852,7 +897,10 @@ test('ready carries the page’s native size as the video limit; receiver stats 
 
   const stats = readRemoteWebrtcReceiverStats(
     new Map([
-      ['in', { type: 'inbound-rtp', kind: 'video', framesReceived: 3, framesDecoded: 3, frameWidth: 1280, frameHeight: 720 }],
+      [
+        'in',
+        { type: 'inbound-rtp', kind: 'video', framesReceived: 3, framesDecoded: 3, frameWidth: 1280, frameHeight: 720 },
+      ],
     ]),
     { connectionId: id(1), generation: 1 },
     5,
@@ -870,7 +918,14 @@ test('ready carries the page’s native size as the video limit; receiver stats 
   h.viewer.start();
   assert.equal(h.signals('ready')[0].videoLimit, undefined);
   // An offer below the page's native size: ready again with it, unanswered.
-  const scaled = { generation: 1, cssWidth: 1280, cssHeight: 720, deviceScaleFactor: 2, pixelWidth: 1280, pixelHeight: 720 };
+  const scaled = {
+    generation: 1,
+    cssWidth: 1280,
+    cssHeight: 720,
+    deviceScaleFactor: 2,
+    pixelWidth: 1280,
+    pixelHeight: 720,
+  };
   h.viewer.handle(offer(1, { geometry: scaled }));
   await settle();
   assert.equal(h.peers.length, 0, 'the downscaled offer is not answered');
@@ -965,4 +1020,72 @@ test('media-ready is repeated once per stats interval while the desktop has not 
   h.clock.now += 5_000;
   h.viewer.framePresented({ width: 1280, height: 720 });
   assert.equal(h.signals('media-ready').length, 2, 'never once promoted');
+});
+
+test('regression: a disposed viewer never offers again, though its changed listener restarts it on the relay state', async () => {
+  // The screen view's listener: back at the relay state, offer again.
+  let h = null;
+  h = harness({
+    extra: {
+      changed() {
+        if (h && h.viewer.state === 'relay') h.viewer.start();
+      },
+    },
+  });
+  await connect(h);
+  h.viewer.handle(signal(1, { type: 'promote', inputEpoch: 2, geometryGeneration: 1 }));
+  await settle();
+  const readies = h.signals('ready').length;
+  // The view is left (or replaced after a lost connection) while promoted.
+  h.viewer.dispose();
+  await settle();
+  assert.equal(h.signals('ready').length, readies, 'no ready from a disposed viewer');
+  assert.equal(h.viewer.state, 'closed');
+  h.viewer.start();
+  assert.equal(h.signals('ready').length, readies);
+});
+
+test('regression: only a started viewer takes an offer; unstarted, stopped or disposed it opens no peer', async () => {
+  const h = harness();
+  h.viewer.handle(offer(1));
+  await settle();
+  assert.equal(h.peers.length, 0, 'never started: no peer');
+  h.viewer.start();
+  h.viewer.stop();
+  h.viewer.handle(offer(2));
+  await settle();
+  assert.equal(h.peers.length, 0, 'stopped: no peer');
+  assert.equal(h.signals('answer').length, 0, 'and no answer');
+  h.viewer.start();
+  h.viewer.handle(offer(3));
+  await settle();
+  assert.equal(h.peers.length, 1, 'started: the offer is taken');
+  assert.equal(h.signals('answer').length, 1);
+  h.viewer.dispose();
+  h.viewer.handle(offer(4));
+  await settle();
+  assert.equal(h.peers.length, 1, 'disposed: no peer');
+});
+
+test('regression: the viewer’s signal call is refused, never thrown, while no host is connected', async () => {
+  const { remoteWebrtcSignal } = await import('./remote-webrtc-bridge.ts');
+  const sent = [];
+  const api = {
+    remoteBrowserWebrtc: 1,
+    remoteBrowserWebrtcSignal: async (body) => sent.push(body),
+    onRemoteBrowserWebrtc: () => () => {},
+    remoteBrowserControlOrdered: async () => {},
+  };
+  const call = remoteWebrtcSignal(api);
+  await call({ type: 'ready' });
+  assert.equal(sent.length, 1, 'through the shim while a host is connected');
+  // The relay leg dropped: the shim's host members are gone.
+  api.remoteBrowserWebrtc = 0;
+  api.remoteBrowserWebrtcSignal = undefined;
+  let pending = null;
+  assert.doesNotThrow(() => {
+    pending = call({ type: 'ready' });
+  });
+  await assert.rejects(pending, /No connected host/);
+  assert.equal(sent.length, 1);
 });

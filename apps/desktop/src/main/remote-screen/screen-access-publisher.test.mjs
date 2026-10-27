@@ -73,9 +73,14 @@ test('regression: a disconnect is denied synchronously, and a grant still in del
   const publishing = env.publisher.publish('c1', a);
   env.clients.delete('c1');
   env.publisher.removed('c1');
-  // The deny went out before `removed` returned, with a newer revision.
-  assert.deepEqual(kinds(env), [['c1', true], ['c1', false]]);
+  // The deny went out before `removed` returned, with a newer revision, as a
+  // departure (not a revocation).
+  assert.deepEqual(kinds(env), [
+    ['c1', true],
+    ['c1', false],
+  ]);
   assert.ok(env.sent[1][1].revision > env.sent[0][1].revision);
+  assert.equal(env.sent[1][1].ended, 'left');
   env.deliver();
   assert.equal(await publishing, false);
 });
@@ -132,12 +137,26 @@ test('regression: an unpaired connection is never granted again, while it stays 
   assert.equal(await env.publisher.publish('c1', a), true);
   // The relay revoke is still pending: `a` stays in the registry.
   env.unpair('cred-a');
-  assert.deepEqual(kinds(env), [['c1', true], ['c1', false]], 'denied before the unpair returned');
+  assert.deepEqual(
+    kinds(env),
+    [
+      ['c1', true],
+      ['c1', false],
+    ],
+    'denied before the unpair returned'
+  );
   assert.equal(await env.publisher.publish('c1', a), false);
   assert.equal(env.publisher.allowed('c1', a), false);
   env.lift('cred-a');
   assert.equal(await env.publisher.publish('c1', a), false, 'revoked for the connection’s lifetime');
-  assert.deepEqual(kinds(env), [['c1', true], ['c1', false]], 'the window saw grant, deny, nothing more');
+  assert.deepEqual(
+    kinds(env),
+    [
+      ['c1', true],
+      ['c1', false],
+    ],
+    'the window saw grant, deny, nothing more'
+  );
   assert.equal(await env.publisher.publish('c2', other), true, 'another credential is untouched');
 });
 
@@ -190,6 +209,7 @@ test('unpair denies every connection of the credential synchronously', async () 
   await env.publisher.publish('c2', b);
   env.unpair('cred-a');
   assert.deepEqual(kinds(env).slice(2), [['c1', false]]);
+  assert.equal(env.sent.at(-1)[1].ended, 'revoked');
 });
 
 test('a removal of a client that never asked for a screen sends nothing', async () => {
@@ -211,6 +231,9 @@ test('revisions only grow, across clients and kinds of push', async () => {
   await env.publisher.publish('c2', b);
   env.unpair('cred-b');
   const revisions = env.sent.map(([, access]) => access.revision);
-  assert.deepEqual(revisions, [...revisions].sort((x, y) => x - y));
+  assert.deepEqual(
+    revisions,
+    [...revisions].sort((x, y) => x - y)
+  );
   assert.equal(new Set(revisions).size, revisions.length);
 });

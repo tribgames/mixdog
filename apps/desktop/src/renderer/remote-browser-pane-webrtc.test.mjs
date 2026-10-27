@@ -520,3 +520,37 @@ test('a take-over cancelled while hidden resumes watching: frames shown, the fit
     await p.close();
   }
 });
+
+test('regression: after a relay drop the stream renewal and the unmount never throw', async () => {
+  for (const drop of [
+    // The member is gone with the host.
+    (api) => {
+      api.remoteBrowserStream = undefined;
+    },
+    // Or the call itself throws.
+    (api) => {
+      api.remoteBrowserStream = () => {
+        throw new TypeError('no relay');
+      };
+    },
+  ]) {
+    const state = webrtcHostApi();
+    const host = document.createElement('main');
+    document.body.append(host);
+    const uncaught = [];
+    const root = createRoot(host, { onUncaughtError: (error) => uncaught.push(error) });
+    try {
+      await act(async () => root.render(React.createElement(RemoteBrowserPane, { sessionId: 's', active: true })));
+      await flush();
+      assert.equal(state.streams.length, 1, 'streaming');
+      drop(window.mixdogDesktop);
+      await act(async () => state.renew());
+      await flush();
+      await act(async () => root.unmount());
+      await flush();
+      assert.deepEqual(uncaught, [], 'nothing escaped the cleanup');
+    } finally {
+      host.remove();
+    }
+  }
+});

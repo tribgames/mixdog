@@ -3,12 +3,24 @@
 // underneath, so the viewer offers to receive as soon as it exists, offers
 // again whenever it falls back to the relay state, and any failure is shown
 // (with a retry) instead of being covered by another picture.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+//
+// A session lives as long as the relay connection that asked for it: the PC
+// ends it when that connection leaves (a network change), and a new one is
+// another client. So the view waits silently (`reconnecting`, no text) while
+// the relay is being redialled, and starts a new viewer (a new session) by itself once a
+// new connection is up, or when the PC reports the session ended because the
+// phone's connection left it. A stop anyone decided (the PC's user, a removed
+// display, an unpair) is never restarted by itself.
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopApi } from '../shared/contract';
 import type { RemoteScreenInput, RemoteScreenStatus } from '../shared/remote-webrtc';
-import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
-import { remoteWebrtcHost } from './remote-webrtc-bridge';
+import {
+  REMOTE_CONNECTION_READY_EVENT,
+  currentRemoteConnectionState,
+  subscribeRemoteConnectionState,
+} from './remote-connection-state';
+import { remoteWebrtcHost, remoteWebrtcSignal } from './remote-webrtc-bridge';
 import { createRemoteWebrtcViewer, type RemoteWebrtcViewer } from './remote-webrtc-viewer';
 import { createControllerKeys } from './remote-screen-controller-key';
 import {
@@ -17,7 +29,14 @@ import {
   readScreenHelperBlock,
   screenGrantSurfaceActive,
 } from './remote-screen-helper';
-import { createScreenCursorTracker, screenInputAllowed, screenView, type ScreenView } from './remote-screen-state';
+import {
+  createScreenCursorTracker,
+  screenInputAllowed,
+  screenLink,
+  screenStopIsConnectionLoss,
+  screenView,
+  type ScreenView,
+} from './remote-screen-state';
 import { STREAM_RENEW_MS } from './use-remote-browser-stream';
 import { receiveCodecs } from './use-remote-webrtc';
 
@@ -26,6 +45,16 @@ const RELEASE: RemoteScreenInput = { type: 'screen-release' };
 /** How long a pressed install button waits for the PC's status before it can
  *  be pressed again (the person at the PC may be slow, the request may be lost). */
 const HELPER_REQUEST_WAIT_MS = 15_000;
+
+/** Every change of the relay connection (a drop, a redial, a new host). */
+function subscribeRelayLink(listener: () => void): () => void {
+  const off = subscribeRemoteConnectionState(listener);
+  window.addEventListener(REMOTE_CONNECTION_READY_EVENT, listener);
+  return () => {
+    off();
+    window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, listener);
+  };
+}
 
 export function useRemoteScreen({
   api,
@@ -43,9 +72,15 @@ export function useRemoteScreen({
   const [status, setStatus] = useState<RemoteScreenStatus | null>(null);
   const [, setVersion] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  // The current viewer was started by itself after a connection loss.
+  const [resuming, setResuming] = useState(false);
   const viewerRef = useRef<RemoteWebrtcViewer | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const supported = remoteWebrtcHost(api) && typeof RTCPeerConnection === 'function';
+  const rtc = typeof RTCPeerConnection === 'function';
+  // Read live: the shim's host members come and go with the relay connection.
+  const link = useSyncExternalStore(subscribeRelayLink, () =>
+    screenLink(remoteWebrtcHost(api), currentRemoteConnectionState())
+  );
   // The tracker reads the viewer's newest geometry, so it never answers with a
   // cursor of an older one.
   const cursorRef = useRef<ReturnType<typeof createScreenCursorTracker> | null>(null);
@@ -101,15 +136,49 @@ export function useRemoteScreen({
     return () => window.clearTimeout(timer);
   }, [helperPending]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the retry trigger; the viewer follows the host and the display.
+  // The PC ended the session for a reason someone decided: only the user
+  // starts it again (`retry` clears this). Every automatic start (a new
+  // viewer, the page shown again, a lapsed cooldown) goes through the
+  // viewer's `start` below, which is the one place this is checked.
+  const decidedRef = useRef(false);
+  /** A new viewer, whose `ready` asks the PC for a new session. */
+  const resume = useCallback(() => {
+    setResuming(true);
+    setAttempt((count) => count + 1);
+  }, []);
+  // A new relay connection is another client to the PC, which ended the
+  // session of the previous one with it (and a view opened while no host was
+  // connected starts here).
   useEffect(() => {
-    if (!supported || !remoteWebrtcHost(api)) return undefined;
-    setStatus(null);
-    setHelperPending(false);
-    cursor.clear();
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, resume);
+    return () => window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, resume);
+  }, [resume]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the retry trigger (a new connection comes back through it too); the viewer follows the host and the display.
+  useEffect(() => {
+    // Read with the check, once: the shim's members go when the relay drops.
+    const listen = remoteWebrtcHost(api) ? api.onRemoteBrowserWebrtc : undefined;
+    if (!rtc || !listen) return undefined;
+    /** This viewer asked for its replacement already. */
+    let resumed = false;
+    /** No session of this viewer was asked for yet. */
+    let fresh = true;
+    /** Every start of this viewer: never after a stop someone decided (it
+     *  stands, its status stays shown, until `retry`). The first one starts
+     *  from a clean slate. */
+    const start = () => {
+      if (decidedRef.current) return;
+      if (fresh) {
+        fresh = false;
+        setStatus(null);
+        setHelperPending(false);
+        cursor.clear();
+      }
+      viewer.start();
+    };
     const viewer: RemoteWebrtcViewer = createRemoteWebrtcViewer({
       source: { kind: 'screen', screenId },
-      signal: (signal) => api.remoteBrowserWebrtcSignal!(signal),
+      signal: remoteWebrtcSignal(api),
       // No relay input exists for a screen: nothing to order behind.
       fence: (work) => work(),
       createPeer: (configuration) => new RTCPeerConnection(configuration),
@@ -119,7 +188,7 @@ export function useRemoteScreen({
       changed: () => {
         setVersion((version) => version + 1);
         // Back at the relay state (a cooldown lapsed): offer again.
-        if (viewer.state === 'relay' && document.visibilityState !== 'hidden') viewer.start();
+        if (viewer.state === 'relay' && document.visibilityState !== 'hidden') start();
       },
       stream: setStream,
       screenStatus: (next) => {
@@ -127,6 +196,14 @@ export function useRemoteScreen({
         setStatus(next);
         // The PC's status is its answer to a pending helper request.
         setHelperPending(false);
+        if (next.state !== 'stopped') return;
+        if (!screenStopIsConnectionLoss(next)) decidedRef.current = true;
+        // Ended with this phone's connection: again at once while a host is
+        // up, else when the next relay connection is ready.
+        else if (!resumed && remoteWebrtcHost(api)) {
+          resumed = true;
+          resume();
+        }
       },
       screenCursor: cursor.set,
       screenHelperChallenge: (challenge) => void grants.challenge(challenge, viewer),
@@ -142,25 +219,19 @@ export function useRemoteScreen({
     // A replaced viewer ends every challenge the old one began.
     grants.invalidate();
     viewerRef.current = viewer;
-    const unsubscribe = api.onRemoteBrowserWebrtc!((signal) => viewer.handle(signal));
+    const unsubscribe = listen((signal) => viewer.handle(signal));
     const visibility = () => {
       grants.invalidate();
       if (document.visibilityState === 'hidden') {
         // Nothing stays pressed on the PC while this page is away.
         viewer.sendInput(RELEASE);
         viewer.stop();
-      } else viewer.start();
-    };
-    const reconnected = () => {
-      viewer.reconnected();
-      viewer.start();
+      } else start();
     };
     document.addEventListener('visibilitychange', visibility);
-    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
     visibility();
     return () => {
       document.removeEventListener('visibilitychange', visibility);
-      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
       unsubscribe();
       grants.invalidate();
       viewer.sendInput(RELEASE);
@@ -168,7 +239,7 @@ export function useRemoteScreen({
       viewerRef.current = null;
       setStream(null);
     };
-  }, [supported, api, screenId, attempt, cursor, grants]);
+  }, [rtc, api, screenId, attempt, cursor, grants]);
 
   // The track plays muted inline; each presented frame reports its size, which
   // the desktop's media-ready check needs before it promotes the connection.
@@ -196,10 +267,14 @@ export function useRemoteScreen({
 
   const viewer = viewerRef.current;
   const showsVideo = Boolean(viewer?.showsVideo && stream);
-  const view: ScreenView = supported
-    ? screenView({ transport: viewer?.state ?? 'relay', showsVideo, status })
+  const view: ScreenView = rtc
+    ? screenView({ link, transport: viewer?.state ?? 'relay', showsVideo, status, resuming })
     : { kind: 'failed' };
   viewRef.current = view;
+  const live = view.kind === 'live';
+  useEffect(() => {
+    if (live) setResuming(false);
+  }, [live]);
   // Any change of the signing surface (shown ↔ not shown) ends the challenges
   // begun before it, whichever way it went.
   const grantSurface = screenGrantSurfaceActive(view, document.visibilityState);
@@ -212,7 +287,11 @@ export function useRemoteScreen({
       screenInputAllowed(input, viewRef.current) && (viewerRef.current?.sendInput(input) ?? false),
     []
   );
-  const retry = useCallback(() => setAttempt((count) => count + 1), []);
+  const retry = useCallback(() => {
+    decidedRef.current = false;
+    setResuming(false);
+    setAttempt((count) => count + 1);
+  }, []);
   // The viewer is a ref: its state reaches this render through `setVersion`.
   return {
     videoRef,

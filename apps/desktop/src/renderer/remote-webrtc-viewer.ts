@@ -738,7 +738,10 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       setState('relay');
     },
     handle(signal: RemoteWebrtcDesktopSignal): void {
-      if (disposed || remoteWebrtcSourceKey(signal.source) !== sourceKey) return;
+      // Only a started viewer takes the desktop's signals: one never started
+      // (a replacement whose start a deliberate stop refused), stopped or
+      // disposed asked for no session, so a late offer opens no peer.
+      if (!started || disposed || remoteWebrtcSourceKey(signal.source) !== sourceKey) return;
       if (signal.type === 'geometry') {
         acceptGeometry(signal.geometry);
         return;
@@ -870,8 +873,11 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     },
     dispose(): void {
       if (disposed) return;
-      stop();
+      // Disposed first: the stop below reports the relay state through
+      // `changed`, and a listener that offers again on it must find nothing
+      // to start (a disposed viewer never sends another `ready`).
       disposed = true;
+      stop();
       state = 'closed';
     },
   };
