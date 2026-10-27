@@ -7,7 +7,7 @@ import { createScreenCursorTracker } from './remote-screen-state.ts';
 import { createScreenCursorStore, screenGestureFromTouch } from './remote-screen-touch.ts';
 import { nextScreenViewport, screenViewportLayout } from './remote-screen-viewport.ts';
 import { createTouchGestures, viewportGestureBindings } from './remote-touch-gestures.ts';
-import { containScale, fillScale } from './remote-viewport.ts';
+import { containScale } from './remote-viewport.ts';
 
 const SIZE = { width: 1920, height: 1080 };
 const at = { x: 100, y: 50 };
@@ -117,14 +117,14 @@ test('the own trackpad cursor is dropped with the PC cursor on a new geometry or
   assert.deepEqual(store.get(), { x: 9, y: 9 });
 });
 
-test('the first view fills the stage height and pans sideways; the minimum is the whole screen', () => {
+test('the first view is the whole screen, centred on the short axis', () => {
   const phone = { width: 390, height: 700 };
   const state = nextScreenViewport(null, phone, false, SIZE);
   const layout = screenViewportLayout(state);
-  assert.equal(state.view.scale, fillScale(layout));
-  assert.equal(state.view.scale, 700 / 1080);
-  assert.ok(containScale(layout) < state.view.scale);
+  assert.equal(state.view.scale, containScale(layout));
+  assert.equal(state.view.scale, 390 / 1920);
   assert.equal(state.view.x, 0);
+  assert.equal(state.view.y, (700 - 1080 * state.view.scale) / 2);
   // Nothing is shown until both sizes are known.
   assert.equal(nextScreenViewport(null, { width: 0, height: 0 }, false, SIZE).view, null);
 });
@@ -148,7 +148,7 @@ test('a picture of another size keeps its spot at the same shape and starts agai
   const half = nextScreenViewport(first, phone, false, { width: 960, height: 540 });
   assert.ok(Math.abs(half.view.scale - first.view.scale * 2) < 1e-9);
   const portrait = nextScreenViewport(first, phone, false, { width: 1080, height: 1920 });
-  assert.equal(portrait.view.scale, fillScale(screenViewportLayout(portrait)));
+  assert.equal(portrait.view.scale, containScale(screenViewportLayout(portrait)));
 });
 
 // The real gestures over a real viewport store, ending in screen messages.

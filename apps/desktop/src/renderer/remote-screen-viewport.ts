@@ -1,11 +1,10 @@
 // The PC picture's view on the phone's stage, as state with no DOM: the first
-// view fills the stage's height and pans sideways (Chrome Remote Desktop's),
-// the minimum zoom is the whole screen centred, and the soft keyboard is an
-// inset, not a resize, so the picture never jumps as it comes and goes. The
-// maths is remote-viewport.ts's.
+// view is the whole screen centred (also the minimum zoom; fingers zoom in),
+// and the soft keyboard is an inset, not a resize, so the picture never jumps
+// as it comes and goes. The maths is remote-viewport.ts's.
 import {
   clampView,
-  initialView,
+  containScale,
   rescaleView,
   sameAspect,
   trackStage,
@@ -21,6 +20,11 @@ export interface ScreenViewportState {
   picture: ViewSize;
   /** Null until the stage and the picture both have a size. */
   view: RemoteView | null;
+}
+
+/** The whole PC screen on the stage; clamping centres it on the short axis. */
+function wholeScreenView(layout: RemoteViewLayout): RemoteView {
+  return clampView({ scale: containScale(layout), x: 0, y: 0 }, layout);
 }
 
 export function screenViewportLayout(state: ScreenViewportState): RemoteViewLayout {
@@ -45,12 +49,12 @@ export function nextScreenViewport(
   const layout = screenViewportLayout({ track, picture, view: null });
   if (!viewReady(layout)) return { track, picture, view: null };
   const view = prev?.view ?? null;
-  if (!view) return { track, picture, view: initialView(layout) };
+  if (!view) return { track, picture, view: wholeScreenView(layout) };
   // A picture of another size (a resized display): the same spot of the same
   // shape stays put; another shape starts again.
   if (picture.width !== prev?.picture.width || picture.height !== prev?.picture.height) {
     const next = prev && sameAspect(prev.picture, picture) ? rescaleView(view, prev.picture, picture) : null;
-    return { track, picture, view: next ? clampView(next, layout) : initialView(layout) };
+    return { track, picture, view: next ? clampView(next, layout) : wholeScreenView(layout) };
   }
   // The keyboard coming or going leaves the view as it is; a stage of another
   // size fits it again.
