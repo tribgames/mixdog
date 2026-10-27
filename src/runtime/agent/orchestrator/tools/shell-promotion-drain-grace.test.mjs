@@ -65,7 +65,12 @@ test('a failed promotion settles with the exit its drain grace already consumed'
   }).then((value) => {
     result = value;
   });
-  for (let turn = 0; turn < 100 && !result; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  // setTimeout is mocked and no 'close' is ever emitted: the call can only
+  // settle through the drain grace the promotion already consumed. The wait
+  // is bounded in wall time (Date is not mocked), not in event-loop turns:
+  // the settle reads the real spilled output.
+  const deadline = Date.now() + 10_000;
+  while (!result && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
   assert.ok(result, 'the call resolves without waiting for a stdio close that never comes');
   assert.equal(result.backgrounded, false);
   assert.equal(result.killed, false, result.killCause || result.stderr);

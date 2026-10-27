@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -151,9 +151,36 @@ test('a git write refused on a busy lock file retries with backoff instead of fa
   const { repo } = linkedRepo(t, 'mixdog-git-retry-');
   writeFileSync(join(repo, 'b.txt'), 'b\n');
   const lock = join(repo, '.git', 'index.lock');
+  // GIT_TRACE (inherited by the spawned git) logs every `git add` attempt, so
+  // the lock is released on an observed attempt count, not a timer that a
+  // loaded machine can outrun. The note appears once the retry sleeps pass 1 s
+  // (100+200+400+800 ms), i.e. after four refusals; the fifth attempt starting
+  // proves git was refused four times, and the lock may go.
+  const trace = join(repo, '..', 'git-trace.log');
+  const previousTrace = process.env.GIT_TRACE;
+  process.env.GIT_TRACE = trace;
+  t.after(() => {
+    if (previousTrace === undefined) delete process.env.GIT_TRACE;
+    else process.env.GIT_TRACE = previousTrace;
+  });
+  const attempts = () => {
+    try {
+      return (readFileSync(trace, 'utf8').match(/built-in: git add b\.txt/g) || []).length;
+    } catch {
+      return 0;
+    }
+  };
   writeFileSync(lock, '');
   const adding = executeGitTool({ command: 'git add b.txt' }, repo);
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const deadline = Date.now() + 60_000;
+  while (attempts() < 5) {
+    if (Date.now() > deadline) {
+      rmSync(lock, { force: true });
+      await adding;
+      assert.fail(`git add never hit the busy index.lock 4 times within 60s (saw ${attempts()} attempts)`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   rmSync(lock);
   const text = await adding;
   assert.doesNotMatch(text, FAILED);
