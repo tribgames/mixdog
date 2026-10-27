@@ -30,7 +30,7 @@ import {
 } from '../../../../shared/task-notification-envelope.mjs';
 import { escapeHarnessTags } from '../../../../shared/shell-output-summary.mjs';
 import { AGENT_TASK_WAIT_DEFAULT_MS, SHELL_HOLD_DEFAULT_MS, TASK_WAIT_DEFAULT_MS } from './wait-budgets.mjs';
-import { TASK_WAIT_TIMEOUT_DEFAULT_MS, TASK_WAIT_TIMEOUT_MAX_MS, BUILTIN_TOOLS } from './builtin-tools.mjs';
+import { TASK_WAIT_TIMEOUT_DEFAULT_MS, TASK_WAIT_TIMEOUT_MAX_MS, BUILTIN_TOOLS, bindAgentOwner } from './builtin-tools.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-wait-'));
 test.after(async () => {
@@ -59,7 +59,11 @@ test('budgets come from one place: hold 60 s, task wait 300 s (agents 240 s)', (
   assert.equal(shell.inputSchema.properties.wait_ms.maximum, 600_000);
   assert.equal(shell.inputSchema.properties.background.type, 'boolean');
   const task = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
-  assert.match(task.inputSchema.properties.timeout_ms.description, /Default 300000 \(agents 240000\)/);
+  assert.match(task.inputSchema.properties.timeout_ms.description, /Default 300000;/);
+  const agentTask = bindAgentOwner(task);
+  assert.notEqual(agentTask, task);
+  assert.match(agentTask.inputSchema.properties.timeout_ms.description, new RegExp(`Default ${AGENT_TASK_WAIT_DEFAULT_MS};`));
+  assert.equal(bindAgentOwner(agentTask), agentTask);
 });
 
 test('the hold returns the result when the command exits within it', { timeout: 60_000 }, async () => {

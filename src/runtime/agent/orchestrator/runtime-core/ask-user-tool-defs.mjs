@@ -55,7 +55,7 @@ export const ASK_USER_TOOL_DEFS = Object.freeze([
         handoff: {
           type: 'object',
           description:
-            'Instead of questions: secret = the user types a password, sign-in, new password or one-time code into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); takeover = the user does a step (sign-in, CAPTCHA, 2FA) and says done.',
+            'Instead of questions: secret = the user types a password, sign-in, new password or one-time code into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); takeover = the user does a step and says done.',
           properties: {
             kind: { type: 'string', enum: ['secret', 'takeover'] },
             surface: { type: 'string', enum: ['browser', 'computer'] },

@@ -100,7 +100,7 @@ export function buildDeferredToolManifest(entries) {
   list.sort((a, b) => a.name.localeCompare(b.name));
   return [
     '<available-deferred-tools>',
-    'Deferred tool names and selection triggers; schemas load on demand.',
+    'Deferred tools; load_tool loads their schemas.',
     ...list.map((entry) => (entry.description ? `- ${entry.name}: ${entry.description}` : `- ${entry.name}`)),
     '</available-deferred-tools>',
   ].join('\n');

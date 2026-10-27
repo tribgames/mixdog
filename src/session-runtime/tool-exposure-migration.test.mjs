@@ -182,7 +182,7 @@ test('a bridge-v1 session with the guidance-only block gets the roster once at t
   assert.equal(sends[0].tools, tools, 'the tool definitions keep their bytes');
   assert.equal(
     sends[0].bp2,
-    '# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n' +
+    '# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n' +
       '- bridge_probe: bridge_probe tool.\n- office: office tool.\n</available-deferred-tools>\n\n' +
       sends[0].bp2.match(/<tool-bridge>[\s\S]*<\/tool-bridge>$/)[0]
   );

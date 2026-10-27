@@ -28,7 +28,7 @@ export const AGENT_TOOL = {
     agentHidden: false,
   },
   description:
-    'Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Wait for completion notifications; use status/read only for manual recovery. Close finished agents yourself.',
+    'Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -38,19 +38,19 @@ export const AGENT_TOOL = {
         description:
           'Required action. New spawn requires agent and one of prompt/message/file; send requires tag and one of prompt/message/file; read/status/close/cancel require task_id or tag; list/cleanup require no target. list shows active agents and running tasks in full; idle/closed agents and finished tasks are counts plus a short latest tail (list with tag=<text> shows matching ones: case-insensitive substring, at most 25 per section).',
       },
-      task_id: { type: 'string', description: 'Task ID returned by spawn/send; target for read/status/close/cancel.' },
+      task_id: { type: 'string', description: 'Task ID returned by spawn/send.' },
       agent: {
         type: 'string',
-        description: 'Workflow agent id. Required for a new spawn; same-tag reuse can inherit it.',
+        description: 'Workflow agent id; same-tag reuse can inherit it.',
       },
       tag: {
         type: 'string',
         description:
-          'Stable scope handle. Reuse the same tag for the same scope; never derive a variant by appending a number or suffix. send requires it, while spawn can generate one when omitted.',
+          'Stable scope handle; never derive a variant by appending a number or suffix. spawn generates one when omitted.',
       },
-      prompt: { type: 'string', description: 'Spawn task brief; also accepted for send.' },
-      message: { type: 'string', description: 'Send follow-up; also accepted for spawn.' },
-      file: { type: 'string', description: 'Path to task text; alternative to prompt/message for spawn/send.' },
+      prompt: { type: 'string', description: 'Spawn task brief.' },
+      message: { type: 'string', description: 'Send follow-up.' },
+      file: { type: 'string', description: 'Path to task text; used instead of prompt/message.' },
       cwd: { type: 'string', description: 'Project directory for a new or respawned agent.' },
       context: { type: 'string', description: 'Extra context for the spawn/send turn.' },
       attachments: {
@@ -63,7 +63,7 @@ export const AGENT_TOOL = {
       model: {
         type: 'string',
         description:
-          "Spawn only, and only when the user explicitly names a model: runs this one spawn on it instead of the agent's preset route, which stays the default (omit otherwise). Id, display name, or words of it; ambiguous or unknown names fail with candidates. The agent still supplies role and permissions.",
+          "Spawn only, and only when the user explicitly names a model: runs this one spawn on it instead of the agent's preset route. Id, display name, or words of it; ambiguous or unknown names fail with candidates. The agent still supplies role and permissions.",
       },
       provider: { type: 'string', description: 'Narrows model to one provider; requires model.' },
       effort: { type: 'string', description: 'Reasoning effort for an explicit model.' },

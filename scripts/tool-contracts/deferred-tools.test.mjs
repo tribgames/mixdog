@@ -457,7 +457,7 @@ test('deferred manifest rendering and BP2 injection', () => {
   if (!/<available-deferred-tools>/.test(manifestText) || !/- shell: Run commands\./.test(manifestText)) {
     throw new Error(`deferred manifest must render "- name: description" lines: ${manifestText}`);
   }
-  if (!/schemas load on demand/i.test(manifestText)) {
+  if (!/load_tool loads their schemas/i.test(manifestText)) {
     throw new Error(`deferred manifest must explain on-demand schemas: ${manifestText}`);
   }
   if (!/^- recall$/m.test(manifestText)) {

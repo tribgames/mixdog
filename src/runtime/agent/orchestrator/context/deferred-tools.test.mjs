@@ -46,7 +46,7 @@ test('MCP instruction bodies are not injected; server lines are sorted, unique a
       '---',
       '',
       '<available-deferred-tools>',
-      'Deferred tool names and selection triggers; schemas load on demand.',
+      'Deferred tools; load_tool loads their schemas.',
       '- mcp__alpha: Alpha instructions',
       '- mcp__beta: Beta instructions',
       '- mcp__empty: Empty MCP server tools.',
@@ -84,7 +84,7 @@ test('a legacy mcp-instructions block is shed on rebuild and never re-added', ()
   assert.equal(applyInitialDeferredToolManifestToBp2(session, ['shell'], { rebuild: true }), true);
   assert.equal(
     session.messages[1].content,
-    'BP2\n\n---\n\n<available-deferred-tools>\nDeferred tool names and selection triggers; schemas load on demand.\n- shell\n</available-deferred-tools>'
+    'BP2\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- shell\n</available-deferred-tools>'
   );
 });
 

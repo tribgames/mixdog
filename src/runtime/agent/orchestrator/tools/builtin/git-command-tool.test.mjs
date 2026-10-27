@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { _gitCommandInternals } from './git-command-tool.mjs';
+import { _gitCommandInternals, executeGitTool, GIT_AGENT_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
 import { gitRepoLockKey } from './git-repo-rw-lock.mjs';
 import { createDiffSnapshot } from './git-partial-stage.mjs';
 
@@ -13,6 +13,25 @@ const plan = { operation: 'diff', cwd: process.cwd(), args: [], globalArgs: [] }
 const result = (stdout, stderr = '', exitCode = 0) => ({ stdout, stderr, exitCode });
 const patch =
   'diff --git a/a.txt b/a.txt\nindex 123..456 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-old\n+new\n context\n-before\n+after\n';
+
+test('the agent git schema drops the Lead-only worktree fields; list works and enter is refused', async () => {
+  const lead = GIT_TOOL_DEF.inputSchema.properties;
+  const agent = GIT_AGENT_TOOL_DEF.inputSchema.properties;
+  for (const field of ['session_id', 'name', 'branch', 'create', 'carry', 'confirm_large', 'force']) {
+    assert.ok(field in lead, field);
+    assert.ok(!(field in agent), field);
+  }
+  assert.deepEqual(lead.worktree_action.enum, ['enter', 'return', 'merge', 'remove', 'list', 'prune']);
+  assert.deepEqual(agent.worktree_action.enum, ['list']);
+  assert.match(GIT_TOOL_DEF.description, /Worktrees are managed only/);
+  assert.match(GIT_AGENT_TOOL_DEF.description, /Worktrees are Lead-managed/);
+  // The run-time contract is unchanged: no Lead host registered for this caller.
+  const options = { sessionId: 'sess_agent_not_a_lead' };
+  const listed = await executeGitTool({ action: 'worktree', worktree_action: 'list' }, process.cwd(), options);
+  assert.match(listed, /"worktree_action":"list"/);
+  const entered = await executeGitTool({ action: 'worktree', worktree_action: 'enter' }, process.cwd(), options);
+  assert.match(entered, /belongs to the Lead session/);
+});
 
 test('git single output preserves whitespace, JSON-looking blobs and stderr', () => {
   const { commandResult } = _gitCommandInternals;

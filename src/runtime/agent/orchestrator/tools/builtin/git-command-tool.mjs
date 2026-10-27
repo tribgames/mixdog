@@ -83,6 +83,9 @@ const SERVER_OPERATIONS = new Set(['daemon', 'instaweb']);
 // probe into `git rev-parse exited 128` inside a plain directory.
 const REPO_FREE_OPERATIONS = new Set(['version', 'help']);
 
+const GIT_DESCRIPTION_HEAD =
+  'Run Git here, never through shell. An array runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts.';
+
 export const GIT_TOOL_DEF = {
   name: 'git',
   title: 'Git',
@@ -94,8 +97,7 @@ export const GIT_TOOL_DEF = {
     openWorldHint: true,
     compressible: true,
   },
-  description:
-    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree (Lead only) moves a session into/out of its managed worktree, merges, removes, lists, prunes; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks; carry and large-size answers come from the user; force only on explicit request.',
+  description: `${GIT_DESCRIPTION_HEAD} Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -118,14 +120,14 @@ export const GIT_TOOL_DEF = {
         minimum: 1,
         maximum: GIT_OUTPUT_LIMIT_MAX,
         description:
-          'Body line cap, max 1000; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue.',
+          'Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue.',
       },
       include_stage_ids: {
         type: 'boolean',
         description:
           'Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false.',
       },
-      diff_id: { type: 'string', description: 'stage: exact diff_id from git diff with include_stage_ids:true.' },
+      diff_id: { type: 'string', description: 'stage: exact diff_id from git diff.' },
       change_ids: {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 50 }],
         description: 'stage: exact change ID or IDs to stage, including new files.',
@@ -157,6 +159,29 @@ export const GIT_TOOL_DEF = {
     additionalProperties: false,
   },
 };
+
+// Only the Lead host runs enter/return/merge/remove/prune (git-worktree-tool.mjs
+// leadHost); an agent keeps `list`, so its schema omits every field the other
+// operations take.
+const LEAD_ONLY_WORKTREE_FIELDS = ['session_id', 'name', 'branch', 'create', 'carry', 'confirm_large', 'force'];
+
+function buildGitAgentToolDef(base) {
+  const properties = { ...base.inputSchema.properties };
+  for (const field of LEAD_ONLY_WORKTREE_FIELDS) delete properties[field];
+  properties.action = {
+    ...properties.action,
+    description: 'Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action.',
+  };
+  properties.worktree_action = { type: 'string', enum: ['list'], description: 'list only.' };
+  return {
+    ...base,
+    description: `${GIT_DESCRIPTION_HEAD} Worktrees are Lead-managed: only worktree_action:list and git worktree list work; every other worktree operation is refused.`,
+    inputSchema: { ...base.inputSchema, properties },
+  };
+}
+
+/** The git tool as a delegated agent sees it (see bindAgentOwner). */
+export const GIT_AGENT_TOOL_DEF = buildGitAgentToolDef(GIT_TOOL_DEF);
 
 function cleanText(value) {
   return String(value || '')

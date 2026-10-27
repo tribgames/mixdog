@@ -228,8 +228,7 @@ test('C: shell description carries the long-running command guidance from the re
     shell.description,
     /Completion is automatic; never poll, and never sleep\/poll-loop inside the shell \(background:true or wait_ms instead; for an external job, background a command that exits when it ends\)\. Result needed now: task wait\./
   );
-  assert.match(shell.description, /Known-long finite run: wait_ms up to 600000\./);
-  assert.match(shell.description, /Independent long runs, servers\/watchers: background:true; cancel them when done\./);
+  assert.match(shell.description, /Independent long runs: background:true; cancel when done\./);
   assert.match(
     shell.inputSchema.properties.wait_ms.description,
     /Usually omit; for a long finite command needed next, set up to 600000\./

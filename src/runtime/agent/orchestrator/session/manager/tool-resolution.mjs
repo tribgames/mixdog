@@ -3,7 +3,7 @@
 import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
 import { getMcpTools } from '../../mcp/client.mjs';
 import { getInternalTools } from '../../internal-tools.mjs';
-import { BUILTIN_TOOLS, bindShellKind } from '../../tools/builtin/builtin-tools.mjs';
+import { BUILTIN_TOOLS, bindAgentOwner, bindShellKind } from '../../tools/builtin/builtin-tools.mjs';
 import { resolveShellFor } from '../../tools/builtin/shell-runtime.mjs';
 import { PATCH_TOOL_DEFS } from '../../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../../tools/code-graph-tool-defs.mjs';
@@ -70,7 +70,7 @@ export function finalizeSessionToolList(
   }
   if (ownerIsAgent) {
     out = out.filter((t) => !AGENT_WORKER_DENIED_TOOLS.has(String(t?.name || '').toLowerCase()));
-    out = orderSessionTools(out);
+    out = orderSessionTools(out.map(bindAgentOwner));
   }
   return out;
 }
