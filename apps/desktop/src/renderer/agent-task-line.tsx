@@ -9,9 +9,10 @@ import { ArrowUpRight, SquareTerminal } from 'lucide-react';
 import { type ReactNode, createContext, useContext, useState } from 'react';
 import type { ToolApprovalDecision } from '../shared/contract';
 import type { Handoff } from './agent-chat-place';
-import { taskReportIsQuiet } from './agent-chat-place';
+import { collapseHandoffs, taskReportIsQuiet } from './agent-chat-place';
 import { RoomMemberFace, useRoomContacts } from './agent-room-parts';
 import { OPEN_TASK_SESSION_EVENT } from './agent-task-events';
+import { handoffProgressText } from './handoff-progress-text';
 import type { Approval } from './desktop-types';
 import { t } from './i18n';
 import MarkdownBody from './MarkdownBody';
@@ -124,6 +125,7 @@ function HandoffLineView({
   sessionId,
   member,
   what,
+  count = 1,
   waiting,
   asking = false,
   progress = '',
@@ -131,6 +133,7 @@ function HandoffLineView({
   sessionId: string;
   member: ReturnType<typeof useHandoffTarget>['member'];
   what: string;
+  count?: number;
   waiting: boolean;
   asking?: boolean;
   progress?: string;
@@ -140,16 +143,17 @@ function HandoffLineView({
   const label = { working: t('Working'), approval: t('Approval needed'), question: t('Answer needed') }[state];
   // While it works, the session's latest progress update stands for "Working",
   // one line that ellipsizes like the name.
-  const update = state === 'working' ? progress : '';
+  const update = state === 'working' ? handoffProgressText(progress) : '';
   return (
     <div className="mx-chat-routine-failed mx-handoff-line" role="status" data-state={state}>
       <span className="mx-bot-sent-dot" aria-hidden="true" />
       {member && <RoomMemberFace member={member} className="mx-bot-sent-face" />}
       <span className="mx-handoff-what">
         <span className="mx-handoff-name">{what}</span>
+        {count > 1 && <span className="mx-handoff-state">{` ${t('×{{n}}', { n: count })}`}</span>}
         <span className="mx-handoff-state">{update ? ' · ' : ` · ${label}`}</span>
         {update && (
-          <span className="mx-handoff-name" title={update}>
+          <span className="mx-handoff-name mx-handoff-update" title={update}>
             {update}
           </span>
         )}
@@ -166,7 +170,7 @@ function HandoffLineView({
  *  (agent-chat-place.ts handoffLinesAt): "{name}에 보냄" for a send, the
  *  created task session's name alone. The state flips with the session's
  *  live approval wait, without a row of its own. */
-export function AgentHandoffLine({ handoff }: { handoff: Omit<Handoff, 'id' | 'sendId'> }) {
+export function AgentHandoffLine({ handoff, count = 1 }: { handoff: Omit<Handoff, 'id' | 'sendId'>; count?: number }) {
   const { member, name, waiting, asking } = useHandoffTarget(handoff.sessionId, handoff.agentId, handoff.name);
   let what = name;
   if (!handoff.created) {
@@ -178,6 +182,7 @@ export function AgentHandoffLine({ handoff }: { handoff: Omit<Handoff, 'id' | 's
         sessionId={handoff.sessionId}
         member={member}
         what={what}
+        count={count}
         waiting={waiting}
         asking={asking}
         progress={handoff.progress}
@@ -199,8 +204,8 @@ export function AgentHandoffBlock({ handoffs, time }: { handoffs: readonly Hando
           <span aria-hidden="true">·</span>
         </span>
       )}
-      {handoffs.map((handoff) => (
-        <AgentHandoffLine key={handoff.id} handoff={handoff} />
+      {collapseHandoffs(handoffs).map(({ key, handoff, count }) => (
+        <AgentHandoffLine key={key} handoff={handoff} count={count} />
       ))}
     </div>
   );

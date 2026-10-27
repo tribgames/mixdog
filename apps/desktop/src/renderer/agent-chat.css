@@ -329,6 +329,10 @@ html[data-mixdog-mobile-tabs] .conversation[data-chat-mode="agent"] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The progress text gives way long before the target's name does. */
+.mx-handoff-update {
+  flex-shrink: 20;
+}
 .mx-handoff-state {
   flex: none;
   white-space: pre;

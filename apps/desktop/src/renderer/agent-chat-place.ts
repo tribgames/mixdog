@@ -374,6 +374,37 @@ export function handoffLinesAt(rows: readonly TranscriptRowModel[], index: numbe
   return handoffIndexOf(rows).lines.get(index) ?? NO_HANDOFFS;
 }
 
+/** A hand-off line and the open hand-offs it stands for. */
+export type HandoffGroup = {
+  /** The target and kind: stable while the group's members come and go, so
+   *  the line (and the question card under it) is never remounted. */
+  key: string;
+  handoff: Handoff;
+  count: number;
+};
+
+/** The lines a block paints: hand-offs to one target collapse into one line
+ *  with a count. A line's state (working, waiting for approval, a question)
+ *  is read live from its target session, so one target is one state; an
+ *  ended hand-off is no longer among `handoffs`, so it never joins a working
+ *  one. The data keeps every hand-off with its own send id; only the paint
+ *  merges. The merged line keeps the first's place and the question card if
+ *  any of them carries it. */
+export function collapseHandoffs(handoffs: readonly Handoff[]): HandoffGroup[] {
+  const groups = new Map<string, HandoffGroup>();
+  for (const handoff of handoffs) {
+    const key = `${handoff.created ? 'created' : 'send'}:${handoff.sessionId}`;
+    const group = groups.get(key);
+    if (!group) {
+      groups.set(key, { key, handoff, count: 1 });
+      continue;
+    }
+    group.count += 1;
+    if (handoff.prompt && !group.handoff.prompt) group.handoff = { ...group.handoff, prompt: true };
+  }
+  return [...groups.values()];
+}
+
 /** Whether the task report at `rows[index]` paints nothing: a start or
  *  progress, a wait its hand-off line (or a later wait of that session)
  *  already shows or the session's end closed, and — given `waiting`, the

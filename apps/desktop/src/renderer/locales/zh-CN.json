@@ -295,6 +295,7 @@
   "•••••••• {{value0}}": "•••••••• {{value0}}",
   "→ {{value0}}": "→ {{value0}}",
   "+{{value0}}": "+{{value0}}",
+  "×{{n}}": "×{{n}}",
   "~/code": "~/code",
   "0 available": "0 可用",
   "0 changed files": "0 个已更改的文件",

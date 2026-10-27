@@ -295,6 +295,7 @@
   "•••••••• {{value0}}": "•••••••• {{value0}}",
   "→ {{value0}}": "→ {{value0}}",
   "+{{value0}}": "+{{value0}}",
+  "×{{n}}": "×{{n}}",
   "~/code": "~/code",
   "0 available": "사용 가능 0개",
   "0 changed files": "변경된 파일 0개",

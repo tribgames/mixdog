@@ -333,6 +333,7 @@
   "•••••••• {{value0}}": "•••••••• {{value0}}",
   "→ {{value0}}": "→ {{value0}}",
   "+{{value0}}": "+{{value0}}",
+  "×{{n}}": "×{{n}}",
   "~/code": "~/code",
   "0 available": "0 verfügbar",
   "0 changed files": "0 geänderte Dateien",
