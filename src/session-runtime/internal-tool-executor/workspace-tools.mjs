@@ -51,7 +51,7 @@ export function createWorkspaceToolHandlers({
   getSessionManager = () => null,
   getLifecycleApi = () => null,
   executeSessionControl = null,
-  listBots = undefined,
+  listBots,
 }) {
   const assertLead = (action, callerCtx) => {
     const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;

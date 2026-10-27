@@ -27,7 +27,7 @@ export async function resolveBotTarget(target, listBots = defaultListBots) {
 export const isBotShaped = (target) => agentHomeSessionId(target) !== '';
 
 /** The error for a bot-shaped `target` that is neither a known bot nor a session. */
-export async function unknownBotError(target, listBots = defaultListBots, cause = undefined) {
+export async function unknownBotError(target, listBots = defaultListBots, cause) {
   const ids = await botIds(listBots);
   const named = ids.slice(0, MAX_NAMED_BOTS).join(', ');
   const more = ids.length > MAX_NAMED_BOTS ? `, … (${ids.length - MAX_NAMED_BOTS} more)` : '';
