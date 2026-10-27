@@ -66,3 +66,41 @@ test('hash inputs are independent of metering', () => {
   estimateMessageTokens(message);
   assert.equal(contextMessagesSignature([structuredClone(message)]), before);
 });
+
+const SIG = 'A1b2'.repeat(2500);
+const SIG_TOKENS = Math.ceil(SIG.length / 3.43);
+
+test('Anthropic signed thinking is priced by its own signature and text, not by neighbouring items', () => {
+  const thinking = 'let me think '.repeat(50);
+  const message = {
+    role: 'assistant',
+    content: '',
+    providerReplay: {
+      items: [
+        { type: 'thinking', thinking, signature: SIG },
+        { type: 'tool_use', id: 't1', name: 'read', input: { path: 'a' } },
+        { type: 'text', text: 'x' },
+      ],
+    },
+  };
+  const { tokens } = messageReasoningBreakdown(message);
+  const expected = SIG_TOKENS + estimateTokens(thinking);
+  assert.ok(Math.abs(tokens - expected) <= expected * 0.05, `${tokens} vs ${expected}`);
+  assert.ok(tokens <= estimateMessageTokens(message));
+});
+
+test('OpenAI encrypted reasoning is priced at the opaque-blob rate alongside other items', () => {
+  const message = {
+    role: 'assistant',
+    content: '',
+    providerReplay: {
+      items: [
+        { type: 'reasoning', id: 'rs_1', encrypted_content: SIG },
+        { type: 'function_call', call_id: 'c1', name: 'read', arguments: '{"path":"a"}' },
+        { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
+      ],
+    },
+  };
+  const { tokens } = messageReasoningBreakdown(message);
+  assert.ok(Math.abs(tokens - SIG_TOKENS) <= SIG_TOKENS * 0.05, `${tokens} vs ${SIG_TOKENS}`);
+});
