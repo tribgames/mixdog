@@ -3,15 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 // Tray Quit ends the daemon with process.exit() while sessions are still open,
 // so nothing closes them: /tmp kept the transcript owner registry of that run.
 
-const spillDir = pathToFileURL(
-  new URL('./transcript-spill/spill-dir.mjs', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
-).href;
+const spillDir = new URL('./transcript-spill/spill-dir.mjs', import.meta.url).href;
 
 function runChild(source) {
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
