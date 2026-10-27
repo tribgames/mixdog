@@ -10,8 +10,7 @@
 // real E2EE transport session on their way back.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -30,6 +29,7 @@ import {
 import { MEDIA_SEGMENT_BYTES } from '../shared/remote-media-crypto.ts';
 import { createRemotePreviewApi, createRemoteTransportMediaClient } from './remote-file-preview.ts';
 import { fileDownloadLaneUrl, publishMediaKey, revokeMediaKey } from './remote-media-lane.ts';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 const source = readFileSync(new URL('./public/sw-media.js', import.meta.url), 'utf8');
 const ORIGIN = 'https://relay.mixdog.test';
@@ -37,7 +37,7 @@ const SID = 'W'.repeat(43);
 const PHONE_DEVICE = 'phone-credential';
 const LEASE_ID = '11111111-2222-4333-8444-555555555555';
 const VERSION = 'v'.repeat(43);
-const dir = mkdtempSync(join(tmpdir(), 'sw-media-'));
+const dir = makeTempDirSync('sw-media');
 
 function lease(name, size, mime = 'video/mp4') {
   const bytes = Buffer.alloc(size);
@@ -681,10 +681,18 @@ test('a download over the direct transport keeps its version, its device and its
     `bytes=${DOWNLOAD_WINDOW_MAX_BYTES}-${bytes.length - 1}`,
   ]);
   const offset = DOWNLOAD_WINDOW_MAX_BYTES - 1000;
-  const resumed = await lane.download(url, { range: `bytes=${offset}-`, ifRange: `"${VERSION}"`, mode: 'cors', destination: '' });
+  const resumed = await lane.download(url, {
+    range: `bytes=${offset}-`,
+    ifRange: `"${VERSION}"`,
+    mode: 'cors',
+    destination: '',
+  });
   assert.equal(resumed.status, 206);
   assert.deepEqual(Buffer.from(await resumed.arrayBuffer()), bytes.subarray(offset));
-  assert.equal((await lane.download(pageUrl(lane.key, transferOf(bytes.length, { version: 'y'.repeat(43) })))).status, 412);
+  assert.equal(
+    (await lane.download(pageUrl(lane.key, transferOf(bytes.length, { version: 'y'.repeat(43) })))).status,
+    412
+  );
   source.state.changed = true;
   assert.equal((await lane.download(url, { range: 'bytes=70000-' })).status, 412);
   assert.deepEqual(lane.upstream, []);
@@ -794,7 +802,7 @@ test('a direct window with no first frame within the relay head timeout answers 
   lane.lane.page.close();
 });
 
-test('a reader that has every byte before the host\'s end record cancels that one stream', async () => {
+test("a reader that has every byte before the host's end record cancels that one stream", async () => {
   // The order the silent-window test must not depend on: head, meta and the
   // segment, then the host waits for credit before its end record.
   const { assetId } = lease('direct-early.mp4', 300_000);
