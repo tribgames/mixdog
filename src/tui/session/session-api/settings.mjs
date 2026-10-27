@@ -112,6 +112,12 @@ export function createSessionSettingsApi(bag) {
     setAiSessionTitles: withCommandLock(async (enabled) => {
       return await runtime.setAiSessionTitles?.(enabled);
     }),
+    getCacheWarmingSettings: () => {
+      return runtime.getCacheWarmingSettings?.() || { enabled: true };
+    },
+    setCacheWarmingEnabled: withCommandLock(async (enabled) => {
+      return await runtime.setCacheWarmingEnabled?.(enabled);
+    }),
     getHeartbeatSettings: () => {
       return runtime.getHeartbeatSettings?.() || { heartbeat: true, intervalMinutes: 60 };
     },
