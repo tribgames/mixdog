@@ -1,6 +1,7 @@
 import { createConnection, createServer } from 'node:net';
 import type { ChildProcess } from 'node:child_process';
 
+import { listenOnFetchSafePort } from '../../../../../src/runtime/shared/fetch-safe-listen.mjs';
 import {
   classifySshFailure,
   isLocalForwardBindFailure,
@@ -48,7 +49,8 @@ export function freeLocalPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    // The port is opened in the user's browser (forwarded ports), which refuses blocked ports.
+    listenOnFetchSafePort(server, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
       server.close(() => (port ? resolve(port) : reject(new Error('no free local port'))));

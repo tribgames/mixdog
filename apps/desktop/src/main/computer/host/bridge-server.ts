@@ -5,6 +5,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { listenOnFetchSafePort } from '../../../../../../src/runtime/shared/fetch-safe-listen.mjs';
 import { createBridgeDiscovery } from '../../bridge/discovery-file';
 import { CHROME_SETUP_SESSION_ID } from '../shared/common';
 import { computerUseCoordinator } from '../session/coordinator';
@@ -21,6 +22,9 @@ function closeServer(active: Server): Promise<void> {
     setTimeout(resolve, 250).unref?.();
   });
 }
+
+/** Pause before restarting a bridge whose server failed to listen. */
+export const LISTEN_RETRY_MS = 5_000;
 
 export function createBridgeServer(host: BridgeServerHost) {
   const {
@@ -57,7 +61,29 @@ export function createBridgeServer(host: BridgeServerHost) {
     else computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed');
   }
 
-  async function stopBridge(): Promise<void> {
+  let listenRetryTimer: NodeJS.Timeout | null = null;
+  const clearListenRetry = (): void => {
+    if (listenRetryTimer) clearTimeout(listenRetryTimer);
+    listenRetryTimer = null;
+  };
+
+  /** One restart after a listen failure, a pause later, if still wanted. */
+  function scheduleListenRetry(): void {
+    clearListenRetry();
+    listenRetryTimer = setTimeout(() => {
+      listenRetryTimer = null;
+      if (isBridgeWanted() && !isDisposed()) startBridge();
+    }, LISTEN_RETRY_MS);
+    listenRetryTimer.unref?.();
+  }
+
+  /** Bumped by every explicit stop; a listen-failure cleanup that an explicit
+   *  stop overtook must not arm a retry. */
+  let explicitStops = 0;
+
+  async function stopBridge(restartNow = true): Promise<void> {
+    if (restartNow) explicitStops += 1;
+    clearListenRetry();
     if (state.stopPromise) return await state.stopPromise;
     state.stopPromise = (async () => {
       state.generation += 1;
@@ -75,7 +101,7 @@ export function createBridgeServer(host: BridgeServerHost) {
       await state.stopPromise;
     } finally {
       state.stopPromise = null;
-      if (isBridgeWanted() && !isDisposed()) startBridge();
+      if (restartNow && isBridgeWanted() && !isDisposed()) startBridge();
     }
   }
 
@@ -95,27 +121,44 @@ export function createBridgeServer(host: BridgeServerHost) {
     state.server = created;
     const stillCurrent = (): boolean =>
       !isDisposed() && isBridgeWanted() && state.server === created && state.generation === generation;
-    created.listen(0, '127.0.0.1', () => {
-      const address = created.address();
-      const port = address && typeof address === 'object' ? address.port : 0;
-      if (!port) return;
-      diagnose('computer-bridge-listening', {
-        generation,
-        durationMs: Date.now() - startedAt,
-      });
-      publishBridgeDiscovery(
-        {
-          state,
-          writeDiscovery: discovery.writeDiscovery,
-          heartbeatDiscovery: discovery.heartbeatDiscovery,
-          reapIdleSessionWorkers,
-          diagnose,
-          restart: stopBridge,
-        },
-        { port, token: activeToken, generation, startedAt, stillCurrent }
-      );
+    created.once('error', (error) => {
+      diagnose('computer-bridge-error', { generation, message: error.message });
+      // stopBridge clears this server's state and releases what a published
+      // generation held; the restart waits, so a persistent failure cannot spin.
+      if (state.server !== created) return;
+      const stopsBefore = explicitStops;
+      void stopBridge(false)
+        .catch((stopError) => diagnose('computer-bridge-stop-failed', { message: String(stopError) }))
+        .finally(() => {
+          if (explicitStops === stopsBefore) scheduleListenRetry();
+        });
     });
+    listenOnFetchSafePort(
+      created,
+      '127.0.0.1',
+      () => {
+        const address = created.address();
+        const port = address && typeof address === 'object' ? address.port : 0;
+        if (!port) return;
+        diagnose('computer-bridge-listening', {
+          generation,
+          durationMs: Date.now() - startedAt,
+        });
+        publishBridgeDiscovery(
+          {
+            state,
+            writeDiscovery: discovery.writeDiscovery,
+            heartbeatDiscovery: discovery.heartbeatDiscovery,
+            reapIdleSessionWorkers,
+            diagnose,
+            restart: () => stopBridge(),
+          },
+          { port, token: activeToken, generation, startedAt, stillCurrent }
+        );
+      },
+      { isCurrent: stillCurrent }
+    );
   }
 
-  return { startBridge, stopBridge };
+  return { startBridge, stopBridge: () => stopBridge() };
 }

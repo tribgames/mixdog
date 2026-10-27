@@ -8,6 +8,7 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
+import { listenOnFetchSafePort } from '../../../../../src/runtime/shared/fetch-safe-listen.mjs';
 import { createBridgeDiscovery } from './discovery-file';
 import {
   bridgeDiscoveryPublicIdentity,
@@ -212,31 +213,36 @@ export class LoopbackBridgeServer<TCommand extends object> {
       if (this.server === server) this.server = null;
       this.deactivate();
     });
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = address && typeof address === 'object' ? address.port : 0;
-      if (!port || this.server !== server) return;
-      const record = createBridgeDiscoveryRecord({ port, token: this.token, generation, startedAt });
-      this.record = record;
-      void this.discovery
-        .writeDiscovery(record)
-        .then((ownership) => {
-          if (this.server !== server || !sameBridgeDiscovery(this.record, record)) return;
-          if (ownership !== 'owned') {
-            console.warn(`${label} bridge discovery ${ownership}; heartbeat will retry`);
-          }
-          this.heartbeat = setInterval(() => {
-            void this.maintain(record, server).catch((error) => {
-              console.error(`${label} bridge discovery heartbeat failed:`, error);
-            });
-          }, this.options.heartbeatMs || HEARTBEAT_MS);
-          this.heartbeat.unref?.();
-          this.options.onReady?.();
-        })
-        .catch((error) => {
-          console.error(`${label} bridge discovery write failed:`, error);
-        });
-    });
+    listenOnFetchSafePort(
+      server,
+      '127.0.0.1',
+      () => {
+        const address = server.address();
+        const port = address && typeof address === 'object' ? address.port : 0;
+        if (!port || this.server !== server) return;
+        const record = createBridgeDiscoveryRecord({ port, token: this.token, generation, startedAt });
+        this.record = record;
+        void this.discovery
+          .writeDiscovery(record)
+          .then((ownership) => {
+            if (this.server !== server || !sameBridgeDiscovery(this.record, record)) return;
+            if (ownership !== 'owned') {
+              console.warn(`${label} bridge discovery ${ownership}; heartbeat will retry`);
+            }
+            this.heartbeat = setInterval(() => {
+              void this.maintain(record, server).catch((error) => {
+                console.error(`${label} bridge discovery heartbeat failed:`, error);
+              });
+            }, this.options.heartbeatMs || HEARTBEAT_MS);
+            this.heartbeat.unref?.();
+            this.options.onReady?.();
+          })
+          .catch((error) => {
+            console.error(`${label} bridge discovery write failed:`, error);
+          });
+      },
+      { isCurrent: () => this.server === server }
+    );
   }
 
   async stop(internal = false): Promise<void> {

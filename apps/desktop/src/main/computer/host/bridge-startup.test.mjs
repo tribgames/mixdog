@@ -7,6 +7,7 @@ const diagnostics = [];
 let reaped = 0;
 globalThis.bridgeStartupFixture = {
   createServer: () => ({
+    once() {},
     listen(_port, _host, ready) {
       queueMicrotask(ready);
     },

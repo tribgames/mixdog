@@ -4,13 +4,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { redactedLog, spawnServerState } from './server-process/child-state.mjs';
 import { awaitServerReady } from './server-process/readiness.mjs';
 import { createSerialChain } from './serial-chain.mjs';
+import { listenOnFetchSafePort } from '../shared/fetch-safe-listen.mjs';
 
 async function freeLoopbackPort() {
   return new Promise((resolve, reject) => {
     const probe = createServer();
     probe.unref();
     probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
+    listenOnFetchSafePort(probe, '127.0.0.1', () => {
       const port = probe.address().port;
       probe.close((error) => (error ? reject(error) : resolve(port)));
     });
