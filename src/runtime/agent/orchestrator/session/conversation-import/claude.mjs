@@ -4,9 +4,11 @@
  * back through `parentUuid` (and `logicalParentUuid` across a compaction), so
  * replayed or abandoned branches never duplicate. Kept: text blocks and
  * `tool_use` as `[ran tool: <name>]` notes; images become an omission marker;
- * a compaction summary only when the history it replaced is no longer linked.
- * Dropped: sidechains, meta entries, tool results, thinking, signatures and
- * Claude Code's own command/notification envelopes.
+ * a compaction summary (as an assistant recap) only when the history it
+ * replaced is gone; a slash command as `/name args` unless the app answered it
+ * locally; pasted text without the app's paste envelope. Dropped: sidechains, meta entries,
+ * tool results, thinking, signatures and Claude Code's own
+ * command-output/notification envelopes.
  */
 import {
   IMAGE_OMITTED_TEXT,
@@ -27,11 +29,54 @@ const CLAUDE_ENVELOPE_TAGS = [
   'bash-input',
   'bash-stdout',
   'bash-stderr',
+  // The app's own instructions behind its "create PR" action.
+  'create-pr-command',
 ];
-const SLASH_COMMAND_RE = /^(?:\s*<(command-name|command-message|command-args)>[\s\S]*?<\/\1>)+\s*$/;
+const LOCAL_OUTPUT_TAGS = ['local-command-stdout', 'local-command-stderr'];
+const SLASH_COMMAND_RE = /^(?:\s*<(command-name|command-message|command-args|skill-format)>[\s\S]*?<\/\1>)+\s*$/;
 const INTERRUPTED_RE = /^\[Request interrupted by user[^\]\n]*\]$/;
 // Claude Code's text annotation that accompanies a pasted image block.
 const IMAGE_ANNOTATION_RE = /^\[Image\b[^\n]*\]$/;
+// The desktop app's paste envelope: `<pasted_content id="hhhh">\n` body
+// `\n</pasted_content id="hhhh">`, one four-hex id on both tags.
+const PASTE_OPEN = '<pasted_content id="';
+const PASTE_ID_RE = /^[0-9a-f]{4}$/;
+
+/**
+ * Text with the app's paste envelopes unwrapped the way the app displays it:
+ * each paste body in place, the text around it trimmed toward it, pieces on
+ * their own lines. Only a complete envelope with a matching id is unwrapped; any
+ * other `<pasted_content…>` is the user's own text and stays as typed.
+ */
+export function unwrapClaudePastes(text) {
+  const pieces = [];
+  let cursor = 0;
+  let search = 0;
+  for (;;) {
+    const open = text.indexOf(PASTE_OPEN, search);
+    if (open < 0) break;
+    const idStart = open + PASTE_OPEN.length;
+    const id = text.slice(idStart, idStart + 4);
+    const bodyStart = idStart + 7; // past `hhhh">\n`
+    if (!PASTE_ID_RE.test(id) || text.slice(idStart + 4, bodyStart) !== '">\n') {
+      search = idStart;
+      continue;
+    }
+    const closeTag = `\n</pasted_content id="${id}">`;
+    // The line feed ending the open tag may also start the close tag (an empty paste).
+    const close = text.indexOf(closeTag, bodyStart - 1);
+    if (close < 0) break;
+    // Trimmed only toward a paste: the first fragment keeps its leading text.
+    const before = text.slice(cursor, open);
+    pieces.push(cursor ? before.trim() : before.trimEnd(), text.slice(bodyStart, Math.max(close, bodyStart)));
+    cursor = close + closeTag.length;
+    search = cursor;
+  }
+  if (!pieces.length) return text;
+  pieces.push(text.slice(cursor).trimStart());
+  const unwrapped = pieces.filter((piece, index) => index % 2 === 1 || piece).join('\n');
+  return unwrapped.trim() ? unwrapped : text;
+}
 
 export function isClaudeEnvelopeText(text) {
   const trimmed = String(text || '').trim();
@@ -42,6 +87,17 @@ export function isClaudeEnvelopeText(text) {
     INTERRUPTED_RE.test(trimmed) ||
     IMAGE_ANNOTATION_RE.test(trimmed)
   );
+}
+
+const tagValue = (text, tag) => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)?.[1].trim() || '';
+
+/** A slash-command envelope as Claude Code shows it (`/name args`), else null. */
+export function claudeCommandText(text) {
+  const trimmed = String(text || '').trim();
+  if (!SLASH_COMMAND_RE.test(trimmed)) return null;
+  const name = (tagValue(trimmed, 'command-name') || tagValue(trimmed, 'command-message')).replace(/^\//, '');
+  if (!name) return null;
+  return [`/${name}`, tagValue(trimmed, 'command-args')].filter(Boolean).join(' ');
 }
 
 const isMessageEntry = (record) => record?.type === 'user' || record?.type === 'assistant';
@@ -56,42 +112,69 @@ const metadataLength = (entry) =>
   (entry.logicalParentUuid?.length || 0) +
   (typeof entry.at === 'string' ? entry.at.length : 0);
 
+// The main-chain message written last before file position `seq`: the leaf of
+// the history a compaction boundary replaced.
+function precedingMain(entries, seq) {
+  for (let index = seq - 1; index >= 0; index--) {
+    if (entries[index].main && entries[index].uuid !== null) return entries[index];
+  }
+  return null;
+}
+
 /**
  * The active branch, root first: walked back from the last main-chain entry.
- * `crossedCompaction` tells whether a compaction boundary led back into the
- * history it replaced (Claude Code often no longer keeps that history).
+ * A compaction boundary links back to the history it replaced through its
+ * logical parent, or, when Claude Code never wrote that message, to the last
+ * message before the boundary. `replaced` holds the compaction summaries whose
+ * history the walk crossed into (that history is imported instead).
  */
 function activeChain(entries) {
   const main = entries.filter((entry) => entry.main);
   const leaf = main[main.length - 1];
-  if (!leaf || leaf.uuid === null) return { chain: main, crossedCompaction: false };
+  if (!leaf || leaf.uuid === null) return { chain: main, replaced: new Set() };
   const byUuid = new Map();
   for (const entry of entries) {
     if (entry.uuid !== null) byUuid.set(entry.uuid, entry);
   }
   const chain = [];
   const seen = new Set();
-  let crossedCompaction = false;
+  const replaced = new Set();
+  let summary = null;
   let current = leaf;
   while (current && !seen.has(current.uuid)) {
     seen.add(current.uuid);
     chain.push(current);
+    if (current.summary) summary = current;
     const parent = current.parentUuid !== null ? byUuid.get(current.parentUuid) : null;
-    const logical = !parent && current.logicalParentUuid !== null ? byUuid.get(current.logicalParentUuid) : null;
-    if (logical) crossedCompaction = true;
+    const logical =
+      !parent && current.logicalParentUuid !== null
+        ? byUuid.get(current.logicalParentUuid) || precedingMain(entries, current.seq)
+        : null;
+    if (logical && summary) {
+      replaced.add(summary);
+      summary = null;
+    }
     current = parent || logical;
   }
-  return { chain: chain.reverse().filter((entry) => entry.main), crossedCompaction };
+  return { chain: chain.reverse().filter((entry) => entry.main), replaced };
 }
 
-function entryParts(role, content, warnings) {
+/** Kept parts of a message; a slash command is a `command` part, a local command's output marks `localOutput`. */
+function entryParts(role, content, warnings, marks = {}) {
   const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : content;
   if (!Array.isArray(blocks)) return [];
   const parts = [];
   for (const block of blocks) {
     if (!block || typeof block !== 'object') continue;
     if (block.type === 'text' && typeof block.text === 'string') {
-      if (role === 'user' && isClaudeEnvelopeText(block.text)) continue;
+      if (role === 'user') {
+        const command = claudeCommandText(block.text);
+        if (command) parts.push({ ...textPart(command), command: true });
+        if (isWholeElement(block.text, LOCAL_OUTPUT_TAGS)) marks.localOutput = true;
+        if (isClaudeEnvelopeText(block.text)) continue;
+        parts.push(textPart(unwrapClaudePastes(block.text)));
+        continue;
+      }
       parts.push(textPart(block.text));
     } else if (block.type === 'image') {
       warnings.add(IMPORT_WARNING_IMAGE_OMITTED);
@@ -193,13 +276,14 @@ export function createClaudeReducer() {
         parts: null,
         warnings: null,
         at: timestampOrNull(record.timestamp),
+        seq: entries.length,
       };
       metadataBytes += ENTRY_OVERHEAD_BYTES + metadataLength(entry);
       if (main && !skippedEntry(record)) {
         const body = record.message && typeof record.message === 'object' ? record.message : null;
         entry.role = body?.role === 'user' || body?.role === 'assistant' ? body.role : record.type;
         const warnings = new Set();
-        entry.parts = entryParts(entry.role, body ? body.content : null, warnings);
+        entry.parts = entryParts(entry.role, body ? body.content : null, warnings, entry);
         if (record.isCompactSummary === true) {
           entry.summary = true;
           entry.parts = entry.parts.map((part) => ({ ...part, summary: true }));
@@ -212,12 +296,19 @@ export function createClaudeReducer() {
     result() {
       const warnings = new Set();
       const rawTurns = [];
-      const { chain, crossedCompaction } = activeChain(entries);
-      for (const entry of chain) {
+      const { chain, replaced } = activeChain(entries);
+      for (const [index, entry] of chain.entries()) {
         if (!entry.parts?.length) continue;
-        // The summary stands in for history only when that history is gone.
-        if (entry.summary && crossedCompaction) continue;
-        rawTurns.push({ role: entry.role, parts: entry.parts, at: entry.at });
+        // The summary stands in for history only when that history is gone,
+        // and then as the model's recap, never as something the user wrote.
+        if (entry.summary && replaced.has(entry)) continue;
+        const role = entry.summary ? 'assistant' : entry.role;
+        // A local command (`/model`, `/rename`…) answered by the app itself is not part of the conversation.
+        const local =
+          entry.parts.some((part) => part.command) &&
+          chain.slice(index + 1).find((next) => next.parts?.length || next.localOutput)?.localOutput;
+        const parts = local ? entry.parts.filter((part) => !part.command) : entry.parts;
+        rawTurns.push({ role, parts, at: entry.at });
         for (const code of entry.warnings || []) warnings.add(code);
       }
       // A transcript whose every message is a sidechain is a subagent's own, not a conversation.

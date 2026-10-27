@@ -78,8 +78,12 @@ export function normalizeTurns(rawTurns) {
   }
   const turns = merged.map(({ role, parts, at }) => {
     const turn = { role, text: joinParts(parts).text, at };
-    // A carried-over compaction summary never names the conversation.
-    if (parts.some((part) => part.summary)) turn.titleText = joinParts(parts.filter((part) => !part.summary)).text;
+    // A carried-over compaction summary never names the conversation; a slash
+    // command only when no typed prompt does.
+    if (parts.some((part) => part.summary || part.command)) {
+      turn.titleText = joinParts(parts.filter((part) => !part.summary && !part.command)).text;
+    }
+    if (parts.some((part) => part.command)) turn.commandText = joinParts(parts.filter((part) => part.command)).text;
     return turn;
   });
   if (turns[0]?.role === 'assistant') {
@@ -104,10 +108,10 @@ export function titleFromText(text) {
 }
 
 /** First line of the first genuine user turn, whitespace-normalized, ≤100 chars
- *  (an image marker only when the turn has no text line). */
+ *  (an image marker only when the turn has no text line), else the first slash command. */
 export function conversationTitle(turns) {
   const first = turns.find((turn) => turn.role === 'user' && !turn.stub && titleLines(turn).length);
-  if (!first) return null;
+  if (!first) return titleFromText(turns.find((turn) => turn.role === 'user' && turn.commandText)?.commandText);
   const lines = titleLines(first);
   return titleFromText(lines.find((value) => value !== IMAGE_OMITTED_TEXT) || lines[0]);
 }

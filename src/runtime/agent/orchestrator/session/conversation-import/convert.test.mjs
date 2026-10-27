@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { IMPORT_ERROR_TOO_LARGE, convertConversationText, createConversationConverter } from './convert.mjs';
+import { unwrapClaudePastes } from './claude.mjs';
 import { codexMetaFromTruncatedLine } from './codex.mjs';
 import { IMAGE_OMITTED_TEXT, IMPORTED_USER_STUB_TEXT } from './turns.mjs';
 
@@ -232,7 +233,7 @@ test('Claude Code: active chain only, tool notes, envelopes/thinking/results dro
   assert.deepEqual(
     result.turns.map(({ role, text: value }) => [role, value]),
     [
-      ['user', 'Please refactor the parser'],
+      ['user', '/init\n\nPlease refactor the parser'],
       ['assistant', 'Reading files.\n\n[ran tool: Read]\n\nRefactored.'],
       ['user', `${IMAGE_OMITTED_TEXT}\n\nDoes it look right?`],
       ['assistant', 'Yes.'],
@@ -285,14 +286,207 @@ test('Claude Code: a compaction summary stands in for history the file no longer
   const next = claudeEntry('u2', 's1', 'user', 'Second question');
   const answer = claudeEntry('a2', 'u2', 'assistant', [{ type: 'text', text: 'Second answer' }]);
   const result = convertConversationText('claude', jsonl([boundary, summary, next, answer]));
+  // The recap is the model's, never a message the user wrote.
   assert.deepEqual(
     result.turns.map(({ role, text: value }) => [role, value]),
     [
-      ['user', 'Summary of the earlier work\n\nSecond question'],
+      ['user', IMPORTED_USER_STUB_TEXT],
+      ['assistant', 'Summary of the earlier work'],
+      ['user', 'Second question'],
       ['assistant', 'Second answer'],
     ]
   );
   assert.equal(result.title, 'Second question');
+});
+
+test('Claude Code: a boundary whose logical parent was never written links to the history before it', () => {
+  const boundary = (uuid, logicalParentUuid) => ({
+    type: 'system',
+    subtype: 'compact_boundary',
+    uuid,
+    parentUuid: null,
+    logicalParentUuid,
+  });
+  const summary = (uuid, parent, text) =>
+    claudeEntry(uuid, parent, 'user', text, { isCompactSummary: true, isVisibleInTranscriptOnly: true });
+  const text = jsonl([
+    claudeEntry('u1', null, 'user', 'First question'),
+    claudeEntry('a1', 'u1', 'assistant', [{ type: 'text', text: 'First answer' }]),
+    // Logical parent missing from the file (Claude Code never wrote it).
+    boundary('b1', 'never-written'),
+    { type: 'attachment', uuid: 'at1', parentUuid: 'b1' },
+    summary('s1', 'at1', 'Summary one'),
+    claudeEntry('u2', 's1', 'user', 'Second question'),
+    claudeEntry('a2', 'u2', 'assistant', [{ type: 'text', text: 'Second answer' }]),
+    // Logical parent present.
+    boundary('b2', 'a2'),
+    summary('s2', 'b2', 'Summary two'),
+    claudeEntry('u3', 's2', 'user', 'Third question'),
+    claudeEntry('a3', 'u3', 'assistant', [{ type: 'text', text: 'Third answer' }]),
+  ]);
+  const result = convertConversationText('claude', text);
+  assert.deepEqual(
+    result.turns.map(({ role, text: value }) => [role, value]),
+    [
+      ['user', 'First question'],
+      ['assistant', 'First answer'],
+      ['user', 'Second question'],
+      ['assistant', 'Second answer'],
+      ['user', 'Third question'],
+      ['assistant', 'Third answer'],
+    ]
+  );
+  assert.equal(result.title, 'First question');
+});
+
+test('Claude Code: slash commands read as Claude Code shows them; locally answered ones are dropped', () => {
+  const text = jsonl([
+    claudeEntry('u0', null, 'user', 'Caveat: the messages below…', { isMeta: true }),
+    claudeEntry(
+      'u1',
+      'u0',
+      'user',
+      '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>'
+    ),
+    claudeEntry('u2', 'u1', 'user', '<local-command-stdout>Set model to opus</local-command-stdout>'),
+    claudeEntry(
+      'u3',
+      'u2',
+      'user',
+      '<command-message>launch</command-message>\n<command-name>/launch</command-name>\n<command-args>the beta</command-args>'
+    ),
+    claudeEntry('u4', 'u3', 'user', [{ type: 'text', text: '## Launch\nExpanded skill body' }], { isMeta: true }),
+    claudeEntry('a1', 'u4', 'assistant', [{ type: 'text', text: 'Launching.' }]),
+    claudeEntry(
+      'u5',
+      'a1',
+      'user',
+      '<command-message>review</command-message>\n<command-name>review</command-name>\n<skill-format>true</skill-format>'
+    ),
+    claudeEntry('a2', 'u5', 'assistant', [{ type: 'text', text: 'Reviewed.' }]),
+  ]);
+  const result = convertConversationText('claude', text);
+  assert.deepEqual(
+    result.turns.map(({ role, text: value }) => [role, value]),
+    [
+      ['user', '/launch the beta'],
+      ['assistant', 'Launching.'],
+      ['user', '/review'],
+      ['assistant', 'Reviewed.'],
+    ]
+  );
+  assert.equal(result.title, '/launch the beta');
+  const serialized = JSON.stringify(result.turns);
+  for (const dropped of ['command-', 'skill-format', 'opus', 'Expanded skill body']) {
+    assert.equal(serialized.includes(dropped), false, dropped);
+  }
+});
+
+test('Claude Code: the create-PR instructions are dropped and the app paste envelope is unwrapped', () => {
+  const text = jsonl([
+    claudeEntry(
+      'u1',
+      null,
+      'user',
+      '\n\n<pasted_content id="a1b2">\nerror log line\n\n```\ncode()\n```\n</pasted_content id="a1b2">\n\nWhy?'
+    ),
+    claudeEntry('a1', 'u1', 'assistant', [{ type: 'text', text: 'Because.' }]),
+    claudeEntry('u2', 'a1', 'user', '<create-pr-command>\n## Steps\nRun `gh pr create`.\n</create-pr-command>'),
+    claudeEntry('a2', 'u2', 'assistant', [{ type: 'text', text: 'PR opened.' }]),
+  ]);
+  const result = convertConversationText('claude', text);
+  assert.deepEqual(
+    result.turns.map(({ role, text: value }) => [role, value]),
+    [
+      ['user', 'error log line\n\n```\ncode()\n```\nWhy?'],
+      ['assistant', 'Because.\n\nPR opened.'],
+    ]
+  );
+  assert.equal(result.title, 'error log line');
+});
+
+test('Claude Code: a <pasted_content> the user typed, or one not in the app envelope form, stays as typed', () => {
+  const kept = [
+    // The reviewer's probe: a literal tag in prose.
+    'Explain the literal <pasted_content> tag.',
+    // A code sample that mentions the tag.
+    'Why does this fail?\n\n```js\nconst open = "<pasted_content>";\nconst close = "</pasted_content>";\n```',
+    // A whole bare-tag block (no app id): ambiguous, so untouched.
+    '<pasted_content>\nraw\n</pasted_content>\n\nWhat now?',
+    // App-like but with mismatched ids, a non-hex id, or no closing tag.
+    '<pasted_content id="a1b2">\nbody\n</pasted_content id="c3d4">',
+    '<pasted_content id="zzzz">\nbody\n</pasted_content id="zzzz">',
+    'Start <pasted_content id="a1b2">\nnever closed',
+  ];
+  for (const typed of kept) {
+    const result = convertConversationText(
+      'claude',
+      jsonl([
+        claudeEntry('u1', null, 'user', typed),
+        claudeEntry('a1', 'u1', 'assistant', [{ type: 'text', text: 'Ok.' }]),
+      ])
+    );
+    assert.deepEqual(
+      result.turns.map(({ role, text: value }) => [role, value]),
+      [
+        ['user', typed],
+        ['assistant', 'Ok.'],
+      ]
+    );
+  }
+  // A literal tag next to a real envelope survives; only the envelope unwraps.
+  const mixed = convertConversationText(
+    'claude',
+    jsonl([
+      claudeEntry(
+        'u1',
+        null,
+        'user',
+        'Is <pasted_content> special?\n<pasted_content id="0f9e">\nlog\n</pasted_content id="0f9e">'
+      ),
+    ])
+  );
+  assert.equal(mixed.turns[0].text, 'Is <pasted_content> special?\nlog');
+  // Unwrapping trims only toward a paste: the outer indentation and trailing
+  // spaces stay (the message as a whole is trimmed like any other message).
+  assert.equal(
+    unwrapClaudePastes('    indented first line\n<pasted_content id="0f9e">\nlog\n</pasted_content id="0f9e">\nlast line  '),
+    '    indented first line\nlog\nlast line  '
+  );
+});
+
+test('Codex: the app context before "## My request for Codex:" is dropped, as Codex shows it', () => {
+  const text = jsonl([
+    codexMeta('codex-ide'),
+    codexMessage(
+      'user',
+      '# Files mentioned by the user:\n\n## shot.png: C:\\tmp\\shot.png\n\n## My request for Codex:\nWhat is this?\n'
+    ),
+    codexMessage('assistant', 'A chart.'),
+    codexMessage(
+      'user',
+      '\n# Response annotations:\nThe user marked parts of your reply.\n\n<response-annotations>\n[{"text":"quoted reply"}]\n</response-annotations>\n\n## My request for Codex:\nExplain the marked part\n'
+    ),
+    codexMessage('assistant', 'Sure.'),
+    codexMessage('user', 'Plain # heading text stays'),
+    codexMessage('assistant', 'Noted.'),
+    // Codex splits on the last heading: an earlier one belongs to the context.
+    codexMessage('user', '# Context\n## My request for Codex:\nFirst\n## My request for Codex:\n Second\n'),
+  ]);
+  const result = convertConversationText('codex', text);
+  assert.deepEqual(
+    result.turns.map(({ role, text: value }) => [role, value]),
+    [
+      ['user', 'What is this?'],
+      ['assistant', 'A chart.'],
+      ['user', 'Explain the marked part'],
+      ['assistant', 'Sure.'],
+      ['user', 'Plain # heading text stays'],
+      ['assistant', 'Noted.'],
+      ['user', 'Second'],
+    ]
+  );
+  assert.equal(result.title, 'What is this?');
 });
 
 test('the title is the first user line, whitespace-normalized and capped at 100 characters', () => {

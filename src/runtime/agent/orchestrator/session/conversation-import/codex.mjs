@@ -30,6 +30,17 @@ export function isCodexEnvelopeText(text) {
   return /^<image\b[^>]*>$/.test(trimmed) || trimmed === '</image>';
 }
 
+// Codex shows a user message after the last of these headings: what precedes it
+// is context the app adds for the model (IDE state, mentioned files, response
+// annotations, an earlier request it already carries).
+const USER_REQUEST_HEADING = '## My request for Codex:';
+
+/** A user text part as Codex displays it. */
+export function codexUserDisplayText(text) {
+  const at = text.lastIndexOf(USER_REQUEST_HEADING);
+  return at < 0 ? text : text.slice(at + USER_REQUEST_HEADING.length).trim();
+}
+
 function messageParts(payload, warnings) {
   const content = typeof payload.content === 'string' ? [{ type: 'text', text: payload.content }] : payload.content;
   if (!Array.isArray(content)) return [];
@@ -42,8 +53,8 @@ function messageParts(payload, warnings) {
       continue;
     }
     if (typeof item.text !== 'string') continue;
-    if (payload.role === 'user' && isCodexEnvelopeText(item.text)) continue;
-    parts.push(textPart(item.text));
+    if (payload.role !== 'user') parts.push(textPart(item.text));
+    else if (!isCodexEnvelopeText(item.text)) parts.push(textPart(codexUserDisplayText(item.text)));
   }
   return parts;
 }
