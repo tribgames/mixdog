@@ -78,7 +78,6 @@ test('the request after a tool result gets a fresh first-output allowance; turn 
   snap = getSessionProgressSnapshot(id);
   assert.equal(snap.waitingForFirstSemantic, false);
   assert.equal(snap.firstSemanticAt, turnFirstSemanticAt, 'the turn keeps its first semantic time');
-  assert.equal(snap.requestFirstSemanticAt, Date.now());
   t.mock.timers.tick(policy.idleStaleMs);
   assert.equal(verdict(id), null);
   t.mock.timers.tick(1);

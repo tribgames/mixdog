@@ -72,12 +72,11 @@ export async function consumeCompatResponsesStream(
   // Per-event (last-event-relative) SEMANTIC idle — see the Chat path note.
   const idleMs = idleOverrideEnabled ? Number(semanticIdleTimeoutMs) : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
   // Until the first semantic output the logical request's first-output window
-  // bounds the stream (a retry inherits its deadline); metadata never ends it
-  // or starts the idle. A request that already had output runs under the
+  // bounds the stream; a request that already had output runs under the
   // semantic idle from the stream's opening.
   const firstOutput = streamFirstOutputWindow({
     sessionId,
-    reportsProgress: typeof onStreamDelta === 'function',
+    onStreamDelta,
     timeoutMs: providerFirstOutputTimeoutMs(idleMs),
   });
   const state = createResponsesStreamState();
@@ -111,11 +110,9 @@ export async function consumeCompatResponsesStream(
   const stampOutcome = createResponsesOutcomeStamper(state, leakedCalls);
   try {
     while (true) {
-      const semanticSeen = state.semanticIdleDeadlineAt > 0;
       const { value: event, done } = await nextAsyncWithWatchdog(iterator, {
         signal: sawFirstEvent ? signal : firstByteTimeout.signal,
-        idleMs: semanticSeen ? idleMs : firstOutput.timeoutMs,
-        idleDeadlineAt: semanticSeen ? state.semanticIdleDeadlineAt : firstOutput.deadlineAt,
+        ...firstOutput.idleWatch(state.semanticIdleDeadlineAt, idleMs),
         idleEnabled: sawFirstEvent && idleEnabled,
         idleLabel: `${label} SSE idle`,
         streamLabel: label,

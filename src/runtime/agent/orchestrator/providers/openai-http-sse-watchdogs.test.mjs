@@ -18,36 +18,25 @@ import { runtimeState } from '../session/manager/runtime-state.mjs';
 
 const skip = !PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && 'stream watchdog disabled by env';
 
-// One stream's watchdogs; `session` joins that session's logical request.
-function openWatchdogs(t, { sessionId = null, reportsProgress = Boolean(sessionId) } = {}) {
+// One stream's watchdogs. With a `sessionId` the stream joins that session's
+// logical request (its clock is the caller's), unless it is a `fork`; without
+// one it runs on its own mocked clock.
+function openWatchdogs(t, { sessionId, fork = false, serverEvent = true, opts = {} } = {}) {
+  if (!sessionId) t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const reader = { cancel: async () => {}, read: () => new Promise(() => {}), releaseLock() {} };
   const watchdogs = createHttpSseWatchdogs({
-    opts: {},
+    opts,
     reader,
     totalTimeout: { signal: null, cleanup() {} },
     stallPartial: () => ({ content: '', toolCalls: [], pendingToolUse: false, emittedToolCall: false, model: null }),
     label: 'fixture',
     sessionId,
-    reportsProgress,
+    onStreamDelta: sessionId && !fork ? () => {} : undefined,
   });
   t.after(() => watchdogs.dispose());
   watchdogs.armFirstServerEvent();
-  watchdogs.noteServerEvent();
-  return watchdogs;
-}
-
-function watchdogsUnderTest(t) {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-  const reader = { cancel: async () => {}, read: () => new Promise(() => {}), releaseLock() {} };
-  const watchdogs = createHttpSseWatchdogs({
-    opts: {},
-    reader,
-    totalTimeout: { signal: null, cleanup() {} },
-    stallPartial: () => ({ content: '', toolCalls: [], pendingToolUse: false, emittedToolCall: false, model: null }),
-    label: 'fixture',
-  });
-  t.after(() => watchdogs.dispose());
-  watchdogs.armFirstServerEvent();
+  watchdogs.armFirstOutput();
+  if (serverEvent) watchdogs.noteServerEvent();
   return watchdogs;
 }
 
@@ -76,7 +65,7 @@ test('a retried stream keeps the logical request first-output deadline', { skip 
   assert.match(retry.abortReason()?.message ?? '', firstOutputStall, 'aborted at the original deadline');
 
   // A fork of the request (no progress into the session) keeps its own window.
-  const fork = openWatchdogs(t, { sessionId, reportsProgress: false });
+  const fork = openWatchdogs(t, { sessionId, fork: true });
   t.mock.timers.tick(PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1);
   assert.equal(fork.abortReason(), null);
 });
@@ -95,6 +84,22 @@ test('a retry after output stays under the semantic idle', { skip }, async (t) =
   assert.equal(retry.abortReason(), null);
   t.mock.timers.tick(1);
   assert.match(retry.abortReason()?.message ?? '', idleStall);
+});
+
+test('a retry after output waits for its first server event before the semantic idle starts', { skip }, async (t) => {
+  const sessionId = 'sess_http_sse_retry_idle_override';
+  sessionRequest(t, sessionId);
+  await markSessionStreamDelta(sessionId, 'reasoning');
+  const idleMs = 15_000;
+  const retry = openWatchdogs(t, { sessionId, serverEvent: false, opts: { _semanticIdleTimeoutMs: idleMs } });
+  t.mock.timers.tick(PROVIDER_FIRST_BYTE_TIMEOUT_MS - 1);
+  assert.equal(retry.abortReason(), null, 'no server event yet: only the first-server-event deadline applies');
+  retry.noteServerEvent();
+  t.mock.timers.tick(idleMs - 1);
+  assert.equal(retry.abortReason(), null);
+  retry.noteServerEvent(); // metadata does not re-arm the idle
+  t.mock.timers.tick(1);
+  assert.match(retry.abortReason()?.message ?? '', new RegExp(`after ${idleMs}ms`));
 });
 
 test('a new logical request opens a fresh first-output window', { skip }, async (t) => {
@@ -118,7 +123,7 @@ test('the first-output window is longer than the semantic idle it replaces', () 
 });
 
 test('metadata-only events neither end the first-output phase nor start the semantic idle', { skip }, (t) => {
-  const watchdogs = watchdogsUnderTest(t);
+  const watchdogs = openWatchdogs(t);
   // response.created, then response.in_progress / keepalives while the model
   // thinks silently past the semantic-idle window.
   for (let elapsed = 0; elapsed <= PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS + 60_000; elapsed += 30_000) {
@@ -136,8 +141,7 @@ test('metadata-only events neither end the first-output phase nor start the sema
 });
 
 test('after output, semantic progress keeps re-arming the idle and silence trips it', { skip }, (t) => {
-  const watchdogs = watchdogsUnderTest(t);
-  watchdogs.noteServerEvent();
+  const watchdogs = openWatchdogs(t);
   watchdogs.noteMeaningful();
   for (let i = 0; i < 5; i += 1) {
     t.mock.timers.tick(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS - 1);
@@ -149,7 +153,7 @@ test('after output, semantic progress keeps re-arming the idle and silence trips
 });
 
 test('a stream that never produces output is still aborted at the first-output deadline', { skip }, (t) => {
-  const watchdogs = watchdogsUnderTest(t);
+  const watchdogs = openWatchdogs(t);
   let elapsed = 0;
   while (elapsed + 10_000 < PROVIDER_FIRST_OUTPUT_TIMEOUT_MS) {
     watchdogs.noteServerEvent();
@@ -165,7 +169,7 @@ test('a stream that never produces output is still aborted at the first-output d
 });
 
 test('a stream with no server event at all still fails at the first-server-event deadline', (t) => {
-  const watchdogs = watchdogsUnderTest(t);
+  const watchdogs = openWatchdogs(t, { serverEvent: false });
   t.mock.timers.tick(PROVIDER_FIRST_BYTE_TIMEOUT_MS);
   assert.equal(watchdogs.abortReason()?.firstByteTimeout, true);
 });

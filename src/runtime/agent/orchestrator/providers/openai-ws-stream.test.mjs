@@ -281,7 +281,7 @@ test('a model may think silently past the semantic idle until its first output',
   assert.equal((await pending).content, 'answer');
 });
 
-test('a stream that never produces output is aborted at the first-output deadline', { skip: skipWatchdog }, async (t) => {
+test('a stream with no output is aborted at the first-output deadline', { skip: skipWatchdog }, async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { pending, socket } = run([created, { type: 'response.output_item.added', item: reasoningItem }]);
   keepalivesFor(t, socket, PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1);

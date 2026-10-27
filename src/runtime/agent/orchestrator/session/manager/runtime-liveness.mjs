@@ -19,7 +19,7 @@
 //   lastToolCall, lastError, updatedAt,
 //   modelRequestStartedAt, requestTransportAt, requestFirstSemanticAt,
 //   modelResponseAccepted,  // the current logical model request (see
-//                           // _beginLogicalModelRequest); the fields above
+//                           // _setLogicalModelRequest); the fields above
 //                           // stay turn-level history
 //   controller?: AbortController,  // set while an ask is in flight
 //   generation?: number,            // snapshot taken at ask start
@@ -144,8 +144,9 @@ function _startToolActivityHeartbeat(id) {
 // recovery continuation — re-sends the same logical request and keeps all of
 // it, so a retry never earns a fresh allowance. The turn-level marks
 // (firstSemanticAt, lastTransportAt, …) are history and are not touched.
-function _beginLogicalModelRequest(entry, now) {
-  entry.modelRequestStartedAt = now;
+// `startedAt` null: no request yet (an ask starting).
+function _setLogicalModelRequest(entry, startedAt) {
+  entry.modelRequestStartedAt = startedAt;
   entry.requestTransportAt = null;
   entry.requestFirstSemanticAt = null;
   entry.modelResponseAccepted = false;
@@ -167,7 +168,7 @@ export function updateSessionStage(id, stage) {
     stage === 'requesting' &&
     (!entry.modelRequestStartedAt || entry.modelResponseAccepted || TERMINAL_STAGES.has(priorStage))
   ) {
-    _beginLogicalModelRequest(entry, now);
+    _setLogicalModelRequest(entry, now);
   }
   entry.lastProgressAt = now;
   entry.updatedAt = now;
@@ -215,10 +216,7 @@ export function markSessionAskStart(id) {
   // after provider admission (the scheduler emits stage=requesting).
   const now = Date.now();
   entry.askStartedAt = now;
-  entry.modelRequestStartedAt = null;
-  entry.requestTransportAt = null;
-  entry.requestFirstSemanticAt = null;
-  entry.modelResponseAccepted = false;
+  _setLogicalModelRequest(entry, null);
   entry.lastProgressAt = now;
   entry.updatedAt = now;
   entry.taskWaits = 0;
@@ -514,8 +512,6 @@ export function getSessionProgressSnapshot(sessionId) {
     modelRequestStartedAt,
     firstActivityAt,
     firstSemanticAt,
-    requestTransportAt: entry.requestTransportAt || 0,
-    requestFirstSemanticAt: entry.requestFirstSemanticAt || 0,
     lastTransportAt: entry.lastTransportAt || 0,
     requestSentAt: entry.requestSentAt || 0,
     // Request on the wire, headers pending: the model is queued or thinking.

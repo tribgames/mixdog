@@ -34,15 +34,15 @@ export function createWsEventSwitch({
     progress('transport');
   }
 
-  // Item lifecycle without output (an empty reasoning or message item):
-  // progress once the model has produced output, metadata before that.
-  function onItemLifecycle(kind) {
-    if (!watchdogs.semanticSeen()) {
-      progress('transport');
-      return;
-    }
-    watchdogs.resetSemantic();
-    progress(kind);
+  // A tool item starting is model output: it resets the semantic-idle timer so
+  // long server-side tool latency after item-added (before any arg delta) is
+  // not mistaken for a silent stall. An empty reasoning or message item is
+  // progress only once the model has produced output; before that the silent
+  // thinking follows it.
+  function onItemAdded() {
+    const kind = response.toolInFlight ? 'tool' : watchdogs.semanticSeen() ? 'semantic' : null;
+    if (kind) watchdogs.bumpSemantic();
+    progress(kind ?? 'transport');
   }
 
   function onOutputTextDelta(delta) {
@@ -95,16 +95,7 @@ export function createWsEventSwitch({
       case 'response.output_item.added':
         response.noteItemAdded(event.item);
         reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
-        // A tool item starting is model output: it resets the semantic-idle
-        // timer so long server-side tool latency after item-added (before any
-        // arg delta) is not mistaken for a silent stall. An empty reasoning or
-        // message item is lifecycle; the silent thinking follows it.
-        if (response.toolInFlight) {
-          watchdogs.bumpSemantic();
-          progress('tool');
-        } else {
-          onItemLifecycle('semantic');
-        }
+        onItemAdded();
         break;
       case 'response.function_call_arguments.delta':
       case 'response.custom_tool_call_input.delta':

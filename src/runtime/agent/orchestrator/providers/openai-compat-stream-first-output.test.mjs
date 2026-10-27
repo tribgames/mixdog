@@ -108,7 +108,7 @@ async function openStream(t, protocol, { sessionId = null } = {}) {
 }
 
 for (const protocol of protocols) {
-  test(`${protocol.name}: a model may think silently past the semantic idle until its first output`, { skip }, async (t) => {
+  test(`${protocol.name}: a model may think silently past the idle until its first output`, { skip }, async (t) => {
     const s = await openStream(t, protocol);
     await s.keepalivesFor(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS + 60_000);
     assert.equal(s.settled(), null, 'not aborted while thinking silently');
@@ -158,7 +158,7 @@ for (const protocol of protocols) {
     assert.match(retry.settled().error.message, new RegExp(`after ${PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS}ms`));
   });
 
-  test(`${protocol.name}: a stream that never produces output is aborted at the first-output deadline`, { skip }, async (t) => {
+  test(`${protocol.name}: a stream with no output is aborted at the first-output deadline`, { skip }, async (t) => {
     const s = await openStream(t, protocol);
     await s.keepalivesFor(PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1);
     assert.equal(s.settled(), null);

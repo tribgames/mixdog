@@ -87,8 +87,6 @@ function resolveStreamTimeouts(_timeouts) {
     interChunkMs: _positiveInt(_timeouts?.interChunkMs, WS_INTER_CHUNK_MS),
     maxIncomingFrameBytes: _positiveInt(_timeouts?.maxIncomingFrameBytes, WS_MAX_INCOMING_FRAME_BYTES),
     firstMeaningfulMs: _positiveInt(_timeouts?.firstMeaningfulMs, PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS),
-    // Until the first semantic output this window, not the semantic idle,
-    // bounds a stream that carries only metadata/keepalive frames.
     firstOutputMs: _positiveInt(_timeouts?.firstOutputMs, providerFirstOutputTimeoutMs(semanticIdleMs)),
     semanticIdleMs,
     semanticIdleEnabled: PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && semanticIdleMs > 0,
@@ -117,14 +115,8 @@ export async function _streamResponse({
   if (socket?.readyState === WebSocket.OPEN) {
     markSessionTransportActivity(state?.sessionId);
   }
-  const { maxIncomingFrameBytes, ...timeouts } = resolveStreamTimeouts(_timeouts);
-  // The logical request's first-output window: a retry or route fallback
-  // inherits its deadline and whether it already produced output.
-  const firstOutput = streamFirstOutputWindow({
-    sessionId: state?.sessionId,
-    reportsProgress: typeof onStreamDelta === 'function',
-    timeoutMs: timeouts.firstOutputMs,
-  });
+  const { maxIncomingFrameBytes, firstOutputMs, ...timeouts } = resolveStreamTimeouts(_timeouts);
+  const firstOutput = streamFirstOutputWindow({ sessionId: state?.sessionId, onStreamDelta, timeoutMs: firstOutputMs });
   const streamingStart = Date.now();
   // Mid-stream retry classifier needs to distinguish "stream died before we
   // even saw response.created" from "stream died after we had a partial

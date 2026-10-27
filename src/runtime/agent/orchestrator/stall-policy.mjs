@@ -278,8 +278,8 @@ export const PROVIDER_FIRST_OUTPUT_TIMEOUT_MS = Math.max(
 
 /** The first-output window of a stream whose semantic idle is `idleMs`: a
  *  longer idle window (a provider profile) is never cut short by it. */
-export function providerFirstOutputTimeoutMs(idleMs = 0) {
-  return Math.max(Number(idleMs) || 0, PROVIDER_FIRST_OUTPUT_TIMEOUT_MS);
+export function providerFirstOutputTimeoutMs(idleMs) {
+  return Math.max(idleMs, PROVIDER_FIRST_OUTPUT_TIMEOUT_MS);
 }
 
 /**

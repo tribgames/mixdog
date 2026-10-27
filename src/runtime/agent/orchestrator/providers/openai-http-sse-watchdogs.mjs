@@ -42,7 +42,7 @@ function positiveOverride(value) {
  * @param {{ signal?: AbortSignal, cleanup(): void }} deps.totalTimeout
  * @param {() => object} deps.stallPartial  streamed partial state attached to a semantic-idle stall
  * @param {string|null} [deps.sessionId]  the session whose logical request this stream serves
- * @param {boolean} [deps.reportsProgress]  the stream reports its progress into that session
+ * @param {Function} [deps.onStreamDelta]  the stream's progress callback; without it the stream is a fork of the request
  */
 export function createHttpSseWatchdogs({
   opts,
@@ -51,7 +51,7 @@ export function createHttpSseWatchdogs({
   stallPartial,
   label: LABEL,
   sessionId = null,
-  reportsProgress = false,
+  onStreamDelta,
 }) {
   let abortReason = null;
   let pendingReadReject = null;
@@ -86,23 +86,17 @@ export function createHttpSseWatchdogs({
   const semanticIdleOverrideMs = positiveOverride(opts?._semanticIdleTimeoutMs);
   const semanticIdleMs = semanticIdleOverrideMs || PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
   const semanticIdleEnabled = semanticIdleOverrideMs > 0 || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
-  // FIRST-OUTPUT window of the logical request this stream serves, armed when
-  // the stream opens for what is left of it and retired by the first semantic
-  // output. Metadata-only streams (repeated response.in_progress,
-  // keepalive/ping frames, unknown event types) cannot refresh it, so a wedge
-  // that never produces a token still ends here — and a retry or route
-  // fallback inherits the request's deadline instead of a fresh one.
+  // FIRST-OUTPUT window of the logical request this stream serves, retired by
+  // the first semantic output. Metadata-only streams (repeated
+  // response.in_progress, keepalive/ping frames, unknown event types) cannot
+  // refresh it, so a wedge that never produces a token still ends here.
   const firstOutputOverrideMs = positiveOverride(opts?._firstOutputTimeoutMs);
   const firstOutput = streamFirstOutputWindow({
     sessionId,
-    reportsProgress,
+    onStreamDelta,
     timeoutMs: firstOutputOverrideMs || providerFirstOutputTimeoutMs(semanticIdleMs),
   });
-  const firstOutputMs = firstOutput.timeoutMs;
   const firstOutputEnabled = firstOutputOverrideMs > 0 || semanticIdleEnabled;
-  let firstOutputTimer = null;
-  // A request that already produced output runs under the semantic idle.
-  let semanticSeen = firstOutput.outputSeen;
 
   // A stalled stream fails with the named stall error, carrying the streamed
   // partial state so the agent loop can accept a wedged FINAL no-tool summary
@@ -132,34 +126,25 @@ export function createHttpSseWatchdogs({
       firstServerEventTimer = null;
     }
   };
-  const clearFirstOutput = () => {
-    if (firstOutputTimer) {
-      clearTimeout(firstOutputTimer);
-      firstOutputTimer = null;
-    }
-  };
   const armFirstServerEvent = () => {
-    if (firstServerEventMs > 0) {
-      clearFirstServerEvent();
-      firstServerEventTimer = setTimeout(() => {
-        const err = new Error(`${LABEL} first server event timed out after ${firstServerEventMs}ms`);
-        err.code = 'EPROVIDERTIMEOUT';
-        err.firstByteTimeout = true;
-        abortStream(err);
-      }, firstServerEventMs);
-      try {
-        firstServerEventTimer.unref?.();
-      } catch {}
-    }
-    if (semanticSeen) {
-      armSemanticIdle();
-    } else if (firstOutputEnabled && firstOutputMs > 0) {
-      clearFirstOutput();
-      const remainingMs = Math.max(0, firstOutput.deadlineAt - Date.now());
-      firstOutputTimer = setTimeout(() => abortStalled(firstOutputMs), remainingMs);
-      try {
-        firstOutputTimer.unref?.();
-      } catch {}
+    if (!(firstServerEventMs > 0)) return;
+    clearFirstServerEvent();
+    firstServerEventTimer = setTimeout(() => {
+      const err = new Error(`${LABEL} first server event timed out after ${firstServerEventMs}ms`);
+      err.code = 'EPROVIDERTIMEOUT';
+      err.firstByteTimeout = true;
+      abortStream(err);
+    }, firstServerEventMs);
+    try {
+      firstServerEventTimer.unref?.();
+    } catch {}
+  };
+  // Until the stream's first output the request's first-output window bounds
+  // it. A request that already had output has none: its stream runs under the
+  // semantic idle from its first server event (noteServerEvent).
+  const armFirstOutput = () => {
+    if (!firstOutput.outputSeen && firstOutputEnabled && firstOutput.timeoutMs > 0) {
+      firstOutput.arm(() => abortStalled(firstOutput.timeoutMs));
     }
   };
 
@@ -177,15 +162,17 @@ export function createHttpSseWatchdogs({
       semanticIdleTimer.unref?.();
     } catch {}
   };
-  // Any parsed server event satisfies the first-server-event deadline only.
+  // A parsed server event satisfies the first-server-event deadline and, for a
+  // request that already had output, starts the semantic idle (once: only
+  // output re-arms it).
   const noteServerEvent = () => {
     clearFirstServerEvent();
+    if (firstOutput.outputSeen && !semanticIdleTimer) armSemanticIdle();
   };
   // Semantic output: the first one ends the first-output phase; every one
   // re-arms the semantic idle.
   const noteMeaningful = () => {
-    semanticSeen = true;
-    clearFirstOutput();
+    firstOutput.noteOutput();
     armSemanticIdle();
   };
 
@@ -200,7 +187,7 @@ export function createHttpSseWatchdogs({
   const dispose = () => {
     pendingReadReject = null;
     clearFirstServerEvent();
-    clearFirstOutput();
+    firstOutput.clear();
     clearSemanticIdle();
     try {
       reader.releaseLock?.();
@@ -215,10 +202,11 @@ export function createHttpSseWatchdogs({
   return {
     abortReason: () => abortReason,
     armFirstServerEvent,
+    armFirstOutput,
     clearSemanticIdle,
     noteServerEvent,
     noteMeaningful,
-    semanticSeen: () => semanticSeen,
+    semanticSeen: () => firstOutput.outputSeen,
     read,
     dispose,
   };

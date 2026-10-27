@@ -26,9 +26,9 @@ import { streamStalledError } from '../stall-policy.mjs';
  * @param {string} deps.traceProvider
  * @param {number} deps.streamingStart
  * @param {() => string} deps.currentModel
- * @param {{ preResponseCreatedMs: number, firstMeaningfulMs: number, firstOutputMs: number, interChunkMs: number, semanticIdleMs: number, semanticIdleEnabled: boolean }} deps.timeouts
- * @param {{ deadlineAt: number, outputSeen: boolean }} [deps.firstOutput]  the logical request's
- *   first-output window (lib/first-output-window.mjs); absent: a fresh one from now
+ * @param {{ preResponseCreatedMs: number, firstMeaningfulMs: number, interChunkMs: number, semanticIdleMs: number, semanticIdleEnabled: boolean }} deps.timeouts
+ * @param {ReturnType<typeof import('./lib/first-output-window.mjs').streamFirstOutputWindow>} deps.firstOutput
+ *   the logical request's first-output window
  * @param {(err: Error) => Error} deps.attachPartialState
  * @param {(err: Error, closeReason: string) => void} deps.fail
  */
@@ -38,21 +38,17 @@ export function createWsStreamWatchdogs({
   streamingStart,
   currentModel,
   timeouts,
-  firstOutput = null,
+  firstOutput,
   attachPartialState,
   fail,
 }) {
-  const { preResponseCreatedMs, firstMeaningfulMs, firstOutputMs, interChunkMs, semanticIdleMs, semanticIdleEnabled } =
-    timeouts;
+  const { preResponseCreatedMs, firstMeaningfulMs, interChunkMs, semanticIdleMs, semanticIdleEnabled } = timeouts;
   const firstMeaningfulEnabled = firstMeaningfulMs > 0;
   let idleTimer = null;
   let interChunkTimer = null;
   let semanticIdleTimer = null;
   let firstMeaningfulTimer = null;
   let firstMeaningfulSeen = false;
-  let firstOutputTimer = null;
-  // A request that already produced output runs under the semantic idle.
-  let semanticSeen = firstOutput?.outputSeen === true;
   const traceWsTimeout = (event, timeoutMs) => {
     try {
       const iteration = Number(midState.iteration);
@@ -124,12 +120,6 @@ export function createWsStreamWatchdogs({
       semanticIdleTimer.unref?.();
     } catch {}
   };
-  const clearFirstOutput = () => {
-    if (firstOutputTimer) {
-      clearTimeout(firstOutputTimer);
-      firstOutputTimer = null;
-    }
-  };
   const clearFirstMeaningful = () => {
     if (firstMeaningfulSeen) return;
     firstMeaningfulSeen = true;
@@ -184,54 +174,40 @@ export function createWsStreamWatchdogs({
       } catch {}
     },
     /** Fires if the logical request produces no semantic output by its
-     *  first-output deadline (a retry inherits it). Metadata
-     *  (response.created / in_progress), empty item lifecycle and keepalive
-     *  frames never clear or extend it, and the shorter semantic idle does
-     *  not run before the first output, so a model may think silently past
-     *  the idle window. A request that already had output arms the semantic
-     *  idle instead. */
+     *  first-output deadline. Metadata (response.created / in_progress), empty
+     *  item lifecycle and keepalive frames never clear or extend it, and the
+     *  shorter semantic idle does not run before the first output, so a model
+     *  may think silently past the idle window. A request that already had
+     *  output has none: its stream runs under the semantic idle from its
+     *  first frame (resetIdle). */
     armFirstOutput() {
-      if (semanticSeen) {
-        resetSemanticIdle();
-        return;
+      if (!firstOutput.outputSeen && semanticIdleEnabled && firstOutput.timeoutMs > 0) {
+        firstOutput.arm(() => failStalled('first_output_timeout', firstOutput.timeoutMs));
       }
-      if (!semanticIdleEnabled || !(firstOutputMs > 0)) return;
-      clearFirstOutput();
-      const deadlineAt = firstOutput?.deadlineAt ?? Date.now() + firstOutputMs;
-      const remainingMs = Math.max(0, deadlineAt - Date.now());
-      firstOutputTimer = setTimeout(() => failStalled('first_output_timeout', firstOutputMs), remainingMs);
-      try {
-        firstOutputTimer.unref?.();
-      } catch {}
     },
     /** Called on EVERY parsed server event: any frame proves the socket is
      *  live. Also clears the pre-stream watchdog in case the first event is
-     *  not response.created. */
+     *  not response.created, and starts the semantic idle (once) for a
+     *  request that already had output. */
     resetIdle() {
       clearPreStream();
       resetInterChunk();
+      if (firstOutput.outputSeen && !semanticIdleTimer) resetSemanticIdle();
     },
     /** Meaningful-output progress: text/reasoning/tool output. The first one
      *  also satisfies the first-meaningful watchdog and ends the first-output
      *  phase. */
     bumpSemantic() {
       clearFirstMeaningful();
-      semanticSeen = true;
-      clearFirstOutput();
+      firstOutput.noteOutput();
       resetSemanticIdle();
     },
-    /** Item lifecycle progress without output (an empty item added): resets
-     *  the semantic idle once the model has produced output; before that it
-     *  is metadata and starts nothing. */
-    resetSemantic() {
-      if (semanticSeen) resetSemanticIdle();
-    },
     /** Whether the model has produced semantic output on this stream. */
-    semanticSeen: () => semanticSeen,
+    semanticSeen: () => firstOutput.outputSeen,
     /** response.created is meaningful on its own. */
     clearFirstMeaningful,
     clearAll() {
-      clearFirstOutput();
+      firstOutput.clear();
       if (idleTimer) clearTimeout(idleTimer);
       if (interChunkTimer) {
         clearTimeout(interChunkTimer);
