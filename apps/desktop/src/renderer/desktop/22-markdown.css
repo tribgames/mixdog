@@ -665,9 +665,14 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
     padding: 8px 6px;
   }
 }
+/* At phone width only a many-column table shrinks its cells to a hairline
+   gap; a few columns keep a readable gap between them. */
 @container (max-width: 419px) {
   .markdown th,
   .markdown td {
+    padding: 6px;
+  }
+  .markdown table:has(tr > :nth-child(6)) :is(th, td) {
     padding: 6px 3px;
   }
 }
