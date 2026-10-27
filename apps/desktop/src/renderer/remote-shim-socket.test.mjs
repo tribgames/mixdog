@@ -97,7 +97,7 @@ async function handshake(ctx, identity, { offered, seen = offered }) {
 const record = async (server, payload) =>
   encodeRemoteTransportRecord(await server.encryptBinary(payload))[0].slice().buffer;
 
-test('a PC that did not offer the transport (older, or its switch off) is answered with the legacy hello', async () => {
+test('a PC that did not offer the transport (an older one) is answered with the legacy hello', async () => {
   for (const challenge of [
     { ...createRelayE2EEChallenge(), binaryFrames: 1 },
     { ...createRelayE2EEChallenge() },

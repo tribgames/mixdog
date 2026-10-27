@@ -44,7 +44,7 @@ test('Allow all actions is listed (off by default) and saved at developer.allowA
   assert.deepEqual(f.config().developer, { antigravityOAuth: true, allowAllActions: true });
   assert.deepEqual(f.syncs, ['allowAllActions']);
   assert.equal(find(view)[1].enabled, true);
-  assert.equal((await f.api.setDeveloperOption('allowAllActions', false)).sections.length, 3);
+  assert.equal((await f.api.setDeveloperOption('allowAllActions', false)).sections.length, 2);
   assert.equal(f.config().developer.allowAllActions, false);
 });
 

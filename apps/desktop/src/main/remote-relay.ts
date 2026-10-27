@@ -114,12 +114,11 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   notifications?: RelayNotificationDeps;
   /** The direct transport's peer host: `createRemoteTransportPeerService`
    *  (remote-transport/peer-link.ts), whose stand-in bridge reaches the
-   *  desktop app's hidden peer window. Absent (rollout switch off): transport
-   *  sessions stay relay-only. */
+   *  desktop app's hidden peer window. Absent: transport sessions stay
+   *  relay-only. */
   transportPeerHost?: RemoteTransportPeerHost | null;
   /** Receives every diagnostics line of a transport session (offer, path,
-   *  traffic, end) besides the console. Set exactly when the direct phone
-   *  connection switch is on. */
+   *  traffic, end) besides the console. */
   transportLog?: (line: string) => void;
 }
 
@@ -349,8 +348,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     relayFrameLimit: caps.relayFrameLimit,
     sendRawAndWait: connection.sendRawAndWait,
     byteMeter: relayByteMeter,
-    // Direct transport sessions (dormant until the "Direct phone connection
-    // (test)" switch is on): the media adapter reads the same gallery and
+    // Direct transport sessions: the media adapter reads the same gallery and
     // download leases as the relay media lane. Without `transportPeerHost`
     // sessions stay relay-only.
     transport: {
@@ -537,8 +535,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     onClaimApproved: options.onClaimApproved,
     hostName: pcName,
     openTransport,
-    // Offered only with a peer host, which exists only while the local
-    // "Direct phone connection (test)" switch is on.
+    // Offered whenever a peer host exists (the desktop service always has one).
     transportOffer: () => Boolean(options.transportPeerHost),
     transportLog,
   });

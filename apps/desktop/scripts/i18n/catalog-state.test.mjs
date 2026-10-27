@@ -4,34 +4,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { DEVELOPER_SECTIONS } from '../../../../src/runtime/shared/developer-options.mjs';
 import { catalogProblems, untranslatedProblems } from './source-keys.mjs';
 import { catalogState, developerOptionUiKeys, neutralAllowlist, readJson } from './catalog-state.mjs';
 
-const DIRECT_PHONE_KEYS = [
-  'Direct phone connection (test)',
-  'Lets a paired phone talk to this PC directly instead of through the relay. Takes effect after you restart Mixdog.',
-  'Experimental: the direct phone connection is still being tested and may make the phone connection less reliable. Restart Mixdog after changing it.',
-];
+const [{ label, description, warning }] = DEVELOPER_SECTIONS[0].options;
+const REGISTRY_KEYS = [label, description, warning];
 
 test('registry-driven developer option strings are required catalog keys', () => {
-  const { keys, sources, catalogs } = catalogState();
-  for (const key of DIRECT_PHONE_KEYS) {
+  const { keys, catalogs } = catalogState();
+  for (const key of REGISTRY_KEYS) {
     assert.ok(developerOptionUiKeys().includes(key), key);
-    assert.equal(sources.get(key), 'src/runtime/shared/developer-options.mjs');
     assert.ok(keys.has(key));
   }
   // Had a locale lacked them, or left them as English, the checker reports both.
   const allowlist = neutralAllowlist();
   for (const [name, catalog] of catalogs) {
-    const without = Object.fromEntries(Object.entries(catalog).filter(([key]) => !DIRECT_PHONE_KEYS.includes(key)));
-    const missing = catalogProblems(without, keys).filter(({ key }) => DIRECT_PHONE_KEYS.includes(key));
-    assert.deepEqual(missing.map(({ key }) => key).sort(), [...DIRECT_PHONE_KEYS].sort(), `${name} missing`);
-    const english = { ...catalog, ...Object.fromEntries(DIRECT_PHONE_KEYS.map((key) => [key, key])) };
+    const without = Object.fromEntries(Object.entries(catalog).filter(([key]) => !REGISTRY_KEYS.includes(key)));
+    const missing = catalogProblems(without, keys).filter(({ key }) => REGISTRY_KEYS.includes(key));
+    assert.deepEqual(missing.map(({ key }) => key).sort(), [...REGISTRY_KEYS].sort(), `${name} missing`);
+    const english = { ...catalog, ...Object.fromEntries(REGISTRY_KEYS.map((key) => [key, key])) };
     const untranslated = untranslatedProblems(name, english, keys, allowlist).filter(({ key }) =>
-      DIRECT_PHONE_KEYS.includes(key)
+      REGISTRY_KEYS.includes(key)
     );
     assert.equal(untranslated.length, 3, `${name} untranslated`);
-    for (const key of DIRECT_PHONE_KEYS) assert.notEqual(catalog[key], key, `${name} translates ${key}`);
+    for (const key of REGISTRY_KEYS) assert.notEqual(catalog[key], key, `${name} translates ${key}`);
   }
 });
 

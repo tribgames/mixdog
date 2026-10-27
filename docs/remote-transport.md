@@ -563,27 +563,20 @@ Control traffic (acks, pings, signaling) is not affected.
    `renderer/remote-transport-peer.ts`) only when the challenge it received
    offers `transportWebrtc` with `binaryFrames` and the page has
    `RTCPeerConnection`. The relay-served page is shared by every user, so this
-   is what keeps a PC without the offer exactly as before: it never offers, and
-   its phone never opts in (its hello, proof and frames are the legacy ones).
-   No consent prompt is added: the transport adds no authority (same E2EE
-   session, the relay stays the fallback).
-3. **PC.** The offer is off by default and ships dormant (coordinator and peer
-   host included). It is a **local, per-PC switch**, not a build constant: the
-   developer option **Direct phone connection (test)** (Settings → Developer
-   options → Remote; setup tool `set_developer_option` with name
-   `directPhoneConnection`, `enabled:true`, `riskAccepted:true`), stored at
-   agent config `developer.directPhoneConnection`. The desktop service reads
-   it **once at start-up** (`main/remote-transport/switch.ts`), so a change
-   applies after Mixdog restarts. On, the service builds the peer service and
-   the challenge carries `transportWebrtc: 1`; off, nothing exists and no
-   challenge, hello, frame or log changes. The desktop app always asks the
-   service to attach its peer window and the service answers nothing while off.
-4. **Enable for everyone.** Make the PC's default on (or retire the option);
-   no phone change is needed.
+   keeps a PC that does not offer (an older one) exactly as before: its phone
+   never opts in (its hello, proof and frames are the legacy ones). No consent
+   prompt is added: the transport adds no authority (same E2EE session, the
+   relay stays the fallback).
+3. **PC.** The direct transport is the **default**, with no option or switch.
+   The desktop service always builds the peer service, the challenge carries
+   `transportWebrtc: 1` (with binary frames), and the desktop app always
+   attaches its hidden peer window (opened on the first session). Direct comes
+   first; if no direct path can be established, or it fails later, the session
+   stays on or returns to the relay (§4), as it does today. A
+   `developer.directPhoneConnection` value left in an older config is ignored.
 
-Test on a real phone with one PC: turn the option on, restart Mixdog, open the
-phone. Mixed pairs stay legacy: an old PC never offers, so a new phone never
-opts in; a new PC that offers serves an older phone a legacy session (§1).
+Mixed pairs stay legacy: an old PC never offers, so a new phone never opts in;
+a new PC serves an older phone a legacy session (§1).
 
 ## 7. Diagnostics (never content)
 
@@ -595,7 +588,7 @@ Per session:
 - retransmits;
 - receiver duplicates, discards, evictions, and head and future bytes.
 
-Log lines (only while the PC offers; prefix `[mixdog-remote-transport]`):
+Log lines (prefix `[mixdog-remote-transport]`):
 - **PC** — `session=<8> offered=1 negotiated=0|1` per phone handshake (did the
   phone take the offer); `path=direct|turn reason=channel-open` and
   `path=relay reason=…` on every promotion and demotion; `carrying path=direct`

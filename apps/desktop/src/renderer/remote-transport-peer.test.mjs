@@ -334,7 +334,7 @@ async function pongDirect(s, link) {
 
 test('the phone opts in only when the PC offered the transport (with binary frames) and WebRTC exists', () => {
   assert.equal(remoteTransportOptIn({ transportWebrtc: 1, binaryFrames: 1 }, true), true);
-  // A PC without the capability (older, or its switch off): never.
+  // A PC without the capability (an older one): never.
   assert.equal(remoteTransportOptIn({ binaryFrames: 1 }, true), false);
   assert.equal(remoteTransportOptIn({}, true), false);
   assert.equal(remoteTransportOptIn({ transportWebrtc: 0, binaryFrames: 1 }, true), false);

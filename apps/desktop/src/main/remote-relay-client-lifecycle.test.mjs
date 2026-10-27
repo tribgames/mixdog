@@ -280,7 +280,7 @@ async function transportHarness({ offer = true } = {}) {
     resyncClient: () => {},
     joinFrames: () => [{ event: 'browserApprovalSessions', payload: [] }],
     openTransport: delivery.openTransport,
-    // null: the dependency is not wired at all (how a PC without the switch runs).
+    // null: the dependency is not wired at all (no peer host).
     ...(offer === null ? {} : { transportOffer: () => offer }),
     transportLog: (line) => logs.push(line),
   });
@@ -289,7 +289,7 @@ async function transportHarness({ offer = true } = {}) {
   return { pairing, clients, lifecycle, challenge, writes, logs };
 }
 
-test('the transport offer stays off unless the rollout switch is on', async () => {
+test('the transport is not offered without a peer host', async () => {
   for (const offer of [false, null]) {
     const h = await transportHarness({ offer });
     assert.equal('transportWebrtc' in h.challenge, false, `offer=${offer}`);

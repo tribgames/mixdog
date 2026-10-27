@@ -35,9 +35,6 @@
  * would be judged stalled anyway) fails every live connection
  * `peer-host-unavailable`; an app that attaches later serves the next offer.
  *
- * Rollout: nothing here runs unless the daemon's switch is on (switch.ts, the
- * developer option "Direct phone connection (test)") — no stand-in in the
- * daemon, no attach answer, no window, no traffic.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -65,8 +62,7 @@ import type {
 /** daemon → app: one command envelope (to the window only, never the relay). */
 export const REMOTE_TRANSPORT_PEER_COMMAND_EVENT = 'remote-transport-peer-command';
 /** daemon → app: one diagnostics line of a transport session (the daemon has
- *  no diagnostics file; the app writes it to desktop-diagnostics.jsonl). Only
- *  while the direct phone connection switch is on. */
+ *  no diagnostics file; the app writes it to desktop-diagnostics.jsonl). */
 export const REMOTE_TRANSPORT_LOG_EVENT = 'remote-transport-log';
 /** app → daemon: desktop operations. */
 export const REMOTE_TRANSPORT_PEER_OPERATIONS = {
@@ -419,13 +415,8 @@ export interface RemoteTransportPeerService {
   peerHost: RemoteTransportPeerHost;
 }
 
-/** The daemon's direct-carrier service: null while the rollout switch is off
- *  (no stand-in, nothing published, sessions relay-only). */
-export function createRemoteTransportPeerService(
-  enabled: boolean,
-  deps: RemoteTransportPeerStandInDeps
-): RemoteTransportPeerService | null {
-  if (!enabled) return null;
+/** The daemon's direct-carrier service. */
+export function createRemoteTransportPeerService(deps: RemoteTransportPeerStandInDeps): RemoteTransportPeerService {
   const standIn = createRemoteTransportPeerStandIn(deps);
   return { standIn, peerHost: createRemoteTransportPeerHost(standIn) };
 }
@@ -435,9 +426,6 @@ export function createRemoteTransportPeerService(
 // ---------------------------------------------------------------------------
 
 export interface RemoteTransportPeerEndpointDeps {
-  /** Off: nothing runs. Production passes true: the daemon's switch decides
-   *  (its attach answers null while off, which attaches nothing). */
-  enabled: boolean;
   /** `createRemoteTransportPeerWindow(...)`, called on the first `create`. */
   createBridge(): RemoteTransportPeerBridge;
   /** The attach operation on THIS PC's daemon connection. */
@@ -596,7 +584,7 @@ export function createRemoteTransportPeerEndpoint(deps: RemoteTransportPeerEndpo
 
   return {
     async attach() {
-      if (!deps.enabled || disposed) return;
+      if (disposed) return;
       const mine = ++generation;
       closeAll();
       attachment = null;
@@ -613,7 +601,7 @@ export function createRemoteTransportPeerEndpoint(deps: RemoteTransportPeerEndpo
       reports = 0;
     },
     command(value) {
-      if (!deps.enabled || disposed || !attachment || !isRecord(value) || value.attachment !== attachment) return;
+      if (disposed || !attachment || !isRecord(value) || value.attachment !== attachment) return;
       if (!isCount(value.seq) || !isRecord(value.command)) return;
       const touched = run(value.command);
       const loads: Record<string, Load> = {};

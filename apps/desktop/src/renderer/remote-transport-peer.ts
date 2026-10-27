@@ -57,12 +57,11 @@ import {
 } from '../shared/remote-webrtc';
 import { remoteWebrtcPeerCertificate, remoteWebrtcSelectedPair } from './remote-webrtc-stats';
 
-/** The phone's rollout gate (docs/remote-transport.md §6): whether this page
- *  opts into `transportWebrtc` on its E2EE hello. It does so only when the PC
- *  itself offered it in this leg's challenge, with binary frames — a member
- *  the PC sends only while its local "Direct phone connection (test)" switch
- *  is on. Against any other PC (older, or with the switch off) the hello, its
- *  proof and every frame are the legacy ones byte for byte. No separate
+/** The phone's gate (docs/remote-transport.md §6): whether this page opts
+ *  into `transportWebrtc` on its E2EE hello. It does so only when the PC
+ *  itself offered it in this leg's challenge, with binary frames. Against a PC
+ *  that did not (an older one), the hello, its proof and every frame are the
+ *  legacy ones byte for byte. No separate
  *  consent is asked: the transport adds no authority (same E2EE session, the
  *  relay stays the fallback); the page only needs WebRTC to carry it. */
 export function remoteTransportOptIn(

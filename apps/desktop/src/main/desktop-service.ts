@@ -86,7 +86,6 @@ import {
   createRemoteTransportPeerService,
   type RemoteTransportPeerService,
 } from './remote-transport/peer-link';
-import { readDirectPhoneConnection } from './remote-transport/switch';
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -516,8 +515,8 @@ interface RemoteAccessInput {
   onClientCountChanged?(): void;
   emit(message: DesktopServiceOutbound): void;
   publishDesktopEvent(name: string, value: unknown): void;
-  /** The direct carrier's link to the app's peer window (null: switch off). */
-  transportPeers: RemoteTransportPeerService | null;
+  /** The direct carrier's link to the app's peer window. */
+  transportPeers: RemoteTransportPeerService;
 }
 
 /** Remote access: the relay leg (activation, start, retry with backoff,
@@ -592,12 +591,11 @@ async function createRemoteAccess(input: RemoteAccessInput) {
     // Approving the device again is an explicit re-pair: an unpair still
     // queued for it is withdrawn (the next drain would revoke the new pairing).
     onClaimApproved: (clientId: string): void => void clientCache.repaired(clientId).catch(() => undefined),
-    // The direct carrier's peers run in the desktop app (peer-link.ts); null
-    // while the rollout switch is off, and sessions are then relay-only.
-    transportPeerHost: input.transportPeers?.peerHost ?? null,
-    transportLog: input.transportPeers
-      ? (line: string) => input.emit({ kind: 'desktop-event', name: REMOTE_TRANSPORT_LOG_EVENT, value: line })
-      : undefined,
+    // The direct carrier's peers run in the desktop app (peer-link.ts); with
+    // no app attached, sessions stay on the relay.
+    transportPeerHost: input.transportPeers.peerHost,
+    transportLog: (line: string) =>
+      input.emit({ kind: 'desktop-event', name: REMOTE_TRANSPORT_LOG_EVENT, value: line }),
     screenControllerKeys: controllerKeys,
   };
   const leg = createRelayLeg({
@@ -854,7 +852,7 @@ function createServiceOperationRouter({
   visualizeMirror: ReturnType<typeof createRemoteVisualizeMirror>;
   windowRequests: WindowRequests;
   publishDesktopEvent(name: string, value: unknown): void;
-  transportPeers: RemoteTransportPeerService | null;
+  transportPeers: RemoteTransportPeerService;
 }) {
   return async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
     if (modelProxy?.handlesOperation(operation)) return modelProxy.handleOperation(operation, operationArgs);
@@ -928,15 +926,14 @@ function createServiceOperationRouter({
         remote.relay()?.publishBrowserTabs(operationArgs[0] as DesktopRemoteBrowserTab[]);
         return null;
       // The app's direct-transport peer window (peer-link.ts); validated by
-      // the stand-in. Refused while the rollout switch is off.
+      // the stand-in.
       case REMOTE_TRANSPORT_PEER_OPERATIONS.attach:
-        // Off (the app asks regardless): nothing to attach to.
-        return transportPeers ? transportPeers.standIn.attach() : null;
+        return transportPeers.standIn.attach();
       case REMOTE_TRANSPORT_PEER_OPERATIONS.report:
-        transportPeers?.standIn.report(operationArgs[0], operationArgs[1]);
+        transportPeers.standIn.report(operationArgs[0], operationArgs[1]);
         return null;
       case REMOTE_TRANSPORT_PEER_OPERATIONS.detach:
-        transportPeers?.standIn.detach(operationArgs[0]);
+        transportPeers.standIn.detach(operationArgs[0]);
         return null;
       case 'browserRemoteImportProgress':
         remote.relay()?.publishBrowserImportProgress(operationArgs[0] as DesktopBrowserImportProgress);
@@ -1049,9 +1046,7 @@ export async function createDesktopService({
   const notificationStatus = windowNotificationStatus(browserRemoteRequests);
   // The direct carrier's peers run in the desktop app's hidden peer window:
   // commands go to the window only (never the in-process relay listeners).
-  // Nothing exists while the local "Direct phone connection (test)" switch is
-  // off. It is read once, here: a change applies after Mixdog restarts.
-  const transportPeers = createRemoteTransportPeerService(await readDirectPhoneConnection(runtime.loadConfig), {
+  const transportPeers = createRemoteTransportPeerService({
     publish: (envelope) => emit({ kind: 'desktop-event', name: REMOTE_TRANSPORT_PEER_COMMAND_EVENT, value: envelope }),
   });
   const remote = await createRemoteAccess({
@@ -1140,7 +1135,7 @@ export async function createDesktopService({
     releaseClient(epoch): Promise<void> {
       // A client left: if it was the app hosting the peer window, its
       // unanswered probe fails the direct carriers back to the relay.
-      transportPeers?.standIn.clientReleased();
+      transportPeers.standIn.clientReleased();
       return stateSync.releaseClient(epoch);
     },
     async dispose(): Promise<void> {
@@ -1150,7 +1145,7 @@ export async function createDesktopService({
       stateSync.dispose();
       desktopEvents.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');
-      transportPeers?.standIn.dispose();
+      transportPeers.standIn.dispose();
       detachModelProxy?.();
       stopUploadSweeps();
       // The first load's migration may still be writing the preferences file.

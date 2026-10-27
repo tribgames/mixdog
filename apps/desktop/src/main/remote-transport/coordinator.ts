@@ -60,12 +60,6 @@ import { resolveRemoteIceServers } from '../remote-ice-servers';
 import type { RemoteTransportMediaAdapter, RemoteTransportMediaLink } from './media';
 import type { RemoteTransportPeerBridge } from './peer-window';
 
-// The rollout switch is not a constant here any more: it is the local
-// developer option "Direct phone connection (test)" (switch.ts, docs/
-// remote-transport.md §6). Off, the desktop's E2EE challenge does not offer
-// `transportWebrtc`, so every session is legacy, byte for byte, and this
-// coordinator never runs.
-
 // ---------------------------------------------------------------------------
 // Stage 1B bridge: the hidden peer renderer (main/remote-transport/peer-window.ts)
 // ---------------------------------------------------------------------------

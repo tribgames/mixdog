@@ -49,7 +49,6 @@ test('registry: Gemini (Antigravity), Cursor and MiMo are separate provider opti
           ['mimoOAuth', 'MiMo', 'mimo-oauth'],
         ],
       ],
-      ['remote', [['directPhoneConnection', 'Direct phone connection (test)', undefined]]],
     ]
   );
   for (const option of DEVELOPER_SECTIONS.find((section) => section.id === 'providers').options) {
@@ -125,31 +124,8 @@ test('default off: no stored value', () => {
           },
         ],
       },
-      {
-        id: 'remote',
-        label: 'Remote',
-        options: [
-          {
-            id: 'directPhoneConnection',
-            label: 'Direct phone connection (test)',
-            description:
-              'Lets a paired phone talk to this PC directly instead of through the relay. Takes effect after you restart Mixdog.',
-            warning:
-              'Experimental: the direct phone connection is still being tested and may make the phone connection less reliable. Restart Mixdog after changing it.',
-            enabled: false,
-          },
-        ],
-      },
     ],
   });
-});
-
-test('Direct phone connection is off by default and on only while stored true', () => {
-  assert.equal(developerOptionEnabled('directPhoneConnection'), false);
-  storeDeveloper({ directPhoneConnection: true });
-  assert.equal(developerOptionEnabled('directPhoneConnection'), true);
-  storeDeveloper({ directPhoneConnection: 'yes' });
-  assert.equal(developerOptionEnabled('directPhoneConnection'), false);
 });
 
 test('Allow all actions is a warned, provider-less option that is on only while stored true', () => {

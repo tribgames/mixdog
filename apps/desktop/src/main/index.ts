@@ -591,7 +591,7 @@ const connectionDependencies: DesktopConnectionDependencies = {
   },
   onServiceReady: (connection, { generation }) => {
     // This PC's daemon (again): the direct transport's peer window serves it
-    // (switch on only; a replaced daemon's peers are dropped first).
+    // (a replaced daemon's peers are dropped first).
     if (connection.kind === 'local') {
       void remoteTransportPeers.attach().catch((error: unknown) => {
         diagnostics?.write('remote-transport-attach-failed', {
@@ -627,12 +627,9 @@ connectionPool.add(localConnection);
  *  connection through the route registry. */
 const localService = localConnection.client;
 /** The direct transport's peers (docs/remote-transport.md §3): the daemon's
- *  coordinators drive them over this PC's daemon connection only. Dormant
- *  while the daemon's "Direct phone connection (test)" switch is off (it
- *  answers the attach with nothing): no peers, no window, no traffic. The
- *  hidden peer window opens on the first `create`. */
+ *  coordinators drive them over this PC's daemon connection only. The hidden
+ *  peer window opens on the first `create`. */
 const remoteTransportPeers = createRemoteTransportPeerEndpoint({
-  enabled: true,
   createBridge: () =>
     createRemoteTransportPeerWindow({
       page: (() => {

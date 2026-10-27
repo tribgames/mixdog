@@ -1339,7 +1339,7 @@ test('through the real 1B bridge: offer, open, the aggregate bound, control past
 // lane in both directions, the app endpoint and the real peer window.
 // ---------------------------------------------------------------------------
 
-async function linkWorld({ enabled = true } = {}) {
+async function linkWorld() {
   ({ startRemoteTransportPeerHost } = await import('../../renderer/remote-transport-peer-host/main.ts'));
   const { createRemoteTransportPeerWindow } = await import('./peer-window.ts');
   const json = (value) => JSON.parse(JSON.stringify(value));
@@ -1347,7 +1347,7 @@ async function linkWorld({ enabled = true } = {}) {
   const toDaemon = [];
   const published = [];
   const timers = [];
-  const service = createRemoteTransportPeerService(enabled, {
+  const service = createRemoteTransportPeerService({
     publish: (envelope) => {
       published.push(envelope);
       toApp.push(json(envelope));
@@ -1377,7 +1377,6 @@ async function linkWorld({ enabled = true } = {}) {
   };
   const makeEndpoint = () =>
     createRemoteTransportPeerEndpoint({
-      enabled,
       createBridge: () => {
         world.windows += 1;
         world.bridge = createRemoteTransportPeerWindow({
@@ -1422,23 +1421,13 @@ async function linkWorld({ enabled = true } = {}) {
   return world;
 }
 
-test('switch off: no stand-in, no attach, no window, no traffic on the daemon â†” app lane', async () => {
-  bridgeWorld.windows.length = 0;
-  const world = await linkWorld({ enabled: false });
-  assert.equal(world.service, null, 'the daemon builds nothing');
-  await world.endpoint.attach();
-  world.endpoint.command({
-    attachment: 'any',
-    seq: 1,
-    command: { type: 'create', connectionId: 'c1', session: 's', iceServers: [] },
-  });
-  await world.pump();
-  assert.equal(world.attaches, 0, 'no attach operation');
-  assert.equal(world.reports, 0, 'no report operation');
-  assert.equal(world.windows, 0, 'no bridge');
-  assert.equal(bridgeWorld.windows.length, 0, 'no window');
-  assert.equal(world.published.length, 0, 'no command event');
-  // Sessions are relay-only: the coordinator has no peer host.
+test('the daemon always has a peer service: a stand-in and a peer host, no configuration', async () => {
+  const world = await linkWorld();
+  assert.ok(world.service.standIn, 'a stand-in');
+  assert.ok(world.service.peerHost, 'a peer host the relay offers the transport with');
+});
+
+test('without a peer host sessions are relay-only', async () => {
   const h = await harness({ peerHost: null });
   await h.ready();
   await h.advance(REMOTE_TRANSPORT_NEGOTIATION_TIMEOUT_MS);
@@ -1446,7 +1435,7 @@ test('switch off: no stand-in, no attach, no window, no traffic on the daemon â†
   h.coordinator.close();
 });
 
-test('switch on: one stand-in and one peer window serve every session of the daemon', async () => {
+test('one stand-in and one peer window serve every session of the daemon', async () => {
   bridgeWorld.windows.length = 0;
   bridgeWorld.peers.length = 0;
   const world = await linkWorld();
@@ -1604,7 +1593,6 @@ function pendingAttachEndpoint() {
   const pending = [];
   const seen = { creates: 0, detaches: [], reports: 0 };
   const endpoint = createRemoteTransportPeerEndpoint({
-    enabled: true,
     createBridge: () => {
       seen.creates += 1;
       return {

@@ -52,8 +52,7 @@ export interface RelayClientLifecycleDeps {
   hostName?(): string;
   /** Starts a negotiated transport session (remote-relay-delivery.ts). The
    *  challenge offers `transportWebrtc` only when this is wired AND
-   *  `transportOffer` says the local rollout switch ("Direct phone connection
-   *  (test)") is on. */
+   *  `transportOffer` says a peer host exists. */
   openTransport?: RelayEncryptedDelivery['openTransport'];
   /** Whether to offer the direct transport. Absent: never offered. */
   transportOffer?(): boolean;
@@ -137,10 +136,10 @@ function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, crede
     fileDownloads: 1 as const,
     browserWebrtc: REMOTE_WEBRTC_VERSION,
     browserFit: 1 as const,
-    // Direct transport (docs/remote-transport.md §6): dormant until the local
-    // rollout switch is on; it needs binary frames and a wired stream. This
-    // member is also how a phone learns it may opt in: it never opts in to a
-    // challenge that does not carry it.
+    // Direct transport (docs/remote-transport.md §6): offered by default; it
+    // needs binary frames and a wired stream. This member is also how a phone
+    // learns it may opt in: it never opts in to a challenge that does not
+    // carry it.
     ...(deps.relayBinaryFrames() && deps.openTransport && deps.transportOffer?.()
       ? { transportWebrtc: 1 as const }
       : {}),
