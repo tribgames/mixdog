@@ -4,6 +4,7 @@
 import { SESSION_CONFIGURE_ACTION_SET, SESSION_READ_ACTION_SET } from '../../session-protocol.mjs';
 import { annotateSpan, markPhase } from '../../../runtime/shared/slow-span.mjs';
 import { sanitizeForWire } from '../../session-wire-values.mjs';
+import { botWorkBySession } from '../../../runtime/shared/bot-owned-work.mjs';
 
 /** Reads a session without a live runtime answers from disk (readStoredReview). */
 const STORED_REVIEW_ACTIONS = new Set([
@@ -114,20 +115,26 @@ export function createSessionActionCalls(ctx) {
   /** Rows with `awaitingApproval` on every session whose live runtime shows an
    *  approval card: a list row reads "needs you" from it whether or not any
    *  pane receives that session's lane. A room member's row also carries the
-   *  handed-off questions it holds (`handoffQuestions`), which its room shows. */
+   *  handed-off questions it holds (`handoffQuestions`), which its room shows.
+   *  A session holding work a bot sent (bot-owned-work.mjs) carries those bots
+   *  (`handedBy`): the work there is theirs, and a turn nobody sent (the
+   *  user's own) is nobody's but the user's. */
   function withApprovalWaits(rows) {
     if (!Array.isArray(rows)) return rows;
     const waiting = awaitingApprovalSessionKinds();
     const questions = roomHandoffQuestions();
-    if (!waiting.size && !questions.size) return rows;
+    const sent = botWorkBySession();
+    if (!waiting.size && !questions.size && !sent.size) return rows;
     return rows.map((row) => {
       const kind = waiting.get(row?.id);
       const asked = questions.get(row?.id);
-      if (!kind && !asked) return row;
+      const bots = sent.get(row?.id);
+      if (!kind && !asked && !bots) return row;
       return {
         ...row,
         ...(kind ? { awaitingApproval: true, ...(kind === 'question' ? { awaitingQuestion: true } : {}) } : {}),
         ...(asked ? { handoffQuestions: asked } : {}),
+        ...(bots ? { handedBy: bots } : {}),
       };
     });
   }

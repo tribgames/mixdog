@@ -87,6 +87,17 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
     // prompt the user already took back.
     const mirrored = queued.filter((entry) => entry.steeringPersistId);
     if (mirrored.length > 0) void dropTuiSteeringPersist(leadSessionId(), mirrored);
+    // The entries left the queue for good, so nothing later (a drain, the
+    // close of the session) can settle them: whoever submitted one is told it
+    // was cancelled, once, here. A submitter that waits on its settlement (a
+    // bot's send, which owns the work until then) is released.
+    for (const entry of queued) {
+      try {
+        entry.onSettled?.({ status: 'cancelled', reason: 'reclaimed', result: null, session: null });
+      } catch {
+        // A throwing callback must not leave the remaining entries unsettled.
+      }
+    }
     const queuedText = queued
       .map((item) => item.text)
       .filter((text) => String(text || '').trim())

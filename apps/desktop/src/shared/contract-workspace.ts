@@ -166,6 +166,10 @@ export interface DesktopSessionSummary {
   /** The agent that created this coding task session (session create): the
    *  Agents pane lists it under that agent's contact. */
   taskAgent?: string;
+  /** The bots (agent ids) whose accepted send or create is still in flight in
+   *  this session: the live work here is theirs. Absent when nobody sent it
+   *  (the user typed it), however many agents it runs. */
+  handedBy?: string[];
   /** Where `taskAgent` created it: its own chat (`home`), a group room, or a
    *  schedule/webhook run; absent when not recorded (an older session). Only a
    *  `home` task acts as the bot for Browser Use approvals. */

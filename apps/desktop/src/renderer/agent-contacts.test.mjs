@@ -431,14 +431,37 @@ test('a contact whose own home turn waits on the user reads attention over runni
   assert.deepEqual(translator.indicator, { kind: 'running' }, 'only the waiting home');
 });
 
+test('task buckets keep catalog order for a large list, skip archived rows, and the last home wins', async () => {
+  const { bucketSessions } = await import('./agent-contacts-model.ts');
+  const agents = ['a', 'b', 'c'];
+  const sessions = Array.from({ length: 2000 }, (_, i) => ({
+    ...work,
+    id: `t${i}`,
+    taskAgent: agents[i % 3],
+    ...(i % 10 === 0 ? { archived: true } : {}),
+  }));
+  sessions.push(home('a', { id: 'home-1' }), home('a', { id: 'home-2' }), { ...work, id: 'plain' });
+  const { homes, tasks } = bucketSessions(sessions);
+  for (const agent of agents) {
+    const expected = sessions.filter((s) => s.taskAgent === agent && !s.archived).map((s) => s.id);
+    assert.equal(expected.length > 500, true);
+    assert.deepEqual(
+      tasks.get(agent).map((s) => s.id),
+      expected
+    );
+  }
+  assert.equal(tasks.size, 3);
+  assert.equal(homes.get('a').id, 'home-2');
+});
+
 // A bot that hands work to a task session ends its own turn while the task
 // runs: the task is still the bot's work, so its row keeps the spinner.
-test('a contact reads running while a task session it created works, and attention while one waits on the user', () => {
+test('a contact reads running while a task session it handed work to works, and attention while one waits on the user', () => {
   const task = (id, overrides = {}) => ({ ...work, id, taskAgent: 'github-watcher', taskFrom: 'home', ...overrides });
   const sessions = [
     home('github-watcher'),
     home('translator'),
-    task('task-live', { working: true }),
+    task('task-live', { working: true, handedBy: ['github-watcher'] }),
     task('task-old', { archived: true, working: true, taskAgent: 'translator' }),
   ];
   const [, watcher, translator] = agentContacts(AGENTS, sessions, new Map());
@@ -452,6 +475,41 @@ test('a contact reads running while a task session it created works, and attenti
 
   const [, idle] = agentContacts(AGENTS, [home('github-watcher'), task('task-done')], new Map());
   assert.equal(idle.indicator, null, 'a finished task leaves the row quiet');
+});
+
+// The user opens the task session a bot made and types an order there: the turn
+// is the user's work (nothing reports to the bot), so the bot is not busy.
+test("a task session's turn the user started leaves its bot's row quiet", () => {
+  const task = (overrides) => ({
+    ...work,
+    id: 'task-user',
+    taskAgent: 'github-watcher',
+    taskFrom: 'home',
+    working: true,
+    ...overrides,
+  });
+  const idle = (sessions) => agentContacts(AGENTS, sessions, new Map())[1];
+  assert.equal(idle([home('github-watcher'), task({})]).indicator, null, 'no send of the bot is in flight there');
+  assert.equal(
+    idle([home('github-watcher'), task({ agentWorking: true, working: true })]).indicator,
+    null,
+    'its own agents running for the user are not the bot work either'
+  );
+  assert.equal(
+    idle([home('github-watcher'), task({ handedBy: ['translator'] })]).indicator,
+    null,
+    "another bot's send is not this bot's"
+  );
+  assert.deepEqual(
+    idle([home('github-watcher'), task({ handedBy: ['translator', 'github-watcher'] })]).indicator,
+    { kind: 'running' },
+    'a send of this bot still lights it, whatever chat or run it came from'
+  );
+  assert.equal(
+    idle([home('github-watcher'), task({ handedBy: ['github-watcher'], working: false })]).indicator,
+    null,
+    'its send in flight but the task idle (queued, between turns) is not working'
+  );
 });
 
 test('the bot page marks a working home thread that waits on approval, not a spinner', async (t) => {

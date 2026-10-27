@@ -21,6 +21,8 @@ import {
   taskSessionPendingWork,
 } from './agent-task-sessions.mjs';
 import { completeBackgroundTask, registerBackgroundTask } from '../runtime/shared/background-tasks.mjs';
+import { botWorkBySession, endBotWork } from '../runtime/shared/bot-owned-work.mjs';
+import { onSessionBotWorkChange } from '../runtime/shared/session-activity-signal.mjs';
 import { takeAgentTaskStarts } from '../runtime/shared/agent-task-starts.mjs';
 import { createJobStarter } from './services/agent-tool/spawn-flow/job-start.mjs';
 import { agentTaskIdOfExecution } from './services/agent-tool/restart-notify.mjs';
@@ -78,6 +80,11 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   const logs = [];
   // Every report a process handed to the delivery, across boots.
   const sent = [];
+  // The bots' work each boot left owned (a process-wide registry) ends with the test.
+  const booted = [];
+  t.after(() => {
+    for (const booting of booted) for (const send of booting.submits()) endBotWork(send.options.id);
+  });
   function boot(overrides = {}) {
     const { materialize, ...taskOverrides } = overrides;
     const calls = [];
@@ -131,6 +138,9 @@ function world(t, { settleMs = 0, wake = null } = {}) {
         add: (watch) => delivery.watchTask(watch),
         list: () => delivery.taskWatches(),
         remove: (runId) => delivery.unwatchTask(runId),
+        own: (work) => delivery.ownTask(work),
+        owned: () => delivery.ownedTasks(),
+        disown: (runId) => delivery.disownTask(runId),
       },
       queuedSubmissionIds: async () => [],
       loadSession: async (id) => records.get(id) || null,
@@ -153,7 +163,9 @@ function world(t, { settleMs = 0, wake = null } = {}) {
       for (const listener of [...listeners]) listener();
     };
     const submits = () => calls.filter(([name]) => name === 'submit').map(([, params]) => params);
-    return { api, delivery, state, emit, submits, listeners };
+    const booting = { api, delivery, state, emit, submits, listeners };
+    booted.push(booting);
+    return booting;
   }
   const task = () => records.get(TASK);
   const reports = () => home.messages.filter((message) => message.meta?.routine?.kind === 'task');
@@ -163,7 +175,10 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   const progress = () => reports().filter((message) => message.meta.routine.status === 'working');
   const watchIds = async () => (await createRoutineResultQueue(file).watches()).map((watch) => watch.runId);
   const watches = async () => createRoutineResultQueue(file).watches();
+  // The stored records of bot work that reports nothing (apart from the watches).
+  const ownedIds = async () => (await createRoutineResultQueue(file).owned()).map((work) => work.runId);
   return {
+    ownedIds,
     file,
     home,
     records,
@@ -759,6 +774,131 @@ test('a send whose turn reports nothing posts no progress either', async (t) => 
   await pump(p.delivery);
   assert.deepEqual(w.reports(), []);
   assert.equal(w.wakes.length, 0);
+});
+
+// ---- the bot's work is its own whether or not it reports (bot-owned-work.mjs) ----
+
+const ownersOf = () => botWorkBySession().get(TASK) ?? [];
+
+test("a send that reports nothing is still the bot's work until its chain ends, with no report turned on", async (t) => {
+  const w = world(t);
+  const p = w.boot();
+  const announced = [];
+  t.after(onSessionBotWorkChange((sessionId) => announced.push(sessionId)));
+  await p.api.create({ brief: 'quiet', notify: false }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+  const [brief] = p.submits();
+  assert.deepEqual(ownersOf(), ['bot1'], 'owned from the acceptance');
+  assert.deepEqual(announced, [TASK], 'the catalog hears of it');
+  assert.deepEqual(await w.watchIds(), [], 'no report watch is stored');
+  assert.deepEqual(await w.ownedIds(), [brief.options.id], 'its work is recorded instead');
+  w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  brief.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  assert.deepEqual(ownersOf(), ['bot1'], 'the agents it started keep it the bot’s');
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, p, FINAL);
+  await pump(p.delivery);
+  assert.deepEqual(ownersOf(), [], 'the chain ended');
+  assert.deepEqual(await w.ownedIds(), [], 'and its record is dropped');
+  assert.deepEqual(announced, [TASK, TASK], 'and the catalog hears of that too');
+  assert.deepEqual(w.reports(), []);
+  assert.equal(w.wakes.length, 0);
+  assert.equal(p.listeners.size, 0);
+});
+
+test("a send whose report watch could not be stored is still the bot's work until its chain ends", async (t) => {
+  const w = world(t);
+  const p = w.boot({
+    watches: {
+      add: async () => {
+        throw new Error('disk full');
+      },
+      list: async () => [],
+      remove: async () => {},
+    },
+  });
+  const created = await p.api.create({ brief: 'go' }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+  assert.equal(created.reportsBack, false);
+  const [brief] = p.submits();
+  assert.deepEqual(ownersOf(), ['bot1']);
+  w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  brief.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(p.delivery);
+  assert.deepEqual(ownersOf(), ['bot1']);
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, p, FINAL);
+  await pump(p.delivery);
+  assert.deepEqual(ownersOf(), []);
+  assert.deepEqual(w.reports(), []);
+});
+
+test("a reporting send is the bot's work until its report is final, and again after a restart", async (t) => {
+  const w = world(t);
+  const announced = [];
+  t.after(onSessionBotWorkChange((sessionId) => announced.push(sessionId)));
+  const first = w.boot();
+  await first.api.create({ brief: 'Refactor', title: 'Parser' }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+  const [brief] = first.submits();
+  assert.deepEqual(ownersOf(), ['bot1']);
+  w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  brief.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(first.delivery);
+  assert.deepEqual(ownersOf(), ['bot1'], 'the interim answer is not the end');
+  // The daemon stops, taking the registry with it; the next start re-attaches.
+  endBotWork(brief.options.id);
+  assert.deepEqual(ownersOf(), []);
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 1);
+  assert.deepEqual(ownersOf(), ['bot1'], 'the recovered watch is the bot’s work again');
+  w.pool[0] = worker('failed', { failureReason: 'process-restart' });
+  await wokenTurn(w, second, FINAL);
+  await waitFor(second.delivery, () => w.ended().length && w.wakes.length);
+  assert.deepEqual(ownersOf(), [], 'the final report ends it');
+  assert.deepEqual(announced, [TASK, TASK, TASK, TASK], 'every change reaches the catalog, recovery included');
+});
+
+test("quiet work whose agents run is the bot's again after a restart until its chain ends, reporting nothing", async (t) => {
+  const w = world(t);
+  const first = w.boot();
+  await first.api.create({ brief: 'quiet', notify: false }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+  const [brief] = first.submits();
+  w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  brief.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(first.delivery);
+  assert.deepEqual(await w.ownedIds(), [brief.options.id]);
+  endBotWork(brief.options.id);
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 1);
+  assert.deepEqual(ownersOf(), ['bot1'], 'owned again while the agent runs');
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, second, FINAL);
+  await waitFor(second.delivery, async () => !ownersOf().length && !(await w.ownedIds()).length);
+  assert.deepEqual(ownersOf(), []);
+  assert.deepEqual(await w.ownedIds(), []);
+  assert.deepEqual(w.reports(), []);
+  assert.equal(w.wakes.length, 0);
+});
+
+test('a restart never wakes the session for the results of quiet work, which is only observed', async (t) => {
+  const w = world(t);
+  const first = w.boot();
+  await first.api.create({ brief: 'quiet', notify: false }, { callerSessionId: HOME, callerAgentId: 'bot1' });
+  const [brief] = first.submits();
+  t.after(() => endBotWork(brief.options.id));
+  w.task().messages.push(...turnRows(brief.options.id, INTERIM, { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  brief.options.onSettled({ status: 'done', result: { content: INTERIM } });
+  await pump(first.delivery);
+  endBotWork(brief.options.id);
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 1);
+  await pump(second.delivery);
+  assert.equal(w.wakes.length, 0, 'no delivery wakes a turn');
+  assert.deepEqual(w.reports(), []);
 });
 
 // ---- the report waits on its own chain, never on other work in the session ----

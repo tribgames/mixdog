@@ -185,6 +185,9 @@ export function desktopSessionSummaries(
       const ownWorking = row.working === true;
       const agentWorking = row.agentWorking === true;
       const working = ownWorking || agentWorking;
+      const handedBy = Array.isArray(row.handedBy)
+        ? row.handedBy.filter((agentId): agentId is string => typeof agentId === 'string' && agentId !== '')
+        : [];
       const updatedAt = Number(row.updatedAt) || 0;
       const activityAt = Number(row.lastUsedAt) || updatedAt;
       // Automation origin survives into the summary so the sidebar can group
@@ -254,6 +257,7 @@ export function desktopSessionSummaries(
           ...(working ? { working: true } : {}),
           ...(ownWorking ? { leadWorking: true } : {}),
           ...(agentWorking ? { agentWorking: true } : {}),
+          ...(handedBy.length ? { handedBy } : {}),
           ...(row.awaitingApproval === true ? { awaitingApproval: true } : {}),
           ...(row.awaitingApproval === true && row.awaitingQuestion === true ? { awaitingQuestion: true } : {}),
           ...(automationType ? { sourceType: automationType } : {}),

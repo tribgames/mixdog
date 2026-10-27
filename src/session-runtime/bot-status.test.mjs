@@ -148,6 +148,28 @@ test('one call lists every bot in a deterministic order, the deleted one exclude
   assert.deepEqual(await botStatus({}, HUMAN), result, 'the same state answers the same way');
 });
 
+test('a bot works only while its chat or work it sent runs; a turn the user typed in its task session is not it', async () => {
+  const { rows, botStatus } = fixture();
+  const row = (id) => rows.find((entry) => entry.id === id);
+  const line = async () => (await botStatus({}, HUMAN)).bots.find((entry) => entry.startsWith('Mailer (mailer)'));
+  const state = async () => (await line()).split(' · ')[2];
+  row('sess_home_mailer').working = false;
+  // sess_task_1 works and owes its report, but nobody sent the running turn.
+  assert.equal(await state(), 'idle');
+  assert.match(await line(), /task "Fix CI" 12m/, 'the report owed stays listed');
+  row('sess_task_1').handedBy = ['reviewer'];
+  assert.equal(await state(), 'idle', "another bot's send is not Mailer's");
+  row('sess_task_1').handedBy = ['mailer'];
+  assert.equal(await state(), 'working', 'its own send in flight is');
+  // A working task of the bot with no report owed is listed only for its send.
+  row('sess_task_1').handedBy = undefined;
+  row('sess_task_quiet').working = true;
+  assert.doesNotMatch(await line(), /2 tasks:/);
+  row('sess_task_quiet').handedBy = ['mailer'];
+  assert.match(await line(), /2 tasks:/);
+  assert.equal(await state(), 'working');
+});
+
 test('a bot drill-down lists its chat and task sessions newest first, bounded', async () => {
   const { botStatus } = fixture();
   const result = await botStatus({ session_id: 'mailer' }, HUMAN);

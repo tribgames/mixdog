@@ -8,6 +8,8 @@ import { createAgentTaskSessions, resolveTaskProject, submissionOutcome } from '
 import { agentTaskMessage, routineResultNotice } from '../runtime/agent/orchestrator/session/routine-result.mjs';
 import { createAgentHomeDelivery, createRoutineResultQueue } from './agent-home-delivery.mjs';
 import { worktreeError } from '../runtime/shared/worktrees/contract.mjs';
+import { botWorkBySession, endBotWork } from '../runtime/shared/bot-owned-work.mjs';
+import { onSessionBotWorkChange } from '../runtime/shared/session-activity-signal.mjs';
 import { markUnattendedRun } from './held-requests.mjs';
 import { createSessionControl } from '../standalone/daemon-session-control.mjs';
 import { isUserTurn } from '../standalone/session-service/session-calls/session-turns.mjs';
@@ -1141,6 +1143,9 @@ function restartWorld(t) {
         list: () => delivery.taskWatches(),
         remove: (runId) => delivery.unwatchTask(runId),
         follow: (runId, submissionId) => delivery.followTask(runId, submissionId),
+        own: (work) => (world.failOwn ? Promise.reject(new Error('disk full')) : delivery.ownTask(work)),
+        owned: () => delivery.ownedTasks(),
+        disown: (runId) => delivery.disownTask(runId),
       },
       queuedSubmissionIds: async () => [...persisted],
       loadSession: async (id) => records.get(id) || null,
@@ -1157,6 +1162,7 @@ function restartWorld(t) {
     return { h, api, delivery, posted };
   }
   const watchIds = async () => (await createRoutineResultQueue(file).watches()).map((watch) => watch.runId);
+  const ownedIds = async () => (await createRoutineResultQueue(file).owned()).map((work) => work.runId);
   const owedWakes = async () => {
     const { owed, batches } = await createRoutineResultQueue(file).wakes(HOME);
     return [...owed, ...batches.flatMap((batch) => batch.runIds)];
@@ -1169,8 +1175,10 @@ function restartWorld(t) {
     persisted,
     boot,
     watchIds,
+    ownedIds,
     owedWakes,
     failWatch: false,
+    failOwn: false,
     target: () => records.get(TARGET),
   };
   return world;
@@ -1427,7 +1435,11 @@ test('a send whose watch cannot be stored claims no report; a refused or failed 
     reportsBackReason: 'its report could not be recorded (disk full); check that session for the result',
   });
   const [plain] = submitted(first.h);
-  assert.equal(plain.options.onSettled, undefined, 'no report hook it could not keep');
+  assert.equal(plain.options.follow, undefined, 'no report hook it could not keep');
+  // Its turn is still the bot's work, watched to its end but reporting nothing.
+  assert.equal(first.h.listeners.size, 1);
+  plain.options.onSettled({ status: 'cancelled' });
+  await settle();
   assert.equal(first.h.listeners.size, 0);
   w.failWatch = false;
   first.h.service.submitSession = async () => ({ accepted: false });
@@ -1903,4 +1915,280 @@ test('a report that cannot be queued is retried in-process, delivered once, and 
   assert.equal(never.calls, 4, 'one try and three retries');
   assert.deepEqual(never.delivered, []);
   assert.deepEqual(never.removed, [], 'the durable watch stays for restart recovery');
+});
+
+// ---- whose work a task session's live turn is (bot-owned-work.mjs) ----
+
+test("a bot's accepted send is its work until the turn settles or is cancelled, whether or not it reports", async (t) => {
+  const origin = (notify) => ({ agentId: 'owner_bot', sessionId: 'sess_home_a', title: 'T', notify });
+  const owners = () => (botWorkBySession().get('sess_task_1') ?? []).filter((agent) => agent === 'owner_bot');
+  const announced = [];
+  t.after(onSessionBotWorkChange((sessionId) => announced.push(sessionId)));
+  for (const notify of [true, false]) {
+    for (const status of ['cancelled', 'failed']) {
+      const h = fakeService();
+      await tasks(h).api.send('sess_task_1', 'go', origin(notify));
+      const [{ options }] = submitted(h);
+      t.after(() => endBotWork(options.id));
+      assert.deepEqual(owners(), ['owner_bot'], `owned once accepted (notify ${notify})`);
+      options.onSettled({ status });
+      await settle();
+      assert.deepEqual(owners(), [], `${status} ends it (notify ${notify})`);
+    }
+  }
+  assert.deepEqual(announced, Array(8).fill('sess_task_1'), 'each start and end is announced');
+
+  // Not the bot's before the intake accepts it, and never when it is refused,
+  // fails, or settles during the intake itself.
+  for (const notify of [true, false]) {
+    const early = fakeService();
+    early.service.submitSession = async () => {
+      assert.deepEqual(owners(), [], 'nothing is owned before the submission is accepted');
+      return { accepted: false };
+    };
+    await tasks(early).api.send('sess_task_1', 'go', origin(notify));
+    assert.deepEqual(owners(), [], `refused (notify ${notify})`);
+
+    const failing = fakeService();
+    failing.service.submitSession = async () => {
+      throw new Error('closed');
+    };
+    await assert.rejects(tasks(failing).api.send('sess_task_1', 'go', origin(notify)), /closed/);
+    assert.deepEqual(owners(), [], `failed (notify ${notify})`);
+
+    const quick = fakeService();
+    quick.service.submitSession = async (params) => {
+      params.options.onSettled({ status: 'cancelled' });
+      return { accepted: true };
+    };
+    await tasks(quick).api.send('sess_task_1', 'go', origin(notify));
+    await settle();
+    assert.deepEqual(owners(), [], `settled during the intake (notify ${notify})`);
+  }
+});
+
+test('a send that reports nothing turns on no report, and is still owned when its watch cannot be stored', async (t) => {
+  const owners = () => (botWorkBySession().get('sess_task_1') ?? []).filter((agent) => agent === 'owner_bot');
+  const brokenWatches = {
+    add: async () => {
+      throw new Error('disk full');
+    },
+    list: async () => [],
+    remove: async () => {},
+  };
+  for (const [name, overrides, notify] of [
+    ['notify: false', {}, false],
+    ['an unstored watch', { watches: brokenWatches }, true],
+  ]) {
+    const h = fakeService();
+    const { api, delivered, watched } = tasks(h, overrides);
+    const sent = await api.send('sess_task_1', 'go', {
+      agentId: 'owner_bot',
+      sessionId: 'sess_home_a',
+      title: 'T',
+      notify,
+    });
+    const [{ options }] = submitted(h);
+    t.after(() => endBotWork(options.id));
+    assert.equal(sent.reportsBack, false, name);
+    assert.deepEqual(owners(), ['owner_bot'], `${name}: the work is the bot's`);
+    assert.equal('follow' in options, false, `${name}: no report follows the turn`);
+    options.onSettled({ status: 'done', result: { content: 'ok' } });
+    for (let tries = 0; owners().length && tries < 20; tries += 1) await settle();
+    assert.deepEqual(owners(), [], `${name}: the work ends with its chain`);
+    assert.deepEqual(delivered, [], `${name}: nothing is reported`);
+    assert.deepEqual(watched, [], `${name}: no watch is stored`);
+  }
+});
+
+const until = async (done, ms = 3000) => {
+  for (const end = Date.now() + ms; Date.now() < end && !(await done()); ) await new Promise((r) => setTimeout(r, 10));
+};
+
+// ---- bot work that reports nothing survives a restart (agent-home-delivery.mjs `owned`) ----
+
+for (const [name, quiet] of [
+  ['reports off (notify: false)', (_w, origin) => ({ ...origin, notify: false })],
+  [
+    'a report watch that could not be stored',
+    (w, origin) => {
+      w.failWatch = true;
+      return origin;
+    },
+  ],
+]) {
+  test(`work that reports nothing (${name}) is recorded, owned again after a restart, and ends with no report`, async (t) => {
+    const w = restartWorld(t);
+    const owners = () => (botWorkBySession().get(TARGET) ?? []).filter((agent) => agent === 'lead');
+    const first = w.boot();
+    const origin = quiet(w, await first.api.reportOrigin(TARGET, 'lead', HOME));
+    const sent = await first.api.send(TARGET, 'run the simulation', origin);
+    const [{ options }] = submitted(first.h);
+    const runId = options.id;
+    t.after(() => endBotWork(runId));
+    w.failWatch = false;
+    assert.equal(sent.reportsBack, false);
+    assert.deepEqual(owners(), ['lead']);
+    assert.deepEqual(await w.ownedIds(), [runId], 'the record is written when the send is accepted');
+    assert.deepEqual(await w.watchIds(), [], 'it is no report watch');
+    // The daemon stops mid-turn, taking the registry with it.
+    endBotWork(runId);
+    assert.deepEqual(owners(), []);
+    const second = w.boot();
+    w.target().messages.push(promptRow(runId));
+    second.h.state.busy = true;
+    assert.equal(await second.api.recover(), 1);
+    assert.deepEqual(owners(), ['lead'], 'the work is the bot’s again');
+    w.target().messages.push(replyRow(runId, 'simulation finished'));
+    second.h.state.busy = false;
+    second.h.emit();
+    await until(() => !owners().length);
+    assert.deepEqual(owners(), [], 'and ends with the turn');
+    await until(async () => !(await w.ownedIds()).length);
+    assert.deepEqual(await w.ownedIds(), [], 'its record is dropped');
+    assert.equal(w.home.messages.length, 0, 'nothing is reported');
+    assert.equal(w.wakes.length, 0);
+    assert.equal(second.h.listeners.size, 0);
+    assert.equal(await w.boot().api.recover(), 0, 'a later start has nothing to re-attach');
+  });
+}
+
+test('a record of quiet work whose turn was never taken is dropped after a restart, reporting nothing', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = { ...(await first.api.reportOrigin(TARGET, 'lead', HOME)), notify: false };
+  await first.api.send(TARGET, 'run the simulation', origin);
+  const runId = submitted(first.h)[0].options.id;
+  t.after(() => endBotWork(runId));
+  endBotWork(runId);
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 1);
+  await until(async () => !(await w.ownedIds()).length);
+  assert.deepEqual(await w.ownedIds(), []);
+  assert.deepEqual(
+    (botWorkBySession().get(TARGET) ?? []).filter((agent) => agent === 'lead'),
+    []
+  );
+  assert.equal(w.home.messages.length, 0);
+});
+
+test('a quiet send settled in this process drops its record', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = { ...(await first.api.reportOrigin(TARGET, 'lead', HOME)), notify: false };
+  await first.api.send(TARGET, 'run the simulation', origin);
+  const [{ options }] = submitted(first.h);
+  t.after(() => endBotWork(options.id));
+  assert.deepEqual(await w.ownedIds(), [options.id]);
+  options.onSettled({ status: 'cancelled' });
+  await until(async () => !(await w.ownedIds()).length);
+  assert.deepEqual(await w.ownedIds(), []);
+});
+
+test('20 silent sends sharing one finished turn keep one follower and release their records in one write', async (t) => {
+  const h = fakeService();
+  let busy = true;
+  const writes = { own: [], disown: [] };
+  const { api, delivered } = tasks(h, {
+    pendingWork: async () => busy,
+    pollMs: 60_000,
+    watches: {
+      add: async () => {},
+      list: async () => [],
+      remove: async () => {},
+      own: async (work) => writes.own.push(work.runId),
+      disown: async (ids) => writes.disown.push([ids].flat()),
+    },
+  });
+  const origin = { agentId: 'batch_bot', sessionId: 'sess_home_a', title: 'T', notify: false };
+  for (let i = 0; i < 20; i += 1) await api.send('sess_task_1', `go ${i}`, origin);
+  const sends = submitted(h);
+  const ids = sends.map(({ options }) => options.id);
+  t.after(() => ids.forEach(endBotWork));
+  const owners = () => (botWorkBySession().get('sess_task_1') ?? []).filter((agent) => agent === 'batch_bot');
+  assert.equal(h.listeners.size, 20);
+  assert.equal(writes.own.length, 20);
+  // One turn answered all twenty: they settle with the same detail object.
+  const detail = { status: 'done', result: { content: 'all done' } };
+  for (const { options } of sends) options.onSettled(detail);
+  await settle();
+  await settle();
+  assert.equal(h.listeners.size, 1, 'one follower for the turn');
+  assert.deepEqual(owners(), ['batch_bot'], 'the work is owned until the turn’s final answer');
+  assert.deepEqual(writes.disown, [], 'no record is dropped before then');
+  busy = false;
+  h.emit();
+  for (let tries = 0; (owners().length || h.listeners.size) && tries < 20; tries += 1) await settle();
+  assert.deepEqual(owners(), []);
+  assert.equal(h.listeners.size, 0);
+  assert.equal(writes.disown.length, 1, 'one write drops every record');
+  assert.deepEqual([...writes.disown[0]].sort(), [...ids].sort());
+  assert.deepEqual(delivered, [], 'nothing is reported');
+});
+
+test('a quiet send whose watch failed to store never stands for a reporting send of the same turn', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = await first.api.reportOrigin(TARGET, 'lead', HOME);
+  w.failWatch = true;
+  const quiet = await first.api.send(TARGET, 'first', origin);
+  w.failWatch = false;
+  const loud = await first.api.send(TARGET, 'second', origin);
+  assert.equal(quiet.reportsBack, false);
+  assert.equal(loud.reportsBack, true);
+  const [a, b] = submitted(first.h);
+  t.after(() => {
+    for (const { options } of [a, b]) endBotWork(options.id);
+  });
+  assert.deepEqual(await w.watchIds(), [b.options.id]);
+  const shared = { status: 'cancelled' };
+  a.options.onSettled(shared);
+  b.options.onSettled(shared);
+  await first.posted();
+  await first.posted();
+  assert.equal(w.home.messages.filter((m) => /cancelled/i.test(JSON.stringify(m))).length, 1, 'exactly one report');
+  assert.deepEqual(await w.watchIds(), [], 'the reporting watch is cleared');
+  assert.deepEqual(
+    (botWorkBySession().get(TARGET) ?? []).filter((agent) => agent === 'lead'),
+    []
+  );
+  assert.equal(first.h.listeners.size, 0);
+});
+
+test('a stale owned record is no spinner, survives later writes, and recover() discards it', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = { ...(await first.api.reportOrigin(TARGET, 'lead', HOME)), notify: false };
+  await first.api.send(TARGET, 'quiet', origin);
+  const staleId = submitted(first.h)[0].options.id;
+  // The work ended, but the process died before its record was dropped.
+  endBotWork(staleId);
+  assert.deepEqual(await w.ownedIds(), [staleId]);
+  w.target().messages.push(promptRow(staleId), replyRow(staleId, 'done'));
+  assert.deepEqual(botWorkBySession().get(TARGET) ?? [], [], 'no live effect: no spinner');
+  // A later successful write of another send leaves it (nothing rewrites the set).
+  const second = w.boot();
+  await second.api.send(TARGET, 'another', origin);
+  const laterId = submitted(second.h)[0].options.id;
+  endBotWork(laterId);
+  assert.deepEqual((await w.ownedIds()).sort(), [staleId, laterId].sort());
+  w.target().messages.push(promptRow(laterId), replyRow(laterId, 'done'));
+  assert.equal(await w.boot().api.recover(), 2);
+  await until(async () => !(await w.ownedIds()).length);
+  assert.deepEqual(await w.ownedIds(), []);
+  assert.equal(w.home.messages.length, 0, 'nothing is reported');
+});
+
+test('a failed ownership write never blocks the send; only a restart may lose its spinner', async (t) => {
+  const w = restartWorld(t);
+  const first = w.boot();
+  const origin = { ...(await first.api.reportOrigin(TARGET, 'lead', HOME)), notify: false };
+  w.failOwn = true;
+  const sent = await first.api.send(TARGET, 'quiet', origin);
+  const [{ options }] = submitted(first.h);
+  t.after(() => endBotWork(options.id));
+  assert.equal(sent.accepted, true);
+  assert.deepEqual(botWorkBySession().get(TARGET) ?? [], ['lead'], 'the spinner shows now');
+  assert.deepEqual(await w.ownedIds(), []);
+  assert.equal(await w.boot().api.recover(), 0, 'after a restart there is nothing to restore');
 });

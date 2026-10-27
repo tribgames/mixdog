@@ -43,9 +43,12 @@ export interface AgentContact {
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
 /** The row's one trailing status: attention > error > running > unread. The
- *  task sessions the bot created (taskAgent) are its work too: the bot's own
- *  turn often ends once it hands the work over, while the task still runs. */
+ *  task sessions the bot created (taskAgent) are its work too while the work
+ *  there is what the bot sent (`handedBy`): its own turn often ends once it
+ *  hands the work over, while the task still runs. A turn the user typed in
+ *  the task session is the user's, not the bot's. */
 function contactIndicator(
+  agentId: string,
   session: DesktopSessionSummary | null,
   tasks: readonly DesktopSessionSummary[],
   nodes: readonly AgentActivityNode[] | undefined,
@@ -58,11 +61,29 @@ function contactIndicator(
   if ([session, ...tasks].some((row) => row && needsUser?.has(row.id))) return { kind: 'attention' };
   const pooled = session && nodes?.length ? agentGroupIndicator(session.id, nodes, unreadSessionIds) : null;
   if (pooled && pooled.kind !== 'unread') return pooled;
-  if (session?.working || tasks.some((task) => task.working)) return { kind: 'running' };
+  const handedWork = (task: DesktopSessionSummary) =>
+    task.working === true && task.handedBy?.includes(agentId) === true;
+  if (session?.working || tasks.some(handedWork)) return { kind: 'running' };
   if (!session || !unreadSessionIds?.has(session.id)) return null;
   // The chat messages that arrived since the read cursor, a whole number of at
   // least 1; the row caps how it shows it.
   return { kind: 'unread', count: unseenIncomingCount(session) };
+}
+
+/** Each live agent's home thread, and its task sessions in catalog order. Each
+ *  bucket is allocated once and appended to. */
+export function bucketSessions(sessions: readonly DesktopSessionSummary[]) {
+  const homes = new Map<string, DesktopSessionSummary>();
+  const tasks = new Map<string, DesktopSessionSummary[]>();
+  for (const session of sessions) {
+    if (session.archived) continue;
+    if (session.agentHome) homes.set(session.agentHome, session);
+    if (!session.taskAgent) continue;
+    const bucket = tasks.get(session.taskAgent);
+    if (bucket) bucket.push(session);
+    else tasks.set(session.taskAgent, [session]);
+  }
+  return { homes, tasks };
 }
 
 function contactPreview(
@@ -104,13 +125,7 @@ export function agentContacts(
     asking,
   }: { includeDisabled?: boolean; needsUser?: ReadonlySet<string>; asking?: ReadonlySet<string> } = {}
 ): AgentContact[] {
-  const homes = new Map<string, DesktopSessionSummary>();
-  const tasks = new Map<string, DesktopSessionSummary[]>();
-  for (const session of sessions) {
-    if (session.archived) continue;
-    if (session.agentHome) homes.set(session.agentHome, session);
-    if (session.taskAgent) tasks.set(session.taskAgent, [...(tasks.get(session.taskAgent) ?? []), session]);
-  }
+  const { homes, tasks } = bucketSessions(sessions);
   const contact = (
     agentId: string,
     name: string,
@@ -121,6 +136,7 @@ export function agentContacts(
   ): AgentContact => {
     const session = homes.get(agentId) ?? null;
     const indicator = contactIndicator(
+      agentId,
       session,
       tasks.get(agentId) ?? [],
       session ? groups.get(session.id) : undefined,

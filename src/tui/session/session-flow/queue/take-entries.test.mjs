@@ -99,3 +99,36 @@ test('restore returns file attachments hydrated to base64 and drops only a missi
   assert.match(restored.notice, /1 attachment was no longer available/);
   assert.equal(restored.text.includes('lost.pdf'), true, 'the prompt text is kept');
 });
+
+test('restoreQueued settles each reclaimed submission cancelled exactly once, and only those it took', () => {
+  const settled = [];
+  const entry = (id, mode = 'prompt', onSettled = (detail) => settled.push([id, detail])) => ({
+    id,
+    text: `prompt ${id}`,
+    mode,
+    onSettled,
+  });
+  const pending = [
+    entry('a'),
+    entry('note', 'task-notification'),
+    entry('boom', 'prompt', () => {
+      throw new Error('callback failed');
+    }),
+    entry('b'),
+  ];
+  const { restoreQueued } = createTakeEntriesOps({
+    pending,
+    pendingNotificationKeys: new Set(),
+    removeQueuedEntries() {},
+  });
+  restoreQueued('', 'a');
+  assert.deepEqual(settled, [['a', { status: 'cancelled', reason: 'reclaimed', result: null, session: null }]]);
+  restoreQueued('');
+  assert.deepEqual(
+    settled.map(([id]) => id),
+    ['a', 'b'],
+    'a throwing callback does not stop the rest; a notification is not reclaimable'
+  );
+  restoreQueued('');
+  assert.equal(settled.length, 2, 'nothing is settled twice');
+});

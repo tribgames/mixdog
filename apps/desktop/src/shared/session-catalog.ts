@@ -26,6 +26,13 @@ function sessionSummaryVisibleEqual(left: DesktopSessionSummary, right: DesktopS
       if (JSON.stringify(left[key] ?? null) !== JSON.stringify(right[key] ?? null)) return false;
       continue;
     }
+    // The bots owning the work are rebuilt as a fresh array on every projection.
+    if (key === 'handedBy') {
+      const a = left.handedBy ?? [];
+      const b = right.handedBy ?? [];
+      if (a.length !== b.length || a.some((id, index) => id !== b[index])) return false;
+      continue;
+    }
     if ((left as unknown as Record<string, unknown>)[key] !== (right as unknown as Record<string, unknown>)[key])
       return false;
   }

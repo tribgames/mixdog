@@ -181,6 +181,17 @@ test('the catalog stamps each home thread with its agent', () => {
   );
 });
 
+test('the catalog keeps the bots whose sent work a session holds, and drops junk', () => {
+  const [handed, plain, junk] = desktopSessionSummaries([
+    { id: 'sess_task', title: 'T', messageCount: 2, cwd: '/tasks', handedBy: ['mailer', 'reviewer'] },
+    { id: 'sess_plain', title: 'P', messageCount: 2, cwd: '/tasks' },
+    { id: 'sess_junk', title: 'J', messageCount: 2, cwd: '/tasks', handedBy: ['', 7, 'mailer', null] },
+  ]);
+  assert.deepEqual(handed.handedBy, ['mailer', 'reviewer']);
+  assert.equal('handedBy' in plain, false);
+  assert.deepEqual(junk.handedBy, ['mailer']);
+});
+
 const HOMES = ['sess_home_github-watcher', 'sess_home_gone', 'sess_home_off', 'sess_home_lead', 'sess_plain'];
 
 test("a deleted agent's thread is archived by its fixed id; present and switched-off agents keep theirs", async () => {

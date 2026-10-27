@@ -72,3 +72,23 @@ test('a queued prompt restored to the draft drops its durable steering mirror', 
   assert.equal(restored.count, 1);
   assert.deepEqual(dropped, [['session-persistence', ['ts_submit-3']]]);
 });
+
+test('a reclaimed bot send is settled cancelled once; closing the session then settles only what is left', async () => {
+  const f = busyFlow();
+  persisted = Promise.resolve(true);
+  const settled = [];
+  const on = (id) => (detail) => settled.push([id, detail.status, detail.reason]);
+  assert.equal(
+    await f.flow.enqueue('from the bot', { id: 'bot-1', awaitPersistence: true, onSettled: on('bot-1') }),
+    true
+  );
+  assert.equal(await f.flow.enqueue('typed', { id: 'user-1', awaitPersistence: true, onSettled: on('user-1') }), true);
+  assert.equal(f.flow.restoreQueued('', 'bot-1').count, 1);
+  assert.deepEqual(settled, [['bot-1', 'cancelled', 'reclaimed']]);
+  f.flow.settleClosedQueue();
+  f.flow.settleClosedQueue();
+  assert.deepEqual(settled, [
+    ['bot-1', 'cancelled', 'reclaimed'],
+    ['user-1', 'rejected', 'session-closed'],
+  ]);
+});

@@ -45,6 +45,20 @@ export function emitSessionApprovalCardChange(sessionId = '') {
   emit(approvalCardListeners, sessionId);
 }
 
+// The bots whose sends are in flight in a session changed (bot-owned-work.mjs):
+// the session catalog stamps them on each row (`handedBy`) and re-reads.
+const botWorkListeners = new Set();
+
+export function onSessionBotWorkChange(listener) {
+  if (typeof listener !== 'function') return () => {};
+  botWorkListeners.add(listener);
+  return () => botWorkListeners.delete(listener);
+}
+
+export function emitSessionBotWorkChange(sessionId = '') {
+  emit(botWorkListeners, sessionId);
+}
+
 function emit(targets, sessionId) {
   for (const listener of [...targets]) {
     try {

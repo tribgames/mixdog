@@ -1,8 +1,9 @@
 /**
  * `session bots`: the state of the user's bots, read on demand (never injected
  * into a turn). One line per bot: its home chat (`sess_home_<id>`), the last
- * activity there and its latest line, whether it works now (its chat, or a
- * task session it runs), approvals waiting on the user, its routines and what
+ * activity there and its latest line, whether it works now (its chat, or work
+ * it sent running in a task session; a turn the user typed there is the
+ * user's), approvals waiting on the user, its routines and what
  * needs attention. With one bot (`session_id`: its id or chat id): its
  * routines, its held requests and its recent sessions.
  *
@@ -264,7 +265,12 @@ export function createBotStatus({
     const homeId = agentHomeSessionId(bot.id);
     const owned = ctx.owned.get(bot.id) || [];
     const home = ctx.rows.get(homeId) || null;
-    // Running task sessions: a turn whose report is still owed, or one working now.
+    // Work this bot sent that is running now: a session working with the bot's
+    // send in flight (`handedBy`, bot-owned-work.mjs). A turn the user typed
+    // in the bot's task session is the user's, not the bot working.
+    const sentWork = (row) => isWorking(row) && row.handedBy?.includes(bot.id) === true;
+    // Running task sessions: a turn whose report is still owed, or the bot's
+    // work running now.
     const tasks = new Map();
     const addTask = (id, title, at) => {
       const known = tasks.get(id);
@@ -276,7 +282,7 @@ export function createBotStatus({
       addTask(watch.taskSessionId, watch.title, Number(watch.at) || 0);
     }
     for (const row of owned) {
-      if (row.id === homeId || roomMemberOfSession(row.id) || !isWorking(row)) continue;
+      if (row.id === homeId || roomMemberOfSession(row.id) || !sentWork(row)) continue;
       addTask(row.id, row.title, Number(row.createdAt) || 0);
     }
     const running = [...tasks.values()].sort((left, right) => left.at - right.at || (left.id < right.id ? -1 : 1));
@@ -302,7 +308,7 @@ export function createBotStatus({
       approvals,
       routines,
       flags,
-      working: isWorking(home) || running.some((task) => isWorking(ctx.rows.get(task.id))),
+      working: isWorking(home) || running.some((task) => sentWork(ctx.rows.get(task.id))),
       lastAt: activityOf(home),
     };
   }

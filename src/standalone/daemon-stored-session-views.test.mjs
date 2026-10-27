@@ -10,6 +10,7 @@ import { createSessionActionCalls } from './session-service/session-calls/sessio
 import { createBusyTracker } from './session-service/retention/busy.mjs';
 import { onSessionApprovalCardChange } from '../runtime/shared/session-activity-signal.mjs';
 import { roomMemberSessionId } from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { endBotWork, noteBotWork } from '../runtime/shared/bot-owned-work.mjs';
 
 function views() {
   const calls = [];
@@ -153,6 +154,39 @@ test('the session catalog marks every session whose live runtime shows an approv
   ];
   assert.deepEqual((await actions.listSessionCatalog()).sessions, expected);
   assert.deepEqual((await actions.listSessionCatalog({ page: { limit: 4 } })).sessions, expected);
+});
+
+// A bot's row reads "working" from the task sessions it sent work to, never
+// from a turn the user typed there: only the bots with a send in flight
+// (bot-owned-work.mjs) own the work a session's row shows.
+test('the session catalog names the bots whose sent work a session holds, while it runs', async (t) => {
+  const rows = [{ id: 'sess_task' }, { id: 'sess_user_only' }];
+  const store = { listStoredSessionSummariesAsync: async () => rows };
+  const stored = createStoredSessionViews({ desktopRuntime: { loadSessionStore: async () => store } });
+  const actions = createSessionActionCalls({
+    isClosed: () => false,
+    log: () => {},
+    listSessions: stored.listSessions,
+    getRemoteSessionState: async () => null,
+    projection: {},
+    retention: { awaitingApprovalSessionKinds: () => new Map(), roomHandoffQuestions: () => new Map() },
+    entries: {},
+  });
+  const listed = async () => (await actions.listSessionCatalog()).sessions;
+  assert.deepEqual(await listed(), rows, 'no send, no mark');
+
+  const runs = ['run_a1', 'run_b1', 'run_a2'];
+  t.after(() => runs.forEach(endBotWork));
+  noteBotWork({ runId: runs[0], sessionId: 'sess_task', agentId: 'bot_a' });
+  noteBotWork({ runId: runs[1], sessionId: 'sess_task', agentId: 'bot_b' });
+  noteBotWork({ runId: runs[2], sessionId: 'sess_task', agentId: 'bot_a' });
+  assert.deepEqual(await listed(), [{ id: 'sess_task', handedBy: ['bot_a', 'bot_b'] }, rows[1]]);
+
+  endBotWork(runs[0]);
+  endBotWork(runs[2]);
+  assert.deepEqual(await listed(), [{ id: 'sess_task', handedBy: ['bot_b'] }, rows[1]]);
+  endBotWork(runs[1]);
+  assert.deepEqual(await listed(), rows, 'the work settled: what runs there next is nobody’s but the user’s');
 });
 
 test('a live session that starts or stops showing an approval card announces it once per transition', (t) => {

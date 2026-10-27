@@ -15,6 +15,12 @@
  * answer or approval posts one faint line instead; the card stays in the task
  * session for the user.
  *
+ * Whether a turn reports is apart from whose work it is: every accepted send
+ * of an agent is the agent's work in that session (bot-owned-work.mjs, shown
+ * as the bot working) until its chain ends, the point a report would be
+ * final, and with `notify: false` or an unstored watch it reports nothing.
+ * A turn the user types there is owned by no agent.
+ *
  * An agent's send to any other session reports the same way, by an origin for
  * that send only (reportOrigin). Every reporting turn is also watched durably
  * (agent-home-delivery.mjs `watches`) until its end is queued, so a daemon
@@ -41,6 +47,7 @@ import { wrapAgentMessage } from '../runtime/shared/agent-message-envelope.mjs';
 import { hasPendingAgentWork, sessionsWithPendingWork } from '../runtime/shared/pending-agent-work.mjs';
 import { agentTaskIdOfExecution } from './services/agent-tool/restart-notify.mjs';
 import { botChainOf } from '../runtime/shared/bot-hops.mjs';
+import { endBotWork, noteBotWork } from '../runtime/shared/bot-owned-work.mjs';
 import { worktreeError, worktreeNameError } from '../runtime/shared/worktrees/contract.mjs';
 import { samePath } from '../runtime/shared/worktrees/paths.mjs';
 import { readModelCatalog, routeByDisplayName, withEffort } from './task-session-route.mjs';
@@ -813,17 +820,24 @@ async function sendReportOrigin({ loadSession, agentName }, sessionId, agentId, 
 }
 
 /** Re-attach one watch a stopped daemon left: report the turn's end once
- *  from the target's record, or watch it until it ends. */
+ *  from the target's record, or watch it until it ends. `quiet`: `watch` is
+ *  the record of work that reports nothing (no home, no title): the same
+ *  follow, but its end is only the end of the agent's work, dropped from
+ *  `disown`, and no progress update or report goes out. */
 async function rearmTaskWatch(
-  { deliver, loadSession, materializeSession, queuedSubmissionIds, artifactFields, followToFinal, log },
-  watch
+  { deliver, disown, loadSession, materializeSession, queuedSubmissionIds, artifactFields, followToFinal, log },
+  watch,
+  { quiet = false } = {}
 ) {
   const sessionId = watch.taskSessionId;
   // The turn that answers: the watched submission's own, or the one it
   // follows (a room member's turn under another submission id).
   const turnId = watch.follows || watch.runId;
-  const finish = async (status, text = '', answerId = '') =>
-    deliver(watch.agentId, {
+  // The work is the agent's until its end is reported (or cannot be).
+  const finish = async (status, text = '', answerId = '') => {
+    endBotWork(watch.runId);
+    if (quiet) return disown(watch.runId);
+    return deliver(watch.agentId, {
       runId: `${watch.runId}_end`,
       taskSessionId: sessionId,
       title: watch.title,
@@ -836,6 +850,7 @@ async function rearmTaskWatch(
       ...progressOf(watch.runId, answerId),
       ...(watch.textOnly || text === GONE_TEXT || text === LOST_TEXT ? {} : await artifactFields(sessionId, turnId)),
     });
+  };
   if (!(await loadSession(sessionId))) return finish('cancelled', GONE_TEXT);
   let runtime;
   try {
@@ -845,6 +860,7 @@ async function rearmTaskWatch(
     log(`${sessionId} could not be loaded after the restart: ${error?.message || error}`);
     return finish('failed', RESUME_FAILED_TEXT);
   }
+  noteBotWork({ runId: watch.runId, sessionId, agentId: watch.agentId });
   let done = false;
   let checking = false;
   let again = false;
@@ -878,22 +894,26 @@ async function rearmTaskWatch(
             sessionId,
             runId: turnId,
             runtime,
-            wakeOwed: true,
+            // Only a report wakes the session for the results the restart left
+            // it; work that reports nothing is only observed, never driven.
+            wakeOwed: !quiet,
             // The turns an earlier process already reported as progress.
             progressedThrough: watch.progressed || '',
-            interim: (answer) =>
-              deliver(watch.agentId, {
-                runId: progressRunId(watch.runId, answer.id),
-                taskSessionId: sessionId,
-                title: watch.title,
-                status: 'working',
-                text: answer.text,
-                progressWatchId: watch.runId,
-                answerId: answer.id,
-                ...(watch.target === 'session' ? { target: 'session' } : {}),
-                ...(watch.hop > 0 ? { hop: watch.hop } : {}),
-                ...roomFrom(watch.homeSessionId),
-              }),
+            interim: quiet
+              ? null
+              : (answer) =>
+                  deliver(watch.agentId, {
+                    runId: progressRunId(watch.runId, answer.id),
+                    taskSessionId: sessionId,
+                    title: watch.title,
+                    status: 'working',
+                    text: answer.text,
+                    progressWatchId: watch.runId,
+                    answerId: answer.id,
+                    ...(watch.target === 'session' ? { target: 'session' } : {}),
+                    ...(watch.hop > 0 ? { hop: watch.hop } : {}),
+                    ...roomFrom(watch.homeSessionId),
+                  }),
             finish: async (status, text, answerId) => {
               done = true;
               unsubscribe();
@@ -925,13 +945,16 @@ function createSendSettlement(log) {
   const settledTurns = new WeakMap();
   let sendCount = 0;
 
-  /** Add send `member` (`{ seq, id, unwatch, settle }`) to the settlement
+  /** Add send `member` (`{ seq, id, notify, unwatch, settle }`) to the settlement
    *  `detail` of its turn, per reporting conversation. The sends of one turn
    *  settle in the same tick; after it the earliest (the turn's own, whose
    *  record holds the whole turn) settles with all their ids and the others
    *  stand down. */
   function join(detail, origin, member) {
-    const key = `${origin.agentId}\0${origin.sessionId}`;
+    // Sends that report and sends that do not settle apart: the group's first
+    // member settles for the group, so a quiet one must never stand for a
+    // send that owes a report.
+    const key = `${origin.agentId}\0${origin.sessionId}\0${member.notify ? 'report' : 'quiet'}`;
     let groups = settledTurns.get(detail);
     if (!groups) {
       groups = new Map();
@@ -1074,13 +1097,19 @@ function startedGate() {
 export function createAgentTaskSessions({
   getSessionService,
   deliver = async (agentId, report) => (await import('./agent-home-delivery.mjs')).deliverAgentTask(agentId, report),
-  // The durable watch of each reporting turn until its end is queued.
+  // The durable watch of each reporting turn until its end is queued. A bot's
+  // turn that reports nothing (reports off, or a watch that could not be
+  // stored) keeps a record of its work instead (`own`, `owned`, `disown`),
+  // which no report and no hand-off follows: a restart re-attaches both.
   watches = {
     add: async (watch) => (await import('./agent-home-delivery.mjs')).watchAgentTask(watch),
     list: async () => (await import('./agent-home-delivery.mjs')).agentTaskWatches(),
     remove: async (runId) => (await import('./agent-home-delivery.mjs')).unwatchAgentTask(runId),
     follow: async (runId, submissionId) =>
       (await import('./agent-home-delivery.mjs')).followAgentTask(runId, submissionId),
+    own: async (work) => (await import('./agent-home-delivery.mjs')).ownAgentTask(work),
+    owned: async () => (await import('./agent-home-delivery.mjs')).agentOwnedTasks(),
+    disown: async (runId) => (await import('./agent-home-delivery.mjs')).disownAgentTask(runId),
   },
   // Submissions still queued (durably) for a session after a restart.
   queuedSubmissionIds = async (sessionId) =>
@@ -1209,7 +1238,35 @@ export function createAgentTaskSessions({
         log(`report of ${sessionId} failed: ${error?.message || error}`)
       );
     let unwatch = () => {};
-    // Set once the turn ended completed: the report waits for the final answer.
+    // The agent's work in `sessionId`: owned from the send's acceptance until
+    // it settles or is cancelled, whether or not it reports (`notify`). A send
+    // that holds no report watch keeps a durable record of the work instead
+    // (`watches.own`), so a restart re-attaches it (recover); the writes of
+    // one send go in order, so a record never outlives its work.
+    let owning = true;
+    let recorded = false;
+    let recording = Promise.resolve();
+    const record = (write) => {
+      recording = recording
+        .then(write)
+        .catch((error) => log(`recording the work of ${sessionId} failed: ${error?.message || error}`));
+      return recording;
+    };
+    // The work of every send `ids` this turn answered ends together: one
+    // write drops all their records (a send standing down for the turn's
+    // first leaves its record to that one write).
+    const disown = (ids = [id]) => {
+      owning = false;
+      for (const done of ids) endBotWork(done);
+      if (recorded || ids.length > 1) void record(() => watches.disown?.(ids));
+    };
+    const standDown = () => {
+      unwatch();
+      owning = false;
+      endBotWork(id);
+    };
+    // Set once the turn ended completed: the work and any report wait for the
+    // final answer.
     let follow = null;
     let result;
     /** This send ends the turn `detail` for the sends `answered` (createSendSettlement). */
@@ -1217,11 +1274,12 @@ export function createAgentTaskSessions({
       sendIds = answered;
       const status = turnStatus(detail);
       const text = detail?.result?.content || detail?.error || '';
-      // A failed or cancelled turn reports at once; a completed one
-      // reports the task's final answer (followToFinal).
+      // A failed or cancelled turn ends at once; a completed one ends with
+      // the task's final answer (followToFinal).
       if (status !== 'completed') {
         unwatch();
-        void report(status, text);
+        disown(sendIds);
+        if (notify) void report(status, text);
         return;
       }
       follow = followToFinal({
@@ -1231,23 +1289,23 @@ export function createAgentTaskSessions({
         immediate: { status, text },
         finish: async (endStatus, endText, answerId) => {
           unwatch();
-          await report(endStatus, endText, { answerId });
+          disown(sendIds);
+          if (notify) await report(endStatus, endText, { answerId });
         },
-        // Each other answer of its chain: a progress update that wakes nobody.
-        interim: (answer) => deliverReport('working', answer.text, { answerId: answer.id }),
+        // Each other answer of its chain: a progress update that wakes nobody
+        // (only a send that reports gives them).
+        ...(notify ? { interim: (answer) => deliverReport('working', answer.text, { answerId: answer.id }) } : {}),
       });
       follow.check();
     };
     try {
-      if (notify) {
-        runtime = await sessions.materializeSession(sessionId);
-        const onState = approvalWaitReporter(id, report);
-        unwatch =
-          runtime?.subscribe?.(() => {
-            follow?.check();
-            onState(runtime.getState?.() || {});
-          }) || unwatch;
-      }
+      runtime = await sessions.materializeSession(sessionId);
+      const onState = notify ? approvalWaitReporter(id, report) : null;
+      unwatch =
+        runtime?.subscribe?.(() => {
+          follow?.check();
+          onState?.(runtime.getState?.() || {});
+        }) || unwatch;
       // A bot's send to a session that is not its own task session reaches the
       // model inside the sender envelope (`envelopeName`, set by reportOrigin).
       const sent = origin.envelopeName
@@ -1259,39 +1317,55 @@ export function createAgentTaskSessions({
         id,
         mode: 'prompt',
         transcriptMeta: sendTranscriptMeta(origin),
-        ...(notify
-          ? {
-              // A room answers this send in a turn under another submission
-              // id (one turn for several sends, or a fresh turn for one cut
-              // short): the watch follows that turn, recorded before it runs.
-              follow: (submissionId) => watches.follow?.(id, submissionId),
-              onSettled: (detail) =>
-                settlement.join(detail, origin, {
-                  seq,
-                  id,
-                  unwatch: () => unwatch(),
-                  settle: (answered) => settleTurn(detail, answered),
-                }),
-            }
-          : {}),
+        // A room answers this send in a turn under another submission id (one
+        // turn for several sends, or a fresh turn for one cut short): the
+        // watch follows that turn, recorded before it runs.
+        ...(notify ? { follow: (submissionId) => watches.follow?.(id, submissionId) } : {}),
+        onSettled: (detail) =>
+          settlement.join(detail, origin, {
+            seq,
+            id,
+            notify,
+            // Standing down for the turn's first send, which owns the same work.
+            unwatch: standDown,
+            settle: (answered) => settleTurn(detail, answered),
+          }),
       });
     } catch (error) {
       unwatch();
+      disown();
       if (notify) await dropWatch();
       throw error;
     }
     const accepted = result?.accepted === true;
     if (!accepted) {
       unwatch();
+      disown();
       if (notify) await dropWatch();
+    } else if (owning) {
+      // Unless it already settled: nothing then is left to end the work.
+      noteBotWork({ runId: id, sessionId, agentId: origin.agentId });
+      if (!notify) {
+        recorded = true;
+        await record(() =>
+          watches.own?.({
+            runId: id,
+            agentId: origin.agentId,
+            taskSessionId: sessionId,
+            owner: processToken,
+            at: Date.now(),
+          })
+        );
+      }
     }
     return sendResult(accepted, notify, id, noReport);
   }
 
-  const rearm = (watch) =>
+  const rearm = (watch, options) =>
     rearmTaskWatch(
       {
         deliver,
+        disown: async (runId) => watches.disown?.(runId),
         loadSession,
         materializeSession: (sessionId) => service().materializeSession(sessionId),
         queuedSubmissionIds,
@@ -1299,13 +1373,25 @@ export function createAgentTaskSessions({
         followToFinal,
         log,
       },
-      watch
+      watch,
+      options
     );
 
-  /** Daemon start: re-attach every reporting turn an earlier process watched.
+  /** Daemon start: re-attach every reporting turn an earlier process watched,
+   *  and every turn of a bot's that reported nothing but whose work it owned
+   *  (nothing is reported for those, they are only the bot's work again).
    *  Resolves once each is reported or watched. */
   async function recover() {
-    const pending = (await watches.list()).filter((watch) => watch?.owner !== processToken);
+    const earlier = (list) => list.filter((entry) => entry?.owner !== processToken);
+    const pending = earlier(await watches.list());
+    const quiet = earlier(
+      await Promise.resolve(watches.owned?.() ?? [])
+        .then((list) => (Array.isArray(list) ? list : []))
+        .catch((error) => {
+          log(`reading the records of bot work failed: ${error?.message || error}`);
+          return [];
+        })
+    );
     // The agents the restart killed become queued failure results first, so
     // each re-attached task session has them to take (followToFinal wakeOwed).
     if (pending.length) {
@@ -1313,12 +1399,15 @@ export function createAgentTaskSessions({
         .then(settleAgentResults)
         .catch((error) => log(`settling the agents of the previous process failed: ${error?.message || error}`));
     }
-    await Promise.all(
-      pending.map((watch) =>
-        rearm(watch).catch((error) => log(`re-attaching ${watch?.taskSessionId} failed: ${error?.message || error}`))
-      )
-    );
-    return pending.length;
+    const reattach = (work, options) =>
+      rearm(work, options).catch((error) =>
+        log(`re-attaching ${work?.taskSessionId} failed: ${error?.message || error}`)
+      );
+    await Promise.all([
+      ...pending.map((watch) => reattach(watch)),
+      ...quiet.map((work) => reattach(work, { quiet: true })),
+    ]);
+    return pending.length + quiet.length;
   }
 
   /** Create the task session for `brief` and start it; returns at once.

@@ -346,7 +346,8 @@ export class SessionHost implements DesktopService {
         !('agentWorking' in row) &&
         !('awaitingApproval' in row) &&
         !('awaitingQuestion' in row) &&
-        !('handoffQuestions' in row)
+        !('handoffQuestions' in row) &&
+        !('handedBy' in row)
       )
         return row;
       changed = true;
@@ -356,6 +357,7 @@ export class SessionHost implements DesktopService {
         awaitingApproval: _awaitingApproval,
         awaitingQuestion: _awaitingQuestion,
         handoffQuestions: _handoffQuestions,
+        handedBy: _handedBy,
         ...settled
       } = row;
       return settled;

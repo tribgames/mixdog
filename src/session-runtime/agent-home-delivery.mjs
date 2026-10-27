@@ -332,6 +332,9 @@ export function createRoutineResultQueue(
     rounds: section(doc, 'rounds'),
     // Reporting turns not yet queued, by submission id (agent-task-sessions.mjs).
     watches: section(doc, 'watches'),
+    // The bot-sent turns that hold no watch (reports off, or a watch that could
+    // not be stored), by submission id: work a restart re-attaches.
+    owned: section(doc, 'owned'),
     // Posted task results whose wake turn was not taken yet, per home.
     wakes: section(doc, 'wakes'),
   });
@@ -557,6 +560,26 @@ export function createRoutineResultQueue(
         const watches = { ...doc.watches };
         delete watches[runId];
         return { ...doc, watches };
+      });
+    },
+    /** Keep `work` ({ runId, agentId, taskSessionId, owner, at }): a bot-sent
+     *  turn that reports nothing, until its work ends. It is no watch: it
+     *  owes no report, starts no hand-off and takes no part in a watch cap. */
+    async own(work) {
+      await update((doc) => ({ ...doc, owned: { ...doc.owned, [work.runId]: work } }));
+    },
+    /** Every stored record of bot-sent work that reports nothing, oldest first. */
+    async owned() {
+      return Object.values((await read()).owned);
+    },
+    /** Drop the records of `runIds` (a run id or a list; their work ended), in one write. */
+    async disown(runIds) {
+      const ids = [runIds].flat();
+      await update((doc) => {
+        if (!ids.some((runId) => doc.owned[runId])) return undefined;
+        const owned = { ...doc.owned };
+        for (const runId of ids) delete owned[runId];
+        return { ...doc, owned };
       });
     },
     /** The user spoke in `homeId`: its round trips count from zero again. */
@@ -1351,6 +1374,9 @@ export function createAgentHomeDelivery({
     unwatchTask: (runId) => queue.unwatch(runId),
     followTask: (runId, submissionId) => queue.followWatch(runId, submissionId),
     taskWatches: () => queue.watches(),
+    ownTask: (work) => queue.own(work),
+    disownTask: (runId) => queue.disown(runId),
+    ownedTasks: () => queue.owned(),
     resetRounds: (homeId) => queue.resetRounds(homeId),
   };
 }
@@ -1444,6 +1470,21 @@ export async function unwatchAgentTask(runId) {
 /** One reporting turn's watch follows the turn submitted as `submissionId`. */
 export async function followAgentTask(runId, submissionId) {
   return (await processDelivery()).followTask(runId, submissionId);
+}
+
+/** Keep the record of one bot-sent turn that reports nothing until its work ends. */
+export async function ownAgentTask(work) {
+  return (await processDelivery()).ownTask(work);
+}
+
+/** Drop the record of one bot-sent turn that reports nothing (its work ended). */
+export async function disownAgentTask(runId) {
+  return (await processDelivery()).disownTask(runId);
+}
+
+/** The bot-sent turns that report nothing and whose work was not seen to end. */
+export async function agentOwnedTasks() {
+  return (await processDelivery()).ownedTasks();
 }
 
 /** A user's own message in `homeId`: its round trips with every target restart. */

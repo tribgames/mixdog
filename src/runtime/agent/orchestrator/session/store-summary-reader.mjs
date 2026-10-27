@@ -44,7 +44,11 @@ import {
 import { attachmentHistoryRows } from './stored-attachment-history.mjs';
 import { currentSessionCatalogDb, onSessionCatalogDbChange, sessionCatalogDb } from './catalog-db/index.mjs';
 import { decodeCatalogCursor, encodeCatalogCursor, isAfterCursor } from './catalog-db/schema.mjs';
-import { onSessionActivityChange, onSessionApprovalCardChange } from '../../../shared/session-activity-signal.mjs';
+import {
+  onSessionActivityChange,
+  onSessionApprovalCardChange,
+  onSessionBotWorkChange,
+} from '../../../shared/session-activity-signal.mjs';
 import { inFlightSessionActivity } from './manager/runtime-state.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
@@ -136,6 +140,10 @@ onSessionActivityChange(() => {
 // A session started or stopped waiting on the user's approval: its catalog row
 // (`awaitingApproval`) changed, though no store file did.
 onSessionApprovalCardChange(() => notifyCatalogListeners('approval'));
+// A bot started or stopped having a send in flight in a session: its catalog
+// row (`handedBy`) changed, though neither a file nor the set of working
+// sessions did (the work may already be running, or continue past the end).
+onSessionBotWorkChange(() => notifyCatalogListeners('bot-work'));
 
 /** `listener()` runs when a background pass finds a session file that changed
  *  without a directory or index change, i.e. when an ordinary listing would
