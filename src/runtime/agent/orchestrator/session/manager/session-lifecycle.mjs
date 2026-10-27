@@ -326,26 +326,27 @@ export function contextSeedForRouteUpdate(session, routeChanged, selectedContext
 // ever replaced; custom-prompt or agent layouts without that block are left
 // untouched, and a same-variant switch is a no-op.
 export function _refreshSessionRuleVariantsForModel(session, previousModel, previousProvider = session?.provider) {
+  const ownerIsAgent = isAgentOwner(session);
   const deny = [
     ...(Array.isArray(session?.disallowedTools) ? session.disallowedTools : []),
     ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
-    ...(delegationDisabled(session, isAgentOwner(session)) ? ['agent'] : []),
+    ...(delegationDisabled(session, ownerIsAgent) ? ['agent'] : []),
   ];
   const allowTools = honoredSchemaAllowlist(session?.schemaAllowedTools, {
-    ownerIsAgent: isAgentOwner(session),
+    ownerIsAgent,
     agent: session?.agent || null,
   });
   const previousRules = _buildBaseRules({
     omitTools: [...deny, unusedModelEditToolName(previousModel)],
     allowTools,
-    ownerIsAgent: isAgentOwner(session),
+    ownerIsAgent,
     provider: previousProvider,
     model: previousModel,
   });
   const nextRules = _buildBaseRules({
     omitTools: [...deny, unusedModelEditToolName(session?.model)],
     allowTools,
-    ownerIsAgent: isAgentOwner(session),
+    ownerIsAgent,
     provider: session?.provider,
     model: session?.model,
   });
