@@ -428,6 +428,59 @@ test('a row above the reader that grows into view during a gesture is corrected,
   }
 });
 
+test('a resize queued while its row is wholly above the reader lands compensated once the reader has moved the row wholly into view', async () => {
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const items = turnItems(20);
+  const { rows } = projectSettledTranscriptRows({
+    sessionKey: 'queued-into-view',
+    items,
+    turnKeys: transcriptTurnKeys(items),
+    failedTurns: new Set(),
+  });
+  const heights = new Map(rows.map((row) => [row.key, rowHeight(row)]));
+  let gesture = false;
+  const mount = await mountTranscript(heights, 'queued-into-view', () => gesture);
+  try {
+    await mount.render(rows);
+    await mount.settle();
+    // A prompt (120 px) in the middle of the session, and the row under it.
+    const target = rows.find((row, index) => index > rows.length / 2 && row._tag === 'UserMessage');
+    const index = rows.indexOf(target);
+    const below = rows[index + 1];
+    const start = rows.slice(0, index).reduce((sum, row) => sum + heights.get(row.key), 0);
+    const grown = 30;
+    const slot = () => {
+      const positioned = mount.positioned();
+      return positioned.find((row) => row.key === below.key).top - positioned.find((row) => row.key === target.key).top;
+    };
+    // The row ends 50 px above the viewport top, the reader mid-gesture; it
+    // renders 30 px taller, so its new box still ends above the top: queued.
+    await mount.scrollTo(start + heights.get(target.key) + 50);
+    gesture = true;
+    heights.set(target.key, heights.get(target.key) + grown);
+    await mount.measure();
+    assert.equal(slot(), heights.get(target.key) - grown, 'the size is queued, not applied');
+    // The reader moves the row wholly into view before the queue flushes.
+    const writes = mount.writes();
+    await mount.jump(start - 100);
+    const moved = mount.viewport.scrollTop;
+    assert.equal(slot(), heights.get(target.key) - grown, 'still queued after the reader moved');
+    const offsetBelow = () => mount.positioned().find((row) => row.key === below.key).top - mount.viewport.scrollTop;
+    const before = offsetBelow();
+    const writesBefore = mount.writes();
+    assert.equal(writesBefore, writes + 1, 'only the reader moved the offset');
+    // The pump's animation frame lands it; the observer delivers nothing new.
+    for (let frame = 0; frame < 50 && slot() !== heights.get(target.key); frame += 1) await mount.idle(20);
+    assert.equal(slot(), heights.get(target.key), 'the queued size landed');
+    assert.equal(mount.viewport.scrollTop, moved + grown, 'the native offset moved by exactly the landed growth');
+    assert.equal(mount.writes(), writesBefore + 1, 'as one write');
+    assert.equal(offsetBelow(), before, 'the row below stays where the reader sees it');
+  } finally {
+    await mount.cleanup();
+  }
+});
+
 test('a wheel ramp never has scrollTop written under it: a correction is held as a row offset and lands once', async () => {
   const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
   const { transcriptTurnKeys } = await import('./renderer-logic.mjs');

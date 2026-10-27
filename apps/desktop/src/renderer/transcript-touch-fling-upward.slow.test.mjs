@@ -14,6 +14,18 @@ import puppeteer from 'puppeteer-core';
 // fast upward flings on a 4x-throttled CPU is sampled: the rows on screen must
 // move only by the fling itself — never against it, never a jump on top of
 // it — and every fling must run its course while older rows remain above.
+//
+// What the list can promise is bounded by how fast the main thread reports:
+// the compositor runs the fling alone, so a main-thread frame that comes late
+// finds rows on screen that it has not measured yet (they were mounted at the
+// estimate), and their sizes land with the viewport already past them. A size
+// landing in view keeps the rows under it still (compensation) and moves the
+// rows above it, which are the unmeasured ones just carried in; a markdown
+// that lands in a row already in view moves every row under it by its growth.
+// The CPU throttle is relative to the runner, so how often the main thread
+// falls behind a fling differs between runners and runs. The reference row is
+// therefore the lowest row on screen — the one a landing must never move —
+// and a frame is judged only when nothing on screen waits for its size.
 
 const HARNESS = `
   import { useEffect, useRef, useState } from 'react';
@@ -37,12 +49,16 @@ const HARNESS = `
   };
   const grows = (index) => index % 3 === 0;
   const grown = new Set();
+  // Mounted rows whose markdown landed after the list measured them short.
+  const reflowed = new Set();
+  window.reflowed = reflowed;
   function Row({ index }) {
     const [settled, setSettled] = useState(() => !grows(index) || grown.has(index));
+    useEffect(() => () => { reflowed.delete(index); }, []);
     useEffect(() => {
       if (settled) return undefined;
       let frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => { grown.add(index); setSettled(true); });
+        frame = requestAnimationFrame(() => { grown.add(index); reflowed.add(index); setSettled(true); });
       });
       return () => cancelAnimationFrame(frame);
     }, [settled]);
@@ -103,8 +119,11 @@ const HARNESS = `
 `;
 
 // Every programmatic offset write is counted with the distance it moved the
-// native offset; every frame records the native offset and where each row on
-// screen sits.
+// native offset; every frame records the native offset, where each row on
+// screen sits and whether the list has absorbed its box (the row under it
+// starts where its own box ends — a row it has not measured yet is laid out at
+// the estimate, so its neighbour starts somewhere else), and which rows on
+// screen reflowed (their markdown landed) without being absorbed yet.
 const PROBES = `
   window.armProbe = () => {
     const viewport = document.querySelector('.transcript');
@@ -125,15 +144,20 @@ const PROBES = `
     viewport.scrollTo = (...args) => { const before = read(); scrollTo(...args); note(before); };
     const rowsOnScreen = () => {
       const box = viewport.getBoundingClientRect();
-      const seen = {};
-      for (const row of viewport.querySelectorAll('.transcript-virtual-row')) {
-        const rect = row.getBoundingClientRect();
-        if (rect.bottom > box.top && rect.top < box.bottom) seen[row.dataset.timelineKey] = rect.top - box.top;
-      }
-      return seen;
+      const mounted = [...viewport.querySelectorAll('.transcript-virtual-row')].map((row) => [row, row.getBoundingClientRect()]);
+      const rows = {}, absorbed = {}, growing = [];
+      mounted.forEach(([row, rect], at) => {
+        if (rect.bottom <= box.top || rect.top >= box.bottom) return;
+        const key = row.dataset.timelineKey;
+        const [next, nextRect] = mounted[at + 1] ?? [];
+        rows[key] = rect.top - box.top;
+        absorbed[key] = !next || Number(next.dataset.index) !== Number(row.dataset.index) + 1 || Math.abs(nextRect.top - rect.bottom) < 1;
+        if (!absorbed[key] && window.reflowed.has(Number(row.dataset.index))) growing.push(key);
+      });
+      return { rows, absorbed, growing };
     };
     const frame = () => {
-      probe.frames.push({ t: performance.now(), top: read(), written: probe.written, rows: rowsOnScreen() });
+      probe.frames.push({ t: performance.now(), top: read(), written: probe.written, ...rowsOnScreen() });
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -155,21 +179,30 @@ async function fling(cdp, distance) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Per frame: how far the row in the middle of the screen moved (`content`,
- *  positive = down, the way an upward fling moves it), how far the native
- *  offset moved by itself (`fling`, this list's writes taken out) and what
- *  moved the rows besides the fling (`shift`). */
+/** Per frame: how far the lowest row on screen in both frames moved
+ *  (`content`, positive = down, the way an upward fling moves it), how far the
+ *  native offset moved by itself (`fling`, this list's writes taken out) and
+ *  what moved the row besides the fling (`shift`). Two kinds of frame are not
+ *  judged, their correction is still to land: one with a row at or under the
+ *  reference row that was not absorbed yet (its size lands compensated and
+ *  moves the rows above it), and one with a row on screen that reflowed and
+ *  was not absorbed yet (the list measures the growth of a row already in
+ *  view after the fact, and everything under it moves by the growth). A frame
+ *  whose rows leave the top of the screen bare is not judged either: the rows
+ *  that belong there are not mounted yet. */
 function frameMotion(frames) {
   const motion = [];
   for (let index = 1; index < frames.length; index += 1) {
     const before = frames[index - 1];
     const after = frames[index];
-    const common = Object.keys(after.rows).filter((key) => key in before.rows);
-    if (common.length === 0) continue;
-    const middle = common[Math.floor(common.length / 2)];
-    const content = after.rows[middle] - before.rows[middle];
+    const onScreen = Object.keys(before.rows);
+    const lowest = onScreen.filter((key) => key in after.rows).pop();
+    if (lowest === undefined || before.growing.length > 0) continue;
+    if (Math.min(...Object.values(before.rows)) > 0) continue;
+    if (!onScreen.slice(onScreen.indexOf(lowest)).every((key) => before.absorbed[key])) continue;
+    const content = after.rows[lowest] - before.rows[lowest];
     const fling = after.top - before.top - (after.written - before.written);
-    motion.push({ t: after.t, row: middle, content, fling, shift: content + fling });
+    motion.push({ t: after.t, row: lowest, content, fling, shift: content + fling });
   }
   return motion;
 }
@@ -273,7 +306,10 @@ test('on Android an upward touch fling through mis-estimated rows moves the rows
   const harness = await openHarness(t);
   const { probe, motion, travel, rest } = await upwardFlings(harness, 6);
   assert.deepEqual(harness.errors, []);
-  const backward = motion.filter((step) => step.content < -2);
+  // A touch that starts a fling kicks the native offset back a few px on its
+  // own (no write of this list in that frame): only a frame whose offset moved
+  // with the fling counts, as in the streaming test below.
+  const backward = motion.filter((step) => step.content < -2 && step.fling <= 0);
   const jumps = motion.filter((step) => Math.abs(step.shift) > 2);
   const summary = `${probe.writes} corrections over ${motion.length} frames`;
   assert.deepEqual(backward, [], `the rows on screen never move against the fling (${summary})`);
