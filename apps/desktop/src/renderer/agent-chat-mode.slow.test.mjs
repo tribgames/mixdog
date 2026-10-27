@@ -2093,9 +2093,10 @@ test('a hand-off line stays until that send’s own report, per send', async (t)
   // Which sends still show their line, in order.
   const open = () => [...document.querySelectorAll('main .mx-handoff-line')].map((line) => line.textContent);
 
-  // Two sends to one session in a round: each its own line.
+  // Two sends to one session in a round paint one line with their count.
   await show([round('r1', [send('a', DEV, 'atask_1'), send('b', DEV, 'atask_2')])]);
-  assert.equal(open().length, 2);
+  assert.equal(open().length, 1);
+  assert.match(open()[0], /×2/);
   // Across rounds: send A, send B, then A's answer: only B still owes one.
   const rounds = [round('r1', [send('a', DEV, 'atask_1')]), round('r2', [send('b', DEV, 'atask_2')])];
   await show(rounds);
