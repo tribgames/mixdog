@@ -11,6 +11,7 @@ import { createModelRouteApi } from '../model-route-api.mjs';
 import { createWorkflowAgentsApi } from '../workflow-agents-api.mjs';
 import { createWorkflowRouteHelpers } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { createSettingsApi } from '../settings-api.mjs';
+import { createDeveloperSettings } from '../settings-developer-api.mjs';
 import {
   normalizeAutoClearConfig,
   normalizeCompactionConfig,
@@ -563,6 +564,36 @@ test('an agent cannot turn on Allow all actions, even with riskAccepted; it may 
   assert.deepEqual(calls, []);
   await run(api, { action: 'set_developer_option', name: 'allowAllActions', enabled: false });
   assert.deepEqual(calls, [['allowAllActions', false]]);
+});
+
+test('Direct phone connection round-trips through the real developer settings: off, warned, on, off', async () => {
+  let config = {};
+  const api = createDeveloperSettings({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+  });
+  const option = async () => {
+    const view = await run(api, { action: 'status', domain: 'developer' });
+    return view.sections.flatMap((section) => section.options).find((row) => row.id === 'directPhoneConnection');
+  };
+  const listed = await option();
+  assert.equal(listed.label, 'Direct phone connection (test)');
+  assert.equal(listed.enabled, false);
+  assert.ok(listed.warning);
+  await assert.rejects(
+    run(api, { action: 'set_developer_option', name: 'directPhoneConnection', enabled: true }),
+    /riskAccepted:true/
+  );
+  assert.equal((await option()).enabled, false);
+  assert.equal(config.developer, undefined);
+  await run(api, { action: 'set_developer_option', name: 'directPhoneConnection', enabled: true, riskAccepted: true });
+  assert.equal((await option()).enabled, true);
+  assert.deepEqual(config.developer, { directPhoneConnection: true });
+  await run(api, { action: 'set_developer_option', name: 'directPhoneConnection', enabled: false });
+  assert.equal((await option()).enabled, false);
+  assert.deepEqual(config.developer, { directPhoneConnection: false });
 });
 
 test('profile edits reject unknown language or experience ids instead of silently resetting them', async () => {

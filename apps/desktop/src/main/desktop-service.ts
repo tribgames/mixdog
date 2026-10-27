@@ -79,13 +79,14 @@ import {
   readLegacyMutedAgents,
 } from './notification-preferences';
 import type { RelayNotificationDeps } from './remote-relay-session-wiring';
-import { REMOTE_TRANSPORT_OFFER_ENABLED } from './remote-transport/coordinator';
 import {
+  REMOTE_TRANSPORT_LOG_EVENT,
   REMOTE_TRANSPORT_PEER_COMMAND_EVENT,
   REMOTE_TRANSPORT_PEER_OPERATIONS,
   createRemoteTransportPeerService,
   type RemoteTransportPeerService,
 } from './remote-transport/peer-link';
+import { readDirectPhoneConnection } from './remote-transport/switch';
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -594,6 +595,9 @@ async function createRemoteAccess(input: RemoteAccessInput) {
     // The direct carrier's peers run in the desktop app (peer-link.ts); null
     // while the rollout switch is off, and sessions are then relay-only.
     transportPeerHost: input.transportPeers?.peerHost ?? null,
+    transportLog: input.transportPeers
+      ? (line: string) => input.emit({ kind: 'desktop-event', name: REMOTE_TRANSPORT_LOG_EVENT, value: line })
+      : undefined,
     screenControllerKeys: controllerKeys,
   };
   const leg = createRelayLeg({
@@ -926,8 +930,8 @@ function createServiceOperationRouter({
       // The app's direct-transport peer window (peer-link.ts); validated by
       // the stand-in. Refused while the rollout switch is off.
       case REMOTE_TRANSPORT_PEER_OPERATIONS.attach:
-        if (!transportPeers) throw new Error('The direct transport is off.');
-        return transportPeers.standIn.attach();
+        // Off (the app asks regardless): nothing to attach to.
+        return transportPeers ? transportPeers.standIn.attach() : null;
       case REMOTE_TRANSPORT_PEER_OPERATIONS.report:
         transportPeers?.standIn.report(operationArgs[0], operationArgs[1]);
         return null;
@@ -1045,8 +1049,9 @@ export async function createDesktopService({
   const notificationStatus = windowNotificationStatus(browserRemoteRequests);
   // The direct carrier's peers run in the desktop app's hidden peer window:
   // commands go to the window only (never the in-process relay listeners).
-  // Nothing exists while the rollout switch is off.
-  const transportPeers = createRemoteTransportPeerService(REMOTE_TRANSPORT_OFFER_ENABLED, {
+  // Nothing exists while the local "Direct phone connection (test)" switch is
+  // off. It is read once, here: a change applies after Mixdog restarts.
+  const transportPeers = createRemoteTransportPeerService(await readDirectPhoneConnection(runtime.loadConfig), {
     publish: (envelope) => emit({ kind: 'desktop-event', name: REMOTE_TRANSPORT_PEER_COMMAND_EVENT, value: envelope }),
   });
   const remote = await createRemoteAccess({

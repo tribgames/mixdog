@@ -57,12 +57,20 @@ import {
 } from '../shared/remote-webrtc';
 import { remoteWebrtcPeerCertificate, remoteWebrtcSelectedPair } from './remote-webrtc-stats';
 
-/** THE rollout switch for the phone (docs/remote-transport.md §6): whether
- *  this page opts into `transportWebrtc` on its E2EE hello. Off until rollout
- *  step 4; while off the hello, its proof and every frame are the legacy ones
- *  byte for byte. remote-shim-state.ts copies it into `ctx.transportOptIn`,
- *  which only tests override. */
-export const REMOTE_TRANSPORT_PHONE_OPT_IN = false;
+/** The phone's rollout gate (docs/remote-transport.md §6): whether this page
+ *  opts into `transportWebrtc` on its E2EE hello. It does so only when the PC
+ *  itself offered it in this leg's challenge, with binary frames — a member
+ *  the PC sends only while its local "Direct phone connection (test)" switch
+ *  is on. Against any other PC (older, or with the switch off) the hello, its
+ *  proof and every frame are the legacy ones byte for byte. No separate
+ *  consent is asked: the transport adds no authority (same E2EE session, the
+ *  relay stays the fallback); the page only needs WebRTC to carry it. */
+export function remoteTransportOptIn(
+  challenge: { transportWebrtc?: unknown; binaryFrames?: unknown },
+  webrtcAvailable: boolean = typeof RTCPeerConnection === 'function'
+): boolean {
+  return challenge.transportWebrtc === 1 && challenge.binaryFrames === 1 && webrtcAvailable;
+}
 
 const RELAY: RemoteTransportCarrierId = 'relay';
 /** Outstanding pings remembered for RTT matching: the control anti-replay
@@ -234,6 +242,11 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   let reason: RemoteTransportPathReason | null = null;
   let bytesSent = 0;
   let bytesReceived = 0;
+  /** The part of the totals above that moved on a direct carrier. */
+  let directBytesSent = 0;
+  let directBytesReceived = 0;
+  /** The first application record written to a direct carrier is logged once. */
+  let directCarried = false;
   /** Messages handed to `send` and not yet sealed and pushed. */
   let pendingSends = 0;
   /** Highest sequence handed to a carrier (first sends go in order). */
@@ -292,6 +305,11 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
       const target = kind === 'app' ? (path as Direct).app : (path as Direct).control;
       if (!isOpen(target)) throw new Error(`transport ${kind} channel is not open`);
       target.send(message as Uint8Array<ArrayBuffer>);
+      directBytesSent += message.byteLength;
+      if (kind === 'app' && !directCarried) {
+        directCarried = true;
+        options.log(`[mixdog-remote-transport] carrying path=${(path as Direct).turn ? 'turn' : 'direct'}`);
+      }
     }
     bytesSent += message.byteLength;
   };
@@ -833,6 +851,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     const bytes = bytesOf(raw);
     if (!bytes) return;
     bytesReceived += bytes.byteLength;
+    if (carrier !== RELAY) directBytesReceived += bytes.byteLength;
     // Every record of a transport session, `e2ee-ready` (record 1) included,
     // comes through the receiver as `MXT`. A bare E2EE box here is a legacy
     // frame on a transport session: the session ends.
@@ -979,6 +998,10 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     assembler.close();
     held = null;
     wakeRoom();
+    options.log(
+      `[mixdog-remote-transport] ended tx=${bytesSent} rx=${bytesReceived}` +
+        ` direct-tx=${directBytesSent} direct-rx=${directBytesReceived}`
+    );
   }
 
   return {
@@ -1059,6 +1082,8 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
         reason,
         bytesSent,
         bytesReceived,
+        directBytesSent,
+        directBytesReceived,
         queueDepth: load(current),
         outstandingBytes: senderStats.outstandingBytes,
         retransmits: senderStats.retransmits,

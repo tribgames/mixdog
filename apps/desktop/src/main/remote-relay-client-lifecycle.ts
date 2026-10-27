@@ -19,7 +19,6 @@ import type { RemoteClientClaim, RemoteClaimDecision } from './remote-relay-clai
 import type { RelayClientCallOutcome } from './remote-relay-client-calls';
 import type { RelayClientRegistry, RelayClientState, SendEncryptedFrame } from './remote-relay-clients';
 import type { RelayEncryptedDelivery } from './remote-relay-delivery';
-import { REMOTE_TRANSPORT_OFFER_ENABLED } from './remote-transport/coordinator';
 import { noteLegLive } from './remote-transport/foreground';
 
 export interface RelayClientLifecycleDeps {
@@ -52,11 +51,14 @@ export interface RelayClientLifecycleDeps {
   /** This PC's name as phones see it; the OS hostname when omitted. */
   hostName?(): string;
   /** Starts a negotiated transport session (remote-relay-delivery.ts). The
-   *  challenge offers `transportWebrtc` only when this is wired AND the
-   *  rollout switch (REMOTE_TRANSPORT_OFFER_ENABLED) is on. */
+   *  challenge offers `transportWebrtc` only when this is wired AND
+   *  `transportOffer` says the local rollout switch ("Direct phone connection
+   *  (test)") is on. */
   openTransport?: RelayEncryptedDelivery['openTransport'];
-  /** Test seam over REMOTE_TRANSPORT_OFFER_ENABLED; production never sets it. */
+  /** Whether to offer the direct transport. Absent: never offered. */
   transportOffer?(): boolean;
+  /** One diagnostics line per transport offer: offered / negotiated. */
+  transportLog?(line: string): void;
 }
 
 export interface RelayClientLifecycle {
@@ -135,9 +137,11 @@ function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, crede
     fileDownloads: 1 as const,
     browserWebrtc: REMOTE_WEBRTC_VERSION,
     browserFit: 1 as const,
-    // Direct transport (docs/remote-transport.md §6): dormant until the
-    // rollout switch flips; it needs binary frames and a wired stream.
-    ...(deps.relayBinaryFrames() && deps.openTransport && (deps.transportOffer?.() ?? REMOTE_TRANSPORT_OFFER_ENABLED)
+    // Direct transport (docs/remote-transport.md §6): dormant until the local
+    // rollout switch is on; it needs binary frames and a wired stream. This
+    // member is also how a phone learns it may opt in: it never opts in to a
+    // challenge that does not carry it.
+    ...(deps.relayBinaryFrames() && deps.openTransport && deps.transportOffer?.()
       ? { transportWebrtc: 1 as const }
       : {}),
     // Only when the relay can deliver: a renderer calls registerNativePush
@@ -256,6 +260,15 @@ async function completeHandshake(
     // the sync that followed: a busy desktop paid a full open per reconnect.
     client.syncing = client.viewSync;
     logAnnouncedFeatures(clientId, client);
+    // Only a PC that offered has anything to report: offered, and whether this
+    // phone took it (an older phone, or a phone build without the opt-in, does not).
+    if (client.challenge.transportWebrtc === 1) {
+      deps.transportLog?.(
+        `[mixdog-remote-transport] session=${client.challenge.challenge.slice(0, 8)} offered=1 negotiated=${
+          client.channel.transportEnabled ? 1 : 0
+        }`
+      );
+    }
     client.stateLane = createRemoteStateLane(
       client.compactWire,
       (payload, droppable) =>

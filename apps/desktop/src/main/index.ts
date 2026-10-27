@@ -166,8 +166,8 @@ import {
   type RemoteControllerKeyRecord,
   type RemoteControllerKeysOwed,
 } from '../shared/remote-controller-key';
-import { REMOTE_TRANSPORT_OFFER_ENABLED } from './remote-transport/coordinator';
 import {
+  REMOTE_TRANSPORT_LOG_EVENT,
   REMOTE_TRANSPORT_PEER_COMMAND_EVENT,
   REMOTE_TRANSPORT_PEER_OPERATIONS,
   createRemoteTransportPeerEndpoint,
@@ -628,10 +628,11 @@ connectionPool.add(localConnection);
 const localService = localConnection.client;
 /** The direct transport's peers (docs/remote-transport.md §3): the daemon's
  *  coordinators drive them over this PC's daemon connection only. Dormant
- *  while REMOTE_TRANSPORT_OFFER_ENABLED is off: no attach, no window, no
- *  traffic. The hidden peer window opens on the first `create`. */
+ *  while the daemon's "Direct phone connection (test)" switch is off (it
+ *  answers the attach with nothing): no peers, no window, no traffic. The
+ *  hidden peer window opens on the first `create`. */
 const remoteTransportPeers = createRemoteTransportPeerEndpoint({
-  enabled: REMOTE_TRANSPORT_OFFER_ENABLED,
+  enabled: true,
   createBridge: () =>
     createRemoteTransportPeerWindow({
       page: (() => {
@@ -1157,6 +1158,11 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
   // Only this PC's daemon connection drives the peer window.
   if (name === REMOTE_TRANSPORT_PEER_COMMAND_EVENT) {
     remoteTransportPeers.command(value);
+    return;
+  }
+  // One diagnostics line of a transport session (the daemon has no file).
+  if (name === REMOTE_TRANSPORT_LOG_EVENT) {
+    if (typeof value === 'string') diagnostics?.write('remote-transport-pc', { line: value.slice(0, 500) });
     return;
   }
   if (name === 'session-runtime-released') {

@@ -19,7 +19,7 @@ import { REMOTE_CONNECTION_READY_EVENT, REMOTE_SECURE_CHANNEL_READY_EVENT } from
 import type { RemoteShimContext } from './remote-shim-state';
 import { publishMediaKey, revokeMediaKey } from './remote-media-lane';
 import { notifyMediaSessionChanged } from './remote-file-preview';
-import { createRemoteTransportPeer, type RemoteTransportPeer } from './remote-transport-peer';
+import { createRemoteTransportPeer, remoteTransportOptIn, type RemoteTransportPeer } from './remote-transport-peer';
 
 /** Challenges a joining socket may answer again after its first one, before
  *  it is ready: each is one PC leg replaced mid-handshake. */
@@ -150,6 +150,8 @@ const openSocketAttempt = (
   let handshakeStarted = false;
   let handshakeRestarts = 0;
   let handshakeGeneration = 0;
+  /** The current challenge, as this phone saw it, offered the transport. */
+  let offerSeen = false;
   const reportFailure = (issue: RemoteConnectionIssue, error?: unknown, code?: number): void => {
     failureReported = true;
     reportRemoteConnectionIssue(issue, error, code);
@@ -249,6 +251,13 @@ const openSocketAttempt = (
       // The host's authenticated word on the handshake comes first: a
       // missing, stripped or altered transcript throws here, before the
       // session is opened or anything is sent on it, and the attempt ends.
+      // Only a PC that offered the transport ever adds a transcript. One
+      // arriving for a challenge this phone saw WITHOUT the offer means the
+      // relay stripped the offer (or binary frames) in between: refused, never
+      // a silent legacy session. A PC that offered nothing sends none.
+      if (message.transcript !== undefined && !offerSeen) {
+        throw new Error('Relay encryption handshake transcript mismatch.');
+      }
       ctx.secureChannel?.confirmHandshake(message);
       ctx.transport?.confirm();
       // Only now may the worker route media over this session, under the
@@ -402,13 +411,25 @@ const openSocketAttempt = (
         // snapshot decoder applies head patches to the prompt history; a
         // desktop that predates it ignores the flag and keeps sending the
         // whole field. Without the opt-in the hello is the legacy one.
+        // The opt-in follows the PC's own offer in this challenge (a PC that
+        // did not offer is answered exactly as before).
+        offerSeen = clear.transportWebrtc === 1 && clear.binaryFrames === 1;
+        const optIn = remoteTransportOptIn(clear);
         const handshake = await createRelayE2EEClientHandshake(ctx.e2eePairing, clear, {
-          ...(ctx.transportOptIn ? { transportWebrtc: true } : {}),
+          ...(optIn ? { transportWebrtc: true } : {}),
           helloFields: { viewSync: 1, promptHistoryPatch: 2 },
         });
         // A newer challenge arrived while this one was being answered.
         if (closed || generation !== handshakeGeneration) return;
         ctx.secureChannel = handshake.channel;
+        // Logged only when the PC offered: offered, opted in, negotiated.
+        if (clear.transportWebrtc === 1) {
+          console.info(
+            `[mixdog-remote-transport] session=${clear.challenge.slice(0, 8)} offered=1 opt-in=${optIn ? 1 : 0} negotiated=${
+              handshake.channel.transportEnabled ? 1 : 0
+            }`
+          );
+        }
         if (handshake.channel.transportEnabled) {
           const peer: RemoteTransportPeer = createRemoteTransportPeer({
             channel: handshake.channel,
@@ -430,7 +451,9 @@ const openSocketAttempt = (
           });
           ctx.transport = peer;
           // Its requests take the same send path as every other message.
-          ctx.transportMedia = ctx.createTransportMedia({ send: (message) => peer.send(message).then(() => undefined) });
+          ctx.transportMedia = ctx.createTransportMedia({
+            send: (message) => peer.send(message).then(() => undefined),
+          });
         }
         // The worker decrypts media with this session's key; it never leaves
         // this browser. Only a host that advertised the lane derived one.

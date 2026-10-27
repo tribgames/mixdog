@@ -60,13 +60,11 @@ import { resolveRemoteIceServers } from '../remote-ice-servers';
 import type { RemoteTransportMediaAdapter, RemoteTransportMediaLink } from './media';
 import type { RemoteTransportPeerBridge } from './peer-window';
 
-/** ROLLOUT SWITCH (docs/remote-transport.md §6). While false the desktop's
- *  E2EE challenge does not offer `transportWebrtc`, so every session is
- *  legacy, byte for byte, and this coordinator never runs (step 3: "the offer
- *  stays off; the coordinator and peer host ship dormant"). Step 4 (enable)
- *  sets it to true; nothing else gates the offer
- *  (remote-relay-client-lifecycle.ts reads only this). */
-export const REMOTE_TRANSPORT_OFFER_ENABLED = false;
+// The rollout switch is not a constant here any more: it is the local
+// developer option "Direct phone connection (test)" (switch.ts, docs/
+// remote-transport.md §6). Off, the desktop's E2EE challenge does not offer
+// `transportWebrtc`, so every session is legacy, byte for byte, and this
+// coordinator never runs.
 
 // ---------------------------------------------------------------------------
 // Stage 1B bridge: the hidden peer renderer (main/remote-transport/peer-window.ts)
@@ -477,6 +475,11 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
   let relayInFlight = 0;
   let bytesSent = 0;
   let bytesReceived = 0;
+  /** The part of the totals above that moved on a direct carrier. */
+  let directBytesSent = 0;
+  let directBytesReceived = 0;
+  /** The first application record written to a direct carrier is logged once. */
+  let directCarried = false;
   let malformed = 0;
   let forged = 0;
   let pendingOpens = 0;
@@ -591,6 +594,11 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     }
     if (!carrier.peer?.send(channel, message)) return false;
     bytesSent += message.byteLength;
+    directBytesSent += message.byteLength;
+    if (channel === 'app' && !directCarried) {
+      directCarried = true;
+      log(`${label} carrying path=${carrier.relayed ? 'turn' : 'direct'} generation=${carrier.generation}`);
+    }
     return true;
   };
 
@@ -1055,6 +1063,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
   const receive = (key: string, raw: Uint8Array): void => {
     if (closed || (key !== RELAY && direct?.id !== key)) return;
     bytesReceived += raw.byteLength;
+    if (key !== RELAY) directBytesReceived += raw.byteLength;
     let message: ReturnType<typeof decodeRemoteTransportMessage>;
     try {
       message = decodeRemoteTransportMessage(raw);
@@ -1245,7 +1254,10 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     // Every media pump stops; nothing more is sent.
     mediaAdapter?.close();
     writableListeners.clear();
-    log(`${label} ended reason=${endReason} ambiguous-calls=${ambiguousCallIds.length}`);
+    log(
+      `${label} ended reason=${endReason} ambiguous-calls=${ambiguousCallIds.length}` +
+        ` tx=${bytesSent} rx=${bytesReceived} direct-tx=${directBytesSent} direct-rx=${directBytesReceived}`
+    );
     return ended;
   };
 
@@ -1286,6 +1298,8 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
         reason,
         bytesSent,
         bytesReceived,
+        directBytesSent,
+        directBytesReceived,
         queueDepth: queue.length,
         outstandingBytes: stats.outstandingBytes,
         retransmits: stats.retransmits,

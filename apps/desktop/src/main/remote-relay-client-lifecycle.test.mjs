@@ -249,6 +249,7 @@ async function transportHarness({ offer = true } = {}) {
   const pairing = relayE2EEPairingMaterial(identity);
   const envelopes = [];
   const writes = [];
+  const logs = [];
   const clients = createRelayClientRegistry({
     host: { setVisibleSessionsForSource: async () => true },
     sendEnvelope: (payload) => envelopes.push(payload),
@@ -279,16 +280,47 @@ async function transportHarness({ offer = true } = {}) {
     resyncClient: () => {},
     joinFrames: () => [{ event: 'browserApprovalSessions', payload: [] }],
     openTransport: delivery.openTransport,
-    transportOffer: () => offer,
+    // null: the dependency is not wired at all (how a PC without the switch runs).
+    ...(offer === null ? {} : { transportOffer: () => offer }),
+    transportLog: (line) => logs.push(line),
   });
   lifecycle.open('c11e1700-0001', CREDENTIAL);
   const challenge = JSON.parse(envelopes.find((entry) => entry.type === 'frame').data);
-  return { pairing, clients, lifecycle, challenge, writes };
+  return { pairing, clients, lifecycle, challenge, writes, logs };
 }
 
 test('the transport offer stays off unless the rollout switch is on', async () => {
-  const h = await transportHarness({ offer: false });
-  assert.equal('transportWebrtc' in h.challenge, false);
+  for (const offer of [false, null]) {
+    const h = await transportHarness({ offer });
+    assert.equal('transportWebrtc' in h.challenge, false, `offer=${offer}`);
+    // A phone answering that challenge opts into nothing, and the PC logs nothing about transport.
+    const { hello } = await createRelayE2EEClientHandshake(h.pairing, h.challenge);
+    const client = h.clients.get('c11e1700-0001');
+    h.lifecycle.receive('c11e1700-0001', client, JSON.stringify(hello));
+    await client.frameQueue;
+    assert.equal(client.transport, undefined);
+    assert.deepEqual(h.logs, []);
+  }
+});
+
+test('the offering PC logs offered and negotiated per phone', async () => {
+  const optedIn = await transportHarness();
+  const { hello } = await createRelayE2EEClientHandshake(optedIn.pairing, optedIn.challenge, { transportWebrtc: true });
+  const client = optedIn.clients.get('c11e1700-0001');
+  optedIn.lifecycle.receive('c11e1700-0001', client, JSON.stringify(hello));
+  await client.frameQueue;
+  const session = optedIn.challenge.challenge.slice(0, 8);
+  assert.deepEqual(optedIn.logs, [`[mixdog-remote-transport] session=${session} offered=1 negotiated=1`]);
+  optedIn.clients.remove('c11e1700-0001');
+
+  const older = await transportHarness();
+  const legacy = await createRelayE2EEClientHandshake(older.pairing, older.challenge);
+  const olderClient = older.clients.get('c11e1700-0001');
+  older.lifecycle.receive('c11e1700-0001', olderClient, JSON.stringify(legacy.hello));
+  await olderClient.frameQueue;
+  assert.deepEqual(older.logs, [
+    `[mixdog-remote-transport] session=${older.challenge.challenge.slice(0, 8)} offered=1 negotiated=0`,
+  ]);
 });
 
 test('a transport session sends the transcript confirmation in e2ee-ready, its first record', async () => {

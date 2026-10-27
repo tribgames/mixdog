@@ -63,7 +63,11 @@ A client that opted in (`transportWebrtc: true`) cannot seal anything until
   nothing. It is accepted only if this client saw no offer either.
 
 A relay that strips the offer, or `binaryFrames`, from the challenge therefore
-gets a refused session, never a silent legacy one.
+gets a refused session, never a silent legacy one. The phone opts in only when
+the challenge **it saw** offered the transport (§6), so after a strip it has not
+opted in. The transcript gives the strip away instead: only an offering host
+adds one, so a phone that saw no offer and receives a `transcript` in
+`e2ee-ready` refuses the session (`renderer/remote-shim-socket.ts`).
 
 **How `e2ee-ready` travels — exactly one way per session.** Both ends know,
 from the challenge and the hello, whether the session is a transport session
@@ -85,7 +89,8 @@ selected it):
   An offering host serves it a legacy session. Nothing is downgraded, because
   that browser could never select transport.
 - **Older or gated host** (no offer): its `e2ee-ready` carries no transcript.
-  The opted-in browser confirms the host offered nothing and uses a legacy session.
+  The browser saw no offer, so it does not opt in and uses a legacy session
+  (a `transcript` in that `e2ee-ready` would be refused, above).
 
 ### Legacy, byte for byte
 
@@ -553,19 +558,59 @@ Control traffic (acks, pings, signaling) is not affected.
 ## 6. Rollout
 
 1. **Relay.** No protocol change; it must never drop transport frames.
-2. **Phone page.** The opt-in stays off, and `helloFields` and
-   `confirmHandshake` are wired.
-3. **PC.** The offer stays off; the coordinator and peer host ship dormant.
-4. **Enable.** The PC offers and the phone opts in.
+2. **Phone page.** `helloFields` and `confirmHandshake` are wired. The phone has
+   no switch of its own: it opts in (`remoteTransportOptIn`,
+   `renderer/remote-transport-peer.ts`) only when the challenge it received
+   offers `transportWebrtc` with `binaryFrames` and the page has
+   `RTCPeerConnection`. The relay-served page is shared by every user, so this
+   is what keeps a PC without the offer exactly as before: it never offers, and
+   its phone never opts in (its hello, proof and frames are the legacy ones).
+   No consent prompt is added: the transport adds no authority (same E2EE
+   session, the relay stays the fallback).
+3. **PC.** The offer is off by default and ships dormant (coordinator and peer
+   host included). It is a **local, per-PC switch**, not a build constant: the
+   developer option **Direct phone connection (test)** (Settings → Developer
+   options → Remote; setup tool `set_developer_option` with name
+   `directPhoneConnection`, `enabled:true`, `riskAccepted:true`), stored at
+   agent config `developer.directPhoneConnection`. The desktop service reads
+   it **once at start-up** (`main/remote-transport/switch.ts`), so a change
+   applies after Mixdog restarts. On, the service builds the peer service and
+   the challenge carries `transportWebrtc: 1`; off, nothing exists and no
+   challenge, hello, frame or log changes. The desktop app always asks the
+   service to attach its peer window and the service answers nothing while off.
+4. **Enable for everyone.** Make the PC's default on (or retire the option);
+   no phone change is needed.
+
+Test on a real phone with one PC: turn the option on, restart Mixdog, open the
+phone. Mixed pairs stay legacy: an old PC never offers, so a new phone never
+opts in; a new PC that offers serves an older phone a legacy session (§1).
 
 ## 7. Diagnostics (never content)
 
 Per session:
 - the path (`relay` | `direct` | `turn`) and the last promotion or demotion reason;
-- bytes sent and received;
+- bytes sent and received, and the part that moved on a direct carrier
+  (`directBytesSent` / `directBytesReceived`);
 - queue depth and outstanding bytes;
 - retransmits;
 - receiver duplicates, discards, evictions, and head and future bytes.
+
+Log lines (only while the PC offers; prefix `[mixdog-remote-transport]`):
+- **PC** — `session=<8> offered=1 negotiated=0|1` per phone handshake (did the
+  phone take the offer); `path=direct|turn reason=channel-open` and
+  `path=relay reason=…` on every promotion and demotion; `carrying path=direct`
+  once, at the first application record written to a direct carrier;
+  `ended … tx= rx= direct-tx= direct-rx=` when the session ends (the direct
+  share is what really moved on the direct path). The daemon has no
+  diagnostics file, so these lines also reach the app as the
+  `remote-transport-log` desktop event and are written to
+  `%APPDATA%\mixdog-desktop\logs\desktop-diagnostics.jsonl` as
+  `{"event":"remote-transport-pc","line":"…"}`. The hidden peer window's own
+  events are `remote-transport-peer-*` in the same file; a failed attach is
+  `remote-transport-attach-failed`.
+- **Phone** (its browser console, `chrome://inspect` / Safari Web Inspector) —
+  `session=<8> offered=1 opt-in=0|1 negotiated=0|1`, the same `path=` lines,
+  `carrying path=…` and `ended tx= rx= direct-tx= direct-rx=`.
 
 ## 8. Routing inventory
 

@@ -59,6 +59,22 @@ export const DEVELOPER_SECTIONS = Object.freeze([
       }),
     ]),
   }),
+  Object.freeze({
+    id: 'remote',
+    label: 'Remote',
+    options: Object.freeze([
+      // Read once at desktop start-up (apps/desktop/src/main/remote-transport/switch.ts):
+      // docs/remote-transport.md §6.
+      Object.freeze({
+        id: 'directPhoneConnection',
+        label: 'Direct phone connection (test)',
+        description:
+          'Lets a paired phone talk to this PC directly instead of through the relay. Takes effect after you restart Mixdog.',
+        warning:
+          'Experimental: the direct phone connection is still being tested and may make the phone connection less reliable. Restart Mixdog after changing it.',
+      }),
+    ]),
+  }),
 ]);
 
 function findOption(matches) {

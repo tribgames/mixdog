@@ -3,6 +3,9 @@ import test from 'node:test';
 import { acceptRelayE2EEClientHello, createRelayE2EEChallenge } from '../shared/remote-e2ee.ts';
 import { FakeSocket, settle, until, withShim } from './remote-shim-test-harness.mjs';
 
+// The phone opts in only where WebRTC exists (remoteTransportOptIn).
+globalThis.RTCPeerConnection ??= class {};
+
 /** Open one socket attempt and stop before any challenge: the joining phone. */
 async function joiningSocket(ctx) {
   const known = FakeSocket.instances.length;
@@ -82,7 +85,6 @@ const { encodeRemoteTransportRecord } = await import('../shared/remote-transport
 /** Hand-drives one handshake: `seen` is the challenge as the relay shows it,
  *  `offered` the one the PC issued. Returns the leg and the PC's channel. */
 async function handshake(ctx, identity, { offered, seen = offered }) {
-  ctx.transportOptIn = true;
   ctx.createTransportMedia ??= () => ({ attach() {}, receive: () => false, close() {} });
   const { ws, connecting } = await joiningSocket(ctx);
   ws.bufferedAmount = 0;
@@ -92,10 +94,36 @@ async function handshake(ctx, identity, { offered, seen = offered }) {
   const server = await acceptRelayE2EEClientHello(identity, offered, hello);
   return { ws, connecting, hello, server };
 }
-const record = async (server, payload) => encodeRemoteTransportRecord(await server.encryptBinary(payload))[0].slice().buffer;
+const record = async (server, payload) =>
+  encodeRemoteTransportRecord(await server.encryptBinary(payload))[0].slice().buffer;
 
-test('the hello carries its extra members through helloFields; the gate keeps it legacy', async () => {
+test('a PC that did not offer the transport (older, or its switch off) is answered with the legacy hello', async () => {
+  for (const challenge of [
+    { ...createRelayE2EEChallenge(), binaryFrames: 1 },
+    { ...createRelayE2EEChallenge() },
+    // Offered without binary frames: not a transport the phone can take.
+    { ...createRelayE2EEChallenge(), transportWebrtc: 1 },
+  ]) {
+    await withShim({}, async ({ ctx, identity }) => {
+      const { ws, connecting } = await joiningSocket(ctx);
+      ws.onmessage({ data: JSON.stringify(challenge) });
+      await until(() => ws.sent.length === 1, 'the hello');
+      const hello = JSON.parse(ws.sent[0]);
+      assert.equal(hello.viewSync, 1, 'the extra members still ride the hello');
+      assert.equal(hello.promptHistoryPatch, 2);
+      assert.equal(hello.transportWebrtc, undefined, 'no opt-in');
+      const server = await acceptRelayE2EEClientHello(identity, challenge, hello);
+      assert.equal(server.transportEnabled, false);
+      ws.onmessage({ data: await server.encryptJson({ type: 'e2ee-ready', version: 1 }) });
+      assert.equal(await connecting, ws);
+      assert.equal(ctx.transport, null, 'a legacy session');
+    });
+  }
+});
+
+test('a PC that offered the transport gets the opt-in on the hello, with nothing else asked of the user', async () => {
   await withShim({}, async ({ ctx, identity }) => {
+    ctx.createTransportMedia ??= () => ({ attach() {}, receive: () => false, close() {} });
     const { ws } = await joiningSocket(ctx);
     const offered = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1 };
     ws.onmessage({ data: JSON.stringify(offered) });
@@ -103,9 +131,9 @@ test('the hello carries its extra members through helloFields; the gate keeps it
     const hello = JSON.parse(ws.sent[0]);
     assert.equal(hello.viewSync, 1);
     assert.equal(hello.promptHistoryPatch, 2);
-    assert.equal(hello.transportWebrtc, undefined, 'the switch is off');
+    assert.equal(hello.transportWebrtc, 1);
     const server = await acceptRelayE2EEClientHello(identity, offered, hello);
-    assert.equal(server.transportEnabled, false);
+    assert.equal(server.transportEnabled, true);
   });
 });
 
@@ -139,16 +167,25 @@ for (const [name, ready] of [
   });
 }
 
-test('opted in: a stripped offer is refused, an older host takes the explicit legacy path', async () => {
-  await withShim({}, async ({ ctx, identity }) => {
-    const offered = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1 };
-    const seen = { ...offered };
-    delete seen.transportWebrtc;
-    const { ws, server } = await handshake(ctx, identity, { offered, seen });
-    ws.onmessage({ data: await server.encryptJson({ type: 'e2ee-ready', version: 1, ...server.handshakeConfirmation() }) });
-    await until(() => ws.closeCalls === 1, 'the downgrade is refused');
-    assert.equal(ws.sent.length, 1);
-  });
+test('a stripped offer is refused, never a silent legacy session; an older host takes the explicit legacy path', async () => {
+  for (const strip of ['transportWebrtc', 'binaryFrames']) {
+    await withShim({}, async ({ ctx, identity }) => {
+      // The relay strips the offer (or binary frames) the PC sent: the phone
+      // does not opt in, and the PC's transcript confirmation gives it away.
+      const offered = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1 };
+      const seen = { ...offered };
+      delete seen[strip];
+      const { ws, hello, server } = await handshake(ctx, identity, { offered, seen });
+      assert.equal(hello.transportWebrtc, undefined, 'no opt-in on a challenge that shows no offer');
+      assert.equal(server.transportEnabled, false);
+      ws.onmessage({
+        data: await server.encryptJson({ type: 'e2ee-ready', version: 1, ...server.handshakeConfirmation() }),
+      });
+      await until(() => ws.closeCalls === 1, `the downgrade is refused (${strip})`);
+      assert.equal(ws.sent.length, 1);
+      assert.equal(ctx.connectionReady, false);
+    });
+  }
   await withShim({}, async ({ ctx, identity }) => {
     const offered = { ...createRelayE2EEChallenge(), binaryFrames: 1 };
     const { ws, connecting, hello, server } = await handshake(ctx, identity, { offered });
@@ -189,7 +226,11 @@ test('media client: one per transport session, attached after the confirmation u
     assert.deepEqual(clients[0].events, [], 'nothing before the confirmation');
     ws.onmessage({ data: await record(server, { type: 'e2ee-ready', version: 1, ...server.handshakeConfirmation() }) });
     await connecting;
-    assert.deepEqual(clients[0].events, [['attach', offered.challenge, false]], 'attached once confirmed, before the session opened');
+    assert.deepEqual(
+      clients[0].events,
+      [['attach', offered.challenge, false]],
+      'attached once confirmed, before the session opened'
+    );
     assert.equal(ctx.mediaSid, offered.challenge);
     // Routing: a media message is consumed; anything else reaches the handler after it.
     const handled = [];
@@ -197,7 +238,10 @@ test('media client: one per transport session, attached after the confirmation u
     ws.onmessage({ data: await record(server, { type: 'transport-media', op: 'end', id: 'm1' }) });
     ws.onmessage({ data: await record(server, { event: 'state' }) });
     await until(() => handled.length === 1, 'the plain message');
-    assert.deepEqual(clients[0].events.slice(1), [['receive', 'transport-media'], ['receive', 'state']]);
+    assert.deepEqual(clients[0].events.slice(1), [
+      ['receive', 'transport-media'],
+      ['receive', 'state'],
+    ]);
     assert.deepEqual(handled, ['state']);
     // The client's sends take the stream (sealed records on the relay socket).
     const before = ws.sent.length;
@@ -214,16 +258,18 @@ test('media client: one per transport session, attached after the confirmation u
   });
 });
 
-test('media client: none while the switch is off', async () => {
+test('media client: none when the PC did not offer the transport', async () => {
   await withShim({}, async ({ ctx, identity }) => {
     const clients = fakeMedia(ctx);
     const { ws } = await joiningSocket(ctx);
-    const offered = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1, mediaE2ee: 1 };
+    const offered = { ...createRelayE2EEChallenge(), binaryFrames: 1, mediaE2ee: 1 };
     ctx.serverBase = 'https://relay.example';
     ws.onmessage({ data: JSON.stringify(offered) });
     await until(() => ws.sent.length === 1, 'the hello');
     const server = await acceptRelayE2EEClientHello(identity, offered, JSON.parse(ws.sent[0]));
-    ws.onmessage({ data: await server.encryptJson({ type: 'e2ee-ready', version: 1, ...server.handshakeConfirmation() }) });
+    ws.onmessage({
+      data: await server.encryptJson({ type: 'e2ee-ready', version: 1, ...server.handshakeConfirmation() }),
+    });
     await until(() => ctx.connectionReady, 'the legacy session');
     assert.equal(clients.length, 0);
     assert.equal(ctx.transportMedia ?? null, null);

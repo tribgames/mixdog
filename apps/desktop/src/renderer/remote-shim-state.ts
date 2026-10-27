@@ -47,7 +47,7 @@ import {
   type RemoteTransportMediaClient,
 } from './remote-file-preview';
 import { createRemoteSessionInbox } from './remote-session-inbox';
-import { REMOTE_TRANSPORT_PHONE_OPT_IN, type RemoteTransportPeer } from './remote-transport-peer';
+import type { RemoteTransportPeer } from './remote-transport-peer';
 import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './remote-shim-payload-limit';
 import type { createRemotePairingScreen } from './remote-pairing-screen';
 import type { createRemoteViewSync } from './remote-view-sync';
@@ -112,9 +112,6 @@ export interface RemoteShimState {
   retryMs: number;
   nextId: number;
   secureChannel: RelayE2EEChannel | null;
-  /** Opt into the direct transport on the hello: REMOTE_TRANSPORT_PHONE_OPT_IN
-   *  (renderer/remote-transport-peer.ts), the one rollout switch. */
-  transportOptIn: boolean;
   /** The current session's transport stream, when the handshake negotiated
    *  one; null on a legacy session. */
   transport: RemoteTransportPeer | null;
@@ -443,7 +440,6 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     retryMs: 0,
     nextId: 1,
     secureChannel: null,
-    transportOptIn: REMOTE_TRANSPORT_PHONE_OPT_IN,
     transport: null,
     transportMedia: null,
     createTransportMedia: createRemoteTransportMediaClient,

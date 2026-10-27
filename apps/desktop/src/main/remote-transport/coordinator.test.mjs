@@ -31,7 +31,6 @@ import {
   splitRemoteTransportPayload,
 } from '../../shared/remote-transport.ts';
 import {
-  REMOTE_TRANSPORT_OFFER_ENABLED,
   RemoteTransportEndedError,
   RemoteTransportOversizeError,
   createRemoteTransportCoordinator,
@@ -241,10 +240,6 @@ async function harness({ peerHost = null, media = null, relaySend } = {}) {
 
 const appMessages = (raws) => raws.map((raw) => decodeRemoteTransportMessage(raw)).filter((m) => m.kind !== 'control');
 
-test('the offer is dormant: the rollout switch ships off', () => {
-  assert.equal(REMOTE_TRANSPORT_OFFER_ENABLED, false);
-});
-
 test('relay-only without a peer host: split → seal → sender out, receiver → open → assembler in; acks and pings on the control domain', async () => {
   const h = await harness();
   await h.ready();
@@ -427,6 +422,17 @@ test('promotion needs the fitting channel and a fresh ping/pong on it; then new 
   assert.deepEqual(h.phone.messages.at(-1), { event: 'direct' });
   // The resume ack went out at once on the promoted carrier.
   await until(() => peer.sent.filter(({ channel }) => channel === 'control').length >= 2, 'resume ack');
+  // Diagnostics: the path, and that application records really moved on it.
+  const stats = h.coordinator.diagnostics();
+  assert.equal(stats.path, 'direct');
+  assert.ok(stats.directBytesSent >= messageBytes(direct), 'direct bytes counted');
+  assert.ok(stats.directBytesSent < stats.bytesSent, 'the relay share is the rest');
+  assert.equal(h.logs.filter((line) => /carrying path=direct generation=\d+$/.test(line)).length, 1, 'logged once');
+  h.coordinator.close();
+  assert.ok(
+    h.logs.some((line) => /ended reason=session-ended .*direct-tx=[1-9]\d* direct-rx=\d+$/.test(line)),
+    'the end line shows what the direct path carried'
+  );
 });
 
 test('no promotion without a pong, and none on a carrier whose max message size does not fit', async () => {

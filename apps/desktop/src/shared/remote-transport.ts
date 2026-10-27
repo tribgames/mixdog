@@ -1916,6 +1916,10 @@ export interface RemoteTransportDiagnostics {
   reason: RemoteTransportPathReason | null;
   bytesSent: number;
   bytesReceived: number;
+  /** The part of `bytesSent` / `bytesReceived` that moved on a direct carrier
+   *  (the rest moved on the relay): whether the direct path really carries. */
+  directBytesSent: number;
+  directBytesReceived: number;
   queueDepth: number;
   outstandingBytes: number;
   retransmits: number;

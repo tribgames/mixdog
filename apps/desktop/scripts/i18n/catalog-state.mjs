@@ -5,6 +5,18 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { collectUiKeys, PLURAL_SUFFIX } from './source-keys.mjs';
 import { TOOL_RESULT_UI_KEYS } from '../../../../src/runtime/shared/tool-result-summary.mjs';
+import { DEVELOPER_SECTIONS } from '../../../../src/runtime/shared/developer-options.mjs';
+
+/** Every phrase the registry hands the Developer panel (settings/developer-panel.tsx
+ *  translates them at render time, so no `t('…')` literal exists in source):
+ *  section and option labels, descriptions and warnings. */
+export function developerOptionUiKeys() {
+  return DEVELOPER_SECTIONS.flatMap((section) => [
+    section.label,
+    section.description,
+    ...section.options.flatMap((option) => [option.label, option.description, option.warning]),
+  ]).filter((text) => typeof text === 'string' && text.trim());
+}
 
 export const rendererUrl = new URL('../../src/renderer/', import.meta.url);
 export const localesUrl = new URL('locales/', rendererUrl);
@@ -99,6 +111,7 @@ export function catalogState() {
   );
   const sources = collectUiKeys(fileURLToPath(rendererUrl));
   for (const key of TOOL_RESULT_UI_KEYS) sources.set(key, 'src/runtime/shared/tool-result-summary.mjs');
+  for (const key of developerOptionUiKeys()) sources.set(key, 'src/runtime/shared/developer-options.mjs');
   const nativeSources = collectUiKeys(fileURLToPath(new URL('../../src/main/', import.meta.url)), {
     explicitOnly: true,
   });

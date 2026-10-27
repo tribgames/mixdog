@@ -35,8 +35,9 @@
  * would be judged stalled anyway) fails every live connection
  * `peer-host-unavailable`; an app that attaches later serves the next offer.
  *
- * Rollout: nothing here runs unless REMOTE_TRANSPORT_OFFER_ENABLED is on —
- * no stand-in in the daemon, no attach, no window, no traffic.
+ * Rollout: nothing here runs unless the daemon's switch is on (switch.ts, the
+ * developer option "Direct phone connection (test)") — no stand-in in the
+ * daemon, no attach answer, no window, no traffic.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -63,6 +64,10 @@ import type {
 
 /** daemon → app: one command envelope (to the window only, never the relay). */
 export const REMOTE_TRANSPORT_PEER_COMMAND_EVENT = 'remote-transport-peer-command';
+/** daemon → app: one diagnostics line of a transport session (the daemon has
+ *  no diagnostics file; the app writes it to desktop-diagnostics.jsonl). Only
+ *  while the direct phone connection switch is on. */
+export const REMOTE_TRANSPORT_LOG_EVENT = 'remote-transport-log';
 /** app → daemon: desktop operations. */
 export const REMOTE_TRANSPORT_PEER_OPERATIONS = {
   attach: 'remoteTransportPeerAttach',
@@ -430,7 +435,8 @@ export function createRemoteTransportPeerService(
 // ---------------------------------------------------------------------------
 
 export interface RemoteTransportPeerEndpointDeps {
-  /** REMOTE_TRANSPORT_OFFER_ENABLED (a test may override). Off: nothing runs. */
+  /** Off: nothing runs. Production passes true: the daemon's switch decides
+   *  (its attach answers null while off, which attaches nothing). */
   enabled: boolean;
   /** `createRemoteTransportPeerWindow(...)`, called on the first `create`. */
   createBridge(): RemoteTransportPeerBridge;

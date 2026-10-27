@@ -117,6 +117,10 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
    *  desktop app's hidden peer window. Absent (rollout switch off): transport
    *  sessions stay relay-only. */
   transportPeerHost?: RemoteTransportPeerHost | null;
+  /** Receives every diagnostics line of a transport session (offer, path,
+   *  traffic, end) besides the console. Set exactly when the direct phone
+   *  connection switch is on. */
+  transportLog?: (line: string) => void;
 }
 
 export interface RemoteRelayHandle {
@@ -335,18 +339,24 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             .join('')
       ),
   });
+  const transportLog = (line: string): void => {
+    console.info(line);
+    options.transportLog?.(line);
+  };
   const { sendEncryptedFrame, broadcastEncrypted, openTransport } = createRelayEncryptedDelivery({
     clients,
     relayBinaryFrames: caps.relayBinaryFrames,
     relayFrameLimit: caps.relayFrameLimit,
     sendRawAndWait: connection.sendRawAndWait,
     byteMeter: relayByteMeter,
-    // Direct transport sessions (dormant until REMOTE_TRANSPORT_OFFER_ENABLED):
-    // the media adapter reads the same gallery and download leases as the
-    // relay media lane. Without `transportPeerHost` sessions stay relay-only.
+    // Direct transport sessions (dormant until the "Direct phone connection
+    // (test)" switch is on): the media adapter reads the same gallery and
+    // download leases as the relay media lane. Without `transportPeerHost`
+    // sessions stay relay-only.
     transport: {
       peerHost: options.transportPeerHost ?? null,
       media: { host: options.host, downloads: fileDownloads },
+      options: { log: transportLog },
     },
   });
   const browserStreams = createBrowserRemoteStreams({
@@ -527,6 +537,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     onClaimApproved: options.onClaimApproved,
     hostName: pcName,
     openTransport,
+    // Offered only with a peer host, which exists only while the local
+    // "Direct phone connection (test)" switch is on.
+    transportOffer: () => Boolean(options.transportPeerHost),
+    transportLog,
   });
   const routeRelayEnvelope = createRelayEnvelopeDispatcher({
     control,
