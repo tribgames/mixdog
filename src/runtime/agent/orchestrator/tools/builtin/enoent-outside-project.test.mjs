@@ -2,6 +2,8 @@
 // filesystem, never from a project-wide scan: no file inside the project can
 // be the correction for /sys/block/sd*/size, and the scan is what turned three
 // such reads into 17.5s each.
+// Isolate Mixdog user data in a temp dir before any module under test loads.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

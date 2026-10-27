@@ -1,3 +1,5 @@
+// Isolate Mixdog user data in a temp dir before any module under test loads.
+import '../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';

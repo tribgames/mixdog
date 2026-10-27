@@ -2,6 +2,8 @@
 // first-turn session creation + MCP fold, hook context merge, the askSession
 // callback bridge (transcript, first-visible timing, warmup arming), the
 // settlement that always runs, and blocked/failed turns.
+// Isolate Mixdog user data in a temp dir before any module under test loads.
+import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';

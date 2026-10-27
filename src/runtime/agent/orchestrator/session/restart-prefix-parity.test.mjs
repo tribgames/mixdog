@@ -5,6 +5,8 @@
 // breakpoint, or the provider rewrites the whole prefix. Each phase runs in
 // its own process (restart-prefix-parity.fixture.mjs): the process that sent
 // the request is gone, and the next one has only the data dir.
+// Isolate Mixdog user data in a temp dir before any module under test loads.
+import '../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';

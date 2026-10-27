@@ -1,5 +1,7 @@
 // Dependency/cache trees stay hidden by default, but a caller who NAMES one is
 // asking for it. A default miss must not silently search a broader scope.
+// Isolate Mixdog user data in a temp dir before any module under test loads.
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

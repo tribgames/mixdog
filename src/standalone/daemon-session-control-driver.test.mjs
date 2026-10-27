@@ -3,6 +3,8 @@
 // sender is (human-gate/delegation.mjs rebindDelegation), whichever it was
 // created as. A task session is never a bot: an ordinary coding Lead session.
 // A send into a session that is another's keeps that session's own status.
+// Isolate Mixdog user data in a temp dir before any module under test loads.
+import '../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
