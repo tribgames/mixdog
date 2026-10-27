@@ -46,7 +46,8 @@ import { executionFallbacks } from '../../../../shared/model-route-chain.mjs';
 import { ownerRouteFallbacks } from './owner-route-fallbacks.mjs';
 import { applyPendingWorkspaceReroot, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
-import { applyAgentToolExposure } from '../loop/tool-exposure-migration.mjs';
+import { applyAgentToolExposure, markToolSurfaceMigrated } from '../loop/tool-exposure-migration.mjs';
+import { useOwnScratchEnvironment } from './session-scratch-environment.mjs';
 import { prewarmSessionAutoEffort } from './ask-turn-auto-effort.mjs';
 import { cancelCacheWarm } from '../cache-warm.mjs';
 
@@ -594,6 +595,12 @@ export async function resumeSession(sessionId, preset, options = {}) {
   _recoverTurnCheckpointDurably(session, sessionId);
   _refreshResumedTools(session, sessionId, preset);
   refreshSessionProviderCacheOpts(session);
+  // An archive saved before clear learned to rename it still names the
+  // session it was copied from: a changed prefix is one cache break.
+  if (useOwnScratchEnvironment(session)) {
+    invalidateContextUsageSnapshot(session);
+    markToolSurfaceMigrated(session, 'prompt_fold');
+  }
   // The live session already owns the refreshed tools and desktop scope.
   // Defer the structured clone + worker round-trip so opening a conversation
   // is not blocked on persisting the same in-memory state back to disk.

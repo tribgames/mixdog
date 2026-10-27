@@ -26,6 +26,7 @@ import {
 import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
 import { mintSessionId } from './session-id.mjs';
+import { useOwnScratchEnvironment } from './session-scratch-environment.mjs';
 import { hideCompactionArchive } from '../compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
@@ -234,6 +235,9 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
       ...clearedTokenAccounting(now),
     };
     delete fork.liveTurnMessages;
+    // The spread copied the source's environment: the fork names its own
+    // scratch directory (its shell commands use it), not the source's.
+    useOwnScratchEnvironment(fork);
     // The archive sidecar belongs to the source id; the fork has none.
     if (fork.compaction?.archive) {
       fork.compaction = { ...fork.compaction };

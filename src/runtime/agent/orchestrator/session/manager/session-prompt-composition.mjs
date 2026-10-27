@@ -25,6 +25,15 @@ import { sessionScratchDir } from '../../../../shared/session-scratch.mjs';
 import { delegationDisabled } from './session-tool-surface.mjs';
 import { contextAckMessage } from '../compact/user-message-kind.mjs';
 
+/** The environment line naming `sessionId`'s scratch directory, '' without one. */
+export function scratchEnvironmentLine(sessionId) {
+  // Fixed per session id and data dir, so the line never changes across turns.
+  const scratchDir = sessionScratchDir(sessionId);
+  return scratchDir
+    ? `- Scratch: ${scratchDir} — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.`
+    : '';
+}
+
 // Preserve the exact pre-layout environment payload: Lead carried the
 // shell preference in Profile Preferences, while any routing surface with
 // shell carried the startup capability line in BP1.
@@ -33,8 +42,6 @@ import { contextAckMessage } from '../compact/user-message-kind.mjs';
 // resolves explicit session signals first and never leaks the daemon's
 // install root (user-cwd.mjs safe fallback chain).
 function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting, sessionId = null) {
-  // Fixed per session id and data dir, so the line never changes across turns.
-  const scratchDir = sessionScratchDir(sessionId);
   const sessionCwdLine = opts.cwd || captureOriginalUserCwd();
   const wantsGitStartupLine = toolsForRouting.some((tool) => tool?.name === 'git');
   let cwdContextLine = '';
@@ -48,9 +55,7 @@ function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting, sessi
   return [
     cwdContextLine,
     `- Shell: ${shellName}. Use ${shellName} syntax unless the user specifies otherwise.`,
-    scratchDir
-      ? `- Scratch: ${scratchDir} — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.`
-      : '',
+    scratchEnvironmentLine(sessionId),
     // Which common tools the shell can run, measured where commands run
     // (login shell on POSIX, this process's PATH on Windows); see
     // runtime-capabilities.mjs. Recorded runs spent a round per session

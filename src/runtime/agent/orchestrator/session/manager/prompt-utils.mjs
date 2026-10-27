@@ -578,6 +578,7 @@ function isReferenceFilesMessage(message) {
 }
 
 export { isProtectedContextUserMessage };
+export { BP3_PART_SEPARATOR, bp3SystemMessage, bpEnvSystemMessage, replaceSystemMessageContent };
 
 // Compact summary messages (role:'user', content startsWith SUMMARY_PREFIX)
 // are synthetic anchors, not a real human turn — they must not count as
