@@ -1833,10 +1833,10 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   width: 320px;
   max-width: calc(100vw - 48px);
   padding: 4px;
-  border-radius: 12px;
-  border: 1px solid var(--mx-border);
-  background: var(--mx-surface-raised, var(--mx-bg));
-  box-shadow: 0 12px 28px rgb(0 0 0 / 28%);
+  border-radius: var(--mx-popup-radius);
+  border: var(--mx-popup-border);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .notif-device-option {
   display: grid;
