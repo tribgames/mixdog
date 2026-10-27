@@ -206,6 +206,43 @@ html[data-mixdog-mobile-tabs] .visualize-pane-enlarge > svg {
 .visualize-body.is-solo > .visualize-pane-cell:not(.is-solo) {
   display: none;
 }
+/* The zoom pill's view switch (VisualizeZoomPill): ⫼ and one number per
+   pane; the shown view reads pressed. */
+.visualize-view-pick {
+  width: auto;
+  min-width: 24px;
+  padding: 0 6px;
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
+.visualize-view-pick[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+/* A number under the pointer outlines its pane in the split (at most 6
+   panes: 3 files, doubled while a kept version is compared). The outline
+   paints above the pane's frame. */
+.visualize-pane:has(.visualize-view-pick[data-pane="0"]:hover)
+  .visualize-body:not([data-kept], .is-solo)
+  > [data-visualize-pane="0"],
+.visualize-pane:has(.visualize-view-pick[data-pane="1"]:hover)
+  .visualize-body:not([data-kept], .is-solo)
+  > [data-visualize-pane="1"],
+.visualize-pane:has(.visualize-view-pick[data-pane="2"]:hover)
+  .visualize-body:not([data-kept], .is-solo)
+  > [data-visualize-pane="2"],
+.visualize-pane:has(.visualize-view-pick[data-pane="3"]:hover)
+  .visualize-body:not([data-kept], .is-solo)
+  > [data-visualize-pane="3"],
+.visualize-pane:has(.visualize-view-pick[data-pane="4"]:hover)
+  .visualize-body:not([data-kept], .is-solo)
+  > [data-visualize-pane="4"],
+.visualize-pane:has(.visualize-view-pick[data-pane="5"]:hover)
+  .visualize-body:not([data-kept], .is-solo)
+  > [data-visualize-pane="5"] {
+  outline: 2px solid var(--mx-text-accent);
+  outline-offset: -2px;
+}
 .visualize-pane-content {
   flex: 1;
   min-height: 0;

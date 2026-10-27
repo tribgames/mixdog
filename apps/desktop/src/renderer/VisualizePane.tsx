@@ -2,16 +2,7 @@
 // session. Main owns the tabs; this view draws the active one and reports the
 // user's tab picks and closes. Capture finds the tab body by its data
 // attributes, so they name the session and tab.
-import {
-  ChevronLeft,
-  ChevronRight,
-  Columns3,
-  ListTree,
-  Maximize2,
-  MessageSquarePlus,
-  SlidersHorizontal,
-  X,
-} from 'lucide-react';
+import { Columns3, ListTree, Maximize2, MessageSquarePlus, SlidersHorizontal, X } from 'lucide-react';
 import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { DesktopApi, DesktopDocumentPreviewPages } from '../shared/contract';
@@ -863,52 +854,32 @@ function VisualizeProblemList({ tab }: { tab: VisualizeTab }) {
   );
 }
 
-/** The zoom pill; while one pane is shown alone it also steps through the panes. */
+/** The zoom pill; a split tab leads it with its view switch: ⫼ shows every
+ *  pane side by side, a number shows that pane alone (←/→ step, Esc returns).
+ *  The shown view reads pressed. */
 function VisualizeZoomPill({
   tab,
   solo,
-  paneCount,
   zoom,
   setZoom,
   showSolo,
 }: {
   tab: VisualizeTab | null;
   solo: number | null;
-  paneCount: number;
   zoom: number;
   setZoom(scale: number): void;
   showSolo(index: number | null): void;
 }) {
-  const positionTitle = tab && solo !== null ? visualizePaneTitle(tab, tab.panes[solo]) : '';
+  const panes = tab && tab.panes.length > 1 ? tab.panes : [];
   return (
     <ZoomPill
       before={
-        solo === null ? undefined : (
+        panes.length ? (
           <>
             <button
               type="button"
-              className="browser-zoom-step"
-              aria-label={t('Previous pane')}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => showSolo(visualizeSoloStep(solo, paneCount, -1))}
-            >
-              <ChevronLeft size={14} aria-hidden="true" />
-            </button>
-            <span className="browser-zoom-position" title={positionTitle}>
-              {solo + 1} / {paneCount}
-            </span>
-            <button
-              type="button"
-              className="browser-zoom-step"
-              aria-label={t('Next pane')}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => showSolo(visualizeSoloStep(solo, paneCount, 1))}
-            >
-              <ChevronRight size={14} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="browser-zoom-step"
+              className="browser-zoom-step visualize-view-pick"
+              aria-pressed={solo === null}
               aria-label={t('Side by side')}
               data-tooltip={t('Side by side (Esc)')}
               onMouseDown={(event) => event.preventDefault()}
@@ -916,8 +887,28 @@ function VisualizeZoomPill({
             >
               <Columns3 size={14} aria-hidden="true" />
             </button>
+            {panes.map((pane, index) => {
+              // The cell tooltip's first line: "vN" or "Live" when comparing, then the name.
+              const name = `${index + 1} · ${visualizePaneTitle(tab as VisualizeTab, pane).split('\n')[0]}`;
+              return (
+                <button
+                  // biome-ignore lint/suspicious/noArrayIndexKey: panes are positional (pane N is the Nth file), never reordered.
+                  key={index}
+                  type="button"
+                  className="browser-zoom-step visualize-view-pick"
+                  data-pane={index}
+                  aria-pressed={solo === index}
+                  aria-label={`${name} — ${t('Show alone')}`}
+                  data-tooltip={name}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => showSolo(index)}
+                >
+                  {index + 1}
+                </button>
+              );
+            })}
           </>
-        )
+        ) : undefined
       }
       level={zoom}
       range={VISUALIZE_ZOOM_RANGE}
@@ -1376,15 +1367,8 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
       ) : (
         <div className="visualize-empty">{t('Results the agent shows will appear here.')}</div>
       )}
-      {((zoomable && zoomBarVisible) || solo !== null) && (
-        <VisualizeZoomPill
-          tab={tab}
-          solo={solo}
-          paneCount={paneCount}
-          zoom={zoom}
-          setZoom={setZoom}
-          showSolo={showSolo}
-        />
+      {((zoomable && zoomBarVisible) || paneCount > 1) && (
+        <VisualizeZoomPill tab={tab} solo={solo} zoom={zoom} setZoom={setZoom} showSolo={showSolo} />
       )}
     </section>
   );

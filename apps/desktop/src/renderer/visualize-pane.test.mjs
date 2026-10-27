@@ -456,6 +456,44 @@ test('every split cell has an enlarge button that shows it alone; it is a phone-
   }
 });
 
+test('a split tab leads the zoom pill with its view switch: side by side, then one number per pane', async () => {
+  putTab({
+    id: 't10',
+    label: 'split',
+    revision: 0,
+    panes: [image('a.png'), image('b.png'), image('c.png')],
+  });
+  const root = await mount();
+  const picks = () => [...document.querySelectorAll('.browser-zoom-pill .visualize-view-pick')];
+  const pressed = () => picks().map((button) => button.getAttribute('aria-pressed'));
+  try {
+    assert.deepEqual(
+      picks().map((button) => button.textContent),
+      ['', '1', '2', '3']
+    );
+    assert.deepEqual(pressed(), ['true', 'false', 'false', 'false'], 'the split reads pressed');
+    assert.equal(picks()[2].dataset.tooltip, '2 · b.png');
+    await act(async () => picks()[2].click());
+    assert.ok(document.querySelector('.visualize-pane-cell.is-solo[data-visualize-pane="1"]'));
+    assert.deepEqual(pressed(), ['false', 'false', 'true', 'false']);
+    await act(async () => picks()[0].click());
+    assert.equal(document.querySelector('.visualize-body.is-solo'), null, 'side by side again');
+    assert.deepEqual(pressed(), ['true', 'false', 'false', 'false']);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('a one-pane tab has no view switch', async () => {
+  putTab({ id: 't11', label: 'one', revision: 0, panes: [image('a.png')] });
+  const root = await mount();
+  try {
+    assert.equal(document.querySelectorAll('.visualize-view-pick').length, 0);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 const htmlPane = { kind: 'html', label: 'a.html', target: 'a.html', url: 'http://127.0.0.1:1/tok/a.html' };
 const frames = () => [...document.querySelectorAll('.visualize-pane-cell iframe')];
 const fromFrame = (frame, data) =>
