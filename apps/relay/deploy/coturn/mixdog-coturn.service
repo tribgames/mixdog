@@ -31,7 +31,10 @@ PrivateDevices=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# AF_NETLINK: with no listening-ip/relay-ip configured, coturn discovers the
+# host's addresses through getifaddrs(), which reads them over netlink; without
+# it, it exits with "Cannot configure any meaningful IP listener address".
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RestrictNamespaces=true
 LockPersonality=true
 RestrictSUIDSGID=true
