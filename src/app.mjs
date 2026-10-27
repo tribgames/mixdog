@@ -24,6 +24,10 @@ export { parseHeadlessExecCommand };
  * running behavior will NOT match the tree, so warn loudly.
  */
 function warnWhenTuiBundleStale(bundle) {
+  // Only a source checkout can drift from its bundle: src/tui/dev is left out
+  // of the npm package, and an npm install stamps every file with its own
+  // extraction time, so the mtime comparison below would misfire there.
+  if (!existsSync(join(__dirname, 'tui', 'dev', 'jit-rebuild.mjs'))) return;
   try {
     const bundleMtime = statSync(bundle).mtimeMs;
     const hotSources = [
