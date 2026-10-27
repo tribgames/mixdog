@@ -1,6 +1,6 @@
 import './lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -8,8 +8,9 @@ import test from 'node:test';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { legacyPartialReplayReason, replayOne } from './patch-replay.mjs';
 
+import { makeTempDirSync } from './lib/scoped-temp.mjs';
 test('partial patch replay captures the pre-mutation state and never recaptures replay failures', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-patch-capture-'));
+  const root = makeTempDirSync('patch-capture');
   const replayDir = join(root, 'replays');
   mkdirSync(replayDir);
   writeFileSync(join(root, 'good.txt'), 'one\n');

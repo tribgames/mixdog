@@ -2,8 +2,7 @@
 // placeholder guard, edit-string semantics, and OpenAI custom-tool wire shape.
 import './_env.mjs';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { root } from './_env.mjs';
 import { assertOk } from './_helpers.mjs';
@@ -12,6 +11,7 @@ import { executePatchTool } from '../../src/runtime/agent/orchestrator/tools/pat
 import { PATCH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { buildRequestBody, sendViaHttpSse } from '../../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 
+import { makeTempDirSync } from '../lib/scoped-temp.mjs';
 // Malformed-but-unambiguous patch openings must be absorbed (dry-run, so no
 // write). Each targets the same known-good smoke.mjs line.
 const smokeBody = `@@
@@ -61,7 +61,7 @@ test('apply_patch dry-run validates current context and rejects stale hunks', as
 });
 
 test('edit exact-string semantics: replace_all, ambiguity, create, no-op', async () => {
-  const editTmp = mkdtempSync(join(tmpdir(), 'mixdog-edit-tool-'));
+  const editTmp = makeTempDirSync('edit-tool');
   try {
     const target = join(editTmp, 'target.txt');
     writeFileSync(target, 'alpha beta alpha\n', 'utf8');

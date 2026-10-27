@@ -4,11 +4,11 @@
 // exactly as long as a message names it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-message-attachments-'));
+const dataDir = makeTempDirSync('message-attachments');
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { attachmentsForIntake, collectPromptAttachments, materializePromptSubmission } = await import('./store.mjs');

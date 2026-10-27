@@ -1,17 +1,17 @@
 import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { buildDoctorReport, formatDoctorReport, nodeEngineSupport, runDoctorChecks } from './doctor.mjs';
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
 const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
 const state = () => ({ provider: 'openai' });
 
 // The local-installation checks read the data folder; keep them off the
 // developer's real ~/.mixdog.
-const dataRoot = mkdtempSync(join(tmpdir(), 'mixdog-doctor-'));
+const dataRoot = makeTempDirSync('doctor');
 process.env.MIXDOG_DATA_DIR = join(dataRoot, 'data');
 mkdirSync(process.env.MIXDOG_DATA_DIR);
 writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'mixdog-config.json'), '{}');

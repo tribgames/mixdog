@@ -2,9 +2,9 @@
 // completion notification routing. Also the headless exec CLI parser.
 import './_env.mjs';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTempDirSync, removeTempDirSync } from '../lib/scoped-temp.mjs';
 import { root } from './_env.mjs';
 import { waitFor } from './_helpers.mjs';
 import { parseHeadlessExecCommand } from '../../src/app.mjs';
@@ -81,7 +81,7 @@ test('agent read/list errors surface as Error results without runtime resolve', 
 });
 
 test('channel worker daemon spawn env advertises host identity', async () => {
-  const channelWorkerTmp = mkdtempSync(join(tmpdir(), 'mixdog-channel-worker-env-'));
+  const channelWorkerTmp = makeTempDirSync('channel-worker-env');
   let channelEnvWorker = null;
   const prevDaemonHost = process.env.MIXDOG_DAEMON_HOST;
   const prevRuntimeRoot = process.env.MIXDOG_RUNTIME_ROOT;
@@ -212,7 +212,7 @@ function createNotifySmokeAgent({ dataDir, ownerNotifications, workerQueued }) {
 const AGENT_SPAWN_ROUTING_TIMEOUT_MS = 30_000;
 
 test('agent completion notifications route to the owner exactly once', async () => {
-  const agentNotifyTmp = mkdtempSync(join(tmpdir(), 'mixdog-agent-notify-'));
+  const agentNotifyTmp = makeTempDirSync('agent-notify');
   let agentNotifySmoke = null;
   try {
     const ownerNotifications = [];
@@ -264,6 +264,6 @@ test('agent completion notifications route to the owner exactly once', async () 
     try {
       agentNotifySmoke?.closeAll('tool-contracts-agent-notify-complete');
     } catch {}
-    rmSync(agentNotifyTmp, { recursive: true, force: true });
+    removeTempDirSync(agentNotifyTmp);
   }
 });

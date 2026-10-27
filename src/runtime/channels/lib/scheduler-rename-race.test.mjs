@@ -1,9 +1,7 @@
 import '../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test, { mock } from 'node:test';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 // The scheduler's store writes go through `store`, so a test can hold one open.
 const store = {};
@@ -32,7 +30,7 @@ const { Scheduler } = await import('./scheduler.mjs');
 function scheduler(schedule, runs) {
   return Object.assign(Object.create(Scheduler.prototype), {
     schedules: [schedule],
-    promptsDir: mkdtempSync(join(tmpdir(), 'mixdog-sched-')),
+    promptsDir: makeTempDirSync('sched'),
     running: new Set(),
     renaming: new Set(),
     cronJobs: new Map(),

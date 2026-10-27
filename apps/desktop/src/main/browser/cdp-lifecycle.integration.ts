@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { appendFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { app, BrowserWindow } from 'electron';
+import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { createBrowserGuestCdp } from './cdp';
 import { BrowserGuestStateStore } from './guest-state';
 
 // This process owns only disposable windows/profile; never attach to the live app.
-app.setPath('userData', mkdtempSync(join(tmpdir(), 'mixdog-cdp-lifecycle-')));
+const profile = makeTempDirSync('cdp-lifecycle');
+app.setPath('userData', profile);
 app.commandLine.appendSwitch('site-per-process');
 const server = createServer((req, res) => {
   if (req.url === '/slow') {
@@ -68,13 +68,15 @@ app.on('window-all-closed', () => {
   /* Keep the isolated test process alive between cycles. */
 });
 run().then(
-  () => {
+  async () => {
     server.close();
+    await removeTempDir(profile);
     app.exit(0);
   },
-  (error) => {
+  async (error) => {
     console.error(error);
     server.close();
+    await removeTempDir(profile);
     app.exit(1);
   }
 );

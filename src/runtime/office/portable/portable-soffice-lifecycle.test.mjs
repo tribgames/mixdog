@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { MACRO_LOCKDOWN_REGISTRY, runSoffice, sharedProfileDir, sofficeConvertArguments } from './portable-soffice.mjs';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 const sleeper = (pidFile) =>
   `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
@@ -30,7 +31,7 @@ async function pidOf(file) {
 }
 
 test('a cancelled conversion is reported only after its process has exited', async () => {
-  const pidFile = join(mkdtempSync(join(tmpdir(), 'soffice-life-')), 'pid');
+  const pidFile = join(makeTempDirSync('soffice-life'), 'pid');
   const controller = new AbortController();
   const run = runSoffice(process.execPath, ['-e', sleeper(pidFile)], {
     signal: controller.signal,
@@ -45,7 +46,7 @@ test('a cancelled conversion is reported only after its process has exited', asy
 });
 
 test('a timed-out conversion is reported only after its process has exited', async () => {
-  const pidFile = join(mkdtempSync(join(tmpdir(), 'soffice-life-')), 'pid');
+  const pidFile = join(makeTempDirSync('soffice-life'), 'pid');
   const run = runSoffice(process.execPath, ['-e', sleeper(pidFile)], {
     signal: null,
     timeoutMs: 700,

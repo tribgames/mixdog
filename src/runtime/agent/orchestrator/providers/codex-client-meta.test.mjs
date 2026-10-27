@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
 import { CODEX_CLIENT_VERSION_FLOOR } from './codex-client-meta.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 // A version `n` minors above the shipped floor, which every release raises.
 const ahead = (n) => {
@@ -22,7 +20,7 @@ async function fresh(fetchImpl) {
     delete process.env[key];
   }
   // Each case starts with no remembered version and never touches the operator's.
-  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-codex-version-'));
+  process.env.MIXDOG_DATA_DIR = makeTempDirSync('codex-version');
   respond = fetchImpl;
   const calls = [];
   globalThis.fetch = async (url) => {

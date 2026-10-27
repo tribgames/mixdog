@@ -4,6 +4,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { registerOwnedTempDir } from './lib/scoped-temp.mjs';
 import { pruneStaleTempDirs, removeTempDirSync } from './lib/stale-temp.mjs';
 
 if (!process.env.MIXDOG_TEST_DATA_DIR_OWNED) {
@@ -12,6 +13,7 @@ if (!process.env.MIXDOG_TEST_DATA_DIR_OWNED) {
   const prefix = 'mixdog-test-data-';
   pruneStaleTempDirs([prefix]);
   const dir = mkdtempSync(join(tmpdir(), prefix));
+  registerOwnedTempDir(dir);
   process.env.MIXDOG_DATA_DIR = dir;
   process.env.MIXDOG_TEST_DATA_DIR_OWNED = '1';
   process.on('exit', () => {

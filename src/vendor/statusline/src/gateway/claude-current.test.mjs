@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-claude-current-'));
+const dataDir = makeTempDirSync('claude-current');
 process.env.MIXDOG_DATA_DIR = dataDir;
 mkdirSync(dataDir, { recursive: true });
 writeFileSync(

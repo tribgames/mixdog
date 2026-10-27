@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-transcript-store-'));
+const dataDir = makeTempDirSync('transcript-store');
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { createSessionDraftStore } = await import('./draft-store.mjs');

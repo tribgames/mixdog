@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { createPluginStatus } from './plugin-status.mjs';
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
 test('claude-plugin skills are counted live and empty plugins warn with searched roots', async () => {
   const { pluginManifest, countSkillFiles } = await import(
     '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs'
   );
-  const base = mkdtempSync(join(tmpdir(), 'plugin-status-claude-'));
+  const base = makeTempDirSync('plugin-status-claude');
   const claudeRoot = join(base, 'claude');
   const emptyRoot = join(base, 'empty');
   mkdirSync(join(claudeRoot, '.claude-plugin'), { recursive: true });
@@ -56,7 +56,7 @@ test('a codex manifest skills list counts every listed root', async () => {
   const { pluginManifest, countSkillFiles } = await import(
     '../../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs'
   );
-  const root = join(mkdtempSync(join(tmpdir(), 'plugin-status-codex-')), 'codex');
+  const root = join(makeTempDirSync('plugin-status-codex'), 'codex');
   mkdirSync(join(root, '.codex-plugin'), { recursive: true });
   writeFileSync(join(root, '.codex-plugin', 'plugin.json'), '{"name":"codex","skills":["./a","./b",""]}');
   for (const [dir, name] of [
@@ -84,7 +84,7 @@ test('a codex manifest skills list counts every listed root', async () => {
 });
 
 test('missing roots are listed by id/name and unparseable manifests are invalid', () => {
-  const base = mkdtempSync(join(tmpdir(), 'plugin-status-'));
+  const base = makeTempDirSync('plugin-status');
   const badRoot = join(base, 'bad');
   const goodRoot = join(base, 'good');
   mkdirSync(badRoot);

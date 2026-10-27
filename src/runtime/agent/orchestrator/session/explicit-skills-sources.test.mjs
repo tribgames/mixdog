@@ -3,12 +3,12 @@
 // the fenced body/headers); task-notification turns (idle-drained
 // completions, automation agent results) select nothing.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-sources-'));
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('skill-sources');
 process.env.MIXDOG_DATA_DIR = root;
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 for (const name of ['selected-guide', 'other-guide']) {

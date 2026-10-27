@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { createPublicKey, randomUUID, verify } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -18,8 +17,9 @@ import {
   validWebPushEndpoint,
 } from './web-push.mjs';
 
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 const tempDir = (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-webpush-'));
+  const dir = makeTempDirSync('relay-webpush');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 };

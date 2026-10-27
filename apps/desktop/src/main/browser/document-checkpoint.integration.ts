@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { appendFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { app, BrowserWindow, type WebContents } from 'electron';
+import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { createBrowserGuestCdp } from './cdp';
 import { createBrowserDocuments } from './documents';
 import { BrowserGuestStateStore } from './guest-state';
@@ -15,7 +14,8 @@ import { browserRenderCheckpoint } from './render-checkpoint';
 // an independently scheduled out-of-process frame that has work pending.
 const DEADLINE_MS = 800;
 const OOPIF_BUSY_MS = 250;
-app.setPath('userData', mkdtempSync(join(tmpdir(), 'mixdog-document-checkpoint-')));
+const profile = makeTempDirSync('document-checkpoint');
+app.setPath('userData', profile);
 app.commandLine.appendSwitch('site-per-process');
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
@@ -135,13 +135,15 @@ app.on('window-all-closed', () => {
   /* Keep the isolated test process alive between windows. */
 });
 run().then(
-  () => {
+  async () => {
     server.close();
+    await removeTempDir(profile);
     app.exit(0);
   },
-  (error) => {
+  async (error) => {
     console.error(error);
     server.close();
+    await removeTempDir(profile);
     app.exit(1);
   }
 );

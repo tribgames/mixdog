@@ -1,17 +1,19 @@
 import '../../../shared/llm/usage-test-support.mjs';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import test, { after } from 'node:test';
 import { join } from 'node:path';
-import { UsageLedger } from '../../../shared/llm/usage-ledger.mjs';
+import { UsageLedger, closeUsageLedgers } from '../../../shared/llm/usage-ledger.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 import { createStreamSafetyStamps, withRetry } from './retry-classifier.mjs';
 import { createWsSendAttempts, MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT } from './openai-ws-send-attempts.mjs';
 import { recoverCompatNonStreaming } from './openai-compat-chat-send.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+
+// Cached ledger handles would hold the scratch folder open at exit.
+after(() => closeUsageLedgers());
 
 function useLedger(t) {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-retry-usage-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('retry-usage'), 'ledger.sqlite');
   const prior = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
   t.after(() => {

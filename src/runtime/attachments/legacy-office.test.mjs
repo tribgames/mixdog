@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-legacy-office-'));
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('legacy-office');
 
 const { materializePromptSubmission, preparePromptSubmissionForProvider, readAttachmentBuffer } = await import(
   './store.mjs'

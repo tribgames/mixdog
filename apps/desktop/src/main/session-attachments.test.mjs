@@ -3,9 +3,8 @@
 // download grant) only when THIS session's transcript names it.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { readFileSync, rmSync } from 'node:fs';
+import { basename } from 'node:path';
 import test from 'node:test';
 
 import { fileDownloadErrorReason } from '../shared/file-downloads.ts';
@@ -14,11 +13,14 @@ import { createRemoteAttachmentMethods } from './remote-attachments.ts';
 import { readSessionAttachment } from './session-attachments.ts';
 import { sessionAttachments } from './transcript-file-links.ts';
 
+import { makeTempDirSync, redirectSystemTemp } from '../../../../scripts/lib/scoped-temp.mjs';
+
+redirectSystemTemp('tmp-root');
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const PHONE = { deviceId: 'phone' };
 
 function fixture(t) {
-  const temp = mkdtempSync(join(tmpdir(), 'session-attachments-'));
+  const temp = makeTempDirSync('session-attachments');
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const pdf = Buffer.from('%PDF-1.7\nspec body');
   const note = Buffer.from('notes '.repeat(200));
@@ -164,7 +166,7 @@ test('an attachment reads by id for its own session and for no other', async (t)
   assert.equal((await readSessionAttachment(host, 's1', ids.old)).meta.kind, 'image');
 });
 
-test('an attachment only the compacted history names opens; another session\'s id is still refused', async (t) => {
+test("an attachment only the compacted history names opens; another session's id is still refused", async (t) => {
   const { host, ids } = fixture(t);
   // The transcript window the host holds does not name it (a chip of rows paged in earlier shows it).
   assert.equal(sessionAttachments(await host.readSessionTranscript('s1')).has(ids.archived), false);

@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import test, { mock } from 'node:test';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 mock.module('../../../vendor/statusline/src/gateway/session-routes.mjs', {
   namedExports: {
     clearGatewaySessionRoute: () => true,
@@ -32,7 +31,7 @@ function workerSession(id, tag, owner) {
 }
 
 function setup(sessions) {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-close-stale-'));
+  const root = makeTempDirSync('close-stale');
   const mgr = {
     getSession: (id) => sessions.get(id) || null,
     listSessions: () => [...sessions.values()],

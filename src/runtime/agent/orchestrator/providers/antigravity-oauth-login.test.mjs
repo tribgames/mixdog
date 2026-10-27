@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTempDirSync, tempDirFor } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 
 // The token store follows the selected account in provider-accounts.json,
 // which outranks ANTIGRAVITY_OAUTH_CREDENTIALS_PATH. Isolate the data dir so a
 // developer's connected account is never overwritten by a login test.
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-antigravity-login-data-'));
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('antigravity-login-data');
 
 import {
   beginOAuthLogin,
@@ -54,7 +54,7 @@ function scriptedFetch(replies) {
 }
 
 function isolateTokenStore(t) {
-  const directory = mkdtempSync(join(tmpdir(), 'mixdog-antigravity-login-'));
+  const directory = tempDirFor(t, 'antigravity-login');
   const tokenPath = join(directory, 'credentials.json');
   const previous = process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH;
   process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH = tokenPath;

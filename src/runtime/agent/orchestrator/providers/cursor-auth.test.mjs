@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -11,6 +10,7 @@ import {
   hasCursorOAuthCredentials,
   resolveCursorOAuthAccessToken,
 } from './cursor-auth.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 const BINDINGS = Symbol.for('mixdog.providerAuthBindings');
 
@@ -20,12 +20,15 @@ function credentialPath() {
 const readStored = () => JSON.parse(readFileSync(credentialPath(), 'utf8'));
 const jwt = (expSeconds) => `h.${Buffer.from(JSON.stringify({ exp: expSeconds })).toString('base64url')}.s`;
 
-const failing = (status, headers = {}, body = '') => async () => new Response(body, { status, headers });
+const failing =
+  (status, headers = {}, body = '') =>
+  async () =>
+    new Response(body, { status, headers });
 
 // Binds the cursor-oauth credential file to a temp path holding an expired
 // access token plus a refresh token.
 function expiredCredentials(t, extra = {}) {
-  const path = join(mkdtempSync(join(tmpdir(), 'cursor-auth-')), 'cursor-oauth.json');
+  const path = join(makeTempDirSync('cursor-auth'), 'cursor-oauth.json');
   const exp = Math.floor(Date.now() / 1000) - 60;
   const payload = Buffer.from(JSON.stringify({ exp })).toString('base64url');
   writeFileSync(
@@ -98,7 +101,10 @@ test('a permanent refresh rejection persists reauth_required and stops reporting
   expiredCredentials(t);
   assert.equal(describeCursorOAuthCredentials().authenticated, true);
   assert.equal(hasCursorOAuthCredentials(), true);
-  await assert.rejects(resolveCursorOAuthAccessToken({ fetchFn: failing(401) }), (error) => error.reauthRequired === true);
+  await assert.rejects(
+    resolveCursorOAuthAccessToken({ fetchFn: failing(401) }),
+    (error) => error.reauthRequired === true
+  );
   const stored = readStored();
   assert.equal(stored.reauth_required, true);
   assert.equal(stored.refresh_token, 'refresh');

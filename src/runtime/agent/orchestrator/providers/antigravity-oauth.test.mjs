@@ -4,14 +4,13 @@
 // `{ response: … }` chunk unwrapping are all pinned here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setImmediate as nextTick } from 'node:timers/promises';
 
 // The catalog cache lives in the data dir; isolate it so a developer's own
 // cached catalog never leaks into wire-id expectations.
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-antigravity-test-'));
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('antigravity-test');
 
 import { AntigravityOAuthProvider } from './antigravity-oauth.mjs';
 import {
@@ -25,6 +24,7 @@ import {
 } from './antigravity-oauth-tokens.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { isProviderRecoveryExhausted } from './retry-classifier.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 function sseResponse(chunks, { status = 200 } = {}) {
   const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('');
@@ -123,7 +123,7 @@ test('Antigravity keeps bare Flash thinkingLevel without guessing Claude token b
 });
 
 test('the stored credential (snake_case) reaches requests as a bearer token and project', async (t) => {
-  const tokenPath = join(mkdtempSync(join(tmpdir(), 'mixdog-antigravity-store-')), 'antigravity-oauth.json');
+  const tokenPath = join(makeTempDirSync('antigravity-store'), 'antigravity-oauth.json');
   writeFileSync(
     tokenPath,
     JSON.stringify({
@@ -275,7 +275,7 @@ test('the catalog is served from the gateway and cached, with the curated list a
   t.after(() => {
     process.env.MIXDOG_DATA_DIR = dataDir;
   });
-  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-antigravity-offline-'));
+  process.env.MIXDOG_DATA_DIR = makeTempDirSync('antigravity-offline');
   assert.equal(await offline.listModels(), ANTIGRAVITY_MODELS);
 });
 

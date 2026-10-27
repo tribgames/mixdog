@@ -1,9 +1,8 @@
 import './usage-test-support.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { UsageLedger, makeUsageRecord, getUsageLedger, closeUsageLedgers } from './usage-ledger.mjs';
 import { priceUsage } from './cost.mjs';
@@ -13,6 +12,7 @@ import { importUsageHistory, importTraceRow } from './usage-ledger-import.mjs';
 import { sessionUsageSnapshot, usageStatsSnapshot } from '../../../session-runtime/services/usage-stats-model.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
 
+import { makeTempDirSync, removeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 const now = new Date(2026, 8, 12, 12).getTime();
 const row = (extra = {}) =>
   makeUsageRecord({
@@ -104,7 +104,7 @@ test('official context and UTC time tiers are priced at request granularity', ()
 });
 
 test('years of history survive reopen with no TTL or session deletion dependency', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-retention-'));
+  const dir = makeTempDirSync('usage-retention');
   const path = join(dir, 'ledger.sqlite');
   const first = new UsageLedger(path);
   first.record([row({ ts: new Date(2022, 0, 1).getTime() })]);
@@ -144,7 +144,7 @@ test('a usage_events row with no daily index row contributes nothing instead of 
 });
 
 test('concurrent processes share one idempotent ledger without lost totals', async () => {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-usage-concurrent-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('usage-concurrent'), 'ledger.sqlite');
   new UsageLedger(path).close();
   const moduleUrl = new URL('./usage-ledger.mjs', import.meta.url).href;
   const run = () =>
@@ -178,7 +178,7 @@ test('concurrent processes share one idempotent ledger without lost totals', asy
 });
 
 test('closeUsageLedgers releases the file so its directory can be removed, and later access reopens', (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-close-'));
+  const dir = makeTempDirSync('usage-close');
   const priorPath = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = join(dir, 'ledger.sqlite');
   t.after(() => {
@@ -201,7 +201,8 @@ test('closeUsageLedgers releases the file so its directory can be removed, and l
 });
 
 test('live provider accounting works with diagnostics disabled and retains cancellation', async (t) => {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-usage-capture-')), 'ledger.sqlite');
+  const captureDir = makeTempDirSync('usage-capture');
+  const path = join(captureDir, 'ledger.sqlite');
   const priorPath = process.env.MIXDOG_USAGE_LEDGER_PATH;
   const priorTrace = process.env.MIXDOG_AGENT_TRACE_DISABLE;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
@@ -211,6 +212,8 @@ test('live provider accounting works with diagnostics disabled and retains cance
     else process.env.MIXDOG_USAGE_LEDGER_PATH = priorPath;
     if (priorTrace === undefined) delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
     else process.env.MIXDOG_AGENT_TRACE_DISABLE = priorTrace;
+    closeUsageLedgers();
+    removeTempDirSync(captureDir);
   });
   const result = { model: 'claude-opus-4-8', responseId: 'live', usage: { inputTokens: 1000, outputTokens: 200 } };
   const instance = { constructor: { inputExcludesCache: true } };
@@ -248,7 +251,7 @@ test('live provider accounting works with diagnostics disabled and retains cance
   }
   // An unavailable accounting destination must neither replay the provider
   // request nor erase the successful response.
-  process.env.MIXDOG_USAGE_LEDGER_PATH = mkdtempSync(join(tmpdir(), 'mixdog-usage-unwritable-'));
+  process.env.MIXDOG_USAGE_LEDGER_PATH = makeTempDirSync('usage-unwritable');
   const messages = [];
   t.mock.method(process.stderr, 'write', (text) => {
     messages.push(String(text));
@@ -278,7 +281,7 @@ test('live provider accounting works with diagnostics disabled and retains cance
 
 test('a corrupt legacy gateway file is skipped with a warning, not an import failure, and retried after repair', async (t) => {
   const ledger = store(t);
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-corrupt-'));
+  const dir = makeTempDirSync('usage-corrupt');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const warnings = [];
   t.mock.method(process.stderr, 'write', (chunk) => {
@@ -334,7 +337,7 @@ function legacyStatsApi(t, dir, readTrace = async () => []) {
 }
 
 async function assertUnreadableLegacyRollup(t, contents) {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-legacy-bad-'));
+  const dir = makeTempDirSync('usage-legacy-bad');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, 'usage-rollup.local.json'), contents);
   const { ledger, warnings, api } = legacyStatsApi(t, dir);
@@ -351,7 +354,7 @@ async function assertUnreadableLegacyRollup(t, contents) {
 }
 
 test('a corrupt legacy rollup keeps other usage available and retries after repair without double counting', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-legacy-repair-'));
+  const dir = makeTempDirSync('usage-legacy-repair');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const legacyPath = join(dir, 'usage-rollup.local.json');
   writeFileSync(legacyPath, '{broken');
@@ -415,7 +418,7 @@ test('an empty legacy rollup warns and still returns stats without marking the i
 });
 
 test('a torn or NUL trace line in a legacy trace file is skipped, never a failed import', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-torn-trace-'));
+  const dir = makeTempDirSync('usage-torn-trace');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const trace = (id) =>
     JSON.stringify({
@@ -451,7 +454,7 @@ test('wrong-shaped legacy rollup JSON warns and does not mark the import', async
 });
 
 test('a valid legacy rollup is imported once and is not counted twice', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-legacy-valid-'));
+  const dir = makeTempDirSync('usage-legacy-valid');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, 'usage-rollup.local.json');
   writeFileSync(path, legacyRollup(2));
@@ -477,7 +480,7 @@ test('missing and valid empty legacy rollups complete the import without a warni
     ['empty day array', '{"days": []}'],
   ]) {
     await t.test(name, async (t) => {
-      const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-legacy-empty-'));
+      const dir = makeTempDirSync('usage-legacy-empty');
       t.after(() => rmSync(dir, { recursive: true, force: true }));
       if (contents !== null) writeFileSync(join(dir, 'usage-rollup.local.json'), contents);
       const { ledger, warnings, api } = legacyStatsApi(t, dir);
@@ -493,7 +496,7 @@ test('missing and valid empty legacy rollups complete the import without a warni
 });
 
 test('legacy storage errors are not mistaken for an unreadable rollup', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-legacy-storage-'));
+  const dir = makeTempDirSync('usage-legacy-storage');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, 'usage-rollup.local.json'), legacyRollup(2));
   const { ledger, warnings, api } = legacyStatsApi(t, dir);
@@ -511,7 +514,7 @@ test('legacy storage errors are not mistaken for an unreadable rollup', async (t
 
 test('import skips blank PG usage fields, deduplicates raw copies, preserves originals and source precedence', async (t) => {
   const ledger = store(t);
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-import-'));
+  const dir = makeTempDirSync('usage-import');
   const original = JSON.stringify({
     events: [
       {
@@ -580,7 +583,7 @@ test('API uses the ledger and reports a failed historical import instead of zero
 });
 
 test('a repeated rollup is served unchanged until this or another connection appends', (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-rollup-cache-'));
+  const dir = makeTempDirSync('usage-rollup-cache');
   const path = join(dir, 'ledger.sqlite');
   const ledger = new UsageLedger(path);
   t.after(() => {

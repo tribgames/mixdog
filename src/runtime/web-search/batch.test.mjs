@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test, { after } from 'node:test';
 import Ajv from 'ajv';
 import { TOOL_DEFS } from './tool-defs.mjs';
 import { toGeminiTools } from '../agent/orchestrator/providers/gemini-schema.mjs';
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-web-batch-test-'));
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('web-batch-test');
 const { handleToolCall, stop } = await import('./index.mjs');
 after(async () => {
   await stop();

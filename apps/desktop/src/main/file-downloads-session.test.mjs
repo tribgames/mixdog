@@ -4,17 +4,7 @@
 // Only the desktop's project boundary holds: a project path may not leave the
 // project through a link.
 import assert from 'node:assert/strict';
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import JSZip from 'jszip';
@@ -23,11 +13,14 @@ import { FILE_DOWNLOAD_RANGE_MAX_BYTES, fileDownloadErrorReason } from '../share
 import { createFileDownloadService } from './file-downloads.ts';
 import { createRemoteMethods } from './remote-methods.ts';
 
+import { makeTempDirSync, redirectSystemTemp } from '../../../../scripts/lib/scoped-temp.mjs';
+
+redirectSystemTemp('tmp-root');
 const PHONE = { deviceId: 'phone' };
 const slash = (path) => path.replace(/\\/g, '/');
 
 function fixture(t) {
-  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'session-grants-')));
+  const base = realpathSync.native(makeTempDirSync('session-grants'));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const project = join(base, 'project');
   const outside = join(base, 'outside');
@@ -271,7 +264,7 @@ test('an Explorer folder of the conversation project zips whole, a secret-bearin
 
 test('temporary folder zips are bounded per device without breaking a transfer in flight', async (t) => {
   const { host, outside } = fixture(t);
-  const temp = realpathSync.native(mkdtempSync(join(tmpdir(), 'download-cap-')));
+  const temp = realpathSync.native(makeTempDirSync('download-cap'));
   const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
   Object.assign(process.env, { TMPDIR: temp, TEMP: temp, TMP: temp });
   t.after(() => {

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -11,8 +10,9 @@ import {
   parseHostSettings,
   sharedSshHostStore,
 } from './ssh-host-store.ts';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
-const tempDir = () => mkdtemp(join(tmpdir(), 'mixdog-ssh-hosts-'));
+const tempDir = () => makeTempDirSync('ssh-hosts');
 const host = (id, name, target, lastConnectedAt = 1) => ({ id, name, target, lastConnectedAt });
 
 test('saved servers persist as id, name, target and lastConnectedAt, newest first', async () => {
@@ -121,7 +121,7 @@ test('per-server settings are validated, saved with the entry and survive a save
 });
 
 test('the provider lookup honors a saved server’s list even before any store was loaded; unknown servers get none', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-providers-'));
+  const dir = makeTempDirSync('providers');
   await writeFile(
     join(dir, 'ssh-hosts.json'),
     JSON.stringify({

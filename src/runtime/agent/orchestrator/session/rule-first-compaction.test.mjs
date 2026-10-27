@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runFreshContextCompact } from './loop/fresh-context.mjs';
 import {
@@ -18,6 +17,7 @@ import { parseExecutionArchive } from './compact/execution-tail.mjs';
 import { withoutStampedIds } from './message-ids.test-support.mjs';
 import { invalidateSkillsCache } from '../context/collect.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 const summary = [
   '## Goal',
   '- continue the approved task',
@@ -180,7 +180,7 @@ test('AI is called at the explicit conversation threshold and never receives the
 
 test('tool pressure alone uses rules and preserves an exact recoverable archive, without AI', async (t) => {
   const previous = process.env.MIXDOG_DATA_DIR;
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-rule-first-'));
+  const root = makeTempDirSync('rule-first');
   process.env.MIXDOG_DATA_DIR = root;
   t.after(() => {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -232,7 +232,7 @@ test('tool pressure alone uses rules and preserves an exact recoverable archive,
 
 test('tool media at the request byte cap compacts before send even when tokens are low', async (t) => {
   const previous = process.env.MIXDOG_DATA_DIR;
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-media-compact-'));
+  const root = makeTempDirSync('media-compact');
   process.env.MIXDOG_DATA_DIR = root;
   t.after(() => {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -379,7 +379,7 @@ test('agent sessions compact before a send once their 5m message cache has expir
   timeout: 10_000,
 }, async (t) => {
   const previous = process.env.MIXDOG_DATA_DIR;
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-cache-expiry-compact-'));
+  const root = makeTempDirSync('cache-expiry-compact');
   process.env.MIXDOG_DATA_DIR = root;
   t.after(() => {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;

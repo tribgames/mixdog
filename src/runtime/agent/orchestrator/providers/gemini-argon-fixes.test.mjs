@@ -3,11 +3,9 @@
 // without a finishReason, the empty-STOP re-ask, and leak-guard fence state.
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-gemini-fixes-'));
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('gemini-fixes');
 
 // Catalog output limits by model id; an unlisted model has none declared.
 const declaredOutput = new Map();
@@ -169,7 +167,9 @@ test('API-key cached REST send relays thoughts through onReasoningDelta, not the
 });
 
 test('Antigravity send relays thoughts through onReasoningDelta, not the answer', async () => {
-  const { provider } = antigravityProvider([[chunkOf([{ text: 'thinking...', thought: true }, { text: 'Done.' }], 'STOP')]]);
+  const { provider } = antigravityProvider([
+    [chunkOf([{ text: 'thinking...', thought: true }, { text: 'Done.' }], 'STOP')],
+  ]);
   const reasoning = [];
   const result = await provider.send(HELLO, 'gemini-3-flash', [], { onReasoningDelta: (d) => reasoning.push(d) });
   assert.deepEqual(reasoning, ['thinking...']);
@@ -214,9 +214,13 @@ test('an uncatalogued model sends no maxOutputTokens on either builder, whatever
 test('with no known ceiling an explicit maxOutputTokens passes through unclamped', () => {
   declaredOutput.clear();
   const model = 'gemini-9.9-flash-fixture';
-  assert.equal(buildGeminiRequest(HELLO, model, [], { maxOutputTokens: 123456 }).generationConfig.maxOutputTokens, 123456);
   assert.equal(
-    buildAntigravityRequest(HELLO, model, [], { maxOutputTokens: 123456 }, 'p').request.generationConfig.maxOutputTokens,
+    buildGeminiRequest(HELLO, model, [], { maxOutputTokens: 123456 }).generationConfig.maxOutputTokens,
+    123456
+  );
+  assert.equal(
+    buildAntigravityRequest(HELLO, model, [], { maxOutputTokens: 123456 }, 'p').request.generationConfig
+      .maxOutputTokens,
     123456
   );
 });
@@ -334,7 +338,10 @@ test('Antigravity ends a tool-use turn that arrived without a finishReason', asy
   const dispatched = [];
   const result = await provider.send(HELLO, 'gemini-3-flash', TOOLS, { onToolCall: (call) => dispatched.push(call) });
   assert.equal(attemptsMade(), 1);
-  assert.deepEqual(result.toolCalls.map((call) => call.name), ['read']);
+  assert.deepEqual(
+    result.toolCalls.map((call) => call.name),
+    ['read']
+  );
   assert.equal(dispatched.length, 1);
 });
 
@@ -343,7 +350,10 @@ test('API-key SDK and cached REST end a tool-use turn that arrived without a fin
     const { provider, attemptsMade } = make([[chunkOf([callPart])]]);
     const result = await provider.send(HELLO, 'gemini-3.1-pro', TOOLS, {});
     assert.equal(attemptsMade(), 1);
-    assert.deepEqual(result.toolCalls.map((call) => call.name), ['read']);
+    assert.deepEqual(
+      result.toolCalls.map((call) => call.name),
+      ['read']
+    );
   }
 });
 

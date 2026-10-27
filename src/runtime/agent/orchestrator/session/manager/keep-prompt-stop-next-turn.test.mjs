@@ -4,12 +4,12 @@
 // request for every provider family's message builder, passes the provider
 // prefix guard, and that the stored transcript keeps both prompts in order.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-keep-stop-'));
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('keep-stop');
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });

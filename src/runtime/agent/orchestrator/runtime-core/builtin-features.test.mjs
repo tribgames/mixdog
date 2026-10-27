@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { applyDeferredToolSurface } from './tool-catalog.mjs';
 import { HEADLESS_MODEL_TOOL_NAMES, filterModelToolsForProfile, modelToolSchemaAllowlist } from './tool-profile.mjs';
@@ -17,8 +16,9 @@ import {
 } from './builtin-features.mjs';
 import { filterSkillsExcludingDisabled } from '../context/collect.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 // No desktop bridge is published for this file unless a test writes one.
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-features-'));
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('features');
 delete process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
 delete process.env.MIXDOG_FEATURE_VISUALIZE;
 
@@ -158,7 +158,12 @@ test('installed features with live bridges expose the full tool surface', () => 
   process.env.MIXDOG_FEATURE_VISUALIZE = '1';
   try {
     assert.deepEqual(
-      featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true, gitAvailable: true }),
+      featureDisallowedToolsFor(config, {
+        browserAvailable: true,
+        computerAvailable: true,
+        terminalAvailable: true,
+        gitAvailable: true,
+      }),
       []
     );
   } finally {
@@ -233,13 +238,10 @@ test('a disabled toggle removes tools even while the feature stays installed', (
     modules: { office: { enabled: false } },
     memoryTools: { enabled: false },
   };
-  assert.deepEqual(featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true }), [
-    'memory',
-    'recall',
-    'office',
-    'tidy',
-    'visualize',
-  ]);
+  assert.deepEqual(
+    featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true }),
+    ['memory', 'recall', 'office', 'tidy', 'visualize']
+  );
 });
 
 test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions', () => {

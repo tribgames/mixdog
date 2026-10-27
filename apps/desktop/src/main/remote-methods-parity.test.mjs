@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -14,6 +13,7 @@ import { replaceWorkspaceTextIn, searchWorkspaceTextIn } from './workspace-searc
 import { SelectedFileAccess } from './selected-file-access.ts';
 import { requiredWorkspaceSearchOptions } from './ipc-validation.ts';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 const CWD = process.cwd();
 const SESSION = `sess_desktop_${'a'.repeat(64)}`;
 
@@ -85,7 +85,7 @@ test('trashProjectEntry resolves the entry on the host and trashes it in the win
 });
 
 test('localPageUrl confines the page to its project and mints the lease in the window process', async () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-page-')));
+  const root = realpathSync(makeTempDirSync('page'));
   mkdirSync(join(root, 'docs'));
   // The page is opened and authorized, so it must exist.
   writeFileSync(join(root, 'docs', 'a.html'), '<p>a</p>');
@@ -266,7 +266,7 @@ test('resetAgentHome starts the same home thread over on the desktop and a paire
 });
 
 test('a file outside every project gets the same grant answers on the desktop and a paired device', async () => {
-  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-grant-parity-')));
+  const folder = realpathSync(makeTempDirSync('grant-parity'));
   const file = join(folder, 'report.txt');
   writeFileSync(file, 'linked report');
   const desktop = new SelectedFileAccess({ storePath: '', listProjects: async () => [] });
@@ -470,7 +470,7 @@ const FILE_SURFACE =
   /File|Entry|Entries|Diff|Patch|Backup|Workspace|Local|Preview|Lsp|lsp|FileSnapshot|Page[A-Z]|Folder|folder|Download|Attachment|^visualizePane|^visualizeExport|codeGraph|Recovery|^git|Project/;
 
 test('no remote file entry point refuses a secret-bearing file the desktop serves', async (t) => {
-  const project = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-guard-parity-')));
+  const project = realpathSync(makeTempDirSync('guard-parity'));
   t.after(() => rmSync(project, { recursive: true, force: true }));
   writeFileSync(join(project, '.env'), 'TOKEN=abc');
   writeFileSync(join(project, 'notes.txt'), 'TOKEN mentioned');
@@ -635,7 +635,7 @@ const NO_FILE_BYTES = {
 };
 
 test('every remote method on file bytes authorizes the opened file or runs the desktop operation', async (t) => {
-  const project = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-handle-parity-')));
+  const project = realpathSync(makeTempDirSync('handle-parity'));
   t.after(() => {
     remoteFilePreviewTestHooks.beforeOpen = undefined;
     rmSync(project, { recursive: true, force: true });
@@ -680,7 +680,7 @@ test('every remote method on file bytes authorizes the opened file or runs the d
 });
 
 test('editor backups refuse a path that escapes the project like the desktop handler', async () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-parity-')));
+  const root = realpathSync(makeTempDirSync('parity'));
   mkdirSync(join(root, 'src'));
   const { host, operations } = operationHost({ projectDirectory: async () => root });
   const methods = createRemoteMethods({ host, userDataPath: join(root, 'user') });

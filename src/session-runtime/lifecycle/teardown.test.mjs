@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { withFileLock } from '../../runtime/shared/file-lock.mjs';
@@ -10,6 +9,7 @@ import { createWorkerIndex } from '../services/agent-tool/worker-index.mjs';
 import { createCloseAll } from '../services/agent-tool/close-flow/close-all.mjs';
 import { createTeardown } from './teardown.mjs';
 
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 function fixture({
   session = { id: 's1', messages: [{ role: 'user', content: 'hi' }] },
   flushConfig,
@@ -121,7 +121,7 @@ test("close on process exit reaps every session's work and tombstones only a scr
 });
 
 test('the summary row a close queues is on disk when the close resolves', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-teardown-summary-'));
+  const root = makeTempDirSync('teardown-summary');
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
   const { _upsertSessionSummary, summaryIndexPath } = await import(
@@ -145,7 +145,7 @@ test('the summary row a close queues is on disk when the close resolves', async 
 });
 
 test('a stuck summary store does not hold the close: it reports what is pending, cleans up, and keeps the op queued', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-teardown-stuck-'));
+  const root = makeTempDirSync('teardown-stuck');
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
   const { _upsertSessionSummary, settleSummaryIndexWrites, summaryIndexPath } = await import(
@@ -202,7 +202,7 @@ function rowFor(id, owner) {
 }
 
 function realWorkerIndex() {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-teardown-'));
+  const root = makeTempDirSync('teardown');
   mkdirSync(join(root, 'sessions'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;

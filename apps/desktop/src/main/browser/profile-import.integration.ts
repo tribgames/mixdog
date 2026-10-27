@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { app, safeStorage, session } from 'electron';
@@ -14,7 +14,7 @@ import { verifyPartitionedCookieImport } from './cookie-jar.integration';
 const execFileAsync = promisify(execFile);
 process.stdout.write('browser profile import integration loaded\n');
 const configuredRoot = String(process.env.MIXDOG_BROWSER_PROFILE_IMPORT_TEST_ROOT || '');
-const root = configuredRoot || (await mkdtemp(join(tmpdir(), 'mixdog-browser-profile-import-')));
+const root = configuredRoot || makeTempDirSync('browser-profile-import');
 await mkdir(root, { recursive: true });
 app.setPath('userData', join(root, 'electron-user-data'));
 app.disableHardwareAcceleration();
@@ -490,9 +490,15 @@ void app
   .then(async () => {
     process.stdout.write('browser profile import integration app ready\n');
     await run();
-    app.exit(0);
+    await finish(0);
   })
   .catch(async (error) => {
     process.stderr.write(`${error instanceof Error ? error.stack || error.message : String(error)}\n`);
-    app.exit(1);
+    await finish(1);
   });
+
+/** app.exit skips every quit hook, so a root this run created goes first. */
+async function finish(code: number): Promise<void> {
+  if (!configuredRoot) await removeTempDir(root);
+  app.exit(code);
+}

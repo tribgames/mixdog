@@ -1,8 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import {
   acceptRelayE2EEClientHello,
@@ -19,9 +16,10 @@ import {
 import { loadOrCreateRelayE2EEIdentity, rotateRelayE2EEIdentity } from './remote-e2ee';
 import { buildRemoteAccessInfo } from './remote-access-window';
 import { loadOrCreatePairingToken, rotatePairingToken } from './remote-pairing-token';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 test('authenticates, encrypts both directions, and rejects replay', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-'));
+  const dir = makeTempDirSync('e2ee');
   const identity = await loadOrCreateRelayE2EEIdentity(dir);
   const challenge = createRelayE2EEChallenge();
   const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), challenge);
@@ -63,7 +61,7 @@ test('authenticates, encrypts both directions, and rejects replay', async () => 
 });
 
 test('compresses large payloads inside the envelope and stays readable without it', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-deflate-'));
+  const dir = makeTempDirSync('e2ee-deflate');
   const identity = await loadOrCreateRelayE2EEIdentity(dir);
   const pairing = relayE2EEPairingMaterial(identity);
   // A transcript snapshot: repetitive JSON, which is exactly what the relay
@@ -111,7 +109,7 @@ test('compresses large payloads inside the envelope and stays readable without i
 });
 
 test('rejects oversized handshake fields before cryptographic work', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-shape-'));
+  const dir = makeTempDirSync('e2ee-shape');
   const identity = await loadOrCreateRelayE2EEIdentity(dir);
   const challenge = createRelayE2EEChallenge();
   const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), challenge);
@@ -126,8 +124,8 @@ test('rejects oversized handshake fields before cryptographic work', async () =>
 });
 
 test('rejects a client that does not possess the fragment secret', async () => {
-  const firstDir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-a-'));
-  const secondDir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-b-'));
+  const firstDir = makeTempDirSync('e2ee-a');
+  const secondDir = makeTempDirSync('e2ee-b');
   const identity = await loadOrCreateRelayE2EEIdentity(firstDir);
   const wrong = await loadOrCreateRelayE2EEIdentity(secondDir);
   const challenge = createRelayE2EEChallenge();
@@ -142,7 +140,7 @@ test('rejects a client that does not possess the fragment secret', async () => {
 });
 
 test('persists and rotates identity, keeping every secret out of the entry link', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-persist-'));
+  const dir = makeTempDirSync('e2ee-persist');
   const first = await loadOrCreateRelayE2EEIdentity(dir);
   assert.deepEqual(await loadOrCreateRelayE2EEIdentity(dir), first);
   const rotated = await rotateRelayE2EEIdentity(dir);
@@ -166,7 +164,7 @@ test('persists and rotates identity, keeping every secret out of the entry link'
 });
 
 test('an approval seals the pairing to one container and to nobody else', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-claim-'));
+  const dir = makeTempDirSync('e2ee-claim');
   const identity = await loadOrCreateRelayE2EEIdentity(dir);
   const pairing = relayE2EEPairingMaterial(identity);
   const asking = await generateRelayClaimKeyPair();
@@ -200,7 +198,7 @@ test('an approval seals the pairing to one container and to nobody else', async 
 });
 
 test('persists and rotates the relay routing token', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-token-'));
+  const dir = makeTempDirSync('relay-token');
   const first = await loadOrCreatePairingToken(dir);
   assert.match(first, /^[0-9a-f]{48}$/);
   assert.equal(await loadOrCreatePairingToken(dir), first);

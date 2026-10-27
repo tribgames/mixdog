@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 
 // Catalog + ledger must be configured before any pricing module loads.
-const directory = mkdtempSync(join(tmpdir(), 'mixdog-media-usage-'));
+const directory = makeTempDirSync('media-usage');
 process.env.MIXDOG_DATA_DIR = directory;
 process.env.MIXDOG_USAGE_LEDGER_PATH = ':memory:';
 const geminiImage = {

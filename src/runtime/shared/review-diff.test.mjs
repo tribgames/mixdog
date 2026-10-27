@@ -1,7 +1,6 @@
 import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 import { boundReviewPatch } from './review-diff.mjs';
@@ -19,6 +18,7 @@ import { executeBuiltinTool } from '../agent/orchestrator/tools/builtin.mjs';
 import { executePatchTool, takeApplyPatchUiDiff } from '../agent/orchestrator/tools/patch.mjs';
 import { parseUnifiedDiff } from '../../../apps/desktop/src/renderer/renderer-logic.mjs';
 
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 test('bounded diffs keep every file, its operation, and complete small hunks', () => {
   const patch = [
     `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+${'x'.repeat(70000)}\n`,
@@ -98,7 +98,7 @@ test('an over-ceiling change is rejected without converting its content to a Buf
 });
 
 test('a completion wake continues the user turn review with its Lead edits and worker diffs', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-turn-wake-'));
+  const root = makeTempDirSync('turn-wake');
   const lead = 'wake-lead';
   try {
     await beginTurnSnapshot(root, lead, { checkpointId: 'prompt-1' });
@@ -135,7 +135,7 @@ test('a completion wake continues the user turn review with its Lead edits and w
 });
 
 test('a worker running its own session turn still reports its edits to the Lead turn', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-turn-own-worker-'));
+  const root = makeTempDirSync('turn-own-worker');
   const lead = 'own-turn-lead';
   try {
     await beginTurnSnapshot(root, lead, { checkpointId: 'prompt-1' });
@@ -178,7 +178,7 @@ async function callRunner(root, sessionId) {
 }
 
 test('successive edits of one file each show their own step, in both edit dialects', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-call-diff-'));
+  const root = makeTempDirSync('call-diff');
   try {
     const edit = await callRunner(root, 'call-diff-edit');
     assert.equal(
@@ -211,7 +211,7 @@ test('successive edits of one file each show their own step, in both edit dialec
 });
 
 test('create then delete, rename then edit, several files, and a/ b/ named paths', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-call-diff-'));
+  const root = makeTempDirSync('call-diff');
   try {
     const run = await callRunner(root, 'call-diff-shapes');
     assert.equal(
@@ -272,7 +272,7 @@ test('an empty file created or deleted is still a change', async () => {
 });
 
 test('a large earlier change in the turn never rides on a later call', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-call-diff-'));
+  const root = makeTempDirSync('call-diff');
   try {
     for (const tool of ['apply_patch', 'edit']) {
       const run = await callRunner(root, `call-diff-large-${tool}`);

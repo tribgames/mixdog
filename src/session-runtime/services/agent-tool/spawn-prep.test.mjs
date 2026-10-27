@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 mock.module('../../../runtime/agent/orchestrator/providers/registry.mjs', {
   namedExports: {
@@ -45,8 +45,8 @@ function preparer(sessionSurface) {
 }
 
 test('watchdog overrides carry the agent definition deadline and the provider first-byte window', () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-spawn-prep-'));
-  const sourceRoot = mkdtempSync(join(tmpdir(), 'mixdog-spawn-prep-src-'));
+  const dataDir = makeTempDirSync('spawn-prep');
+  const sourceRoot = makeTempDirSync('spawn-prep-src');
   mkdirSync(join(dataDir, 'agents', 'art-director'), { recursive: true });
   writeFileSync(
     join(dataDir, 'agents', 'art-director', 'AGENT.md'),

@@ -1,16 +1,18 @@
 import './usage-test-support.mjs';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import test, { after } from 'node:test';
 import { join } from 'node:path';
-import { UsageLedger, makeUsageRecord } from './usage-ledger.mjs';
+import { UsageLedger, makeUsageRecord, closeUsageLedgers } from './usage-ledger.mjs';
 import { repairUsageLedger, usageLedgerIntegrity } from './usage-ledger-repair.mjs';
 import { accountProviderSend } from './usage-accounting.mjs';
 import { importTraceRow } from './usage-ledger-import.mjs';
 import { noteAbandonedUsage, noteRequestServiceTier } from './usage-context.mjs';
 import { usageStatsSnapshot } from '../../../session-runtime/services/usage-stats-model.mjs';
 import { resolveUsageStatsPeriod } from '../../../session-runtime/services/usage-stats-period.mjs';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
+
+// Cached ledger handles would hold the scratch folder open at exit.
+after(() => closeUsageLedgers());
 
 test('selected identity survives concurrent nested transport traces and does not leak', async (t) => {
   const rows = [];
@@ -109,7 +111,7 @@ test('each send records the tier its own final attempt sent, under concurrency a
 });
 
 test('re-sent, abandoned and failed attempts each reach the ledger exactly once', async (t) => {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-usage-attempts-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('usage-attempts'), 'ledger.sqlite');
   const priorPath = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
   t.after(() => {

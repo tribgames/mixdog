@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -12,6 +11,7 @@ import { createIceService, requestIceServers } from './ice-legs.mjs';
 import { RateLimiter } from './rate-limit.mjs';
 import { turnConfigFromEnv, verifyTurnCredential } from './turn-credentials.mjs';
 
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 const TURN_SECRET = 'c'.repeat(64);
 // The request limit is a deploy-time decision; the tests pick one.
 const ISSUE_LIMIT = 3;
@@ -81,7 +81,10 @@ test('credentials are per device; issuance is limited per device to the configur
   for (let index = 0; index < ISSUE_LIMIT; index += 1) {
     requestIceServers(a.leg, { requestId: id(index) });
   }
-  assert.equal(a.sent.every((reply) => reply.ok === true), true);
+  assert.equal(
+    a.sent.every((reply) => reply.ok === true),
+    true
+  );
   requestIceServers(a.leg, { requestId: id(99) });
   const refusal = a.sent.at(-1);
   assert.equal(refusal.ok, false);
@@ -93,9 +96,15 @@ test('credentials are per device; issuance is limited per device to the configur
   assert.equal(b.sent[0].ok, true);
   assert.notEqual(b.sent[0].servers[1].username, a.sent[0].servers[1].username);
   // Issued and refused requests are logged by device prefix only, for sizing the limit.
-  assert.equal(lines.filter((line) => line.startsWith('[relay] ice-servers issued device=device-a')).length, ISSUE_LIMIT);
+  assert.equal(
+    lines.filter((line) => line.startsWith('[relay] ice-servers issued device=device-a')).length,
+    ISSUE_LIMIT
+  );
   assert.ok(lines.includes('[relay] ice-servers refused cause=rate-limited device=device-a'));
-  assert.equal(lines.some((line) => line.includes(TURN_SECRET) || line.includes('credential')), false);
+  assert.equal(
+    lines.some((line) => line.includes(TURN_SECRET) || line.includes('credential')),
+    false
+  );
 });
 
 test('the limiter reports when a limited key is admitted again', () => {
@@ -174,7 +183,7 @@ async function desktopLeg(relay, deviceId) {
 }
 
 async function relayWith(t, options = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ice-'));
+  const dir = makeTempDirSync('relay-ice');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), ...options });
   t.after(() => relay.close());
@@ -203,7 +212,12 @@ test('over a real desktop leg: the relay advertises ice, refuses until a phone i
   assert.ok(issued.remainingMs > 86_399_000 && issued.remainingMs <= 86_400_000, String(issued.remainingMs));
   const turn = issued.servers[1];
   assert.equal(
-    verifyTurnCredential({ secret: TURN_SECRET, username: turn.username, credential: turn.credential, nowMs: Date.now() }),
+    verifyTurnCredential({
+      secret: TURN_SECRET,
+      username: turn.username,
+      credential: turn.credential,
+      nowMs: Date.now(),
+    }),
     true
   );
   assert.equal(JSON.stringify(issued).includes(TURN_SECRET), false);

@@ -4,9 +4,8 @@
 import '../../../../../scripts/lib/isolated-test-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { executeBuiltinTool } from '../tools/builtin.mjs';
 import { executeCursorNativeBuiltin } from '../tools/builtin/external-tool-adapters.mjs';
 import { sendToolResult } from './cursor-wire-exec.mjs';
@@ -15,6 +14,7 @@ import { isCursorNativeCallId } from './cursor-native-context.mjs';
 import { CursorOAuthProvider } from './cursor.mjs';
 import { processServerMessage } from './cursor-wire-stream-messages.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 test('a proxied send (empty tool executor) names no native owner, even through an account-scoped session', async () => {
   const provider = new CursorOAuthProvider();
   const stopped = new Error('stopped before network');
@@ -39,7 +39,7 @@ test('a proxied send (empty tool executor) names no native owner, even through a
 });
 
 test('proxied native read/write execs fall back to ordinary tool calls the daemon can execute', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-cursor-proxied-'));
+  const root = makeTempDirSync('cursor-proxied');
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'existing.txt'), 'value=73\n');
   const state = { pending: [], outputTokens: 0 };

@@ -1,7 +1,7 @@
 // Temp dirs a test run or the local gate owns. A normal exit removes them, but
 // a killed process runs no exit handler, so each run starts by sweeping what an
 // earlier killed run left behind.
-import { readdirSync, rmSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,7 +34,9 @@ export function pruneStaleTempDirs(prefixes, { root = tmpdir(), maxAgeMs = STALE
     if (!prefixes.some((prefix) => name.startsWith(prefix))) continue;
     const path = join(root, name);
     try {
-      if (statSync(path).mtimeMs < cutoff) removeTempDirSync(path);
+      // lstat: a link or a plain file that merely matches the prefix is not ours to remove.
+      const info = lstatSync(path);
+      if (info.isDirectory() && info.mtimeMs < cutoff) removeTempDirSync(path);
     } catch {
       /* another run may own or be removing it */
     }

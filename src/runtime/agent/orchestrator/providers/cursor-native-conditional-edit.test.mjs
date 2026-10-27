@@ -1,9 +1,8 @@
 import '../../../../../scripts/lib/isolated-test-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm, stat, mkdir, symlink } from 'node:fs/promises';
+import { writeFile, readFile, rm, stat, mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { executeBuiltinTool } from '../tools/builtin.mjs';
 import { executeCursorNativeBuiltin, tryExecuteExternalToolAdapter } from '../tools/builtin/external-tool-adapters.mjs';
@@ -14,10 +13,11 @@ import { CursorOAuthProvider } from './cursor.mjs';
 import { processServerMessage } from './cursor-wire-stream-messages.mjs';
 import { encodeMessage } from './cursor-wire-protobuf.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 const tools = [{ name: 'read' }, { name: 'edit' }];
 
 async function fixture(t, grants = tools) {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-cursor-conditional-'));
+  const root = makeTempDirSync('cursor-conditional');
   const sessionId = randomUUID();
   const executions = new Map();
   const frames = [];

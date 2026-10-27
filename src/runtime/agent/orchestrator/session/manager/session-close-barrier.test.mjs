@@ -2,12 +2,12 @@
 // (never saved, or already deleted) is a clean close, while a barrier that
 // really failed still reports failure and leaves the runtime intact.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-close-barrier-'));
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('close-barrier');
 process.env.MIXDOG_DATA_DIR = root;
 
 const { closeSession } = await import('./session-close.mjs');

@@ -1,10 +1,10 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-const root = await mkdtemp(join(tmpdir(), 'mixdog-cursor-read-body-'));
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('cursor-read-body');
 process.env.MIXDOG_DATA_DIR = join(root, 'state');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 const { createEagerDispatcher } = await import('../eager-dispatch.mjs');

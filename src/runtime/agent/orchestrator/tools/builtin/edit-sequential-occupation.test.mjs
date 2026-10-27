@@ -5,8 +5,7 @@
 import '../../../../../../scripts/test-data-dir.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tryExecuteExternalToolAdapter } from './external-tool-adapters.mjs';
 import { executeBuiltinTool } from '../builtin.mjs';
@@ -15,10 +14,11 @@ import { executePatchTool } from '../patch.mjs';
 import { closeNativePatchServerForTests } from '../patch/native-server.mjs';
 import { classifyToolFailure } from '../../agent-trace-format.mjs';
 
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
 const ANCHOR = '#if 0\n"""\n#endif';
 
 function makeTempFile(content) {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-edit-seq-'));
+  const dir = makeTempDirSync('edit-seq');
   const file = join(dir, 'poly.c');
   writeFileSync(file, content, 'utf8');
   return { dir, file };

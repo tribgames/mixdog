@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
-import { appendFile, mkdir, mkdtemp, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFile, mkdir, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -15,10 +14,11 @@ import {
   zipListedFiles,
 } from './zip-folder.ts';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 const limits = { maxBytes: 1024, maxFiles: 10 };
 
 async function folder(t) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-zip-')));
+  const root = await realpath(makeTempDirSync('zip'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, 'sub'));
   await writeFile(join(root, 'a.txt'), 'alpha');
@@ -158,7 +158,7 @@ const names = (files) => files.map((file) => file.rel);
 /** A git work tree: tracked and untracked sources, ignored dependencies, logs
  *  and an ignored build folder, plus an untracked secret. */
 async function repository(t) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-zip-git-')));
+  const root = await realpath(makeTempDirSync('zip-git'));
   t.after(() => rm(root, { recursive: true, force: true }));
   execFileSync('git', ['init', '-q'], { cwd: root });
   await writeFile(join(root, '.gitignore'), 'node_modules/\ndist/\n*.log\n');

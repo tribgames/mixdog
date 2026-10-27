@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { classifyPrompt, ensureAskpassHelper, prepareSshSpawn, startAskpassSession } from './ssh-auth.ts';
 import { resolvePlainDir } from './ssh-private-dir.ts';
 
@@ -28,7 +28,7 @@ function runHelper(session, prompt, env = {}) {
 }
 
 async function session(ask, extra = {}) {
-  const helperDir = await mkdtemp(join(tmpdir(), 'mixdog askpass 헬퍼 '));
+  const helperDir = makeTempDirSync('askpass 헬퍼');
   const started = await startAskpassSession({ ask, helperDir, run: okRun, ...extra });
   return started;
 }
@@ -154,7 +154,7 @@ test('concurrent questions are put to the user one after the other', async () =>
 });
 
 test('the helper wrapper files are written once, runnable, and refreshed when they differ', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-askpass-files-'));
+  const dir = makeTempDirSync('askpass-files');
   const script = await ensureAskpassHelper(dir);
   assert.match(await readFile(join(dir, 'askpass.cjs'), 'utf8'), /MIXDOG_ASKPASS_ENDPOINT/);
   assert.equal(await ensureAskpassHelper(dir), script);
@@ -201,7 +201,7 @@ test('the helper base folder is a plain path: the 8.3 short path of the user-dat
 });
 
 test('each session writes its helper into its own random folder, locked to the user before anything is written, and removes it on close', async () => {
-  const helperDir = await mkdtemp(join(tmpdir(), 'mixdog-askpass-base-'));
+  const helperDir = makeTempDirSync('askpass-base');
   const seen = [];
   const run = async (command, args) => {
     // At lock time the folder must hold no helper file yet.

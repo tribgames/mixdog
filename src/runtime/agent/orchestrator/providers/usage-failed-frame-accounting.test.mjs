@@ -1,10 +1,9 @@
 import '../../../shared/llm/usage-test-support.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { UsageLedger } from '../../../shared/llm/usage-ledger.mjs';
+import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
+import { UsageLedger, closeUsageLedgers } from '../../../shared/llm/usage-ledger.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 import { createTerminalFrameEvents } from './openai-http-sse-response-state/response-events/terminal-frames.mjs';
 import { createTerminalFrameHandlers } from './openai-ws-stream/terminal-frames.mjs';
@@ -16,12 +15,15 @@ import { consumeCompatChatCompletionStream } from './openai-compat-chat-stream.m
 import { parseToolCalls } from './openai-compat.mjs';
 
 function useLedger(t) {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-failed-usage-')), 'ledger.sqlite');
+  const directory = makeTempDirSync('failed-usage');
+  const path = join(directory, 'ledger.sqlite');
   const prior = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
-  t.after(() => {
+  t.after(async () => {
     if (prior === undefined) delete process.env.MIXDOG_USAGE_LEDGER_PATH;
     else process.env.MIXDOG_USAGE_LEDGER_PATH = prior;
+    closeUsageLedgers();
+    await removeTempDir(directory);
   });
   return () => {
     const ledger = new UsageLedger(path);

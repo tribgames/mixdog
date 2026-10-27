@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import * as contextMod from '../context/collect.mjs';
@@ -21,6 +20,7 @@ import { parseNativeToolSearchPayload } from '../session/loop/tool-helpers.mjs';
 import { buildRequestBody } from '../providers/openai-responses-payload.mjs';
 import { toAnthropicMessages } from '../providers/lib/anthropic-request-utils.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 const office = {
   name: 'office',
   description: 'Create a document.',
@@ -63,7 +63,7 @@ test('skill dependencies do not resend eager tool definitions', () => {
 });
 
 test('skill dependencies are callable on the next request without changing the eager tools', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-load-'));
+  const root = makeTempDirSync('skill-load');
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = join(root, 'data');
   const directory = join(process.env.MIXDOG_DATA_DIR, 'skills', 'deck-guide');

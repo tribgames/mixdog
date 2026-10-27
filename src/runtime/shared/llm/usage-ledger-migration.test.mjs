@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { UsageLedger, makeUsageRecord } from './usage-ledger.mjs';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 // The original v1 storage contract, independent of the compact implementation.
 const V1_SCHEMA = `
@@ -39,7 +39,7 @@ const V1_SCHEMA = `
     PRAGMA user_version=1;
 `;
 function fixture(count = 500) {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-usage-v1-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('usage-v1'), 'ledger.sqlite');
   const db = new DatabaseSync(path);
   db.exec(V1_SCHEMA);
   const insert = db.prepare('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');

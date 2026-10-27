@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
-const dir = mkdtempSync(join(tmpdir(), 'anthropic-login-'));
+const dir = makeTempDirSync('anthropic-login');
 // The login writes to the selected account in provider-accounts.json, which
 // outranks ANTHROPIC_OAUTH_CREDENTIALS_PATH. Isolate the data dir so a bare
 // `node --test` from a Mixdog shell (MIXDOG_DATA_DIR = ~/.mixdog/data) never

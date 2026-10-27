@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -13,10 +12,11 @@ import {
 } from './custom-provider.mjs';
 import { initProviders, getProvider, getProviderInitErrors, providerInputExcludesCache } from './registry.mjs';
 import { mergeStoredProviders } from '../config-providers-merge.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 // Hermetic catalog: remote catalog fetches 404 in every mock below and fall
 // back to this disk copy (models.dev is keyed by provider id).
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-custom-provider-'));
+const dataDir = makeTempDirSync('custom-provider');
 process.env.MIXDOG_DATA_DIR = dataDir;
 writeFileSync(join(dataDir, 'litellm-catalog.json'), JSON.stringify({ fetchedAt: Date.now(), data: {} }));
 writeFileSync(
@@ -729,7 +729,12 @@ test('custom wires: validation', () => {
     () => normalizeCustomProviderConfig({ ...base, protocol: 'openai-chat', modelWires: { m: 'chat' } }),
     /require schemaVersion 2/
   );
-  const ok = normalizeCustomProviderConfig({ ...v2, protocol: 'openai-responses', wires: ['responses', 'chat'], modelWires: { m: 'chat' } });
+  const ok = normalizeCustomProviderConfig({
+    ...v2,
+    protocol: 'openai-responses',
+    wires: ['responses', 'chat'],
+    modelWires: { m: 'chat' },
+  });
   assert.deepEqual(ok.wires, ['chat', 'responses']);
   assert.deepEqual(ok.modelWires, { m: 'chat' });
   assert.deepEqual(normalizeCustomProviderConfig(ok), ok);

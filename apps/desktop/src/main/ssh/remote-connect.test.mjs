@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { after, test } from 'node:test';
@@ -19,6 +18,7 @@ import { runWithSshContext } from './ssh-context.ts';
 import { createServerPayload, setServerPayloadResolver } from './remote-install-payload.ts';
 import { RemoteSession } from './remote-session.ts';
 import { parseSshTarget, SshError } from './ssh-command.ts';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 const BUNDLE = Buffer.from('module.exports = {};\n');
 const BUNDLE_SHA = createHash('sha256').update(BUNDLE).digest('hex');
@@ -357,7 +357,7 @@ test('a local file error before ssh runs is terminal; network and ssh-spawn erro
 });
 
 async function remoteSession(ssh, extra = {}) {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-remote-connect-'));
+  const dir = makeTempDirSync('remote-connect');
   const bundlePath = join(dir, 'daemon.cjs');
   await writeFile(bundlePath, BUNDLE);
   return new RemoteSession({

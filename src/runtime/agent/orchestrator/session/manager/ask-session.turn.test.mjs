@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
 // One real askSession turn against a fake provider: what the caller gets
 // back, what lands in the stored transcript, how queued follow-ups, provider
 // failures and aborts settle, and that the per-session lock is released.
@@ -13,7 +13,7 @@ import test from 'node:test';
 // (summary-index flush on setImmediate, worker saves, the exit drain), so
 // restoring the env per test would land those late writes in the real data
 // dir. node --test runs this file in its own process, so nothing to restore.
-const root = mkdtempSync(join(tmpdir(), 'mixdog-ask-session-'));
+const root = makeTempDirSync('ask-session');
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });

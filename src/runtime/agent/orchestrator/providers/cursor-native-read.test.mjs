@@ -1,8 +1,7 @@
 import '../../../../../scripts/lib/isolated-test-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readSourceWindow } from '../../../shared/read-row-numbers.mjs';
 import { executeBuiltinTool } from '../tools/builtin.mjs';
@@ -17,6 +16,7 @@ import { ModelProxyProvider } from './model-proxy-provider.mjs';
 import { parseMessages } from './cursor-wire-request.mjs';
 import { finalizeBatchResults } from '../session/tool-batch/finalize.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 function reply(text, args = { path: 'source.txt' }) {
   const frames = [];
   sendToolResult(
@@ -65,7 +65,7 @@ test('native read keeps range metadata separate from source and rejects ambiguou
 });
 
 test('native read judges line clipping from executor metadata, not from file content', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-native-read-clip-'));
+  const root = makeTempDirSync('native-read-clip');
   try {
     const literal = 'head ... [line truncated: 9999 chars total] ... tail';
     await writeFile(join(root, 'literal.txt'), `${literal}\nnext\n`);
@@ -106,7 +106,7 @@ test('native read judges line clipping from executor metadata, not from file con
 });
 
 test('remote/proxied native read carries the executor clip report to the provider, never sniffed', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-remote-read-clip-'));
+  const root = makeTempDirSync('remote-read-clip');
   try {
     const literal = 'head ... [line truncated: 9999 chars total] ... tail';
     await writeFile(join(root, 'literal.txt'), `${literal}\nnext\n`);
@@ -171,7 +171,7 @@ test('remote/proxied native read carries the executor clip report to the provide
 });
 
 test('real native read returns source text and correct line totals, not display rows', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-native-read-'));
+  const root = makeTempDirSync('native-read');
   try {
     await writeFile(join(root, 'source.txt'), 'first\r\n  second\r\nthird\r\n');
     const text = await executeBuiltinTool('read', { file_path: 'source.txt', offset: 2, limit: 2 }, root);

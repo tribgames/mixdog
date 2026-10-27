@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { differentFieldValue } from './file-version-test-helpers.mjs';
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-io-integrity-'));
+const root = makeTempDirSync('io-integrity');
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 const { executeBuiltinTool } = await import('../builtin.mjs');

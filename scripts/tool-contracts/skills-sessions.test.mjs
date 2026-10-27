@@ -2,8 +2,7 @@
 // surfaces (lead, GPT, agent, hidden roles).
 import './_env.mjs';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { root } from './_env.mjs';
 import { SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/mixdog-session-runtime.mjs';
@@ -24,6 +23,7 @@ import {
 import { resolveHiddenRoleSchemaAllowedTools } from '../../src/runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 import { prepareAgentSession } from '../../src/runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 
+import { makeTempDirSync } from '../lib/scoped-temp.mjs';
 setInternalToolsProvider({
   executor: async () => 'tool-contracts internal tool',
   tools: [
@@ -239,7 +239,7 @@ function assertAgentSkillSurface(skillManifestTmp) {
 }
 
 test('skill loader, envelope, and lead/GPT/agent skill surfaces', async () => {
-  const skillManifestTmp = mkdtempSync(join(tmpdir(), 'mixdog-skill-manifest-'));
+  const skillManifestTmp = makeTempDirSync('skill-manifest');
   const previousSkillDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = join(skillManifestTmp, 'data');
   try {
@@ -526,7 +526,7 @@ test('hidden agents keep the schema profile they declare and otherwise share the
   // Hermetic skills root: a dev machine has installed skills while a CI
   // runner has none, and either ambient state would decide the Skill-manifest
   // assertion below. One fixture skill pins the contract everywhere.
-  const hiddenSkillsTmp = mkdtempSync(join(tmpdir(), 'mixdog-hidden-skills-'));
+  const hiddenSkillsTmp = makeTempDirSync('hidden-skills');
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = join(hiddenSkillsTmp, 'data');
   const fixtureSkillDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'hidden-fixture');

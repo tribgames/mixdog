@@ -2,12 +2,11 @@
 // checkpointed again: the reloaded session resumes with the turn's completed
 // tool work (never re-run) and without the previous provider's native state.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import test from 'node:test';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-route-switch-'));
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('route-switch');
 process.env.MIXDOG_DATA_DIR = root;
 process.on('exit', () => {
   try {

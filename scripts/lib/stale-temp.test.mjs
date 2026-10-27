@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, lutimes, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -63,3 +63,16 @@ for (const [label, module, prefix] of [
     assert.deepEqual(await readdir(root), [`${prefix}fresh`]);
   });
 }
+
+test('the sweep skips old plain files and links that match a prefix', async (t) => {
+  const root = await tempRoot(t);
+  const keepOutside = await dirAged(root, 'outside-target', 0);
+  const old = new Date(Date.now() - STALE_TEMP_MS - DAY_MS);
+  await writeFile(join(root, 'mixdog-a-file'), 'x');
+  await utimes(join(root, 'mixdog-a-file'), old, old);
+  await symlink(keepOutside, join(root, 'mixdog-a-link'), 'junction');
+  await lutimes(join(root, 'mixdog-a-link'), old, old);
+  pruneStaleTempDirs(['mixdog-a-'], { root });
+  assert.deepEqual((await readdir(root)).sort(), ['mixdog-a-file', 'mixdog-a-link', 'outside-target']);
+  assert.equal(existsSync(join(keepOutside, 'nested', 'file')), true);
+});

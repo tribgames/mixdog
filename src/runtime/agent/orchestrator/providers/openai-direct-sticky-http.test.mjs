@@ -1,12 +1,14 @@
 import '../../../shared/llm/usage-test-support.mjs';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import test, { after } from 'node:test';
 import { join } from 'node:path';
-import { UsageLedger } from '../../../shared/llm/usage-ledger.mjs';
+import { UsageLedger, closeUsageLedgers } from '../../../shared/llm/usage-ledger.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 import { OpenAIDirectProvider } from './openai-ws.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+
+// Cached ledger handles would hold the scratch folder open at exit.
+after(() => closeUsageLedgers());
 
 const RESULT = { content: 'ok', toolCalls: [], usage: null };
 
@@ -65,7 +67,7 @@ test('sticky HTTP session: 401 reloads the key and retries once over HTTP', asyn
 });
 
 test('HTTP 401 replay keeps the failed attempt usage billed', async (t) => {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-sticky-usage-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('sticky-usage'), 'ledger.sqlite');
   const prior = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
   t.after(() => {
@@ -184,18 +186,20 @@ test('sticky set is ignored when MIXDOG_OPENAI_HTTP_FALLBACK=0: send uses WS', a
 test('WS→HTTP fallback: a transport failure falls back and a 401 there reloads the key once', async () => {
   const { provider, reloads } = setup();
   const httpKeys = [];
-  const result = await withEnv({ MIXDOG_OAI_TRANSPORT: undefined, MIXDOG_OPENAI_HTTP_FALLBACK: undefined, MIXDOG_QUIET_PROVIDER_LOG: '1' }, () =>
-    provider.send(messages, 'gpt-5.5', [], {
-      sessionId: 'fb',
-      _sendViaWebSocketFn: async () => {
-        throw Object.assign(new Error('ws closed'), { code: 'ECONNRESET' });
-      },
-      _sendViaHttpSseFn: async ({ auth }) => {
-        httpKeys.push(auth.apiKey);
-        if (auth.apiKey === 'old-key') throw Object.assign(new Error('unauthorized'), { httpStatus: 401 });
-        return RESULT;
-      },
-    })
+  const result = await withEnv(
+    { MIXDOG_OAI_TRANSPORT: undefined, MIXDOG_OPENAI_HTTP_FALLBACK: undefined, MIXDOG_QUIET_PROVIDER_LOG: '1' },
+    () =>
+      provider.send(messages, 'gpt-5.5', [], {
+        sessionId: 'fb',
+        _sendViaWebSocketFn: async () => {
+          throw Object.assign(new Error('ws closed'), { code: 'ECONNRESET' });
+        },
+        _sendViaHttpSseFn: async ({ auth }) => {
+          httpKeys.push(auth.apiKey);
+          if (auth.apiKey === 'old-key') throw Object.assign(new Error('unauthorized'), { httpStatus: 401 });
+          return RESULT;
+        },
+      })
   );
   assert.equal(result, RESULT);
   assert.equal(reloads(), 1);
@@ -205,16 +209,18 @@ test('WS→HTTP fallback: a transport failure falls back and a 401 there reloads
 test('WS→HTTP fallback: an unsafe 401 is rethrown without a key reload', async () => {
   const { provider, reloads } = setup();
   await assert.rejects(
-    withEnv({ MIXDOG_OAI_TRANSPORT: undefined, MIXDOG_OPENAI_HTTP_FALLBACK: undefined, MIXDOG_QUIET_PROVIDER_LOG: '1' }, () =>
-      provider.send(messages, 'gpt-5.5', [], {
-        sessionId: 'fb2',
-        _sendViaWebSocketFn: async () => {
-          throw Object.assign(new Error('ws closed'), { code: 'ECONNRESET' });
-        },
-        _sendViaHttpSseFn: async () => {
-          throw Object.assign(new Error('unauthorized'), { httpStatus: 401, liveTextEmitted: true });
-        },
-      })
+    withEnv(
+      { MIXDOG_OAI_TRANSPORT: undefined, MIXDOG_OPENAI_HTTP_FALLBACK: undefined, MIXDOG_QUIET_PROVIDER_LOG: '1' },
+      () =>
+        provider.send(messages, 'gpt-5.5', [], {
+          sessionId: 'fb2',
+          _sendViaWebSocketFn: async () => {
+            throw Object.assign(new Error('ws closed'), { code: 'ECONNRESET' });
+          },
+          _sendViaHttpSseFn: async () => {
+            throw Object.assign(new Error('unauthorized'), { httpStatus: 401, liveTextEmitted: true });
+          },
+        })
     ),
     /unauthorized/
   );

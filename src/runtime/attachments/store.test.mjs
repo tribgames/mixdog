@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-attachments-'));
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
+const dataDir = makeTempDirSync('attachments');
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const {

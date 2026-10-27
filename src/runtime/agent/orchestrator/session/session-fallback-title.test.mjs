@@ -2,12 +2,11 @@
 // human prompt: it survives compaction and a cold reload, a generated title can
 // still replace it, and a manual/generated title is never overwritten.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import test from 'node:test';
 
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-fallback-title-'));
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+const dataDir = makeTempDirSync('fallback-title');
 process.env.MIXDOG_DATA_DIR = dataDir;
 const { runSessionCompaction } = await import('./manager/compaction-runner.mjs');
 const { updateSessionGeneratedTitle } = await import('./manager/session-crud.mjs');

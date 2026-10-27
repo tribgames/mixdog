@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -32,8 +31,11 @@ import { clientViewsSessionLane } from './remote-relay-clients.ts';
 import { createRelayPushLanes } from './remote-relay-push-lanes.ts';
 import { createRemoteVisualizeMethods, createRemoteVisualizeMirror } from './remote-visualize.ts';
 
+import { makeTempDirSync, redirectSystemTemp } from '../../../../scripts/lib/scoped-temp.mjs';
+
+redirectSystemTemp('tmp-root');
 function workspace() {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-remote-visualize-')));
+  const base = realpathSync(makeTempDirSync('remote-visualize'));
   const cwd = join(base, 'project');
   const outside = join(base, 'outside');
   mkdirSync(join(cwd, 'site', '.cache'), { recursive: true });

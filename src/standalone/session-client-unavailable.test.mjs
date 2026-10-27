@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ensureDaemon } from './session-client.mjs';
 
+import { makeTempDirSync } from '../../scripts/lib/scoped-temp.mjs';
 // Isolated data dir, runtime root and a plain-script fork (fork() inherits the
 // runner's execArgv) for one ensureDaemon run.
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-daemon-unavailable-'));
+  const root = makeTempDirSync('daemon-unavailable');
   const dataDir = join(root, 'data');
   const runtimeRoot = join(root, 'runtime');
   mkdirSync(dataDir, { recursive: true });

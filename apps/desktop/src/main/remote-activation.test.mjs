@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, access } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { activateRemote, isRemoteActivated } from './remote-activation';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
-const fresh = () => mkdtemp(join(tmpdir(), 'mixdog-activation-'));
+const fresh = () => makeTempDirSync('activation');
 
 test('fresh install is not activated and nothing is created', async () => {
   const dir = await fresh();

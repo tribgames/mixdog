@@ -1,14 +1,14 @@
 import './_env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { executeBuiltinTool } from '../../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { readRowsForDisplay } from '../../src/runtime/shared/read-row-numbers.mjs';
+import { makeTempDirSync } from '../lib/scoped-temp.mjs';
 
 function fixture(files) {
-  const cwd = mkdtempSync(join(tmpdir(), 'mixdog-routing-batch-'));
+  const cwd = makeTempDirSync('routing-batch');
   for (const [name, text] of Object.entries(files)) writeFileSync(join(cwd, name), text);
   return cwd;
 }

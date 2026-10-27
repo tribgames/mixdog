@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-batch-publication-'));
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('batch-publication');
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
@@ -28,7 +28,10 @@ const body = '1\tFIRST\n2\tGAP\n3\tLAST\n[lines 1-3 of 4]';
 const union = { source: 'read', ranges: [{ startLine: 1, endLine: 3 }] };
 const sliced = {
   source: 'read_batch_sliced',
-  ranges: [{ startLine: 1, endLine: 1 }, { startLine: 3, endLine: 3 }],
+  ranges: [
+    { startLine: 1, endLine: 1 },
+    { startLine: 3, endLine: 3 },
+  ],
   replaceExisting: true,
 };
 
@@ -37,19 +40,20 @@ function fixture(produce = null) {
   const contexts = [];
   const helpers = {
     resolveAgainstCwd: (path, cwd) => resolve(cwd, path),
-    classifyResultKind: (value) => String(value).startsWith('Error:') ? 'error' : 'text',
+    classifyResultKind: (value) => (String(value).startsWith('Error:') ? 'error' : 'text'),
     _recordReadSnapshot: (path, st, readScope, meta) => {
       if (!canPublishReadCache(path)) return;
       saved.set(path, { ...meta, ...st, scope: readScope });
       contexts.push(AsyncLocalStorage.bind(() => canPublishReadCache(path)));
     },
   };
-  const child = async (_name, args, _cwd, options) => runReadCachePublication(args.path, async () => {
-    const publish = (st = identity, meta = union) => options._readSnapshotRecorder(args.path, st, scope, meta);
-    if (produce) return produce({ args, publish, saved });
-    publish();
-    return body;
-  });
+  const child = async (_name, args, _cwd, options) =>
+    runReadCachePublication(args.path, async () => {
+      const publish = (st = identity, meta = union) => options._readSnapshotRecorder(args.path, st, scope, meta);
+      if (produce) return produce({ args, publish, saved });
+      publish();
+      return body;
+    });
   return { helpers, child, saved, contexts };
 }
 
@@ -59,7 +63,10 @@ function correct(helpers, path) {
 
 test('batch publication recognizes streamed rows and preserves gaps without a total-line footer', async () => {
   for (const separator of ['\t', '│', '→']) {
-    assert.deepEqual(renderedBatchReadRanges(`1${separator}FIRST\n3${separator}LAST\n... [range limit reached]`), sliced.ranges);
+    assert.deepEqual(
+      renderedBatchReadRanges(`1${separator}FIRST\n3${separator}LAST\n... [range limit reached]`),
+      sliced.ranges
+    );
   }
   assert.deepEqual(renderedBatchReadRanges('binary preview'), []);
   const path = join(root, 'streamed.txt');
@@ -225,31 +232,38 @@ for (const mode of ['head', 'tail']) {
     const entries = paths.map((path) => ({ path, mode, n: 1 }));
     const fx = fixture();
     const called = new Set();
-    const result = await executeReadTool({
-      path: paths,
-      _readsEntries: entries,
-      _readsOrigEntries: entries,
-      _readsEntryToDeduped: [0, 1],
-    }, root, scope, async (name, args) => {
-      const path = args.path;
-      assert.equal(paths.includes(path), true);
-      called.add(path);
-      assert.equal(name, 'read');
-      assert.equal(args.mode, mode);
-      assert.equal(canPublishReadCache(path), true);
-      invalidateBuiltinResultCache([path]);
-      assert.equal(canPublishReadCache(path), false, 'glance children retain the original batch fence');
-      fx.helpers._recordReadSnapshot(path, identity, scope, union);
-      return 'BEFORE';
-    }, { _skipReachPreflight: true }, {
-      ...fx.helpers,
-      normalizeInputPath: (value) => value,
-      normalizeOutputPath: (value) => value,
-      normaliseReadLineWindowArgs: (value) => value,
-      READ_MAX_OUTPUT_BYTES: 16384,
-      _isFullModeReadEntry: () => false,
-      _mergeReadRanges: (ranges) => ranges,
-    });
+    const result = await executeReadTool(
+      {
+        path: paths,
+        _readsEntries: entries,
+        _readsOrigEntries: entries,
+        _readsEntryToDeduped: [0, 1],
+      },
+      root,
+      scope,
+      async (name, args) => {
+        const path = args.path;
+        assert.equal(paths.includes(path), true);
+        called.add(path);
+        assert.equal(name, 'read');
+        assert.equal(args.mode, mode);
+        assert.equal(canPublishReadCache(path), true);
+        invalidateBuiltinResultCache([path]);
+        assert.equal(canPublishReadCache(path), false, 'glance children retain the original batch fence');
+        fx.helpers._recordReadSnapshot(path, identity, scope, union);
+        return 'BEFORE';
+      },
+      { _skipReachPreflight: true },
+      {
+        ...fx.helpers,
+        normalizeInputPath: (value) => value,
+        normalizeOutputPath: (value) => value,
+        normaliseReadLineWindowArgs: (value) => value,
+        READ_MAX_OUTPUT_BYTES: 16384,
+        _isFullModeReadEntry: () => false,
+        _mergeReadRanges: (ranges) => ranges,
+      }
+    );
     assert.equal(called.size, paths.length);
     assert.match(result, /BEFORE/);
     assert.equal(fx.saved.size, 0);
@@ -263,8 +277,10 @@ for (const encoding of ['utf8', 'utf16le']) {
       const { executeBuiltinTool } = await import('../builtin.mjs');
       const { getReadSnapshot } = await import('./read-snapshot-runtime.mjs');
       const hash = (value) => createHash('sha256').update(value).digest('hex');
-      const encode = (text) => encoding === 'utf8' ? Buffer.from(text)
-        : Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
+      const encode = (text) =>
+        encoding === 'utf8'
+          ? Buffer.from(text)
+          : Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
       const path = join(root, `${randomUUID()}.txt`);
       writeFileSync(path, encode('BEFORE\nGAP___\nLAST_A\nTAIL__\n'));
       const time = new Date('2025-01-01T00:00:00.000Z');
@@ -294,9 +310,20 @@ for (const encoding of ['utf8', 'utf16le']) {
       syncBuiltinESMExports();
       let unsubscribe;
       try {
-        const args = shape === 'path'
-          ? { path: [{ path, offset: 0, limit: 1 }, { path, offset: 2, limit: 1 }] }
-          : { file_path: [{ file_path: path, offset: 1, limit: 1 }, { file_path: path, offset: 3, limit: 1 }] };
+        const args =
+          shape === 'path'
+            ? {
+                path: [
+                  { path, offset: 0, limit: 1 },
+                  { path, offset: 2, limit: 1 },
+                ],
+              }
+            : {
+                file_path: [
+                  { file_path: path, offset: 1, limit: 1 },
+                  { file_path: path, offset: 3, limit: 1 },
+                ],
+              };
         const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
         const first = String(await executeBuiltinTool('read', args, root, options));
         assert.match(first, /BEFORE/);

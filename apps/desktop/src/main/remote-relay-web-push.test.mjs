@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
-import { createDecipheriv, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import {
+  createDecipheriv,
+  createPublicKey,
+  diffieHellman,
+  generateKeyPairSync,
+  hkdfSync,
+  randomBytes,
+  randomUUID,
+} from 'node:crypto';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -20,6 +27,7 @@ import { createRelayEnvelopeDispatcher } from './remote-relay-envelope.ts';
 import { createRelayWebPush } from './remote-relay-web-push.ts';
 import { generateWebPushKeys } from './web-push.ts';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 const SECRET = '0123456789abcdef';
 const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/browser-1';
 
@@ -30,7 +38,12 @@ function createSubscriber() {
   const jwk = publicKey.export({ format: 'jwk' });
   const raw = Buffer.concat([Buffer.of(0x04), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]);
   const auth = randomBytes(16);
-  return { privateKey, raw, authSecret: auth, keys: { p256dh: raw.toString('base64url'), auth: auth.toString('base64url') } };
+  return {
+    privateKey,
+    raw,
+    authSecret: auth,
+    keys: { p256dh: raw.toString('base64url'), auth: auth.toString('base64url') },
+  };
 }
 
 /** RFC 8291 receiving half, independent of the sender. */
@@ -49,8 +62,14 @@ function decryptAsBrowser(subscriber, body) {
     format: 'jwk',
   });
   const shared = diffieHellman({ privateKey: subscriber.privateKey, publicKey: senderPublic });
-  const hkdf = (hkdfSalt, ikm, info, length) => Buffer.from(new Uint8Array(hkdfSync('sha256', ikm, hkdfSalt, info, length)));
-  const ikm = hkdf(subscriber.authSecret, shared, Buffer.concat([Buffer.from('WebPush: info\0'), subscriber.raw, senderPublicRaw]), 32);
+  const hkdf = (hkdfSalt, ikm, info, length) =>
+    Buffer.from(new Uint8Array(hkdfSync('sha256', ikm, hkdfSalt, info, length)));
+  const ikm = hkdf(
+    subscriber.authSecret,
+    shared,
+    Buffer.concat([Buffer.from('WebPush: info\0'), subscriber.raw, senderPublicRaw]),
+    32
+  );
   const key = hkdf(salt, ikm, Buffer.from('Content-Encoding: aes128gcm\0'), 16);
   const nonce = hkdf(salt, ikm, Buffer.from('Content-Encoding: nonce\0'), 12);
   const decipher = createDecipheriv('aes-128-gcm', key, nonce);
@@ -78,12 +97,16 @@ test('the subscription keys open only for the desktop and endpoint they were sea
   assert.equal(await openRelayWebPushKeys(other, ENDPOINT, sealed), null);
   assert.equal(await openRelayWebPushKeys(identity, `${ENDPOINT}-other`, sealed), null);
   // Someone without the pairing secret (the relay) cannot make a box this PC accepts.
-  const forged = await sealRelayWebPushKeys({ ...relayE2EEPairingMaterial(identity), pairingSecret: 'A'.repeat(43) }, ENDPOINT, keys);
+  const forged = await sealRelayWebPushKeys(
+    { ...relayE2EEPairingMaterial(identity), pairingSecret: 'A'.repeat(43) },
+    ENDPOINT,
+    keys
+  );
   assert.equal(await openRelayWebPushKeys(identity, ENDPOINT, forged), null);
 });
 
 test('a PC encrypts for the browser and the relay forwards it with its own VAPID key', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-desktop-webpush-'));
+  const dir = makeTempDirSync('desktop-webpush');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const pushed = [];
   const relay = await startRelay({
@@ -122,7 +145,11 @@ test('a PC encrypts for the browser and the relay forwards it with its own VAPID
   });
   t.after(() => socket.close());
   const results = [];
-  const caps = createRelayConnectionCaps({ clientCount: () => 0, broadcastEncrypted: () => {}, rebindNativePush: () => {} });
+  const caps = createRelayConnectionCaps({
+    clientCount: () => 0,
+    broadcastEncrypted: () => {},
+    rebindNativePush: () => {},
+  });
   const webPush = createRelayWebPush({
     identity,
     available: caps.relayWebPush,
@@ -216,7 +243,9 @@ test('without the relay capability the PC keeps its legacy direct send', async (
   const notifier = createPushNotifier({
     store: {
       keys: async () => generateWebPushKeys(),
-      list: async () => [{ endpoint: 'https://legacy.example.com/x', ...subscriber.keys, clientId: 'b', label: '', createdAt: 0 }],
+      list: async () => [
+        { endpoint: 'https://legacy.example.com/x', ...subscriber.keys, clientId: 'b', label: '', createdAt: 0 },
+      ],
       remove: async () => true,
       removeByClient: async () => true,
     },

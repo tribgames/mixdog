@@ -5,10 +5,10 @@
 // provider and the boot warmups are stand-ins (see quota-resume-session.test.mjs).
 import '../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempDirSync } from '../../scripts/lib/scoped-temp.mjs';
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(predicate, label) {
   for (let i = 0; i < 1500; i += 1) {
@@ -19,7 +19,7 @@ async function until(predicate, label) {
 }
 
 test('hook rules gate the tool calls of a spawned agent worker runtime', async (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-hooks-'));
+  const root = makeTempDirSync('worker-hooks');
   const cwd = join(root, 'work');
   mkdirSync(cwd);
   const previousEnv = { ...process.env };

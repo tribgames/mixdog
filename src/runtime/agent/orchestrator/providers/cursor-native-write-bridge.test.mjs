@@ -1,14 +1,14 @@
 import '../../../../../scripts/lib/isolated-test-env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { handleExecMessage, sendToolResult } from './cursor-wire-exec.mjs';
 import { decodeMessage } from './cursor-wire-protobuf.mjs';
 import { tryExecuteExternalToolAdapter } from '../tools/builtin/external-tool-adapters.mjs';
 import { __cursorWireInternals as wire } from './cursor-wire.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 function dispatch(exec, tools) {
   const frames = [];
   const calls = [];
@@ -49,7 +49,7 @@ test('native Write uses only a granted edit tool, even when an explicit write to
 });
 
 test('native Write never overwrites a non-empty file when an explicit write tool is also granted', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-native-write-both-'));
+  const root = makeTempDirSync('native-write-both');
   try {
     const path = join(root, 'out/한글.txt');
     await mkdir(join(root, 'out'));
@@ -66,7 +66,7 @@ test('native Write never overwrites a non-empty file when an explicit write tool
 });
 
 test('native Write through edit creates/fills files but never overwrites existing content', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-native-write-'));
+  const root = makeTempDirSync('native-write');
   try {
     const path = join(root, 'out/한글.txt');
     for (const state of ['missing', 'empty', 'nonempty']) {

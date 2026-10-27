@@ -6,8 +6,7 @@
 // boxes in order, exactly as its receiver would deliver them.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdtempSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -43,6 +42,7 @@ import { createFileDownloadService } from '../file-downloads.ts';
 import { leaseMediaFile } from '../media-leases.ts';
 import { DOWNLOAD_WINDOW_MAX_BYTES, MEDIA_WINDOW_MAX_BYTES, createRelayMediaLane } from '../remote-relay-media.ts';
 import { createRemoteTransportMediaAdapter } from './media.ts';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 const SID = 'S'.repeat(43);
 const PHONE = 'phone-credential';
@@ -50,7 +50,7 @@ const ENC = 'e2ee1';
 const NO_HOST = { invokeCapability: async () => null };
 // Acks travel the relay carrier's control lane here.
 const RELAY_LANE = { kind: 'relay' };
-const dir = realpathSync(mkdtempSync(join(tmpdir(), 'transport-media-')));
+const dir = realpathSync(makeTempDirSync('transport-media'));
 
 function file(name, size) {
   const bytes = Buffer.alloc(size);
@@ -235,7 +235,7 @@ async function overTransport(sources, t, device, fields, id) {
 }
 
 async function downloadFixture(t, name, size) {
-  const project = realpathSync(mkdtempSync(join(tmpdir(), 'transport-download-')));
+  const project = realpathSync(makeTempDirSync('transport-download'));
   const bytes = Buffer.alloc(size);
   for (let index = 0; index < size; index += 1) bytes[index] = (index * 7 + (index >> 12)) & 0xff;
   writeFileSync(join(project, name), bytes);

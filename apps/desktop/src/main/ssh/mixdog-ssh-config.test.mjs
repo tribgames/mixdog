@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -14,6 +13,7 @@ import {
   resetMixdogSsh,
 } from './mixdog-ssh-config.ts';
 import { SSH_COMMON_OPTIONS, sshTunnelArgs, parseSshTarget } from './ssh-command.ts';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 const okRun = async () => ({ code: 0, stdout: '', stderr: '' });
 
@@ -46,7 +46,7 @@ test('forwards the ssh config defines are collected from ssh -G, all of them', (
 test('Mixdog keeps its own known_hosts: new pins land there and the config lists it before the user’s files', async () => {
   resetMixdogSsh();
   assert.equal(mixdogKnownHostsFile(), null);
-  const userData = await mkdtemp(join(tmpdir(), 'mixdog-ssh-cfg-'));
+  const userData = makeTempDirSync('ssh-cfg');
   const home = join(userData, 'home');
   await configureMixdogSsh({ userDataPath: userData, run: okRun, home, place: { platform: 'linux' } });
   const known = mixdogKnownHostsFile();

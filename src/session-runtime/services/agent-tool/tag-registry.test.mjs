@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
 
 import { flushAllIndexWritesSync } from './index-write-queue.mjs';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 // Reaping must not touch the user's statusline routes while exercising temp rows.
 mock.module('../../../vendor/statusline/src/gateway/session-routes.mjs', {
   namedExports: {
@@ -84,7 +84,7 @@ function storedTombstones(root) {
 }
 
 test('checkpoint recovery and cached bindings cannot revive a reaped worker', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-reap-recovery-'));
+  const root = makeTempDirSync('reap-recovery');
   const session = workerSession('old-child', 'review', { updatedAt: iso(Date.now() - 2 * HOUR_MS) });
   const registry = makeRegistry(root, fakeManager(new Map([[session.id, session]])));
   try {
@@ -111,7 +111,7 @@ test('checkpoint recovery and cached bindings cannot revive a reaped worker', ()
 });
 
 test('boot and session scans preserve completed sessions without terminal expiration', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-reap-scan-'));
+  const root = makeTempDirSync('tag-reap-scan');
   const now = Date.now();
   const finishedAt = iso(now - 2 * HOUR_MS);
   // The reaper leaves the session record open (the transcript belongs to the
@@ -158,7 +158,7 @@ test('boot and session scans preserve completed sessions without terminal expira
 });
 
 test('scanned terminal sessions keep their own stamps without expiration', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-rebind-stamps-'));
+  const root = makeTempDirSync('tag-rebind-stamps');
   const now = Date.now();
   const staleStamp = iso(now - 2 * HOUR_MS);
   const recentStamp = iso(now - 10 * 60 * 1000);
@@ -197,7 +197,7 @@ test('scanned terminal sessions keep their own stamps without expiration', () =>
 });
 
 test('repeated list reads never extend a terminal row lease', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-list-lease-'));
+  const root = makeTempDirSync('tag-list-lease');
   const recentStamp = iso(Date.now() - 10 * 60 * 1000);
   const session = workerSession('idle-child', 'idle1', { updatedAt: recentStamp });
   const mgr = fakeManager(new Map([[session.id, session]]));
@@ -235,7 +235,7 @@ for (const [label, encode] of [
   ['numeric string', (ms) => String(ms)],
 ]) {
   test(`terminal sessions with ${label} stamps are retained`, () => {
-    const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-numeric-stamp-'));
+    const root = makeTempDirSync('tag-numeric-stamp');
     const now = Date.now();
     const staleMs = now - 2 * HOUR_MS;
     const recentMs = now - 10 * 60 * 1000;
@@ -285,7 +285,7 @@ for (const [label, encode] of [
 }
 
 test('tag reuse after a reap consumes the tombstone and binds the fresh session', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-reuse-'));
+  const root = makeTempDirSync('tag-reuse');
   const now = Date.now();
   const finishedAt = iso(now - 2 * HOUR_MS);
   const reaped = workerSession('child-a', 'review1', { updatedAt: finishedAt });

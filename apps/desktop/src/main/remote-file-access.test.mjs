@@ -6,8 +6,7 @@
 // desktop's SelectedFileAccess does. No remote-only deny list (secret-bearing
 // names), no link provenance.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -25,10 +24,13 @@ import { openedFileAuthorizationTestHooks } from './opened-file-authorization.ts
 import { gitStage } from './git-mutations.ts';
 import { execFileSync } from 'node:child_process';
 
+import { makeTempDirSync, redirectSystemTemp } from '../../../../scripts/lib/scoped-temp.mjs';
+
+redirectSystemTemp('tmp-root');
 const slash = (path) => path.replace(/\\/g, '/');
 
 function fixture(t, { downloads = false } = {}) {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), 'remote-file-access-')));
+  const base = realpathSync(makeTempDirSync('remote-file-access'));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const project = join(base, 'project');
   const outside = join(base, 'outside');

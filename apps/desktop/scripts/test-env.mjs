@@ -1,22 +1,19 @@
 import { createRequire, registerHooks } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pruneStaleTempDirs, removeTempDirSync } from '../../../scripts/lib/stale-temp.mjs';
 import { installBoundedAssertions } from './bounded-assert.mjs';
 
 // A fixture must never write diagnostic history into the signed-in app's store.
 // Each test process owns its directory, including when the caller set a live path.
-const testDataDir = mkdtempSync(join(tmpdir(), 'mixdog-desktop-tests-'));
+const TEST_DATA_PREFIX = 'mixdog-desktop-tests-';
+pruneStaleTempDirs([TEST_DATA_PREFIX]);
+const testDataDir = mkdtempSync(join(tmpdir(), TEST_DATA_PREFIX));
 process.env.MIXDOG_DATA_DIR = testDataDir;
 // One directory per test process; without this every run left one behind.
-process.on('exit', () => {
-  try {
-    rmSync(testDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-  } catch {
-    /* a still-open handle leaves it for the OS temp cleanup */
-  }
-});
+process.on('exit', () => removeTempDirSync(testDataDir));
 
 // Test preload: React only exports `act` from its development build, so a
 // machine-level NODE_ENV=production silently breaks every DOM suite. Loaded

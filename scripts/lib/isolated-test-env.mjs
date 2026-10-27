@@ -5,6 +5,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { registerOwnedTempDir } from './scoped-temp.mjs';
 import { pruneStaleTempDirs, removeTempDirSync } from './stale-temp.mjs';
 
 // The exit handler below never runs for a killed process, so each start sweeps
@@ -12,6 +13,7 @@ import { pruneStaleTempDirs, removeTempDirSync } from './stale-temp.mjs';
 const PREFIX = 'mixdog-test-profile-';
 pruneStaleTempDirs([PREFIX]);
 const root = mkdtempSync(join(tmpdir(), PREFIX));
+registerOwnedTempDir(root);
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_HOME = join(root, 'home');
 process.on('exit', () => {

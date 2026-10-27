@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -15,6 +14,7 @@ import {
   remoteWindowUserAgent,
 } from './remote-hosts.ts';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 const DEVICE = '0123456789abcdef0123456789abcdef';
 const LINK = `https://relay.example.com/d/${DEVICE}/`;
 
@@ -68,7 +68,7 @@ test('same-origin navigation stays in the window; links leave through the OS', (
 });
 
 test('saved hosts persist, rename on re-save, and forget cleanly', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-hosts-'));
+  const directory = makeTempDirSync('hosts');
   try {
     const store = await loadRemoteHostStore(directory);
     const link = parseRemoteHostLink(LINK);
@@ -87,7 +87,7 @@ test('saved hosts persist, rename on re-save, and forget cleanly', async () => {
     await reloaded.save(link, 'Desk');
     assert.equal(reloaded.get(saved.id)?.name, 'Desk');
 
-    const unnamed = await loadRemoteHostStore(await mkdtemp(join(tmpdir(), 'mixdog-hosts-')));
+    const unnamed = await loadRemoteHostStore(makeTempDirSync('hosts'));
     const other = await unnamed.save(parseRemoteHostLink(`https://relay.example.com/d/${'a'.repeat(32)}/`), '');
     assert.match(other.name, /relay\.example\.com · aaaaaaaa/);
 
@@ -99,7 +99,7 @@ test('saved hosts persist, rename on re-save, and forget cleanly', async () => {
 });
 
 test('a damaged saved-computer list is kept aside and the last good copy restored', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-hosts-'));
+  const directory = makeTempDirSync('hosts');
   try {
     const store = await loadRemoteHostStore(directory);
     const link = parseRemoteHostLink(LINK);

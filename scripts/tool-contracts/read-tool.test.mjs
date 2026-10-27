@@ -1,8 +1,7 @@
 // read tool behaviors: windows, batches, images, and argument absorption.
 import './_env.mjs';
 import test from 'node:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { root } from './_env.mjs';
 import { assertOk } from './_helpers.mjs';
@@ -22,6 +21,7 @@ import {
   normalizeContentForOpenAIResponses,
 } from '../../src/runtime/agent/orchestrator/providers/media-normalization.mjs';
 
+import { makeTempDirSync } from '../lib/scoped-temp.mjs';
 test('read windows and directory rejection', async () => {
   const readOut = await executeBuiltinTool(
     'read',
@@ -176,7 +176,7 @@ async function assertRejectPartialBatch(firstImage, missingImage) {
 }
 
 test('read image batches keep visual blocks and per-entry outcomes', async () => {
-  const imageBatchTmp = mkdtempSync(join(tmpdir(), 'mixdog-read-image-batch-'));
+  const imageBatchTmp = makeTempDirSync('read-image-batch');
   try {
     const { firstImage, secondImage, corruptImage, textFile, binaryFile, missingImage } =
       writeImageBatchFixture(imageBatchTmp);
@@ -346,7 +346,10 @@ test('read legacy line/context and negative-offset absorption', () => {
 test('read batch cap counts distinct files and offsets are not capped like limits', async () => {
   const windows = [];
   for (let file = 0; file < 7; file++) {
-    windows.push({ file_path: `f${file}.txt`, offset: 1, limit: 2 }, { file_path: `f${file}.txt`, offset: 50, limit: 2 });
+    windows.push(
+      { file_path: `f${file}.txt`, offset: 1, limit: 2 },
+      { file_path: `f${file}.txt`, offset: 50, limit: 2 }
+    );
   }
   const manyWindowsErr = validateBuiltinArgs('read', { file_path: windows });
   if (manyWindowsErr) throw new Error(`14 windows over 7 files must pass the batch cap: ${manyWindowsErr}`);
@@ -354,14 +357,16 @@ test('read batch cap counts distinct files and offsets are not capped like limit
   const elevenFilesArgs = { file_path: elevenFiles };
   const elevenFilesErr = validateBuiltinArgs('read', elevenFilesArgs);
   if (elevenFilesErr || elevenFilesArgs.skipped_files?.join() !== 'f10.txt') {
-    throw new Error(`11 distinct files must keep 10 and skip the 11th: ${elevenFilesErr} ${JSON.stringify(elevenFilesArgs)}`);
+    throw new Error(
+      `11 distinct files must keep 10 and skip the 11th: ${elevenFilesErr} ${JSON.stringify(elevenFilesArgs)}`
+    );
   }
   const bigLimitErr = validateBuiltinArgs('read', { file_path: 'a.txt', limit: 100001 });
   if (!/limit an integer from 1 to 100000/.test(bigLimitErr || '')) {
     throw new Error(`limit above the window cap must stay rejected: ${bigLimitErr}`);
   }
 
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-read-deep-offset-'));
+  const dir = makeTempDirSync('read-deep-offset');
   try {
     const file = join(dir, 'deep.log');
     writeFileSync(file, Array.from({ length: 150_000 }, (_, index) => `line-${index + 1}`).join('\n'));

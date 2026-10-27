@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import test from 'node:test';
 import { SessionHost } from './session-host.ts';
 import { DesktopProjectRegistry } from './desktop-project-registry.ts';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 const moduleUrl = new URL('../../../../src/runtime/shared/projects.mjs', import.meta.url).href;
 let sequence = 0;
 async function fixture(t) {
-  const root = await fs.promises.realpath(fs.mkdtempSync(join(tmpdir(), 'mixdog-project-recency-')));
+  const root = await fs.promises.realpath(makeTempDirSync('project-recency'));
   const project = join(root, 'project');
   const file = join(root, 'projects.json');
   fs.mkdirSync(project);

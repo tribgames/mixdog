@@ -1,12 +1,11 @@
 import '../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import test, { after } from 'node:test';
 
+import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-usage-dashboard-'));
+const dataDir = makeTempDirSync('usage-dashboard');
 process.env.MIXDOG_DATA_DIR = dataDir;
 const { createUsageDashboard } = await import('./usage-dashboard.mjs');
 const { creditsFromSnapshot } = await import('./usage-dashboard-model.mjs');

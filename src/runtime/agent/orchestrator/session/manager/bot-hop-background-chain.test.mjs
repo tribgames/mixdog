@@ -4,12 +4,12 @@
 // passes through a background completion every round still reaches MAX_BOT_HOPS.
 // A human message still resets it. The resume runs the real askSession.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-bot-hop-bg-'));
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('bot-hop-bg');
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
@@ -147,10 +147,16 @@ test('background work no bot started carries no hop, and a human message resets 
 test('completions of different hops joining a running turn keep the highest', async (t) => {
   await withBotSession(t, async (id) => {
     const session = { id, turnHop: 0, messages: [] };
-    for (const hops of [[1, 3], [3, 1]]) {
+    for (const hops of [
+      [1, 3],
+      [3, 1],
+    ]) {
       session.turnHop = 0;
       for (const hop of hops) {
-        enqueuePendingMessage(id, markCompletionEntry(`${COMPLETION} ${hop}`, { executionId: `job_mix_${hop}`, meta: { hop } }));
+        enqueuePendingMessage(
+          id,
+          markCompletionEntry(`${COMPLETION} ${hop}`, { executionId: `job_mix_${hop}`, meta: { hop } })
+        );
       }
       const drain = createSteeringDrain({
         messages: [],

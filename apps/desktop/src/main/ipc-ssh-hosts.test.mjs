@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 import { test } from 'node:test';
 
 import { DESKTOP_IPC } from '../shared/contract-ipc.ts';
@@ -109,7 +109,7 @@ async function setup({
     [2, 'local'],
     [3, 'ssh-1'],
   ]);
-  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-ssh-ipc-'));
+  const userDataPath = makeTempDirSync('ssh-ipc');
   const dispose = registerSshHostIpc({
     ipcMain,
     routes: { connectionIdFor: (id) => routes.get(id) },

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -9,6 +8,7 @@ import { createWorkerIndex } from './worker-index.mjs';
 import { isActiveWorkerRow } from './worker-index/row-liveness.mjs';
 import { isActiveWorkerRow as isActiveAgentListRow } from './job-views/agent-list.mjs';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 // The worker index as its callers see it: a session upsert projects into the
 // tag maps and the file, deferred upserts batch into one write, removals and
 // reads honour the caller context, lead-pool projections are purged from the
@@ -36,7 +36,7 @@ const stored = (root) => {
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('a worker row records Auto effort off from the session or an explicit spawn descriptor', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-auto-effort-'));
+  const root = makeTempDirSync('worker-rows-auto-effort');
   try {
     const { index } = workerIndex(root);
     index.upsertWorkerSession({ id: 'sess-off', agentTag: 'off', agent: 'worker', autoEffort: false }, '', {});
@@ -59,7 +59,7 @@ test('a worker row records Auto effort off from the session or an explicit spawn
 });
 
 test('a session upsert projects into the tag maps and the file; deferred upserts land in one batched write', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-'));
+  const root = makeTempDirSync('worker-rows');
   try {
     const { index, tags, tagAgents, tagCwds } = workerIndex(root);
     const session = {
@@ -111,7 +111,7 @@ test('a session upsert projects into the tag maps and the file; deferred upserts
 });
 
 test('a working status never stores an idle/done/error runtime phase as its stage; the status decides liveness', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-phase-'));
+  const root = makeTempDirSync('worker-rows-phase');
   try {
     for (const phase of ['idle', 'done', 'error']) {
       const { index } = workerIndex(root, phase);
@@ -146,7 +146,7 @@ test('worker liveness predicates follow the status; the stage decides only witho
 });
 
 test('removeWorkerRow commits the queue first and drops by tag or session', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-'));
+  const root = makeTempDirSync('worker-rows');
   try {
     const { index } = workerIndex(root);
     index.upsertWorkerSessionDeferred({ id: 's1' }, 'one', { status: 'idle' });
@@ -175,7 +175,7 @@ test('removeWorkerRow commits the queue first and drops by tag or session', asyn
 });
 
 test('refreshTagsFromIndex binds worker rows; lead-pool projections and tagless rows never reach the maps', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-'));
+  const root = makeTempDirSync('worker-rows');
   try {
     const { index, tags, tagAgents, tagCwds } = workerIndex(root);
     writeFileSync(
@@ -204,7 +204,7 @@ test('refreshTagsFromIndex binds worker rows; lead-pool projections and tagless 
 });
 
 test('the parse cache serves repeated reads and refreshes after an external rewrite', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-rows-'));
+  const root = makeTempDirSync('worker-rows');
   try {
     const { index } = workerIndex(root);
     index.upsertWorkerSession({ id: 's1' }, 'one', { status: 'idle' });

@@ -1,19 +1,21 @@
 import '../../../shared/llm/usage-test-support.mjs';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import test, { after } from 'node:test';
 import { join } from 'node:path';
-import { UsageLedger } from '../../../shared/llm/usage-ledger.mjs';
+import { UsageLedger, closeUsageLedgers } from '../../../shared/llm/usage-ledger.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 import { consumeGeminiRestStreamResponse, consumeGeminiSdkStream } from './gemini-stream.mjs';
 import { geminiFailureUsage } from './gemini-response.mjs';
 import { createAntigravityStreamCollector } from './antigravity-stream.mjs';
 import { createStreamSink } from './cursor-wire-stream-sink.mjs';
 import { createAnthropicMidstreamRecovery, createAnthropicMidState } from './anthropic-midstream-recovery.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+
+// Cached ledger handles would hold the scratch folder open at exit.
+after(() => closeUsageLedgers());
 
 function useLedger(t) {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-stream-failure-usage-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('stream-failure-usage'), 'ledger.sqlite');
   const prior = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
   t.after(() => {

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
-const directory = mkdtempSync(join(tmpdir(), 'mixdog-model-pricing-'));
+const directory = makeTempDirSync('model-pricing');
 process.env.MIXDOG_DATA_DIR = directory;
 const litellm = {
   'gemini/gemini-3.8-flash': {

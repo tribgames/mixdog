@@ -3,11 +3,9 @@
 // attachments by content hash.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-turns-'));
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('turns');
 const { createSessionTurnCalls } = await import('./session-turns.mjs');
 
 const b64 = (text) => Buffer.from(text).toString('base64');

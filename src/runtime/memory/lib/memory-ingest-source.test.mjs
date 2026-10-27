@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
 import { createTranscriptIngest, parseTsToMs } from './transcript-ingest.mjs';
 import { stableSessionSourceRef } from './session-ingest.mjs';
 import { cleanMemoryText } from './memory-extraction.mjs';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 mock.module('./memory-cycle.mjs', {
   namedExports: { flushRawEmbeddings: async () => ({ attempted: 0, embedded: 0 }) },
@@ -42,7 +42,7 @@ const bodies = [
 ];
 
 test('transcript ingestion stores code-only, URL-only and table bodies verbatim and replay stays idempotent', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-ingest-source-'));
+  const directory = makeTempDirSync('ingest-source');
   const path = join(directory, 'session.jsonl');
   await writeFile(
     path,

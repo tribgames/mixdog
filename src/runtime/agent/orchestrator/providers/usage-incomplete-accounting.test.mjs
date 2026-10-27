@@ -1,15 +1,17 @@
 import '../../../shared/llm/usage-test-support.mjs';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import test, { after } from 'node:test';
 import { join } from 'node:path';
-import { UsageLedger } from '../../../shared/llm/usage-ledger.mjs';
+import { UsageLedger, closeUsageLedgers } from '../../../shared/llm/usage-ledger.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 import { geminiIncompleteError, geminiSendResult, resolveGeminiUsage } from './gemini-response.mjs';
 import { compatReportedCostUsd, normalizeCompatChatResponse } from './openai-compat-response-normalization.mjs';
 import { handleCompatResponsesStreamEvent } from './openai-compat-responses-events.mjs';
 import { attachPartialState } from './openai-compat-responses-state.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+
+// Cached ledger handles would hold the scratch folder open at exit.
+after(() => closeUsageLedgers());
 
 test('a compat Responses incomplete error keeps the terminal model through partial-state enrichment', () => {
   const state = { model: '', content: '', toolCalls: [], pendingCalls: new Map() };
@@ -33,7 +35,7 @@ test('a compat Responses incomplete error keeps the terminal model through parti
 });
 
 function useLedger(t) {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-incomplete-usage-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('incomplete-usage'), 'ledger.sqlite');
   const prior = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
   t.after(() => {

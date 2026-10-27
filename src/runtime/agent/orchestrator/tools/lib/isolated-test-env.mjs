@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
 
 // Import before runtime modules: several paths are captured at module load.
-export const fixtureRoot = mkdtempSync(join(tmpdir(), 'mixdog-shell-fixture-'));
+// Removed when the importing test process exits.
+export const fixtureRoot = makeTempDirSync('shell-fixture');
 for (const name of [
   'HOME',
   'USERPROFILE',

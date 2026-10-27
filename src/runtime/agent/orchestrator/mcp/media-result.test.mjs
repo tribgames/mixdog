@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { makePdf, makeEncryptedPdf } from '../tools/builtin/pdf-test-fixtures.mjs';
@@ -12,6 +10,7 @@ import {
   sanitizeContentForStoredHistory,
 } from '../providers/media-normalization.mjs';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
   'base64'
@@ -82,7 +81,7 @@ test('MCP text-only and error results keep their string / Error: prefix behavior
 });
 
 test('same MCP result normalizes identically twice and lowers byte-identically after session save/reload', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-mcp-cache-'));
+  const dir = makeTempDirSync('mcp-cache');
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = dir;
   t.after(() => {
@@ -139,7 +138,7 @@ test('only png/jpeg/gif/webp become image parts; other image types become fixed 
 });
 
 test('line-wrapped base64 is canonicalized so live and stored forms lower identically', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-mcp-b64-'));
+  const dir = makeTempDirSync('mcp-b64');
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = dir;
   t.after(() => {

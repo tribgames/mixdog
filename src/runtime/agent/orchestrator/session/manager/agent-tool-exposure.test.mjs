@@ -2,12 +2,12 @@
 // core + bridge built from their own filtered tools, not the full array.
 import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-agent-exposure-'));
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
+const root = makeTempDirSync('agent-exposure');
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });

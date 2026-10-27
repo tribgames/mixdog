@@ -1,14 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -21,14 +12,17 @@ import {
 } from './remote-file-preview.ts';
 import { createRemoteLocalPageMethods } from './remote-local-page.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'remote-preview-'));
+import { makeTempDirSync, redirectSystemTemp } from '../../../../scripts/lib/scoped-temp.mjs';
+
+redirectSystemTemp('tmp-root');
+const root = makeTempDirSync('remote-preview');
 mkdirSync(join(root, '.hidden'));
 writeFileSync(join(root, 'clip.mp4'), Buffer.from('0123456789'));
 writeFileSync(join(root, 'page.html'), '<p>hi</p>');
 // A non-web type (`.bin` is a served glTF buffer asset).
 writeFileSync(join(root, 'data.sqlite'), 'secret');
 writeFileSync(join(root, '.hidden', 'a.css'), 'x');
-const outside = mkdtempSync(join(tmpdir(), 'remote-preview-out-'));
+const outside = makeTempDirSync('remote-preview-out');
 writeFileSync(join(outside, 'pic.png'), Buffer.from('png'));
 
 const grants = {
@@ -75,8 +69,8 @@ test('paths outside the project, hidden files and non-web files are refused', as
 });
 
 test('a folder swapped for a link between the checks and the open is judged by where the open file really is', async (t) => {
-  const project = realpathSync(mkdtempSync(join(tmpdir(), 'remote-preview-race-')));
-  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'remote-preview-race-out-')));
+  const project = realpathSync(makeTempDirSync('remote-preview-race'));
+  const elsewhere = realpathSync(makeTempDirSync('remote-preview-race-out'));
   t.after(() => {
     remoteFilePreviewTestHooks.beforeOpen = undefined;
     rmSync(project, { recursive: true, force: true });
@@ -133,7 +127,7 @@ test('a folder swapped for a link between the checks and the open is judged by w
 });
 
 test('a local page is handed to the page server as the desktop handler hands it', async (t) => {
-  const project = realpathSync(mkdtempSync(join(tmpdir(), 'remote-page-')));
+  const project = realpathSync(makeTempDirSync('remote-page'));
   t.after(() => rmSync(project, { recursive: true, force: true }));
   mkdirSync(join(project, 'site'));
   writeFileSync(join(project, 'site', 'index.html'), '<p>site</p>');
@@ -165,7 +159,7 @@ test('a selected-file grant reads exactly its file and nothing else', async () =
 });
 
 test('private copies live in one mkdtemp root, never a predictable pid-named folder', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'remote-preview-root-'));
+  const dir = makeTempDirSync('remote-preview-root');
   writeFileSync(join(dir, 'a.txt'), 'one');
   writeFileSync(join(dir, 'b.txt'), 'two');
   try {
@@ -182,7 +176,7 @@ test('private copies live in one mkdtemp root, never a predictable pid-named fol
 });
 
 test('concurrent previews of equal content under different names keep their own inputs', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'remote-preview-twin-'));
+  const dir = makeTempDirSync('remote-preview-twin');
   const when = new Date(1_700_000_000_000);
   for (const name of ['a.txt', 'b.txt']) {
     writeFileSync(join(dir, name), 'same bytes');

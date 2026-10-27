@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, createHmac } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
@@ -18,6 +17,7 @@ import {
 } from './host-key.ts';
 import { parseSshTarget } from './ssh-command.ts';
 
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 const keyOf = (label) => Buffer.from(`key-${label}`).toString('base64');
 const fingerprintOf = (label) =>
   `SHA256:${createHash('sha256').update(`key-${label}`).digest('base64').replace(/=+$/, '')}`;
@@ -216,7 +216,7 @@ test('a changed key shows both fingerprints, the exact ssh-keygen -R command and
 });
 
 test('replacing a key removes the old entry through ssh-keygen -R and pins the new one', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-known-'));
+  const dir = makeTempDirSync('known');
   const file = join(dir, 'known_hosts');
   await writeFile(file, `10.0.0.1 ssh-ed25519 ${keyOf('old')}\n`);
   const calls = [];
@@ -370,7 +370,7 @@ test('behind ProxyJump the servers are read hop by hop: a hop is read through th
 });
 
 test('the proxy read switches the login off for the server being read only, and checks the hops before it strictly', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-scan-'));
+  const dir = makeTempDirSync('scan');
   const configs = [];
   const run = async (command, args) => {
     if (command === 'ssh') {
@@ -433,7 +433,7 @@ test('ProxyCommand reads the target through the same ssh-based scan', async () =
 });
 
 test('known_hosts in a profile folder with spaces and non-ASCII characters is read and written', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'mixdog 홈 폴더 '));
+  const home = makeTempDirSync('mixdog 홈 폴더 ');
   const file = join(home, '.ssh', 'known_hosts');
   const t = tools({ scan: `10.0.0.1 ssh-ed25519 ${keyOf('ed')}\n` });
   const first = await inspectHostKey(parseSshTarget('root@10.0.0.1'), { run: t.run, home, env: {} });
@@ -446,7 +446,7 @@ test('known_hosts in a profile folder with spaces and non-ASCII characters is re
 });
 
 test('pinning appends the confirmed key on its own line, creating the folder', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-known-'));
+  const dir = makeTempDirSync('known');
   const file = join(dir, '.ssh', 'known_hosts');
   await pinHostKey({ line: `10.0.0.1 ssh-ed25519 ${keyOf('a')}`, file });
   await writeFile(file, `10.0.0.9 ssh-ed25519 ${keyOf('b')}`, { flag: 'a' });
@@ -460,7 +460,7 @@ test('pinning appends the confirmed key on its own line, creating the folder', a
   await mkdir(join(dir, 'x'), { recursive: true });
 });
 test('the jump-host key scan runs from a folder without spaces: a Windows temp folder with spaces falls back to a locked-down ProgramData folder', async () => {
-  const programData = await mkdtemp(join(tmpdir(), 'mixdog-pd-'));
+  const programData = makeTempDirSync('pd');
   const calls = [];
   const run = async (command, args) => {
     calls.push([command, ...args]);

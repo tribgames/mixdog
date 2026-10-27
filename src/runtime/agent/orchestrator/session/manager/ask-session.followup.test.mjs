@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { mock, test } from 'node:test';
 
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
 // The background follow-up ask that runs input a cross-process hydration
 // surfaced after the ask returned. Hydration is mocked so its completion can
 // be placed after the turn; everything else is the real ask pipeline.
 // Run through scripts/test-direct.mjs (module mocks).
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-ask-followup-'));
+const root = makeTempDirSync('ask-followup');
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
@@ -260,10 +260,18 @@ for (const [name, announcedBefore, agentsAtRetry, expected] of [
       // The agent changes between the failure and the retry.
       agents = agentsAtRetry;
       sends.length = 0;
-      await askSession(session.id, 'retry me', null, null, null, null, askOpts({
-        retryTurnId: 'failed-input',
-        retryAttemptId: 'attempt-1',
-      }));
+      await askSession(
+        session.id,
+        'retry me',
+        null,
+        null,
+        null,
+        null,
+        askOpts({
+          retryTurnId: 'failed-input',
+          retryAttemptId: 'attempt-1',
+        })
+      );
       assert.equal(sends.length, 1);
       assert.match(sends[0], expected, 'the retry is told');
       assert.equal(sends[0].match(/# Available Agents Changed/g).length, 1, 'once');

@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
 import { GROK_CLI_VERSION_FLOOR } from './grok-client-version.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 // Versions `n` majors above the shipped floor, which every release raises.
 const ahead = (n) => `${Number(GROK_CLI_VERSION_FLOOR.split('.')[0]) + n}.0.0`;
@@ -17,7 +15,7 @@ let nonce = 0;
 async function fresh(fetchImpl, env = {}) {
   for (const k of ENV_KEYS) delete process.env[k];
   // Each case starts with no remembered version and never touches the operator's.
-  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-client-version-'));
+  process.env.MIXDOG_DATA_DIR = makeTempDirSync('client-version');
   Object.assign(process.env, env);
   const calls = [];
   globalThis.fetch = async (url, opts) => {

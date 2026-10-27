@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { computerLogError, computerLogTarget } from './log-privacy.ts';
 import { appendComputerRunRecord, computerRunRecord, readComputerRunRecords } from './run-log.ts';
 
+import { makeTempDirSync } from '../../../../../../scripts/lib/scoped-temp.mjs';
 test('a session can read back its own run history, newest last, without the truncated tail', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-run-history-'));
+  const directory = makeTempDirSync('run-history');
   const previous = process.env.MIXDOG_DATA_DIR;
   const sessionId = `history-${process.pid}`;
   process.env.MIXDOG_DATA_DIR = directory;

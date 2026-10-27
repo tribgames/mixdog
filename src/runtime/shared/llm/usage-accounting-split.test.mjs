@@ -1,16 +1,18 @@
 import './usage-test-support.mjs';
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import test, { after } from 'node:test';
 import { join } from 'node:path';
-import { UsageLedger } from './usage-ledger.mjs';
+import { UsageLedger, closeUsageLedgers } from './usage-ledger.mjs';
 import { accountProviderSend } from './usage-accounting.mjs';
 import { noteAbandonedUsage } from './usage-context.mjs';
 import { OpenCodeGoProvider } from '../../agent/orchestrator/providers/opencode-go.mjs';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
+
+// Cached ledger handles would hold the scratch folder open at exit.
+after(() => closeUsageLedgers());
 
 function useLedger(t) {
-  const path = join(mkdtempSync(join(tmpdir(), 'mixdog-usage-split-')), 'ledger.sqlite');
+  const path = join(makeTempDirSync('usage-split'), 'ledger.sqlite');
   const prior = process.env.MIXDOG_USAGE_LEDGER_PATH;
   process.env.MIXDOG_USAGE_LEDGER_PATH = path;
   t.after(() => {

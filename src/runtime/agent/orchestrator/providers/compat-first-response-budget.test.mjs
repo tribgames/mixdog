@@ -1,11 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 // Isolate credential and cache lookups from the developer's own data.
-const dir = mkdtempSync(join(tmpdir(), 'mixdog-compat-budget-'));
+const dir = makeTempDirSync('compat-budget');
 process.env.MIXDOG_DATA_DIR = dir;
 process.env.MIMO_OAUTH_CREDENTIALS_PATH = join(dir, 'mimo-oauth.json');
 

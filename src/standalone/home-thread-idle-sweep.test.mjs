@@ -11,15 +11,15 @@
 // stand-ins (see quota-resume-session.test.mjs).
 import '../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { makeTempDirSync } from '../../scripts/lib/scoped-temp.mjs';
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test("a home thread swept while idle keeps one session: its second turn keeps the first turn's prompt", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-home-idle-sweep-'));
+  const root = makeTempDirSync('home-idle-sweep');
   const cwd = join(root, 'work');
   mkdirSync(cwd);
   const previousEnv = { ...process.env };

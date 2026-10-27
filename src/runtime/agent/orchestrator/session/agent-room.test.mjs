@@ -24,6 +24,7 @@ import {
   withoutPassMarker,
 } from './agent-room.mjs';
 import { parseRoomDecision, roomSupervisorPrompt, roomSupervisorRows } from './agent-room-supervisor.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 const MEMBERS = [
   { id: 'bench', name: 'Bench' },
@@ -1031,10 +1032,7 @@ test('a user row keeps its stored files through the log and a restore; no bytes;
 });
 
 test("the log's intake stores a user row's files as a chat prompt's and hands back references", async () => {
-  const { mkdtempSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-room-files-'));
+  process.env.MIXDOG_DATA_DIR = makeTempDirSync('room-files');
   const { createAgentRoomDelivery } = await import('../../../../session-runtime/agent-room-delivery.mjs');
   const { readAttachmentBuffer } = await import('../../../attachments/store.mjs');
   const b64 = (text) => Buffer.from(text).toString('base64');

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempDirSync } from '../../scripts/lib/scoped-temp.mjs';
 
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-prompt-history-'));
+process.env.MIXDOG_DATA_DIR = makeTempDirSync('prompt-history');
 const { writeRetryDelayMs, appendPromptHistory } = await import('./prompt-history-store.mjs');
 
 test('a NUL history file is kept aside and history keeps working', async () => {

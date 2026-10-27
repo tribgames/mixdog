@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -14,6 +13,7 @@ import {
   hasDevinOAuthCredentials,
   resolveDevinOAuthAccessToken,
 } from './devin-auth.mjs';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 const BINDINGS = Symbol.for('mixdog.providerAuthBindings');
 const CALLBACK = 'http://127.0.0.1:59653/callback';
@@ -23,7 +23,7 @@ const jwt = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString('base6
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 function bindCredentialFile(t, name = 'devin-oauth.json') {
-  const path = join(mkdtempSync(join(tmpdir(), 'devin-auth-')), name);
+  const path = join(makeTempDirSync('devin-auth'), name);
   const previous = globalThis[BINDINGS];
   globalThis[BINDINGS] = { ...previous, 'devin-oauth': path };
   t.after(() => {
@@ -457,7 +457,7 @@ test('the login times out, rejects and frees the port', async (t) => {
   await assertPortFree();
 });
 
-test('a pasted redirect carrying this login\'s state completes it through the same exchange', async (t) => {
+test("a pasted redirect carrying this login's state completes it through the same exchange", async (t) => {
   const path = bindCredentialFile(t);
   const token = jwt({ exp: nowSeconds() + 3600, sub: 'phone-user' });
   const endpoint = tokenEndpoint(token);
@@ -489,7 +489,7 @@ test('a pasted code#state or bare code completes the login too', async (t) => {
   }
 });
 
-test('a pasted redirect with another login\'s state is rejected and the login keeps waiting', async (t) => {
+test("a pasted redirect with another login's state is rejected and the login keeps waiting", async (t) => {
   const path = bindCredentialFile(t);
   const endpoint = tokenEndpoint(jwt({ exp: nowSeconds() + 3600 }));
   const login = await startLogin(t, { fetchFn: endpoint.fetchFn });

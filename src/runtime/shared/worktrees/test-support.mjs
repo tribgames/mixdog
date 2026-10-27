@@ -1,26 +1,22 @@
 // Temporary git repositories and data dirs for the worktree suites.
 import '../git-direct.test-support.mjs';
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, chmodSync, cpSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { makeTempDirSync, removeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 const created = [];
 
+// A suite that never calls cleanupTempDirs still has its directories removed
+// when the process exits.
 export function tempDir(prefix = 'mixdog-wt-') {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = makeTempDirSync(prefix);
   created.push(dir);
   return dir;
 }
 
 export function cleanupTempDirs() {
-  for (const dir of created.splice(0)) {
-    try {
-      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    } catch {
-      /* best effort */
-    }
-  }
+  for (const dir of created.splice(0)) removeTempDirSync(dir);
 }
 
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' };

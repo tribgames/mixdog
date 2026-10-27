@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -15,6 +14,7 @@ import {
   resolvedBlockText,
   targetSshConfigFor,
 } from './ssh-resolved-config.ts';
+import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 
 const DUMP = (extra = '') =>
   `user ops\nhostname 10.0.0.9\nport 22\nidentityfile ~/.ssh/id_ed25519\nforwardagent yes\nforwardx11 yes\nlocalforward [127.0.0.1]:8080 [127.0.0.1]:80\nremoteforward [0.0.0.0]:9 [127.0.0.1]:9\ndynamicforward [127.0.0.1]:1080\npermitlocalcommand yes\nlocalcommand echo hi\nuserknownhostsfile ~/.ssh/known_hosts\nserveraliveinterval 30\n${extra}`;
@@ -43,7 +43,7 @@ function fakeSsh({ dumps, faithful = true }) {
 async function configured() {
   resetMixdogSsh();
   resetTargetSshConfigs();
-  const userData = await mkdtemp(join(tmpdir(), 'mixdog-resolved-'));
+  const userData = makeTempDirSync('resolved');
   await configureMixdogSsh({
     userDataPath: userData,
     run: async () => ({ code: 0, stdout: '', stderr: '' }),

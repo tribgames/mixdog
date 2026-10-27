@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
-import fs, { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { join } from 'node:path';
 import test from 'node:test';
 
 import { createSessionIntakeApi } from './intake.mjs';
 import { USER_CANCEL_KEEP_PROMPT_REASON } from '../../../runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 // Pins the prompt intake surface: how a submission is queued or deferred, how
 // Esc reclaims an idle or in-flight prompt back into the draft, and the
 // message rewind / reserved-session handshakes.
@@ -432,7 +431,7 @@ test('rewindToItem trims the transcript to the chosen prompt and returns it for 
 
 test('rewindToItem finds the prompt by message id and returns its attachments for the composer', async () => {
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-intake-rewind-'));
+  process.env.MIXDOG_DATA_DIR = makeTempDirSync('intake-rewind');
   try {
     const { materializePromptSubmission } = await import('../../../runtime/attachments/store.mjs');
     const text = 'see [Pasted text #1 +3 lines]';
@@ -486,7 +485,7 @@ async function unreadableAttachmentRef(t) {
 
 async function withDataDir(run) {
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-intake-unreadable-'));
+  process.env.MIXDOG_DATA_DIR = makeTempDirSync('intake-unreadable');
   try {
     return await run();
   } finally {

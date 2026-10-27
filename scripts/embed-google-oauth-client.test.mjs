@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, readFile, rm } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -12,13 +11,14 @@ import { parse } from 'yaml';
 import { GOOGLE_OAUTH_CLIENT_FILE, googleOAuthClient } from '../src/runtime/shared/google-oauth-client.mjs';
 import { embedGoogleOAuthClient } from './embed-google-oauth-client.mjs';
 
+import { makeTempDirSync } from './lib/scoped-temp.mjs';
 const exec = promisify(execFile);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SECRET_ID = 'release.apps.googleusercontent.com';
 const SECRET_VALUE = 'GOCSPX-release-secret';
 
 async function scratchFile(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-embed-client-'));
+  const directory = makeTempDirSync('embed-client');
   t.after(() => rm(directory, { recursive: true, force: true }));
   return join(directory, 'google-oauth-client.generated.json');
 }

@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { createFileSnapshotService, snapshotKind, snapshotRequestAllowed } from './file-snapshot.ts';
 import { projectEntryPathIn } from './project-files.ts';
+import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 const project = () => {
-  const root = mkdtempSync(join(tmpdir(), 'snap-'));
+  const root = makeTempDirSync('snap');
   mkdirSync(join(root, 'design'));
   writeFileSync(join(root, 'design', 'index.html'), '<h1>hi</h1>');
   writeFileSync(join(root, 'notes.txt'), 'x');
@@ -18,7 +18,7 @@ const service = (render, timeoutMs) => createFileSnapshotService({ confine: proj
 
 test('paths outside the project and other file types are refused before anything renders', async () => {
   const root = project();
-  const outside = mkdtempSync(join(tmpdir(), 'snap-out-'));
+  const outside = makeTempDirSync('snap-out');
   writeFileSync(join(outside, 'secret.html'), 'x');
   let rendered = 0;
   const snapshots = service(async () => {
@@ -64,7 +64,7 @@ test('a granted file may load only itself; a project capture keeps the project r
 
 test('a symlink out of the project is refused', async (t) => {
   const root = project();
-  const outside = mkdtempSync(join(tmpdir(), 'snap-out-'));
+  const outside = makeTempDirSync('snap-out');
   writeFileSync(join(outside, 'secret.html'), 'x');
   try {
     symlinkSync(outside, join(root, 'link'), 'junction');

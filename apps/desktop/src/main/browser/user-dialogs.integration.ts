@@ -9,12 +9,12 @@
  * (MIXDOG_BROWSER_NATIVE_VIEW).
  */
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdtempSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { app, BrowserWindow, webContents, type WebContents, type WebFrameMain } from 'electron';
+import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { createPolling } from '../host-harness-poll';
 import { readyBrowserFrame } from './harness-frame';
 import { createBrowserHost } from './host';
@@ -24,7 +24,7 @@ function progress(message: string): void {
   if (progressPath) appendFileSync(progressPath, `${message}\n`);
 }
 
-const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-user-dialogs-'));
+const profile = makeTempDirSync('browser-user-dialogs');
 process.env.MIXDOG_DATA_DIR = join(profile, 'data');
 app.setPath('userData', join(profile, 'user-data'));
 app.disableHardwareAcceleration();
@@ -388,13 +388,19 @@ async function run(): Promise<void> {
   }
 }
 
+/** app.exit skips every quit hook, so the disposable profile goes first. */
+async function finish(code: number): Promise<void> {
+  await removeTempDir(profile);
+  app.exit(code);
+}
+
 void app
   .whenReady()
   .then(async () => {
     await run();
-    app.exit(0);
+    await finish(0);
   })
-  .catch((error) => {
+  .catch(async (error) => {
     progress(`FAILED: ${(error as Error).stack || error}`);
-    app.exit(1);
+    await finish(1);
   });
