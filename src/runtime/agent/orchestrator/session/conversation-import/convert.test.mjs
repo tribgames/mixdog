@@ -223,7 +223,7 @@ test('Claude Code: active chain only, tool notes, envelopes/thinking/results dro
     claudeEntry('u5', 'u4', 'user', '<task-notification>\n<task-id>1</task-id>\n</task-notification>'),
     claudeEntry('u6', 'u5', 'user', '[Request interrupted by user]'),
     claudeEntry('a4', 'u6', 'assistant', [{ type: 'text', text: 'Yes.' }]),
-    { type: 'custom-title', customTitle: 'ignored' },
+    { type: 'agent-name', agentName: 'ignored' },
   ]);
   const result = convertConversationText('claude', text);
   assert.equal(result.errorCode, null);
@@ -389,11 +389,11 @@ test('Codex: the open-page envelope is not a user message and never names the co
   assert.equal(result.turns[0].text, 'The real question');
 });
 
-test('Codex: a thread whose history lives in another rollout (history_base) warns that it is partial', () => {
+test("Codex: a thread continuing a history_base exposes it; the warning is the file reader's to raise", () => {
   const base = { thread_id: 'rollout-1', end_ordinal_exclusive: 4, end_byte_offset: 100 };
   const result = convertConversationText('codex', conversationBody(codexMetaWith({ history_base: base })));
-  assert.deepEqual([result.errorCode, result.warnings], [null, ['historyPartial']]);
-  assert.deepEqual(convertConversationText('codex', conversationBody(codexMetaWith({}))).warnings, []);
+  assert.deepEqual([result.errorCode, result.warnings, result.historyBase], [null, [], base]);
+  assert.equal(convertConversationText('codex', conversationBody(codexMetaWith({}))).historyBase, null);
 });
 
 test('Codex: a long, repeatedly compacted and resumed thread converts completely as one conversation', () => {

@@ -8,7 +8,14 @@
  * Dropped: sidechains, meta entries, tool results, thinking, signatures and
  * Claude Code's own command/notification envelopes.
  */
-import { IMAGE_OMITTED_TEXT, IMPORT_WARNING_IMAGE_OMITTED, isWholeElement, textPart, toolNote } from './turns.mjs';
+import {
+  IMAGE_OMITTED_TEXT,
+  IMPORT_WARNING_IMAGE_OMITTED,
+  isWholeElement,
+  textPart,
+  titleFromText,
+  toolNote,
+} from './turns.mjs';
 
 const CLAUDE_ENVELOPE_TAGS = [
   'local-command-stdout',
@@ -96,6 +103,31 @@ function entryParts(role, content, warnings) {
   return parts;
 }
 
+/**
+ * The title Claude Code's resume list shows from the records it appends to a
+ * transcript: the last `custom-title` (a `/rename`), else the last `ai-title`,
+ * then the last `summary`, then the last `last-prompt`. A blank custom title
+ * (a cleared rename) ends the name tier without falling back to the AI title.
+ * Other record types, such as `task-summary` or `agent-name`, never name it.
+ */
+export function createClaudeTitleScan() {
+  let custom;
+  let ai;
+  let summary;
+  let lastPrompt;
+  return {
+    push(record) {
+      if (record.type === 'custom-title' && typeof record.customTitle === 'string') custom = record.customTitle;
+      else if (record.type === 'ai-title' && typeof record.aiTitle === 'string') ai = record.aiTitle;
+      else if (record.type === 'summary' && typeof record.summary === 'string') summary = record.summary;
+      else if (record.type === 'last-prompt' && typeof record.lastPrompt === 'string') lastPrompt = record.lastPrompt;
+    },
+    title() {
+      return titleFromText(custom ?? ai) || titleFromText(summary) || titleFromText(lastPrompt);
+    },
+  };
+}
+
 function skippedEntry(record) {
   // Claude Code flags its compaction summary transcript-only as well.
   if (record.isCompactSummary === true) return false;
@@ -111,6 +143,7 @@ function skippedEntry(record) {
  */
 export function createClaudeReducer() {
   const entries = [];
+  const titleScan = createClaudeTitleScan();
   let recognized = false;
   let foreignSessionId = null;
   let cwd = null;
@@ -132,7 +165,12 @@ export function createClaudeReducer() {
     get sidechainOnly() {
       return sidechainSeen && !mainSeen;
     },
+    /** Feed a record for its stored title only (a transcript's tail window). */
+    pushTitle(record) {
+      titleScan.push(record);
+    },
     push(record) {
+      titleScan.push(record);
       const message = isMessageEntry(record);
       if (message) recognized = true;
       const main = message && record.isSidechain !== true;
@@ -184,7 +222,7 @@ export function createClaudeReducer() {
       }
       // A transcript whose every message is a sidechain is a subagent's own, not a conversation.
       const internalKind = this.sidechainOnly ? 'subagent' : null;
-      return { recognized, foreignSessionId, cwd, internalKind, rawTurns, warnings };
+      return { recognized, foreignSessionId, cwd, internalKind, rawTurns, warnings, storedTitle: titleScan.title() };
     },
   };
 }

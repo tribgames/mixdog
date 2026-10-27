@@ -242,6 +242,9 @@ function metaFromConversion(conversion, whole) {
     title: conversion.title,
     // A Codex marker sits in the first line; a Claude transcript is sidechain-only only once read to the end.
     internalKind: whole || conversion.source === 'codex' ? (conversion.internalKind ?? null) : null,
+    // Rollout id of the history base this file continues, else null.
+    historyBaseId:
+      typeof conversion.historyBase?.thread_id === 'string' ? conversion.historyBase.thread_id.toLowerCase() : null,
     messageCount: whole && !conversion.errorCode ? conversion.messageCount : null,
     warnings: whole ? conversion.warnings : conversion.warnings.filter((code) => code !== 'malformed'),
     errorCode: whole ? conversion.errorCode : null,
@@ -339,6 +342,15 @@ async function streamJsonlLines(
   return outcome({ eof: true });
 }
 
+// Complete lines of the last prefix-chunk of a file (the cut-off first line dropped).
+async function readTailLines(handle, size) {
+  const length = Math.min(size, PREFIX_CHUNK_BYTES);
+  const buffer = Buffer.allocUnsafe(length);
+  const { bytesRead } = await handle.read(buffer, 0, length, size - length);
+  const text = buffer.subarray(0, bytesRead).toString('utf8');
+  return (size > length ? text.slice(text.indexOf('\n') + 1) : text).split('\n');
+}
+
 async function readPrefixMeta(candidate) {
   const converter = createConversationConverter(candidate.source);
   const handle = await openCandidate(candidate);
@@ -364,12 +376,21 @@ async function readPrefixMeta(candidate) {
         return !(partial.foreignSessionId && partial.cwd && partial.title);
       },
     });
+    // The stored title records sit near the end of a transcript.
+    if (claude && !read.eof) {
+      for (const line of await readTailLines(handle, candidate.size)) converter.pushTitleLine(line);
+    }
   } finally {
     await handle.close();
   }
   const conversion = converter.result();
-  if (read.eof) return metaFromConversion(conversion, true);
-  const meta = metaFromConversion(conversion, false);
+  // A thread continuing a history base is only counted, named and judged empty once the base is followed (on import).
+  const listing = (meta) =>
+    conversion.historyBase
+      ? { ...meta, title: null, messageCount: null, errorCode: meta.errorCode === 'empty' ? null : meta.errorCode }
+      : meta;
+  if (read.eof) return listing(metaFromConversion(conversion, true));
+  const meta = listing(metaFromConversion(conversion, false));
   if (candidate.source === 'codex' && (!meta.foreignSessionId || !meta.cwd) && read.firstPartial) {
     // A session_meta line longer than the prefix still names its id/cwd.
     const fromLine = codexMetaFromTruncatedLine(read.firstPartial.replace(/^\uFEFF/, ''));
@@ -380,11 +401,131 @@ async function readPrefixMeta(candidate) {
   return meta;
 }
 
+// ── Codex history base chain ─────────────────────────────────────────────────
+const HISTORY_CHAIN_MAX_DEPTH = 32;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ROLLOUT_ID_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+
+/** Rollout id a rollout file name ends with (`…-<thread>.jsonl` or `…-<thread>_<rollout>.jsonl`). */
+const rolloutIdOf = (path) => basename(path).match(ROLLOUT_ID_RE)?.[1].toLowerCase() ?? null;
+
+const META_CHUNK_BYTES = 8 * 1024;
+
+/**
+ * First JSON record of a candidate file (null when none completes within
+ * `maxBytes`, blank lines included, or it is not JSON) and the bytes read for it.
+ */
+async function firstRecord(candidate, { maxBytes, maxLineBytes }) {
+  const handle = await openCandidate(candidate);
+  try {
+    let first = null;
+    const read = await streamJsonlLines(
+      handle,
+      (line) => {
+        first = line.replace(/^\uFEFF/, '').trim();
+        return !first;
+      },
+      { maxLineBytes, chunkBytes: META_CHUNK_BYTES, maxBytes }
+    );
+    let record = null;
+    try {
+      record = first ? JSON.parse(first) : null;
+    } catch {
+      /* not a record */
+    }
+    return { record, bytes: read.bytesRead };
+  } finally {
+    await handle.close();
+  }
+}
+
+// Whether a cutoff falls on a record boundary: the end of the file or just after a line feed.
+async function endsOnRecord(candidate, end) {
+  if (end === candidate.size) return true;
+  const handle = await openCandidate(candidate);
+  try {
+    const byte = Buffer.alloc(1);
+    const { bytesRead } = await handle.read(byte, 0, 1, end - 1);
+    return bytesRead === 1 && byte[0] === 10;
+  } finally {
+    await handle.close();
+  }
+}
+
+/** The plain rollout file with this rollout id under the live, then the archived, sessions folder. */
+async function findRolloutById(home, rolloutId) {
+  for (const folder of ['sessions', 'archived_sessions']) {
+    let rootReal;
+    try {
+      rootReal = await realpath(join(home, folder));
+    } catch {
+      continue;
+    }
+    const paths = [];
+    await walkCodex(rootReal, rootReal, paths, new Set([caseFold(rootReal)]));
+    for (const path of paths) {
+      if (rolloutIdOf(path) !== rolloutId) continue;
+      const real = await containedRealpath(rootReal, path);
+      const info = real ? await stat(real).catch(() => null) : null;
+      if (info?.isFile()) {
+        return { source: 'codex', root: rootReal, path: real, size: info.size, fileId: fileIdentity(info) };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Rollouts a `history_base` leads to, nearest first, each with the byte offset
+ * its contribution ends at, and `metaBytes`, what reading their metadata took.
+ * Stops (`partial`) at a base that is missing, unreadable (compressed rollouts
+ * are not read), not paginated, already visited, past the depth cap, with a
+ * cutoff that excludes the session metadata, passes the end of the file or
+ * does not end a record, or that would take the total read (the file, the
+ * `spent` metadata reads so far, every cutoff and every metadata read) beyond
+ * `maxFileBytes`.
+ */
+async function resolveHistoryChain(candidate, firstBase, { maxFileBytes, maxLineBytes, spent }) {
+  const home = dirname(candidate.root ?? sourceRoot('codex'));
+  const seen = new Set([rolloutIdOf(candidate.path)]);
+  const segments = [];
+  let used = candidate.size + spent;
+  let metaBytes = 0;
+  const partial = () => ({ segments, partial: true, metaBytes });
+  for (let base = firstBase; base; ) {
+    const id = typeof base.thread_id === 'string' ? base.thread_id.toLowerCase() : '';
+    const end = base.end_byte_offset;
+    const ordinal = base.end_ordinal_exclusive;
+    if (!UUID_RE.test(id) || seen.has(id) || segments.length >= HISTORY_CHAIN_MAX_DEPTH) return partial();
+    seen.add(id);
+    if (!Number.isSafeInteger(ordinal) || ordinal <= 0 || !Number.isSafeInteger(end) || end <= 0) return partial();
+    const found = await findRolloutById(home, id);
+    if (!found || end > found.size || used + end > maxFileBytes) return partial();
+    let head;
+    try {
+      if (!(await endsOnRecord(found, end))) return partial();
+      head = await firstRecord(found, { maxBytes: Math.min(end, maxFileBytes - used - end), maxLineBytes });
+    } catch {
+      return partial();
+    }
+    used += end + head.bytes;
+    metaBytes += head.bytes;
+    if (head.record?.type !== 'session_meta' || head.record.payload?.history_mode !== 'paginated') return partial();
+    segments.push({ candidate: found, end });
+    const next = head.record.payload.history_base;
+    base = next && typeof next === 'object' ? next : null;
+  }
+  return { segments, partial: false, metaBytes };
+}
+
 /**
  * Stream-convert a whole candidate file under the import limits. A file over
  * `maxFileBytes`, a line over `maxLineBytes` or a conversion over the
  * converter's limits fails the file with `tooLarge` without reading the rest.
- * `bytesRead` is how far the read got.
+ * A Codex rollout continuing a `history_base` is preceded by the records of
+ * each base up to its cutoff, oldest first (their session metadata dropped),
+ * all within the one `maxFileBytes`; a base that cannot be followed leaves the
+ * `historyPartial` warning. `bytesRead` is how far the read got.
  */
 export async function convertCandidateFile(
   candidate,
@@ -402,15 +543,45 @@ export async function convertCandidateFile(
     maxRetainedEntries,
     maxMetadataBytes,
   });
+  // Bytes read beyond the file itself: metadata pre-reads and the bases' cutoffs. All count against `maxFileBytes`.
+  let inheritedBytes = 0;
+  if (candidate.source === 'codex') {
+    const head = await firstRecord(candidate, { maxBytes: maxFileBytes, maxLineBytes });
+    const base = head.record?.payload?.history_base;
+    if (base && typeof base === 'object') {
+      inheritedBytes += head.bytes;
+      const chain =
+        head.record.payload.history_mode === 'paginated'
+          ? await resolveHistoryChain(candidate, base, { maxFileBytes, maxLineBytes, spent: inheritedBytes })
+          : { segments: [], partial: true, metaBytes: 0 };
+      inheritedBytes += chain.metaBytes;
+      const { segments, partial } = chain;
+      if (partial) converter.markHistoryPartial();
+      for (const { candidate: baseFile, end } of segments.reverse()) {
+        const baseHandle = await openCandidate(baseFile);
+        try {
+          const read = await streamJsonlLines(baseHandle, (line) => converter.pushLine(line, { inherited: true }), {
+            maxLineBytes,
+            chunkBytes,
+            maxBytes: end,
+          });
+          if (read.overflow) converter.markTooLarge();
+          inheritedBytes += read.bytesRead;
+        } finally {
+          await baseHandle.close();
+        }
+      }
+    }
+  }
   const handle = await openCandidate(candidate);
   try {
     const read = await streamJsonlLines(handle, (line) => converter.pushLine(line), {
       maxLineBytes,
       chunkBytes,
-      maxBytes: maxFileBytes,
+      maxBytes: maxFileBytes - inheritedBytes,
     });
     if (read.overflow || read.truncated) converter.markTooLarge();
-    return { ...converter.result(), bytesRead: read.bytesRead };
+    return { ...converter.result(), bytesRead: read.bytesRead + inheritedBytes };
   } finally {
     await handle.close();
   }
@@ -426,6 +597,7 @@ function pumpMetaQueue() {
         cwd: null,
         title: null,
         internalKind: null,
+        historyBaseId: null,
         messageCount: null,
         warnings: [],
         errorCode: 'unreadable',
@@ -595,6 +767,39 @@ async function pageResult(view, offset, limit, imported) {
 }
 
 /**
+ * Ids of Codex rollouts that an earlier revision of the same thread (same
+ * session id) names as its history base. Codex lists one rollout per thread,
+ * the current one, so these stay out of the list; a fork's parent is another
+ * thread and stays listed.
+ */
+function supersededBaseIds(candidates) {
+  const byRollout = new Map();
+  for (const candidate of candidates) {
+    const meta = cachedMeta(candidate);
+    const rolloutId = candidate.source === 'codex' ? rolloutIdOf(candidate.path) : null;
+    if (meta?.foreignSessionId && rolloutId) byRollout.set(`${meta.foreignSessionId}\0${rolloutId}`, candidate.id);
+  }
+  const hidden = new Set();
+  for (const candidate of candidates) {
+    const meta = cachedMeta(candidate);
+    const base = meta?.historyBaseId && byRollout.get(`${meta.foreignSessionId}\0${meta.historyBaseId}`);
+    if (base && base !== candidate.id) hidden.add(base);
+  }
+  // A cycle of revisions must not hide a thread entirely: its newest one (first in order) stays.
+  const newest = new Map();
+  const visible = new Set();
+  const indexed = new Set(byRollout.values());
+  for (const candidate of candidates) {
+    const sessionId = cachedMeta(candidate)?.foreignSessionId;
+    if (!sessionId || !indexed.has(candidate.id)) continue;
+    if (!newest.has(sessionId)) newest.set(sessionId, candidate.id);
+    if (!hidden.has(candidate.id)) visible.add(sessionId);
+  }
+  for (const [sessionId, id] of newest) if (!visible.has(sessionId)) hidden.delete(id);
+  return hidden;
+}
+
+/**
  * Apply a view's filters (time range, query on title/cwd, project) to
  * candidates using their cached metadata; a candidate whose metadata is still
  * pending is neither a member nor counted and leaves the result incomplete.
@@ -607,7 +812,9 @@ async function filterCandidates(candidates, filters, imported, titles) {
   const selectableIds = [];
   const projectCounts = new Map();
   let complete = true;
+  const superseded = supersededBaseIds(candidates);
   for (const candidate of candidates) {
+    if (superseded.has(candidate.id)) continue;
     if (modifiedAfter !== null && candidate.mtimeMs < modifiedAfter) continue;
     if (modifiedBefore !== null && candidate.mtimeMs > modifiedBefore) continue;
     const meta = cachedMeta(candidate);

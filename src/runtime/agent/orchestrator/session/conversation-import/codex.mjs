@@ -5,14 +5,7 @@
  * messages, Codex's own wrapper user messages, tool outputs, reasoning,
  * event_msg, token counts and turn_context.
  */
-import {
-  IMAGE_OMITTED_TEXT,
-  IMPORT_WARNING_HISTORY_PARTIAL,
-  IMPORT_WARNING_IMAGE_OMITTED,
-  isWholeElement,
-  textPart,
-  toolNote,
-} from './turns.mjs';
+import { IMAGE_OMITTED_TEXT, IMPORT_WARNING_IMAGE_OMITTED, isWholeElement, textPart, toolNote } from './turns.mjs';
 
 // User-role envelopes Codex injects itself (environment, instructions, abort
 // notices, plugin hints, shell-command echoes, image wrappers).
@@ -101,6 +94,7 @@ export function createCodexReducer() {
   let foreignSessionId = null;
   let cwd = null;
   let internalKind = null;
+  let historyBase = null;
   let metaSeen = false;
   let chars = 0;
   let metadataBytes = 0;
@@ -120,19 +114,19 @@ export function createCodexReducer() {
     get metadataBytes() {
       return metadataBytes;
     },
-    push(record) {
+    /** `inherited` records come from a history base: its session metadata is not this thread's. */
+    push(record, inherited = false) {
       const payload = record?.payload && typeof record.payload === 'object' ? record.payload : null;
       if (!payload) return;
       if (record.type === 'session_meta') {
+        if (inherited) return;
         recognized = true;
         if (!metaSeen) {
           metaSeen = true;
           foreignSessionId = stringOrNull(payload.id) || stringOrNull(payload.session_id);
           cwd = stringOrNull(payload.cwd);
           internalKind = codexInternalKind(payload);
-          if (payload.history_base && typeof payload.history_base === 'object') {
-            warnings.add(IMPORT_WARNING_HISTORY_PARTIAL);
-          }
+          if (payload.history_base && typeof payload.history_base === 'object') historyBase = payload.history_base;
         }
         return;
       }
@@ -146,7 +140,7 @@ export function createCodexReducer() {
       }
     },
     result() {
-      return { recognized, foreignSessionId, cwd, internalKind, rawTurns, warnings };
+      return { recognized, foreignSessionId, cwd, internalKind, historyBase, rawTurns, warnings };
     },
   };
 }

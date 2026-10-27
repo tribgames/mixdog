@@ -6,7 +6,13 @@
  */
 import { createClaudeReducer } from './claude.mjs';
 import { createCodexReducer } from './codex.mjs';
-import { IMPORT_ERROR_INTERNAL, IMPORT_WARNING_MALFORMED, conversationTitle, normalizeTurns } from './turns.mjs';
+import {
+  IMPORT_ERROR_INTERNAL,
+  IMPORT_WARNING_HISTORY_PARTIAL,
+  IMPORT_WARNING_MALFORMED,
+  conversationTitle,
+  normalizeTurns,
+} from './turns.mjs';
 
 export const IMPORT_SOURCES = Object.freeze(['codex', 'claude']);
 /** A line or converted transcript beyond the import limits fails the file. */
@@ -49,10 +55,10 @@ export function createConversationConverter(
 ) {
   if (!isImportSource(source)) throw new TypeError('source must be codex or claude.');
   const reducer = source === 'codex' ? createCodexReducer() : createClaudeReducer();
-  let lines = 0;
   let records = 0;
   let malformed = 0;
   let tooLarge = false;
+  let historyPartial = false;
   return {
     /** True while every message seen so far is a Claude sidechain message. */
     get sidechainOnly() {
@@ -61,10 +67,25 @@ export function createConversationConverter(
     markTooLarge() {
       tooLarge = true;
     },
-    pushLine(raw) {
+    /** A history base could not be followed in full. */
+    markHistoryPartial() {
+      historyPartial = true;
+    },
+    /** Feed a line for the stored title only (Claude Code's tail window); other sources ignore it. */
+    pushTitleLine(raw) {
+      let value;
+      try {
+        value = JSON.parse(String(raw).trim());
+      } catch {
+        return;
+      }
+      if (value && typeof value === 'object') reducer.pushTitle?.(value);
+    },
+    /** `inherited` lines belong to a history base followed ahead of this file's own lines. */
+    pushLine(raw, { inherited = false } = {}) {
       if (tooLarge) return false;
       let line = String(raw);
-      if (lines++ === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
+      if (line.charCodeAt(0) === 0xfeff) line = line.slice(1);
       if (line.endsWith('\r')) line = line.slice(0, -1);
       if (!line.trim()) return true;
       let value;
@@ -79,7 +100,7 @@ export function createConversationConverter(
         return true;
       }
       records += 1;
-      reducer.push(value);
+      reducer.push(value, inherited);
       if (
         reducer.chars > maxTranscriptChars ||
         reducer.entries > maxRetainedEntries ||
@@ -96,6 +117,7 @@ export function createConversationConverter(
       if (transcriptChars(turns) > maxTranscriptChars) tooLarge = true;
       const warnings = new Set(parsed.warnings);
       if (malformed) warnings.add(IMPORT_WARNING_MALFORMED);
+      if (historyPartial) warnings.add(IMPORT_WARNING_HISTORY_PARTIAL);
       let errorCode = null;
       if (tooLarge) errorCode = IMPORT_ERROR_TOO_LARGE;
       else if (parsed.internalKind) errorCode = IMPORT_ERROR_INTERNAL;
@@ -108,8 +130,9 @@ export function createConversationConverter(
         foreignSessionId: parsed.foreignSessionId,
         cwd: parsed.cwd,
         internalKind: parsed.internalKind,
+        historyBase: parsed.historyBase ?? null,
         turns: tooLarge ? [] : turns,
-        title: conversationTitle(turns),
+        title: parsed.storedTitle || conversationTitle(turns),
         messageCount: tooLarge ? 0 : turns.length,
         warnings: [...warnings],
       };
