@@ -671,22 +671,14 @@
   display: inline-flex;
 }
 /* The status and the header's ⋯ share that slot: the ⋯ takes it on hover,
-   focus (any, incl. a mouse click; matches the ⋯ reveal rule) or while its menu is open; touch shows the ⋯ always, so the
-   status steps left of it. Right-click and the keyboard reach the menu either way. */
+   focus (any, incl. a mouse click; matches the ⋯ reveal rule) or while its menu is open; touch hides the ⋯ and
+   long-presses instead, so the status keeps the slot. Right-click and the keyboard reach the menu either way. */
 @media (hover: hover) {
   .sidebar-category-header:is(:hover, :focus-within):has(> .row-overflow)
     :is(.sidebar-heading-status, .sidebar-heading-dot),
   .sidebar-category-header:has(> .row-overflow [aria-expanded="true"])
     :is(.sidebar-heading-status, .sidebar-heading-dot) {
     visibility: hidden;
-  }
-}
-@media (hover: none) {
-  .sidebar-category-header:has(> .row-overflow) .sidebar-heading-status {
-    right: calc(var(--mx-rail-trailing-center, 20px) + 24px);
-  }
-  .sidebar-category-header:has(> .row-overflow) .sidebar-heading-dot {
-    right: calc(var(--mx-rail-trailing-center, 20px) + 27.5px);
   }
 }
 /* Outranks the heading toggle's muted glyph colour. */

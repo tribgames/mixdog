@@ -1872,7 +1872,15 @@ html:not([data-mixdog-mobile-tabs]) .session-sidebar .task-link.session-launcher
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
 }
 /* Header actions appear on hover, keyboard focus or while their menu is open;
-   the slot keeps its width so the title never shifts. Touch keeps them shown. */
+   the slot keeps its width so the title never shifts. Touch has no hover, so
+   the ⋯ stays hidden there and a long-press on the header opens its menu
+   (touch-gestures.ts turns it into the contextmenu rowOverflowHostProps owns);
+   the header's status keeps the slot to itself. */
+@media (hover: none) {
+  .sidebar-category-header > .row-overflow .row-overflow-trigger {
+    visibility: hidden;
+  }
+}
 @media (hover: hover) {
   .sidebar-category-header > .row-overflow .row-overflow-trigger {
     opacity: 0;
