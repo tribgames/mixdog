@@ -4032,6 +4032,7 @@
   "Restored bot \"{{name}}\". Its routines stay off until you turn them on.": "已恢复机器人“{{name}}”。它的例程会保持关闭，直到你重新开启。",
   "Restoring layout…": "正在恢复布局…",
   "Result limit reached.": "已达结果上限。",
+  "Results were not imported": "未导入结果",
   "Results the agent shows will appear here.": "智能体展示的成果会显示在这里。",
   "Resume": "继续",
   "Resume a saved chat": "恢复保存的聊天",

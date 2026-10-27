@@ -47,6 +47,8 @@ export type TranscriptItem = RecordValue & {
   expanded?: boolean;
   count?: number;
   completedCount?: number;
+  /** A tool row from an imported conversation: the calls are counted by name; their results were never imported. */
+  imported?: boolean;
   detail?: string;
   label?: string;
   status?: string;

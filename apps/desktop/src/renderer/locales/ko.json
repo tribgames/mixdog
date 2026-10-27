@@ -4032,6 +4032,7 @@
   "Restored bot \"{{name}}\". Its routines stay off until you turn them on.": "봇 \"{{name}}\"을(를) 복원했습니다. 루틴은 다시 켤 때까지 꺼져 있습니다.",
   "Restoring layout…": "레이아웃 복원 중…",
   "Result limit reached.": "결과 한도에 도달했습니다.",
+  "Results were not imported": "결과는 가져오지 않았습니다",
   "Results the agent shows will appear here.": "에이전트가 보여 주는 결과물이 여기에 표시됩니다.",
   "Resume": "재개",
   "Resume a saved chat": "저장된 대화 이어가기",

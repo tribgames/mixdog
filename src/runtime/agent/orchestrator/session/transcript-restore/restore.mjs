@@ -44,6 +44,7 @@ import {
 } from '../../../../shared/transcript-metadata.mjs';
 import { routineTriggerField } from '../../../../shared/routine-trigger.mjs';
 import { isImportedMessage } from '../imported-message.mjs';
+import { toolRunLine } from '../conversation-import/turns.mjs';
 import { isContextAckMessage } from '../compact/user-message-kind.mjs';
 import { isRoutineResultMessage, routineResultNotice } from '../routine-result.mjs';
 import { heldRequestNotice, isHeldRequestMessage } from '../human-gate/held-message.mjs';
@@ -140,7 +141,64 @@ function restoredContentText(message) {
   return typeof message?.content === 'string' ? message.content : toolResultText(message?.content);
 }
 
+// The runs of tool use an imported assistant message recorded (conversation-import
+// turns.mjs), kept only where the text still holds exactly their canonical line.
+function importedToolRuns(message) {
+  const runs = message?.meta?.importedToolRuns;
+  if (!isImportedMessage(message) || typeof message.content !== 'string' || !Array.isArray(runs)) return [];
+  let cursor = 0;
+  return runs.filter((run) => {
+    const valid =
+      Number.isInteger(run?.start) &&
+      Number.isInteger(run?.end) &&
+      run.start >= cursor &&
+      run.end > run.start &&
+      run.end <= message.content.length &&
+      Array.isArray(run.tools) &&
+      run.tools.length > 0 &&
+      run.tools.every((tool) => typeof tool?.name === 'string' && Number.isInteger(tool.count) && tool.count > 0) &&
+      message.content.slice(run.start, run.end) === toolRunLine(run.tools);
+    if (valid) cursor = run.end;
+    return valid;
+  });
+}
+
+// An imported reply with tool use: its text around each run as assistant rows,
+// each run as tool rows (one per tool, counted). The calls' results were never
+// imported; the `imported` mark lets the row say so.
+function restoredImportedAssistantItems(message, runs, nextId) {
+  const { completion: _completion, ...metadata } = restoredTranscriptMetadata(message);
+  const at = Number(message?.meta?.transcript?.at);
+  const items = [];
+  const pushText = (raw) => {
+    const text = raw.trim();
+    if (text) items.push({ kind: 'assistant', id: nextId(), text, ...metadata });
+  };
+  let cursor = 0;
+  for (const run of runs) {
+    pushText(message.content.slice(cursor, run.start));
+    for (const { name, count } of run.tools) {
+      if (isTranscriptHiddenControlToolName(name)) continue;
+      items.push({
+        kind: 'tool',
+        id: nextId(),
+        name,
+        imported: true,
+        expanded: false,
+        count,
+        completedCount: count,
+        ...(Number.isFinite(at) ? { at, startedAt: at, completedAt: at } : {}),
+      });
+    }
+    cursor = run.end;
+  }
+  pushText(message.content.slice(cursor));
+  return items;
+}
+
 function restoredAssistantTranscriptItems(message, nextId) {
+  const runs = importedToolRuns(message);
+  if (runs.length) return restoredImportedAssistantItems(message, runs, nextId);
   const text = restoredContentText(message).trim();
   if (!text) return [];
   const { completion, ...metadata } = restoredTranscriptMetadata(message);
@@ -339,7 +397,7 @@ function mergeRestoredToolItems(items) {
     // Result-dependent hiding (built-in skill loads) resolves here, after
     // every role:'tool' result has been attached to its restored call.
     if (item?.kind === 'tool' && isTranscriptHiddenToolItem(item)) continue;
-    const mergeable = item?.kind === 'tool' && item.aggregate !== true;
+    const mergeable = item?.kind === 'tool' && item.aggregate !== true && item.imported !== true;
     if (!mergeable) {
       flushRun();
       merged.push(item);
@@ -379,7 +437,8 @@ function restoredMessageItemUpperBound(message) {
   const calls = restoredMessageToolCalls(message);
   const content = message?.content;
   const hasContent = typeof content === 'string' ? content.length > 0 : Array.isArray(content) && content.length > 0;
-  return Number(hasContent) + completionCount + calls.length + boundaries;
+  const importedRows = importedToolRuns(message).reduce((total, run) => total + run.tools.length + 1, 0);
+  return Number(hasContent) + completionCount + calls.length + importedRows + boundaries;
 }
 
 // One restored tool card for a parsed notification/completion envelope.

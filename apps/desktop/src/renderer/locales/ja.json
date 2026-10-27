@@ -4032,6 +4032,7 @@
   "Restored bot \"{{name}}\". Its routines stay off until you turn them on.": "ボット「{{name}}」を復元しました。ルーティンはオンに戻すまでオフのままです。",
   "Restoring layout…": "レイアウトを復元中…",
   "Result limit reached.": "結果の上限に達しました。",
+  "Results were not imported": "結果はインポートされていません",
   "Results the agent shows will appear here.": "エージェントが表示する成果物がここに表示されます。",
   "Resume": "再開",
   "Resume a saved chat": "保存したチャットを再開",

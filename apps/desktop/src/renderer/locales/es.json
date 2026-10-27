@@ -4149,6 +4149,7 @@
   "Restored bot \"{{name}}\". Its routines stay off until you turn them on.": "Bot «{{name}}» restaurado. Sus rutinas siguen desactivadas hasta que las actives.",
   "Restoring layout…": "Restaurando diseño…",
   "Result limit reached.": "Se alcanzó el límite de resultados.",
+  "Results were not imported": "Los resultados no se importaron",
   "Results the agent shows will appear here.": "Los resultados que muestre el agente aparecerán aquí.",
   "Resume": "Reanudar",
   "Resume a saved chat": "Reanudar un chat guardado",

@@ -98,6 +98,74 @@ test('desktop tool activity summary translates to natural verb phrases in Korean
   }
 });
 
+test('imported tool use reads as one native activity line with per-kind counts, from either source', async () => {
+  const { convertConversationText } = await import(
+    '../../../../src/runtime/agent/orchestrator/session/conversation-import/convert.mjs'
+  );
+  const { importedTranscriptMessages } = await import(
+    '../../../../src/runtime/agent/orchestrator/session/conversation-import/imported-session.mjs'
+  );
+  const { restoreTranscriptItems } = await import(
+    '../../../../src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs'
+  );
+  const lines = (records) => records.map((record) => JSON.stringify(record)).join('\n');
+  const codexCall = (name) => ({ type: 'response_item', payload: { type: 'function_call', name, arguments: '{}' } });
+  const codexText = (role, text) => ({
+    type: 'response_item',
+    payload: { type: 'message', role, content: [{ type: role === 'user' ? 'input_text' : 'output_text', text }] },
+  });
+  const tools = ['shell', 'shell', 'Read', 'apply_patch'];
+  const claudeBase = { sessionId: 'c', cwd: '/x', timestamp: '2026-01-01T00:00:00.000Z' };
+  const sources = {
+    codex: lines([
+      { type: 'session_meta', payload: { id: 'c', cwd: '/x' } },
+      codexText('user', 'Fix it'),
+      codexText('assistant', 'Looking.'),
+      ...tools.map(codexCall),
+      codexText('assistant', 'Done.'),
+    ]),
+    claude: lines([
+      { ...claudeBase, type: 'user', uuid: 'u1', parentUuid: null, message: { role: 'user', content: 'Fix it' } },
+      {
+        ...claudeBase,
+        type: 'assistant',
+        uuid: 'a1',
+        parentUuid: 'u1',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Looking.' },
+            ...tools.map((name) => ({ type: 'tool_use', name, input: {} })),
+            { type: 'text', text: 'Done.' },
+          ],
+        },
+      },
+    ]),
+  };
+  try {
+    for (const [source, text] of Object.entries(sources)) {
+      const conversation = convertConversationText(source, text);
+      const items = restoreTranscriptItems(importedTranscriptMessages(conversation.turns, 1), { sessionId: source });
+      const calls = items.filter((item) => item.kind === 'tool');
+      assert.deepEqual(
+        items.map((item) => item.kind),
+        ['user', 'assistant', 'tool', 'tool', 'tool', 'assistant']
+      );
+      await i18n.changeLanguage('en');
+      assert.equal(desktopToolActivitySummary(calls, true), 'Edited 1 file, Ran 2 commands, Read file');
+      await i18n.changeLanguage('ko');
+      assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 편집함, 명령어 2회 실행함, 파일 읽기');
+      const row = desktopToolActivityItemPresentation(calls[0]);
+      assert.equal(row.outputNote, t('Results were not imported'));
+      assert.equal(row.headerSubject, '×2');
+      assert.equal(row.hasDetails, true);
+      assert.equal(row.pending, false);
+    }
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
 const JOB = 'job_1790959235138_971b88';
 const toolItem = (name, args, result) => ({ kind: 'tool', id: name, name, args, result, completedAt: 1 });
 

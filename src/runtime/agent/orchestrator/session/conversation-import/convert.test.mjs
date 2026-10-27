@@ -58,10 +58,23 @@ test('Codex: session meta, user/assistant text, tool notes; envelopes, outputs a
     result.turns.map(({ role, text: body }) => [role, body]),
     [
       ['user', 'Fix the <b>bold</b> bug\nsecond line'],
-      ['assistant', 'Looking.\n\n[ran tool: shell]\n[ran tool: apply_patch]\n[ran tool: local_shell]\n\nDone.'],
+      ['assistant', 'Looking.\n\n[ran tools: shell ×1, apply_patch ×1, local_shell ×1]\n\nDone.'],
       ['user', '<note>keep me</note>'],
     ]
   );
+  const run = result.turns[1].toolRuns;
+  assert.deepEqual(run, [
+    {
+      start: 10,
+      end: 10 + '[ran tools: shell ×1, apply_patch ×1, local_shell ×1]'.length,
+      tools: [
+        { name: 'shell', count: 1 },
+        { name: 'apply_patch', count: 1 },
+        { name: 'local_shell', count: 1 },
+      ],
+    },
+  ]);
+  assert.equal(result.turns[0].toolRuns, undefined);
   const serialized = JSON.stringify(result.turns);
   for (const dropped of ['rm -rf', 'OUTPUT TEXT', 'PATCH BODY', 'thinking', 'secret', 'system text']) {
     assert.equal(serialized.includes(dropped), false, dropped);
@@ -69,6 +82,47 @@ test('Codex: session meta, user/assistant text, tool notes; envelopes, outputs a
   assert.equal(result.title, 'Fix the <b>bold</b> bug');
   assert.equal(result.messageCount, 3);
   assert.deepEqual(result.warnings, []);
+});
+
+test('a long run of tool use becomes one compact line with per-tool counts, in both sources', () => {
+  const names = [...Array(1000).fill('shell'), ...Array(400).fill('Read'), 'apply_patch'];
+  const codex = convertConversationText(
+    'codex',
+    jsonl([
+      codexMeta(),
+      codexMessage('user', 'go'),
+      codexMessage('assistant', 'Start.'),
+      ...names.map((name) => codexItem({ type: 'function_call', name, arguments: '{}' })),
+      codexMessage('assistant', 'End.'),
+    ])
+  );
+  const claude = convertConversationText(
+    'claude',
+    jsonl([
+      claudeEntry('u1', null, 'user', 'go'),
+      claudeEntry('a1', 'u1', 'assistant', [
+        { type: 'text', text: 'Start.' },
+        ...names.map((name, index) => ({ type: 'tool_use', id: `t${index}`, name, input: {} })),
+        { type: 'text', text: 'End.' },
+      ]),
+    ])
+  );
+  for (const result of [codex, claude]) {
+    const line = '[ran tools: shell ×1000, Read ×400, apply_patch ×1]';
+    const assistant = result.turns.find((turn) => turn.role === 'assistant');
+    assert.equal(assistant.text, `Start.\n\n${line}\n\nEnd.`);
+    assert.deepEqual(assistant.toolRuns, [
+      {
+        start: 8,
+        end: 8 + line.length,
+        tools: [
+          { name: 'shell', count: 1000 },
+          { name: 'Read', count: 400 },
+          { name: 'apply_patch', count: 1 },
+        ],
+      },
+    ]);
+  }
 });
 
 test('Codex: BOM, CRLF, malformed lines, images and a leading assistant turn', () => {
@@ -234,7 +288,7 @@ test('Claude Code: active chain only, tool notes, envelopes/thinking/results dro
     result.turns.map(({ role, text: value }) => [role, value]),
     [
       ['user', '/init\n\nPlease refactor the parser'],
-      ['assistant', 'Reading files.\n\n[ran tool: Read]\n\nRefactored.'],
+      ['assistant', 'Reading files.\n\n[ran tools: Read ×1]\n\nRefactored.'],
       ['user', `${IMAGE_OMITTED_TEXT}\n\nDoes it look right?`],
       ['assistant', 'Yes.'],
     ]

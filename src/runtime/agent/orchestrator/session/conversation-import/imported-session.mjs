@@ -70,6 +70,9 @@ export function importedTranscriptMessages(turns, importedAt) {
     content: turn.text,
     meta: {
       source: IMPORTED_MESSAGE_SOURCE,
+      // Where the text holds a run of tool use, and which tools: the desktop
+      // draws each run as a native activity row.
+      ...(turn.toolRuns?.length ? { importedToolRuns: turn.toolRuns } : {}),
       transcript: { messageId: newTranscriptMessageId(), at: turn.at || importedAt },
     },
   }));

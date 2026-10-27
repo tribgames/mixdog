@@ -1186,7 +1186,7 @@ export function desktopToolActivityItemPresentation(
   const { patchSummary } = outcome;
   // Only text that parses is JSON: a log line opening with "[warn]" is not.
   const outputLanguage = outcome.outputText && !command && isJsonText(outcome.outputText) ? 'json' : '';
-  const { outputText, outputNote, diffPatch } = presentationCommandOutput({
+  const { outputText, outputNote: commandNote, diffPatch } = presentationCommandOutput({
     normalizedName,
     command,
     tone,
@@ -1194,6 +1194,9 @@ export function desktopToolActivityItemPresentation(
     outputNote: body.outputNote,
     diffPatch: callDiffPatch,
   });
+  // An imported call has no result to show: say so, and count the calls it stands for.
+  const outputNote = item.imported === true ? t('Results were not imported') : commandNote;
+  const importedCount = item.imported === true ? Math.max(1, Math.round(Number(item.count || 1))) : 0;
   const sections = presentationSections(normalizedName, outputText, previewText, targets, targetPath);
   const listing = presentationListing(normalizedName, args, outputText);
   const sectionCopyText = presentationSectionCopyText(normalizedName, outputText, previewText, sections);
@@ -1268,10 +1271,12 @@ export function desktopToolActivityItemPresentation(
     hideSubjectWhenOpen: Boolean(command),
     targetPath,
     ...(normalizedName === 'read' && Number(args.offset) > 0 ? { targetLine: Math.floor(Number(args.offset)) } : {}),
-    headerSubject: rowSubject(
-      normalizedName,
-      patchSummary ? localizePatchTarget(patchSummary[1]) : fileHeaderSubject(subject, targetPath)
-    ),
+    headerSubject: importedCount
+      ? `×${importedCount}`
+      : rowSubject(
+          normalizedName,
+          patchSummary ? localizePatchTarget(patchSummary[1]) : fileHeaderSubject(subject, targetPath)
+        ),
     subjectIsTarget: Boolean(targetPath) && subject.startsWith(targetPath),
     subjectKind: patchSummary ? 'target' : subjectKind,
     sections,

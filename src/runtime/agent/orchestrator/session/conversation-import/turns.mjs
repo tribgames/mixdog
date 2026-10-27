@@ -22,12 +22,48 @@ export const IMPORTED_USER_STUB_TEXT = '[Imported conversation continues from an
 
 const TITLE_MAX_CHARS = 100;
 
-/** Plain-text note for a tool call: its name only, never its arguments. */
+/** Note for a tool call: its name only, never its arguments. A run of notes
+ *  becomes one compact line in the text and one structured entry in `toolRuns`. */
 export function toolNote(name) {
-  const clean = String(name || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return { text: `[ran tool: ${clean || 'unknown'}]`, note: true };
+  const clean =
+    String(name || '')
+      .replace(/\s+/g, ' ')
+      .trim() || 'unknown';
+  return { text: `[ran tool: ${clean}]`, note: true, tool: clean };
+}
+
+/** Longest model-facing run line, and the longest tool name shown in it. */
+export const TOOL_RUN_LINE_MAX_CHARS = 400;
+const TOOL_RUN_NAME_MAX_CHARS = 40;
+
+/**
+ * Model-facing line for one run of tool notes: `[ran tools: shell ×6, Read ×2]`.
+ * Bounded: names are clipped, and tools that do not fit are counted as
+ * `, +N more`. Deterministic in `tools`, so a stored line can be re-derived.
+ */
+export function toolRunLine(tools) {
+  const entries = tools.map(({ name, count }) => {
+    const chars = Array.from(String(name));
+    const shown = chars.length > TOOL_RUN_NAME_MAX_CHARS ? `${chars.slice(0, TOOL_RUN_NAME_MAX_CHARS - 1).join('')}…` : name;
+    return `${shown} ×${count}`;
+  });
+  const omittedSuffix = (omitted) => (omitted > 0 ? `, +${omitted} more` : '');
+  let body = '';
+  let shownCount = 0;
+  for (const entry of entries) {
+    const next = shownCount ? `${body}, ${entry}` : entry;
+    const length = `[ran tools: ${next}${omittedSuffix(entries.length - shownCount - 1)}]`.length;
+    if (shownCount && length > TOOL_RUN_LINE_MAX_CHARS) break;
+    body = next;
+    shownCount += 1;
+  }
+  return `[ran tools: ${body}${omittedSuffix(entries.length - shownCount)}]`;
+}
+
+function toolRunCounts(notes) {
+  const counts = new Map();
+  for (const note of notes) counts.set(note.tool, (counts.get(note.tool) || 0) + 1);
+  return [...counts].map(([name, count]) => ({ name, count }));
 }
 
 export function textPart(text) {
@@ -47,18 +83,31 @@ export function timestampMs(value) {
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
-// Consecutive tool notes stay one per line; every other boundary is a blank line.
+// Each run of consecutive tool notes collapses into one compact line; every
+// boundary is a blank line. `toolRuns` locates those lines in `text`.
 function joinParts(parts) {
-  let text = '';
-  let previous = null;
+  const blocks = [];
   for (const part of parts) {
     const piece = String(part.text || '').trim();
     if (!piece) continue;
-    if (previous) text += previous.note && part.note ? '\n' : '\n\n';
-    text += piece;
-    previous = part;
+    const last = blocks[blocks.length - 1];
+    if (part.note && last?.notes) last.notes.push(part);
+    else blocks.push(part.note ? { notes: [part] } : { text: piece });
   }
-  return { text, last: previous };
+  let text = '';
+  const toolRuns = [];
+  for (const block of blocks) {
+    if (text) text += '\n\n';
+    if (block.notes) {
+      const tools = toolRunCounts(block.notes);
+      const line = toolRunLine(tools);
+      toolRuns.push({ start: text.length, end: text.length + line.length, tools });
+      text += line;
+    } else {
+      text += block.text;
+    }
+  }
+  return { text, toolRuns };
 }
 
 /**
@@ -77,7 +126,9 @@ export function normalizeTurns(rawTurns) {
     else merged.push({ role: raw.role, parts: [...parts], at: timestampMs(raw.at) });
   }
   const turns = merged.map(({ role, parts, at }) => {
-    const turn = { role, text: joinParts(parts).text, at };
+    const joined = joinParts(parts);
+    const turn = { role, text: joined.text, at };
+    if (joined.toolRuns.length) turn.toolRuns = joined.toolRuns;
     // A carried-over compaction summary never names the conversation; a slash
     // command only when no typed prompt does.
     if (parts.some((part) => part.summary || part.command)) {

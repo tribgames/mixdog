@@ -4209,6 +4209,7 @@
   "Restored bot \"{{name}}\". Its routines stay off until you turn them on.": "Бот «{{name}}» восстановлен. Его процедуры остаются выключенными, пока вы их не включите.",
   "Restoring layout…": "Восстановление макета…",
   "Result limit reached.": "Достигнут лимит результатов.",
+  "Results were not imported": "Результаты не были импортированы",
   "Results the agent shows will appear here.": "Здесь появятся результаты, которые покажет агент.",
   "Resume": "Продолжить",
   "Resume a saved chat": "Возобновить сохраненный чат",

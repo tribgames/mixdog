@@ -4032,6 +4032,7 @@
   "Restored bot \"{{name}}\". Its routines stay off until you turn them on.": "Đã khôi phục bot \"{{name}}\". Các quy trình của bot vẫn tắt cho đến khi bạn bật lại.",
   "Restoring layout…": "Đang khôi phục bố cục…",
   "Result limit reached.": "Đã đạt giới hạn kết quả.",
+  "Results were not imported": "Kết quả không được nhập",
   "Results the agent shows will appear here.": "Kết quả mà tác tử hiển thị sẽ xuất hiện ở đây.",
   "Resume": "Tiếp tục",
   "Resume a saved chat": "Tiếp tục cuộc trò chuyện đã lưu",
