@@ -130,8 +130,12 @@ unsafe fn verify_dacl(path: &Path, kind: PathKind, dacl: *const ACL) -> Result<(
     let ace_count = (*dacl).AceCount as u32;
     for index in 0..ace_count {
         let mut ace_ptr: *mut core::ffi::c_void = std::ptr::null_mut();
+        // An ACE that cannot be read cannot be judged: fail closed rather than skip it.
         if GetAce(dacl, index, &mut ace_ptr).is_err() || ace_ptr.is_null() {
-            continue;
+            return Err(format!(
+                "{} has an unreadable ACE at index {index} that cannot be verified",
+                path.display()
+            ));
         }
         let header = ace_ptr as *const windows::Win32::Security::ACE_HEADER;
         match classify_ace_type((*header).AceType) {
@@ -194,7 +198,7 @@ mod tests {
     use windows::Win32::Foundation::WIN32_ERROR;
     use windows::Win32::Security::Authorization::SetNamedSecurityInfoW;
     use windows::Win32::Security::{
-        GetSecurityDescriptorDacl, INHERIT_ONLY_ACE as WINNT_INHERIT_ONLY_ACE,
+        GetSecurityDescriptorDacl, InitializeAcl, ACL_REVISION, INHERIT_ONLY_ACE as WINNT_INHERIT_ONLY_ACE,
         PROTECTED_DACL_SECURITY_INFORMATION,
     };
     use windows::Win32::Storage::FileSystem::CreateDirectoryW;
@@ -331,6 +335,22 @@ mod tests {
         assert!(error.ends_with("has no DACL"), "{error}");
         // Create-only rights stay benign on a directory.
         assert_eq!(verdict(&format!("D:P{TRUSTED}(A;OICI;0x6;;;AU)"), DIR), Ok(()));
+    }
+
+    #[test]
+    fn an_ace_that_cannot_be_read_fails_closed() {
+        // An ACL header claiming more ACEs than its size holds (the 8-byte header
+        // alone): `GetAce` fails for every index. The entry must be refused, not skipped.
+        let mut buffer = [0u32; 2];
+        let acl = buffer.as_mut_ptr().cast::<ACL>();
+        unsafe {
+            InitializeAcl(acl, std::mem::size_of_val(&buffer) as u32, ACL_REVISION).unwrap();
+            // Control: the same well-formed, empty ACL has nothing to refuse.
+            assert_eq!(verify_dacl(Path::new("fixture"), DIR, acl), Ok(()));
+            (*acl).AceCount = 2;
+            let error = verify_dacl(Path::new("fixture"), DIR, acl).unwrap_err();
+            assert_eq!(error, "fixture has an unreadable ACE at index 0 that cannot be verified");
+        }
     }
 
     // ---- real on-disk ACLs, on directories created in %TEMP% only -------------

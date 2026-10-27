@@ -292,7 +292,6 @@ test('a busy exit (another install running) reports in-progress', async () => {
   assert.match(result.detail, /already running/);
 });
 
-
 test('ensureRunning starts an installed-but-stopped service without prompting', async () => {
   const { port, calls } = fakePort({
     states: ['installed'],
@@ -374,7 +373,13 @@ test('install(keys) enrolls every key and applies pending revokes in one op', as
   assert.equal(result.outcome, 'installed');
   assert.equal(calls.verify, 1, 'the image is verified before an install op');
   assert.deepEqual(calls.ops, [
-    { verb: 'install', keys: [KEY, OTHER_KEY], revoke: [controllerKey(3)], credential: undefined, delegated: undefined },
+    {
+      verb: 'install',
+      keys: [KEY, OTHER_KEY],
+      revoke: [controllerKey(3)],
+      credential: undefined,
+      delegated: undefined,
+    },
   ]);
 });
 
@@ -387,7 +392,13 @@ test('enroll takes several keys in one op; revoke maps a success to enrolled / r
   // "Approve new phones" with two un-enrolled phones is a single op (one prompt).
   const enroll = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
   assert.equal((await createSecureDesktopInstaller(enroll.port).enroll([KEY, OTHER_KEY])).outcome, 'enrolled');
-  assert.deepEqual(enroll.calls.ops[0], { verb: 'enroll', keys: [KEY, OTHER_KEY], revoke: [], credential: undefined, delegated: undefined });
+  assert.deepEqual(enroll.calls.ops[0], {
+    verb: 'enroll',
+    keys: [KEY, OTHER_KEY],
+    revoke: [],
+    credential: undefined,
+    delegated: undefined,
+  });
   assert.equal(enroll.calls.keyOp, 1, 'one op, not one per key');
   const revoke = fakePort({ states: ['installed', 'installed'], keyOps: [0] });
   assert.equal((await createSecureDesktopInstaller(revoke.port).revoke(KEY)).outcome, 'revoked');
@@ -468,7 +479,13 @@ test('a not-enrolled phone is enrolled, never reinstalled (its key set is kept)'
   assert.equal(calls.keyOp, 1, 'it enrolled');
   assert.equal(calls.elevate, 0, 'no reinstall');
   assert.equal(calls.verify, 0, 'the bundled image is already installed; nothing to verify');
-  assert.deepEqual(calls.ops[0], { verb: 'enroll', keys: [KEY], revoke: [], credential: undefined, delegated: undefined });
+  assert.deepEqual(calls.ops[0], {
+    verb: 'enroll',
+    keys: [KEY],
+    revoke: [],
+    credential: undefined,
+    delegated: undefined,
+  });
 });
 
 test('check exit 7 maps to not-enrolled and offers an enroll, not a reinstall', () => {

@@ -257,7 +257,7 @@ function keyChangeFromExit(
   verb: SecureDesktopKeyOp['verb'],
   exitCode: number,
   before: SecureDesktopInstallState,
-  after: SecureDesktopInstallState,
+  after: SecureDesktopInstallState
 ): SecureDesktopKeyChangeResult {
   if (exitCode === 0) {
     if (verb === 'install') return { outcome: before === 'outdated' ? 'updated' : 'installed', state: after };
@@ -300,7 +300,7 @@ const AWAITING_PROMPT =
 
 export function createSecureDesktopInstaller(
   port: SecureDesktopInstallerPort,
-  options: SecureDesktopInstallerOptions = {},
+  options: SecureDesktopInstallerOptions = {}
 ): SecureDesktopInstaller {
   const reportAfterMs = options.reportAfterMs ?? DEFAULT_REPORT_AFTER_MS;
   let inFlight: Promise<SecureDesktopInstallResult> | null = null;
@@ -318,7 +318,7 @@ export function createSecureDesktopInstaller(
   async function runKeyChange(
     verb: SecureDesktopKeyOp['verb'],
     keys: readonly string[],
-    options?: SecureDesktopKeyChangeOptions,
+    options?: SecureDesktopKeyChangeOptions
   ): Promise<SecureDesktopKeyChangeResult> {
     // One admin action at a time (including a phone request's elevation).
     if (inFlight || outstanding || keyOpInFlight) {
@@ -338,9 +338,19 @@ export function createSecureDesktopInstaller(
       const before = await port.check(keys[0]);
       let exitCode: number;
       try {
-        exitCode = await port.runKeyOp({ verb, keys, revoke, credential: options?.credential, delegated: options?.delegated });
+        exitCode = await port.runKeyOp({
+          verb,
+          keys,
+          revoke,
+          credential: options?.credential,
+          delegated: options?.delegated,
+        });
       } catch (error) {
-        return { outcome: 'failed', state: await port.check(), detail: error instanceof Error ? error.message : String(error) };
+        return {
+          outcome: 'failed',
+          state: await port.check(),
+          detail: error instanceof Error ? error.message : String(error),
+        };
       }
       return keyChangeFromExit(verb, exitCode, before, await port.check(keys[0]));
     })();
@@ -361,7 +371,7 @@ export function createSecureDesktopInstaller(
   async function fromExitCode(
     exitCode: number,
     before: SecureDesktopInstallState,
-    controllerKey: string,
+    controllerKey: string
   ): Promise<SecureDesktopInstallResult> {
     const after = await port.check(controllerKey);
     if (exitCode === ELEVATION_DECLINED_EXIT) return { outcome: 'declined', state: after };
