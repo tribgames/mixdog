@@ -4,10 +4,8 @@ import {
   parseTaskNotification,
   renderTaskCompletionEnvelope,
   renderShellCompletionEnvelope,
-  replaceTaskNotificationResult,
   taskCompletionSummary,
 } from './task-notification-envelope.mjs';
-import { boundReportForModel } from './task-report-spill.mjs';
 
 export const TOOL_SYNC_EXECUTION_CONTRACT = 'Returns final results in this call.';
 
@@ -303,15 +301,7 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
   const message = String(text || '').trim();
   if (!message) return '';
   if (!shouldPersistModelVisibleToolCompletion(message, meta)) return '';
-  // The one place a completed task's report enters the model's context: a
-  // long report is replaced by a bounded preview (full copy saved to a file).
-  // Cards and other displays are built from the unbounded notification.
-  const tagged = parseTaskNotification(message);
-  if (tagged) {
-    if (tagged.surface === 'shell') return message;
-    const bounded = boundReportForModel(tagged.taskId, tagged.result, clean(meta?.caller_session_id));
-    return bounded.outputFile ? replaceTaskNotificationResult(message, bounded.result, bounded.outputFile) : message;
-  }
+  if (parseTaskNotification(message)) return message;
   // Old in-flight producers and stored rows remain readable, but a new
   // enqueue always uses the tagged wire format, never the quoted wrapper.
   const split = /\n\nResult:\n/.exec(message);
@@ -347,15 +337,13 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
     const tagged = /<(?:final-answer|result)>\s*([\s\S]*?)\s*<\/(?:final-answer|result)>/.exec(result);
     if (tagged) result = tagged[1];
   }
-  const bounded = boundReportForModel(id, result, clean(meta?.caller_session_id));
   return renderTaskCompletionEnvelope({
     surface,
     id,
     tag: fields.tag || fields.label,
     status,
-    result: bounded.result,
+    result,
     error: fields.error,
-    outputFile: bounded.outputFile,
   });
 }
 

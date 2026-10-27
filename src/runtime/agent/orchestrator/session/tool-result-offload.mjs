@@ -15,7 +15,6 @@ import { lstat, open, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { holdsNoData, writeFileAtomicAsync, writeFileAtomicSync } from '../../../shared/atomic-file.mjs';
-import { safeSessionSegment } from '../../../shared/tool-results-dir.mjs';
 import { getPluginData } from '../config.mjs';
 import { countSplitLines, normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
 import { classifyResultKind } from './result-classification.mjs';
@@ -146,6 +145,18 @@ function rankAggregateOffloadCandidates(entries) {
     .filter((entry) => entry.eligible)
     .sort((a, b) => b.length - a.length || b.index - a.index)
     .map((entry) => entry.index);
+}
+
+// Sanitize sessionId before using it as a path segment. A raw `..` or slash
+// would let the sidecar dir — and clearOffloadSession's readdir+unlink — escape
+// the tool-results root (arbitrary .txt deletion). Strip to [A-Za-z0-9_-];
+// dropping '.' collapses '..' to '__'. Real ids are sess_<digits>, unaffected.
+function safeSessionSegment(sessionId) {
+  return (
+    String(sessionId ?? '')
+      .replace(/[^A-Za-z0-9_-]/g, '_')
+      .slice(0, 200) || '_invalid'
+  );
 }
 
 function ensureToolResultsDir(sessionId) {

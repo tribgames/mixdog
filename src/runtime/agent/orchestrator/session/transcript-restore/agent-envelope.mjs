@@ -6,12 +6,7 @@
  */
 import { isBackgroundErrorOnlyBody } from '../../../../shared/err-text.mjs';
 import { textBetweenTag } from '../../../../shared/tool-result-summary.mjs';
-import {
-  parseTaskNotification,
-  replaceTaskNotificationResult,
-  taskNotificationHasBody,
-} from '../../../../shared/task-notification-envelope.mjs';
-import { readSpilledTaskReport } from '../../../../shared/task-report-spill.mjs';
+import { parseTaskNotification, taskNotificationHasBody } from '../../../../shared/task-notification-envelope.mjs';
 
 // The terminal status words that mark an agent/background result as an error.
 // The near-variants further down (isErrorToolStatus, the shell result branch)
@@ -107,13 +102,6 @@ export function parseBackgroundTaskEnvelope(text) {
   const value = String(text ?? '').trim();
   const notification = parseTaskNotification(value);
   if (notification) {
-    // The model saw a bounded preview of a long report; the card shows the
-    // complete one from the file the notification names (the preview if the
-    // file is gone).
-    const full =
-      notification.outputFile && notification.surface !== 'shell'
-        ? readSpilledTaskReport(notification.taskId, notification.outputFile)
-        : null;
     return {
       name: notification.surface,
       label: notification.status,
@@ -126,8 +114,8 @@ export function parseBackgroundTaskEnvelope(text) {
         label: notification.tag || undefined,
         error: notification.error || undefined,
       },
-      result: (full ?? notification.result) || notification.error || notification.summary,
-      rawResult: full === null ? value : replaceTaskNotificationResult(value, full),
+      result: notification.result || notification.error || notification.summary,
+      rawResult: value,
       isError: isErrorToolStatus(notification.status),
     };
   }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
@@ -70,7 +70,7 @@ test('stdout/stderr log paths collapse for both spill suffix forms', () => {
 });
 
 test('agent notifications bypass the card renderer and retain the entire final message', () => {
-  const result = `  final message\n${'full result '.repeat(200)}\n`;
+  const result = `  final message\n${'full result '.repeat(4_000)}\n`;
   const notifications = [];
   const task = registerBackgroundTask({
     surface: 'agent',
@@ -94,26 +94,15 @@ test('agent notifications bypass the card renderer and retain the entire final m
   }
 });
 
-test('explicit resultText is not capped on the record or the notification; only the model copy is bounded', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-result-text-'));
-  const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = root;
+test('explicit resultText is not capped at the previous 32k task-record limit', () => {
   const task = registerBackgroundTask({ surface: 'agent' });
   const resultText = 'x'.repeat(40_001);
   try {
     completeBackgroundTask(task.taskId, { resultText, notify: false });
     assert.equal(task.resultText, resultText);
-    const notification = renderBackgroundTaskNotification(task);
-    assert.equal(parseTaskNotification(notification).result, resultText);
-    const delivered = parseTaskNotification(modelVisibleToolCompletionMessage(notification)).result;
-    assert.ok(delivered.length < resultText.length / 4);
-    const [file] = readdirSync(join(root, 'task-reports'));
-    assert.equal(readFileSync(join(root, 'task-reports', file), 'utf8'), resultText);
+    assert.equal(parseTaskNotification(renderBackgroundTaskNotification(task)).result, resultText);
   } finally {
     cleanupBackgroundTasks({ force: true });
-    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previousDataDir;
-    rmSync(root, { recursive: true, force: true });
   }
 });
 

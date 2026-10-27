@@ -30,119 +30,19 @@ export function taskCompletionSummary({ surface = 'tool', id, tag, status, error
   return `${subject} ${outcome}${status === 'failed' && error ? `: ${error}` : ''}${detail ? ` (${detail})` : ''}`;
 }
 
-export function renderTaskCompletionEnvelope({
-  surface = 'tool',
-  id,
-  tag,
-  status,
-  result = '',
-  error,
-  detail,
-  outputFile,
-} = {}) {
+export function renderTaskCompletionEnvelope({ surface = 'tool', id, tag, status, result = '', error, detail } = {}) {
   return [
     '<task-notification>',
     field('task-id', id),
     tag ? field('tag', tag) : null,
     field('status', status),
     field('summary', taskCompletionSummary({ surface, id, tag, status, detail })),
-    outputFile ? field('output-file', outputFile) : null,
     result ? `<result>\n${result}\n</result>` : null,
     status === 'failed' && error ? field('error', error) : null,
     '</task-notification>',
   ]
     .filter((line) => line !== null)
     .join('\n');
-}
-
-// A delivered report stays in the parent's context until the next compaction, so
-// each one is bounded on its own. Observed agent reports average ~1k tokens
-// (~4k chars) and peak near 3k tokens; oh-my-pi previews 5k chars and Hermes
-// floors a summary at 2k. 4k keeps the typical report whole and halves the
-// outliers; head and tail are both kept (as Hermes does) so a closing `Open:`
-// section survives. The limit is a hard ceiling on the whole preview.
-export const TASK_REPORT_LIMIT = 4000;
-const STATUS_LINE_MAX = 200;
-const TAIL_SHARE = 0.35;
-const OPEN_SHARE = 0.5;
-const STATUS_LINE_RE = /^[ \t>*#_-]*Status:.*$/m;
-const OPEN_LINE_RE = /^[ \t>*#_-]*Open:/gm;
-
-// A slice must not start or end inside a surrogate pair.
-function wholeChars(value) {
-  return value.replace(/^[\uDC00-\uDFFF]/, '').replace(/[\uD800-\uDBFF]$/, '');
-}
-
-function openOverflowNote(omitted) {
-  return `\n[… Open: ${omitted} more chars omitted — see the full report]`;
-}
-
-/** `report` unchanged when within `limit`; otherwise a preview of at most
- *  `limit` chars in total: the (clipped) `Status:` line, the head, a marker
- *  carrying `pointer`, then the tail. When the report has an `Open:` section
- *  the tail is that section (clipped with an overflow note only when it is
- *  huge), else the last chars. A preview is itself within `limit`, so bounding
- *  twice changes nothing. */
-export function boundTaskReport(report, { limit = TASK_REPORT_LIMIT, pointer = '' } = {}) {
-  const text = String(report ?? '');
-  if (text.length <= limit) return text;
-  const markerFor = (omitted) =>
-    `[… ${omitted} of ${text.length} chars omitted${pointer ? `; ${pointer}` : ''}]`;
-
-  let statusBlock = '';
-  let body = text;
-  const statusMatch = STATUS_LINE_RE.exec(text);
-  if (statusMatch) {
-    const line = statusMatch[0];
-    statusBlock = `${line.length > STATUS_LINE_MAX ? `${wholeChars(line.slice(0, STATUS_LINE_MAX - 1))}…` : line}\n`;
-    body = text.slice(0, statusMatch.index) + text.slice(statusMatch.index + line.length).replace(/^\n/, '');
-  }
-  let openAt = -1;
-  for (const match of body.matchAll(OPEN_LINE_RE)) openAt = match.index;
-
-  const fixed =
-    statusBlock.length + markerFor(text.length).length + 4 + (openAt >= 0 ? openOverflowNote(text.length).length : 0);
-  const avail = Math.max(0, limit - fixed);
-
-  const tailBudget = Math.floor(avail * TAIL_SHARE);
-  let tail = body.slice(body.length - tailBudget);
-  const tailBreak = tail.indexOf('\n');
-  if (tailBreak >= 0 && tailBreak < tailBudget / 2) tail = tail.slice(tailBreak + 1);
-  tail = wholeChars(tail);
-  let tailStart = body.length - tail.length;
-  let note = '';
-  if (openAt >= 0 && body.length - openAt > tail.length) {
-    const open = body.slice(openAt);
-    const openBudget = Math.floor(avail * OPEN_SHARE);
-    tailStart = openAt;
-    if (open.length <= openBudget) tail = open;
-    else {
-      tail = wholeChars(open.slice(0, openBudget));
-      note = openOverflowNote(open.length - tail.length);
-    }
-  }
-
-  const headLimit = Math.min(Math.max(0, avail - tail.length), tailStart);
-  let head = body.slice(0, headLimit);
-  const headBreak = head.lastIndexOf('\n');
-  if (headLimit < tailStart && headBreak > headLimit / 2) head = head.slice(0, headBreak);
-  head = wholeChars(head);
-
-  const shown = head.length + (note ? tail.length : body.length - tailStart) + statusBlock.length;
-  const omitted = Math.max(0, text.length - shown);
-  return `${statusBlock}${head}\n\n${markerFor(omitted)}\n\n${tail}${note}`;
-}
-
-/** `text` (a tagged notification) with its `<result>` body replaced, and an
- *  `<output-file>` field naming where the complete body is kept when given. */
-export function replaceTaskNotificationResult(text, result, outputFile = '') {
-  const value = String(text ?? '');
-  const open = '\n<result>\n';
-  const start = value.indexOf(open);
-  const end = value.lastIndexOf('\n</result>');
-  if (start < 0 || end < start) return value;
-  const fileField = outputFile ? `\n${field('output-file', outputFile)}` : '';
-  return `${value.slice(0, start)}${fileField}${open}${result}${value.slice(end)}`;
 }
 
 export function renderAgentCompletionEnvelope(options = {}) {
