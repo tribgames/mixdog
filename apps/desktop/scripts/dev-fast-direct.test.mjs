@@ -17,6 +17,7 @@ import {
   fastDirectRuntimeArchive,
   hashBrowserImportNativeTools,
   installedFastRuntimeReady,
+  koffiBindingPath,
   MissingProductionDependencyError,
   packagingManifestForFingerprint,
   planForceFullForMissingProductionDependency,
@@ -73,7 +74,15 @@ test('FastDirect keeps Electron ESM entry points packed', async (context) => {
   context.after(() => rm(root, { recursive: true, force: true }));
   const staging = join(root, 'staging');
   const archive = join(root, 'app.asar');
-  const files = ['out/main/index.js', 'out/main/daemon.cjs', 'out/preload/index.js', 'out/renderer/index.html'];
+  const files = [
+    'out/main/index.js',
+    'out/main/daemon.cjs',
+    'out/preload/index.js',
+    'out/renderer/index.html',
+    'node_modules/koffi/index.cjs',
+    koffiBindingPath,
+    'node_modules/koffi-lookalike/index.js',
+  ];
   for (const file of files) {
     const target = join(staging, asarPath(file));
     await mkdir(join(target, '..'), { recursive: true });
@@ -82,10 +91,18 @@ test('FastDirect keeps Electron ESM entry points packed', async (context) => {
 
   await createAsarPackage(staging, archive, fastDirectAsarOptions());
 
-  assert.equal(Boolean(statFile(archive, asarPath('out/main/index.js'), false).unpacked), false);
-  assert.equal(Boolean(statFile(archive, asarPath('out/preload/index.js'), false).unpacked), false);
-  assert.equal(Boolean(statFile(archive, asarPath('out/main/daemon.cjs'), false).unpacked), true);
-  assert.equal(Boolean(statFile(archive, asarPath('out/renderer/index.html'), false).unpacked), true);
+  const unpacked = (file) => Boolean(statFile(archive, asarPath(file), false).unpacked);
+  assert.equal(unpacked('out/main/index.js'), false);
+  assert.equal(unpacked('out/preload/index.js'), false);
+  assert.equal(unpacked('out/main/daemon.cjs'), true);
+  assert.equal(unpacked('out/renderer/index.html'), true);
+  assert.equal(unpacked('node_modules/koffi-lookalike/index.js'), false);
+  // The daemon loads koffi from disk beside daemon.cjs: listed in the archive,
+  // its bytes in app.asar.unpacked.
+  for (const file of ['node_modules/koffi/index.cjs', koffiBindingPath]) {
+    assert.equal(unpacked(file), true, file);
+    assert.equal(await readFile(join(`${archive}.unpacked`, asarPath(file)), 'utf8'), file);
+  }
 });
 
 test('FastDirect rejects a plan when build inputs changed before staging', () => {

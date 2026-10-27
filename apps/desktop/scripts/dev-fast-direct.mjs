@@ -20,10 +20,18 @@ export function asarPath(path) {
   return String(path).replace(/[\\/]+/g, sep);
 }
 
+// koffi stays listed in the archive but lives in app.asar.unpacked, as
+// electron-builder's asarUnpack leaves it: the main process loads it through
+// the archive (window-mica.ts) and the daemon, running from app.asar.unpacked,
+// through the real file system (opened-file-path.ts). Packed, the daemon finds
+// no koffi and every phone file preview fails as "The file changed while it was
+// opened." asar matches unpackDir with minimatch, which takes `/` on Windows too.
+export const koffiBindingPath = `node_modules/@koromix/koffi-${process.platform}-${process.arch}/${process.platform}_${process.arch}/koffi.node`;
+
 export function fastDirectAsarOptions() {
   return {
     unpack: 'daemon.cjs',
-    unpackDir: asarPath('out/renderer'),
+    unpackDir: '{out/renderer,node_modules/koffi,node_modules/@koromix/koffi-*}',
   };
 }
 
@@ -825,7 +833,7 @@ async function stageShell({ installDir, artifactDir }) {
     // is short-lived so a failed stage cannot be mistaken for a clean template.
     await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
   }
-  for (const file of ['out/main/daemon.cjs', 'out/renderer/index.html']) {
+  for (const file of ['out/main/daemon.cjs', 'out/renderer/index.html', koffiBindingPath]) {
     if (!statFile(artifactArchive, asarPath(file), false).unpacked) {
       throw new Error(`FastDirect artifact did not unpack ${file}`);
     }
