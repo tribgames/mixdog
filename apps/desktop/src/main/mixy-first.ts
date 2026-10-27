@@ -1,11 +1,12 @@
 // The "대표 에이전트 먼저" first run, host side.
 //
-// Mixy exists once the explicit `created` flag in Mixy's agent.json (bots/mixy
-// with the bot store, agents/lead before) is true (runtime getLeadStatus /
-// setLeadCreated). The flag is decided once per
-// profile: only a profile that already has Mixy's home thread is marked
-// created; every other profile, existing users with sessions or agents
-// included, is marked not created and sees the 대표 에이전트 dialog once.
+// Whether Mixy exists is the runtime's one rule (getLeadStatus `exists`,
+// src/runtime/shared/mixy-presence.mjs), the same her heartbeat and routines
+// follow. The explicit `created` flag in Mixy's agent.json (bots/mixy with the
+// bot store, agents/lead before; runtime setLeadCreated) is decided once per
+// profile: a profile that already has Mixy's home thread, or evidence of her,
+// is marked created; every other profile, existing users with sessions or
+// agents included, is marked not created and sees the 대표 에이전트 dialog once.
 //
 // New agents greet the user once. The dialogs greet the agents they create;
 // an agent a chat's setup tool created never passes through them, so the host
@@ -17,7 +18,8 @@ import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file
 import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 
 export interface MixyStatusDeps {
-  /** Runtime getLeadStatus: `{ created: true | false | null, name, homeChatted }`. */
+  /** Runtime getLeadStatus: `{ created: true | false | null, exists, name, … }`;
+   *  `exists` null when it could not be read. */
   status: unknown;
   /** The user's sessions, Mixy's home thread included even when empty. */
   sessionIds(): Promise<readonly string[]>;
@@ -25,21 +27,22 @@ export interface MixyStatusDeps {
   setCreated(created: boolean): Promise<unknown>;
 }
 
-/** Whether Mixy exists, deciding (and persisting) an undecided profile.
- *  v1.3.0 marked every existing profile created without asking; such a Mixy
- *  the user never named nor talked with (`created` with no `name`, and a
- *  home thread missing or without any conversation) reads as not created,
- *  so the 대표 에이전트 dialog shows — nothing is rewritten, and completing
- *  the dialog names it. */
+/** Whether Mixy exists (the runtime's `exists`), deciding (and persisting)
+ *  an undecided profile first. v1.3.0 marked every existing profile created
+ *  without asking; such a Mixy the user never named, talked with or gave a
+ *  routine reads as not existing, so the 대표 에이전트 dialog shows — nothing
+ *  is rewritten, and completing the dialog names it. Rejects when `exists`
+ *  could not be read: no answer, and nothing decided. */
 export async function resolveMixyCreated(deps: MixyStatusDeps): Promise<boolean> {
-  const status = (deps.status ?? {}) as { created?: unknown; name?: unknown; homeChatted?: unknown };
-  const created = status.created;
-  if (created === true && !String(status.name ?? '').trim() && status.homeChatted !== true) return false;
-  if (typeof created === 'boolean') return created;
-  const existing = (await deps.sessionIds()).includes(agentHomeSessionId(MIXY_AGENT_ID));
-  await deps.setCreated(existing);
-  // The same answer the next read gives: an unnamed Mixy needs a conversation.
-  return existing && status.homeChatted === true;
+  const { created, exists } = (deps.status ?? {}) as { created?: unknown; exists?: unknown };
+  if (typeof exists !== 'boolean') throw new Error("Mixy's status could not be read.");
+  if (typeof created !== 'boolean') {
+    const existing = (await deps.sessionIds()).includes(agentHomeSessionId(MIXY_AGENT_ID));
+    // The rule reads an undecided profile as a created one on the same
+    // evidence, so the decision leaves the answer as it is.
+    await deps.setCreated(existing || exists);
+  }
+  return exists;
 }
 
 /** Custom agent ids of a catalog (`listAgents`), switched off ones included. */

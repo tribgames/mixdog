@@ -15,6 +15,9 @@ export interface AgentHomeDeps {
   listAgents(): Promise<unknown>;
   /** The route Mixy's thread follows (`getLeadHomeRoute`): its own, else Main's. */
   mixyRoute?(): Promise<unknown>;
+  /** Whether the representative bot exists (the host's getLeadStatus answer,
+   *  mixy-first.ts): her thread is never created before it does. */
+  mixyCreated(): Promise<boolean>;
   /** Resolves when the session exists (live or stored); rejects with a
    *  session-missing error when it does not. */
   readSession(sessionId: string): Promise<unknown>;
@@ -141,6 +144,11 @@ export function createAgentHomeSessions(deps: AgentHomeDeps) {
       return { sessionId };
     } catch (error) {
       if (!isSessionMissingError(error)) throw error;
+    }
+    // A Mixy the user never created gets no chat, whichever surface asks
+    // (issue #243: a row shown by mistake made one, and reports poured in).
+    if (agentId === MIXY_AGENT_ID && !(await deps.mixyCreated())) {
+      throw new Error('Create the representative bot first.');
     }
     await deps.createSession(sessionId, {
       ...params,

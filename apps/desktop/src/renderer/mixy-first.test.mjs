@@ -12,7 +12,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 const { restore: restoreBootstrapDom } = installTestDom(null);
 after(restoreBootstrapDom);
 const { AgentActivityPane } = await import('./AgentActivityPane.tsx');
-const { resetMixyStatus } = await import('./mixy-identity.ts');
+const { readMixyStatus, resetMixyStatus } = await import('./mixy-identity.ts');
 
 const AGENTS = [{ id: 'maintainer', label: 'Maintainer', locked: true }];
 const MODELS = [{ provider: 'openai', model: 'test-model', display: 'Test model', effortOptions: [] }];
@@ -51,7 +51,7 @@ async function waitFor(find) {
   return null;
 }
 
-function mount(t, { created, name = '' }) {
+function mount(t, { created, name = '', failedStatusReads = 0 }) {
   resetMixyStatus();
   const { dom, root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
@@ -72,6 +72,7 @@ function mount(t, { created, name = '' }) {
   const calls = [];
   let mixyCreated = created;
   let lead = { name, avatar: null };
+  let statusFailures = failedStatusReads;
   const status = () => ({ value: { created: mixyCreated, ...lead } });
   dom.window.mixdogDesktop = {
     listAgentPool: async () => [],
@@ -80,6 +81,10 @@ function mount(t, { created, name = '' }) {
     listProjects: async () => [{ path: 'C:/work' }, { path: 'C:/docs' }],
     invokeCapability: async ({ capability, args }) => {
       calls.push([capability, ...(args ?? [])]);
+      if (capability === 'getLeadStatus' && statusFailures > 0) {
+        statusFailures -= 1;
+        throw new Error('Service control session is unavailable.');
+      }
       if (capability === 'getLeadStatus') return status();
       if (capability === 'saveLeadIdentity') {
         lead = { name: args[0].name ?? lead.name, avatar: args[0].avatar ?? lead.avatar };
@@ -183,6 +188,86 @@ test('no Mixy: the pane is empty, the dialog does not auto-open, and on request 
     false,
     'nothing opens (or creates) its thread before it exists'
   );
+});
+
+test('a failed status read is no answer: a profile without Mixy never shows it, and the read is retried', async (t) => {
+  // Issue #243: a read that failed once (the service busy at startup) counted
+  // as created for the whole run: Mixy's row (and the desktop pet) appeared
+  // for a user who never made it, until a restart showed the create button.
+  const { document, calls, render } = mount(t, { created: false, failedStatusReads: 2 });
+  const clock = fakeTimers(t);
+  await render();
+  const reads = () => calls.filter(([call]) => call === 'getLeadStatus').length;
+  // While unknown no Mixy row is offered: a click there created her chat.
+  const clickMixy = async () => {
+    const row = document.querySelector(
+      '[data-agent-contact="lead"] button, [data-agent-contact="lead"] [role="button"]'
+    );
+    if (row) await act(async () => row.click());
+    await settle();
+  };
+  assert.equal(reads(), 1);
+  assert.equal(document.querySelector('.mixy-empty'), null, 'nothing decided yet');
+  assert.equal(document.querySelector('[data-agent-contact="lead"]'), null, 'no Mixy row while unknown');
+  await clickMixy();
+  await clock.advance(2_000);
+  await settle();
+  assert.equal(reads(), 2, 'read again after the first failure');
+  assert.equal(document.querySelector('.mixy-empty'), null);
+  await clickMixy();
+  assert.equal(
+    calls.some(([call]) => call === 'openAgentHome'),
+    false,
+    'no thread is opened or created while the answer is unknown'
+  );
+  await clock.advance(5_000);
+  await settle();
+  assert.equal(reads(), 3, 'read again, later, after the second');
+  assert.equal(document.querySelector('[data-agent-contact="lead"]'), null, 'no Mixy row');
+  assert.match(document.querySelector('.mixy-empty').textContent, /No bots\./);
+  await clock.advance(60_000);
+  await settle();
+  assert.equal(reads(), 3, 'an answer ends the retries');
+});
+
+test('a reset retires a read in flight: its late answer or failure changes nothing and schedules no retry', async (t) => {
+  resetMixyStatus();
+  const clock = fakeTimers(t);
+  const pending = [];
+  const old = {
+    invokeCapability: () =>
+      new Promise((resolve, reject) => {
+        pending.push({ resolve, reject });
+      }),
+  };
+  readMixyStatus(old);
+  assert.equal(pending.length, 1);
+  resetMixyStatus();
+  pending[0].reject(new Error('host gone'));
+  await settle();
+  await clock.advance(2_000);
+  await settle();
+  assert.equal(pending.length, 1, 'the old read failed after the reset: no retry on the old API');
+  // A read begun after the reset is its own; the old one cannot end it.
+  const fresh = { invokeCapability: async () => ({ value: { created: false } }) };
+  readMixyStatus(old);
+  assert.equal(pending.length, 2);
+  readMixyStatus(fresh);
+  assert.equal(pending.length, 2, 'one read at a time');
+  resetMixyStatus();
+  pending[1].resolve({ value: { created: true } });
+  await settle();
+  readMixyStatus(fresh);
+  await settle();
+  const seen = [];
+  const { useMixyStatus } = await import('./mixy-identity.ts');
+  const { root } = installTestDom(t, { rootId: 'root' });
+  function Probe() {
+    seen.push(useMixyStatus(undefined, false).created);
+    return null;
+  }
+  await act(async () => root.render(React.createElement(Probe)));
+  assert.equal(seen.at(-1), false, 'the late answer of the retired read was ignored');
 });
 
 test('the dialog does not auto-open behind another dialog, nor after it closes', async (t) => {

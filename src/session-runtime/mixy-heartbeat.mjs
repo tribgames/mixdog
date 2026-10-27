@@ -51,7 +51,9 @@
  * routine and other runtime-made turns, are no user activity; without the
  * desktop app only sent turns count. Missed checks run as one; two never run
  * at once; the first one after a start is looked at after a minute. The setting `heartbeat: false` (setup
- * set_heartbeat_enabled) stops it.
+ * set_heartbeat_enabled) stops it, and so does a representative bot that does
+ * not exist (mixy-presence.mjs, as the desktop shows her): no check runs
+ * and the watermark is cleared, so the first check once Mixy exists arms anew.
  *
  * Proposals Mixy makes (session action suggest) live in the same state file
  * under a stable key (action:target): the same key is refreshed, a declined
@@ -634,6 +636,9 @@ export function createMixyHeartbeat({
   path = defaultStatePath(),
   isEnabled = async () =>
     (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeat !== false,
+  // Whether the representative bot exists (mixy-presence.mjs, the rule the
+  // desktop and her routines follow): without it no check runs at all.
+  mixyExists = async () => (await import('./routine-owner.mjs')).readMixyExists(),
   // Milliseconds between checks, read at every tick so a changed setting applies at once.
   intervalMs = async () =>
     normalizeHeartbeatIntervalMinutes(
@@ -858,6 +863,16 @@ export function createMixyHeartbeat({
     try {
       await retryReleases();
       if (!(await isEnabled())) return 'off';
+      // No Maintainer call, hidden turn or queued report for a Mixy the user
+      // never created (issue #243); the first check after she is made arms anew.
+      if (!(await mixyExists())) {
+        if (readState(path).lastBeatAt) {
+          updateState(path, (next) => {
+            next.lastBeatAt = 0;
+          });
+        }
+        return 'no-mixy';
+      }
       const at = now();
       const state = readState(path);
       if (!state.lastBeatAt) {

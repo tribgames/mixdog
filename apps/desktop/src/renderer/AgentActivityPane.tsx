@@ -1128,7 +1128,9 @@ export function AgentActivityPane({
     contacts
       .filter(
         (contact) =>
-          !(mixyFirst.empty && contact.mixy) &&
+          // Mixy only once the host said she exists: unknown (not answered,
+          // or a failed read) never offers a row that would create her chat.
+          !(contact.mixy && mixyFirst.mixyCreated !== true) &&
           !hidden.has(contact.mixy ? 'representative' : 'bots') &&
           matches(contact.name, contact.preview)
       )

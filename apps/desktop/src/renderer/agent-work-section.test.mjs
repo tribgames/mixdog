@@ -494,6 +494,10 @@ test('the Lead plate never opens the session: it toggles sub-agents or does noth
 
 test('a bot home thread with a sub-agent shows the chevron, expands, and clears finished from its menu', async (t) => {
   const { MIXY_AGENT_ID } = await import('../shared/agent-contacts.ts');
+  const { resetMixyStatus } = await import('./mixy-identity.ts');
+  // A profile with Mixy (the host's answer): her contact row is listed.
+  resetMixyStatus({ created: true });
+  t.after(() => resetMixyStatus());
   const home = 'home-1';
   const m = mount(
     t,

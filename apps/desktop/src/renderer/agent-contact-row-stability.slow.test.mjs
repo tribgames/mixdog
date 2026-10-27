@@ -26,7 +26,10 @@ const PAGE = `
   import { createRoot } from "react-dom/client";
   import { AgentActivityPane } from "./AgentActivityPane";
   import { MIXY_AGENT_ID } from "../shared/agent-contacts";
+  import { resetMixyStatus } from "./mixy-identity";
 
+  // A profile with Mixy (the host's answer): her contact row is listed.
+  resetMixyStatus({ created: true });
   window.matchMedia = window.matchMedia || (() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   window.mixdogDesktop = {
     listAgentPool: async () => [],

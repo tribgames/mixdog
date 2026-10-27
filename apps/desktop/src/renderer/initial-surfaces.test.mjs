@@ -298,6 +298,10 @@ test('agent data arriving before the session catalog cannot announce no running 
   const request = Promise.withResolvers();
   window.mixdogDesktop.listAgentPool = () => request.promise;
   const { AgentActivityPane } = await import('./AgentActivityPane.tsx');
+  const { resetMixyStatus } = await import('./mixy-identity.ts');
+  // A profile with Mixy (the host's answer): she is listed once ready.
+  resetMixyStatus({ created: true });
+  t.after(() => resetMixyStatus());
   const props = { active: false, sessions: [], sessionsReady: false };
   await view.render(React.createElement(AgentActivityPane, props));
   await view.settle(() => request.resolve([]));

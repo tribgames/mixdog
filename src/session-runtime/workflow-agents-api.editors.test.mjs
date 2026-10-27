@@ -319,7 +319,8 @@ test('population C (fresh 1.3.0 → 1.3.1): unmarked 1.3.0 bots stay bots on cre
     faced: 'agent',
   });
   assert.equal(api.getAgentDefinition('dialog-silent').kind, 'bot', 'the editor reports the same kind');
-  assert.deepEqual(api.getLeadStatus(), { created: true, name: 'Mixy', avatar: null, homeChatted: true, route: null });
+  // Named, so created; its greeting and Mixy's reply are no word of the user's.
+  assert.deepEqual(api.getLeadStatus(), { created: true, name: 'Mixy', avatar: null, homeChatted: false, route: null });
   assert.deepEqual(snapshotFiles(join(dataDir, 'agents')), before, 'nothing is stamped');
 });
 
@@ -340,7 +341,7 @@ test('a starter override or an explicit kind is never inferred: evidence decides
   assert.equal(rows.get('marked').kind, 'agent');
 });
 
-test("an automatic Mixy's home thread: missing or never talked in reads unused; any message counts", async (t) => {
+test("an automatic Mixy's home thread: missing or never talked in reads unused; a user's message counts", async (t) => {
   const { dataDir, api } = fixture(t);
   mkdirSync(join(dataDir, 'agents', 'lead'), { recursive: true });
   writeFileSync(join(dataDir, 'agents', 'lead', 'agent.json'), '{\n  "created": true\n}\n');
@@ -349,6 +350,12 @@ test("an automatic Mixy's home thread: missing or never talked in reads unused; 
   assert.equal(api.getLeadStatus().homeChatted, false, 'an empty thread');
   writeHomeThread(dataDir, 'lead', [{ role: 'user', content: '[mixdog-runtime] Routine output from schedule "x"' }]);
   assert.equal(api.getLeadStatus().homeChatted, false, 'a runtime turn alone is no conversation');
+  // Issue #243: the heartbeat's reports, posted as Mixy's own messages.
+  writeHomeThread(dataDir, 'lead', [
+    { role: 'assistant', content: '현재 xx 프로젝트는 빌드 작업 중입니다.' },
+    { role: 'assistant', content: 'xx 프로젝트의 테스트가 끝났습니다.' },
+  ]);
+  assert.equal(api.getLeadStatus().homeChatted, false, "Mixy's own posts are no conversation");
   writeHomeThread(dataDir, 'lead', [{ role: 'user', content: '안녕' }]);
   assert.equal(api.getLeadStatus().homeChatted, true, 'one user message');
   // Completing the 대표 에이전트 dialog over the automatic manifest names it

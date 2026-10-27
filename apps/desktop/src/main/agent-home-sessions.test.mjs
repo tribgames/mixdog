@@ -28,10 +28,12 @@ function fakeHost({
   routes = {},
   retired = new Set(),
   archivedNames = {},
+  mixy = true,
 } = {}) {
   const calls = { creates: [], archived: [], presence: [], routes: [], named: [] };
   const deps = {
     listAgents: async () => agents,
+    mixyCreated: async () => mixy,
     readSession: async (sessionId) => {
       if (!stored.has(sessionId)) throw missing(sessionId);
       return routes[sessionId] || {};
@@ -151,6 +153,19 @@ test('Mixy opens on the Lead configuration; unknown, disabled and system agents 
     await assert.rejects(homes.open(agentId), /not available/);
   }
   await assert.rejects(homes.open('Bad Id'), /invalid/);
+});
+
+test('a Mixy the user never created gets no thread, from any surface; an existing one still opens', async () => {
+  // Issue #243: a Mixy row shown by mistake created her chat on a click.
+  const absent = fakeHost({ mixy: false });
+  await assert.rejects(absent.homes.open('lead'), /Create the representative bot first/);
+  assert.deepEqual(absent.calls.creates, [], 'nothing created');
+  // Other bots are not affected.
+  assert.equal((await absent.homes.open('github-watcher')).sessionId, 'sess_home_github-watcher');
+  // A thread already on disk is never recreated, so opening it is no creation.
+  const kept = fakeHost({ mixy: false, stored: new Set(['sess_home_lead']) });
+  assert.deepEqual(await kept.homes.open('lead'), { sessionId: 'sess_home_lead' });
+  assert.deepEqual(kept.calls.creates, []);
 });
 
 test('the catalog stamps each home thread with its agent', () => {

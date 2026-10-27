@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -65,13 +65,22 @@ function harness(
   const interval = limits?.intervalMs ?? INTERVAL;
   const path = join(tempDir(t), 'heartbeat.json');
   let clock = T0;
-  const state = { facts: activity, routeKey: 'fake/tiny/', enabled: true, userTurnAt: 0, interval, ...initial };
+  const state = {
+    facts: activity,
+    routeKey: 'fake/tiny/',
+    enabled: true,
+    mixy: true,
+    userTurnAt: 0,
+    interval,
+    ...initial,
+  };
   const calls = { collect: [], decide: [], review: [], readTail: [], wake: [], notify: [], logs: [] };
   const build = (overrides = {}) =>
     createMixyHeartbeat({
       now: () => clock,
       path,
       isEnabled: async () => state.enabled,
+      mixyExists: async () => state.mixy,
       // The configured interval, live: a test changes `state.interval`.
       intervalMs: async () => state.interval,
       userTurnAt: () => state.userTurnAt,
@@ -162,6 +171,64 @@ test('only the fixed choices are an interval: absent and invalid values read as 
 
 test('the polling tick is no longer than the smallest interval', () => {
   assert.ok(HEARTBEAT_LIMITS.tickMs <= 30 * MINUTE);
+});
+
+test('without the representative bot no check runs: no Maintainer call, no wake, nothing queued; with it, checks run', async (t) => {
+  // Issue #243: a user who never created Mixy got her status reports.
+  const h = harness(t, {
+    state: { mixy: false },
+    decide: () => ({ action: 'wake', items: ['xx is building'] }),
+  });
+  assert.equal(await h.tick(), 'no-mixy');
+  h.advance();
+  assert.equal(await h.tick(), 'no-mixy');
+  assert.deepEqual([h.calls.collect, h.calls.decide, h.calls.review, h.calls.wake], [[], [], [], []]);
+  assert.equal(existsSync(h.path), false, 'not even armed');
+  // Created: the first check arms, the next one runs and wakes her.
+  h.state.mixy = true;
+  await h.arm();
+  assert.equal(await h.tick(), 'woke');
+  assert.equal(h.calls.wake.length, 1);
+  // Gone again: the watermark is cleared, so activity from that time never
+  // reaches her first check once she is back.
+  h.state.mixy = false;
+  h.advance();
+  assert.equal(await h.tick(), 'no-mixy');
+  assert.equal(readJson(h.path).lastBeatAt, 0);
+  h.state.mixy = true;
+  assert.equal(await h.tick(), 'armed');
+  assert.equal(h.calls.collect.length, 1);
+});
+
+test('the default "does Mixy exist" check is the one rule her routines\' no-mixy follows too', async (t) => {
+  const dataDir = tempDir(t);
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  t.after(() => {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+  });
+  const { routineOwnerProblem } = await import('./routine-owner.mjs');
+  const lead = join(dataDir, 'agents', 'lead');
+  mkdirSync(lead, { recursive: true });
+  writeFileSync(join(lead, 'agent.json'), '{\n  "created": false\n}\n');
+  assert.equal(await routineOwnerProblem(''), 'no-mixy');
+  const collects = [];
+  const heartbeat = createMixyHeartbeat({
+    path: join(dataDir, 'heartbeat.json'),
+    isEnabled: async () => true,
+    collect: async (input) => collects.push(input),
+    log: () => {},
+  });
+  assert.equal(await heartbeat.tick(), 'no-mixy');
+  // v1.3.0's automatic, never-used Mixy does not exist either.
+  writeFileSync(join(lead, 'agent.json'), '{\n  "created": true\n}\n');
+  assert.equal(await routineOwnerProblem(''), 'no-mixy');
+  assert.equal(await heartbeat.tick(), 'no-mixy');
+  writeFileSync(join(lead, 'agent.json'), '{\n  "created": true,\n  "name": "Mixy"\n}\n');
+  assert.equal(await routineOwnerProblem(''), '');
+  assert.equal(await heartbeat.tick(), 'armed');
+  assert.deepEqual(collects, []);
 });
 
 test('an unchanged digest makes no Maintainer call; its "nothing" wakes no one; an empty digest stops too', async (t) => {
@@ -1286,6 +1353,8 @@ test('a simulated week end to end: pacing, deferral, coalescing, unchanged diges
       now: () => clock,
       path,
       isEnabled: async () => true,
+      // A profile with Mixy.
+      mixyExists: async () => true,
       userTurnAt: () => 0,
       appInputAt: () => 0,
       getSessionService: () => mixy.service,
@@ -1961,4 +2030,44 @@ test('a queued agent message posts once as her reply, only when her chat is idle
     ['Your news routine failed.', 'And one more.']
   );
   assert.deepEqual(saved, [2, 3]);
+});
+
+test('heartbeat reports queued for a Mixy never created are dropped, not posted once she is made; other rows wait', async (t) => {
+  // Issue #243: up to the queue limit of old reports waited for her chat and
+  // would all post the moment it existed.
+  const dir = tempDir(t);
+  const queue = createRoutineResultQueue(join(dir, 'routine-results.json'));
+  let home = null;
+  let mixy = false;
+  const logs = [];
+  const delivery = createAgentHomeDelivery({
+    loadSession: (id) => (id === HOME ? home : null),
+    saveSession: async () => {},
+    turnInFlight: () => false,
+    queue,
+    live: () => ({ busy: () => false, notice: () => {} }),
+    retryLater: () => {},
+    mixyExists: async () => mixy,
+    log: (line) => logs.push(line),
+  });
+  for (const n of [1, 2, 3]) {
+    await queue.add(HOME, { runId: `heartbeat_${n}`, kind: 'agent-message', text: `report ${n}`, at: n });
+  }
+  await queue.add(HOME, { runId: 'held_1_pending', kind: 'held-request', held: { id: 'held_1' }, at: 4 });
+  await delivery.drain(HOME);
+  assert.deepEqual(
+    (await queue.items(HOME)).map((item) => item.runId),
+    ['held_1_pending'],
+    'the reports are gone; a row of another kind still waits for her chat'
+  );
+  assert.ok(logs.some((line) => /3 heartbeat report\(s\) for sess_home_lead are dropped/.test(line)));
+  // She exists now (with a chat): only a report queued from now on posts.
+  mixy = true;
+  home = { id: HOME, messages: [] };
+  await delivery.enqueueMessage('lead', { runId: 'heartbeat_4', text: 'report 4' });
+  await delivery.drain(HOME);
+  assert.deepEqual(
+    home.messages.filter((message) => message.role === 'assistant').map((message) => message.content),
+    ['report 4']
+  );
 });

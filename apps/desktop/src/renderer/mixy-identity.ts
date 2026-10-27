@@ -11,7 +11,8 @@ import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache
 export const MIXY_DEFAULT_NAME = 'Mixy';
 
 export interface MixyStatus {
-  /** null: not read yet. A failed read counts as created: nobody is ever blocked. */
+  /** null: not answered yet. A failed read is no answer: it stays null and
+   *  is read again (READ_RETRY_MS), never taken as created. */
   created: boolean | null;
   name: string;
   avatar: AgentAvatarValue | null;
@@ -54,21 +55,54 @@ export function publishMixyStatus(value: unknown): void {
   notify();
 }
 
+/** Waits before each new read after a failed one (the last one repeats). A
+ *  failed read once counted as created for the rest of the run: a profile
+ *  without Mixy then showed it (its row, the desktop pet) until a restart. */
+export const READ_RETRY_MS = Object.freeze([2_000, 5_000, 15_000, 30_000]);
+let failedReads = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+/** Bumped by every reset: a read begun before it no longer answers, retries
+ *  or ends the current one. */
+let generation = 0;
+
 /** Tests: back to unread. */
 export function resetMixyStatus(value: Partial<MixyStatus> | null = null): void {
   status = value ? { ...UNREAD, ...value } : UNREAD;
+  generation += 1;
   reading = null;
+  failedReads = 0;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
   dialogSettled = false;
   notify();
 }
 
 export function readMixyStatus(api: StatusApi): void {
-  if (status.created !== null || reading || !api?.invokeCapability) return;
+  if (status.created !== null || reading || retryTimer || !api?.invokeCapability) return;
+  const own = generation;
   reading = Promise.resolve(api.invokeCapability({ capability: 'getLeadStatus', args: [] }))
-    .then((result) => publishMixyStatus(result?.value))
-    .catch(() => publishMixyStatus({ created: true }))
+    .then(
+      (result) => {
+        if (own !== generation) return;
+        failedReads = 0;
+        publishMixyStatus(result?.value);
+      },
+      () => {
+        if (own !== generation) return;
+        const wait = READ_RETRY_MS[Math.min(failedReads, READ_RETRY_MS.length - 1)];
+        failedReads += 1;
+        const timer = setTimeout(() => {
+          if (retryTimer !== timer) return;
+          retryTimer = null;
+          readMixyStatus(api);
+        }, wait);
+        // Never what keeps a process (a test run) alive.
+        (timer as { unref?: () => void }).unref?.();
+        retryTimer = timer;
+      }
+    )
     .finally(() => {
-      reading = null;
+      if (own === generation) reading = null;
     });
 }
 

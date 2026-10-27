@@ -131,7 +131,8 @@ export async function runOwnedAutomation(kind, row, run, deps = {}) {
     reserved = false,
     signal = null,
     now = Date.now,
-    ownerProblem = routineOwnerProblem,
+    // `row` is stored: for Mixy, itself evidence of her (routine-owner.mjs).
+    ownerProblem = (ownerAgentId) => routineOwnerProblem(ownerAgentId, null, { stored: true }),
     log = defaultLog,
   } = deps;
   const name = row.name;

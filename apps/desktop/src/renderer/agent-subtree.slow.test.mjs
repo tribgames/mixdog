@@ -30,7 +30,10 @@ const PAGE = `
   import { AgentEditorDialog } from "./workflow-dialogs";
   import { ApprovalFace } from "./approval-prompt";
   import { MIXY_AGENT_ID } from "../shared/agent-contacts";
+  import { resetMixyStatus } from "./mixy-identity";
 
+  // A profile with Mixy (the host's answer): her contact row is listed.
+  resetMixyStatus({ created: true });
   const NOW = Date.now();
   const lead = (id, extra = {}) => ({ tag: "lead:" + id, agent: "lead", sessionId: id, ownerSessionId: id, status: "running", stage: "running", turnStartedAt: NOW - 65000, provider: "openai", model: "gpt-6", ...extra });
   const child = (id, owner, parent, agent, extra = {}) => ({ tag: "w:" + id, agent, sessionId: id, ownerSessionId: owner, parentSessionId: parent, status: "running", stage: "running", turnStartedAt: NOW - 20000, provider: "anthropic", model: "claude-sonnet", ...extra });

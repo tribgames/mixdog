@@ -250,7 +250,8 @@ function scheduleOwner(owner, existing) {
   return existing?.ownerAgentId || MIXY_AGENT_ID;
 }
 
-/** Each owner's problem (routine-owner.mjs), probed once per owner. */
+/** Each owner's problem (routine-owner.mjs) for its stored rows, probed once
+ *  per owner. */
 function ownerProblems() {
   const seen = new Map();
   return (ownerAgentId) => {
@@ -258,7 +259,7 @@ function ownerProblems() {
     if (!seen.has(owner))
       seen.set(
         owner,
-        routineOwnerProblem(owner).catch(() => '')
+        routineOwnerProblem(owner, null, { stored: true }).catch(() => '')
       );
     return seen.get(owner);
   };

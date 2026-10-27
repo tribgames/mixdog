@@ -21,6 +21,8 @@ async function breakerNotice(t, decide) {
     now: () => clock,
     path: join(dir, 'heartbeat.json'),
     isEnabled: async () => true,
+    // A profile with Mixy.
+    mixyExists: async () => true,
     userTurnAt: () => 0,
     collect: async () => ({
       sessions: [{ id: 'sess_lead_1', bot: '', title: 'Report', preview: 'Draft done' }],

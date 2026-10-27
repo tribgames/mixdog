@@ -66,6 +66,8 @@ test('the heartbeat setting end to end over the real config file: setup, stored 
     const heartbeat = createMixyHeartbeat({
       now: () => clock,
       path: join(dir, 'heartbeat.json'),
+      // A profile with Mixy.
+      mixyExists: async () => true,
       userTurnAt: () => 0,
       collect: async () => {
         calls.collect += 1;
@@ -195,6 +197,8 @@ test('the daemon timers run the check: first tick after a minute arms, a turn th
     now: () => clock,
     path,
     isEnabled: async () => true,
+    // A profile with Mixy.
+    mixyExists: async () => true,
     collect: async () => {
       collects += 1;
       return { sessions: [{ id: 'sess_lead_a', bot: '', title: 'T', preview: 'p' }], tasks: [], approvals: 0, routines: [] };
@@ -268,6 +272,8 @@ test('the heartbeat interval end to end over the real config file: default, setu
       userTurnAt: () => 0,
       appInputAt: () => 0,
       isEnabled: async () => true,
+      // A profile with Mixy.
+      mixyExists: async () => true,
       collect: async () => {
         collects += 1;
         return { sessions: [], tasks: [], approvals: 0, routines: [] };

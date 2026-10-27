@@ -92,6 +92,11 @@ const taskWakeCapped = (item) =>
  *  its start, a wait for the user or a progress update), unless capped. */
 const wakesAgent = (item) => item.kind === 'agent-task' && item.roundTrip === true && !taskWakeCapped(item);
 
+const MIXY_HOME = agentHomeSessionId(MIXY_AGENT_ID);
+/** A heartbeat report: Mixy's own reply from a check turn (mixy-heartbeat.mjs
+ *  wakeMixy, its only sender of agent messages). */
+const isHeartbeatReport = (item) => item?.kind === 'agent-message';
+
 function queuedRow(item, messageId) {
   // The agent's own words from a turn it ran elsewhere (mixy-heartbeat.mjs):
   // one ordinary reply of the agent in its thread.
@@ -1102,6 +1107,9 @@ export function createAgentHomeDelivery({
   // at all. 'none' (proven: a workflow agent such as Reviewer) drops the rows
   // queued for its missing home instead of waiting on it forever.
   homeAgent = () => 'unknown',
+  // Whether the representative bot exists (mixy-presence.mjs): while it does
+  // not, heartbeat reports queued for its home are dropped.
+  mixyExists = async () => true,
   // Waits before each new try of a relay turn that did not finish; past the
   // last one the results stay posted with a note and nobody is woken.
   wakeRetryDelaysMs = WAKE_RETRY_DELAYS_MS,
@@ -1222,6 +1230,22 @@ export function createAgentHomeDelivery({
     }
   }
 
+  /** Mixy's heartbeat reports queued for her home while she does not exist
+   *  are dropped, never posted once she is created (issue #243); so is the
+   *  omission notice when nothing else waits (the rows it counts were these
+   *  reports too). Returns what is left to post. */
+  async function dropHeartbeatReports(homeId, items, omitted) {
+    const kept = items.filter((item) => !isHeartbeatReport(item));
+    const retired = kept.length ? null : omitted;
+    log(`${items.length - kept.length} heartbeat report(s) for ${homeId} are dropped: Mixy was never created`);
+    await queue.remove(
+      homeId,
+      items.filter(isHeartbeatReport).map((item) => item.runId),
+      retired
+    );
+    return { items: kept, omitted: retired ? null : omitted };
+  }
+
   /** Post every queued result of `homeId` if its thread is idle, in its
    *  posting turn, then wake the agent for what it owes; else retry later.
    *  The wake runs outside the posting turn: the turn it starts posts first
@@ -1234,11 +1258,15 @@ export function createAgentHomeDelivery({
   /** drainOnce's posting: the thread it posted to; nothing when nothing is
    *  owed or the pass ends here (moved, busy, missing, dropped). */
   async function postIdle(homeId) {
-    const items = await queue.items(homeId);
-    const omitted = await queue.omitted(homeId);
+    let items = await queue.items(homeId);
+    let omitted = await queue.omitted(homeId);
     const owed = owesWake(await queue.wakes(homeId));
     if (!items.length && !omitted && !owed) return;
     if (roomIdOfSession(homeId)) return dropRoomLogQueue(homeId, items, omitted);
+    if (homeId === MIXY_HOME && items.some(isHeartbeatReport) && !(await mixyExists())) {
+      ({ items, omitted } = await dropHeartbeatReports(homeId, items, omitted));
+      if (!items.length && !omitted && !owed) return;
+    }
     const agentId = agentIdOfHomeSession(homeId);
     if (agentId && agentId !== MIXY_AGENT_ID && agentPresence(agentId) === 'deleted') {
       // The owner is gone (its home archived): Mixy, the default owner, gets them.
@@ -1359,6 +1387,9 @@ async function processDelivery() {
       // A home chat exists only for bots; only a definition read successfully
       // can prove an agent is none (readHomeAgent).
       homeAgent: (agentId) => readHomeAgent({ dataDir: getPluginData(), shippedRoot: mixdogRoot(), id: agentId }),
+      // The one rule (mixy-presence.mjs; routine-owner.mjs imports this
+      // module, hence late).
+      mixyExists: async () => (await import('./routine-owner.mjs')).readMixyExists(),
       // Deleting a session unlinks its record (session-delete.mjs) and leaves
       // no tombstone: only an absent file with no in-memory copy proves it.
       // An unreadable file probes 'unreadable' and stays.

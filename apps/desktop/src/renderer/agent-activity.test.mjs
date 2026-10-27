@@ -31,6 +31,7 @@ import { shellJobsStatusEqual } from '../shared/shell-jobs-status.ts';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu } from './agent-group-visibility.tsx';
 import i18n from './i18n.ts';
 import { publishAgentModeSessions } from './agent-chat-mode.ts';
+import { resetMixyStatus } from './mixy-identity.ts';
 
 // The pane lists agent-mode sessions' work only; these owners are agent chats
 // (`internal-control` stays an ordinary session on purpose).
@@ -246,7 +247,10 @@ async function expandAllAgentGroups() {
   await act(async () => window.dispatchEvent(new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: true })));
 }
 
-test('Agent groups can be hidden, stay hidden through pool pushes and remounts, and be restored', async () => {
+test('Agent groups can be hidden, stay hidden through pool pushes and remounts, and be restored', async (t) => {
+  // A profile with Mixy (the host's answer): she stays a contact.
+  resetMixyStatus({ created: true });
+  t.after(() => resetMixyStatus());
   const dom = installDom();
   let push;
   const touched = [];
@@ -2612,7 +2616,10 @@ test('the Agent window renders the Parent-Child tree and folds every generation'
   }
 });
 
-test('a nested Agent row opens its exact child session without touching session lists', async () => {
+test('a nested Agent row opens its exact child session without touching session lists', async (t) => {
+  // A profile with Mixy (the host's answer): her contact is listed.
+  resetMixyStatus({ created: true });
+  t.after(() => resetMixyStatus());
   const dom = installDom();
   const touched = [];
   const host = {

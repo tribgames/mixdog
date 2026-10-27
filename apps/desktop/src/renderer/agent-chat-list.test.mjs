@@ -16,6 +16,7 @@ const [
   { installTouchGestures },
   { resetDismissedShellJobsCache },
   { publishAgentModeSessions },
+  { resetMixyStatus },
 ] = await Promise.all([
   import('./AgentActivityPane.tsx'),
   import('./agent-activity-model.ts'),
@@ -23,6 +24,7 @@ const [
   import('./touch-gestures.ts'),
   import('./background-jobs-dismissed-store.ts'),
   import('./agent-chat-mode.ts'),
+  import('./mixy-identity.ts'),
 ]);
 
 const NOW = Date.now();
@@ -229,6 +231,9 @@ test('the pane lists agents, then group rooms, without ordinary session work', a
       lastSpeaker: 'user',
     },
   };
+  // A profile with Mixy (the host's answer): her contact leads the list.
+  resetMixyStatus({ created: true });
+  t.after(() => resetMixyStatus());
   const { document, render, opened } = mount(t, [lead()], { sessions: [...sessions, room] }, { ordinary: true });
   await render();
   const order = [
@@ -251,6 +256,9 @@ test('the pane lists agents, then group rooms, without ordinary session work', a
 });
 
 test('under the contacts, an empty work list shows nothing', async (t) => {
+  // A profile with Mixy (the host's answer): she is listed.
+  resetMixyStatus({ created: true });
+  t.after(() => resetMixyStatus());
   const { document, render } = mount(t, []);
   await render();
   assert.ok(document.querySelector('[data-agent-contact="lead"]'), 'Mixy is listed');

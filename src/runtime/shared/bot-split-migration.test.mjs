@@ -154,6 +154,24 @@ test('B: an automatic Mixy the user chatted with moves to bots/mixy on its threa
   assert.equal(readBotMigration(dataDir).mixyHomeSessionId, 'sess_home_lead');
 });
 
+test('B: heartbeat reports alone never make an automatic Mixy used; a word from the user does', (t) => {
+  // Issue #243: the heartbeat posted Mixy's reports into the thread of an
+  // unnamed v1.3.0 Mixy, and they counted as the user talking with it.
+  const dataDir = profile(t);
+  mkdirSync(join(dataDir, 'agents', 'lead'), { recursive: true });
+  writeFileSync(join(dataDir, 'agents', 'lead', 'agent.json'), '{\n  "created": true\n}\n');
+  const reports = [
+    { role: 'assistant', content: '현재 xx 프로젝트는 빌드 작업 중입니다.' },
+    { role: 'assistant', content: 'xx 프로젝트의 테스트가 끝났습니다.' },
+  ];
+  writeThread(dataDir, 'lead', reports);
+  assert.equal(run(dataDir).mixy, false);
+  assert.equal(existsSync(join(dataDir, 'bots', 'mixy')), false, 'no copy: the create dialog stays');
+  writeThread(dataDir, 'lead', [...reports, { role: 'user', content: '고마워' }]);
+  assert.equal(run(dataDir).mixy, true);
+  assert.ok(existsSync(join(dataDir, 'bots', 'mixy', 'agent.json')));
+});
+
 test('C (fresh 1.3.0 → 1.3.1): dialog, setup-tool and marked bots are copied with their routes; originals stay', (t) => {
   const dataDir = profile(t);
   writeAgent(dataDir, 'dialog-greeted', { body: 'Plan my week.', manifest: { avatar: MASCOT } });

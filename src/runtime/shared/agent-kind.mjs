@@ -45,8 +45,10 @@ const homeEvidenceCache = new Map();
 
 /** What `agentId`'s home thread (sessions/sess_home_<id>.json) holds:
  *  whether it exists, whether it has the creation greeting, and whether the
- *  user and the agent talked (any user message that is not a runtime turn,
- *  or any assistant message). A missing or unreadable file holds nothing. */
+ *  user talked in it: a message the user wrote (a user message that is not a
+ *  runtime turn or the greeting). The agent's own messages never count: Mixy's
+ *  heartbeat posts its reports there unasked. A missing or unreadable file
+ *  holds nothing. */
 export function homeThreadEvidence(dataDir, agentId) {
   const sessionId = agentHomeSessionId(agentId);
   if (!dataDir || !sessionId) return NO_HOME;
@@ -69,7 +71,6 @@ export function homeThreadEvidence(dataDir, agentId) {
   let greeted = false;
   let chatted = false;
   for (const message of messages) {
-    if (message?.role === 'assistant') chatted = true;
     if (message?.role !== 'user') continue;
     const text = messageText(message.content);
     if (CREATION_GREETING.test(text)) greeted = true;

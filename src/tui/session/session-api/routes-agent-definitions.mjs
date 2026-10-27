@@ -2,6 +2,16 @@
  * routes-agent-definitions.mjs — the session route surface's passthroughs to
  * the runtime's agent, workflow-pack, connector and lead-identity services.
  */
+
+/** Mixy's status with `exists`, the one rule (mixy-presence.mjs) the desktop
+ *  answers from (main/mixy-first.ts). null when her routines cannot be read:
+ *  the status still serves readers of her name. */
+async function withMixyExists(status) {
+  if (!status || typeof status !== 'object') return status;
+  const { readMixyExists } = await import('../../../session-runtime/routine-owner.mjs');
+  return { ...status, exists: await readMixyExists(status).catch(() => null) };
+}
+
 export function createAgentDefinitionApi(runtime) {
   return {
     listAgents: () => {
@@ -53,8 +63,10 @@ export function createAgentDefinitionApi(runtime) {
     saveLeadPersona: async (text) => runtime.saveLeadPersona?.(text) ?? '',
     getLeadAgentBody: () => runtime.getLeadAgentBody?.() ?? '',
     saveLeadAgentBody: async (text) => runtime.saveLeadAgentBody?.(text) ?? '',
-    getLeadStatus: () =>
-      runtime.getLeadStatus?.() ?? { created: null, name: '', avatar: null, homeChatted: false, route: null },
+    getLeadStatus: async () =>
+      withMixyExists(
+        runtime.getLeadStatus?.() ?? { created: null, name: '', avatar: null, homeChatted: false, route: null }
+      ),
     getLeadHomeRoute: () => runtime.getLeadHomeRoute?.() ?? null,
     saveLeadIdentity: async (payload) => runtime.saveLeadIdentity?.(payload) ?? null,
     setLeadCreated: async (created, description) => runtime.setLeadCreated?.(created, description) ?? null,
