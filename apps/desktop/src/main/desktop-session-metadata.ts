@@ -23,9 +23,9 @@ interface ReadNumbering {
 const validEpoch = (value: unknown): number | undefined =>
   Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : undefined;
 
-/** A queued save: this instance's maps plus the (field, session) entries it
- *  changed since they were last persisted, keyed to their change generation. */
-interface PendingWrite {
+/** What a save writes: this instance's maps plus the (field, session) entries
+ *  it changed since they were last persisted, keyed to their change generation. */
+interface MetadataSnapshot {
   maps: MetadataMaps;
   dirty: Map<string, number>;
 }
@@ -42,7 +42,7 @@ export class DesktopSessionMetadata {
   private readMap: Record<string, SessionReadCursor> | null = null;
   private retiredMap: Record<string, number> | null = null;
   private loadRequest: Promise<void> | null = null;
-  private readonly writer: DebouncedWriter<PendingWrite>;
+  private readonly writer: DebouncedWriter<void>;
   private writeError: unknown;
   private readonly dirty = new Map<string, number>();
   private generation = 0;
@@ -53,7 +53,7 @@ export class DesktopSessionMetadata {
     this.userDataRoot = userDataRoot;
     this.writer = createDebouncedWriter({
       delayMs: 0,
-      write: (pending: PendingWrite) => this.persist(pending),
+      write: () => this.persist(),
       onError: (error: unknown) => {
         this.writeError = error;
         console.error('Failed to persist desktop session metadata:', error);
@@ -384,7 +384,7 @@ export class DesktopSessionMetadata {
   /** Mark a write pending without snapshotting; the maps are copied once, when
    *  the write actually starts, so coalesced changes cost one copy. */
   private schedulePersist(): void {
-    this.writer.schedule(null as unknown as PendingWrite);
+    this.writer.schedule();
   }
 
   /** Persist a non-critical change (a read cursor) within a short trailing
@@ -400,7 +400,7 @@ export class DesktopSessionMetadata {
     this.deferredTimer.unref?.();
   }
 
-  private snapshot(): PendingWrite {
+  private snapshot(): MetadataSnapshot {
     return {
       maps: {
         titles: { ...this.titles },
@@ -418,7 +418,7 @@ export class DesktopSessionMetadata {
   /** Re-read the file and apply only the entries this instance changed, so a
    *  save never republishes this cache's stale view of other entries (another
    *  desktop service may share the metadata directory). */
-  private async persist(_pending: PendingWrite): Promise<void> {
+  private async persist(): Promise<void> {
     const { maps, dirty } = this.snapshot();
     const root = this.userDataRoot();
     const disk = await readSessionMetadata(root);

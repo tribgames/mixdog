@@ -166,7 +166,8 @@ test('failed metadata flushing cannot prevent host attachment cleanup', async (t
   t.mock.method(console, 'error', () => {});
   await host.listSessions();
   await mkdir(join(root, 'desktop-session-metadata.json'));
-  await assert.rejects(host.markSessionRead('session-a', 2, false));
+  // The cursor write is deferred, so the failure surfaces when it is settled.
+  await host.markSessionRead('session-a', 2, false);
   await assert.rejects(host.dispose());
   assert.equal(closes, 1);
 });

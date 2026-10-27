@@ -25,6 +25,8 @@ test('shared session read cursors persist and advance for completion-only reads'
     },
   ]);
 
+  // A read cursor is persisted on a short trailing window; flush settles it.
+  await metadata.flush();
   const reloaded = new DesktopSessionMetadata(() => root);
   await reloaded.load();
   assert.deepEqual(reloaded.withReadCursors([{ id: 'session-a' }]), [
